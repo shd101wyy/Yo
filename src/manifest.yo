@@ -386,7 +386,7 @@ _parse_dependency_table :: (
               dup = (dup + usize(1));
             });
             match(
-              _parse_dependency(name, values(i), dev, where_.clone()),
+              _parse_dependency(&name, &values(i), dev, where_.clone()),
               .Ok(d) => out.push(d),
               .Err(m) => {
                 return(Result(unit, String).Err(m));
@@ -427,17 +427,17 @@ parse_manifest :: (fn(imm(text) : String, imm(path) : String) -> Result(Manifest
   if(!package.is_table(), {
     return(Result(Manifest, String).Err(`${where_}: [package] must be a table`));
   });
-  name := match(_string_field(package, String.from("name"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  name := match(_string_field(&package, String.from("name"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
   if(name.len() == usize(0), {
     return(Result(Manifest, String).Err(`${where_}: [package] name is required`));
   });
   if(name.contains("/") || name.contains("\\"), {
     return(Result(Manifest, String).Err(`${where_}: [package] name "${name}" may not contain a path separator (it is what importers write in import("${name}"))`));
   });
-  version := match(_string_field(package, String.from("version"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
-  description := match(_string_field(package, String.from("description"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
-  license := match(_string_field(package, String.from("license"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
-  yo_version := match(_string_field(package, String.from("yo"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  version := match(_string_field(&package, String.from("version"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  description := match(_string_field(&package, String.from("description"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  license := match(_string_field(&package, String.from("license"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
+  yo_version := match(_string_field(&package, String.from("yo"), where_.clone()), .Ok(s) => s, .Err(m) => return(Result(Manifest, String).Err(m)));
   modules := ArrayList(ManifestModule).new();
   match(
     root.get(String.from("modules")),
@@ -475,14 +475,14 @@ parse_manifest :: (fn(imm(text) : String, imm(path) : String) -> Result(Manifest
   );
   dependencies := ArrayList(ManifestDependency).new();
   match(
-    _parse_dependency_table(root, String.from("dependencies"), false, where_.clone(), dependencies),
+    _parse_dependency_table(&root, String.from("dependencies"), false, where_.clone(), &mut dependencies),
     .Ok(_) => (),
     .Err(m) => {
       return(Result(Manifest, String).Err(m));
     }
   );
   match(
-    _parse_dependency_table(root, String.from("dev-dependencies"), true, where_.clone(), dependencies),
+    _parse_dependency_table(&root, String.from("dev-dependencies"), true, where_.clone(), &mut dependencies),
     .Ok(_) => (),
     .Err(m) => {
       return(Result(Manifest, String).Err(m));
@@ -636,7 +636,7 @@ dependency_dir :: (
       lock := match(
         root_lock_text,
         .Some(t) => match(
-          parse_lock_file(t),
+          parse_lock_file(&t),
           .Ok(l) => l,
           .Err(msg) => {
             return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}": ${msg} — run \`yo install\``, true)));
@@ -647,7 +647,7 @@ dependency_dir :: (
         }
       );
       entry := match(
-        find_lock_entry(lock, dep.name.clone()),
+        find_lock_entry(&lock, dep.name.clone()),
         .Some(e) => e,
         .None => {
           return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" is not installed (no yo.lock entry) — run \`yo install\``, true)));
@@ -663,7 +663,7 @@ dependency_dir :: (
           return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}": yo.lock ${msg} — run \`yo install\``, true)));
         }
       );
-      dir := if(subdir.len() == usize(0), stored, abs_under(stored, subdir.clone()));
+      dir := if(subdir.len() == usize(0), stored, abs_under(&stored, subdir.clone()));
       if(!file_exists_sync(dir.clone()), {
         return(Result(String, UnavailableImport).Err(_unavailable(dep.name.clone(), `git dependency "${dep.name}" is not in the store (${dir}) — run \`yo install\``, true)));
       });
@@ -729,7 +729,7 @@ _register_package_roots :: (
           default_root = Option(String).Some(root);
         }, {
           match(
-            _add_root(out.roots, `${entry.name}/${m_entry.name}`, root, via.clone()),
+            _add_root(&mut out.roots, `${entry.name}/${m_entry.name}`, &root, via.clone()),
             .Ok(_) => (),
             .Err(msg) => {
               return(Result(unit, String).Err(msg));
@@ -746,7 +746,7 @@ _register_package_roots :: (
   });
   match(
     default_root,
-    .Some(root) => _add_root(out.roots, entry.name.clone(), root, via),
+    .Some(root) => _add_root(&mut out.roots, entry.name.clone(), &root, via),
     .None => {
       if(is_root, {
         return(Result(unit, String).Ok(()));
@@ -779,7 +779,7 @@ resolve_import_roots :: (
   out := ImportRoots(roots : ArrayList(ImportRoot).new(), unavailable : ArrayList(UnavailableImport).new());
   root_entry := _ClosureEntry(name : manifest.name.clone(), dir : manifest.dir.clone(), manifest : Option(Manifest).Some(manifest));
   match(
-    _register_package_roots(root_entry, true, out, manifest.path.clone()),
+    _register_package_roots(&root_entry, true, &out, manifest.path.clone()),
     .Ok(_) => (),
     .Err(msg) => {
       return(Result(ImportRoots, String).Err(msg));
@@ -808,7 +808,7 @@ resolve_import_roots :: (
         continue;
       });
       dep_dir := match(
-        dependency_dir(dep, current.dir.clone(), root_lock_text.clone()),
+        dependency_dir(&dep, current.dir.clone(), root_lock_text.clone()),
         .Ok(d) => d,
         .Err(unavailable) => {
           out.unavailable.push(unavailable);
@@ -828,7 +828,7 @@ resolve_import_roots :: (
       });
       entry := _ClosureEntry(name : dep.name.clone(), dir : dep_dir.clone(), manifest : dep_manifest);
       match(
-        _register_package_roots(entry, false, out, `${current_manifest.path} → ${dep.name}`),
+        _register_package_roots(&entry, false, &out, `${current_manifest.path} → ${dep.name}`),
         .Ok(_) => (),
         .Err(msg) => {
           return(Result(ImportRoots, String).Err(msg));
@@ -854,7 +854,7 @@ resolve_import_roots :: (
 /// The text of `<manifest dir>/yo.lock`, or `.None` when there is no lock.
 read_lock_text :: (fn(imm(manifest) : Manifest, imm(exn) : Exception) -> Option(String))({
   lock_path := abs_under(manifest.dir.clone(), String.from(LOCK_FILENAME));
-  if(file_exists_sync(lock_path.clone()), Option(String).Some(String.from_bytes(read_file_sync(lock_path, exn))), Option(String).None)
+  if(file_exists_sync(lock_path.clone()), Option(String).Some(String.from_bytes(read_file_sync(&lock_path, exn))), Option(String).None)
 });
 export(
   MANIFEST_FILENAME,

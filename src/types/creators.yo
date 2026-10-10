@@ -165,18 +165,18 @@ _type_has_computed_array_len_d :: (fn(imm(t) : TypeValue, d : usize) -> bool)(
     true => match(
       t,
       .Array(cal_elem, _, cal_var) => cond(
-        is_computed_array_len_var(cal_var) => true,
-        true => recur(cal_elem, d + usize(1))
+        is_computed_array_len_var(&cal_var) => true,
+        true => recur(&cal_elem, d + usize(1))
       ),
-      .Pointer(cal_p) => recur(cal_p, d + usize(1)),
-      .IsoT(cal_i) => recur(cal_i, d + usize(1)),
+      .Pointer(cal_p) => recur(&cal_p, d + usize(1)),
+      .IsoT(cal_i) => recur(&cal_i, d + usize(1)),
       .Tuple(_, cal_tts) => {
         (cal_found0 : bool) = false;
         (cal_ti : usize) = usize(0);
         while((cal_ti < cal_tts.len()) && !cal_found0, {
           match(
             cal_tts.get(cal_ti),
-            .Some(cal_tt) => if(recur(cal_tt, d + usize(1)), {
+            .Some(cal_tt) => if(recur(&cal_tt, d + usize(1)), {
               cal_found0 = true;
             }),
             .None => ()
@@ -191,7 +191,7 @@ _type_has_computed_array_len_d :: (fn(imm(t) : TypeValue, d : usize) -> bool)(
         while((cal_i2 < cal_fts.len()) && !cal_found, {
           match(
             cal_fts.get(cal_i2),
-            .Some(cal_ft) => if(recur(cal_ft, d + usize(1)), {
+            .Some(cal_ft) => if(recur(&cal_ft, d + usize(1)), {
               cal_found = true;
             }),
             .None => ()
@@ -209,7 +209,7 @@ _type_has_computed_array_len_d :: (fn(imm(t) : TypeValue, d : usize) -> bool)(
           while((cal_vj < cal_vf.len()) && !cal_found2, {
             match(
               cal_vf.get(cal_vj),
-              .Some(cal_vt) => if(recur(cal_vt, d + usize(1)), {
+              .Some(cal_vt) => if(recur(&cal_vt, d + usize(1)), {
                 cal_found2 = true;
               }),
               .None => ()
@@ -337,7 +337,7 @@ _sort_dyn_traits :: (fn(mut(types) : ArrayList(TypeValue), mut(levels) : ArrayLi
   keys := ArrayList(String).new();
   (ki : usize) = usize(0);
   while(ki < types.len(), {
-    keys.push(match(types.get(ki), .Some(t) => _dyn_trait_sort_key(t), .None => String.new()));
+    keys.push(match(types.get(ki), .Some(t) => _dyn_trait_sort_key(&t), .None => String.new()));
     ki = (ki + usize(1));
   });
   (i : usize) = usize(1);
@@ -368,8 +368,8 @@ t_dyn :: (
   rtl := required_trait_levels.clone();
   ntt := negative_trait_types.clone();
   ntl := negative_trait_levels.clone();
-  _sort_dyn_traits(rtt, rtl);
-  _sort_dyn_traits(ntt, ntl);
+  _sort_dyn_traits(&mut rtt, &mut rtl);
+  _sort_dyn_traits(&mut ntt, &mut ntl);
   .DynT(rtt, rtl, ntt, ntl)
 });
 t_dyn_simple :: (fn(imm(required_trait_types) : ArrayList(TypeValue)) -> TypeValue)(
@@ -573,7 +573,7 @@ type_value_tag :: (fn(imm(t) : TypeValue) -> TypeTag)(
     .FnTraitT(base_name : _) => TypeTag.TTrait,
     .FutureTraitT(base_name : _) => TypeTag.TTrait,
     // V6 task 3: a refinement's tag IS its inner's tag (erasure).
-    .RefineT(inner, _) => type_value_tag(inner),
+    .RefineT(inner, _) => type_value_tag(&inner),
     .ExternOpaqueT(_, _) => TypeTag.TExternOpaque
   )
 );
@@ -628,7 +628,7 @@ _contains_self_shell :: (
           (fi : usize) = usize(0);
           while((fi < inner.len()) && !hit, {
             ft := match(inner.get(fi), .Some(x) => x, .None => t_unit());
-            hit = recur(ft, shell_id, visited);
+            hit = recur(&ft, shell_id, visited);
             fi = (fi + usize(1));
           });
           vi = (vi + usize(1));
@@ -636,7 +636,7 @@ _contains_self_shell :: (
         (ti : usize) = usize(0);
         while((ti < type_arguments.len()) && !hit, {
           ta := match(type_arguments.get(ti), .Some(x) => x, .None => t_unit());
-          hit = recur(ta, shell_id, visited);
+          hit = recur(&ta, shell_id, visited);
           ti = (ti + usize(1));
         });
         hit
@@ -655,21 +655,21 @@ _contains_self_shell :: (
         (i : usize) = usize(0);
         while((i < field_types.len()) && !hit, {
           ft := match(field_types.get(i), .Some(x) => x, .None => t_unit());
-          hit = recur(ft, shell_id, visited);
+          hit = recur(&ft, shell_id, visited);
           i = (i + usize(1));
         });
         (j : usize) = usize(0);
         while((j < type_arguments.len()) && !hit, {
           ta := match(type_arguments.get(j), .Some(x) => x, .None => t_unit());
-          hit = recur(ta, shell_id, visited);
+          hit = recur(&ta, shell_id, visited);
           j = (j + usize(1));
         });
         hit
       }
     ),
-    .Pointer(inner) => recur(inner, shell_id, visited),
-    .Array(el, _, _) => recur(el, shell_id, visited),
-    .ComptimeListT(el) => recur(el, shell_id, visited),
+    .Pointer(inner) => recur(&inner, shell_id, visited),
+    .Array(el, _, _) => recur(&el, shell_id, visited),
+    .ComptimeListT(el) => recur(&el, shell_id, visited),
     _ => false
   )
 );
@@ -721,7 +721,7 @@ _patch_self_shell_guarded :: (
           (fi : usize) = usize(0);
           while(fi < inner.len(), {
             ft := match(inner.get(fi), .Some(x) => x, .None => t_unit());
-            new_inner.push(recur(ft, shell_id, final_ty, visited));
+            new_inner.push(recur(&ft, shell_id, final_ty, visited));
             fi = (fi + usize(1));
           });
           new_vfs.push(new_inner);
@@ -731,15 +731,15 @@ _patch_self_shell_guarded :: (
         (ti : usize) = usize(0);
         while(ti < type_arguments.len(), {
           ta := match(type_arguments.get(ti), .Some(x) => x, .None => t_unit());
-          new_etas.push(recur(ta, shell_id, final_ty, visited));
+          new_etas.push(recur(&ta, shell_id, final_ty, visited));
           ti = (ti + usize(1));
         });
         .EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, new_etas)
       }
     ),
-    .Pointer(inner) => .Pointer(recur(inner, shell_id, final_ty, visited)),
-    .Array(el, n, lv) => .Array(recur(el, shell_id, final_ty, visited), n, lv),
-    .ComptimeListT(el) => .ComptimeListT(recur(el, shell_id, final_ty, visited)),
+    .Pointer(inner) => .Pointer(recur(&inner, shell_id, final_ty, visited)),
+    .Array(el, n, lv) => .Array(recur(&el, shell_id, final_ty, visited), n, lv),
+    .ComptimeListT(el) => .ComptimeListT(recur(&el, shell_id, final_ty, visited)),
     .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
       true => {
@@ -754,14 +754,14 @@ _patch_self_shell_guarded :: (
         (i : usize) = usize(0);
         while(i < field_types.len(), {
           ft := match(field_types.get(i), .Some(x) => x, .None => t_unit());
-          new_fts.push(recur(ft, shell_id, final_ty, visited));
+          new_fts.push(recur(&ft, shell_id, final_ty, visited));
           i = (i + usize(1));
         });
         new_tas := ArrayList(TypeValue).new();
         (j : usize) = usize(0);
         while(j < type_arguments.len(), {
           ta := match(type_arguments.get(j), .Some(x) => x, .None => t_unit());
-          new_tas.push(recur(ta, shell_id, final_ty, visited));
+          new_tas.push(recur(&ta, shell_id, final_ty, visited));
           j = (j + usize(1));
         });
         .Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace)
@@ -945,7 +945,7 @@ resolve_struct_shell :: (fn(imm(t) : TypeValue) -> TypeValue)(
     t,
     .Struct({ id : sid, field_types : fts }) => cond(
       (fts.len() > usize(0)) => t,
-      true => match(g_struct_finals.get(sid), .Some(f) => f, .None => t)
+      true => match(g_struct_finals.get(&sid), .Some(f) => f, .None => t)
     ),
     _ => t
   )

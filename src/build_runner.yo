@@ -228,8 +228,8 @@ _git_version :: (
     cmd.arg(String.from("describe"));
     cmd.arg(String.from("--tags"));
     cmd.arg(String.from("--always"));
-    t := e.io.spawn(_git_output_task(cmd, e.io), e);
-    out_opt := e.io.await(t.join(e.io), e.io);
+    t := e.io.spawn(_git_output_task(&cmd, e.io), e);
+    out_opt := e.io.await(t.join(e.io), &e.io);
     out := match(out_opt, .Some(o) => o, .None => return(Option(String).None));
     if(!out.status.success(), return(Option(String).None));
     v := String.from_bytes(out.stdout).trim();
@@ -283,15 +283,15 @@ get_artifact_output_file_name :: (
     .Some(t) => t,
     .None => artifact_target.clone()
   );
-  parsed_result := parse_target(effective_str);
+  parsed_result := parse_target(&effective_str);
   match(
     parsed_result,
     .Err(_) => {
       return(name.clone());
     },
     .Ok(info) => {
-      if(is_target_windows(info), return(`${name}.exe`));
-      if(is_target_wasm(info), {
+      if(is_target_windows(&info), return(`${name}.exe`));
+      if(is_target_wasm(&info), {
         has_modularize := false;
         i := usize(0);
         n := c_flags.len();
@@ -356,7 +356,7 @@ project_manifest :: (fn(imm(project_dir) : String, imm(exn) : Exception) -> Opti
     find_manifest(project_dir),
     .None => Option(Manifest).None,
     .Some(path) => match(
-      load_manifest(path, exn),
+      load_manifest(&path, exn),
       .Ok(m) => Option(Manifest).Some(m),
       .Err(msg) => {
         exn.throw(dyn(`Error: ${msg}`));
@@ -432,15 +432,15 @@ resolve_build_import_roots :: (
       });
       ri = (ri + usize(1));
     });
-    roots := _manifest_roots(manifest, e.exn);
-    needs_fetch := _has_fetchable_unavailable(roots);
+    roots := _manifest_roots(&manifest, &e.exn);
+    needs_fetch := _has_fetchable_unavailable(&roots);
     if(needs_fetch && verbose, {
       println(String.from("Dependencies not cached — fetching..."));
     });
     if(needs_fetch, {
-      _ := e.io.await(install_dependencies(manifest, ResolveMode.Install, locked, offline, verbose, e.io, e.exn), e);
+      _ := e.io.await(install_dependencies(&manifest, ResolveMode.Install, locked, offline, verbose, e.io, &e.exn), e);
     });
-    final_roots := if(needs_fetch, _manifest_roots(manifest, e.exn), roots);
+    final_roots := if(needs_fetch, _manifest_roots(&manifest, &e.exn), roots);
     if(final_roots.unavailable.len() > usize(0), {
       first := final_roots.unavailable(usize(0));
       e.exn.throw(dyn(`Error: dependency "${first.name}": ${first.reason}`));
@@ -453,7 +453,7 @@ resolve_build_import_roots :: (
       li = (li + usize(1));
     });
     g_import_lines = lines;
-    e.io.await(_link_store_trees(manifest, e.io, e.exn), e);
+    e.io.await(_link_store_trees(&manifest, e.io, &e.exn), e);
     ()
   })
 );
@@ -474,12 +474,12 @@ _link_store_trees :: (
     if(platform == Platform.Windows, {
       return(());
     });
-    lock_text := match(read_lock_text(manifest, e.exn), .Some(t) => t.clone(), .None => String.new());
+    lock_text := match(read_lock_text(manifest, &e.exn), .Some(t) => t.clone(), .None => String.new());
     if(lock_text.len() == usize(0), {
       return(());
     });
     lock := match(
-      parse_lock_file(lock_text),
+      parse_lock_file(&lock_text),
       .Ok(l) => l,
       .Err(_) => {
         return(());
@@ -509,7 +509,7 @@ _link_store_trees :: (
       pi = (pi + usize(1));
       tree := if(entry.integrity.len() == usize(0), String.new(), match(store_tree_dir(cache_root.clone(), entry.integrity.clone()), .Ok(d) => d, .Err(_) => String.new()));
       link := `${deps_dir}/${entry.name}`;
-      is_link := _names_a_symlink(entries, entry.name.clone());
+      is_link := _names_a_symlink(&entries, entry.name.clone());
       if((tree.len() > usize(0)) && is_link, {
         e.io.await(remove_file(Path.new(link.clone()), e.io), e);
       });
@@ -620,17 +620,17 @@ _evaluate_dependency_build_file :: (
   io.async((e : IoExn) => {
     scratch := BuildRegistry.new();
     scratch.cli_options = _namespaced_defines(dep_name.clone(), defines);
-    dep_manifest_opt := project_manifest(dep_dir.clone(), e.exn);
-    scratch.manifest_fields = _manifest_fields(dep_manifest_opt);
+    dep_manifest_opt := project_manifest(dep_dir.clone(), &e.exn);
+    scratch.manifest_fields = _manifest_fields(&dep_manifest_opt);
     prev := swap_build_registry(Option(BuildRegistry).Some(scratch));
-    outcome := mm_load_yo_file(build_file.clone(), e.io, e.exn);
+    outcome := mm_load_yo_file(build_file.clone(), e.io, &e.exn);
     load_error := _take_load_error();
     evaluated := get_build_registry();
-    swap_build_registry(prev);
+    swap_build_registry(&prev);
     if(!outcome.ok, {
       match(
         load_error,
-        .Some(rendered) => emit_rendered_text(rendered),
+        .Some(rendered) => emit_rendered_text(&rendered),
         .None => eprintln(`build: error in: ${build_file} (no diagnostic recorded)`)
       );
       e.exn.throw(dyn(`Error: dependency "${dep_name}": failed to evaluate ${build_file}`));
@@ -659,7 +659,7 @@ _evaluate_dependency_builds :: (
     if(refs.len() == usize(0), {
       return(());
     });
-    lock_text := read_lock_text(manifest, e.exn);
+    lock_text := read_lock_text(manifest, &e.exn);
     (i : usize) = usize(0);
     while(i < refs.len(), {
       r := refs(i);
@@ -673,7 +673,7 @@ _evaluate_dependency_builds :: (
         }
       );
       dir := match(
-        dependency_dir(dep, manifest.dir.clone(), lock_text.clone()),
+        dependency_dir(&dep, manifest.dir.clone(), lock_text.clone()),
         .Ok(d) => d,
         .Err(u) => {
           e.exn.throw(dyn(`Error: dependency "${r.dependency_name}": ${u.reason}`));
@@ -696,7 +696,7 @@ _evaluate_dependency_builds :: (
       );
       if(!merged, {
         dep_reg := e.io.await(
-          _evaluate_dependency_build_file(r.dependency_name.clone(), dir.clone(), build_file.clone(), defines, e.io, e.exn),
+          _evaluate_dependency_build_file(r.dependency_name.clone(), dir.clone(), build_file.clone(), defines, e.io, &e.exn),
           e
         );
         art := match(
@@ -715,7 +715,7 @@ _evaluate_dependency_builds :: (
             )
           );
         });
-        _record_package_import_lines(dir.clone(), _dependency_import_lines(dir.clone(), lock_text.clone(), e.exn));
+        _record_package_import_lines(dir.clone(), _dependency_import_lines(dir.clone(), lock_text.clone(), &e.exn));
         registry.register_static_library(
           BuildArtifact(
             kind : ArtifactKind.StaticLibrary,
@@ -741,12 +741,12 @@ _evaluate_dependency_builds :: (
             package_dir : dir.clone(),
             package_name : r.dependency_name.clone()
           ),
-          e.exn
+          &e.exn
         );
         // A `-D<dep>.<opt>` the dependency does not declare is a typo too.
-        dep_unknown := undeclared_options(dep_reg);
+        dep_unknown := undeclared_options(&dep_reg);
         if(dep_unknown.len() > usize(0), {
-          dep_joined := `", "`.join(dep_unknown);
+          dep_joined := `", "`.join(&dep_unknown);
           e.exn.throw(
             dyn(
               `Error: -D${r.dependency_name}."${dep_joined}" is not an option of dependency "${r.dependency_name}" (${build_file}).`
@@ -774,7 +774,7 @@ _dependency_import_lines :: (
   lines := ArrayList(String).new();
   dep_manifest := match(project_manifest(dep_dir.clone(), exn), .Some(m) => m, .None => return(lines));
   roots := match(
-    resolve_import_roots(dep_manifest, root_lock_text, exn),
+    resolve_import_roots(&dep_manifest, root_lock_text, exn),
     .Ok(r) => r,
     .Err(msg) => {
       exn.throw(dyn(`Error: ${dep_dir}/${MANIFEST_FILENAME}: ${msg}`));
@@ -843,11 +843,11 @@ _collect_linked_static_libs :: (
                 lib.kind,
                 lib.name.clone(),
                 lib.target.clone(),
-                lib.c_flags,
+                &lib.c_flags,
                 target_triple_opt
               );
               out.push(
-                `${_artifact_output_dir(lib, project_dir.clone(), effective_target.clone(), "lib")}/${file_name}.a`
+                `${_artifact_output_dir(&lib, project_dir.clone(), effective_target.clone(), "lib")}/${file_name}.a`
               );
               k := usize(0);
               while(k < lib.linked_artifacts.len(), {
@@ -906,7 +906,7 @@ _collect_linked_shared_libs :: (
           match(
             lib.kind,
             .SharedLibrary => {
-              dirs_out.push(_artifact_output_dir(lib, project_dir.clone(), effective_target.clone(), "lib"));
+              dirs_out.push(_artifact_output_dir(&lib, project_dir.clone(), effective_target.clone(), "lib"));
               names_out.push(lib.name.clone());
               (k : usize) = usize(0);
               while(k < lib.linked_artifacts.len(), {
@@ -962,7 +962,7 @@ _walk_dag :: (
         while(i < n, {
           linked := artifact.linked_artifacts(i);
           deps.push(linked);
-          recur(registry, nodes, visited, linked, missing);
+          recur(registry, nodes, visited, &linked, missing);
           i = (i + usize(1));
         });
         nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps));
@@ -973,7 +973,7 @@ _walk_dag :: (
       .Run(run_step) => {
         deps := ArrayList(String).new();
         deps.push(run_step.artifact_name);
-        recur(registry, nodes, visited, run_step.artifact_name, missing);
+        recur(registry, nodes, visited, &run_step.artifact_name, missing);
         nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Run, depends_on : deps));
       },
       .Doc(_d) => {
@@ -989,7 +989,7 @@ _walk_dag :: (
         while(i < n, {
           dep_name := step.dependency_names(i);
           deps.push(dep_name);
-          recur(registry, nodes, visited, dep_name, missing);
+          recur(registry, nodes, visited, &dep_name, missing);
           i = (i + usize(1));
         });
         nodes.insert(name, DAGNode(name : name, kind : DAGNodeKind.Step, depends_on : deps));
@@ -1018,7 +1018,7 @@ build_dag_checked :: (
 )({
   nodes := HashMap(String, DAGNode).new();
   visited := HashMap(String, bool).new();
-  _walk_dag(registry, nodes, visited, root_step_name.clone(), missing);
+  _walk_dag(registry, &mut nodes, &mut visited, root_step_name.clone(), missing);
   result := ArrayList(DAGNode).new();
   iter := nodes.values();
   more := true;
@@ -1062,14 +1062,14 @@ _dfs_cycle :: (
         // cycle candidate — and the skip has to CONTINUE: bumping `i` and
         // falling through incremented it twice, so the next dependency was
         // never examined at all (the plan's B12).
-        if(!node_map.contains_key(dep), {
+        if(!node_map.contains_key(&dep), {
           i = (i + usize(1));
           continue;
         });
-        dep_color := color.get(dep).unwrap_or(_COLOR_WHITE);
+        dep_color := color.get(&dep).unwrap_or(_COLOR_WHITE);
         if(dep_color == _COLOR_GRAY, return(Option(String).Some(dep)));
         if(dep_color == _COLOR_WHITE, {
-          res := recur(node_map, color, dep);
+          res := recur(node_map, color, &dep);
           match(
             res,
             .Some(c) => {
@@ -1104,8 +1104,8 @@ detect_cycle :: (fn(imm(dag) : ArrayList(DAGNode)) -> Option(String))({
   i = usize(0);
   while(i < n, {
     node_name := dag(i).name;
-    if(color.get(node_name).unwrap_or(_COLOR_WHITE) == _COLOR_WHITE, {
-      result := _dfs_cycle(node_map, color, node_name);
+    if(color.get(&node_name).unwrap_or(_COLOR_WHITE) == _COLOR_WHITE, {
+      result := _dfs_cycle(&node_map, &mut color, &node_name);
       match(
         result,
         .Some(c) => {
@@ -1233,9 +1233,9 @@ expand_workspace_members :: (
         names.sort();
         (ni : usize) = usize(0);
         while(ni < names.len(), {
-          cand := Path.new(parent_abs.clone()).join(Path.new(names(ni))).to_string();
+          cand := Path.new(parent_abs.clone()).join(Path.new(&names(ni))).to_string();
           if(file_exists_sync(Path.new(cand.clone()).join(Path.new(String.from(MANIFEST_FILENAME))).to_string()), {
-            _push_unique_string(out, cand);
+            _push_unique_string(&mut out, &cand);
           });
           ni = (ni + usize(1));
         });
@@ -1248,7 +1248,7 @@ expand_workspace_members :: (
             )
           );
         });
-        _push_unique_string(out, cand);
+        _push_unique_string(&mut out, &cand);
       });
       pi = (pi + usize(1));
     });
@@ -1277,7 +1277,7 @@ _resolve_workspace_member :: (
       }
     );
     root := match(
-      load_manifest(root_manifest_path.clone(), e.exn),
+      load_manifest(root_manifest_path.clone(), &e.exn),
       .Ok(m) => m,
       .Err(msg) => {
         e.exn.throw(dyn(msg));
@@ -1291,14 +1291,14 @@ _resolve_workspace_member :: (
         )
       );
     });
-    members := e.io.await(expand_workspace_members(root, e.io), e);
+    members := e.io.await(expand_workspace_members(&root, e.io), e);
     available := ArrayList(String).new();
     (mi : usize) = usize(0);
     while(mi < members.len(), {
       dir := members(mi);
       mpath := Path.new(dir.clone()).join(Path.new(String.from(MANIFEST_FILENAME))).to_string();
       match(
-        load_manifest(mpath.clone(), e.exn),
+        load_manifest(mpath.clone(), &e.exn),
         .Ok(mm) => {
           available.push(mm.name.clone());
           if(mm.name == name, {
@@ -1314,7 +1314,7 @@ _resolve_workspace_member :: (
     sep := String.from(", ");
     e.exn.throw(
       dyn(
-        `-p ${name}: no workspace member is named that. Members of ${root_manifest_path}: ${sep.join(available)}`
+        `-p ${name}: no workspace member is named that. Members of ${root_manifest_path}: ${sep.join(&available)}`
       )
     );
     Option(String).None
@@ -1350,7 +1350,7 @@ _cache_collect_yo_files :: (
       d := work(wi).clone();
       wi = (wi + usize(1));
       t := e.io.spawn(_read_dir_task(d.clone(), e.io), e);
-      entries := match(e.io.await(t.join(e.io), e.io), .Some(es) => es, .None => ArrayList(DirEntry).new());
+      entries := match(e.io.await(t.join(e.io), &e.io), .Some(es) => es, .None => ArrayList(DirEntry).new());
       names := ArrayList(String).new();
       (i : usize) = usize(0);
       while(i < entries.len(), {
@@ -1383,7 +1383,7 @@ _cache_collect_yo_files :: (
               // every real source directory with a dot in its name (`my.pkg/`,
               // `v1.2/`): nothing under it was stamped, so editing those
               // sources left the artifact "cached" (the plan's B10).
-              if(_entry_is_dir(entries, name.clone()), {
+              if(_entry_is_dir(&entries, name.clone()), {
                 work.push(full);
               });
             }
@@ -1413,7 +1413,7 @@ _cache_read_file :: (
   io.async((e : IoExn) => {
     t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
     match(
-      e.io.await(t.join(e.io), e.io),
+      e.io.await(t.join(e.io), &e.io),
       .Some(bytes) => Option(ArrayList(u8)).Some(bytes),
       .None => Option(ArrayList(u8)).None
     )
@@ -1505,7 +1505,7 @@ _manifest_stamp_entries :: (
     names.push(String.from("yo.lock"));
     (i : usize) = usize(0);
     while(i < names.len(), {
-      p := Path.new(project_dir.clone()).join(Path.new(names(i))).to_string();
+      p := Path.new(project_dir.clone()).join(Path.new(&names(i))).to_string();
       // Bind the awaited value FIRST. An `io.await` inline in a match
       // SCRUTINEE inside an `io.async` body emits `switch (.tag)` with no
       // scrutinee — invalid C, caught only by the C compiler
@@ -1515,7 +1515,7 @@ _manifest_stamp_entries :: (
       match(
         bytes_opt,
         .Some(bytes) => {
-          out.push(`${p} ${sha256_hex(bytes)}`);
+          out.push(`${p} ${sha256_hex(&bytes)}`);
         },
         .None => ()
       );
@@ -1561,11 +1561,11 @@ artifact_input_stamp :: (
       return(String.new());
     });
     acc := ArrayList(u8).new();
-    _stamp_push_str(acc, `yo-version ${CURRENT_YO_VERSION}`);
+    _stamp_push_str(&mut acc, `yo-version ${CURRENT_YO_VERSION}`);
     compiler_id := e.io.await(_compiler_identity(e.io), e);
-    _stamp_push_str(acc, `yo-binary ${compiler_id}`);
+    _stamp_push_str(&mut acc, `yo-binary ${compiler_id}`);
     sep := String.from(" ");
-    _stamp_push_str(acc, `argv ${sep.join(argv)}`);
+    _stamp_push_str(&mut acc, `argv ${sep.join(argv)}`);
     // §5.4: every `build.env` read the build file made. The invoking shell is
     // an INPUT once a build file branches on it, so a changed variable must
     // rebuild rather than serve a stale artifact. Recorded as `name=value`
@@ -1573,7 +1573,7 @@ artifact_input_stamp :: (
     reads := env_reads();
     (ei : usize) = usize(0);
     while(ei < reads.len(), {
-      match(reads.get(ei), .Some(r) => _stamp_push_str(acc, `env ${r}`), .None => ());
+      match(reads.get(ei), .Some(r) => _stamp_push_str(&mut acc, `env ${r}`), .None => ());
       ei = (ei + usize(1));
     });
     // RECORD pass: the child just wrote the depfile, and its hashes are the
@@ -1598,15 +1598,15 @@ artifact_input_stamp :: (
           // trust. One recompile follows and rewrites it in the new format.
           return(String.new());
         });
-        _stamp_push_str(acc, `${pth} ${h}`);
+        _stamp_push_str(&mut acc, `${pth} ${h}`);
         ri = (ri + usize(1));
       });
       (mi : usize) = usize(0);
       while(mi < manifest_entries.len(), {
-        _stamp_push_str(acc, manifest_entries(mi));
+        _stamp_push_str(&mut acc, &manifest_entries(mi));
         mi = (mi + usize(1));
       });
-      return(sha256_hex(acc));
+      return(sha256_hex(&acc));
     });
     files := ArrayList(String).new();
     // §4.9: the PREVIOUS build's `--emit-deps` list is exactly what the
@@ -1623,19 +1623,19 @@ artifact_input_stamp :: (
     // re-hashes them from disk, which is exactly the question it is asking.
     (li : usize) = usize(0);
     while(li < listed_raw.len(), {
-      files.push(_split_dep_entry(listed_raw(li)).path);
+      files.push(_split_dep_entry(&listed_raw(li)).path);
       li = (li + usize(1));
     });
     // No depfile yet — hash every `.yo` under the project and the whole std
     // tree, which is what every build used to do, per artifact (audit B10).
     if(!have_depfile, {
       project_files := e.io.await(_cache_collect_yo_files(project_dir.clone(), e.io), e);
-      files.extend(project_files);
+      files.extend(&project_files);
     });
     std_root := resolve_std_path();
     if(!have_depfile && (std_root.len() > usize(0)), {
       std_files := e.io.await(_cache_collect_yo_files(std_root.replace(String.from("file://"), String.new()), e.io), e);
-      files.extend(std_files);
+      files.extend(&std_files);
     });
     // The manifest and the lock are inputs to RESOLUTION, not to evaluation, so
     // no depfile names them — but changing either changes what `import("dep")`
@@ -1652,7 +1652,7 @@ artifact_input_stamp :: (
       match(
         bytes_opt,
         .Some(bytes) => {
-          _stamp_push_str(acc, `${fpath} ${sha256_hex(bytes)}`);
+          _stamp_push_str(&mut acc, `${fpath} ${sha256_hex(&bytes)}`);
         },
         .None => {
           // `yo.lock` and `yo.toml` legitimately may not exist; any OTHER
@@ -1668,10 +1668,10 @@ artifact_input_stamp :: (
     });
     (smi : usize) = usize(0);
     while(smi < shared_manifest.len(), {
-      _stamp_push_str(acc, shared_manifest(smi));
+      _stamp_push_str(&mut acc, &shared_manifest(smi));
       smi = (smi + usize(1));
     });
-    sha256_hex(acc)
+    sha256_hex(&acc)
   })
 );
 /// Read a `--emit-deps` depfile: one input path per line, blank lines ignored.
@@ -1706,7 +1706,7 @@ _read_stamp :: (fn(imm(path) : String, io : Io) -> Impl(Future(Option(String), I
   io.async((e : IoExn) => {
     t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
     match(
-      e.io.await(t.join(e.io), e.io),
+      e.io.await(t.join(e.io), &e.io),
       .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
       .None => Option(String).None
     )
@@ -1730,7 +1730,7 @@ _write_stamp :: (fn(imm(path) : String, imm(stamp) : String, io : Io) -> Impl(Fu
   io.async((e : IoExn) => {
     t := e.io.spawn(_write_string_task(path.clone(), stamp.clone(), e.io), e);
     match(
-      e.io.await(t.join(e.io), e.io),
+      e.io.await(t.join(e.io), &e.io),
       .Some(_u) => (),
       .None => ()
     )
@@ -1791,14 +1791,14 @@ compile_artifact :: (
       artifact.kind,
       artifact.name.clone(),
       artifact.target.clone(),
-      artifact.c_flags,
-      ctx.target_triple
+      &artifact.c_flags,
+      &ctx.target_triple
     );
-    output_path := Path.new(output_dir).join(Path.new(output_name));
+    output_path := Path.new(&output_dir).join(Path.new(&output_name));
     // A dependency's artifact (§4.5.2) has its own package root: its `root` is
     // relative to the DEPENDENCY's directory, not to this project's.
     package_dir := if(artifact.package_dir.len() > usize(0), artifact.package_dir.clone(), ctx.project_dir.clone());
-    source_path := Path.new(package_dir.clone()).join(Path.new(artifact.root));
+    source_path := Path.new(package_dir.clone()).join(Path.new(&artifact.root));
     // The Building line is UNCONDITIONAL (not behind
     // --verbose): the PROJECT name (the manifest's, else the first registered
     // module's) rather than the
@@ -1814,7 +1814,7 @@ compile_artifact :: (
       (ctx.registry.modules.len() > usize(0)) => ctx.registry.modules(usize(0)).name,
       true => artifact.name.clone()
     );
-    git_v := e.io.await(_git_version(package_dir.clone(), e.io, e.exn), e);
+    git_v := e.io.await(_git_version(package_dir.clone(), e.io, &e.exn), e);
     version_suffix := match(
       git_v,
       .Some(v) => ` ${v}`,
@@ -1825,8 +1825,8 @@ compile_artifact :: (
     // existence probe have to agree with it.
     eff_ti_lib := match(parse_target(effective_target.clone()), .Ok(t) => t, .Err(_) => host_target());
     shared_ext := cond(
-      is_target_windows(eff_ti_lib) => String.from(".dll"),
-      is_target_macos(eff_ti_lib) => String.from(".dylib"),
+      is_target_windows(&eff_ti_lib) => String.from(".dll"),
+      is_target_macos(&eff_ti_lib) => String.from(".dylib"),
       true => String.from(".so")
     );
     lib_suffix := match(artifact.kind, .StaticLibrary => String.from(".a"), .SharedLibrary => shared_ext.clone(), _ => String.new());
@@ -1836,7 +1836,7 @@ compile_artifact :: (
     import_lines := _package_import_lines(artifact.package_dir.clone());
     imports_path := `${output_path.to_string()}.imports`;
     nl := String.from("\n");
-    imports_text := if(import_lines.len() > usize(0), `${nl.join(import_lines)}\n`, String.new());
+    imports_text := if(import_lines.len() > usize(0), `${nl.join(&import_lines)}\n`, String.new());
     e.io.await(_write_stamp(imports_path.clone(), imports_text.clone(), e.io), e);
     cmd := Command.new(_self_exe());
     cmd.arg(String.from("compile"));
@@ -1856,7 +1856,7 @@ compile_artifact :: (
       get_std_path_override(),
       .Some(sp) => {
         cmd.arg(String.from("--std-path"));
-        cmd.arg(sp);
+        cmd.arg(&sp);
       },
       .None => {}
     );
@@ -1872,7 +1872,7 @@ compile_artifact :: (
       .Ok(t) => t,
       .Err(_) => host_target()
     );
-    if(is_target_wasm(eff_ti_emcc), {
+    if(is_target_wasm(&eff_ti_emcc), {
       cmd.arg(String.from("--emcc-environment"));
       cmd.arg(String.from("web"));
     });
@@ -1901,20 +1901,20 @@ compile_artifact :: (
     // defaults to "clang", which would otherwise be passed through explicitly
     // and defeat that auto-selection.
     eff_ti_cc := match(parse_target(effective_target.clone()), .Ok(t) => t, .Err(_) => host_target());
-    if(is_target_wasm(eff_ti_cc), {
+    if(is_target_wasm(&eff_ti_cc), {
       cmd.arg(String.from("--cc"));
       cmd.arg(String.from("emcc"));
     }, {
       if(ctx.c_compiler != "clang", {
         cmd.arg(String.from("--cc"));
-        cmd.arg(ctx.c_compiler);
+        cmd.arg(&ctx.c_compiler);
       });
     });
     match(
       ctx.sysroot,
       .Some(s) => {
         cmd.arg(String.from("--sysroot"));
-        cmd.arg(s);
+        cmd.arg(&s);
       },
       .None => ()
     );
@@ -1922,23 +1922,23 @@ compile_artifact :: (
     n := artifact.c_sources.len();
     while(i < n, {
       cmd.arg(String.from("--extern"));
-      cmd.arg(artifact.c_sources(i));
+      cmd.arg(&artifact.c_sources(i));
       i = (i + usize(1));
     });
     // Static libraries this artifact links (`Step.link`), built earlier in the
     // DAG, reach the child's link line the same way C sources do.
     linked_libs := _collect_linked_static_libs(
-      ctx.registry,
+      &ctx.registry,
       artifact,
       ctx.project_dir.clone(),
       effective_target.clone(),
-      ctx.target_triple
+      &ctx.target_triple
     );
     i = usize(0);
     n = linked_libs.len();
     while(i < n, {
       cmd.arg(String.from("--extern"));
-      cmd.arg(linked_libs(i));
+      cmd.arg(&linked_libs(i));
       i = (i + usize(1));
     });
     // Shared libraries are linked by name out of their directory, and that
@@ -1946,12 +1946,12 @@ compile_artifact :: (
     shared_dirs := ArrayList(String).new();
     shared_names := ArrayList(String).new();
     _collect_linked_shared_libs(
-      ctx.registry,
+      &ctx.registry,
       artifact,
       ctx.project_dir.clone(),
       effective_target.clone(),
-      shared_dirs,
-      shared_names
+      &mut shared_dirs,
+      &mut shared_names
     );
     rpath_flags := ArrayList(String).new();
     i = usize(0);
@@ -1960,14 +1960,14 @@ compile_artifact :: (
       cmd.arg(shared_dirs(i).clone());
       cmd.arg(String.from("-l"));
       cmd.arg(shared_names(i).clone());
-      if(!is_target_windows(eff_ti_lib), {
+      if(!is_target_windows(&eff_ti_lib), {
         // ABSOLUTE: the loader resolves an rpath at run time, from whatever
         // directory the program is started in, so a `./yo-out/...` rpath would
         // only work from the project root.
         d := shared_dirs(i);
         abs_d := if(Path.new(d.clone()).is_absolute(), d.clone(), {
           base := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
-          Path.new(base).join(Path.new(d.clone())).normalize().to_string()
+          Path.new(&base).join(Path.new(d.clone())).normalize().to_string()
         });
         rpath_flags.push(`-Wl,-rpath,${abs_d}`);
       });
@@ -1977,7 +1977,7 @@ compile_artifact :: (
     n = artifact.include_paths.len();
     while(i < n, {
       cmd.arg(String.from("-I"));
-      cmd.arg(artifact.include_paths(i));
+      cmd.arg(&artifact.include_paths(i));
       i = (i + usize(1));
     });
     // Forward the artifact's compile options — the §9 debt in
@@ -1990,7 +1990,7 @@ compile_artifact :: (
     optimize_val := optimize_level_for(artifact.optimize.clone());
     if(optimize_val.len() > usize(0), {
       cmd.arg(String.from("--optimize"));
-      cmd.arg(optimize_val);
+      cmd.arg(&optimize_val);
     });
     // Debug's documented build is `-O0 -g` ("full debug info"), and a build
     // file has no other flag that reaches the child compile's -g — so the
@@ -2046,21 +2046,21 @@ compile_artifact :: (
     n = artifact.defines.len();
     while(i < n, {
       cmd.arg(String.from("-D"));
-      cmd.arg(artifact.defines(i));
+      cmd.arg(&artifact.defines(i));
       i = (i + usize(1));
     });
     i = usize(0);
     n = artifact.library_paths.len();
     while(i < n, {
       cmd.arg(String.from("-L"));
-      cmd.arg(artifact.library_paths(i));
+      cmd.arg(&artifact.library_paths(i));
       i = (i + usize(1));
     });
     i = usize(0);
     n = artifact.link_libraries.len();
     while(i < n, {
       cmd.arg(String.from("-l"));
-      cmd.arg(artifact.link_libraries(i));
+      cmd.arg(&artifact.link_libraries(i));
       i = (i + usize(1));
     });
     if(artifact.strip, {
@@ -2097,9 +2097,9 @@ compile_artifact :: (
       i = (i + usize(1));
     });
     if(all_cflags.len() > usize(0), {
-      joined := ` `.join(all_cflags);
+      joined := ` `.join(&all_cflags);
       cmd.arg(String.from("--cflags"));
-      cmd.arg(joined);
+      cmd.arg(&joined);
     });
     // STREAM the child's output rather than capturing it: its "Generated C code
     // written to …" / "Compiling with: …" lines and every clang diagnostic must
@@ -2144,7 +2144,7 @@ compile_artifact :: (
     manifest_entries := e.io.await(_manifest_stamp_entries(ctx.project_dir.clone(), e.io), e);
     stamp_raw := e.io.await(
       artifact_input_stamp(
-        stamp_inputs,
+        &stamp_inputs,
         ctx.project_dir.clone(),
         depfile_path.clone(),
         cache_enabled,
@@ -2162,7 +2162,7 @@ compile_artifact :: (
     // The static-library child appends `.a` itself (the same suffix the
     // Building line shows), so the existence probe must too — without it a
     // static-library artifact could never cache-hit.
-    out_exists := e.io.await(exists(Path.new(`${output_path.to_string()}${lib_suffix}`), e.io), e.io);
+    out_exists := e.io.await(exists(Path.new(`${output_path.to_string()}${lib_suffix}`), e.io), &e.io);
     prev_stamp := e.io.await(_read_stamp(stamp_path.clone(), e.io), e);
     stamp_matches := match(prev_stamp, .Some(prev) => (prev == stamp), .None => false);
     use_cache := (cache_enabled && (stamp.len() > usize(0)) && out_exists && stamp_matches);
@@ -2216,7 +2216,7 @@ compile_artifact :: (
       filtered.push(String.from("--compile-watch-mode"));
       compile_ok = match(
         ctx.in_process_compile_slot.f,
-        .Some(f) => f(filtered, e.io, e.exn),
+        .Some(f) => f(&filtered, e.io, &e.exn),
         .None => false
       );
     }, {
@@ -2243,7 +2243,7 @@ compile_artifact :: (
     // (issues/yo-build-artifact-cache-serves-a-stale-binary.md).
     post_stamp := e.io.await(
       artifact_input_stamp(
-        stamp_inputs,
+        &stamp_inputs,
         ctx.project_dir.clone(),
         depfile_path.clone(),
         cache_enabled,
@@ -2259,7 +2259,7 @@ compile_artifact :: (
       (compile_ok && cache_enabled && (post_stamp.len() > usize(0))) => post_stamp.clone(),
       true => String.new()
     );
-    e.io.await(_write_stamp(stamp_path.clone(), stamp_to_write, e.io), e);
+    e.io.await(_write_stamp(stamp_path.clone(), &stamp_to_write, e.io), e);
     cond(
       compile_ok => Result(unit, String).Ok(()),
       true => Result(unit, String).Err(`Compilation failed (exit ${fail_code.to_string()})`)
@@ -2289,14 +2289,14 @@ run_executable :: (
       artifact.kind,
       artifact.name.clone(),
       artifact.target.clone(),
-      artifact.c_flags,
-      ctx.target_triple
+      &artifact.c_flags,
+      &ctx.target_triple
     );
-    exe_path := Path.new(output_dir).join(Path.new(exe_name));
+    exe_path := Path.new(&output_dir).join(Path.new(&exe_name));
     // Missing-binary pre-flight: a step chain that
     // skipped the compile must fail HERE with a diagnostic, not with the
     // shell's exec error.
-    exe_found := e.io.await(exists(Path.new(exe_path.to_string()), e.io), e.io);
+    exe_found := e.io.await(exists(Path.new(exe_path.to_string()), e.io), &e.io);
     if(!exe_found, {
       return(Result(unit, String).Err(`Error: Compiled executable not found at ${exe_path.to_string()}`));
     });
@@ -2306,32 +2306,32 @@ run_executable :: (
     (abs_exe : String) = exe_path.to_string();
     if(!Path.new(abs_exe.clone()).is_absolute(), {
       base := match(cwd(), .Ok(cb) => cb.to_string(), .Err(_) => String.from("."));
-      abs_exe = Path.new(base).join(Path.new(abs_exe.clone())).to_string();
+      abs_exe = Path.new(&base).join(Path.new(abs_exe.clone())).to_string();
     });
     prev_dir := match(cwd(), .Ok(pc) => pc.to_string(), .Err(_) => String.from("."));
     _cd_in := chdir(Path.new(ctx.project_dir.clone()));
     // wasm artifacts run through node on the emitted .js shim
     eff_ti_run := match(parse_target(effective_target.clone()), .Ok(t) => t, .Err(_) => host_target());
-    cmd := if(is_target_wasm(eff_ti_run), {
+    cmd := if(is_target_wasm(&eff_ti_run), {
       js_path := if(
         abs_exe.ends_with(".html"),
         `${abs_exe.substring(usize(0), (abs_exe.len() - usize(5)))}.js`,
         abs_exe.clone()
       );
       wcmd := Command.new(String.from("node"));
-      wcmd.arg(js_path);
+      wcmd.arg(&js_path);
       wcmd
     }, Command.new(abs_exe.clone()));
     i := usize(0);
     n := args.len();
     while(i < n, {
-      cmd.arg(args(i));
+      cmd.arg(&args(i));
       i = (i + usize(1));
     });
     // Streamed, not captured: the program the user asked to run must write
     // to the user's terminal. Capturing swallowed its output entirely.
     st := e.io.await(cmd.status(e.io), e);
-    _cd_back := chdir(Path.new(prev_dir));
+    _cd_back := chdir(Path.new(&prev_dir));
     if(st.success(), Result(unit, String).Ok(()), {
       code := st.code().unwrap_or(i32(-1));
       Result(unit, String).Err(`Executable exited with code ${code}`)
@@ -2354,7 +2354,7 @@ run_verify_step :: (
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
-    target := Path.new(ctx.project_dir).join(Path.new(cfg.root));
+    target := Path.new(&ctx.project_dir).join(Path.new(&cfg.root));
     cmd := Command.new(_self_exe());
     cmd.arg(String.from("verify"));
     // `--std-path` is a global flag the child strips before dispatch (the
@@ -2363,7 +2363,7 @@ run_verify_step :: (
       get_std_path_override(),
       .Some(sp) => {
         cmd.arg(String.from("--std-path"));
-        cmd.arg(sp);
+        cmd.arg(&sp);
       },
       .None => {}
     );
@@ -2393,7 +2393,7 @@ run_test_suite :: (
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
-    test_path := Path.new(ctx.project_dir).join(Path.new(suite.root));
+    test_path := Path.new(&ctx.project_dir).join(Path.new(&suite.root));
     cmd := Command.new(_self_exe());
     cmd.arg(String.from("test"));
     // Forward the build's C compiler to the child test run.
@@ -2405,7 +2405,7 @@ run_test_suite :: (
       get_std_path_override(),
       .Some(sp) => {
         cmd.arg(String.from("--std-path"));
-        cmd.arg(sp);
+        cmd.arg(&sp);
       },
       .None => {}
     );
@@ -2456,7 +2456,7 @@ _run_doc_step :: (fn(imm(opts) : DocCommandOptions, io : Io) -> bool)({
       }
     )
   );
-  run_doc(opts, io, doc_exn);
+  run_doc(opts, io, &doc_exn);
   true
 });
 /// Append every element of `src` onto `dst` (ArrayList has no extend()).
@@ -2502,7 +2502,7 @@ execute_node :: (
               .Executable => "exe"
             );
             description = `compile ${kind_label} ${artifact.name}`;
-            result := e.io.await(compile_artifact(artifact, ctx, e.io, e.exn), e);
+            result := e.io.await(compile_artifact(&artifact, ctx, e.io, &e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -2520,7 +2520,7 @@ execute_node :: (
           .None => (),
           .Some(suite) => {
             description = `test ${suite.name}`;
-            result := e.io.await(run_test_suite(suite, ctx, e.io, e.exn), e);
+            result := e.io.await(run_test_suite(&suite, ctx, e.io, &e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -2557,7 +2557,7 @@ execute_node :: (
                   run_argv.push(ctx.run_args(ra_i).clone());
                   ra_i = (ra_i + usize(1));
                 });
-                result := e.io.await(run_executable(artifact, run_argv, ctx, e.io, e.exn), e);
+                result := e.io.await(run_executable(&artifact, &run_argv, ctx, e.io, &e.exn), e);
                 match(
                   result,
                   .Ok(_) => (),
@@ -2578,7 +2578,7 @@ execute_node :: (
           .None => (),
           .Some(vcfg) => {
             description = `verify ${vcfg.name}`;
-            result := e.io.await(run_verify_step(vcfg, ctx, e.io, e.exn), e);
+            result := e.io.await(run_verify_step(&vcfg, ctx, e.io, &e.exn), e);
             match(
               result,
               .Ok(_) => (),
@@ -2650,7 +2650,7 @@ _dependency_failed :: (fn(imm(node) : DAGNode, imm(results) : HashMap(String, St
   (i : usize) = usize(0);
   while(i < node.depends_on.len(), {
     match(
-      results.get(node.depends_on(i)),
+      results.get(&node.depends_on(i)),
       .Some(r) => if(!r.success, {
         return(true);
       }),
@@ -2687,7 +2687,7 @@ _execute_node_unless_blocked :: (
       );
     });
     node_t0 := Instant.now();
-    r := e.io.await(execute_node(node, ctx, e.io, e.exn), e);
+    r := e.io.await(execute_node(node, ctx, e.io, &e.exn), e);
     r.duration_ms = node_t0.elapsed().as_millis();
     r
   })
@@ -2716,15 +2716,15 @@ _execute_batch :: (
     (i : usize) = usize(0);
     while(i < batch.len(), {
       node := batch(i);
-      blocked := _dependency_failed(node, results);
-      handles.push(e.io.spawn(_execute_node_unless_blocked(node, blocked, ctx, e.io, e.exn), e));
+      blocked := _dependency_failed(&node, results);
+      handles.push(e.io.spawn(_execute_node_unless_blocked(&node, blocked, ctx, e.io, &e.exn), e));
       i = (i + usize(1));
     });
     // `join_all` is a future (plans/ASYNC_IO_API_AUDIT.md A1): awaiting it
     // suspends `_execute_batch` while the step tasks run, so it no longer
     // nests the event loop the way the blocking `JoinHandle.await` did
     // (issues/fixed/build-scheduler-join-all-nests-the-event-loop.md).
-    outs := e.io.await(join_all(handles, e.io), e.io);
+    outs := e.io.await(join_all(&handles, e.io), &e.io);
     batch_results := ArrayList(StepResult).new();
     i = usize(0);
     while(i < batch.len(), {
@@ -2771,7 +2771,7 @@ execute_dag :: (
     i := usize(0);
     while(i < n, {
       node := dag(i);
-      if(!in_degree.contains_key(node.name), {
+      if(!in_degree.contains_key(&node.name), {
         in_degree.insert(node.name, i32(0));
       });
       j := usize(0);
@@ -2788,7 +2788,7 @@ execute_dag :: (
           k = (k + usize(1));
         });
         if(dep_in_dag, {
-          cur := in_degree.get(node.name).unwrap_or(i32(0));
+          cur := in_degree.get(&node.name).unwrap_or(i32(0));
           in_degree.insert(node.name, cur + i32(1));
         });
         j = (j + usize(1));
@@ -2801,7 +2801,7 @@ execute_dag :: (
       i = usize(0);
       while(i < n, {
         node := dag(i);
-        if(!completed.contains_key(node.name) && (in_degree.get(node.name).unwrap_or(i32(0)) == i32(0)), {
+        if(!completed.contains_key(&node.name) && (in_degree.get(&node.name).unwrap_or(i32(0)) == i32(0)), {
           ready.push(node);
         });
         i = (i + usize(1));
@@ -2825,7 +2825,7 @@ execute_dag :: (
           bi = (bi + usize(1));
         });
         k = (k + batch.len());
-        batch_results := e.io.await(_execute_batch(batch, results, ctx, e.io, e.exn), e);
+        batch_results := e.io.await(_execute_batch(&batch, &results, ctx, e.io, &e.exn), e);
         (ri : usize) = usize(0);
         while(ri < batch_results.len(), {
           br := batch_results(ri);
@@ -2842,13 +2842,13 @@ execute_dag :: (
         m := usize(0);
         while(m < n, {
           other := dag(m);
-          if(!completed.contains_key(other.name), {
+          if(!completed.contains_key(&other.name), {
             j := usize(0);
             nd := other.depends_on.len();
             while(j < nd, {
               dep := other.depends_on(j);
               if(dep == completed_name, {
-                cur := in_degree.get(other.name).unwrap_or(i32(1));
+                cur := in_degree.get(&other.name).unwrap_or(i32(1));
                 in_degree.insert(other.name, cur - i32(1));
               });
               j = (j + usize(1));
@@ -2876,19 +2876,19 @@ _print_summary_node :: (
   ) -> unit
 )({
   status_str := match(
-    results.get(node.name),
+    results.get(&node.name),
     .None => String.from("skipped"),
     .Some(r) => if(r.success, String.from("ok"), String.from("FAILED"))
   );
   desc := match(
-    results.get(node.name),
+    results.get(&node.name),
     .None => node.name,
     .Some(r) => r.description
   );
   // The duration is part of what the summary promises; a node that never ran
   // (skipped) has none to show.
   timing := match(
-    results.get(node.name),
+    results.get(&node.name),
     .None => String.new(),
     .Some(r) => ` (${r.duration_ms.to_string()} ms)`
   );
@@ -2902,14 +2902,14 @@ _print_summary_node :: (
   while(i < nd, {
     dep_name := node.depends_on(i);
     match(
-      node_map.get(dep_name),
+      node_map.get(&dep_name),
       .None => (),
       .Some(child) => {
         is_last := (i == (nd - usize(1)));
         connector := if(is_last, "└── ", "├── ");
         next_child_pfx := if(is_last, "    ", "│   ");
         recur(
-          child,
+          &child,
           results,
           node_map,
           `${children_prefix}${connector}`,
@@ -2934,7 +2934,7 @@ print_build_summary :: (
   i := usize(0);
   while(i < n, {
     match(
-      results.get(dag(i).name),
+      results.get(&dag(i).name),
       .None => (),
       .Some(r) => {
         if(r.success, {
@@ -2957,7 +2957,7 @@ print_build_summary :: (
         node_map.insert(nd.name, nd);
         j = (j + usize(1));
       });
-      _print_summary_node(dag(i), results, node_map, String.new(), String.new(), true);
+      _print_summary_node(&dag(i), results, &node_map, String.new(), String.new(), true);
     });
     i = (i + usize(1));
   });
@@ -2990,9 +2990,9 @@ _plan_step :: (
     .Some(_) => ()
   );
   missing := ArrayList(String).new();
-  dag := build_dag_checked(ctx.registry, step_name.clone(), missing);
+  dag := build_dag_checked(&ctx.registry, step_name.clone(), &mut missing);
   if(missing.len() > usize(0), {
-    joined := `", "`.join(missing);
+    joined := `", "`.join(&missing);
     exn.throw(
       dyn(
         `Error: step "${step_name}" depends on "${joined}", which no artifact, test, run, doc or step defines.`
@@ -3000,7 +3000,7 @@ _plan_step :: (
     );
   });
   match(
-    detect_cycle(dag),
+    detect_cycle(&dag),
     .Some(cycle_node) => {
       exn.throw(dyn(`Error: Cycle in build DAG involving "${cycle_node}"`));
     },
@@ -3029,7 +3029,7 @@ _print_plan :: (fn(imm(step_name) : String, imm(dag) : ArrayList(DAGNode)) -> un
     // issues/fixed/nested-template-in-an-interpolation-takes-the-auto-import.md,
     // and the SEED builds this file.
     sep := String.from(", ");
-    deps := if(node.depends_on.len() == usize(0), String.new(), ` <- ${sep.join(node.depends_on)}`);
+    deps := if(node.depends_on.len() == usize(0), String.new(), ` <- ${sep.join(&node.depends_on)}`);
     println(`[dry-run]   ${kind_label} ${node.name}${deps}`);
     i = (i + usize(1));
   });
@@ -3050,13 +3050,13 @@ execute_step :: (
     // The early return keeps the await below a top-level statement: an await
     // nested in an if-branch loses its continuation
     // (issues/retired/async-await-nested-if-lost-continuation.md).
-    dag := _plan_step(step_name.clone(), ctx, e.exn);
+    dag := _plan_step(step_name.clone(), ctx, &e.exn);
     if(dry_run, {
-      _print_plan(step_name.clone(), dag);
+      _print_plan(step_name.clone(), &dag);
       return(());
     });
-    results := e.io.await(execute_dag(dag, ctx, e.io, e.exn), e);
-    if(ctx.summary, print_build_summary(results, dag, step_name));
+    results := e.io.await(execute_dag(&dag, ctx, e.io, &e.exn), e);
+    if(ctx.summary, print_build_summary(&results, &dag, step_name));
     // A failed step must fail the build. execute_node folds per-step errors
     // into StepResult.success so the DAG finishes and the summary can show
     // WHICH step broke — but exiting 0 after a failed compile would let CI
@@ -3066,7 +3066,7 @@ execute_step :: (
     (ri : usize) = usize(0);
     while(ri < dag.len(), {
       match(
-        results.get(dag(ri).name),
+        results.get(&dag(ri).name),
         .Some(r) => if(!r.success, {
           any_failed = true;
         }),
@@ -3224,7 +3224,7 @@ evaluate_build_file :: (
     reg := get_build_registry();
     reg.cli_options = defines;
     reg.manifest_fields = _manifest_fields(manifest_opt);
-    outcome := mm_load_yo_file(build_file, e.io, e.exn);
+    outcome := mm_load_yo_file(build_file, e.io, &e.exn);
     load_error := _take_load_error();
     // No `mm_reset()` here: the caller resets once, after the manifest's
     // import roots are resolved. Re-loading the prelude after a reset
@@ -3234,7 +3234,7 @@ evaluate_build_file :: (
     if(!outcome.ok, {
       match(
         load_error,
-        .Some(rendered) => emit_rendered_text(rendered),
+        .Some(rendered) => emit_rendered_text(&rendered),
         .None => eprintln(`build: error in: ${build_file} (no diagnostic recorded)`)
       );
       e.exn.throw(dyn(`Error: Failed to evaluate build file ${build_file}`));
@@ -3256,10 +3256,10 @@ run_build :: (
     // build file is the whole implementation — `project_dir` is this file's
     // parent, and every path downstream derives from it, so the member builds
     // exactly as it would if you had cd'd into it.
-    member_build_file := e.io.await(_resolve_workspace_member(options.package.clone(), e.io, e.exn), e);
+    member_build_file := e.io.await(_resolve_workspace_member(options.package.clone(), e.io, &e.exn), e);
     effective_build_file := match(member_build_file, .Some(bf) => bf, .None => options.build_file.clone());
     build_file_path := Path.new(effective_build_file.clone());
-    build_file_exists := e.io.await(exists(build_file_path, e.io), e.io);
+    build_file_exists := e.io.await(exists(&build_file_path, e.io), &e.io);
     if(!build_file_exists, {
       e.exn.throw(dyn(`Error: Build file not found: ${build_file_path.to_string()}`));
     });
@@ -3287,29 +3287,29 @@ run_build :: (
     // closure is what every artifact's `import("name")` resolves through, and
     // its git dependencies are fetched further down. Reading it needs no
     // evaluator — `load_manifest` parses TOML.
-    manifest_opt := project_manifest(project_dir.clone(), e.exn);
+    manifest_opt := project_manifest(project_dir.clone(), &e.exn);
     // Evaluate build.yo to populate the registry.
     registry := e.io.await(
       evaluate_build_file(
         build_file_path.to_string(),
-        options.defines,
-        manifest_opt,
+        &options.defines,
+        &manifest_opt,
         e.io,
-        e.exn
+        &e.exn
       ),
       e
     );
     if(options.list_steps, {
-      print_steps(registry);
+      print_steps(&registry);
       return(());
     });
     if(options.list_options, {
-      print_options(registry);
+      print_options(&registry);
       return(());
     });
-    unknown_opts := undeclared_options(registry);
+    unknown_opts := undeclared_options(&registry);
     if(unknown_opts.len() > usize(0), {
-      joined := `", "`.join(unknown_opts);
+      joined := `", "`.join(&unknown_opts);
       e.exn.throw(
         dyn(
           `Error: -D"${joined}" is not an option of this build file. Run 'yo build --list-options' to see the ones it declares.`
@@ -3318,13 +3318,13 @@ run_build :: (
     });
     // Fetching the git dependencies the manifest declares runs before the
     // single evaluator reset that follows (see evaluate_build_file).
-    e.io.await(resolve_build_import_roots(manifest_opt, registry, options.locked, options.offline, options.verbose, e.io, e.exn), e);
+    e.io.await(resolve_build_import_roots(&manifest_opt, &registry, options.locked, options.offline, options.verbose, e.io, &e.exn), e);
     // Every `dep.artifact(...)` this build file named becomes a real artifact
     // of ours, built from the dependency's own build.yo (§4.5.2). Runs after
     // the fetch above, so a git dependency's sources are on disk.
     match(
       manifest_opt,
-      .Some(m) => e.io.await(_evaluate_dependency_builds(m, registry, options.defines, e.io, e.exn), e),
+      .Some(m) => e.io.await(_evaluate_dependency_builds(&m, &registry, &options.defines, e.io, &e.exn), e),
       .None => ()
     );
     project_name := match(manifest_opt, .Some(m) => m.name.clone(), .None => String.new());
@@ -3382,7 +3382,7 @@ run_build :: (
             if(linked.len() > usize(0), {
               eff_target := match(options.target_triple, .Some(t) => t, .None => art.target.clone());
               eff_ti := match(parse_target(eff_target.clone()), .Ok(t) => t, .Err(_) => host_target());
-              if(is_target_wasm(eff_ti), {
+              if(is_target_wasm(&eff_ti), {
                 (wl_i : usize) = usize(0);
                 while(wl_i < linked.len(), {
                   match(
@@ -3409,12 +3409,12 @@ run_build :: (
                   wl_i = (wl_i + usize(1));
                 });
               }, {
-                sys_flags := e.io.await(resolve_all_system_libraries(linked, options.verbose, e.io, e.exn), e);
-                _push_all_strings(art.include_paths, sys_flags.include_paths);
-                _push_all_strings(art.library_paths, sys_flags.library_paths);
-                _push_all_strings(art.link_libraries, sys_flags.link_libraries);
-                _push_all_strings(art.defines, sys_flags.defines);
-                _push_all_strings(art.c_flags, sys_flags.c_flags);
+                sys_flags := e.io.await(resolve_all_system_libraries(&linked, options.verbose, e.io, &e.exn), e);
+                _push_all_strings(&mut art.include_paths, &sys_flags.include_paths);
+                _push_all_strings(&mut art.library_paths, &sys_flags.library_paths);
+                _push_all_strings(&mut art.link_libraries, &sys_flags.link_libraries);
+                _push_all_strings(&mut art.defines, &sys_flags.defines);
+                _push_all_strings(&mut art.c_flags, &sys_flags.c_flags);
               });
             });
           }),
@@ -3452,7 +3452,7 @@ run_build :: (
       // graph without running it", and printing one line per requested step
       // promised nothing (the plan's B7). `execute_step` itself branches,
       // after planning and before its only await.
-      e.io.await(execute_step(step_name, ctx, options.dry_run, e.io, e.exn), e);
+      e.io.await(execute_step(&step_name, &ctx, options.dry_run, e.io, &e.exn), e);
       i = (i + usize(1));
     });
   })

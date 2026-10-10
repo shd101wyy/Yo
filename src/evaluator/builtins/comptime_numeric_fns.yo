@@ -193,8 +193,8 @@ _i64_op_wrapped :: (fn(a : i64, b : i64, imm(op_s) : String) -> bool)(
     // The sign test detects the same wrap with wrapping_mul only: for
     // same-sign operands the wrapped product is negative exactly when the
     // exact product left the range, and for mixed signs it is non-negative.
-    ((a < i64(0)) == (b < i64(0))) => (a.wrapping_mul(b) < i64(0)),
-    true => (a.wrapping_mul(b) >= i64(0))
+    ((a < i64(0)) == (b < i64(0))) => (a.wrapping_mul(&b) < i64(0)),
+    true => (a.wrapping_mul(&b) >= i64(0))
   )
 );
 // ---------------------------------------------------------------------------
@@ -308,7 +308,7 @@ eval_numeric_arg :: (
 )({
   evaluated := evaluate_expression_raw(arg, env, ctx, exn);
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(i) => i,
     .None => {
       exn.throw(
@@ -427,14 +427,14 @@ evaluate_yo_comptime_numeric_functions :: (
         return(expr);
       }
     );
-    lhs_info := eval_numeric_arg(arg0, env, ctx, exn);
+    lhs_info := eval_numeric_arg(&arg0, env, ctx, exn);
     lhs_val := lhs_info.value;
-    (cur_env : Environment) = expr_info_adopt_env(lhs_info);
+    (cur_env : Environment) = expr_info_adopt_env(&lhs_info);
     (result_val : EvalValue) = EvalValue.UnitVal;
     (result_ty : TypeValue) = numeric_type;
     cond(
       (op_s == "neg") => {
-        if(is_unsigned_integer_type(numeric_type), {
+        if(is_unsigned_integer_type(&numeric_type), {
           exn.throw(
             dyn(
               format_error_message(
@@ -452,45 +452,45 @@ evaluate_yo_comptime_numeric_functions :: (
               // then fell into the integer branch's `_ =>` and produced an
               // UNKNOWN (runtime) value, so `X :: f64(-(50.75))` was rejected
               // with "Got runtime value"; branch on the VALUE, not the type.
-              (is_float_type(numeric_type) || is_comptime_float_type(numeric_type)) => match(
+              (is_float_type(&numeric_type) || is_comptime_float_type(&numeric_type)) => match(
                 av,
                 .FloatLit(raw) => match(
-                  parse_raw_float(raw),
-                  .Some(v) => make_float_val(f64(0.0) - v, numeric_type),
-                  .None => create_unknown_val(numeric_type)
+                  parse_raw_float(&raw),
+                  .Some(v) => make_float_val(f64(0.0) - v, &numeric_type),
+                  .None => create_unknown_val(&numeric_type)
                 ),
-                _ => create_unknown_val(numeric_type)
+                _ => create_unknown_val(&numeric_type)
               ),
               true => match(
                 av,
                 .IntLit(raw) => match(
-                  parse_raw_int(raw),
+                  parse_raw_int(&raw),
                   .Some(n) => {
                     // `-MIN` traps at run time; on a constant it is a compile
                     // error (it used to fold to MIN again, or clamp).
                     neg_min := match(
-                      target_integer_type_range(numeric_type),
+                      target_integer_type_range(&numeric_type),
                       .Some(r) => ((r.min < i64(0)) && (n == r.min)),
-                      .None => (is_comptime_int_type(numeric_type) && (n == i64.MIN))
+                      .None => (is_comptime_int_type(&numeric_type) && (n == i64.MIN))
                     );
                     if(neg_min, {
                       exn.throw(
                         dyn(
                           format_error_message(
                             ast_expr_token(expr),
-                            `Integer overflow in compile-time evaluation: -(${raw}) does not fit in ${type_to_string(numeric_type)}`
+                            `Integer overflow in compile-time evaluation: -(${raw}) does not fit in ${type_to_string(&numeric_type)}`
                           )
                         )
                       );
                     });
-                    make_int_val(i64(0).wrapping_sub(n), numeric_type)
+                    make_int_val(i64(0).wrapping_sub(&n), &numeric_type)
                   },
-                  .None => create_unknown_val(numeric_type)
+                  .None => create_unknown_val(&numeric_type)
                 ),
-                _ => create_unknown_val(numeric_type)
+                _ => create_unknown_val(&numeric_type)
               )
             ),
-            .None => create_unknown_val(numeric_type)
+            .None => create_unknown_val(&numeric_type)
           );
         });
       },
@@ -500,21 +500,21 @@ evaluate_yo_comptime_numeric_functions :: (
           .Some(av) => match(
             av,
             .IntLit(raw) => match(
-              parse_raw_int(raw),
-              .Some(n) => make_int_val(bit_not_int(n, numeric_type), numeric_type),
-              .None => create_unknown_val(numeric_type)
+              parse_raw_int(&raw),
+              .Some(n) => make_int_val(bit_not_int(n, &numeric_type), &numeric_type),
+              .None => create_unknown_val(&numeric_type)
             ),
-            _ => create_unknown_val(numeric_type)
+            _ => create_unknown_val(&numeric_type)
           ),
-          .None => create_unknown_val(numeric_type)
+          .None => create_unknown_val(&numeric_type)
         );
       },
       (op_s == "to_comptime_string") => {
         result_ty = t_comptime_string();
         result_val = match(
           lhs_val,
-          .Some(.IntLit(raw)) => EvalValue.StrLit(str_lit_quote(raw)),
-          .Some(.FloatLit(raw)) => EvalValue.StrLit(str_lit_quote(raw)),
+          .Some(.IntLit(raw)) => EvalValue.StrLit(str_lit_quote(&raw)),
+          .Some(.FloatLit(raw)) => EvalValue.StrLit(str_lit_quote(&raw)),
           .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         );
@@ -530,9 +530,9 @@ evaluate_yo_comptime_numeric_functions :: (
         );
       }
     );
-    out_info := new_expr_info(cur_env, result_ty);
+    out_info := new_expr_info(&cur_env, &result_ty);
     out_info.value = .Some(result_val);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, {
     // ---- 6. Binary operations. -------------------------------------------
     arg0 := match(
@@ -549,28 +549,28 @@ evaluate_yo_comptime_numeric_functions :: (
         return(expr);
       }
     );
-    lhs_info := eval_numeric_arg(arg0, env, ctx, exn);
-    rhs_info := eval_numeric_arg(arg1, lhs_info.env, ctx, exn);
+    lhs_info := eval_numeric_arg(&arg0, env, ctx, exn);
+    rhs_info := eval_numeric_arg(&arg1, &lhs_info.env, ctx, exn);
     lhs_val := lhs_info.value;
     rhs_val := rhs_info.value;
-    (cur_env : Environment) = expr_info_adopt_env(rhs_info);
+    (cur_env : Environment) = expr_info_adopt_env(&rhs_info);
     (result_val : EvalValue) = EvalValue.UnitVal;
     (result_ty : TypeValue) = numeric_type;
     // ComptimeFloat must take the float path too — same `is_float_type`
     // gap as the unary-neg note above: every `__yo_comptime_float_*`
     // binary op otherwise fell into the integer branch and yielded
     // unknowns ("Got runtime value" on `X :: (a + b)` comptime floats).
-    if(is_float_type(numeric_type) || is_comptime_float_type(numeric_type), {
+    if(is_float_type(&numeric_type) || is_comptime_float_type(&numeric_type), {
       // ---- Float binary path. --------------------------------------------
       lhs_f := match(
         lhs_val,
-        .Some(.FloatLit(raw)) => parse_raw_float(raw),
+        .Some(.FloatLit(raw)) => parse_raw_float(&raw),
         .Some(_) => Option(f64).None,
         .None => Option(f64).None
       );
       rhs_f := match(
         rhs_val,
-        .Some(.FloatLit(raw)) => parse_raw_float(raw),
+        .Some(.FloatLit(raw)) => parse_raw_float(&raw),
         .Some(_) => Option(f64).None,
         .None => Option(f64).None
       );
@@ -586,7 +586,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     dyn(
                       with_code(
                         format_error_message(
-                          ast_expr_token(arg1),
+                          ast_expr_token(&arg1),
                           `Division by zero in compile-time evaluation: ${a.to_string()} / 0.0`
                         ),
                         E_COMPTIME_DIVISION_BY_ZERO
@@ -600,14 +600,14 @@ evaluate_yo_comptime_numeric_functions :: (
                   (op_s == "mul") => (a * b),
                   true => (a / b)
                 );
-                result_val = make_float_val(f_result, numeric_type);
+                result_val = make_float_val(f_result, &numeric_type);
               },
               .None => {
-                result_val = create_unknown_val(numeric_type);
+                result_val = create_unknown_val(&numeric_type);
               }
             ),
             .None => {
-              result_val = create_unknown_val(numeric_type);
+              result_val = create_unknown_val(&numeric_type);
             }
           );
         },
@@ -665,13 +665,13 @@ evaluate_yo_comptime_numeric_functions :: (
       // ---- Integer binary path. ------------------------------------------
       lhs_n := match(
         lhs_val,
-        .Some(.IntLit(raw)) => parse_raw_int(raw),
+        .Some(.IntLit(raw)) => parse_raw_int(&raw),
         .Some(_) => Option(i64).None,
         .None => Option(i64).None
       );
       rhs_n := match(
         rhs_val,
-        .Some(.IntLit(raw)) => parse_raw_int(raw),
+        .Some(.IntLit(raw)) => parse_raw_int(&raw),
         .Some(_) => Option(i64).None,
         .None => Option(i64).None
       );
@@ -686,8 +686,8 @@ evaluate_yo_comptime_numeric_functions :: (
       // not: signed `-1 / 10` is `0`, `-1 % 10` is `-1`, `-1 > 1` is false and
       // `-1 >> 1` is `-1`, none of which are the `u64.MAX` answers.
       unsigned_64 := (
-        is_unsigned_integer_type(numeric_type) && match(
-          get_integer_type_bits(numeric_type),
+        is_unsigned_integer_type(&numeric_type) && match(
+          get_integer_type_bits(&numeric_type),
           .Some(bw) => (bw == u32(64)),
           .None => false
         )
@@ -706,21 +706,21 @@ evaluate_yo_comptime_numeric_functions :: (
                 // check_int_overflow below re-tests the pattern in the
                 // unsigned domain for u64/usize.
                 n_result := cond(
-                  (op_s == "add") => a.wrapping_add(b),
-                  (op_s == "sub") => a.wrapping_sub(b),
-                  true => a.wrapping_mul(b)
+                  (op_s == "add") => a.wrapping_add(&b),
+                  (op_s == "sub") => a.wrapping_sub(&b),
+                  true => a.wrapping_mul(&b)
                 );
                 // Check the EXACT result against the type's range before
                 // building the value; `make_int_val` below only CLAMPS.
-                check_int_overflow(n_result, numeric_type, op_s.clone(), a, b, ast_expr_token(expr), exn);
-                result_val = make_int_val(n_result, numeric_type);
+                check_int_overflow(n_result, &numeric_type, op_s.clone(), a, b, ast_expr_token(expr), exn);
+                result_val = make_int_val(n_result, &numeric_type);
               },
               .None => {
-                result_val = create_unknown_val(numeric_type);
+                result_val = create_unknown_val(&numeric_type);
               }
             ),
             .None => {
-              result_val = create_unknown_val(numeric_type);
+              result_val = create_unknown_val(&numeric_type);
             }
           );
         },
@@ -735,7 +735,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     dyn(
                       with_code(
                         format_error_message(
-                          ast_expr_token(arg1),
+                          ast_expr_token(&arg1),
                           `Division by zero in compile-time evaluation: ${cond(unsigned_64 => u64(a).to_string(), true => a.to_string())} / 0`
                         ),
                         E_COMPTIME_DIVISION_BY_ZERO
@@ -743,21 +743,21 @@ evaluate_yo_comptime_numeric_functions :: (
                     )
                   );
                 });
-                _reject_min_by_minus_one(a, b, numeric_type, unsigned_64, ast_expr_token(expr), exn);
+                _reject_min_by_minus_one(a, b, &numeric_type, unsigned_64, ast_expr_token(expr), exn);
                 result_val = make_int_val(
                   cond(
                     unsigned_64 => i64(u64(a) / u64(b)),
                     true => (a / b)
                   ),
-                  numeric_type
+                  &numeric_type
                 );
               },
               .None => {
-                result_val = create_unknown_val(numeric_type);
+                result_val = create_unknown_val(&numeric_type);
               }
             ),
             .None => {
-              result_val = create_unknown_val(numeric_type);
+              result_val = create_unknown_val(&numeric_type);
             }
           );
         },
@@ -772,7 +772,7 @@ evaluate_yo_comptime_numeric_functions :: (
                     dyn(
                       with_code(
                         format_error_message(
-                          ast_expr_token(arg1),
+                          ast_expr_token(&arg1),
                           `Remainder by zero in compile-time evaluation: ${cond(unsigned_64 => u64(a).to_string(), true => a.to_string())} % 0`
                         ),
                         E_COMPTIME_DIVISION_BY_ZERO
@@ -780,21 +780,21 @@ evaluate_yo_comptime_numeric_functions :: (
                     )
                   );
                 });
-                _reject_min_by_minus_one(a, b, numeric_type, unsigned_64, ast_expr_token(expr), exn);
+                _reject_min_by_minus_one(a, b, &numeric_type, unsigned_64, ast_expr_token(expr), exn);
                 result_val = make_int_val(
                   cond(
                     unsigned_64 => i64(u64(a) % u64(b)),
                     true => (a % b)
                   ),
-                  numeric_type
+                  &numeric_type
                 );
               },
               .None => {
-                result_val = create_unknown_val(numeric_type);
+                result_val = create_unknown_val(&numeric_type);
               }
             ),
             .None => {
-              result_val = create_unknown_val(numeric_type);
+              result_val = create_unknown_val(&numeric_type);
             }
           );
         },
@@ -844,14 +844,14 @@ evaluate_yo_comptime_numeric_functions :: (
                   (op_s == "bit_or") => (a | b),
                   true => (a ^ b)
                 );
-                result_val = make_int_val(n_result, numeric_type);
+                result_val = make_int_val(n_result, &numeric_type);
               },
               .None => {
-                result_val = create_unknown_val(numeric_type);
+                result_val = create_unknown_val(&numeric_type);
               }
             ),
             .None => {
-              result_val = create_unknown_val(numeric_type);
+              result_val = create_unknown_val(&numeric_type);
             }
           );
         },
@@ -867,18 +867,18 @@ evaluate_yo_comptime_numeric_functions :: (
                 // of 64 or more would trap inside the compiler itself. A
                 // `comptime_int` is unbounded but carried as an i64, so a
                 // left shift whose value leaves the i64 is rejected too.
-                sh_w := match(comptime_int_width(numeric_type), .Some(w) => w, .None => u32(64));
+                sh_w := match(comptime_int_width(&numeric_type), .Some(w) => w, .None => u32(64));
                 if((b < i64(0)) || (b >= i64(sh_w)), {
                   exn.throw(
                     dyn(
                       format_error_message(
                         ast_expr_token(expr),
-                        `Integer overflow in compile-time evaluation: shift count ${b.to_string()} is out of range for ${type_to_string(numeric_type)} (0..${sh_w.to_string()})`
+                        `Integer overflow in compile-time evaluation: shift count ${b.to_string()} is out of range for ${type_to_string(&numeric_type)} (0..${sh_w.to_string()})`
                       )
                     )
                   );
                 });
-                if((op_s == "shl") && is_comptime_int_type(numeric_type) && (a != i64(0)) && (((a << b) >> b) != a), {
+                if((op_s == "shl") && is_comptime_int_type(&numeric_type) && (a != i64(0)) && (((a << b) >> b) != a), {
                   exn.throw(
                     dyn(
                       format_error_message(
@@ -893,14 +893,14 @@ evaluate_yo_comptime_numeric_functions :: (
                   unsigned_64 => i64(u64(a) >> u64(b)),
                   true => (a >> b)
                 );
-                result_val = make_int_val(n_result, numeric_type);
+                result_val = make_int_val(n_result, &numeric_type);
               },
               .None => {
-                result_val = create_unknown_val(numeric_type);
+                result_val = create_unknown_val(&numeric_type);
               }
             ),
             .None => {
-              result_val = create_unknown_val(numeric_type);
+              result_val = create_unknown_val(&numeric_type);
             }
           );
         },
@@ -916,9 +916,9 @@ evaluate_yo_comptime_numeric_functions :: (
         }
       );
     });
-    out_info := new_expr_info(cur_env, result_ty);
+    out_info := new_expr_info(&cur_env, &result_ty);
     out_info.value = .Some(result_val);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   });
   expr
 });

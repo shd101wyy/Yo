@@ -269,29 +269,29 @@ impl(
         true => AF_INET6
       );
       // Create socket
-      raw_fd := e.io.await(IO_tcp.socket(domain, SOCK_STREAM, i32(0)), e.io);
-      fd := NetError.check(raw_fd, e.exn);
+      raw_fd := e.io.await(IO_tcp.socket(domain, SOCK_STREAM, i32(0)), &e.io);
+      fd := NetError.check(raw_fd, &e.exn);
       // Set SO_REUSEADDR
       reuse_val := i32(1);
       reuse_ptr := addr_of(reuse_val);
-      e.io.await(IO_tcp.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*u8)(reuse_ptr), u32(4)), e.io);
+      e.io.await(IO_tcp.setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (*u8)(reuse_ptr), u32(4)), &e.io);
       // Bind
       saddr := make_sockaddr(addr);
-      bind_result := e.io.await(IO_tcp.bind(fd, saddr.buf, saddr.len), e.io);
+      bind_result := e.io.await(IO_tcp.bind(fd, saddr.buf, saddr.len), &e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(
         (bind_result < i32(0)) => {
-          e.io.await(IO_tcp.close(fd), e.io);
-          _throw_io(i32(0) - bind_result, e.exn);
+          e.io.await(IO_tcp.close(fd), &e.io);
+          _throw_io(i32(0) - bind_result, &e.exn);
         },
         true => ()
       );
       // Listen
-      listen_result := e.io.await(IO_tcp.listen(fd, i32(128)), e.io);
+      listen_result := e.io.await(IO_tcp.listen(fd, i32(128)), &e.io);
       cond(
         (listen_result < i32(0)) => {
-          e.io.await(IO_tcp.close(fd), e.io);
-          _throw_io(i32(0) - listen_result, e.exn);
+          e.io.await(IO_tcp.close(fd), &e.io);
+          _throw_io(i32(0) - listen_result, &e.exn);
         },
         true => ()
       );
@@ -310,12 +310,12 @@ impl(
       addr_buf := (*u8)(malloc(usize(128)).unwrap());
       addr_len := (*u32)(malloc(usize(4)).unwrap());
       addr_len.* = u32(128);
-      client_fd := e.io.await(IO_tcp.accept(fd, addr_buf, addr_len), e.io);
+      client_fd := e.io.await(IO_tcp.accept(fd, addr_buf, addr_len), &e.io);
       cond(
         (client_fd < i32(0)) => {
           free(.Some((*void)(addr_buf)));
           free(.Some((*void)(addr_len)));
-          _throw_io(i32(0) - client_fd, e.exn);
+          _throw_io(i32(0) - client_fd, &e.exn);
         },
         true => ()
       );
@@ -324,8 +324,8 @@ impl(
         (own < i32(0)) => {
           free(.Some((*void)(addr_buf)));
           free(.Some((*void)(addr_len)));
-          e.io.await(IO_tcp.close(client_fd), e.io);
-          _throw_io(i32(0) - own, e.exn);
+          e.io.await(IO_tcp.close(client_fd), &e.io);
+          _throw_io(i32(0) - own, &e.exn);
         },
         true => ()
       );
@@ -373,11 +373,11 @@ impl(
       cond(
         self._is_closed => (),
         true => {
-          r := e.io.await(IO_tcp.close(fd), e.io);
+          r := e.io.await(IO_tcp.close(fd), &e.io);
           self._is_closed = true;
           cond(
             (r < i32(0)) => {
-              _throw_io(i32(0) - r, e.exn);
+              _throw_io(i32(0) - r, &e.exn);
             },
             true => ()
           );
@@ -418,23 +418,23 @@ impl(
         addr.ip.is_v4() => AF_INET,
         true => AF_INET6
       );
-      raw_fd := e.io.await(IO_tcp.socket(domain, SOCK_STREAM, i32(0)), e.io);
-      fd := NetError.check(raw_fd, e.exn);
+      raw_fd := e.io.await(IO_tcp.socket(domain, SOCK_STREAM, i32(0)), &e.io);
+      fd := NetError.check(raw_fd, &e.exn);
       own := SockInfo.own_stream_socket(fd);
       cond(
         (own < i32(0)) => {
-          e.io.await(IO_tcp.close(fd), e.io);
-          _throw_io(i32(0) - own, e.exn);
+          e.io.await(IO_tcp.close(fd), &e.io);
+          _throw_io(i32(0) - own, &e.exn);
         },
         true => ()
       );
       saddr := make_sockaddr(addr);
-      conn_result := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len), e.io);
+      conn_result := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len), &e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(
         (conn_result < i32(0)) => {
-          e.io.await(IO_tcp.close(fd), e.io);
-          _throw_io(i32(0) - conn_result, e.exn);
+          e.io.await(IO_tcp.close(fd), &e.io);
+          _throw_io(i32(0) - conn_result, &e.exn);
         },
         true => ()
       );
@@ -463,8 +463,8 @@ impl(
   read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_tcp.recv(fd, buf, size, i32(0)), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_tcp.recv(fd, buf, size, i32(0)), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Write up to `size` raw bytes from `buf`, resolving to the number the
@@ -476,8 +476,8 @@ impl(
   write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_tcp.stream_write(fd, buf, size), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_tcp.stream_write(fd, buf, size), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Write a `str` to the stream.
@@ -486,8 +486,8 @@ impl(
     fd := self._fd;
     s := String.from(data);
     io.async(e => {
-      r := e.io.await(IO_tcp.stream_write(fd, s.ptr().unwrap(), s.len()), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_tcp.stream_write(fd, s.ptr().unwrap(), s.len()), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Write a `String` to the stream.
@@ -495,8 +495,8 @@ impl(
   write_string : (fn(imm(self) : Self, imm(data) : String, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len()), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Write raw bytes from an `ArrayList(u8)` to the stream.
@@ -504,8 +504,8 @@ impl(
   write_bytes : (fn(imm(self) : Self, imm(data) : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_tcp.stream_write(fd, data.ptr().unwrap(), data.len()), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Shut down part or all of the connection.
@@ -513,10 +513,10 @@ impl(
     fd := self._fd;
     raw_how := _shutdown_to_how(how);
     io.async(e => {
-      r := e.io.await(IO_tcp.shutdown(fd, raw_how), e.io);
+      r := e.io.await(IO_tcp.shutdown(fd, raw_how), &e.io);
       cond(
         (r < i32(0)) => {
-          _throw_io(i32(0) - r, e.exn);
+          _throw_io(i32(0) - r, &e.exn);
         },
         true => ()
       );
@@ -529,11 +529,11 @@ impl(
       cond(
         self._is_closed => (),
         true => {
-          r := e.io.await(IO_tcp.close(fd), e.io);
+          r := e.io.await(IO_tcp.close(fd), &e.io);
           self._is_closed = true;
           cond(
             (r < i32(0)) => {
-              _throw_io(i32(0) - r, e.exn);
+              _throw_io(i32(0) - r, &e.exn);
             },
             true => ()
           );
@@ -562,10 +562,10 @@ impl(
     io.async(e => {
       val := cond(nodelay => i32(1), true => i32(0));
       val_ptr := addr_of(val);
-      r := e.io.await(IO_tcp.setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, (*u8)(val_ptr), u32(4)), e.io);
+      r := e.io.await(IO_tcp.setsockopt(sock_fd, IPPROTO_TCP, TCP_NODELAY, (*u8)(val_ptr), u32(4)), &e.io);
       cond(
         (r < i32(0)) => {
-          _throw_io(i32(0) - r, e.exn);
+          _throw_io(i32(0) - r, &e.exn);
         },
         true => ()
       );
@@ -577,10 +577,10 @@ impl(
     io.async(e => {
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := addr_of(val);
-      r := e.io.await(IO_tcp.setsockopt(sock_fd, SOL_SOCKET, SO_KEEPALIVE, (*u8)(val_ptr), u32(4)), e.io);
+      r := e.io.await(IO_tcp.setsockopt(sock_fd, SOL_SOCKET, SO_KEEPALIVE, (*u8)(val_ptr), u32(4)), &e.io);
       cond(
         (r < i32(0)) => {
-          _throw_io(i32(0) - r, e.exn);
+          _throw_io(i32(0) - r, &e.exn);
         },
         true => ()
       );

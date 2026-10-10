@@ -192,9 +192,9 @@ _ca_collect_static_def_names :: (fn(imm(text) : String, mut(into) : HashSet(Stri
   n := bytes.len();
   (ls : usize) = usize(0);
   while(ls < n, {
-    if(_ca_matches(bytes, ls, static_pat), {
+    if(_ca_matches(&bytes, ls, &static_pat), {
       match(
-        _ca_parse_static_fn_line(bytes, ls, n, inline_pat, attr_pat),
+        _ca_parse_static_fn_line(&bytes, ls, n, &inline_pat, &attr_pat),
         .Some(info) => if(info.is_def, {
           into.insert(info.name);
           ()
@@ -202,7 +202,7 @@ _ca_collect_static_def_names :: (fn(imm(text) : String, mut(into) : HashSet(Stri
         .None => ()
       );
     });
-    while((ls < n) && (_ca_bget(bytes, ls) != u8(10)), {
+    while((ls < n) && (_ca_bget(&bytes, ls) != u8(10)), {
       ls = (ls + usize(1));
     });
     ls = (ls + usize(1));
@@ -222,10 +222,10 @@ _ca_dequalify_statics :: (fn(imm(text) : String, imm(header_defined) : HashSet(S
   (ls : usize) = usize(0);
   while(ls < n, {
     (strip : usize) = usize(0);
-    if(_ca_matches(bytes, ls, static_pat), {
+    if(_ca_matches(&bytes, ls, &static_pat), {
       match(
-        _ca_parse_static_fn_line(bytes, ls, n, inline_pat, attr_pat),
-        .Some(info) => if(!header_defined.contains(info.name), {
+        _ca_parse_static_fn_line(&bytes, ls, n, &inline_pat, &attr_pat),
+        .Some(info) => if(!header_defined.contains(&info.name), {
           strip = info.prefix_len;
         }),
         .None => ()
@@ -233,12 +233,12 @@ _ca_dequalify_statics :: (fn(imm(text) : String, imm(header_defined) : HashSet(S
     });
     (i : usize) = (ls + strip);
     (le : usize) = ls;
-    while((le < n) && (_ca_bget(bytes, le) != u8(10)), {
+    while((le < n) && (_ca_bget(&bytes, le) != u8(10)), {
       le = (le + usize(1));
     });
     le = if(le < n, le + usize(1), le);
     while(i < le, {
-      out.push(_ca_bget(bytes, i));
+      out.push(_ca_bget(&bytes, i));
       i = (i + usize(1));
     });
     ls = le;
@@ -283,21 +283,21 @@ _ca_split_decl_defs :: (fn(imm(text) : String) -> DeclSplit)({
   while(ls < n, {
     // Line extent [ls, le) including its newline.
     (le : usize) = ls;
-    while((le < n) && (_ca_bget(bytes, le) != u8(10)), {
+    while((le < n) && (_ca_bget(&bytes, le) != u8(10)), {
       le = (le + usize(1));
     });
     le = if(le < n, le + usize(1), le);
-    b0 := _ca_bget(bytes, ls);
+    b0 := _ca_bget(&bytes, ls);
     ident_start := (((b0 >= u8(65)) && (b0 <= u8(90))) || ((b0 >= u8(97)) && (b0 <= u8(122))) || (b0 == u8(95)));
     (moved : bool) = false;
-    if(ident_start && !_ca_decl_line_is_qualified(bytes, ls), {
+    if(ident_start && !_ca_decl_line_is_qualified(&bytes, ls), {
       // Parse `<return type> name(<params>)` then require ` {` — the same
       // shape check the residue-prototype scanner uses.
       (q : usize) = ls;
       (found : bool) = false;
       (stop : bool) = false;
       while(!found && (!stop && (q < n)), {
-        bq := _ca_bget(bytes, q);
+        bq := _ca_bget(&bytes, q);
         cond(
           (bq == u8(40)) => {
             found = true;
@@ -312,7 +312,7 @@ _ca_split_decl_defs :: (fn(imm(text) : String) -> DeclSplit)({
       });
       if(found, {
         (ns : usize) = q;
-        while((ns > ls) && _ca_is_ident_byte(_ca_bget(bytes, ns - usize(1))), {
+        while((ns > ls) && _ca_is_ident_byte(_ca_bget(&bytes, ns - usize(1))), {
           ns = (ns - usize(1));
         });
         // A definition has a return type before the name, and the paren must
@@ -321,7 +321,7 @@ _ca_split_decl_defs :: (fn(imm(text) : String) -> DeclSplit)({
           (depth : usize) = usize(1);
           (r : usize) = (q + usize(1));
           while((depth > usize(0)) && (r < n), {
-            b2 := _ca_bget(bytes, r);
+            b2 := _ca_bget(&bytes, r);
             cond(
               (b2 == u8(40)) => {
                 depth = (depth + usize(1));
@@ -335,14 +335,14 @@ _ca_split_decl_defs :: (fn(imm(text) : String) -> DeclSplit)({
           });
           close_pos := r;
           (w : usize) = r;
-          while((w < n) && ((_ca_bget(bytes, w) == u8(32)) || (_ca_bget(bytes, w) == u8(9))), {
+          while((w < n) && ((_ca_bget(&bytes, w) == u8(32)) || (_ca_bget(&bytes, w) == u8(9))), {
             w = (w + usize(1));
           });
-          if(_ca_bget(bytes, w) == u8(123), {
+          if(_ca_bget(&bytes, w) == u8(123), {
             // Prototype into the header.
             (pi : usize) = ls;
             while(pi < close_pos, {
-              hdr.push(_ca_bget(bytes, pi));
+              hdr.push(_ca_bget(&bytes, pi));
               pi = (pi + usize(1));
             });
             hdr.push(u8(59));
@@ -353,18 +353,18 @@ _ca_split_decl_defs :: (fn(imm(text) : String) -> DeclSplit)({
             (done : bool) = false;
             while(!done && (be < n), {
               (ble : usize) = be;
-              while((ble < n) && (_ca_bget(bytes, ble) != u8(10)), {
+              while((ble < n) && (_ca_bget(&bytes, ble) != u8(10)), {
                 ble = (ble + usize(1));
               });
               ble = if(ble < n, ble + usize(1), ble);
-              if(_ca_bget(bytes, be) == u8(125), {
+              if(_ca_bget(&bytes, be) == u8(125), {
                 done = true;
               });
               be = ble;
             });
             (mi : usize) = ls;
             while(mi < be, {
-              mov.push(_ca_bget(bytes, mi));
+              mov.push(_ca_bget(&bytes, mi));
               mi = (mi + usize(1));
             });
             ls = be;
@@ -376,7 +376,7 @@ _ca_split_decl_defs :: (fn(imm(text) : String) -> DeclSplit)({
     if(!moved, {
       (ci : usize) = ls;
       while(ci < le, {
-        hdr.push(_ca_bget(bytes, ci));
+        hdr.push(_ca_bget(&bytes, ci));
         ci = (ci + usize(1));
       });
       ls = le;
@@ -402,14 +402,14 @@ _ca_collect_residue_protos :: (
   n := bytes.len();
   (ls : usize) = usize(0);
   while(ls < n, {
-    b0 := _ca_bget(bytes, ls);
+    b0 := _ca_bget(&bytes, ls);
     is_start := (((b0 >= u8(65)) && (b0 <= u8(90))) || ((b0 >= u8(97)) && (b0 <= u8(122))) || (b0 == u8(95)));
     if(is_start, {
       (q : usize) = ls;
       (found : bool) = false;
       (stop : bool) = false;
       while(!found && (!stop && (q < n)), {
-        bq := _ca_bget(bytes, q);
+        bq := _ca_bget(&bytes, q);
         cond(
           (bq == u8(40)) => {
             found = true;
@@ -424,17 +424,17 @@ _ca_collect_residue_protos :: (
       });
       if(found, {
         (ns : usize) = q;
-        while((ns > ls) && _ca_is_ident_byte(_ca_bget(bytes, ns - usize(1))), {
+        while((ns > ls) && _ca_is_ident_byte(_ca_bget(&bytes, ns - usize(1))), {
           ns = (ns - usize(1));
         });
         // `ns > ls`: a definition has a return type before the name;
         // `ns < q`: the paren must be preceded by an identifier at all.
-        if((ns > ls) && (ns < q) && _ca_matches(bytes, ns, yo_pat), {
-          nm := _ca_slice(bytes, ns, q);
+        if((ns > ls) && (ns < q) && _ca_matches(&bytes, ns, &yo_pat), {
+          nm := _ca_slice(&bytes, ns, q);
           (depth : usize) = usize(1);
           (r : usize) = (q + usize(1));
           while((depth > usize(0)) && (r < n), {
-            b2 := _ca_bget(bytes, r);
+            b2 := _ca_bget(&bytes, r);
             cond(
               (b2 == u8(40)) => {
                 depth = (depth + usize(1));
@@ -448,18 +448,18 @@ _ca_collect_residue_protos :: (
           });
           close_pos := r;
           (w : usize) = r;
-          while((w < n) && ((_ca_bget(bytes, w) == u8(32)) || (_ca_bget(bytes, w) == u8(10)) || (_ca_bget(bytes, w) == u8(9))), {
+          while((w < n) && ((_ca_bget(&bytes, w) == u8(32)) || (_ca_bget(&bytes, w) == u8(10)) || (_ca_bget(&bytes, w) == u8(9))), {
             w = (w + usize(1));
           });
-          if((_ca_bget(bytes, w) == u8(123)) && !protos_out.contains_key(nm.clone()), {
+          if((_ca_bget(&bytes, w) == u8(123)) && !protos_out.contains_key(nm.clone()), {
             names_out.push(nm.clone());
-            protos_out.insert(nm, _ca_slice(bytes, ls, close_pos));
+            protos_out.insert(nm, _ca_slice(&bytes, ls, close_pos));
             ()
           });
         });
       });
     });
-    while((ls < n) && (_ca_bget(bytes, ls) != u8(10)), {
+    while((ls < n) && (_ca_bget(&bytes, ls) != u8(10)), {
       ls = (ls + usize(1));
     });
     ls = (ls + usize(1));
@@ -479,7 +479,7 @@ _ca_collect_yo_refs :: (fn(imm(text) : String, mut(into) : HashSet(String)) -> u
   (i : usize) = usize(0);
   (in_str : bool) = false;
   while(i < n, {
-    b := _ca_bget(bytes, i);
+    b := _ca_bget(&bytes, i);
     cond(
       (b == u8(10)) => {
         in_str = false;
@@ -503,14 +503,14 @@ _ca_collect_yo_refs :: (fn(imm(text) : String, mut(into) : HashSet(String)) -> u
         in_str = true;
         i = (i + usize(1));
       },
-      ((b == u8(95)) && _ca_matches(bytes, i, yo_pat)) => {
-        prev_ident := if(i > usize(0), _ca_is_ident_byte(_ca_bget(bytes, i - usize(1))), false);
+      ((b == u8(95)) && _ca_matches(&bytes, i, &yo_pat)) => {
+        prev_ident := if(i > usize(0), _ca_is_ident_byte(_ca_bget(&bytes, i - usize(1))), false);
         if(!prev_ident, {
           (e : usize) = i;
-          while((e < n) && _ca_is_ident_byte(_ca_bget(bytes, e)), {
+          while((e < n) && _ca_is_ident_byte(_ca_bget(&bytes, e)), {
             e = (e + usize(1));
           });
-          into.insert(_ca_slice(bytes, i, e));
+          into.insert(_ca_slice(&bytes, i, e));
           i = e;
         }, {
           i = (i + usize(1));
@@ -543,7 +543,7 @@ _ca_pad3 :: (fn(i : usize) -> String)({
 /// unchanged when no marker is present, so a flag-off compile pays nothing.
 _ca_patch_chunk_markers :: (fn(imm(body) : String, imm(chunk_file) : String) -> String)({
   marker := line_restore_marker();
-  if(!body.contains(marker), {
+  if(!body.contains(&marker), {
     return(body);
   });
   bytes := body.to_bytes();
@@ -575,7 +575,7 @@ _ca_patch_chunk_markers :: (fn(imm(body) : String, imm(chunk_file) : String) -> 
       (mi : usize) = usize(0);
       (all_eq : bool) = true;
       while((mi < mlen) && all_eq, {
-        a := _ca_bget(bytes, ls + mi);
+        a := _ca_bget(&bytes, ls + mi);
         b := match(mb.get_byte(mi), .Some(b1) => b1, .None => u8(1));
         if(a != b, {
           all_eq = false;
@@ -609,7 +609,7 @@ _ca_patch_chunk_markers :: (fn(imm(body) : String, imm(chunk_file) : String) -> 
       cf := chunk_file.to_bytes();
       (ci3 : usize) = usize(0);
       while(ci3 < cf.len(), {
-        out.push(_ca_bget(cf, ci3));
+        out.push(_ca_bget(&cf, ci3));
         ci3 = (ci3 + usize(1));
       });
       out.push(u8(34)); // '"'
@@ -619,7 +619,7 @@ _ca_patch_chunk_markers :: (fn(imm(body) : String, imm(chunk_file) : String) -> 
     }, {
       (ci : usize) = ls;
       while(ci < le, {
-        out.push(_ca_bget(bytes, ci));
+        out.push(_ca_bget(&bytes, ci));
         ci = (ci + usize(1));
       });
       if(has_nl, {
@@ -702,12 +702,12 @@ assemble_chunks :: (
   //    declarations text (atomics, dyn wrappers), the constructor/traverse
   //    block, and the RC helper ranges (their c_name IS the defined name).
   header_defined := HashSet(String).new();
-  _ca_collect_static_def_names(declarations.clone(), header_defined);
+  _ca_collect_static_def_names(declarations.clone(), &mut header_defined);
   (hi : usize) = usize(0);
   while(hi < header_ranges.len(), {
     match(
       header_ranges.get(hi),
-      .Some(hr) => _ca_collect_static_def_names(_ca_slice(code_bytes, hr.start_b, hr.end_b), header_defined),
+      .Some(hr) => _ca_collect_static_def_names(_ca_slice(&code_bytes, hr.start_b, hr.end_b), &mut header_defined),
       .None => ()
     );
     hi = (hi + usize(1));
@@ -738,7 +738,7 @@ assemble_chunks :: (
       .Some(rr) => {
         (ci : usize) = prev_end;
         while(ci < rr.start_b, {
-          residue.push(_ca_bget(code_bytes, ci));
+          residue.push(_ca_bget(&code_bytes, ci));
           ci = (ci + usize(1));
         });
         prev_end = rr.end_b;
@@ -750,10 +750,10 @@ assemble_chunks :: (
   (ti : usize) = prev_end;
   cb_len := code_bytes.len();
   while(ti < cb_len, {
-    residue.push(_ca_bget(code_bytes, ti));
+    residue.push(_ca_bget(&code_bytes, ti));
     ti = (ti + usize(1));
   });
-  residue_deq := _ca_dequalify_statics(String.from_bytes(residue), header_defined);
+  residue_deq := _ca_dequalify_statics(String.from_bytes(residue), &header_defined);
   // 3. Per-chunk function texts: fnv1a(c_name) % n picks the chunk (stable
   //    under unrelated edits — round-robin by position would shift every
   //    later function on any insertion). RC helpers (assignment n) are
@@ -769,7 +769,7 @@ assemble_chunks :: (
         assigned.push(n);
       }, {
         nm := if(by_module && (fr.module.len() > usize(0)), fr.module.clone(), fr.c_name.clone());
-        assigned.push(usize(hash_one(nm) % u64(n)));
+        assigned.push(usize(hash_one(&mut nm) % u64(n)));
       }),
       .None => {
         assigned.push(n);
@@ -787,7 +787,7 @@ assemble_chunks :: (
       if(match(assigned.get(gi), .Some(x) => (x == mi), .None => false), {
         match(
           fn_ranges.get(gi),
-          .Some(fr) => body.push_string(_ca_dequalify_statics(_ca_slice(code_bytes, fr.start_b, fr.end_b), header_defined)),
+          .Some(fr) => body.push_string(_ca_dequalify_statics(_ca_slice(&code_bytes, fr.start_b, fr.end_b), &header_defined)),
           .None => ()
         );
       });
@@ -802,13 +802,13 @@ assemble_chunks :: (
   //    signatures mention residue-local typedefs stay chunk-0-private.
   proto_names := ArrayList(String).new();
   proto_map := HashMap(String, String).new();
-  _ca_collect_residue_protos(residue_deq.clone(), proto_names, proto_map);
+  _ca_collect_residue_protos(residue_deq.clone(), &mut proto_names, &mut proto_map);
   referenced := HashSet(String).new();
   (sx : usize) = usize(0);
   while(sx < fns_texts.len(), {
     match(
       fns_texts.get(sx),
-      .Some(ft) => _ca_collect_yo_refs(ft, referenced),
+      .Some(ft) => _ca_collect_yo_refs(&ft, &mut referenced),
       .None => ()
     );
     sx = (sx + usize(1));
@@ -817,7 +817,7 @@ assemble_chunks :: (
   while(sh < header_ranges.len(), {
     match(
       header_ranges.get(sh),
-      .Some(hr) => _ca_collect_yo_refs(_ca_slice(code_bytes, hr.start_b, hr.end_b), referenced),
+      .Some(hr) => _ca_collect_yo_refs(_ca_slice(&code_bytes, hr.start_b, hr.end_b), &mut referenced),
       .None => ()
     );
     sh = (sh + usize(1));
@@ -829,9 +829,9 @@ assemble_chunks :: (
       proto_names.get(pn),
       .Some(pname) => if(referenced.contains(pname.clone()), {
         match(
-          proto_map.get(pname),
+          proto_map.get(&pname),
           .Some(sig) => {
-            protos.push_string(sig);
+            protos.push_string(&sig);
             protos.push_str(";\n");
           },
           .None => ()
@@ -845,19 +845,19 @@ assemble_chunks :: (
   //    EXTERNAL function definitions relocated to chunk 0, prototypes left
   //    behind) ++ the referenced prototypes ++ header-routed code ranges
   //    verbatim (borrow primitives, constructor block, RC helpers).
-  decl_split := _ca_split_decl_defs(_ca_dequalify_statics(declarations.clone(), header_defined));
+  decl_split := _ca_split_decl_defs(_ca_dequalify_statics(declarations.clone(), &header_defined));
   header_text := String.new();
   header_text.push_string(headers.clone());
   header_text.push_str("\n");
   header_text.push_string(decl_split.header_part.clone());
   header_text.push_str("\n");
-  header_text.push_string(protos);
+  header_text.push_string(&protos);
   header_text.push_str("\n");
   (h2 : usize) = usize(0);
   while(h2 < header_ranges.len(), {
     match(
       header_ranges.get(h2),
-      .Some(hr) => header_text.push_string(_ca_slice(code_bytes, hr.start_b, hr.end_b)),
+      .Some(hr) => header_text.push_string(_ca_slice(&code_bytes, hr.start_b, hr.end_b)),
       .None => ()
     );
     h2 = (h2 + usize(1));
@@ -867,7 +867,7 @@ assemble_chunks :: (
     match(
       fn_ranges.get(r2),
       .Some(fr) => if(_ca_is_rc_helper(fr.c_name.clone()), {
-        header_text.push_string(_ca_slice(code_bytes, fr.start_b, fr.end_b));
+        header_text.push_string(_ca_slice(&code_bytes, fr.start_b, fr.end_b));
       }),
       .None => ()
     );
@@ -891,14 +891,14 @@ assemble_chunks :: (
     });
     match(
       fns_texts.get(ci2),
-      .Some(ft) => body.push_string(ft),
+      .Some(ft) => body.push_string(&ft),
       .None => ()
     );
     if(chunk_base.len() > usize(0), {
       cfile := chunk_base.clone();
       cfile.push_string(_ca_pad3(ci2));
       cfile.push_str(".c");
-      body = _ca_patch_chunk_markers(body, cfile);
+      body = _ca_patch_chunk_markers(&body, &cfile);
     });
     chunks.push(body);
     ci2 = (ci2 + usize(1));

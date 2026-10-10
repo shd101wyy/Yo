@@ -58,7 +58,7 @@ _sync_registration_owner :: (fn() -> unit)({
     (n > usize(0)) => match(g_loading_keys.get(n - usize(1)), .Some(k) => k.clone(), .None => String.new()),
     true => String.new()
   );
-  set_registration_owner(owner);
+  set_registration_owner(&owner);
 });
 /// Register `path` as currently-loading with its live evaluation `env`.
 register_loading :: (fn(imm(path) : String, imm(env) : Environment) -> unit)({
@@ -192,12 +192,12 @@ import_closure_of :: (fn(imm(module) : String) -> HashSet(String))({
     n := g_import_edge_importers.len();
     (i : usize) = usize(0);
     while(i < n, {
-      from_p := match(g_import_edge_importers.get(i), .Some(a) => (_canonical(a) == p), .None => false);
+      from_p := match(g_import_edge_importers.get(i), .Some(a) => (_canonical(&a) == p), .None => false);
       if(from_p, {
         match(
           g_import_edge_imports.get(i),
           .Some(t) => {
-            tc := _canonical(t);
+            tc := _canonical(&t);
             if(seen.insert(tc.clone()), {
               work.push(tc);
             });
@@ -455,7 +455,7 @@ invalidate_module :: (fn(imm(path) : String) -> ArrayList(String))({
         });
         ei = (ei + usize(1));
       });
-      remove_module(p);
+      remove_module(&p);
     });
   });
   removed

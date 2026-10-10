@@ -183,11 +183,11 @@ _emit_erm_unit_resume_tail :: (fn(imm(function_type) : TypeValue, imm(indent) : 
   if(!context.is_effect_record_member_function, {
     return(());
   });
-  ret_c := match(function_type, .Func({ result : erm_r }) => get_type_string(erm_r, context.base), _ => String.from("void"));
+  ret_c := match(function_type, .Func({ result : erm_r }) => get_type_string(&erm_r, &context.base), _ => String.from("void"));
   if(ret_c.ends_with("*"), {
     erm_em := context.base.emitter;
     erm_line := `${indent.clone()}return (${ret_c.clone()}){0};  // implicit unit resume (ctl handler fall-through)`;
-    erm_em.emit_string_line(erm_line);
+    erm_em.emit_string_line(&erm_line);
   });
 });
 /// Generate a function's body with proper return handling.
@@ -218,8 +218,8 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
         // gate in the drop emitters (declared_c_var_names +
         // is_temp/minted-temp check): a not-yet-declared local at an early
         // return is skipped there.
-        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(ei.deferred_drop_expressions));
-        context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(expr_info_consumed_variable_drop_expressions(ei)));
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(&ei.deferred_drop_expressions));
+        context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(expr_info_consumed_variable_drop_expressions(&ei)));
       },
       .None => ()
     );
@@ -232,21 +232,21 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
         match(
           args.get(i),
           .Some(arg) => {
-            if(ast_expr_is_fn_call_of(arg, BK_RETURN, Option(usize).None), {
+            if(ast_expr_is_fn_call_of(&arg, BK_RETURN, Option(usize).None), {
               find_return = true;
             });
-            note_line_position(em, arg);
-            arg_code := _call_generate_expr(arg, indent.clone(), context);
-            skip_temp := match(context.base.get_expr_info(arg), .Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), arg_code.clone()), .None => false);
+            note_line_position(&em, &arg);
+            arg_code := _call_generate_expr(&arg, indent.clone(), context);
+            skip_temp := match(context.base.get_expr_info(&arg), .Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), arg_code.clone()), .None => false);
             if((arg_code.len() > usize(0)) && !skip_temp, {
               line := indent.clone();
-              line.push_string(arg_code);
+              line.push_string(&arg_code);
               line.push_str(";");
-              em.emit_string_line(line);
+              em.emit_string_line(&line);
             });
             if(!find_return, {
               match(
-                context.base.get_expr_info(arg),
+                context.base.get_expr_info(&arg),
                 .Some(aei) => if(has_any_control_flow(aei.control_flow), {
                   find_return = true;
                 }),
@@ -262,7 +262,7 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
         match(
           args.get(n - usize(1)),
           .Some(last_expr) => {
-            note_line_position(em, last_expr);
+            note_line_position(&em, &last_expr);
             // Unit-result function: the tail emits as a plain STATEMENT, never
             // `return <value>;`. Without
             // this, a non-unit-typed tail (e.g. a trailing assignment, whose
@@ -271,13 +271,13 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
             // return a value" (the async_await/worker void-closure class,
             // issues/retired/yo-self-async-emission-cluster.md item 3).
             if(result_is_unit, {
-              u_code := _call_generate_expr(last_expr, indent.clone(), context);
-              u_skip_temp := match(context.base.get_expr_info(last_expr), .Some(uei) => is_temp_variable_name(uei.env.module_path.clone(), u_code.clone()), .None => false);
+              u_code := _call_generate_expr(&last_expr, indent.clone(), context);
+              u_skip_temp := match(context.base.get_expr_info(&last_expr), .Some(uei) => is_temp_variable_name(uei.env.module_path.clone(), u_code.clone()), .None => false);
               if((u_code.len() > usize(0)) && !u_skip_temp, {
                 u_line := indent.clone();
-                u_line.push_string(u_code);
+                u_line.push_string(&u_code);
                 u_line.push_str(";");
-                em.emit_string_line(u_line);
+                em.emit_string_line(&u_line);
               });
               generate_deferred_drop_expressions(body_expr, indent.clone(), context);
               return(());
@@ -289,13 +289,13 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
             // frees the returned object (stage-2 `parse` freed get_program's
             // returned list; issues/retired/yo-self-stage2-unwind-check-coverage.md).
             last_ei_dups := match(
-              context.base.get_expr_info(last_expr),
-              .Some(lei) => match(expr_info_deferred_dup_expressions(lei), .Some(d) => (d.len() > usize(0)), .None => false),
+              context.base.get_expr_info(&last_expr),
+              .Some(lei) => match(expr_info_deferred_dup_expressions(&lei), .Some(d) => (d.len() > usize(0)), .None => false),
               .None => false
             );
             if(last_ei_dups, {
               match(
-                context.base.get_expr_info(last_expr),
+                context.base.get_expr_info(&last_expr),
                 .Some(lei) => {
                   // Materialize the tail into its eval temp using the FN's
                   // return type (the expr type may carry unresolved params).
@@ -312,10 +312,10 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
                   match(
                     lei.variable_name,
                     .Some(lvn) => {
-                      raw_code := _call_generate_expr(last_expr, indent.clone(), context);
-                      tail_tmp := get_variable_name_for_codegen_at(ast_expr_id(last_expr), lvn.clone(), Option(Environment).Some(lei.env));
+                      raw_code := _call_generate_expr(&last_expr, indent.clone(), context);
+                      tail_tmp := get_variable_name_for_codegen_at(ast_expr_id(&last_expr), lvn.clone(), Option(Environment).Some(lei.env));
                       ret_ty_dup := match(function_type, .Func({ result : r0 }) => r0, _ => t_unit());
-                      tail_self := is_self_named_atom(last_expr, lvn.clone());
+                      tail_self := is_self_named_atom(&last_expr, lvn.clone());
                       tail_value = Option(String).Some(if(tail_self, raw_code.clone(), tail_tmp.clone()));
                       if(!tail_self && !(tail_tmp == raw_code), {
                         // Declare via get_variable_type_string — the
@@ -324,32 +324,32 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
                         // materialization enables (same trap as
                         // emit_deferred_dup_or_code's materialize path).
                         dline := indent.clone();
-                        dline.push_string(get_variable_type_string(ret_ty_dup, lvn.clone(), context.base));
+                        dline.push_string(get_variable_type_string(&ret_ty_dup, lvn.clone(), &context.base));
                         dline.push_str(" = ");
-                        dline.push_string(raw_code);
+                        dline.push_string(&raw_code);
                         dline.push_str(";");
-                        em.emit_string_line(dline);
+                        em.emit_string_line(&dline);
                       });
                     },
                     .None => ()
                   );
-                  generate_deferred_dup_expressions(last_expr, indent.clone(), context);
+                  generate_deferred_dup_expressions(&last_expr, indent.clone(), context);
                   // Return the dup-result temp.
                   match(
-                    expr_info_deferred_dup_expressions(lei),
+                    expr_info_deferred_dup_expressions(&lei),
                     .Some(dups2) => match(
                       dups2.get(usize(0)),
                       .Some(dup_expr) => match(
-                        context.base.get_expr_info(dup_expr),
+                        context.base.get_expr_info(&dup_expr),
                         .Some(dei) => match(
                           dei.variable_name,
                           .Some(dvn) => {
                             generate_deferred_drop_expressions(body_expr, indent.clone(), context);
                             rdl := indent.clone();
                             rdl.push_str("return ");
-                            rdl.push_string(get_variable_name_for_codegen_at(ast_expr_id(dup_expr), dvn.clone(), Option(Environment).Some(dei.env)));
+                            rdl.push_string(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), dvn.clone(), Option(Environment).Some(dei.env)));
                             rdl.push_str(";");
-                            em.emit_string_line(rdl);
+                            em.emit_string_line(&rdl);
                             return(());
                           },
                           .None => ()
@@ -368,9 +368,9 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
                       generate_deferred_drop_expressions(body_expr, indent.clone(), context);
                       rtl := indent.clone();
                       rtl.push_str("return ");
-                      rtl.push_string(tv);
+                      rtl.push_string(&tv);
                       rtl.push_str(";");
-                      em.emit_string_line(rtl);
+                      em.emit_string_line(&rtl);
                       return(());
                     },
                     .None => ()
@@ -379,7 +379,7 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
                 .None => ()
               );
             });
-            expr_code := _call_generate_expr(last_expr, indent.clone(), context);
+            expr_code := _call_generate_expr(&last_expr, indent.clone(), context);
             // B1 (plans/archive/YO_SELF_RC_EMISSION_LAYER.md §8): materialize the result
             // into a temp BEFORE the scope-end drops, so a drop does not free a
             // local the result expression reads (e.g. `i32(xs.len())` after `xs`
@@ -395,8 +395,8 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
             // — the calling statements were dropped by the same throw.
             if(expr_code.starts_with("// Failed to transpile"), {
               ftl := indent.clone();
-              ftl.push_string(expr_code);
-              em.emit_string_line(ftl);
+              ftl.push_string(&expr_code);
+              em.emit_string_line(&ftl);
               return(());
             });
             // The tail expression IS a `return(...)`. The return codegen
@@ -407,9 +407,9 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
             // materialization, or `return return X;` without it.
             if(expr_code.starts_with("return ") || (expr_code == "return"), {
               rline := indent.clone();
-              rline.push_string(expr_code);
+              rline.push_string(&expr_code);
               rline.push_str(";");
-              em.emit_string_line(rline);
+              em.emit_string_line(&rline);
               return(());
             });
             has_drops := match(context.base.get_expr_info(body_expr), .Some(bei) => match(bei.deferred_drop_expressions, .Some(d) => (d.len() > usize(0)), .None => false), .None => false);
@@ -430,24 +430,24 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
                 // specialized at a future then declared its temp as the OTHER
                 // specialization's `_P*`
                 // (issues/fixed/a-tail-return-temporary-takes-another-specializations-return-type.md).
-                decl.push_string(match(context.override_return_type_str, .Some(ors) => ors, .None => get_type_string(ret_ty, context.base)));
+                decl.push_string(match(context.override_return_type_str, .Some(ors) => ors, .None => get_type_string(&ret_ty, &context.base)));
                 decl.push_str(" __yo_scope_ret = ");
-                decl.push_string(expr_code);
+                decl.push_string(&expr_code);
                 decl.push_str(";");
-                em.emit_string_line(decl);
+                em.emit_string_line(&decl);
                 generate_deferred_drop_expressions(body_expr, indent.clone(), context);
                 rl := indent.clone();
                 rl.push_str("return __yo_scope_ret;");
-                em.emit_string_line(rl);
+                em.emit_string_line(&rl);
               },
               .None => {
                 generate_deferred_drop_expressions(body_expr, indent.clone(), context);
                 if(expr_code.len() > usize(0), {
                   line := indent.clone();
                   line.push_str("return ");
-                  line.push_string(expr_code);
+                  line.push_string(&expr_code);
                   line.push_str(";");
-                  em.emit_string_line(line);
+                  em.emit_string_line(&line);
                 });
               }
             );
@@ -485,8 +485,8 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
     match(
       context.base.get_expr_info(body_expr),
       .Some(bei) => {
-        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(bei.deferred_drop_expressions));
-        context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(expr_info_consumed_variable_drop_expressions(bei)));
+        context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(&bei.deferred_drop_expressions));
+        context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_copy_expr_list(expr_info_consumed_variable_drop_expressions(&bei)));
       },
       .None => ()
     );
@@ -501,14 +501,14 @@ generate_function_body :: (fn(imm(body_expr) : AstExpr, imm(function_type) : Typ
     if(!is_stmt_binding, {
       generate_deferred_drop_expressions(body_expr, indent.clone(), context, true);
     });
-    note_line_position(em, body_expr);
+    note_line_position(&em, body_expr);
     if(result_is_unit, {
       ec := _call_generate_expr(body_expr, indent.clone(), context);
       if(ec.len() > usize(0), {
         line := indent.clone();
-        line.push_string(ec);
+        line.push_string(&ec);
         line.push_str(";");
-        em.emit_string_line(line);
+        em.emit_string_line(&line);
       });
       if(is_stmt_binding, {
         generate_deferred_drop_expressions(body_expr, indent.clone(), context);
@@ -552,14 +552,14 @@ _maybe_emit_method_entry_borrow_assert :: (fn(imm(function_type) : TypeValue, im
     function_type,
     .Func({ param_types : pts, result : r, meta : __fm }) => {
       if(__fm.*.param_labels.len() == usize(0), return(()));
-      if(type_implements_future(r), return(()));
+      if(type_implements_future(&r), return(()));
       // Any RC-object parameter at all? (Cheap pre-check before the analysis.)
       (has_object_param : bool) = false;
       (pi : usize) = usize(0);
       while(pi < pts.len(), {
         match(
           pts.get(pi),
-          .Some(t) => if(is_reference_struct_type(t) || is_atomic_reference_struct_type(t), {
+          .Some(t) => if(is_reference_struct_type(&t) || is_atomic_reference_struct_type(&t), {
             has_object_param = true;
           }),
           .None => ()
@@ -567,13 +567,13 @@ _maybe_emit_method_entry_borrow_assert :: (fn(imm(function_type) : TypeValue, im
         pi = (pi + usize(1));
       });
       if(!has_object_param, return(()));
-      mask := function_param_mutation_mask(func_id, body, context.base.info_table);
+      mask := function_param_mutation_mask(func_id, body, &context.base.info_table);
       // `YO_DEBUG_BORROW_MASK=1`: print every analysed function's mask.
       if(match(debug_knob(`YO_DEBUG_BORROW_MASK`), .Some(d) => (d.len() > usize(0)), .None => false), {
         (bits : String) = String.new();
         (bi : usize) = usize(0);
         while(bi < pts.len(), {
-          bits.push_str(if(param_mutation_mask_hits(mask, bi), "1", "0"));
+          bits.push_str(if(param_mutation_mask_hits(&mask, bi), "1", "0"));
           bi = (bi + usize(1));
         });
         eprintln(`[borrow-mask] ${func_id} all=${mask.all} params=${bits}`);
@@ -581,24 +581,24 @@ _maybe_emit_method_entry_borrow_assert :: (fn(imm(function_type) : TypeValue, im
       (i : usize) = usize(0);
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t, .None => t_unit());
-        is_object := (is_reference_struct_type(pt) || is_atomic_reference_struct_type(pt));
+        is_object := (is_reference_struct_type(&pt) || is_atomic_reference_struct_type(&pt));
         label := match(__fm.*.param_labels.get(i), .Some(l) => l, .None => String.new());
-        if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(mask, i), {
+        if(is_object && (label.len() > usize(0)) && param_mutation_mask_hits(&mask, i), {
           // An `inout` receiver/parameter is passed as `T** name` (a pointer to
           // the caller's handle slot); the object the flag lives on is `*name`.
           is_ref := match(__fm.*.param_is_ref.get(i), .Some(b) => b, .None => false);
           pname := sanitize_for_c_identifier(label.clone(), false);
           // An atomic object's counter is shared across threads: read it atomically.
-          line := if(is_atomic_reference_struct_type(pt), String.from("  __yo_borrow_assert_unborrowed_atomic((void*)"), String.from("  __yo_borrow_assert_unborrowed((void*)"));
+          line := if(is_atomic_reference_struct_type(&pt), String.from("  __yo_borrow_assert_unborrowed_atomic((void*)"), String.from("  __yo_borrow_assert_unborrowed((void*)"));
           if(is_ref, {
             line.push_str("(*");
-            line.push_string(pname);
+            line.push_string(&pname);
             line.push_str(")");
           }, {
-            line.push_string(pname);
+            line.push_string(&pname);
           });
           line.push_str(");");
-          em.emit_string_line(line);
+          em.emit_string_line(&line);
         });
         i = (i + usize(1));
       });
@@ -615,15 +615,15 @@ _hollow_specialization_error :: (fn(imm(rec) : HollowBodyError, imm(si) : SpecIn
   if(entries.len() == usize(0), {
     // A swallow that carried no structured diagnostics (a plain string from
     // another layer): report its text at the call.
-    return(format_error_message(si.call_token, rec.message.clone()));
+    return(format_error_message(&si.call_token, rec.message.clone()));
   });
   entries.push(
     note_diagnostic_of_token(
-      si.call_token,
+      &si.call_token,
       `required by ${si.description}, called here: the body's definition-time check reported the error above while its type variables were abstract, and these types do not resolve it`
     )
   );
-  yo_error_from_diagnostics(entries)
+  yo_error_from_diagnostics(&entries)
 });
 generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) : String, imm(context) : FunctionGenerationContext) -> unit)(
   match(
@@ -671,8 +671,8 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
       // generic_impl_async_self. Same helper AND same inputs, or the invariant
       // is only half restored.
       decl_body := if(is_effect_record_member(func_id.clone()), Option(AstExpr).None, Option(AstExpr).Some(body_box));
-      async_override := _return_type_override(function_type, decl_body, context.base);
-      prototype := generate_function_prototype(function_type, c_function_name.clone(), context.base, async_override, is_closure_fn(func_id.clone()));
+      async_override := _return_type_override(&function_type, &decl_body, &context.base);
+      prototype := generate_function_prototype(&function_type, c_function_name.clone(), &context.base, &async_override, is_closure_fn(func_id.clone()));
       is_exported := ((c_function_name == "__yo_user_main") || context.base.exported_function_labels.contains_key(func_id.clone()));
       // Non-exported functions are `static inline` and exported ones carry no
       // linkage prefix. A third arm used to give "RC helpers" `always_inline`,
@@ -702,7 +702,7 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
       // See issues/fixed/rc-helper-always-inline-linkage-branch-never-fires.md.
       linkage := if(is_exported, String.from(""), String.from("static inline "));
       open := linkage;
-      open.push_string(prototype);
+      open.push_string(&prototype);
       open.push_str(" {");
       // Mark the code position so a SUPERSEDED original whose body fails to
       // transpile can be stubbed post-emission (see the check after the body).
@@ -716,7 +716,7 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
       // so a profile or rc-event log over the emitted C maps `yo_id_…` frames
       // back to Yo functions (.github/instructions/debugging.instructions.md).
       if(g_debug_fn_origin, {
-        origin_tok := ast_expr_token(body_box);
+        origin_tok := ast_expr_token(&body_box);
         em.emit_string_line(`/* yo-origin ${origin_tok.module_path}:${(usize(origin_tok.row) + usize(1)).to_string()} ${c_function_name} */`);
       });
       // [`#line` directives] The signature and prologue are compiler-generated:
@@ -725,8 +725,8 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
       // brace so the scaffolding after this body reports honest C lines.
       em.clear_yo_line_position();
       stub_mark_b := em.code.len();
-      em.emit_string_line(open);
-      _maybe_emit_method_entry_borrow_assert(function_type, func_id.clone(), body_box, em, context);
+      em.emit_string_line(&open);
+      _maybe_emit_method_entry_borrow_assert(&function_type, func_id.clone(), &body_box, &em, context);
       prev_name := context.base.current_function_name;
       prev_type := context.current_function_type;
       prev_override := context.override_return_type_str;
@@ -744,8 +744,8 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
       // origin), and which unwinds it catches (the handlers written in it).
       prev_unwind_origin := context.current_unwind_origin;
       prev_unwind_catches := context.unwind_catches;
-      context.current_unwind_origin = Option(String).Some(unwind_origin_id(body_box));
-      context.unwind_catches = Option(ArrayList(String)).Some(unwind_catches_of_body(body_box));
+      context.current_unwind_origin = Option(String).Some(unwind_origin_id(&body_box));
+      context.unwind_catches = Option(ArrayList(String)).Some(unwind_catches_of_body(&body_box));
       if(is_effect_record_member(func_id.clone()), {
         context.is_effect_record_member_function = true;
       });
@@ -767,7 +767,7 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
             });
             context.current_closure_captures = Option(ArrayList(String)).Some(cap_labels);
             context.current_closure_capture_frame_level = Option(usize).Some(ci.frame_level);
-            context.current_closure_capture_type_c_name = Option(String).Some(get_type_string(ci.capture_type, context.base));
+            context.current_closure_capture_type_c_name = Option(String).Some(get_type_string(&ci.capture_type, &context.base));
           },
           .None => ()
         );
@@ -804,8 +804,8 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
                 _p
               }
             );
-            declare_c_var_name(context.base, _pnm.clone());
-            push_declared_scope(context.base, _pnm);
+            declare_c_var_name(&context.base, _pnm.clone());
+            push_declared_scope(&context.base, &_pnm);
             _pi = (_pi + usize(1));
           });
         },
@@ -820,8 +820,8 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
         match(
           owned_capture_labels.get(oc_i),
           .Some(ocl) => {
-            declare_c_var_name(context.base, ocl.clone());
-            push_declared_scope(context.base, ocl.clone());
+            declare_c_var_name(&context.base, ocl.clone());
+            push_declared_scope(&context.base, ocl.clone());
           },
           .None => ()
         );
@@ -838,7 +838,7 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
       prev_scope_ref := context.base.emitter.scope_ref;
       context.base.emitter.declared_ref = Option(Rc(HashSet(String))).Some(context.base.declared_c_var_names);
       context.base.emitter.scope_ref = Option(Rc(ArrayList(String))).Some(context.base.declared_scopes);
-      generate_function_body(body_box, function_type, String.from("  "), context);
+      generate_function_body(&body_box, &function_type, String.from("  "), context);
       context.base.emitter.declared_ref = prev_emitter_ref;
       context.base.emitter.scope_ref = prev_scope_ref;
       context.current_closure_captures = prev_caps;
@@ -959,7 +959,7 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
       // emitting an abort stub. A superseded generic original is dead code
       // (every call dispatches a specialization) and keeps its stub.
       if(stub_found_ftt, {
-        stub_site := trial_body_site(body_box);
+        stub_site := trial_body_site(&body_box);
         stub_inst := lookup_spec_instantiation(func_id.clone());
         stub_rec := lookup_generic_trial_error(stub_site.clone());
         if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
@@ -972,7 +972,7 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
             stub_inst,
             .Some(si) => match(
               stub_rec,
-              .Some(rec) => codegen_report_error(dyn(_hollow_specialization_error(rec, si))),
+              .Some(rec) => codegen_report_error(dyn(_hollow_specialization_error(&rec, &si))),
               .None => ()
             ),
             .None => ()
@@ -1029,7 +1029,7 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
         // Every supported C compiler is gcc/clang-family (clang, gcc,
         // zig cc, emcc), so the GNU error attribute is always available.
         stub_attr := `__attribute__((error("yo: the body of ${c_function_name} failed to transpile — its definition-time evaluation failed and was swallowed (run yo check with YO_DEBUG_SWALLOW=1); this call would abort at runtime")))`;
-        _insert_attr_before_first_decl(em, c_function_name.clone(), stub_attr.clone(), stub_mark_b);
+        _insert_attr_before_first_decl(&em, c_function_name.clone(), stub_attr.clone(), stub_mark_b);
         // THE ERROR ATTRIBUTE ALONE IS NOT A GATE AT -O2, WHICH IS EVERY BUILD.
         // GNU's `error` attribute is diagnosed from the BACKEND, after
         // optimization: the stub body is `abort()`, so at -O2 LLVM folds the
@@ -1058,7 +1058,7 @@ generate_function :: (fn(imm(function_value) : EvalValue, imm(c_function_name) :
         // marker is a codegen artifact — so the message carries the
         // YO_DEBUG_SWALLOW hint that recovers the original error.
         // Regression test: tests/cli-cases/ftt-stub-live-call-fails-the-build.
-        em.emit_string_line(stub_attr);
+        em.emit_string_line(&stub_attr);
         em.emit_string_line(open.clone());
         em.emit_string_line(
           `  fflush(stdout); fprintf(stderr, "yo: FATAL: reached ${c_function_name}, whose body failed to transpile - its definition-time evaluation failed and was swallowed. Re-run \`yo check\` with YO_DEBUG_SWALLOW=1 to see the original error.\\n");`
@@ -1082,23 +1082,23 @@ generate_all_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)
   em.emit_string_line(String.from("// Function implementations"));
   // Always emit the synchronous system helpers (stat/sync ops/signal/TTY); they
   // have no async dependency and unused ones are dead-code-eliminated.
-  generate_sys_runtime(context.base.emitter, context.base.target_info);
+  generate_sys_runtime(&context.base.emitter, &context.base.target_info);
   // The async/await runtime is emitted only when the program uses async code
   // (avoids ~8K lines of C for non-async programs).
   if(context.uses_async, {
-    generate_async_runtime(context.base.emitter, context.base.target_info, false);
+    generate_async_runtime(&context.base.emitter, &context.base.target_info, false);
   });
   // Generate parallelism runtime only when the program uses threads/workers.
   // This avoids ~450 lines of C thread pool code for single-threaded programs.
   if(context.uses_parallelism, {
-    generate_parallelism_runtime(context.base.emitter, context.base.debug_parallelism, context.base.target_info, context.uses_async);
+    generate_parallelism_runtime(&context.base.emitter, context.base.debug_parallelism, &context.base.target_info, context.uses_async);
   });
   // TLS backend: emitted independently of uses_async — a SYNC program probing
   // tls_available() must still link the __yo_tls_ ABI. Target selection
   // (OpenSSL vs stubs) lives in the emitted C's preprocessor guard, so wasm
   // and Windows get stubs from the same emission.
   if(get_uses_tls(), {
-    generate_tls_runtime(context.base.emitter);
+    generate_tls_runtime(&context.base.emitter);
   });
   collect_unwind_value_ctypes(context);
   generate_atomic_gc_runtime_functions(context);
@@ -1128,20 +1128,20 @@ generate_all_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)
     match(
       context.base.function_order.get(fi),
       .Some(fid) => match(
-        context.base.get_function_entry(fid),
+        context.base.get_function_entry(&fid),
         .Some(entry) => {
           // Skip function bodies using the SAME predicate as the prototype loop
           // (declarations.yo). The two MUST agree: a function whose prototype is
           // skipped but whose body is emitted produces "call to undeclared
           // function" / "static declaration follows non-static" at call sites
           // preceding the definition.
-          if(!should_skip_function_codegen(fid, entry.c_name.clone(), entry.value, context.base), {
+          if(!should_skip_function_codegen(&fid, entry.c_name.clone(), &entry.value, &context.base), {
             // Chunked emission: record this function's `code`-buffer byte
             // range AFTER the call returns — generate_function may truncate
             // the buffer tail (superseded-stub rewrite), so the extent is
             // final only then. Ranges are non-overlapping and ascending.
             fn_start := if(context.base.chunk_mode, em.code.len(), usize(0));
-            generate_function(entry.value, entry.c_name, context);
+            generate_function(&entry.value, &entry.c_name, context);
             // A function boundary: spill finished code (a no-op without a
             // spill file, which chunk mode never opens).
             context.base.emitter.spill_code_if_large();
@@ -1176,7 +1176,7 @@ _main_call_args :: (fn(imm(main_func_id) : String, imm(context) : FunctionGenera
       pts.get(i),
       .Some(pt) => {
         out.push_str("(");
-        out.push_string(get_type_string(pt, context.base));
+        out.push_string(get_type_string(&pt, &context.base));
         out.push_str("){0}");
       },
       .None => ()
@@ -1212,13 +1212,13 @@ _module_init_var_atom :: (fn(imm(init_expr) : AstExpr) -> Option(AstExpr))({
     return(Option(AstExpr).None);
   });
   lhs := match(init_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
-  if(ast_expr_is_atom(lhs), {
+  if(ast_expr_is_atom(&lhs), {
     return(Option(AstExpr).Some(lhs));
   });
-  if(ast_expr_is_fn_call_of(lhs, ":", Option(usize).Some(usize(2))), {
-    binding_args := _args(lhs);
+  if(ast_expr_is_fn_call_of(&lhs, ":", Option(usize).Some(usize(2))), {
+    binding_args := _args(&lhs);
     binding_lhs := match(binding_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
-    if(ast_expr_is_atom(binding_lhs), {
+    if(ast_expr_is_atom(&binding_lhs), {
       return(Option(AstExpr).Some(binding_lhs));
     });
   });
@@ -1244,14 +1244,14 @@ emit_module_level_variable_declarations :: (
       init_exprs.get(i),
       .None => (),
       .Some(init_expr) => match(
-        _module_init_var_atom(init_expr),
+        _module_init_var_atom(&init_expr),
         .None => (),
         .Some(var_atom) => match(
-          context.base.get_expr_info(var_atom),
+          context.base.get_expr_info(&var_atom),
           .None => (),
           .Some(vi) => {
-            var_name := match(vi.variable_name, .Some(vn) => vn, .None => ast_expr_token(var_atom).value);
-            (c_var_name : String) = get_variable_name_for_codegen_at(ast_expr_id(var_atom), var_name, Option(Environment).Some(vi.env));
+            var_name := match(vi.variable_name, .Some(vn) => vn, .None => ast_expr_token(&var_atom).value);
+            (c_var_name : String) = get_variable_name_for_codegen_at(ast_expr_id(&var_atom), &var_name, Option(Environment).Some(vi.env));
             // The recorded env for a `name := rhs` module init can miss the
             // variable (resolution falls back to the bare name and the
             // resolver's registry check never runs), while the READS resolve
@@ -1259,17 +1259,17 @@ emit_module_level_variable_declarations :: (
             // handles module-level vars, so qualify directly from the
             // registry using the declaration's own token
             // (issues/fixed/module-global-c-names-are-not-namespaced.md).
-            mg_decl_path := ast_expr_token(var_atom).module_path;
+            mg_decl_path := ast_expr_token(&var_atom).module_path;
             // A thread-local's READS are rewritten to `(*name__tl_get())` by
             // get_variable_name_for_codegen — correct everywhere except HERE,
             // where the name is being DECLARED. Build the declaration name
             // straight from the sanitized identifier plus the module suffix so
             // the storage, the init flag and the accessor all agree on it.
             if(is_thread_local(mg_decl_path.clone(), var_name.clone()), {
-              c_var_name = `${sanitize_for_c_identifier(var_name.clone(), false)}${module_global_c_suffix(mg_decl_path)}`;
+              c_var_name = `${sanitize_for_c_identifier(var_name.clone(), false)}${module_global_c_suffix(&mg_decl_path)}`;
             }, {
-              if((c_var_name == sanitize_for_c_identifier(var_name.clone(), false)) && is_module_level_global(mg_decl_path.clone(), var_name), {
-                c_var_name = `${c_var_name}${module_global_c_suffix(mg_decl_path)}`;
+              if((c_var_name == sanitize_for_c_identifier(var_name.clone(), false)) && is_module_level_global(mg_decl_path.clone(), &var_name), {
+                c_var_name = `${c_var_name}${module_global_c_suffix(&mg_decl_path)}`;
               });
             });
             // Dedup key includes the SOURCE TOKEN: the evaluator's multiple
@@ -1281,11 +1281,11 @@ emit_module_level_variable_declarations :: (
             // must keep its init entry. Keying by name alone dropped the
             // slot wiring from the module init (sizeof() folds all failed —
             // the stage2/stage3 fixpoint residue).
-            dedup_key := `${c_var_name}#${ast_expr_token(init_expr).character.to_string()}`;
+            dedup_key := `${c_var_name}#${ast_expr_token(&init_expr).character.to_string()}`;
             if(!seen.contains(dedup_key.clone()), {
               seen.insert(dedup_key.clone());
               mg_is_tl := is_thread_local(mg_decl_path.clone(), var_name.clone());
-              c_type_str := get_type_string(vi.ty, context.base);
+              c_type_str := get_type_string(&vi.ty, &context.base);
               if(!seen.contains(c_var_name.clone()), {
                 seen.insert(c_var_name.clone());
                 // A thread-local's storage carries a per-thread storage class
@@ -1323,7 +1323,7 @@ emit_module_level_variable_declarations :: (
                   !mg_is_tl,
                   String.new(),
                   cond(
-                    is_target_windows(context.base.target_info) => String.from("__declspec(thread) "),
+                    is_target_windows(&context.base.target_info) => String.from("__declspec(thread) "),
                     true => String.from("_Thread_local ")
                   )
                 );
@@ -1358,7 +1358,7 @@ emit_module_level_variable_declarations :: (
                   });
                 });
               });
-              rhs := match(_args(init_expr).get(usize(1)), .Some(e) => e, .None => make_err_expr());
+              rhs := match(_args(&init_expr).get(usize(1)), .Some(e) => e, .None => make_err_expr());
               result.push(
                 ModuleLevelVarEntry(
                   c_var_name : c_var_name,
@@ -1436,7 +1436,7 @@ emit_thread_local_accessors :: (
         // initializer's `return;` is valid" — and the accessor was written
         // from that code without carrying the reason across.
         em.emit_string_line(`${linkage}void ${mv.c_var_name}__tl_init_fn(void) {`);
-        rhs_code := _call_generate_expr(mv.rhs, String.from("  "), context);
+        rhs_code := _call_generate_expr(&mv.rhs, String.from("  "), context);
         em.emit_string_line(`  ${mv.c_var_name} = ${rhs_code};`);
         em.emit_string_line(String.from("}"));
         em.emit_string_line(`${linkage}${mv.c_type_str}* ${mv.c_var_name}__tl_get(void) {`);
@@ -1477,7 +1477,7 @@ generate_main_wrapper :: (fn(imm(context) : FunctionGenerationContext, imm(modul
     match(
       it.next(),
       .Some(fid) => match(
-        context.base.get_function_entry(fid),
+        context.base.get_function_entry(&fid),
         .Some(entry) => if(entry.c_name == "__yo_user_main", {
           main_def_module = entry.def_module.clone();
           match(
@@ -1500,7 +1500,7 @@ generate_main_wrapper :: (fn(imm(context) : FunctionGenerationContext, imm(modul
   if(!found, {
     return();
   });
-  main_call_args := _main_call_args(main_func_id, context);
+  main_call_args := _main_call_args(&main_func_id, context);
   // The post-main escaped-unwind belt (safe mode 0a), in two shapes. A REAL
   // program aborts on a set flag: the async task boundaries and the install-
   // frame exits all clear it, so a set flag here is a propagation path that
@@ -1585,7 +1585,7 @@ generate_main_wrapper :: (fn(imm(context) : FunctionGenerationContext, imm(modul
       match(
         module_vars.get(mvi),
         .Some(mv) => if(!mv.is_thread_local, {
-          rhs_code := _call_generate_expr(mv.rhs, String.from("  "), context);
+          rhs_code := _call_generate_expr(&mv.rhs, String.from("  "), context);
           em.emit_string_line(`  ${mv.c_var_name} = ${rhs_code};`);
         }),
         .None => ()
@@ -1596,7 +1596,7 @@ generate_main_wrapper :: (fn(imm(context) : FunctionGenerationContext, imm(modul
     context.pending_deferred_drops = saved_pending;
     context.consumed_var_pending_drops = saved_consumed;
   });
-  if(is_target_posix(context.base.target_info), {
+  if(is_target_posix(&context.base.target_info), {
     // The escape check after module init: an
     // effectful initializer that escapes must not fall through into user
     // main. Bare `return NULL;`/`return 0;` are fine here (worker is void*,
@@ -1639,7 +1639,7 @@ int main(int argc, char** argv) {
   return 0;
 }
 `;
-    em.emit_string(block);
+    em.emit_string(&block);
   }, {
     init_call := if(has_module_vars, String.from("  __yo_main_module_init();\n  if (__yo_effect_escaped) return 0;\n"), String.new());
     // WINDOWS gets the same configurable worker stack the POSIX arm uses.
@@ -1648,7 +1648,7 @@ int main(int argc, char** argv) {
     // compiler's comptime recursion SEGVs within seconds (rc=139, no C
     // emitted). See issues/fixed/windows-no-main-worker-stack-rc139.md. WASM keeps
     // the direct call: it has no threads.
-    if(is_target_windows(context.base.target_info), {
+    if(is_target_windows(&context.base.target_info), {
       block :=
         `
 // Worker entry - DWORD WINAPI, the Windows analogue of POSIX void*(void*).
@@ -1723,7 +1723,7 @@ int main(int argc, char** argv) {
   return 0;
 }
 `;
-      em.emit_string(block);
+      em.emit_string(&block);
     }, {
       // --debug-heap leak oracle (plans/reference/FIXED_REGION_ALLOCATOR.md
       // §2.4): the hosted arms register the reporter with atexit at
@@ -1747,7 +1747,7 @@ ${init_call}  // Call sync main
 ${abort_report}${belt_block}${heap_report_call}  return 0;
 }
 `;
-      em.emit_string(block);
+      em.emit_string(&block);
     });
   });
 });

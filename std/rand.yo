@@ -39,12 +39,12 @@ impl(
   next_u32 : (fn(mut(self) : Self) -> u32)({
     old := self.state;
     // PCG's LCG step wraps BY DESIGN (wrapping_mul/add, safe mode D1).
-    self.state = old.wrapping_mul(_PCG_MULT).wrapping_add(self.inc);
+    self.state = old.wrapping_mul(_PCG_MULT).wrapping_add(&self.inc);
     xorshifted := u32(((old >> u64(18)) ^ old) >> u64(27));
     rot := u32(old >> u64(59));
     // `-rot & 31` wraps by design (the mask folds the negation back);
     // wrapping_sub keeps that design explicit under the Phase 3 traps.
-    (xorshifted >> rot) | (xorshifted << (u32(0).wrapping_sub(rot) & u32(31)))
+    (xorshifted >> rot) | (xorshifted << (u32(0).wrapping_sub(&rot) & u32(31)))
   }),
   /// The next 64 uniformly random bits (two 32-bit draws).
   next_u64 : (fn(mut(self) : Self) -> u64)({
@@ -64,7 +64,7 @@ impl(
         // threshold = 2^64 mod bound; reject draws under it so the remaining
         // range is an exact multiple of bound. `0 - bound` wraps by design
         // (that IS the two's-complement of bound).
-        threshold := (u64(0).wrapping_sub(bound) % bound);
+        threshold := (u64(0).wrapping_sub(&bound) % bound);
         (r : u64) = self.next_u64();
         while(r < threshold, {
           r = self.next_u64();
@@ -91,7 +91,7 @@ impl(
   with_stream : (fn(seed : u64, stream : u64) -> Self)({
     r := Self(_st : _RngState(state : u64(0), inc : _inc_for_stream(stream)));
     _d1 := r.next_u32();
-    r._st.state = r._st.state.wrapping_add(seed);
+    r._st.state = r._st.state.wrapping_add(&seed);
     _d2 := r.next_u32();
     r
   }),
@@ -212,7 +212,7 @@ _entropy_u64 :: (fn() -> u64)({
       }
     )
   );
-  random_u64(exn)
+  random_u64(&exn)
 });
 /// The per-thread generator. Each thread gets its OWN `_RngState`, seeded from
 /// OS entropy on that thread's first draw — Rust's `thread_rng`, and what the
@@ -285,7 +285,7 @@ rand_below :: (fn(bound : u64) -> u64)(
   cond(
     (bound == u64(0)) => __yo_panic("rand_below: bound must be non-zero"),
     true => {
-      threshold := (u64(0).wrapping_sub(bound) % bound);
+      threshold := (u64(0).wrapping_sub(&bound) % bound);
       (r : u64) = _next_u64_thread();
       while(r < threshold, {
         r = _next_u64_thread();

@@ -230,7 +230,7 @@ resolve_module_path_ex :: (
   // 1. `std/` prefix → resolve relative to std_path.
   if(module_path_to_import.starts_with(String.from("std/")), {
     rel := module_path_to_import.substring(usize(4), module_path_to_import.len());
-    module_path_to_import = Path.new(std_path.clone()).join(Path.new(rel)).to_string();
+    module_path_to_import = Path.new(std_path.clone()).join(Path.new(&rel)).to_string();
   });
   // 2. `std` alone → std/index.yo.
   if(module_path_to_import == "std", {
@@ -252,7 +252,7 @@ resolve_module_path_ex :: (
       .Ok(p) => p.to_string(),
       .Err(_) => String.from(".")
     );
-    module_path_to_import = Path.new(cwd_result).join(Path.new(module_path_to_import.clone())).to_string();
+    module_path_to_import = Path.new(&cwd_result).join(Path.new(module_path_to_import.clone())).to_string();
   });
   // Extension resolution.
   ext_opt := Path.new(module_path_to_import.clone()).extension();
@@ -376,8 +376,8 @@ evaluate_import :: (
     }
   );
   // Evaluate the argument — it must yield a comptime string.
-  evaluated_arg := evaluate_expression_raw(module_arg, env, ctx, exn);
-  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+  evaluated_arg := evaluate_expression_raw(&module_arg, &env, ctx, exn);
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   arg_info := match(
     arg_info_opt,
     .Some(i) => i,
@@ -385,12 +385,12 @@ evaluate_import :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(module_arg),
+            ast_expr_token(&module_arg),
             String.from("import: failed to evaluate module path argument.")
           )
         )
       );
-      new_expr_info(env, t_unit())
+      new_expr_info(&env, t_unit())
     }
   );
   env.frames = arg_info.env.frames;
@@ -407,7 +407,7 @@ evaluate_import :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(module_arg),
+            ast_expr_token(&module_arg),
             String.from("Expected comptime_str for module path.")
           )
         )
@@ -418,7 +418,7 @@ evaluate_import :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(module_arg),
+            ast_expr_token(&module_arg),
             String.from("Expected comptime_str for module path.")
           )
         )
@@ -438,7 +438,7 @@ evaluate_import :: (
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(module_arg),
+          ast_expr_token(&module_arg),
           String.from("Importing the prelude module is not allowed — it is automatically loaded for every file.")
         )
       )
@@ -463,7 +463,7 @@ evaluate_import :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(module_arg),
+            ast_expr_token(&module_arg),
             `Ambiguous import("${base}": both "${base}.yo" and "${base}/index.yo" exist. Use an explicit path to resolve the ambiguity.)`
           )
         )
@@ -474,7 +474,7 @@ evaluate_import :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(module_arg),
+            ast_expr_token(&module_arg),
             `Module not found: tried "${base}.yo" and "${base}/index.yo"`
           )
         )
@@ -485,7 +485,7 @@ evaluate_import :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(module_arg),
+            ast_expr_token(&module_arg),
             `import("${name}"): ${reason}`
           )
         )
@@ -507,7 +507,7 @@ evaluate_import :: (
     ctx.load_module,
     .Some(load_fn) => load_fn(module_abs_path.clone()),
     .None => LoadModuleResult(
-      module_value : _build_module_val_from_env(env),
+      module_value : _build_module_val_from_env(&env),
       module_type : TypeValue.Unit,
       module_error : .None
     )
@@ -538,14 +538,14 @@ evaluate_import :: (
           });
           entries.push(
             note_diagnostic_of_token(
-              ast_expr_token(module_arg),
+              ast_expr_token(&module_arg),
               `while importing this module (import chain collapsed — the error above is from the imported file)`
             )
           );
           YoError(diagnostics : entries)
         },
         .None => format_error_message(
-          ast_expr_token(module_arg),
+          ast_expr_token(&module_arg),
           `Failed to import module "${module_path_to_import}":\n${err_msg}`
         )
       );
@@ -562,12 +562,12 @@ evaluate_import :: (
   // the cycle path, which has no recorded type.
   mod_ty := match(
     load_result.module_type,
-    .Unit => type_of_eval_value(mod_val),
+    .Unit => type_of_eval_value(&mod_val),
     _ => load_result.module_type
   );
-  out_info := new_expr_info(env, mod_ty);
+  out_info := new_expr_info(&env, &mod_ty);
   out_info.value = .Some(mod_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_import, resolve_module_path, ModuleResolveResult, _build_module_val_from_env);

@@ -136,7 +136,7 @@ typedef struct __yo_thread_entry_args_t {
 
 // Thread entry point`
   );
-  emitter.emit_string_line(thread_entry_signature);
+  emitter.emit_string_line(&thread_entry_signature);
   emitter.emit_string_line(
     `  __yo_thread_entry_args_t* args = (__yo_thread_entry_args_t*)arg;
 
@@ -145,13 +145,13 @@ typedef struct __yo_thread_entry_args_t {
   // Initialize thread-local GC for this thread
   __yo_gc_init_thread();`
   );
-  emitter.emit_string_line(async_init_thread);
+  emitter.emit_string_line(&async_init_thread);
   emitter.emit_string_line(
     `
   // Call user's function with closure
   args->fn(args->closure);`
   );
-  emitter.emit_string_line(async_wait_thread);
+  emitter.emit_string_line(&async_wait_thread);
   emitter.emit_string_line(
     `
   PARALLELISM_DEBUG("[THREAD] Thread completed (tid=%zu)\\n", (size_t)__yo_get_thread_id());
@@ -172,7 +172,7 @@ typedef struct __yo_thread_entry_args_t {
   __yo_cleanup_thread_gc();
 `
   );
-  emitter.emit_string_line(thread_entry_return);
+  emitter.emit_string_line(&thread_entry_return);
   emitter.emit_string_line(
     `}
 
@@ -273,11 +273,11 @@ static __yo_worker_thread_t* __yo_worker_threads = NULL;  // Array of worker thr
 static size_t __yo_worker_num_threads = 0;                // Number of worker threads
 static size_t __yo_worker_next_thread = 0;                // Round-robin counter for task distribution`
   );
-  emitter.emit_string_line(pool_mutex_decl);
+  emitter.emit_string_line(&pool_mutex_decl);
   emitter.emit_string_line(`static volatile int __yo_worker_pool_initialized = 0;     // Pool initialization flag`);
-  emitter.emit_string_line(windows_init_mutex);
+  emitter.emit_string_line(&windows_init_mutex);
   emitter.emit_string_line(`// Worker thread entry point`);
-  emitter.emit_string_line(worker_entry_signature);
+  emitter.emit_string_line(&worker_entry_signature);
   emitter.emit_string_line(
     `  __yo_worker_thread_t* worker = (__yo_worker_thread_t*)arg;
 
@@ -286,7 +286,7 @@ static size_t __yo_worker_next_thread = 0;                // Round-robin counter
   // Initialize thread-local GC for this worker thread
   __yo_gc_init_thread();`
   );
-  emitter.emit_string_line(async_init_thread);
+  emitter.emit_string_line(&async_init_thread);
   emitter.emit_string_line(
     `
   // Signal that this thread has started. Release so the main thread's
@@ -324,7 +324,7 @@ static size_t __yo_worker_next_thread = 0;                // Round-robin counter
       PARALLELISM_DEBUG("[WORKER] Executing task (tid=%zu)\\n", (size_t)__yo_get_thread_id());
       task->fn(task->closure);`
   );
-  emitter.emit_string_line(async_wait_worker);
+  emitter.emit_string_line(&async_wait_worker);
   emitter.emit_string_line(
     `
       // Note: closure data is freed by the spawn wrapper (which handles RC cleanup)
@@ -345,10 +345,10 @@ static size_t __yo_worker_next_thread = 0;                // Round-robin counter
   // beside the per-task __yo_async_wait_all above: a pool thread runs many
   // tasks, and tearing the ring down after each one would rebuild it for the
   // next. The leak is per-THREAD, so the release belongs at thread teardown.
-  emitter.emit_string_line(async_cleanup_worker);
+  emitter.emit_string_line(&async_cleanup_worker);
   // Release this worker's GC state last (see the Thread entry point).
   emitter.emit_string_line(`  __yo_cleanup_thread_gc();`);
-  emitter.emit_string_line(worker_entry_return);
+  emitter.emit_string_line(&worker_entry_return);
   emitter.emit_string_line(
     `}
 
@@ -402,7 +402,7 @@ static void __yo_worker_pool_init(size_t num_threads) {
     while (!atomic_load_explicit(&worker->started, memory_order_acquire)) {
       // Busy wait with yield to let threads start`
   );
-  emitter.emit_string_line(yield_call);
+  emitter.emit_string_line(&yield_call);
   emitter.emit_string_line(
     `    }
   }
@@ -449,7 +449,7 @@ static void __yo_worker_pool_shutdown(void) {
 // Set the number of worker threads (must be called before first spawn)
 static void __yo_worker_set_num_threads(size_t num) {`
   );
-  emitter.emit_string_line(init_mutex_call);
+  emitter.emit_string_line(&init_mutex_call);
   emitter.emit_string_line(
     `  __YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   if (!__yo_worker_pool_initialized) {
@@ -465,7 +465,7 @@ static void __yo_worker_set_num_threads(size_t num) {`
 // Get the number of worker threads
 static size_t __yo_worker_get_num_threads(void) {`
   );
-  emitter.emit_string_line(init_mutex_call);
+  emitter.emit_string_line(&init_mutex_call);
   emitter.emit_string_line(
     `  __YO_THREAD_SYNC_LOCK(&__yo_worker_pool_mutex);
   size_t num = __yo_worker_num_threads;
@@ -480,7 +480,7 @@ static size_t __yo_worker_get_num_threads(void) {`
 // Uses round-robin distribution for thread affinity
 static void __yo_worker_spawn(__yo_thread_fn fn, void* closure) {`
   );
-  emitter.emit_string_line(init_mutex_call);
+  emitter.emit_string_line(&init_mutex_call);
   emitter.emit_string_line(
     `  // A pool worker can wake a loop on another thread just as a dedicated
   // thread can (see __yo_threads_ever_spawned).

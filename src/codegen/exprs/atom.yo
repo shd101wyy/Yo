@@ -65,14 +65,14 @@ _generate_sm_atom :: (fn(imm(expr) : AstExpr, imm(var_name) : String, imm(contex
   match(
     ei_opt,
     .Some(ei) => {
-      vars := scope_variables(ast_expr_id(expr), ei.env, var_name.clone());
+      vars := scope_variables(ast_expr_id(expr), &ei.env, var_name.clone());
       if(vars.len() > usize(0), {
         match(
           vars.last(),
           .Some(variable) => {
             // The owner's slot for a local sharing a body local's value, else
             // its own (SSA-renamed ids resolve to the canonical id).
-            (var_id : String) = sm_storage_id(variable, smv, context.variable_id_remapping);
+            (var_id : String) = sm_storage_id(&variable, &smv, &context.variable_id_remapping);
             match(
               smv.get(var_id.clone()),
               .Some(cv) => {
@@ -150,7 +150,7 @@ _generate_sm_atom :: (fn(imm(expr) : AstExpr, imm(var_name) : String, imm(contex
     match(
       ei_opt,
       .Some(ei_s) => {
-        svars := scope_variables(ast_expr_id(expr), ei_s.env, var_name.clone());
+        svars := scope_variables(ast_expr_id(expr), &ei_s.env, var_name.clone());
         if(svars.len() > usize(0), {
           match(
             svars.last(),
@@ -217,7 +217,7 @@ _generate_sm_atom :: (fn(imm(expr) : AstExpr, imm(var_name) : String, imm(contex
   match(
     ei_opt,
     .Some(ei2) => {
-      vars2 := scope_variables(ast_expr_id(expr), ei2.env, var_name.clone());
+      vars2 := scope_variables(ast_expr_id(expr), &ei2.env, var_name.clone());
       if(vars2.len() > usize(0), {
         match(
           vars2.last(),
@@ -285,8 +285,8 @@ _generate_sm_atom :: (fn(imm(expr) : AstExpr, imm(var_name) : String, imm(contex
       .Some(vn) => {
         is_ct_const := match(
           ei5.value,
-          .Some(v) => if(!is_unknown_val(v), {
-            vars5 := scope_variables(ast_expr_id(expr), ei5.env, vn.clone());
+          .Some(v) => if(!is_unknown_val(&v), {
+            vars5 := scope_variables(ast_expr_id(expr), &ei5.env, vn.clone());
             n5 := vars5.len();
             cond(
               (n5 == usize(0)) => false,
@@ -296,7 +296,7 @@ _generate_sm_atom :: (fn(imm(expr) : AstExpr, imm(var_name) : String, imm(contex
           .None => false
         );
         if(is_ct_const, {
-          return(Option(String).Some(generate_comptime_value(match(ei5.value, .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(ei5), .Some(crt) => crt, .None => ei5.ty), context.base)));
+          return(Option(String).Some(generate_comptime_value(match(ei5.value, .Some(v2) => v2, .None => EvalValue.UnitVal), match(expr_info_converted_runtime_type(&ei5), .Some(crt) => crt, .None => ei5.ty), &context.base)));
         });
         // By the SOURCE TOKEN, as the general path below reads a plain
         // identifier: a bare reference used as a cond/match arm value can
@@ -326,7 +326,7 @@ _exit_drop_variables :: (fn(imm(exit_expr) : AstExpr, imm(env) : Environment, im
     return(scope_variables(ast_expr_id(exit_expr), env, var_name));
   });
   rec := ArrayList(Variable).new();
-  match(deferred_drop_target_variable(drop_expr, context.base), .Some(tv) => rec.push(tv), .None => ());
+  match(deferred_drop_target_variable(drop_expr, &context.base), .Some(tv) => rec.push(tv), .None => ());
   if(mode == usize(1), {
     truth := get_variables_from_env(env, var_name);
     same := match(truth.last(), .Some(x) => match(rec.last(), .Some(y) => (x.id == y.id), .None => false), .None => rec.is_empty());
@@ -368,10 +368,10 @@ _emit_loop_body_drops_before_exit :: (fn(imm(context) : FunctionGenerationContex
               // here, so skipping the drop can't double-free or leak. Same
               // signal as `_keep_pending_drop` (return.yo).
               skip := match(
-                get_deferred_drop_target_atom_name(drop_expr),
+                get_deferred_drop_target_atom_name(&drop_expr),
                 .Some(var_name) => {
-                  exit_vars := match(exit_env_opt, .Some(xe) => Option(ArrayList(Variable)).Some(_exit_drop_variables(exit_expr, xe, var_name.clone(), drop_expr, context)), .None => Option(ArrayList(Variable)).None);
-                  c_name := match(exit_vars, .Some(xv) => _codegen_name_of_variables(var_name.clone(), xv), .None => get_variable_name_for_codegen_at(ast_expr_id(exit_expr), var_name.clone(), exit_env_opt));
+                  exit_vars := match(exit_env_opt, .Some(xe) => Option(ArrayList(Variable)).Some(_exit_drop_variables(exit_expr, &xe, var_name.clone(), &drop_expr, context)), .None => Option(ArrayList(Variable)).None);
+                  c_name := match(exit_vars, .Some(xv) => _codegen_name_of_variables(var_name.clone(), &xv), .None => get_variable_name_for_codegen_at(ast_expr_id(exit_expr), var_name.clone(), &exit_env_opt));
                   // A local with a task slot is never declared as a C
                   // variable (its binding writes `sm->…`), so the scope stack
                   // cannot vouch for it. The slot always exists and is zero
@@ -381,13 +381,13 @@ _emit_loop_body_drops_before_exit :: (fn(imm(context) : FunctionGenerationContex
                     exit_env_opt,
                     .Some(slot_env) => match(
                       context.state_machine_variables,
-                      .Some(smv) => (context.in_async_state_machine.is_some() && match(match(exit_vars, .Some(xv) => xv.last(), .None => Option(Variable).None), .Some(slot_v) => sm_slot_of_variable(slot_v, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot).is_some(), .None => sm_slot_of(ast_expr_id(exit_expr), slot_env, var_name.clone(), smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot).is_some())),
+                      .Some(smv) => (context.in_async_state_machine.is_some() && match(match(exit_vars, .Some(xv) => xv.last(), .None => Option(Variable).None), .Some(slot_v) => sm_slot_of_variable(&slot_v, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some(), .None => sm_slot_of(ast_expr_id(exit_expr), &slot_env, var_name.clone(), &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot).is_some())),
                       .None => false
                     ),
                     .None => false
                   );
                   (sk : bool) = false;
-                  if(!in_slot && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
+                  if(!in_slot && !scope_stack_contains(&context.base.declared_scopes.*, &c_name), {
                     sk = true;
                   }, {
                     // env-liveness: skip drops for variables not yet in
@@ -410,13 +410,13 @@ _emit_loop_body_drops_before_exit :: (fn(imm(context) : FunctionGenerationContex
                 .None => false
               );
               if(!skip, {
-                drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+                drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
                 if(drop_code.len() > usize(0), {
                   line := indent.clone();
-                  line.push_string(drop_code);
+                  line.push_string(&drop_code);
                   line.push_str(";");
                   em := context.base.emitter;
-                  em.emit_string_line(line);
+                  em.emit_string_line(&line);
                 });
               });
             },
@@ -446,7 +446,7 @@ _is_captured_here :: (fn(key : ExprId, imm(name) : String, imm(env_opt) : Option
       context.current_closure_capture_frame_level,
       .Some(level) => (
         caps.contains(name.clone()) &&
-          match(env_opt, .Some(e) => check_variable_is_closure_captured(key, name.clone(), e, level), .None => true)
+          match(env_opt, .Some(e) => check_variable_is_closure_captured(key, name.clone(), &e, level), .None => true)
       ),
       .None => false
     ),
@@ -459,7 +459,7 @@ _scope_var_is_ref :: (fn(key : ExprId, imm(name) : String, imm(env_opt) : Option
   match(
     env_opt,
     .Some(e) => {
-      vs := scope_variables(key, e, name);
+      vs := scope_variables(key, &e, name);
       cond(
         (vs.len() == usize(0)) => false,
         true => match(vs.last(), .Some(v) => v.is_ref, .None => false)
@@ -477,7 +477,7 @@ _var_read_code :: (fn(key : ExprId, imm(tv) : String, imm(env_opt) : Option(Envi
   is_ref := match(
     env_opt,
     .Some(e) => {
-      vs := scope_variables(key, e, tv.clone());
+      vs := scope_variables(key, &e, tv.clone());
       cond(
         (vs.len() == usize(0)) => false,
         true => match(vs.last(), .Some(v) => v.is_ref, .None => false)
@@ -488,7 +488,7 @@ _var_read_code :: (fn(key : ExprId, imm(tv) : String, imm(env_opt) : Option(Envi
   cond(
     is_ref => {
       o := String.from("(*");
-      o.push_string(vn);
+      o.push_string(&vn);
       o.push_str(")");
       o
     },
@@ -507,7 +507,7 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
       .Some(label) => {
         _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
         out := String.from("goto ");
-        out.push_string(label);
+        out.push_string(&label);
         return(out);
       },
       .None => ()
@@ -529,7 +529,7 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
         _emit_loop_body_drops_before_exit(context, indent.clone(), expr);
         if(context.base.inside_match, {
           out := String.from("goto ");
-          out.push_string(loop_label);
+          out.push_string(&loop_label);
           return(out);
         });
         return(String.from("break"));
@@ -546,11 +546,11 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
       .Some(iasm) => {
         em := context.base.emitter;
         child_type := match(
-          extract_future_trait_from_type(iasm.future_type),
+          extract_future_trait_from_type(&iasm.future_type),
           .Some(ftt) => match(ftt, .FutureTraitT({ output : o }) => o, _ => t_unit()),
           .None => t_unit()
         );
-        is_unit_result := is_unit_type(child_type);
+        is_unit_result := is_unit_type(&child_type);
         // Deferred drops on the return expr itself — only those resolving
         // to state-machine fields.
         match(
@@ -563,7 +563,7 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
                 match(
                   dd.get(rdi),
                   .Some(de) => {
-                    dc := _call_generate_expr(de, indent.clone(), context);
+                    dc := _call_generate_expr(&de, indent.clone(), context);
                     if((dc.len() > usize(0)) && dc.contains("sm->"), {
                       em.emit_string_line(`${indent.clone()}${dc.clone()};`);
                     });
@@ -587,7 +587,7 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
               match(
                 pdd.get(pdi),
                 .Some(pe) => {
-                  pc := _call_generate_expr(pe, indent.clone(), context);
+                  pc := _call_generate_expr(&pe, indent.clone(), context);
                   if((pc.len() > usize(0)) && pc.contains("sm->"), {
                     em.emit_string_line(`${indent.clone()}${pc.clone()};`);
                   });
@@ -602,10 +602,10 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
         em.emit_string_line(`${indent.clone()}// Early return - complete the result Future`);
         result_code := if(
           !is_unit_result,
-          Option(String).Some(`(${get_type_string(child_type, context.base)}){0}`),
+          Option(String).Some(`(${get_type_string(&child_type, &context.base)}){0}`),
           Option(String).None
         );
-        emit_async_future_completion(em, indent.clone(), result_code, Option(String).Some(context.base.current_function_name.clone()));
+        emit_async_future_completion(&em, indent.clone(), &result_code, Option(String).Some(context.base.current_function_name.clone()));
         return(String.from(""));
       },
       .None => ()
@@ -624,7 +624,7 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
   ei_opt := context.base.get_expr_info(expr);
   match(
     ei_opt,
-    .Some(ei) => if(is_unit_type(ei.ty), {
+    .Some(ei) => if(is_unit_type(&ei.ty), {
       return(String.from(""));
     }),
     .None => ()
@@ -635,7 +635,7 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
     match(
       _generate_sm_atom(expr, tv.clone(), context),
       .Some(sm_out) => {
-        code := _sm_consuming_read(expr, tv.clone(), sm_out, context);
+        code := _sm_consuming_read(expr, tv.clone(), &sm_out, context);
         // A by-ref binding (`inout(y) := x`) in a slot holds the pointer; a
         // read or a write through it dereferences it, as `_var_read_code`
         // does for a C local.
@@ -672,8 +672,8 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
             env_opt,
             .Some(e) => match(
               ei.value,
-              .Some(v) => if(!is_unknown_val(v), {
-                vars := scope_variables(ast_expr_id(expr), e, var_name.clone());
+              .Some(v) => if(!is_unknown_val(&v), {
+                vars := scope_variables(ast_expr_id(expr), &e, var_name.clone());
                 nv := vars.len();
                 cond(
                   (nv == usize(0)) => false,
@@ -685,7 +685,7 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
             .None => false
           );
           if(is_comptime_const, {
-            return(match(ei.value, .Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty), context.base), .None => String.from("")));
+            return(match(ei.value, .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => ei.ty), &context.base), .None => String.from("")));
           });
           // Closure-captured variable → access through closure_context.
           //
@@ -699,7 +699,7 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
           // emitted the BARE identifier inside a closure body — undeclared in
           // the generated C
           // (issues/fixed/captured-variable-as-a-cond-arm-value-emits-a-bare-identifier.md).
-          if(!_is_captured_here(ast_expr_id(expr), tv.clone(), env_opt, context), {
+          if(!_is_captured_here(ast_expr_id(expr), tv.clone(), &env_opt, context), {
             // Resolve a plain identifier by its SOURCE TOKEN, not the recorded
             // `variable_name`: attach_temp_variable_to_expr can
             // stamp a SPURIOUS temp `variable_name` onto a bare reference used as
@@ -708,7 +708,7 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
             // lookup to the current binding's C name, so SSA/shadowing still work
             // (for a normal reference token == variable_name, so this is a no-op).
             // `_var_read_code` also derefs a by-ref (`inout(...)`) binding to `(*name)`.
-            return(_var_read_code(ast_expr_id(expr), tv.clone(), env_opt));
+            return(_var_read_code(ast_expr_id(expr), tv.clone(), &env_opt));
           });
         },
         .None => ()
@@ -716,37 +716,37 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
       // Closure-captured access (the general path); otherwise a literal with a
       // comptime value is inlined, else the bare variable name.
       cap_name := tv.clone();
-      is_captured := _is_captured_here(ast_expr_id(expr), cap_name.clone(), env_opt, context);
+      is_captured := _is_captured_here(ast_expr_id(expr), cap_name.clone(), &env_opt, context);
       cond(
         is_captured => {
           field_read := match(
             context.current_closure_capture_type_c_name,
             .Some(cap_ty) => {
               out := String.from("((");
-              out.push_string(cap_ty);
+              out.push_string(&cap_ty);
               out.push_str("*)closure_context)->");
-              out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), env_opt));
+              out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), &env_opt));
               out
             },
             .None => {
               out := String.from("closure_context->");
-              out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), env_opt));
+              out.push_string(get_variable_name_for_codegen_at(ast_expr_id(expr), cap_name.clone(), &env_opt));
               out
             }
           );
           // A capture-list borrow (`imm(y)`, `mut(z)`, decision 35) is a
           // pointer field: a read or a write goes through it.
-          if(_scope_var_is_ref(ast_expr_id(expr), cap_name.clone(), env_opt), `(*${field_read})`, field_read)
+          if(_scope_var_is_ref(ast_expr_id(expr), cap_name.clone(), &env_opt), `(*${field_read})`, field_read)
         },
         // Non-variable atom with a comptime value → inline it. Use the
         // coerced runtime type when present (e.g. a comptime_str arg coerced
         // to `*(char)` must emit a bare C string literal, not a `__yo_str`).
-        match(ei.value, .Some(v) => !is_unknown_val(v), .None => false) => match(
+        match(ei.value, .Some(v) => !is_unknown_val(&v), .None => false) => match(
           ei.value,
-          .Some(v) => generate_comptime_value(v, match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty), context.base),
-          .None => _var_read_code(ast_expr_id(expr), tv.clone(), env_opt)
+          .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => ei.ty), &context.base),
+          .None => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt)
         ),
-        true => _var_read_code(ast_expr_id(expr), tv.clone(), env_opt)
+        true => _var_read_code(ast_expr_id(expr), tv.clone(), &env_opt)
       )
     },
     .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
@@ -758,7 +758,7 @@ _is_ref_binding :: (fn(imm(expr) : AstExpr, imm(name) : String, imm(context) : F
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => {
-      vs := scope_variables(ast_expr_id(expr), ei.env, name);
+      vs := scope_variables(ast_expr_id(expr), &ei.env, name);
       cond(
         (vs.len() == usize(0)) => false,
         true => match(vs.get(vs.len() - usize(1)), .Some(v) => v.is_ref, .None => false)
@@ -780,13 +780,13 @@ _sm_consuming_read :: (fn(imm(expr) : AstExpr, imm(name) : String, imm(sm_code) 
     return(sm_code);
   });
   eid := ast_expr_id(expr);
-  match(low.moved_reads.get(eid), .Some(t) => return(t), .None => ());
+  match(low.moved_reads.get(&eid), .Some(t) => return(t), .None => ());
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(sm_code));
-  vs := scope_variables(eid, ei.env, name);
+  vs := scope_variables(eid, &ei.env, name);
   v := match(vs.last(), .Some(x) => x, .None => return(sm_code));
   tok := ast_expr_token(expr);
   is_move := match(v.consumed_at_token, .Some(ct) => ((ct.*.module_path == tok.module_path) && (ct.*.row == tok.row) && (ct.*.column == tok.column)), .None => false);
-  if(!is_move || !type_contains_rc_cell_or_move_only(ei.ty), {
+  if(!is_move || !type_contains_rc_cell_or_move_only(&ei.ty), {
     return(sm_code);
   });
   // The value leaves the slot where the line holding this read runs (the
@@ -818,7 +818,7 @@ _sm_consuming_read :: (fn(imm(expr) : AstExpr, imm(name) : String, imm(sm_code) 
     .None => ()
   );
   em := context.base.emitter;
-  em.defer_move_zero(marker.clone(), stmts);
+  em.defer_move_zero(marker.clone(), &stmts);
   out := `${sm_code} ${marker}`;
   low.moved_reads.insert(eid, out.clone());
   out

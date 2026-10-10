@@ -185,7 +185,7 @@ _soft_evaluated_for_verify_inner :: (
       }
     )
   );
-  Option(AstExpr).Some(evaluated_for_verify(p, env, ctx, soft_exn))
+  Option(AstExpr).Some(evaluated_for_verify(p, env, ctx, &soft_exn))
 });
 /// E0602 text for a body whose type misses a trait of its `Impl(...)` result.
 _impl_result_unmet_message :: (fn(imm(body_ty) : TypeValue, imm(trait_ty) : TypeValue, imm(result_ty) : TypeValue) -> String)(
@@ -389,7 +389,7 @@ _trial_eval_fn_body :: (
   // no drops at all. Matches the closure path (closure_type.yo:255), which
   // already calls evaluate_begin_expression directly. See
   // issues/fixed/yo-self-tail-expression-arg-temp-drop-missing.md.
-  evaluated := evaluate_begin_expression(body, env, ctx, ArrayList(Variable).new(), true, inner_exn);
+  evaluated := evaluate_begin_expression(body, env, ctx, ArrayList(Variable).new(), true, &inner_exn);
   out.push(evaluated);
 });
 /// The env value for a TYPE-kinded binder — a `comptime(T) : Type` parameter or
@@ -436,7 +436,7 @@ _type_binder_env_value :: (
   });
   match(
     sig_match,
-    .Some(st) => Option(EvalValue).Some(create_type_value(st)),
+    .Some(st) => Option(EvalValue).Some(create_type_value(&st)),
     .None => {
       fresh_some := t_some_t(name.clone(), level);
       // Stamp the fn's where-clause constraints for this label onto the fresh
@@ -473,7 +473,7 @@ _type_binder_env_value :: (
         .SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2) => TypeValue.SomeT(fs_id, fs_name, fs_level, fs_parent, fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1, fs_r2),
         other => other
       );
-      Option(EvalValue).Some(create_type_value(stamped))
+      Option(EvalValue).Some(create_type_value(&stamped))
     }
   )
 });
@@ -494,7 +494,7 @@ _ctor_binder_some_ids :: (
     lbl := match(labels.get(i), .Some(l) => l, .None => String.from(""));
     ids.push(
       match(
-        find_variable_in_env(env, lbl),
+        find_variable_in_env(env, &lbl),
         .Some(v) => match(v.value.get(usize(0)), .Some(.TypeVal(.SomeT({ id : sid }))) => sid, _ => String.from("")),
         .None => String.from("")
       )
@@ -508,7 +508,7 @@ _ctor_binder_some_ids :: (
 _stash_clause_callsite_contracts :: (fn(imm(clauses) : ArrayList(AstExpr), imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
   (i : usize) = usize(0);
   while(i < clauses.len(), {
-    match(clauses.get(i), .Some(c) => prepare_callsite_contracts(c, env, ctx, exn), .None => ());
+    match(clauses.get(i), .Some(c) => prepare_callsite_contracts(&c, env, ctx, exn), .None => ());
     i = (i + usize(1));
   });
 });
@@ -528,8 +528,8 @@ _record_ctor_phantom_positions :: (
   body_ty := match(
     out.get(usize(0)),
     .Some(b) => match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(b)),
-      .Some(bi) => match(bi.value, .Some(.TypeVal(t)) => resolve_enum_shell(t), _ => TypeValue.Unit),
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)),
+      .Some(bi) => match(bi.value, .Some(.TypeVal(t)) => resolve_enum_shell(&t), _ => TypeValue.Unit),
       .None => TypeValue.Unit
     ),
     .None => TypeValue.Unit
@@ -541,7 +541,7 @@ _record_ctor_phantom_positions :: (
       return(());
     }
   );
-  payload_somes := get_all_some_types(body_ty);
+  payload_somes := get_all_some_types(&body_ty);
   flags := ArrayList(bool).new();
   (i : usize) = usize(0);
   while(i < binder_ids.len(), {
@@ -570,7 +570,7 @@ _record_ctor_phantom_positions :: (
     });
     eprintln(`[phantom] fid=${fn_id} flags=${fs}`);
   });
-  register_ctor_phantom_positions(fn_id, flags);
+  register_ctor_phantom_positions(fn_id, &flags);
 });
 /// Build a fresh definition-time evaluation env for a function body: captures
 /// (re-derived from `caller_env` so other top-level names resolve) + a frame
@@ -758,7 +758,7 @@ _build_def_time_body_env :: (
                 .Some(rv_ev) => match(
                   rv_ev,
                   .TypeVal(.SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _)) =>
-                    resolve_some_binder_kind(rv_sname, rv_slvl),
+                    resolve_some_binder_kind(&rv_sname, rv_slvl),
                   _ => Option(TypeValue).None,
                   _ => Option(TypeValue).None
                 ),
@@ -819,15 +819,15 @@ _build_def_time_body_env :: (
           rk_r := match(rk_reassign.get(rk_bi), .Some(b) => b, .None => false);
           rk_ml := match(rk_module_level.get(rk_bi), .Some(b) => b, .None => false);
           rk_var_opt := add_variable_to_env(
-            fresh_env,
+            &fresh_env,
             rk_n.clone(),
             rk_bty.clone(),
-            Option(EvalValue).Some(create_unknown_val(rk_bty)),
+            Option(EvalValue).Some(create_unknown_val(&rk_bty)),
             true,
             rk_r,
             false,
             false,
-            synthetic_token(rk_n, module_path)
+            synthetic_token(&rk_n, &module_path)
           );
           match(
             rk_var_opt,
@@ -853,7 +853,7 @@ _build_def_time_body_env :: (
     (sci : usize) = usize(0);
     while(sci < param_types.len(), {
       spt := match(param_types.get(sci), .Some(t) => t, .None => t_unit());
-      found := get_all_some_types(spt);
+      found := get_all_some_types(&spt);
       (sfi : usize) = usize(0);
       while(sfi < found.len(), {
         match(
@@ -918,7 +918,7 @@ _build_def_time_body_env :: (
       if((fa_name.len() > usize(0)) && !is_param_too, {
         fa_val := if(
           is_type_0(fa_ty.clone()),
-          _type_binder_env_value(fa_name.clone(), sig_some_ts, where_entries, pf_level),
+          _type_binder_env_value(fa_name.clone(), &sig_some_ts, where_entries, pf_level),
           // A VALUE binder (`generic(N : usize)` on `from_array`, whose body does
           // `Self.with_capacity(N)` and `while(i < N, ...)`): bind an unknown
           // VALUE of the DECLARED type. Kind
@@ -933,15 +933,15 @@ _build_def_time_body_env :: (
           Option(EvalValue).Some(create_unknown_val(fa_ty.clone()))
         );
         add_variable_to_env(
-          fresh_env,
+          &fresh_env,
           fa_name.clone(),
-          fa_ty,
-          fa_val,
+          &fa_ty,
+          &fa_val,
           true,
           false,
           false,
           false,
-          synthetic_token(fa_name, module_path)
+          synthetic_token(&fa_name, &module_path)
         );
       });
       fa_i = (fa_i + usize(1));
@@ -968,17 +968,17 @@ _build_def_time_body_env :: (
     // caller's String buffer (net −1 per call).
     p_ct := match(param_is_comptime.get(pi), .Some(b) => b, .None => false);
     pv := if(
-      is_type_0(pt),
-      _type_binder_env_value(pn.clone(), sig_some_ts, where_entries, pf_level),
+      is_type_0(&pt),
+      _type_binder_env_value(pn.clone(), &sig_some_ts, where_entries, pf_level),
       if(
         p_ct,
-        Option(EvalValue).Some(create_unknown_val(pt)),
+        Option(EvalValue).Some(create_unknown_val(&pt)),
         Option(EvalValue).None
       )
     );
     // The shared binding rule (calls/helper.yo): the declared comptime,
     // `inout` and `own` flags.
-    bind_parameter(fresh_env, pn, pt, pv, p_ct || is_type_0(pt), p_ref, p_own, synthetic_token(pn, module_path));
+    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, synthetic_token(&pn, &module_path));
     pi = (pi + usize(1));
   });
   fresh_env
@@ -1003,17 +1003,17 @@ _rerun_pending_def_evals :: (fn(imm(caller_env) : Environment, imm(ctx) : EvalCo
       .Some(pd) => {
         rp_env := _build_def_time_body_env(
           caller_env,
-          pd.param_labels,
-          pd.param_types,
-          pd.param_is_ref,
-          pd.param_is_owning,
-          pd.param_is_comptime,
-          pd.result_ty,
-          pd.where_entries,
-          pd.function_type,
+          &pd.param_labels,
+          &pd.param_types,
+          &pd.param_is_ref,
+          &pd.param_is_owning,
+          &pd.param_is_comptime,
+          &pd.result_ty,
+          &pd.where_entries,
+          &pd.function_type,
           pd.strip_outer
         );
-        rp_tok := ast_expr_token(pd.body);
+        rp_tok := ast_expr_token(&pd.body);
         rp_fv := EvalValue.FuncVal(
           rc(
             FuncValData(
@@ -1024,7 +1024,7 @@ _rerun_pending_def_evals :: (fn(imm(caller_env) : Environment, imm(ctx) : EvalCo
               body : make_err_expr(),
               cap_names : ArrayList(String).new(),
               cap_tys : ArrayList(TypeValue).new(),
-              func_id : stable_func_id(String.from(""), rp_tok.module_path, usize(rp_tok.row), usize(rp_tok.column))
+              func_id : stable_func_id(String.from(""), &rp_tok.module_path, usize(rp_tok.row), usize(rp_tok.column))
             )
           ),
           ArrayList(EvalValue).new()
@@ -1032,11 +1032,11 @@ _rerun_pending_def_evals :: (fn(imm(caller_env) : Environment, imm(ctx) : EvalCo
         if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
           eprintln(`[fbctx-fnty-rp]`);
         });
-        rp_ctx := create_function_body_evaluation_context(pd.function_type, rp_fv, rp_env, ctx);
+        rp_ctx := create_function_body_evaluation_context(&pd.function_type, &rp_fv, &rp_env, ctx);
         rp_out := ArrayList(AstExpr).new();
         rp_prev_trial := set_in_def_time_trial(true);
         rp_depths := forcing_depths();
-        _trial_eval_fn_body(pd.body.clone(), rp_env, rp_ctx, rp_out);
+        _trial_eval_fn_body(pd.body.clone(), &rp_env, &rp_ctx, &mut rp_out);
         truncate_forcing_depths(rp_depths);
         ___rp_tr := set_in_def_time_trial(rp_prev_trial);
         // Every forward declaration this body saw is filled now?
@@ -1045,7 +1045,7 @@ _rerun_pending_def_evals :: (fn(imm(caller_env) : Environment, imm(ctx) : EvalCo
         while(rp_fi < pd.fwd_vars.len(), {
           match(
             pd.fwd_vars.get(rp_fi),
-            .Some(fv) => if(match(fv.value.get(usize(0)), .Some(fvv) => is_unknown_val(fvv), .None => true), {
+            .Some(fv) => if(match(fv.value.get(usize(0)), .Some(fvv) => is_unknown_val(&fvv), .None => true), {
               rp_all_filled = false;
             }),
             .None => ()
@@ -1064,8 +1064,8 @@ _rerun_pending_def_evals :: (fn(imm(caller_env) : Environment, imm(ctx) : EvalCo
               rp_failure = Option(YoError).Some(
                 match(
                   _trial_swallow_diagnostics(),
-                  .Some(rp_ds) => yo_error_from_diagnostics(rp_ds),
-                  .None => format_error_message(rp_tok, _trial_swallow_message())
+                  .Some(rp_ds) => yo_error_from_diagnostics(&rp_ds),
+                  .None => format_error_message(&rp_tok, _trial_swallow_message())
                 )
               );
             });
@@ -1147,14 +1147,14 @@ try_to_implement_function_by_function_type :: (
       // conservatively not control-bound, so generic and async
       // (`Impl(Future(...))`) results pass. The `->`/`=>` literal path has
       // the same check (values/anonymous_function.yo).
-      if(!(__fm2.*.is_control) && type_is_control_bound(result_box), {
+      if(!(__fm2.*.is_control) && type_is_control_bound(&result_box), {
         exn.throw(
           dyn(
             format_error_message(
-              tok,
+              &tok,
               `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
 
-Result type: ${type_to_string(result_box)}`
+Result type: ${type_to_string(&result_box)}`
             )
           )
         );
@@ -1169,7 +1169,7 @@ Result type: ${type_to_string(result_box)}`
         exn.throw(
           dyn(
             format_error_message(
-              tok,
+              &tok,
               `Expected 1 argument for function body, got ${args.len()}`
             )
           )
@@ -1187,33 +1187,33 @@ Result type: ${type_to_string(result_box)}`
       // expr, the same key the `copy_*` re-keying below uses.
       contract_key := match(
         expr,
-        .FnCall(_, ck_ft_box, _, _, _) => ast_expr_id(ck_ft_box).to_string(),
+        .FnCall(_, ck_ft_box, _, _, _) => ast_expr_id(&ck_ft_box).to_string(),
         .Atom(_, _) => String.from("")
       );
       ck_requires := get_func_requires_exprs(contract_key.clone());
       ck_requires_checkable := ArrayList(bool).new();
       (ckr_i : usize) = usize(0);
       while(ckr_i < ck_requires.len(), {
-        ck_requires_checkable.push(match(ck_requires.get(ckr_i), .Some(ckp) => requires_is_runtime_checkable(ckp, ctx.expr_info_table), .None => false));
+        ck_requires_checkable.push(match(ck_requires.get(ckr_i), .Some(ckp) => requires_is_runtime_checkable(&ckp, &ctx.expr_info_table), .None => false));
         ckr_i = (ckr_i + usize(1));
       });
       ck_ensures := get_func_ensures_exprs(contract_key.clone());
       ck_ensures_checkable := ArrayList(bool).new();
       (cke_i : usize) = usize(0);
       while(cke_i < ck_ensures.len(), {
-        ck_ensures_checkable.push(ensures_is_runtime_checkable(ck_ensures(cke_i), ctx.expr_info_table));
+        ck_ensures_checkable.push(ensures_is_runtime_checkable(&ck_ensures(cke_i), &ctx.expr_info_table));
         cke_i = (cke_i + usize(1));
       });
       body_expr := wrap_function_body_with_contracts(
-        body_expr_raw,
-        ck_requires,
-        ck_ensures,
+        &body_expr_raw,
+        &ck_requires,
+        &ck_ensures,
         get_func_return_label(contract_key.clone()),
         result_is_comptime_only,
-        is_unit_type(result_box),
+        is_unit_type(&result_box),
         ctx.is_ghost_context,
-        ck_requires_checkable,
-        ck_ensures_checkable
+        &ck_requires_checkable,
+        &ck_ensures_checkable
       );
       // Build param_type_names: for each param type, use the SomeT name (for generic
       // binding at call time) if the param type is a generic type variable, else "".
@@ -1279,7 +1279,7 @@ Result type: ${type_to_string(result_box)}`
                     // assignment.yo once the declaration is filled).
                     cv_unfilled := match(
                       cv.value.get(usize(0)),
-                      .Some(cv_v) => is_unknown_val(cv_v),
+                      .Some(cv_v) => is_unknown_val(&cv_v),
                       .None => true
                     );
                     // Compiler-internal synthetic binders (`__yo_return_self`
@@ -1303,7 +1303,7 @@ Result type: ${type_to_string(result_box)}`
                       .Func({ meta : __fcxm }) => __fcxm.*.is_extern.is_some(),
                       _ => false
                     );
-                    if(cv.is_compile_time_only && cv_unfilled && is_function_type(cv.ty) && !cv.name.starts_with("__yo_") && !cv_is_extern_fn, {
+                    if(cv.is_compile_time_only && cv_unfilled && is_function_type(&cv.ty) && !cv.name.starts_with("__yo_") && !cv_is_extern_fn, {
                       if(!has_fwd_comptime_fn_cap && debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
                         eprintln(`[fwd-cap] name=${cv.name} frame=${cap_fi.to_string()}`);
                       });
@@ -1325,8 +1325,8 @@ Result type: ${type_to_string(result_box)}`
         cap_fi = (cap_fi + usize(1));
       });
       ft_env_key := mint_funcval_env_key();
-      register_funcval_cap_slices(ft_env_key, cap_slices);
-      fn_val_id := stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column));
+      register_funcval_cap_slices(ft_env_key, &cap_slices);
+      fn_val_id := stable_func_id(String.from(""), &tok.module_path, usize(tok.row), usize(tok.column));
       // Defer body evaluation ONLY for functions that depend on generic type
       // variables — `generic` parameters, any parameter whose type contains a
       // some-type in codegen-relevant position, or a generic `Self`. Every other
@@ -1345,7 +1345,7 @@ Result type: ${type_to_string(result_box)}`
       while((spi < param_types.len()) && !any_some_param_ft, {
         match(
           param_types.get(spi),
-          .Some(pt) => if(type_contains_some_type_for_codegen_param(pt, ArrayList(String).new()), {
+          .Some(pt) => if(type_contains_some_type_for_codegen_param(&pt, ArrayList(String).new()), {
             any_some_param_ft = true;
           }),
           .None => ()
@@ -1359,7 +1359,7 @@ Result type: ${type_to_string(result_box)}`
       // SomeT) was NOT detected → the method was wrongly NOT deferred → its body
       // was def-time-evaluated with `T` unbound → "expected type for element,
       // got T" (field.yo:293). Use the deep predicate so such methods defer.
-      self_has_some_ft := match(ctx.self_type, .Some(st) => type_contains_some_type_for_codegen_param(st, ArrayList(String).new()), .None => false);
+      self_has_some_ft := match(ctx.self_type, .Some(st) => type_contains_some_type_for_codegen_param(&st, ArrayList(String).new()), .None => false);
       // COMPTIME VALUE-position params (`fn(comptime(n) : usize) -> Array(i32, n)`)
       // make the fn GENERIC — the body must DEFER like a
       // forall/SomeT one: def-time eval with `n` unresolved threw "Return
@@ -1380,7 +1380,7 @@ Result type: ${type_to_string(result_box)}`
       match(
         expr,
         .FnCall(_, ct_ft_box, _, _, _) => {
-          ct_flags_ft := get_func_param_comptime(ast_expr_id(ct_ft_box).to_string());
+          ct_flags_ft := get_func_param_comptime(ast_expr_id(&ct_ft_box).to_string());
           (ct_fi : usize) = usize(0);
           while((ct_fi < ct_flags_ft.len()) && !ft_has_ct_param, {
             ct_is_typeuni := match(
@@ -1427,7 +1427,7 @@ Result type: ${type_to_string(result_box)}`
       // forced, publish the head FuncVal before the body trial below, so a
       // reference to the definition's own name from inside its body (or from
       // a sibling the body forces) binds this value instead of erroring.
-      publish_pending_phase_a(ast_expr_id(expr), func_val, function_type);
+      publish_pending_phase_a(ast_expr_id(expr), &func_val, function_type);
       // Record this function's own resolved Func type by its FuncVal id so
       // codegen can emit its C prototype (Gap 10). This path (a `fn(...)` type
       // applied to a body, e.g. `f :: (fn(x:i32)->i32)(x+x)`) uses a bare
@@ -1442,16 +1442,16 @@ Result type: ${type_to_string(result_box)}`
       match(
         expr,
         .FnCall(_, fn_type_box, _, _, _) => {
-          copy_func_param_defaults(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_default_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_type_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_comptime(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_param_assigned_values(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_return_type_expr(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_variadic_param(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_macro_registration(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_where_constraints(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
-          copy_func_contract_exprs(ast_expr_id(fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_param_defaults(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_param_default_exprs(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_param_type_exprs(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_param_comptime(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_param_assigned_values(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_return_type_expr(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_variadic_param(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
+          copy_macro_registration(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_where_constraints(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
+          copy_func_contract_exprs(ast_expr_id(&fn_type_box).to_string(), fn_val_id.clone());
         },
         .Atom(_, _) => ()
       );
@@ -1504,7 +1504,7 @@ Result type: ${type_to_string(result_box)}`
             pv_ty := match(param_types.get(pv_i), .Some(t) => t, .None => t_unit());
             if(pv_name.len() > usize(0), {
               add_variable_to_env(
-                pred_env,
+                &pred_env,
                 pv_name.clone(),
                 pv_ty.clone(),
                 Option(EvalValue).Some(create_unknown_val(pv_ty.clone())),
@@ -1512,7 +1512,7 @@ Result type: ${type_to_string(result_box)}`
                 false,
                 false,
                 false,
-                tok
+                &tok
               );
             });
             pv_i = (pv_i + usize(1));
@@ -1522,7 +1522,7 @@ Result type: ${type_to_string(result_box)}`
             raw_label,
             .Some(rl) => {
               add_variable_to_env(
-                pred_env,
+                &pred_env,
                 rl.clone(),
                 result_box.clone(),
                 Option(EvalValue).Some(create_unknown_val(result_box.clone())),
@@ -1530,7 +1530,7 @@ Result type: ${type_to_string(result_box)}`
                 false,
                 false,
                 false,
-                tok
+                &tok
               );
             },
             .None => ()
@@ -1545,7 +1545,7 @@ Result type: ${type_to_string(result_box)}`
               .Some(rp) => {
                 if(should_defer_ft, {
                   match(
-                    _soft_evaluated_for_verify(rp.clone(), pred_env, ctx),
+                    _soft_evaluated_for_verify(rp.clone(), &pred_env, ctx),
                     .Some(ev) => {
                       evd_reqs.push(ev);
                     },
@@ -1555,7 +1555,7 @@ Result type: ${type_to_string(result_box)}`
                     _pred_soft_fail = true;
                   });
                 }, {
-                  evd_reqs.push(evaluated_for_verify(rp.clone(), pred_env, ctx, exn));
+                  evd_reqs.push(evaluated_for_verify(rp.clone(), &pred_env, ctx, exn));
                 });
               },
               .None => ()
@@ -1571,7 +1571,7 @@ Result type: ${type_to_string(result_box)}`
               .Some(ep) => {
                 if(should_defer_ft, {
                   match(
-                    _soft_evaluated_for_verify(ep.clone(), pred_env, ctx),
+                    _soft_evaluated_for_verify(ep.clone(), &pred_env, ctx),
                     .Some(ev) => {
                       evd_enss.push(ev);
                     },
@@ -1581,7 +1581,7 @@ Result type: ${type_to_string(result_box)}`
                     _pred_soft_fail = true;
                   });
                 }, {
-                  evd_enss.push(evaluated_for_verify(ep.clone(), pred_env, ctx, exn));
+                  evd_enss.push(evaluated_for_verify(ep.clone(), &pred_env, ctx, exn));
                 });
               },
               .None => ()
@@ -1597,8 +1597,8 @@ Result type: ${type_to_string(result_box)}`
           // deferred (generic) fn's clauses are soft-evaluated and may be
           // hollow; its call sites are stashed per instance instead.
           if(!should_defer_ft, {
-            _stash_clause_callsite_contracts(evd_reqs, pred_env, ctx, exn);
-            _stash_clause_callsite_contracts(evd_enss, pred_env, ctx, exn);
+            _stash_clause_callsite_contracts(&evd_reqs, &pred_env, ctx, exn);
+            _stash_clause_callsite_contracts(&evd_enss, &pred_env, ctx, exn);
           });
           // V6 task 2: the DIAGNOSTIC TRIAL of the deferred (generic)
           // body — evaluate it once with the parameters bound to unknowns
@@ -1609,7 +1609,7 @@ Result type: ${type_to_string(result_box)}`
           // untyped, task 2's loud-failure scope).
           if(should_defer_ft && !is_assumed, {
             dg_out := ArrayList(AstExpr).new();
-            _trial_eval_fn_body(body_expr_raw.clone(), pred_env, ctx, dg_out);
+            _trial_eval_fn_body(body_expr_raw.clone(), &pred_env, ctx, &mut dg_out);
             ();
           });
           register_verify_task(
@@ -1625,7 +1625,7 @@ Result type: ${type_to_string(result_box)}`
               ensures_exprs : evd_enss,
               decreases_expr : match(
                 get_func_decreases_expr(fn_val_id.clone()),
-                .Some(dm) => Option(AstExpr).Some(_evaluated_measure_for_verify(dm.clone(), pred_env, ctx, exn)),
+                .Some(dm) => Option(AstExpr).Some(_evaluated_measure_for_verify(dm.clone(), &pred_env, ctx, exn)),
                 .None => Option(AstExpr).None
               ),
               return_label : get_func_return_label(fn_val_id.clone()),
@@ -1638,7 +1638,7 @@ Result type: ${type_to_string(result_box)}`
               // assumed spec, `r.len()`, was untyped before — R1 slice 2).
               body_assumed : is_assumed,
               body_abstract : should_defer_ft,
-              requires_enforced : requires_enforced_flags(get_func_requires_exprs(fn_val_id.clone()), vmode, ctx.is_ghost_context, ctx.expr_info_table)
+              requires_enforced : requires_enforced_flags(get_func_requires_exprs(fn_val_id.clone()), &vmode, ctx.is_ghost_context, &ctx.expr_info_table)
             )
           );
           ()
@@ -1664,7 +1664,7 @@ Result type: ${type_to_string(result_box)}`
       (final_func_ty : TypeValue) = function_type;
       if(ctx.is_analyzing_ctfe_capability || ctx.force_compile_time_bindings, {
         match(
-          analyze_ctfe_capability(func_val, function_type, caller_env, ctx),
+          analyze_ctfe_capability(&func_val, function_type, caller_env, ctx),
           .Some(ctfe_ok) => {
             final_func_val = ctfe_ok.value;
             final_func_ty = ctfe_ok.ty;
@@ -1674,9 +1674,9 @@ Result type: ${type_to_string(result_box)}`
       });
       // Build and store ExprInfo for the function definition expression.
       // The type of a function definition is the function type itself.
-      info := new_expr_info(caller_env, final_func_ty);
+      info := new_expr_info(caller_env, &final_func_ty);
       info.value = Option(EvalValue).Some(final_func_val);
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
       // Def-time body evaluation for every non-deferred
       // (concrete) function. The flowability *check* on the evaluated final
       // expression runs only for returns whose representation carries a raw
@@ -1687,24 +1687,24 @@ Result type: ${type_to_string(result_box)}`
           def_where_entries := match(
             expr,
             .FnCall(_, dwe_ft_box, _, _, _) =>
-              get_func_where_constraints(ast_expr_id(dwe_ft_box).to_string()),
+              get_func_where_constraints(ast_expr_id(&dwe_ft_box).to_string()),
             .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
           );
           def_ct_flags := match(
             expr,
             .FnCall(_, ctf_ft_box, _, _, _) =>
-              get_func_param_comptime(ast_expr_id(ctf_ft_box).to_string()),
+              get_func_param_comptime(ast_expr_id(&ctf_ft_box).to_string()),
             .Atom(_, _) => ArrayList(bool).new()
           );
           flow_env := _build_def_time_body_env(
             caller_env,
-            param_labels,
-            param_types,
-            param_is_ref,
-            param_is_owning,
-            def_ct_flags,
-            result_box,
-            def_where_entries,
+            &param_labels,
+            &param_types,
+            &param_is_ref,
+            &param_is_owning,
+            &def_ct_flags,
+            &result_box,
+            &def_where_entries,
             function_type,
             ctx.is_evaluating_function_body_or_async_block.is_some()
           );
@@ -1715,18 +1715,18 @@ Result type: ${type_to_string(result_box)}`
           match(
             expr,
             .FnCall(_, vp_ft_box, _, _, _) => match(
-              get_func_variadic_param(ast_expr_id(vp_ft_box).to_string()),
+              get_func_variadic_param(ast_expr_id(&vp_ft_box).to_string()),
               .Some(vp_entry) => {
                 ___vp := add_variable_to_env(
-                  flow_env,
+                  &flow_env,
                   vp_entry.label.clone(),
-                  vp_entry.ty,
-                  Option(EvalValue).Some(create_unknown_val(vp_entry.ty)),
+                  &vp_entry.ty,
+                  Option(EvalValue).Some(create_unknown_val(&vp_entry.ty)),
                   true,
                   false,
                   false,
                   false,
-                  synthetic_token(vp_entry.label, caller_env.module_path)
+                  synthetic_token(&vp_entry.label, &caller_env.module_path)
                 );
               },
               .None => ()
@@ -1743,7 +1743,7 @@ Result type: ${type_to_string(result_box)}`
                 body : make_err_expr(),
                 cap_names : ArrayList(String).new(),
                 cap_tys : ArrayList(TypeValue).new(),
-                func_id : stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column))
+                func_id : stable_func_id(String.from(""), &tok.module_path, usize(tok.row), usize(tok.column))
               )
             ),
             ArrayList(EvalValue).new()
@@ -1751,7 +1751,7 @@ Result type: ${type_to_string(result_box)}`
           if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
             eprintln(`[fbctx-fnty-flow]`);
           });
-          flow_ctx := create_function_body_evaluation_context(function_type, flow_fv, flow_env, ctx);
+          flow_ctx := create_function_body_evaluation_context(function_type, &flow_fv, &flow_env, ctx);
           flow_out := ArrayList(AstExpr).new();
           // Thread the fn's where-constraint trait ids to the overload
           // selector during the DEF-time body eval (same channel as the
@@ -1775,7 +1775,7 @@ Result type: ${type_to_string(result_box)}`
               fwi = (fwi + usize(1));
             });
           };
-          push_active_where_trait_ids(flow_where_ids);
+          push_active_where_trait_ids(&flow_where_ids);
           // NOT flagged as a def-time trial: this is the CONCRETE-fn path
           // (flow_body is Some only when should_defer_ft is false), and for
           // a concrete fn this evaluation's stamps ARE what codegen emits —
@@ -1786,13 +1786,13 @@ Result type: ${type_to_string(result_box)}`
           // batch main's own trial resolve abstractly
           // (tests/collections/btree_map.test.yo lost `for(m.iter())`'s
           // closure-arg ExprInfo under the wip synthesis loosenings).
-          flow_binders := if(is_type_hierarchy_type(result_box), _ctor_binder_some_ids(flow_env, forall_labels, param_labels), ArrayList(String).new());
+          flow_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&flow_env, &forall_labels, &param_labels), ArrayList(String).new());
           flow_depths := forcing_depths();
-          _trial_eval_fn_body(fb, flow_env, flow_ctx, flow_out);
+          _trial_eval_fn_body(&fb, &flow_env, &flow_ctx, &mut flow_out);
           truncate_forcing_depths(flow_depths);
           pop_active_where_trait_ids();
           if(flow_binders.len() > usize(0), {
-            _record_ctor_phantom_positions(fn_val_id.clone(), flow_binders, flow_out, ctx);
+            _record_ctor_phantom_positions(fn_val_id.clone(), &flow_binders, &flow_out, ctx);
           });
           // V5 honest diagnostics: a verify-target body whose def-time trial
           // SWALLOWED reaches the verifier hollow (no ExprInfo on the body) —
@@ -1882,7 +1882,7 @@ Result type: ${type_to_string(result_box)}`
           match(
             flow_violation_error(),
             .Some(viol_err) => {
-              reraise_flow_violation(viol_err, ctx, exn);
+              reraise_flow_violation(&viol_err, ctx, exn);
             },
             .None => ()
           );
@@ -1912,7 +1912,7 @@ Result type: ${type_to_string(result_box)}`
             match(
               forward_ref_diagnostic(ts_fatal_msg.clone()),
               .Some(ts_fwd_msg) => {
-                exn.throw(dyn(format_error_message(ast_expr_token(fb), ts_fwd_msg)));
+                exn.throw(dyn(format_error_message(ast_expr_token(&fb), &ts_fwd_msg)));
               },
               .None => ()
             );
@@ -1923,7 +1923,7 @@ Result type: ${type_to_string(result_box)}`
             match(
               ts_fatal_diags,
               .Some(ts_ds) => {
-                exn.throw(dyn(yo_error_from_diagnostics(ts_ds)));
+                exn.throw(dyn(yo_error_from_diagnostics(&ts_ds)));
               },
               .None => ()
             );
@@ -1932,7 +1932,7 @@ Result type: ${type_to_string(result_box)}`
           // Census (Phase 6): the one concrete-fn swallow that survives, a
           // body waiting for a forward-declared comptime fn.
           if(_trial_swallow_pending() && (flow_out.len() == usize(0)) && debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
-            eprintln(`[kept] site=fn-fwd code=${_trial_swallow_code_text()} owner=${trial_body_site(fb)}`);
+            eprintln(`[kept] site=fn-fwd code=${_trial_swallow_code_text()} owner=${trial_body_site(&fb)}`);
           });
           _clear_trial_swallow();
           // Result-type check for a CONCRETE body (the deferred-generic path
@@ -1950,57 +1950,57 @@ Result type: ${type_to_string(result_box)}`
           match(
             flow_out.get(usize(0)),
             .Some(ub_body) => match(
-              expr_info_table_get(ctx.expr_info_table, ast_expr_id(ub_body)),
+              expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ub_body)),
               .Some(ub_info) => {
                 ub_ty := ub_info.ty;
                 // A body that ends in a `never` expression (a panic, a call
                 // to a `-> never` function) adopts the declared result, so
                 // codegen can type its unreachable placeholder (Phase 3.6).
-                if(is_never_type(ub_ty), {
-                  adopt_never_type(ub_body, if(result_is_ref, t_ptr(result_box), result_box), ctx);
+                if(is_never_type(&ub_ty), {
+                  adopt_never_type(&ub_body, if(result_is_ref, t_ptr(&result_box), result_box), ctx);
                 });
                 // An `Impl(Trait)` result is judged by its traits, not by
                 // compatibility (issues/fixed/impl-trait-return-bound-is-not-checked.md);
                 // the deferred-generic twin is below.
                 if(!has_any_control_flow(ub_info.control_flow), {
                   // Decision 38 A: a second-class value is never returned.
-                  reject_second_class_escape(ub_ty, String.from("returned"), ast_expr_token(fb), ctx, exn);
+                  reject_second_class_escape(&ub_ty, String.from("returned"), ast_expr_token(&fb), ctx, exn);
                   // A FUNCTION result's marker traits come from the returned
                   // value (rules D4 + D1, `judge_function_argument_markers`).
-                  ub_fam := judge_function_argument_markers(result_box, ub_ty, ub_info.value, flow_env, ctx);
+                  ub_fam := judge_function_argument_markers(&result_box, &ub_ty, &ub_info.value, &flow_env, ctx);
                   match(
                     ub_fam.offense,
                     .Some(ub_fo) => {
                       mark_fn_unemittable(fn_val_id.clone());
-                      exn.throw(dyn(format_error_message(ast_expr_token(fb), `The body's value (type ${type_to_string(ub_ty)}) cannot be returned as ${type_to_string(result_box)}: ${ub_fo}.`)));
+                      exn.throw(dyn(format_error_message(ast_expr_token(&fb), `The body's value (type ${type_to_string(&ub_ty)}) cannot be returned as ${type_to_string(&result_box)}: ${ub_fo}.`)));
                     },
                     .None => ()
                   );
                   match(
-                    impl_param_unmet_trait(result_box, ub_ty, flow_env, ub_fam.judged),
+                    impl_param_unmet_trait(&result_box, &ub_ty, &flow_env, ub_fam.judged),
                     .Some(ub_rt) => {
                       mark_fn_unemittable(fn_val_id.clone());
-                      exn.throw(dyn(format_error_message(ast_expr_token(fb), _impl_result_unmet_message(ub_ty, ub_rt, result_box))));
+                      exn.throw(dyn(format_error_message(ast_expr_token(&fb), _impl_result_unmet_message(&ub_ty, &ub_rt, &result_box))));
                     },
                     .None => ()
                   );
                 });
-                ub_skip := (has_any_control_flow(ub_info.control_flow) || is_void_type(result_box) || is_type_hierarchy_type(result_box) || type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(ub_ty, ArrayList(String).new()) || result_is_ref);
-                if(!ub_skip && !are_types_compatible(ub_ty, result_box), {
+                ub_skip := (has_any_control_flow(ub_info.control_flow) || is_void_type(&result_box) || is_type_hierarchy_type(&result_box) || type_contains_some_type_for_codegen_param(&result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(&ub_ty, ArrayList(String).new()) || result_is_ref);
+                if(!ub_skip && !are_types_compatible(&ub_ty, &result_box), {
                   // The registration above already happened; a definition
                   // rejected here must not be emitted (its callers were
                   // discarded with the throw — a `comptime_expect_error`
                   // wrapper is the common case).
                   mark_fn_unemittable(fn_val_id.clone());
                   ub_hint := cond(
-                    is_unit_type(ub_ty) => String.from(" A `{ ... }` block whose last statement ends with `;` has the value `()` — remove the semicolon after the tail expression, or return the value explicitly."),
+                    is_unit_type(&ub_ty) => String.from(" A `{ ... }` block whose last statement ends with `;` has the value `()` — remove the semicolon after the tail expression, or return the value explicitly."),
                     true => String.new()
                   );
                   exn.throw(
                     dyn(
                       format_error_message(
-                        ast_expr_token(fb),
-                        `Function body has type \`${type_to_string(ub_ty)}\`, but the declared result type is \`${type_to_string(result_box)}\`.${ub_hint}`
+                        ast_expr_token(&fb),
+                        `Function body has type \`${type_to_string(&ub_ty)}\`, but the declared result type is \`${type_to_string(&result_box)}\`.${ub_hint}`
                       )
                     )
                   );
@@ -2008,12 +2008,12 @@ Result type: ${type_to_string(result_box)}`
                 // A `comptime_int` body VALUE returned as a fixed-width
                 // integer must fit it — the compatibility above is
                 // value-blind (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
-                if(!ub_skip && is_comptime_int_type(ub_ty), {
+                if(!ub_skip && is_comptime_int_type(&ub_ty), {
                   match(
-                    match(ub_info.value, .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(ub_raw, result_box), _ => Option(String).None), .None => Option(String).None),
+                    match(ub_info.value, .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(&ub_raw, &result_box), _ => Option(String).None), .None => Option(String).None),
                     .Some(ub_fit_msg) => {
                       mark_fn_unemittable(fn_val_id.clone());
-                      exn.throw(dyn(format_error_message(ast_expr_token(fb), ub_fit_msg)));
+                      exn.throw(dyn(format_error_message(ast_expr_token(&fb), &ub_fit_msg)));
                     },
                     .None => ()
                   );
@@ -2035,7 +2035,7 @@ Result type: ${type_to_string(result_box)}`
             exn.throw(
               dyn(
                 format_error_message(
-                  ast_expr_token(fb),
+                  ast_expr_token(&fb),
                   String.from("Function body raised a compile-time error during definition-time evaluation.")
                 )
               )
@@ -2044,8 +2044,8 @@ Result type: ${type_to_string(result_box)}`
           // (Ref-returning functions are banned at signature evaluation —
           // see types/function.yo — so only the raw-pointer-representation
           // rooting check remains.)
-          if(type_representation_contains_raw_ptr(result_box) && !result_is_comptime_only
-          && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(fb).module_path.clone())), {
+          if(type_representation_contains_raw_ptr(&result_box) && !result_is_comptime_only
+          && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&fb).module_path.clone())), {
             seb := match(
               flow_out.get(usize(0)),
               .Some(e) => e,
@@ -2057,12 +2057,12 @@ Result type: ${type_to_string(result_box)}`
               allow_comptime_source : true,
               max_local_frame_level : Option(usize).None
             );
-            if(!is_flowable_expr(seb, flow_ctx, slice_flow_opts), {
+            if(!is_flowable_expr(&seb, &flow_ctx, &slice_flow_opts), {
               exn.throw(
                 dyn(
                   format_error_message(
-                    ast_expr_token(seb),
-                    `Function returning '${type_to_string(result_box)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(seb)}`
+                    ast_expr_token(&seb),
+                    `Function returning '${type_to_string(&result_box)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(&seb)}`
                   )
                 )
               );
@@ -2079,21 +2079,21 @@ Result type: ${type_to_string(result_box)}`
           match(
             result_box,
             .SomeT({ id : _ }) => if(
-              some_resolution(result_box).is_none(),
+              some_resolution(&result_box).is_none(),
               match(
                 flow_out.get(usize(0)),
                 .Some(dts_body) => match(
-                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(dts_body)),
+                  expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&dts_body)),
                   .Some(dts_binfo) => {
                     dts_bty := dts_binfo.ty;
                     dts_hidden := cond(
-                      !is_some_type(dts_bty) => Option(TypeValue).Some(dts_bty.clone()),
-                      true => some_resolution(dts_bty)
+                      !is_some_type(&dts_bty) => Option(TypeValue).Some(dts_bty.clone()),
+                      true => some_resolution(&dts_bty)
                     );
                     match(
                       dts_hidden,
                       .Some(dts_h) => {
-                        dts_res := t_with_resolution(result_box, dts_h);
+                        dts_res := t_with_resolution(&result_box, &dts_h);
                         register_func_type(fn_val_id.clone(), t_with_func_result(get_func_type(fn_val_id.clone()), dts_res.clone()));
                         // The definition expression's own type carries it
                         // too. A module-level callee is reached through its
@@ -2104,7 +2104,7 @@ Result type: ${type_to_string(result_box)}`
                         // `void*` while the emitted function returns the
                         // concrete type BY VALUE
                         // (issues/fixed/a-local-function-value-returning-an-impl-fn-calls-through-a-void-pointer-signature.md).
-                        info.ty = t_with_func_result(info.ty, dts_res);
+                        info.ty = t_with_func_result(&info.ty, &dts_res);
                       },
                       .None => ()
                     );
@@ -2132,33 +2132,33 @@ Result type: ${type_to_string(result_box)}`
           // generic otherwise never reported. The RESULT-type comparison
           // below still runs only when the result mentions a type variable,
           // the case it was written for.
-          dg_check_result := type_contains_some_type_for_codegen_param(result_box, ArrayList(String).new());
+          dg_check_result := type_contains_some_type_for_codegen_param(&result_box, ArrayList(String).new());
           // A trial kept only for its diagnostics (no result comparison, no
           // binder stamps: it runs on a fresh-id clone and writes nothing a
           // reader needs) that already ran clean for this exact definition
           // is not re-run.
-          dg_memo_eligible := (!dg_check_result && !is_type_hierarchy_type(result_box));
-          dg_memo_key := if(dg_memo_eligible, `${tok.module_path}:${tok.row}:${tok.column}|${type_to_string(function_type)}|${ast_expr_to_string(body_expr)}`, String.new());
-          if(!(dg_memo_eligible && g_deferred_trial_clean.contains(dg_memo_key)), {
+          dg_memo_eligible := (!dg_check_result && !is_type_hierarchy_type(&result_box));
+          dg_memo_key := if(dg_memo_eligible, `${tok.module_path}:${tok.row}:${tok.column}|${type_to_string(function_type)}|${ast_expr_to_string(&body_expr)}`, String.new());
+          if(!(dg_memo_eligible && g_deferred_trial_clean.contains(&dg_memo_key)), {
             dg_where := match(
               expr,
-              .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(dg_ft_box).to_string()),
+              .FnCall(_, dg_ft_box, _, _, _) => get_func_where_constraints(ast_expr_id(&dg_ft_box).to_string()),
               .Atom(_, _) => ArrayList(WhereConstraintEntry).new()
             );
             dg_ct_flags := match(
               expr,
-              .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(ast_expr_id(dgc_ft_box).to_string()),
+              .FnCall(_, dgc_ft_box, _, _, _) => get_func_param_comptime(ast_expr_id(&dgc_ft_box).to_string()),
               .Atom(_, _) => ArrayList(bool).new()
             );
             dg_env := _build_def_time_body_env(
               caller_env,
-              param_labels,
-              param_types,
-              param_is_ref,
-              param_is_owning,
-              dg_ct_flags,
-              result_box,
-              dg_where,
+              &param_labels,
+              &param_types,
+              &param_is_ref,
+              &param_is_owning,
+              &dg_ct_flags,
+              &result_box,
+              &dg_where,
               function_type,
               ctx.is_evaluating_function_body_or_async_block.is_some()
             );
@@ -2175,12 +2175,12 @@ Result type: ${type_to_string(result_box)}`
                   body : make_err_expr(),
                   cap_names : ArrayList(String).new(),
                   cap_tys : ArrayList(TypeValue).new(),
-                  func_id : stable_func_id(String.from(""), tok.module_path, usize(tok.row), usize(tok.column))
+                  func_id : stable_func_id(String.from(""), &tok.module_path, usize(tok.row), usize(tok.column))
                 )
               ),
               ArrayList(EvalValue).new()
             );
-            dg_ctx := create_function_body_evaluation_context(function_type, dg_fv, dg_env, ctx);
+            dg_ctx := create_function_body_evaluation_context(function_type, &dg_fv, &dg_env, ctx);
             dg_out := ArrayList(AstExpr).new();
             dg_fv_was := flow_violation_pending();
             // Same where-trait channel as the flow path: the DEFERRED trial
@@ -2205,7 +2205,7 @@ Result type: ${type_to_string(result_box)}`
                 dgw_i = (dgw_i + usize(1));
               });
             };
-            push_active_where_trait_ids(dg_where_ids);
+            push_active_where_trait_ids(&dg_where_ids);
             dg_prev_trial := set_in_def_time_trial(true);
             // A swallowed throw strands whatever the body pushed on the forcing
             // stacks (an impl abandoned inside the body) — truncate back.
@@ -2216,11 +2216,11 @@ Result type: ${type_to_string(result_box)}`
             // clone writes the trial's abstract-typed ExprInfos onto the real
             // body's nodes, which codegen reads for an `io.async` closure in
             // it (`R` lowered to `void*`, tests/async_generic_future_return).
-            dg_binders := if(is_type_hierarchy_type(result_box), _ctor_binder_some_ids(dg_env, forall_labels, param_labels), ArrayList(String).new());
-            _trial_eval_fn_body(if(dg_check_result, body_expr.clone(), clone_expr_fresh_ids(body_expr)), dg_env, dg_ctx, dg_out);
+            dg_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&dg_env, &forall_labels, &param_labels), ArrayList(String).new());
+            _trial_eval_fn_body(if(dg_check_result, body_expr.clone(), clone_expr_fresh_ids(&body_expr)), &dg_env, &dg_ctx, &mut dg_out);
             truncate_forcing_depths(dg_depths);
             if(dg_binders.len() > usize(0), {
-              _record_ctor_phantom_positions(fn_val_id.clone(), dg_binders, dg_out, ctx);
+              _record_ctor_phantom_positions(fn_val_id.clone(), &dg_binders, &dg_out, ctx);
             });
             ___dg_tr := set_in_def_time_trial(dg_prev_trial);
             pop_active_where_trait_ids();
@@ -2236,7 +2236,7 @@ Result type: ${type_to_string(result_box)}`
               if(!dg_fv_was, {
                 clear_flow_violation();
               });
-              exn.throw(dyn(yo_error_from_diagnostics(dg_ct_diags)));
+              exn.throw(dyn(yo_error_from_diagnostics(&dg_ct_diags)));
             });
             // P0 (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.6): this is the SILENT
             // swallow — but an unbound name that
@@ -2250,7 +2250,7 @@ Result type: ${type_to_string(result_box)}`
                 .Some(fwd_msg) => {
                   fwd_code := _trial_swallow_code();
                   _clear_trial_swallow();
-                  exn.throw(dyn(with_code_carried(format_error_message(ast_expr_token(body_expr), fwd_msg), fwd_code)));
+                  exn.throw(dyn(with_code_carried(format_error_message(ast_expr_token(&body_expr), &fwd_msg), &fwd_code)));
                 },
                 .None => ()
               );
@@ -2294,14 +2294,14 @@ Result type: ${type_to_string(result_box)}`
             // specialization that reaches codegen hollow reports it
             // (codegen/functions/generation.yo). A non-empty out means the body
             // itself succeeded and the flag is a nested trial's leftover.
-            dg_site := trial_body_site(body_expr);
+            dg_site := trial_body_site(&body_expr);
             if(_trial_swallow_pending() && (dg_out.len() == usize(0)), {
-              record_generic_trial_error(dg_site, _trial_swallow_message(), match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new()));
+              record_generic_trial_error(&dg_site, _trial_swallow_message(), match(_trial_swallow_diagnostics(), .Some(ds) => ds, .None => ArrayList(Diagnostic).new()));
               if(debug_knob(`YO_DEBUG_SWALLOW`).is_some(), {
                 eprintln(`[kept] site=dg code=${_trial_swallow_code_text()} owner=${dg_site}`);
               });
             }, {
-              clear_generic_trial_error(dg_site);
+              clear_generic_trial_error(&dg_site);
               if(dg_memo_eligible, {
                 _ := g_deferred_trial_clean.insert(dg_memo_key.clone());
               });
@@ -2315,13 +2315,13 @@ Result type: ${type_to_string(result_box)}`
               match(
                 dg_out.get(usize(0)),
                 .Some(dg_body) => match(
-                  expr_info_table_get(ctx.expr_info_table, ast_expr_id(dg_body)),
+                  expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&dg_body)),
                   .Some(dg_info) => {
                     // Pure-unwind bodies are control functions discarding the
                     // continuation — no return type to check.
                     dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !has_control_flow(dg_info.control_flow, .Return));
                     dg_expected := cond(
-                      result_is_ref => t_ptr(result_box),
+                      result_is_ref => t_ptr(&result_box),
                       true => result_box
                     );
                     // Expected bare SomeT that is NOT this fn's own forall: the
@@ -2353,14 +2353,14 @@ Result type: ${type_to_string(result_box)}`
                     // (measured
                     // false-fires: std ordered_map.get / imm set.to_list /
                     // imm vec Index, corpus deque_self_cycle).
-                    dg_trial_abstract := type_contains_some_type_for_codegen_param(dg_trial_ty, ArrayList(String).new());
-                    dg_trial_degenerate := (is_unit_type(dg_trial_ty) && !is_unit_type(dg_expected));
+                    dg_trial_abstract := type_contains_some_type_for_codegen_param(&dg_trial_ty, ArrayList(String).new());
+                    dg_trial_degenerate := (is_unit_type(&dg_trial_ty) && !is_unit_type(&dg_expected));
                     // Parametricity twin of the anon-path fix (see
                     // values/anonymous_function.yo): an own-forall SomeT return
                     // can never be satisfied by a CONCRETE trial type; the exact
                     // check alone cannot convict (unresolved SomeT unifies with
                     // anything).
-                    dg_expected_is_some := is_some_type(dg_expected);
+                    dg_expected_is_some := is_some_type(&dg_expected);
                     // An `Impl(Trait, ...)` RESULT (a SomeT that is not one of
                     // this fn's binders, carrying required traits) is satisfied
                     // by ANY concrete body type — but only one that implements
@@ -2369,31 +2369,31 @@ Result type: ${type_to_string(result_box)}`
                     // `Q` without `Foo` passed `check` and reached codegen as an
                     // ICE (issues/fixed/impl-trait-return-bound-is-not-checked.md).
                     if(dg_own_forall_skip && !dg_skip_cf && !dg_trial_abstract && !dg_trial_degenerate, {
-                      dg_fam := judge_function_argument_markers(dg_expected, dg_trial_ty, dg_info.value, dg_env, ctx);
+                      dg_fam := judge_function_argument_markers(&dg_expected, &dg_trial_ty, &dg_info.value, &dg_env, ctx);
                       match(
                         dg_fam.offense,
                         .Some(dg_fo) => {
-                          dg_fam_msg := `The body's value (type ${type_to_string(dg_trial_ty)}) cannot be returned as ${type_to_string(dg_expected)}: ${dg_fo}.`;
-                          raise_flow_violation(format_error_message(tok, dg_fam_msg), ctx, exn);
+                          dg_fam_msg := `The body's value (type ${type_to_string(&dg_trial_ty)}) cannot be returned as ${type_to_string(&dg_expected)}: ${dg_fo}.`;
+                          raise_flow_violation(format_error_message(&tok, &dg_fam_msg), ctx, exn);
                         },
                         .None => ()
                       );
                       match(
-                        impl_param_unmet_trait(dg_expected, dg_trial_ty, dg_env, dg_fam.judged),
+                        impl_param_unmet_trait(&dg_expected, &dg_trial_ty, &dg_env, dg_fam.judged),
                         .Some(dg_rt) => {
-                          raise_flow_violation(format_error_message(tok, _impl_result_unmet_message(dg_trial_ty, dg_rt, dg_expected)), ctx, exn);
+                          raise_flow_violation(format_error_message(&tok, _impl_result_unmet_message(&dg_trial_ty, &dg_rt, &dg_expected)), ctx, exn);
                         },
                         .None => ()
                       );
                     });
-                    if(!dg_skip_cf && !dg_own_forall_skip && !dg_trial_abstract && !dg_trial_degenerate && (dg_expected_is_some || !are_types_compatible_invariant(dg_trial_ty, dg_expected)), {
-                      dg_exp_str := type_to_string(dg_expected);
-                      dg_got_str := type_to_string(dg_trial_ty);
+                    if(!dg_skip_cf && !dg_own_forall_skip && !dg_trial_abstract && !dg_trial_degenerate && (dg_expected_is_some || !are_types_compatible_invariant(&dg_trial_ty, &dg_expected)), {
+                      dg_exp_str := type_to_string(&dg_expected);
+                      dg_got_str := type_to_string(&dg_trial_ty);
                       // Deliberate user-facing rejection — flagged for the def-time
                       // re-raise (see the anon twin in values/anonymous_function.yo).
                       raise_flow_violation(
                         format_error_message(
-                          tok,
+                          &tok,
                           `Incompatible function return type for:\n- Expected: ${dg_exp_str}\n- Given  : ${dg_got_str}`
                         ),
                         ctx,

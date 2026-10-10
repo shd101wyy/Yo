@@ -41,7 +41,7 @@ _method_c_name :: (fn(imm(type) : TypeValue, method_name : str, imm(context) : F
     return(Option(String).None);
   });
   methods := get_type_trait_methods_by_name(type_id_or_empty(type), String.from(method_name));
-  match(methods.get(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
+  match(methods.get(usize(0)), .Some(entry) => match(entry.value, .Some(v) => match(v, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None), .None => Option(String).None), .None => Option(String).None)
 });
 /// The C name of `type`'s `___drop` function, if any.
 get_drop_function_for_type :: (fn(imm(type) : TypeValue, imm(context) : FunctionGenerationContext) -> Option(String))(
@@ -72,7 +72,7 @@ get_dispose_function_for_type :: (fn(imm(type) : TypeValue, imm(context) : Funct
       .Some(v) => match(
         v,
         .FuncVal(__dfvd3, _) => match(
-          context.base.get_function_entry(__dfvd3.*.func_id),
+          context.base.get_function_entry(&__dfvd3.*.func_id),
           .Some(e) => Option(String).Some(e.c_name),
           .None => Option(String).None
         ),
@@ -104,7 +104,7 @@ get_trace_function_for_type :: (fn(imm(type) : TypeValue, imm(context) : Functio
       .Some(v) => match(
         v,
         .FuncVal(__fvd2, _) => match(
-          context.base.get_function_entry(__fvd2.*.func_id),
+          context.base.get_function_entry(&__fvd2.*.func_id),
           // A registry hit whose spec the function emitter SKIPS (hard-generic
           // — its signature still carries unresolvable SomeTs) must not be
           // delegated to: the traverse would call a never-emitted C name
@@ -115,7 +115,7 @@ get_trace_function_for_type :: (fn(imm(type) : TypeValue, imm(context) : Functio
           // trials themselves are the open under-resolution family,
           // issues/fixed/where-bound-intoiterator-gc-trace-abstract-key.md.
           .Some(e) => cond(
-            should_skip_function_codegen(__fvd2.*.func_id, e.c_name.clone(), v, context.base) =>
+            should_skip_function_codegen(&__fvd2.*.func_id, e.c_name.clone(), &v, &context.base) =>
               Option(String).None,
             true => Option(String).Some(e.c_name)
           ),
@@ -153,7 +153,7 @@ resolve_some_type_param_type :: (fn(imm(value_arg) : AstExpr, imm(value_type) : 
           .Some(lbl) => if(lbl == var_name, {
             match(
               pts.get(i),
-              .Some(pt) => if(!is_some_type(pt), {
+              .Some(pt) => if(!is_some_type(&pt), {
                 return(pt);
               }),
               .None => ()
@@ -186,7 +186,7 @@ resolve_some_type_param_type :: (fn(imm(value_arg) : AstExpr, imm(value_type) : 
 _closure_value_type :: (fn(imm(t) : TypeValue) -> TypeValue)({
   if(is_bound_closure_identity(t), return(resolve_cell_chain(t)));
   cvt_r := resolve_cell_chain(t);
-  if(is_closure_capture_struct(cvt_r), cvt_r, t)
+  if(is_closure_capture_struct(&cvt_r), cvt_r, t)
 });
 /// Generate drop code for a value of any type (recursive for arrays/tuples).
 /// Note: emits at column 0 (no indent).
@@ -197,7 +197,7 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
   // arms — a silent no-op drop/dup for any recursive enum value (the json
   // element-loss family).
   concrete_type := resolve_enum_shell(resolve_struct_shell(_closure_value_type(value_type)));
-  if(!type_contains_rc_cell_or_move_only(concrete_type), {
+  if(!type_contains_rc_cell_or_move_only(&concrete_type), {
     return(String.from(""));
   });
   em := context.base.emitter;
@@ -205,9 +205,9 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
   // §3.4) runs it first, then its fields are dropped below. Its one owner
   // drops it once, so this is the only call. The `___dispose` is registered
   // by `collect_dispose_methods` (`_synthesize_and_register_value_dispose`).
-  if(is_value_nominal_type(concrete_type), {
+  if(is_value_nominal_type(&concrete_type), {
     match(
-      get_dispose_function_for_type(concrete_type, context),
+      get_dispose_function_for_type(&concrete_type, context),
       .Some(vd_fn) => {
         em.emit_string_line(`${vd_fn}(${value_code});`);
       },
@@ -222,7 +222,7 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
     // must live here — without it a sync-await's future temp fell through to the
     // `true => ""` no-op and its deferred drop was silently skipped everywhere
     // (the 96-byte sync_fut_t leak per io.await outside a state machine).
-    (is_some_type(concrete_type) && type_implements_future(concrete_type)) => {
+    (is_some_type(&concrete_type) && type_implements_future(&concrete_type)) => {
       out := String.from("if (");
       out.push_string(value_code.clone());
       out.push_str(" != NULL) { __yo_decr_rc((void*)");
@@ -230,7 +230,7 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
       out.push_str("); }");
       out
     },
-    is_array_type(concrete_type) => match(
+    is_array_type(&concrete_type) => match(
       concrete_type,
       .Array(element, length, length_var) => {
         if(length_var.len() > usize(0), {
@@ -239,23 +239,23 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
         hdr := String.from("for (size_t i = 0; i < ");
         hdr.push_string(length.to_string());
         hdr.push_str("; i++) {");
-        em.emit_string_line(hdr);
+        em.emit_string_line(&hdr);
         ec := String.from("(");
         ec.push_string(value_code.clone());
         ec.push_str(").data[i]");
-        elem_drop := recur(ec, element, context);
+        elem_drop := recur(&ec, &element, context);
         if(elem_drop.len() > usize(0), {
           line := String.from("  ");
-          line.push_string(elem_drop);
+          line.push_string(&elem_drop);
           line.push_str(";");
-          em.emit_string_line(line);
+          em.emit_string_line(&line);
         });
         em.emit_string_line(String.from("}"));
         String.from("")
       },
       _ => String.from("")
     ),
-    is_tuple_type(concrete_type) => match(
+    is_tuple_type(&concrete_type) => match(
       concrete_type,
       .Tuple({ field_types : fts }) => {
         n := fts.len();
@@ -263,16 +263,16 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
         while(i < n, {
           match(
             fts.get(i),
-            .Some(ft) => if(type_contains_rc_cell_or_move_only(ft), {
+            .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
               fc := String.from("(");
               fc.push_string(value_code.clone());
               fc.push_str(")._");
               fc.push_string(i.to_string());
-              fd := recur(fc, ft, context);
+              fd := recur(&fc, &ft, context);
               if(fd.len() > usize(0), {
                 line := fd;
                 line.push_str(";");
-                em.emit_string_line(line);
+                em.emit_string_line(&line);
               });
             }),
             .None => ()
@@ -285,7 +285,7 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
     ),
     // Through the vtable: the payload's own RC functions
     // (`__yo_dyn_release`, functions/gc_runtime.yo).
-    is_dyn_type(concrete_type) => {
+    is_dyn_type(&concrete_type) => {
       out := String.from("__yo_dyn_release((void*)(");
       out.push_string(value_code.clone());
       out.push_str(").data, (const void*)(");
@@ -293,19 +293,19 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
       out.push_str(").vtable)");
       out
     },
-    is_atomic_reference_struct_type(concrete_type) => {
+    is_atomic_reference_struct_type(&concrete_type) => {
       out := String.from("__yo_decr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
       out.push_str("))");
       out
     },
-    is_reference_struct_type(concrete_type) => {
+    is_reference_struct_type(&concrete_type) => {
       out := String.from("__yo_decr_rc((void*)(");
       out.push_string(value_code.clone());
       out.push_str("))");
       out
     },
-    is_iso_type(concrete_type) => {
+    is_iso_type(&concrete_type) => {
       out := String.from("__yo_decr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
       out.push_str("))");
@@ -315,13 +315,13 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
     // ref-count directly, exactly like reference-semantics structs above (trait
     // methods live in a side-registry, not on the type, so RC lowers the
     // same direct way it already does for ref-structs — identical effect.)
-    is_atomic_reference_enum_type(concrete_type) => {
+    is_atomic_reference_enum_type(&concrete_type) => {
       out := String.from("__yo_decr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
       out.push_str("))");
       out
     },
-    is_reference_enum_type(concrete_type) => {
+    is_reference_enum_type(&concrete_type) => {
       out := String.from("__yo_decr_rc((void*)(");
       out.push_string(value_code.clone());
       out.push_str("))");
@@ -333,18 +333,18 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
     // instead makes
     // `(___drop)(x)` resolve via method dispatch, which mis-lowers). Per-variant
     // walk over a value (not a handle).
-    is_enum_type(concrete_type) => match(
-      can_optimize_as_nullable_pointer(concrete_type),
+    is_enum_type(&concrete_type) => match(
+      can_optimize_as_nullable_pointer(&concrete_type),
       // Nullable-pointer enum: the value IS the inner pointer (NULL = the empty variant).
       .Some(inner) => {
-        inner_drop := recur(value_code.clone(), inner, context);
+        inner_drop := recur(value_code.clone(), &inner, context);
         if(inner_drop.len() > usize(0), {
           line := String.from("if ((");
           line.push_string(value_code.clone());
           line.push_str(") != NULL) { ");
-          line.push_string(inner_drop);
+          line.push_string(&inner_drop);
           line.push_str("; }");
-          em.emit_string_line(line);
+          em.emit_string_line(&line);
         });
         String.from("")
       },
@@ -365,7 +365,7 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
             while(ci < nf, {
               match(
                 fields.get(ci),
-                .Some(ft) => if(type_contains_rc_cell_or_move_only(ft), {
+                .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
                   has_rc = true;
                 }),
                 .None => ()
@@ -373,22 +373,22 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
               ci = (ci + usize(1));
             });
             if(has_rc, {
-              tag_c := get_enum_variant_c_name(concrete_type, vname.clone(), context.base);
+              tag_c := get_enum_variant_c_name(&concrete_type, vname.clone(), &context.base);
               em.emit_string_line(`  case ${tag_c}: {`);
               (fi : usize) = usize(0);
               while(fi < nf, {
                 match(
                   fields.get(fi),
-                  .Some(ft) => if(type_contains_rc_cell_or_move_only(ft), {
+                  .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
                     flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
-                    fname := sanitize_for_c_identifier(flabel, false);
+                    fname := sanitize_for_c_identifier(&flabel, false);
                     access := `(${value_code.clone()}).data.${c_variant_member_name(vname.clone())}.${fname}`;
-                    fd := recur(access, ft, context);
+                    fd := recur(&access, &ft, context);
                     if(fd.len() > usize(0), {
                       line := String.from("    ");
-                      line.push_string(fd);
+                      line.push_string(&fd);
                       line.push_str(";");
-                      em.emit_string_line(line);
+                      em.emit_string_line(&line);
                     });
                   }),
                   .None => ()
@@ -411,12 +411,12 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
     // the C ABI (no struct wrapper, no `._f` member) — drop the inner value
     // by recursing on the inner field's type with the SAME value_code.
     // Same as the newtype arm of generate_dup_code_for_value below.
-    is_newtype_type(concrete_type) => {
-      nt_rfs := get_runtime_struct_fields(concrete_type);
+    is_newtype_type(&concrete_type) => {
+      nt_rfs := get_runtime_struct_fields(&concrete_type);
       match(
         nt_rfs.get(usize(0)),
         .Some(nt_f) => cond(
-          type_contains_rc_cell_or_move_only(nt_f.ty) => recur(value_code.clone(), nt_f.ty, context),
+          type_contains_rc_cell_or_move_only(&nt_f.ty) => recur(value_code.clone(), &nt_f.ty, context),
           true => String.from("")
         ),
         .None => String.from("")
@@ -429,8 +429,8 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
     // Previously the missing-method
     // case silently emitted NOTHING, so value-struct locals (e.g. MapEntry(K, V)
     // in HashMap.set) never released their RC fields at scope end.
-    is_struct_type(concrete_type) => match(
-      get_drop_function_for_type(concrete_type, context),
+    is_struct_type(&concrete_type) => match(
+      get_drop_function_for_type(&concrete_type, context),
       .Some(fn) => {
         out := fn;
         out.push_str("(");
@@ -439,21 +439,21 @@ generate_drop_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : 
         out
       },
       .None => {
-        vs_rfs := get_runtime_struct_fields(concrete_type);
+        vs_rfs := get_runtime_struct_fields(&concrete_type);
         (vs_fi : usize) = usize(0);
         while(vs_fi < vs_rfs.len(), {
           match(
             vs_rfs.get(vs_fi),
-            .Some(vs_f) => if(type_contains_rc_cell_or_move_only(vs_f.ty), {
+            .Some(vs_f) => if(type_contains_rc_cell_or_move_only(&vs_f.ty), {
               fref := String.from("(");
               fref.push_string(value_code.clone());
               fref.push_str(").");
               fref.push_string(sanitize_for_c_identifier(vs_f.label.clone(), false));
-              fd := recur(fref, vs_f.ty, context);
+              fd := recur(&fref, &vs_f.ty, context);
               if(fd.len() > usize(0), {
                 line := fd;
                 line.push_str(";");
-                em.emit_string_line(line);
+                em.emit_string_line(&line);
               });
             }),
             .None => ()
@@ -477,28 +477,28 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
     // above; required for
     // balance now that the drop arm fires — a future copied into a second
     // owner gets TWO scope-end drops, so the copy must carry its +1.
-    (is_some_type(concrete_type) && type_implements_future(concrete_type)) => {
+    (is_some_type(&concrete_type) && type_implements_future(&concrete_type)) => {
       out := String.from("__yo_incr_rc((void*)");
       out.push_string(value_code.clone());
       out.push_str(")");
       out
     },
-    is_array_type(concrete_type) => match(
+    is_array_type(&concrete_type) => match(
       concrete_type,
       .Array(element, length, length_var) => {
         if(length_var.len() > usize(0), {
           return(String.from("/* Error: array has non-constant length */"));
         });
-        temp_var := fresh_local_name(String.from("temp_dup_"), context.base.current_function_name);
-        loop_var := fresh_local_name(String.from("i_"), context.base.current_function_name);
-        array_c_name := get_type_string(concrete_type, context.base);
+        temp_var := fresh_local_name(String.from("temp_dup_"), &context.base.current_function_name);
+        loop_var := fresh_local_name(String.from("i_"), &context.base.current_function_name);
+        array_c_name := get_type_string(&concrete_type, &context.base);
         decl := array_c_name;
         decl.push_str(" ");
         decl.push_string(temp_var.clone());
         decl.push_str(" = ");
         decl.push_string(value_code.clone());
         decl.push_str(";");
-        em.emit_string_line(decl);
+        em.emit_string_line(&decl);
         hdr := String.from("for (size_t ");
         hdr.push_string(loop_var.clone());
         hdr.push_str(" = 0; ");
@@ -508,50 +508,50 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
         hdr.push_str("; ");
         hdr.push_string(loop_var.clone());
         hdr.push_str("++) {");
-        em.emit_string_line(hdr);
+        em.emit_string_line(&hdr);
         elem_ref := temp_var.clone();
         elem_ref.push_str(".data[");
         elem_ref.push_string(loop_var.clone());
         elem_ref.push_str("]");
-        elem_dup := recur(elem_ref.clone(), element, context);
+        elem_dup := recur(elem_ref.clone(), &element, context);
         asn := String.from("  ");
-        asn.push_string(elem_ref);
+        asn.push_string(&elem_ref);
         asn.push_str(" = ");
-        asn.push_string(elem_dup);
+        asn.push_string(&elem_dup);
         asn.push_str(";");
-        em.emit_string_line(asn);
+        em.emit_string_line(&asn);
         em.emit_string_line(String.from("}"));
         temp_var
       },
       _ => value_code.clone()
     ),
-    is_tuple_type(concrete_type) => match(
+    is_tuple_type(&concrete_type) => match(
       concrete_type,
       .Tuple({ field_types : fts }) => {
-        temp_var := fresh_local_name(String.from("temp_dup_tuple_"), context.base.current_function_name);
-        tuple_c_name := get_type_string(concrete_type, context.base);
+        temp_var := fresh_local_name(String.from("temp_dup_tuple_"), &context.base.current_function_name);
+        tuple_c_name := get_type_string(&concrete_type, &context.base);
         decl := tuple_c_name;
         decl.push_str(" ");
         decl.push_string(temp_var.clone());
         decl.push_str(" = ");
         decl.push_string(value_code.clone());
         decl.push_str(";");
-        em.emit_string_line(decl);
+        em.emit_string_line(&decl);
         n := fts.len();
         (i : usize) = usize(0);
         while(i < n, {
           match(
             fts.get(i),
-            .Some(ft) => if(type_contains_rc_cell_or_move_only(ft), {
+            .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
               fref := temp_var.clone();
               fref.push_str("._");
               fref.push_string(i.to_string());
-              fdup := recur(fref.clone(), ft, context);
+              fdup := recur(fref.clone(), &ft, context);
               asn := fref;
               asn.push_str(" = ");
-              asn.push_string(fdup);
+              asn.push_string(&fdup);
               asn.push_str(";");
-              em.emit_string_line(asn);
+              em.emit_string_line(&asn);
             }),
             .None => ()
           );
@@ -561,10 +561,10 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
       },
       _ => value_code.clone()
     ),
-    is_dyn_type(concrete_type) => {
-      dyn_c_name := get_type_string(concrete_type, context.base);
+    is_dyn_type(&concrete_type) => {
+      dyn_c_name := get_type_string(&concrete_type, &context.base);
       out := String.from("((");
-      out.push_string(dyn_c_name);
+      out.push_string(&dyn_c_name);
       out.push_str("){ .data = __yo_dyn_retain((void*)(");
       out.push_string(value_code.clone());
       out.push_str(").data, (const void*)(");
@@ -574,28 +574,28 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
       out.push_str(").vtable })");
       out
     },
-    is_atomic_reference_struct_type(concrete_type) => {
-      obj_c_name := get_type_string(concrete_type, context.base);
+    is_atomic_reference_struct_type(&concrete_type) => {
+      obj_c_name := get_type_string(&concrete_type, &context.base);
       out := String.from("((");
-      out.push_string(obj_c_name);
+      out.push_string(&obj_c_name);
       out.push_str(")__yo_incr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
       out.push_str(")))");
       out
     },
-    is_reference_struct_type(concrete_type) => {
-      obj_c_name := get_type_string(concrete_type, context.base);
+    is_reference_struct_type(&concrete_type) => {
+      obj_c_name := get_type_string(&concrete_type, &context.base);
       out := String.from("((");
-      out.push_string(obj_c_name);
+      out.push_string(&obj_c_name);
       out.push_str(")__yo_incr_rc((void*)(");
       out.push_string(value_code.clone());
       out.push_str(")))");
       out
     },
-    is_iso_type(concrete_type) => {
-      iso_c_name := get_type_string(concrete_type, context.base);
+    is_iso_type(&concrete_type) => {
+      iso_c_name := get_type_string(&concrete_type, &context.base);
       out := String.from("((");
-      out.push_string(iso_c_name);
+      out.push_string(&iso_c_name);
       out.push_str(")__yo_incr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
       out.push_str(")))");
@@ -603,19 +603,19 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
     },
     // Reference-semantics enums (`ref(enum(…))`): increment the ref-count and
     // return the same handle pointer, exactly like reference-semantics structs.
-    is_atomic_reference_enum_type(concrete_type) => {
-      en_c_name := get_type_string(concrete_type, context.base);
+    is_atomic_reference_enum_type(&concrete_type) => {
+      en_c_name := get_type_string(&concrete_type, &context.base);
       out := String.from("((");
-      out.push_string(en_c_name);
+      out.push_string(&en_c_name);
       out.push_str(")__yo_incr_rc_atomic((void*)(");
       out.push_string(value_code.clone());
       out.push_str(")))");
       out
     },
-    is_reference_enum_type(concrete_type) => {
-      en_c_name := get_type_string(concrete_type, context.base);
+    is_reference_enum_type(&concrete_type) => {
+      en_c_name := get_type_string(&concrete_type, &context.base);
       out := String.from("((");
-      out.push_string(en_c_name);
+      out.push_string(&en_c_name);
       out.push_str(")__yo_incr_rc((void*)(");
       out.push_string(value_code.clone());
       out.push_str(")))");
@@ -629,12 +629,12 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
     // access — e.g. `String._bytes` on the typedef'd `Option(ArrayList(u8))`).
     // The inline equivalent of calling the newtype's auto-derived ___dup,
     // which dups the underlying value.
-    is_newtype_type(concrete_type) => {
-      rfs := get_runtime_struct_fields(concrete_type);
+    is_newtype_type(&concrete_type) => {
+      rfs := get_runtime_struct_fields(&concrete_type);
       match(
         rfs.get(usize(0)),
         .Some(f) => cond(
-          type_contains_rc_cell_or_move_only(f.ty) => recur(value_code.clone(), f.ty, context),
+          type_contains_rc_cell_or_move_only(&f.ty) => recur(value_code.clone(), &f.ty, context),
           true => value_code.clone()
         ),
         .None => value_code.clone()
@@ -647,14 +647,14 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
     // (e.g. `bucket := (data_ptr &+ i).*` in HashMap.get) did not dup the field, so the
     // RC was unbalanced (the auto-derived field walk could not see the buffer copy). A
     // value struct with no RC field falls through to a bare value copy.
-    is_struct_type(concrete_type) => {
-      rfs := get_runtime_struct_fields(concrete_type);
+    is_struct_type(&concrete_type) => {
+      rfs := get_runtime_struct_fields(&concrete_type);
       (has_rc : bool) = false;
       (ci : usize) = usize(0);
       while(ci < rfs.len(), {
         match(
           rfs.get(ci),
-          .Some(f) => if(type_contains_rc_cell_or_move_only(f.ty), {
+          .Some(f) => if(type_contains_rc_cell_or_move_only(&f.ty), {
             has_rc = true;
           }),
           .None => ()
@@ -664,29 +664,29 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
       cond(
         !has_rc => value_code.clone(),
         true => {
-          temp_var := fresh_local_name(String.from("temp_dup_struct_"), context.base.current_function_name);
-          struct_c_name := get_type_string(concrete_type, context.base);
+          temp_var := fresh_local_name(String.from("temp_dup_struct_"), &context.base.current_function_name);
+          struct_c_name := get_type_string(&concrete_type, &context.base);
           decl := struct_c_name;
           decl.push_str(" ");
           decl.push_string(temp_var.clone());
           decl.push_str(" = ");
           decl.push_string(value_code.clone());
           decl.push_str(";");
-          em.emit_string_line(decl);
+          em.emit_string_line(&decl);
           (fi : usize) = usize(0);
           while(fi < rfs.len(), {
             match(
               rfs.get(fi),
-              .Some(f) => if(type_contains_rc_cell_or_move_only(f.ty), {
+              .Some(f) => if(type_contains_rc_cell_or_move_only(&f.ty), {
                 fref := temp_var.clone();
                 fref.push_str(".");
                 fref.push_string(sanitize_for_c_identifier(f.label.clone(), false));
-                fdup := recur(fref.clone(), f.ty, context);
+                fdup := recur(fref.clone(), &f.ty, context);
                 asn := fref;
                 asn.push_str(" = ");
-                asn.push_string(fdup);
+                asn.push_string(&fdup);
                 asn.push_str(";");
-                em.emit_string_line(asn);
+                em.emit_string_line(&asn);
               }),
               .None => ()
             );
@@ -696,8 +696,8 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
         }
       )
     },
-    is_enum_type(concrete_type) => match(
-      get_dup_function_for_type(concrete_type, context),
+    is_enum_type(&concrete_type) => match(
+      get_dup_function_for_type(&concrete_type, context),
       .Some(fn) => {
         out := fn;
         out.push_str("(");
@@ -714,7 +714,7 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
       // strings corrupted: args() pushed each String, the loop-end drop freed
       // the buffer the list slot held).
       .None => match(
-        can_optimize_as_nullable_pointer(concrete_type),
+        can_optimize_as_nullable_pointer(&concrete_type),
         // Nullable-pointer enum: the value IS the inner pointer; dup = incr
         // when non-NULL. Statement + pass-through value, like the struct arm.
         .Some(_np_inner) => {
@@ -723,7 +723,7 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
           np_line.push_str(") != NULL) { __yo_incr_rc((void*)(");
           np_line.push_string(value_code.clone());
           np_line.push_str(")); }");
-          em.emit_string_line(np_line);
+          em.emit_string_line(&np_line);
           value_code.clone()
         },
         // Tagged representation: copy to a temp, dup each RC field of the
@@ -732,14 +732,14 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
         .None => match(
           concrete_type,
           .EnumT({ variant_names : ed_vns, variant_fields : ed_vfs, variant_field_labels : ed_vls }) => {
-            ed_temp := fresh_local_name(String.from("temp_dup_enum_"), context.base.current_function_name);
-            ed_decl := get_type_string(concrete_type, context.base);
+            ed_temp := fresh_local_name(String.from("temp_dup_enum_"), &context.base.current_function_name);
+            ed_decl := get_type_string(&concrete_type, &context.base);
             ed_decl.push_str(" ");
             ed_decl.push_string(ed_temp.clone());
             ed_decl.push_str(" = ");
             ed_decl.push_string(value_code.clone());
             ed_decl.push_str(";");
-            em.emit_string_line(ed_decl);
+            em.emit_string_line(&ed_decl);
             em.emit_string_line(`switch ((${ed_temp.clone()}).tag) {`);
             ed_nv := ed_vns.len();
             (ed_vi : usize) = usize(0);
@@ -753,7 +753,7 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
               while(ed_ci < ed_nf, {
                 match(
                   ed_fields.get(ed_ci),
-                  .Some(ed_ft0) => if(type_contains_rc_cell_or_move_only(ed_ft0), {
+                  .Some(ed_ft0) => if(type_contains_rc_cell_or_move_only(&ed_ft0), {
                     ed_has_rc = true;
                   }),
                   .None => ()
@@ -761,24 +761,24 @@ generate_dup_code_for_value :: (fn(imm(value_code) : String, imm(value_type) : T
                 ed_ci = (ed_ci + usize(1));
               });
               if(ed_has_rc, {
-                ed_tag := get_enum_variant_c_name(concrete_type, ed_vname.clone(), context.base);
+                ed_tag := get_enum_variant_c_name(&concrete_type, ed_vname.clone(), &context.base);
                 em.emit_string_line(`  case ${ed_tag}: {`);
                 (ed_fi : usize) = usize(0);
                 while(ed_fi < ed_nf, {
                   match(
                     ed_fields.get(ed_fi),
-                    .Some(ed_ft) => if(type_contains_rc_cell_or_move_only(ed_ft), {
+                    .Some(ed_ft) => if(type_contains_rc_cell_or_move_only(&ed_ft), {
                       ed_flabel := match(ed_labels.get(ed_fi), .Some(l) => l, .None => String.from(""));
-                      ed_fname := sanitize_for_c_identifier(ed_flabel, false);
+                      ed_fname := sanitize_for_c_identifier(&ed_flabel, false);
                       ed_access := `(${ed_temp.clone()}).data.${c_variant_member_name(ed_vname.clone())}.${ed_fname}`;
-                      ed_fd := recur(ed_access.clone(), ed_ft, context);
+                      ed_fd := recur(ed_access.clone(), &ed_ft, context);
                       if((ed_fd.len() > usize(0)) && !(ed_fd == ed_access), {
                         ed_line := String.from("    ");
-                        ed_line.push_string(ed_access);
+                        ed_line.push_string(&ed_access);
                         ed_line.push_str(" = ");
-                        ed_line.push_string(ed_fd);
+                        ed_line.push_string(&ed_fd);
                         ed_line.push_str(";");
-                        em.emit_string_line(ed_line);
+                        em.emit_string_line(&ed_line);
                       });
                     }),
                     .None => ()
@@ -811,13 +811,13 @@ _dd_drop_target_atom :: (fn(imm(drop_expr) : AstExpr) -> Option(AstExpr))(
       args.len() == usize(0),
       match(
         func,
-        .FnCall(_, _, fargs, _, _) => if(ast_expr_is_fn_call_of(func, BF_DOT, Option(usize).Some(usize(2))), {
-          a1_is_drop := match(fargs.get(usize(1)), .Some(a1) => if(ast_expr_is_atom(a1), ast_expr_token(a1).value == BF_DROP, false), .None => false);
-          if(a1_is_drop, match(fargs.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
+        .FnCall(_, _, fargs, _, _) => if(ast_expr_is_fn_call_of(&func, BF_DOT, Option(usize).Some(usize(2))), {
+          a1_is_drop := match(fargs.get(usize(1)), .Some(a1) => if(ast_expr_is_atom(&a1), ast_expr_token(&a1).value == BF_DROP, false), .None => false);
+          if(a1_is_drop, match(fargs.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
         }, Option(AstExpr).None),
         .Atom(_, _) => Option(AstExpr).None
       ),
-      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
+      if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, Option(usize).None), match(args.get(usize(0)), .Some(a0) => if(ast_expr_is_atom(&a0), Option(AstExpr).Some(a0), Option(AstExpr).None), .None => Option(AstExpr).None), Option(AstExpr).None)
     ),
     .Atom(_, _) => Option(AstExpr).None
   )
@@ -842,9 +842,9 @@ _drop_target_is_parameter :: (fn(imm(drop_expr) : AstExpr, imm(context) : Functi
     is_fnonce_capture_drop(ast_expr_id(drop_expr)) || match(
       _dd_drop_target_atom(drop_expr),
       .Some(atom) => match(
-        context.base.get_expr_info(atom),
+        context.base.get_expr_info(&atom),
         .Some(aei) => {
-          vars := scope_variables(ast_expr_id(atom), aei.env, ast_expr_token(atom).value);
+          vars := scope_variables(ast_expr_id(&atom), &aei.env, ast_expr_token(&atom).value);
           if(vars.len() == usize(0), false, match(vars.last(), .Some(v) => v.is_parameter, .None => false))
         },
         .None => false
@@ -877,16 +877,16 @@ has_pending_emittable_drop :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGe
         while((i < drops.len()) && !found, {
           match(
             drops.get(i),
-            .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(d)) && !is_deferred_drop_for_closure_capture(d, context.current_closure_captures), {
+            .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&d)) && !is_deferred_drop_for_closure_capture(&d, &context.current_closure_captures), {
               emittable := if(
-                _drop_target_is_parameter(d, context),
+                _drop_target_is_parameter(&d, context),
                 true,
                 match(
-                  get_deferred_drop_target_atom_name(d),
+                  get_deferred_drop_target_atom_name(&d),
                   .Some(nm) => {
-                    cn := sanitize_for_c_identifier(nm, false);
+                    cn := sanitize_for_c_identifier(&nm, false);
                     is_tmp := (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone()));
-                    declared := context.base.declared_c_var_names.*.contains(cn);
+                    declared := context.base.declared_c_var_names.*.contains(&cn);
                     !is_tmp || declared
                   },
                   .None => true
@@ -931,7 +931,7 @@ generate_deferred_drop_expressions :: (
             drops.get(i),
             .Some(drop_expr) => {
               if(g_debug_scope_drops, {
-                eprintln(`[sd-fl] carrier=${ast_expr_to_string(expr)} target=${match(get_deferred_drop_target_atom_name(drop_expr), .Some(n) => n, .None => String.from("-"))}`);
+                eprintln(`[sd-fl] carrier=${ast_expr_to_string(expr)} target=${match(get_deferred_drop_target_atom_name(&drop_expr), .Some(n) => n, .None => String.from("-"))}`);
               });
               // Emitted-once guard: a SHARED single-expression begin node
               // carries the begin's scope-end drops AND the tail call's
@@ -944,10 +944,10 @@ generate_deferred_drop_expressions :: (
               // removal-on-emit would break. Checked BEFORE the gates below
               // so an already-emitted drop also leaves their state (the
               // short-circuit set) untouched.
-              if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)), {
-                param_target := if(skip_param_drops || only_param_drops, _drop_target_is_parameter(drop_expr, context), false);
+              if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)), {
+                param_target := if(skip_param_drops || only_param_drops, _drop_target_is_parameter(&drop_expr, context), false);
                 param_filtered := ((skip_param_drops && param_target) || (only_param_drops && !param_target));
-                skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(drop_expr, context.current_closure_captures));
+                skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures));
                 // Skip a drop whose target TEMP was never emitted as a C declaration
                 // (declaration elided while its deferred-drop survived) — emitting
                 // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier error.
@@ -956,17 +956,17 @@ generate_deferred_drop_expressions :: (
                 // are never skipped. Safe: a never-declared C variable cannot be
                 // double-freed and holds no value to leak.
                 undeclared_temp := match(
-                  get_deferred_drop_target_atom_name(drop_expr),
+                  get_deferred_drop_target_atom_name(&drop_expr),
                   .Some(nm) => {
-                    cn := sanitize_for_c_identifier(nm, false);
-                    (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.*.contains(cn)
+                    cn := sanitize_for_c_identifier(&nm, false);
+                    (is_temp_variable_name(ei.env.module_path.clone(), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.*.contains(&cn)
                   },
                   .None => false
                 );
                 if(!skip_capture && !undeclared_temp, {
-                  sc_skip := match(get_deferred_drop_target_atom_name(drop_expr), .Some(t) => take_short_circuit_handled(context, t), .None => false);
+                  sc_skip := match(get_deferred_drop_target_atom_name(&drop_expr), .Some(t) => take_short_circuit_handled(context, &t), .None => false);
                   if(!sc_skip, {
-                    code := _call_generate_expr(drop_expr, indent.clone(), context);
+                    code := _call_generate_expr(&drop_expr, indent.clone(), context);
                     // Record unconditionally, emit conditionally: an
                     // enum/Option-typed target lowers to a multi-line `switch`
                     // the drop generator writes to the emitter itself and
@@ -977,12 +977,12 @@ generate_deferred_drop_expressions :: (
                     // a bare arm's String temps a second time (the
                     // "unwind argument built by a may-unwind call" test).
                     // Same contract as and_or.yo's two emission points.
-                    context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
+                    context.emitted_deferred_drop_ids.insert(ast_expr_id(&drop_expr));
                     if(code.len() > usize(0), {
                       line := indent.clone();
-                      line.push_string(code);
+                      line.push_string(&code);
                       line.push_str(";");
-                      em.emit_string_line(line);
+                      em.emit_string_line(&line);
                     });
                   });
                 });
@@ -1003,7 +1003,7 @@ generate_deferred_dup_expressions :: (fn(imm(expr) : AstExpr, imm(indent) : Stri
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      expr_info_deferred_dup_expressions(ei),
+      expr_info_deferred_dup_expressions(&ei),
       .Some(dups) => {
         em := context.base.emitter;
         n := dups.len();
@@ -1011,7 +1011,7 @@ generate_deferred_dup_expressions :: (fn(imm(expr) : AstExpr, imm(indent) : Stri
         while(i < n, {
           match(
             dups.get(i),
-            .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), {
+            .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), {
               // Skip a dup whose target TEMP was never emitted as a C
               // declaration (the ___dup names the eval-time temp of e.g. an
               // inlined property read; re-evaluation also drifts temp ids) —
@@ -1020,15 +1020,15 @@ generate_deferred_dup_expressions :: (fn(imm(expr) : AstExpr, imm(indent) : Stri
               // above. Callers that still need the +1 apply it to the
               // GENERATED value instead (match.yo generate_case_body).
               dup_undeclared_temp := match(
-                get_deferred_dup_target_atom_name(dup_expr),
+                get_deferred_dup_target_atom_name(&dup_expr),
                 .Some(dnm) => {
-                  dcn := sanitize_for_c_identifier(dnm, false);
-                  (is_temp_variable_name(ei.env.module_path.clone(), dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && !context.base.declared_c_var_names.*.contains(dcn)
+                  dcn := sanitize_for_c_identifier(&dnm, false);
+                  (is_temp_variable_name(ei.env.module_path.clone(), dcn.clone()) || _looks_like_minted_temp(dcn.clone())) && !context.base.declared_c_var_names.*.contains(&dcn)
                 },
                 .None => false
               );
               if(!dup_undeclared_temp, {
-                code := _call_generate_expr(dup_expr, indent.clone(), context);
+                code := _call_generate_expr(&dup_expr, indent.clone(), context);
                 if(code.len() > usize(0), {
                   // A SYNTHESIZED dup (aliasing Stage 0's borrow marker —
                   // no nested evaluation, so no other_fn_call temp
@@ -1038,12 +1038,12 @@ generate_deferred_dup_expressions :: (fn(imm(expr) : AstExpr, imm(indent) : Stri
                   // get_variable_type_string choke-point; evaluated dups
                   // already render AS their temp name and skip this.
                   dup_result_decl := match(
-                    context.base.get_expr_info(dup_expr),
+                    context.base.get_expr_info(&dup_expr),
                     .Some(ddei) => match(
                       ddei.variable_name,
                       .Some(ddvn) => {
-                        ddtn := get_variable_name_for_codegen_at(ast_expr_id(dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env));
-                        if(!(ddtn == code) && !context.base.declared_c_var_names.*.contains(ddtn.clone()), Option(String).Some(get_variable_type_string(ddei.ty, ddvn, context.base)), Option(String).None)
+                        ddtn := get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), ddvn.clone(), Option(Environment).Some(ddei.env));
+                        if(!(ddtn == code) && !context.base.declared_c_var_names.*.contains(ddtn.clone()), Option(String).Some(get_variable_type_string(&ddei.ty, &ddvn, &context.base)), Option(String).None)
                       },
                       .None => Option(String).None
                     ),
@@ -1053,27 +1053,27 @@ generate_deferred_dup_expressions :: (fn(imm(expr) : AstExpr, imm(indent) : Stri
                   match(
                     dup_result_decl,
                     .Some(dr_decl) => {
-                      line.push_string(dr_decl);
+                      line.push_string(&dr_decl);
                       line.push_str(" = ");
                     },
                     .None => ()
                   );
-                  line.push_string(code);
+                  line.push_string(&code);
                   line.push_str(";");
-                  em.emit_string_line(line);
+                  em.emit_string_line(&line);
                   // Rule 1: a dup result temp with a task slot is read and
                   // dropped through the slot, so the value goes there too
                   // (issues/fixed/an-argument-dup-temp-in-an-io-async-body-is-dropped-through-an-unassigned-slot.md).
                   if(dup_result_decl.is_some() && context.in_async_state_machine.is_some(), {
                     match(
-                      context.base.get_expr_info(dup_expr),
+                      context.base.get_expr_info(&dup_expr),
                       .Some(sei) => match(
                         sei.variable_name,
                         .Some(svn) => match(
                           context.state_machine_variables,
                           .Some(smv) => match(
-                            sm_slot_of(ast_expr_id(dup_expr), sei.env, svn.clone(), smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot),
-                            .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${get_variable_name_for_codegen_at(ast_expr_id(dup_expr), svn, Option(Environment).Some(sei.env))};`),
+                            sm_slot_of(ast_expr_id(&dup_expr), &sei.env, svn.clone(), &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+                            .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &svn, Option(Environment).Some(sei.env))};`),
                             .None => ()
                           ),
                           .None => ()
@@ -1104,7 +1104,7 @@ emit_deferred_dup_or_code :: (fn(imm(expr) : AstExpr, imm(fallback_code) : Strin
   match(
     context.base.get_expr_info(expr),
     .Some(ei) => match(
-      expr_info_deferred_dup_expressions(ei),
+      expr_info_deferred_dup_expressions(&ei),
       .Some(dups) => if(dups.len() > usize(0), {
         em := context.base.emitter;
         // Declare-first rule: when the SOURCE expr carries its own temp
@@ -1118,8 +1118,8 @@ emit_deferred_dup_or_code :: (fn(imm(expr) : AstExpr, imm(fallback_code) : Strin
         // object-parse UAF). Closure constructions are excluded (their
         // deferred dups are capture dups emitted by the closure emitters).
         src_is_closure_ctor := (
-          expr_info_closure_function_value(ei).is_some() ||
-            (match(expr_info_is_anonymous_function_definition(ei), .Some(b) => b, .None => false) && expr_info_capture_type(ei).is_some())
+          expr_info_closure_function_value(&ei).is_some() ||
+            (match(expr_info_is_anonymous_function_definition(&ei), .Some(b) => b, .None => false) && expr_info_capture_type(&ei).is_some())
         );
         (fallback_code_2 : String) = fallback_code.clone();
         if(!src_is_closure_ctor, {
@@ -1150,13 +1150,13 @@ emit_deferred_dup_or_code :: (fn(imm(expr) : AstExpr, imm(fallback_code) : Strin
                   fallback_code_2 = fallback_code.clone();
                 },
                 true => {
-                  eff_ty := match(expr_info_converted_runtime_type(ei), .Some(crt) => crt, .None => ei.ty);
+                  eff_ty := match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => ei.ty);
                   decl0 := indent.clone();
-                  decl0.push_string(get_variable_type_string(eff_ty, src_c_name.clone(), context.base));
+                  decl0.push_string(get_variable_type_string(&eff_ty, src_c_name.clone(), &context.base));
                   decl0.push_str(" = ");
                   decl0.push_string(fallback_code.clone());
                   decl0.push_str(";");
-                  em.emit_string_line(decl0);
+                  em.emit_string_line(&decl0);
                   fallback_code_2 = src_c_name;
                 }
               );
@@ -1180,14 +1180,14 @@ emit_deferred_dup_or_code :: (fn(imm(expr) : AstExpr, imm(fallback_code) : Strin
         dup_result_name := match(
           dups.get(usize(0)),
           .Some(dup_expr) => if(
-            ast_expr_is_fn_call(dup_expr),
+            ast_expr_is_fn_call(&dup_expr),
             match(
-              context.base.get_expr_info(dup_expr),
+              context.base.get_expr_info(&dup_expr),
               .Some(dei) => match(
                 dei.variable_name,
                 .Some(dvn) => if(
-                  type_key(dei.ty) == type_key(ei.ty),
-                  Option(String).Some(get_variable_name_for_codegen_at(ast_expr_id(dup_expr), dvn, Option(Environment).Some(dei.env))),
+                  type_key(&dei.ty) == type_key(&ei.ty),
+                  Option(String).Some(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env))),
                   Option(String).None
                 ),
                 .None => Option(String).None
@@ -1205,7 +1205,7 @@ emit_deferred_dup_or_code :: (fn(imm(expr) : AstExpr, imm(fallback_code) : Strin
         // `Some(bucket.value)`. Materialize the field value once into that temp
         // (materialize-then-dup), so the dup references a real local and the temp is
         // the dup'd value the caller uses. Safe: the field access is evaluated once.
-        dup_target := match(dups.get(usize(0)), .Some(de) => get_deferred_dup_target_atom_name(de), .None => Option(String).None);
+        dup_target := match(dups.get(usize(0)), .Some(de) => get_deferred_dup_target_atom_name(&de), .None => Option(String).None);
         t_name := sanitize_for_c_identifier(match(dup_target, .Some(s) => s, .None => String.from("")), false);
         // Only materialize when the source is NOT already materialized into the dup
         // target temp: if the caller's fallback code already IS that temp (some paths
@@ -1224,11 +1224,11 @@ emit_deferred_dup_or_code :: (fn(imm(expr) : AstExpr, imm(fallback_code) : Strin
             // the temp unregistered, so generate_deferred_dup_expressions'
             // undeclared-temp gate suppressed the very dup this materialization
             // exists to enable (ArrayList(ref-struct).get() lost its element +1).
-            decl := get_variable_type_string(ei.ty, t_name.clone(), context.base);
+            decl := get_variable_type_string(&ei.ty, t_name.clone(), &context.base);
             decl.push_str(" = ");
             decl.push_string(fallback_code_2.clone());
             decl.push_str(";");
-            em.emit_string_line(decl);
+            em.emit_string_line(&decl);
             generate_deferred_dup_expressions(expr, indent.clone(), context);
             t_name
           },
@@ -1267,7 +1267,7 @@ emit_deferred_dup_or_code :: (fn(imm(expr) : AstExpr, imm(fallback_code) : Strin
 /// the caller (issues/fixed/async-match-arm-borrowed-payload-released-twice.md).
 arm_value_with_dups :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> Option(String))({
   bei := match(context.base.get_expr_info(body_expr), .Some(b) => b, .None => return(Option(String).None));
-  bdups := match(expr_info_deferred_dup_expressions(bei), .Some(d) => d, .None => return(Option(String).None));
+  bdups := match(expr_info_deferred_dup_expressions(&bei), .Some(d) => d, .None => return(Option(String).None));
   if(bdups.len() == usize(0), {
     return(Option(String).None);
   });
@@ -1291,14 +1291,14 @@ arm_value_with_dups :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(c
       if(!b_self && !(btv == raw_code), {
         bem := context.base.emitter;
         bline := indent.clone();
-        bline.push_string(get_type_string(bei.ty, context.base));
+        bline.push_string(get_type_string(&bei.ty, &context.base));
         bline.push_str(" ");
         bline.push_string(btv.clone());
         bline.push_str(" = ");
         bline.push_string(raw_code.clone());
         bline.push_str(";");
-        bem.emit_string_line(bline);
-        declare_c_var_name(context.base, btv.clone());
+        bem.emit_string_line(&bline);
+        declare_c_var_name(&context.base, btv.clone());
       });
       final_code = if(b_self, raw_code.clone(), btv);
     },
@@ -1310,21 +1310,21 @@ arm_value_with_dups :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(c
   match(
     bdups.get(usize(0)),
     .Some(bdup0) => match(
-      context.base.get_expr_info(bdup0),
+      context.base.get_expr_info(&bdup0),
       .Some(bdup_info) => match(
         bdup_info.variable_name,
         .Some(dvn) => {
-          dtv := get_variable_name_for_codegen_at(ast_expr_id(bdup0), dvn.clone(), Option(Environment).Some(bdup_info.env));
+          dtv := get_variable_name_for_codegen_at(ast_expr_id(&bdup0), dvn.clone(), Option(Environment).Some(bdup_info.env));
           dem := context.base.emitter;
           dline := indent.clone();
-          dline.push_string(get_type_string(bei.ty, context.base));
+          dline.push_string(get_type_string(&bei.ty, &context.base));
           dline.push_str(" ");
           dline.push_string(dtv.clone());
           dline.push_str(" = ");
-          dline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
+          dline.push_string(generate_dup_code_for_value(final_code.clone(), &bei.ty, context));
           dline.push_str(";");
-          dem.emit_string_line(dline);
-          declare_c_var_name(context.base, dtv.clone());
+          dem.emit_string_line(&dline);
+          declare_c_var_name(&context.base, dtv.clone());
           final_code = dtv;
           dup_named = true;
         },
@@ -1340,9 +1340,9 @@ arm_value_with_dups :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(c
       .Some(_) => {
         fdem := context.base.emitter;
         fdline := indent.clone();
-        fdline.push_string(generate_dup_code_for_value(final_code.clone(), bei.ty, context));
+        fdline.push_string(generate_dup_code_for_value(final_code.clone(), &bei.ty, context));
         fdline.push_str(";");
-        fdem.emit_string_line(fdline);
+        fdem.emit_string_line(&fdline);
       },
       .None => {
         generate_deferred_dup_expressions(body_expr, indent.clone(), context);

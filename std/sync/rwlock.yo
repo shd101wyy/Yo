@@ -157,7 +157,7 @@ impl(
   )({
     self._raw_read_lock();
     _guard := __RwLockReadUnlocker(T)(self);
-    body(self._value)
+    body(&self._value)
   }),
   /// Run `body` under an EXCLUSIVE acquisition. No other reader or writer can
   /// be inside the lock. `body` receives `mut(v) : T`, so its writes land in
@@ -171,7 +171,7 @@ impl(
   )({
     self._raw_write_lock();
     _guard := __RwLockWriteUnlocker(T)(self);
-    body(self._value)
+    body(&mut self._value)
   }),
   /// Run `body` under a SHARED acquisition IF one can be taken without
   /// waiting, and return `.Some(result)`; `.None` when a writer holds the
@@ -194,7 +194,7 @@ impl(
       !self._raw_try_read_lock() => Option(R).None,
       true => {
         _guard := __RwLockReadUnlocker(T)(self);
-        Option(R).Some(body(self._value))
+        Option(R).Some(body(&self._value))
       }
     )
   ),
@@ -218,7 +218,7 @@ impl(
       !self._raw_try_write_lock() => Option(R).None,
       true => {
         _guard := __RwLockWriteUnlocker(T)(self);
-        Option(R).Some(body(self._value))
+        Option(R).Some(body(&mut self._value))
       }
     )
   ),
@@ -231,7 +231,7 @@ impl(
   _raw_read_lock : (fn(imm(self) : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._writer), {
-      self._read_cv.wait_with(self._mutex);
+      self._read_cv.wait_with(&self._mutex);
     });
     self._readers = (self._readers + i32(1));
     self._mutex._raw_unlock();
@@ -280,7 +280,7 @@ impl(
   _raw_write_lock : (fn(imm(self) : Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._writer || (self._readers > i32(0))), {
-      self._write_cv.wait_with(self._mutex);
+      self._write_cv.wait_with(&self._mutex);
     });
     self._writer = true;
     self._mutex._raw_unlock();

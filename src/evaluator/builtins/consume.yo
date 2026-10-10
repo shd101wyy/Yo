@@ -88,7 +88,7 @@ set_variable_as_consumed :: (
             error_message : String.from("value moved here")
           )
         );
-        exn.throw(dyn(format_error_messages(entries)));
+        exn.throw(dyn(format_error_messages(&entries)));
       });
     },
     .None => {
@@ -100,8 +100,8 @@ set_variable_as_consumed :: (
       // scan's String-id compares under scope-end drop scheduling.
       // Logged first: per-path move state for joins and loops (a compiler
       // temp's mark is ownership bookkeeping, not a move).
-      if(!is_temp_variable_name(env.module_path, variable.name), {
-        record_branch_consume(variable.id, token.clone(), variable.initialized_at_token, Option(Token).None);
+      if(!is_temp_variable_name(&env.module_path, &variable.name), {
+        record_branch_consume(variable.id, token.clone(), &variable.initialized_at_token, Option(Token).None);
       });
       variable.consumed_at_token = Option(Rc(Token)).Some(rc(token.clone()));
     }
@@ -133,9 +133,9 @@ evaluate_consume :: (
   // any throw and hands back an error node whose env is not the caller's, so
   // an error in the argument vanished and the enclosing block went on in the
   // wrong environment (issues/fixed/consume-swallows-its-arguments-error-and-its-env.md).
-  eval_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
-  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
-  (cur_env : Environment) = match(arg_info_opt, .Some(i) => expr_info_adopt_env(i), .None => env);
+  eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
+  (cur_env : Environment) = match(arg_info_opt, .Some(i) => expr_info_adopt_env(&i), .None => env);
   match(
     arg_info_opt,
     .Some(_) => (),
@@ -143,7 +143,7 @@ evaluate_consume :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_expr),
+            ast_expr_token(&arg_expr),
             String.from("consume: failed to evaluate expression.")
           )
         )
@@ -165,13 +165,13 @@ evaluate_consume :: (
   match(
     variable_name_opt,
     .Some(vname) => {
-      set_variable_as_consumed(vname, ast_expr_token(arg_expr), cur_env, false, is_tv, exn);
+      set_variable_as_consumed(&vname, ast_expr_token(&arg_expr), &cur_env, false, is_tv, exn);
     },
     .None => ()
   );
-  out_info := new_expr_info(cur_env, t_unit());
+  out_info := new_expr_info(&cur_env, t_unit());
   out_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_consume, set_variable_as_consumed);

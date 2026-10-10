@@ -41,7 +41,7 @@ check_literal_fits :: (fn(imm(text) : String, imm(ty) : TypeValue, imm(tok) : To
   negative := text.starts_with(`-`);
   digits := if(negative, text.substring(usize(1), text.len()), text.clone());
   match(
-    parse_raw_int(digits),
+    parse_raw_int(&digits),
     .Some(bits) => match(
       // `bits` is the magnitude's u64 bit pattern (parse_raw_int).
       integer_value_fits_type(negative, u64(bits), ty),
@@ -81,7 +81,7 @@ comptime_int_value_misfit :: (fn(imm(raw) : String, imm(ty) : TypeValue) -> Opti
   });
   digits := if(negative, raw.substring(usize(1), raw.len()), raw.clone());
   match(
-    parse_raw_int(digits),
+    parse_raw_int(&digits),
     .Some(bits) => match(
       integer_value_fits_type(negative, u64(bits), ty),
       .Some(fits) => if(fits, Option(String).None, Option(String).Some(`Integer overflow: the compile-time value ${raw} does not fit in ${type_to_string(ty)} (${integer_type_range_string(ty)})`)),
@@ -94,7 +94,7 @@ comptime_int_value_misfit :: (fn(imm(raw) : String, imm(ty) : TypeValue) -> Opti
 check_comptime_int_value_fits :: (fn(imm(raw) : String, imm(ty) : TypeValue, imm(tok) : Token, imm(exn) : Exception) -> unit)(
   match(
     comptime_int_value_misfit(raw, ty),
-    .Some(msg) => exn.throw(dyn(format_error_message(tok, msg))),
+    .Some(msg) => exn.throw(dyn(format_error_message(tok, &msg))),
     .None => ()
   )
 );
@@ -112,7 +112,7 @@ comptime_numeric_slot_type :: (
     (is_comptime_int_type(arg_ty) && target_integer_type_range(slot_ty).is_some()) => {
       match(
         value,
-        .Some(v) => match(v, .IntLit(raw) => check_comptime_int_value_fits(raw, slot_ty, tok, exn), _ => ()),
+        .Some(v) => match(v, .IntLit(raw) => check_comptime_int_value_fits(&raw, slot_ty, tok, exn), _ => ()),
         .None => ()
       );
       Option(TypeValue).Some(slot_ty)
@@ -134,7 +134,7 @@ evaluate_integer_literal :: (
     exn.throw(
       dyn(
         format_error_message(
-          tok,
+          &tok,
           `Expected integer literal, got ${tok.value}`
         )
       )
@@ -142,13 +142,13 @@ evaluate_integer_literal :: (
   });
   // Parse to i64, normalize to decimal string
   parsed := match(
-    parse_raw_int(tok.value),
+    parse_raw_int(&tok.value),
     .Some(n) => n,
     .None => {
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             `Failed to parse integer literal: ${tok.value}`
           )
         )
@@ -161,16 +161,16 @@ evaluate_integer_literal :: (
   ty := match(
     ctx.expected_type,
     .Some(ectx) => cond(
-      is_usize_type(ectx.ty) => t_usize(),
-      is_isize_type(ectx.ty) => t_isize(),
-      is_u8_type(ectx.ty) => t_u8(),
-      is_i8_type(ectx.ty) => t_i8(),
-      is_u16_type(ectx.ty) => t_u16(),
-      is_i16_type(ectx.ty) => t_i16(),
-      is_u32_type(ectx.ty) => t_u32(),
-      is_i32_type(ectx.ty) => t_i32(),
-      is_u64_type(ectx.ty) => t_u64(),
-      is_i64_type(ectx.ty) => t_i64(),
+      is_usize_type(&ectx.ty) => t_usize(),
+      is_isize_type(&ectx.ty) => t_isize(),
+      is_u8_type(&ectx.ty) => t_u8(),
+      is_i8_type(&ectx.ty) => t_i8(),
+      is_u16_type(&ectx.ty) => t_u16(),
+      is_i16_type(&ectx.ty) => t_i16(),
+      is_u32_type(&ectx.ty) => t_u32(),
+      is_i32_type(&ectx.ty) => t_i32(),
+      is_u64_type(&ectx.ty) => t_u64(),
+      is_i64_type(&ectx.ty) => t_i64(),
       true => t_comptime_int()
     ),
     .None => t_comptime_int()
@@ -181,11 +181,11 @@ evaluate_integer_literal :: (
   // (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
   // The magnitude comes from the TOKEN, not `parsed`: a literal above
   // `i64::MAX` is carried as its i64 bit pattern.
-  check_literal_fits(tok.value.clone(), ty, tok, exn);
+  check_literal_fits(tok.value.clone(), &ty, &tok, exn);
   val := EvalValue.IntLit(raw.clone());
-  info := new_expr_info(env, ty);
+  info := new_expr_info(env, &ty);
   info.value = .Some(val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 export(evaluate_integer_literal, check_literal_fits, comptime_int_value_misfit, check_comptime_int_value_fits, comptime_numeric_slot_type);

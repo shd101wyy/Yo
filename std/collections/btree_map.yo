@@ -101,7 +101,7 @@ impl(
   /// (issues/fixed/btree-map-insert-dropped-the-old-value-and-push-results-were-ignored.md).
   /// For new keys: append at end then shift-left to the sorted position.
   insert : (fn(mut(self) : Self, k : K, v : V, where(K <: Ord(K))) -> Option(V))({
-    r := self._find(k);
+    r := self._find(&k);
     cond(
       r.found => {
         entry := self._entries(r.idx);
@@ -150,7 +150,7 @@ impl(
     match(
       self.first_entry(),
       .Some(e) => {
-        _r := self.remove(e.key);
+        _r := self.remove(&e.key);
         Option(MapEntry(K, V)).Some(e)
       },
       .None => Option(MapEntry(K, V)).None
@@ -161,7 +161,7 @@ impl(
     match(
       self.last_entry(),
       .Some(e) => {
-        _r := self.remove(e.key);
+        _r := self.remove(&e.key);
         Option(MapEntry(K, V)).Some(e)
       },
       .None => Option(MapEntry(K, V)).None
@@ -379,8 +379,8 @@ impl(
   /// insertion point for an absent key, which is exactly the first entry at or
   /// past it.
   range : (fn(imm(self) : Self, imm(r) : Range(K), where(K <: Ord(K))) -> BTreeMapRange(K, V))({
-    lo := self._find(r.start).idx;
-    hi := self._find(r.end).idx;
+    lo := self._find(&r.start).idx;
+    hi := self._find(&r.end).idx;
     BTreeMapRange(K, V)(
       _entries : self._entries,
       _index : lo,

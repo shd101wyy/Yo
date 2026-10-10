@@ -69,7 +69,7 @@ eval_comptime_str_arg :: (
   ) -> ExprInfo
 )({
   evaluated := evaluate_expression_raw(arg, env, ctx, exn);
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
     .Some(i) => i,
@@ -85,7 +85,7 @@ eval_comptime_str_arg :: (
       new_expr_info(env, t_comptime_string())
     }
   );
-  if(!is_comptime_string_type(info.ty), {
+  if(!is_comptime_string_type(&info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -109,7 +109,7 @@ eval_comptime_int_arg :: (
   ) -> ExprInfo
 )({
   evaluated := evaluate_expression_raw(arg, env, ctx, exn);
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
     .Some(i) => i,
@@ -125,7 +125,7 @@ eval_comptime_int_arg :: (
       new_expr_info(env, t_comptime_int())
     }
   );
-  if(!is_comptime_int_type(info.ty), {
+  if(!is_comptime_int_type(&info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -166,8 +166,8 @@ evaluate_yo_comptime_string_functions :: (
         return(expr);
       }
     );
-    ai := eval_comptime_str_arg(arg0, env, ctx, exn);
-    (cur_env : Environment) = expr_info_adopt_env(ai);
+    ai := eval_comptime_str_arg(&arg0, env, ctx, exn);
+    (cur_env : Environment) = expr_info_adopt_env(&ai);
     arg_val := ai.value;
     (result_val : EvalValue) = cond(
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_LENGTH, .Some(usize(1))) =>
@@ -176,7 +176,7 @@ evaluate_yo_comptime_string_functions :: (
           .Some(av) => match(
             av,
             .StrLit(raw) => {
-              unquoted := str_lit_unquote(raw);
+              unquoted := str_lit_unquote(&raw);
               // COMPTIME BYTE BASIS (STD_API_AUDIT_D4_PLAN §4 PR 7, O1c):
               // comptime `len` counts BYTES, matching the runtime
               // `String.len()` / `str.len()` after the D4 flip. This was
@@ -191,14 +191,14 @@ evaluate_yo_comptime_string_functions :: (
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_UPPER, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(.StrLit(raw)) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(raw).to_uppercase())),
+          .Some(.StrLit(raw)) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(&raw).to_uppercase())),
           .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         ),
       ast_expr_is_fn_call_of(expr, BF_COMPTIME_STRING_TO_LOWER, .Some(usize(1))) =>
         match(
           arg_val,
-          .Some(.StrLit(raw)) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(raw).to_lowercase())),
+          .Some(.StrLit(raw)) => EvalValue.StrLit(str_lit_quote(str_lit_unquote(&raw).to_lowercase())),
           .Some(_) => create_unknown_val(t_comptime_string()),
           .None => create_unknown_val(t_comptime_string())
         ),
@@ -217,10 +217,10 @@ evaluate_yo_comptime_string_functions :: (
     // Derive the result type from the VALUE'S TYPE — NOT the value tag. For an unknown-valued
     // operand `length(x)` builds `UnknownVal(comptime_int)`; a tag-based match
     // (UnknownVal ≠ IntLit) wrongly typed it `comptime_str`.
-    result_ty := type_of_eval_value(result_val);
-    out_info := new_expr_info(cur_env, result_ty);
+    result_ty := type_of_eval_value(&result_val);
+    out_info := new_expr_info(&cur_env, &result_ty);
     out_info.value = .Some(result_val);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, if(is_slice, {
     // slice(string, start, end?)
     n_args := args.len();
@@ -248,17 +248,17 @@ evaluate_yo_comptime_string_functions :: (
         return(expr);
       }
     );
-    str_info := eval_comptime_str_arg(str_arg, env, ctx, exn);
-    start_info := eval_comptime_int_arg(start_arg, str_info.env, ctx, exn);
-    (cur_env : Environment) = expr_info_adopt_env(start_info);
+    str_info := eval_comptime_str_arg(&str_arg, env, ctx, exn);
+    start_info := eval_comptime_int_arg(&start_arg, &str_info.env, ctx, exn);
+    (cur_env : Environment) = expr_info_adopt_env(&start_info);
     // Optional end argument.
     (end_info_opt : Option(ExprInfo)) = if(
       n_args == usize(3),
       match(
         args.get(usize(2)),
         .Some(end_arg) => {
-          ei := eval_comptime_int_arg(end_arg, cur_env, ctx, exn);
-          cur_env = expr_info_adopt_env(ei);
+          ei := eval_comptime_int_arg(&end_arg, &cur_env, ctx, exn);
+          cur_env = expr_info_adopt_env(&ei);
           .Some(ei)
         },
         .None => .None
@@ -270,7 +270,7 @@ evaluate_yo_comptime_string_functions :: (
       .Some(sv) => match(
         sv,
         .StrLit(raw) => {
-          unquoted := str_lit_unquote(raw);
+          unquoted := str_lit_unquote(&raw);
           match(
             start_info.value,
             .Some(sv2) => match(
@@ -333,7 +333,7 @@ evaluate_yo_comptime_string_functions :: (
                   );
                 });
                 sliced := unquoted.substring(start_b, end_b);
-                EvalValue.StrLit(str_lit_quote(sliced))
+                EvalValue.StrLit(str_lit_quote(&sliced))
               },
               _ => create_unknown_val(t_comptime_string())
             ),
@@ -344,9 +344,9 @@ evaluate_yo_comptime_string_functions :: (
       ),
       .None => create_unknown_val(t_comptime_string())
     );
-    out_info := new_expr_info(cur_env, t_comptime_string());
+    out_info := new_expr_info(&cur_env, t_comptime_string());
     out_info.value = .Some(result_val);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, {
     // Binary operations.
     arg0 := match(
@@ -363,20 +363,20 @@ evaluate_yo_comptime_string_functions :: (
         return(expr);
       }
     );
-    lhs_info := eval_comptime_str_arg(arg0, env, ctx, exn);
-    rhs_info := eval_comptime_str_arg(arg1, lhs_info.env, ctx, exn);
-    (cur_env : Environment) = expr_info_adopt_env(rhs_info);
+    lhs_info := eval_comptime_str_arg(&arg0, env, ctx, exn);
+    rhs_info := eval_comptime_str_arg(&arg1, &lhs_info.env, ctx, exn);
+    (cur_env : Environment) = expr_info_adopt_env(&rhs_info);
     lhs_val := lhs_info.value;
     rhs_val := rhs_info.value;
     // Extract unquoted strings for comparison / concat.
     (lhs_str_opt : Option(String)) = match(
       lhs_val,
-      .Some(lv) => match(lv, .StrLit(raw) => Option(String).Some(str_lit_unquote(raw)), _ => Option(String).None),
+      .Some(lv) => match(lv, .StrLit(raw) => Option(String).Some(str_lit_unquote(&raw)), _ => Option(String).None),
       .None => Option(String).None
     );
     (rhs_str_opt : Option(String)) = match(
       rhs_val,
-      .Some(rv) => match(rv, .StrLit(raw) => Option(String).Some(str_lit_unquote(raw)), _ => Option(String).None),
+      .Some(rv) => match(rv, .StrLit(raw) => Option(String).Some(str_lit_unquote(&raw)), _ => Option(String).None),
       .None => Option(String).None
     );
     (result_val : EvalValue) = cond(
@@ -465,10 +465,10 @@ evaluate_yo_comptime_string_functions :: (
     // Derive the result type from the VALUE'S TYPE
     // — NOT the value tag. An unknown-valued comparison builds `UnknownVal(bool)`;
     // a tag-based match (UnknownVal ≠ BoolVal) wrongly typed it `comptime_str`.
-    result_ty := type_of_eval_value(result_val);
-    out_info := new_expr_info(cur_env, result_ty);
+    result_ty := type_of_eval_value(&result_val);
+    out_info := new_expr_info(&cur_env, &result_ty);
     out_info.value = .Some(result_val);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }));
   expr
 });

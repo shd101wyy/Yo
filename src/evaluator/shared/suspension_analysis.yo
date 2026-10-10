@@ -151,7 +151,7 @@ extract_target_variable_id :: (
   match(
     get_info(pe.clone()),
     .Some(pinfo) => {
-      pvars := scope_variables(ast_expr_id(var_expr), pinfo.env, var_name.clone());
+      pvars := scope_variables(ast_expr_id(&var_expr), &pinfo.env, var_name.clone());
       pn := pvars.len();
       if(pn > usize(0), {
         match(
@@ -171,7 +171,7 @@ extract_target_variable_id :: (
     get_info(var_expr.clone()),
     .None => Option(String).None,
     .Some(info) => {
-      variables := scope_variables(ast_expr_id(var_expr), info.env, var_name.clone());
+      variables := scope_variables(ast_expr_id(&var_expr), &info.env, var_name.clone());
       n := variables.len();
       if(n == usize(0), {
         return(Option(String).None);
@@ -231,7 +231,7 @@ _capture_env_variable :: (
   // the same REGISTRY rather than `Variable.is_module_level`, for the reason
   // recorded there: env copies (def-time body envs, module import snapshots)
   // drop that flag on some resolution paths while keeping it on others.
-  if(is_module_level_global(env.module_path, var_name.clone()), {
+  if(is_module_level_global(&env.module_path, var_name.clone()), {
     return(());
   });
   variables := scope_variables(key, env, var_name.clone());
@@ -250,7 +250,7 @@ _capture_env_variable :: (
     // in its arm and reads it by name. Without a slot that C local is garbage
     // after an await in the arm. `pattern_binding` is set only at the
     // binding's own declaration atom (`_capture_pattern_bindings`).
-    needs_storage := (!variable.is_compile_time_only || (pattern_binding && !type_requires_comptime_modifier(variable.ty)));
+    needs_storage := (!variable.is_compile_time_only || (pattern_binding && !type_requires_comptime_modifier(&variable.ty)));
     if(needs_storage && !captured_variables.contains_key(variable.id.to_string()), {
       // The SSA-remapping key includes the DECLARATION SITE, not just
       // `name:frame_level`. Those two alone conflate a reassignment (`x = …`,
@@ -334,7 +334,7 @@ _capture_env_variable :: (
               // A by-ref binding (`inout(y) := x`) holds a pointer to its
               // place: that is what its slot stores, and a raw pointer is
               // never dropped.
-              cap_ty := if(variable.is_ref, t_ptr(value_ty), value_ty);
+              cap_ty := if(variable.is_ref, t_ptr(&value_ty), value_ty);
               sc := SuspensionCapturedVariable(
                 id : variable.id.to_string(),
                 name : var_name.clone(),
@@ -375,26 +375,26 @@ _capture_pattern_bindings :: (
       match(
         get_info(pat),
         .Some(info) => {
-          vars := scope_variables(ast_expr_id(pat), info.env, tok.value.clone());
+          vars := scope_variables(ast_expr_id(pat), &info.env, tok.value.clone());
           at_decl := match(
             vars.last(),
             .Some(v) => ((v.token.module_path == tok.module_path) && (v.token.row == tok.row) && (v.token.column == tok.column)),
             .None => false
           );
           if(at_decl, {
-            _capture_env_variable(ast_expr_id(pat), tok.value.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+            _capture_env_variable(ast_expr_id(pat), tok.value.clone(), &info.env, Option(TypeValue).Some(info.ty.clone()), true, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
           });
         },
         .None => ()
       );
     }),
     .FnCall(_, func_box, args, _, _) => {
-      recur(func_box, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+      recur(&func_box, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => recur(a, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+          .Some(a) => recur(&a, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
           .None => ()
         );
         i = (i + usize(1));
@@ -432,15 +432,15 @@ _capture_argument_temp :: (
     .Atom(_, _) => arg.clone()
   );
   match(
-    get_info(value),
+    get_info(&value),
     .Some(vinfo) => match(
       vinfo.variable_name,
       .Some(tn) => {
         // The temp is bound in the env the call was evaluated in.
         g_arg_temps_across_suspension.insert(tn.clone());
         tenv := match(get_info(call), .Some(cinfo) => cinfo.env, .None => vinfo.env);
-        _capture_env_variable(ast_expr_id(value), tn.clone(), tenv, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
-        _capture_env_variable(ast_expr_id(value), tn, vinfo.env, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+        _capture_env_variable(ast_expr_id(&value), tn.clone(), &tenv, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+        _capture_env_variable(ast_expr_id(&value), &tn, &vinfo.env, Option(TypeValue).Some(vinfo.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
       },
       .None => ()
     ),
@@ -484,7 +484,7 @@ walk_expr_ :: (
           get_info(expr_cloned.clone()),
           .None => (),
           .Some(info) => {
-            _capture_env_variable(ast_expr_id(expr_cloned), var_name.clone(), info.env, Option(TypeValue).Some(info.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+            _capture_env_variable(ast_expr_id(&expr_cloned), var_name.clone(), &info.env, Option(TypeValue).Some(info.ty.clone()), false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
           }
         );
       });
@@ -509,7 +509,7 @@ walk_expr_ :: (
               match(
                 get_info(expr_cloned.clone()),
                 .Some(binfo) => {
-                  _capture_env_variable(ast_expr_id(lhs_e), lhs_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+                  _capture_env_variable(ast_expr_id(&lhs_e), lhs_tok.value.clone(), &binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
                 },
                 .None => ()
               );
@@ -526,7 +526,7 @@ walk_expr_ :: (
                     inout_args.get(usize(0)),
                     .Some(ref_name) => match(
                       ref_name,
-                      .Atom(_, ref_tok) => _capture_env_variable(ast_expr_id(ref_name), ref_tok.value.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                      .Atom(_, ref_tok) => _capture_env_variable(ast_expr_id(&ref_name), ref_tok.value.clone(), &binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                       .FnCall(_, _, _, _, _) => ()
                     ),
                     .None => ()
@@ -535,16 +535,16 @@ walk_expr_ :: (
                     get_info(lhs_e.clone()),
                     .Some(linfo) => match(
                       linfo.source_variable,
-                      .Some(pin) => _capture_env_variable(ast_expr_id(lhs_e), pin.name.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                      .Some(pin) => _capture_env_variable(ast_expr_id(&lhs_e), pin.name.clone(), &binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                       .None => ()
                     ),
                     .None => ()
                   );
                   // The step pin of a re-pointed borrow (decision 25).
                   match(
-                    lookup_local_borrow_step_pin(ast_expr_id(lhs_e)),
-                    .Some(sp) => if(!is_unit_type(sp.ty), {
-                      _capture_env_variable(ast_expr_id(lhs_e), sp.name.clone(), binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
+                    lookup_local_borrow_step_pin(ast_expr_id(&lhs_e)),
+                    .Some(sp) => if(!is_unit_type(&sp.ty), {
+                      _capture_env_variable(ast_expr_id(&lhs_e), sp.name.clone(), &binfo.env, Option(TypeValue).None, false, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping);
                     }),
                     .None => ()
                   );
@@ -572,7 +572,7 @@ walk_expr_ :: (
         if(member_is_name, {
           match(
             args.get(usize(0)),
-            .Some(obj) => recur(obj, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone())),
+            .Some(obj) => recur(&obj, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone())),
             .None => ()
           );
           return(());
@@ -592,14 +592,14 @@ walk_expr_ :: (
           .Some(me) => Option(AstExpr).Some(me),
           .None => match(
             get_info(expr_cloned.clone()),
-            .Some(iinfo) => expr_info_macro_expansion(iinfo),
+            .Some(iinfo) => expr_info_macro_expansion(&iinfo),
             .None => Option(AstExpr).None
           )
         );
         match(
           expansion,
           .Some(expanded) => {
-            recur(expanded, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, parent_expr);
+            recur(&expanded, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, parent_expr);
             return(());
           },
           .None => ()
@@ -616,7 +616,7 @@ walk_expr_ :: (
         // -------------------------------------------------------------------
         is_while => {
           initial_count := points.len();
-          recur(func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+          recur(&func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           (ai : usize) = usize(0);
           n_args := args.len();
           while(ai < n_args, {
@@ -628,7 +628,7 @@ walk_expr_ :: (
               },
               .Some(a) => a
             );
-            recur(arg, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+            recur(&arg, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
             ai = (ai + usize(1));
           });
           new_count := points.len();
@@ -660,7 +660,7 @@ walk_expr_ :: (
         is_cond_or_match => {
           initial_count_b := points.len();
           // Walk the func expression (keyword + condition/matched value)
-          recur(func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+          recur(&func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           // Save nameFrameToOriginalId snapshot before walking branches so that
           // variables declared inside one branch don't leak into subsequent branches.
           saved_keys := ArrayList(String).new();
@@ -690,13 +690,13 @@ walk_expr_ :: (
                 arg2.clone(),
                 .FnCall(_, _, arm_args, _, _) => match(
                   arm_args.get(usize(0)),
-                  .Some(arm_pat) => _capture_pattern_bindings(arm_pat, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                  .Some(arm_pat) => _capture_pattern_bindings(&arm_pat, get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                   .None => ()
                 ),
                 .Atom(_, _) => ()
               );
             });
-            recur(arg2, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+            recur(&arg2, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
             // Copy per-branch SuspensionPoint handles (same RC objects as in points)
             branch_pts := ArrayList(SuspensionPoint).new();
             (bi : usize) = branch_start;
@@ -883,7 +883,7 @@ walk_expr_ :: (
         // -------------------------------------------------------------------
         true => {
           detected := detector.detect(expr_cloned.clone(), parent_expr);
-          points.extend(detected);
+          points.extend(&detected);
           if(detector.should_skip_body(expr_cloned.clone()), {
             // For skipped bodies, still walk deferred dup expressions
             match(
@@ -891,7 +891,7 @@ walk_expr_ :: (
               .None => (),
               .Some(info2) => {
                 match(
-                  expr_info_deferred_dup_expressions(info2),
+                  expr_info_deferred_dup_expressions(&info2),
                   .None => (),
                   .Some(dup_exprs) => {
                     (di : usize) = usize(0);
@@ -905,7 +905,7 @@ walk_expr_ :: (
                         },
                         .Some(e) => e
                       );
-                      recur(dup_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+                      recur(&dup_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
                       di = (di + usize(1));
                     });
                   }
@@ -915,7 +915,7 @@ walk_expr_ :: (
             return(());
           });
           // Recurse into function and arguments
-          recur(func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+          recur(&func_box, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
           (ai3 : usize) = usize(0);
           n_args3 := args.len();
           // The suspension count after each argument: an earlier argument's
@@ -932,7 +932,7 @@ walk_expr_ :: (
               },
               .Some(a) => a
             );
-            recur(arg3, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+            recur(&arg3, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
             arg_marks.push(points.len());
             ai3 = (ai3 + usize(1));
           });
@@ -942,7 +942,7 @@ walk_expr_ :: (
             if(match(arg_marks.get(ti), .Some(m) => (m < last_mark), .None => false), {
               match(
                 args.get(ti),
-                .Some(ta) => _capture_argument_temp(ta, expr_cloned.clone(), get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
+                .Some(ta) => _capture_argument_temp(&ta, expr_cloned.clone(), get_info, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping),
                 .None => ()
               );
             });
@@ -967,7 +967,7 @@ walk_expr_ :: (
                       },
                       .Some(e) => e
                     );
-                    recur(drop_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
+                    recur(&drop_e, get_info, points, captured_variables, captured_variable_ids_in_order, name_frame_to_original_id, variable_id_remapping, detector, Option(AstExpr).Some(expr_cloned.clone()));
                     di2 = (di2 + usize(1));
                   });
                 }
@@ -1000,11 +1000,11 @@ analyze_suspension_points :: (
   walk_expr_(
     body.clone(),
     get_info,
-    suspension_points,
-    captured_variables,
-    captured_variable_ids_in_order,
-    name_frame_to_orig_id,
-    variable_id_remapping,
+    &mut suspension_points,
+    &mut captured_variables,
+    &mut captured_variable_ids_in_order,
+    &mut name_frame_to_orig_id,
+    &mut variable_id_remapping,
     detector,
     Option(AstExpr).None
   );
@@ -1028,13 +1028,13 @@ analyze_suspension_points :: (
               .Some(e) => e
             );
             walk_expr_(
-              drop_e,
+              &drop_e,
               get_info,
-              suspension_points,
-              captured_variables,
-              captured_variable_ids_in_order,
-              name_frame_to_orig_id,
-              variable_id_remapping,
+              &mut suspension_points,
+              &mut captured_variables,
+              &mut captured_variable_ids_in_order,
+              &mut name_frame_to_orig_id,
+              &mut variable_id_remapping,
               detector,
               Option(AstExpr).None
             );

@@ -632,7 +632,7 @@ parse_response :: (fn(imm(raw) : String) -> Result(HttpResponse, HttpParseError)
       return(.Err(HttpParseError.InvalidStatusCode(code_str)));
     }
   );
-  resp := HttpResponse.new(status, status_text);
+  resp := HttpResponse.new(status, &status_text);
   resp.version = version;
   j := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
@@ -646,7 +646,7 @@ parse_response :: (fn(imm(raw) : String) -> Result(HttpResponse, HttpParseError)
             hname := hline.substring(usize(0), colon).trim();
             hval := hline.substring(colon + usize(1), hline.len()).trim();
             // APPEND: a repeated field (Set-Cookie) must keep every value.
-            resp.headers.append(hname, hval);
+            resp.headers.append(&hname, &hval);
           },
           .None => ()
         );
@@ -696,7 +696,7 @@ parse_request :: (fn(imm(raw) : String) -> Result(HttpRequest, HttpParseError))(
     true => ()
   );
   method := match(
-    HttpMethod.from_string(parts(usize(0))),
+    HttpMethod.from_string(&parts(usize(0))),
     .Some(m) => m,
     .None => {
       return(.Err(HttpParseError.UnknownMethod(parts(usize(0)))));
@@ -709,7 +709,7 @@ parse_request :: (fn(imm(raw) : String) -> Result(HttpRequest, HttpParseError))(
     },
     true => ()
   );
-  req := HttpRequest.new(method, parts(usize(1)));
+  req := HttpRequest.new(method, &parts(usize(1)));
   j := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
     hline := lines(j);
@@ -718,7 +718,7 @@ parse_request :: (fn(imm(raw) : String) -> Result(HttpRequest, HttpParseError))(
       .Some(colon) => {
         hname := hline.substring(usize(0), colon).trim();
         hval := hline.substring(colon + usize(1), hline.len()).trim();
-        req.headers.append(hname, hval);
+        req.headers.append(&hname, &hval);
       },
       .None => {
         return(.Err(HttpParseError.InvalidHeaderLine(hline)));

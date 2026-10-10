@@ -22,7 +22,7 @@ collect_c_includes :: (fn(imm(context) : CodeGenContext) -> unit)({
       .Some(type_entry) => {
         match(
           type_entry.c_include.clone(),
-          .Some(inc) => context.add_c_include(inc),
+          .Some(inc) => context.add_c_include(&inc),
           .None => ()
         );
       },
@@ -40,7 +40,7 @@ collect_c_includes :: (fn(imm(context) : CodeGenContext) -> unit)({
       .Some(fn_entry) => {
         match(
           fn_entry.c_include.clone(),
-          .Some(inc) => context.add_c_include(inc),
+          .Some(inc) => context.add_c_include(&inc),
           .None => ()
         );
       },
@@ -114,8 +114,8 @@ ordered_c_includes :: (
 /// with platform-incompatible headers filtered out, platform-specific file-op
 /// includes, and the allocator compatibility layer).
 emit_c_includes :: (fn(imm(context) : CodeGenContext) -> unit)({
-  is_windows := is_target_windows(context.target_info);
-  is_macos := is_target_macos(context.target_info);
+  is_windows := is_target_windows(&context.target_info);
+  is_macos := is_target_macos(&context.target_info);
   // Emit platform-specific feature macros.
   if(is_windows, {
     context.emitter.emit_header_line("#ifndef WIN32_LEAN_AND_MEAN");
@@ -156,15 +156,15 @@ emit_c_includes :: (fn(imm(context) : CodeGenContext) -> unit)({
       }
     );
   });
-  ordered := ordered_c_includes(registered, is_windows, is_macos);
+  ordered := ordered_c_includes(&registered, is_windows, is_macos);
   (oi : usize) = usize(0);
   while(oi < ordered.len(), {
     match(
       ordered.get(oi),
       .Some(include) => {
         line := String.from("#include ");
-        line.push_string(include);
-        context.emitter.emit_header_string_line(line);
+        line.push_string(&include);
+        context.emitter.emit_header_string_line(&line);
       },
       .None => ()
     );
@@ -190,7 +190,7 @@ _Noreturn static inline void __yo_abort(void) {
       // The TLSF fixed-region arm: defines + external prototypes in the
       // header, the implementation defined once in the code section (see
       // allocator_fixed.yo for the chunked-emission reasoning).
-      emit_fixed_allocator_defines(context.emitter);
+      emit_fixed_allocator_defines(&context.emitter);
       emit_fixed_allocator_impl(context);
     },
     (context.allocator == "mimalloc") => {

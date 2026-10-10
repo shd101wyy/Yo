@@ -249,7 +249,7 @@ get_future_variable_id_ :: (
     },
     .Some(i) => i
   );
-  vars := scope_variables(ast_expr_id(await_arg), info.env, await_var_name.clone());
+  vars := scope_variables(ast_expr_id(await_arg), &info.env, await_var_name.clone());
   n := vars.len();
   if(n == usize(0), {
     return(Option(String).None);
@@ -340,7 +340,7 @@ detect_await_expr_ :: (
       target_variable_id := extract_target_variable_id(parent_expr.clone(), get_info);
       // `x = io.await(…)` overwrites a live value (its old reference must be
       // released); `x := io.await(…)` binds a fresh one.
-      target_is_reassign := (target_variable_id.is_some() && match(parent_expr.clone(), .Some(pe) => ast_expr_is_fn_call_of(pe, "=", Option(usize).Some(usize(2))), .None => false));
+      target_is_reassign := (target_variable_id.is_some() && match(parent_expr.clone(), .Some(pe) => ast_expr_is_fn_call_of(&pe, "=", Option(usize).Some(usize(2))), .None => false));
       // Store async-specific extras in the side-channel, keyed by token position
       expr_char_key := usize(tok.character).to_string();
       await_extras.insert(
@@ -393,7 +393,7 @@ analyze_await_points :: (
     SuspensionPointDetector(
       detect : dyn((expr, parent_expr) => {
         found := ArrayList(SuspensionPoint).new();
-        detect_await_expr_(expr, parent_expr, found, await_extras.*, get_info);
+        detect_await_expr_(expr, parent_expr, &mut found, &mut await_extras.*, get_info);
         found
       }),
       should_skip_body : dyn(expr => is_io_async_call(expr)),
@@ -410,7 +410,7 @@ analyze_await_points :: (
     (tail : AstExpr) = body.clone();
     (unwrapping : bool) = true;
     while(unwrapping, {
-      is_begin := (ast_expr_is_fn_call(tail) && ast_expr_is_fn_call_of(tail, BK_BEGIN, Option(usize).None));
+      is_begin := (ast_expr_is_fn_call(&tail) && ast_expr_is_fn_call_of(&tail, BK_BEGIN, Option(usize).None));
       if(is_begin, {
         match(
           tail,
@@ -435,13 +435,13 @@ analyze_await_points :: (
         unwrapping = false;
       });
     });
-    tail_id := ast_expr_id(tail);
+    tail_id := ast_expr_id(&tail);
     n_sp := result.suspension_points.len();
     (mi : usize) = usize(0);
     while(mi < n_sp, {
       match(
         result.suspension_points.get(mi),
-        .Some(sp_m) => if(ast_expr_id(sp_m.expr) == tail_id, {
+        .Some(sp_m) => if(ast_expr_id(&sp_m.expr) == tail_id, {
           sp_m.is_body_result = Option(bool).Some(true);
         }),
         .None => ()
@@ -568,12 +568,12 @@ collect_variable_bindings_ :: (
                           var_type := val_info.ty.clone();
                           // Look up the variable in the name_arg's environment
                           match(
-                            get_info(name_arg),
+                            get_info(&name_arg),
                             .None => (),
                             .Some(name_info) => {
                               vars := scope_variables(
-                                ast_expr_id(name_arg),
-                                name_info.env,
+                                ast_expr_id(&name_arg),
+                                &name_info.env,
                                 var_name.clone()
                               );
                               n_vars := vars.len();
@@ -622,7 +622,7 @@ collect_variable_bindings_ :: (
         );
       });
       // Always recurse into the function expression
-      recur(func_box, variables, seen, get_info);
+      recur(&func_box, variables, seen, get_info);
       // Always recurse into each argument
       n_args := args.len();
       (ai : usize) = usize(0);
@@ -634,7 +634,7 @@ collect_variable_bindings_ :: (
           },
           .Some(a) => a
         );
-        recur(arg, variables, seen, get_info);
+        recur(&arg, variables, seen, get_info);
         ai = (ai + usize(1));
       });
     }
@@ -655,7 +655,7 @@ get_local_variables_from_body :: (
 )({
   variables := ArrayList(CapturedVariable).new();
   seen := HashMap(String, bool).new();
-  collect_variable_bindings_(body, variables, seen, get_info);
+  collect_variable_bindings_(body, &mut variables, &mut seen, get_info);
   variables
 });
 // ---------------------------------------------------------------------------

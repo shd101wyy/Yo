@@ -93,7 +93,7 @@ resolve_some_type_to_concrete :: (fn(imm(t) : TypeValue) -> TypeValue)({
   // map by the SomeT id instead of the capture struct id — the fold-closure
   // fn-pointer-cast miss).
   (rsc_seen : ArrayList(String)) = ArrayList(String).new();
-  while(go && is_some_type(cur), {
+  while(go && is_some_type(&cur), {
     sid := match(cur, .SomeT({ id : i }) => i, _ => String.from(""));
     (rsc_revisit : bool) = false;
     (rsc_i : usize) = usize(0);
@@ -114,7 +114,7 @@ resolve_some_type_to_concrete :: (fn(imm(t) : TypeValue) -> TypeValue)({
       // Per-object resolved concrete first (survives clone/substitute/intern);
       // global table as fallback.
       match(
-        some_resolution(cur),
+        some_resolution(&cur),
         .Some(rct) => {
           cur = rct;
         },
@@ -140,9 +140,9 @@ is_closure_construction :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGener
     // on io.async closures handled by the state-machine path.
     .Some(ei) => (
       (
-        expr_info_closure_function_value(ei).is_some()
-        || match(ei.value, .Some(v) => is_func_val(v), .None => false)
-      ) && (type_implements_fn(ei.ty) || is_function_type(ei.ty)) && expr_info_capture_type(ei).is_some()
+        expr_info_closure_function_value(&ei).is_some()
+        || match(ei.value, .Some(v) => is_func_val(&v), .None => false)
+      ) && (type_implements_fn(&ei.ty) || is_function_type(&ei.ty)) && expr_info_capture_type(&ei).is_some()
     ),
     .None => false
   )
@@ -162,7 +162,7 @@ is_closure_construction :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGener
 generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("Missing closure metadata"))));
   closure_fv := match(
-    expr_info_closure_function_value(ei),
+    expr_info_closure_function_value(&ei),
     .Some(v) => v,
     // Fallback: anonymous_function.yo records the closure FuncVal on info.value.
     .None => match(ei.value, .Some(v) => v, .None => return(codegen_fatal_expr(String.from("Missing closure_function_value"))))
@@ -170,16 +170,16 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
   // The Fn call signature (for evidence params) — the closure type is recorded
   // as a bare Func/FnTraitT, so the FnTrait may be absent; fall back to the
   // recorded type itself. Only the evidence path needs the precise call type.
-  call_type_opt := extract_fn_trait_from_type(ei.ty);
+  call_type_opt := extract_fn_trait_from_type(&ei.ty);
   fid := match(closure_fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
-  function_c_name := match(context.base.functions.get(fid), .Some(fe) => fe.c_name, .None => return(codegen_fatal_expr(String.from("Closure implementation function not found in context"))));
-  if(is_dyn_type(ei.ty), {
+  function_c_name := match(context.base.functions.get(&fid), .Some(fe) => fe.c_name, .None => return(codegen_fatal_expr(String.from("Closure implementation function not found in context"))));
+  if(is_dyn_type(&ei.ty), {
     return(codegen_fatal_expr(String.from("Dyn(Fn(...)) closure construction not yet ported")));
   });
   // Resolve the capture struct + its fields.
-  capture_ty := match(expr_info_capture_type(ei), .Some(ct) => ct, .None => TypeValue.Unit);
+  capture_ty := match(expr_info_capture_type(&ei), .Some(ct) => ct, .None => TypeValue.Unit);
   field_labels := match(capture_ty, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
-  call_type_id := type_key(ei.ty);
+  call_type_id := type_key(&ei.ty);
   if(field_labels.len() > usize(0), {
     // Impl closure WITH captures — stack-allocate the capture struct.
     struct_id := match(capture_ty, .Struct({ id : sid }) => sid, _ => String.from(""));
@@ -188,7 +188,7 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
     // key is now STRUCTURAL (sid + field keys) — bare-sid lookup only worked
     // while type_key collapsed such structs to their sid (the MapEntry visit-fn
     // collision). type_key is the registry's identity here.
-    capture_c_name := match(context.base.get_type_c_name(type_key(capture_ty)), .Some(n) => n, .None => return(codegen_fatal_expr(`Capture type not found for closure ${fid}: ${type_to_string(capture_ty.clone())} (type_key ${type_key(capture_ty)})`)));
+    capture_c_name := match(context.base.get_type_c_name(type_key(&capture_ty)), .Some(n) => n, .None => return(codegen_fatal_expr(`Capture type not found for closure ${fid}: ${type_to_string(capture_ty.clone())} (type_key ${type_key(&capture_ty)})`)));
     // Build `(captureCName){ .label = <value>, ... }`. An RC-typed capture
     // field uses the evaluator's deferred `___dup(name)` expr as its
     // initializer (matched by dup TARGET name), so the capture struct holds
@@ -211,14 +211,14 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
       // A capture list's field (decision 35): its initializer was evaluated
       // at the literal. A borrow entry stores the address of its place.
       match(
-        expr_info_capture_field_inits(ei),
+        expr_info_capture_field_inits(&ei),
         .Some(inits) => {
           (ci : usize) = usize(0);
           while((ci < inits.len()) && field_code.is_none(), {
             match(
               inits.get(ci),
               .Some(cfi) => if(cfi.label == label, {
-                init_code := _call_generate_expr(cfi.init, indent.clone(), context);
+                init_code := _call_generate_expr(&cfi.init, indent.clone(), context);
                 // A by-value RC entry's +1 rides the initializer's own
                 // deferred `___dup` (an atom entry's `___dup(<local>)` expr
                 // renders inline — it carries no deferred list). Route the
@@ -233,7 +233,7 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
                   if(
                     cfi.is_borrow,
                     `(&(${init_code}))`,
-                    _emit_deferred_dup_or_code(cfi.init, init_code, indent.clone(), context)
+                    _emit_deferred_dup_or_code(&cfi.init, &init_code, indent.clone(), context)
                   )
                 );
               }),
@@ -245,16 +245,16 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
         .None => ()
       );
       match(
-        expr_info_deferred_dup_expressions(ei),
+        expr_info_deferred_dup_expressions(&ei),
         .Some(dups) => {
           (di : usize) = usize(0);
           while((di < dups.len()) && field_code.is_none(), {
             match(
               dups.get(di),
               .Some(de) => match(
-                get_deferred_dup_target_atom_name(de),
+                get_deferred_dup_target_atom_name(&de),
                 .Some(tn) => if(tn == label, {
-                  field_code = Option(String).Some(_call_generate_expr(de, indent.clone(), context));
+                  field_code = Option(String).Some(_call_generate_expr(&de, indent.clone(), context));
                 }),
                 .None => ()
               ),
@@ -285,13 +285,13 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
             _resolve_sm_atom(expr, label.clone(), context),
             .Some(sm_name) => sm_name,
             .None => match(
-              _enclosing_closure_capture_read(ast_expr_id(expr), label.clone(), ei.env, context),
+              _enclosing_closure_capture_read(ast_expr_id(expr), label.clone(), &ei.env, context),
               .Some(cap_read) => cap_read,
               .None => {
                 // A C local of an enclosing state-machine body (phase 6) is
                 // read by its own name while its block is open.
                 local_c := sanitize_for_c_identifier(label.clone(), false);
-                if(match(context.in_async_state_machine, .Some(_) => (scope_stack_contains(context.base.declared_scopes.*, local_c.clone()) || context.base.declared_c_var_names.*.contains(local_c.clone())), .None => false), local_c, get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), Option(Environment).Some(ei.env)))
+                if(match(context.in_async_state_machine, .Some(_) => (scope_stack_contains(&context.base.declared_scopes.*, local_c.clone()) || context.base.declared_c_var_names.*.contains(local_c.clone())), .None => false), local_c, get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), Option(Environment).Some(ei.env)))
               }
             )
           )
@@ -306,7 +306,7 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
     // naming it is emitted.
     temp := match(
       ei.variable_name,
-      .Some(cvn) => get_variable_name_for_codegen_at(ast_expr_id(expr), cvn, Option(Environment).Some(ei.env)),
+      .Some(cvn) => get_variable_name_for_codegen_at(ast_expr_id(expr), &cvn, Option(Environment).Some(ei.env)),
       .None => {
         t := String.from("__capture_");
         t.push_string(fid.clone());
@@ -316,16 +316,16 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
         t
       }
     );
-    declare_c_var_name(context.base, temp.clone());
+    declare_c_var_name(&context.base, temp.clone());
     decl := indent.clone();
     decl.push_string(capture_c_name.clone());
     decl.push_str(" ");
     decl.push_string(temp.clone());
     decl.push_str(" = ");
-    decl.push_string(data);
+    decl.push_string(&data);
     decl.push_str(";");
     em := context.base.emitter;
-    em.emit_string_line(decl);
+    em.emit_string_line(&decl);
     // Rule 1: an owning temp with a task slot is dropped through the slot, so
     // the capture struct goes there too
     // (issues/fixed/a-closure-literal-argument-inside-an-io-async-body-never-releases-its-captures.md).
@@ -335,7 +335,7 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
         .Some(cvn2) => match(
           context.state_machine_variables,
           .Some(smv) => match(
-            sm_slot_of(ast_expr_id(expr), ei.env, cvn2, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot),
+            sm_slot_of(ast_expr_id(expr), &ei.env, &cvn2, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
             .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${temp.clone()};`),
             .None => ()
           ),
@@ -345,7 +345,7 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
       );
     });
     // Register the impl-closure-call mapping (key = concrete capture struct id).
-    key := match(resolve_some_type_to_concrete(capture_ty), .Struct({ id : kid }) => kid, _ => struct_id.clone());
+    key := match(resolve_some_type_to_concrete(&capture_ty), .Struct({ id : kid }) => kid, _ => struct_id.clone());
     cg_base := context.base;
     cg_base.impl_closure_call_map.insert(
       key,
@@ -361,8 +361,8 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
   }, {
     // Impl closure WITHOUT captures — empty capture struct value; still static
     // dispatch (register by the resolved concrete capture/SomeT id).
-    concrete := resolve_some_type_to_concrete(ei.ty);
-    concrete_id := match(concrete, .Struct({ id : kid }) => kid, .SomeT({ id : sid }) => sid, _ => type_key(ei.ty));
+    concrete := resolve_some_type_to_concrete(&ei.ty);
+    concrete_id := match(concrete, .Struct({ id : kid }) => kid, .SomeT({ id : sid }) => sid, _ => type_key(&ei.ty));
     // The compound literal's type must be the CAPTURE STRUCT — take it from
     // the closure's registered capture info (keyed by fid; always present,
     // an empty struct for capture-free closures). The ExprInfo ty here can be
@@ -370,11 +370,11 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
     // `(void){}` / `(void*){}` (incomplete-type C errors).
     concrete_c_name := match(
       get_closure_capture_info(fid.clone()),
-      .Some(nc_cci) => get_type_string(nc_cci.capture_type, context.base),
+      .Some(nc_cci) => get_type_string(&nc_cci.capture_type, &context.base),
       .None => match(
         context.base.get_type_c_name(concrete_id.clone()),
         .Some(n) => n,
-        .None => get_type_string(concrete, context.base)
+        .None => get_type_string(&concrete, &context.base)
       )
     );
     key := concrete_id;
@@ -390,7 +390,7 @@ generate_closure_construction :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
       )
     );
     out := String.from("(");
-    out.push_string(concrete_c_name);
+    out.push_string(&concrete_c_name);
     out.push_str("){}");
     out
   })
@@ -440,7 +440,7 @@ register_impl_closure_call_mappings :: (fn(imm(context) : FunctionGenerationCont
             get_closure_capture_info(fid.clone()),
             .Some(cci) => {
               key := match(
-                resolve_some_type_to_concrete(cci.capture_type),
+                resolve_some_type_to_concrete(&cci.capture_type),
                 .Struct({ id : sid }) => sid,
                 .SomeT({ id : sid }) => sid,
                 _ => String.from("")

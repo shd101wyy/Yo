@@ -2195,11 +2195,11 @@ to_lowercase_bytes :: (fn(imm(input) : ArrayList(u8)) -> ArrayList(u8))({
       i = (i + usize(1));
     }, {
       // Multi-byte UTF-8: decode codepoint through the shared decoder
-      (result : utf8.Decoded) = utf8.decode_lossy(bytes, i);
+      (result : utf8.Decoded) = utf8.decode_lossy(&bytes, i);
       (cp : i32) = i32(result.code.to_u32());
       (len : usize) = result.width;
-      if(!_special_to_lower(cp, out), {
-        _push_cp(to_lower_code_point(cp), out);
+      if(!_special_to_lower(cp, &mut out), {
+        _push_cp(to_lower_code_point(cp), &mut out);
       });
       i = (i + len);
     });
@@ -2226,11 +2226,11 @@ to_uppercase_bytes :: (fn(imm(input) : ArrayList(u8)) -> ArrayList(u8))({
       i = (i + usize(1));
     }, {
       // Multi-byte UTF-8: decode codepoint through the shared decoder
-      (result : utf8.Decoded) = utf8.decode_lossy(bytes, i);
+      (result : utf8.Decoded) = utf8.decode_lossy(&bytes, i);
       (cp : i32) = i32(result.code.to_u32());
       (len : usize) = result.width;
-      if(!_special_to_upper(cp, out), {
-        _push_cp(to_upper_code_point(cp), out);
+      if(!_special_to_upper(cp, &mut out), {
+        _push_cp(to_upper_code_point(cp), &mut out);
       });
       i = (i + len);
     });

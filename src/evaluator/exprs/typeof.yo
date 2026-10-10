@@ -60,17 +60,17 @@ evaluate_typeof :: (
     .Atom(_, _) => make_err_expr()
   );
   // Recursively evaluate the argument.
-  evaluated := evaluate_expression_raw(type_expr, env, ctx, exn);
+  evaluated := evaluate_expression_raw(&type_expr, env, ctx, exn);
   // Read its info from the side table.
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
     info_opt,
     .None => {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(type_expr),
-            `Expected type for expression, got:\n${ast_expr_to_string(type_expr)}`
+            ast_expr_token(&type_expr),
+            `Expected type for expression, got:\n${ast_expr_to_string(&type_expr)}`
           )
         )
       );
@@ -83,14 +83,14 @@ evaluate_typeof :: (
     .None => new_expr_info(env, t_i32())
   );
   // Use the (possibly updated) env from the evaluated arg.
-  next_env := expr_info_adopt_env(info);
+  next_env := expr_info_adopt_env(&info);
   arg_ty := info.ty;
   // Wrap the arg's type as a TypeVal compile-time value.
-  type_val := create_type_value(arg_ty);
-  meta_type := type_of_type(arg_ty);
-  out_info := new_expr_info(next_env, meta_type);
+  type_val := create_type_value(&arg_ty);
+  meta_type := type_of_type(&arg_ty);
+  out_info := new_expr_info(&next_env, &meta_type);
   out_info.value = .Some(type_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_typeof);

@@ -404,7 +404,7 @@ impl(
         self._emit(Instr.any_char_instr());
       },
       .CharClass => {
-        idx := self._add_class(node.ranges, node.negated);
+        idx := self._add_class(&node.ranges, node.negated);
         self._emit(Instr.char_class_instr(idx));
       },
       .Anchor =>
@@ -427,7 +427,7 @@ impl(
         i := usize(0);
         while(i < node.children.len(), i = (i + usize(1)), {
           child := node.children(i);
-          recur(self, child);
+          recur(self, &child);
         });
       },
       .Alternation => {
@@ -436,11 +436,11 @@ impl(
         split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
         left_start := self._current_pc();
         addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, usize(0));
-        recur(self, left);
+        recur(self, &left);
         jump_pc := self._emit(Instr.jump_instr(usize(0)));
         right_start := self._current_pc();
         addr_of(self._program.instructions(split_pc)).* = Instr.split_instr(left_start, right_start);
-        recur(self, right);
+        recur(self, &right);
         end_pc := self._current_pc();
         addr_of(self._program.instructions(jump_pc)).* = Instr.jump_instr(end_pc);
       },
@@ -454,7 +454,7 @@ impl(
         qi := usize(0);
         while(qi < min_val, qi = (qi + usize(1)), {
           last_body_start = self._current_pc();
-          recur(self, child);
+          recur(self, &child);
         });
         cond(
           ((max_val == usize(0)) && (min_val == usize(0))) => {
@@ -462,7 +462,7 @@ impl(
             l1 := self._current_pc();
             split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
             l2 := self._current_pc();
-            recur(self, child);
+            recur(self, &child);
             self._emit(Instr.jump_instr(l1));
             l3 := self._current_pc();
             cond(
@@ -494,7 +494,7 @@ impl(
             while(qj < remaining, qj = (qj + usize(1)), {
               split_pc := self._emit(Instr.split_instr(usize(0), usize(0)));
               body_start := self._current_pc();
-              recur(self, child);
+              recur(self, &child);
               after := self._current_pc();
               cond(
                 greedy => {
@@ -513,12 +513,12 @@ impl(
         start_slot := (node.group_index * usize(2));
         end_slot := ((node.group_index * usize(2)) + usize(1));
         self._emit(Instr.save_instr(start_slot));
-        recur(self, child);
+        recur(self, &child);
         self._emit(Instr.save_instr(end_slot));
       },
       .NonCapturingGroup => {
         child := node.children(usize(0));
-        recur(self, child);
+        recur(self, &child);
       },
       .Backreference => {
         self._emit(Instr.backref_instr(node.group_index));
@@ -529,7 +529,7 @@ impl(
         // Emit lookahead instruction with placeholder sub_end
         la_pc := self._emit(Instr.lookahead_instr(usize(0), usize(0), positive));
         sub_start := self._current_pc();
-        recur(self, child);
+        recur(self, &child);
         self._emit(Instr.match_instr());
         sub_end := self._current_pc();
         addr_of(self._program.instructions(la_pc)).* = Instr.lookahead_instr(sub_start, sub_end, positive);
@@ -539,7 +539,7 @@ impl(
         positive := !node.negated;
         lb_pc := self._emit(Instr.lookbehind_instr(usize(0), usize(0), positive));
         sub_start := self._current_pc();
-        recur(self, child);
+        recur(self, &child);
         self._emit(Instr.match_instr());
         sub_end := self._current_pc();
         addr_of(self._program.instructions(lb_pc)).* = Instr.lookbehind_instr(sub_start, sub_end, positive);

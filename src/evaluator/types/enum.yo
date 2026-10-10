@@ -145,7 +145,7 @@ _type_value_cycle_step :: (
           (j : usize) = usize(0);
           while((j < vfs.len()) && !hit, {
             ft := match(vfs.get(j), .Some(x) => x, .None => TypeValue.Unit);
-            if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
+            if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
               hit = true;
             });
             j = (j + usize(1));
@@ -168,7 +168,7 @@ _type_value_cycle_step :: (
         (i : usize) = usize(0);
         while((i < s_fts.len()) && !hit, {
           ft := match(s_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
-          if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
+          if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
             hit = true;
           });
           i = (i + usize(1));
@@ -181,7 +181,7 @@ _type_value_cycle_step :: (
       (i : usize) = usize(0);
       while((i < t_fts.len()) && !hit, {
         ft := match(t_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
-        if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
+        if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
         i = (i + usize(1));
@@ -193,14 +193,14 @@ _type_value_cycle_step :: (
       (i : usize) = usize(0);
       while((i < u_fts.len()) && !hit, {
         ft := match(u_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
-        if(_type_reaches_root_by_value(ft, root.clone(), shell.clone(), visited), {
+        if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
         i = (i + usize(1));
       });
       hit
     },
-    .Array(element, _, _) => _type_reaches_root_by_value(element, root.clone(), shell.clone(), visited),
+    .Array(element, _, _) => _type_reaches_root_by_value(&element, root.clone(), shell.clone(), visited),
     _ => false
   )
 );
@@ -214,7 +214,7 @@ _evaluate_discriminant :: (
   ) -> i64
 )({
   evaluated_disc := evaluate_expression_raw(discriminant_expr, env_in, ctx, exn);
-  disc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_disc));
+  disc_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_disc));
   disc_info := match(
     disc_info_opt,
     .Some(i) => i,
@@ -246,7 +246,7 @@ _evaluate_discriminant :: (
     .Some(v) => match(v, .IntLit(_) => true, _ => false),
     .None => false
   );
-  if(!is_int_lit_val && !is_comptime_int_type(disc_info.ty), {
+  if(!is_int_lit_val && !is_comptime_int_type(&disc_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
@@ -272,7 +272,7 @@ _evaluate_discriminant :: (
     .None => String.from("0")
   );
   match(
-    parse_raw_int(raw),
+    parse_raw_int(&raw),
     .Some(n) => n,
     .None => {
       exn.throw(
@@ -324,8 +324,8 @@ evaluate_enum_type :: (
   decl_tok := ast_expr_token(expr);
   enum_id := if(
     ctx.ctfe_depth == usize(0),
-    stable_position_id(String.from("enum_decl_"), decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column)),
-    stable_type_id(String.from("enum_"), decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column))
+    stable_position_id(String.from("enum_decl_"), &decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column)),
+    stable_type_id(String.from("enum_"), &decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column))
   );
   // Member visibility: record which module declares this type (guards.yo).
   register_type_decl_module(enum_id.clone(), decl_tok.module_path.clone());
@@ -375,22 +375,22 @@ evaluate_enum_type :: (
     // expression in `gadt_ret`, and rewrite `enum_arg` to the bare variant so
     // the normal variant-building `cond` below runs unchanged.
     // -------------------------------------------------------------------
-    is_gadt_arrow := ast_expr_is_fn_call_of(enum_arg, "->", Option(usize).Some(usize(2)));
-    is_gadt_eq_arrow := if(ast_expr_is_fn_call_of(enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
-      eq_args := _fn_call_args(enum_arg);
+    is_gadt_arrow := ast_expr_is_fn_call_of(&enum_arg, "->", Option(usize).Some(usize(2)));
+    is_gadt_eq_arrow := if(ast_expr_is_fn_call_of(&enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
+      eq_args := _fn_call_args(&enum_arg);
       lhs_eq := match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-      ast_expr_is_fn_call_of(lhs_eq, "->", Option(usize).Some(usize(2)))
+      ast_expr_is_fn_call_of(&lhs_eq, "->", Option(usize).Some(usize(2)))
     }, false);
     (gadt_ret : Option(AstExpr)) = Option(AstExpr).None;
     if(is_gadt_arrow, {
-      arrow_args := _fn_call_args(enum_arg);
+      arrow_args := _fn_call_args(&enum_arg);
       gadt_ret = Option(AstExpr).Some(match(arrow_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
       enum_arg = match(arrow_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     }, {
       if(is_gadt_eq_arrow, {
-        eq_args := _fn_call_args(enum_arg);
+        eq_args := _fn_call_args(&enum_arg);
         arrow_e := match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-        arrow_args := _fn_call_args(arrow_e);
+        arrow_args := _fn_call_args(&arrow_e);
         gadt_ret = Option(AstExpr).Some(match(arrow_args.get(usize(1)), .Some(a) => a, .None => make_err_expr()));
         arrow_lhs := match(arrow_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
         eq_disc := match(eq_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
@@ -410,38 +410,38 @@ evaluate_enum_type :: (
     // -------------------------------------------------------------------
     // Atom variant with discriminant: `VariantName = value`
     // -------------------------------------------------------------------
-    is_atom_eq := if(ast_expr_is_fn_call(enum_arg) && ast_expr_is_fn_call_of(enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
-      eq_args := _fn_call_args(enum_arg);
+    is_atom_eq := if(ast_expr_is_fn_call(&enum_arg) && ast_expr_is_fn_call_of(&enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
+      eq_args := _fn_call_args(&enum_arg);
       lhs_eq := match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-      ast_expr_is_atom(lhs_eq)
+      ast_expr_is_atom(&lhs_eq)
     }, false);
     cond(
       is_atom_eq => {
-        eq_args := _fn_call_args(enum_arg);
+        eq_args := _fn_call_args(&enum_arg);
         variant_name_expr := match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
         discriminant_expr := match(eq_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-        if(!is_valid_variable_name(variant_name_expr), {
+        if(!is_valid_variable_name(&variant_name_expr), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(variant_name_expr),
-                `Expected identifier for enum variant, got:\n${ast_expr_to_string(variant_name_expr)}`
+                ast_expr_token(&variant_name_expr),
+                `Expected identifier for enum variant, got:\n${ast_expr_to_string(&variant_name_expr)}`
               )
             )
           );
         });
-        variant_name := ast_expr_token(variant_name_expr).value;
-        if(_has_variant(variant_names, variant_name.clone()), {
+        variant_name := ast_expr_token(&variant_name_expr).value;
+        if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(variant_name_expr),
+                ast_expr_token(&variant_name_expr),
                 `Duplicate variant name "${variant_name}" in enum`
               )
             )
           );
         });
-        disc := _evaluate_discriminant(discriminant_expr, env, ctx, exn);
+        disc := _evaluate_discriminant(&discriminant_expr, &env, ctx, exn);
         variant_names.push(variant_name.clone());
         variant_fields.push(ArrayList(TypeValue).new());
         variant_field_labels.push(ArrayList(String).new());
@@ -452,16 +452,16 @@ evaluate_enum_type :: (
       // `::` or `?=` — comptime-field syntax not allowed in enum.
       // ---------------------------------------------------------------
       (
-        ast_expr_is_fn_call(enum_arg) &&
+        ast_expr_is_fn_call(&enum_arg) &&
           (
-            ast_expr_is_fn_call_of(enum_arg, BK_CONST, Option(usize).Some(usize(2))) ||
-              ast_expr_is_fn_call_of(enum_arg, "?=", Option(usize).Some(usize(2)))
+            ast_expr_is_fn_call_of(&enum_arg, BK_CONST, Option(usize).Some(usize(2))) ||
+              ast_expr_is_fn_call_of(&enum_arg, "?=", Option(usize).Some(usize(2)))
           )
       ) => {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(enum_arg),
+              ast_expr_token(&enum_arg),
               String.from("Please use \"impl\" block to define members/methods for enum types.")
             )
           )
@@ -470,23 +470,23 @@ evaluate_enum_type :: (
       // ---------------------------------------------------------------
       // Plain atom variant (auto-assigned discriminant).
       // ---------------------------------------------------------------
-      ast_expr_is_atom(enum_arg) => {
-        variant_name := ast_expr_token(enum_arg).value;
-        if(!is_valid_variable_name(enum_arg), {
+      ast_expr_is_atom(&enum_arg) => {
+        variant_name := ast_expr_token(&enum_arg).value;
+        if(!is_valid_variable_name(&enum_arg), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(enum_arg),
-                `Expected identifier for enum variant, got:\n${ast_expr_to_string(enum_arg)}`
+                ast_expr_token(&enum_arg),
+                `Expected identifier for enum variant, got:\n${ast_expr_to_string(&enum_arg)}`
               )
             )
           );
         });
-        if(_has_variant(variant_names, variant_name.clone()), {
+        if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(enum_arg),
+                ast_expr_token(&enum_arg),
                 `Duplicate variant name "${variant_name}" in enum`
               )
             )
@@ -504,52 +504,52 @@ evaluate_enum_type :: (
       true => {
         (variant_expr : AstExpr) = enum_arg;
         (custom_disc : Option(i64)) = Option(i64).None;
-        if(ast_expr_is_fn_call_of(enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
-          eq_args := _fn_call_args(enum_arg);
+        if(ast_expr_is_fn_call_of(&enum_arg, BK_ASSIGN, Option(usize).Some(usize(2))), {
+          eq_args := _fn_call_args(&enum_arg);
           variant_expr = match(eq_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
           discriminant_expr := match(eq_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-          d := _evaluate_discriminant(discriminant_expr, env, ctx, exn);
+          d := _evaluate_discriminant(&discriminant_expr, &env, ctx, exn);
           custom_disc = Option(i64).Some(d);
         });
-        if(ast_expr_is_fn_call_of(variant_expr, ":", Option(usize).None), {
+        if(ast_expr_is_fn_call_of(&variant_expr, ":", Option(usize).None), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(variant_expr),
+                ast_expr_token(&variant_expr),
                 String.from("Enum variant with : is not implemented yet")
               )
             )
           );
         });
-        if(!ast_expr_is_fn_call(variant_expr) ||
-          !is_valid_variable_name(_fn_call_func(variant_expr)), {
+        if(!ast_expr_is_fn_call(&variant_expr) ||
+          !is_valid_variable_name(_fn_call_func(&variant_expr)), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(variant_expr),
-                `Expected identifier for enum variant, got:\n${ast_expr_to_string(variant_expr)}`
+                ast_expr_token(&variant_expr),
+                `Expected identifier for enum variant, got:\n${ast_expr_to_string(&variant_expr)}`
               )
             )
           );
         });
-        variant_name := ast_expr_token(_fn_call_func(variant_expr)).value;
-        if(_has_variant(variant_names, variant_name.clone()), {
+        variant_name := ast_expr_token(_fn_call_func(&variant_expr)).value;
+        if(_has_variant(&variant_names, variant_name.clone()), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(_fn_call_func(variant_expr)),
+                ast_expr_token(_fn_call_func(&variant_expr)),
                 `Duplicate variant name "${variant_name}" in enum`
               )
             )
           );
         });
-        v_args := _fn_call_args(variant_expr);
+        v_args := _fn_call_args(&variant_expr);
         v_field_types := ArrayList(TypeValue).new();
         v_field_labels := ArrayList(String).new();
         (j : usize) = usize(0);
         while(j < v_args.len(), {
           field_arg := match(v_args.get(j), .Some(a) => a, .None => make_err_expr());
-          result := evaluate_type_field(field_arg, j, env, ctx, "enum", exn);
+          result := evaluate_type_field(&field_arg, j, &env, ctx, "enum", exn);
           field := result.field;
           // Check for duplicate labels in this variant.
           (dup_idx : usize) = usize(0);
@@ -562,16 +562,16 @@ evaluate_enum_type :: (
             dup_idx = (dup_idx + usize(1));
           });
           if(has_dup, {
-            arg_args := _fn_call_args(field_arg);
+            arg_args := _fn_call_args(&field_arg);
             err_tok := if(
-              ast_expr_is_fn_call(field_arg),
-              match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(fe), .None => ast_expr_token(field_arg)),
-              ast_expr_token(field_arg)
+              ast_expr_is_fn_call(&field_arg),
+              match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&field_arg)),
+              ast_expr_token(&field_arg)
             );
             exn.throw(
               dyn(
                 format_error_message(
-                  err_tok,
+                  &err_tok,
                   `Duplicate field label "${field.label}" in enum variant`
                 )
               )
@@ -581,7 +581,7 @@ evaluate_enum_type :: (
             exn.throw(
               dyn(
                 format_error_message(
-                  ast_expr_token(field_arg),
+                  ast_expr_token(&field_arg),
                   String.from("Enum variant field cannot have compile-time assigned value.")
                 )
               )
@@ -589,8 +589,8 @@ evaluate_enum_type :: (
           });
           // A reference enum outlives any one frame: no `ctl` handler in its
           // payload (the reference-struct rule, types/struct.yo).
-          if((force_reference_semantics || is_atomic_rc) && type_is_control_bound(field.ty), {
-            exn.throw(dyn(format_error_message(ast_expr_token(field_arg), control_bound_field_message(field.label, field.ty))));
+          if((force_reference_semantics || is_atomic_rc) && type_is_control_bound(&field.ty), {
+            exn.throw(dyn(format_error_message(ast_expr_token(&field_arg), control_bound_field_message(&field.label, &field.ty))));
           });
           v_field_types.push(field.ty);
           v_field_labels.push(field.label.clone());
@@ -615,30 +615,30 @@ evaluate_enum_type :: (
     match(
       gadt_ret,
       .Some(gre) => {
-        if(!ast_expr_is_fn_call_of(gre, BF_RECUR, Option(usize).None), {
+        if(!ast_expr_is_fn_call_of(&gre, BF_RECUR, Option(usize).None), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(gre),
-                `Expected recur(...) for GADT return type, got:\n${ast_expr_to_string(gre)}`
+                ast_expr_token(&gre),
+                `Expected recur(...) for GADT return type, got:\n${ast_expr_to_string(&gre)}`
               )
             )
           );
         });
-        recur_args := _fn_call_args(gre);
+        recur_args := _fn_call_args(&gre);
         this_variant_args := ArrayList(TypeValue).new();
         (gi : usize) = usize(0);
         while(gi < recur_args.len(), {
           ra := match(recur_args.get(gi), .Some(a) => a, .None => make_err_expr());
-          evaluated_ra := evaluate_expression_raw(ra, env, ctx, exn);
-          ra_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ra));
-          ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(env, TypeValue.Unit));
-          if(!is_type_value(ra_info.value), {
+          evaluated_ra := evaluate_expression_raw(&ra, &env, ctx, exn);
+          ra_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ra));
+          ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(&env, TypeValue.Unit));
+          if(!is_type_value(&ra_info.value), {
             exn.throw(
               dyn(
                 format_error_message(
-                  ast_expr_token(ra),
-                  `Expected type for GADT return type argument, got ${ast_expr_to_string(ra)}`
+                  ast_expr_token(&ra),
+                  `Expected type for GADT return type argument, got ${ast_expr_to_string(&ra)}`
                 )
               )
             );
@@ -664,7 +664,7 @@ evaluate_enum_type :: (
   // enum id as a GADT). typeConstructorArgs
   // is populated by the caller/match path.
   if(any_gadt, {
-    register_gadt_enum(enum_id.clone(), all_variant_gadt_args);
+    register_gadt_enum(enum_id.clone(), &all_variant_gadt_args);
     // typeConstructorArgs: when a GADT enum is built
     // inside its type-constructor fn body (`Value(i32)` → `enum(...)`),
     // record the concrete type args the constructor was called with —
@@ -687,8 +687,8 @@ evaluate_enum_type :: (
                 p_lbl := match(fc_plabels.get(tci), .Some(l) => l, .None => String.from(""));
                 p_ty := match(fc_ptypes.get(tci), .Some(t) => t, .None => TypeValue.Unit);
                 // Comptime type param ≈ declared type is the `Type` universe.
-                if(is_type_0(p_ty), {
-                  vars := get_variables_from_env(env, p_lbl);
+                if(is_type_0(&p_ty), {
+                  vars := get_variables_from_env(&env, &p_lbl);
                   if(vars.len() > usize(0), {
                     match(
                       vars.last(),
@@ -712,7 +712,7 @@ evaluate_enum_type :: (
               while(cti < fc_ptypes.len(), {
                 match(
                   fc_ptypes.get(cti),
-                  .Some(pt) => if(is_type_0(pt), {
+                  .Some(pt) => if(is_type_0(&pt), {
                     n_comptime = (n_comptime + usize(1));
                   }),
                   .None => ()
@@ -720,7 +720,7 @@ evaluate_enum_type :: (
                 cti = (cti + usize(1));
               });
               if((tca.len() > usize(0)) && (tca.len() == n_comptime), {
-                register_gadt_type_constructor_args(enum_id.clone(), tca);
+                register_gadt_type_constructor_args(enum_id.clone(), &tca);
               });
             },
             _ => ()
@@ -749,7 +749,7 @@ evaluate_enum_type :: (
       while(fi2 < vfs.len(), {
         ft := match(vfs.get(fi2), .Some(x) => x, .None => TypeValue.Unit);
         visited := ArrayList(String).new();
-        if(_type_reaches_root_by_value(ft, enum_id.clone(), shell_id.clone(), visited), {
+        if(_type_reaches_root_by_value(&ft, enum_id.clone(), shell_id.clone(), &mut visited), {
           exn.throw(
             dyn(
               format_error_message(
@@ -795,7 +795,7 @@ evaluate_enum_type :: (
     (pf_j : usize) = usize(0);
     while(pf_j < vf_list.len(), {
       ft := match(vf_list.get(pf_j), .Some(t) => t, .None => t_unit());
-      new_list.push(_patch_self_shell(ft, shell_id.clone(), pre_final_ty));
+      new_list.push(_patch_self_shell(&ft, shell_id.clone(), &pre_final_ty));
       pf_j = (pf_j + usize(1));
     });
     patched_fields.push(new_list);
@@ -815,16 +815,16 @@ evaluate_enum_type :: (
   );
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.
-  register_enum_final(shell_id.clone(), enum_ty);
+  register_enum_final(shell_id.clone(), &enum_ty);
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime) from the
   // FINAL type: a reference enum's Acyclic needs it for the RC-cycle walk.
   auto_derive_traits_for_enum_type(
     enum_id.clone(),
-    variant_fields,
+    &variant_fields,
     force_reference_semantics,
     is_atomic_rc,
-    env,
-    enum_ty
+    &env,
+    &enum_ty
   );
   // Validate the enum can exist in at least ONE evaluation context — a
   // variant with comptime-only fields alongside one with runtime-only
@@ -856,25 +856,25 @@ evaluate_enum_type :: (
       );
       va_i = (va_i + usize(1));
     });
-    if(fields_have_incompatible_contexts(va_all_fields), {
+    if(fields_have_incompatible_contexts(&va_all_fields), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(expr),
-            `Type ${type_to_string(enum_ty)} has incompatible field contexts and cannot be used in any evaluation context.`
+            `Type ${type_to_string(&enum_ty)} has incompatible field contexts and cannot be used in any evaluation context.`
           )
         )
       );
     });
   };
-  enum_val := create_type_value(enum_ty);
-  meta_ty := type_of_type(enum_ty);
-  out_info := new_expr_info(env, meta_ty);
+  enum_val := create_type_value(&enum_ty);
+  meta_ty := type_of_type(&enum_ty);
+  out_info := new_expr_info(&env, &meta_ty);
   out_info.value = Option(EvalValue).Some(enum_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Annotate callee (expr.func) with the same info.
   callee_expr := _fn_call_func(expr);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
   expr
 });
 export(evaluate_enum_type, _type_reaches_root_by_value);

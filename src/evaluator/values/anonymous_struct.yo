@@ -60,12 +60,12 @@ evaluate_anonymous_struct_value :: (
     expr,
     .FnCall(_, fb, _, _, _) => fb,
     .Atom(_, _) => {
-      exn.throw(dyn(format_error_message(tok, String.from("evaluate_anonymous_struct_value: expected FnCall"))));
+      exn.throw(dyn(format_error_message(&tok, String.from("evaluate_anonymous_struct_value: expected FnCall"))));
       make_err_expr()
     }
   );
   is_underscore := (
-    ast_expr_is_atom(func_expr) && match(
+    ast_expr_is_atom(&func_expr) && match(
       func_expr,
       .Atom(_, ftok) => (ftok.value == BK_ANON_STRUCT),
       .FnCall(_, _, _, _, _) => false
@@ -75,8 +75,8 @@ evaluate_anonymous_struct_value :: (
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(func_expr),
-          `Expected "_" for anonymous struct, got: ${ast_expr_to_string(func_expr)}`
+          ast_expr_token(&func_expr),
+          `Expected "_" for anonymous struct, got: ${ast_expr_to_string(&func_expr)}`
         )
       )
     );
@@ -87,7 +87,7 @@ evaluate_anonymous_struct_value :: (
   // anonymous-struct instantiations must never share, see struct.yo's twin),
   // but the names no longer follow the global counter.
   as_tok := ast_expr_token(expr);
-  struct_id := stable_type_id(String.from("struct_"), as_tok.module_path, usize(as_tok.row), usize(as_tok.column));
+  struct_id := stable_type_id(String.from("struct_"), &as_tok.module_path, usize(as_tok.row), usize(as_tok.column));
   // Member visibility: an anonymous struct literal is declared where it is written.
   register_type_decl_module(struct_id.clone(), as_tok.module_path.clone());
   // Preliminary struct type (empty fields) for SelfType during field evaluation.
@@ -115,21 +115,21 @@ evaluate_anonymous_struct_value :: (
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     // `imm(y)` / `mut(z)` (or `imm(y) : &p`) is a capture-list borrow entry
     // (decision 35): it means something only before a closure's parameters.
-    entry_label := if(ast_expr_is_fn_call_of(arg, ":", Option(usize).Some(usize(2))), match(arg, .FnCall(_, _, ea, _, _) => match(ea.get(usize(0)), .Some(l) => l, .None => arg), .Atom(_, _) => arg), arg);
-    if(ast_expr_is_capture_mode_entry(arg) || ast_expr_is_capture_mode_entry(entry_label), {
+    entry_label := if(ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))), match(arg, .FnCall(_, _, ea, _, _) => match(ea.get(usize(0)), .Some(l) => l, .None => arg), .Atom(_, _) => arg), arg);
+    if(ast_expr_is_capture_mode_entry(&arg) || ast_expr_is_capture_mode_entry(&entry_label), {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg),
-            `\`${ast_expr_to_string(arg)}\` is a borrow entry of a closure's capture list, which is written before the closure's parameters: \`{ imm(y) }(x : i32) => ...\`. A record literal's field is \`name : value\`.`
+            ast_expr_token(&arg),
+            `\`${ast_expr_to_string(&arg)}\` is a borrow entry of a closure's capture list, which is written before the closure's parameters: \`{ imm(y) }(x : i32) => ...\`. A record literal's field is \`name : value\`.`
           )
         )
       );
     });
     // Check if arg is a labeled pair `field: val` (infix `:` with 2 args)
     is_labeled := (
-      ast_expr_is_fn_call(arg) &&
-        ast_expr_is_fn_call_of(arg, ":", Option(usize).Some(usize(2))) &&
+      ast_expr_is_fn_call(&arg) &&
+        ast_expr_is_fn_call_of(&arg, ":", Option(usize).Some(usize(2))) &&
           match(arg, .FnCall(_, _, _, finfix, _) => finfix, .Atom(_, _) => false)
     );
     (label_opt : Option(String)) = Option(String).None;
@@ -140,12 +140,12 @@ evaluate_anonymous_struct_value :: (
       lae := match(fa.get(usize(0)), .Some(a2) => a2, .None => make_err_expr());
       label_arg_expr = lae;
       value_expr = match(fa.get(usize(1)), .Some(a2) => a2, .None => make_err_expr());
-      if(!is_valid_variable_name(lae), {
+      if(!is_valid_variable_name(&lae), {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(lae),
-              `Expected identifier for anonymous struct field label, got: ${ast_expr_to_string(lae)}`
+              ast_expr_token(&lae),
+              `Expected identifier for anonymous struct field label, got: ${ast_expr_to_string(&lae)}`
             )
           )
         );
@@ -157,28 +157,28 @@ evaluate_anonymous_struct_value :: (
     old_self := ctx.self_type;
     ctx.self_type = Option(TypeValue).Some(prelim_ty);
     evaluated_arg_gout := ArrayList(AstExpr).new();
-    evaluated_arg_gerr := evaluate_expression_guarded(value_expr, cur_env, ctx, evaluated_arg_gout);
+    evaluated_arg_gerr := evaluate_expression_guarded(&value_expr, &cur_env, ctx, &mut evaluated_arg_gout);
     ctx.self_type = old_self;
-    match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
+    match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(&evaluated_arg_ge), .None => ());
     evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
-    set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn, "field-store");
+    set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "field-store");
     // Extract info from expr_info_table
     arg_info := match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg)),
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg)),
       .Some(ei) => ei,
       .None => {
         exn.throw(
           dyn(
             format_eval_failure(
-              ast_expr_token(value_expr),
+              ast_expr_token(&value_expr),
               String.from("Failed to evaluate anonymous struct field expression")
             )
           )
         );
-        new_expr_info(cur_env, TypeValue.Unit)
+        new_expr_info(&cur_env, TypeValue.Unit)
       }
     );
-    cur_env = expr_info_adopt_env(arg_info);
+    cur_env = expr_info_adopt_env(&arg_info);
     field_ty := arg_info.ty;
     field_val_opt := arg_info.value;
     // Determine label (use provided or generate)
@@ -186,8 +186,8 @@ evaluate_anonymous_struct_value :: (
       label_opt,
       .Some(l) => l,
       .None => {
-        vf_tok := ast_expr_token(value_expr);
-        stable_type_id(String.from("__field_"), vf_tok.module_path, usize(vf_tok.row), usize(vf_tok.column))
+        vf_tok := ast_expr_token(&value_expr);
+        stable_type_id(String.from("__field_"), &vf_tok.module_path, usize(vf_tok.row), usize(vf_tok.column))
       }
     );
     field_labels.push(label.clone());
@@ -206,7 +206,7 @@ evaluate_anonymous_struct_value :: (
     all_type_fields.push(yofield);
     // Annotate label expr if labeled
     if(is_labeled, {
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(label_arg_expr), arg_info);
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&label_arg_expr), &arg_info);
     });
     i = (i + usize(1));
   });
@@ -225,7 +225,7 @@ evaluate_anonymous_struct_value :: (
     false
   );
   // Register struct fields in global registry
-  register_struct_fields(struct_id.clone(), all_type_fields);
+  register_struct_fields(struct_id.clone(), &all_type_fields);
   // Build struct value if all fields are comptime-known
   all_comptime := {
     (ac : bool) = true;
@@ -273,16 +273,16 @@ evaluate_anonymous_struct_value :: (
     true => Option(EvalValue).None
   );
   // Annotate func (the "_" atom): type = meta-type of struct, value = TypeVal(struct)
-  struct_type_val := create_type_value(struct_ty);
-  meta_ty := type_of_type(struct_ty);
-  func_info := new_expr_info(cur_env, meta_ty);
+  struct_type_val := create_type_value(&struct_ty);
+  meta_ty := type_of_type(&struct_ty);
+  func_info := new_expr_info(&cur_env, &meta_ty);
   func_info.value = Option(EvalValue).Some(struct_type_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(func_expr), func_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&func_expr), &func_info);
   // Add struct type to env as a comptime variable named by struct_id
   add_variable_to_env(
-    cur_env,
+    &cur_env,
     struct_id.clone(),
-    meta_ty,
+    &meta_ty,
     Option(EvalValue).Some(struct_type_val),
     true,
     // is_compile_time_only
@@ -292,13 +292,13 @@ evaluate_anonymous_struct_value :: (
     // is_owning_the_rc_value
     false,
     // is_implicit
-    tok
+    &tok
   );
   // Annotate expr: type = struct_ty (instance type), value = struct_val_opt
-  out_info := new_expr_info(cur_env, struct_ty);
+  out_info := new_expr_info(&cur_env, &struct_ty);
   out_info.value = struct_val_opt;
   out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach temp variable (no-op stub in Phase 2bk)
   attach_temp_variable_to_expr(expr, true, ctx);
   expr

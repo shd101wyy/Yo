@@ -54,7 +54,7 @@ emit_fixed_allocator_impl :: (fn(imm(context) : CodeGenContext) -> unit)({
   alloc_fail_linkage := if(context.is_library, "static ", "");
   // WASM keeps the direct-call main, so the reporter is called there in
   // person; hosted targets register it with atexit at allocator init.
-  atexit_reporter := (debug_heap && !is_target_wasm(context.target_info));
+  atexit_reporter := (debug_heap && !is_target_wasm(&context.target_info));
   atexit_line :=
     if(
       atexit_reporter,

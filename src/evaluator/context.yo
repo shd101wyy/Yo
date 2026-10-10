@@ -66,7 +66,7 @@ note_unlabeled_ensures_atom :: (fn(id : ExprId) -> unit)({
 /// Whether `id` belongs to an `ensures(...)` predicate of an unlabeled-return
 /// function (the label-the-return hint applies).
 is_unlabeled_ensures_atom :: (fn(id : ExprId) -> bool)(
-  g_unlabeled_ensures_atom_ids.contains(id)
+  g_unlabeled_ensures_atom_ids.contains(&id)
 );
 // ---------------------------------------------------------------------------
 // LoadModuleFn result
@@ -756,7 +756,7 @@ track_variable_usage_resolved :: (
           frame_opt,
           .Some(frame) => {
             match(
-              _frame_first_position(frame, variable_name),
+              _frame_first_position(&frame, variable_name),
               .At(pos) => match(
                 frame.variables.get(pos),
                 .Some(v) => {
@@ -820,7 +820,7 @@ track_variable_usage_resolved :: (
           // measured: the inline-anon and io.async shapes both break, the
           // module-level named fn works). Cross-module globals never reach
           // here — they resolve through `mod.name` property access.
-          if(is_module_level_global(eval_env.module_path, variable_name.clone()), {
+          if(is_module_level_global(&eval_env.module_path, variable_name.clone()), {
             return(());
           });
           // Don't track compile-time-only variables — judged by the
@@ -954,7 +954,7 @@ get_module_begin_expr_index :: (fn() -> usize)(g_module_begin_expr_index);
 /// trial, the very limitation §4.6 exists to diagnose.)
 lhs_binds_name :: (fn(imm(lhs) : AstExpr, imm(name) : String) -> bool)({
   (cur : AstExpr) = lhs;
-  while(ast_expr_is_fn_call_of(cur, BK_COMPTIME, .Some(usize(1))) || ast_expr_is_fn_call_of(cur, BK_COLON, .Some(usize(2))), {
+  while(ast_expr_is_fn_call_of(&cur, BK_COMPTIME, .Some(usize(1))) || ast_expr_is_fn_call_of(&cur, BK_COLON, .Some(usize(2))), {
     cur = match(
       cur,
       .FnCall(_, _, cargs, _, _) => match(
@@ -966,8 +966,8 @@ lhs_binds_name :: (fn(imm(lhs) : AstExpr, imm(name) : String) -> bool)({
     );
   });
   cond(
-    ast_expr_is_atom(cur) => (ast_expr_token(cur).value == name),
-    true => (ast_expr_to_string(cur) == name)
+    ast_expr_is_atom(&cur) => (ast_expr_token(&cur).value == name),
+    true => (ast_expr_to_string(&cur) == name)
   )
 });
 /// Does this module-level expression bind `name`? (`X :: rhs` / `X : rhs` /
@@ -980,7 +980,7 @@ module_expr_binds_name :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
         e,
         .FnCall(_, _, iargs, _, _) => match(
           iargs.get(usize(0)),
-          .Some(first) => (ast_expr_to_string(first) == name),
+          .Some(first) => (ast_expr_to_string(&first) == name),
           .None => false
         ),
         .Atom(_, _) => false
@@ -991,7 +991,7 @@ module_expr_binds_name :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
         e,
         .FnCall(_, _, args, _, _) => match(
           args.get(usize(0)),
-          .Some(lhs) => lhs_binds_name(lhs, name),
+          .Some(lhs) => lhs_binds_name(&lhs, name),
           .None => false
         ),
         .Atom(_, _) => false
@@ -1002,7 +1002,7 @@ module_expr_binds_name :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
         e,
         .FnCall(_, _, cargs, _, _) => match(
           cargs.get(usize(0)),
-          .Some(lhs) => lhs_binds_name(lhs, name),
+          .Some(lhs) => lhs_binds_name(&lhs, name),
           .None => false
         ),
         .Atom(_, _) => false
@@ -1018,7 +1018,7 @@ module_expr_binds_name :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
 forward_ref_diagnostic :: (fn(imm(msg) : String) -> Option(String))({
   marker := String.from("Variable \"");
   match(
-    msg.index_of(marker),
+    msg.index_of(&marker),
     .None => Option(String).None,
     .Some(ms) => {
       after := (ms + marker.len());
@@ -1038,8 +1038,8 @@ forward_ref_diagnostic :: (fn(imm(msg) : String) -> Option(String))({
                 match(
                   exprs.get(j),
                   .Some(e) => {
-                    if(module_expr_binds_name(e, name), {
-                      found_row = Option(usize).Some(usize(ast_expr_token(e).row));
+                    if(module_expr_binds_name(&e, &name), {
+                      found_row = Option(usize).Some(usize(ast_expr_token(&e).row));
                     });
                   },
                   .None => ()
@@ -1098,7 +1098,7 @@ hard_swallow_diagnostic :: (fn(imm(msg) : String) -> Option(String))(
           // strip one to avoid "Error: Error:" / "error[E0401]: error[E0401]:".
           err_prefix := String.from("Error: ");
           cond(
-            msg.starts_with(err_prefix) => Option(String).Some(msg.substring(err_prefix.len(), msg.len())),
+            msg.starts_with(&err_prefix) => Option(String).Some(msg.substring(err_prefix.len(), msg.len())),
             msg.starts_with(String.from("error[")) => match(
               msg.index_of(String.from("]: ")),
               .Some(k) => Option(String).Some(msg.substring(k + usize(3), msg.len())),
@@ -1273,14 +1273,14 @@ is_module_ghost_fn_def :: (fn(imm(path) : String, imm(name) : String) -> bool)({
       g_module_walks.get(wi),
       .Some(w) => if(canonical_module_path(w.module_path.clone()) == canon, {
         match(
-          _find_def_by_name(w.defs, name.clone(), false),
+          _find_def_by_name(&w.defs, name.clone(), false),
           .Some(d) => {
             return(
               match(
                 d.expr,
                 .FnCall(_, _, dargs, _, _) => match(
                   dargs.get(usize(1)),
-                  .Some(rhs) => ast_expr_is_fn_call_of(rhs, BF_GHOST_FN, Option(usize).None),
+                  .Some(rhs) => ast_expr_is_fn_call_of(&rhs, BF_GHOST_FN, Option(usize).None),
                   .None => false
                 ),
                 .Atom(_, _) => false
@@ -1395,7 +1395,7 @@ def_key :: (fn(imm(module_path) : String, index : usize, imm(name) : String) -> 
 );
 /// The key of `def` in `walk`.
 walk_def_key :: (fn(imm(walk) : ModuleWalk, imm(def) : PendingDef) -> String)(
-  def_key(walk.module_path, def.index, def.name)
+  def_key(&walk.module_path, def.index, &def.name)
 );
 /// Record that the definition currently being evaluated (the forcing-stack
 /// top) depends on `dependee`. A no-op when nothing is being forced (an
@@ -1410,9 +1410,9 @@ record_def_dependency :: (fn(imm(dependee) : String) -> unit)({
         .Some(d) => d,
         .None => return(())
       );
-      dk := def_key(ast_expr_token(top.expr).module_path, top.index, top.name);
+      dk := def_key(ast_expr_token(&top.expr).module_path, top.index, &top.name);
       deps := match(
-        g_def_deps.get(dk),
+        g_def_deps.get(&dk),
         .Some(existing) => existing,
         .None => HashSet(String).new()
       );
@@ -1452,12 +1452,12 @@ record_module_ordered_read :: (fn(imm(importer) : String, imm(target_module) : S
 record_module_member_read :: (fn(imm(importer) : String, imm(target_module) : String, imm(field) : String) -> unit)({
   target_def := match(
     g_finished_walks.get(target_module),
-    .Some(fwalk) => _find_def_by_name(fwalk.defs, field, false),
+    .Some(fwalk) => _find_def_by_name(&fwalk.defs, field, false),
     .None => Option(PendingDef).None
   );
   match(
     target_def,
-    .Some(d) => record_def_dependency(def_key(target_module, d.index, d.name)),
+    .Some(d) => record_def_dependency(def_key(target_module, d.index, &d.name)),
     .None => ()
   );
   match(
@@ -1549,7 +1549,7 @@ reset_pending_def :: (fn(imm(walk) : ModuleWalk, imm(def) : PendingDef) -> unit)
   // The side-table index assumes frames only append — a shrink must drop the
   // frame's entry or lookups read stale positions (env.yo
   // `invalidate_frame_index`).
-  invalidate_frame_index(f);
+  invalidate_frame_index(&f);
   def.state = PendingDefState.Unforced;
   def.failure = Option(String).None;
   def.phase_a_value = Option(EvalValue).None;
@@ -1612,7 +1612,7 @@ graft_pending_def :: (fn(imm(walk) : ModuleWalk, imm(def) : PendingDef, imm(fres
   def.row = fresh.row;
   def.src_hash = fresh.src_hash;
   walk.begin_exprs(def.index) = fresh.expr;
-  _ := g_def_hash.insert(def_key(walk.module_path, def.index, def.name), fresh.src_hash);
+  _ := g_def_hash.insert(def_key(&walk.module_path, def.index, &def.name), fresh.src_hash);
   ()
 });
 /// Every def key that transitively DEPENDS on a seed (reverse edges over
@@ -1830,7 +1830,7 @@ impl_receiver_head_name :: (fn(imm(recv) : AstExpr) -> String)(
         recv,
         .FnCall(_, _, dargs, _, _) => match(
           dargs.get(usize(1)),
-          .Some(member) => cond(ast_expr_is_atom(member) => ast_expr_token(member).value.clone(), true => String.new()),
+          .Some(member) => cond(ast_expr_is_atom(&member) => ast_expr_token(&member).value.clone(), true => String.new()),
           .None => String.new()
         ),
         .Atom(_, _) => String.new()
@@ -1839,7 +1839,7 @@ impl_receiver_head_name :: (fn(imm(recv) : AstExpr) -> String)(
       match(
         recv,
         .FnCall(_, callee, _, _, _) => cond(
-          (ast_expr_is_atom(callee) && !(ast_expr_is_atom_and_operator(callee))) => ast_expr_token(callee).value.clone(),
+          (ast_expr_is_atom(&callee) && !(ast_expr_is_atom_and_operator(&callee))) => ast_expr_token(&callee).value.clone(),
           true => String.new()
         ),
         .Atom(_, _) => String.new()
@@ -1891,7 +1891,7 @@ _impl_expr_declares_move_only :: (fn(imm(e) : AstExpr) -> bool)(
           iargs.get(i),
           .Some(arg) => match(
             arg,
-            .FnCall(_, callee, _, _, _) => if(ast_expr_is_atom(callee) && (ast_expr_token(callee).value == "Dispose"), {
+            .FnCall(_, callee, _, _, _) => if(ast_expr_is_atom(&callee) && (ast_expr_token(&callee).value == "Dispose"), {
               return(true);
             }),
             .Atom(_, _) => ()
@@ -1930,10 +1930,10 @@ force_pending_move_only_impls :: (fn(imm(type_name) : String) -> bool)({
           match(
             walk.defs.get(di),
             .Some(def) => {
-              is_target := (((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && _impl_expr_declares_move_only(def.expr));
+              is_target := (((def.is_impl && match(def.state, .Unforced => true, _ => false)) && ((def.name == type_name) || (def.name.len() == usize(0)))) && _impl_expr_declares_move_only(&def.expr));
               if(is_target, {
                 match(
-                  force_pending_def(walk, def),
+                  force_pending_def(&walk, &def),
                   .Some(_) => (),
                   .None => {
                     forced = true;
@@ -1986,13 +1986,13 @@ _extern_member_names :: (fn(imm(e) : AstExpr) -> ArrayList(String))({
       while(i < xargs.len(), {
         match(
           xargs.get(i),
-          .Some(arg) => if(ast_expr_is_fn_call_of(arg, BK_COLON, .Some(usize(2))), {
+          .Some(arg) => if(ast_expr_is_fn_call_of(&arg, BK_COLON, .Some(usize(2))), {
             match(
               arg,
               .FnCall(_, _, pair, _, _) => match(
                 pair.get(usize(0)),
-                .Some(label) => if(ast_expr_is_atom(label), {
-                  names.push(ast_expr_token(label).value.clone());
+                .Some(label) => if(ast_expr_is_atom(&label), {
+                  names.push(ast_expr_token(&label).value.clone());
                 }),
                 .None => ()
               ),
@@ -2019,10 +2019,10 @@ _is_extern_decl_destructure :: (fn(imm(e) : AstExpr) -> bool)(
       .FnCall(_, _, dargs, _, _) => match(
         dargs.get(usize(0)),
         .Some(lhs) => (
-          ast_expr_is_fn_call_of(lhs, BK_ANON_STRUCT, .None) &&
+          ast_expr_is_fn_call_of(&lhs, BK_ANON_STRUCT, .None) &&
             match(
               dargs.get(usize(1)),
-              .Some(rhs) => (ast_expr_is_fn_call_of(rhs, BK_EXTERN, .None) || ast_expr_is_fn_call_of(rhs, BK_C_INCLUDE, .None)),
+              .Some(rhs) => (ast_expr_is_fn_call_of(&rhs, BK_EXTERN, .None) || ast_expr_is_fn_call_of(&rhs, BK_C_INCLUDE, .None)),
               .None => false
             )
         ),
@@ -2045,30 +2045,30 @@ _extern_decl_bound_names :: (fn(imm(e) : AstExpr) -> ArrayList(String))({
     match(
       fields.get(i),
       .Some(f) => cond(
-        (ast_expr_is_atom(f) && (ast_expr_token(f).value == "...")) => {
-          all := _extern_member_names(rhs);
+        (ast_expr_is_atom(&f) && (ast_expr_token(&f).value == "...")) => {
+          all := _extern_member_names(&rhs);
           (j : usize) = usize(0);
           while(j < all.len(), {
             names.push(all(j).clone());
             j = (j + usize(1));
           });
         },
-        ast_expr_is_atom(f) => names.push(ast_expr_token(f).value.clone()),
-        ast_expr_is_fn_call_of(f, BK_COLON, .Some(usize(2))) => match(
+        ast_expr_is_atom(&f) => names.push(ast_expr_token(&f).value.clone()),
+        ast_expr_is_fn_call_of(&f, BK_COLON, .Some(usize(2))) => match(
           f,
           .FnCall(_, _, pair, _, _) => {
             a0 := match(pair.get(usize(0)), .Some(x) => x, .None => f);
             a1 := match(pair.get(usize(1)), .Some(x) => x, .None => f);
             cond(
-              (ast_expr_is_atom(a0) && (ast_expr_token(a0).value == "...")) => {
-                all := _extern_member_names(rhs);
+              (ast_expr_is_atom(&a0) && (ast_expr_token(&a0).value == "...")) => {
+                all := _extern_member_names(&rhs);
                 (j : usize) = usize(0);
                 while(j < all.len(), {
                   names.push(all(j).clone());
                   j = (j + usize(1));
                 });
               },
-              ast_expr_is_atom(a1) => names.push(ast_expr_token(a1).value.clone()),
+              ast_expr_is_atom(&a1) => names.push(ast_expr_token(&a1).value.clone()),
               true => ()
             );
           },
@@ -2132,12 +2132,12 @@ classify_pending_def :: (fn(imm(e) : AstExpr, index : usize) -> Option(PendingDe
       .FnCall(_, _, cargs, _, _) => {
         lhs := match(cargs.get(usize(0)), .Some(l) => l, .None => e);
         rhs := match(cargs.get(usize(1)), .Some(r) => r, .None => e);
-        lhs_name := ast_expr_token(lhs).value.clone();
+        lhs_name := ast_expr_token(&lhs).value.clone();
         cond(
-          !(ast_expr_is_atom(lhs)) => Option(PendingDef).None,
+          !(ast_expr_is_atom(&lhs)) => Option(PendingDef).None,
           (lhs_name == "_") => Option(PendingDef).None,
-          ast_expr_is_fn_call_of(rhs, BK_IMPORT, .None) => Option(PendingDef).None,
-          true => _make_pending_def(lhs_name, e, index, false)
+          ast_expr_is_fn_call_of(&rhs, BK_IMPORT, .None) => Option(PendingDef).None,
+          true => _make_pending_def(&lhs_name, e, index, false)
         )
       },
       .Atom(_, _) => Option(PendingDef).None
@@ -2148,7 +2148,7 @@ classify_pending_def :: (fn(imm(e) : AstExpr, index : usize) -> Option(PendingDe
         // `impl({ ... })` is a module value, not a registration.
         a0_is_block := match(
           iargs.get(usize(0)),
-          .Some(a0) => ast_expr_is_fn_call_of(a0, BK_BEGIN, .None),
+          .Some(a0) => ast_expr_is_fn_call_of(&a0, BK_BEGIN, .None),
           .None => true
         );
         cond(
@@ -2159,10 +2159,10 @@ classify_pending_def :: (fn(imm(e) : AstExpr, index : usize) -> Option(PendingDe
             // second; Case 3 (`impl(Receiver, ...)`) first.
             a0 := match(iargs.get(usize(0)), .Some(a) => a, .None => e);
             recv := cond(
-              ast_expr_is_fn_call_of(a0, BK_GENERIC, .None) => match(iargs.get(usize(1)), .Some(a) => a, .None => e),
+              ast_expr_is_fn_call_of(&a0, BK_GENERIC, .None) => match(iargs.get(usize(1)), .Some(a) => a, .None => e),
               true => a0
             );
-            _make_pending_def(impl_receiver_head_name(recv), e, index, true)
+            _make_pending_def(impl_receiver_head_name(&recv), e, index, true)
           }
         )
       },
@@ -2198,7 +2198,7 @@ _statement_start :: (fn(imm(e) : AstExpr) -> Tuple(usize, usize))({
     .FnCall(_, _, sargs, _, _) => match(
       sargs.get(usize(0)),
       .Some(a0) => {
-        at := ast_expr_token(a0);
+        at := ast_expr_token(&a0);
         if((at.module_path == ht.module_path) && ((usize(at.row) < row) || ((usize(at.row) == row) && (usize(at.column) < column))), {
           row = usize(at.row);
           column = usize(at.column);
@@ -2217,7 +2217,7 @@ _statement_start :: (fn(imm(e) : AstExpr) -> Tuple(usize, usize))({
 register_module_anchors :: (fn(imm(begin_exprs) : ArrayList(AstExpr)) -> unit)({
   module_path := match(
     begin_exprs.get(usize(0)),
-    .Some(first) => ast_expr_token(first).module_path.clone(),
+    .Some(first) => ast_expr_token(&first).module_path.clone(),
     .None => {
       return(());
     }
@@ -2232,8 +2232,8 @@ register_module_anchors :: (fn(imm(begin_exprs) : ArrayList(AstExpr)) -> unit)({
       begin_exprs.get(i),
       .Some(e) => {
         named := match(
-          classify_pending_def(e, i),
-          .Some(def) => if(def.name.len() > usize(0), Option(String).Some(if(def.is_impl, `impl_${_anchor_label_chars(def.name)}`, _anchor_label_chars(def.name))), Option(String).None),
+          classify_pending_def(&e, i),
+          .Some(def) => if(def.name.len() > usize(0), Option(String).Some(if(def.is_impl, `impl_${_anchor_label_chars(&def.name)}`, _anchor_label_chars(&def.name))), Option(String).None),
           .None => Option(String).None
         );
         raw := match(
@@ -2253,12 +2253,12 @@ register_module_anchors :: (fn(imm(begin_exprs) : ArrayList(AstExpr)) -> unit)({
         // labels stay unique.
         (label : String) = raw.clone();
         (dup : usize) = usize(1);
-        while(used.get(label).is_some(), {
+        while(used.get(&label).is_some(), {
           dup = (dup + usize(1));
           label = `${raw}_d${dup.to_string()}`;
         });
         used.insert(label.clone(), true);
-        (srow, scol) := _statement_start(e);
+        (srow, scol) := _statement_start(&e);
         // Kept ordered by position for `_anchored_position`'s binary search:
         // statements arrive in source order, so this is a no-op in practice.
         (at : usize) = anchors.len();
@@ -2271,7 +2271,7 @@ register_module_anchors :: (fn(imm(begin_exprs) : ArrayList(AstExpr)) -> unit)({
     );
     i = (i + usize(1));
   });
-  register_top_level_anchors(module_path, anchors);
+  register_top_level_anchors(&module_path, &anchors);
 });
 /// The dot expressions being evaluated right now as the CALLEE of a call
 /// (`p.m` in `p.m(x)`), by AST id. `evaluate_function_call` marks its callee
@@ -2302,7 +2302,7 @@ begin_module_walk :: (
 )({
   module_path := match(
     begin_exprs.get(usize(0)),
-    .Some(first) => ast_expr_token(first).module_path.clone(),
+    .Some(first) => ast_expr_token(&first).module_path.clone(),
     .None => env.module_path.clone()
   );
   g_finished_walks.remove(module_path.clone());
@@ -2314,7 +2314,7 @@ begin_module_walk :: (
     match(
       begin_exprs.get(i),
       .Some(e) => match(
-        classify_pending_def(e, i),
+        classify_pending_def(&e, i),
         .Some(def) => {
           defs.push(def);
           by_index.insert(i, def);
@@ -2356,22 +2356,22 @@ begin_module_walk :: (
     while(si < begin_exprs.len(), {
       match(
         begin_exprs.get(si),
-        .Some(se) => if(walk.by_index.get(si).is_none(), {
-          stmt_hash_state.push_string(ast_expr_to_string(se));
+        .Some(se) => if(walk.by_index.get(&si).is_none(), {
+          stmt_hash_state.push_string(ast_expr_to_string(&se));
           stmt_hash_state.push_str("\n");
         }),
         .None => ()
       );
       si = (si + usize(1));
     });
-    _ := g_module_stmt_hash.insert(module_path, fnv1a64(stmt_hash_state));
+    _ := g_module_stmt_hash.insert(module_path, fnv1a64(&stmt_hash_state));
   });
   (hi : usize) = usize(0);
   while(hi < defs.len(), {
     match(
       defs.get(hi),
       .Some(d) => {
-        _ := g_def_hash.insert(def_key(module_path, d.index, d.name), d.src_hash);
+        _ := g_def_hash.insert(def_key(&module_path, d.index, &d.name), d.src_hash);
       },
       .None => ()
     );
@@ -2393,7 +2393,7 @@ end_module_walk :: (fn(imm(walk) : ModuleWalk) -> unit)({
   ()
 });
 walk_pending_def_at :: (fn(imm(walk) : ModuleWalk, index : usize) -> Option(PendingDef))(
-  walk.by_index.get(index)
+  walk.by_index.get(&index)
 );
 /// True when `def` declares `name`: its own name, or one of an extern
 /// block's members.
@@ -2412,7 +2412,7 @@ _find_def_by_name :: (fn(imm(defs) : ArrayList(PendingDef), imm(name) : String, 
   while((i < defs.len()) && found.is_none(), {
     match(
       defs.get(i),
-      .Some(d) => if((d.is_impl == is_impl) && _def_declares(d, name.clone()), {
+      .Some(d) => if((d.is_impl == is_impl) && _def_declares(&d, name.clone()), {
         found = Option(PendingDef).Some(d);
       }),
       .None => ()
@@ -2483,7 +2483,7 @@ cyclic_definition_message :: (fn(imm(def) : PendingDef) -> String)({
           started = true;
         });
         if(started, {
-          out.push_string(_def_display(d));
+          out.push_string(_def_display(&d));
           out.push_str(" → ");
         });
       },
@@ -2512,12 +2512,12 @@ publish_pending_phase_a :: (fn(rhs_id : usize, imm(value) : EvalValue, imm(ty) :
         .FnCall(_, _, cargs, _, _) => match(
           cargs.get(usize(1)),
           .Some(r) => cond(
-            ast_expr_is_fn_call_of(r, BF_GHOST_FN, Option(usize).Some(usize(1))) => match(
+            ast_expr_is_fn_call_of(&r, BF_GHOST_FN, Option(usize).Some(usize(1))) => match(
               r,
-              .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)), .Some(gl) => ast_expr_id(gl), .None => usize(0)),
+              .FnCall(_, _, gargs, _, _) => match(gargs.get(usize(0)), .Some(gl) => ast_expr_id(&gl), .None => usize(0)),
               .Atom(_, _) => usize(0)
             ),
-            true => ast_expr_id(r)
+            true => ast_expr_id(&r)
           ),
           .None => usize(0)
         ),
@@ -2543,7 +2543,7 @@ publish_pending_phase_a :: (fn(rhs_id : usize, imm(value) : EvalValue, imm(ty) :
 publish_pending_member_phase_a :: (fn(rhs_id : usize, imm(value) : EvalValue, imm(ty) : TypeValue) -> unit)(
   match(
     current_forcing_def(),
-    .Some(def) => if(ast_expr_is_fn_call_of(def.expr, BK_COLON, .Some(usize(2))), {
+    .Some(def) => if(ast_expr_is_fn_call_of(&def.expr, BK_COLON, .Some(usize(2))), {
       publish_pending_phase_a(rhs_id, value, ty);
     }),
     .None => ()
@@ -2561,7 +2561,7 @@ _def_lhs_token_is :: (fn(imm(def) : PendingDef, imm(tok) : Token) -> bool)(
     .FnCall(_, _, cargs, _, _) => match(
       cargs.get(usize(0)),
       .Some(lhs) => {
-        lt := ast_expr_token(lhs);
+        lt := ast_expr_token(&lhs);
         ((lt.row == tok.row) && (lt.column == tok.column) && (lt.module_path == tok.module_path))
       },
       .None => false
@@ -2573,7 +2573,7 @@ pending_prebound_variable :: (fn(imm(name) : String, imm(lhs_tok) : Token) -> Op
   match(
     current_forcing_def(),
     .Some(def) => cond(
-      (((!(def.is_impl) && (def.name == name)) && match(def.state, .Forcing => true, _ => false) && _def_lhs_token_is(def, lhs_tok))) => def.variable,
+      (((!(def.is_impl) && (def.name == name)) && match(def.state, .Forcing => true, _ => false) && _def_lhs_token_is(&def, lhs_tok))) => def.variable,
       true => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -2584,7 +2584,7 @@ pending_prebound_variable :: (fn(imm(name) : String, imm(lhs_tok) : Token) -> Op
 record_pending_def_variable :: (fn(imm(name) : String, imm(lhs_tok) : Token, imm(var) : Variable) -> unit)(
   match(
     current_forcing_def(),
-    .Some(def) => if(((!(def.is_impl) && (def.name == name)) && def.variable.is_none() && _def_lhs_token_is(def, lhs_tok)), {
+    .Some(def) => if(((!(def.is_impl) && (def.name == name)) && def.variable.is_none() && _def_lhs_token_is(&def, lhs_tok)), {
       def.variable = Option(Variable).Some(var);
     }),
     .None => ()
@@ -2650,7 +2650,7 @@ module_frame_variable :: (fn(imm(walk) : ModuleWalk, imm(name) : String) -> Opti
   match(
     fenv.frames.last(),
     .Some(frame) => {
-      vars := get_variables_from_frame(frame, name);
+      vars := get_variables_from_frame(&frame, name);
       cond(
         (vars.len() > usize(0)) => vars.last(),
         true => Option(Variable).None
@@ -2694,7 +2694,7 @@ force_pending_def :: (fn(imm(walk) : ModuleWalk, imm(def) : PendingDef) -> Optio
   // Phase 3 (§6): the definition currently being evaluated (the forcing
   // stack top) NEEDS this one — record the dependency edge. In-order roots
   // (empty stack) record nothing.
-  record_def_dependency(def_key(walk.module_path, def.index, def.name));
+  record_def_dependency(def_key(&walk.module_path, def.index, &def.name));
   push_forcing_def(def);
   result := match(
     g_force_pending_def_fn,
@@ -2732,7 +2732,7 @@ revalidate_walk_defs :: (fn(imm(walk) : ModuleWalk, imm(defs) : ArrayList(Pendin
       defs.get(i),
       .Some(def) => if(match(def.state, .Unforced => true, _ => false), {
         match(
-          force_pending_def(walk, def),
+          force_pending_def(walk, &def),
           .Some(msg) => failures.push(msg),
           .None => ()
         );
@@ -2783,7 +2783,7 @@ adopt_resolved_definition :: (fn(imm(env) : Environment, imm(var) : Variable, mo
     env.frames.get(idx),
     .Some(frame) => {
       (present : bool) = false;
-      existing := get_variables_from_frame(frame, var.name.clone());
+      existing := get_variables_from_frame(&frame, var.name.clone());
       (ei : usize) = usize(0);
       while((ei < existing.len()) && !(present), {
         match(
@@ -2810,24 +2810,24 @@ resolve_pending_definition :: (fn(imm(name) : String, imm(module_path) : String)
   match(
     _active_walk_for(module_path.clone()),
     .Some(walk) => match(
-      _find_def_by_name(walk.defs, name.clone(), false),
+      _find_def_by_name(&walk.defs, name.clone(), false),
       .None => PendingResolution.NotPending,
       .Some(def) => match(
         def.state,
         .Done => match(
-          _def_variable_for(walk, def, name.clone()),
+          _def_variable_for(&walk, &def, name.clone()),
           .Some(v) => {
             // Phase 3 (§6): a served Done definition is a dependency of
             // whoever asked — the miss only fires once, so the edge is
             // recorded HERE, not at the forcing.
-            record_def_dependency(def_key(walk.module_path, def.index, def.name));
+            record_def_dependency(def_key(&walk.module_path, def.index, &def.name));
             PendingResolution.Resolved(v, walk.module_frame_id)
           },
           .None => PendingResolution.NotPending
         ),
         .Failed => PendingResolution.Error(match(def.failure, .Some(m) => m.clone(), .None => String.from("definition failed"))),
         .Forcing => match(
-          _def_variable_for(walk, def, name.clone()),
+          _def_variable_for(&walk, &def, name.clone()),
           .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
           .None => match(
             def.phase_a_value,
@@ -2837,11 +2837,11 @@ resolve_pending_definition :: (fn(imm(name) : String, imm(module_path) : String)
               fty := match(def.phase_a_type, .Some(t) => t, .None => t_unit());
               lhs_tok := match(
                 def.expr,
-                .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(l) => ast_expr_token(l), .None => ast_expr_token(def.expr)),
-                .Atom(_, _) => ast_expr_token(def.expr)
+                .FnCall(_, _, cargs, _, _) => match(cargs.get(usize(0)), .Some(l) => ast_expr_token(&l), .None => ast_expr_token(&def.expr)),
+                .Atom(_, _) => ast_expr_token(&def.expr)
               );
               match(
-                add_variable_to_env(module_walk_force_env(walk), def.name.clone(), fty, Option(EvalValue).Some(fv), true, false, false, false, lhs_tok),
+                add_variable_to_env(module_walk_force_env(&walk), def.name.clone(), &fty, Option(EvalValue).Some(fv), true, false, false, false, &lhs_tok),
                 .Some(v) => {
                   def.variable = Option(Variable).Some(v);
                   PendingResolution.Resolved(v, walk.module_frame_id)
@@ -2849,14 +2849,14 @@ resolve_pending_definition :: (fn(imm(name) : String, imm(module_path) : String)
                 .None => PendingResolution.Error(String.from("internal error: module frame missing while pre-binding a definition"))
               )
             },
-            .None => PendingResolution.Error(cyclic_definition_message(def))
+            .None => PendingResolution.Error(cyclic_definition_message(&def))
           )
         ),
         .Unforced => match(
-          force_pending_def(walk, def),
+          force_pending_def(&walk, &def),
           .Some(msg) => PendingResolution.Error(msg),
           .None => match(
-            _def_variable_for(walk, def, name.clone()),
+            _def_variable_for(&walk, &def, name.clone()),
             .Some(v) => PendingResolution.Resolved(v, walk.module_frame_id),
             .None => PendingResolution.Error(`definition "${name}" did not bind a variable`)
           )
@@ -2866,12 +2866,12 @@ resolve_pending_definition :: (fn(imm(name) : String, imm(module_path) : String)
     .None => match(
       g_finished_walks.get(module_path),
       .Some(fwalk) => match(
-        _find_def_by_name(fwalk.defs, name.clone(), false),
+        _find_def_by_name(&fwalk.defs, name.clone(), false),
         .Some(def) => match(
-          _def_variable_for(fwalk, def, name.clone()),
+          _def_variable_for(&fwalk, &def, name.clone()),
           .Some(v) => {
             // Phase 3 (§6): cross-module serve — same edge recording.
-            record_def_dependency(def_key(fwalk.module_path, def.index, def.name));
+            record_def_dependency(def_key(&fwalk.module_path, def.index, &def.name));
             PendingResolution.Resolved(v, fwalk.module_frame_id)
           },
           .None => PendingResolution.NotPending
@@ -2899,8 +2899,8 @@ _impl_expr_declares :: (fn(imm(expr) : AstExpr, imm(label) : String) -> bool)(
           .Some(a) => match(
             a,
             .FnCall(_, _, inner, _, _) => cond(
-              ast_expr_is_fn_call_of(a, BK_COLON, Option(usize).Some(usize(2))) => {
-                found = match(inner.get(usize(0)), .Some(l) => (ast_expr_token(l).value == label), .None => false);
+              ast_expr_is_fn_call_of(&a, BK_COLON, Option(usize).Some(usize(2))) => {
+                found = match(inner.get(usize(0)), .Some(l) => (ast_expr_token(&l).value == label), .None => false);
               },
               true => {
                 (j : usize) = usize(0);
@@ -2909,8 +2909,8 @@ _impl_expr_declares :: (fn(imm(expr) : AstExpr, imm(label) : String) -> bool)(
                     inner.get(j),
                     .Some(m) => match(
                       m,
-                      .FnCall(_, _, pair, _, _) => if(ast_expr_is_fn_call_of(m, BK_COLON, Option(usize).Some(usize(2))), {
-                        found = match(pair.get(usize(0)), .Some(l) => (ast_expr_token(l).value == label), .None => false);
+                      .FnCall(_, _, pair, _, _) => if(ast_expr_is_fn_call_of(&m, BK_COLON, Option(usize).Some(usize(2))), {
+                        found = match(pair.get(usize(0)), .Some(l) => (ast_expr_token(&l).value == label), .None => false);
                       }),
                       .Atom(_, _) => ()
                     ),
@@ -2970,7 +2970,7 @@ force_pending_impls_for_type_name :: (fn(imm(type_name) : String, imm(missed) : 
     match(
       g_forcing_stack.get(fi),
       .Some(fd) => if(fd.is_impl && (fd.name == type_name), {
-        if(match(missed, .Some(m) => _impl_expr_declares(fd.expr, m), .None => true), {
+        if(match(missed, .Some(m) => _impl_expr_declares(&fd.expr, &m), .None => true), {
           return(PendingImplOutcome.NoneForced);
         });
         in_own_impl = true;
@@ -3020,16 +3020,16 @@ _force_pending_impls_pass :: (fn(imm(type_name) : String, imm(declaring) : Optio
     wi = (wi - usize(1));
     match(
       g_module_walks.get(wi),
-      .Some(walk) => if(((wi + usize(1)) == innermost) || _find_def_by_name(walk.defs, type_name.clone(), false).is_some(), {
+      .Some(walk) => if(((wi + usize(1)) == innermost) || _find_def_by_name(&walk.defs, type_name.clone(), false).is_some(), {
         (di : usize) = usize(0);
         while((di < walk.defs.len()) && err.is_none(), {
           match(
             walk.defs.get(di),
             .Some(def) => {
-              is_target := (def.is_impl && match(def.state, .Unforced => true, _ => false) && ((def.name == type_name) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(def.expr, m), .None => true));
+              is_target := (def.is_impl && match(def.state, .Unforced => true, _ => false) && ((def.name == type_name) || (def.name.len() == usize(0))) && match(declaring, .Some(m) => _impl_expr_declares(&def.expr, &m), .None => true));
               if(is_target, {
                 match(
-                  force_pending_def(walk, def),
+                  force_pending_def(&walk, &def),
                   .Some(msg) => {
                     err = Option(String).Some(msg);
                   },
@@ -3065,15 +3065,15 @@ type_head_name_for_impl_forcing :: (fn(imm(ty) : TypeValue) -> String)({
     ty,
     .Struct({ id : sid, name : sn }) => cond(
       (sn.len() > usize(0)) => sn.clone(),
-      true => match(type_binding_name(sid), .Some(b) => b, .None => String.new())
+      true => match(type_binding_name(&sid), .Some(b) => b, .None => String.new())
     ),
     .EnumT(eid, en, _, _, _, _, _, _, _, _) => cond(
       (en.len() > usize(0)) => en.clone(),
-      true => match(type_binding_name(eid), .Some(b) => b, .None => String.new())
+      true => match(type_binding_name(&eid), .Some(b) => b, .None => String.new())
     ),
     .Union(un, _, _) => un.clone(),
     .TraitT(tn, _, _, _, _, _, _, _, _, _) => tn.clone(),
-    .Pointer(pointee) => recur(pointee),
+    .Pointer(pointee) => recur(&pointee),
     _ => String.new()
   );
   match(
@@ -3339,7 +3339,7 @@ create_function_body_evaluation_context :: (
   return_type := match(
     function_type,
     .Func({ result : ret_box, meta : __fm1 }) => cond(
-      __fm1.*.result_is_ref => t_ptr(ret_box),
+      __fm1.*.result_is_ref => t_ptr(&ret_box),
       true => ret_box
     ),
     _ => t_unit()

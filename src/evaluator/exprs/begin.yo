@@ -174,7 +174,7 @@ _dup_call_target_name :: (fn(imm(e) : AstExpr) -> Option(String))(
   match(
     e,
     .FnCall(_, f, eargs, _, _) => {
-      if((eargs.len() == usize(0)) && ast_expr_is_fn_call_of(f, ".", Option(usize).Some(usize(2))), {
+      if((eargs.len() == usize(0)) && ast_expr_is_fn_call_of(&f, ".", Option(usize).Some(usize(2))), {
         match(
           f,
           .FnCall(_, _, fargs, _, _) => {
@@ -188,8 +188,8 @@ _dup_call_target_name :: (fn(imm(e) : AstExpr) -> Option(String))(
               .Some(x) => x,
               .None => return(Option(String).None)
             );
-            if(ast_expr_is_atom(a0) && ast_expr_is_atom(a1) && ast_expr_is_atom_of(a1, BF_DUP), {
-              return(Option(String).Some(ast_expr_token(a0).value));
+            if(ast_expr_is_atom(&a0) && ast_expr_is_atom(&a1) && ast_expr_is_atom_of(&a1, BF_DUP), {
+              return(Option(String).Some(ast_expr_token(&a0).value));
             });
           },
           .Atom(_, _) => ()
@@ -198,8 +198,8 @@ _dup_call_target_name :: (fn(imm(e) : AstExpr) -> Option(String))(
       if(ast_expr_is_fn_call_of(e, BF_DUP, Option(usize).Some(usize(1))), {
         match(
           eargs.get(usize(0)),
-          .Some(arg0) => if(ast_expr_is_atom(arg0), {
-            return(Option(String).Some(ast_expr_token(arg0).value));
+          .Some(arg0) => if(ast_expr_is_atom(&arg0), {
+            return(Option(String).Some(ast_expr_token(&arg0).value));
           }),
           .None => ()
         );
@@ -219,7 +219,7 @@ _push_dup_call :: (fn(imm(res) : DupCallsResult, imm(var_id) : String, imm(e) : 
       while((i < found_lst.len()) && !found, {
         match(
           found_lst.get(i),
-          .Some(x) => if(ast_expr_id(x) == ast_expr_id(e), {
+          .Some(x) => if(ast_expr_id(&x) == ast_expr_id(e), {
             found = true;
           }),
           .None => ()
@@ -260,7 +260,7 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
   if(ast_expr_is_fn_call(expr) && is_io_async_call(expr), {
     return(());
   });
-  ei_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  ei_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr));
   // Skip a CLOSURE DEFINITION's captures for the same reason, and this is the
   // general case the io.async guard above is one instance of. A closure
   // definition's `deferred_dup_expressions` are its capture-struct FIELD
@@ -282,8 +282,8 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
   match(
     ei_opt,
     .Some(ei_cl) => if(
-      match(expr_info_is_anonymous_function_definition(ei_cl), .Some(b) => b, .None => false)
-      && expr_info_deferred_dup_expressions(ei_cl).is_some(),
+      match(expr_info_is_anonymous_function_definition(&ei_cl), .Some(b) => b, .None => false)
+      && expr_info_deferred_dup_expressions(&ei_cl).is_some(),
       return(()),
       ()
     ),
@@ -294,13 +294,13 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
     ei_opt,
     .Some(ei) => {
       match(
-        expr_info_deferred_dup_expressions(ei),
+        expr_info_deferred_dup_expressions(&ei),
         .Some(dl) => {
           (ddi : usize) = usize(0);
           while(ddi < dl.len(), {
             match(
               dl.get(ddi),
-              .Some(d) => recur(d, res, ctx),
+              .Some(d) => recur(&d, res, ctx),
               .None => ()
             );
             ddi = (ddi + usize(1));
@@ -320,9 +320,9 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
   match(
     ei_opt,
     .Some(ei_mx) => match(
-      expr_info_macro_expansion(ei_mx),
+      expr_info_macro_expansion(&ei_mx),
       .Some(mx) => {
-        recur(mx, res, ctx);
+        recur(&mx, res, ctx);
         return(());
       },
       .None => ()
@@ -341,7 +341,7 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
       match(
         ei_opt,
         .Some(ei2) => {
-          dvars := get_variables_from_env(ei2.env, vn);
+          dvars := get_variables_from_env(&ei2.env, &vn);
           if(dvars.len() > usize(0), {
             match(
               dvars.last(),
@@ -372,7 +372,7 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
     start_idx := if(is_match, {
       match(
         cargs.get(usize(0)),
-        .Some(scrut) => recur(scrut, res, ctx),
+        .Some(scrut) => recur(&scrut, res, ctx),
         .None => ()
       );
       usize(1)
@@ -383,14 +383,14 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
     while(bi < cargs.len(), {
       match(
         cargs.get(bi),
-        .Some(stmt) => if(ast_expr_is_fn_call_of(stmt, "=>", Option(usize).Some(usize(2))), {
+        .Some(stmt) => if(ast_expr_is_fn_call_of(&stmt, "=>", Option(usize).Some(usize(2))), {
           match(
             stmt,
             .FnCall(_, _, sargs, _, _) => match(
               sargs.get(usize(1)),
               .Some(body) => {
                 bres := _new_dup_calls_result();
-                recur(body, bres, ctx);
+                recur(&body, &bres, ctx);
                 branch_results.push(bres);
               },
               .None => ()
@@ -413,7 +413,7 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
           while(ki < br.dup_call_var_ids.len(), {
             match(
               br.dup_call_var_ids.get(ki),
-              .Some(vid) => if(!_ids_list_contains(all_vars, vid.clone()), {
+              .Some(vid) => if(!_ids_list_contains(&all_vars, vid.clone()), {
                 all_vars.push(vid);
               }),
               .None => ()
@@ -424,7 +424,7 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
           while(pi < br.vars_with_partial_branch_dups.len(), {
             match(
               br.vars_with_partial_branch_dups.get(pi),
-              .Some(pv) => if(!_ids_list_contains(res.vars_with_partial_branch_dups, pv.clone()), {
+              .Some(pv) => if(!_ids_list_contains(&res.vars_with_partial_branch_dups, pv.clone()), {
                 res.vars_with_partial_branch_dups.push(pv);
               }),
               .None => ()
@@ -486,14 +486,14 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
             while(fdi < all_branch_dups.len(), {
               match(
                 all_branch_dups.get(fdi),
-                .Some(fd) => _push_dup_call(res, vid.clone(), fd),
+                .Some(fd) => _push_dup_call(res, vid.clone(), &fd),
                 .None => ()
               );
               fdi = (fdi + usize(1));
             });
           }, {
             // Some arms dup, some don't — the pair must survive.
-            if(!_ids_list_contains(res.vars_with_partial_branch_dups, vid.clone()), {
+            if(!_ids_list_contains(&res.vars_with_partial_branch_dups, vid.clone()), {
               res.vars_with_partial_branch_dups.push(vid.clone());
             });
           });
@@ -508,12 +508,12 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
   match(
     expr,
     .FnCall(_, f2, fargs2, _, _) => {
-      recur(f2, res, ctx);
+      recur(&f2, res, ctx);
       (ai : usize) = usize(0);
       while(ai < fargs2.len(), {
         match(
           fargs2.get(ai),
-          .Some(a) => recur(a, res, ctx),
+          .Some(a) => recur(&a, res, ctx),
           .None => ()
         );
         ai = (ai + usize(1));
@@ -529,7 +529,7 @@ _search_dup_calls :: (fn(imm(expr) : AstExpr, imm(res) : DupCallsResult, imm(ctx
 /// the variable id they dup, with conservative cross-branch analysis.
 collect_dup_calls_conservatively :: (fn(imm(expr) : AstExpr, imm(ctx) : EvalContext) -> DupCallsResult)({
   res := _new_dup_calls_result();
-  _search_dup_calls(expr, res, ctx);
+  _search_dup_calls(expr, &res, ctx);
   res
 });
 // ---------------------------------------------------------------------------
@@ -555,7 +555,7 @@ _try_synthesize_return_type :: (
     env,
     ArrayList(TypePair).new(),
     Option(SynthesizeOptions).None,
-    local_exn
+    &local_exn
   );
   true
 });
@@ -582,7 +582,7 @@ _check_keyword_position :: (
   });
   last_idx := (n_args - usize(1));
   last_arg := match(begin_args.get(last_idx), .Some(a) => a, .None => make_err_expr());
-  last_is_unit := is_unit_value_expression(last_arg);
+  last_is_unit := is_unit_value_expression(&last_arg);
   is_last := (loop_i == last_idx);
   is_second_last := ((n_args >= usize(2)) && (loop_i == (n_args - usize(2))));
   second_last_before_unit := (is_second_last && last_is_unit);
@@ -636,7 +636,7 @@ _value_contains_unknown :: (fn(imm(v) : EvalValue) -> bool)(
       while((i < fields.len()) && !found, {
         match(
           fields.get(i),
-          .Some(f) => if(recur(f), {
+          .Some(f) => if(recur(&f), {
             found = true;
           }),
           .None => ()
@@ -651,7 +651,7 @@ _value_contains_unknown :: (fn(imm(v) : EvalValue) -> bool)(
       while((i < field_values.len()) && !found, {
         match(
           field_values.get(i),
-          .Some(f) => if(recur(f), {
+          .Some(f) => if(recur(&f), {
             found = true;
           }),
           .None => ()
@@ -702,18 +702,18 @@ _m3_token_is_before :: (fn(imm(left) : Token, imm(right) : Token) -> bool)(
 );
 _m3_max_comparable_token :: (fn(imm(node) : AstExpr, imm(reference) : Token, imm(best) : Token) -> Token)({
   tok := ast_expr_token(node);
-  best2 := if(_m3_tokens_comparable(tok, reference) && (tok.character > best.character), tok, best);
+  best2 := if(_m3_tokens_comparable(&tok, reference) && (tok.character > best.character), tok, best);
   match(
     node,
     .FnCall(_, func, args, _, _) => {
-      (acc : Token) = recur(func, reference, best2);
+      (acc : Token) = recur(&func, reference, &best2);
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {
         match(
           args.get(i),
           .Some(a) => {
-            acc = recur(a, reference, acc);
+            acc = recur(&a, reference, &acc);
           },
           .None => ()
         );
@@ -726,8 +726,8 @@ _m3_max_comparable_token :: (fn(imm(node) : AstExpr, imm(reference) : Token, imm
 });
 _m3_last_comparable_token_in_expr :: (fn(imm(expr) : AstExpr, imm(reference) : Token) -> Token)({
   init := ast_expr_token(expr);
-  init2 := if(!_m3_tokens_comparable(init, reference), reference, init);
-  _m3_max_comparable_token(expr, reference, init2)
+  init2 := if(!_m3_tokens_comparable(&init, reference), reference, init);
+  _m3_max_comparable_token(expr, reference, &init2)
 });
 /// `stmt` is an assignment statement, so its value, the old value it replaced,
 /// is unused. An explicit-copy old value (a move-only value, or plain data
@@ -742,18 +742,18 @@ _m3_last_comparable_token_in_expr :: (fn(imm(expr) : AstExpr, imm(reference) : T
 /// dup the pair optimizer elided (plans/VALUES_BY_DEFAULT.md §3.14).
 _drop_unused_old_value_now :: (fn(imm(stmt) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)(
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(stmt)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(stmt)),
     .None => (),
     .Some(ai) => match(
       ai.variable_name,
       .None => (),
       .Some(tname) => match(
         get_variables_from_env(env, tname.clone()).last(),
-        .Some(tv) => if(tv.is_owning_the_rc_value && tv.consumed_at_token.is_none() && type_requires_explicit_copy(tv.ty), {
+        .Some(tv) => if(tv.is_owning_the_rc_value && tv.consumed_at_token.is_none() && type_requires_explicit_copy(&tv.ty), {
           drop_expr := generate_expr_from_code(`${BF_DROP}(${tname})`, exn);
-          evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+          evaluated := evaluate_expression_raw(&drop_expr, env, ctx, exn);
           tv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(stmt)));
-          record_immediate_old_value_drop(ast_expr_id(stmt), evaluated);
+          record_immediate_old_value_drop(ast_expr_id(stmt), &evaluated);
         }),
         .None => ()
       )
@@ -765,7 +765,7 @@ _variable_can_need_drop_ignoring_consumed :: (fn(imm(v) : Variable) -> bool)({
   if(!v.is_owning_the_rc_value, {
     return(false);
   });
-  if(!type_contains_rc_type(v.ty), {
+  if(!type_contains_rc_type(&v.ty), {
     return(false);
   });
   if(v.is_module_level, {
@@ -806,7 +806,7 @@ _is_function_boundary_for_early_drop :: (fn(imm(expr) : AstExpr, imm(_ctx) : Eva
   match(
     expr,
     .FnCall(_, func, _, _, _) => if(
-      ast_expr_is_fn_call_of(func, BK_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_CTL, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_FN_TRAIT, Option(usize).None) || ast_expr_is_fn_call_of(func, BK_FN_ONCE_TRAIT, Option(usize).None),
+      ast_expr_is_fn_call_of(&func, BK_FN, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_CTL, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_UNSAFE_FN, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_FN_TRAIT, Option(usize).None) || ast_expr_is_fn_call_of(&func, BK_FN_ONCE_TRAIT, Option(usize).None),
       return(true),
       ()
     ),
@@ -820,10 +820,10 @@ _is_function_boundary_for_early_drop :: (fn(imm(expr) : AstExpr, imm(_ctx) : Eva
 /// early_return_only_deferred_drop_expressions.
 _attach_if_cleanup_needs_drop :: (fn(imm(expr) : AstExpr, imm(cleanup_point) : Token, imm(variable) : Variable, imm(drop_expr) : AstExpr, imm(init_tok) : Token, imm(consumed_tok) : Token, imm(ctx) : EvalContext) -> unit)({
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
     .None => (),
     .Some(ei) => {
-      vars := get_variables_from_env(ei.env, variable.name.clone());
+      vars := get_variables_from_env(&ei.env, variable.name.clone());
       if(vars.len() == usize(0), {
         return(());
       });
@@ -835,13 +835,13 @@ _attach_if_cleanup_needs_drop :: (fn(imm(expr) : AstExpr, imm(cleanup_point) : T
       // against a body token (AGENTS.md: never compare the two spellings).
       init_ok := (latest.is_parameter || _m3_token_is_at_or_before(init_tok, cleanup_point));
       if(init_ok && _m3_token_is_before(cleanup_point, consumed_tok), {
-        existing := match(expr_info_early_return_only_deferred_drop_expressions(ei), .Some(l) => l, .None => ArrayList(AstExpr).new());
+        existing := match(expr_info_early_return_only_deferred_drop_expressions(&ei), .Some(l) => l, .None => ArrayList(AstExpr).new());
         (found : bool) = false;
         (fi : usize) = usize(0);
         while(fi < existing.len(), {
           match(
             existing.get(fi),
-            .Some(e) => if(ast_expr_id(e) == ast_expr_id(drop_expr), {
+            .Some(e) => if(ast_expr_id(&e) == ast_expr_id(drop_expr), {
               found = true;
             }),
             .None => ()
@@ -850,7 +850,7 @@ _attach_if_cleanup_needs_drop :: (fn(imm(expr) : AstExpr, imm(cleanup_point) : T
         });
         if(!found, {
           existing.push(drop_expr);
-          expr_info_set_early_return_only_deferred_drop_expressions(ei, Option(ArrayList(AstExpr)).Some(existing));
+          expr_info_set_early_return_only_deferred_drop_expressions(&ei, Option(ArrayList(AstExpr)).Some(existing));
         });
       });
     }
@@ -863,7 +863,7 @@ _attach_early_return_only_drop_to_returns :: (fn(imm(expr) : AstExpr, imm(variab
   consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb.*, .None => return(()));
   if(ast_expr_is_atom(expr), {
     if((ast_expr_is_atom_of(expr, BK_RETURN) || ast_expr_is_atom_of(expr, BF_UNWIND)) && !variable_moved_at_cleanup_point(variable, ast_expr_token(expr), true), {
-      _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, init_tok, consumed_tok, ctx);
+      _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, &init_tok, &consumed_tok, ctx);
     });
     return(());
   });
@@ -876,35 +876,35 @@ _attach_early_return_only_drop_to_returns :: (fn(imm(expr) : AstExpr, imm(variab
         // return's own `sink(b)` — already released the value on this path,
         // though the tail's later move is what the variable still shows.
         if(!variable_moved_at_cleanup_point(variable, _m3_last_comparable_token_in_expr(expr, ast_expr_token(expr)), true), {
-          _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, consumed_tok), variable, drop_expr, init_tok, consumed_tok, ctx);
+          _attach_if_cleanup_needs_drop(expr, _m3_last_comparable_token_in_expr(expr, &consumed_tok), variable, drop_expr, &init_tok, &consumed_tok, ctx);
         });
         return(());
       });
       match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
-        .Some(ei) => match(expr_info_macro_expansion(ei), .Some(mx) => recur(mx, variable, drop_expr, ctx), .None => ()),
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
+        .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(mx) => recur(&mx, variable, drop_expr, ctx), .None => ()),
         .None => ()
       );
       if(ast_expr_is_fn_call_of(expr, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_MATCH, Option(usize).None), {
-        recur(func, variable, drop_expr, ctx);
+        recur(&func, variable, drop_expr, ctx);
         (ci : usize) = usize(0);
         while(ci < args.len(), {
           match(
             args.get(ci),
-            .Some(arg) => if(ast_expr_is_fn_call(arg) && ast_expr_is_fn_call_of(arg, "=>", Option(usize).None), {
+            .Some(arg) => if(ast_expr_is_fn_call(&arg) && ast_expr_is_fn_call_of(&arg, "=>", Option(usize).None), {
               match(
                 arg,
                 .FnCall(_, _, bargs, _, _) => {
                   (bj : usize) = usize(0);
                   while(bj < bargs.len(), {
-                    match(bargs.get(bj), .Some(bp) => recur(bp, variable, drop_expr, ctx), .None => ());
+                    match(bargs.get(bj), .Some(bp) => recur(&bp, variable, drop_expr, ctx), .None => ());
                     bj = (bj + usize(1));
                   });
                 },
                 .Atom(_, _) => ()
               );
             }, {
-              recur(arg, variable, drop_expr, ctx);
+              recur(&arg, variable, drop_expr, ctx);
             }),
             .None => ()
           );
@@ -915,10 +915,10 @@ _attach_early_return_only_drop_to_returns :: (fn(imm(expr) : AstExpr, imm(variab
       if(_is_function_boundary_for_early_drop(expr, ctx), {
         return(());
       });
-      recur(func, variable, drop_expr, ctx);
+      recur(&func, variable, drop_expr, ctx);
       (ai : usize) = usize(0);
       while(ai < args.len(), {
-        match(args.get(ai), .Some(a) => recur(a, variable, drop_expr, ctx), .None => ());
+        match(args.get(ai), .Some(a) => recur(&a, variable, drop_expr, ctx), .None => ());
         ai = (ai + usize(1));
       });
     },
@@ -940,17 +940,17 @@ _contains_return_for_opt :: (fn(imm(e) : AstExpr, imm(ctx) : EvalContext) -> boo
     e,
     .FnCall(_, f, fargs, _, _) => {
       match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
         .Some(ei) => match(
-          expr_info_macro_expansion(ei),
-          .Some(mx) => if(recur(mx, ctx), {
+          expr_info_macro_expansion(&ei),
+          .Some(mx) => if(recur(&mx, ctx), {
             return(true);
           }),
           .None => ()
         ),
         .None => ()
       );
-      if(recur(f, ctx), {
+      if(recur(&f, ctx), {
         return(true);
       });
       (ai : usize) = usize(0);
@@ -958,7 +958,7 @@ _contains_return_for_opt :: (fn(imm(e) : AstExpr, imm(ctx) : EvalContext) -> boo
       while((ai < fargs.len()) && !found, {
         match(
           fargs.get(ai),
-          .Some(a) => if(recur(a, ctx), {
+          .Some(a) => if(recur(&a, ctx), {
             found = true;
           }),
           .None => ()
@@ -982,19 +982,19 @@ _contains_io_await_for_opt :: (fn(imm(e) : AstExpr, imm(ctx) : EvalContext) -> b
       is_io_async_call(e) => false,
       true => {
         (found : bool) = match(
-          expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
-          .Some(ei) => match(expr_info_macro_expansion(ei), .Some(mx) => _contains_io_await_for_opt(mx, ctx), .None => false),
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
+          .Some(ei) => match(expr_info_macro_expansion(&ei), .Some(mx) => _contains_io_await_for_opt(&mx, ctx), .None => false),
           .None => false
         );
         if(!found, {
-          found = _contains_io_await_for_opt(f, ctx);
+          found = _contains_io_await_for_opt(&f, ctx);
         });
         (ai : usize) = usize(0);
         while((ai < fargs.len()) && !found, {
           match(
             fargs.get(ai),
             .Some(a) => {
-              found = _contains_io_await_for_opt(a, ctx);
+              found = _contains_io_await_for_opt(&a, ctx);
             },
             .None => ()
           );
@@ -1029,24 +1029,24 @@ _subtree_assigns_variable :: (fn(imm(e) : AstExpr, imm(name) : String, imm(ctx) 
       if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))), {
         match(
           fargs.get(usize(0)),
-          .Some(lhs) => if(ast_expr_is_atom(lhs) && (ast_expr_token(lhs).value == name), {
+          .Some(lhs) => if(ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value == name), {
             return(true);
           }),
           .None => ()
         );
       });
       match(
-        expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)),
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
         .Some(ei) => match(
-          expr_info_macro_expansion(ei),
-          .Some(mx) => if(recur(mx, name.clone(), ctx), {
+          expr_info_macro_expansion(&ei),
+          .Some(mx) => if(recur(&mx, name.clone(), ctx), {
             return(true);
           }),
           .None => ()
         ),
         .None => ()
       );
-      if(recur(f, name.clone(), ctx), {
+      if(recur(&f, name.clone(), ctx), {
         return(true);
       });
       (ai : usize) = usize(0);
@@ -1054,7 +1054,7 @@ _subtree_assigns_variable :: (fn(imm(e) : AstExpr, imm(name) : String, imm(ctx) 
       while((ai < fargs.len()) && !found, {
         match(
           fargs.get(ai),
-          .Some(a) => if(recur(a, name.clone(), ctx), {
+          .Some(a) => if(recur(&a, name.clone(), ctx), {
             found = true;
           }),
           .None => ()
@@ -1076,17 +1076,17 @@ _subtree_assigns_variable :: (fn(imm(e) : AstExpr, imm(name) : String, imm(ctx) 
 /// emitted tree.
 _remove_dup_calls_from_tree :: (fn(imm(expr) : AstExpr, imm(remove_ids) : HashSet(usize), imm(ctx) : EvalContext) -> unit)({
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)),
     .Some(ei) => {
       match(
-        expr_info_deferred_dup_expressions(ei),
+        expr_info_deferred_dup_expressions(&ei),
         .Some(dl) => {
           kept := ArrayList(AstExpr).new();
           (i : usize) = usize(0);
           while(i < dl.len(), {
             match(
               dl.get(i),
-              .Some(d) => if(!remove_ids.contains(ast_expr_id(d)), {
+              .Some(d) => if(!remove_ids.contains(ast_expr_id(&d)), {
                 kept.push(d);
               }),
               .None => ()
@@ -1094,7 +1094,7 @@ _remove_dup_calls_from_tree :: (fn(imm(expr) : AstExpr, imm(remove_ids) : HashSe
             i = (i + usize(1));
           });
           expr_info_set_deferred_dup_expressions(
-            ei,
+            &ei,
             if(
               kept.len() == usize(0),
               Option(ArrayList(AstExpr)).None,
@@ -1105,8 +1105,8 @@ _remove_dup_calls_from_tree :: (fn(imm(expr) : AstExpr, imm(remove_ids) : HashSe
         .None => ()
       );
       match(
-        expr_info_macro_expansion(ei),
-        .Some(mx) => recur(mx, remove_ids, ctx),
+        expr_info_macro_expansion(&ei),
+        .Some(mx) => recur(&mx, remove_ids, ctx),
         .None => ()
       );
     },
@@ -1115,12 +1115,12 @@ _remove_dup_calls_from_tree :: (fn(imm(expr) : AstExpr, imm(remove_ids) : HashSe
   match(
     expr,
     .FnCall(_, f, fargs, _, _) => {
-      recur(f, remove_ids, ctx);
+      recur(&f, remove_ids, ctx);
       (ai : usize) = usize(0);
       while(ai < fargs.len(), {
         match(
           fargs.get(ai),
-          .Some(a) => recur(a, remove_ids, ctx),
+          .Some(a) => recur(&a, remove_ids, ctx),
           .None => ()
         );
         ai = (ai + usize(1));
@@ -1161,10 +1161,10 @@ _optimize_dup_drop_pairs :: (
     match(
       begin_args.get(ci),
       .Some(child) => {
-        if(earliest_ret.is_none() && _contains_return_for_opt(child, ctx), {
+        if(earliest_ret.is_none() && _contains_return_for_opt(&child, ctx), {
           earliest_ret = Option(usize).Some(ci);
         });
-        cres := collect_dup_calls_conservatively(child, ctx);
+        cres := collect_dup_calls_conservatively(&child, ctx);
         (ki : usize) = usize(0);
         while(ki < cres.dup_call_var_ids.len(), {
           match(
@@ -1177,9 +1177,9 @@ _optimize_dup_drop_pairs :: (
                   match(
                     dups.get(di),
                     .Some(d) => {
-                      _push_dup_call(merged, vid.clone(), d);
-                      if(dup_child_idx.get(ast_expr_id(d)).is_none(), {
-                        dup_child_idx.insert(ast_expr_id(d), ci);
+                      _push_dup_call(&merged, vid.clone(), &d);
+                      if(dup_child_idx.get(ast_expr_id(&d)).is_none(), {
+                        dup_child_idx.insert(ast_expr_id(&d), ci);
                       });
                     },
                     .None => ()
@@ -1197,7 +1197,7 @@ _optimize_dup_drop_pairs :: (
         while(pi < cres.vars_with_partial_branch_dups.len(), {
           match(
             cres.vars_with_partial_branch_dups.get(pi),
-            .Some(pv) => if(!_ids_list_contains(merged.vars_with_partial_branch_dups, pv.clone()), {
+            .Some(pv) => if(!_ids_list_contains(&merged.vars_with_partial_branch_dups, pv.clone()), {
               merged.vars_with_partial_branch_dups.push(pv);
             }),
             .None => ()
@@ -1222,7 +1222,7 @@ _optimize_dup_drop_pairs :: (
     match(
       fvars.get(cdi),
       .Some(cv) => {
-        if(cv.consumed_at_token.is_some() && cv.is_owning_the_same_rc_value_as.is_some() && type_contains_rc_type(cv.ty), {
+        if(cv.consumed_at_token.is_some() && cv.is_owning_the_same_rc_value_as.is_some() && type_contains_rc_type(&cv.ty), {
           (cbase : Variable) = cv;
           (cwalking : bool) = true;
           while(cwalking, {
@@ -1278,12 +1278,12 @@ _optimize_dup_drop_pairs :: (
     match(
       fvars.get(vi),
       .Some(v) => {
-        e1 := (v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
+        e1 := (v.is_owning_the_rc_value && type_contains_rc_type(&v.ty));
         e2 := (e1 && !v.is_module_level);
         // A root of an `inout` local binding is used through the alias, which
         // is not a syntactic use: cancelling its dup here would MOVE the count
         // while a binding may still write through the slot (§9 H6).
-        e3 := (e2 && !v.is_ref && !variable_is_inout_borrow_root(v));
+        e3 := (e2 && !v.is_ref && !variable_is_inout_borrow_root(&v));
         some_undroppable := match(
           v.ty,
           .SomeT({ required_trait_types : s_rtt, resolution : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
@@ -1292,8 +1292,8 @@ _optimize_dup_drop_pairs :: (
         e4 := (e3 && !some_undroppable);
         e5 := (e4 && v.consumed_at_token.is_none());
         e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
-        e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
-        e8 := (e7 && !_variable_is_captured_by_current_function(v, ctx));
+        e7 := (e6 && !_name_matches_opt(v.name.clone(), &tail_atom_name));
+        e8 := (e7 && !_variable_is_captured_by_current_function(&v, ctx));
         if(e8, {
           // Follow the ownership-alias chain to the root base variable.
           (base : Variable) = v;
@@ -1324,7 +1324,7 @@ _optimize_dup_drop_pairs :: (
             while((ari < begin_args.len()) && !alias_reassigned, {
               match(
                 begin_args.get(ari),
-                .Some(arc) => if(_subtree_assigns_variable(arc, v.name.clone(), ctx) || _subtree_assigns_variable(arc, base.name.clone(), ctx), {
+                .Some(arc) => if(_subtree_assigns_variable(&arc, v.name.clone(), ctx) || _subtree_assigns_variable(&arc, base.name.clone(), ctx), {
                   alias_reassigned = true;
                 }),
                 .None => ()
@@ -1336,17 +1336,17 @@ _optimize_dup_drop_pairs :: (
               // The base may live in an OUTER frame whose epilogue runs later
               // with its own `protected_bases`; persist the decision on the
               // variable itself.
-              variable_mark_keep_alias_dups(base);
+              variable_mark_keep_alias_dups(&base);
             });
           });
-          base_is_protected := ((base.id == v.id) && (protected_bases.contains(base_id.clone()) || variable_keep_alias_dups(v)));
+          base_is_protected := ((base.id == v.id) && (protected_bases.contains(base_id.clone()) || variable_keep_alias_dups(&v)));
           match(
             merged.dup_calls.get(base_id.clone()),
             .Some(dups) => if((dups.len() > usize(0)) && (!alias_reassigned && !base_is_protected), {
               // Value types with RC fields: `y = temp` is a C memcpy; both
               // copies need their own drop — never cancel.
-              value_type_with_rc := (!is_reference_struct_type(base.ty) && type_contains_rc_type(base.ty));
-              partial := _ids_list_contains(merged.vars_with_partial_branch_dups, base_id.clone());
+              value_type_with_rc := (!is_reference_struct_type(&base.ty) && type_contains_rc_type(&base.ty));
+              partial := _ids_list_contains(&merged.vars_with_partial_branch_dups, base_id.clone());
               // A dup taken in a DEEPER SCOPE than the candidate's own frame
               // — the body of a nested `{ … }` block — feeds a container whose
               // scope end comes FIRST. Cancelling the pair moves this local's
@@ -1381,10 +1381,10 @@ _optimize_dup_drop_pairs :: (
                   // A dup into an `FnOnce` closure's capture struct feeds a
                   // container that dies at its CALL, before the local's last
                   // use: the same hazard (decision 37).
-                  .Some(nd) => if(is_call_once_capture_dup(ast_expr_id(nd)), {
+                  .Some(nd) => if(is_call_once_capture_dup(ast_expr_id(&nd)), {
                     nested_dup = true;
                   }, match(
-                    expr_info_table_get(ctx.expr_info_table, ast_expr_id(nd)),
+                    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&nd)),
                     .Some(ndei) => if(ndei.env.frames.len() > (v.frame_level + usize(1)), {
                       nested_dup = true;
                     }),
@@ -1406,7 +1406,7 @@ _optimize_dup_drop_pairs :: (
                     match(
                       dups.get(rdi),
                       .Some(d) => match(
-                        dup_child_idx.get(ast_expr_id(d)),
+                        dup_child_idx.get(ast_expr_id(&d)),
                         .Some(dci) => if(dci > er, {
                           ret_before_dup = true;
                         }),
@@ -1476,7 +1476,7 @@ _optimize_dup_drop_pairs :: (
                     match(
                       dups.get(rmi),
                       .Some(d3) => {
-                        remove_ids.insert(ast_expr_id(d3));
+                        remove_ids.insert(ast_expr_id(&d3));
                       },
                       .None => ()
                     );
@@ -1500,7 +1500,7 @@ _optimize_dup_drop_pairs :: (
                     match(
                       single_regular,
                       .Some(sr) => match(
-                        get_dup_use_site_token(ast_expr_id(sr)),
+                        get_dup_use_site_token(ast_expr_id(&sr)),
                         .Some(ut) => {
                           consume_tok = ut;
                         },
@@ -1526,7 +1526,7 @@ _optimize_dup_drop_pairs :: (
     while(ri < begin_args.len(), {
       match(
         begin_args.get(ri),
-        .Some(c) => _remove_dup_calls_from_tree(c, remove_ids, ctx),
+        .Some(c) => _remove_dup_calls_from_tree(&c, &remove_ids, ctx),
         .None => ()
       );
       ri = (ri + usize(1));
@@ -1563,10 +1563,10 @@ _ic_exits_function :: (fn(imm(e) : AstExpr) -> bool)(
       (ast_expr_is_fn_call_of(e, BK_RETURN, .None) || ast_expr_is_fn_call_of(e, BF_UNWIND, .None) || ast_expr_is_fn_call_of(e, "panic", .None)) => true,
       ast_expr_is_fn_call_of(e, BK_BEGIN, .None) => {
         (k : usize) = args.len();
-        while((k > usize(0)) && (ast_expr_is_fn_call_of(args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value == "()"), .FnCall(_, _, _, _, _) => false)), {
+        while((k > usize(0)) && (ast_expr_is_fn_call_of(&args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value == "()"), .FnCall(_, _, _, _, _) => false)), {
           k = (k - usize(1));
         });
-        (k > usize(0)) && _ic_exits_function(args(k - usize(1)))
+        (k > usize(0)) && _ic_exits_function(&args(k - usize(1)))
       },
       true => false
     )
@@ -1606,28 +1606,28 @@ _ic_scan :: (fn(imm(e) : AstExpr, imm(v) : Variable, imm(site) : ImplicitCopyPen
   if((tok.byte_offset == site.byte_offset) && (tok.module_path == site.module_path), {
     acc.site_seen = true;
   });
-  ei_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(e));
+  ei_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e));
   match(
     ei_opt,
     .Some(ei) => {
       match(
-        expr_info_macro_expansion(ei),
+        expr_info_macro_expansion(&ei),
         .Some(mx) => {
-          recur(mx, v, site, acc, ctx);
+          recur(&mx, v, site, acc, ctx);
           return(());
         },
         .None => ()
       );
-      if(match(expr_info_is_anonymous_function_definition(ei), .Some(b) => b, .None => false), {
+      if(match(expr_info_is_anonymous_function_definition(&ei), .Some(b) => b, .None => false), {
         match(
-          expr_info_deferred_dup_expressions(ei),
+          expr_info_deferred_dup_expressions(&ei),
           .Some(dl) => {
             (di : usize) = usize(0);
             while(di < dl.len(), {
               match(
                 dl.get(di),
-                .Some(d) => if(match(_dup_call_target_name(d), .Some(n) => (n == v.name), .None => false), {
-                  _ic_read(tok, site, acc);
+                .Some(d) => if(match(_dup_call_target_name(&d), .Some(n) => (n == v.name), .None => false), {
+                  _ic_read(&tok, site, acc);
                 }),
                 .None => ()
               );
@@ -1647,9 +1647,9 @@ _ic_scan :: (fn(imm(e) : AstExpr, imm(v) : Variable, imm(site) : ImplicitCopyPen
       match(
         ei_opt,
         .Some(aei) => match(
-          get_variables_from_env(aei.env, v.name.clone()).last(),
+          get_variables_from_env(&aei.env, v.name.clone()).last(),
           .Some(rv) => if(rv.id == v.id, {
-            _ic_read(atok, site, acc);
+            _ic_read(&atok, site, acc);
           }),
           .None => ()
         ),
@@ -1663,15 +1663,15 @@ _ic_scan :: (fn(imm(e) : AstExpr, imm(v) : Variable, imm(site) : ImplicitCopyPen
       first := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       second := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
       if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), {
-        recur(first, v, site, acc, ctx);
+        recur(&first, v, site, acc, ctx);
         return(());
       });
-      if(ast_expr_is_fn_call_of(e, ":", Option(usize).Some(usize(2))) && ast_expr_is_atom(first), {
-        recur(second, v, site, acc, ctx);
+      if(ast_expr_is_fn_call_of(e, ":", Option(usize).Some(usize(2))) && ast_expr_is_atom(&first), {
+        recur(&second, v, site, acc, ctx);
         return(());
       });
-      if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))) && ast_expr_is_atom(first) && (ast_expr_token(first).value == v.name), {
-        recur(second, v, site, acc, ctx);
+      if(ast_expr_is_fn_call_of(e, BK_ASSIGN, Option(usize).Some(usize(2))) && ast_expr_is_atom(&first) && (ast_expr_token(&first).value == v.name), {
+        recur(&second, v, site, acc, ctx);
         return(());
       });
       // A branch: an arm whose BODY holds the site excludes the arms after
@@ -1681,19 +1681,19 @@ _ic_scan :: (fn(imm(e) : AstExpr, imm(v) : Variable, imm(site) : ImplicitCopyPen
         while((bi < args.len()) && !(acc.later || acc.done), {
           arm := match(args.get(bi), .Some(a) => a, .None => make_err_expr());
           (taken : bool) = false;
-          if(ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))), {
+          if(ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))), {
             match(
               arm,
               .FnCall(_, _, arm_args, _, _) => {
                 arm_head := match(arm_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
                 arm_body := match(arm_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-                recur(arm_head, v, site, acc, ctx);
+                recur(&arm_head, v, site, acc, ctx);
                 body_scan := _ic_new_scan();
-                recur(arm_body, v, site, body_scan, ctx);
-                _ic_merge(acc, body_scan);
+                recur(&arm_body, v, site, &body_scan, ctx);
+                _ic_merge(acc, &body_scan);
                 if(body_scan.site_seen, {
                   taken = true;
-                  if(_ic_exits_function(arm_body), {
+                  if(_ic_exits_function(&arm_body), {
                     acc.done = true;
                   });
                 });
@@ -1701,7 +1701,7 @@ _ic_scan :: (fn(imm(e) : AstExpr, imm(v) : Variable, imm(site) : ImplicitCopyPen
               .Atom(_, _) => ()
             );
           }, {
-            recur(arm, v, site, acc, ctx);
+            recur(&arm, v, site, acc, ctx);
           });
           bi = cond(taken => args.len(), true => (bi + usize(1)));
         });
@@ -1711,14 +1711,14 @@ _ic_scan :: (fn(imm(e) : AstExpr, imm(v) : Variable, imm(site) : ImplicitCopyPen
       is_exit := (ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).None) || ast_expr_is_fn_call_of(e, BF_UNWIND, Option(usize).None));
       is_while := ast_expr_is_fn_call_of(e, "while", Option(usize).None);
       scan := cond((is_while || is_exit) => _ic_new_scan(), true => acc);
-      recur(f, v, site, scan, ctx);
+      recur(&f, v, site, &scan, ctx);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !(scan.later || scan.done), {
-        match(args.get(ai), .Some(a) => recur(a, v, site, scan, ctx), .None => ());
+        match(args.get(ai), .Some(a) => recur(&a, v, site, &scan, ctx), .None => ());
         ai = (ai + usize(1));
       });
       if(is_exit, {
-        _ic_merge(acc, scan);
+        _ic_merge(acc, &scan);
         if(scan.site_seen, {
           acc.done = true;
         });
@@ -1727,7 +1727,7 @@ _ic_scan :: (fn(imm(e) : AstExpr, imm(v) : Variable, imm(site) : ImplicitCopyPen
         // The loop runs the site again unless that path left the function
         // or the loop reassigns the variable.
         repeats := (scan.site_seen && !scan.done && (scan.reads > usize(0)) && !_subtree_assigns_variable(e, v.name.clone(), ctx));
-        _ic_merge(acc, scan);
+        _ic_merge(acc, &scan);
         if(repeats, {
           acc.later = true;
         });
@@ -1756,11 +1756,11 @@ _audit_judge_implicit_copies :: (fn(imm(frame) : Frame, imm(begin_args) : ArrayL
                 acc := _ic_new_scan();
                 (ci : usize) = usize(0);
                 while((ci < begin_args.len()) && !acc.later, {
-                  match(begin_args.get(ci), .Some(c) => _ic_scan(c, v, site, acc, ctx), .None => ());
+                  match(begin_args.get(ci), .Some(c) => _ic_scan(&c, &v, &site, &acc, ctx), .None => ());
                   ci = (ci + usize(1));
                 });
                 if(acc.later, {
-                  audit_print_implicit_copy(site.line);
+                  audit_print_implicit_copy(&site.line);
                 });
               },
               .None => ()
@@ -1841,7 +1841,7 @@ _schedule_scope_end_drops :: (
         // every store by +1 and cycle collection never reclaimed HashMap
         // cycles (issues/fixed/yo-self-compound-literal-rc-overcount.md).
         e0 := (!params_only || v.is_parameter);
-        e1 := (e0 && v.is_owning_the_rc_value && type_contains_rc_type(v.ty));
+        e1 := (e0 && v.is_owning_the_rc_value && type_contains_rc_type(&v.ty));
         e2 := (e1 && !v.is_module_level);
         e3 := (e2 && !v.is_ref);
         // Skip only UNRESOLVED SomeTypes with no required traits (no concrete
@@ -1855,9 +1855,9 @@ _schedule_scope_end_drops :: (
         e4 := (e3 && !some_undroppable);
         e5 := (e4 && v.consumed_at_token.is_none());
         e6 := (e5 && !_name_matches_opt(v.name.clone(), result_var_name));
-        e7 := (e6 && !_name_matches_opt(v.name.clone(), tail_atom_name));
+        e7 := (e6 && !_name_matches_opt(v.name.clone(), &tail_atom_name));
         if(g_debug_scope_drops, {
-          eprintln(`[sd] mod=${v.token.module_path} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
+          eprintln(`[sd] mod=${v.token.module_path} var=${v.name} owning=${v.is_owning_the_rc_value.to_string()} ty_rc=${type_contains_rc_type(&v.ty).to_string()} mod=${v.is_module_level.to_string()} ref=${v.is_ref.to_string()} same=${v.is_owning_the_same_rc_value_as.is_some().to_string()} consumed=${v.consumed_at_token.is_some().to_string()} e7=${e7.to_string()}`);
         });
         if(e7, {
           to_drop.push(v);
@@ -1887,8 +1887,8 @@ _schedule_scope_end_drops :: (
       to_drop.get(di),
       .Some(v) => {
         drop_code := `___drop(${v.name})`;
-        drop_expr := generate_expr_from_code(drop_code, exn);
-        evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+        drop_expr := generate_expr_from_code(&drop_code, exn);
+        evaluated := evaluate_expression_raw(&drop_expr, env, ctx, exn);
         deferred.push(evaluated);
       },
       .None => ()
@@ -1902,7 +1902,7 @@ _is_bare_variant_literal :: (fn(imm(e) : AstExpr) -> bool)({
   head_ok := (fn(imm(h) : AstExpr) -> bool)(
     ast_expr_is_fn_call_of(h, BF_DOT, Option(usize).Some(usize(1))) && match(
       h,
-      .FnCall(_, _, hargs, _, _) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false),
+      .FnCall(_, _, hargs, _, _) => match(hargs.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false),
       .Atom(_, _) => false
     )
   );
@@ -1910,7 +1910,7 @@ _is_bare_variant_literal :: (fn(imm(e) : AstExpr) -> bool)({
     head_ok(e) => true,
     true => match(
       e,
-      .FnCall(_, func, _, _, _) => head_ok(func),
+      .FnCall(_, func, _, _, _) => head_ok(&func),
       .Atom(_, _) => false
     )
   )
@@ -1922,7 +1922,7 @@ _contains_return_of :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)({
       e,
       .FnCall(_, _, rargs, _, _) => match(
         rargs.get(usize(0)),
-        .Some(a) => (ast_expr_is_atom(a) && (ast_expr_token(a).value == name)),
+        .Some(a) => (ast_expr_is_atom(&a) && (ast_expr_token(&a).value == name)),
         .None => false
       ),
       .Atom(_, _) => false
@@ -1934,7 +1934,7 @@ _contains_return_of :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)({
   match(
     e,
     .FnCall(_, func, args, _, _) => {
-      if(recur(func, name.clone()), {
+      if(recur(&func, name.clone()), {
         return(true);
       });
       (i : usize) = usize(0);
@@ -1942,7 +1942,7 @@ _contains_return_of :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)({
         match(
           args.get(i),
           .Some(a) => {
-            if(recur(a, name.clone()), {
+            if(recur(&a, name.clone()), {
               return(true);
             });
           },
@@ -2000,16 +2000,16 @@ _variant_local_hint :: (
   sargs := match(stmt, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(sargs.get(usize(0)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
   rhs := match(sargs.get(usize(1)), .Some(a) => a, .None => return(Option(ExpectedTypeCtx).None));
-  rhs_is_async := is_io_async_call(rhs);
-  if(!ast_expr_is_atom(lhs) || !(_is_bare_variant_literal(rhs) || rhs_is_async), {
+  rhs_is_async := is_io_async_call(&rhs);
+  if(!ast_expr_is_atom(&lhs) || !(_is_bare_variant_literal(&rhs) || rhs_is_async), {
     return(Option(ExpectedTypeCtx).None);
   });
-  name := ast_expr_token(lhs).value.clone();
+  name := ast_expr_token(&lhs).value.clone();
   result_ty := match(_enclosing_fn_result_type(ctx), .Some(t) => t, .None => return(Option(ExpectedTypeCtx).None));
   if(rhs_is_async, {
     async_out_concrete := match(
-      extract_future_trait_from_type(result_ty),
-      .Some(.FutureTraitT({ output : ao_out })) => !is_some_type(ao_out),
+      extract_future_trait_from_type(&result_ty),
+      .Some(.FutureTraitT({ output : ao_out })) => !is_some_type(&ao_out),
       _ => false
     );
     if(!async_out_concrete, {
@@ -2023,12 +2023,12 @@ _variant_local_hint :: (
     match(
       begin_args.get(k),
       .Some(later) => {
-        if(_contains_return_of(later, name.clone()), {
+        if(_contains_return_of(&later, name.clone()), {
           found = true;
         });
         // The function body's tail expression IS the local.
         if((k == (n - usize(1))) && is_fn_body, {
-          if(ast_expr_is_atom(later) && (ast_expr_token(later).value == name), {
+          if(ast_expr_is_atom(&later) && (ast_expr_token(&later).value == name), {
             found = true;
           });
         });
@@ -2061,10 +2061,10 @@ _stmt_always_exits :: (fn(imm(e) : AstExpr) -> bool)(
         // `{ a; return(x); }` parses with a trailing `tuple()` after the last
         // `;`: the block's last STATEMENT is what decides.
         (k : usize) = args.len();
-        while((k > usize(0)) && (ast_expr_is_fn_call_of(args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value == "()"), .FnCall(_, _, _, _, _) => false)), {
+        while((k > usize(0)) && (ast_expr_is_fn_call_of(&args(k - usize(1)), BK_TUPLE, .Some(usize(0))) || match(args(k - usize(1)), .Atom(_, ut) => (ut.value == "()"), .FnCall(_, _, _, _, _) => false)), {
           k = (k - usize(1));
         });
-        (k > usize(0)) && _stmt_always_exits(args(k - usize(1)))
+        (k > usize(0)) && _stmt_always_exits(&args(k - usize(1)))
       },
       (ast_expr_is_fn_call_of(e, BK_COND, .None) || ast_expr_is_fn_call_of(e, BK_MATCH, .None)) => {
         // Every ARM's body exits; a match's scrutinee (no `=>`) is skipped.
@@ -2073,11 +2073,11 @@ _stmt_always_exits :: (fn(imm(e) : AstExpr) -> bool)(
         (i : usize) = usize(0);
         while(i < args.len(), {
           a := args(i);
-          if(ast_expr_is_fn_call_of(a, "=>", .Some(usize(2))), {
+          if(ast_expr_is_fn_call_of(&a, "=>", .Some(usize(2))), {
             arms = (arms + usize(1));
             match(
               a,
-              .FnCall(_, _, aargs, _, _) => if(!_stmt_always_exits(aargs(usize(1))), {
+              .FnCall(_, _, aargs, _, _) => if(!_stmt_always_exits(&aargs(usize(1))), {
                 all_exit = false;
               }),
               .Atom(_, _) => ()
@@ -2102,7 +2102,7 @@ _must_use_kind :: (fn(imm(stmt) : AstExpr, imm(ty) : TypeValue) -> Option(String
   inner := t_refine_inner(ty);
   is_result := match(
     inner,
-    .EnumT({ id : _mu_eid }) => type_to_string(inner).starts_with("Result("),
+    .EnumT({ id : _mu_eid }) => type_to_string(&inner).starts_with("Result("),
     _ => false
   );
   cond(
@@ -2139,7 +2139,7 @@ evaluate_begin_expression :: (
     sr_r := _evaluate_begin_expression_impl(expr, env_in, ctx, variables_to_add, is_evaluating_function_body_begin_block, exn);
     scope_release_set_depth(sr_saved_depth);
     if(sr_saved_depth == usize(0), {
-      scope_release_body(sr_mark, sr_entry);
+      scope_release_body(sr_mark, &sr_entry);
     });
     local_borrows_truncate(lb_mark);
     return(sr_r);
@@ -2218,9 +2218,9 @@ _evaluate_begin_expression_impl :: (
   );
   // Empty begin → unit result immediately.
   if(n_args == usize(0), {
-    info := new_expr_info(env, TypeValue.Unit);
+    info := new_expr_info(&env, TypeValue.Unit);
     info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
   // Push a new begin-block frame so temp variables are scoped correctly.
@@ -2237,15 +2237,15 @@ _evaluate_begin_expression_impl :: (
       }
     );
     _added := add_variable_to_env(
-      env,
-      v.name,
-      v.ty,
+      &env,
+      &v.name,
+      &v.ty,
       v.value.get(usize(0)),
       v.is_compile_time_only,
       v.is_reassignable,
       v.is_owning_the_rc_value,
       v.is_implicit,
-      v.token
+      &v.token
     );
     vi = (vi + usize(1));
   });
@@ -2270,8 +2270,8 @@ _evaluate_begin_expression_impl :: (
       .None => make_err_expr()
     );
     // Classify the current expression.
-    is_return_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, BK_RETURN));
-    is_return_call := ast_expr_is_fn_call_of(expr_to_eval, BK_RETURN, .None);
+    is_return_atom := (ast_expr_is_atom(&expr_to_eval) && ast_expr_is_atom_of(&expr_to_eval, BK_RETURN));
+    is_return_call := ast_expr_is_fn_call_of(&expr_to_eval, BK_RETURN, .None);
     is_return_expr := (is_return_atom || is_return_call);
     // `return` (atom) AND `return()` (zero-arg call) are BOTH unit returns
     // (`exprIsAtom(e) || (exprIsFunctionCall(e) && e.args.length === 0)`).
@@ -2289,20 +2289,20 @@ _evaluate_begin_expression_impl :: (
         )
       )
     );
-    is_break_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "break"));
-    is_continue_atom := (ast_expr_is_atom(expr_to_eval) && ast_expr_is_atom_of(expr_to_eval, "continue"));
-    is_escape_call := ast_expr_is_fn_call_of(expr_to_eval, BF_UNWIND, .None);
+    is_break_atom := (ast_expr_is_atom(&expr_to_eval) && ast_expr_is_atom_of(&expr_to_eval, "break"));
+    is_continue_atom := (ast_expr_is_atom(&expr_to_eval) && ast_expr_is_atom_of(&expr_to_eval, "continue"));
+    is_escape_call := ast_expr_is_fn_call_of(&expr_to_eval, BF_UNWIND, .None);
     cond(
       // -------------------------------------------------------------------
       // return / return(val)
       // -------------------------------------------------------------------
       is_return_expr => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("return"), exn);
+        _check_keyword_position(&expr_to_eval, loop_i, n_args, &begin_args, String.from("return"), exn);
         if(!ctx.is_evaluating_function_body_or_async_block.is_some(), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(expr_to_eval),
+                ast_expr_token(&expr_to_eval),
                 String.from("The \"return\" keyword can only be used inside a function body or async block.")
               )
             )
@@ -2311,10 +2311,10 @@ _evaluate_begin_expression_impl :: (
         return_expr = Option(AstExpr).Some(expr_to_eval);
         if(is_return_unit, {
           // `return` / `return()` with no argument → unit return.
-          out := new_expr_info(env, TypeValue.Unit);
+          out := new_expr_info(&env, TypeValue.Unit);
           out.value = Option(EvalValue).Some(EvalValue.UnitVal);
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
           last_expr = expr_to_eval;
         }, {
           // `return(val)` — evaluate the argument.
@@ -2334,8 +2334,8 @@ _evaluate_begin_expression_impl :: (
           // owned local first (`v := y; return(v);`).
           if(local_borrows_active(), {
             match(
-              local_borrow_result_borrow_of(ret_arg, env, ctx),
-              .Some(lb_info) => local_borrow_reject_result_borrow(lb_info, ast_expr_token(ret_arg), ctx, exn),
+              local_borrow_result_borrow_of(&ret_arg, &env, ctx),
+              .Some(lb_info) => local_borrow_reject_result_borrow(&lb_info, ast_expr_token(&ret_arg), ctx, exn),
               .None => ()
             );
           });
@@ -2369,34 +2369,34 @@ _evaluate_begin_expression_impl :: (
             },
             .None => ()
           );
-          evaluated_ret_arg := evaluate_expression_raw(ret_arg, env, ctx, exn);
+          evaluated_ret_arg := evaluate_expression_raw(&ret_arg, &env, ctx, exn);
           ctx.expected_type = old_expected;
-          ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg));
+          ret_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ret_arg));
           if(ret_info_opt.is_none(), {
             exn.throw(
               dyn(
                 format_error_message(
-                  ast_expr_token(ret_arg),
+                  ast_expr_token(&ret_arg),
                   String.from("Return expression is not evaluated correctly.")
                 )
               )
             );
           });
-          ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(env, TypeValue.Unit));
+          ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(&env, TypeValue.Unit));
           // Decision 38 A: a second-class value is never returned.
-          reject_second_class_escape(ret_info.ty, String.from("returned"), ast_expr_token(ret_arg), ctx, exn);
+          reject_second_class_escape(&ret_info.ty, String.from("returned"), ast_expr_token(&ret_arg), ctx, exn);
           env.frames = ret_info.env.frames;
           env.module_path = ret_info.env.module_path;
           env.function_declaration_frame_level = ret_info.env.function_declaration_frame_level;
           env.input_string = ret_info.env.input_string;
           // attachTempVariableToExpr is a no-op stub; call it for API parity.
-          attach_temp_variable_to_expr(evaluated_ret_arg, true, ctx);
+          attach_temp_variable_to_expr(&evaluated_ret_arg, true, ctx);
           // Re-read env in case the stub updated it (future-proof).
           // By private copy: the recorded snapshot is shared between ExprInfos and
           // this env is popped at the block's end (`pop_frame_nonmutating`).
           env = match(
-            expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_arg)),
-            .Some(ri) => expr_info_adopt_env(ri),
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ret_arg)),
+            .Some(ri) => expr_info_adopt_env(&ri),
             .None => env
           );
           // Defense-in-depth flowability on the return ARGUMENT.
@@ -2413,20 +2413,20 @@ _evaluate_begin_expression_impl :: (
                   rft,
                   .Func({ result : rfb, meta : __fm1 }) => {
                     rfco := __fm1.*.result_is_comptime_only;
-                    if(!rfco && type_representation_contains_raw_ptr(rfb)
-                    && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ret_arg).module_path.clone())), {
+                    if(!rfco && type_representation_contains_raw_ptr(&rfb)
+                    && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&ret_arg).module_path.clone())), {
                       ret_slice_opts := FlowOptions(
                         allow_same_frame_local : false,
                         allow_parameter_source : true,
                         allow_comptime_source : true,
                         max_local_frame_level : Option(usize).None
                       );
-                      if(!is_flowable_expr(evaluated_ret_arg, ctx, ret_slice_opts), {
+                      if(!is_flowable_expr(&evaluated_ret_arg, ctx, &ret_slice_opts), {
                         exn.throw(
                           dyn(
                             format_error_message(
-                              ast_expr_token(ret_arg),
-                              `'return(...)' from a function returning '${type_to_string(rfb)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(ret_arg)}`
+                              ast_expr_token(&ret_arg),
+                              `'return(...)' from a function returning '${type_to_string(&rfb)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(&ret_arg)}`
                             )
                           )
                         );
@@ -2455,7 +2455,7 @@ _evaluate_begin_expression_impl :: (
               ir_fb.kind,
               .FunctionBody => match(
                 ir_fb.func_type,
-                .Some(.Func({ result : ir_ret })) => is_some_type(ir_ret),
+                .Some(.Func({ result : ir_ret })) => is_some_type(&ir_ret),
                 .Some(_) => false,
                 .None => false
               ),
@@ -2471,27 +2471,27 @@ _evaluate_begin_expression_impl :: (
                   match(
                     ir_list.get(usize(0)),
                     .Some(ir_first) => {
-                      if(!are_types_compatible(ir_first.concrete_type, ret_info.ty), {
+                      if(!are_types_compatible(&ir_first.concrete_type, &ret_info.ty), {
                         ir_entries := ArrayList(TokenAndError).new();
                         ir_entries.push(
                           TokenAndError(
-                            token : ast_expr_token(expr_to_eval),
+                            token : ast_expr_token(&expr_to_eval),
                             error_message : String.from("All return statements must return the same concrete type for Impl(...).\nImpl(...) uses static dispatch and requires the same concrete type across all returns.\nConsider using Dyn(...) for dynamic dispatch if different concrete types are needed.")
                           )
                         );
                         ir_entries.push(
                           TokenAndError(
                             token : ir_first.token,
-                            error_message : `First return has concrete type: ${type_to_string(ir_first.concrete_type)}`
+                            error_message : `First return has concrete type: ${type_to_string(&ir_first.concrete_type)}`
                           )
                         );
                         ir_entries.push(
                           TokenAndError(
-                            token : ast_expr_token(expr_to_eval),
-                            error_message : `Conflicting return has concrete type: ${type_to_string(ret_info.ty)}`
+                            token : ast_expr_token(&expr_to_eval),
+                            error_message : `Conflicting return has concrete type: ${type_to_string(&ret_info.ty)}`
                           )
                         );
-                        exn.throw(dyn(format_error_messages(ir_entries)));
+                        exn.throw(dyn(format_error_messages(&ir_entries)));
                       });
                     },
                     .None => ()
@@ -2504,7 +2504,7 @@ _evaluate_begin_expression_impl :: (
                     ImplConcreteTypeInfo(
                       concrete_type : ret_info.ty,
                       env : env,
-                      token : ast_expr_token(expr_to_eval)
+                      token : ast_expr_token(&expr_to_eval)
                     )
                   );
                   ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(grown);
@@ -2513,12 +2513,12 @@ _evaluate_begin_expression_impl :: (
               .None => ()
             );
           });
-          out := new_expr_info(env, ret_info.ty);
+          out := new_expr_info(&env, &ret_info.ty);
           out.value = ret_info.value;
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Return));
           out.path_collection = ret_info.path_collection;
           out.variable_name = ret_info.variable_name;
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
           last_expr = expr_to_eval;
         });
         done = true;
@@ -2527,22 +2527,22 @@ _evaluate_begin_expression_impl :: (
       // break
       // -------------------------------------------------------------------
       is_break_atom => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("break"), exn);
+        _check_keyword_position(&expr_to_eval, loop_i, n_args, &begin_args, String.from("break"), exn);
         if(!ctx.is_evaluating_loop_body.is_some(), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(expr_to_eval),
+                ast_expr_token(&expr_to_eval),
                 String.from("The \"break\" keyword can only be used inside a loop.")
               )
             )
           );
         });
-        match(ctx.is_evaluating_loop_body, .Some(brk_lc) => snapshot_loop_flow(brk_lc, brk_lc.break_states, env, ast_expr_token(expr_to_eval)), .None => ());
-        out := new_expr_info(env, TypeValue.Unit);
+        match(ctx.is_evaluating_loop_body, .Some(brk_lc) => snapshot_loop_flow(&brk_lc, &mut brk_lc.break_states, &env, ast_expr_token(&expr_to_eval)), .None => ());
+        out := new_expr_info(&env, TypeValue.Unit);
         out.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Break));
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
         last_expr = expr_to_eval;
         done = true;
       },
@@ -2550,22 +2550,22 @@ _evaluate_begin_expression_impl :: (
       // continue
       // -------------------------------------------------------------------
       is_continue_atom => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("continue"), exn);
+        _check_keyword_position(&expr_to_eval, loop_i, n_args, &begin_args, String.from("continue"), exn);
         if(!ctx.is_evaluating_loop_body.is_some(), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(expr_to_eval),
+                ast_expr_token(&expr_to_eval),
                 String.from("The \"continue\" keyword can only be used inside a loop.")
               )
             )
           );
         });
-        match(ctx.is_evaluating_loop_body, .Some(cnt_lc) => snapshot_loop_flow(cnt_lc, cnt_lc.continue_states, env, ast_expr_token(expr_to_eval)), .None => ());
-        out := new_expr_info(env, TypeValue.Unit);
+        match(ctx.is_evaluating_loop_body, .Some(cnt_lc) => snapshot_loop_flow(&cnt_lc, &mut cnt_lc.continue_states, &env, ast_expr_token(&expr_to_eval)), .None => ());
+        out := new_expr_info(&env, TypeValue.Unit);
         out.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Continue));
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
         last_expr = expr_to_eval;
         done = true;
       },
@@ -2573,12 +2573,12 @@ _evaluate_begin_expression_impl :: (
       // unwind(val)
       // -------------------------------------------------------------------
       is_escape_call => {
-        _check_keyword_position(expr_to_eval, loop_i, n_args, begin_args, String.from("unwind"), exn);
+        _check_keyword_position(&expr_to_eval, loop_i, n_args, &begin_args, String.from("unwind"), exn);
         if(!ctx.enclosing_function_return_type.is_some(), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(expr_to_eval),
+                ast_expr_token(&expr_to_eval),
                 String.from(UNWIND_WITHOUT_ENCLOSING_FN)
               )
             )
@@ -2595,7 +2595,7 @@ _evaluate_begin_expression_impl :: (
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(expr_to_eval),
+                ast_expr_token(&expr_to_eval),
                 String.from("The \"unwind\" keyword accepts at most one argument.")
               )
             )
@@ -2616,12 +2616,12 @@ _evaluate_begin_expression_impl :: (
         // "Test zero-arg unwind exits unit function", the file's one
         // genuinely failing test).
         if(esc_n_args == usize(0), {
-          if(!is_some_type(enclosing_ret) && !are_types_compatible(TypeValue.Unit, enclosing_ret), {
-            throw_unwind_type_mismatch(ast_expr_token(expr_to_eval), enclosing_ret, TypeValue.Unit, ctx, exn);
+          if(!is_some_type(&enclosing_ret) && !are_types_compatible(TypeValue.Unit, &enclosing_ret), {
+            throw_unwind_type_mismatch(ast_expr_token(&expr_to_eval), &enclosing_ret, TypeValue.Unit, ctx, exn);
           });
-          out_esc0 := new_expr_info(env, TypeValue.Unit);
+          out_esc0 := new_expr_info(&env, TypeValue.Unit);
           out_esc0.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out_esc0);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out_esc0);
           last_expr = expr_to_eval;
           done = true;
         }, {
@@ -2635,39 +2635,39 @@ _evaluate_begin_expression_impl :: (
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
             ExpectedTypeCtx(ty : enclosing_ret, env : env)
           );
-          evaluated_esc_arg := evaluate_expression_raw(esc_arg, env, ctx, exn);
+          evaluated_esc_arg := evaluate_expression_raw(&esc_arg, &env, ctx, exn);
           ctx.expected_type = old_expected;
-          esc_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg));
+          esc_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_esc_arg));
           if(esc_info_opt.is_none(), {
             exn.throw(
               dyn(
                 format_error_message(
-                  ast_expr_token(esc_arg),
+                  ast_expr_token(&esc_arg),
                   String.from("Unwind expression is not evaluated correctly.")
                 )
               )
             );
           });
-          esc_info := match(esc_info_opt, .Some(ei) => ei, .None => new_expr_info(env, TypeValue.Unit));
+          esc_info := match(esc_info_opt, .Some(ei) => ei, .None => new_expr_info(&env, TypeValue.Unit));
           // Type-check unwind value against the enclosing return type.
           // Skip when the enclosing return type is an unresolved SomeType.
-          esc_compat := are_types_compatible(esc_info.ty, enclosing_ret);
-          if(!is_some_type(enclosing_ret) && !esc_compat, {
-            throw_unwind_type_mismatch(ast_expr_token(esc_arg), enclosing_ret, esc_info.ty, ctx, exn);
+          esc_compat := are_types_compatible(&esc_info.ty, &enclosing_ret);
+          if(!is_some_type(&enclosing_ret) && !esc_compat, {
+            throw_unwind_type_mismatch(ast_expr_token(&esc_arg), &enclosing_ret, &esc_info.ty, ctx, exn);
           });
-          attach_temp_variable_to_expr(evaluated_esc_arg, true, ctx);
+          attach_temp_variable_to_expr(&evaluated_esc_arg, true, ctx);
           // Same: adopt by private copy.
           env = match(
-            expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_esc_arg)),
-            .Some(ei) => expr_info_adopt_env(ei),
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_esc_arg)),
+            .Some(ei) => expr_info_adopt_env(&ei),
             .None => env
           );
-          out := new_expr_info(env, esc_info.ty);
+          out := new_expr_info(&env, &esc_info.ty);
           out.value = esc_info.value;
           out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Unwind));
           out.path_collection = esc_info.path_collection;
           out.variable_name = esc_info.variable_name;
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr_to_eval), out);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&expr_to_eval), &out);
           last_expr = expr_to_eval;
           done = true;
         });
@@ -2686,11 +2686,11 @@ _evaluate_begin_expression_impl :: (
         // for the local's first typed use and hand the initialization the
         // function's result type as a one-shot hint
         // (plans/backlog/LLM_AUTHORING_AUDIT_2026-09-19.md §2.2).
-        ctx.local_variant_hint = _variant_local_hint(expr_to_eval, begin_args, loop_i, is_evaluating_function_body_begin_block, env, ctx);
+        ctx.local_variant_hint = _variant_local_hint(&expr_to_eval, &begin_args, loop_i, is_evaluating_function_body_begin_block, &env, ctx);
         // A local borrow's live range ends at its last use in this block
         // (decision 18): hand the binding the statements after it.
-        if(local_borrow_is_binding_stmt(expr_to_eval), {
-          local_borrow_set_lookahead(begin_args, loop_i, expr_to_eval);
+        if(local_borrow_is_binding_stmt(&expr_to_eval), {
+          local_borrow_set_lookahead(&begin_args, loop_i, &expr_to_eval);
         });
         // The result chain's tail (decision 18 rule 1, decision 38 A): when
         // a chain block's last statement names a local borrow as the body's
@@ -2708,30 +2708,30 @@ _evaluate_begin_expression_impl :: (
           // borrow the tail block yields may be DECLARED inside it (its own
           // statements register it before its tail is judged), so a body
           // with no borrow in scope yet still arms the chain.
-          chain_tail := ast_expr_strip_borrow_marker(expr_to_eval);
+          chain_tail := ast_expr_strip_borrow_marker(&expr_to_eval);
           cond(
-            ast_expr_is_fn_call_of(chain_tail, BK_BEGIN, Option(usize).None) => {
-              ctx.local_borrow_result_chain_tail = Option(ExprId).Some(ast_expr_id(chain_tail));
+            ast_expr_is_fn_call_of(&chain_tail, BK_BEGIN, Option(usize).None) => {
+              ctx.local_borrow_result_chain_tail = Option(ExprId).Some(ast_expr_id(&chain_tail));
               chain_tail_armed = true;
             },
             true => {
               if(local_borrows_active(), {
                 match(
-                  local_borrow_result_borrow_of(chain_tail, env, ctx),
-                  .Some(lb_info) => local_borrow_reject_result_borrow(lb_info, ast_expr_token(chain_tail), ctx, exn),
+                  local_borrow_result_borrow_of(&chain_tail, &env, ctx),
+                  .Some(lb_info) => local_borrow_reject_result_borrow(&lb_info, ast_expr_token(&chain_tail), ctx, exn),
                   .None => ()
                 );
               });
             }
           );
         });
-        evaluated := evaluate_expression_raw(expr_to_eval, env, ctx, exn);
+        evaluated := evaluate_expression_raw(&expr_to_eval, &env, ctx, exn);
         if(chain_tail_armed, {
           ctx.local_borrow_result_chain_tail = Option(ExprId).None;
         });
         ctx.local_variant_hint = Option(ExpectedTypeCtx).None;
         ctx.expected_type = old_expected;
-        ev_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+        ev_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
         match(
           ev_info_opt,
           .Some(ev_info) => {
@@ -2746,17 +2746,17 @@ _evaluate_begin_expression_impl :: (
         // expression STATEMENT may not drop a Result or a future.
         // A statement every path of which leaves produces no value: judged
         // on the SOURCE form, which still has its `cond` / `=>` arms.
-        if(!is_last_in_loop && !_stmt_always_exits(expr_to_eval), {
+        if(!is_last_in_loop && !_stmt_always_exits(&expr_to_eval), {
           match(
             ev_info_opt,
             .Some(mu_info) => match(
-              _must_use_kind(evaluated, mu_info.ty),
+              _must_use_kind(&evaluated, &mu_info.ty),
               .Some(mu_kind) => {
                 exn.throw(
                   dyn(
                     with_code(
                       format_error_message(
-                        ast_expr_token(evaluated),
+                        ast_expr_token(&evaluated),
                         `This statement drops ${mu_kind}: its value is never used. Handle it (match, ?), await a future with io.await(...), or discard it on purpose with \`_ := ...;\`.`
                       ),
                       E_DISCARDED_MUST_USE
@@ -2771,8 +2771,8 @@ _evaluate_begin_expression_impl :: (
         });
         // An assignment statement's value (the old value) is unused: drop
         // an explicit-copy old value right after the store, as Rust does.
-        if(!is_last_in_loop && ast_expr_is_fn_call_of(evaluated, BK_ASSIGN, .None), {
-          _drop_unused_old_value_now(evaluated, env, ctx, exn);
+        if(!is_last_in_loop && ast_expr_is_fn_call_of(&evaluated, BK_ASSIGN, .None), {
+          _drop_unused_old_value_now(&evaluated, &env, ctx, exn);
         });
         // Track runtime side effects for non-last expressions.
         // A begin block with any runtime non-last expression cannot be
@@ -2783,12 +2783,12 @@ _evaluate_begin_expression_impl :: (
             .Some(ei) => ei.value.is_none(),
             .None => false
           );
-          is_assign_expr := ast_expr_is_fn_call_of(evaluated, BK_ASSIGN, .None);
-          is_init_assign_expr := ast_expr_is_fn_call_of(evaluated, BK_INIT_ASSIGN, .None);
+          is_assign_expr := ast_expr_is_fn_call_of(&evaluated, BK_ASSIGN, .None);
+          is_init_assign_expr := ast_expr_is_fn_call_of(&evaluated, BK_INIT_ASSIGN, .None);
           is_either_assign := (is_assign_expr || is_init_assign_expr);
           ct_only_assign := match(
             ev_info_opt,
-            .Some(ei) => match(expr_info_is_compile_time_only_assignment(ei), .Some(b) => b, .None => false),
+            .Some(ei) => match(expr_info_is_compile_time_only_assignment(&ei), .Some(b) => b, .None => false),
             .None => false
           );
           // For NON-assignment statements, only a CONCRETELY known value
@@ -2833,23 +2833,23 @@ _evaluate_begin_expression_impl :: (
   // -------------------------------------------------------------------------
   // Post-loop: verify the last expression was evaluated
   // -------------------------------------------------------------------------
-  last_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(last_expr));
+  last_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&last_expr));
   if(last_info_opt.is_none(), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(last_expr),
-          `Last expression in "begin" is not evaluated correctly:\n${ast_expr_to_string(last_expr)}`
+          ast_expr_token(&last_expr),
+          `Last expression in "begin" is not evaluated correctly:\n${ast_expr_to_string(&last_expr)}`
         )
       )
     );
   });
-  last_info := match(last_info_opt, .Some(li) => li, .None => new_expr_info(env, TypeValue.Unit));
+  last_info := match(last_info_opt, .Some(li) => li, .None => new_expr_info(&env, TypeValue.Unit));
   return_type := last_info.ty;
   // Decision 38 A: the block's result may not carry a borrow of a binding the
   // block declares (this block's own frame is the innermost one).
   if(env.frames.len() > usize(0), {
-    reject_second_class_result_outliving(return_type, env.frames.len() - usize(1), ast_expr_token(last_expr), env, ctx, exn);
+    reject_second_class_result_outliving(&return_type, env.frames.len() - usize(1), ast_expr_token(&last_expr), &env, ctx, exn);
   });
   // -------------------------------------------------------------------------
   // Return-type compatibility check
@@ -2879,15 +2879,15 @@ _evaluate_begin_expression_impl :: (
                   ft,
                   .Func({ result : result_box }) => {
                     expected_ret := result_box;
-                    synth_ok := _try_synthesize_return_type(expected_ret, return_type, env);
+                    synth_ok := _try_synthesize_return_type(&expected_ret, &return_type, &env);
                     if(!synth_ok, {
-                      compat := are_types_compatible(return_type, expected_ret);
-                      if(!is_some_type(expected_ret) && !compat, {
+                      compat := are_types_compatible(&return_type, &expected_ret);
+                      if(!is_some_type(&expected_ret) && !compat, {
                         exn.throw(
                           dyn(
                             format_error_message(
-                              ast_expr_token(last_expr),
-                              `Return type mismatch. Expected type "${type_to_string(expected_ret)}", but got "${type_to_string(return_type)}".`
+                              ast_expr_token(&last_expr),
+                              `Return type mismatch. Expected type "${type_to_string(&expected_ret)}", but got "${type_to_string(&return_type)}".`
                             )
                           )
                         );
@@ -2905,15 +2905,15 @@ _evaluate_begin_expression_impl :: (
             match(
               ctx.expected_type,
               .Some(et) => {
-                as_synth_ok := _try_synthesize_return_type(et.ty, return_type, env);
+                as_synth_ok := _try_synthesize_return_type(&et.ty, &return_type, &env);
                 if(!as_synth_ok, {
-                  as_compat := are_types_compatible(return_type, et.ty);
-                  if(!is_some_type(et.ty) && !as_compat, {
+                  as_compat := are_types_compatible(&return_type, &et.ty);
+                  if(!is_some_type(&et.ty) && !as_compat, {
                     exn.throw(
                       dyn(
                         format_error_message(
-                          ast_expr_token(last_expr),
-                          `Return type mismatch. Expected type "${type_to_string(et.ty)}", but got "${type_to_string(return_type)}".`
+                          ast_expr_token(&last_expr),
+                          `Return type mismatch. Expected type "${type_to_string(&et.ty)}", but got "${type_to_string(&return_type)}".`
                         )
                       )
                     );
@@ -2936,7 +2936,7 @@ _evaluate_begin_expression_impl :: (
   re_base := match(return_expr, .Some(re) => re, .None => last_expr);
   is_return_with_arg := match(
     return_expr,
-    .Some(re) => ast_expr_is_fn_call_of(re, BK_RETURN, .Some(usize(1))),
+    .Some(re) => ast_expr_is_fn_call_of(&re, BK_RETURN, .Some(usize(1))),
     .None => false
   );
   check_expr := cond(
@@ -2947,7 +2947,7 @@ _evaluate_begin_expression_impl :: (
     ),
     true => re_base
   );
-  throw_expr_is_implicit_variable_error(check_expr, env, ctx, exn);
+  throw_expr_is_implicit_variable_error(&check_expr, &env, ctx, exn);
   // -------------------------------------------------------------------------
   // Ownership / RC optimizations (ported — LIVE, not the Phase 2aa stubs)
   // -------------------------------------------------------------------------
@@ -2993,7 +2993,7 @@ _evaluate_begin_expression_impl :: (
   // predicate to value enums/structs freed payloads still in use — the
   // hashmap_self_cycle abort).
   (return_value_expr : AstExpr) = last_expr;
-  if(ast_expr_is_fn_call_of(last_expr, BK_RETURN, Option(usize).Some(usize(1))), {
+  if(ast_expr_is_fn_call_of(&last_expr, BK_RETURN, Option(usize).Some(usize(1))), {
     match(
       last_expr,
       .FnCall(_, _, ret_args, _, _) => match(
@@ -3014,7 +3014,7 @@ _evaluate_begin_expression_impl :: (
   // `generate_consumed_var_drops_for_escape`, position-gated to escape points
   // BEFORE the consumption.
   (consumed_escape_drops : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
-  rv_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(return_value_expr));
+  rv_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&return_value_expr));
   rv_name_opt := match(
     rv_info_opt,
     .Some(rv_info) => rv_info.variable_name,
@@ -3024,7 +3024,7 @@ _evaluate_begin_expression_impl :: (
     rv_name_opt,
     .None => (),
     .Some(rv_name) => {
-      rv_vars := get_variables_from_env(env, rv_name);
+      rv_vars := get_variables_from_env(&env, &rv_name);
       nrv := rv_vars.len();
       if(nrv == usize(0), {
         // The tail's recorded temp name is NOT visible in the live begin env
@@ -3035,7 +3035,7 @@ _evaluate_begin_expression_impl :: (
         // (where the temp does exist): owning temps still consume, non-RC and
         // inlinable-concrete values still decline — only the borrowed case
         // gains its balancing +1 (the round-3 borrowed-field-tail UAF).
-        set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn, "return");
+        set_expr_as_needs_to_call_dup(&return_value_expr, ctx, exn, "return");
       });
       if(nrv > usize(0), {
         match(
@@ -3044,7 +3044,7 @@ _evaluate_begin_expression_impl :: (
           .Some(rv) => {
             ty_ok := match(
               rv_info_opt,
-              .Some(rv_info_t) => are_types_compatible(rv.ty, rv_info_t.ty),
+              .Some(rv_info_t) => are_types_compatible(&rv.ty, &rv_info_t.ty),
               .None => false
             );
             if(ty_ok, {
@@ -3090,13 +3090,13 @@ _evaluate_begin_expression_impl :: (
                 // Transfer: consumed — the scope-end scheduler (e5) skips it.
                 // A named variable's transfer is a move (the flow log's
                 // per-path move state, `set_expr_as_consumed`).
-                if(!is_temp_variable_name(env.module_path, rv.name), {
-                  record_branch_consume(rv.id, ast_expr_token(last_expr), rv.initialized_at_token, Option(Token).None);
+                if(!is_temp_variable_name(&env.module_path, &rv.name), {
+                  record_branch_consume(rv.id, ast_expr_token(&last_expr), &rv.initialized_at_token, Option(Token).None);
                 });
-                rv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(last_expr)));
+                rv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(&last_expr)));
               }, {
                 // Borrow/outer-frame share: balancing dup.
-                set_expr_as_needs_to_call_dup(return_value_expr, ctx, exn, "return");
+                set_expr_as_needs_to_call_dup(&return_value_expr, ctx, exn, "return");
               });
             });
           }
@@ -3108,9 +3108,9 @@ _evaluate_begin_expression_impl :: (
   // and, for a function body, of its parameters (plans/VALUES_BY_DEFAULT.md
   // §6, item 1). Read-only.
   if(audit_pending_copies_enabled(), {
-    match(current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(audit_fr, begin_args, ctx), .None => ());
+    match(current_frame_opt, .Some(audit_fr) => _audit_judge_implicit_copies(&audit_fr, &begin_args, ctx), .None => ());
     if(is_evaluating_function_body_begin_block && (env.frames.len() >= usize(2)), {
-      match(env.frames.get(env.frames.len() - usize(2)), .Some(audit_pfr) => _audit_judge_implicit_copies(audit_pfr, begin_args, ctx), .None => ());
+      match(env.frames.get(env.frames.len() - usize(2)), .Some(audit_pfr) => _audit_judge_implicit_copies(&audit_pfr, &begin_args, ctx), .None => ());
     });
   });
   // OPTIMIZE_DUP_AND_DROP_PAIRS: cancel each candidate
@@ -3129,13 +3129,13 @@ _evaluate_begin_expression_impl :: (
         match(
           begin_args.get(ai),
           .Some(a) => {
-            awaits = _contains_io_await_for_opt(a, ctx);
+            awaits = _contains_io_await_for_opt(&a, ctx);
           },
           .None => ()
         );
         ai = (ai + usize(1));
       });
-      if(!frame_is_isolating(opt_fr), _optimize_dup_drop_pairs(opt_fr, begin_args, last_info.variable_name, last_expr, awaits, ctx));
+      if(!frame_is_isolating(&opt_fr), _optimize_dup_drop_pairs(&opt_fr, &begin_args, &last_info.variable_name, &last_expr, awaits, ctx));
     },
     .None => ()
   );
@@ -3144,7 +3144,7 @@ _evaluate_begin_expression_impl :: (
   // names are still in scope). See _schedule_scope_end_drops + plans/archive/YO_SELF_NAMED_LOCAL_DROPS.md.
   (scope_end_drops : Option(ArrayList(AstExpr))) = match(
     current_frame_opt,
-    .Some(fr) => _schedule_scope_end_drops(fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn),
+    .Some(fr) => _schedule_scope_end_drops(&fr, &begin_args, &last_info.variable_name, &last_expr, &env, ctx, exn),
     .None => Option(ArrayList(AstExpr)).None
   );
   // For the FUNCTION-BODY begin block, also schedule drops for the
@@ -3163,7 +3163,7 @@ _evaluate_begin_expression_impl :: (
     match(
       env.frames.get(env.frames.len() - usize(2)),
       .Some(params_fr) => {
-        params_drops := _schedule_scope_end_drops(params_fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn, true);
+        params_drops := _schedule_scope_end_drops(&params_fr, &begin_args, &last_info.variable_name, &last_expr, &env, ctx, exn, true);
         match(
           params_drops,
           .Some(pd_list) => {
@@ -3208,7 +3208,7 @@ _evaluate_begin_expression_impl :: (
         .Some(cap_fr) => if(is_fnonce_capture_frame(cap_fr.id), {
           cf_found = true;
           match(
-            _schedule_scope_end_drops(cap_fr, begin_args, last_info.variable_name, last_expr, env, ctx, exn),
+            _schedule_scope_end_drops(&cap_fr, &begin_args, &last_info.variable_name, &last_expr, &env, ctx, exn),
             .Some(cd_list) => {
               (merged_caps : ArrayList(AstExpr)) = match(
                 scope_end_drops,
@@ -3220,7 +3220,7 @@ _evaluate_begin_expression_impl :: (
                 match(
                   cd_list.get(cd_i),
                   .Some(cd) => {
-                    mark_fnonce_capture_drop(ast_expr_id(cd));
+                    mark_fnonce_capture_drop(ast_expr_id(&cd));
                     merged_caps.push(cd);
                   },
                   .None => ()
@@ -3239,13 +3239,13 @@ _evaluate_begin_expression_impl :: (
           while(cci < cap_fr.variables.len(), {
             match(
               cap_fr.variables.get(cci),
-              .Some(cv) => if(cv.consumed_at_token.is_some() && cv.is_owning_the_rc_value && _variable_can_need_drop_ignoring_consumed(cv), {
-                c_drop := evaluate_expression_raw(generate_expr_from_code(`___drop(${cv.name})`, exn), env, ctx, exn);
-                mark_fnonce_capture_drop(ast_expr_id(c_drop));
+              .Some(cv) => if(cv.consumed_at_token.is_some() && cv.is_owning_the_rc_value && _variable_can_need_drop_ignoring_consumed(&cv), {
+                c_drop := evaluate_expression_raw(generate_expr_from_code(`___drop(${cv.name})`, exn), &env, ctx, exn);
+                mark_fnonce_capture_drop(ast_expr_id(&c_drop));
                 consumed_escape_drops.push(c_drop);
                 (cdai : usize) = usize(0);
                 while(cdai < begin_args.len(), {
-                  match(begin_args.get(cdai), .Some(carg) => _attach_early_return_only_drop_to_returns(carg, cv, c_drop, ctx), .None => ());
+                  match(begin_args.get(cdai), .Some(carg) => _attach_early_return_only_drop_to_returns(&carg, &cv, &c_drop, ctx), .None => ());
                   cdai = (cdai + usize(1));
                 });
               }),
@@ -3278,16 +3278,16 @@ _evaluate_begin_expression_impl :: (
           fr2.variables.get(evi),
           .Some(ev) => {
             not_auto := !ev.token.module_path.starts_with(String.from("auto-generated://"));
-            eligible := (ev.consumed_at_token.is_some() && ev.initialized_at_token.is_some() && not_auto && (!_variable_is_captured_by_current_function(ev, ctx) && _variable_can_need_drop_ignoring_consumed(ev)));
-            init_ok := match(ev.initialized_at_token, .Some(it) => _m3_token_is_at_or_before(begin_tok, it), .None => false);
+            eligible := (ev.consumed_at_token.is_some() && ev.initialized_at_token.is_some() && not_auto && (!_variable_is_captured_by_current_function(&ev, ctx) && _variable_can_need_drop_ignoring_consumed(&ev)));
+            init_ok := match(ev.initialized_at_token, .Some(it) => _m3_token_is_at_or_before(&begin_tok, &it), .None => false);
             if(eligible && init_ok, {
               drop_code := `___drop(${ev.name})`;
-              drop_expr := generate_expr_from_code(drop_code, exn);
-              evaluated := evaluate_expression_raw(drop_expr, env, ctx, exn);
+              drop_expr := generate_expr_from_code(&drop_code, exn);
+              evaluated := evaluate_expression_raw(&drop_expr, &env, ctx, exn);
               consumed_escape_drops.push(evaluated);
               (dai : usize) = usize(0);
               while(dai < begin_args.len(), {
-                match(begin_args.get(dai), .Some(arg) => _attach_early_return_only_drop_to_returns(arg, ev, evaluated, ctx), .None => ());
+                match(begin_args.get(dai), .Some(arg) => _attach_early_return_only_drop_to_returns(&arg, &ev, &evaluated, ctx), .None => ());
                 dai = (dai + usize(1));
               });
             });
@@ -3317,11 +3317,11 @@ _evaluate_begin_expression_impl :: (
             params_fr2.variables.get(pei),
             .Some(pev) => {
               p_not_auto := !pev.token.module_path.starts_with(String.from("auto-generated://"));
-              p_eligible := (pev.is_parameter && (pev.consumed_at_token.is_some() && (pev.initialized_at_token.is_some() && (p_not_auto && (!_variable_is_captured_by_current_function(pev, ctx) && _variable_can_need_drop_ignoring_consumed(pev))))));
+              p_eligible := (pev.is_parameter && (pev.consumed_at_token.is_some() && (pev.initialized_at_token.is_some() && (p_not_auto && (!_variable_is_captured_by_current_function(&pev, ctx) && _variable_can_need_drop_ignoring_consumed(&pev))))));
               if(p_eligible, {
                 p_drop_code := `___drop(${pev.name})`;
-                p_drop_expr := generate_expr_from_code(p_drop_code, exn);
-                p_evaluated := evaluate_expression_raw(p_drop_expr, env, ctx, exn);
+                p_drop_expr := generate_expr_from_code(&p_drop_code, exn);
+                p_evaluated := evaluate_expression_raw(&p_drop_expr, &env, ctx, exn);
                 consumed_escape_drops.push(p_evaluated);
                 // An early `return` that precedes the parameter's move must
                 // release it too, as the M3 driver above does for locals: the
@@ -3330,7 +3330,7 @@ _evaluate_begin_expression_impl :: (
                 // (issues/fixed/an-early-return-skips-the-drop-of-an-owned-parameter.md).
                 (pdai : usize) = usize(0);
                 while(pdai < begin_args.len(), {
-                  match(begin_args.get(pdai), .Some(parg) => _attach_early_return_only_drop_to_returns(parg, pev, p_evaluated, ctx), .None => ());
+                  match(begin_args.get(pdai), .Some(parg) => _attach_early_return_only_drop_to_returns(&parg, &pev, &p_evaluated, ctx), .None => ());
                   pdai = (pdai + usize(1));
                 });
               });
@@ -3458,11 +3458,11 @@ _evaluate_begin_expression_impl :: (
   // early-return-only drops, converted type / dyn traits / async analysis...)
   // that previously needed its own empirical carry.
   // -------------------------------------------------------------------------
-  shared_with_tail := (ast_expr_id(expr) == ast_expr_id(last_expr));
+  shared_with_tail := (ast_expr_id(expr) == ast_expr_id(&last_expr));
   (out_info : ExprInfo) = if(
     shared_with_tail,
-    clone_expr_info_for_shared_begin_result(last_info, env, return_type),
-    new_expr_info(env, return_type)
+    clone_expr_info_for_shared_begin_result(&last_info, &env, &return_type),
+    new_expr_info(&env, &return_type)
   );
   // The begin level owns the scope-end drops, but on a SHARED id it must not
   // CLOBBER the tail's own deferred drops: a Stage-0 projection dup's
@@ -3509,7 +3509,7 @@ _evaluate_begin_expression_impl :: (
   // `deferred_drop_expressions` above) so neither channel is lost.
   if(consumed_escape_drops.len() > usize(0), {
     (escape_drop_list : ArrayList(AstExpr)) = match(
-      expr_info_consumed_variable_drop_expressions(out_info),
+      expr_info_consumed_variable_drop_expressions(&out_info),
       .Some(existing_escape_drops) => existing_escape_drops,
       .None => ArrayList(AstExpr).new()
     );
@@ -3524,12 +3524,12 @@ _evaluate_begin_expression_impl :: (
       );
       dcd_i = (dcd_i + usize(1));
     });
-    expr_info_set_consumed_variable_drop_expressions(out_info, Option(ArrayList(AstExpr)).Some(escape_drop_list));
+    expr_info_set_consumed_variable_drop_expressions(&out_info, Option(ArrayList(AstExpr)).Some(escape_drop_list));
   });
   out_info.value = cond(has_runtime_side_effects => Option(EvalValue).None, true => last_info.value);
   out_info.control_flow = last_info.control_flow;
-  expr_info_set_comptime_ref(out_info, expr_info_comptime_ref(last_info));
-  expr_info_set_capture_type(out_info, expr_info_capture_type(last_info));
+  expr_info_set_comptime_ref(&out_info, expr_info_comptime_ref(&last_info));
+  expr_info_set_capture_type(&out_info, expr_info_capture_type(&last_info));
   // NOTE: the popped frame is deliberately NOT stored on `out_info`. It used to
   // be, via an `ExprInfo.popped_env_frame` field that nothing ever read; the
   // write went first (the eval-phase leak fix) and the write-only field itself
@@ -3547,18 +3547,18 @@ _evaluate_begin_expression_impl :: (
   carry_runtime_args := match(
     last_info.value,
     .None => true,
-    .Some(v) => match(v, .UnitVal => true, _ => _value_contains_unknown(v))
+    .Some(v) => match(v, .UnitVal => true, _ => _value_contains_unknown(&v))
   );
   if(shared_with_tail && !carry_runtime_args, {
     out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).None;
-    expr_info_set_index_trait_ptr_type(out_info, Option(TypeValue).None);
-    expr_info_set_index_method_type(out_info, Option(TypeValue).None);
-    expr_info_set_index_method_value(out_info, Option(EvalValue).None);
+    expr_info_set_index_trait_ptr_type(&out_info, Option(TypeValue).None);
+    expr_info_set_index_method_type(&out_info, Option(TypeValue).None);
+    expr_info_set_index_method_value(&out_info, Option(EvalValue).None);
   });
   if(shared_with_tail && !(is_evaluating_function_body_begin_block && carry_runtime_args), {
     out_info.variable_name = Option(String).None;
   });
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach temp variable for the begin block result (no-op stub in Phase 2aa).
   attach_temp_variable_to_expr(expr, true, ctx);
   expr

@@ -75,7 +75,7 @@ extract_doc_sections :: (fn(imm(doc) : Option(String)) -> DocSections)(
     doc,
     .None => DocSections(deprecated : Option(String).None, examples : Option(String).None),
     .Some(text) => {
-      parsed := parse_doc_comment(text);
+      parsed := parse_doc_comment(&text);
       DocSections(
         deprecated : parsed.sections.get(String.from("deprecated")),
         examples : parsed.sections.get(String.from("examples"))
@@ -98,7 +98,7 @@ module_stability :: (fn(imm(doc) : Option(String)) -> Option(String))(
     doc,
     .None => Option(String).None,
     .Some(text) => match(
-      parse_doc_comment(text).sections.get(String.from("stability")),
+      parse_doc_comment(&text).sections.get(String.from("stability")),
       .None => Option(String).None,
       .Some(sec) => {
         (collapsed : String) = String.from("");
@@ -188,7 +188,7 @@ merge_methods :: (
   while(j < secondary.len(), {
     match(
       secondary.get(j),
-      .Some(m) => if(!seen.contains(m.name), {
+      .Some(m) => if(!seen.contains(&m.name), {
         seen.push(m.name.clone());
         merged.push(m);
       }),
@@ -207,7 +207,7 @@ merge_trait_impl_names :: (
   while(i < primary.len(), {
     match(
       primary.get(i),
-      .Some(n) => if(!merged.contains(n), {
+      .Some(n) => if(!merged.contains(&n), {
         merged.push(n.clone());
       }),
       .None => ()
@@ -218,7 +218,7 @@ merge_trait_impl_names :: (
   while(j < secondary.len(), {
     match(
       secondary.get(j),
-      .Some(n) => if(!merged.contains(n), {
+      .Some(n) => if(!merged.contains(&n), {
         merged.push(n.clone());
       }),
       .None => ()
@@ -735,7 +735,7 @@ _extract_top_level_fn_signatures :: (
   while(fi < tokens.len(), {
     match(
       tokens.get(fi),
-      .Some(t) => if(!_is_trivia_token(t), {
+      .Some(t) => if(!_is_trivia_token(&t), {
         toks.push(t);
       }),
       .None => ()
@@ -772,7 +772,7 @@ _extract_top_level_fn_signatures :: (
     }, false);
     if(is_decl, {
       match(
-        _parse_source_fn_signature(toks, i + usize(2)),
+        _parse_source_fn_signature(&toks, i + usize(2)),
         .Some(info) => {
           already := match(
             result.get(token.value.clone()),
@@ -785,11 +785,11 @@ _extract_top_level_fn_signatures :: (
         },
         .None => ()
       );
-      i = _skip_balanced_parens(toks, i + usize(2));
+      i = _skip_balanced_parens(&toks, i + usize(2));
       continue;
     });
     if(token.kind == TokenKind.LParen, {
-      i = _skip_balanced_parens(toks, i);
+      i = _skip_balanced_parens(&toks, i);
     }, {
       i = (i + usize(1));
     });
@@ -911,7 +911,7 @@ _strip_doc_block_comment :: (fn(imm(text) : String) -> String)({
     });
     i = (i + usize(1));
   });
-  String.from("\n").join(out_lines).trim()
+  String.from("\n").join(&out_lines).trim()
 });
 /// Collect `///` / `/** */` doc comment lines immediately preceding the token
 /// at (row, character) in the FULL (trivia-included) token array.
@@ -946,10 +946,10 @@ _collect_doc_comment_before :: (
       .Some(t) => cond(
         (t.kind == TokenKind.Whitespace) => (),
         (t.kind == TokenKind.DocLineComment) => {
-          collected_rev.push(_strip_doc_line_prefix(t.value));
+          collected_rev.push(_strip_doc_line_prefix(&t.value));
         },
         (t.kind == TokenKind.DocBlockComment) => {
-          collected_rev.push(_strip_doc_block_comment(t.value));
+          collected_rev.push(_strip_doc_block_comment(&t.value));
         },
         true => {
           stop = true;
@@ -965,7 +965,7 @@ _collect_doc_comment_before :: (
     return(Option(String).None);
   });
   collected_rev.reverse();
-  Option(String).Some(String.from("\n").join(collected_rev).trim())
+  Option(String).Some(String.from("\n").join(&collected_rev).trim())
 });
 // ---------------------------------------------------------------------------
 // impl(...) token scanning
@@ -992,7 +992,7 @@ extract_trait_impls_from_tokens :: (
   while(fi < tokens.len(), {
     match(
       tokens.get(fi),
-      .Some(t) => if(!_is_trivia_token(t), {
+      .Some(t) => if(!_is_trivia_token(&t), {
         toks.push(t);
       }),
       .None => ()
@@ -1030,7 +1030,7 @@ extract_trait_impls_from_tokens :: (
       .None => false
     );
     if(is_generic, {
-      j = _skip_balanced_parens(toks, j + usize(1));
+      j = _skip_balanced_parens(&toks, j + usize(1));
       match(
         toks.get(j),
         .Some(t) => if(t.kind == TokenKind.Comma, {
@@ -1046,7 +1046,7 @@ extract_trait_impls_from_tokens :: (
       .None => false
     );
     if(is_where, {
-      j = _skip_balanced_parens(toks, j + usize(1));
+      j = _skip_balanced_parens(&toks, j + usize(1));
       match(
         toks.get(j),
         .Some(t) => if(t.kind == TokenKind.Comma, {
@@ -1073,7 +1073,7 @@ extract_trait_impls_from_tokens :: (
       .None => false
     );
     if(is_lp, {
-      j = _skip_balanced_parens(toks, j);
+      j = _skip_balanced_parens(&toks, j);
     });
     // If next is comma, the item after is the trait name.
     is_comma := match(
@@ -1110,7 +1110,7 @@ extract_trait_impls_from_tokens :: (
       .Some(l) => l,
       .None => ArrayList(String).new()
     );
-    if(!existing.contains(trait_name), {
+    if(!existing.contains(&trait_name), {
       existing.push(trait_name.clone());
     });
     result.insert(type_name.clone(), existing);
@@ -1188,7 +1188,7 @@ _extract_trait_body_members :: (
           // The fn type signature: (fn(...) -> ReturnType).
           fn_paren_end := _skip_balanced_parens(toks, type_start);
           fn_signature := _slice_token_text(toks, type_start, fn_paren_end - usize(1));
-          return_type := _extract_return_type_from_signature(fn_signature);
+          return_type := _extract_return_type_from_signature(&fn_signature);
           // Parameters — between the inner parens after `fn`.
           params := ArrayList(DocParam).new();
           param_start := (type_start + usize(2));
@@ -1320,7 +1320,7 @@ extract_impl_info_from_tokens :: (
   while(fi < tokens.len(), {
     match(
       tokens.get(fi),
-      .Some(t) => if(!_is_trivia_token(t), {
+      .Some(t) => if(!_is_trivia_token(&t), {
         toks.push(t);
       }),
       .None => ()
@@ -1347,7 +1347,7 @@ extract_impl_info_from_tokens :: (
       i = (i + usize(1));
       continue;
     });
-    impl_end := _skip_balanced_parens(toks, i + usize(1));
+    impl_end := _skip_balanced_parens(&toks, i + usize(1));
     (current : usize) = (i + usize(2));
     signature_parts := ArrayList(String).new();
     // `generic(...)` prefix.
@@ -1357,8 +1357,8 @@ extract_impl_info_from_tokens :: (
       .None => false
     );
     if(is_generic, {
-      forall_end := _skip_balanced_parens(toks, current + usize(1));
-      signature_parts.push(_slice_token_text(toks, current, forall_end - usize(1)));
+      forall_end := _skip_balanced_parens(&toks, current + usize(1));
+      signature_parts.push(_slice_token_text(&toks, current, forall_end - usize(1)));
       current = forall_end;
       match(
         toks.get(current),
@@ -1375,8 +1375,8 @@ extract_impl_info_from_tokens :: (
       .None => false
     );
     if(is_where, {
-      where_end := _skip_balanced_parens(toks, current + usize(1));
-      signature_parts.push(_slice_token_text(toks, current, where_end - usize(1)));
+      where_end := _skip_balanced_parens(&toks, current + usize(1));
+      signature_parts.push(_slice_token_text(&toks, current, where_end - usize(1)));
       current = where_end;
       match(
         toks.get(current),
@@ -1388,13 +1388,13 @@ extract_impl_info_from_tokens :: (
     });
     // Receiver.
     receiver_start := current;
-    receiver_end := _skip_delimited_argument(toks, receiver_start);
-    receiver_type_name := _extract_receiver_type_name(toks, receiver_start, receiver_end - usize(1));
+    receiver_end := _skip_delimited_argument(&toks, receiver_start);
+    receiver_type_name := _extract_receiver_type_name(&toks, receiver_start, receiver_end - usize(1));
     if(receiver_type_name.len() == usize(0), {
       i = impl_end;
       continue;
     });
-    signature_parts.push(_slice_token_text(toks, receiver_start, receiver_end - usize(1)));
+    signature_parts.push(_slice_token_text(&toks, receiver_start, receiver_end - usize(1)));
     current = receiver_end;
     match(
       toks.get(current),
@@ -1410,9 +1410,9 @@ extract_impl_info_from_tokens :: (
       .None => false
     );
     if(is_where2, {
-      where_end := _skip_balanced_parens(toks, current + usize(1));
+      where_end := _skip_balanced_parens(&toks, current + usize(1));
       receiver_part := match(signature_parts.pop(), .Some(p) => p, .None => String.new());
-      signature_parts.push(_slice_token_text(toks, current, where_end - usize(1)));
+      signature_parts.push(_slice_token_text(&toks, current, where_end - usize(1)));
       signature_parts.push(receiver_part);
       current = where_end;
       match(
@@ -1435,7 +1435,7 @@ extract_impl_info_from_tokens :: (
     anonymous_method_names := ArrayList(String).new();
     while(current < (impl_end - usize(1)), {
       arg_start := current;
-      arg_end := _skip_delimited_argument(toks, arg_start);
+      arg_end := _skip_delimited_argument(&toks, arg_start);
       first := match(
         toks.get(arg_start),
         .Some(t) => t,
@@ -1459,8 +1459,8 @@ extract_impl_info_from_tokens :: (
           .Some(t) => (t.kind == TokenKind.LParen),
           .None => false
         );
-        type_end := if(type_start_is_lp, _skip_balanced_parens(toks, type_start), type_start + usize(1));
-        signature := _slice_token_text(toks, type_start, type_end - usize(1));
+        type_end := if(type_start_is_lp, _skip_balanced_parens(&toks, type_start), type_start + usize(1));
+        signature := _slice_token_text(&toks, type_start, type_end - usize(1));
         // The comment physically preceding THIS member — the same join
         // `_extract_trait_body_members` uses — falling back to the bare-name
         // entry when the extractor attached through a token the position walk
@@ -1492,7 +1492,7 @@ extract_impl_info_from_tokens :: (
             doc : member_doc,
             signature : signature.clone(),
             parameters : ArrayList(DocParam).new(),
-            return_type : _extract_return_type_from_signature(signature),
+            return_type : _extract_return_type_from_signature(&signature),
             type_params : Option(ArrayList(DocParam)).None,
             effects : Option(ArrayList(DocParam)).None,
             is_method : true,
@@ -1517,8 +1517,8 @@ extract_impl_info_from_tokens :: (
             .None => false
           );
           if(next_is_lp, {
-            first_paren_end := _skip_balanced_parens(toks, arg_start + usize(1));
-            first_has_body := _paren_contains_trait_body(toks, arg_start + usize(1));
+            first_paren_end := _skip_balanced_parens(&toks, arg_start + usize(1));
+            first_has_body := _paren_contains_trait_body(&toks, arg_start + usize(1));
             second_is_lp := match(
               toks.get(first_paren_end),
               .Some(t) => (t.kind == TokenKind.LParen),
@@ -1527,9 +1527,9 @@ extract_impl_info_from_tokens :: (
             cond(
               (!first_has_body && (first_paren_end <= arg_end) && second_is_lp) => {
                 // e.g. Index(usize)(body...) — type args first, body second.
-                trait_signature = _slice_token_text(toks, arg_start, first_paren_end - usize(1));
-                if(_paren_contains_trait_body(toks, first_paren_end), {
-                  extracted := _extract_trait_body_members(toks, first_paren_end, tokens);
+                trait_signature = _slice_token_text(&toks, arg_start, first_paren_end - usize(1));
+                if(_paren_contains_trait_body(&toks, first_paren_end), {
+                  extracted := _extract_trait_body_members(&toks, first_paren_end, tokens);
                   trait_method_names = extracted.method_names;
                   trait_assoc_types = extracted.associated_types;
                   trait_methods = extracted.methods;
@@ -1537,10 +1537,10 @@ extract_impl_info_from_tokens :: (
                 });
               },
               !first_has_body => {
-                trait_signature = _slice_token_text(toks, arg_start, first_paren_end - usize(1));
+                trait_signature = _slice_token_text(&toks, arg_start, first_paren_end - usize(1));
               },
               true => {
-                extracted := _extract_trait_body_members(toks, arg_start + usize(1), tokens);
+                extracted := _extract_trait_body_members(&toks, arg_start + usize(1), tokens);
                 trait_method_names = extracted.method_names;
                 trait_assoc_types = extracted.associated_types;
                 trait_methods = extracted.methods;
@@ -1611,7 +1611,7 @@ extract_impl_info_from_tokens :: (
           });
           entry.impls.push(
             DocImpl(
-              signature : `impl(${String.from(", ").join(full_parts)})`,
+              signature : `impl(${String.from(", ").join(&full_parts)})`,
               trait_name : Option(String).Some(first.value.clone()),
               method_names : trait_method_names,
               associated_types : assoc_opt
@@ -1631,7 +1631,7 @@ extract_impl_info_from_tokens :: (
     if(anonymous_method_names.len() > usize(0), {
       entry.impls.push(
         DocImpl(
-          signature : `impl(${String.from(", ").join(signature_parts)}, ...)`,
+          signature : `impl(${String.from(", ").join(&signature_parts)}, ...)`,
           trait_name : Option(String).None,
           method_names : anonymous_method_names,
           associated_types : Option(ArrayList(DocImplAssocType)).None
@@ -1709,7 +1709,7 @@ _classify_token_declarations :: (fn(imm(tokens) : ArrayList(Token)) -> TokenDecl
   while(fi < tokens.len(), {
     match(
       tokens.get(fi),
-      .Some(t) => if(!_is_trivia_token(t), {
+      .Some(t) => if(!_is_trivia_token(&t), {
         toks.push(t);
       }),
       .None => ()
@@ -1879,11 +1879,11 @@ _classify_token_declarations :: (fn(imm(tokens) : ArrayList(Token)) -> TokenDecl
             // argument's delimiter.
             if((kind == `struct`) && is_binding, {
               type_start := (i + usize(2));
-              type_end := _skip_delimited_argument(toks, type_start);
+              type_end := _skip_delimited_argument(&toks, type_start);
               if(type_end > type_start, {
                 structure.member_field_types.insert(
                   key.clone(),
-                  _slice_token_text(toks, type_start, type_end - usize(1))
+                  _slice_token_text(&toks, type_start, type_end - usize(1))
                 );
               });
             });
@@ -1978,7 +1978,7 @@ build_doc_module_from_tokens :: (
 )({
   doc_lookup := build_doc_lookup(extraction);
   trait_impl_map := extract_trait_impls_from_tokens(tokens);
-  impl_info_map := extract_impl_info_from_tokens(tokens, doc_lookup);
+  impl_info_map := extract_impl_info_from_tokens(tokens, &mut doc_lookup);
   structure := _classify_token_declarations(tokens);
   (module_doc : Option(String)) = Option(String).None;
   match(
@@ -2035,7 +2035,7 @@ build_doc_module_from_tokens :: (
         match(
           structure.trait_body_lparens.get(decl_name.clone()),
           .Some(lp) => {
-            extracted := _extract_trait_body_members(structure.toks, lp, tokens);
+            extracted := _extract_trait_body_members(&structure.toks, lp, tokens);
             trait_methods = extracted.methods;
           },
           .None => ()
@@ -2172,7 +2172,7 @@ build_doc_module_from_tokens :: (
                 .None => String.from("(unknown)")
               );
               _attach_token_field(
-                types,
+                &types,
                 idx,
                 DocField(
                   name : decl_name.clone(),
@@ -2183,7 +2183,7 @@ build_doc_module_from_tokens :: (
               );
             }, {
               _attach_token_variant(
-                types,
+                &types,
                 idx,
                 DocVariant(
                   name : decl_name.clone(),
@@ -2265,7 +2265,7 @@ build_doc_module_from_tokens :: (
     name : name,
     path : path,
     doc : module_doc,
-    stability : module_stability(module_doc),
+    stability : module_stability(&module_doc),
     functions : ArrayList(DocFunction).new(),
     types : types,
     traits : traits,
@@ -2304,12 +2304,12 @@ build_cross_references :: (fn(imm(modules) : ArrayList(DocModule)) -> unit)({
       while(tri < t.trait_impls.len(), {
         trait_name := match(t.trait_impls.get(tri), .Some(n) => n, .None => String.new());
         if(trait_name.len() > usize(0), {
-          idx := trait_names.index_of(trait_name);
+          idx := trait_names.index_of(&trait_name);
           match(
             idx,
             .Some(existing_idx) => {
               lst := match(trait_implementors.get(existing_idx), .Some(l) => l, .None => ArrayList(String).new());
-              if(!lst.contains(t.name), {
+              if(!lst.contains(&t.name), {
                 lst.push(t.name.clone());
               });
             },
@@ -2349,7 +2349,7 @@ build_cross_references :: (fn(imm(modules) : ArrayList(DocModule)) -> unit)({
         }
       );
       match(
-        trait_names.index_of(tr.name),
+        trait_names.index_of(&tr.name),
         .Some(found_idx) => {
           impls := match(trait_implementors.get(found_idx), .Some(l) => l, .None => ArrayList(String).new());
           sorted := ArrayList(String).new();
@@ -2436,7 +2436,7 @@ _fill_re_exported_docs :: (fn(imm(modules) : ArrayList(DocModule)) -> unit)({
       match(
         m.types.get(ti),
         .Some(t) => {
-          score := _doc_type_doc_count(t);
+          score := _doc_type_doc_count(&t);
           if(score > usize(0), {
             key := `${t.name}|${t.signature}`;
             match(
@@ -2492,9 +2492,9 @@ _fill_re_exported_docs :: (fn(imm(modules) : ArrayList(DocModule)) -> unit)({
             // Methods, fields and variants live in ArrayLists, which are shared
             // handles even through a struct copy — indexed assignment on them
             // reaches the model.
-            _fill_doc_methods_from(t2, donor);
-            _fill_doc_fields_from(t2, donor);
-            _fill_doc_variants_from(t2, donor);
+            _fill_doc_methods_from(&mut t2, &donor);
+            _fill_doc_fields_from(&t2, &donor);
+            _fill_doc_variants_from(&t2, &donor);
             // The type's OWN doc is a value field, so it needs a rebuilt entry.
             if(t2.doc.is_none() && donor.doc.is_some(), {
               m2.types(tj) = DocType(
@@ -2865,7 +2865,7 @@ _resolve_inner_type :: (fn(imm(field_type) : TypeValue, imm(value) : EvalValue) 
     match(
       value,
       .FuncVal(data, _) => {
-        registered := get_func_type(data.*.func_id);
+        registered := get_func_type(&data.*.func_id);
         match(
           registered,
           .Func({ result }) => {
@@ -2896,8 +2896,8 @@ _function_params_to_doc_params :: (
     .Func({ param_types, meta }) => {
       labels := meta.*.param_labels;
       origin := match(meta.*.origin_id, .Some(oid) => oid, .None => String.new());
-      comptime_flags := get_func_param_comptime(origin);
-      defaults := get_func_param_defaults(origin);
+      comptime_flags := get_func_param_comptime(&origin);
+      defaults := get_func_param_defaults(&origin);
       (i : usize) = usize(0);
       while((i < labels.len()) && (i < param_types.len()), {
         label := match(labels.get(i), .Some(l) => l, .None => String.new());
@@ -2914,7 +2914,7 @@ _function_params_to_doc_params :: (
         match(
           defaults.get(i),
           .Some(.Some(v)) => {
-            default_str = Option(String).Some(value_to_string(v));
+            default_str = Option(String).Some(value_to_string(&v));
           },
           .Some(.None) => (),
           .None => ()
@@ -2930,7 +2930,7 @@ _function_params_to_doc_params :: (
         out.push(
           DocParam(
             name : label.clone(),
-            type_ : type_to_string(ty),
+            type_ : type_to_string(&ty),
             is_comptime : is_ct,
             is_implicit : false,
             default_value : default_str,
@@ -2976,7 +2976,7 @@ _forall_params_to_doc_params :: (
         out.push(
           DocParam(
             name : label.clone(),
-            type_ : type_to_string(ty),
+            type_ : type_to_string(&ty),
             is_comptime : true,
             is_implicit : false,
             default_value : Option(String).None,
@@ -3025,7 +3025,7 @@ build_doc_function :: (
   match(
     doc,
     .Some(text) => {
-      parsed := parse_doc_comment(text);
+      parsed := parse_doc_comment(&text);
       returns = parsed.sections.get(String.from("returns"));
       errors = parsed.sections.get(String.from("errors"));
       deprecated = parsed.sections.get(String.from("deprecated"));
@@ -3041,15 +3041,15 @@ build_doc_function :: (
     .Some(si) => {
       return_type = si.return_type.clone();
       if(si.type_params.len() > usize(0), {
-        type_params = Option(ArrayList(DocParam)).Some(_with_param_docs(si.type_params, doc_lookup));
+        type_params = Option(ArrayList(DocParam)).Some(_with_param_docs(&si.type_params, doc_lookup));
       });
-      parameters = _with_param_docs(si.parameters, doc_lookup);
+      parameters = _with_param_docs(&si.parameters, doc_lookup);
     },
     .None => {
       match(
         func_type,
         .Func({ result, meta }) => {
-          return_type = type_to_string(result);
+          return_type = type_to_string(&result);
           if(meta.*.forall_labels.len() > usize(0), {
             type_params = Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(func_type, doc_lookup));
           });
@@ -3108,12 +3108,12 @@ _extract_methods :: (
         continue;
       }
     );
-    if(is_function_type(entry.ty) && !entry.label.starts_with(String.from("___")), {
+    if(is_function_type(&entry.ty) && !entry.label.starts_with(String.from("___")), {
       (receiver_name : String) = type_name.clone();
       match(
         entry.self_type,
         .Some(st) => {
-          st_name := _doc_type_name(st);
+          st_name := _doc_type_name(&st);
           if(st_name.len() > usize(0), {
             receiver_name = st_name;
           });
@@ -3123,12 +3123,12 @@ _extract_methods :: (
       methods.push(
         build_doc_function(
           entry.label.clone(),
-          entry.ty,
+          &entry.ty,
           _method_doc(doc_lookup, type_name.clone(), entry.label.clone()),
           true,
           Option(String).Some(type_name.clone()),
           Option(HashMap(String, String)).Some(doc_lookup),
-          receiver_name,
+          &receiver_name,
           Option(SourceSignatureInfo).None
         )
       );
@@ -3166,7 +3166,7 @@ _extract_generic_impl_info :: (
     );
     match(
       entry.trait_name,
-      .Some(tn) => if(!trait_impls.contains(tn), {
+      .Some(tn) => if(!trait_impls.contains(&tn), {
         trait_impls.push(tn.clone());
       }),
       .None => ()
@@ -3182,12 +3182,12 @@ _extract_generic_impl_info :: (
           continue;
         }
       );
-      if(!seen_method_names.contains(m_name), {
+      if(!seen_method_names.contains(&m_name), {
         seen_method_names.push(m_name.clone());
         methods.push(
           build_doc_function(
             m_name.clone(),
-            m_type,
+            &m_type,
             _method_doc(doc_lookup, type_name.clone(), m_name.clone()),
             true,
             Option(String).Some(type_name.clone()),
@@ -3259,7 +3259,7 @@ _type_fields_to_doc_fields :: (
     out.push(
       DocField(
         name : label.clone(),
-        type_ : type_to_string(ty),
+        type_ : type_to_string(&ty),
         doc : doc_lookup.get(label.clone()),
         default_value : Option(String).None
       )
@@ -3286,7 +3286,7 @@ _enum_variants_to_doc_variants :: (
         v_field_labels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
         (fields_opt : Option(ArrayList(DocField))) = Option(ArrayList(DocField)).None;
         if(v_field_types.len() > usize(0), {
-          fields_opt = Option(ArrayList(DocField)).Some(_type_fields_to_doc_fields(v_field_labels, v_field_types, doc_lookup));
+          fields_opt = Option(ArrayList(DocField)).Some(_type_fields_to_doc_fields(&v_field_labels, &v_field_types, doc_lookup));
         });
         (disc : Option(String)) = Option(String).None;
         match(
@@ -3392,7 +3392,7 @@ build_doc_module :: (
 )({
   doc_lookup := build_doc_lookup(extraction);
   trait_impl_map := extract_trait_impls_from_tokens(tokens);
-  token_impl_info_map := extract_impl_info_from_tokens(tokens, doc_lookup);
+  token_impl_info_map := extract_impl_info_from_tokens(tokens, &mut doc_lookup);
   source_fn_signatures := _extract_top_level_fn_signatures(tokens);
   (module_doc : Option(String)) = Option(String).None;
   match(
@@ -3410,7 +3410,7 @@ build_doc_module :: (
     name : name.clone(),
     path : path.clone(),
     doc : module_doc,
-    stability : module_stability(module_doc),
+    stability : module_stability(&module_doc),
     functions : functions,
     types : types,
     traits : traits,
@@ -3463,11 +3463,11 @@ build_doc_module :: (
       value,
       .TypeVal(actual_type) => {
         handled = true;
-        sections := extract_doc_sections(doc);
+        sections := extract_doc_sections(&doc);
         cond(
-          is_struct_type(actual_type) => {
-            direct_methods := _extract_methods(_doc_type_id(actual_type), field_name.clone(), doc_lookup);
-            generic_impl_info := _extract_generic_impl_info(actual_type, field_name.clone(), doc_lookup, env);
+          is_struct_type(&actual_type) => {
+            direct_methods := _extract_methods(_doc_type_id(&actual_type), field_name.clone(), &doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(&actual_type, field_name.clone(), &doc_lookup, env);
             (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
             (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
             (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
@@ -3507,7 +3507,7 @@ build_doc_module :: (
             match(
               actual_type,
               .Struct({ field_labels : sfl, field_types : sft }) => {
-                st_fields = _type_fields_to_doc_fields(sfl, sft, doc_lookup);
+                st_fields = _type_fields_to_doc_fields(&sfl, &sft, &doc_lookup);
               },
               _ => ()
             );
@@ -3520,22 +3520,22 @@ build_doc_module :: (
               DocType(
                 name : field_name.clone(),
                 doc : doc,
-                kind : _get_type_kind(actual_type),
-                signature : type_to_string(actual_type),
-                type_params : _get_type_constructor_params(field_type),
+                kind : _get_type_kind(&actual_type),
+                signature : type_to_string(&actual_type),
+                type_params : _get_type_constructor_params(&field_type),
                 fields : Option(ArrayList(DocField)).Some(st_fields),
                 variants : Option(ArrayList(DocVariant)).None,
-                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
-                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                methods : merge_methods(merge_methods(&direct_methods, &generic_impl_info.methods), &token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(&base_trait_impls, &generic_impl_info.trait_impls), &token_trait_impls),
                 impls : Option(ArrayList(DocImpl)).Some(all_impls),
                 deprecated : sections.deprecated,
                 examples : sections.examples
               )
             );
           },
-          is_enum_type(actual_type) => {
-            direct_methods := _extract_methods(_doc_type_id(actual_type), field_name.clone(), doc_lookup);
-            generic_impl_info := _extract_generic_impl_info(actual_type, field_name.clone(), doc_lookup, env);
+          is_enum_type(&actual_type) => {
+            direct_methods := _extract_methods(_doc_type_id(&actual_type), field_name.clone(), &doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(&actual_type, field_name.clone(), &doc_lookup, env);
             (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
             (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
             (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
@@ -3581,20 +3581,20 @@ build_doc_module :: (
                 name : field_name.clone(),
                 doc : doc,
                 kind : DocItemKind.Enum,
-                signature : type_to_string(actual_type),
-                type_params : _get_type_constructor_params(field_type),
+                signature : type_to_string(&actual_type),
+                type_params : _get_type_constructor_params(&field_type),
                 fields : Option(ArrayList(DocField)).None,
-                variants : Option(ArrayList(DocVariant)).Some(_enum_variants_to_doc_variants(actual_type, doc_lookup)),
-                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
-                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                variants : Option(ArrayList(DocVariant)).Some(_enum_variants_to_doc_variants(&actual_type, &doc_lookup)),
+                methods : merge_methods(merge_methods(&direct_methods, &generic_impl_info.methods), &token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(&base_trait_impls, &generic_impl_info.trait_impls), &token_trait_impls),
                 impls : Option(ArrayList(DocImpl)).Some(all_impls),
                 deprecated : sections.deprecated,
                 examples : sections.examples
               )
             );
           },
-          is_union_type(actual_type) => {
-            generic_impl_info := _extract_generic_impl_info(actual_type, field_name.clone(), doc_lookup, env);
+          is_union_type(&actual_type) => {
+            generic_impl_info := _extract_generic_impl_info(&actual_type, field_name.clone(), &doc_lookup, env);
             (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
             (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
             (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
@@ -3634,7 +3634,7 @@ build_doc_module :: (
             match(
               actual_type,
               .Union(_, ufl, uft) => {
-                un_fields = _type_fields_to_doc_fields(ufl, uft, doc_lookup);
+                un_fields = _type_fields_to_doc_fields(&ufl, &uft, &doc_lookup);
               },
               _ => ()
             );
@@ -3648,19 +3648,19 @@ build_doc_module :: (
                 name : field_name.clone(),
                 doc : doc,
                 kind : DocItemKind.Union,
-                signature : type_to_string(actual_type),
-                type_params : _get_type_constructor_params(field_type),
+                signature : type_to_string(&actual_type),
+                type_params : _get_type_constructor_params(&field_type),
                 fields : Option(ArrayList(DocField)).Some(un_fields),
                 variants : Option(ArrayList(DocVariant)).None,
-                methods : merge_methods(generic_impl_info.methods, token_methods),
-                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                methods : merge_methods(&generic_impl_info.methods, &token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(&base_trait_impls, &generic_impl_info.trait_impls), &token_trait_impls),
                 impls : Option(ArrayList(DocImpl)).Some(all_impls),
                 deprecated : sections.deprecated,
                 examples : sections.examples
               )
             );
           },
-          is_trait_type(actual_type) => {
+          is_trait_type(&actual_type) => {
             trait_methods := ArrayList(DocFunction).new();
             associated_types := ArrayList(DocAssociatedType).new();
             match(
@@ -3677,20 +3677,20 @@ build_doc_module :: (
                       continue;
                     }
                   );
-                  if(assoc_type_names.contains(t_label), {
+                  if(assoc_type_names.contains(&t_label), {
                     associated_types.push(
                       DocAssociatedType(
                         name : t_label.clone(),
                         doc : doc_lookup.get(t_label.clone()),
-                        constraint : Option(String).Some(type_to_string(t_type))
+                        constraint : Option(String).Some(type_to_string(&t_type))
                       )
                     );
                   }, {
-                    if(is_function_type(t_type) && !t_label.starts_with(String.from("___")), {
+                    if(is_function_type(&t_type) && !t_label.starts_with(String.from("___")), {
                       trait_methods.push(
                         build_doc_function(
                           t_label.clone(),
-                          t_type,
+                          &t_type,
                           doc_lookup.get(t_label.clone()),
                           true,
                           Option(String).Some(field_name.clone()),
@@ -3715,8 +3715,8 @@ build_doc_module :: (
                 name : field_name.clone(),
                 doc : doc,
                 kind : DocTraitKind.Trait,
-                signature : type_to_string(actual_type),
-                type_params : _get_type_constructor_params(field_type),
+                signature : type_to_string(&actual_type),
+                type_params : _get_type_constructor_params(&field_type),
                 associated_types : assoc_opt,
                 methods : trait_methods,
                 implementors : ArrayList(String).new(),
@@ -3725,7 +3725,7 @@ build_doc_module :: (
               )
             );
           },
-          is_module_type(actual_type) => {
+          is_module_type(&actual_type) => {
             module_methods := ArrayList(DocFunction).new();
             match(
               actual_type,
@@ -3741,11 +3741,11 @@ build_doc_module :: (
                       continue;
                     }
                   );
-                  if(is_function_type(m_type) && !m_label.starts_with(String.from("___")) && (m_label.len() > usize(0)), {
+                  if(is_function_type(&m_type) && !m_label.starts_with(String.from("___")) && (m_label.len() > usize(0)), {
                     module_methods.push(
                       build_doc_function(
                         m_label.clone(),
-                        m_type,
+                        &m_type,
                         doc_lookup.get(m_label.clone()),
                         true,
                         Option(String).Some(field_name.clone()),
@@ -3765,8 +3765,8 @@ build_doc_module :: (
                 name : field_name.clone(),
                 doc : doc,
                 kind : DocTraitKind.Module,
-                signature : type_to_string(actual_type),
-                type_params : _get_type_constructor_params(field_type),
+                signature : type_to_string(&actual_type),
+                type_params : _get_type_constructor_params(&field_type),
                 associated_types : Option(ArrayList(DocAssociatedType)).None,
                 methods : module_methods,
                 implementors : ArrayList(String).new(),
@@ -3787,7 +3787,7 @@ build_doc_module :: (
                 name : field_name.clone(),
                 doc : doc,
                 kind : DocItemKind.TypeAlias,
-                signature : type_to_string(actual_type),
+                signature : type_to_string(&actual_type),
                 type_params : Option(ArrayList(DocParam)).None,
                 fields : Option(ArrayList(DocField)).None,
                 variants : Option(ArrayList(DocVariant)).None,
@@ -3808,14 +3808,14 @@ build_doc_module :: (
       continue;
     });
     // -- Function declarations --
-    if(is_function_type(field_type), {
-      if(is_function_type_and_is_type_function(field_type), {
-        inner_type := _resolve_inner_type(field_type, value);
-        sections := extract_doc_sections(doc);
+    if(is_function_type(&field_type), {
+      if(is_function_type_and_is_type_function(&field_type), {
+        inner_type := _resolve_inner_type(&field_type, &value);
+        sections := extract_doc_sections(&doc);
         cond(
-          is_struct_type(inner_type) => {
-            direct_methods := _extract_methods(_doc_type_id(inner_type), field_name.clone(), doc_lookup);
-            generic_impl_info := _extract_generic_impl_info(inner_type, field_name.clone(), doc_lookup, env);
+          is_struct_type(&inner_type) => {
+            direct_methods := _extract_methods(_doc_type_id(&inner_type), field_name.clone(), &doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(&inner_type, field_name.clone(), &doc_lookup, env);
             (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
             (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
             (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
@@ -3855,7 +3855,7 @@ build_doc_module :: (
             match(
               inner_type,
               .Struct({ field_labels : sfl, field_types : sft }) => {
-                st_fields = _type_fields_to_doc_fields(sfl, sft, doc_lookup);
+                st_fields = _type_fields_to_doc_fields(&sfl, &sft, &doc_lookup);
               },
               _ => ()
             );
@@ -3868,22 +3868,22 @@ build_doc_module :: (
               DocType(
                 name : field_name.clone(),
                 doc : doc,
-                kind : _get_type_kind(inner_type),
-                signature : type_to_string(field_type),
-                type_params : _get_type_constructor_params(field_type),
+                kind : _get_type_kind(&inner_type),
+                signature : type_to_string(&field_type),
+                type_params : _get_type_constructor_params(&field_type),
                 fields : Option(ArrayList(DocField)).Some(st_fields),
                 variants : Option(ArrayList(DocVariant)).None,
-                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
-                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                methods : merge_methods(merge_methods(&direct_methods, &generic_impl_info.methods), &token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(&base_trait_impls, &generic_impl_info.trait_impls), &token_trait_impls),
                 impls : Option(ArrayList(DocImpl)).Some(all_impls),
                 deprecated : sections.deprecated,
                 examples : sections.examples
               )
             );
           },
-          is_enum_type(inner_type) => {
-            direct_methods := _extract_methods(_doc_type_id(inner_type), field_name.clone(), doc_lookup);
-            generic_impl_info := _extract_generic_impl_info(inner_type, field_name.clone(), doc_lookup, env);
+          is_enum_type(&inner_type) => {
+            direct_methods := _extract_methods(_doc_type_id(&inner_type), field_name.clone(), &doc_lookup);
+            generic_impl_info := _extract_generic_impl_info(&inner_type, field_name.clone(), &doc_lookup, env);
             (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
             (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
             (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
@@ -3929,19 +3929,19 @@ build_doc_module :: (
                 name : field_name.clone(),
                 doc : doc,
                 kind : DocItemKind.Enum,
-                signature : type_to_string(field_type),
-                type_params : _get_type_constructor_params(field_type),
+                signature : type_to_string(&field_type),
+                type_params : _get_type_constructor_params(&field_type),
                 fields : Option(ArrayList(DocField)).None,
-                variants : Option(ArrayList(DocVariant)).Some(_enum_variants_to_doc_variants(inner_type, doc_lookup)),
-                methods : merge_methods(merge_methods(direct_methods, generic_impl_info.methods), token_methods),
-                trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                variants : Option(ArrayList(DocVariant)).Some(_enum_variants_to_doc_variants(&inner_type, &doc_lookup)),
+                methods : merge_methods(merge_methods(&direct_methods, &generic_impl_info.methods), &token_methods),
+                trait_impls : merge_trait_impl_names(merge_trait_impl_names(&base_trait_impls, &generic_impl_info.trait_impls), &token_trait_impls),
                 impls : Option(ArrayList(DocImpl)).Some(all_impls),
                 deprecated : sections.deprecated,
                 examples : sections.examples
               )
             );
           },
-          is_trait_type(inner_type) => {
+          is_trait_type(&inner_type) => {
             trait_methods := ArrayList(DocFunction).new();
             associated_types := ArrayList(DocAssociatedType).new();
             match(
@@ -3958,20 +3958,20 @@ build_doc_module :: (
                       continue;
                     }
                   );
-                  if(assoc_type_names.contains(t_label), {
+                  if(assoc_type_names.contains(&t_label), {
                     associated_types.push(
                       DocAssociatedType(
                         name : t_label.clone(),
                         doc : doc_lookup.get(t_label.clone()),
-                        constraint : Option(String).Some(type_to_string(t_type))
+                        constraint : Option(String).Some(type_to_string(&t_type))
                       )
                     );
                   }, {
-                    if(is_function_type(t_type) && !t_label.starts_with(String.from("___")), {
+                    if(is_function_type(&t_type) && !t_label.starts_with(String.from("___")), {
                       trait_methods.push(
                         build_doc_function(
                           t_label.clone(),
-                          t_type,
+                          &t_type,
                           doc_lookup.get(t_label.clone()),
                           true,
                           Option(String).Some(field_name.clone()),
@@ -3996,8 +3996,8 @@ build_doc_module :: (
                 name : field_name.clone(),
                 doc : doc,
                 kind : DocTraitKind.TraitFunction,
-                signature : type_to_string(field_type),
-                type_params : _get_type_constructor_params(field_type),
+                signature : type_to_string(&field_type),
+                type_params : _get_type_constructor_params(&field_type),
                 associated_types : assoc_opt,
                 methods : trait_methods,
                 implementors : ArrayList(String).new(),
@@ -4006,7 +4006,7 @@ build_doc_module :: (
               )
             );
           },
-          is_module_type(inner_type) => {
+          is_module_type(&inner_type) => {
             module_methods := ArrayList(DocFunction).new();
             match(
               inner_type,
@@ -4022,11 +4022,11 @@ build_doc_module :: (
                       continue;
                     }
                   );
-                  if(is_function_type(m_type) && !m_label.starts_with(String.from("___")) && (m_label.len() > usize(0)), {
+                  if(is_function_type(&m_type) && !m_label.starts_with(String.from("___")) && (m_label.len() > usize(0)), {
                     module_methods.push(
                       build_doc_function(
                         m_label.clone(),
-                        m_type,
+                        &m_type,
                         doc_lookup.get(m_label.clone()),
                         true,
                         Option(String).Some(field_name.clone()),
@@ -4046,8 +4046,8 @@ build_doc_module :: (
                 name : field_name.clone(),
                 doc : doc,
                 kind : DocTraitKind.ModuleFunction,
-                signature : type_to_string(field_type),
-                type_params : _get_type_constructor_params(field_type),
+                signature : type_to_string(&field_type),
+                type_params : _get_type_constructor_params(&field_type),
                 associated_types : Option(ArrayList(DocAssociatedType)).None,
                 methods : module_methods,
                 implementors : ArrayList(String).new(),
@@ -4071,8 +4071,8 @@ build_doc_module :: (
                   name : field_name.clone(),
                   doc : doc,
                   kind : DocTraitKind.TraitFunction,
-                  signature : type_to_string(field_type),
-                  type_params : _get_type_constructor_params(field_type),
+                  signature : type_to_string(&field_type),
+                  type_params : _get_type_constructor_params(&field_type),
                   associated_types : Option(ArrayList(DocAssociatedType)).None,
                   methods : ArrayList(DocFunction).new(),
                   implementors : ArrayList(String).new(),
@@ -4082,7 +4082,7 @@ build_doc_module :: (
               );
             }, {
               // Generic type constructor that we can't resolve.
-              generic_impl_info := _extract_generic_impl_info(field_type, field_name.clone(), doc_lookup, env);
+              generic_impl_info := _extract_generic_impl_info(&field_type, field_name.clone(), &doc_lookup, env);
               (token_methods : ArrayList(DocFunction)) = ArrayList(DocFunction).new();
               (token_trait_impls : ArrayList(String)) = ArrayList(String).new();
               (token_impls : ArrayList(DocImpl)) = ArrayList(DocImpl).new();
@@ -4128,12 +4128,12 @@ build_doc_module :: (
                   name : field_name.clone(),
                   doc : doc,
                   kind : DocItemKind.TypeFunction,
-                  signature : type_to_string(field_type),
-                  type_params : _get_type_constructor_params(field_type),
+                  signature : type_to_string(&field_type),
+                  type_params : _get_type_constructor_params(&field_type),
                   fields : Option(ArrayList(DocField)).None,
                   variants : Option(ArrayList(DocVariant)).None,
-                  methods : merge_methods(generic_impl_info.methods, token_methods),
-                  trait_impls : merge_trait_impl_names(merge_trait_impl_names(base_trait_impls, generic_impl_info.trait_impls), token_trait_impls),
+                  methods : merge_methods(&generic_impl_info.methods, &token_methods),
+                  trait_impls : merge_trait_impl_names(merge_trait_impl_names(&base_trait_impls, &generic_impl_info.trait_impls), &token_trait_impls),
                   impls : Option(ArrayList(DocImpl)).Some(all_impls),
                   deprecated : sections.deprecated,
                   examples : sections.examples
@@ -4149,8 +4149,8 @@ build_doc_module :: (
       functions.push(
         build_doc_function(
           field_name.clone(),
-          field_type,
-          doc,
+          &field_type,
+          &doc,
           false,
           Option(String).None,
           Option(HashMap(String, String)).Some(doc_lookup),
@@ -4162,13 +4162,13 @@ build_doc_module :: (
       continue;
     });
     // -- Constant --
-    const_sections := extract_doc_sections(doc);
+    const_sections := extract_doc_sections(&doc);
     constants.push(
       DocConstant(
         name : field_name.clone(),
         doc : doc,
-        type_ : type_to_string(field_type),
-        value : Option(String).Some(value_to_string(value)),
+        type_ : type_to_string(&field_type),
+        value : Option(String).Some(value_to_string(&value)),
         deprecated : const_sections.deprecated,
         examples : const_sections.examples
       )

@@ -25,7 +25,7 @@ _emitter_is_ident_byte :: (fn(b : u8) -> bool)(
 _emitter_is_minted_temp :: (fn(imm(cn) : String) -> bool)({
   marker := String.from("_temp_");
   match(
-    cn.index_of(marker),
+    cn.index_of(&marker),
     .None => false,
     .Some(idx) => {
       start := (idx + marker.len());
@@ -397,9 +397,9 @@ impl(
       match(
         hits.get(hi),
         .Some(k) => match(
-          self.move_zeroes.remove(k),
+          self.move_zeroes.remove(&k),
           .Some(stmts) => {
-            self.code.push_string(stmts);
+            self.code.push_string(&stmts);
             self.code.push_str("\n");
           },
           .None => ()
@@ -494,8 +494,8 @@ impl(
   emit_line : (fn(mut(self) : Self, c : str) -> unit)({
     self.code.push_str(c);
     self.code.push_str("\n");
-    match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(s.*, String.from(c)), .None => ());
-    match(self.scope_ref, .Some(st) => _emitter_track_scope(st.*, String.from(c)), .None => ());
+    match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(&mut s.*, String.from(c)), .None => ());
+    match(self.scope_ref, .Some(st) => _emitter_track_scope(&mut st.*, String.from(c)), .None => ());
     if(self.move_zeroes.len() > usize(0), {
       self._flush_move_zeroes(String.from(c));
     });
@@ -541,8 +541,8 @@ impl(
   }),
   /// Append a raw `String` value + newline to the code section.
   emit_string_line : (fn(mut(self) : Self, imm(c) : String) -> unit)({
-    match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(s.*, c.clone()), .None => ());
-    match(self.scope_ref, .Some(st) => _emitter_track_scope(st.*, c.clone()), .None => ());
+    match(self.declared_ref, .Some(s) => _emitter_record_declared_temp(&mut s.*, c.clone()), .None => ());
+    match(self.scope_ref, .Some(st) => _emitter_track_scope(&mut st.*, c.clone()), .None => ());
     self.code.push_string(c.clone());
     self.code.push_str("\n");
     if(self.move_zeroes.len() > usize(0), {
@@ -604,7 +604,7 @@ impl(
     line.push_str(" \"");
     line.push_string(_emitter_quote_c_filename(norm.clone()));
     line.push_str("\"");
-    self.emit_string_line(line);
+    self.emit_string_line(&line);
     self.line_last_path = Option(String).Some(path.clone());
     self.line_last_row = usize(row);
   }),
@@ -626,7 +626,7 @@ impl(
         line := line_restore_marker();
         line.push_string(_emitter_quote_c_filename(self.line_c_name.clone()));
         line.push_str("\"");
-        self.emit_string_line(line);
+        self.emit_string_line(&line);
         self.line_last_path = Option(String).None;
       },
       .None => ()
@@ -643,7 +643,7 @@ impl(
     if(!self.line_directives, {
       return(());
     });
-    base := (_emitter_count_newlines(self.headers) + _emitter_count_newlines(self.declarations) + usize(2));
+    base := (_emitter_count_newlines(&self.headers) + _emitter_count_newlines(&self.declarations) + usize(2));
     // Patch the buffer in place: take it out of `self.code` (with the field
     // emptied the buffer is unique, so `into_bytes` moves it out with no
     // copy), write the line numbers, and put it back below.
@@ -698,7 +698,7 @@ impl(
           (wi : usize) = usize(0);
           while(wi < usize(8), {
             b := if(wi < digits.len(), digits.byte_at(wi), u8(32));
-            _emitter_set_byte(bytes, ls + usize(6) + wi, b);
+            _emitter_set_byte(&bytes, ls + usize(6) + wi, b);
             wi = (wi + usize(1));
           });
         });
@@ -732,11 +732,11 @@ impl(
   print : (fn(mut(self) : Self) -> String)({
     self.patch_restore_line_numbers();
     result := String.new();
-    result.push_string(self.headers);
+    result.push_string(&self.headers);
     result.push_str("\n");
-    result.push_string(self.declarations);
+    result.push_string(&self.declarations);
     result.push_str("\n");
-    result.push_string(self.code);
+    result.push_string(&self.code);
     result
   })
 );

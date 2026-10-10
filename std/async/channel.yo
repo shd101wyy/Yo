@@ -404,7 +404,7 @@ impl(
   /// and how a fan-in of producer tasks is set up. A sender minted after the
   /// channel has already closed does not reopen it — its sends fail.
   sender : (fn(imm(self) : Self) -> Sender(T))(
-    Sender(T)._attach(self._ch)
+    Sender(T)._attach(&self._ch)
   ),
   /// Receive the oldest value, suspending while the channel is empty.
   ///
@@ -506,7 +506,7 @@ impl(
   /// producers are finished.
   pair : (fn(capacity : usize) -> Tuple(Sender(T), Receiver(T)))({
     ch := Self.new(capacity);
-    (Sender(T)._attach(ch), Receiver(T)._attach(ch))
+    (Sender(T)._attach(&ch), Receiver(T)._attach(&ch))
   })
 );
 /// A channel IS an async stream of the values sent to it: `next` is `recv`,

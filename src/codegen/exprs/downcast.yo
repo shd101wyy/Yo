@@ -36,19 +36,19 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   type_arg := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
   // First argument: the dyn value (runtime).
-  dyn_ei := match(context.base.get_expr_info(dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
-  if(!is_dyn_type(dyn_ei.ty), {
+  dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: downcast dyn arg not evaluated */")));
+  if(!is_dyn_type(&dyn_ei.ty), {
     return(String.from("/* ERROR: downcast expected Dyn type as first argument */"));
   });
-  dyn_code := _call_generate_expr(dyn_arg, indent.clone(), context);
+  dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
   // Second argument: the target type T (comptime).
-  target_type := match(context.base.get_expr_info(type_arg), .Some(tei) => match(tei.value, .Some(v) => match(v, .TypeVal(t) => t, _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
-  target_type_c_name := get_type_string(target_type, context.base);
+  target_type := match(context.base.get_expr_info(&type_arg), .Some(tei) => match(tei.value, .Some(v) => match(v, .TypeVal(t) => t, _ => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast expected TypeValue as second argument */"))), .None => return(String.from("/* ERROR: downcast type arg not evaluated */")));
+  target_type_c_name := get_type_string(&target_type, &context.base);
   // Register the typeid static for the target type (address = canonical id).
-  tid := type_key(target_type);
+  tid := type_key(&target_type);
   type_id_c_name := match(context.base.get_type_c_name(tid.clone()), .Some(cn) => cn, .None => target_type_c_name.clone());
   static_var_name := String.from("__yo_typeid_");
-  static_var_name.push_string(c_symbol_name(type_id_c_name));
+  static_var_name.push_string(c_symbol_name(&type_id_c_name));
   if(!context.base.type_id_static_names.contains(static_var_name.clone()), {
     cg_base := context.base;
     cg_base.type_id_static_names.insert(static_var_name.clone());
@@ -59,7 +59,7 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   // is-check: the Dyn's vtable type-id equals this target's static address.
   is_check := dyn_code.clone();
   is_check.push_str(".vtable->__yo_type_id == (uintptr_t)&");
-  is_check.push_string(static_var_name);
+  is_check.push_string(&static_var_name);
   em := context.base.emitter;
   // What the result ternary tests. Normally the inline is-check; the
   // structural-dup path below replaces it with a hoisted flag variable so the
@@ -84,7 +84,7 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   // lowered as a constant `.None` (the object cast a value target would
   // otherwise get is not even valid C).
   (statically_impossible : bool) = false;
-  cast_expr := if(is_reference_struct_type(target_type), {
+  cast_expr := if(is_reference_struct_type(&target_type), {
     o := String.from("((");
     o.push_string(target_type_c_name.clone());
     o.push_str(")__yo_dyn_retain((void*)");
@@ -96,8 +96,8 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   }, {
     // Value/newtype target: find the Rc in the dyn_impls (same dyn, concrete ==
     // target), then extract `((Rc*)data)->valueField`.
-    tkey := type_key(target_type);
-    dyn_tkey := type_key(dyn_ei.ty);
+    tkey := type_key(&target_type);
+    dyn_tkey := type_key(&dyn_ei.ty);
     (box_opt : Option(TypeValue)) = Option(TypeValue).None;
     it := context.base.dyn_impls.keys();
     (scan_done : bool) = false;
@@ -111,7 +111,7 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
           // concrete IS this target but was recorded as an unresolved SomeT
           // still matches. Without that, the miss below would report "never
           // dyn'd" for a type that is.
-          .Some(de) => if((type_key(de.dyn_type) == dyn_tkey) && (type_key(resolve_some_type_to_concrete(de.concrete_type)) == tkey), {
+          .Some(de) => if((type_key(&de.dyn_type) == dyn_tkey) && (type_key(resolve_some_type_to_concrete(&de.concrete_type)) == tkey), {
             box_opt = Option(TypeValue).Some(de.data_type);
             scan_done = true;
           }),
@@ -125,22 +125,22 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
     match(
       box_opt,
       .Some(box_ty) => {
-        box_cname := get_type_string(box_ty, context.base);
-        box_fields := get_runtime_struct_fields(box_ty);
-        field_c := match(box_fields.get(usize(0)), .Some(f) => sanitize_for_c_identifier(f.label, false), .None => String.from("_u42_"));
+        box_cname := get_type_string(&box_ty, &context.base);
+        box_fields := get_runtime_struct_fields(&box_ty);
+        field_c := match(box_fields.get(usize(0)), .Some(f) => sanitize_for_c_identifier(&f.label, false), .None => String.from("_u42_"));
         extract := String.from("((");
-        extract.push_string(box_cname);
+        extract.push_string(&box_cname);
         extract.push_str(")");
         extract.push_string(dyn_code.clone());
         extract.push_str(".data)->");
-        extract.push_string(field_c);
+        extract.push_string(&field_c);
         // Dup the extracted value (the Rc retains its copy).
         match(
-          get_dup_function_for_type(target_type, context),
+          get_dup_function_for_type(&target_type, context),
           .Some(dupfn) => {
             d := dupfn.clone();
             d.push_str("(");
-            d.push_string(extract);
+            d.push_string(&extract);
             d.push_str(")");
             d
           },
@@ -160,16 +160,16 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
           // box's value field when the dyn holds a DIFFERENT type reads
           // foreign memory (a smaller box would be read past its end).
           .None => cond(
-            !type_contains_rc_cell_or_move_only(target_type) => extract,
+            !type_contains_rc_cell_or_move_only(&target_type) => extract,
             true => {
-              uid := fresh_local_name(String.from("u"), context.base.current_function_name);
+              uid := fresh_local_name(String.from("u"), &context.base.current_function_name);
               ok_var := `__yo_dc_ok_${uid}`;
               val_var := `__yo_dc_val_${uid}`;
               em.emit_string_line(`${indent.clone()}int ${ok_var} = (${is_check.clone()}) ? 1 : 0;`);
               em.emit_string_line(`${indent.clone()}${target_type_c_name.clone()} ${val_var} = (${target_type_c_name.clone()}){0};`);
               em.emit_string_line(`${indent.clone()}if (${ok_var}) {`);
               em.emit_string_line(`${indent.clone()}  ${val_var} = ${extract};`);
-              dup_code := generate_dup_code_for_value(val_var.clone(), target_type, context);
+              dup_code := generate_dup_code_for_value(val_var.clone(), &target_type, context);
               // The nullable-pointer and no-RC arms emit their own statement
               // (or nothing) and hand the value straight back; only a real
               // dup EXPRESSION needs assigning.
@@ -194,7 +194,7 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   });
   // Result Option type.
   option_type := ei.ty;
-  if(!is_enum_type(option_type), {
+  if(!is_enum_type(&option_type), {
     return(String.from("/* ERROR: downcast expected Option enum as result type */"));
   });
   // Statically-`.None` lowering. The operand still has to be EVALUATED — it can
@@ -210,13 +210,13 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
     none_out.push_str("), ");
     none_out.push_string(
       match(
-        can_optimize_as_nullable_pointer(option_type),
+        can_optimize_as_nullable_pointer(&option_type),
         .Some(_) => String.from("NULL"),
         .None => {
           o := String.from("(");
-          o.push_string(get_type_string(option_type, context.base));
+          o.push_string(get_type_string(&option_type, &context.base));
           o.push_str("){ .tag = ");
-          o.push_string(get_enum_variant_c_name(option_type, String.from("None"), context.base));
+          o.push_string(get_enum_variant_c_name(&option_type, String.from("None"), &context.base));
           o.push_str(" }");
           o
         }
@@ -226,35 +226,35 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
     return(none_out);
   });
   match(
-    can_optimize_as_nullable_pointer(option_type),
+    can_optimize_as_nullable_pointer(&option_type),
     .Some(_) => {
       out := String.from("((");
       out.push_string(cond_expr.clone());
       out.push_str(") ? ");
-      out.push_string(cast_expr);
+      out.push_string(&cast_expr);
       out.push_str(" : NULL)");
       out
     },
     .None => {
-      option_c_name := get_type_string(option_type, context.base);
-      some_tag := get_enum_variant_c_name(option_type, String.from("Some"), context.base);
-      none_tag := get_enum_variant_c_name(option_type, String.from("None"), context.base);
+      option_c_name := get_type_string(&option_type, &context.base);
+      some_tag := get_enum_variant_c_name(&option_type, String.from("Some"), &context.base);
+      none_tag := get_enum_variant_c_name(&option_type, String.from("None"), &context.base);
       out := String.from("((");
       out.push_string(cond_expr.clone());
       out.push_str(") ? (");
       out.push_string(option_c_name.clone());
       out.push_str("){ .tag = ");
-      out.push_string(some_tag);
+      out.push_string(&some_tag);
       out.push_str(", .data = { .");
       out.push_string(c_variant_member_name(String.from("Some")));
       out.push_str(" = { .");
       out.push_string(sanitize_for_c_identifier(String.from("value"), false));
       out.push_str(" = ");
-      out.push_string(cast_expr);
+      out.push_string(&cast_expr);
       out.push_str(" } } } : (");
-      out.push_string(option_c_name);
+      out.push_string(&option_c_name);
       out.push_str("){ .tag = ");
-      out.push_string(none_tag);
+      out.push_string(&none_tag);
       out.push_str(" })");
       out
     }
@@ -286,17 +286,17 @@ generate_upcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) :
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: upcast not evaluated */")));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));
-  dyn_ei := match(context.base.get_expr_info(dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
-  dyn_code := _call_generate_expr(dyn_arg, indent.clone(), context);
-  tgt_c := get_type_string(ei.ty, context.base);
+  dyn_ei := match(context.base.get_expr_info(&dyn_arg), .Some(e) => e, .None => return(String.from("/* ERROR: upcast dyn arg not evaluated */")));
+  dyn_code := _call_generate_expr(&dyn_arg, indent.clone(), context);
+  tgt_c := get_type_string(&ei.ty, &context.base);
   // Name the source once: a call operand must not run twice.
   src := if(_is_plain_c_identifier(dyn_code.clone()), dyn_code.clone(), {
-    src_c := get_type_string(dyn_ei.ty, context.base);
-    uid := fresh_local_name(String.from("u"), context.base.current_function_name);
+    src_c := get_type_string(&dyn_ei.ty, &context.base);
+    uid := fresh_local_name(String.from("u"), &context.base.current_function_name);
     src_var := `__yo_uc_src_${uid}`;
     line := `${indent.clone()}${src_c} ${src_var} = ${dyn_code};`;
     em := context.base.emitter;
-    em.emit_string_line(line);
+    em.emit_string_line(&line);
     src_var
   });
   `((${tgt_c}){ .data = __yo_dyn_retain((void*)${src}.data, (const void*)${src}.vtable), .vtable = ${src}.vtable->__yo_up_${tgt_c} })`

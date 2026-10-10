@@ -105,16 +105,16 @@ _trial_eval_test_body :: (
     g_strict_test_bodies => evaluate_expression_raw(body, env, ctx, outer_exn),
     true => {
       inner_exn := Exception(throw : (_err -> unwind(())));
-      evaluate_expression_raw(body, env, ctx, inner_exn)
+      evaluate_expression_raw(body, env, ctx, &inner_exn)
     }
   );
-  body_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  body_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
     body_info_opt,
     .Some(body_info) => {
-      if(is_unit_type(body_info.ty), {
-        expr_info_set_original_expr(body_info, Option(AstExpr).Some(original_body));
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(evaluated), body_info);
+      if(is_unit_type(&body_info.ty), {
+        expr_info_set_original_expr(&body_info, Option(AstExpr).Some(original_body));
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&evaluated), &body_info);
       });
     },
     .None => ()
@@ -177,19 +177,19 @@ evaluate_test :: (
     .Atom(_, _) => make_err_expr()
   );
   // Evaluate test name to ensure it's a comptime_str.
-  evaluated_test_name_expr := evaluate_expression_raw(test_name_expr, env, ctx, exn);
-  name_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_test_name_expr));
+  evaluated_test_name_expr := evaluate_expression_raw(&test_name_expr, &env, ctx, exn);
+  name_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_test_name_expr));
   if(!name_info_opt.is_some(), {
     exn.throw(
       dyn(
         format_eval_failure(
-          ast_expr_token(test_name_expr),
-          `Failed to evaluate test name: ${ast_expr_to_string(test_name_expr)}`
+          ast_expr_token(&test_name_expr),
+          `Failed to evaluate test name: ${ast_expr_to_string(&test_name_expr)}`
         )
       )
     );
   });
-  name_info := match(name_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
+  name_info := match(name_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
   // Update env from the name evaluation.
   env.frames = name_info.env.frames;
   env.module_path = name_info.env.module_path;
@@ -198,22 +198,22 @@ evaluate_test :: (
   // Validate test name is a comptime string.
   name_is_str_lit := match(
     name_info.value,
-    .Some(v) => is_str_lit(v),
+    .Some(v) => is_str_lit(&v),
     .None => false
   );
   if(!name_is_str_lit, {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(test_name_expr),
-          `Expected string for test name, got ${ast_expr_to_string(test_name_expr)}`
+          ast_expr_token(&test_name_expr),
+          `Expected string for test name, got ${ast_expr_to_string(&test_name_expr)}`
         )
       )
     );
   });
   // Inject `io : Io` into the body scope.
   // The Io module type is looked up from the env.
-  io_vars := get_variables_from_env(env, String.from("Io"));
+  io_vars := get_variables_from_env(&env, String.from("Io"));
   n_io := io_vars.len();
   if(n_io == usize(0), {
     exn.throw(
@@ -255,11 +255,11 @@ evaluate_test :: (
   // Push a new frame for the test body (isolates io variable from outer scope).
   _frame_idx := env.push_frame(false);
   // Add the implicit `io : Io` variable to the new frame.
-  io_unknown_val := create_unknown_val(io_module_type);
+  io_unknown_val := create_unknown_val(&io_module_type);
   _io_var_opt := add_variable_to_env(
-    env,
+    &env,
     String.from("io"),
-    io_module_type,
+    &io_module_type,
     Option(EvalValue).Some(io_unknown_val),
     true,
     // is_compile_time_only
@@ -282,7 +282,7 @@ evaluate_test :: (
       func_value : Option(EvalValue).None,
       // Snapshot: freeze the entry frame count (see the spec-path ctx in
       // calls/helper.yo).
-      eval_env : snapshot_env(env)
+      eval_env : snapshot_env(&env)
     )
   );
   // A test body runs at RUN time — the runner compiles it as the body of a
@@ -299,7 +299,7 @@ evaluate_test :: (
   // Trial-evaluate the body (best effort; errors are swallowed — see the
   // helper). This surfaces obvious mistakes early; the authoritative check
   // is the test runner's compile step.
-  _trial_eval_test_body(test_body_expr, original_test_body_expr, env, ctx, exn);
+  _trial_eval_test_body(&test_body_expr, &original_test_body_expr, &env, ctx, exn);
   // Restore context.
   ctx.is_executing = old_is_executing;
   ctx.is_validating_function_definition = old_is_validating;
@@ -311,9 +311,9 @@ evaluate_test :: (
   });
   // NOTE: Don't propagate env.
   // Return unit — test has no compile-time value.
-  result_info := new_expr_info(env, t_unit());
+  result_info := new_expr_info(&env, t_unit());
   result_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), result_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &result_info);
   expr
 });
 export(evaluate_test);

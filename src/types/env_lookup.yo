@@ -142,7 +142,7 @@ _bindings_that_may_be_for :: (fn(imm(variables) : ArrayList(Variable), imm(some_
   while(i < variables.len(), {
     match(
       variables.get(i),
-      .Some(v) => if(_binding_may_be_for(v, some_id), {
+      .Some(v) => if(_binding_may_be_for(&v, some_id), {
         out.push(v);
       }),
       .None => ()
@@ -171,13 +171,13 @@ _lookup_by_frame :: (fn(imm(env) : Environment, fl : usize, imm(name) : String, 
               vars.get(i),
               .Some(var) =>
                 cond(
-                  ((var.name == name) && _binding_may_be_for(var, some_id)) =>
+                  ((var.name == name) && _binding_may_be_for(&var, some_id)) =>
                     match(
                       var.value.get(usize(0)),
                       .Some(val) =>
                         cond(
-                          _is_type_eval_value(val) => {
-                            result = .Some(_unwrap_type_eval_value(val));
+                          _is_type_eval_value(&val) => {
+                            result = .Some(_unwrap_type_eval_value(&val));
                             i = m;
                           },
                           true => ()
@@ -222,10 +222,10 @@ _def_frame_confirms_binding :: (
       return(false);
     }
   );
-  if(is_some_type(def_tv), {
+  if(is_some_type(&def_tv), {
     return(false);
   });
-  type_to_string(def_tv) == type_to_string(resolved_tv)
+  type_to_string(&def_tv) == type_to_string(resolved_tv)
 });
 /// Search the env for a variable of `name` that was ever bound to a TypeVal
 /// whose `id` matches `id_to_find`.  Used to distinguish unbound type variables
@@ -248,8 +248,8 @@ _was_self_bound :: (fn(imm(env) : Environment, imm(name) : String, imm(id_to_fin
       vars.get(vi),
       .Some(var) => match(
         var.value.get(usize(0)),
-        .Some(val) => if(_is_type_eval_value(val), {
-          if(_same_some_id(_unwrap_type_eval_value(val), id_to_find), {
+        .Some(val) => if(_is_type_eval_value(&val), {
+          if(_same_some_id(_unwrap_type_eval_value(&val), id_to_find), {
             found = true;
           });
         }),
@@ -285,10 +285,10 @@ get_trait_type_from_env :: (fn(imm(env) : Environment, imm(trait_name) : String)
         last.value.get(usize(0)),
         .Some(val) =>
           cond(
-            _is_type_eval_value(val) => {
-              type_val := _unwrap_type_eval_value(val);
+            _is_type_eval_value(&val) => {
+              type_val := _unwrap_type_eval_value(&val);
               cond(
-                is_trait_type(type_val) => Option(TypeValue).Some(type_val),
+                is_trait_type(&type_val) => Option(TypeValue).Some(type_val),
                 true => Option(TypeValue).None
               )
             },
@@ -305,11 +305,11 @@ _do_chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(vis
   (done : bool) = false;
   (result : TypeValue) = start;
   while(!done, {
-    cur_id := _some_id(current);
-    cur_name := _some_name(current);
+    cur_id := _some_id(&current);
+    cur_name := _some_name(&current);
     cond(
       // Cycle check
-      _id_visited(visited_ids, cur_id) => {
+      _id_visited(visited_ids, &cur_id) => {
         result = current;
         done = true;
       },
@@ -319,7 +319,7 @@ _do_chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(vis
         // or one recorded for `cur_id`. A binding recorded for another binder
         // of the same name is that binder's alone, and it must not bury an
         // older binding that is ours (`_binding_may_be_for`).
-        variables := _bindings_that_may_be_for(get_variables_from_env(env, cur_name), cur_id);
+        variables := _bindings_that_may_be_for(get_variables_from_env(env, &cur_name), &cur_id);
         n := variables.len();
         cond(
           (n == usize(0)) => {
@@ -343,21 +343,21 @@ _do_chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(vis
                   },
                   .Some(val) =>
                     cond(
-                      !_is_type_eval_value(val) => {
+                      !_is_type_eval_value(&val) => {
                         result = current;
                         done = true;
                       },
                       true => {
-                        resolved_tv := _unwrap_type_eval_value(val);
+                        resolved_tv := _unwrap_type_eval_value(&val);
                         cond(
                           // Resolved to itself → unbound
-                          _same_some_id(resolved_tv, cur_id) => {
+                          _same_some_id(&resolved_tv, &cur_id) => {
                             result = current;
                             done = true;
                           },
                           // Name collision: different SomeT with same name but different id
-                          (is_some_type(resolved_tv) && (cur_name == _some_name(resolved_tv)) && !_same_some_id(resolved_tv, cur_id)) => {
-                            was_bound := _was_self_bound(env, cur_name, cur_id);
+                          (is_some_type(&resolved_tv) && (cur_name == _some_name(&resolved_tv)) && !_same_some_id(&resolved_tv, &cur_id)) => {
+                            was_bound := _was_self_bound(env, &cur_name, &cur_id);
                             cond(
                               !was_bound => {
                                 result = current;
@@ -369,12 +369,12 @@ _do_chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(vis
                             );
                           },
                           // Another SomeT → follow chain
-                          is_some_type(resolved_tv) => {
+                          is_some_type(&resolved_tv) => {
                             current = resolved_tv;
                           },
                           // A binding that recorded the SomeT it resolves is
                           // this SomeT's (the others were filtered above).
-                          (variable_bound_some_id(last_var).len() > usize(0)) => {
+                          (variable_bound_some_id(&last_var).len() > usize(0)) => {
                             result = resolved_tv;
                             done = true;
                           },
@@ -393,14 +393,14 @@ _do_chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(vis
                             // marker of ours pairs anything, fall back to the
                             // TS def-frame confirmation
                             // (env-lookup.ts:170-200) before unbound.
-                            (was_bound : bool) = _was_self_bound(env, cur_name, cur_id);
+                            (was_bound : bool) = _was_self_bound(env, &cur_name, &cur_id);
                             // Fallback: the
                             // self-referential marker is gone once
                             // `synthesize_types` rebinds the variable to the
                             // concrete type — confirm ownership via the
                             // SomeType's definition frame level instead.
                             if(!was_bound, {
-                              was_bound = _def_frame_confirms_binding(env, current, resolved_tv);
+                              was_bound = _def_frame_confirms_binding(env, &current, &resolved_tv);
                             });
                             cond(
                               !was_bound => {
@@ -443,7 +443,7 @@ _last_type_binding_frame :: (fn(imm(env) : Environment, imm(name) : String) -> O
           match(
             vars.get(vi),
             .Some(var) =>
-              if((var.name == name) && _is_type_eval_value_or_empty(var), {
+              if((var.name == name) && _is_type_eval_value_or_empty(&var), {
                 hit = true;
               }),
             .None => ()
@@ -462,7 +462,7 @@ _last_type_binding_frame :: (fn(imm(env) : Environment, imm(name) : String) -> O
 _is_type_eval_value_or_empty :: (fn(imm(var) : Variable) -> bool)(
   match(
     var.value.get(usize(0)),
-    .Some(val) => _is_type_eval_value(val),
+    .Some(val) => _is_type_eval_value(&val),
     .None => false
   )
 );
@@ -482,7 +482,7 @@ _chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(visite
       negative_trait_types : _,
       negative_trait_levels : _
     ) => {
-      r := _lookup_by_frame(env, sfl, sn, sid);
+      r := _lookup_by_frame(env, sfl, &sn, &sid);
       match(
         r,
         .Some(tv) =>
@@ -493,9 +493,9 @@ _chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(visite
             // through to the name-keyed last-binding-wins scan lets a sibling
             // call's same-named SomeT hijack the resolution (the mutable-env
             // name-collision class).
-            _same_some_id(tv, sid) => Option(TypeValue).Some(start),
+            _same_some_id(&tv, &sid) => Option(TypeValue).Some(start),
             // Another SomeT at the same frame → fall through to chain search
-            is_some_type(tv) => Option(TypeValue).None,
+            is_some_type(&tv) => Option(TypeValue).None,
             // Concrete binding → trust it ONLY if the def frame still holds
             // the LIVE (last) binding of the name. (frame_level, name)
             // addressing is only meaningful inside the env stack the level
@@ -513,7 +513,7 @@ _chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(visite
             // chain's last-binding-wins scan below is the authority (it
             // finds THIS match's fresh synthesis binding in the top frame).
             true => match(
-              _last_type_binding_frame(env, sn),
+              _last_type_binding_frame(env, &sn),
               .Some(lbf) => cond(
                 (lbf == sfl) => Option(TypeValue).Some(tv),
                 true => Option(TypeValue).None
@@ -543,7 +543,7 @@ get_value_of_some_type_from_env :: (fn(imm(env) : Environment, imm(some_type) : 
     !is_some_type(some_type) => some_type,
     true => {
       visited_ids := ArrayList(String).new();
-      _chain_resolve(env, some_type, visited_ids)
+      _chain_resolve(env, some_type, &mut visited_ids)
     }
   )
 );
@@ -569,7 +569,7 @@ create_str_type :: (fn(imm(env) : Environment) -> TypeValue)({
 _pointer_target_is_byte :: (fn(imm(ty) : TypeValue) -> bool)(
   match(
     ty,
-    .Pointer(pointee) => (is_u8_type(pointee) || is_char_type(pointee)),
+    .Pointer(pointee) => (is_u8_type(&pointee) || is_char_type(&pointee)),
     _ => false
   )
 );
@@ -595,8 +595,8 @@ convert_comptime_type_to_runtime_type_with_expected :: (
         // comptime type rather than coercing to `str`. Without this the
         // default-value check compares `comptime_str` against `str`
         // and rejects `(comptime(x) : comptime_str) ?= "…"`.
-        is_comptime_string_type(et) => ty,
-        (is_pointer_type(et) && _pointer_target_is_byte(et)) => et,
+        is_comptime_string_type(&et) => ty,
+        (is_pointer_type(&et) && _pointer_target_is_byte(&et)) => et,
         true => create_str_type(env)
       )
     ),

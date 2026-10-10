@@ -210,7 +210,7 @@ _static_address :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(path) : 
       init := generate_comptime_value(value, ty, context);
       cond(
         init.contains(String.from("/* skip generating value */")) => init,
-        true => `(&${context.comptime_pointer_static(get_type_string(ty, context), init)}${path})`
+        true => `(&${context.comptime_pointer_static(get_type_string(ty, context), &init)}${path})`
       )
     }
   )
@@ -297,7 +297,7 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
     .StrLit(raw_with_delims) => {
       // StrLit keeps the surrounding `"` delimiters; codegen emits
       // the CONTENT, so strip them before re-escaping / length computation.
-      raw := _strip_str_delims(raw_with_delims);
+      raw := _strip_str_delims(&raw_with_delims);
       cond(
         (is_str_type(ty) || _is_comptime_string(ty)) => {
           lit := String.from("(__yo_str){ .ptr = (const uint8_t*)");
@@ -308,7 +308,7 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
           lit.push_str(" }");
           lit
         },
-        true => _c_string_literal(raw)
+        true => _c_string_literal(&raw)
       )
     },
     // --- enum (nullable-pointer / simple / tagged-union) ---
@@ -324,7 +324,7 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
         (ptr_opt.is_some() && (fields.len() == usize(0))) => String.from("NULL"),
         (ptr_opt.is_some() && (fields.len() == usize(1))) => match(
           ptr_opt,
-          .Some(pt) => recur(match(fields.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal), pt, context),
+          .Some(pt) => recur(match(fields.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal), &pt, context),
           .None => String.from("NULL")
         ),
         can_optimize_as_simple_enum(ty) => get_enum_variant_c_name(ty, variant.clone(), context),
@@ -350,8 +350,8 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
                 (fi : usize) = usize(0);
                 while(fi < nf, {
                   fty := match(vftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-                  if(!is_unit_type(fty), {
-                    fcode := match(fields.get(fi), .Some(fv) => recur(fv, fty, context), .None => String.from(""));
+                  if(!is_unit_type(&fty), {
+                    fcode := match(fields.get(fi), .Some(fv) => recur(&fv, &fty, context), .None => String.from(""));
                     if(any_field, {
                       inits.push_str(", ");
                       positional.push_str(", ");
@@ -359,10 +359,10 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
                     any_field = true;
                     flabel := match(vflabels.get(fi), .Some(l) => l, .None => String.from(""));
                     inits.push_str(".");
-                    inits.push_string(sanitize_for_c_identifier(flabel, false));
+                    inits.push_string(sanitize_for_c_identifier(&flabel, false));
                     inits.push_str(" = ");
                     inits.push_string(fcode.clone());
-                    positional.push_string(fcode);
+                    positional.push_string(&fcode);
                   });
                   fi = (fi + usize(1));
                 });
@@ -374,24 +374,24 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
           cond(
             is_ref => {
               out := String.from("__yo_new_");
-              out.push_string(c_name);
+              out.push_string(&c_name);
               out.push_str("_");
               out.push_string(variant.clone());
               out.push_str("(");
-              out.push_string(positional);
+              out.push_string(&positional);
               out.push_str(")");
               out
             },
             true => {
               out := String.from("(");
-              out.push_string(c_name);
+              out.push_string(&c_name);
               out.push_str("){ .tag = ");
-              out.push_string(variant_tag);
+              out.push_string(&variant_tag);
               if(any_field, {
                 out.push_str(", .data = { .");
                 out.push_string(c_variant_member_name(variant.clone()));
                 out.push_str(" = { ");
-                out.push_string(inits);
+                out.push_string(&inits);
                 out.push_str(" } }");
               });
               out.push_str(" }");
@@ -414,7 +414,7 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
           fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
           // A `unit` element is zero-sized and has no `_N` member
           // (types/generation.yo): no initializer.
-          if(!is_unit_type(fty), {
+          if(!is_unit_type(&fty), {
             if(any_elem, {
               out.push_str(", ");
             });
@@ -422,7 +422,7 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
             out.push_str("._");
             out.push_string(i.to_string());
             out.push_str(" = ");
-            match(fields.get(i), .Some(fv) => out.push_string(recur(fv, fty, context)), .None => ());
+            match(fields.get(i), .Some(fv) => out.push_string(recur(&fv, &fty, context)), .None => ());
           });
           i = (i + usize(1));
         });
@@ -435,7 +435,7 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
       ty,
       // `Array(unit, N)` is zero-sized: its wrapper has no `data` member
       // (types/generation.yo), so the literal is the empty struct.
-      .Array({ element }) => if(is_unit_type(element), {
+      .Array({ element }) => if(is_unit_type(&element), {
         out := String.from("(");
         out.push_string(get_type_string(ty, context));
         out.push_str("){ }");
@@ -450,7 +450,7 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
           if(i > usize(0), {
             out.push_str(", ");
           });
-          match(elements.get(i), .Some(ev) => out.push_string(recur(ev, element, context)), .None => ());
+          match(elements.get(i), .Some(ev) => out.push_string(recur(&ev, &element, context)), .None => ());
           i = (i + usize(1));
         });
         out.push_str(" } }");
@@ -479,15 +479,15 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
             uty := match(field_types.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
             uval := match(field_values.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
             out := String.from("((");
-            out.push_string(c_name);
+            out.push_string(&c_name);
             out.push_str(")(");
-            out.push_string(recur(uval, uty, context));
+            out.push_string(recur(&uval, &uty, context));
             out.push_str("))");
             out
           },
           is_reference_semantics => {
             out := String.from("__yo_new_");
-            out.push_string(c_name);
+            out.push_string(&c_name);
             out.push_str("(");
             nf := field_types.len();
             (i : usize) = usize(0);
@@ -501,12 +501,12 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
               fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
               // A `unit` field is zero-sized: the ctor has no parameter for it
               // (functions/constructors.yo).
-              if(!field_is_ct && !is_unit_type(fty), {
+              if(!field_is_ct && !is_unit_type(&fty), {
                 if(any_arg, {
                   out.push_str(", ");
                 });
                 any_arg = true;
-                match(field_values.get(i), .Some(fv) => out.push_string(recur(fv, fty, context)), .None => ());
+                match(field_values.get(i), .Some(fv) => out.push_string(recur(&fv, &fty, context)), .None => ());
               });
               i = (i + usize(1));
             });
@@ -515,7 +515,7 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
           },
           true => {
             out := String.from("(");
-            out.push_string(c_name);
+            out.push_string(&c_name);
             out.push_str("){ ");
             n := field_names.len();
             (i : usize) = usize(0);
@@ -527,16 +527,16 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
                 .Some(flags) => match(flags.get(i), .Some(f) => f, .None => false),
                 .None => false
               );
-              if(!is_unit_type(fty) && !field_is_ct2, {
+              if(!is_unit_type(&fty) && !field_is_ct2, {
                 if(any, {
                   out.push_str(", ");
                 });
                 any = true;
                 flabel := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
                 out.push_str(".");
-                out.push_string(c_field_name(ty, flabel));
+                out.push_string(c_field_name(ty, &flabel));
                 out.push_str(" = ");
-                match(field_values.get(i), .Some(fv) => out.push_string(recur(fv, fty, context)), .None => ());
+                match(field_values.get(i), .Some(fv) => out.push_string(recur(&fv, &fty, context)), .None => ());
               });
               i = (i + usize(1));
             });
@@ -552,19 +552,19 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
     // whose `int` width is not folded reaches here as a runtime
     // `sizeof(<TypeVal>)` (issues/fixed/sizeof-of-a-c-platform-type-has-no-c-type-name.md).
     .TypeVal(t) => cond(
-      is_str_type(t) => String.from("__yo_str"),
-      (is_primitive_type(t) && !is_unit_type(t)) => get_type_string(t, context),
+      is_str_type(&t) => String.from("__yo_str"),
+      (is_primitive_type(&t) && !is_unit_type(&t)) => get_type_string(&t, context),
       // A SomeT is never in the collected-type registry either: it lowers
       // through its resolution — `IoFuture`, an `Impl(Concrete(
       // __yo_io_future_t), …)`, to `__yo_io_future_t*`
       // (issues/fixed/sizeof-of-a-resolved-impl-type-has-no-c-type-name.md).
-      is_some_type(t) => get_type_string(t, context),
+      is_some_type(&t) => get_type_string(&t, context),
       true => match(
-        context.get_type_c_name(type_key(t)),
+        context.get_type_c_name(type_key(&t)),
         .Some(cn) => cn,
         .None => {
           c := String.from("/* Error: no C type name for ");
-          c.push_string(type_to_string(t));
+          c.push_string(type_to_string(&t));
           c.push_str(" */");
           c
         }
@@ -574,11 +574,11 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
     // i.e. a function pointer. The
     // function must have been collected for codegen; if not, emit a diagnostic.
     .FuncVal(__fvd1, _) => match(
-      context.get_function_entry(__fvd1.*.func_id),
+      context.get_function_entry(&__fvd1.*.func_id),
       .Some(e) => e.c_name,
       .None => {
         c := String.from("/* Error: no C function name for func value ");
-        c.push_string(__fvd1.*.func_id);
+        c.push_string(&__fvd1.*.func_id);
         c.push_str(" */");
         c
       }
@@ -590,7 +590,7 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
     // extern("Yo") name on the CARRIED type (the
     // declared field type on the Io struct is a plain unmarked Func).
     .UnknownVal(unk_ty, _) => if(
-      _is_io_builtin_fn_type(unk_ty) || _is_io_builtin_fn_type(ty),
+      _is_io_builtin_fn_type(&unk_ty) || _is_io_builtin_fn_type(ty),
       String.from("NULL"),
       String.from("/* skip generating value */")
     ),
@@ -611,8 +611,8 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
           // A whole value. An element list with no recorded aggregate type
           // cannot be told apart from its siblings: keep the placeholder.
           .None => cond(
-            (match(target, .ArrayVal(_) => true, .ComptimeListVal(_) => true, _ => false) && !is_array_type(pointee)) => String.from("/* skip generating value */"),
-            true => _static_address(target, pointee, String.new(), context)
+            (match(target, .ArrayVal(_) => true, .ComptimeListVal(_) => true, _ => false) && !is_array_type(&pointee)) => String.from("/* skip generating value */"),
+            true => _static_address(&target, &pointee, String.new(), context)
           ),
           .Some(agg_ty) => {
             parts := match(target, .ArrayVal(elems) => Option(ArrayList(EvalValue)).Some(elems), .ComptimeListVal(elems) => .Some(elems), _ => .None);
@@ -623,12 +623,12 @@ generate_comptime_value :: (fn(imm(value) : EvalValue, imm(ty) : TypeValue, imm(
                 agg_ty,
                 .Struct({ field_labels : labels }) => match(
                   labels.get(index),
-                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), labels, elems), agg_ty, `.${c_field_name(agg_ty, label)}`, context),
+                  .Some(label) => _static_address(EvalValue.StructVal(String.new(), labels, elems), &agg_ty, `.${c_field_name(&agg_ty, &label)}`, context),
                   .None => String.from("/* skip generating value */")
                 ),
-                .Tuple(_, _) => _static_address(EvalValue.TupleVal(elems), agg_ty, `._${index}`, context),
+                .Tuple(_, _) => _static_address(EvalValue.TupleVal(elems), &agg_ty, `._${index}`, context),
                 _ => cond(
-                  is_array_type(agg_ty) => _static_address(EvalValue.ArrayVal(elems), agg_ty, `.data[${index}]`, context),
+                  is_array_type(&agg_ty) => _static_address(EvalValue.ArrayVal(elems), &agg_ty, `.data[${index}]`, context),
                   true => String.from("/* skip generating value */")
                 )
               )

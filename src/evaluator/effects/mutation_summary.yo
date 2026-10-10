@@ -131,7 +131,7 @@ _ms_type_is_function_like :: (fn(imm(t) : TypeValue) -> bool)({
   });
   match(
     t,
-    .Pointer({ pointee : p }) => is_function_type(p),
+    .Pointer({ pointee : p }) => is_function_type(&p),
     _ => false
   )
 });
@@ -164,7 +164,7 @@ _ms_extern_may_mutate :: (
   while(pi < n, {
     match(
       param_types.get(pi),
-      .Some(pt) => if(_ms_type_is_function_like(pt), {
+      .Some(pt) => if(_ms_type_is_function_like(&pt), {
         found_cb = true;
       }),
       .None => ()
@@ -176,7 +176,7 @@ _ms_extern_may_mutate :: (
   while(vi < nv, {
     match(
       variadic_types.get(vi),
-      .Some(vt) => if(_ms_type_is_function_like(vt), {
+      .Some(vt) => if(_ms_type_is_function_like(&vt), {
         found_cb = true;
       }),
       .None => ()
@@ -236,7 +236,7 @@ impl(
     });
     g_ms_in_progress.insert(fid, true);
     local_touched := ArrayList(String).new();
-    mutates := _MsW.walk(body, table, local_touched);
+    mutates := _MsW.walk(body, table, &mut local_touched);
     g_ms_in_progress.remove(fid.clone());
     // Remove the self edge (pure self-recursion does not poison memoization).
     (li : usize) = usize(0);
@@ -279,7 +279,7 @@ impl(
     while((i < n) && !found, {
       match(
         args.get(i),
-        .Some(a) => if(_MsW.walk(a, table, touched), {
+        .Some(a) => if(_MsW.walk(&a, table, touched), {
           found = true;
         }),
         .None => ()
@@ -326,7 +326,7 @@ impl(
       .Some(info) => {
         // A macro call's raw arguments are not what executes — the expansion is.
         match(
-          expr_info_macro_expansion(info),
+          expr_info_macro_expansion(&info),
           .Some(mx) => {
             return(_MsW.walk(mx, table, touched));
           },
@@ -334,7 +334,7 @@ impl(
         );
         // A cond/match arm the evaluator proved unexecuted is never emitted.
         match(
-          expr_info_case_executed(info),
+          expr_info_case_executed(&info),
           .Some(ce) => if(!ce, {
             return(false);
           }),
@@ -342,13 +342,13 @@ impl(
         );
         // A function/closure DEFINITION does not run its body here.
         match(
-          expr_info_is_anonymous_function_definition(info),
+          expr_info_is_anonymous_function_definition(&info),
           .Some(an) => if(an, {
             return(false);
           }),
           .None => ()
         );
-        if(expr_info_closure_function_value(info).is_some(), {
+        if(expr_info_closure_function_value(&info).is_some(), {
           return(false);
         });
       },
@@ -384,15 +384,15 @@ impl(
       // (Misreading it as a store rooted at the atom `:` made every method
       // with a typed local — `ArrayList.index_of` — "mutating": a false
       // invalidation panic inside a borrowed `for`.)
-      if(ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_COLON, Option(usize).Some(usize(2))), {
+      if(ast_expr_is_fn_call(&lhs) && ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
         rhs0 := match(args.get(usize(1)), .Some(r) => r, .None => e);
-        return(_MsW.walk(rhs0, table, touched));
+        return(_MsW.walk(&rhs0, table, touched));
       });
-      lhs_info := expr_info_table_get(table, ast_expr_id(lhs));
+      lhs_info := expr_info_table_get(table, ast_expr_id(&lhs));
       match(
         lhs_info,
         .Some(li) => {
-          if(type_contains_rc_type(li.ty), {
+          if(type_contains_rc_type(&li.ty), {
             return(true);
           });
         },
@@ -405,7 +405,7 @@ impl(
     // Declarations create a fresh local — only the initializer runs.
     if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
       rhs := match(args.get(usize(1)), .Some(r) => r, .None => e);
-      return(_MsW.walk(rhs, table, touched));
+      return(_MsW.walk(&rhs, table, touched));
     });
     // match arms are `pattern => body`: the pattern side binds, it never
     // executes runtime calls (Yo has no match guards) and its variant
@@ -414,7 +414,7 @@ impl(
     if(head == "match", {
       match(
         args.get(usize(0)),
-        .Some(scrut) => if(_MsW.walk(scrut, table, touched), {
+        .Some(scrut) => if(_MsW.walk(&scrut, table, touched), {
           return(true);
         }),
         .None => ()
@@ -425,9 +425,9 @@ impl(
           args.get(mi),
           .Some(arm) => {
             arm_case_off := match(
-              expr_info_table_get(table, ast_expr_id(arm)),
+              expr_info_table_get(table, ast_expr_id(&arm)),
               .Some(ai) => match(
-                expr_info_case_executed(ai),
+                expr_info_case_executed(&ai),
                 .Some(ce) => !ce,
                 .None => false
               ),
@@ -448,10 +448,10 @@ impl(
               );
               match(
                 arm_body,
-                .Some(ab) => if(_MsW.walk(ab, table, touched), {
+                .Some(ab) => if(_MsW.walk(&ab, table, touched), {
                   return(true);
                 }),
-                .None => if(_MsW.walk(arm, table, touched), {
+                .None => if(_MsW.walk(&arm, table, touched), {
                   return(true);
                 })
               );
@@ -470,7 +470,7 @@ impl(
       return(true);
     });
     if((head.len() > usize(0)) && _ms_head_is_safe_recurse(head.clone()), {
-      return(_MsW.walk_args(args, table, touched));
+      return(_MsW.walk_args(&args, table, touched));
     });
     // A compile-time-known result is inlined by codegen — the call never runs
     // at runtime, so nothing inside it can mutate.
@@ -485,7 +485,7 @@ impl(
       info_opt,
       .Some(vinfo) => match(
         vinfo.value,
-        .Some(v) => if(!is_unknown_val(v), {
+        .Some(v) => if(!is_unknown_val(&v), {
           return(false);
         }),
         .None => ()
@@ -505,13 +505,13 @@ impl(
     index_callee := match(
       info_opt,
       .Some(ci) => match(
-        expr_info_index_method_value(ci),
+        expr_info_index_method_value(&ci),
         .Some(imv) => match(imv, .FuncVal(_, _) => Option(EvalValue).Some(imv), _ => Option(EvalValue).None),
         .None => Option(EvalValue).None
       ),
       .None => Option(EvalValue).None
     );
-    callee_opt := match(index_callee, .Some(_) => index_callee, .None => _MsW.callee_value(e, func_expr, table));
+    callee_opt := match(index_callee, .Some(_) => index_callee, .None => _MsW.callee_value(e, &func_expr, table));
     match(
       callee_opt,
       .Some(callee) => match(
@@ -519,10 +519,10 @@ impl(
         .TypeVal(_) => {
           // Type application: a cast or a struct/enum construction —
           // allocates a fresh value, mutates nothing pre-existing.
-          if(_MsW.walk(func_expr, table, touched), {
+          if(_MsW.walk(&func_expr, table, touched), {
             return(true);
           });
-          return(_MsW.walk_args(args, table, touched));
+          return(_MsW.walk_args(&args, table, touched));
         },
         .FuncVal(fvd, _) => {
           fid := fvd.*.func_id.clone();
@@ -546,20 +546,20 @@ impl(
           match(
             callee_extern,
             .Some(en) => {
-              if(_ms_extern_may_mutate(en, callee_ptypes, callee_vtypes), {
+              if(_ms_extern_may_mutate(&en, &callee_ptypes, &callee_vtypes), {
                 return(true);
               });
             },
             .None => {
-              if(_MsW.summary_for(fid.clone(), fvd.*.body, table, touched), {
+              if(_MsW.summary_for(fid.clone(), &fvd.*.body, table, touched), {
                 return(true);
               });
             }
           );
-          if(_MsW.walk(func_expr, table, touched), {
+          if(_MsW.walk(&func_expr, table, touched), {
             return(true);
           });
-          return(_MsW.walk_args(args, table, touched));
+          return(_MsW.walk_args(&args, table, touched));
         },
         _ => {
           return(true);
@@ -570,19 +570,19 @@ impl(
     // Primitive builtins with dedicated evaluator paths: pure computations,
     // reads, and aborts are safe.
     if((head.len() > usize(0)) && _ms_head_is_pure_builtin(head.clone()), {
-      return(_MsW.walk_args(args, table, touched));
+      return(_MsW.walk_args(&args, table, touched));
     });
     // Callee value unresolved but a resolved callee TYPE exists (extern C
     // declarations resolve this way).
     (type_only : Option(TypeValue)) = match(
-      expr_info_table_get(table, ast_expr_id(func_expr)),
+      expr_info_table_get(table, ast_expr_id(&func_expr)),
       .Some(fi2) => Option(TypeValue).Some(fi2.ty),
       .None => Option(TypeValue).None
     );
     (type_only2 : Option(TypeValue)) = match(
       type_only,
       .Some(t0) => if(
-        is_function_type(t0),
+        is_function_type(&t0),
         Option(TypeValue).Some(t0),
         lookup_method_callee_type(ast_expr_id(e))
       ),
@@ -596,13 +596,13 @@ impl(
           match(
             tm.*.extern_name,
             .Some(ten) => {
-              if(_ms_extern_may_mutate(ten, tpt, tvt), {
+              if(_ms_extern_may_mutate(&ten, &tpt, &tvt), {
                 return(true);
               });
-              if(_MsW.walk(func_expr, table, touched), {
+              if(_MsW.walk(&func_expr, table, touched), {
                 return(true);
               });
-              return(_MsW.walk_args(args, table, touched));
+              return(_MsW.walk_args(&args, table, touched));
             },
             .None => ()
           );
@@ -623,7 +623,7 @@ function_may_mutate_rc_storage :: (
   fn(imm(fid) : String, imm(body) : AstExpr, imm(ctx) : EvalContext) -> bool
 )({
   touched := ArrayList(String).new();
-  _MsW.summary_for(fid, body, ctx.expr_info_table, touched)
+  _MsW.summary_for(fid, body, &ctx.expr_info_table, &mut touched)
 });
 // ===========================================================================
 // PARAM-STORAGE mode — per-parameter mutation masks
@@ -726,16 +726,16 @@ _msp_mask_or :: (fn(imm(dst) : ParamMutationMask, imm(src) : ParamMutationMask) 
   if(src.all, {
     dst.all = true;
   });
-  _msp_bits_or(dst.deep, src.deep);
-  _msp_bits_or(dst.shallow, src.shallow);
+  _msp_bits_or(&mut dst.deep, &src.deep);
+  _msp_bits_or(&mut dst.shallow, &src.shallow);
 });
 /// Record a mutation of the storage `r` names.
 _msp_mask_add_root :: (fn(imm(m) : ParamMutationMask, r : _MspRoot, deep : bool) -> unit)({
   cond(
     (r.kind == MSP_PARAM) => if(deep || r.deep, {
-      _msp_bits_set(m.deep, r.param);
+      _msp_bits_set(&mut m.deep, r.param);
     }, {
-      _msp_bits_set(m.shallow, r.param);
+      _msp_bits_set(&mut m.shallow, r.param);
     }),
     (r.kind == MSP_ROOTED) => {
       m.all = true;
@@ -745,7 +745,7 @@ _msp_mask_add_root :: (fn(imm(m) : ParamMutationMask, r : _MspRoot, deep : bool)
   );
 });
 param_mutation_mask_hits :: (fn(imm(m) : ParamMutationMask, i : usize) -> bool)(
-  m.all || _msp_bits_get(m.deep, i) || _msp_bits_get(m.shallow, i)
+  m.all || _msp_bits_get(&m.deep, i) || _msp_bits_get(&m.shallow, i)
 );
 param_mutation_mask_is_empty :: (fn(imm(m) : ParamMutationMask) -> bool)({
   if(m.all, {
@@ -753,14 +753,14 @@ param_mutation_mask_is_empty :: (fn(imm(m) : ParamMutationMask) -> bool)({
   });
   (i : usize) = usize(0);
   while(i < m.deep.len(), {
-    if(_msp_bits_get(m.deep, i), {
+    if(_msp_bits_get(&m.deep, i), {
       return(false);
     });
     i = (i + usize(1));
   });
   i = usize(0);
   while(i < m.shallow.len(), {
-    if(_msp_bits_get(m.shallow, i), {
+    if(_msp_bits_get(&m.shallow, i), {
       return(false);
     });
     i = (i + usize(1));
@@ -773,17 +773,17 @@ _msp_type_contains_pointer_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> 
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   cond(
     (depth > u32(8)) => true,
-    is_pointer_type(ty) => true,
+    is_pointer_type(&ty) => true,
     true => match(
       ty,
-      .Array(element : elem, length : _) => recur(elem, depth + u32(1)),
+      .Array(element : elem, length : _) => recur(&elem, depth + u32(1)),
       .Tuple(field_labels : _, field_types : fields) => {
         (found : bool) = false;
         (i : usize) = usize(0);
         while((i < fields.len()) && !found, {
           match(
             fields.get(i),
-            .Some(ft) => if(recur(ft, depth + u32(1)), {
+            .Some(ft) => if(recur(&ft, depth + u32(1)), {
               found = true;
             }),
             .None => ()
@@ -798,7 +798,7 @@ _msp_type_contains_pointer_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> 
         while((i < fields.len()) && !found, {
           match(
             fields.get(i),
-            .Some(ft) => if(recur(ft, depth + u32(1)), {
+            .Some(ft) => if(recur(&ft, depth + u32(1)), {
               found = true;
             }),
             .None => ()
@@ -813,7 +813,7 @@ _msp_type_contains_pointer_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> 
         while((i < fields.len()) && !found, {
           match(
             fields.get(i),
-            .Some(ft) => if(recur(ft, depth + u32(1)), {
+            .Some(ft) => if(recur(&ft, depth + u32(1)), {
               found = true;
             }),
             .None => ()
@@ -833,7 +833,7 @@ _msp_type_contains_pointer_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> 
               while((fi < v_fields.len()) && !found, {
                 match(
                   v_fields.get(fi),
-                  .Some(ft) => if(recur(ft, depth + u32(1)), {
+                  .Some(ft) => if(recur(&ft, depth + u32(1)), {
                     found = true;
                   }),
                   .None => ()
@@ -847,10 +847,10 @@ _msp_type_contains_pointer_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> 
         });
         found
       },
-      .IsoT(child : child) => recur(child, depth + u32(1)),
+      .IsoT(child : child) => recur(&child, depth + u32(1)),
       .SomeT({ required_trait_types : _, resolution : resolved }) => match(
         resolved,
-        .Some(concrete) => recur(concrete, depth + u32(1)),
+        .Some(concrete) => recur(&concrete, depth + u32(1)),
         .None => true
       ),
       _ => false
@@ -910,7 +910,7 @@ _msp_allocator_slot :: (fn(imm(func_expr) : AstExpr, imm(table) : ExprInfoTable)
   });
   recv_ty := match(
     recv_opt,
-    .Some(recv) => match(expr_info_table_get(table, ast_expr_id(recv)), .Some(ri) => Option(TypeValue).Some(ri.ty), .None => Option(TypeValue).None),
+    .Some(recv) => match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => Option(TypeValue).Some(ri.ty), .None => Option(TypeValue).None),
     .None => Option(TypeValue).None
   );
   is_vtable := match(
@@ -918,7 +918,7 @@ _msp_allocator_slot :: (fn(imm(func_expr) : AstExpr, imm(table) : ExprInfoTable)
     .Some(rt) => {
       pointee := match(rt, .Pointer({ pointee : pt }) => pt, _ => rt);
       match(
-        resolve_struct_shell(pointee),
+        resolve_struct_shell(&pointee),
         // The declaring module is std/allocator.yo, or std/prelude.yo once
         // the type moves there (plans/VALUES_BY_DEFAULT.md §3.11; std can
         // only move it after a seed carries this arm): a struct id carries
@@ -951,7 +951,7 @@ _msp_extern_has_callback :: (fn(imm(param_types) : ArrayList(TypeValue), imm(var
   while(pi < param_types.len(), {
     match(
       param_types.get(pi),
-      .Some(pt) => if(_ms_type_is_function_like(pt), {
+      .Some(pt) => if(_ms_type_is_function_like(&pt), {
         return(true);
       }),
       .None => ()
@@ -962,7 +962,7 @@ _msp_extern_has_callback :: (fn(imm(param_types) : ArrayList(TypeValue), imm(var
   while(vi < variadic_types.len(), {
     match(
       variadic_types.get(vi),
-      .Some(vt) => if(_ms_type_is_function_like(vt), {
+      .Some(vt) => if(_ms_type_is_function_like(&vt), {
         return(true);
       }),
       .None => ()
@@ -1051,14 +1051,14 @@ _msp_taint_to :: (fn(imm(ctx) : _MspCtx, imm(name) : String, target : _MspRoot) 
 });
 /// The root of a variable read.
 _msp_atom_root :: (fn(imm(ctx) : _MspCtx, imm(atom) : AstExpr) -> _MspRoot)({
-  info := match(expr_info_table_get(ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(_msp_root(MSP_ROOTED)));
-  if(!_msp_type_may_root(info.ty), {
+  info := match(expr_info_table_get(&ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(_msp_root(MSP_ROOTED)));
+  if(!_msp_type_may_root(&info.ty), {
     return(_msp_root(MSP_NONE));
   });
   // A compile-time-known value is inlined by codegen: no shared storage.
   match(
     info.value,
-    .Some(v) => if(!is_unknown_val(v), {
+    .Some(v) => if(!is_unknown_val(&v), {
       return(_msp_root(MSP_NONE));
     }),
     .None => ()
@@ -1068,7 +1068,7 @@ _msp_atom_root :: (fn(imm(ctx) : _MspCtx, imm(atom) : AstExpr) -> _MspRoot)({
   if(name.starts_with("."), {
     return(_msp_root(MSP_NONE));
   });
-  vars := scope_variables(ast_expr_id(atom), info.env, name.clone());
+  vars := scope_variables(ast_expr_id(atom), &info.env, name.clone());
   if(vars.len() == usize(0), {
     return(_msp_root(MSP_ROOTED));
   });
@@ -1091,12 +1091,12 @@ _msp_atom_root :: (fn(imm(ctx) : _MspCtx, imm(atom) : AstExpr) -> _MspRoot)({
 /// Is this atom a LOCAL variable (not a parameter, global, or compile-time
 /// value) whose type can root storage? Such locals are what taint tracks.
 _msp_atom_local_name :: (fn(imm(ctx) : _MspCtx, imm(atom) : AstExpr) -> Option(String))({
-  info := match(expr_info_table_get(ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(Option(String).None));
-  if(!_msp_type_may_root(info.ty), {
+  info := match(expr_info_table_get(&ctx.table, ast_expr_id(atom)), .Some(i) => i, .None => return(Option(String).None));
+  if(!_msp_type_may_root(&info.ty), {
     return(Option(String).None);
   });
   name := ast_expr_token(atom).value;
-  vars := scope_variables(ast_expr_id(atom), info.env, name.clone());
+  vars := scope_variables(ast_expr_id(atom), &info.env, name.clone());
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
@@ -1122,11 +1122,11 @@ _msp_pattern_names :: (fn(imm(pat) : AstExpr, mut(out) : ArrayList(String)) -> u
         return(());
       });
       if(is_colon, {
-        match(args.get(usize(1)), .Some(a) => recur(a, out), .None => ());
+        match(args.get(usize(1)), .Some(a) => recur(&a, out), .None => ());
       }, {
         (i : usize) = usize(0);
         while(i < args.len(), {
-          match(args.get(i), .Some(a) => recur(a, out), .None => ());
+          match(args.get(i), .Some(a) => recur(&a, out), .None => ());
           i = (i + usize(1));
         });
       });
@@ -1160,7 +1160,7 @@ _msp_type_of_name_in :: (fn(imm(e) : AstExpr, imm(name) : String, imm(table) : E
       _,
       _
     ) => {
-      r := recur(f, name.clone(), table);
+      r := recur(&f, name.clone(), table);
       if(r.is_some(), {
         return(r);
       });
@@ -1169,7 +1169,7 @@ _msp_type_of_name_in :: (fn(imm(e) : AstExpr, imm(name) : String, imm(table) : E
         match(
           args.get(i),
           .Some(a) => {
-            r2 := recur(a, name.clone(), table);
+            r2 := recur(&a, name.clone(), table);
             if(r2.is_some(), {
               return(r2);
             });
@@ -1205,14 +1205,14 @@ _msp_place_base_atom :: (fn(imm(e) : AstExpr) -> Option(AstExpr))({
       .Atom(_, _) => {
         walking = false;
       },
-      .FnCall(_, f, args, _, _) => if(ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).Some(usize(2))), {
+      .FnCall(_, f, args, _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
         cur = match(args.get(usize(0)), .Some(b) => b, .None => cur);
       }, {
         cur = f;
       })
     );
   });
-  if(ast_expr_is_atom(cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
+  if(ast_expr_is_atom(&cur), Option(AstExpr).Some(cur), Option(AstExpr).None)
 });
 /// The `inout` parameter of the function being walked that a PLACE is rooted
 /// in, by label — `self` in `self.n = v` or `self.slots(i)`. Type-blind on
@@ -1227,7 +1227,7 @@ _msp_inout_param_of_place :: (fn(imm(place) : AstExpr, imm(ctx) : _MspCtx) -> Op
   match(
     _msp_place_base_atom(place),
     .Some(atom) => match(
-      _msp_param_index(ctx, ast_expr_token(atom).value.clone()),
+      _msp_param_index(ctx, ast_expr_token(&atom).value.clone()),
       .Some(pi) => match(
         get_func_type(ctx.fid.clone()),
         .Func({ meta : pm }) => if(match(pm.*.param_is_ref.get(pi), .Some(r) => r, .None => false), Option(usize).Some(pi), Option(usize).None),
@@ -1243,7 +1243,7 @@ _msp_inout_param_of_place :: (fn(imm(place) : AstExpr, imm(ctx) : _MspCtx) -> Op
 _msp_arm_is_dead :: (fn(imm(arm) : AstExpr, imm(table) : ExprInfoTable) -> bool)({
   arm_off := match(
     expr_info_table_get(table, ast_expr_id(arm)),
-    .Some(ai) => match(expr_info_case_executed(ai), .Some(ce) => !ce, .None => false),
+    .Some(ai) => match(expr_info_case_executed(&ai), .Some(ce) => !ce, .None => false),
     .None => false
   );
   if(arm_off, {
@@ -1253,7 +1253,7 @@ _msp_arm_is_dead :: (fn(imm(arm) : AstExpr, imm(table) : ExprInfoTable) -> bool)
     arm,
     .FnCall(_, _, aargs, _, _) => match(
       aargs.get(usize(1)),
-      .Some(b) => expr_info_table_get(table, ast_expr_id(b)).is_none(),
+      .Some(b) => expr_info_table_get(table, ast_expr_id(&b)).is_none(),
       .None => false
     ),
     .Atom(_, _) => false
@@ -1304,7 +1304,7 @@ impl(
     match(
       expr_info_table_get(table, ast_expr_id(e)),
       .Some(ci) => match(
-        expr_info_index_method_value(ci),
+        expr_info_index_method_value(&ci),
         .Some(imv) => match(
           imv,
           .FuncVal(_, _) => {
@@ -1321,7 +1321,7 @@ impl(
   is_index_call : (fn(imm(e) : AstExpr, imm(table) : ExprInfoTable) -> bool)(
     match(
       expr_info_table_get(table, ast_expr_id(e)),
-      .Some(ci) => match(expr_info_index_method_value(ci), .Some(imv) => match(imv, .FuncVal(_, _) => true, _ => false), .None => false),
+      .Some(ci) => match(expr_info_index_method_value(&ci), .Some(imv) => match(imv, .FuncVal(_, _) => true, _ => false), .None => false),
       .None => false
     )
   ),
@@ -1342,7 +1342,7 @@ impl(
       out.push(func_expr);
       (i0 : usize) = usize(0);
       while(i0 < args.len(), {
-        match(args.get(i0), .Some(a) => out.push(_msp_unmarked_arg(a)), .None => ());
+        match(args.get(i0), .Some(a) => out.push(_msp_unmarked_arg(&a)), .None => ());
         i0 = (i0 + usize(1));
       });
       return(if(out.len() == labels_len, Option(ArrayList(AstExpr)).Some(out), Option(ArrayList(AstExpr)).None));
@@ -1350,7 +1350,7 @@ impl(
     if(args.len() == labels_len, {
       (i1 : usize) = usize(0);
       while(i1 < args.len(), {
-        match(args.get(i1), .Some(a) => out.push(_msp_unmarked_arg(a)), .None => ());
+        match(args.get(i1), .Some(a) => out.push(_msp_unmarked_arg(&a)), .None => ());
         i1 = (i1 + usize(1));
       });
       return(Option(ArrayList(AstExpr)).Some(out));
@@ -1361,12 +1361,12 @@ impl(
         .FnCall(_, _, dargs, _, _) => match(
           dargs.get(usize(0)),
           .Some(recv) => {
-            recv_is_type := match(expr_info_table_get(table, ast_expr_id(recv)), .Some(ri) => is_type_value(ri.value), .None => false);
+            recv_is_type := match(expr_info_table_get(table, ast_expr_id(&recv)), .Some(ri) => is_type_value(&ri.value), .None => false);
             if(!recv_is_type, {
               out.push(recv);
               (i2 : usize) = usize(0);
               while(i2 < args.len(), {
-                match(args.get(i2), .Some(a) => out.push(_msp_unmarked_arg(a)), .None => ());
+                match(args.get(i2), .Some(a) => out.push(_msp_unmarked_arg(&a)), .None => ());
                 i2 = (i2 + usize(1));
               });
               return(Option(ArrayList(AstExpr)).Some(out));
@@ -1423,13 +1423,13 @@ impl(
     (go : bool) = true;
     while(go, {
       ctx.changed = false;
-      _MsP.collect(body, ctx);
+      _MsP.collect(body, &ctx);
       iters = (iters + usize(1));
       if(!ctx.changed || (iters > usize(64)), {
         go = false;
       });
     });
-    mask := _MsP.walk(body, ctx);
+    mask := _MsP.walk(body, &ctx);
     if(iters > usize(64), {
       mask.all = true;
     });
@@ -1478,14 +1478,14 @@ impl(
       eprintln(`[borrow-roots] ${fid} (${lbl}) all=${mask.all}${dump}`);
     });
     rets := ArrayList(AstExpr).new();
-    _MsP.return_exprs(body, table, rets, true);
+    _MsP.return_exprs(body, table, &mut rets, true);
     (ret : _MspRoot) = _msp_root(MSP_NONE);
     (ri : usize) = usize(0);
     while(ri < rets.len(), {
       match(
         rets.get(ri),
         .Some(re) => {
-          ret = _msp_join(ret, _MsP.classify(re, ctx));
+          ret = _msp_join(ret, _MsP.classify(&re, &ctx));
         },
         .None => ()
       );
@@ -1522,7 +1522,7 @@ impl(
       expr_info_table_get(table, ast_expr_id(e)),
       .Some(info) => {
         match(
-          expr_info_macro_expansion(info),
+          expr_info_macro_expansion(&info),
           .Some(mx) => {
             _MsP.return_exprs(mx, table, out, is_tail);
             return(());
@@ -1530,13 +1530,13 @@ impl(
           .None => ()
         );
         match(
-          expr_info_is_anonymous_function_definition(info),
+          expr_info_is_anonymous_function_definition(&info),
           .Some(an) => if(an, {
             return(());
           }),
           .None => ()
         );
-        if(expr_info_closure_function_value(info).is_some(), {
+        if(expr_info_closure_function_value(&info).is_some(), {
           return(());
         });
       },
@@ -1565,7 +1565,7 @@ impl(
           while(i < args.len(), {
             match(
               args.get(i),
-              .Some(a) => _MsP.return_exprs(a, table, out, is_tail && ((i + usize(1)) == args.len())),
+              .Some(a) => _MsP.return_exprs(&a, table, out, is_tail && ((i + usize(1)) == args.len())),
               .None => ()
             );
             i = (i + usize(1));
@@ -1578,21 +1578,21 @@ impl(
             match(
               args.get(i),
               .Some(arm) => {
-                is_arm := (ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(arm, "->", Option(usize).Some(usize(2))));
-                if(is_arm && !_msp_arm_is_dead(arm, table), {
+                is_arm := (ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&arm, "->", Option(usize).Some(usize(2))));
+                if(is_arm && !_msp_arm_is_dead(&arm, table), {
                   match(
                     arm,
                     .FnCall(_, _, aargs, _, _) => {
                       if(head == "cond", {
-                        match(aargs.get(usize(0)), .Some(t) => _MsP.return_exprs(t, table, out, false), .None => ());
+                        match(aargs.get(usize(0)), .Some(t) => _MsP.return_exprs(&t, table, out, false), .None => ());
                       });
-                      match(aargs.get(usize(1)), .Some(b) => _MsP.return_exprs(b, table, out, is_tail), .None => ());
+                      match(aargs.get(usize(1)), .Some(b) => _MsP.return_exprs(&b, table, out, is_tail), .None => ());
                     },
                     .Atom(_, _) => ()
                   );
                 }, {
                   // the match scrutinee (or a malformed arm)
-                  _MsP.return_exprs(arm, table, out, false);
+                  _MsP.return_exprs(&arm, table, out, false);
                 });
               },
               .None => ()
@@ -1603,11 +1603,11 @@ impl(
         });
         (j : usize) = usize(0);
         while(j < args.len(), {
-          match(args.get(j), .Some(a) => _MsP.return_exprs(a, table, out, false), .None => ());
+          match(args.get(j), .Some(a) => _MsP.return_exprs(&a, table, out, false), .None => ());
           j = (j + usize(1));
         });
-        _MsP.return_exprs(f, table, out, false);
-        if(is_tail && !_msp_statement_head(head), {
+        _MsP.return_exprs(&f, table, out, false);
+        if(is_tail && !_msp_statement_head(&head), {
           out.push(e);
         });
       }
@@ -1615,36 +1615,36 @@ impl(
   }),
   /// The root of an expression's VALUE.
   classify : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx) -> _MspRoot)({
-    info_opt := expr_info_table_get(ctx.table, ast_expr_id(e));
+    info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
     match(
       info_opt,
       .Some(info) => {
         match(
-          expr_info_macro_expansion(info),
+          expr_info_macro_expansion(&info),
           .Some(mx) => {
             return(_MsP.classify(mx, ctx));
           },
           .None => ()
         );
-        if(!_msp_type_may_root(info.ty), {
+        if(!_msp_type_may_root(&info.ty), {
           return(_msp_root(MSP_NONE));
         });
         match(
           info.value,
-          .Some(v) => if(!is_unknown_val(v), {
+          .Some(v) => if(!is_unknown_val(&v), {
             return(_msp_root(MSP_NONE));
           }),
           .None => ()
         );
         // A closure value carries copies of its captures.
         match(
-          expr_info_is_anonymous_function_definition(info),
+          expr_info_is_anonymous_function_definition(&info),
           .Some(an) => if(an, {
             return(_msp_root(MSP_SHELL));
           }),
           .None => ()
         );
-        if(expr_info_closure_function_value(info).is_some(), {
+        if(expr_info_closure_function_value(&info).is_some(), {
           return(_msp_root(MSP_SHELL));
         });
       },
@@ -1671,25 +1671,25 @@ impl(
       },
       _ => ()
     );
-    value_is_rc := match(info_opt, .Some(i2) => type_contains_rc_type(i2.ty), .None => true);
-    value_is_ptr := match(info_opt, .Some(i3) => is_pointer_type(i3.ty), .None => false);
+    value_is_rc := match(info_opt, .Some(i2) => type_contains_rc_type(&i2.ty), .None => true);
+    value_is_ptr := match(info_opt, .Some(i3) => is_pointer_type(&i3.ty), .None => false);
     // Field read or deref: contents of the base.
     if((head == ".") && (args.len() == usize(2)), {
       base := match(args.get(usize(0)), .Some(b) => b, .None => e);
-      base_is_type := match(expr_info_table_get(ctx.table, ast_expr_id(base)), .Some(bi) => is_type_value(bi.value), .None => false);
+      base_is_type := match(expr_info_table_get(&ctx.table, ast_expr_id(&base)), .Some(bi) => is_type_value(&bi.value), .None => false);
       if(base_is_type, {
         return(_msp_root(MSP_NONE));
       });
-      return(_msp_extract(_MsP.classify(base, ctx), value_is_rc));
+      return(_msp_extract(_MsP.classify(&base, ctx), value_is_rc));
     });
     if((head == ":") && (args.len() == usize(2)), {
-      return(match(args.get(usize(1)), .Some(v) => _MsP.classify(v, ctx), .None => _msp_root(MSP_ROOTED)));
+      return(match(args.get(usize(1)), .Some(v) => _MsP.classify(&v, ctx), .None => _msp_root(MSP_ROOTED)));
     });
     if((_msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len())) && (args.len() > usize(0)), {
-      return(match(args.get(usize(0)), .Some(a0) => _MsP.classify(a0, ctx), .None => _msp_root(MSP_ROOTED)));
+      return(match(args.get(usize(0)), .Some(a0) => _MsP.classify(&a0, ctx), .None => _msp_root(MSP_ROOTED)));
     });
     if(head == "begin", {
-      return(match(args.last(), .Some(last) => _MsP.classify(last, ctx), .None => _msp_root(MSP_NONE)));
+      return(match(args.last(), .Some(last) => _MsP.classify(&last, ctx), .None => _msp_root(MSP_NONE)));
     });
     if((head == "cond") || (head == "match"), {
       (acc : _MspRoot) = _msp_root(MSP_NONE);
@@ -1698,14 +1698,14 @@ impl(
         match(
           args.get(i),
           .Some(arm) => {
-            is_arm := (ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(arm, "->", Option(usize).Some(usize(2))));
-            if(is_arm && !_msp_arm_is_dead(arm, ctx.table), {
+            is_arm := (ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&arm, "->", Option(usize).Some(usize(2))));
+            if(is_arm && !_msp_arm_is_dead(&arm, &ctx.table), {
               match(
                 arm,
                 .FnCall(_, _, aargs, _, _) => match(
                   aargs.get(usize(1)),
                   .Some(b) => {
-                    acc = _msp_join(acc, _MsP.classify(b, ctx));
+                    acc = _msp_join(acc, _MsP.classify(&b, ctx));
                   },
                   .None => ()
                 ),
@@ -1726,52 +1726,52 @@ impl(
     if((head == "tuple") || (head == "array"), {
       return(_MsP.ctor_root(args, ctx, value_is_ptr, false));
     });
-    if(_MsP.is_index_call(e, ctx.table), {
-      return(_msp_extract(_MsP.classify(func_expr, ctx), value_is_rc));
+    if(_MsP.is_index_call(e, &ctx.table), {
+      return(_msp_extract(_MsP.classify(&func_expr, ctx), value_is_rc));
     });
     // An allocator vtable slot (`_msp_allocator_slot`): `alloc` hands back a
     // fresh block, `realloc` the moved block of its pointer argument.
-    slot_c := _msp_allocator_slot(func_expr, ctx.table);
+    slot_c := _msp_allocator_slot(&func_expr, &ctx.table);
     if(slot_c.len() > usize(0), {
       return(
         cond(
           (slot_c == "alloc") => _msp_root(MSP_FRESH),
-          (slot_c == "realloc") => match(args.get(usize(1)), .Some(ca1) => _msp_extract(_MsP.classify(ca1, ctx), false), .None => _msp_root(MSP_ROOTED)),
+          (slot_c == "realloc") => match(args.get(usize(1)), .Some(ca1) => _msp_extract(_MsP.classify(&ca1, ctx), false), .None => _msp_root(MSP_ROOTED)),
           true => _msp_root(MSP_NONE)
         )
       );
     });
     match(
-      _MsP.extern_of(e, func_expr, ctx.table),
+      _MsP.extern_of(e, &func_expr, &ctx.table),
       .Some(ex) => {
-        return(_MsP.extern_result_root(ex, func_expr, args, ctx));
+        return(_MsP.extern_result_root(ex, &func_expr, &args, ctx));
       },
       .None => ()
     );
-    callee_opt := _MsP.callee(e, func_expr, ctx.table);
+    callee_opt := _MsP.callee(e, &func_expr, &ctx.table);
     match(
       callee_opt,
       .Some(callee) => match(
         callee,
         .TypeVal(_) => {
-          value_is_struct := match(info_opt, .Some(i4) => match(resolve_struct_shell(i4.ty), .Struct({ is_source_namespace : ns }) => !ns, _ => false), .None => false);
-          return(_MsP.ctor_root(args, ctx, value_is_ptr, value_is_struct));
+          value_is_struct := match(info_opt, .Some(i4) => match(resolve_struct_shell(&i4.ty), .Struct({ is_source_namespace : ns }) => !ns, _ => false), .None => false);
+          return(_MsP.ctor_root(&args, ctx, value_is_ptr, value_is_struct));
         },
         .FuncVal(fvd, _) => {
           fid := fvd.*.func_id.clone();
           if(is_control_fn(fid.clone()), {
             return(_msp_root(MSP_ROOTED));
           });
-          an := _MsP.analyze(fid.clone(), fvd.*.body, ctx.table, ctx.touched);
+          an := _MsP.analyze(fid.clone(), &fvd.*.body, &ctx.table, &mut ctx.touched);
           if(an.ret.kind == MSP_PARAM, {
             // Storage reachable from the callee's j-th argument.
             labels := _msp_labels(fid.clone());
             return(
               match(
-                _MsP.argv(e, func_expr, args, labels.len(), ctx.table),
+                _MsP.argv(e, &func_expr, &args, labels.len(), &ctx.table),
                 .Some(av) => match(
                   av.get(an.ret.param),
-                  .Some(aj) => _msp_extract(_MsP.classify(aj, ctx), an.ret.deep),
+                  .Some(aj) => _msp_extract(_MsP.classify(&aj, ctx), an.ret.deep),
                   .None => _msp_root(MSP_ROOTED)
                 ),
                 .None => _msp_root(MSP_ROOTED)
@@ -1795,7 +1795,7 @@ impl(
         match(
           args.get(k),
           .Some(a) => {
-            acc2 = _msp_join(acc2, _MsP.classify(a, ctx));
+            acc2 = _msp_join(acc2, _MsP.classify(&a, ctx));
           },
           .None => ()
         );
@@ -1820,9 +1820,9 @@ impl(
         match(
           args.get(usize(0)),
           .Some(a0) => {
-            a0_is_ptr := match(expr_info_table_get(ctx.table, ast_expr_id(a0)), .Some(ai) => is_pointer_type(ai.ty), .None => false);
+            a0_is_ptr := match(expr_info_table_get(&ctx.table, ast_expr_id(&a0)), .Some(ai) => is_pointer_type(&ai.ty), .None => false);
             if(a0_is_ptr, {
-              return(_MsP.classify(a0, ctx));
+              return(_MsP.classify(&a0, ctx));
             });
           },
           .None => ()
@@ -1836,7 +1836,7 @@ impl(
       match(
         args.get(i),
         .Some(a) => {
-          acc = _msp_join(acc, _MsP.classify(a, ctx));
+          acc = _msp_join(acc, _MsP.classify(&a, ctx));
         },
         .None => ()
       );
@@ -1852,37 +1852,37 @@ impl(
   /// The LOCALS whose storage the value of `e` may alias (what a store of `e`
   /// makes reachable from the store's target).
   flowing : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx, mut(out) : ArrayList(String)) -> unit)({
-    info_opt := expr_info_table_get(ctx.table, ast_expr_id(e));
+    info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
     match(
       info_opt,
       .Some(info) => {
         match(
-          expr_info_macro_expansion(info),
+          expr_info_macro_expansion(&info),
           .Some(mx) => {
             _MsP.flowing(mx, ctx, out);
             return(());
           },
           .None => ()
         );
-        if(!_msp_type_may_root(info.ty), {
+        if(!_msp_type_may_root(&info.ty), {
           return(());
         });
         match(
           info.value,
-          .Some(v) => if(!is_unknown_val(v), {
+          .Some(v) => if(!is_unknown_val(&v), {
             return(());
           }),
           .None => ()
         );
         // A closure's captures were already rooted at its definition.
         match(
-          expr_info_is_anonymous_function_definition(info),
+          expr_info_is_anonymous_function_definition(&info),
           .Some(an) => if(an, {
             return(());
           }),
           .None => ()
         );
-        if(expr_info_closure_function_value(info).is_some(), {
+        if(expr_info_closure_function_value(&info).is_some(), {
           return(());
         });
       },
@@ -1903,19 +1903,19 @@ impl(
           _ => ()
         );
         if((head == ".") && (args.len() == usize(2)), {
-          match(args.get(usize(0)), .Some(b) => _MsP.flowing(b, ctx, out), .None => ());
+          match(args.get(usize(0)), .Some(b) => _MsP.flowing(&b, ctx, out), .None => ());
           return(());
         });
         if((head == ":") && (args.len() == usize(2)), {
-          match(args.get(usize(1)), .Some(v) => _MsP.flowing(v, ctx, out), .None => ());
+          match(args.get(usize(1)), .Some(v) => _MsP.flowing(&v, ctx, out), .None => ());
           return(());
         });
         if((_msp_pass_through_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len())) && (args.len() > usize(0)), {
-          match(args.get(usize(0)), .Some(a0) => _MsP.flowing(a0, ctx, out), .None => ());
+          match(args.get(usize(0)), .Some(a0) => _MsP.flowing(&a0, ctx, out), .None => ());
           return(());
         });
         if(head == "begin", {
-          match(args.last(), .Some(last) => _MsP.flowing(last, ctx, out), .None => ());
+          match(args.last(), .Some(last) => _MsP.flowing(&last, ctx, out), .None => ());
           return(());
         });
         if((head == "cond") || (head == "match"), {
@@ -1923,10 +1923,10 @@ impl(
           while(i < args.len(), {
             match(
               args.get(i),
-              .Some(arm) => if((ast_expr_is_fn_call_of(arm, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(arm, "->", Option(usize).Some(usize(2)))) && !_msp_arm_is_dead(arm, ctx.table), {
+              .Some(arm) => if((ast_expr_is_fn_call_of(&arm, "=>", Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(&arm, "->", Option(usize).Some(usize(2)))) && !_msp_arm_is_dead(&arm, &ctx.table), {
                 match(
                   arm,
-                  .FnCall(_, _, aargs, _, _) => match(aargs.get(usize(1)), .Some(b) => _MsP.flowing(b, ctx, out), .None => ()),
+                  .FnCall(_, _, aargs, _, _) => match(aargs.get(usize(1)), .Some(b) => _MsP.flowing(&b, ctx, out), .None => ()),
                   .Atom(_, _) => ()
                 );
               }),
@@ -1939,20 +1939,20 @@ impl(
         if(_msp_statement_head(head.clone()), {
           return(());
         });
-        if(_MsP.is_index_call(e, ctx.table), {
-          _MsP.flowing(f, ctx, out);
+        if(_MsP.is_index_call(e, &ctx.table), {
+          _MsP.flowing(&f, ctx, out);
           return(());
         });
         // A callee returning fresh storage aliases none of its arguments.
         match(
-          _MsP.extern_of(e, f, ctx.table),
+          _MsP.extern_of(e, &f, &ctx.table),
           .Some(ex) => if(_msp_extern_returns_fresh(ex.name.clone()), {
             return(());
           }),
           .None => ()
         );
         match(
-          _MsP.callee(e, f, ctx.table),
+          _MsP.callee(e, &f, &ctx.table),
           .Some(cv) => match(
             cv,
             .FuncVal(fvd, _) => {
@@ -1966,7 +1966,7 @@ impl(
                 _ => ()
               );
               if(!is_extern && !is_control_fn(fid.clone()), {
-                an := _MsP.analyze(fid.clone(), fvd.*.body, ctx.table, ctx.touched);
+                an := _MsP.analyze(fid.clone(), &fvd.*.body, &ctx.table, &mut ctx.touched);
                 if((an.ret.kind == MSP_FRESH) || (an.ret.kind == MSP_NONE), {
                   return(());
                 });
@@ -1976,10 +1976,10 @@ impl(
           ),
           .None => ()
         );
-        _MsP.flowing(f, ctx, out);
+        _MsP.flowing(&f, ctx, out);
         (j : usize) = usize(0);
         while(j < args.len(), {
-          match(args.get(j), .Some(a) => _MsP.flowing(a, ctx, out), .None => ());
+          match(args.get(j), .Some(a) => _MsP.flowing(&a, ctx, out), .None => ());
           j = (j + usize(1));
         });
       }
@@ -1987,7 +1987,7 @@ impl(
   }),
   taint_flowing : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx, kind : u8) -> unit)({
     names := ArrayList(String).new();
-    _MsP.flowing(e, ctx, names);
+    _MsP.flowing(e, ctx, &mut names);
     (i : usize) = usize(0);
     while(i < names.len(), {
       match(names.get(i), .Some(n) => _msp_taint(ctx, n.clone(), kind), .None => ());
@@ -1996,7 +1996,7 @@ impl(
   }),
   taint_flowing_to : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx, target : _MspRoot) -> unit)({
     names := ArrayList(String).new();
-    _MsP.flowing(e, ctx, names);
+    _MsP.flowing(e, ctx, &mut names);
     (i : usize) = usize(0);
     while(i < names.len(), {
       match(names.get(i), .Some(n) => _msp_taint_to(ctx, n.clone(), target), .None => ());
@@ -2017,8 +2017,8 @@ impl(
         .FnCall(_, _, dargs, _, _) => match(
           dargs.get(usize(0)),
           .Some(recv) => match(
-            expr_info_table_get(table, ast_expr_id(recv)),
-            .Some(ri) => if(is_function_type(ri.ty), {
+            expr_info_table_get(table, ast_expr_id(&recv)),
+            .Some(ri) => if(is_function_type(&ri.ty), {
               return(true);
             }),
             .None => ()
@@ -2033,8 +2033,8 @@ impl(
       match(
         args.get(i),
         .Some(a) => match(
-          expr_info_table_get(table, ast_expr_id(a)),
-          .Some(ai) => if(is_function_type(ai.ty), {
+          expr_info_table_get(table, ast_expr_id(&a)),
+          .Some(ai) => if(is_function_type(&ai.ty), {
             return(true);
           }),
           .None => ()
@@ -2080,7 +2080,7 @@ impl(
     );
     (type_only2 : Option(TypeValue)) = match(
       type_only,
-      .Some(t0) => if(is_function_type(t0), Option(TypeValue).Some(t0), lookup_method_callee_type(ast_expr_id(e))),
+      .Some(t0) => if(is_function_type(&t0), Option(TypeValue).Some(t0), lookup_method_callee_type(ast_expr_id(e))),
       .None => lookup_method_callee_type(ast_expr_id(e))
     );
     match(
@@ -2105,7 +2105,7 @@ impl(
       return(_msp_root(MSP_FRESH));
     });
     if(_msp_extern_reallocs(ex.name.clone()), {
-      return(match(args.get(usize(0)), .Some(a0) => _msp_extract(_MsP.classify(a0, ctx), false), .None => _msp_root(MSP_ROOTED)));
+      return(match(args.get(usize(0)), .Some(a0) => _msp_extract(_MsP.classify(&a0, ctx), false), .None => _msp_root(MSP_ROOTED)));
     });
     if(_ms_head_is_pure_builtin(ex.name.clone()), {
       (acc0 : _MspRoot) = _msp_root(MSP_NONE);
@@ -2114,7 +2114,7 @@ impl(
         match(
           args.get(k0),
           .Some(a) => {
-            acc0 = _msp_join(acc0, _MsP.classify(a, ctx));
+            acc0 = _msp_join(acc0, _MsP.classify(&a, ctx));
           },
           .None => ()
         );
@@ -2126,7 +2126,7 @@ impl(
           .FnCall(_, _, dargs, _, _) => match(
             dargs.get(usize(0)),
             .Some(recv) => {
-              acc0 = _msp_join(acc0, _MsP.classify(recv, ctx));
+              acc0 = _msp_join(acc0, _MsP.classify(&recv, ctx));
             },
             .None => ()
           ),
@@ -2143,7 +2143,7 @@ impl(
     _MsP.taint_flowing(func_expr, ctx, MSP_SHELL);
     (i : usize) = usize(0);
     while(i < args.len(), {
-      match(args.get(i), .Some(a) => _MsP.taint_flowing(a, ctx, MSP_SHELL), .None => ());
+      match(args.get(i), .Some(a) => _MsP.taint_flowing(&a, ctx, MSP_SHELL), .None => ());
       i = (i + usize(1));
     });
   }),
@@ -2164,12 +2164,12 @@ impl(
   }),
   /// One fixpoint pass: definitions, pattern bindings, and taint flows.
   collect : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx) -> unit)({
-    info_opt := expr_info_table_get(ctx.table, ast_expr_id(e));
+    info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
     match(
       info_opt,
       .Some(info) => {
         match(
-          expr_info_macro_expansion(info),
+          expr_info_macro_expansion(&info),
           .Some(mx) => {
             _MsP.collect(mx, ctx);
             return(());
@@ -2177,19 +2177,19 @@ impl(
           .None => ()
         );
         match(
-          expr_info_case_executed(info),
+          expr_info_case_executed(&info),
           .Some(ce) => if(!ce, {
             return(());
           }),
           .None => ()
         );
-        is_closure := (match(expr_info_is_anonymous_function_definition(info), .Some(an) => an, .None => false) || expr_info_closure_function_value(info).is_some());
+        is_closure := (match(expr_info_is_anonymous_function_definition(&info), .Some(an) => an, .None => false) || expr_info_closure_function_value(&info).is_some());
         if(is_closure, {
           // Captures are COPIED into the closure object, which can go
           // anywhere: whatever they name may become reachable from a
           // parameter, and the closure body's mutations run later.
           match(
-            expr_info_capture_type(info),
+            expr_info_capture_type(&info),
             .Some(ct) => match(
               ct,
               .Struct({ field_labels : labels }) => {
@@ -2233,11 +2233,11 @@ impl(
     if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
       lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
       rhs := match(args.get(usize(1)), .Some(r) => r, .None => e);
-      _MsP.collect(rhs, ctx);
+      _MsP.collect(&rhs, ctx);
       r := _MsP.classify(rhs, ctx);
       match(
         lhs,
-        .Atom(_, lt) => _MsP.define_from(ctx, lt.value.clone(), r, rhs),
+        .Atom(_, lt) => _MsP.define_from(ctx, lt.value.clone(), r, &rhs),
         .FnCall(_, lf, largs, _, _) => {
           is_inout := match(lf, .Atom(_, lft) => ((lft.value == "mut") || (lft.value == "imm")), _ => false);
           if(is_inout, {
@@ -2248,7 +2248,7 @@ impl(
             );
           }, {
             names := ArrayList(String).new();
-            _msp_pattern_names(lhs, names);
+            _msp_pattern_names(&lhs, &mut names);
             (ni : usize) = usize(0);
             while(ni < names.len(), {
               match(names.get(ni), .Some(n) => _msp_def(ctx, n.clone(), _msp_extract(r, true)), .None => ());
@@ -2263,7 +2263,7 @@ impl(
     if((head == "=") && (args.len() == usize(2)), {
       lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
       rhs := match(args.get(usize(1)), .Some(r) => r, .None => e);
-      _MsP.collect(rhs, ctx);
+      _MsP.collect(&rhs, ctx);
       // A local borrow re-point `mut(cur) = place` (decision 25): `cur`
       // aliases the new place too (the join keeps every target it had).
       match(
@@ -2271,22 +2271,22 @@ impl(
         .FnCall(_, rlf, rlargs, _, _) => if(match(rlf, .Atom(_, rlft) => ((rlft.value == "mut") || (rlft.value == "imm")), _ => false), {
           match(
             rlargs.get(usize(0)),
-            .Some(rla) => match(rla, .Atom(_, rlat) => _msp_def(ctx, rlat.value.clone(), _MsP.classify(rhs, ctx)), _ => ()),
+            .Some(rla) => match(rla, .Atom(_, rlat) => _msp_def(ctx, rlat.value.clone(), _MsP.classify(&rhs, ctx)), _ => ()),
             .None => ()
           );
           return(());
         }),
         .Atom(_, _) => ()
       );
-      _MsP.collect(lhs, ctx);
-      r := _MsP.classify(rhs, ctx);
+      _MsP.collect(&lhs, ctx);
+      r := _MsP.classify(&rhs, ctx);
       // Typed declaration `(name : T) = init`.
-      if(ast_expr_is_fn_call_of(lhs, BK_COLON, Option(usize).Some(usize(2))), {
+      if(ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
         match(
           lhs,
           .FnCall(_, _, cargs, _, _) => match(
             cargs.get(usize(0)),
-            .Some(na) => match(na, .Atom(_, nt) => _MsP.define_from(ctx, nt.value.clone(), r, rhs), _ => ()),
+            .Some(na) => match(na, .Atom(_, nt) => _MsP.define_from(ctx, nt.value.clone(), r, &rhs), _ => ()),
             .None => ()
           ),
           .Atom(_, _) => ()
@@ -2301,28 +2301,28 @@ impl(
           match(
             env_opt,
             .Some(env) => {
-              vars := scope_variables(ast_expr_id(lhs), env, lt.value.clone());
+              vars := scope_variables(ast_expr_id(&lhs), &env, lt.value.clone());
               match(
                 vars.last(),
                 .Some(v) => cond(
                   // Through an `inout` parameter: into the caller's storage.
-                  (v.is_parameter && v.is_ref) => _MsP.taint_flowing_to(rhs, ctx, match(_msp_param_index(ctx, lt.value.clone()), .Some(pi) => _msp_param_root(pi, true), .None => _msp_root(MSP_ROOTED))),
+                  (v.is_parameter && v.is_ref) => _MsP.taint_flowing_to(&rhs, ctx, match(_msp_param_index(ctx, lt.value.clone()), .Some(pi) => _msp_param_root(pi, true), .None => _msp_root(MSP_ROOTED))),
                   // A reassigned by-value parameter names unknown storage.
                   v.is_parameter => _msp_def(ctx, lt.value.clone(), _msp_root(MSP_ROOTED)),
-                  v.is_module_level => _MsP.taint_flowing(rhs, ctx, MSP_ROOTED),
-                  true => _MsP.define_from(ctx, lt.value.clone(), r, rhs)
+                  v.is_module_level => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED),
+                  true => _MsP.define_from(ctx, lt.value.clone(), r, &rhs)
                 ),
-                .None => _MsP.taint_flowing(rhs, ctx, MSP_ROOTED)
+                .None => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED)
               );
             },
-            .None => _MsP.taint_flowing(rhs, ctx, MSP_ROOTED)
+            .None => _MsP.taint_flowing(&rhs, ctx, MSP_ROOTED)
           );
         },
         .FnCall(_, _, _, _, _) => {
-          if(ast_expr_is_fn_call_of(lhs, "tuple", Option(usize).None), {
+          if(ast_expr_is_fn_call_of(&lhs, "tuple", Option(usize).None), {
             // Destructuring assignment: each name receives contents of rhs.
             names := ArrayList(String).new();
-            _msp_pattern_names(lhs, names);
+            _msp_pattern_names(&lhs, &mut names);
             (ni : usize) = usize(0);
             while(ni < names.len(), {
               match(names.get(ni), .Some(n) => _msp_def(ctx, n.clone(), _msp_extract(r, true)), .None => ());
@@ -2330,14 +2330,14 @@ impl(
             });
           }, {
             // Place store: the target object's storage receives rhs.
-            tr := match(_msp_store_prefix(lhs), .Some(p) => _MsP.classify(p, ctx), .None => _msp_root(MSP_ROOTED));
+            tr := match(_msp_store_prefix(&lhs), .Some(p) => _MsP.classify(&p, ctx), .None => _msp_root(MSP_ROOTED));
             if(_msp_is_rootedish(tr), {
-              _MsP.taint_flowing_to(rhs, ctx, tr);
+              _MsP.taint_flowing_to(&rhs, ctx, tr);
             });
             if((tr.kind == MSP_FRESH) && _msp_holds_rooted(r), {
               match(
-                _msp_place_base_atom(lhs),
-                .Some(ba) => match(_msp_atom_local_name(ctx, ba), .Some(bn) => _msp_def(ctx, bn, _msp_root(MSP_SHELL)), .None => ()),
+                _msp_place_base_atom(&lhs),
+                .Some(ba) => match(_msp_atom_local_name(ctx, &ba), .Some(bn) => _msp_def(ctx, &bn, _msp_root(MSP_SHELL)), .None => ()),
                 .None => ()
               );
             });
@@ -2349,14 +2349,14 @@ impl(
     // match: pattern bindings receive the scrutinee's contents.
     if(head == "match", {
       scrut := match(args.get(usize(0)), .Some(sc) => sc, .None => e);
-      _MsP.collect(scrut, ctx);
-      sr := _MsP.classify(scrut, ctx);
+      _MsP.collect(&scrut, ctx);
+      sr := _MsP.classify(&scrut, ctx);
       (mi : usize) = usize(1);
       while(mi < args.len(), {
         match(
           args.get(mi),
           .Some(arm) => {
-            if(!_msp_arm_is_dead(arm, ctx.table), {
+            if(!_msp_arm_is_dead(&arm, &ctx.table), {
               match(
                 arm,
                 .FnCall(_, af, aargs, _, _) => {
@@ -2365,22 +2365,22 @@ impl(
                     pat := match(aargs.get(usize(0)), .Some(p) => p, .None => arm);
                     body := match(aargs.get(usize(1)), .Some(b) => b, .None => arm);
                     names := ArrayList(String).new();
-                    _msp_pattern_names(pat, names);
+                    _msp_pattern_names(&pat, &mut names);
                     (ni : usize) = usize(0);
                     while(ni < names.len(), {
                       match(
                         names.get(ni),
                         .Some(n) => {
-                          hop_is_rc := match(_msp_type_of_name_in(body, n.clone(), ctx.table), .Some(nt) => type_contains_rc_type(nt), .None => true);
+                          hop_is_rc := match(_msp_type_of_name_in(&body, n.clone(), &ctx.table), .Some(nt) => type_contains_rc_type(&nt), .None => true);
                           _msp_def(ctx, n.clone(), _msp_extract(sr, hop_is_rc));
                         },
                         .None => ()
                       );
                       ni = (ni + usize(1));
                     });
-                    _MsP.collect(body, ctx);
+                    _MsP.collect(&body, ctx);
                   }, {
-                    _MsP.collect(arm, ctx);
+                    _MsP.collect(&arm, ctx);
                   });
                 },
                 .Atom(_, _) => ()
@@ -2398,8 +2398,8 @@ impl(
       while(ci < args.len(), {
         match(
           args.get(ci),
-          .Some(arm) => if(!_msp_arm_is_dead(arm, ctx.table), {
-            _MsP.collect(arm, ctx);
+          .Some(arm) => if(!_msp_arm_is_dead(&arm, &ctx.table), {
+            _MsP.collect(&arm, ctx);
           }),
           .None => ()
         );
@@ -2408,10 +2408,10 @@ impl(
       return(());
     });
     // Everything else: children first, then the call's own flows.
-    _MsP.collect(func_expr, ctx);
+    _MsP.collect(&func_expr, ctx);
     (ai : usize) = usize(0);
     while(ai < args.len(), {
-      match(args.get(ai), .Some(a) => _MsP.collect(a, ctx), .None => ());
+      match(args.get(ai), .Some(a) => _MsP.collect(&a, ctx), .None => ());
       ai = (ai + usize(1));
     });
     if((head.len() > usize(0)) && (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _ms_head_is_rc_decrement(head.clone())), {
@@ -2424,7 +2424,7 @@ impl(
       info_opt,
       .Some(vinfo) => match(
         vinfo.value,
-        .Some(v) => if(!is_unknown_val(v), {
+        .Some(v) => if(!is_unknown_val(&v), {
           return(());
         }),
         .None => ()
@@ -2433,28 +2433,28 @@ impl(
     );
     // An allocator vtable slot writes only the block it is handed (`realloc`,
     // `free`); `alloc` writes nothing a caller can reach.
-    slot_t := _msp_allocator_slot(func_expr, ctx.table);
+    slot_t := _msp_allocator_slot(&func_expr, &ctx.table);
     if(slot_t.len() > usize(0), {
       if(slot_t != "alloc", {
-        match(args.get(usize(1)), .Some(ta1) => _MsP.taint_flowing(ta1, ctx, MSP_SHELL), .None => ());
+        match(args.get(usize(1)), .Some(ta1) => _MsP.taint_flowing(&ta1, ctx, MSP_SHELL), .None => ());
       });
       return(());
     });
     match(
-      _MsP.extern_of(e, func_expr, ctx.table),
+      _MsP.extern_of(e, &func_expr, &ctx.table),
       .Some(ex) => {
-        if(_msp_extern_has_callback(ex.ptypes, ex.vtypes), {
-          _MsP.taint_all_args(func_expr, args, ctx);
+        if(_msp_extern_has_callback(&ex.ptypes, &ex.vtypes), {
+          _MsP.taint_all_args(func_expr, &args, ctx);
         }, {
-          if(_ms_extern_may_mutate(ex.name.clone(), ex.ptypes, ex.vtypes) || _msp_extern_writes_first_arg(ex.name.clone()), {
-            _MsP.extern_taint_args(func_expr, args, ctx);
+          if(_ms_extern_may_mutate(ex.name.clone(), &ex.ptypes, &ex.vtypes) || _msp_extern_writes_first_arg(ex.name.clone()), {
+            _MsP.extern_taint_args(func_expr, &args, ctx);
           });
         });
         return(());
       },
       .None => ()
     );
-    callee_opt := _MsP.callee(e, func_expr, ctx.table);
+    callee_opt := _MsP.callee(e, &func_expr, &ctx.table);
     match(
       callee_opt,
       .Some(cv) => match(
@@ -2463,17 +2463,17 @@ impl(
         .FuncVal(fvd, _) => {
           fid := fvd.*.func_id.clone();
           if(is_control_fn(fid.clone()), {
-            _MsP.taint_all_args(func_expr, args, ctx);
+            _MsP.taint_all_args(&func_expr, &args, ctx);
             return(());
           });
-          an := _MsP.analyze(fid.clone(), fvd.*.body, ctx.table, ctx.touched);
+          an := _MsP.analyze(fid.clone(), &fvd.*.body, &ctx.table, &mut ctx.touched);
           labels := _msp_labels(fid.clone());
           match(
-            _MsP.argv(e, func_expr, args, labels.len(), ctx.table),
-            .None => _MsP.taint_all_args(func_expr, args, ctx),
+            _MsP.argv(e, &func_expr, &args, labels.len(), &ctx.table),
+            .None => _MsP.taint_all_args(&func_expr, &args, ctx),
             .Some(av) => {
               if(an.mask.all, {
-                _MsP.taint_all_args(func_expr, args, ctx);
+                _MsP.taint_all_args(&func_expr, &args, ctx);
                 return(());
               });
               (any_hold : bool) = false;
@@ -2485,12 +2485,12 @@ impl(
                 match(
                   av.get(j),
                   .Some(aj) => {
-                    rj := _MsP.classify(aj, ctx);
+                    rj := _MsP.classify(&aj, ctx);
                     roots.push(rj);
                     if(_msp_holds_rooted(rj), {
                       any_hold = true;
                     });
-                    if(param_mutation_mask_hits(an.mask, j) && _msp_is_rootedish(rj), {
+                    if(param_mutation_mask_hits(&an.mask, j) && _msp_is_rootedish(rj), {
                       rooted_target = true;
                       target_root = _msp_join(target_root, rj);
                     });
@@ -2502,10 +2502,10 @@ impl(
               if(rooted_target, {
                 // The callee may store any argument into the mutated
                 // parameter storage: every argument now flows there.
-                _MsP.taint_flowing_to(func_expr, ctx, target_root);
+                _MsP.taint_flowing_to(&func_expr, ctx, target_root);
                 (ti : usize) = usize(0);
                 while(ti < args.len(), {
-                  match(args.get(ti), .Some(ta) => _MsP.taint_flowing_to(ta, ctx, target_root), .None => ());
+                  match(args.get(ti), .Some(ta) => _MsP.taint_flowing_to(&ta, ctx, target_root), .None => ());
                   ti = (ti + usize(1));
                 });
                 return(());
@@ -2515,8 +2515,8 @@ impl(
                 (k : usize) = usize(0);
                 while(k < av.len(), {
                   fresh_k := match(roots.get(k), .Some(rk) => (rk.kind == MSP_FRESH), .None => false);
-                  if(fresh_k && param_mutation_mask_hits(an.mask, k), {
-                    match(av.get(k), .Some(ak) => _MsP.taint_flowing(ak, ctx, MSP_SHELL), .None => ());
+                  if(fresh_k && param_mutation_mask_hits(&an.mask, k), {
+                    match(av.get(k), .Some(ak) => _MsP.taint_flowing(&ak, ctx, MSP_SHELL), .None => ());
                   });
                   k = (k + usize(1));
                 });
@@ -2524,9 +2524,9 @@ impl(
             }
           );
         },
-        _ => _MsP.taint_all_args(func_expr, args, ctx)
+        _ => _MsP.taint_all_args(&func_expr, &args, ctx)
       ),
-      .None => _MsP.taint_all_args(func_expr, args, ctx)
+      .None => _MsP.taint_all_args(&func_expr, &args, ctx)
     );
   }),
   /// An unresolvable or unknown-effect call: every argument (and the receiver)
@@ -2535,7 +2535,7 @@ impl(
     _MsP.taint_flowing(func_expr, ctx, MSP_ROOTED);
     (i : usize) = usize(0);
     while(i < args.len(), {
-      match(args.get(i), .Some(a) => _MsP.taint_flowing(a, ctx, MSP_ROOTED), .None => ());
+      match(args.get(i), .Some(a) => _MsP.taint_flowing(&a, ctx, MSP_ROOTED), .None => ());
       i = (i + usize(1));
     });
   }),
@@ -2547,7 +2547,7 @@ impl(
         .FnCall(_, _, dargs, _, _) => match(
           dargs.get(usize(0)),
           .Some(recv) => {
-            rr := _MsP.classify(recv, ctx);
+            rr := _MsP.classify(&recv, ctx);
             _msp_mask_add_root(m, rr, rr.deep);
           },
           .None => ()
@@ -2560,9 +2560,9 @@ impl(
       match(
         args.get(i),
         .Some(a) => {
-          ra := _MsP.classify(a, ctx);
+          ra := _MsP.classify(&a, ctx);
           if(ra.kind == MSP_ROOTED, {
-            _msp_debug_all(String.from("extern-arg-rooted"), a);
+            _msp_debug_all(String.from("extern-arg-rooted"), &a);
           });
           _msp_mask_add_root(m, ra, ra.deep);
         },
@@ -2575,7 +2575,7 @@ impl(
     m := _MsP.walk(func_expr, ctx);
     (i : usize) = usize(0);
     while(i < args.len(), {
-      match(args.get(i), .Some(a) => _msp_mask_or(m, _MsP.walk(a, ctx)), .None => ());
+      match(args.get(i), .Some(a) => _msp_mask_or(&m, _MsP.walk(&a, ctx)), .None => ());
       i = (i + usize(1));
     });
     m
@@ -2586,7 +2586,7 @@ impl(
       info_opt,
       .Some(info) => {
         match(
-          expr_info_macro_expansion(info),
+          expr_info_macro_expansion(&info),
           .Some(mx) => {
             _MsP.strict_walk(mx, borrowed_ids, table, out);
             return(());
@@ -2594,7 +2594,7 @@ impl(
           .None => ()
         );
         match(
-          expr_info_case_executed(info),
+          expr_info_case_executed(&info),
           .Some(ce) => if(!ce, {
             return(());
           }),
@@ -2603,13 +2603,13 @@ impl(
         // A closure DEFINITION runs nothing here; a call to it is checked
         // where it happens (an unresolvable callee).
         match(
-          expr_info_is_anonymous_function_definition(info),
+          expr_info_is_anonymous_function_definition(&info),
           .Some(an) => if(an, {
             return(());
           }),
           .None => ()
         );
-        if(expr_info_closure_function_value(info).is_some(), {
+        if(expr_info_closure_function_value(&info).is_some(), {
           return(());
         });
       },
@@ -2638,15 +2638,15 @@ impl(
     );
     // match: patterns bind, only the scrutinee and live arm bodies run.
     if(head == "match", {
-      match(args.get(usize(0)), .Some(sc) => _MsP.strict_walk(sc, borrowed_ids, table, out), .None => ());
+      match(args.get(usize(0)), .Some(sc) => _MsP.strict_walk(&sc, borrowed_ids, table, out), .None => ());
       (mi : usize) = usize(1);
       while(mi < args.len(), {
         match(
           args.get(mi),
-          .Some(arm) => if(!_msp_arm_is_dead(arm, table), {
+          .Some(arm) => if(!_msp_arm_is_dead(&arm, table), {
             match(
               arm,
-              .FnCall(_, _, aargs, _, _) => match(aargs.get(usize(1)), .Some(b) => _MsP.strict_walk(b, borrowed_ids, table, out), .None => ()),
+              .FnCall(_, _, aargs, _, _) => match(aargs.get(usize(1)), .Some(b) => _MsP.strict_walk(&b, borrowed_ids, table, out), .None => ()),
               .Atom(_, _) => ()
             );
           }),
@@ -2661,8 +2661,8 @@ impl(
       while(ci < args.len(), {
         match(
           args.get(ci),
-          .Some(arm) => if(!_msp_arm_is_dead(arm, table), {
-            _MsP.strict_walk(arm, borrowed_ids, table, out);
+          .Some(arm) => if(!_msp_arm_is_dead(&arm, table), {
+            _MsP.strict_walk(&arm, borrowed_ids, table, out);
           }),
           .None => ()
         );
@@ -2671,10 +2671,10 @@ impl(
       return(());
     });
     // Children first (nested calls in arguments).
-    _MsP.strict_walk(func_expr, borrowed_ids, table, out);
+    _MsP.strict_walk(&func_expr, borrowed_ids, table, out);
     (ai : usize) = usize(0);
     while(ai < args.len(), {
-      match(args.get(ai), .Some(a) => _MsP.strict_walk(a, borrowed_ids, table, out), .None => ());
+      match(args.get(ai), .Some(a) => _MsP.strict_walk(&a, borrowed_ids, table, out), .None => ());
       ai = (ai + usize(1));
     });
     if((head.len() > usize(0)) && (_ms_head_is_safe_recurse(head.clone()) || _ms_head_is_pure_builtin(head.clone()) || _msp_pass_through_head(head.clone()) || _msp_statement_head(head.clone()) || _msp_is_borrow_marker(head.clone(), args.len())), {
@@ -2692,7 +2692,7 @@ impl(
       info_opt,
       .Some(vinfo) => match(
         vinfo.value,
-        .Some(v) => if(!is_unknown_val(v), {
+        .Some(v) => if(!is_unknown_val(&v), {
           return(());
         }),
         .None => ()
@@ -2703,8 +2703,8 @@ impl(
       match(
         args.get(usize(0)),
         .Some(a0) => match(
-          _msp_arg_base_var(a0, table),
-          .Some(v) => if(_msp_var_is_borrowed(v, borrowed_ids), {
+          _msp_arg_base_var(&a0, table),
+          .Some(v) => if(_msp_var_is_borrowed(&v, borrowed_ids), {
             out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' releases the collection borrowed by this loop. ${_msp_strict_hint}`));
           }),
           .None => ()
@@ -2714,15 +2714,15 @@ impl(
       return(());
     });
     // An allocator vtable slot can only invalidate the block it is handed.
-    slot_s := _msp_allocator_slot(func_expr, table);
+    slot_s := _msp_allocator_slot(&func_expr, table);
     if(slot_s.len() > usize(0), {
       if(slot_s != "alloc", {
         match(
           args.get(usize(1)),
           .Some(sa1) => match(
-            _msp_arg_base_var(sa1, table),
-            .Some(sv) => if(_msp_var_is_borrowed(sv, borrowed_ids), {
-              out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(func_expr)}' may release '${ast_expr_to_string(sa1)}', which is the collection borrowed by this loop. ${_msp_strict_hint}`));
+            _msp_arg_base_var(&sa1, table),
+            .Some(sv) => if(_msp_var_is_borrowed(&sv, borrowed_ids), {
+              out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(&func_expr)}' may release '${ast_expr_to_string(&sa1)}', which is the collection borrowed by this loop. ${_msp_strict_hint}`));
             }),
             .None => ()
           ),
@@ -2732,22 +2732,22 @@ impl(
       return(());
     });
     match(
-      _MsP.extern_of(e, func_expr, table),
+      _MsP.extern_of(e, &func_expr, table),
       .Some(ex) => {
-        ex_name := ast_expr_to_string(func_expr);
-        if(_msp_extern_has_callback(ex.ptypes, ex.vtypes), {
+        ex_name := ast_expr_to_string(&func_expr);
+        if(_msp_extern_has_callback(&ex.ptypes, &ex.vtypes), {
           out.push(TokenAndError(token : tok, error_message : `Strict borrow: the extern '${ex_name}' takes a callback whose effects the compiler cannot see through; it might invalidate the element borrowed by this loop. ${_msp_strict_hint}`));
           return(());
         });
-        if(_ms_extern_may_mutate(ex.name.clone(), ex.ptypes, ex.vtypes) || _msp_extern_writes_first_arg(ex.name.clone()), {
+        if(_ms_extern_may_mutate(ex.name.clone(), &ex.ptypes, &ex.vtypes) || _msp_extern_writes_first_arg(ex.name.clone()), {
           (xi : usize) = usize(0);
           while(xi < args.len(), {
             match(
               args.get(xi),
               .Some(xa) => match(
-                _msp_arg_base_var(xa, table),
-                .Some(v) => if(_msp_var_is_borrowed(v, borrowed_ids), {
-                  out.push(TokenAndError(token : tok, error_message : `Strict borrow: the extern '${ex_name}' may write through '${ast_expr_to_string(xa)}', which is the collection borrowed by this loop. ${_msp_strict_hint}`));
+                _msp_arg_base_var(&xa, table),
+                .Some(v) => if(_msp_var_is_borrowed(&v, borrowed_ids), {
+                  out.push(TokenAndError(token : tok, error_message : `Strict borrow: the extern '${ex_name}' may write through '${ast_expr_to_string(&xa)}', which is the collection borrowed by this loop. ${_msp_strict_hint}`));
                 }),
                 .None => ()
               ),
@@ -2760,7 +2760,7 @@ impl(
       },
       .None => ()
     );
-    callee_opt := _MsP.callee(e, func_expr, table);
+    callee_opt := _MsP.callee(e, &func_expr, table);
     match(
       callee_opt,
       .Some(callee) => match(
@@ -2768,29 +2768,29 @@ impl(
         .TypeVal(_) => (),
         .FuncVal(fvd, _) => {
           fid := fvd.*.func_id.clone();
-          callee_name := ast_expr_to_string(func_expr);
+          callee_name := ast_expr_to_string(&func_expr);
           if(is_control_fn(fid.clone()), {
             out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${callee_name}' is an effect handler whose body runs caller-side code the compiler cannot see through; it might invalidate the element borrowed by this loop. ${_msp_strict_hint}`));
             return(());
           });
           touched := ArrayList(String).new();
-          an := _MsP.analyze(fid.clone(), fvd.*.body, table, touched);
+          an := _MsP.analyze(fid.clone(), &fvd.*.body, table, &mut touched);
           if(an.mask.all, {
-            if(_MsP.call_involves_closure(fid.clone(), func_expr, args, table), {
+            if(_MsP.call_involves_closure(fid.clone(), &func_expr, &args, table), {
               out.push(TokenAndError(token : tok, error_message : `Strict borrow: the compiler cannot prove that '${callee_name}' leaves the element borrowed by this loop valid (a closure is involved, whose effects cannot be mapped to the arguments). ${_msp_strict_hint}`));
               return(());
             });
             // Unknown effects reach only through the arguments: a borrowed
             // argument (receiver included) is a violation.
-            if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+            if(ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).Some(usize(2))), {
               match(
                 func_expr,
                 .FnCall(_, _, dargs, _, _) => match(
                   dargs.get(usize(0)),
                   .Some(recv) => match(
-                    _msp_arg_base_var(recv, table),
-                    .Some(v) => if(_msp_var_is_borrowed(v, borrowed_ids), {
-                      out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' may mutate '${ast_expr_to_string(recv)}', the collection borrowed by this loop. ${_msp_strict_hint}`));
+                    _msp_arg_base_var(&recv, table),
+                    .Some(v) => if(_msp_var_is_borrowed(&v, borrowed_ids), {
+                      out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' may mutate '${ast_expr_to_string(&recv)}', the collection borrowed by this loop. ${_msp_strict_hint}`));
                     }),
                     .None => ()
                   ),
@@ -2804,9 +2804,9 @@ impl(
               match(
                 args.get(ui),
                 .Some(ua) => match(
-                  _msp_arg_base_var(ua, table),
-                  .Some(v) => if(_msp_var_is_borrowed(v, borrowed_ids), {
-                    out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' may mutate '${ast_expr_to_string(ua)}', the collection borrowed by this loop. ${_msp_strict_hint}`));
+                  _msp_arg_base_var(&ua, table),
+                  .Some(v) => if(_msp_var_is_borrowed(&v, borrowed_ids), {
+                    out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' may mutate '${ast_expr_to_string(&ua)}', the collection borrowed by this loop. ${_msp_strict_hint}`));
                   }),
                   .None => ()
                 ),
@@ -2818,22 +2818,22 @@ impl(
           });
           labels := _msp_labels(fid.clone());
           match(
-            _MsP.argv(e, func_expr, args, labels.len(), table),
+            _MsP.argv(e, &func_expr, &args, labels.len(), table),
             .None => {
-              if(!param_mutation_mask_is_empty(an.mask), {
+              if(!param_mutation_mask_is_empty(&an.mask), {
                 out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${callee_name}' mutates storage reachable from its parameters and its arguments cannot be matched to them. ${_msp_strict_hint}`));
               });
             },
             .Some(av) => {
               (j : usize) = usize(0);
               while(j < av.len(), {
-                if(param_mutation_mask_hits(an.mask, j), {
+                if(param_mutation_mask_hits(&an.mask, j), {
                   match(
                     av.get(j),
                     .Some(aj) => match(
-                      _msp_arg_base_var(aj, table),
-                      .Some(v) => if(_msp_var_is_borrowed(v, borrowed_ids), {
-                        out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' mutates '${ast_expr_to_string(aj)}', the collection borrowed by this loop; the element reference could dangle. ${_msp_strict_hint}`));
+                      _msp_arg_base_var(&aj, table),
+                      .Some(v) => if(_msp_var_is_borrowed(&v, borrowed_ids), {
+                        out.push(TokenAndError(token : tok, error_message : `Strict borrow: '${ast_expr_to_string(e)}' mutates '${ast_expr_to_string(&aj)}', the collection borrowed by this loop; the element reference could dangle. ${_msp_strict_hint}`));
                       }),
                       .None => ()
                     ),
@@ -2857,19 +2857,19 @@ impl(
   /// The mask of `e`: which parameters' storage it may mutate.
   walk : (fn(imm(e) : AstExpr, imm(ctx) : _MspCtx) -> ParamMutationMask)({
     m := param_mutation_mask_new();
-    info_opt := expr_info_table_get(ctx.table, ast_expr_id(e));
+    info_opt := expr_info_table_get(&ctx.table, ast_expr_id(e));
     match(
       info_opt,
       .Some(info) => {
         match(
-          expr_info_macro_expansion(info),
+          expr_info_macro_expansion(&info),
           .Some(mx) => {
             return(_MsP.walk(mx, ctx));
           },
           .None => ()
         );
         match(
-          expr_info_case_executed(info),
+          expr_info_case_executed(&info),
           .Some(ce) => if(!ce, {
             return(m);
           }),
@@ -2877,13 +2877,13 @@ impl(
         );
         // A function/closure DEFINITION does not run its body here.
         match(
-          expr_info_is_anonymous_function_definition(info),
+          expr_info_is_anonymous_function_definition(&info),
           .Some(an) => if(an, {
             return(m);
           }),
           .None => ()
         );
-        if(expr_info_closure_function_value(info).is_some(), {
+        if(expr_info_closure_function_value(&info).is_some(), {
           return(m);
         });
       },
@@ -2913,13 +2913,13 @@ impl(
     // A call-site borrow marker is not a call: what it lends is walked as
     // the place itself (decision 33).
     if(_msp_is_borrow_marker(head.clone(), args.len()), {
-      return(match(args.get(usize(0)), .Some(mo) => _MsP.walk(mo, ctx), .None => m));
+      return(match(args.get(usize(0)), .Some(mo) => _MsP.walk(&mo, ctx), .None => m));
     });
     if((head == "=") && (args.len() == usize(2)), {
       lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
       rhs := match(args.get(usize(1)), .Some(r) => r, .None => e);
-      if(ast_expr_is_fn_call_of(lhs, BK_COLON, Option(usize).Some(usize(2))), {
-        return(_MsP.walk(rhs, ctx));
+      if(ast_expr_is_fn_call_of(&lhs, BK_COLON, Option(usize).Some(usize(2))), {
+        return(_MsP.walk(&rhs, ctx));
       });
       match(
         lhs,
@@ -2928,14 +2928,14 @@ impl(
           match(
             env_opt,
             .Some(env) => {
-              vars := scope_variables(ast_expr_id(lhs), env, lt.value.clone());
+              vars := scope_variables(ast_expr_id(&lhs), &env, lt.value.clone());
               match(
                 vars.last(),
                 .Some(v) => cond(
                   // Through an `inout` parameter: the caller's storage for it.
                   (v.is_parameter && v.is_ref) => match(
                     _msp_param_index(ctx, lt.value.clone()),
-                    .Some(pi) => _msp_bits_set(m.shallow, pi),
+                    .Some(pi) => _msp_bits_set(&mut m.shallow, pi),
                     .None => {
                       m.all = true;
                       _msp_debug_all(String.from("walk"), e);
@@ -2944,7 +2944,7 @@ impl(
                   // Through an `inout` local binding: whatever it aliases.
                   v.is_ref => {
                     br := match(ctx.roots.get(lt.value.clone()), .Some(r0) => r0, .None => _msp_root(MSP_ROOTED));
-                    _msp_mask_add_root(m, br, br.deep);
+                    _msp_mask_add_root(&m, br, br.deep);
                   },
                   v.is_module_level => {
                     m.all = true;
@@ -2965,60 +2965,60 @@ impl(
           );
         },
         .FnCall(_, lf, largs, _, _) => {
-          if(ast_expr_is_fn_call_of(lhs, "tuple", Option(usize).None), {
+          if(ast_expr_is_fn_call_of(&lhs, "tuple", Option(usize).None), {
             (ti : usize) = usize(0);
             while(ti < largs.len(), {
               match(
                 largs.get(ti),
-                .Some(el) => if(!ast_expr_is_atom(el), {
-                  tr0 := match(_msp_store_prefix(el), .Some(p) => _MsP.classify(p, ctx), .None => _msp_root(MSP_ROOTED));
-                  _msp_mask_add_root(m, tr0, tr0.deep);
+                .Some(el) => if(!ast_expr_is_atom(&el), {
+                  tr0 := match(_msp_store_prefix(&el), .Some(p) => _MsP.classify(&p, ctx), .None => _msp_root(MSP_ROOTED));
+                  _msp_mask_add_root(&m, tr0, tr0.deep);
                 }),
                 .None => ()
               );
               ti = (ti + usize(1));
             });
           }, {
-            tr := match(_msp_store_prefix(lhs), .Some(p) => _MsP.classify(p, ctx), .None => _msp_root(MSP_ROOTED));
+            tr := match(_msp_store_prefix(&lhs), .Some(p) => _MsP.classify(&p, ctx), .None => _msp_root(MSP_ROOTED));
             if(tr.kind == MSP_ROOTED, {
-              _msp_debug_all(String.from("store-through-rooted"), lhs);
+              _msp_debug_all(String.from("store-through-rooted"), &lhs);
             });
-            _msp_mask_add_root(m, tr, tr.deep);
+            _msp_mask_add_root(&m, tr, tr.deep);
             // A value-field / index store through an `inout` parameter is a
             // write through it even when the parameter's type roots no RC
             // storage (rule D3 — see _msp_inout_param_of_place).
             match(
-              _msp_inout_param_of_place(lhs, ctx),
-              .Some(wpi) => _msp_bits_set(m.shallow, wpi),
+              _msp_inout_param_of_place(&lhs, ctx),
+              .Some(wpi) => _msp_bits_set(&mut m.shallow, wpi),
               .None => ()
             );
             // Index expressions inside the place may call.
-            _msp_mask_or(m, _MsP.walk_children(lf, largs, ctx));
+            _msp_mask_or(&m, _MsP.walk_children(lf, &largs, ctx));
           });
         }
       );
-      _msp_mask_or(m, _MsP.walk(rhs, ctx));
+      _msp_mask_or(&m, _MsP.walk(&rhs, ctx));
       return(m);
     });
     if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
-      return(match(args.get(usize(1)), .Some(r) => _MsP.walk(r, ctx), .None => m));
+      return(match(args.get(usize(1)), .Some(r) => _MsP.walk(&r, ctx), .None => m));
     });
     if(head == "match", {
-      match(args.get(usize(0)), .Some(sc) => _msp_mask_or(m, _MsP.walk(sc, ctx)), .None => ());
+      match(args.get(usize(0)), .Some(sc) => _msp_mask_or(&m, _MsP.walk(&sc, ctx)), .None => ());
       (mi : usize) = usize(1);
       while(mi < args.len(), {
         match(
           args.get(mi),
           .Some(arm) => {
-            if(!_msp_arm_is_dead(arm, ctx.table), {
+            if(!_msp_arm_is_dead(&arm, &ctx.table), {
               match(
                 arm,
                 .FnCall(_, af, aargs, _, _) => {
                   is_arm := (match(af, .Atom(_, at) => ((at.value == "=>") || (at.value == "->")), _ => false) && (aargs.len() == usize(2)));
                   if(is_arm, {
-                    match(aargs.get(usize(1)), .Some(b) => _msp_mask_or(m, _MsP.walk(b, ctx)), .None => ());
+                    match(aargs.get(usize(1)), .Some(b) => _msp_mask_or(&m, _MsP.walk(&b, ctx)), .None => ());
                   }, {
-                    _msp_mask_or(m, _MsP.walk(arm, ctx));
+                    _msp_mask_or(&m, _MsP.walk(&arm, ctx));
                   });
                 },
                 .Atom(_, _) => ()
@@ -3036,8 +3036,8 @@ impl(
       while(ci < args.len(), {
         match(
           args.get(ci),
-          .Some(arm) => if(!_msp_arm_is_dead(arm, ctx.table), {
-            _msp_mask_or(m, _MsP.walk(arm, ctx));
+          .Some(arm) => if(!_msp_arm_is_dead(&arm, &ctx.table), {
+            _msp_mask_or(&m, _MsP.walk(&arm, ctx));
           }),
           .None => ()
         );
@@ -3050,23 +3050,23 @@ impl(
       match(
         args.get(usize(0)),
         .Some(a0) => {
-          r0 := _MsP.classify(a0, ctx);
-          _msp_mask_add_root(m, r0, true);
+          r0 := _MsP.classify(&a0, ctx);
+          _msp_mask_add_root(&m, r0, true);
         },
         .None => ()
       );
-      _msp_mask_or(m, _MsP.walk_children(func_expr, args, ctx));
+      _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
       return(m);
     });
     if((head.len() > usize(0)) && _ms_head_is_safe_recurse(head.clone()), {
-      return(_MsP.walk_children(func_expr, args, ctx));
+      return(_MsP.walk_children(&func_expr, &args, ctx));
     });
     // A compile-time-known result is inlined: the call never runs.
     match(
       info_opt,
       .Some(vinfo) => match(
         vinfo.value,
-        .Some(v) => if(!is_unknown_val(v), {
+        .Some(v) => if(!is_unknown_val(&v), {
           return(m);
         }),
         .None => ()
@@ -3080,28 +3080,28 @@ impl(
     });
     // An allocator vtable slot mutates only the block it is handed (`realloc`,
     // `free`); `alloc` mutates nothing a caller can reach.
-    slot_w := _msp_allocator_slot(func_expr, ctx.table);
+    slot_w := _msp_allocator_slot(&func_expr, &ctx.table);
     if(slot_w.len() > usize(0), {
       if(slot_w != "alloc", {
         match(
           args.get(usize(1)),
           .Some(wa1) => {
-            wr1 := _MsP.classify(wa1, ctx);
-            _msp_mask_add_root(m, wr1, wr1.deep);
+            wr1 := _MsP.classify(&wa1, ctx);
+            _msp_mask_add_root(&m, wr1, wr1.deep);
           },
           .None => ()
         );
       });
-      _msp_mask_or(m, _MsP.walk_children(func_expr, args, ctx));
+      _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
       return(m);
     });
-    callee_opt := _MsP.callee(e, func_expr, ctx.table);
+    callee_opt := _MsP.callee(e, &func_expr, &ctx.table);
     match(
       callee_opt,
       .Some(callee) => match(
         callee,
         .TypeVal(_) => {
-          return(_MsP.walk_children(func_expr, args, ctx));
+          return(_MsP.walk_children(&func_expr, &args, ctx));
         },
         .FuncVal(fvd, _) => {
           fid := fvd.*.func_id.clone();
@@ -3126,32 +3126,32 @@ impl(
             callee_extern,
             .Some(en) => {
               cond(
-                _msp_extern_has_callback(cpt, cvt) => {
+                _msp_extern_has_callback(&cpt, &cvt) => {
                   m.all = true;
                   _msp_debug_all(String.from("walk"), e);
                 },
-                _ms_extern_may_mutate(en, cpt, cvt) => _MsP.roots_of_args(m, func_expr, args, ctx),
-                _msp_extern_writes_first_arg(en) => match(
+                _ms_extern_may_mutate(&en, &cpt, &cvt) => _MsP.roots_of_args(m, &func_expr, &args, ctx),
+                _msp_extern_writes_first_arg(&en) => match(
                   args.get(usize(0)),
                   .Some(a0) => {
-                    r0 := _MsP.classify(a0, ctx);
-                    _msp_mask_add_root(m, r0, r0.deep);
+                    r0 := _MsP.classify(&a0, ctx);
+                    _msp_mask_add_root(&m, r0, r0.deep);
                   },
                   .None => ()
                 ),
                 true => ()
               );
-              _msp_mask_or(m, _MsP.walk_children(func_expr, args, ctx));
+              _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
               return(m);
             },
             .None => ()
           );
-          an := _MsP.analyze(fid.clone(), fvd.*.body, ctx.table, ctx.touched);
+          an := _MsP.analyze(fid.clone(), &fvd.*.body, &ctx.table, &mut ctx.touched);
           labels := _msp_labels(fid.clone());
           match(
-            _MsP.argv(e, func_expr, args, labels.len(), ctx.table),
+            _MsP.argv(e, &func_expr, &args, labels.len(), &ctx.table),
             .None => {
-              if(!param_mutation_mask_is_empty(an.mask), {
+              if(!param_mutation_mask_is_empty(&an.mask), {
                 m.all = true;
                 _msp_debug_all(String.from("walk"), e);
               });
@@ -3162,21 +3162,21 @@ impl(
                 // involved (its captures are storage this call does not
                 // name), whatever it mutates is reachable from an argument:
                 // attribute the mutation to the arguments' roots, deeply.
-                if(_MsP.call_involves_closure(fid.clone(), func_expr, args, ctx.table), {
+                if(_MsP.call_involves_closure(fid.clone(), &func_expr, &args, &ctx.table), {
                   m.all = true;
                   _msp_debug_all(String.from("walk-closure"), e);
                 }, {
-                  if(ast_expr_is_fn_call_of(func_expr, BF_DOT, Option(usize).Some(usize(2))), {
+                  if(ast_expr_is_fn_call_of(&func_expr, BF_DOT, Option(usize).Some(usize(2))), {
                     match(
                       func_expr,
                       .FnCall(_, _, dargs, _, _) => match(
                         dargs.get(usize(0)),
                         .Some(recv) => {
-                          rr := _MsP.classify(recv, ctx);
+                          rr := _MsP.classify(&recv, ctx);
                           if(rr.kind == MSP_ROOTED, {
-                            _msp_debug_all(String.from("walk-all-receiver-rooted"), recv);
+                            _msp_debug_all(String.from("walk-all-receiver-rooted"), &recv);
                           });
-                          _msp_mask_add_root(m, rr, true);
+                          _msp_mask_add_root(&m, rr, true);
                         },
                         .None => ()
                       ),
@@ -3188,16 +3188,16 @@ impl(
                     match(
                       args.get(ai2),
                       .Some(a2) => {
-                        ra2 := _MsP.classify(a2, ctx);
+                        ra2 := _MsP.classify(&a2, ctx);
                         if(ra2.kind == MSP_ROOTED, {
-                          _msp_debug_all(String.from("walk-all-arg-rooted"), a2);
+                          _msp_debug_all(String.from("walk-all-arg-rooted"), &a2);
                         });
-                        _msp_mask_add_root(m, ra2, true);
+                        _msp_mask_add_root(&m, ra2, true);
                         // Unknown effects reachable from a place rooted in one
                         // of OUR `inout` parameters: a write through it (D3).
                         match(
-                          _msp_inout_param_of_place(a2, ctx),
-                          .Some(wpi) => _msp_bits_set(m.shallow, wpi),
+                          _msp_inout_param_of_place(&a2, ctx),
+                          .Some(wpi) => _msp_bits_set(&mut m.shallow, wpi),
                           .None => ()
                         );
                       },
@@ -3209,27 +3209,27 @@ impl(
               }, {
                 (j : usize) = usize(0);
                 while(j < labels.len(), {
-                  deep_j := _msp_bits_get(an.mask.deep, j);
-                  shallow_j := _msp_bits_get(an.mask.shallow, j);
+                  deep_j := _msp_bits_get(&an.mask.deep, j);
+                  shallow_j := _msp_bits_get(&an.mask.shallow, j);
                   if(deep_j || shallow_j, {
                     match(
                       av.get(j),
                       .Some(aj) => {
-                        rj := _MsP.classify(aj, ctx);
+                        rj := _MsP.classify(&aj, ctx);
                         // The callee writes through its parameter j; if our
                         // argument is a place rooted in one of OUR `inout`
                         // parameters, that is a write through it, whatever
                         // its type (D3).
                         match(
-                          _msp_inout_param_of_place(aj, ctx),
-                          .Some(wpi) => _msp_bits_set(m.shallow, wpi),
+                          _msp_inout_param_of_place(&aj, ctx),
+                          .Some(wpi) => _msp_bits_set(&mut m.shallow, wpi),
                           .None => ()
                         );
                         cond(
                           (rj.kind == MSP_PARAM) => if(deep_j || rj.deep, {
-                            _msp_bits_set(m.deep, rj.param);
+                            _msp_bits_set(&mut m.deep, rj.param);
                           }, {
-                            _msp_bits_set(m.shallow, rj.param);
+                            _msp_bits_set(&mut m.shallow, rj.param);
                           }),
                           (rj.kind == MSP_ROOTED) => {
                             m.all = true;
@@ -3254,7 +3254,7 @@ impl(
               });
             }
           );
-          _msp_mask_or(m, _MsP.walk_children(func_expr, args, ctx));
+          _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
           return(m);
         },
         _ => {
@@ -3266,18 +3266,18 @@ impl(
       .None => ()
     );
     if((head.len() > usize(0)) && _ms_head_is_pure_builtin(head.clone()), {
-      return(_MsP.walk_children(func_expr, args, ctx));
+      return(_MsP.walk_children(&func_expr, &args, ctx));
     });
     // Callee value unresolved but a resolved callee TYPE exists (extern C
     // declarations resolve this way).
     (type_only : Option(TypeValue)) = match(
-      expr_info_table_get(ctx.table, ast_expr_id(func_expr)),
+      expr_info_table_get(&ctx.table, ast_expr_id(&func_expr)),
       .Some(fi2) => Option(TypeValue).Some(fi2.ty),
       .None => Option(TypeValue).None
     );
     (type_only2 : Option(TypeValue)) = match(
       type_only,
-      .Some(t0) => if(is_function_type(t0), Option(TypeValue).Some(t0), lookup_method_callee_type(ast_expr_id(e))),
+      .Some(t0) => if(is_function_type(&t0), Option(TypeValue).Some(t0), lookup_method_callee_type(ast_expr_id(e))),
       .None => lookup_method_callee_type(ast_expr_id(e))
     );
     match(
@@ -3288,22 +3288,22 @@ impl(
           tm.*.extern_name,
           .Some(ten) => {
             cond(
-              _msp_extern_has_callback(tpt, tvt) => {
+              _msp_extern_has_callback(&tpt, &tvt) => {
                 m.all = true;
                 _msp_debug_all(String.from("walk"), e);
               },
-              _ms_extern_may_mutate(ten, tpt, tvt) => _MsP.roots_of_args(m, func_expr, args, ctx),
-              _msp_extern_writes_first_arg(ten) => match(
+              _ms_extern_may_mutate(&ten, &tpt, &tvt) => _MsP.roots_of_args(&m, &func_expr, &args, ctx),
+              _msp_extern_writes_first_arg(&ten) => match(
                 args.get(usize(0)),
                 .Some(a0) => {
-                  r0 := _MsP.classify(a0, ctx);
-                  _msp_mask_add_root(m, r0, r0.deep);
+                  r0 := _MsP.classify(&a0, ctx);
+                  _msp_mask_add_root(&m, r0, r0.deep);
                 },
                 .None => ()
               ),
               true => ()
             );
-            _msp_mask_or(m, _MsP.walk_children(func_expr, args, ctx));
+            _msp_mask_or(&m, _MsP.walk_children(&func_expr, &args, ctx));
             return(m);
           },
           .None => ()
@@ -3325,9 +3325,9 @@ _msp_arg_base_var :: (fn(imm(arg) : AstExpr, imm(table) : ExprInfoTable) -> Opti
   match(
     _msp_place_base_atom(arg),
     .Some(ba) => match(
-      expr_info_table_get(table, ast_expr_id(ba)),
+      expr_info_table_get(table, ast_expr_id(&ba)),
       .Some(bi) => {
-        vars := scope_variables(ast_expr_id(ba), bi.env, ast_expr_token(ba).value);
+        vars := scope_variables(ast_expr_id(&ba), &bi.env, ast_expr_token(&ba).value);
         vars.last()
       },
       .None => Option(Variable).None
@@ -3376,7 +3376,7 @@ strict_borrow_violations :: (
   fn(imm(loop) : AstExpr, imm(borrowed_ids) : ArrayList(usize), imm(table) : ExprInfoTable) -> ArrayList(TokenAndError)
 )({
   out := ArrayList(TokenAndError).new();
-  _MsP.strict_walk(loop, borrowed_ids, table, out);
+  _MsP.strict_walk(loop, borrowed_ids, table, &mut out);
   out
 });
 /// Public entry, PARAM-STORAGE mode: which of `fid`'s parameters have storage
@@ -3397,7 +3397,7 @@ function_param_mutation_mask :: (
   fn(imm(fid) : String, imm(body) : AstExpr, imm(table) : ExprInfoTable) -> ParamMutationMask
 )({
   touched := ArrayList(String).new();
-  _MsP.analyze(fid, body, table, touched).mask
+  _MsP.analyze(fid, body, table, &mut touched).mask
 });
 // ===========================================================================
 // GLOBAL-REACH mode — rule D1 (plans/reference/PARALLELISM_RULES.md)
@@ -3492,7 +3492,7 @@ d1_record_global_write :: (fn(imm(decl) : Token, imm(name) : String, imm(write_t
       g_d1_written.insert(key.clone(), _d1_location(write_tok));
     }
   );
-  g_d1_reached.get(key)
+  g_d1_reached.get(&key)
 });
 /// `fid` is the function whose body this walk covers: the globals it reads and
 /// the functions it calls are recorded under it (`g_gr_reads_by_fid`,
@@ -3605,7 +3605,7 @@ d1_note_thread_reach :: (fn(imm(fid) : String) -> Option(String))({
 });
 _gr_env_of :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(Environment))(
   match(
-    expr_info_table_get(ctx.table, ast_expr_id(e)),
+    expr_info_table_get(&ctx.table, ast_expr_id(e)),
     .Some(i) => Option(Environment).Some(i.env),
     .None => Option(Environment).None
   )
@@ -3622,7 +3622,7 @@ _gr_atom :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
   // is the walk's own env.
   env_rec := _gr_env_of(e, ctx);
   env := match(env_rec, .Some(en) => en, .None => ctx.env);
-  vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(e), env, name.clone()), .None => get_variables_from_env(env, name.clone()));
+  vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(e), &env, name.clone()), .None => get_variables_from_env(&env, name.clone()));
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
@@ -3632,22 +3632,22 @@ _gr_atom :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
   });
   send_ok := match(
     ctx.send,
-    .Some(st) => type_implements_trait_bool(v.ty, st, env),
+    .Some(st) => type_implements_trait_bool(&v.ty, &st, &env),
     .None => true
   );
   if(send_ok, {
     // A Sync global another thread reads: a violation iff it is also written.
-    key := _d1_global_key(v.token, name.clone());
-    _gr_note_read(ctx.fid.clone(), key.clone(), _d1_location(tok));
+    key := _d1_global_key(&v.token, name.clone());
+    _gr_note_read(ctx.fid.clone(), key.clone(), _d1_location(&tok));
     return(
       match(
-        g_d1_written.get(key),
-        .Some(wloc) => Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${name}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state (at ${_d1_location(tok)})`),
+        g_d1_written.get(&key),
+        .Some(wloc) => Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(&v.ty)}), which is assigned at ${wloc} — a module-level binding is one static every thread shares, so a mutable one may only be touched by one thread. Use thread_local(${name}) for per-thread state or an atomic object (AtomicI32, Mutex(T), Arc(T)) for shared state (at ${_d1_location(&tok)})`),
         .None => Option(String).None
       )
     );
   });
-  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(v.ty)}), which is not Sync — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Sync globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${_d1_location(tok)})`)
+  Option(String).Some(`references the module-level global '${name}' (type ${type_to_string(&v.ty)}), which is not Sync — a module-level binding is one static every thread shares, so a closure that runs on another thread may only reach Sync globals. Use thread_local(${name}) for per-thread state, an atomic object (Mutex(T), Arc(T), Atomic*) for shared state, or pass the value into the closure (at ${_d1_location(&tok)})`)
 });
 /// A call whose callee is an atom bound to a compile-time closure value (a
 /// local `(k : Impl(Fn() -> R)) = (() => ...)` binding, or a captured one):
@@ -3662,7 +3662,7 @@ _gr_walk_closure_callee :: (fn(imm(f) : AstExpr, imm(ctx) : _GrCtx) -> Option(St
   });
   env_rec := _gr_env_of(f, ctx);
   env := match(env_rec, .Some(en) => en, .None => ctx.env);
-  vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(f), env, name), .None => get_variables_from_env(env, name));
+  vars := match(env_rec, .Some(_) => scope_variables(ast_expr_id(f), &env, &name), .None => get_variables_from_env(&env, &name));
   if(vars.len() == usize(0), {
     return(Option(String).None);
   });
@@ -3674,7 +3674,7 @@ _gr_walk_closure_callee :: (fn(imm(f) : AstExpr, imm(ctx) : _GrCtx) -> Option(St
         vv,
         .FuncVal(fvd, _) => match({
           _gr_note_callee(ctx, fvd.*.func_id.clone());
-          function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.table, env)
+          function_reaches_non_send_global(fvd.*.func_id.clone(), &fvd.*.body, &ctx.table, &env)
         }, .Some(m) => Option(String).Some(`calls '${ast_expr_to_string(f)}', which ${m}`), .None => Option(String).None),
         _ => Option(String).None
       ),
@@ -3691,14 +3691,14 @@ _gr_walk_closure_callee :: (fn(imm(f) : AstExpr, imm(ctx) : _GrCtx) -> Option(St
 /// local closure — from the binding's value cell.
 _gr_value_function :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
   (fv : Option(EvalValue)) = match(
-    expr_info_table_get(ctx.table, ast_expr_id(e)),
+    expr_info_table_get(&ctx.table, ast_expr_id(e)),
     .Some(ei) => ei.value,
     .None => Option(EvalValue).None
   );
   if(fv.is_none() && ast_expr_is_atom(e), {
     name := ast_expr_token(e).value.clone();
     if(!name.is_empty(), {
-      vars := match(_gr_env_of(e, ctx), .Some(en) => scope_variables(ast_expr_id(e), en, name), .None => get_variables_from_env(ctx.env, name));
+      vars := match(_gr_env_of(e, ctx), .Some(en) => scope_variables(ast_expr_id(e), &en, &name), .None => get_variables_from_env(&ctx.env, &name));
       if(vars.len() > usize(0), {
         fv = match(vars.last(), .Some(v) => v.value.get(usize(0)), .None => Option(EvalValue).None);
       });
@@ -3716,7 +3716,7 @@ _gr_value_function :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String)
         });
         _gr_note_callee(ctx, fid.clone());
         match(
-          function_reaches_non_send_global(fid, fvd.*.body, ctx.table, ctx.env),
+          function_reaches_non_send_global(&fid, &fvd.*.body, &ctx.table, &ctx.env),
           .Some(m) => Option(String).Some(`uses the function '${ast_expr_to_string(e)}' as a value (whatever receives it may call it), which ${m}`),
           .None => Option(String).None
         )
@@ -3729,11 +3729,11 @@ _gr_value_function :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String)
 _gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
   // A macro call: the expansion is what runs.
   match(
-    expr_info_table_get(ctx.table, ast_expr_id(e)),
+    expr_info_table_get(&ctx.table, ast_expr_id(e)),
     .Some(ei) => match(
-      expr_info_macro_expansion(ei),
+      expr_info_macro_expansion(&ei),
       .Some(exp) => {
-        return(_gr_walk(exp, ctx));
+        return(_gr_walk(&exp, ctx));
       },
       .None => ()
     ),
@@ -3757,18 +3757,18 @@ _gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
       );
       // Definitions and arms: the value expression / the arm body runs.
       if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
-        return(match(args.get(usize(1)), .Some(r) => _gr_walk(r, ctx), .None => Option(String).None));
+        return(match(args.get(usize(1)), .Some(r) => _gr_walk(&r, ctx), .None => Option(String).None));
       });
       // Labels: the value.
       if((head == ":") && (args.len() == usize(2)), {
-        return(match(args.get(usize(1)), .Some(r) => _gr_walk(r, ctx), .None => Option(String).None));
+        return(match(args.get(usize(1)), .Some(r) => _gr_walk(&r, ctx), .None => Option(String).None));
       });
       // Field access: the receiver — and the field's value when it is a
       // function (`mod.f` passed along).
       if((head == ".") && (args.len() == usize(2)), {
         return(
           match(
-            match(args.get(usize(0)), .Some(r) => _gr_walk(r, ctx), .None => Option(String).None),
+            match(args.get(usize(0)), .Some(r) => _gr_walk(&r, ctx), .None => Option(String).None),
             .Some(m) => Option(String).Some(m),
             .None => _gr_value_function(e, ctx)
           )
@@ -3776,7 +3776,7 @@ _gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
       });
       // Closure literals and match arms: the body (it runs on the thread).
       if(((head == "=>") || (head == "->")) && (args.len() == usize(2)), {
-        return(match(args.get(usize(1)), .Some(b) => _gr_walk(b, ctx), .None => Option(String).None));
+        return(match(args.get(usize(1)), .Some(b) => _gr_walk(&b, ctx), .None => Option(String).None));
       });
       // Structural / control builtins, RC primitives, pure builtins, statements:
       // walk the children, the head itself reaches nothing.
@@ -3785,7 +3785,7 @@ _gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
         // A call: resolve the callee. Extern → runs no Yo code. A body in a
         // pragma'd file → trusted. Otherwise descend (memoized, cycle-safe).
         match(
-          _MsP.callee(e, f, ctx.table),
+          _MsP.callee(e, &f, &ctx.table),
           .Some(cv) => match(
             cv,
             .FuncVal(fvd, _) => {
@@ -3801,9 +3801,9 @@ _gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
               if(!is_extern, {
                 _gr_note_callee(ctx, fid.clone());
                 match(
-                  function_reaches_non_send_global(fid, fvd.*.body, ctx.table, ctx.env),
+                  function_reaches_non_send_global(&fid, &fvd.*.body, &ctx.table, &ctx.env),
                   .Some(m) => {
-                    return(Option(String).Some(`calls '${ast_expr_to_string(f)}', which ${m}`));
+                    return(Option(String).Some(`calls '${ast_expr_to_string(&f)}', which ${m}`));
                   },
                   .None => ()
                 );
@@ -3815,7 +3815,7 @@ _gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
             // cell, so resolve an atom callee there and descend into it
             // (issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md).
             _ => match(
-              _gr_walk_closure_callee(f, ctx),
+              _gr_walk_closure_callee(&f, ctx),
               .Some(m) => {
                 return(Option(String).Some(m));
               },
@@ -3823,7 +3823,7 @@ _gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
             )
           ),
           .None => match(
-            _gr_walk_closure_callee(f, ctx),
+            _gr_walk_closure_callee(&f, ctx),
             .Some(m) => {
               return(Option(String).Some(m));
             },
@@ -3833,9 +3833,9 @@ _gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
       });
       // The callee expression itself (a global closure, a receiver) and the
       // arguments.
-      if(!ast_expr_is_atom(f) || !children_only, {
+      if(!ast_expr_is_atom(&f) || !children_only, {
         match(
-          _gr_walk(f, ctx),
+          _gr_walk(&f, ctx),
           .Some(m) => {
             return(Option(String).Some(m));
           },
@@ -3847,7 +3847,7 @@ _gr_walk :: (fn(imm(e) : AstExpr, imm(ctx) : _GrCtx) -> Option(String))({
         match(
           args.get(i),
           .Some(a) => match(
-            _gr_walk(a, ctx),
+            _gr_walk(&a, ctx),
             .Some(m) => {
               return(Option(String).Some(m));
             },
@@ -3911,7 +3911,7 @@ function_reaches_non_send_global :: (
   // sharing, so the global must be `Sync` (Rust's `static: Sync`;
   // plans/VALUES_BY_DEFAULT.md §3.8).
   ctx := _GrCtx(table : table, env : env, send : get_trait_type_from_env(env, String.from("Sync")), fid : fid.clone());
-  r := _gr_walk(body, ctx);
+  r := _gr_walk(body, &ctx);
   g_gr_in_progress.remove(fid.clone());
   g_gr_depth = my_depth;
   // The lowest in-progress ANCESTOR this walk's subtree depended on.
@@ -3989,9 +3989,9 @@ summarize_function_bodies :: (fn(imm(values) : ArrayList(EvalValue), imm(table) 
         .FuncVal(fvd, _) => {
           fid := fvd.*.func_id.clone();
           (is_extern : bool) = match(get_func_type(fid.clone()), .Func({ meta : cm }) => cm.*.extern_name.is_some(), _ => false);
-          if(!is_extern && expr_info_table_get(table, ast_expr_id(fvd.*.body)).is_some(), {
-            _r := function_reaches_non_send_global(fid.clone(), fvd.*.body, table, env);
-            _m := function_param_mutation_mask(fid, fvd.*.body, table);
+          if(!is_extern && expr_info_table_get(table, ast_expr_id(&fvd.*.body)).is_some(), {
+            _r := function_reaches_non_send_global(fid.clone(), &fvd.*.body, table, env);
+            _m := function_param_mutation_mask(&fid, &fvd.*.body, table);
             summarized = (summarized + usize(1));
           });
         },

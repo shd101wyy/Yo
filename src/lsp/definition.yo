@@ -63,7 +63,7 @@ _target_lines :: (
     return(Option(ArrayList(String)).Some(doc_lines));
   });
   match(
-    mm_module_source(target_fs),
+    mm_module_source(&target_fs),
     .Some(src) => Option(ArrayList(String)).Some(src.split(String.from("\n"))),
     .None => Option(ArrayList(String)).None
   )
@@ -78,10 +78,10 @@ _location_of :: (
   end_col := (usize(def_tok.column) + def_tok.value.chars().count());
   range := match(
     _target_lines(def_tok, doc_abs.clone(), lines),
-    .Some(target_lines) => j_range_in(target_lines, usize(def_tok.row), usize(def_tok.column), usize(def_tok.row), end_col),
+    .Some(target_lines) => j_range_in(&target_lines, usize(def_tok.row), usize(def_tok.column), usize(def_tok.row), end_col),
     .None => j_range(usize(def_tok.row), usize(def_tok.column), usize(def_tok.row), end_col)
   );
-  jb().put("uri", jstr(module_path_to_uri(def_tok.module_path.clone()))).put("range", range).obj()
+  jb().put("uri", jstr(module_path_to_uri(def_tok.module_path.clone()))).put("range", &range).obj()
 });
 
 /// The parsed program of the module at `module_path` (either `file://`
@@ -102,7 +102,7 @@ _module_exprs :: (
       return(ArrayList(AstExpr).new());
     }
   );
-  _parse_quietly(src, module_path)
+  _parse_quietly(&src, module_path)
 });
 /// Parse `src` as `module_path`; an empty program when it does not parse
 /// (own frame so the swallowing handler's `unwind` value matches).
@@ -112,7 +112,7 @@ _parse_quietly :: (fn(imm(src) : String, imm(module_path) : String) -> ArrayList
       _err -> unwind(ArrayList(AstExpr).new())
     )
   );
-  parse(src, module_path, parse_exn)
+  parse(src, module_path, &parse_exn)
 });
 
 /// True iff `e` is an Atom spelled `name` (a `String`-argument twin of
@@ -128,11 +128,11 @@ _binding_value :: (fn(imm(exprs) : ArrayList(AstExpr), imm(head) : String) -> Op
     match(
       exprs.get(i),
       .Some(e) => {
-        if(ast_expr_is_fn_call_of(e, "::", .Some(usize(2))), {
+        if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))), {
           match(
             e,
             .FnCall(_, _, args, _, _) => {
-              lhs_is_head := match(args.get(usize(0)), .Some(l) => _atom_is(l, head.clone()), .None => false);
+              lhs_is_head := match(args.get(usize(0)), .Some(l) => _atom_is(&l, head.clone()), .None => false);
               if(lhs_is_head, {
                 return(args.get(usize(1)));
               });
@@ -154,13 +154,13 @@ _binding_name_token :: (fn(imm(exprs) : ArrayList(AstExpr), imm(head) : String) 
     match(
       exprs.get(i),
       .Some(e) => {
-        if(ast_expr_is_fn_call_of(e, "::", .Some(usize(2))), {
+        if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))), {
           match(
             e,
             .FnCall(_, _, args, _, _) => match(
               args.get(usize(0)),
-              .Some(l) => if(_atom_is(l, head.clone()), {
-                return(Option(Token).Some(ast_expr_token(l)));
+              .Some(l) => if(_atom_is(&l, head.clone()), {
+                return(Option(Token).Some(ast_expr_token(&l)));
               }),
               .None => ()
             ),
@@ -193,13 +193,13 @@ _find_field_label :: (fn(imm(e) : AstExpr, imm(member) : String, mut(out) : Arra
           match(
             args.get(i),
             .Some(a) => {
-              if(ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
+              if(ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))), {
                 match(
                   a,
                   .FnCall(_, _, pair, _, _) => match(
                     pair.get(usize(0)),
-                    .Some(lhs) => if(_atom_is(lhs, member.clone()), {
-                      out.push(ast_expr_token(lhs));
+                    .Some(lhs) => if(_atom_is(&lhs, member.clone()), {
+                      out.push(ast_expr_token(&lhs));
                     }),
                     .None => ()
                   ),
@@ -212,12 +212,12 @@ _find_field_label :: (fn(imm(e) : AstExpr, imm(member) : String, mut(out) : Arra
           i = (i + usize(1));
         });
       });
-      recur(func_box, member, out);
+      recur(&func_box, member, out);
       (j : usize) = usize(0);
       while(j < args.len(), {
         match(
           args.get(j),
-          .Some(a2) => recur(a2, member, out),
+          .Some(a2) => recur(&a2, member, out),
           .None => ()
         );
         j = (j + usize(1));
@@ -240,20 +240,20 @@ _find_variant_decl :: (fn(imm(e) : AstExpr, imm(variant) : String, mut(out) : Ar
             .Some(.Atom(_, at)) => if(at.value == variant, {
               out.push(at);
             }),
-            .Some(.FnCall(_, vf, _, _, _)) => if(_atom_is(vf, variant.clone()), {
-              out.push(ast_expr_token(vf));
+            .Some(.FnCall(_, vf, _, _, _)) => if(_atom_is(&vf, variant.clone()), {
+              out.push(ast_expr_token(&vf));
             }),
             .None => ()
           );
           i = (i + usize(1));
         });
       });
-      recur(func_box, variant, out);
+      recur(&func_box, variant, out);
       (j : usize) = usize(0);
       while(j < args.len(), {
         match(
           args.get(j),
-          .Some(a2) => recur(a2, variant, out),
+          .Some(a2) => recur(&a2, variant, out),
           .None => ()
         );
         j = (j + usize(1));
@@ -271,14 +271,14 @@ _subtree_has_position :: (fn(imm(e) : AstExpr, imm(at) : Token) -> bool)({
     e,
     .Atom(_, _) => false,
     .FnCall(_, func_box, args, _, _) => {
-      if(recur(func_box, at), {
+      if(recur(&func_box, at), {
         return(true);
       });
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => if(recur(a, at), {
+          .Some(a) => if(recur(&a, at), {
             return(true);
           }),
           .None => ()
@@ -300,24 +300,24 @@ _find_method_label :: (
     .Atom(_, _) => (),
     .FnCall(_, func_box, args, _, _) => {
       if(ast_expr_is_fn_call_of(e, ":", .Some(usize(2))), {
-        lhs_ok := match(args.get(usize(0)), .Some(l) => _atom_is(l, member.clone()), .None => false);
-        rhs_ok := match(args.get(usize(1)), .Some(r) => _subtree_has_position(r, body_at), .None => false);
+        lhs_ok := match(args.get(usize(0)), .Some(l) => _atom_is(&l, member.clone()), .None => false);
+        rhs_ok := match(args.get(usize(1)), .Some(r) => _subtree_has_position(&r, body_at), .None => false);
         if(lhs_ok && rhs_ok, {
           match(
             args.get(usize(0)),
             .Some(l2) => {
-              out.push(ast_expr_token(l2));
+              out.push(ast_expr_token(&l2));
             },
             .None => ()
           );
         });
       });
-      recur(func_box, member, body_at, out);
+      recur(&func_box, member, body_at, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => recur(a, member, body_at, out),
+          .Some(a) => recur(&a, member, body_at, out),
           .None => ()
         );
         i = (i + usize(1));
@@ -351,7 +351,7 @@ _type_head_name :: (fn(imm(ty) : TypeValue) -> String)({
     return(nm);
   });
   match(
-    type_display_name(id),
+    type_display_name(&id),
     .Some(d) => match(
       d.index_of(String.from("(")),
       .Some(p) => d.substring(usize(0), p),
@@ -406,7 +406,7 @@ _owner_member_decl :: (
   );
   module_exprs := _module_exprs(decl_tok.module_path.clone(), doc_abs, doc_exprs);
   value := match(
-    _binding_value(module_exprs, head),
+    _binding_value(&module_exprs, &head),
     .Some(v) => v,
     .None => {
       return(Option(Token).None);
@@ -415,8 +415,8 @@ _owner_member_decl :: (
   found := ArrayList(Token).new();
   match(
     owner,
-    .EnumT(_, _, _, _, _, _, _, _, _, _) => _find_variant_decl(value, member, found),
-    _ => _find_field_label(value, member, found)
+    .EnumT(_, _, _, _, _, _, _, _, _, _) => _find_variant_decl(&value, member, &mut found),
+    _ => _find_field_label(&value, member, &mut found)
   );
   found.get(usize(0))
 });
@@ -439,7 +439,7 @@ _method_decl :: (
   ids.push(type_id_or_empty(deref));
   (ii : usize) = usize(0);
   while((ii < ids.len()) && value.is_none(), {
-    entries := get_type_trait_methods_for_type(ids(ii));
+    entries := get_type_trait_methods_for_type(&ids(ii));
     (ei : usize) = usize(0);
     while((ei < entries.len()) && value.is_none(), {
       match(
@@ -458,7 +458,7 @@ _method_decl :: (
   });
   body_tok := match(
     value,
-    .Some(.FuncVal(data, _)) => ast_expr_token(data.*.body),
+    .Some(.FuncVal(data, _)) => ast_expr_token(&data.*.body),
     .Some(_) => {
       return(Option(Token).None);
     },
@@ -472,7 +472,7 @@ _method_decl :: (
   while(i < module_exprs.len(), {
     match(
       module_exprs.get(i),
-      .Some(e) => _find_method_label(e, member, body_tok, found),
+      .Some(e) => _find_method_label(&e, member, &body_tok, &mut found),
       .None => ()
     );
     i = (i + usize(1));
@@ -493,7 +493,7 @@ _import_path_of_binding :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : Stri
       return(Option(String).None);
     }
   );
-  if(!ast_expr_is_fn_call_of(value, "import", .Some(usize(1))), {
+  if(!ast_expr_is_fn_call_of(&value, "import", .Some(usize(1))), {
     return(Option(String).None);
   });
   match(
@@ -503,7 +503,7 @@ _import_path_of_binding :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : Stri
       .Some(a) => match(
         a,
         .Atom(_, t) => cond(
-          (t.kind == TokenKind.StringLit) => Option(String).Some(str_lit_unquote_bytes(t.value)),
+          (t.kind == TokenKind.StringLit) => Option(String).Some(str_lit_unquote_bytes(&t.value)),
           true => Option(String).None
         ),
         .FnCall(_, _, _, _, _) => Option(String).None
@@ -537,7 +537,7 @@ _module_member_decl :: (
     .None => String.from(".")
   );
   abs := match(
-    resolve_module_path(import_path, doc_dir, std_path),
+    resolve_module_path(&import_path, &doc_dir, std_path),
     .Found(p) => p,
     .NotFound(_) => {
       return(Option(Token).None);
@@ -549,7 +549,7 @@ _module_member_decl :: (
       return(Option(Token).None);
     }
   );
-  _binding_name_token(_module_exprs(abs, doc_abs, doc_exprs), member)
+  _binding_name_token(_module_exprs(&abs, doc_abs, doc_exprs), member)
 });
 
 /// The label call enclosing a LABEL atom (`Point(x : 1)` for the `x`): the
@@ -564,13 +564,13 @@ _find_label_call :: (fn(imm(e) : AstExpr, imm(target) : Token, mut(out) : ArrayL
         match(
           args.get(i),
           .Some(a) => {
-            if(ast_expr_is_fn_call_of(a, ":", .Some(usize(2))), {
+            if(ast_expr_is_fn_call_of(&a, ":", .Some(usize(2))), {
               match(
                 a,
                 .FnCall(_, _, pair, _, _) => match(
                   pair.get(usize(0)),
                   .Some(lhs) => {
-                    lt := ast_expr_token(lhs);
+                    lt := ast_expr_token(&lhs);
                     if((lt.row == target.row) && (lt.column == target.column) && (lt.value == target.value), {
                       out.push(e);
                     });
@@ -580,13 +580,13 @@ _find_label_call :: (fn(imm(e) : AstExpr, imm(target) : Token, mut(out) : ArrayL
                 .Atom(_, _) => ()
               );
             });
-            recur(a, target, out);
+            recur(&a, target, out);
           },
           .None => ()
         );
         i = (i + usize(1));
       });
-      recur(func_box, target, out);
+      recur(&func_box, target, out);
     }
   );
 });
@@ -607,7 +607,7 @@ _member_definition :: (
   while(ai < exprs.len(), {
     match(
       exprs.get(ai),
-      .Some(e) => _find_member_access(e, target, accesses),
+      .Some(e) => _find_member_access(&e, target, &mut accesses),
       .None => ()
     );
     ai = (ai + usize(1));
@@ -631,7 +631,7 @@ _member_definition :: (
                 out_recv := ArrayList(TypeValue).new();
                 out_deref := ArrayList(TypeValue).new();
                 out_env := ArrayList(Environment).new();
-                _receiver_at(rt, exprs, info_table, out_recv, out_deref, out_env);
+                _receiver_at(&rt, exprs, info_table, &mut out_recv, &mut out_deref, &mut out_env);
                 if(out_recv.len() > usize(0), {
                   owner = out_recv(usize(0));
                   deref = out_deref(usize(0));
@@ -639,7 +639,7 @@ _member_definition :: (
                 });
               },
               .FnCall(_, _, _, _, _) => match(
-                expr_info_table_get(info_table, ast_expr_id(receiver)),
+                expr_info_table_get(info_table, ast_expr_id(&receiver)),
                 .Some(rinfo) => {
                   owner = rinfo.ty;
                   match(
@@ -674,7 +674,7 @@ _member_definition :: (
         }, {
           // Prefix `.Variant`: the access itself is typed as the enum.
           match(
-            expr_info_table_get(info_table, ast_expr_id(acc)),
+            expr_info_table_get(info_table, ast_expr_id(&acc)),
             .Some(ainfo) => {
               owner = ainfo.ty;
               deref = ainfo.ty;
@@ -695,7 +695,7 @@ _member_definition :: (
           deref,
           .Struct({ field_labels, is_source_namespace }) => {
             if(is_source_namespace, {
-              return(_module_member_decl(receiver_name, member, doc_abs, exprs, std_path));
+              return(_module_member_decl(&receiver_name, &member, doc_abs, exprs, std_path));
             });
             (is_field : bool) = false;
             (fi : usize) = usize(0);
@@ -706,9 +706,9 @@ _member_definition :: (
               fi = (fi + usize(1));
             });
             if(is_field, {
-              return(_owner_member_decl(deref, member, env, doc_abs, exprs));
+              return(_owner_member_decl(&deref, &member, &env, doc_abs, exprs));
             });
-            return(_method_decl(owner, deref, member, env, doc_abs, exprs));
+            return(_method_decl(&owner, &deref, &member, &env, doc_abs, exprs));
           },
           .EnumT(_, _, variant_names, _, _, _, _, _, _, _) => {
             (is_variant : bool) = false;
@@ -720,15 +720,15 @@ _member_definition :: (
               vi = (vi + usize(1));
             });
             if(is_variant, {
-              return(_owner_member_decl(deref, member, env, doc_abs, exprs));
+              return(_owner_member_decl(&deref, &member, &env, doc_abs, exprs));
             });
-            return(_method_decl(owner, deref, member, env, doc_abs, exprs));
+            return(_method_decl(&owner, &deref, &member, &env, doc_abs, exprs));
           },
           .Union(_, _, _) => {
-            return(_owner_member_decl(deref, member, env, doc_abs, exprs));
+            return(_owner_member_decl(&deref, &member, &env, doc_abs, exprs));
           },
           _ => {
-            return(_method_decl(owner, deref, member, env, doc_abs, exprs));
+            return(_method_decl(&owner, &deref, &member, &env, doc_abs, exprs));
           }
         );
       },
@@ -742,7 +742,7 @@ _member_definition :: (
   while(ci < exprs.len(), {
     match(
       exprs.get(ci),
-      .Some(e) => _find_label_call(e, target, calls),
+      .Some(e) => _find_label_call(&e, target, &mut calls),
       .None => ()
     );
     ci = (ci + usize(1));
@@ -750,8 +750,8 @@ _member_definition :: (
   match(
     calls.get(usize(0)),
     .Some(call) => match(
-      expr_info_table_get(info_table, ast_expr_id(call)),
-      .Some(cinfo) => _owner_member_decl(cinfo.ty, target.value.clone(), cinfo.env, doc_abs, exprs),
+      expr_info_table_get(info_table, ast_expr_id(&call)),
+      .Some(cinfo) => _owner_member_decl(&cinfo.ty, target.value.clone(), &cinfo.env, doc_abs, exprs),
       .None => Option(Token).None
     ),
     .None => Option(Token).None
@@ -777,9 +777,9 @@ handle_definition :: (
       _err -> unwind(Option(JsonValue).None)
     )
   );
-  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  tokens := tokenize(text.clone(), doc_abs.clone(), &lex_exn);
   target := match(
-    _find_token_at(tokens, line, character),
+    _find_token_at(&tokens, line, character),
     .Some(t) => t,
     .None => {
       return(Option(JsonValue).None);
@@ -790,41 +790,41 @@ handle_definition :: (
   while(ei < exprs.len(), {
     match(
       exprs.get(ei),
-      .Some(e) => _collect_candidates(e, target, cands),
+      .Some(e) => _collect_candidates(&e, &target, &mut cands),
       .None => ()
     );
     ei = (ei + usize(1));
   });
   expr := match(
-    _best_candidate(cands, info_table),
+    _best_candidate(&cands, info_table),
     .Some(x) => x,
     .None => {
       return(Option(JsonValue).None);
     }
   );
   roles := classify_atom_roles(exprs);
-  if(atom_is_member_or_label(roles, ast_expr_id(expr)), {
+  if(atom_is_member_or_label(&roles, ast_expr_id(&expr)), {
     return(
       match(
-        _member_definition(target, exprs, info_table, doc_abs.clone(), std_path),
-        .Some(def_tok) => Option(JsonValue).Some(_location_of(def_tok, doc_abs, lines)),
+        _member_definition(&target, exprs, info_table, doc_abs.clone(), std_path),
+        .Some(def_tok) => Option(JsonValue).Some(_location_of(&def_tok, doc_abs, lines)),
         .None => Option(JsonValue).None
       )
     );
   });
   info := match(
-    expr_info_table_get(info_table, ast_expr_id(expr)),
+    expr_info_table_get(info_table, ast_expr_id(&expr)),
     .Some(i) => i,
     .None => {
       return(Option(JsonValue).None);
     }
   );
-  vars := get_variables_from_env(info.env, target.value.clone());
+  vars := get_variables_from_env(&info.env, target.value.clone());
   if(vars.len() == usize(0), {
     return(Option(JsonValue).None);
   });
   sv := match(
-    _select_best_variable(vars, target),
+    _select_best_variable(&vars, &target),
     .Some(v) => v,
     .None => {
       return(Option(JsonValue).None);
@@ -837,7 +837,7 @@ handle_definition :: (
       return(Option(JsonValue).None);
     }
   );
-  Option(JsonValue).Some(_location_of(def_tok, doc_abs, lines))
+  Option(JsonValue).Some(_location_of(&def_tok, doc_abs, lines))
 });
 /// `textDocument/typeDefinition` (plans/archive/LSP_AUDIT_2026-09-29.md §3): jump
 /// to the declaration of the TYPE of the expression under the cursor. A
@@ -864,9 +864,9 @@ handle_type_definition :: (
       _err -> unwind(Option(JsonValue).None)
     )
   );
-  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  tokens := tokenize(text.clone(), doc_abs.clone(), &lex_exn);
   target := match(
-    _find_token_at(tokens, line, character),
+    _find_token_at(&tokens, line, character),
     .Some(t) => t,
     .None => {
       return(Option(JsonValue).None);
@@ -877,24 +877,24 @@ handle_type_definition :: (
   while(ei < exprs.len(), {
     match(
       exprs.get(ei),
-      .Some(e) => _collect_candidates(e, target, cands),
+      .Some(e) => _collect_candidates(&e, &target, &mut cands),
       .None => ()
     );
     ei = (ei + usize(1));
   });
   expr := match(
-    _best_candidate(cands, info_table),
+    _best_candidate(&cands, info_table),
     .Some(x) => x,
     .None => {
       return(Option(JsonValue).None);
     }
   );
   roles := classify_atom_roles(exprs);
-  if(roles.labels.contains(ast_expr_id(expr)), {
+  if(roles.labels.contains(ast_expr_id(&expr)), {
     return(Option(JsonValue).None);
   });
-  is_member := roles.members.contains(ast_expr_id(expr));
-  (info_opt : Option(ExprInfo)) = expr_info_table_get(info_table, ast_expr_id(expr));
+  is_member := roles.members.contains(ast_expr_id(&expr));
+  (info_opt : Option(ExprInfo)) = expr_info_table_get(info_table, ast_expr_id(&expr));
   if(is_member, {
     // A member's type is the type of the ACCESS (`p.x` → x's field type),
     // recorded on the enclosing `.` call — the same refinement hover does.
@@ -903,7 +903,7 @@ handle_type_definition :: (
     while(ai < exprs.len(), {
       match(
         exprs.get(ai),
-        .Some(e) => _find_member_access(e, target, accesses),
+        .Some(e) => _find_member_access(&e, &target, &mut accesses),
         .None => ()
       );
       ai = (ai + usize(1));
@@ -913,7 +913,7 @@ handle_type_definition :: (
       match(
         accesses.get(mi),
         .Some(acc) => match(
-          expr_info_table_get(info_table, ast_expr_id(acc)),
+          expr_info_table_get(info_table, ast_expr_id(&acc)),
           .Some(acc_info) => {
             info_opt = Option(ExprInfo).Some(acc_info);
           },
@@ -945,21 +945,21 @@ handle_type_definition :: (
   def_tok := match(
     named_type,
     .Some(_) => match(
-      _select_best_variable(get_variables_from_env(info.env, target.value.clone()), target),
+      _select_best_variable(get_variables_from_env(&info.env, target.value.clone()), &target),
       .Some(sv) => sv.initialized_at_token,
       .None => Option(Token).None
     ),
     .None => {
-      head := _type_head_name(info.ty);
+      head := _type_head_name(&info.ty);
       if(head.len() == usize(0), {
         return(Option(JsonValue).None);
       });
-      _type_decl_token(info.env, head)
+      _type_decl_token(&info.env, &head)
     }
   );
   match(
     def_tok,
-    .Some(t) => Option(JsonValue).Some(_location_of(t, doc_abs, lines)),
+    .Some(t) => Option(JsonValue).Some(_location_of(&t, doc_abs, lines)),
     .None => Option(JsonValue).None
   )
 });
@@ -981,7 +981,7 @@ handle_document_links :: (
       _err -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
     )
   );
-  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  tokens := tokenize(text.clone(), doc_abs.clone(), &lex_exn);
   base_dir := _dir_of(doc_abs.clone());
   (i : usize) = usize(0);
   while(i < tokens.len(), {
@@ -996,9 +996,9 @@ handle_document_links :: (
       // The link's string must be a plain `import(<this string>)`: the
       // previous non-whitespace tokens are `(` then the identifier
       // `import`, and the next non-whitespace token closes the call.
-      prev := _tok_before(tokens, i);
-      prev2 := _tok_before(tokens, prev.idx);
-      next := _tok_after(tokens, i);
+      prev := _tok_before(&tokens, i);
+      prev2 := _tok_before(&tokens, prev.idx);
+      next := _tok_after(&tokens, i);
       if((prev.tok.kind == TokenKind.LParen) && (prev2.tok.kind == TokenKind.Identifier)
       &&
         (prev2.tok.value == String.from("import")) && (next.tok.kind == TokenKind.RParen)
@@ -1010,7 +1010,7 @@ handle_document_links :: (
         // the resolver wants the unquoted path, and the token's rune width
         // IS the quoted source width.
         path := str_lit_unquote_bytes(t.value.clone());
-        target := uri_to_fs_path(mm_resolve_import_abs(path, base_dir.clone(), std_path.clone()));
+        target := uri_to_fs_path(mm_resolve_import_abs(&path, base_dir.clone(), std_path.clone()));
         if(file_exists_sync(target.clone()), {
           out.push(
             jb().put(

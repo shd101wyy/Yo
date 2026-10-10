@@ -97,7 +97,7 @@ trim_section_content_ :: (fn(imm(lines) : ArrayList(String)) -> String)({
     result.push(line);
     i = (i + usize(1));
   });
-  `\n`.join(result)
+  `\n`.join(&result)
 });
 // Extract the first paragraph (up to first blank line) as the summary.
 extract_summary_ :: (fn(imm(description) : String) -> String)({
@@ -122,7 +122,7 @@ extract_summary_ :: (fn(imm(description) : String) -> String)({
     summary_lines.push(line);
     i = (i + usize(1));
   });
-  `\n`.join(summary_lines)
+  `\n`.join(&summary_lines)
 });
 /// Parse a doc comment into structured sections.
 ///
@@ -162,16 +162,16 @@ parse_doc_comment :: (fn(imm(text) : String) -> ParsedDocComment)({
     if(line.trim().starts_with(`\`\`\``), {
       in_fence = !in_fence;
     });
-    if(!in_fence && is_section_heading_(line), {
+    if(!in_fence && is_section_heading_(&line), {
       match(
         current_section_name,
         .Some(name) => {
-          sections.insert(name, trim_section_content_(current_section_lines));
+          sections.insert(name, trim_section_content_(&current_section_lines));
           current_section_lines = ArrayList(String).new();
         },
         .None => ()
       );
-      current_section_name = Option(String).Some(get_section_heading_(line).to_lowercase());
+      current_section_name = Option(String).Some(get_section_heading_(&line).to_lowercase());
     }, {
       match(
         current_section_name,
@@ -188,12 +188,12 @@ parse_doc_comment :: (fn(imm(text) : String) -> ParsedDocComment)({
   match(
     current_section_name,
     .Some(name) => {
-      sections.insert(name, trim_section_content_(current_section_lines));
+      sections.insert(name, trim_section_content_(&current_section_lines));
     },
     .None => ()
   );
-  description := trim_section_content_(description_lines);
-  summary := extract_summary_(description);
+  description := trim_section_content_(&description_lines);
+  summary := extract_summary_(&description);
   ParsedDocComment(summary : summary, description : description, sections : sections)
 });
 export(parse_doc_comment, is_known_section);

@@ -104,8 +104,8 @@ _requirement_from_suffix :: (fn(imm(suffix) : String) -> Result(GitRequirement, 
 /// each optionally followed by `@<tag or range>`.
 parse_package_specifier :: (fn(imm(spec) : String) -> Result(ParsedPackage, String))({
   spec_str := spec.clone();
-  if(is_local_path(spec_str), {
-    name := _url_to_dep_name(spec_str);
+  if(is_local_path(&spec_str), {
+    name := _url_to_dep_name(&spec_str);
     return(Result(ParsedPackage, String).Ok(ParsedPackage.Path(name, spec)));
   });
   // The requirement is after the LAST `@` — but only when what follows it
@@ -142,7 +142,7 @@ parse_package_specifier :: (fn(imm(spec) : String) -> Result(ParsedPackage, Stri
     suffix,
     .None => Option(GitRequirement).None,
     .Some(s) => match(
-      _requirement_from_suffix(s),
+      _requirement_from_suffix(&s),
       .Ok(r) => Option(GitRequirement).Some(r),
       .Err(msg) => {
         return(Result(ParsedPackage, String).Err(msg));
@@ -184,7 +184,7 @@ load_project_manifest :: (fn(imm(exn) : Exception) -> Manifest)({
     }
   );
   match(
-    load_manifest(path, exn),
+    load_manifest(&path, exn),
     .Ok(m) => m,
     .Err(msg) => {
       exn.throw(dyn(`Error: ${msg}`));
@@ -198,18 +198,18 @@ load_project_manifest :: (fn(imm(exn) : Exception) -> Manifest)({
 dependency_value_text :: (fn(imm(source) : DependencySource) -> String)(
   match(
     source,
-    .Path(p) => `{ path = ${toml_string(p)} }`,
+    .Path(p) => `{ path = ${toml_string(&p)} }`,
     .Git(url, req, subdir) => {
       pin := match(
         req,
         .DefaultBranch => String.new(),
-        .Version(v) => `, version = ${toml_string(v)}`,
-        .Tag(t) => `, tag = ${toml_string(t)}`,
-        .Branch(b) => `, branch = ${toml_string(b)}`,
-        .Rev(r) => `, rev = ${toml_string(r)}`
+        .Version(v) => `, version = ${toml_string(&v)}`,
+        .Tag(t) => `, tag = ${toml_string(&t)}`,
+        .Branch(b) => `, branch = ${toml_string(&b)}`,
+        .Rev(r) => `, rev = ${toml_string(&r)}`
       );
-      sub := if(subdir.len() > usize(0), `, path = ${toml_string(subdir)}`, String.new());
-      `{ git = ${toml_string(url)}${pin}${sub} }`
+      sub := if(subdir.len() > usize(0), `, path = ${toml_string(&subdir)}`, String.new());
+      `{ git = ${toml_string(&url)}${pin}${sub} }`
     }
   )
 );
@@ -232,7 +232,7 @@ install_dependencies :: (
 )(
   io.async((e : IoExn) => {
     options := ResolveOptions(mode : mode, locked : locked, offline : offline, verbose : verbose);
-    lock := e.io.await(resolve_and_fetch(manifest, options, e.io, e.exn), e);
+    lock := e.io.await(resolve_and_fetch(manifest, &options, e.io, &e.exn), e);
     (i : usize) = usize(0);
     while(i < lock.packages.len(), {
       p := lock.packages(i);
@@ -275,7 +275,7 @@ run_add :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    manifest := load_project_manifest(e.exn);
+    manifest := load_project_manifest(&e.exn);
     parsed := match(
       parse_package_specifier(options.package_spec.clone()),
       .Err(msg) => {
@@ -356,14 +356,14 @@ run_add :: (
       e.exn.throw(dyn(`Error: dependency name "${dep_name}" may not contain "/"`));
     });
     if(is_path, {
-      present := e.io.await(exists(Path.new(git_url.clone()), e.io), e.io);
+      present := e.io.await(exists(Path.new(git_url.clone()), e.io), &e.io);
       if(!present, {
         e.exn.throw(dyn(`Error: Path does not exist: ${git_url}`));
       });
     });
     if(needs_latest, {
       println(`Resolving latest version for ${dep_name}...`);
-      latest := e.io.await(resolve_latest_tag(git_url.clone(), options.verbose, e.io, e.exn), e);
+      latest := e.io.await(resolve_latest_tag(git_url.clone(), options.verbose, e.io, &e.exn), e);
       source = match(
         latest,
         .Err(msg) => {
@@ -393,7 +393,7 @@ run_add :: (
     if(needs_latest && source.is_none(), {
       // No release tags: pin the default branch by name; the lock pins the
       // commit.
-      branch := e.io.await(resolve_default_branch(git_url.clone(), e.io, e.exn), e);
+      branch := e.io.await(resolve_default_branch(git_url.clone(), e.io, &e.exn), e);
       source = Option(DependencySource).Some(DependencySource.Git(git_url.clone(), GitRequirement.Branch(branch), git_subdir.clone()));
     });
     // source is Some here: resolved from the tag above, or the needs_latest
@@ -417,25 +417,25 @@ run_add :: (
     );
     text := e.io.await(read_to_string(Path.new(manifest.path.clone()), e.io), e);
     edited := match(
-      set_entry(text, table.clone(), dep_name.clone(), value.clone()),
+      set_entry(&text, table.clone(), dep_name.clone(), value.clone()),
       .Ok(t) => t,
       .Err(msg) => {
         e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
         String.new()
       }
     );
-    e.io.await(write_string(Path.new(manifest.path.clone()), edited, e.io), e);
+    e.io.await(write_string(Path.new(manifest.path.clone()), &edited, e.io), e);
     println(`Added ${dep_name} = ${value} to [${table}] in ${MANIFEST_FILENAME}`);
     // Re-read: the edit is the source of truth for what gets fetched.
     updated := match(
-      load_manifest(manifest.path.clone(), e.exn),
+      load_manifest(manifest.path.clone(), &e.exn),
       .Ok(m) => m,
       .Err(msg) => {
         e.exn.throw(dyn(`Error: ${msg}`));
         manifest
       }
     );
-    _ := e.io.await(install_dependencies(updated, ResolveMode.Install, false, false, options.verbose, e.io, e.exn), e);
+    _ := e.io.await(install_dependencies(&updated, ResolveMode.Install, false, false, options.verbose, e.io, &e.exn), e);
     println(`Done. Import it with import("${dep_name}").`);
     ()
   })
@@ -454,7 +454,7 @@ run_remove :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    manifest := load_project_manifest(e.exn);
+    manifest := load_project_manifest(&e.exn);
     if(manifest.find_dependency(name.clone()).is_none(), {
       e.exn.throw(dyn(`Error: ${manifest.path} declares no dependency "${name}"`));
     });
@@ -488,10 +488,10 @@ run_remove :: (
     if(removed_from.len() == usize(0), {
       e.exn.throw(dyn(`Error: ${manifest.path}: could not locate the entry for "${name}"`));
     });
-    e.io.await(write_string(Path.new(manifest.path.clone()), edited, e.io), e);
+    e.io.await(write_string(Path.new(manifest.path.clone()), &edited, e.io), e);
     println(`Removed ${name} from [${removed_from}] in ${MANIFEST_FILENAME}`);
     updated := match(
-      load_manifest(manifest.path.clone(), e.exn),
+      load_manifest(manifest.path.clone(), &e.exn),
       .Ok(m) => m,
       .Err(msg) => {
         e.exn.throw(dyn(`Error: ${msg}`));
@@ -499,7 +499,7 @@ run_remove :: (
       }
     );
     // Prunes the lock entry; nothing is fetched that is already cached.
-    _ := e.io.await(install_dependencies(updated, ResolveMode.Install, false, false, verbose, e.io, e.exn), e);
+    _ := e.io.await(install_dependencies(&updated, ResolveMode.Install, false, false, verbose, e.io, &e.exn), e);
     println("Done.");
     ()
   })
@@ -570,16 +570,16 @@ _bump_ranges_to_latest :: (
       });
       wanted := (named && (range_text.len() > usize(0)));
       if(wanted, {
-        listed := e.io.await(ls_remote_tags(url.clone(), e.io, e.exn), e);
+        listed := e.io.await(ls_remote_tags(url.clone(), e.io, &e.exn), e);
         tags_text := match(
           listed,
           .Ok(t) => t,
           .Err(msg) => {
-            e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, msg)));
+            e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, &msg)));
             String.new()
           }
         );
-        newest := latest_release(semver_tags_from_ls_remote(tags_text));
+        newest := latest_release(semver_tags_from_ls_remote(&tags_text));
         req := match(
           parse_version_req(range_text.clone()),
           .Ok(r) => r,
@@ -593,7 +593,7 @@ _bump_ranges_to_latest :: (
         match(
           newest,
           .None => println(`  ${dep.name}: ${url} has no release tags; "${range_text}" kept`),
-          .Some(sv) => if(version_req_matches(req, sv), {
+          .Some(sv) => if(version_req_matches(&req, &sv), {
             if(verbose, {
               println(`  ${dep.name}: the newest release ${sv.tag} is within "${range_text}"`);
             });
@@ -602,7 +602,7 @@ _bump_ranges_to_latest :: (
             value := dependency_value_text(DependencySource.Git(url.clone(), GitRequirement.Version(new_range.clone()), subdir.clone()));
             table := if(dep.dev, String.from("dev-dependencies"), String.from("dependencies"));
             edited = match(
-              set_entry(edited.clone(), table, dep.name.clone(), value),
+              set_entry(edited.clone(), &table, dep.name.clone(), &value),
               .Ok(t) => t,
               .Err(msg) => {
                 e.exn.throw(dyn(`Error: ${manifest.path}: ${msg}`));
@@ -618,9 +618,9 @@ _bump_ranges_to_latest :: (
     if(!changed, {
       return(manifest);
     });
-    e.io.await(write_string(Path.new(manifest.path.clone()), edited, e.io), e);
+    e.io.await(write_string(Path.new(manifest.path.clone()), &edited, e.io), e);
     match(
-      load_manifest(manifest.path.clone(), e.exn),
+      load_manifest(manifest.path.clone(), &e.exn),
       .Ok(m) => m,
       .Err(msg) => {
         e.exn.throw(dyn(`Error: ${msg}`));
@@ -641,10 +641,10 @@ run_install :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    manifest := load_project_manifest(e.exn);
+    manifest := load_project_manifest(&e.exn);
     (ni : usize) = usize(0);
     while(ni < options.names.len(), {
-      if(manifest.find_dependency(options.names(ni)).is_none(), {
+      if(manifest.find_dependency(&options.names(ni)).is_none(), {
         e.exn.throw(dyn(`Error: ${manifest.path} declares no dependency "${options.names(ni)}"`));
       });
       ni = (ni + usize(1));
@@ -689,7 +689,7 @@ run_install :: (
     (current : Manifest) = manifest;
     if(options.latest, {
       println("Checking for newer releases...");
-      bumped := e.io.await(_bump_ranges_to_latest(current, options.names, options.verbose, e.io, e.exn), e);
+      bumped := e.io.await(_bump_ranges_to_latest(&current, &options.names, options.verbose, e.io, &e.exn), e);
       current = bumped;
     });
     mode := cond(
@@ -701,7 +701,7 @@ run_install :: (
       println("Updating: re-resolving refs to the latest satisfying commits...");
     });
     println("Resolving dependencies...");
-    _ := e.io.await(install_dependencies(current, mode, options.locked, options.offline, options.verbose, e.io, e.exn), e);
+    _ := e.io.await(install_dependencies(&current, &mode, options.locked, options.offline, options.verbose, e.io, &e.exn), e);
     println("Done.");
     ()
   })

@@ -165,7 +165,7 @@ _method_ty_skip_stamp :: (fn(imm(ty) : TypeValue) -> bool)(
       while((i < pts.len()) && !found, {
         match(
           pts.get(i),
-          .Some(pt) => if(is_expr_type(pt), {
+          .Some(pt) => if(is_expr_type(&pt), {
             found = true;
           }),
           .None => ()
@@ -355,7 +355,7 @@ _concrete_impl_key :: (fn(imm(type_id) : String, imm(trait_id) : String) -> Stri
 is_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id) : String) -> bool)({
   k := _concrete_impl_key(type_id, trait_id);
   match(
-    _currently_registering_concrete_impls.get(k),
+    _currently_registering_concrete_impls.get(&k),
     .Some(_) => true,
     .None => false
   )
@@ -368,7 +368,7 @@ mark_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id) 
 /// Unmark a type+trait pair after registration completes.
 unmark_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id) : String) -> unit)({
   k := _concrete_impl_key(type_id, trait_id);
-  _currently_registering_concrete_impls.remove(k);
+  _currently_registering_concrete_impls.remove(&k);
 });
 /// Extract the registry key from a trait TypeValue.
 /// Uses the `id` field of TraitT (the stable nominal ID).
@@ -392,7 +392,7 @@ get_base_trait_key :: (fn(imm(trait_ty) : TypeValue) -> String)(
   match(
     trait_ty,
     .TraitT(_, _, _, _, gb_id, _, _, _, _, _) => match(
-      lookup_trait_ctor_fid(gb_id),
+      lookup_trait_ctor_fid(&gb_id),
       .Some(gb_fid) => gb_fid,
       .None => gb_id
     ),
@@ -662,9 +662,9 @@ _resolve_one_forall_binding :: (
   // issues/fixed/def-eval-swallow-remaining-roots.md).
   fa_some_id := match(fa_some, .SomeT({ id : __fsi }) => __fsi, _ => String.from(""));
   bound_type := get_value_of_some_type_from_env(expected_env, fa_some);
-  if(!is_some_type(bound_type), {
+  if(!is_some_type(&bound_type), {
     if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-      eprintln(`[rfb-bound] name=${fa_name} via=id-concrete ty=${type_to_string(bound_type)} trial=${in_def_time_trial().to_string()}`);
+      eprintln(`[rfb-bound] name=${fa_name} via=id-concrete ty=${type_to_string(&bound_type)} trial=${in_def_time_trial().to_string()}`);
     });
     return(Option(TypeValue).Some(bound_type));
   });
@@ -697,9 +697,9 @@ _resolve_one_forall_binding :: (
     .Some(ev) => match(
       ev,
       .TypeVal(b) => cond(
-        !is_some_type(b) => {
+        !is_some_type(&b) => {
           if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-            eprintln(`[rfb-bound] name=${fa_name} via=name-concrete ty=${type_to_string(b)} trial=${in_def_time_trial().to_string()}`);
+            eprintln(`[rfb-bound] name=${fa_name} via=name-concrete ty=${type_to_string(&b)} trial=${in_def_time_trial().to_string()}`);
           });
           Option(TypeValue).Some(b)
         },
@@ -771,9 +771,9 @@ _resolve_one_forall_binding_from :: (
                     match(
                       ev,
                       .TypeVal(b) => {
-                        if(!is_some_type(b), {
+                        if(!is_some_type(&b), {
                           if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-                            eprintln(`[rfb-bound] name=${fa_name} via=scoped-concrete ty=${type_to_string(b)} trial=${in_def_time_trial().to_string()}`);
+                            eprintln(`[rfb-bound] name=${fa_name} via=scoped-concrete ty=${type_to_string(&b)} trial=${in_def_time_trial().to_string()}`);
                           });
                           return(Option(TypeValue).Some(b));
                         });
@@ -782,8 +782,8 @@ _resolve_one_forall_binding_from :: (
                         // struct, so the marker rules judge `T` as a concrete
                         // type; what the closure's code reaches was judged by
                         // value where it flowed (rule D9).
-                        if(is_bound_closure_identity(b), {
-                          return(Option(TypeValue).Some(resolve_cell_chain(b)));
+                        if(is_bound_closure_identity(&b), {
+                          return(Option(TypeValue).Some(resolve_cell_chain(&b)));
                         });
                         nb_id2 := match(b, .SomeT({ id : __nbi2 }) => __nbi2, _ => String.from(""));
                         if(_abstract_bindings_ok() && (nb_id2.len() > usize(0)) && (nb_id2 != fa_some_id), {
@@ -928,13 +928,13 @@ _bind_forall_from_type_args :: (
     (bfta_s : String) = String.from("");
     (bfta_i : usize) = usize(0);
     while(bfta_i < con_ta.len(), {
-      bfta_s = `${bfta_s}[${match(con_ta.get(bfta_i), .Some(t) => type_to_string(t), .None => String.from("-"))}]`;
+      bfta_s = `${bfta_s}[${match(con_ta.get(bfta_i), .Some(t) => type_to_string(&t), .None => String.from("-"))}]`;
       bfta_i = (bfta_i + usize(1));
     });
     (bfta_p : String) = String.from("");
     (bfta_j : usize) = usize(0);
     while(bfta_j < pat_ta.len(), {
-      bfta_p = `${bfta_p}[${match(pat_ta.get(bfta_j), .Some(t) => type_to_string(t), .None => String.from("-"))}]`;
+      bfta_p = `${bfta_p}[${match(pat_ta.get(bfta_j), .Some(t) => type_to_string(&t), .None => String.from("-"))}]`;
       bfta_j = (bfta_j + usize(1));
     });
     eprintln(`[bfta] fa=${fa_name} fa_lvl=${fa_lvl.to_string()} pat_ta=${bfta_p} con_ta=${bfta_s}`);
@@ -949,10 +949,10 @@ _bind_forall_from_type_args :: (
   enum_phantom := match(
     pattern,
     .EnumT({ id : pat_eid }) => {
-      pf := enum_phantom_positions(pat_eid);
+      pf := enum_phantom_positions(&pat_eid);
       cond(
         (pf.len() > usize(0)) => Option(ArrayList(bool)).Some(pf),
-        true => Option(ArrayList(bool)).Some(match(concrete, .EnumT({ id : con_eid }) => enum_phantom_positions(con_eid), _ => ArrayList(bool).new()))
+        true => Option(ArrayList(bool)).Some(match(concrete, .EnumT({ id : con_eid }) => enum_phantom_positions(&con_eid), _ => ArrayList(bool).new()))
       )
     },
     _ => Option(ArrayList(bool)).None
@@ -982,7 +982,7 @@ _bind_forall_from_type_args :: (
         // specialized `_find_bucket` with `key : unit` under the HashMap
         // Clone-impl trial and the sibling `set` re-eval swallowed
         // ("Cannot unify u64 and unit", hash_map:714 of the corpus family).
-        .Some(ct) => if(!is_some_type(ct) && !match(
+        .Some(ct) => if(!is_some_type(&ct) && !match(
           ct,
           .Unit => true,
           _ => false
@@ -1055,9 +1055,9 @@ _bind_forall_from_type_args :: (
                 }
               );
             });
-            if(!is_some_type(cell_cur) && !match(cell_cur, .Unit => true, _ => false), {
+            if(!is_some_type(&cell_cur) && !match(cell_cur, .Unit => true, _ => false), {
               if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-                cw_res := type_to_string(cell_cur);
+                cw_res := type_to_string(&cell_cur);
                 if((cw_res.index_of(String.from("Doc")) != .None) || (cw_res.index_of(String.from("GenericImplEntry")) != .None), {
                   (cw_ids : String) = String.from("");
                   (cwi : usize) = usize(0);
@@ -1065,7 +1065,7 @@ _bind_forall_from_type_args :: (
                     match(
                       cell_seen.get(cwi),
                       .Some(cs) => {
-                        cw_ids.push_string(cs);
+                        cw_ids.push_string(&cs);
                         cw_ids.push_str(">");
                       },
                       .None => ()
@@ -1083,7 +1083,7 @@ _bind_forall_from_type_args :: (
               // A chain `type_key` hops, a closure identity included, keys as
               // the concrete type, so binding the concrete names the same
               // instance.
-              if(is_some_type(_tk_resolve_arg_slot(ct)), {
+              if(is_some_type(_tk_resolve_arg_slot(&ct)), {
                 return(Option(TypeValue).Some(ct));
               });
               return(Option(TypeValue).Some(cell_cur));
@@ -1100,7 +1100,7 @@ _bind_forall_from_type_args :: (
           // to the concrete spawned output instead of skipping the SomeType
           // arg. See issues/fixed/yo-self-async-await-struct-result-eval.md.
           match(
-            some_resolution(ct),
+            some_resolution(&ct),
             .Some(c) => return(Option(TypeValue).Some(c)),
             .None => ()
           );
@@ -1112,7 +1112,7 @@ _bind_forall_from_type_args :: (
           // generic impl over `G(T)` never matched `G(<a future>)`: a guard's
           // `Dispose` silently never ran
           // (issues/fixed/a-generic-impl-dispose-never-runs-for-a-type-fn-instance-at-a-future.md).
-          if(_is_future_handle_slot(ct), {
+          if(_is_future_handle_slot(&ct), {
             return(Option(TypeValue).Some(ct));
           });
         }), .None => ());
@@ -1131,7 +1131,7 @@ _is_future_handle_slot :: (fn(imm(t) : TypeValue) -> bool)(
       (fh_found : bool) = false;
       (fh_i : usize) = usize(0);
       while((fh_i < fh_rtts.len()) && !fh_found, fh_i = (fh_i + usize(1)), {
-        if(match(fh_rtts.get(fh_i), .Some(fh_t) => is_future_trait_type(fh_t), .None => false), {
+        if(match(fh_rtts.get(fh_i), .Some(fh_t) => is_future_trait_type(&fh_t), .None => false), {
           fh_found = true;
         });
       });
@@ -1151,7 +1151,7 @@ _any_type_has_some_type :: (fn(imm(tys) : ArrayList(TypeValue)) -> bool)({
   (ati : usize) = usize(0);
   while(ati < tys.len(), {
     at_ty := match(tys.get(ati), .Some(t) => t, .None => t_unit());
-    if(is_some_type(at_ty) || (get_all_some_types(at_ty).len() > usize(0)), {
+    if(is_some_type(&at_ty) || (get_all_some_types(&at_ty).len() > usize(0)), {
       return(true);
     });
     ati = (ati + usize(1));
@@ -1173,7 +1173,7 @@ _is_marker_trait :: (fn(imm(ty) : TypeValue) -> bool)(
   match(
     ty,
     .TraitT({ field_types : mt_fts, assoc_constraint_types : mt_acts }) => (
-      !_any_type_has_some_type(mt_fts) && !_any_type_has_some_type(mt_acts)
+      !_any_type_has_some_type(&mt_fts) && !_any_type_has_some_type(&mt_acts)
     ),
     _ => false
   )
@@ -1202,8 +1202,8 @@ _where_trait_mentions_no_forall :: (fn(imm(ty) : TypeValue, imm(foralls) : Array
       (wf_p : usize) = usize(0);
       while(wf_p < parts.len(), wf_p = (wf_p + usize(1)), {
         part := match(parts.get(wf_p), .Some(t) => t, .None => t_unit());
-        somes := get_all_some_types(part);
-        if(is_some_type(part), {
+        somes := get_all_some_types(&part);
+        if(is_some_type(&part), {
           somes.push(part);
         });
         (wf_k : usize) = usize(0);
@@ -1241,7 +1241,7 @@ try_match_generic_impl :: (
   (resolved_concrete : TypeValue) = concrete_type;
   if(is_some_type(concrete_type), {
     resolved := get_value_of_some_type_from_env(env, concrete_type);
-    if(is_some_type(resolved), {
+    if(is_some_type(&resolved), {
       return(Option(ArrayList(TypeValue)).None); // Unresolved type param — cannot match.
     });
     resolved_concrete = resolved;
@@ -1253,14 +1253,14 @@ try_match_generic_impl :: (
   // and the env grows with each loaded module, so a directory-wide
   // `check` paid a growing clone per candidate per lookup). SomeT /
   // TypeAppT pattern roots always proceed (they can bind anything).
-  if(!_root_shapes_could_match(entry.receiver_type_pattern, resolved_concrete), {
+  if(!_root_shapes_could_match(&entry.receiver_type_pattern, &resolved_concrete), {
     if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-      eprintln(`[tm-none] reason=prefilter recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)}`);
+      eprintln(`[tm-none] reason=prefilter recv=${type_id_or_empty(&resolved_concrete)} pat=${type_id_or_empty(&entry.receiver_type_pattern)}`);
     });
     return(Option(ArrayList(TypeValue)).None);
   });
   if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-    eprintln(`[tm-try] recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)} trial=${in_def_time_trial().to_string()}`);
+    eprintln(`[tm-try] recv=${type_id_or_empty(&resolved_concrete)} pat=${type_id_or_empty(&entry.receiver_type_pattern)} trial=${in_def_time_trial().to_string()}`);
   });
   // 2. Build unify_env: snapshot the env (share frames — copy only the
   //    frame-pointer array) and push a fresh
@@ -1305,16 +1305,16 @@ try_match_generic_impl :: (
       }
     );
     add_variable_to_env(
-      unify_env,
-      fa_name,
+      &unify_env,
+      &fa_name,
       t_type(),
-      Option(EvalValue).Some(create_type_value(fa_some)),
+      Option(EvalValue).Some(create_type_value(&fa_some)),
       true,
       // is_compile_time_only
       false,
       false,
       false,
-      synthetic_token(fa_name, env.module_path)
+      synthetic_token(&fa_name, &env.module_path)
     );
     ui = (ui + usize(1));
   });
@@ -1352,7 +1352,7 @@ try_match_generic_impl :: (
       .Some(tmf_st) => match(tmf_st, .SomeT({ frame_level : tmf_l }) => tmf_l, _ => usize(9999)),
       .None => usize(9999)
     );
-    eprintln(`[tm-frames] pat=${type_to_string(entry.receiver_type_pattern)} fa0_lvl=${tmf_lvl.to_string()} frames=${tmf_ids}`);
+    eprintln(`[tm-frames] pat=${type_to_string(&entry.receiver_type_pattern)} fa0_lvl=${tmf_lvl.to_string()} frames=${tmf_ids}`);
   });
   checked := ArrayList(TypePair).new();
   opts := Option(SynthesizeOptions).None;
@@ -1372,13 +1372,13 @@ try_match_generic_impl :: (
   (given_scratch : Environment) = snapshot_env(env);
   given_scratch.push_frame(false);
   synth_result := synthesize_types(
-    entry.receiver_type_pattern,
-    unify_env,
-    resolved_concrete,
-    given_scratch,
-    checked,
-    opts,
-    exn_match
+    &entry.receiver_type_pattern,
+    &unify_env,
+    &resolved_concrete,
+    &given_scratch,
+    &mut checked,
+    &opts,
+    &exn_match
   );
   // Where-constraint pass — runs BEFORE the
   // substitution extraction. Checking a constraint with the FULL env-returning
@@ -1461,8 +1461,8 @@ try_match_generic_impl :: (
       pw_some := match(entry.forall_some_types.get(pwi), .Some(st) => st, .None => t_unit());
       pre_where_bindings.push(
         match(
-          _resolve_one_forall_binding_from(match_env, pw_some, pw_name, unify_base - usize(1)),
-          .Some(pw_b) => if(is_some_type(pw_b), Option(TypeValue).None, Option(TypeValue).Some(pw_b)),
+          _resolve_one_forall_binding_from(&match_env, &pw_some, &pw_name, unify_base - usize(1)),
+          .Some(pw_b) => if(is_some_type(&pw_b), Option(TypeValue).None, Option(TypeValue).Some(pw_b)),
           .None => Option(TypeValue).None
         )
       );
@@ -1478,16 +1478,16 @@ try_match_generic_impl :: (
       wcj_trait := match(entry.where_constraint_traits.get(wcj), .Some(tr) => tr, .None => t_unit());
       wcj_name := match(wcj_some, .SomeT(_, nm, _, _, _, _, _, _, _, _) => nm, _ => ``);
       match(
-        _pre_where_or_resolve(entry.forall_some_types, pre_where_bindings, match_env, wcj_some, wcj_name, unify_base - usize(1)),
+        _pre_where_or_resolve(&entry.forall_some_types, &pre_where_bindings, &match_env, &wcj_some, &wcj_name, unify_base - usize(1)),
         .Some(wcj_bound) => match(
           g_type_implements_trait_full_fn,
           .Some(wcj_f) => {
             // The adapter writes the post-constraint bindings into match_env
             // IN PLACE (env.frames swap) — see the hook's doc above.
-            wcj_impl := wcj_f(wcj_bound, wcj_trait, match_env);
+            wcj_impl := wcj_f(&wcj_bound, &wcj_trait, &match_env);
             if(!wcj_impl && (
-              (enforce_all_where && (_is_marker_trait(wcj_trait) || _where_trait_mentions_no_forall(wcj_trait, entry.forall_some_types)))
-              || is_some_type(entry.receiver_type_pattern)
+              (enforce_all_where && (_is_marker_trait(&wcj_trait) || _where_trait_mentions_no_forall(&wcj_trait, &entry.forall_some_types)))
+              || is_some_type(&entry.receiver_type_pattern)
             ), {
               wc_ok = false;
             });
@@ -1516,7 +1516,7 @@ try_match_generic_impl :: (
     // index-aligned with `bindings`.
     (fa_val2 : EvalValue) = EvalValue.UnitVal;
     {
-      fv_vars := get_variables_from_env(match_env, fa_name2);
+      fv_vars := get_variables_from_env(&match_env, &fa_name2);
       if(fv_vars.len() > usize(0), {
         match(
           fv_vars.last(),
@@ -1533,7 +1533,7 @@ try_match_generic_impl :: (
       });
     };
     match(
-      _pre_where_or_resolve(entry.forall_some_types, pre_where_bindings, match_env, fa_some2, fa_name2, unify_base - usize(1)),
+      _pre_where_or_resolve(&entry.forall_some_types, &pre_where_bindings, &match_env, &fa_some2, &fa_name2, unify_base - usize(1)),
       .Some(t) => {
         bindings.push(t);
         g_last_match_binding_vals.push(fa_val2);
@@ -1545,7 +1545,7 @@ try_match_generic_impl :: (
         // the concrete instantiation's `type_arguments` (the stand-in for a
         // struct's captured env).
         match(
-          _bind_forall_from_type_args(entry.receiver_type_pattern, resolved_concrete, fa_some2),
+          _bind_forall_from_type_args(&entry.receiver_type_pattern, &resolved_concrete, &fa_some2),
           .Some(t2) => {
             bindings.push(t2);
             g_last_match_binding_vals.push(EvalValue.UnitVal);
@@ -1584,7 +1584,7 @@ try_match_generic_impl :: (
                         wcr_lbl := match(wcr_alabels.get(wcr_k), .Some(l) => l, .None => String.new());
                         wcr_subj_nm := match(wcr_subj, .SomeT(name : wsn) => wsn, _ => String.new());
                         match(
-                          _resolve_one_forall_binding_from(match_env, wcr_subj, wcr_subj_nm, unify_base - usize(1)),
+                          _resolve_one_forall_binding_from(&match_env, &wcr_subj, &wcr_subj_nm, unify_base - usize(1)),
                           .Some(wcr_subj_bound) => {
                             // Registry first: the durable assoc registration
                             // (tmgi success tail above) stores the subject's
@@ -1592,16 +1592,16 @@ try_match_generic_impl :: (
                             // below re-runs tmgi and fails on exactly the
                             // repeat paths this recovery exists for.
                             {
-                              wcr_tid := type_id_or_empty(wcr_subj_bound);
+                              wcr_tid := type_id_or_empty(&wcr_subj_bound);
                               if(wcr_tid.len() > usize(0), {
-                                wcr_regs := get_assoc_type_entries(wcr_subj_bound, wcr_lbl.clone());
+                                wcr_regs := get_assoc_type_entries(&wcr_subj_bound, wcr_lbl.clone());
                                 (wcr_ri : usize) = usize(0);
                                 while((wcr_ri < wcr_regs.len()) && wcr_bound.is_none(), {
                                   match(
                                     wcr_regs.get(wcr_ri),
                                     .Some(wcr_re) => match(
                                       wcr_re.value,
-                                      .Some(.TypeVal(wcr_ret)) => if(!is_some_type(wcr_ret), {
+                                      .Some(.TypeVal(wcr_ret)) => if(!is_some_type(&wcr_ret), {
                                         wcr_bound = Option(TypeValue).Some(wcr_ret);
                                       }),
                                       .Some(_) => (),
@@ -1617,8 +1617,8 @@ try_match_generic_impl :: (
                               g_find_assoc_from_impls_fn,
                               .Some(wcr_f) => if(wcr_bound.is_none(), {
                                 match(
-                                  wcr_f(wcr_subj_bound, wcr_lbl, match_env),
-                                  .Some(wcr_res) => if(!is_some_type(wcr_res), {
+                                  wcr_f(&wcr_subj_bound, &wcr_lbl, &match_env),
+                                  .Some(wcr_res) => if(!is_some_type(&wcr_res), {
                                     wcr_bound = Option(TypeValue).Some(wcr_res);
                                   }),
                                   .None => ()
@@ -1673,7 +1673,7 @@ try_match_generic_impl :: (
   if(all_bound && !_abstract_bindings_ok(), {
     // Keyed by the exact instantiation (`assoc_type_registry_key`), not the
     // bare id two instantiations can share.
-    dar_tid := assoc_type_registry_key(resolved_concrete);
+    dar_tid := assoc_type_registry_key(&resolved_concrete);
     if(dar_tid.len() > usize(0), {
       dar_s := subst_new();
       (dar_i : usize) = usize(0);
@@ -1683,32 +1683,32 @@ try_match_generic_impl :: (
         dar_ty := match(bindings.get(dar_i), .Some(t) => t, .None => t_unit());
         match(
           dar_some,
-          .SomeT(_, _, dar_lvl, _, _, _, _, _, _, _) => subst_add(dar_s, dar_name, dar_lvl, dar_ty),
+          .SomeT(_, _, dar_lvl, _, _, _, _, _, _, _) => subst_add(&dar_s, &dar_name, dar_lvl, &dar_ty),
           _ => ()
         );
         dar_i = (dar_i + usize(1));
       });
-      subst_set_self(dar_s, entry.receiver_type_pattern, resolved_concrete);
+      subst_set_self(&dar_s, &entry.receiver_type_pattern, &resolved_concrete);
       (dar_fi : usize) = usize(0);
       while(dar_fi < entry.field_names.len(), {
         dar_lbl := match(entry.field_names.get(dar_fi), .Some(l) => l, .None => String.new());
         dar_fty := match(entry.field_types.get(dar_fi), .Some(t) => t, .None => t_unit());
-        if((dar_lbl.len() > usize(0)) && !is_function_type(dar_fty), {
+        if((dar_lbl.len() > usize(0)) && !is_function_type(&dar_fty), {
           match(
             entry.field_values.get(dar_fi),
             .Some(dar_fv) => match(
               dar_fv,
               .TypeVal(dar_tvb) => {
-                dar_res := substitute(dar_s, dar_tvb);
-                if((get_all_some_types(dar_res).len() == usize(0)) && !is_some_type(dar_res), {
+                dar_res := substitute(&dar_s, &dar_tvb);
+                if((get_all_some_types(&dar_res).len() == usize(0)) && !is_some_type(&dar_res), {
                   if(get_type_trait_methods_by_name(dar_tid.clone(), dar_lbl.clone()).len() == usize(0), {
                     register_type_trait_method(
                       dar_tid.clone(),
                       MethodEntry(
                         label : dar_lbl.clone(),
                         ty : t_type(),
-                        value : Option(EvalValue).Some(create_type_value(dar_res)),
-                        source_trait_id : get_base_trait_key(entry.trait_type),
+                        value : Option(EvalValue).Some(create_type_value(&dar_res)),
+                        source_trait_id : get_base_trait_key(&entry.trait_type),
                         needs_pointer_conversion : false,
                         self_type : Option(TypeValue).None,
                         owner : String.new()
@@ -1727,7 +1727,7 @@ try_match_generic_impl :: (
     });
   });
   if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-    eprintln(`[tm-end] recv=${type_id_or_empty(resolved_concrete)} pat=${type_id_or_empty(entry.receiver_type_pattern)} all_bound=${all_bound.to_string()}`);
+    eprintln(`[tm-end] recv=${type_id_or_empty(&resolved_concrete)} pat=${type_id_or_empty(&entry.receiver_type_pattern)} all_bound=${all_bound.to_string()}`);
   });
   cond(
     all_bound => Option(ArrayList(TypeValue)).Some(bindings),
@@ -1781,7 +1781,7 @@ find_matching_generic_impl :: (
     // `true`: this is the TRAIT PREDICATE (`type_implements_trait` step 8), so
     // a constructed pattern's MARKER where-clause is enforced — see the pass
     // in `try_match_generic_impl`.
-    if(try_match_generic_impl(concrete_type, entry, env, true).is_some(), {
+    if(try_match_generic_impl(concrete_type, &entry, env, true).is_some(), {
       return(true);
     });
     ei = (ei + usize(1));
@@ -1796,7 +1796,7 @@ find_matching_generic_impl :: (
 /// carry the path as typed and a demand-loaded one's the `file://` key, and a
 /// replay of one impl under the other spelling is not a second impl.
 _impl_site_string :: (fn(imm(tok) : Token) -> String)(
-  `${display_module_path(tok.module_path)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`
+  `${display_module_path(&tok.module_path)}:${(usize(tok.row) + usize(1)).to_string()}:${(usize(tok.column) + usize(1)).to_string()}`
 );
 /// `Deref` (the auto-dereference marker, plans/VALUES_BY_DEFAULT.md §3.3) is
 /// implemented by the prelude's cells only: an impl anywhere else is an
@@ -1811,7 +1811,7 @@ _throw_if_deref_impl_outside_prelude :: (fn(imm(trait_ty) : Option(TypeValue), i
     trait_ty,
     .Some(tt) => match(
       get_trait_type_from_env(env, String.from("Deref")),
-      .Some(deref_tt) => (get_trait_key(tt) == get_trait_key(deref_tt)),
+      .Some(deref_tt) => (get_trait_key(&tt) == get_trait_key(&deref_tt)),
       .None => false
     ),
     .None => false
@@ -1840,14 +1840,14 @@ _trait_instances_agree :: (fn(imm(entry) : GenericImplEntry, imm(bindings) : Arr
       entry.forall_some_types.get(ta_i),
       .Some(ta_f) => match(
         ta_f,
-        .SomeT({ name : ta_n, frame_level : ta_l }) => subst_add(ta_s, ta_n, ta_l, match(bindings.get(ta_i), .Some(b) => b, .None => t_unit())),
+        .SomeT({ name : ta_n, frame_level : ta_l }) => subst_add(&ta_s, &ta_n, ta_l, match(bindings.get(ta_i), .Some(b) => b, .None => t_unit())),
         _ => ()
       ),
       .None => ()
     );
     ta_i = (ta_i + usize(1));
   });
-  g_tr := substitute(ta_s, entry.trait_type);
+  g_tr := substitute(&ta_s, &entry.trait_type);
   match(
     concrete,
     .TraitT({ field_labels : c_labels, field_types : c_types }) => {
@@ -1857,8 +1857,8 @@ _trait_instances_agree :: (fn(imm(entry) : GenericImplEntry, imm(bindings) : Arr
         c_lbl := match(c_labels.get(ci), .Some(l) => l, .None => String.new());
         c_ty := match(c_types.get(ci), .Some(t) => t, .None => t_unit());
         match(
-          _trait_field_type_by_label(Option(TypeValue).Some(g_tr), c_lbl),
-          .Some(g_ty) => if(!are_types_compatible(c_ty, g_ty) && !are_types_compatible(g_ty, c_ty), {
+          _trait_field_type_by_label(Option(TypeValue).Some(g_tr), &c_lbl),
+          .Some(g_ty) => if(!are_types_compatible(&c_ty, &g_ty) && !are_types_compatible(&g_ty, &c_ty), {
             ok = false;
           }),
           .None => {
@@ -1892,15 +1892,15 @@ _check_concrete_impl_coherence :: (fn(imm(receiver_ty) : TypeValue, imm(trait_ty
   if(base.len() == usize(0), {
     return(());
   });
-  bucket := _generic_impl_bucket(base);
+  bucket := _generic_impl_bucket(&base);
   (bi : usize) = usize(0);
   while(bi < bucket.len(), {
     match(
       bucket.get(bi),
       .Some(ge) => if(ge.site != site, {
         match(
-          try_match_generic_impl(receiver_ty, ge, env, true),
-          .Some(ge_b) => if(_trait_instances_agree(ge, ge_b, trait_ty), {
+          try_match_generic_impl(receiver_ty, &ge, env, true),
+          .Some(ge_b) => if(_trait_instances_agree(&ge, &ge_b, trait_ty), {
             exn.throw(
               dyn(
                 format_error_message(
@@ -1940,8 +1940,8 @@ _check_generic_impl_coherence :: (fn(imm(entry) : GenericImplEntry, imm(env) : E
       .Some(cn_f) => match(
         cn_f,
         .SomeT({ name : cn_n, frame_level : cn_l }) => {
-          subst_add(canon, cn_n, cn_l, t_some_t(`$${cn_i.to_string()}`, usize(0)));
-          subst_add(shown, cn_n, cn_l, t_some_t(match(entry.forall_names.get(cn_i), .Some(fnm) => fnm, .None => cn_n), usize(0)));
+          subst_add(&canon, &cn_n, cn_l, t_some_t(`$${cn_i.to_string()}`, usize(0)));
+          subst_add(&shown, &cn_n, cn_l, t_some_t(match(entry.forall_names.get(cn_i), .Some(fnm) => fnm, .None => cn_n), usize(0)));
         },
         _ => ()
       ),
@@ -1949,7 +1949,7 @@ _check_generic_impl_coherence :: (fn(imm(entry) : GenericImplEntry, imm(env) : E
     );
     cn_i = (cn_i + usize(1));
   });
-  shown_receiver := type_to_string(substitute(shown, entry.receiver_type_pattern));
+  shown_receiver := type_to_string(substitute(&shown, &entry.receiver_type_pattern));
   if(!match(entry.trait_type, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false), {
     // An INHERENT generic impl: the duplicate-inherent-method rule
     // (plans/reference/FUNCTION_OVERLOADING_POLICY.md) for a generic
@@ -1963,16 +1963,16 @@ _check_generic_impl_coherence :: (fn(imm(entry) : GenericImplEntry, imm(env) : E
     while(bw_i < entry.where_constraint_traits.len(), {
       bw_subj := match(entry.where_constraint_some_types.get(bw_i), .Some(t) => t, .None => t_unit());
       bw_tr := match(entry.where_constraint_traits.get(bw_i), .Some(t) => t, .None => t_unit());
-      bounds.push(`${type_to_string(substitute(canon, bw_subj))} <: ${get_base_trait_key(bw_tr)}`);
+      bounds.push(`${type_to_string(substitute(&canon, &bw_subj))} <: ${get_base_trait_key(&bw_tr)}`);
       bw_i = (bw_i + usize(1));
     });
     bounds.sort();
-    inh_shape := `${type_to_string(substitute(canon, entry.receiver_type_pattern))}\n${String.from(", ").join(bounds)}`;
+    inh_shape := `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}\n${String.from(", ").join(&bounds)}`;
     (fi : usize) = usize(0);
     while(fi < entry.field_names.len(), {
       f_name := match(entry.field_names.get(fi), .Some(n) => n, .None => String.new());
       match(
-        note_trait_impl_site(String.from("generic-inherent"), `${inh_shape}\n${f_name}`, entry.site),
+        note_trait_impl_site(String.from("generic-inherent"), `${inh_shape}\n${f_name}`, &entry.site),
         .Some(prev) => {
           exn.throw(
             dyn(
@@ -1989,15 +1989,15 @@ _check_generic_impl_coherence :: (fn(imm(entry) : GenericImplEntry, imm(env) : E
     });
     return(());
   });
-  shape := `${type_to_string(substitute(canon, entry.receiver_type_pattern))}\n${type_to_string(substitute(canon, entry.trait_type))}`;
+  shape := `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}\n${type_to_string(substitute(&canon, &entry.trait_type))}`;
   match(
-    note_trait_impl_site(String.from("generic"), shape, entry.site),
+    note_trait_impl_site(String.from("generic"), &shape, &entry.site),
     .Some(prev) => {
       exn.throw(
         dyn(
           format_error_message(
             tok,
-            `Trait "${type_to_string(substitute(shown, entry.trait_type))}" is already implemented for type "${shown_receiver}" (first impl: ${prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
+            `Trait "${type_to_string(substitute(&shown, &entry.trait_type))}" is already implemented for type "${shown_receiver}" (first impl: ${prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
           )
         )
       );
@@ -2010,13 +2010,13 @@ _check_generic_impl_coherence :: (fn(imm(entry) : GenericImplEntry, imm(env) : E
       g_concrete_trait_impls.get(ci),
       .Some(cr) => if((cr.base_key == entry.trait_key) && (cr.site != entry.site), {
         match(
-          try_match_generic_impl(cr.receiver_ty, entry, env, true),
-          .Some(cr_b) => if(_trait_instances_agree(entry, cr_b, cr.trait_ty), {
+          try_match_generic_impl(&cr.receiver_ty, entry, env, true),
+          .Some(cr_b) => if(_trait_instances_agree(entry, &cr_b, &cr.trait_ty), {
             exn.throw(
               dyn(
                 format_error_message(
                   tok,
-                  `Trait "${type_to_string(cr.trait_ty)}" is already implemented for type "${type_to_string(cr.receiver_ty)}" (first impl: ${cr.site}), and this generic impl covers it too. A type implements a trait at most once; there is no specialization (plans/reference/TRAIT_COHERENCE.md).`
+                  `Trait "${type_to_string(&cr.trait_ty)}" is already implemented for type "${type_to_string(&cr.receiver_ty)}" (first impl: ${cr.site}), and this generic impl covers it too. A type implements a trait at most once; there is no specialization (plans/reference/TRAIT_COHERENCE.md).`
                 )
               )
             );
@@ -2064,7 +2064,7 @@ find_matching_negative_generic_impl :: (
     if(entry.trait_key == key, {
       // `false`: a negative impl REMOVES a trait, so tightening its match
       // would loosen the predicate — the opposite direction. Unchanged.
-      if(try_match_generic_impl(concrete_type, entry, env, false).is_some(), {
+      if(try_match_generic_impl(concrete_type, &entry, env, false).is_some(), {
         found = true;
       });
     });
@@ -2101,13 +2101,13 @@ MethodCandidate :: struct(
 (g_ifc_memo_owned : OwnedKeys) = owned_keys_new();
 /// Drop the memo entries `owner`'s evaluation wrote (Phase 1 step 5).
 purge_ifc_memo_owned_by :: (fn(imm(owner) : String) -> unit)({
-  keys := owned_keys_take(g_ifc_memo_owned, owner);
+  keys := owned_keys_take(&g_ifc_memo_owned, owner);
   (i : usize) = usize(0);
   while(i < keys.len(), {
     match(
       keys.get(i),
       .Some(k) => {
-        _r := g_ifc_memo.remove(k);
+        _r := g_ifc_memo.remove(&k);
       },
       .None => ()
     );
@@ -2144,7 +2144,7 @@ _inject_forall_captures :: (
         ptns := __fvm9.*.param_type_names;
         evs := __fvm9.*.evidence_params;
         body := __fvm9.*.body;
-        csrc := fv_capture_source(__fvm9.*);
+        csrc := fv_capture_source(&__fvm9.*);
         fid := __fvm9.*.func_id;
         ifc_orig_env_key := __fvm9.*.env_key;
         memo_key := fid.clone();
@@ -2176,7 +2176,7 @@ _inject_forall_captures :: (
             self_receiver,
             .Some(sr) => {
               memo_key.push_str("|S=");
-              memo_key.push_string(type_key(sr));
+              memo_key.push_string(type_key(&sr));
             },
             .None => ()
           );
@@ -2199,7 +2199,7 @@ _inject_forall_captures :: (
             (ifc_aligned : bool) = false;
             (ifc_prefix : ArrayList(CaptureSlice)) = ArrayList(CaptureSlice).new();
             match(
-              aligned_derived_capture_handles(__fvm9.*, fv_capture_count(__fvm9.*, cvs)),
+              aligned_derived_capture_handles(&__fvm9.*, fv_capture_count(&__fvm9.*, &cvs)),
               .Some(aligned_slices) => {
                 ifc_have_vars = true;
                 ifc_aligned = true;
@@ -2226,10 +2226,10 @@ _inject_forall_captures :: (
             );
             // Copy existing captures (do not mutate the registry's arrays).
             (ci : usize) = usize(0);
-            while(!ifc_aligned && (ci < fv_capture_count(__fvm9.*, cvs)), {
-              new_cns.push(fv_source_name(csrc, ci));
-              new_cts.push(fv_source_ty(csrc, ci));
-              new_cvs.push(match(fv_capture_val(__fvm9.*, cvs, ci), .Some(x) => x, .None => EvalValue.UnitVal));
+            while(!ifc_aligned && (ci < fv_capture_count(&__fvm9.*, &cvs)), {
+              new_cns.push(fv_source_name(&csrc, ci));
+              new_cts.push(fv_source_ty(&csrc, ci));
+              new_cvs.push(match(fv_capture_val(&__fvm9.*, &cvs, ci), .Some(x) => x, .None => EvalValue.UnitVal));
               ci = (ci + usize(1));
             });
             // Append one capture per impl generic param (bound to its concrete type).
@@ -2307,11 +2307,11 @@ _inject_forall_captures :: (
             );
             if(ifc_have_vars, {
               ifc_env_key = mint_funcval_env_key();
-              register_funcval_cap_slices(ifc_env_key, cap_slices_with_list(ifc_prefix, new_cvars));
+              register_funcval_cap_slices(ifc_env_key, cap_slices_with_list(&ifc_prefix, &new_cvars));
             });
             // Flat names/types only when not aligned (see above).
             injected := EvalValue.FuncVal(rc(FuncValData(forall_names : fns, params : ps, param_type_names : ptns, evidence_params : evs, body : body, cap_names : new_cns, cap_tys : new_cts, func_id : fid, env_key : ifc_env_key)), new_cvs);
-            owned_keys_record(g_ifc_memo_owned, memo_key.clone());
+            owned_keys_record(&g_ifc_memo_owned, memo_key.clone());
             g_ifc_memo.insert(memo_key, injected);
             Option(EvalValue).Some(injected)
           }
@@ -2336,7 +2336,7 @@ find_methods_from_generic_impls :: (
   (resolved : TypeValue) = concrete_type;
   if(is_some_type(concrete_type), {
     r := get_value_of_some_type_from_env(env, concrete_type);
-    if(!is_some_type(r), {
+    if(!is_some_type(&r), {
       resolved = r;
     });
   });
@@ -2401,9 +2401,9 @@ find_methods_from_generic_impls :: (
       if(!has_field_with_name, {
         ei = (ei + usize(1));
       }, {
-        mb_opt := try_match_generic_impl(resolved, entry, env, false);
+        mb_opt := try_match_generic_impl(&resolved, &entry, env, false);
         if(in_def_time_trial() && debug_knob(`YO_DEBUG_DISPATCH`).is_some() && (method_name == "add"), {
-          eprintln(`[fmg-try] name=${method_name} recv=${type_to_string(resolved)} pat=${type_to_string(entry.receiver_type_pattern)} matched=${mb_opt.is_some().to_string()}`);
+          eprintln(`[fmg-try] name=${method_name} recv=${type_to_string(&resolved)} pat=${type_to_string(&entry.receiver_type_pattern)} matched=${mb_opt.is_some().to_string()}`);
         });
         // Visibility is decided among MATCHING candidates only: an impl the
         // current module cannot reach through its imports is not a candidate
@@ -2480,7 +2480,7 @@ find_methods_from_generic_impls :: (
               // every same-NAME occurrence at its own level — the forall
               // twin of _substitute_self_in_method_ty's "EVERY Self at its
               // OWN frame level" rule above.
-              ft_all_somes := get_all_some_types(ftype);
+              ft_all_somes := get_all_some_types(&ftype);
               (sb_i : usize) = usize(0);
               while(sb_i < entry.forall_names.len(), {
                 sb_name := match(entry.forall_names.get(sb_i), .Some(n) => n, .None => String.from(""));
@@ -2489,7 +2489,7 @@ find_methods_from_generic_impls :: (
                 match(
                   sb_some,
                   .SomeT(_, _, lvl, _, _, _, _, _, _, _) => {
-                    subst_add(spec_s, sb_name, lvl, sb_ty);
+                    subst_add(&spec_s, &sb_name, lvl, &sb_ty);
                     (fts_i : usize) = usize(0);
                     while(fts_i < ft_all_somes.len(), {
                       match(
@@ -2497,7 +2497,7 @@ find_methods_from_generic_impls :: (
                         .Some(fts_t) => match(
                           fts_t,
                           .SomeT(_, fts_n, fts_lvl, _, _, _, _, _, _, _) => if((fts_n == sb_name) && (fts_lvl != lvl), {
-                            subst_add(spec_s, sb_name, fts_lvl, sb_ty);
+                            subst_add(&spec_s, &sb_name, fts_lvl, &sb_ty);
                           }),
                           _ => ()
                         ),
@@ -2524,9 +2524,9 @@ find_methods_from_generic_impls :: (
                   .Some(sb_val) => match(
                     sb_val,
                     .IntLit(sb_raw) => match(
-                      parse_raw_int(sb_raw),
+                      parse_raw_int(&sb_raw),
                       .Some(sb_n) => if(sb_n >= i64(0), {
-                        subst_add_len_var(spec_s, sb_name.clone(), usize(sb_n));
+                        subst_add_len_var(&spec_s, sb_name.clone(), usize(sb_n));
                       }),
                       .None => ()
                     ),
@@ -2543,22 +2543,22 @@ find_methods_from_generic_impls :: (
               // substituting it, so substituting the key first makes the
               // exact-equality test compare EnumT(id, Some(T)) against
               // EnumT(id, Some(Node)) and silently never fire.
-              subst_set_self(spec_s, entry.receiver_type_pattern, resolved);
-              fmg_spec_ty := substitute(spec_s, ftype);
+              subst_set_self(&spec_s, &entry.receiver_type_pattern, &resolved);
+              fmg_spec_ty := substitute(&spec_s, &ftype);
               if(debug_knob(`YO_DEBUG_DISPATCH`).is_some(), {
-                eprintln(`[fmg-cand] method=${method_name} recv=${type_to_string(resolved)} raw=${type_to_string(ftype)} spec=${type_to_string(fmg_spec_ty)} trial=${in_def_time_trial().to_string()}`);
+                eprintln(`[fmg-cand] method=${method_name} recv=${type_to_string(&resolved)} raw=${type_to_string(&ftype)} spec=${type_to_string(&fmg_spec_ty)} trial=${in_def_time_trial().to_string()}`);
               });
               if(debug_knob(`YO_DEBUG_WARM`).is_some() && (method_name == "get"), {
-                eprintln(`[fmg-get] recv_key=${type_key(resolved)} spec_key=${type_key(fmg_spec_ty)} pattern=${type_key(entry.receiver_type_pattern)}`);
+                eprintln(`[fmg-get] recv_key=${type_key(&resolved)} spec_key=${type_key(&fmg_spec_ty)} pattern=${type_key(&entry.receiver_type_pattern)}`);
               });
               results.push(
                 MethodCandidate(
                   method_type : fmg_spec_ty,
                   method_value : _inject_forall_captures(
-                    fvalue,
-                    entry.forall_names,
-                    match_bindings,
-                    match_binding_vals,
+                    &fvalue,
+                    &entry.forall_names,
+                    &match_bindings,
+                    &match_binding_vals,
                     Option(TypeValue).Some(resolved.clone())
                   ),
                   source_trait_id : entry.trait_key.clone(),
@@ -2595,7 +2595,7 @@ find_associated_type_from_generic_impls :: (
   (resolved : TypeValue) = concrete_type;
   if(is_some_type(concrete_type), {
     r := get_value_of_some_type_from_env(env, concrete_type);
-    if(!is_some_type(r), {
+    if(!is_some_type(&r), {
       resolved = r;
     });
   });
@@ -2633,7 +2633,7 @@ find_associated_type_from_generic_impls :: (
             if(name_matches, {
               ty_is_fn := match(
                 entry.field_types.get(pfi),
-                .Some(ft) => is_function_type(ft),
+                .Some(ft) => is_function_type(&ft),
                 .None => true
               );
               if(!ty_is_fn, {
@@ -2644,7 +2644,7 @@ find_associated_type_from_generic_impls :: (
             pfi = (pfi + usize(1));
           });
           if(has_field, {
-            mb_opt := try_match_generic_impl(resolved, entry, env, false);
+            mb_opt := try_match_generic_impl(&resolved, &entry, env, false);
             match(
               mb_opt,
               .Some(match_bindings) => {
@@ -2664,13 +2664,13 @@ find_associated_type_from_generic_impls :: (
                         sb_ty := match(match_bindings.get(sb_i), .Some(t) => t, .None => t_unit());
                         match(
                           sb_some,
-                          .SomeT(_, _, lvl, _, _, _, _, _, _, _) => subst_add(spec_s, sb_name, lvl, sb_ty),
+                          .SomeT(_, _, lvl, _, _, _, _, _, _, _) => subst_add(&spec_s, &sb_name, lvl, &sb_ty),
                           _ => ()
                         );
                         sb_i = (sb_i + usize(1));
                       });
-                      subst_set_self(spec_s, entry.receiver_type_pattern, resolved);
-                      found = Option(TypeValue).Some(substitute(spec_s, tvb));
+                      subst_set_self(&spec_s, &entry.receiver_type_pattern, &resolved);
+                      found = Option(TypeValue).Some(substitute(&spec_s, &tvb));
                     },
                     _ => ()
                   ),
@@ -2746,15 +2746,15 @@ _format_generic_impl_signature :: (fn(imm(entry) : GenericImplEntry) -> String)(
         entry.forall_some_types.get(fi),
         .Some(s) => match(
           s,
-          .SomeT({ parent_type }) => type_to_string(parent_type),
-          _ => type_to_string(s)
+          .SomeT({ parent_type }) => type_to_string(&parent_type),
+          _ => type_to_string(&s)
         ),
         .None => String.from("")
       );
       fa_parts.push(`${fa_name} : ${fa_ty}`);
       fi = (fi + usize(1));
     });
-    parts.push(`generic(${String.from(", ").join(fa_parts)})`);
+    parts.push(`generic(${String.from(", ").join(&fa_parts)})`);
   });
   if(entry.where_constraint_some_types.len() > usize(0), {
     w_parts := ArrayList(String).new();
@@ -2762,24 +2762,24 @@ _format_generic_impl_signature :: (fn(imm(entry) : GenericImplEntry) -> String)(
     while(wi < entry.where_constraint_some_types.len(), {
       w_name := match(
         entry.where_constraint_some_types.get(wi),
-        .Some(ws) => match(ws, .SomeT({ name }) => name.clone(), _ => type_to_string(ws)),
+        .Some(ws) => match(ws, .SomeT({ name }) => name.clone(), _ => type_to_string(&ws)),
         .None => String.from("")
       );
       w_trait := match(
         entry.where_constraint_traits.get(wi),
-        .Some(wt) => type_to_string(wt),
+        .Some(wt) => type_to_string(&wt),
         .None => String.from("")
       );
       w_parts.push(`${w_name} <: ${w_trait}`);
       wi = (wi + usize(1));
     });
-    parts.push(`where(${String.from(", ").join(w_parts)})`);
+    parts.push(`where(${String.from(", ").join(&w_parts)})`);
   });
-  parts.push(type_to_string(entry.receiver_type_pattern));
-  if(_type_name_for_doc(entry.trait_type).len() > usize(0), {
-    parts.push(type_to_string(entry.trait_type));
+  parts.push(type_to_string(&entry.receiver_type_pattern));
+  if(_type_name_for_doc(&entry.trait_type).len() > usize(0), {
+    parts.push(type_to_string(&entry.trait_type));
   });
-  `impl(${String.from(", ").join(parts)})`
+  `impl(${String.from(", ").join(&parts)})`
 });
 /// The VALUE (normally a `FuncVal`) an impl block provides for method `name`
 /// on `concrete_type`, searching the generic-impl registry with the same
@@ -2794,12 +2794,12 @@ find_generic_impl_method_value :: (
   (resolved : TypeValue) = concrete_type;
   if(is_some_type(concrete_type), {
     r := get_value_of_some_type_from_env(env, concrete_type);
-    if(!is_some_type(r), {
+    if(!is_some_type(&r), {
       resolved = r;
     });
   });
-  concrete_base_id := _receiver_base_type_id_for_doc(resolved);
-  concrete_name := _type_name_for_doc(resolved);
+  concrete_base_id := _receiver_base_type_id_for_doc(&resolved);
+  concrete_name := _type_name_for_doc(&resolved);
   n_keys := g_impl_registry_keys.len();
   (ki : usize) = usize(0);
   while(ki < n_keys, {
@@ -2825,14 +2825,14 @@ find_generic_impl_method_value :: (
             fi = (fi + usize(1));
           });
           if(has_name, {
-            (matched : bool) = try_match_generic_impl(resolved, entry, env, false).is_some();
+            (matched : bool) = try_match_generic_impl(&resolved, &entry, env, false).is_some();
             if(!matched && (concrete_base_id.len() > usize(0)), {
-              if(_receiver_base_type_id_for_doc(entry.receiver_type_pattern) == concrete_base_id, {
+              if(_receiver_base_type_id_for_doc(&entry.receiver_type_pattern) == concrete_base_id, {
                 matched = true;
               });
             });
             if(!matched && (concrete_name.len() > usize(0)), {
-              if(_type_name_for_doc(entry.receiver_type_pattern) == concrete_name, {
+              if(_type_name_for_doc(&entry.receiver_type_pattern) == concrete_name, {
                 matched = true;
               });
             });
@@ -2864,14 +2864,14 @@ get_generic_impl_doc_entries :: (
   (resolved : TypeValue) = concrete_type;
   if(is_some_type(concrete_type), {
     r := get_value_of_some_type_from_env(env, concrete_type);
-    if(!is_some_type(r), {
+    if(!is_some_type(&r), {
       resolved = r;
     });
   });
   results := ArrayList(GenericImplDocEntry).new();
   seen := ArrayList(String).new();
-  concrete_base_id := _receiver_base_type_id_for_doc(resolved);
-  concrete_name := _type_name_for_doc(resolved);
+  concrete_base_id := _receiver_base_type_id_for_doc(&resolved);
+  concrete_name := _type_name_for_doc(&resolved);
   wanted_name := if(receiver_type_name.len() > usize(0), receiver_type_name.clone(), concrete_name.clone());
   n_keys := g_impl_registry_keys.len();
   (ki : usize) = usize(0);
@@ -2889,14 +2889,14 @@ get_generic_impl_doc_entries :: (
       match(
         entry_list.get(ei),
         .Some(entry) => {
-          (matched : bool) = try_match_generic_impl(resolved, entry, env, false).is_some();
+          (matched : bool) = try_match_generic_impl(&resolved, &entry, env, false).is_some();
           if(!matched && (concrete_base_id.len() > usize(0)), {
-            if(_receiver_base_type_id_for_doc(entry.receiver_type_pattern) == concrete_base_id, {
+            if(_receiver_base_type_id_for_doc(&entry.receiver_type_pattern) == concrete_base_id, {
               matched = true;
             });
           });
           if(!matched && (wanted_name.len() > usize(0)), {
-            if(_type_name_for_doc(entry.receiver_type_pattern) == wanted_name, {
+            if(_type_name_for_doc(&entry.receiver_type_pattern) == wanted_name, {
               matched = true;
             });
           });
@@ -2912,7 +2912,7 @@ get_generic_impl_doc_entries :: (
                   m_type := match(field_types.get(mi), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None);
                   match(
                     m_type,
-                    .Some(mt) => if((m_label.len() > usize(0)) && is_function_type(mt), {
+                    .Some(mt) => if((m_label.len() > usize(0)) && is_function_type(&mt), {
                       method_names.push(m_label.clone());
                       method_types.push(mt);
                     }),
@@ -2928,7 +2928,7 @@ get_generic_impl_doc_entries :: (
                   m_type := match(entry.field_types.get(mi), .Some(t) => Option(TypeValue).Some(t), .None => Option(TypeValue).None);
                   match(
                     m_type,
-                    .Some(mt) => if((m_label.len() > usize(0)) && is_function_type(mt), {
+                    .Some(mt) => if((m_label.len() > usize(0)) && is_function_type(&mt), {
                       method_names.push(m_label.clone());
                       method_types.push(mt);
                     }),
@@ -2938,10 +2938,10 @@ get_generic_impl_doc_entries :: (
                 });
               }
             );
-            signature := _format_generic_impl_signature(entry);
+            signature := _format_generic_impl_signature(&entry);
             // Dedup key: `${signature}\0${methodNames.join("\0")}`.
             nul_sep := `\0`;
-            key := `${signature}\0${nul_sep.join(method_names)}`;
+            key := `${signature}\0${nul_sep.join(&method_names)}`;
             (already : bool) = false;
             (si : usize) = usize(0);
             while((si < seen.len()) && !already, {
@@ -2952,7 +2952,7 @@ get_generic_impl_doc_entries :: (
             });
             if(!already, {
               seen.push(key.clone());
-              trait_nm := _type_name_for_doc(entry.trait_type);
+              trait_nm := _type_name_for_doc(&entry.trait_type);
               (trait_name_opt : Option(String)) = Option(String).None;
               if(trait_nm.len() > usize(0), {
                 trait_name_opt = Option(String).Some(trait_nm.clone());
@@ -2995,7 +2995,7 @@ _try_lookup_trait_type :: (
   // non-parametric traits bound directly as a `TraitT` in the env.
   (head_expr : AstExpr) = trait_expr;
   (steps : usize) = usize(0);
-  while(!ast_expr_is_atom(head_expr) && (steps < usize(32)), {
+  while(!ast_expr_is_atom(&head_expr) && (steps < usize(32)), {
     head_expr = match(
       head_expr,
       .FnCall(_, fb, _, _, _) => fb,
@@ -3004,9 +3004,9 @@ _try_lookup_trait_type :: (
     steps = (steps + usize(1));
   });
   (atom_result : Option(TypeValue)) = Option(TypeValue).None;
-  if(ast_expr_is_atom(head_expr), {
-    name := ast_expr_token(head_expr).value;
-    vars := get_variables_from_env(env, name);
+  if(ast_expr_is_atom(&head_expr), {
+    name := ast_expr_token(&head_expr).value;
+    vars := get_variables_from_env(env, &name);
     if(vars.len() > usize(0), {
       match(
         vars.last(),
@@ -3051,7 +3051,7 @@ _try_lookup_trait_type :: (
   // later parameter type-compatibility check at the call site.
   evaluated := evaluate_expression_raw(trait_expr, env, ctx, exn);
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
     .Some(info) => match(
       info.value,
       .Some(ev) => match(
@@ -3136,7 +3136,7 @@ _substitute_assoc_in_method_ty :: (
           while(j < labels.len(), {
             lbl := match(labels.get(j), .Some(l) => l, .None => String.from(""));
             if(lbl == snm, {
-              subst_add(s, snm.clone(), slvl, match(types.get(j), .Some(t) => t, .None => t_unit()));
+              subst_add(&s, snm.clone(), slvl, match(types.get(j), .Some(t) => t, .None => t_unit()));
               n_added = (n_added + usize(1));
             });
             j = (j + usize(1));
@@ -3151,7 +3151,7 @@ _substitute_assoc_in_method_ty :: (
   if(n_added == usize(0), {
     return(method_ty);
   });
-  substitute(s, method_ty)
+  substitute(&s, method_ty)
 });
 /// Re-keying helper: `fi.ty` carries the TRAIT-DECLARED param labels
 /// (`lhs`/`rhs` for an Eq method), but the impl's closure BODY was written
@@ -3216,7 +3216,7 @@ _freshen_return_only_somes :: (fn(imm(method_ty) : TypeValue) -> TypeValue)(
   match(
     method_ty,
     .Func({ forall_types : fr_fts, param_types : fr_pts, implicit_types : fr_its, where_types : fr_wts, result : fr_res, meta : fr_m, variadic_types : fr_vts }) => {
-      res_somes := get_all_some_types(fr_res);
+      res_somes := get_all_some_types(&fr_res);
       if(res_somes.len() == usize(0), {
         return(method_ty);
       });
@@ -3235,7 +3235,7 @@ _freshen_return_only_somes :: (fn(imm(method_ty) : TypeValue) -> TypeValue)(
           match(
             tys.get(ci),
             .Some(ct) => {
-              c_somes := get_all_some_types(ct);
+              c_somes := get_all_some_types(&ct);
               (cj : usize) = usize(0);
               while(cj < c_somes.len(), {
                 match(
@@ -3275,7 +3275,7 @@ _freshen_return_only_somes :: (fn(imm(method_ty) : TypeValue) -> TypeValue)(
               });
               if(!r_kept, {
                 subst_add(
-                  fs,
+                  &fs,
                   r_nm.clone(),
                   r_lvl,
                   TypeValue.SomeT(
@@ -3308,7 +3308,7 @@ _freshen_return_only_somes :: (fn(imm(method_ty) : TypeValue) -> TypeValue)(
         fr_pts,
         fr_its,
         fr_wts,
-        substitute(fs, fr_res),
+        substitute(&fs, &fr_res),
         fr_m,
         fr_vts
       )
@@ -3339,7 +3339,7 @@ _substitute_self_in_method_ty :: (
     match(
       self_somes.get(ssi),
       .Some(.SomeT(_, ss_n, ss_lvl, _, _, _, _, _, _, _)) => if(ss_n == "Self", {
-        subst_add(s, String.from("Self"), ss_lvl, self_concrete.clone());
+        subst_add(&s, String.from("Self"), ss_lvl, self_concrete.clone());
         any_self = true;
       }),
       .Some(_) => (),
@@ -3348,7 +3348,7 @@ _substitute_self_in_method_ty :: (
     ssi = (ssi + usize(1));
   });
   cond(
-    any_self => substitute(s, method_ty),
+    any_self => substitute(&s, method_ty),
     true => method_ty
   )
 });
@@ -3421,7 +3421,7 @@ _materialize_default_body :: (
     ),
     ArrayList(EvalValue).new()
   );
-  body_ctx := create_function_body_evaluation_context(fn_ty, body_ctx_fv, env, ctx);
+  body_ctx := create_function_body_evaluation_context(fn_ty, &body_ctx_fv, env, ctx);
   // A DEF-time contained-swallow evaluation like _trial_eval_fn_body — the
   // in_def_time_trial flag is set/restored AT THE CALL SITES (a swallowed
   // error unwinds out of this helper, skipping any in-fn restore).
@@ -3432,7 +3432,7 @@ _materialize_default_body :: (
   // recognises. Evaluated raw, it threw `Variable "return" not found` — once
   // swallowed (the shared default took over), a compile error since the
   // Phase 6 re-raise (tests/async_trait_default_await.test.yo).
-  evaluated := call_evaluate_fn_body(body, env, body_ctx, inner_exn);
+  evaluated := call_evaluate_fn_body(body, env, &body_ctx, &inner_exn);
   out.push(evaluated);
 });
 /// Evaluate ONE colon-pair member of a concrete (Case 3) impl — the body the
@@ -3461,7 +3461,7 @@ _member_fn_param_list :: (fn(imm(e) : AstExpr, depth : usize) -> Option(ArrayLis
         return(Option(ArrayList(AstExpr)).Some(args));
       });
       match(
-        _member_fn_param_list(f, depth + usize(1)),
+        _member_fn_param_list(&f, depth + usize(1)),
         .Some(found) => Option(ArrayList(AstExpr)).Some(found),
         .None => {
           (ai : usize) = usize(0);
@@ -3484,19 +3484,19 @@ _member_fn_param_list :: (fn(imm(e) : AstExpr, depth : usize) -> Option(ArrayLis
 /// or `.None` when the label carries a mode wrapper already.
 _plain_param_label_atom :: (fn(imm(p) : AstExpr) -> Option(AstExpr))({
   (cur : AstExpr) = p;
-  if(ast_expr_is_fn_call_of(cur, "?=", Option(usize).Some(usize(2))), {
-    cur = match(_fn_args_of(cur).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  if(ast_expr_is_fn_call_of(&cur, "?=", Option(usize).Some(usize(2))), {
+    cur = match(_fn_args_of(&cur).get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
-  if(!ast_expr_is_fn_call_of(cur, BK_COLON, Option(usize).Some(usize(2))), {
+  if(!ast_expr_is_fn_call_of(&cur, BK_COLON, Option(usize).Some(usize(2))), {
     return(Option(AstExpr).None);
   });
-  (lbl : AstExpr) = match(_fn_args_of(cur).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  (lbl : AstExpr) = match(_fn_args_of(&cur).get(usize(0)), .Some(a) => a, .None => make_err_expr());
   // `comptime(lhs) : T` becomes `comptime(imm(lhs)) : T`: the mode sits
   // inside the binding time.
-  if(ast_expr_is_fn_call_of(lbl, BK_COMPTIME, Option(usize).Some(usize(1))), {
-    lbl = match(_fn_args_of(lbl).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  if(ast_expr_is_fn_call_of(&lbl, BK_COMPTIME, Option(usize).Some(usize(1))), {
+    lbl = match(_fn_args_of(&lbl).get(usize(0)), .Some(a) => a, .None => make_err_expr());
   });
-  if(ast_expr_is_atom(lbl), Option(AstExpr).Some(lbl), Option(AstExpr).None)
+  if(ast_expr_is_atom(&lbl), Option(AstExpr).Some(lbl), Option(AstExpr).None)
 });
 _fn_args_of :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
@@ -3549,11 +3549,11 @@ _migrate_imm_for_trait_mismatch :: (fn(imm(val_expr) : AstExpr, imm(actual) : Ty
           match(
             _plain_param_label_atom(match(params.get(qi), .Some(p) => p, .None => make_err_expr())),
             .Some(lbl) => {
-              lt := ast_expr_token(lbl);
+              lt := ast_expr_token(&lbl);
               (fj : usize) = usize(0);
               while(fj < to_fix.len(), fj = (fj + usize(1)), {
                 if(match(to_fix.get(fj), .Some(n) => (n == lt.value), .None => false), {
-                  record_imm_param_migration(lt);
+                  record_imm_param_migration(&lt);
                   found = (found + usize(1));
                 });
               });
@@ -3613,7 +3613,7 @@ _c3_eval_colon_pair :: (
   );
   name_expr := match(colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
   val_expr := match(colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
-  name_tok := ast_expr_token(name_expr);
+  name_tok := ast_expr_token(&name_expr);
   method_name := name_tok.value.clone();
   qualified := `${st.receiver_name}.${method_name}`;
   // Duplicate-INHERENT-method rejection
@@ -3636,7 +3636,7 @@ _c3_eval_colon_pair :: (
     __dup_site := note_inherent_method_site(
       st.recv_id.clone(),
       method_name.clone(),
-      _impl_site_string(name_tok)
+      _impl_site_string(&name_tok)
     );
     match(
       __dup_site,
@@ -3644,7 +3644,7 @@ _c3_eval_colon_pair :: (
         exn.throw(
           dyn(
             format_error_message(
-              name_tok,
+              &name_tok,
               `Method "${method_name}" is already defined for this type (first definition: ${__prev_site}). Duplicate inherent method impls are not allowed — use a distinct name (e.g. a comptime_ prefix), or provide the second signature via a trait (plans/reference/FUNCTION_OVERLOADING_POLICY.md).`
             )
           )
@@ -3656,7 +3656,7 @@ _c3_eval_colon_pair :: (
   // Compute the expected type for this method from the trait's
   // field-by-label. This lets anonymous lambdas (e.g. the body
   // of an impl method) see the function type the trait expects.
-  expected_method_ty := _trait_field_type_by_label(current_trait_ty, method_name);
+  expected_method_ty := _trait_field_type_by_label(current_trait_ty, &method_name);
   // Substitute the trait's abstract `Self` with the concrete
   // receiver type so the impl method's anonymous lambda binds
   // its parameters at concrete types (e.g. `comptime_int`)
@@ -3672,9 +3672,9 @@ _c3_eval_colon_pair :: (
     // _substitute_assoc_in_method_ty.
     .Some(t) => Option(TypeValue).Some(
       _substitute_assoc_in_method_ty(
-        _substitute_self_in_method_ty(t, st.receiver_ty),
-        ctx.current_impl_trait_field_labels,
-        ctx.current_impl_trait_field_types
+        _substitute_self_in_method_ty(&t, &st.receiver_ty),
+        &ctx.current_impl_trait_field_labels,
+        &ctx.current_impl_trait_field_types
       )
     ),
     .None => Option(TypeValue).None
@@ -3689,8 +3689,8 @@ _c3_eval_colon_pair :: (
       exn.throw(
         dyn(
           format_error_message(
-            name_tok,
-            `Type "${type_to_string(st.receiver_ty)}" does not implement required trait "${type_to_string(unk_tt)}" as written: "${method_name}" is not a member of the trait`
+            &name_tok,
+            `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&unk_tt)}" as written: "${method_name}" is not a member of the trait`
           )
         )
       );
@@ -3703,10 +3703,10 @@ _c3_eval_colon_pair :: (
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : st.env)),
     .None => Option(ExpectedTypeCtx).None
   );
-  eval_val := evaluate_expression_raw(val_expr, st.env, ctx, exn);
+  eval_val := evaluate_expression_raw(&val_expr, &st.env, ctx, exn);
   ctx.expected_type = saved2;
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_val)),
     .None => (),
     .Some(fi) => {
       // Trait conformance (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.1): a member
@@ -3722,12 +3722,12 @@ _c3_eval_colon_pair :: (
         .Some(conf_tt) => match(
           expected_method_ty_resolved,
           .None => (),
-          .Some(conf_exp) => if((get_all_some_types(conf_exp).len() == usize(0)) && (get_all_some_types(fi.ty).len() == usize(0)) && !is_type_hierarchy_type(conf_exp) && !are_types_compatible(_with_receiver_mode_of(fi.ty, conf_exp), conf_exp) && !(migrate_param_modes_on() && _migrate_imm_for_trait_mismatch(val_expr, fi.ty, conf_exp)), {
+          .Some(conf_exp) => if((get_all_some_types(&conf_exp).len() == usize(0)) && (get_all_some_types(&fi.ty).len() == usize(0)) && !is_type_hierarchy_type(&conf_exp) && !are_types_compatible(_with_receiver_mode_of(&fi.ty, &conf_exp), &conf_exp) && !(migrate_param_modes_on() && _migrate_imm_for_trait_mismatch(&val_expr, &fi.ty, &conf_exp)), {
             exn.throw(
               dyn(
                 format_error_message(
-                  name_tok,
-                  `Type "${type_to_string(st.receiver_ty)}" does not implement required trait "${type_to_string(conf_tt)}" as written: member "${method_name}" has type ${type_to_string(fi.ty)}, but the trait requires ${type_to_string(conf_exp)}`
+                  &name_tok,
+                  `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}" has type ${type_to_string(&fi.ty)}, but the trait requires ${type_to_string(&conf_exp)}`
                 )
               )
             );
@@ -3737,7 +3737,7 @@ _c3_eval_colon_pair :: (
       );
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
-      st.env = expr_info_adopt_env(fi);
+      st.env = expr_info_adopt_env(&fi);
       method_val := match(fi.value, .Some(v) => v, .None => EvalValue.UnitVal);
       // Make this field visible to later fields' `Self.X`
       // within the SAME trait entry. Only TYPE-valued fields
@@ -3753,15 +3753,15 @@ _c3_eval_colon_pair :: (
         _ => ()
       );
       _dv := add_variable_to_env(
-        st.env,
-        qualified,
-        fi.ty,
+        &st.env,
+        &qualified,
+        &fi.ty,
         .Some(method_val),
         true,
         false,
         false,
         false,
-        name_tok
+        &name_tok
       );
       // Also bind the BARE label so later sibling fields in the
       // SAME impl can forward-call it (`new()` inside
@@ -3769,15 +3769,15 @@ _c3_eval_colon_pair :: (
       // impl's env frame; the frame
       // pushed before the field loop scopes it to this impl.
       _dv_bare := add_variable_to_env(
-        st.env,
+        &st.env,
         method_name.clone(),
-        fi.ty,
+        &fi.ty,
         .Some(method_val),
         true,
         false,
         false,
         false,
-        name_tok
+        &name_tok
       );
       // Mirror the env-level binding into the
       // trait-method registry, keyed by the receiver
@@ -3795,7 +3795,7 @@ _c3_eval_colon_pair :: (
           field_opt,
           .Some(pa_pf) => if(pa_pf.phase_a_registered, {
             pa_real_fid := match(method_val, .FuncVal(__pa_fvd, _) => __pa_fvd.*.func_id.clone(), _ => String.new());
-            pa_existing := get_type_trait_methods_by_name(st.recv_id, method_name);
+            pa_existing := get_type_trait_methods_by_name(&st.recv_id, &method_name);
             (pa_i : usize) = usize(0);
             while((pa_i < pa_existing.len()) && !updated_phase_a, {
               match(
@@ -3805,7 +3805,7 @@ _c3_eval_colon_pair :: (
                   if((pa_e_fid.len() > usize(0)) && (pa_e_fid == pa_real_fid), {
                     pa_e.ty = fi.ty;
                     pa_e.value = Option(EvalValue).Some(method_val);
-                    register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(fi.ty, method_val));
+                    register_func_type(pa_real_fid.clone(), _retype_with_value_param_labels(&fi.ty, &method_val));
                     updated_phase_a = true;
                   });
                 },
@@ -3834,12 +3834,12 @@ _c3_eval_colon_pair :: (
           match(
             method_val,
             .FuncVal(__reg_fvd, _) => {
-              register_func_type(__reg_fvd.*.func_id.clone(), _retype_with_value_param_labels(fi.ty, method_val));
+              register_func_type(__reg_fvd.*.func_id.clone(), _retype_with_value_param_labels(&fi.ty, &method_val));
             },
             _ => ()
           );
           register_type_trait_method(
-            st.recv_id,
+            &st.recv_id,
             MethodEntry(
               label : method_name.clone(),
               ty : fi.ty,
@@ -3852,7 +3852,7 @@ _c3_eval_colon_pair :: (
               // issues/fixed/yo-inherent-first-resolution.md.
               source_trait_id : match(
                 current_trait_ty,
-                .Some(__ct) => type_id_or_empty(__ct),
+                .Some(__ct) => type_id_or_empty(&__ct),
                 .None => String.from("")
               ),
               needs_pointer_conversion : false,
@@ -3882,22 +3882,22 @@ _c3_eval_colon_pair :: (
             method_val,
             .FuncVal(__var_fvd, _) => {
               register_impl_inheritance_task(
-                type_id_or_empty(__var_tt),
+                type_id_or_empty(&__var_tt),
                 method_name.clone(),
-                method_val,
-                fi.ty,
-                name_tok,
-                st.env,
+                &method_val,
+                &fi.ty,
+                &name_tok,
+                &st.env,
                 ctx,
                 exn
               );
               register_impl_variance_task(
-                type_id_or_empty(__var_tt),
+                type_id_or_empty(&__var_tt),
                 method_name.clone(),
                 __var_fvd.*.func_id.clone(),
-                name_tok,
-                fi.ty,
-                st.env,
+                &name_tok,
+                &fi.ty,
+                &st.env,
                 ctx,
                 exn
               );
@@ -3920,7 +3920,7 @@ _c2_register_member :: (
   (updated : bool) = false;
   if(pf.phase_a_registered, {
     real_fid := match(value, .FuncVal(__c2r_fvd, _) => __c2r_fvd.*.func_id.clone(), _ => String.new());
-    prior := get_provisional_trait_methods_by_name(st.recv_id, label.clone());
+    prior := get_provisional_trait_methods_by_name(&st.recv_id, label.clone());
     (pi : usize) = usize(0);
     while((pi < prior.len()) && !updated, {
       match(
@@ -3974,26 +3974,26 @@ _c2_eval_direct_field :: (
   );
   mname_expr := match(mf_colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
   mval_expr := match(mf_colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
-  mname_tok := ast_expr_token(mname_expr);
+  mname_tok := ast_expr_token(&mname_expr);
   mname := mname_tok.value.clone();
   saved3 := ctx.expected_type;
   ctx.expected_type = .None;
-  eval_mval := evaluate_expression_raw(mval_expr, st.env, ctx, exn);
+  eval_mval := evaluate_expression_raw(&mval_expr, &st.env, ctx, exn);
   ctx.expected_type = saved3;
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_mval)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_mval)),
     .None => (),
     .Some(mfi) => {
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
-      st.env = expr_info_adopt_env(mfi);
+      st.env = expr_info_adopt_env(&mfi);
       mval := match(mfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
-      m_is_macro := _method_ty_skip_stamp(mfi.ty);
+      m_is_macro := _method_ty_skip_stamp(&mfi.ty);
       (m_to_push : EvalValue) = EvalValue.UnitVal;
       if(m_is_macro, {
         m_to_push = mval;
       }, {
-        m_to_push = _stamp_impl_forall_on_method(mval, st.forall_names);
+        m_to_push = _stamp_impl_forall_on_method(&mval, &st.forall_names);
       });
       pf.result_ty = Option(TypeValue).Some(mfi.ty);
       pf.result_value = Option(EvalValue).Some(m_to_push);
@@ -4004,18 +4004,18 @@ _c2_eval_direct_field :: (
       // unit. Same as the per-type main pass binding
       // each field into the impl env as it goes.
       _gb := add_variable_to_env(
-        st.env,
+        &st.env,
         mname.clone(),
-        mfi.ty,
+        &mfi.ty,
         Option(EvalValue).Some(mval),
         true,
         false,
         false,
         false,
-        mname_tok
+        &mname_tok
       );
       if(st.recv_id != "", {
-        _c2_register_member(st, pf, mname, mfi.ty, m_to_push, String.from(""));
+        _c2_register_member(st, pf, &mname, &mfi.ty, &m_to_push, String.from(""));
       });
     }
   );
@@ -4033,14 +4033,14 @@ _c2_eval_inner_field :: (
   );
   g_name_expr := match(g_colon_args.get(usize(0)), .Some(e) => e, .None => make_err_expr());
   g_val_expr := match(g_colon_args.get(usize(1)), .Some(e) => e, .None => make_err_expr());
-  g_mname := ast_expr_token(g_name_expr).value.clone();
+  g_mname := ast_expr_token(&g_name_expr).value.clone();
   // Expected field type from the trait's field-by-label, with `Self`
   // substituted to the receiver PATTERN (the same
   // `_substitute_self_in_method_ty` substitution Case 3 does at
   // registration).
   g_expected := match(
-    _trait_field_type_by_label(st.current_trait_ty, g_mname),
-    .Some(t) => Option(TypeValue).Some(_substitute_self_in_method_ty(t, st.receiver_ty)),
+    _trait_field_type_by_label(&st.current_trait_ty, &g_mname),
+    .Some(t) => Option(TypeValue).Some(_substitute_self_in_method_ty(&t, &st.receiver_ty)),
     .None => Option(TypeValue).None
   );
   saved4 := ctx.expected_type;
@@ -4049,15 +4049,15 @@ _c2_eval_inner_field :: (
     .Some(t) => Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t, env : st.env)),
     .None => Option(ExpectedTypeCtx).None
   );
-  eval_gval := evaluate_expression_raw(g_val_expr, st.env, ctx, exn);
+  eval_gval := evaluate_expression_raw(&g_val_expr, &st.env, ctx, exn);
   ctx.expected_type = saved4;
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_gval)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_gval)),
     .None => (),
     .Some(gfi) => {
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
-      st.env = expr_info_adopt_env(gfi);
+      st.env = expr_info_adopt_env(&gfi);
       g_mval := match(gfi.value, .Some(v) => v, .None => EvalValue.UnitVal);
       // Make this field visible to later fields' `Self.X`. TYPE-valued
       // fields only — see the Case 3 counterpart.
@@ -4069,12 +4069,12 @@ _c2_eval_inner_field :: (
         },
         _ => ()
       );
-      g_is_macro := _method_ty_skip_stamp(gfi.ty);
+      g_is_macro := _method_ty_skip_stamp(&gfi.ty);
       (g_to_push : EvalValue) = EvalValue.UnitVal;
       if(g_is_macro, {
         g_to_push = g_mval;
       }, {
-        g_to_push = _stamp_impl_forall_on_method(g_mval, st.forall_names);
+        g_to_push = _stamp_impl_forall_on_method(&g_mval, &st.forall_names);
       });
       pf.result_ty = Option(TypeValue).Some(gfi.ty);
       pf.result_value = Option(EvalValue).Some(g_to_push);
@@ -4083,10 +4083,10 @@ _c2_eval_inner_field :: (
       if(st.recv_id != "", {
         c2g_src_tid := match(
           st.current_trait_ty,
-          .Some(c2g_tt) => type_id_or_empty(c2g_tt),
+          .Some(c2g_tt) => type_id_or_empty(&c2g_tt),
           .None => String.from("")
         );
-        _c2_register_member(st, pf, g_mname, gfi.ty, g_to_push, c2g_src_tid);
+        _c2_register_member(st, pf, &g_mname, &gfi.ty, &g_to_push, &c2g_src_tid);
       });
     }
   );
@@ -4098,7 +4098,7 @@ _c2_eval_inner_field :: (
 _run_impl_field :: (
   fn(imm(pf) : ImplPendingField, imm(st) : ImplInFlight, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit
 )({
-  push_forcing_def(pf.def);
+  push_forcing_def(&pf.def);
   pf.state = ImplFieldState.Forcing;
   cond(
     st.is_generic => cond(
@@ -4106,7 +4106,7 @@ _run_impl_field :: (
       true => _c2_eval_direct_field(pf, st, ctx, exn)
     ),
     true => _c3_eval_colon_pair(
-      pf.colon_expr,
+      &pf.colon_expr,
       cond(pf.is_inner => st.current_trait_ty, true => Option(TypeValue).None),
       st,
       Option(ImplPendingField).Some(pf),
@@ -4137,7 +4137,7 @@ _force_field_eval :: (fn(imm(pf) : ImplPendingField, imm(st) : ImplInFlight) -> 
       }
     )
   );
-  _run_impl_field(pf, st, st.ctx, inner_exn);
+  _run_impl_field(pf, st, &st.ctx, &inner_exn);
   ()
 });
 /// env.yo's lookup-miss hook (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): a method
@@ -4161,7 +4161,7 @@ force_in_flight_field :: (
     }
   );
   pf := match(
-    impl_forcible_field(rec, method_name),
+    impl_forcible_field(&rec, method_name),
     .Some(f) => f,
     .None => {
       return(false);
@@ -4176,7 +4176,7 @@ force_in_flight_field :: (
         pa_v := match(pf.def.phase_a_value, .Some(v) => v, .None => EvalValue.UnitVal);
         pa_t := match(pf.def.phase_a_type, .Some(t) => t, .None => t_unit());
         pa_src := cond(
-          pf.is_inner => match(rec.current_trait_ty, .Some(tt) => type_id_or_empty(tt), .None => String.from("")),
+          pf.is_inner => match(rec.current_trait_ty, .Some(tt) => type_id_or_empty(&tt), .None => String.from("")),
           true => String.from("")
         );
         pa_entry := MethodEntry(
@@ -4189,9 +4189,9 @@ force_in_flight_field :: (
           owner : String.new()
         );
         if(rec.is_generic, {
-          register_provisional_trait_method(rec.recv_id.clone(), pa_entry);
+          register_provisional_trait_method(rec.recv_id.clone(), &pa_entry);
         }, {
-          register_type_trait_method(rec.recv_id.clone(), pa_entry);
+          register_type_trait_method(rec.recv_id.clone(), &pa_entry);
         });
         pf.phase_a_registered = true;
         if(debug_knob(`YO_DEBUG_LAZY`).is_some(), {
@@ -4218,12 +4218,12 @@ force_in_flight_field :: (
       });
       depths := forcing_depths();
       ___cf := _take_field_force_failure();
-      _force_field_eval(pf, rec);
+      _force_field_eval(&pf, &rec);
       failure := _take_field_force_failure();
       rec.ctx.current_impl_trait_field_labels = saved_wt_labels;
       rec.ctx.current_impl_trait_field_types = saved_wt_types;
       rec.ctx.expected_type = saved_exp;
-      restore_active_where_trait_ids(saved_where);
+      restore_active_where_trait_ids(&saved_where);
       ___rt := set_in_def_time_trial(prev_trial);
       match(
         failure,
@@ -4232,7 +4232,7 @@ force_in_flight_field :: (
           pf.state = ImplFieldState.Failed;
           full := `${msg}\n  note: \`${pf.label}\` was evaluated here because a sibling method of this impl references it before its definition`;
           pf.failure = Option(String).Some(full.clone());
-          flag_pending_impl_force_error(full);
+          flag_pending_impl_force_error(&full);
           false
         },
         .None => true
@@ -4267,7 +4267,7 @@ _collect_impl_where_constraints :: (
   while(wi < where_args.len(), {
     c := match(where_args.get(wi), .Some(x) => x, .None => make_err_expr());
     wi = (wi + usize(1));
-    if(ast_expr_is_fn_call_of(c, "<:", Option(usize).Some(usize(2))), {
+    if(ast_expr_is_fn_call_of(&c, "<:", Option(usize).Some(usize(2))), {
       c_args := match(
         c,
         .FnCall(_, _, ca, _, _) => ca,
@@ -4275,7 +4275,7 @@ _collect_impl_where_constraints :: (
       );
       lhs := match(c_args.get(usize(0)), .Some(x) => x, .None => make_err_expr());
       rhs := match(c_args.get(usize(1)), .Some(x) => x, .None => make_err_expr());
-      lhs_name := ast_expr_token(lhs).value.clone();
+      lhs_name := ast_expr_token(&lhs).value.clone();
       (fa_idx : Option(usize)) = Option(usize).None;
       (fni : usize) = usize(0);
       while((fni < forall_names.len()) && fa_idx.is_none(), {
@@ -4297,7 +4297,7 @@ _collect_impl_where_constraints :: (
           // store a type value in tuple"), so split it and look up each element
           // as its own constraint (T <: A, T <: B). Same BK_TUPLE split
           // as the function where-clause handler (types/function.yo:1968).
-          if(ast_expr_is_fn_call_of(rhs, BK_TUPLE, Option(usize).None), {
+          if(ast_expr_is_fn_call_of(&rhs, BK_TUPLE, Option(usize).None), {
             rhs_args := match(
               rhs,
               .FnCall(_, _, ra, _, _) => ra,
@@ -4307,7 +4307,7 @@ _collect_impl_where_constraints :: (
             while(rti < rhs_args.len(), {
               re := match(rhs_args.get(rti), .Some(x) => x, .None => make_err_expr());
               match(
-                _try_lookup_trait_type(re, forall_env, ctx, exn),
+                _try_lookup_trait_type(&re, forall_env, ctx, exn),
                 .Some(tr) => {
                   out_some_types.push(st.clone());
                   out_traits.push(tr);
@@ -4335,7 +4335,7 @@ _collect_impl_where_constraints :: (
             });
           }, {
             match(
-              _try_lookup_trait_type(rhs, forall_env, ctx, exn),
+              _try_lookup_trait_type(&rhs, forall_env, ctx, exn),
               .Some(tr) => {
                 out_some_types.push(st.clone());
                 out_traits.push(tr);
@@ -4390,7 +4390,7 @@ evaluate_module_value :: (
   // ---------------------------------------------------------------------------
   a0_is_begin_block := match(
     args.get(usize(0)),
-    .Some(a0) => (ast_expr_is_fn_call(a0) && ast_expr_is_fn_call_of(a0, BK_BEGIN, .None)),
+    .Some(a0) => (ast_expr_is_fn_call(&a0) && ast_expr_is_fn_call_of(&a0, BK_BEGIN, .None)),
     .None => false
   );
   if((n_args == usize(1)) && a0_is_begin_block, {
@@ -4403,8 +4403,8 @@ evaluate_module_value :: (
     saved_expected := ctx.expected_type;
     ctx.expected_type = .None;
     result := evaluate_anonymous_module_begin_exprs(
-      begin_exprs,
-      local_env,
+      &begin_exprs,
+      &local_env,
       ctx,
       false,
       false,
@@ -4415,9 +4415,9 @@ evaluate_module_value :: (
     );
     ctx.expected_type = saved_expected;
     local_env = result.env;
-    out_info := new_expr_info(local_env, result.module_type);
+    out_info := new_expr_info(&local_env, &result.module_type);
     out_info.value = .Some(result.module_value);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
   // ---------------------------------------------------------------------------
@@ -4425,7 +4425,7 @@ evaluate_module_value :: (
   // ---------------------------------------------------------------------------
   has_forall := match(
     args.get(usize(0)),
-    .Some(a0) => (ast_expr_is_fn_call(a0) && ast_expr_is_fn_call_of(a0, BK_GENERIC, .None)),
+    .Some(a0) => (ast_expr_is_fn_call(&a0) && ast_expr_is_fn_call_of(&a0, BK_GENERIC, .None)),
     .None => false
   );
   if(has_forall, {
@@ -4438,7 +4438,7 @@ evaluate_module_value :: (
     // Snapshot env (share frames — aliasing snapshot) and push a
     // fresh frame to hold the generic SomeTs — writes only touch that frame,
     // so the outer scope stays isolated.
-    (forall_env : Environment) = snapshot_env(local_env);
+    (forall_env : Environment) = snapshot_env(&local_env);
     forall_env.push_frame(false);
     frame_lvl := (forall_env.frames.len() - usize(1));
     // Forall param names and SomeT TypeValues (parallel arrays).
@@ -4449,7 +4449,7 @@ evaluate_module_value :: (
       fp_expr := match(forall_args.get(fi2), .Some(e) => e, .None => make_err_expr());
       fi2 = (fi2 + usize(1));
       // Extract name: `T : Type` colon pair or plain atom `T`.
-      (param_name_opt : Option(String)) = if(ast_expr_is_fn_call(fp_expr) && ast_expr_is_fn_call_of(fp_expr, BK_COLON, .Some(usize(2))), {
+      (param_name_opt : Option(String)) = if(ast_expr_is_fn_call(&fp_expr) && ast_expr_is_fn_call_of(&fp_expr, BK_COLON, .Some(usize(2))), {
         colon_args2 := match(
           fp_expr,
           .FnCall(_, _, ca2, _, _) => ca2,
@@ -4461,25 +4461,25 @@ evaluate_module_value :: (
         // resolve_some_binder_kind in types/creators.yo). Only value-binder
         // kinds matter, so `: Type` is skipped.
         rhs2 := match(colon_args2.get(usize(1)), .Some(e) => e, .None => make_err_expr());
-        if(ast_expr_is_atom(rhs2), {
-          rhs2_name := ast_expr_token(rhs2).value.clone();
+        if(ast_expr_is_atom(&rhs2), {
+          rhs2_name := ast_expr_token(&rhs2).value.clone();
           if(rhs2_name != "Type", {
-            register_some_binder_kind(ast_expr_token(lhs2).value.clone(), frame_lvl, rhs2_name);
+            register_some_binder_kind(ast_expr_token(&lhs2).value.clone(), frame_lvl, &rhs2_name);
           });
         });
-        Option(String).Some(ast_expr_token(lhs2).value.clone())
+        Option(String).Some(ast_expr_token(&lhs2).value.clone())
       }, if(
-        ast_expr_is_atom(fp_expr),
-        Option(String).Some(ast_expr_token(fp_expr).value.clone()),
+        ast_expr_is_atom(&fp_expr),
+        Option(String).Some(ast_expr_token(&fp_expr).value.clone()),
         Option(String).None
       ));
       (param_name_str : String) = match(param_name_opt, .Some(n) => n, .None => String.from("_"));
       // Create a SomeT for this parameter.
       some_ty := t_some_t(param_name_str.clone(), frame_lvl);
-      tv := create_type_value(some_ty);
+      tv := create_type_value(&some_ty);
       // Add TypeVal(SomeT) to forall_env so receiver type evaluation sees it.
       add_variable_to_env(
-        forall_env,
+        &forall_env,
         param_name_str.clone(),
         t_type(),
         // TypeUni(0) — type-of-a-type
@@ -4492,7 +4492,7 @@ evaluate_module_value :: (
         // is_owning_the_rc_value
         false,
         // is_implicit
-        ast_expr_token(fp_expr)
+        ast_expr_token(&fp_expr)
       );
       forall_names.push(param_name_str.clone());
       forall_some_types.push(some_ty);
@@ -4511,9 +4511,9 @@ evaluate_module_value :: (
       args.get(usize(1)),
       .None => (),
       .Some(a1) => {
-        if(ast_expr_is_fn_call(a1) && ast_expr_is_fn_call_of(a1, "where", .None), {
+        if(ast_expr_is_fn_call(&a1) && ast_expr_is_fn_call_of(&a1, "where", .None), {
           receiver_arg_idx = usize(2);
-          _collect_impl_where_constraints(a1, forall_names, forall_some_types, forall_env, ctx, exn, impl_where_some_types, impl_where_traits);
+          _collect_impl_where_constraints(&a1, &forall_names, &forall_some_types, &forall_env, ctx, exn, &mut impl_where_some_types, &mut impl_where_traits);
         });
       }
     );
@@ -4521,16 +4521,16 @@ evaluate_module_value :: (
     // Evaluate receiver type with SomeTs in scope.
     saved_expected2 := ctx.expected_type;
     ctx.expected_type = .None;
-    eval_rcv2 := evaluate_expression_raw(receiver_type_expr2, forall_env, ctx, exn);
+    eval_rcv2 := evaluate_expression_raw(&receiver_type_expr2, &forall_env, ctx, exn);
     ctx.expected_type = saved_expected2;
     (receiver_type_pattern : TypeValue) = t_unit();
     match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_rcv2)),
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_rcv2)),
       .None => (),
       .Some(ri2) => {
         // A recorded snapshot is shared between ExprInfos (`expr_info_env_snapshot`)
         // and later pushed on (forall frame below): adopt a private shallow copy.
-        forall_env = expr_info_adopt_env(ri2);
+        forall_env = expr_info_adopt_env(&ri2);
         match(
           ri2.value,
           .None => (),
@@ -4552,7 +4552,7 @@ evaluate_module_value :: (
     ctx.self_type = .Some(receiver_type_pattern);
     // Receiver id for the per-field PROVISIONAL registration below.
     // Empty for receivers without an id — skip, mirroring Case 3's guard.
-    c2_recv_id := type_id_or_empty(receiver_type_pattern);
+    c2_recv_id := type_id_or_empty(&receiver_type_pattern);
     // Pending members (plans/reference/LAZY_TOPLEVEL_BINDINGS.md P3): every direct
     // colon-pair member and every member inside a trait constructor is a
     // definition scoped to this block. A sibling's definition-time body trial
@@ -4568,15 +4568,15 @@ evaluate_module_value :: (
     (c2_pp : usize) = (receiver_arg_idx + usize(1));
     while(c2_pp < n_args, {
       c2_pp_expr := match(args.get(c2_pp), .None => make_err_expr(), .Some(e) => e);
-      if(ast_expr_is_fn_call(c2_pp_expr) && ast_expr_is_fn_call_of(c2_pp_expr, BK_COLON, .Some(usize(2))), {
+      if(ast_expr_is_fn_call(&c2_pp_expr) && ast_expr_is_fn_call_of(&c2_pp_expr, BK_COLON, .Some(usize(2))), {
         c2_lbl := match(
           c2_pp_expr,
-          .FnCall(_, _, c2_ca, _, _) => match(c2_ca.get(usize(0)), .Some(l) => ast_expr_token(l).value.clone(), .None => String.new()),
+          .FnCall(_, _, c2_ca, _, _) => match(c2_ca.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
           .Atom(_, _) => String.new()
         );
-        c2_fields.push(make_impl_pending_field(c2_lbl, c2_pp_expr, c2_pp, false));
+        c2_fields.push(make_impl_pending_field(&c2_lbl, &c2_pp_expr, c2_pp, false));
       });
-      if(ast_expr_is_fn_call(c2_pp_expr) && !ast_expr_is_fn_call_of(c2_pp_expr, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(c2_pp_expr, BK_WHERE, .None) && !ast_expr_is_fn_call_of(c2_pp_expr, "!", .Some(usize(1)))), {
+      if(ast_expr_is_fn_call(&c2_pp_expr) && !ast_expr_is_fn_call_of(&c2_pp_expr, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(&c2_pp_expr, BK_WHERE, .None) && !ast_expr_is_fn_call_of(&c2_pp_expr, "!", .Some(usize(1)))), {
         c2_ta := match(
           c2_pp_expr,
           .FnCall(_, _, ta, _, _) => ta,
@@ -4586,13 +4586,13 @@ evaluate_module_value :: (
         while(c2_ti < c2_ta.len(), {
           c2_te := match(c2_ta.get(c2_ti), .Some(e) => e, .None => make_err_expr());
           c2_ti = (c2_ti + usize(1));
-          if(ast_expr_is_fn_call(c2_te) && ast_expr_is_fn_call_of(c2_te, BK_COLON, .Some(usize(2))), {
+          if(ast_expr_is_fn_call(&c2_te) && ast_expr_is_fn_call_of(&c2_te, BK_COLON, .Some(usize(2))), {
             c2_ilbl := match(
               c2_te,
-              .FnCall(_, _, c2_ica, _, _) => match(c2_ica.get(usize(0)), .Some(l) => ast_expr_token(l).value.clone(), .None => String.new()),
+              .FnCall(_, _, c2_ica, _, _) => match(c2_ica.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
               .Atom(_, _) => String.new()
             );
-            c2_fields.push(make_impl_pending_field(c2_ilbl, c2_te, c2_pp, true));
+            c2_fields.push(make_impl_pending_field(&c2_ilbl, &c2_te, c2_pp, true));
           });
         });
       });
@@ -4610,7 +4610,7 @@ evaluate_module_value :: (
       current_trait_ty : Option(TypeValue).None,
       forall_names : forall_names
     );
-    push_impl_in_flight(c2_rec);
+    push_impl_in_flight(&c2_rec);
     (fj : usize) = (receiver_arg_idx + usize(1));
     while(fj < n_args, {
       mf_expr := match(args.get(fj), .None => make_err_expr(), .Some(e) => e);
@@ -4623,7 +4623,7 @@ evaluate_module_value :: (
       // (the generic branch of negative-trait registration). The `!(...)` field
       // then falls through the trait-constructor handling below as a no-op (its
       // head `!` is not a trait), like the concrete negative path.
-      if(ast_expr_is_fn_call_of(mf_expr, "!", .Some(usize(1))), {
+      if(ast_expr_is_fn_call_of(&mf_expr, "!", .Some(usize(1))), {
         neg_inner := match(
           mf_expr,
           .FnCall(_, _, na, _, _) => match(na.get(usize(0)), .Some(x) => x, .None => make_err_expr()),
@@ -4631,10 +4631,10 @@ evaluate_module_value :: (
         );
         neg_head := match(neg_inner, .FnCall(_, fbn, _, _, _) => fbn, .Atom(_, _) => neg_inner);
         match(
-          _try_lookup_trait_type(neg_head, forall_env, ctx, exn),
+          _try_lookup_trait_type(&neg_head, &forall_env, ctx, exn),
           .Some(neg_trait_ty) => {
             neg_entry := GenericImplEntry(
-              get_trait_key(neg_trait_ty),
+              get_trait_key(&neg_trait_ty),
               forall_names,
               forall_some_types,
               receiver_type_pattern,
@@ -4647,17 +4647,17 @@ evaluate_module_value :: (
               impl_where_traits,
               _impl_site_string(ast_expr_token(expr))
             );
-            register_negative_generic_impl(neg_entry);
+            register_negative_generic_impl(&neg_entry);
           },
           .None => ()
         );
       });
-      if(ast_expr_is_fn_call(mf_expr) && ast_expr_is_fn_call_of(mf_expr, BK_COLON, .Some(usize(2))), {
+      if(ast_expr_is_fn_call(&mf_expr) && ast_expr_is_fn_call_of(&mf_expr, BK_COLON, .Some(usize(2))), {
         // Direct member — through its pending entry (a sibling may already
         // have forced it); its results are pushed HERE, in source order.
         c2_rec.env = forall_env;
         match(
-          impl_direct_field_at(c2_rec, fj - usize(1)),
+          impl_direct_field_at(&c2_rec, fj - usize(1)),
           .Some(c2_pf) => {
             match(
               c2_pf.state,
@@ -4666,10 +4666,10 @@ evaluate_module_value :: (
                 exn.throw(dyn(match(c2_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
               },
               .Forcing => {
-                exn.throw(dyn(format_error_message(ast_expr_token(mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`)));
+                exn.throw(dyn(format_error_message(ast_expr_token(&mf_expr), `internal error: impl member "${c2_pf.label}" reached by the field loop while it is being forced`)));
               },
               .Unforced => {
-                _run_impl_field(c2_pf, c2_rec, ctx, exn);
+                _run_impl_field(&c2_pf, &c2_rec, ctx, exn);
               }
             );
             match(
@@ -4701,17 +4701,17 @@ evaluate_module_value :: (
       // (`impl(generic(T), Channel(T), where(T <: Send), ...)`); they are
       // not fields — capture their constraints (for try_match_generic_impl),
       // then skip them like the pre-receiver capture above.
-      if(ast_expr_is_fn_call_of(mf_expr, BK_WHERE, .None), {
-        _collect_impl_where_constraints(mf_expr, forall_names, forall_some_types, forall_env, ctx, exn, impl_where_some_types, impl_where_traits);
+      if(ast_expr_is_fn_call_of(&mf_expr, BK_WHERE, .None), {
+        _collect_impl_where_constraints(&mf_expr, &forall_names, &forall_some_types, &forall_env, ctx, exn, &mut impl_where_some_types, &mut impl_where_traits);
       });
-      if(ast_expr_is_fn_call(mf_expr) && !ast_expr_is_fn_call_of(mf_expr, BK_COLON, .Some(usize(2))) && !ast_expr_is_fn_call_of(mf_expr, BK_WHERE, .None), {
+      if(ast_expr_is_fn_call(&mf_expr) && !ast_expr_is_fn_call_of(&mf_expr, BK_COLON, .Some(usize(2))) && !ast_expr_is_fn_call_of(&mf_expr, BK_WHERE, .None), {
         trait_fn_expr2 := match(
           mf_expr,
           .FnCall(_, tfb, _, _, _) => tfb,
           .Atom(_, _) => make_err_expr()
         );
-        g_trait_ty_opt := _try_lookup_trait_type(trait_fn_expr2, forall_env, ctx, exn);
-        _throw_if_deref_impl_outside_prelude(g_trait_ty_opt, ast_expr_token(mf_expr), forall_env, ctx, exn);
+        g_trait_ty_opt := _try_lookup_trait_type(&trait_fn_expr2, &forall_env, ctx, exn);
+        _throw_if_deref_impl_outside_prelude(&g_trait_ty_opt, ast_expr_token(&mf_expr), &forall_env, ctx, exn);
         g_trait_ty := match(g_trait_ty_opt, .Some(t) => t, .None => t_unit());
         // `Dispose`/`Trace` only on the receivers they accept, as
         // Case 3 checks through `g_check_self_constraints_fn`; a blanket
@@ -4723,9 +4723,9 @@ evaluate_module_value :: (
           .Some(gtt) => match(
             g_receiver_kind_trait_fn,
             .Some(cof) => match(
-              cof(receiver_type_pattern, gtt, forall_env),
+              cof(&receiver_type_pattern, &gtt, &forall_env),
               .Some(co_msg) => {
-                exn.throw(dyn(format_error_message(ast_expr_token(mf_expr), co_msg)));
+                exn.throw(dyn(format_error_message(ast_expr_token(&mf_expr), &co_msg)));
               },
               .None => ()
             ),
@@ -4753,17 +4753,17 @@ evaluate_module_value :: (
         while(gti < trait_inner_args2.len(), {
           inner_e2 := match(trait_inner_args2.get(gti), .Some(x) => x, .None => make_err_expr());
           gti = (gti + usize(1));
-          if(ast_expr_is_fn_call(inner_e2) && ast_expr_is_fn_call_of(inner_e2, BK_COLON, .Some(usize(2))), {
+          if(ast_expr_is_fn_call(&inner_e2) && ast_expr_is_fn_call_of(&inner_e2, BK_COLON, .Some(usize(2))), {
             g_mname := match(
               inner_e2,
-              .FnCall(_, _, gca, _, _) => match(gca.get(usize(0)), .Some(e) => ast_expr_token(e).value.clone(), .None => String.new()),
+              .FnCall(_, _, gca, _, _) => match(gca.get(usize(0)), .Some(e) => ast_expr_token(&e).value.clone(), .None => String.new()),
               .Atom(_, _) => String.new()
             );
             // Through the member's pending entry (a sibling of THIS trait
             // entry may already have forced it); results pushed in order.
             c2_rec.env = forall_env;
             match(
-              impl_inner_field_at(c2_rec, fj - usize(1), g_mname.clone()),
+              impl_inner_field_at(&c2_rec, fj - usize(1), g_mname.clone()),
               .Some(c2_ipf) => {
                 match(
                   c2_ipf.state,
@@ -4772,10 +4772,10 @@ evaluate_module_value :: (
                     exn.throw(dyn(match(c2_ipf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
                   },
                   .Forcing => {
-                    exn.throw(dyn(format_error_message(ast_expr_token(inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`)));
+                    exn.throw(dyn(format_error_message(ast_expr_token(&inner_e2), `internal error: impl member "${c2_ipf.label}" reached by the field loop while it is being forced`)));
                   },
                   .Unforced => {
-                    _run_impl_field(c2_ipf, c2_rec, ctx, exn);
+                    _run_impl_field(&c2_ipf, &c2_rec, ctx, exn);
                   }
                 );
                 match(
@@ -4822,13 +4822,13 @@ evaluate_module_value :: (
                 });
                 gpi = (gpi + usize(1));
               });
-              if(!gd_provided && is_function_type(gd_ty), {
+              if(!gd_provided && is_function_type(&gd_ty), {
                 match(
                   get_trait_default(gd_trait_id.clone(), gd_label.clone()),
                   .Some(gd_val) => {
                     g_method_names.push(gd_label.clone());
-                    g_method_types.push(_freshen_return_only_somes(_substitute_self_in_method_ty(gd_ty, receiver_type_pattern)));
-                    g_method_values.push(_stamp_impl_forall_on_method(gd_val, forall_names));
+                    g_method_types.push(_freshen_return_only_somes(_substitute_self_in_method_ty(&gd_ty, &receiver_type_pattern)));
+                    g_method_values.push(_stamp_impl_forall_on_method(&gd_val, &forall_names));
                   },
                   .None => ()
                 );
@@ -4839,7 +4839,7 @@ evaluate_module_value :: (
           _ => ()
         );
         g_entry := GenericImplEntry(
-          get_base_trait_key(g_trait_ty),
+          get_base_trait_key(&g_trait_ty),
           // 1. trait_key — the trait's own key, NOT the inherent "" key
           forall_names,
           // 2. forall_names
@@ -4863,10 +4863,10 @@ evaluate_module_value :: (
           // 11. where_constraint_traits
           _impl_site_string(ast_expr_token(expr)) // 12. site
         );
-        _check_generic_impl_coherence(g_entry, forall_env, ast_expr_token(expr), exn);
-        register_generic_impl(g_entry);
-        note_generic_move_only_impl(g_entry);
-        _check_generic_copy_clone_exclusion(g_entry, ast_expr_token(mf_expr), ctx, exn);
+        _check_generic_impl_coherence(&g_entry, &forall_env, ast_expr_token(expr), exn);
+        register_generic_impl(&g_entry);
+        note_generic_move_only_impl(&g_entry);
+        _check_generic_copy_clone_exclusion(&g_entry, ast_expr_token(&mf_expr), ctx, exn);
       });
     });
     // Restore self_type so the impl's parent scope sees its prior value.
@@ -4875,7 +4875,7 @@ evaluate_module_value :: (
     // methods live in the GenericImplEntry registered below), the same
     // clear the Case 3 path does.
     if(c2_recv_id != "", {
-      clear_provisional_trait_methods(c2_recv_id);
+      clear_provisional_trait_methods(&c2_recv_id);
     });
     pop_impl_in_flight();
     // Drop the binder-kind registrations (same lifetime as the impl:
@@ -4885,7 +4885,7 @@ evaluate_module_value :: (
       while(sbk_i < forall_names.len(), {
         match(
           forall_names.get(sbk_i),
-          .Some(sbk_n) => clear_some_binder_kind(sbk_n, frame_lvl),
+          .Some(sbk_n) => clear_some_binder_kind(&sbk_n, frame_lvl),
           .None => ()
         );
         sbk_i = (sbk_i + usize(1));
@@ -4893,7 +4893,7 @@ evaluate_module_value :: (
     };
     // For inherent impls, trait_type = Unit (empty key — correct for registry).
     (trait_ty : TypeValue) = t_unit();
-    trait_key_str := get_trait_key(trait_ty);
+    trait_key_str := get_trait_key(&trait_ty);
     entry := GenericImplEntry(
       trait_key_str,
       // 1. trait_key
@@ -4919,12 +4919,12 @@ evaluate_module_value :: (
       // 11. where_constraint_traits
       _impl_site_string(ast_expr_token(expr)) // 12. site
     );
-    _check_generic_impl_coherence(entry, forall_env, ast_expr_token(expr), exn);
-    register_generic_impl(entry);
+    _check_generic_impl_coherence(&entry, &forall_env, ast_expr_token(expr), exn);
+    register_generic_impl(&entry);
     // Return the original local_env (without the generic frame leaked into scope).
-    out_info := new_expr_info(local_env, t_unit());
+    out_info := new_expr_info(&local_env, t_unit());
     out_info.value = .Some(EvalValue.UnitVal);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
   // ---------------------------------------------------------------------------
@@ -4944,20 +4944,20 @@ evaluate_module_value :: (
   receiver_type_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   saved_expected := ctx.expected_type;
   ctx.expected_type = .None;
-  eval_receiver := evaluate_expression_raw(receiver_type_expr, local_env, ctx, exn);
+  eval_receiver := evaluate_expression_raw(&receiver_type_expr, &local_env, ctx, exn);
   ctx.expected_type = saved_expected;
   // Get receiver type name for qualifying method names.
-  rcv_tok := ast_expr_token(receiver_type_expr);
+  rcv_tok := ast_expr_token(&receiver_type_expr);
   receiver_name := rcv_tok.value.clone();
   // Advance local_env from receiver evaluation and capture the
   // receiver TypeValue itself so we can register methods against
   // its id in the trait-method registry below.
   (receiver_ty : TypeValue) = t_unit();
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_receiver)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_receiver)),
     .Some(ri) => {
       // Same: `local_env` gets the impl frame pushed at the end.
-      local_env = expr_info_adopt_env(ri);
+      local_env = expr_info_adopt_env(&ri);
       match(
         ri.value,
         .None => (),
@@ -4969,7 +4969,7 @@ evaluate_module_value :: (
     },
     .None => ()
   );
-  receiver_type_id := type_id_or_empty(receiver_ty);
+  receiver_type_id := type_id_or_empty(&receiver_ty);
   // Pre-register each trait name in this impl so that recursive types
   // (e.g. `TreeNode :: enum(Branch(left : Rc(Self)))` with
   // `derive(TreeNode, Clone)`) can find their own Clone impl while
@@ -4986,11 +4986,11 @@ evaluate_module_value :: (
           // Skip name:value pairs — only trait constructors (or bare
           // trait names) qualify for pre-registration.
           is_colon_pair := (
-            ast_expr_is_fn_call(pre_field_expr) &&
-              ast_expr_is_fn_call_of(pre_field_expr, BK_COLON, .Some(usize(2)))
+            ast_expr_is_fn_call(&pre_field_expr) &&
+              ast_expr_is_fn_call_of(&pre_field_expr, BK_COLON, .Some(usize(2)))
           );
           if(!is_colon_pair, {
-            tname := ast_expr_token(pre_field_expr).value;
+            tname := ast_expr_token(&pre_field_expr).value;
             if(tname.len() > usize(0), {
               first_byte := tname.get_byte(usize(0));
               // Trait names start with an uppercase ASCII letter
@@ -5001,7 +5001,7 @@ evaluate_module_value :: (
                 .None => false
               );
               if(is_upper, {
-                mark_concrete_impl_being_registered(receiver_type_id, tname);
+                mark_concrete_impl_being_registered(&receiver_type_id, &tname);
                 pre_registered_trait_ids.push(tname.clone());
               });
             });
@@ -5038,13 +5038,13 @@ evaluate_module_value :: (
   while(c3_pi < n_args, {
     match(
       args.get(c3_pi),
-      .Some(c3_fe) => if(ast_expr_is_fn_call(c3_fe) && ast_expr_is_fn_call_of(c3_fe, BK_COLON, .Some(usize(2))), {
+      .Some(c3_fe) => if(ast_expr_is_fn_call(&c3_fe) && ast_expr_is_fn_call_of(&c3_fe, BK_COLON, .Some(usize(2))), {
         c3_lbl := match(
           c3_fe,
-          .FnCall(_, _, c3_ca, _, _) => match(c3_ca.get(usize(0)), .Some(l) => ast_expr_token(l).value.clone(), .None => String.new()),
+          .FnCall(_, _, c3_ca, _, _) => match(c3_ca.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
           .Atom(_, _) => String.new()
         );
-        c3_fields.push(make_impl_pending_field(c3_lbl, c3_fe, c3_pi, false));
+        c3_fields.push(make_impl_pending_field(&c3_lbl, &c3_fe, c3_pi, false));
       }),
       .None => ()
     );
@@ -5057,7 +5057,7 @@ evaluate_module_value :: (
     // transpile` (issues/fixed/derived-eq-ref-enum-self-payload-hollow-at-runtime.md).
     match(
       args.get(c3_pi),
-      .Some(c3_te_outer) => if(ast_expr_is_fn_call(c3_te_outer) && !ast_expr_is_fn_call_of(c3_te_outer, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(c3_te_outer, BK_WHERE, .None) && !ast_expr_is_fn_call_of(c3_te_outer, "!", .Some(usize(1)))), {
+      .Some(c3_te_outer) => if(ast_expr_is_fn_call(&c3_te_outer) && !ast_expr_is_fn_call_of(&c3_te_outer, BK_COLON, .Some(usize(2))) && (!ast_expr_is_fn_call_of(&c3_te_outer, BK_WHERE, .None) && !ast_expr_is_fn_call_of(&c3_te_outer, "!", .Some(usize(1)))), {
         c3_ta := match(
           c3_te_outer,
           .FnCall(_, _, ta, _, _) => ta,
@@ -5067,13 +5067,13 @@ evaluate_module_value :: (
         while(c3_ti < c3_ta.len(), {
           c3_te := match(c3_ta.get(c3_ti), .Some(e) => e, .None => make_err_expr());
           c3_ti = (c3_ti + usize(1));
-          if(ast_expr_is_fn_call(c3_te) && ast_expr_is_fn_call_of(c3_te, BK_COLON, .Some(usize(2))), {
+          if(ast_expr_is_fn_call(&c3_te) && ast_expr_is_fn_call_of(&c3_te, BK_COLON, .Some(usize(2))), {
             c3_ilbl := match(
               c3_te,
-              .FnCall(_, _, c3_ica, _, _) => match(c3_ica.get(usize(0)), .Some(l) => ast_expr_token(l).value.clone(), .None => String.new()),
+              .FnCall(_, _, c3_ica, _, _) => match(c3_ica.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
               .Atom(_, _) => String.new()
             );
-            c3_fields.push(make_impl_pending_field(c3_ilbl, c3_te, c3_pi, true));
+            c3_fields.push(make_impl_pending_field(&c3_ilbl, &c3_te, c3_pi, true));
           });
         });
       }),
@@ -5093,7 +5093,7 @@ evaluate_module_value :: (
     current_trait_ty : Option(TypeValue).None,
     forall_names : ArrayList(String).new()
   );
-  push_impl_in_flight(c3_rec);
+  push_impl_in_flight(&c3_rec);
   // Process each field expression: `name : fn_def` or a trait constructor
   // like `Trait(name: fn_def, ...)` whose inner args are colon pairs.
   (field_idx : usize) = usize(1);
@@ -5118,7 +5118,7 @@ evaluate_module_value :: (
         // + marker-check + register). The existing trait-constructor
         // handling below is a no-op for `!(...)` (its head `!` is not a trait and
         // its arg isn't a colon-pair), so no skip is needed.
-        is_negative_field := ast_expr_is_fn_call_of(field_expr, "!", .Some(usize(1)));
+        is_negative_field := ast_expr_is_fn_call_of(&field_expr, "!", .Some(usize(1)));
         if(is_negative_field, {
           neg_inner := match(
             field_expr,
@@ -5127,7 +5127,7 @@ evaluate_module_value :: (
           );
           neg_head := match(neg_inner, .FnCall(_, fbn, _, _, _) => fbn, .Atom(_, _) => neg_inner);
           match(
-            _try_lookup_trait_type(neg_head, local_env, ctx, exn),
+            _try_lookup_trait_type(&neg_head, &local_env, ctx, exn),
             .Some(neg_trait_ty) => {
               has_method := match(
                 neg_trait_ty,
@@ -5137,7 +5137,7 @@ evaluate_module_value :: (
                   while((mi < ftys.len()) && !hm, {
                     match(
                       ftys.get(mi),
-                      .Some(ft) => if(is_function_type(ft), {
+                      .Some(ft) => if(is_function_type(&ft), {
                         hm = true;
                       }),
                       .None => ()
@@ -5152,14 +5152,14 @@ evaluate_module_value :: (
                 exn.throw(
                   dyn(
                     format_error_message(
-                      ast_expr_token(field_expr),
+                      ast_expr_token(&field_expr),
                       `Cannot use '!(...)' — negative impls are only allowed for marker traits (traits without methods).`
                     )
                   )
                 );
               });
               if(receiver_type_id != "", {
-                register_negative_impl(receiver_type_id.clone(), get_trait_key(neg_trait_ty));
+                register_negative_impl(receiver_type_id.clone(), get_trait_key(&neg_trait_ty));
               });
             },
             .None => ()
@@ -5167,14 +5167,14 @@ evaluate_module_value :: (
         });
         // Phase A (THREAD_SAFETY): a manual `impl(T, Send())` / `impl(T, Sync())`
         // / `impl(T, Acyclic())` requires `pragma(Pragma.AllowUnsafe)`.
-        if(!is_negative_field && (ast_expr_is_fn_call(field_expr) && !ast_expr_is_fn_call_of(field_expr, BK_COLON, .Some(usize(2)))), {
+        if(!is_negative_field && (ast_expr_is_fn_call(&field_expr) && !ast_expr_is_fn_call_of(&field_expr, BK_COLON, .Some(usize(2)))), {
           pos_trait_name := match(
             field_expr,
-            .FnCall(_, pfb, _, _, _) => ast_expr_token(pfb).value,
+            .FnCall(_, pfb, _, _, _) => ast_expr_token(&pfb).value,
             .Atom(_, _) => String.new()
           );
           if((pos_trait_name == "Send") || (pos_trait_name == "Sync") || (pos_trait_name == "Acyclic"), {
-            if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(field_expr).module_path.clone())), {
+            if(!is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&field_expr).module_path.clone())), {
               suffix := cond(
                 (pos_trait_name == "Send") => String.from("send across threads"),
                 (pos_trait_name == "Sync") => String.from("share across threads"),
@@ -5183,7 +5183,7 @@ evaluate_module_value :: (
               exn.throw(
                 dyn(
                   format_error_message(
-                    ast_expr_token(field_expr),
+                    ast_expr_token(&field_expr),
                     `Manual 'impl(..., ${pos_trait_name}())' requires pragma(Pragma.AllowUnsafe). Add a '// SAFETY:' comment explaining why the type is safe to ${suffix}.`
                   )
                 )
@@ -5191,11 +5191,11 @@ evaluate_module_value :: (
             });
           });
         });
-        if(ast_expr_is_fn_call(field_expr) && ast_expr_is_fn_call_of(field_expr, BK_COLON, .Some(usize(2))), {
+        if(ast_expr_is_fn_call(&field_expr) && ast_expr_is_fn_call_of(&field_expr, BK_COLON, .Some(usize(2))), {
           // Direct colon pair: add it directly.
           method_exprs.push(field_expr);
         });
-        if(ast_expr_is_fn_call(field_expr) && !ast_expr_is_fn_call_of(field_expr, BK_COLON, .Some(usize(2))) && !ast_expr_is_fn_call_of(field_expr, BK_WHERE, .None), {
+        if(ast_expr_is_fn_call(&field_expr) && !ast_expr_is_fn_call_of(&field_expr, BK_COLON, .Some(usize(2))) && !ast_expr_is_fn_call_of(&field_expr, BK_WHERE, .None), {
           // Non-colon FnCall: treat as trait constructor, extract its colon-pair args.
           // (`where(...)` args are skipped — see the generic loop above.)
           trait_inner_args := match(
@@ -5214,8 +5214,8 @@ evaluate_module_value :: (
             .FnCall(_, fb, _, _, _) => fb,
             .Atom(_, _) => make_err_expr()
           );
-          current_trait_ty = _try_lookup_trait_type(trait_fn_expr, local_env, ctx, exn);
-          _throw_if_deref_impl_outside_prelude(current_trait_ty, ast_expr_token(field_expr), local_env, ctx, exn);
+          current_trait_ty = _try_lookup_trait_type(&trait_fn_expr, &local_env, ctx, exn);
+          _throw_if_deref_impl_outside_prelude(&current_trait_ty, ast_expr_token(&field_expr), &local_env, ctx, exn);
           // Record that this type implements the trait (by its base id) in the
           // type's trait list, so `Type.impls(T, Trait)` resolves by identity at
           // trait-checking step 4 — the impl'd trait is pushed onto the
@@ -5233,10 +5233,10 @@ evaluate_module_value :: (
               match(
                 g_check_self_constraints_fn,
                 .Some(cf) => match(
-                  cf(receiver_ty, ctt, local_env),
+                  cf(&receiver_ty, &ctt, &local_env),
                   .Some(sc_msg) => {
                     exn.throw(
-                      dyn(format_error_message(ast_expr_token(expr), sc_msg))
+                      dyn(format_error_message(ast_expr_token(expr), &sc_msg))
                     );
                   },
                   .None => ()
@@ -5249,29 +5249,29 @@ evaluate_module_value :: (
               // It used to register beside the first, and dispatch took the
               // first hit, so the second was dead code that looked live
               // (issues/fixed/yo-self-missing-duplicate-impl-checks.md).
-              coh_tok := ast_expr_token(field_expr);
-              _check_copy_clone_exclusion(receiver_ty, receiver_type_id.clone(), ctt, _impl_site_string(coh_tok), coh_tok, local_env, ctx, exn);
+              coh_tok := ast_expr_token(&field_expr);
+              _check_copy_clone_exclusion(&receiver_ty, receiver_type_id.clone(), &ctt, _impl_site_string(&coh_tok), &coh_tok, &local_env, ctx, exn);
               match(
-                note_trait_impl_site(receiver_type_id.clone(), get_trait_key(ctt), _impl_site_string(coh_tok)),
+                note_trait_impl_site(receiver_type_id.clone(), get_trait_key(&ctt), _impl_site_string(&coh_tok)),
                 .Some(coh_prev) => {
                   exn.throw(
                     dyn(
                       format_error_message(
-                        coh_tok,
-                        `Trait "${type_to_string(ctt)}" is already implemented for type "${type_to_string(receiver_ty)}" (first impl: ${coh_prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
+                        &coh_tok,
+                        `Trait "${type_to_string(&ctt)}" is already implemented for type "${type_to_string(&receiver_ty)}" (first impl: ${coh_prev}). A type implements a trait at most once (plans/reference/TRAIT_COHERENCE.md).`
                       )
                     )
                   );
                 },
                 .None => ()
               );
-              _check_concrete_impl_coherence(receiver_ty, ctt, _impl_site_string(coh_tok), local_env, coh_tok, exn);
+              _check_concrete_impl_coherence(&receiver_ty, &ctt, _impl_site_string(&coh_tok), &local_env, &coh_tok, exn);
               match(
                 g_register_trait_value_fn,
-                .Some(rf) => rf(receiver_type_id.clone(), ctt),
+                .Some(rf) => rf(receiver_type_id.clone(), &ctt),
                 .None => ()
               );
-              note_concrete_move_only_impl(receiver_ty, ctt, receiver_type_id.clone(), local_env);
+              note_concrete_move_only_impl(&receiver_ty, &ctt, receiver_type_id.clone(), &local_env);
             }),
             .None => ()
           );
@@ -5281,7 +5281,7 @@ evaluate_module_value :: (
               trait_inner_args.get(ti2),
               .None => (),
               .Some(inner_e) => {
-                if(ast_expr_is_fn_call(inner_e) && ast_expr_is_fn_call_of(inner_e, BK_COLON, .Some(usize(2))), {
+                if(ast_expr_is_fn_call(&inner_e) && ast_expr_is_fn_call_of(&inner_e, BK_COLON, .Some(usize(2))), {
                   method_exprs.push(inner_e);
                 });
               }
@@ -5312,12 +5312,12 @@ evaluate_module_value :: (
               while(pvfi < pv_labels.len(), {
                 pv_lbl := match(pv_labels.get(pvfi), .Some(l) => l, .None => String.from(""));
                 pv_fty := match(pv_types.get(pvfi), .Some(t) => t, .None => TypeValue.Unit);
-                if((pv_lbl != "") && is_function_type(pv_fty), {
+                if((pv_lbl != "") && is_function_type(&pv_fty), {
                   register_provisional_trait_method(
                     receiver_type_id.clone(),
                     MethodEntry(
                       label : pv_lbl.clone(),
-                      ty : _substitute_self_in_method_ty(pv_fty, receiver_ty),
+                      ty : _substitute_self_in_method_ty(&pv_fty, &receiver_ty),
                       value : Option(EvalValue).None,
                       source_trait_id : pv_trait_id.clone(),
                       needs_pointer_conversion : false,
@@ -5356,13 +5356,13 @@ evaluate_module_value :: (
               // P3): a direct one by position, a trait constructor's by its
               // label within this entry.
               c3_pf_opt := cond(
-                current_trait_ty.is_none() => impl_direct_field_at(c3_rec, field_idx),
+                current_trait_ty.is_none() => impl_direct_field_at(&c3_rec, field_idx),
                 true => impl_inner_field_at(
-                  c3_rec,
+                  &c3_rec,
                   field_idx,
                   match(
                     meth_expr,
-                    .FnCall(_, _, c3_mca, _, _) => match(c3_mca.get(usize(0)), .Some(l) => ast_expr_token(l).value.clone(), .None => String.new()),
+                    .FnCall(_, _, c3_mca, _, _) => match(c3_mca.get(usize(0)), .Some(l) => ast_expr_token(&l).value.clone(), .None => String.new()),
                     .Atom(_, _) => String.new()
                   )
                 )
@@ -5377,14 +5377,14 @@ evaluate_module_value :: (
                     exn.throw(dyn(match(c3_pf.failure, .Some(m) => m.clone(), .None => String.from("impl member failed"))));
                   },
                   .Forcing => {
-                    exn.throw(dyn(format_error_message(ast_expr_token(meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`)));
+                    exn.throw(dyn(format_error_message(ast_expr_token(&meth_expr), `internal error: impl member "${c3_pf.label}" reached by the field loop while it is being forced`)));
                   },
                   .Unforced => {
-                    _run_impl_field(c3_pf, c3_rec, ctx, exn);
+                    _run_impl_field(&c3_pf, &c3_rec, ctx, exn);
                   }
                 ),
                 .None => {
-                  _c3_eval_colon_pair(meth_expr, current_trait_ty, c3_rec, Option(ImplPendingField).None, ctx, exn);
+                  _c3_eval_colon_pair(&meth_expr, &current_trait_ty, &c3_rec, Option(ImplPendingField).None, ctx, exn);
                 }
               );
               local_env = c3_rec.env;
@@ -5396,7 +5396,7 @@ evaluate_module_value :: (
         // entries were registered by the loop above / the defaults fill
         // below).
         if(receiver_type_id != "", {
-          clear_provisional_trait_methods(receiver_type_id);
+          clear_provisional_trait_methods(&receiver_type_id);
         });
         // Fill trait `?=` DEFAULT methods the impl did not override. The trait
         // definition registered each default FuncVal in the trait-defaults
@@ -5428,7 +5428,7 @@ evaluate_module_value :: (
                     .Some(dme) => {
                       dme_name := match(
                         dme,
-                        .FnCall(_, _, dca, _, _) => match(dca.get(usize(0)), .Some(dn) => ast_expr_token(dn).value, .None => String.from("")),
+                        .FnCall(_, _, dca, _, _) => match(dca.get(usize(0)), .Some(dn) => ast_expr_token(&dn).value, .None => String.from("")),
                         .Atom(_, _) => String.from("")
                       );
                       if(dme_name == d_label, {
@@ -5446,23 +5446,23 @@ evaluate_module_value :: (
                 // (issues/fixed/impl-is-not-checked-against-the-trait-members.md).
                 // An associated type (`Output : Type`) has no default form,
                 // so it must always be provided.
-                if(!d_provided && (is_function_type(d_ty) || is_type_hierarchy_type(d_ty)), {
-                  if(!is_function_type(d_ty) || get_trait_default(dtf_trait_id.clone(), d_label.clone()).is_none(), {
+                if(!d_provided && (is_function_type(&d_ty) || is_type_hierarchy_type(&d_ty)), {
+                  if(!is_function_type(&d_ty) || get_trait_default(dtf_trait_id.clone(), d_label.clone()).is_none(), {
                     exn.throw(
                       dyn(
                         format_error_message(
-                          ast_expr_token(field_expr),
-                          `Type "${type_to_string(receiver_ty)}" does not implement required trait "${type_to_string(ctt2)}": member "${d_label}" is not provided and has no default`
+                          ast_expr_token(&field_expr),
+                          `Type "${type_to_string(&receiver_ty)}" does not implement required trait "${type_to_string(&ctt2)}": member "${d_label}" is not provided and has no default`
                         )
                       )
                     );
                   });
                 });
-                if(!d_provided && is_function_type(d_ty) && (receiver_type_id != ""), {
+                if(!d_provided && is_function_type(&d_ty) && (receiver_type_id != ""), {
                   match(
                     get_trait_default(dtf_trait_id.clone(), d_label.clone()),
                     .Some(d_val) => {
-                      d_sub_ty := _freshen_return_only_somes(_substitute_self_in_method_ty(d_ty, receiver_ty));
+                      d_sub_ty := _freshen_return_only_somes(_substitute_self_in_method_ty(&d_ty, &receiver_ty));
                       // PER-IMPL MATERIALIZATION (defaults materialize
                       // in the impl's env where Self is
                       // concrete): the shared default FuncVal's body was
@@ -5480,8 +5480,8 @@ evaluate_module_value :: (
                         d_val,
                         .FuncVal(d_fvd, d_cvs) => {
                           d_tok := ast_expr_token(expr);
-                          d_fresh_id := stable_func_id(String.from("fn_"), d_tok.module_path, usize(d_tok.row), usize(d_tok.column));
-                          d_body_clone := clone_expr_fresh_ids(d_fvd.*.body);
+                          d_fresh_id := stable_func_id(String.from("fn_"), &d_tok.module_path, usize(d_tok.row), usize(d_tok.column));
+                          d_body_clone := clone_expr_fresh_ids(&d_fvd.*.body);
                           d_fresh := EvalValue.FuncVal(
                             rc(
                               FuncValData(
@@ -5510,10 +5510,10 @@ evaluate_module_value :: (
                           d_env := capture_env_for(
                             d_fvd.*.func_id.clone(),
                             d_fvd.*.env_key,
-                            d_fvd.*.cap_names,
-                            d_fvd.*.cap_tys,
-                            d_cvs,
-                            ast_expr_token(d_fvd.*.body).module_path
+                            &d_fvd.*.cap_names,
+                            &d_fvd.*.cap_tys,
+                            &d_cvs,
+                            ast_expr_token(&d_fvd.*.body).module_path
                           );
                           ___df := d_env.push_frame(false);
                           d_pts := match(d_sub_ty, .Func({ param_types : d_ppts }) => d_ppts, _ => ArrayList(TypeValue).new());
@@ -5538,15 +5538,15 @@ evaluate_module_value :: (
                             d_pn := match(d_fvd.*.params.get(d_pi), .Some(n) => n, .None => String.from(""));
                             d_pt := match(d_pts.get(d_pi), .Some(t) => t, .None => t_unit());
                             ___dpv := add_variable_to_env(
-                              d_env,
-                              d_pn,
-                              d_pt,
-                              Option(EvalValue).Some(create_unknown_val(d_pt)),
+                              &d_env,
+                              &d_pn,
+                              &d_pt,
+                              Option(EvalValue).Some(create_unknown_val(&d_pt)),
                               false,
                               false,
                               false,
                               false,
-                              synthetic_token(d_pn, d_env.module_path)
+                              synthetic_token(&d_pn, &d_env.module_path)
                             );
                             match(
                               ___dpv,
@@ -5569,7 +5569,7 @@ evaluate_module_value :: (
                           d_out := ArrayList(AstExpr).new();
                           d_depths := forcing_depths();
                           g_mat_default_err.clear();
-                          _materialize_default_body(d_body_clone, d_sub_ty.clone(), d_fresh_id.clone(), d_env, ctx, d_out);
+                          _materialize_default_body(&d_body_clone, d_sub_ty.clone(), d_fresh_id.clone(), &d_env, ctx, &mut d_out);
                           truncate_forcing_depths(d_depths);
                           d_env.pop_frame();
                           ctx.self_type = d_saved_self;
@@ -5582,7 +5582,7 @@ evaluate_module_value :: (
                           // abort() stub). A comptime result still waits for
                           // its call's values.
                           d_concrete := (
-                            (get_all_some_types(receiver_ty).len() == usize(0)) && (get_all_some_types(d_sub_ty).len() == usize(0))
+                            (get_all_some_types(&receiver_ty).len() == usize(0)) && (get_all_some_types(&d_sub_ty).len() == usize(0))
                             && !match(d_sub_ty, .Func({ meta : d_cm }) => d_cm.*.result_is_comptime_only, _ => false)
                           );
                           if((d_out.len() == usize(0)) && d_concrete && !propagate_def_time_errors(), {
@@ -5593,9 +5593,9 @@ evaluate_module_value :: (
                                 exn.throw(
                                   dyn(
                                     reanchor_primary_at(
-                                      d_err,
-                                      ast_expr_token(field_expr),
-                                      `raised in the default body of "${d_label}", which trait ${type_to_string(ctt2)} gives ${type_to_string(receiver_ty)} because this impl does not provide it`
+                                      &d_err,
+                                      ast_expr_token(&field_expr),
+                                      `raised in the default body of "${d_label}", which trait ${type_to_string(&ctt2)} gives ${type_to_string(&receiver_ty)} because this impl does not provide it`
                                     )
                                   )
                                 );
@@ -5642,12 +5642,12 @@ evaluate_module_value :: (
                         _ => d_val
                       );
                       register_type_trait_method(
-                        receiver_type_id,
+                        &receiver_type_id,
                         MethodEntry(
                           label : d_label.clone(),
                           ty : d_sub_ty,
                           value : Option(EvalValue).Some(d_reg_val),
-                          source_trait_id : type_id_or_empty(ctt2),
+                          source_trait_id : type_id_or_empty(&ctt2),
                           needs_pointer_conversion : false,
                           self_type : Option(TypeValue).None,
                           owner : String.new()
@@ -5682,7 +5682,7 @@ evaluate_module_value :: (
     match(
       pre_registered_trait_ids.get(postri),
       .None => (),
-      .Some(tname) => unmark_concrete_impl_being_registered(receiver_type_id, tname)
+      .Some(tname) => unmark_concrete_impl_being_registered(&receiver_type_id, &tname)
     );
     postri = (postri + usize(1));
   });
@@ -5693,13 +5693,13 @@ evaluate_module_value :: (
   // was swallowed upstream (def-time trial walls) and skipped that clear —
   // a stale valueless entry here would shadow the REAL registration in every
   // later lookup (provisional entries are consulted first).
-  clear_provisional_trait_methods(receiver_type_id);
+  clear_provisional_trait_methods(&receiver_type_id);
   // Restore self_type so the impl's parent scope sees its prior value.
   ctx.self_type = old_self_type;
   // Set ExprInfo on the impl expression and return.
-  out_info := new_expr_info(local_env, t_unit());
+  out_info := new_expr_info(&local_env, t_unit());
   out_info.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 /// Adapter — `find_methods_from_generic_impls` returns
@@ -5771,7 +5771,7 @@ move_only_declaring_trait_name :: (fn(imm(trait_ty) : TypeValue, imm(env) : Envi
   )
 });
 _named_trait_key_is :: (fn(imm(env) : Environment, name : str, imm(key) : String) -> bool)(
-  match(get_trait_type_from_env(env, String.from(name)), .Some(t) => (get_trait_key(t) == key), .None => false)
+  match(get_trait_type_from_env(env, String.from(name)), .Some(t) => (get_trait_key(&t) == key), .None => false)
 );
 /// The `MoveOnlyNominalFn` answer: the trait through which the value nominal
 /// `ty` declares move-only in a recorded impl, or `""`.
@@ -5803,7 +5803,7 @@ nominal_declares_move_only :: (fn(imm(ty) : TypeValue) -> String)({
       .Some(d) => {
         hit := match(
           d.generic,
-          .Some(ge) => try_match_generic_impl(ty, ge, ge.definition_env, true).is_some(),
+          .Some(ge) => try_match_generic_impl(ty, &ge, &ge.definition_env, true).is_some(),
           .None => (d.concrete_id == tid)
         );
         if(hit, {
@@ -5836,8 +5836,8 @@ note_concrete_move_only_impl :: (fn(imm(receiver_ty) : TypeValue, imm(trait_ty) 
 });
 /// Record a generic `Dispose` impl over a value nominal pattern.
 note_generic_move_only_impl :: (fn(imm(entry) : GenericImplEntry) -> unit)({
-  if(is_value_nominal_type(entry.receiver_type_pattern), {
-    tn := move_only_declaring_trait_name(entry.trait_type, entry.definition_env);
+  if(is_value_nominal_type(&entry.receiver_type_pattern), {
+    tn := move_only_declaring_trait_name(&entry.trait_type, &entry.definition_env);
     if(!tn.is_empty(), {
       _add_move_only_decl(MoveOnlyDecl(concrete_id : String.new(), generic : Option(GenericImplEntry).Some(entry), trait_name : tn, owner : registration_owner()));
     });
@@ -5910,17 +5910,17 @@ _check_copy_clone_exclusion :: (
   match(
     _clone_and_copy_traits(env),
     .Some(cc) => {
-      clone_key := get_trait_key(cc.clone_tt);
+      clone_key := get_trait_key(&cc.clone_tt);
       key := get_trait_key(trait_ty);
       if((key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
         g_hand_written_clone_sites.insert(site, true);
-        if(_implements_via_hook(receiver_ty, cc.copy_tt, env), {
+        if(_implements_via_hook(receiver_ty, &cc.copy_tt, env), {
           exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).None))));
         });
       });
-      if(key == get_trait_key(cc.copy_tt), {
+      if(key == get_trait_key(&cc.copy_tt), {
         match(
-          trait_impl_site_of(receiver_type_id, clone_key),
+          trait_impl_site_of(receiver_type_id, &clone_key),
           .Some(clone_site) => if(g_hand_written_clone_sites.contains_key(clone_site.clone()), {
             exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(receiver_ty, Option(String).Some(clone_site)))));
           }),
@@ -5950,23 +5950,23 @@ _check_copy_clone_exclusion :: (
 _check_generic_copy_clone_exclusion :: (fn(imm(entry) : GenericImplEntry, imm(trait_tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
   env := entry.definition_env;
   match(
-    _clone_and_copy_traits(env),
+    _clone_and_copy_traits(&env),
     .Some(cc) => {
-      clone_key := get_base_trait_key(cc.clone_tt);
+      clone_key := get_base_trait_key(&cc.clone_tt);
       if((entry.trait_key == clone_key) && _is_hand_written_impl(trait_tok, ctx), {
         g_hand_written_clone_sites.insert(entry.site.clone(), true);
-        if(_pattern_implements_via_hook(entry.receiver_type_pattern, cc.copy_tt, env), {
-          exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(entry.receiver_type_pattern, Option(String).None))));
+        if(_pattern_implements_via_hook(&entry.receiver_type_pattern, &cc.copy_tt, &env), {
+          exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).None))));
         });
       });
-      if(entry.trait_key == get_base_trait_key(cc.copy_tt), {
-        bucket := _generic_impl_bucket(clone_key);
+      if(entry.trait_key == get_base_trait_key(&cc.copy_tt), {
+        bucket := _generic_impl_bucket(&clone_key);
         (bi : usize) = usize(0);
         while(bi < bucket.len(), {
           match(
             bucket.get(bi),
-            .Some(ce) => if(g_hand_written_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(ce.receiver_type_pattern, entry.receiver_type_pattern) && _pattern_implements_via_hook(ce.receiver_type_pattern, cc.copy_tt, ce.definition_env), {
-              exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
+            .Some(ce) => if(g_hand_written_clone_sites.contains_key(ce.site.clone()) && _root_shapes_could_match(&ce.receiver_type_pattern, &entry.receiver_type_pattern) && _pattern_implements_via_hook(&ce.receiver_type_pattern, &cc.copy_tt, &ce.definition_env), {
+              exn.throw(dyn(format_error_message(trait_tok, _hand_written_clone_on_copy_msg(&entry.receiver_type_pattern, Option(String).Some(ce.site.clone())))));
             }),
             .None => ()
           );
@@ -5985,7 +5985,7 @@ _check_generic_copy_clone_exclusion :: (fn(imm(entry) : GenericImplEntry, imm(tr
 /// conditional `Copy` fails at a type argument.
 type_has_impl_shape_for :: (fn(imm(ty) : TypeValue, imm(trait_ty) : TypeValue) -> bool)({
   tid := type_id_or_empty(ty);
-  if(!tid.is_empty() && trait_impl_site_of(tid, get_trait_key(trait_ty)).is_some(), {
+  if(!tid.is_empty() && trait_impl_site_of(&tid, get_trait_key(trait_ty)).is_some(), {
     return(true);
   });
   bucket := _generic_impl_bucket(get_base_trait_key(trait_ty));
@@ -5993,7 +5993,7 @@ type_has_impl_shape_for :: (fn(imm(ty) : TypeValue, imm(trait_ty) : TypeValue) -
   while(bi < bucket.len(), {
     match(
       bucket.get(bi),
-      .Some(e) => if(try_match_generic_impl(ty, e, e.definition_env, false).is_some(), {
+      .Some(e) => if(try_match_generic_impl(ty, &e, &e.definition_env, false).is_some(), {
         return(true);
       }),
       .None => ()
@@ -6037,14 +6037,14 @@ _generic_pattern_covered :: (fn(imm(pattern) : TypeValue, imm(trait_ty) : TypeVa
     match(
       bucket.get(bi),
       .Some(e) => match(
-        try_match_generic_impl(pattern, e, env, false),
+        try_match_generic_impl(pattern, &e, env, false),
         .Some(bindings) => {
           s := subst_new();
           (fi : usize) = usize(0);
           while((fi < e.forall_some_types.len()) && (fi < bindings.len()), {
             match(
               e.forall_some_types.get(fi),
-              .Some(.SomeT({ name : f_name, frame_level : f_level })) => subst_add(s, f_name, f_level, match(bindings.get(fi), .Some(b) => b, .None => t_unit())),
+              .Some(.SomeT({ name : f_name, frame_level : f_level })) => subst_add(&s, &f_name, f_level, match(bindings.get(fi), .Some(b) => b, .None => t_unit())),
               _ => ()
             );
             fi = (fi + usize(1));
@@ -6052,12 +6052,12 @@ _generic_pattern_covered :: (fn(imm(pattern) : TypeValue, imm(trait_ty) : TypeVa
           (all_hold : bool) = true;
           (wi : usize) = usize(0);
           while((wi < e.where_constraint_traits.len()) && all_hold, {
-            w_subject := substitute(s, match(e.where_constraint_some_types.get(wi), .Some(t) => t, .None => t_unit()));
+            w_subject := substitute(&s, match(e.where_constraint_some_types.get(wi), .Some(t) => t, .None => t_unit()));
             w_trait := match(e.where_constraint_traits.get(wi), .Some(t) => t, .None => t_unit());
             all_hold = cond(
-              is_some_type(w_subject) => _implements_via_hook(w_subject, w_trait, env),
-              type_mentions_some_type(w_subject) => recur(w_subject, w_trait, env, depth + u32(1)),
-              true => _implements_via_hook(w_subject, w_trait, env)
+              is_some_type(&w_subject) => _implements_via_hook(&w_subject, &w_trait, env),
+              type_mentions_some_type(&w_subject) => recur(&w_subject, &w_trait, env, depth + u32(1)),
+              true => _implements_via_hook(&w_subject, &w_trait, env)
             );
             wi = (wi + usize(1));
           });

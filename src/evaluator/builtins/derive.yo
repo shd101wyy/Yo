@@ -105,7 +105,7 @@ _derive_eval_guarded :: (
       }
     )
   );
-  evaluated := evaluate_expression_raw(step_expr, env, ctx, inner_exn);
+  evaluated := evaluate_expression_raw(step_expr, env, ctx, &inner_exn);
   out.push(evaluated);
 });
 /// Strip one leading error prefix so a re-raise does not read
@@ -125,8 +125,8 @@ _derive_strip_error_prefix :: (fn(imm(raw_msg) : String) -> String)({
   // outer render classifies the whole message again.
   coded_end := if(raw_msg.starts_with(String.from("error[")), raw_msg.index_of(String.from("]: ")), Option(usize).None);
   cond(
-    raw_msg.starts_with(lower_prefix) => raw_msg.substring(lower_prefix.len(), raw_msg.len()),
-    raw_msg.starts_with(upper_prefix) => raw_msg.substring(upper_prefix.len(), raw_msg.len()),
+    raw_msg.starts_with(&lower_prefix) => raw_msg.substring(lower_prefix.len(), raw_msg.len()),
+    raw_msg.starts_with(&upper_prefix) => raw_msg.substring(upper_prefix.len(), raw_msg.len()),
     coded_end.is_some() => raw_msg.substring(coded_end.unwrap() + usize(3), raw_msg.len()),
     true => raw_msg
   )
@@ -156,7 +156,7 @@ add_comptime_var :: (
     false,
     false,
     false,
-    synthetic_token(name, env.module_path)
+    synthetic_token(name, &env.module_path)
   );
   ()
 });
@@ -173,24 +173,24 @@ _derive_bind_opt :: (
     imm(exn) : Exception
   ) -> String
 )({
-  var_name := `__derive_opt_${generate_variable_id(env.module_path, prefix.clone())}`;
-  tmp := `__derive_optT_${generate_variable_id(env.module_path, prefix.clone())}`;
+  var_name := `__derive_opt_${generate_variable_id(&env.module_path, prefix.clone())}`;
+  tmp := `__derive_optT_${generate_variable_id(&env.module_path, prefix.clone())}`;
   opt_code := match(
     arg_opt,
     .Some(ae) => {
-      inner_var := `__derive_optI_${generate_variable_id(env.module_path, prefix.clone())}`;
+      inner_var := `__derive_optI_${generate_variable_id(&env.module_path, prefix.clone())}`;
       add_comptime_var(env, inner_var.clone(), t_expr_t(), EvalValue.ExprVal(ae.clone()));
       `((${tmp} : Option(Expr)) = .Some(${inner_var}))`
     },
     .None => `((${tmp} : Option(Expr)) = .None)`
   );
-  _e := evaluate_expression_raw(generate_expr_from_code(opt_code, exn), env, ctx, exn);
+  _e := evaluate_expression_raw(generate_expr_from_code(&opt_code, exn), env, ctx, exn);
   tmp_vars := get_variables_from_env(env, tmp.clone());
   match(
     tmp_vars.last(),
     .Some(v) => match(
       v.value.get(usize(0)),
-      .Some(ov) => add_comptime_var(env, var_name.clone(), v.ty, ov),
+      .Some(ov) => add_comptime_var(env, var_name.clone(), &v.ty, &ov),
       .None => ()
     ),
     .None => ()
@@ -249,24 +249,24 @@ call_registered_derive_rule :: (
   old_force_ct := ctx.force_compile_time_bindings;
   ctx.force_compile_time_bindings = true;
   // 1. target type.
-  type_var := `__derive_T_${generate_variable_id(caller_env.module_path, String.from("dT"))}`;
+  type_var := `__derive_T_${generate_variable_id(&caller_env.module_path, String.from("dT"))}`;
   add_comptime_var(caller_env, type_var.clone(), t_type(), EvalValue.TypeVal(target_type.clone()));
   // 2. rule fn (bound by VALUE; the declared type is irrelevant to the call).
-  rule_fn_name := `__derive_rule_${generate_variable_id(caller_env.module_path, String.from("dr"))}`;
+  rule_fn_name := `__derive_rule_${generate_variable_id(&caller_env.module_path, String.from("dr"))}`;
   add_comptime_var(caller_env, rule_fn_name.clone(), derive_rule_ty, derive_rule_val);
   // 3. target Expr value.
-  target_expr_var := `__derive_te_${generate_variable_id(caller_env.module_path, String.from("dte"))}`;
+  target_expr_var := `__derive_te_${generate_variable_id(&caller_env.module_path, String.from("dte"))}`;
   add_comptime_var(caller_env, target_expr_var.clone(), t_expr_t(), EvalValue.ExprVal(target_type_expr.clone()));
   // 4. forall_params / where_clause as Option(Expr).
   forall_expr_var := _derive_bind_opt(caller_env, String.from("dfp"), forall_arg_opt, ctx, exn);
   where_expr_var := _derive_bind_opt(caller_env, String.from("dwp"), where_arg_opt, ctx, exn);
   // 5. DeriveContext(target, generic, where) — evaluated so it carries the
   //    registered DeriveContext type (its id gates `ctx.make_impl` resolution).
-  ctx_var := `__derive_ctx_${generate_variable_id(caller_env.module_path, String.from("dctx"))}`;
+  ctx_var := `__derive_ctx_${generate_variable_id(&caller_env.module_path, String.from("dctx"))}`;
   ctx_code := `DeriveContext(${target_expr_var}, ${forall_expr_var}, ${where_expr_var})`;
-  ctx_result := evaluate_expression_raw(generate_expr_from_code(ctx_code, exn), caller_env, ctx, exn);
+  ctx_result := evaluate_expression_raw(generate_expr_from_code(&ctx_code, exn), caller_env, ctx, exn);
   ctx_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(ctx_result)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ctx_result)),
     .Some(i) => i,
     .None => new_expr_info(caller_env, t_unit())
   );
@@ -274,18 +274,18 @@ call_registered_derive_rule :: (
     ctx_info.value,
     .Some(v) => v,
     .None => {
-      exn.throw(dyn(format_error_message(tok, String.from("derive: failed to create DeriveContext"))));
+      exn.throw(dyn(format_error_message(&tok, String.from("derive: failed to create DeriveContext"))));
       EvalValue.UnitVal
     }
   );
-  add_comptime_var(caller_env, ctx_var.clone(), ctx_info.ty, ctx_val);
+  add_comptime_var(caller_env, ctx_var.clone(), &ctx_info.ty, &ctx_val);
   // 6. trait_params as ComptimeList(Expr).
-  tps_var := `__derive_tps_${generate_variable_id(caller_env.module_path, String.from("dtps"))}`;
+  tps_var := `__derive_tps_${generate_variable_id(&caller_env.module_path, String.from("dtps"))}`;
   if(trait_params.len() > usize(0), {
     param_names := ArrayList(String).new();
     (tpi : usize) = usize(0);
     while(tpi < trait_params.len(), {
-      pv := `__derive_tp_${generate_variable_id(caller_env.module_path, String.from("dtp"))}`;
+      pv := `__derive_tp_${generate_variable_id(&caller_env.module_path, String.from("dtp"))}`;
       pexpr := match(trait_params.get(tpi), .Some(p) => p, .None => make_err_expr());
       add_comptime_var(caller_env, pv.clone(), t_expr_t(), EvalValue.ExprVal(pexpr.clone()));
       param_names.push(pv);
@@ -301,14 +301,14 @@ call_registered_derive_rule :: (
       ji = (ji + usize(1));
     });
     list_code := `comptime_list(${joined})`;
-    list_result := evaluate_expression_raw(generate_expr_from_code(list_code, exn), caller_env, ctx, exn);
+    list_result := evaluate_expression_raw(generate_expr_from_code(&list_code, exn), caller_env, ctx, exn);
     list_info := match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(list_result)),
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&list_result)),
       .Some(i) => i,
       .None => new_expr_info(caller_env, t_unit())
     );
     list_val := match(list_info.value, .Some(v) => v, .None => EvalValue.ComptimeListVal(ArrayList(EvalValue).new()));
-    add_comptime_var(caller_env, tps_var.clone(), list_info.ty, list_val);
+    add_comptime_var(caller_env, tps_var.clone(), &list_info.ty, &list_val);
   }, {
     add_comptime_var(caller_env, tps_var.clone(), t_comptime_list(t_expr_t()), EvalValue.ComptimeListVal(ArrayList(EvalValue).new()));
   });
@@ -320,22 +320,22 @@ call_registered_derive_rule :: (
   call_code := `${rule_fn_name}(${type_var}, ${ctx_var}, ${tps_var})`;
   _clear_derive_impl_err();
   call_out := ArrayList(AstExpr).new();
-  _derive_eval_guarded(generate_expr_from_code(call_code, exn), caller_env, ctx, call_out);
+  _derive_eval_guarded(generate_expr_from_code(&call_code, exn), caller_env, ctx, &mut call_out);
   if(call_out.len() == usize(0), {
     rule_raw_msg := _derive_impl_err_message();
     _clear_derive_impl_err();
     exn.throw(
       dyn(
         format_error_message(
-          tok,
-          `derive on "${type_to_string(target_type)}": the derive rule failed: ${_derive_strip_error_prefix(rule_raw_msg)}`
+          &tok,
+          `derive on "${type_to_string(target_type)}": the derive rule failed: ${_derive_strip_error_prefix(&rule_raw_msg)}`
         )
       )
     );
   });
   call_result := match(call_out.get(usize(0)), .Some(e) => e, .None => make_err_expr());
   call_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(call_result)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&call_result)),
     .Some(i) => i,
     .None => new_expr_info(caller_env, t_unit())
   );
@@ -348,7 +348,7 @@ call_registered_derive_rule :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             String.from("derive: the derive rule returned no comptime value (and raised no error)")
           )
         )
@@ -360,7 +360,7 @@ call_registered_derive_rule :: (
     call_val,
     .ExprVal(e) => e,
     _ => {
-      exn.throw(dyn(format_error_message(tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(call_val)}`)));
+      exn.throw(dyn(format_error_message(&tok, `derive: derive rule must return(comptime(Expr)); got ${value_to_string(&call_val)}`)));
       make_err_expr()
     }
   );
@@ -384,31 +384,31 @@ call_registered_derive_rule :: (
   // issues/fixed/bare-derive-form-kills-module-eval.md
   _clear_derive_impl_err();
   impl_out := ArrayList(AstExpr).new();
-  _derive_eval_guarded(desugar_if_calls(result_expr), caller_env, ctx, impl_out);
+  _derive_eval_guarded(desugar_if_calls(&result_expr), caller_env, ctx, &mut impl_out);
   if(impl_out.len() == usize(0), {
     raw_msg := _derive_impl_err_message();
     impl_code := g_derive_impl_code.get(usize(0));
     _clear_derive_impl_err();
-    msg := _derive_strip_error_prefix(raw_msg);
+    msg := _derive_strip_error_prefix(&raw_msg);
     exn.throw(
       dyn(
         with_code_carried(
           format_error_message(
-            tok,
+            &tok,
             `derive on "${type_to_string(target_type)}" failed: ${msg}`
           ),
-          impl_code
+          &impl_code
         )
       )
     );
   });
   evaled_result := match(impl_out.get(usize(0)), .Some(e) => e, .None => make_err_expr());
   result_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_result)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_result)),
     .Some(i) => i,
     .None => new_expr_info(caller_env, t_unit())
   );
-  expr_info_adopt_env(result_info)
+  expr_info_adopt_env(&result_info)
 });
 // ---------------------------------------------------------------------------
 // process_trait_arg
@@ -438,7 +438,7 @@ process_trait_arg :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             String.from("derive: trait argument must be a trait name or trait constructor call")
           )
         )
@@ -447,7 +447,7 @@ process_trait_arg :: (
     }
   );
   // Look up the registered derive rule.
-  rule_opt := get_derive_rule(key);
+  rule_opt := get_derive_rule(&key);
   derive_rule_val := match(
     rule_opt,
     .Some(r) => r,
@@ -455,7 +455,7 @@ process_trait_arg :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             `derive: trait '${key}' does not have a derive rule. Use derive_rule() to register one.`
           )
         )
@@ -467,8 +467,8 @@ process_trait_arg :: (
   derive_rule_ty := match(get_derive_rule_type(key.clone()), .Some(t) => t, .None => t_unit());
   // Call the registered derive rule.
   call_registered_derive_rule(
-    derive_rule_val,
-    derive_rule_ty,
+    &derive_rule_val,
+    &derive_rule_ty,
     target_type,
     target_type_expr,
     forall_arg_opt,
@@ -513,7 +513,7 @@ _evaluate_derive_guarded :: (
       }
     )
   );
-  out.push(_evaluate_derive_executing(expr, env, ctx, guard_exn));
+  out.push(_evaluate_derive_executing(expr, env, ctx, &guard_exn));
 });
 evaluate_derive :: (
   fn(
@@ -534,7 +534,7 @@ evaluate_derive :: (
   ctx.is_executing = true;
   err_mark := g_derive_eval_err.len();
   out := ArrayList(AstExpr).new();
-  _evaluate_derive_guarded(expr, env, ctx, out);
+  _evaluate_derive_guarded(expr, env, ctx, &mut out);
   clear_copy_pending();
   ctx.is_validating_function_definition = old_validating;
   ctx.is_analyzing_ctfe_capability = old_analyzing;
@@ -550,7 +550,7 @@ evaluate_derive :: (
             while(g_derive_eval_err.len() > err_mark, {
               _ := g_derive_eval_err.pop();
             });
-            exn.throw(d_err);
+            exn.throw(&d_err);
           },
           .None => ()
         );
@@ -578,7 +578,7 @@ _evaluate_derive_executing :: (
     exn.throw(
       dyn(
         format_error_message(
-          tok,
+          &tok,
           String.from("derive requires at least 2 arguments: derive(Type, Trait1, ...).")
         )
       )
@@ -590,7 +590,7 @@ _evaluate_derive_executing :: (
   // Check for optional generic(...).
   is_forall := match(
     args.get(arg_idx),
-    .Some(a) => ast_expr_is_fn_call_of(a, BK_GENERIC, .None),
+    .Some(a) => ast_expr_is_fn_call_of(&a, BK_GENERIC, .None),
     .None => false
   );
   if(is_forall, {
@@ -629,17 +629,17 @@ _evaluate_derive_executing :: (
         // A Type-universe slot promotes to `TypeVal(SomeType(name))` so the target
         // type expression (e.g. `DRPair(T1, T2)`) instantiates a real struct
         // instead of failing on a bare `UnknownVal(Type)`.
-        unknown_val := create_unknown_val_with_name(TypeValue.TypeUni(usize(0)), fp_name);
+        unknown_val := create_unknown_val_with_name(TypeValue.TypeUni(usize(0)), &fp_name);
         _add_fp := add_variable_to_env(
           env,
-          fp_name,
+          &fp_name,
           TypeValue.TypeUni(usize(0)),
           Option(EvalValue).Some(unknown_val),
           true,
           false,
           false,
           false,
-          synthetic_token(fp_name, env.module_path)
+          synthetic_token(&fp_name, &env.module_path)
         );
       });
       fpi = (fpi + usize(1));
@@ -648,7 +648,7 @@ _evaluate_derive_executing :: (
   // Check for optional where(...) before target type.
   is_where_pre := match(
     args.get(arg_idx),
-    .Some(a) => ast_expr_is_fn_call_of(a, BK_WHERE, .None),
+    .Some(a) => ast_expr_is_fn_call_of(&a, BK_WHERE, .None),
     .None => false
   );
   if(is_where_pre, {
@@ -663,7 +663,7 @@ _evaluate_derive_executing :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             String.from("derive requires a target type")
           )
         )
@@ -672,8 +672,8 @@ _evaluate_derive_executing :: (
     }
   );
   target_type_expr := target_expr;
-  evaled_target := evaluate_expression_raw(target_type_expr, env, ctx, exn);
-  target_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_target));
+  evaled_target := evaluate_expression_raw(&target_type_expr, env, ctx, exn);
+  target_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_target));
   target_info := match(
     target_info_opt,
     .Some(i) => i,
@@ -681,7 +681,7 @@ _evaluate_derive_executing :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             String.from("derive: failed to evaluate target type")
           )
         )
@@ -697,7 +697,7 @@ _evaluate_derive_executing :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             String.from("derive: expected a type")
           )
         )
@@ -708,7 +708,7 @@ _evaluate_derive_executing :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             String.from("derive: expected a type")
           )
         )
@@ -725,7 +725,7 @@ _evaluate_derive_executing :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             String.from("derive only works on struct and enum types")
           )
         )
@@ -736,7 +736,7 @@ _evaluate_derive_executing :: (
   // Check for optional where(...) after target type (only when generic is present).
   is_where_post := match(
     args.get(arg_idx),
-    .Some(a) => ast_expr_is_fn_call_of(a, BK_WHERE, .None),
+    .Some(a) => ast_expr_is_fn_call_of(&a, BK_WHERE, .None),
     .None => false
   );
   if(is_where_post && forall_arg_opt.is_some(), {
@@ -754,7 +754,7 @@ _evaluate_derive_executing :: (
     exn.throw(
       dyn(
         format_error_message(
-          tok,
+          &tok,
           String.from("derive requires at least one trait argument after the target type")
         )
       )
@@ -770,34 +770,34 @@ _evaluate_derive_executing :: (
   while(arg_idx < n_args, {
     trait_arg := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
     cond(
-      match(extract_derive_key(trait_arg), .Some(k) => (k == "Copy"), .None => false) => copy_args.push(trait_arg),
+      match(extract_derive_key(&trait_arg), .Some(k) => (k == "Copy"), .None => false) => copy_args.push(trait_arg),
       true => trait_args.push(trait_arg)
     );
     arg_idx = (arg_idx + usize(1));
   });
-  trait_args.extend(copy_args);
+  trait_args.extend(&copy_args);
   clear_copy_pending();
   if(copy_args.len() > usize(0), {
-    push_copy_pending(target_type);
+    push_copy_pending(&target_type);
   });
   (ta_i : usize) = usize(0);
   while(ta_i < trait_args.len(), {
     result_env = process_trait_arg(
       match(trait_args.get(ta_i), .Some(a) => a, .None => make_err_expr()),
-      target_type,
-      target_type_expr,
-      result_env,
-      forall_arg_opt,
-      where_arg_opt,
+      &target_type,
+      &target_type_expr,
+      &result_env,
+      &forall_arg_opt,
+      &where_arg_opt,
       ctx,
       exn
     );
     ta_i = (ta_i + usize(1));
   });
   clear_copy_pending();
-  out := new_expr_info(result_env, t_unit());
+  out := new_expr_info(&result_env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 export(evaluate_derive);

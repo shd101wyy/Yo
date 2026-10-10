@@ -202,7 +202,7 @@ _strip_sev_word :: (fn(imm(message) : String, word : str, severity : usize) -> O
   w := String.from(word);
   rest := String.new();
   (code : Option(String)) = Option(String).None;
-  if((message.len() > w.len()) && message.starts_with(w), {
+  if((message.len() > w.len()) && message.starts_with(&w), {
     rest = message.substring(w.len(), message.len());
     if(rest.starts_with(String.from("[")), {
       close := rest.index_of(String.from("]"));
@@ -316,7 +316,7 @@ parse_error_text :: (
                 tail_len := (row_s.len() + col_s.len() + usize(2));
                 a_path := body.substring(usize(0), body.len() - tail_len);
                 header := _strip_severity_prefix(
-                  String.from("\n").join(msg_parts).trim()
+                  String.from("\n").join(&msg_parts).trim()
                 );
                 message := header.message;
                 if(message.len() > usize(0), {
@@ -346,7 +346,7 @@ parse_error_text :: (
                           .Some(x) => x,
                           .None => String.new()
                         );
-                        if(_is_row_line(t1), {
+                        if(_is_row_line(&t1), {
                           k = (k + usize(1));
                           consumed = (consumed + usize(1));
                         });
@@ -359,7 +359,7 @@ parse_error_text :: (
                         );
                         t2t := t2.trim();
                         if(t2t.starts_with(String.from("| ")), {
-                          cnt := _count_carets(t2t);
+                          cnt := _count_carets(&t2t);
                           if(cnt > usize(0), {
                             caret_len = cnt;
                             consumed = (consumed + usize(1));
@@ -454,7 +454,7 @@ _ensure_prelude :: (fn(imm(std_path) : String, io : Io) -> unit)({
   // server must degrade, not die, when the prelude is broken — the stashed
   // parse error is surfaced as a diagnostic instead. Every other caller exits
   // (issues/fixed/failed-prelude-load-prints-twice-and-continues.md).
-  mm_preload_prelude(std_path.clone(), false, io, pre_exn);
+  mm_preload_prelude(std_path.clone(), false, io, &pre_exn);
 });
 
 /// The retained result of one document analysis: the parsed program and
@@ -492,7 +492,7 @@ _parse_document :: (
       }
     )
   );
-  Option(ArrayList(AstExpr)).Some(parse(text, entry_abs.clone(), local_exn))
+  Option(ArrayList(AstExpr)).Some(parse(text, entry_abs.clone(), &local_exn))
 });
 /// The evaluation half: `ok` plus the ExprInfo table the run filled in.
 EvalOutcome :: struct(
@@ -523,7 +523,7 @@ _analyze_eval :: (
       }
     )
   );
-  outcome := mm_eval_entry_exprs(entry_abs.clone(), std_path.clone(), exprs, local_exn);
+  outcome := mm_eval_entry_exprs(entry_abs.clone(), std_path.clone(), exprs, &local_exn);
   EvalOutcome(ok : outcome.ok, info_table : outcome.ctx.expr_info_table)
 });
 
@@ -639,7 +639,7 @@ analyze_document :: (
   outcome := match(
     _parse_document(entry_abs.clone(), text.clone()),
     .Some(exprs) => {
-      ev := _analyze_eval(entry_abs.clone(), exprs, std_path.clone(), io);
+      ev := _analyze_eval(entry_abs.clone(), &exprs, std_path.clone(), io);
       AnalyzeOutcome(ok : ev.ok, parsed : true, exprs : exprs, info_table : ev.info_table)
     },
     .None => AnalyzeOutcome(
@@ -664,7 +664,7 @@ analyze_document :: (
   match(
     typed,
     .Some(tds) => {
-      mapped := _typed_to_lsp(tds, entry_abs.clone());
+      mapped := _typed_to_lsp(&tds, entry_abs.clone());
       (ti : usize) = usize(0);
       while(ti < mapped.len(), {
         match(
@@ -683,7 +683,7 @@ analyze_document :: (
     match(
       parse_text,
       .Some(pe) => {
-        pds := parse_error_text(pe, entry_abs.clone(), text.clone());
+        pds := parse_error_text(&pe, entry_abs.clone(), text.clone());
         (pi : usize) = usize(0);
         while(pi < pds.len(), {
           match(
@@ -701,7 +701,7 @@ analyze_document :: (
     match(
       load_text,
       .Some(le) => {
-        lds := parse_error_text(le, entry_abs.clone(), text.clone());
+        lds := parse_error_text(&le, entry_abs.clone(), text.clone());
         (ei : usize) = usize(0);
         while(ei < lds.len(), {
           match(

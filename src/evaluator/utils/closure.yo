@@ -206,7 +206,7 @@ _declared_bound_requires :: (fn(imm(ty) : TypeValue, imm(trait_type) : TypeValue
       while((dbr_i < dbr_rtts.len()) && !dbr_found, {
         match(
           dbr_rtts.get(dbr_i),
-          .Some(dbr_t) => if(type_to_string(dbr_t) == want, {
+          .Some(dbr_t) => if(type_to_string(&dbr_t) == want, {
             dbr_found = true;
           }),
           .None => ()
@@ -250,7 +250,7 @@ _some_id_of :: (fn(imm(ty) : TypeValue) -> String)(
 _capture_id_of :: (fn(imm(ty) : TypeValue) -> String)(
   if(is_closure_capture_struct(ty), match(ty, .Struct({ id : cid }) => cid, _ => String.new()), String.new())
 );
-_note_fid_for_some_id :: (fn(imm(sid) : String, imm(fid) : String) -> unit)(_note_fid_in(g_closure_fids_by_some, sid, fid));
+_note_fid_for_some_id :: (fn(imm(sid) : String, imm(fid) : String) -> unit)(_note_fid_in(&mut g_closure_fids_by_some, sid, fid));
 _note_fid_in :: (fn(mut(registry) : HashMap(String, ArrayList(String)), imm(sid) : String, imm(fid) : String) -> unit)({
   if(sid.is_empty(), {
     return(());
@@ -291,7 +291,7 @@ alias_closure_some_id :: (fn(imm(new_id) : String, imm(of_id) : String) -> unit)
     .Some(fids) => {
       (ai : usize) = usize(0);
       while(ai < fids.len(), {
-        match(fids.get(ai), .Some(f) => _note_fid_for_some_id(new_id.clone(), f), .None => ());
+        match(fids.get(ai), .Some(f) => _note_fid_for_some_id(new_id.clone(), &f), .None => ());
         ai = (ai + usize(1));
       });
     },
@@ -322,17 +322,17 @@ _captures_offense :: (
       .Some(var_name) => match(
         cvwv.get(var_name.clone()),
         .None => (),
-        .Some(info) => if(!_declared_bound_requires(info.ty, marker), {
+        .Some(info) => if(!_declared_bound_requires(&info.ty, marker), {
           match(
-            function_value_marker(info.ty, info.value, marker, env, ctx),
+            function_value_marker(&info.ty, &info.value, marker, env, ctx),
             .Some(.Some(o)) => {
               return(Option(String).Some(`its captured variable '${var_name}' does not implement ${mname}: ${o}`));
             },
             .Some(.None) => (),
             .None => match(
-              _capture_judgement_type(info.ty, info.value),
-              .Some(judged) => if(!type_implements_trait_bool(judged, marker, env), {
-                return(Option(String).Some(`its captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${mname}`));
+              _capture_judgement_type(&info.ty, &info.value),
+              .Some(judged) => if(!type_implements_trait_bool(&judged, marker, env), {
+                return(Option(String).Some(`its captured variable '${var_name}' (type ${type_to_string(&info.ty)}) does not implement ${mname}`));
               }),
               .None => ()
             )
@@ -365,7 +365,7 @@ record_closure_capture_verdicts :: (
   // The capture struct names this closure too (`g_closure_fids_by_capture`).
   match(
     capture_ty,
-    .Some(rcv_ct) => _note_fid_in(g_closure_fids_by_capture, _capture_id_of(rcv_ct), fid.clone()),
+    .Some(rcv_ct) => _note_fid_in(&mut g_closure_fids_by_capture, _capture_id_of(&rcv_ct), fid.clone()),
     .None => ()
   );
   match(
@@ -381,7 +381,7 @@ record_closure_capture_verdicts :: (
         match(
           get_trait_type_from_env(env, mn.clone()),
           .Some(mt) => {
-            verdict := if(borrows_captures && (mn == "Send"), Option(String).Some(String.from(_borrowed_captures_offense)), _captures_offense(cv, mt, env, ctx));
+            verdict := if(borrows_captures && (mn == "Send"), Option(String).Some(String.from(_borrowed_captures_offense)), _captures_offense(&cv, &mt, env, ctx));
             g_closure_capture_offense.insert(`${fid}|${mn}`, verdict);
           },
           .None => ()
@@ -405,7 +405,7 @@ _declares_marker :: (fn(imm(ty) : TypeValue, imm(marker) : TypeValue) -> bool)(
       while((i < rtts.len()) && !found, {
         match(
           rtts.get(i),
-          .Some(t) => if(type_to_string(t) == want, {
+          .Some(t) => if(type_to_string(&t) == want, {
             found = true;
           }),
           .None => ()
@@ -436,8 +436,8 @@ _function_value_offense :: (
     .Some(.None) => (),
     .None => match(
       get_closure_capture_info(fid.clone()),
-      .Some(cci) => if(!type_implements_trait_bool(cci.capture_type, marker, env), {
-        return(Option(String).Some(`its captured state (${type_to_string(cci.capture_type)}) does not implement ${mname} — ${cap_hint}`));
+      .Some(cci) => if(!type_implements_trait_bool(&cci.capture_type, marker, env), {
+        return(Option(String).Some(`its captured state (${type_to_string(&cci.capture_type)}) does not implement ${mname} — ${cap_hint}`));
       }),
       .None => ()
     )
@@ -458,7 +458,7 @@ _function_value_offense :: (
     .Some(r) => r,
     .None => match(
       body,
-      .Some(b) => function_reaches_non_send_global(fid.clone(), b, ctx.expr_info_table, env),
+      .Some(b) => function_reaches_non_send_global(fid.clone(), &b, &ctx.expr_info_table, env),
       .None => Option(String).None
     )
   );
@@ -521,8 +521,8 @@ function_value_marker :: (
               if(!(v.is_module_level || v.is_compile_time_only), {
                 matches := if(
                   want_id.is_empty(),
-                  is_function_type(v.ty) && (type_to_string(v.ty) == want_str),
-                  _some_id_of(v.ty) == want_id
+                  is_function_type(&v.ty) && (type_to_string(&v.ty) == want_str),
+                  _some_id_of(&v.ty) == want_id
                 );
                 if(matches, {
                   match(
@@ -561,7 +561,7 @@ function_value_marker :: (
   want_cap := _capture_id_of(if(is_bound_closure_identity(ty), resolve_cell_chain(ty), ty));
   if(!want_cap.is_empty(), {
     match(
-      g_closure_fids_by_capture.get(want_cap),
+      g_closure_fids_by_capture.get(&want_cap),
       .Some(cfids) => {
         (cci : usize) = usize(0);
         while(cci < cfids.len(), {
@@ -570,7 +570,7 @@ function_value_marker :: (
             .Some(ccfid) => {
               found = true;
               match(
-                _function_value_offense(ccfid, Option(AstExpr).None, marker, env, ctx),
+                _function_value_offense(&ccfid, Option(AstExpr).None, marker, env, ctx),
                 .Some(co) => {
                   return(Option(Option(String)).Some(Option(String).Some(co)));
                 },
@@ -587,7 +587,7 @@ function_value_marker :: (
   });
   if(!want_id.is_empty(), {
     match(
-      g_closure_fids_by_some.get(want_id),
+      g_closure_fids_by_some.get(&want_id),
       .Some(fids) => {
         (ci : usize) = usize(0);
         while(ci < fids.len(), {
@@ -596,7 +596,7 @@ function_value_marker :: (
             .Some(cfid) => {
               found = true;
               match(
-                _function_value_offense(cfid, Option(AstExpr).None, marker, env, ctx),
+                _function_value_offense(&cfid, Option(AstExpr).None, marker, env, ctx),
                 .Some(o) => {
                   return(Option(Option(String)).Some(Option(String).Some(o)));
                 },
@@ -639,8 +639,8 @@ validate_send_closure_global_reach :: (
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
         trait_type := rtts(ti);
-        if(!is_fn_trait_type(trait_type), {
-          tts := type_to_string(trait_type);
+        if(!is_fn_trait_type(&trait_type), {
+          tts := type_to_string(&trait_type);
           if((tts == "Send") || ((tts == "Sync") && found.is_empty()), {
             found = tts;
           });
@@ -658,7 +658,7 @@ validate_send_closure_global_reach :: (
   // with no defining env, would not resolve the local closures it calls.
   _note_fid_for_some_id(_some_id_of(wrapper_type), closure_fid.clone());
   if(!is_implicitly_unsafe_capable_file(Option(String).Some(error_token.module_path.clone())), {
-    reach := function_reaches_non_send_global(closure_fid.clone(), closure_body, ctx.expr_info_table, env);
+    reach := function_reaches_non_send_global(closure_fid.clone(), closure_body, &ctx.expr_info_table, env);
     // Only a closure that really runs on another thread publishes its reads
     // (issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md).
     // A global it reads that is already written is a violation now: the
@@ -706,8 +706,8 @@ validate_capture_trait_requirements :: (
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
         trait_type := rtts(ti);
-        if(!is_fn_trait_type(trait_type), {
-          trait_name := type_to_string(trait_type);
+        if(!is_fn_trait_type(&trait_type), {
+          trait_name := type_to_string(&trait_type);
           // A borrow capture is never `Send` (decision 38 E).
           if(borrows_captures && (trait_name == "Send"), {
             _raise_capture_trait_violation(
@@ -733,27 +733,27 @@ validate_capture_trait_requirements :: (
                   .Some(var_name) => match(
                     cvwv.get(var_name.clone()),
                     .None => (),
-                    .Some(info) => if(!_declared_bound_requires(info.ty, trait_type), {
+                    .Some(info) => if(!_declared_bound_requires(&info.ty, &trait_type), {
                       // A captured FUNCTION value holds a marker by its value
                       // — what it captures, what its code reaches (rules D4 +
                       // D1) — not by its type (`function_value_marker`).
                       match(
-                        function_value_marker(info.ty, info.value, trait_type, env, ctx),
+                        function_value_marker(&info.ty, &info.value, &trait_type, env, ctx),
                         .Some(.Some(fvm_o)) => {
                           _raise_capture_trait_violation(
                             ctx,
                             exn,
-                            info.token,
-                            `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}: ${fvm_o}.`
+                            &info.token,
+                            `Captured variable '${var_name}' (type ${type_to_string(&info.ty)}) does not implement ${trait_name}: ${fvm_o}.`
                           );
                         },
                         .Some(.None) => (),
                         .None => match(
-                          _capture_judgement_type(info.ty, info.value),
+                          _capture_judgement_type(&info.ty, &info.value),
                           .None => (),
-                          .Some(judged) => if(!type_implements_trait_bool(judged, trait_type, env), {
-                            var_msg := `Captured variable '${var_name}' (type ${type_to_string(info.ty)}) does not implement ${trait_name}. To move it across threads, wrap it in Arc/Iso, or capture a ${trait_name} projection of it instead.`;
-                            _raise_capture_trait_violation(ctx, exn, info.token, var_msg);
+                          .Some(judged) => if(!type_implements_trait_bool(&judged, &trait_type, env), {
+                            var_msg := `Captured variable '${var_name}' (type ${type_to_string(&info.ty)}) does not implement ${trait_name}. To move it across threads, wrap it in Arc/Iso, or capture a ${trait_name} projection of it instead.`;
+                            _raise_capture_trait_violation(ctx, exn, &info.token, &var_msg);
                           })
                         )
                       );
@@ -768,7 +768,7 @@ validate_capture_trait_requirements :: (
           // information exists: the struct's fields ARE the captured
           // variables, and re-judging a captured closure's wrapper SomeT
           // field without its value would undo the resolution above.
-          if(captured_variables_with_values.is_none() && !type_implements_trait_bool(capture_type, trait_type, env), {
+          if(captured_variables_with_values.is_none() && !type_implements_trait_bool(capture_type, &trait_type, env), {
             details := String.new();
             match(
               capture_type,
@@ -777,12 +777,12 @@ validate_capture_trait_requirements :: (
                 while(fi < fls.len(), fi = (fi + usize(1)), {
                   match(
                     fts.get(fi),
-                    .Some(fty) => if(!type_implements_trait_bool(fty, trait_type, env), {
+                    .Some(fty) => if(!type_implements_trait_bool(&fty, &trait_type, env), {
                       if(details.len() > usize(0), {
                         details.push_str("\n  ");
                       });
                       fl := match(fls.get(fi), .Some(l) => l, .None => String.from(""));
-                      details.push_string(`'${fl}' has type ${type_to_string(fty)} which does not implement ${trait_name}`);
+                      details.push_string(`'${fl}' has type ${type_to_string(&fty)} which does not implement ${trait_name}`);
                     }),
                     .None => ()
                   );
@@ -791,7 +791,7 @@ validate_capture_trait_requirements :: (
               _ => ()
             );
             agg_msg := `Closure does not implement ${trait_name} because captured variable ${details}`;
-            _raise_capture_trait_violation(ctx, exn, error_token, agg_msg);
+            _raise_capture_trait_violation(ctx, exn, error_token, &agg_msg);
           });
         });
       });
@@ -902,7 +902,7 @@ propagate_captures_to_enclosing :: (fn(imm(caps) : HashMap(String, CapturedVarIn
       },
       .Some(name) => match(
         caps.get(name.clone()),
-        .Some(info) => track_variable_usage_resolved(name, info.frame_level, info.usage, info.token, ctx, Option(bool).None),
+        .Some(info) => track_variable_usage_resolved(&name, info.frame_level, info.usage, &info.token, ctx, Option(bool).None),
         .None => ()
       )
     );
@@ -1000,7 +1000,7 @@ create_capture_type_and_value :: (
       while(csi < field_labels.len(), {
         cap_key.push_string(match(field_labels.get(csi), .Some(l) => l, .None => String.from("")));
         cap_key.push_str(":");
-        cap_key.push_string(match(field_types.get(csi), .Some(t) => type_to_string(t), .None => String.from("")));
+        cap_key.push_string(match(field_types.get(csi), .Some(t) => type_to_string(&t), .None => String.from("")));
         // RESOLUTION-aware key suffix: a SomeT field type renders the SAME
         // `type_to_string` whether abstract (def-era eval — the captured
         // closure param is unbound, field lowers to void*) or resolved
@@ -1018,7 +1018,7 @@ create_capture_type_and_value :: (
               cap_key.push_str("@res:");
               match(
                 ck_rc,
-                .Some(ck_r) => cap_key.push_string(type_to_string(ck_r)),
+                .Some(ck_r) => cap_key.push_string(type_to_string(&ck_r)),
                 .None => cap_key.push_string(ck_sid.clone())
               );
             },
@@ -1064,7 +1064,7 @@ create_capture_type_and_value :: (
       // Register field metadata, and each field's binding by declaration site:
       // the io.async re-kind pass tells a capture from a body binding of the
       // same name by it (src/codegen/exprs/async.yo).
-      register_struct_fields(struct_id.clone(), type_fields);
+      register_struct_fields(struct_id.clone(), &type_fields);
       match(
         captured_vars_with_values,
         .Some(sites_cvwv) => {
@@ -1072,7 +1072,7 @@ create_capture_type_and_value :: (
           while(dsi < field_labels.len(), dsi = (dsi + usize(1)), {
             match(
               field_labels.get(dsi),
-              .Some(dl) => match(sites_cvwv.get(dl.clone()), .Some(dfci) => register_capture_field_decl_site(struct_id.clone(), dl, dfci.decl_site), .None => ()),
+              .Some(dl) => match(sites_cvwv.get(dl.clone()), .Some(dfci) => register_capture_field_decl_site(struct_id.clone(), &dl, &dfci.decl_site), .None => ()),
               .None => ()
             );
           });
@@ -1095,11 +1095,11 @@ create_capture_type_and_value :: (
       // Auto-derive trait markers for the capture struct.
       auto_derive_traits_for_struct_type(
         struct_id.clone(),
-        field_types,
+        &field_types,
         false,
         false,
         env,
-        capture_ty
+        &capture_ty
       );
       // Build the capture struct EvalValue if all values are known.
       n_caps := cap_values.len();
@@ -1172,7 +1172,7 @@ _captures_require_explicit_copy :: (fn(imm(cvwv_opt) : Option(HashMap(String, Fu
       while(more && !found, {
         match(
           it.next(),
-          .Some(ci) => if(type_requires_explicit_copy(ci.ty), {
+          .Some(ci) => if(type_requires_explicit_copy(&ci.ty), {
             found = true;
           }),
           .None => {
@@ -1245,27 +1245,27 @@ generate_captured_variable_dup_expressions :: (
               // consumed, so its scope-end drop is skipped and the closure's
               // drop disposes it. The capture struct is move-only too, by
               // containment.
-              type_requires_explicit_copy(ci.ty) => {
+              type_requires_explicit_copy(&ci.ty) => {
                 cap_vars := get_variables_from_env(env, var_name.clone());
                 match(
                   cap_vars.last(),
                   .Some(cap_v) => if(!cap_v.is_compile_time_only, {
-                    move_captured_explicit_copy_variable(cap_v, closure_tok, env, ctx, exn);
+                    move_captured_explicit_copy_variable(&cap_v, closure_tok, env, ctx, exn);
                   }),
                   .None => ()
                 );
               },
-              type_contains_rc_type(ci.ty) => {
+              type_contains_rc_type(&ci.ty) => {
                 if(audit_implicit_copy_enabled(), {
-                  audit_record_implicit_copy(closure_tok, ci.ty, "capture", env, var_name.clone(), var_name.clone(), ctx, false);
+                  audit_record_implicit_copy(closure_tok, &ci.ty, "capture", env, var_name.clone(), var_name.clone(), ctx, false);
                 });
                 dup_code := `___dup(${var_name})`;
-                dup_expr := generate_expr_from_code(dup_code, exn);
-                evaluated := evaluate_expression_raw(dup_expr, env, ctx, exn);
+                dup_expr := generate_expr_from_code(&dup_code, exn);
+                evaluated := evaluate_expression_raw(&dup_expr, env, ctx, exn);
                 dup_exprs.push(evaluated);
               },
               // YO_AUDIT_COPY_TRAIT: a plain-data capture is a copy too.
-              audit_copy_trait_enabled() => audit_record_copy_trait(closure_tok, ci.ty, "capture", env, generate_expr_from_code(var_name.clone(), exn), ctx, false),
+              audit_copy_trait_enabled() => audit_record_copy_trait(closure_tok, &ci.ty, "capture", env, generate_expr_from_code(var_name.clone(), exn), ctx, false),
               true => ()
             ),
             .None => ()

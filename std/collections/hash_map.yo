@@ -232,7 +232,7 @@ impl(
   /// The bucket hash of `key` under this map's keys.
   _hash : (fn(imm(self) : Self, mut(key) : K) -> u64)({
     h := DefaultHasher.new_with_keys(self.k0, self.k1);
-    key.hash(h);
+    key.hash(&mut h);
     h.finish()
   }),
   /// Empty map with room for `DEFAULT_CAPACITY` (16) buckets, hashed with
@@ -500,11 +500,11 @@ impl(
         cond(
           ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
             bucket := (data_ptr.add(i)).*;
-            hash := self._hash(bucket.key);
+            hash := self._hash(&mut bucket.key);
             h2 := h2_hash(hash);
-            new_index := Self._find_insert_bucket(new_map, hash);
-            new_ctrl_ptr := Self._ctrl_ptr(new_map);
-            new_data_ptr := Self._data_ptr(new_map);
+            new_index := Self._find_insert_bucket(&new_map, hash);
+            new_ctrl_ptr := Self._ctrl_ptr(&new_map);
+            new_data_ptr := Self._data_ptr(&new_map);
             (new_ctrl_ptr.add(new_index)).* = h2;
             consume((new_data_ptr.add(new_index)).* = bucket);
             new_map.size = (new_map.size + usize(1));
@@ -564,8 +564,8 @@ impl(
   /// insertion that crosses the load factor rehashes the table first, which
   /// INVALIDATES every entry pointer previously handed out.
   try_insert : (fn(mut(self) : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
-    hash := self._hash(key);
-    bucket_opt := Self._find_bucket(self, key, hash);
+    hash := self._hash(&mut key);
+    bucket_opt := Self._find_bucket(self, &key, hash);
     match(
       bucket_opt,
       .Some(index) => {
@@ -826,8 +826,8 @@ impl(
         ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
           bucket := (data_ptr.add(i)).*;
           cond(
-            !keep(bucket.key, bucket.value) => {
-              self.remove(bucket.key);
+            !keep(&bucket.key, &bucket.value) => {
+              self.remove(&bucket.key);
             },
             true => ()
           );
@@ -1048,7 +1048,7 @@ impl(
     match(
       self._slot,
       .Occupied(index) => (self._map._data_ptr().add(index)).*.value,
-      .Vacant(index) => self._map._insert_at(index, self._hash, self._key, default)
+      .Vacant(index) => self._map._insert_at(index, self._hash, &self._key, default)
     )
   ),
   /// The value for this key, inserting `make()`'s result first when vacant —
@@ -1057,7 +1057,7 @@ impl(
     match(
       self._slot,
       .Occupied(index) => (self._map._data_ptr().add(index)).*.value,
-      .Vacant(index) => self._map._insert_at(index, self._hash, self._key, make())
+      .Vacant(index) => self._map._insert_at(index, self._hash, &self._key, make())
     )
   ),
   /// Replace the stored value with `f(value)` when occupied; a no-op when
@@ -1073,7 +1073,7 @@ impl(
         p := self._map._data_ptr().add(index);
         // Whole-bucket assignment, as `try_insert` does on its occupied path:
         // it drops the old entry and dups the new one as one step.
-        p.* = MapEntry(K, V)(key : p.*.key, value : f(p.*.value));
+        p.* = MapEntry(K, V)(key : p.*.key, value : f(&p.*.value));
       },
       .Vacant(_) => ()
     );
@@ -1084,7 +1084,7 @@ impl(
   /// Re-probes rather than using the pinned slot: removal has to decide
   /// between an empty slot and a tombstone from the chain that follows it, and
   /// that logic lives in `remove`.
-  remove : (fn(mut(self) : Self) -> Option(V))(self._map.remove(self._key))
+  remove : (fn(mut(self) : Self) -> Option(V))(self._map.remove(&self._key))
 );
 /// Value iterator over a HashMap — yields each `MapEntry(K, V)` BY VALUE
 /// (both key and value dup'd for refcounted types). This is what

@@ -107,7 +107,7 @@ impl(
   ///
   /// The allocator-aware form (D9); `insert` is the one to reach for.
   try_insert : (fn(mut(self) : Self, key : K, value : V) -> Result(Option(V), HashMapError))({
-    is_new := !self._map.contains_key(key);
+    is_new := !self._map.contains_key(&key);
     result := self._map.try_insert(key, value);
     cond(
       is_new => match(
@@ -208,7 +208,7 @@ impl(
     match(
       self._order.get(i),
       .Some(k) => match(
-        self._map.get(k),
+        self._map.get(&k),
         .Some(v) => Option(MapEntry(K, V)).Some(MapEntry(K, V)(key : k, value : v)),
         .None => Option(MapEntry(K, V)).None
       ),
@@ -295,7 +295,7 @@ impl(
       self._map._order.get(self._index),
       .Some(k) => {
         self._index = (self._index + usize(1));
-        return(self._map._map.get(k));
+        return(self._map._map.get(&k));
       },
       .None => {
         return(.None);
@@ -336,7 +336,7 @@ impl(
         .Some(k) => {
           self._index = (self._index + usize(1));
           match(
-            self._map._map.get(k),
+            self._map._map.get(&k),
             .Some(v) => {
               return(.Some(MapEntry(K, V)(key : k, value : v)));
             },
@@ -394,7 +394,7 @@ impl(
           // Through a local of the (shared) map object: a `mut` receiver
           // may not borrow two object hops deep when an argument is refcounted.
           om := self._map;
-          return(om._map.get_entry_ptr(k));
+          return(om._map.get_entry_ptr(&k));
         },
         .None => {
           return(.None);

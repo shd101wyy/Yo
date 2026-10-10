@@ -746,7 +746,7 @@ _build_arg_value :: (
   match(
     args.get(idx),
     .Some(a) => match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(a)),
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)),
       .Some(info) => info.value,
       .None => Option(EvalValue).None
     ),
@@ -783,7 +783,7 @@ _build_unit_result :: (
 )({
   info := new_expr_info(env, t_unit());
   info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 /// Set the expr's result to a `comptime_str` carrying `value`.
@@ -798,7 +798,7 @@ _build_bool_result :: (
   // `ExprInfo.value` is what makes it compile-time known.
   info := new_expr_info(env, t_bool());
   info.value = Option(EvalValue).Some(EvalValue.BoolVal(value));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 /// True when a build file is being evaluated — `g_build_registry` is `.Some`
@@ -811,7 +811,7 @@ _build_string_result :: (
   raw := (String.from("\"") + value + String.from("\""));
   info := new_expr_info(env, t_comptime_string());
   info.value = Option(EvalValue).Some(EvalValue.StrLit(raw));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 /// Extract the (unquoted) comptime-string content of arg `idx`, throwing
@@ -1062,7 +1062,7 @@ evaluate_yo_build_functions :: (
   // ── Trial evaluation (function-definition type-check) ───────────────
   // target_host returns the host triple, option returns "", everything
   // else returns unit — no registry interaction.
-  if(_build_is_trial(args, ctx), {
+  if(_build_is_trial(&args, ctx), {
     if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TARGET_HOST, Option(usize).None), {
       return(_build_string_result(expr, env, ctx, host_target().triple));
     });
@@ -1090,17 +1090,17 @@ evaluate_yo_build_functions :: (
         )
       );
     });
-    triple := _build_extract_string(args, usize(0), "triple", expr, ctx, exn);
+    triple := _build_extract_string(&args, usize(0), "triple", expr, ctx, exn);
     parsed := match(
-      parse_target(triple),
+      parse_target(&triple),
       .Ok(t) => t.triple,
       .Err(_) => triple
     );
-    return(_build_string_result(expr, env, ctx, parsed));
+    return(_build_string_result(expr, env, ctx, &parsed));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MANIFEST_FIELD, Option(usize).None), {
-    _build_require_args(args, usize(1), String.from("__yo_build_manifest_field expects 1 argument (field)"), expr, exn);
-    field := _build_extract_string(args, usize(0), "field", expr, ctx, exn);
+    _build_require_args(&args, usize(1), String.from("__yo_build_manifest_field expects 1 argument (field)"), expr, exn);
+    field := _build_extract_string(&args, usize(0), "field", expr, ctx, exn);
     // A field the manifest does not carry — and every field outside a build,
     // where the registry is empty — reads as the empty string, the same
     // answer `load_manifest` gives for an absent `[package]` key.
@@ -1110,15 +1110,15 @@ evaluate_yo_build_functions :: (
         expr,
         env,
         ctx,
-        match(reg_manifest.manifest_fields.get(field), .Some(v) => v, .None => String.new())
+        match(reg_manifest.manifest_fields.get(&field), .Some(v) => v, .None => String.new())
       )
     );
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_OPTION, Option(usize).None), {
-    _build_require_args(args, usize(3), String.from("__yo_build_option expects 3 arguments (name, description, default)"), expr, exn);
-    opt_name := _build_extract_string(args, usize(0), "name", expr, ctx, exn);
-    opt_desc := _build_extract_string(args, usize(1), "description", expr, ctx, exn);
-    default_value := _build_extract_string(args, usize(2), "default", expr, ctx, exn);
+    _build_require_args(&args, usize(3), String.from("__yo_build_option expects 3 arguments (name, description, default)"), expr, exn);
+    opt_name := _build_extract_string(&args, usize(0), "name", expr, ctx, exn);
+    opt_desc := _build_extract_string(&args, usize(1), "description", expr, ctx, exn);
+    default_value := _build_extract_string(&args, usize(2), "default", expr, ctx, exn);
     reg_opt := get_build_registry();
     reg_opt.declared_options.insert(
       opt_name.clone(),
@@ -1130,7 +1130,7 @@ evaluate_yo_build_functions :: (
         expr,
         env,
         ctx,
-        match(reg_opt.cli_options.get(opt_name), .Some(v) => v, .None => default_value)
+        match(reg_opt.cli_options.get(&opt_name), .Some(v) => v, .None => default_value)
       )
     );
   });
@@ -1144,9 +1144,9 @@ evaluate_yo_build_functions :: (
   // Every read is recorded and folded into the artifact stamp, so changing a
   // variable the build file reads rebuilds instead of serving a stale artifact.
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ENV, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_env expects 2 arguments (name, default)"), expr, exn);
-    env_name := _build_extract_string(args, usize(0), "name", expr, ctx, exn);
-    env_default := _build_extract_string(args, usize(1), "default", expr, ctx, exn);
+    _build_require_args(&args, usize(2), String.from("__yo_build_env expects 2 arguments (name, default)"), expr, exn);
+    env_name := _build_extract_string(&args, usize(0), "name", expr, ctx, exn);
+    env_default := _build_extract_string(&args, usize(1), "default", expr, ctx, exn);
     if(!_under_build(), {
       exn.throw(
         dyn(
@@ -1164,8 +1164,8 @@ evaluate_yo_build_functions :: (
     );
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ENV_IS_SET, Option(usize).None), {
-    _build_require_args(args, usize(1), String.from("__yo_build_env_is_set expects 1 argument (name)"), expr, exn);
-    is_set_name := _build_extract_string(args, usize(0), "name", expr, ctx, exn);
+    _build_require_args(&args, usize(1), String.from("__yo_build_env_is_set expects 1 argument (name)"), expr, exn);
+    is_set_name := _build_extract_string(&args, usize(0), "name", expr, ctx, exn);
     if(!_under_build(), {
       exn.throw(
         dyn(
@@ -1193,8 +1193,8 @@ evaluate_yo_build_functions :: (
         )
       );
     });
-    dep_name := _build_extract_string(args, usize(0), "dependency_name", expr, ctx, exn);
-    mod_name := _build_extract_string(args, usize(1), "module_name", expr, ctx, exn);
+    dep_name := _build_extract_string(&args, usize(0), "dependency_name", expr, ctx, exn);
+    mod_name := _build_extract_string(&args, usize(1), "module_name", expr, ctx, exn);
     // Encode as "dep_name<NUL>module_name" (the handle `dep.module(...)`
     // carries; system-library propagation reads it — plans §4.5.2). The NUL byte is
     // built at runtime via push_byte rather than as a string literal: a
@@ -1203,37 +1203,37 @@ evaluate_yo_build_functions :: (
     nul_sep := String.new();
     nul_sep.push_byte(u8(0));
     encoded := (dep_name + nul_sep + mod_name);
-    return(_build_string_result(expr, env, ctx, encoded));
+    return(_build_string_result(expr, env, ctx, &encoded));
   });
   // ── Registry-mutating builtins (all return unit) ────────────────────
   reg := get_build_registry();
   host_triple := host_target().triple;
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_EXECUTABLE, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_executable expects at least 2 arguments (name, root)"), expr, exn);
+    _build_require_args(&args, usize(2), String.from("__yo_build_executable expects at least 2 arguments (name, root)"), expr, exn);
     reg.register_executable(
       _build_new_artifact(
-        _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-        _build_extract_string(args, usize(1), "root", expr, ctx, exn),
-        _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
-        _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
-        _build_extract_string_or(args, usize(4), "allocator", String.from("mimalloc"), expr, ctx, exn),
-        _build_extract_usize_or(args, usize(8), usize(16777216), ctx),
-        _build_extract_string_or(args, usize(5), "sanitize", String.from("none"), expr, ctx, exn),
-        _build_extract_string_or(args, usize(6), "emit_c_to", String.new(), expr, ctx, exn),
-        _build_extract_usize_or(args, usize(7), usize(0), ctx)
+        _build_extract_string(&args, usize(0), "name", expr, ctx, exn),
+        _build_extract_string(&args, usize(1), "root", expr, ctx, exn),
+        _build_extract_string_or(&args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
+        _build_extract_string_or(&args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
+        _build_extract_string_or(&args, usize(4), "allocator", String.from("mimalloc"), expr, ctx, exn),
+        _build_extract_usize_or(&args, usize(8), usize(16777216), ctx),
+        _build_extract_string_or(&args, usize(5), "sanitize", String.from("none"), expr, ctx, exn),
+        _build_extract_string_or(&args, usize(6), "emit_c_to", String.new(), expr, ctx, exn),
+        _build_extract_usize_or(&args, usize(7), usize(0), ctx)
       ),
       exn
     );
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STATIC_LIBRARY, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_static_library expects at least 2 arguments (name, root)"), expr, exn);
+    _build_require_args(&args, usize(2), String.from("__yo_build_static_library expects at least 2 arguments (name, root)"), expr, exn);
     reg.register_static_library(
       _build_new_artifact(
-        _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-        _build_extract_string(args, usize(1), "root", expr, ctx, exn),
-        _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
-        _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
+        _build_extract_string(&args, usize(0), "name", expr, ctx, exn),
+        _build_extract_string(&args, usize(1), "root", expr, ctx, exn),
+        _build_extract_string_or(&args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
+        _build_extract_string_or(&args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         String.from("system"),
         usize(16777216),
         String.from("none"),
@@ -1245,13 +1245,13 @@ evaluate_yo_build_functions :: (
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SHARED_LIBRARY, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_shared_library expects at least 2 arguments (name, root)"), expr, exn);
+    _build_require_args(&args, usize(2), String.from("__yo_build_shared_library expects at least 2 arguments (name, root)"), expr, exn);
     reg.register_shared_library(
       _build_new_artifact(
-        _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-        _build_extract_string(args, usize(1), "root", expr, ctx, exn),
-        _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
-        _build_extract_string_or(args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
+        _build_extract_string(&args, usize(0), "name", expr, ctx, exn),
+        _build_extract_string(&args, usize(1), "root", expr, ctx, exn),
+        _build_extract_string_or(&args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
+        _build_extract_string_or(&args, usize(3), "optimize", String.from("debug"), expr, ctx, exn),
         String.from("system"),
         usize(16777216),
         String.from("none"),
@@ -1265,35 +1265,35 @@ evaluate_yo_build_functions :: (
   // Unified link: a name that matches a registered SYSTEM library attaches as
   // one; anything else is an artifact-to-artifact link.
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_link expects 2 arguments (artifact_name, library_name)"), expr, exn);
-    link_artifact := _build_extract_string(args, usize(0), "artifact_name", expr, ctx, exn);
-    link_library := _build_extract_string(args, usize(1), "library_name", expr, ctx, exn);
+    _build_require_args(&args, usize(2), String.from("__yo_build_link expects 2 arguments (artifact_name, library_name)"), expr, exn);
+    link_artifact := _build_extract_string(&args, usize(0), "artifact_name", expr, ctx, exn);
+    link_library := _build_extract_string(&args, usize(1), "library_name", expr, ctx, exn);
     match(
       reg.find_system_library(link_library.clone()),
       .Some(_) => {
-        _build_attach_system_library(reg, link_artifact, link_library);
+        _build_attach_system_library(&reg, &link_artifact, &link_library);
       },
       .None => {
-        reg.register_link(link_artifact, link_library);
+        reg.register_link(&link_artifact, &link_library);
       }
     );
     return(_build_unit_result(expr, env, ctx));
   });
   // Kept for backward compatibility; `build.link()` now handles both cases.
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_LINK_SYSTEM_LIBRARY, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_link_system_library expects 2 arguments (artifact_name, system_lib_name)"), expr, exn);
+    _build_require_args(&args, usize(2), String.from("__yo_build_link_system_library expects 2 arguments (artifact_name, system_lib_name)"), expr, exn);
     _build_attach_system_library(
-      reg,
-      _build_extract_string(args, usize(0), "artifact_name", expr, ctx, exn),
-      _build_extract_string(args, usize(1), "system_lib_name", expr, ctx, exn)
+      &reg,
+      _build_extract_string(&args, usize(0), "artifact_name", expr, ctx, exn),
+      _build_extract_string(&args, usize(1), "system_lib_name", expr, ctx, exn)
     );
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_TEST, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_test expects at least 2 arguments (name, root)"), expr, exn);
+    _build_require_args(&args, usize(2), String.from("__yo_build_test expects at least 2 arguments (name, root)"), expr, exn);
     // Comma-separated project-relative paths excluded from the test walk
     // (std/build.yo TestSuite.exclude; "" means no excludes).
-    exclude_raw := _build_extract_string_or(args, usize(3), "exclude", String.from(""), expr, ctx, exn);
+    exclude_raw := _build_extract_string_or(&args, usize(3), "exclude", String.from(""), expr, ctx, exn);
     exclude_list := ArrayList(String).new();
     exclude_parts := exclude_raw.split(",");
     (epi : usize) = usize(0);
@@ -1306,16 +1306,16 @@ evaluate_yo_build_functions :: (
     });
     reg.register_test(
       BuildTestSuite(
-        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-        root : _build_extract_string(args, usize(1), "root", expr, ctx, exn),
-        target : _build_extract_string_or(args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
+        name : _build_extract_string(&args, usize(0), "name", expr, ctx, exn),
+        root : _build_extract_string(&args, usize(1), "root", expr, ctx, exn),
+        target : _build_extract_string_or(&args, usize(2), "target", host_triple.clone(), expr, ctx, exn),
         // `yo build --verbose` turns verbose on for every suite as well; this
         // is the build FILE's own setting, which used to be hard-coded here
         // while `BuildTestSuite` carried the fields and `run_test_suite`
         // forwarded them (the plan's B13).
-        verbose : _build_extract_bool(args, usize(4), ctx),
-        bail : _build_extract_bool(args, usize(5), ctx),
-        parallel : i32(_build_extract_usize_or(args, usize(6), usize(1), ctx)),
+        verbose : _build_extract_bool(&args, usize(4), ctx),
+        bail : _build_extract_bool(&args, usize(5), ctx),
+        parallel : i32(_build_extract_usize_or(&args, usize(6), usize(1), ctx)),
         exclude : exclude_list
       ),
       exn
@@ -1323,119 +1323,119 @@ evaluate_yo_build_functions :: (
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_RUN, Option(usize).None), {
-    _build_require_args(args, usize(1), String.from("__yo_build_run expects at least 1 argument (artifact_name)"), expr, exn);
+    _build_require_args(&args, usize(1), String.from("__yo_build_run expects at least 1 argument (artifact_name)"), expr, exn);
     reg.register_run(
-      _build_extract_string(args, usize(0), "artifact_name", expr, ctx, exn),
+      _build_extract_string(&args, usize(0), "artifact_name", expr, ctx, exn),
       ArrayList(String).new()
     );
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_step expects 2 arguments (name, description)"), expr, exn);
+    _build_require_args(&args, usize(2), String.from("__yo_build_step expects 2 arguments (name, description)"), expr, exn);
     reg.register_step(
-      _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-      _build_extract_string(args, usize(1), "description", expr, ctx, exn),
+      _build_extract_string(&args, usize(0), "name", expr, ctx, exn),
+      _build_extract_string(&args, usize(1), "description", expr, ctx, exn),
       exn
     );
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DOC, Option(usize).None), {
-    _build_require_args(args, usize(10), String.from("__yo_build_doc expects 10 arguments"), expr, exn);
+    _build_require_args(&args, usize(10), String.from("__yo_build_doc expects 10 arguments"), expr, exn);
     reg.register_doc(
       BuildDocConfig(
-        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-        root : _build_extract_string(args, usize(1), "root", expr, ctx, exn),
-        output_dir : _build_extract_string(args, usize(2), "output", expr, ctx, exn),
-        format : _build_extract_string(args, usize(3), "format", expr, ctx, exn),
-        include_private : _build_extract_bool(args, usize(4), ctx),
-        title : _build_extract_string(args, usize(6), "title", expr, ctx, exn),
-        logo : _build_extract_string(args, usize(7), "logo", expr, ctx, exn),
-        favicon : _build_extract_string(args, usize(8), "favicon", expr, ctx, exn),
-        version : _build_extract_string(args, usize(9), "version", expr, ctx, exn)
+        name : _build_extract_string(&args, usize(0), "name", expr, ctx, exn),
+        root : _build_extract_string(&args, usize(1), "root", expr, ctx, exn),
+        output_dir : _build_extract_string(&args, usize(2), "output", expr, ctx, exn),
+        format : _build_extract_string(&args, usize(3), "format", expr, ctx, exn),
+        include_private : _build_extract_bool(&args, usize(4), ctx),
+        title : _build_extract_string(&args, usize(6), "title", expr, ctx, exn),
+        logo : _build_extract_string(&args, usize(7), "logo", expr, ctx, exn),
+        favicon : _build_extract_string(&args, usize(8), "favicon", expr, ctx, exn),
+        version : _build_extract_string(&args, usize(9), "version", expr, ctx, exn)
       ),
       exn
     );
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_VERIFY, Option(usize).None), {
-    _build_require_args(args, usize(4), String.from("__yo_build_verify expects 4 arguments (name, root, mode, strict)"), expr, exn);
+    _build_require_args(&args, usize(4), String.from("__yo_build_verify expects 4 arguments (name, root, mode, strict)"), expr, exn);
     reg.register_verify(
       BuildVerifyConfig(
-        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-        root : _build_extract_string(args, usize(1), "root", expr, ctx, exn),
-        mode : _build_extract_string(args, usize(2), "mode", expr, ctx, exn),
-        strict : _build_extract_bool(args, usize(3), ctx)
+        name : _build_extract_string(&args, usize(0), "name", expr, ctx, exn),
+        root : _build_extract_string(&args, usize(1), "root", expr, ctx, exn),
+        mode : _build_extract_string(&args, usize(2), "mode", expr, ctx, exn),
+        strict : _build_extract_bool(&args, usize(3), ctx)
       ),
       exn
     );
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_STEP_DEPEND_ON, Option(usize).None), {
-    _build_require_args(args, usize(3), String.from("__yo_build_step_depend_on expects 3 arguments (step_name, dep_name, dep_kind)"), expr, exn);
-    step_name := _build_extract_string(args, usize(0), "step_name", expr, ctx, exn);
-    dep_name := _build_extract_string(args, usize(1), "dep_name", expr, ctx, exn);
+    _build_require_args(&args, usize(3), String.from("__yo_build_step_depend_on expects 3 arguments (step_name, dep_name, dep_kind)"), expr, exn);
+    step_name := _build_extract_string(&args, usize(0), "step_name", expr, ctx, exn);
+    dep_name := _build_extract_string(&args, usize(1), "dep_name", expr, ctx, exn);
     // A Run dependency is stored under a `run:` prefix so it cannot collide
     // with the artifact of the same name.
     resolved_dep_name := match(
-      _build_extract_variant(args, usize(2), ctx),
+      _build_extract_variant(&args, usize(2), ctx),
       .Some(variant) => cond((variant == "Run") => `run:${dep_name}`, true => dep_name.clone()),
       .None => dep_name.clone()
     );
-    reg.add_step_dependency(step_name, resolved_dep_name);
+    reg.add_step_dependency(&step_name, &resolved_dep_name);
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEPENDENCY, Option(usize).None), {
-    _build_require_args(args, usize(1), String.from("__yo_build_dependency expects 1 argument (name)"), expr, exn);
-    reg.reference_dependency(_build_extract_string(args, usize(0), "name", expr, ctx, exn));
+    _build_require_args(&args, usize(1), String.from("__yo_build_dependency expects 1 argument (name)"), expr, exn);
+    reg.reference_dependency(_build_extract_string(&args, usize(0), "name", expr, ctx, exn));
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_SYSTEM_LIBRARY, Option(usize).None), {
-    _build_require_args(args, usize(1), String.from("__yo_build_system_library expects at least 1 argument (name)"), expr, exn);
+    _build_require_args(&args, usize(1), String.from("__yo_build_system_library expects at least 1 argument (name)"), expr, exn);
     reg.register_system_library(
       BuildSystemLibrary(
-        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
-        fallback_include : _build_extract_string_or(args, usize(1), "fallback_include", String.new(), expr, ctx, exn),
-        fallback_lib : _build_extract_string_or(args, usize(2), "fallback_lib", String.new(), expr, ctx, exn),
-        fallback_link : _build_extract_string_or(args, usize(3), "fallback_link", String.new(), expr, ctx, exn),
-        defines : _build_split_ws(_build_extract_string_or(args, usize(4), "defines", String.new(), expr, ctx, exn))
+        name : _build_extract_string(&args, usize(0), "name", expr, ctx, exn),
+        fallback_include : _build_extract_string_or(&args, usize(1), "fallback_include", String.new(), expr, ctx, exn),
+        fallback_lib : _build_extract_string_or(&args, usize(2), "fallback_lib", String.new(), expr, ctx, exn),
+        fallback_link : _build_extract_string_or(&args, usize(3), "fallback_link", String.new(), expr, ctx, exn),
+        defines : _build_split_ws(_build_extract_string_or(&args, usize(4), "defines", String.new(), expr, ctx, exn))
       )
     );
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_DEP_ARTIFACT, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_dep_artifact expects 2 arguments (dependency_name, artifact_name)"), expr, exn);
+    _build_require_args(&args, usize(2), String.from("__yo_build_dep_artifact expects 2 arguments (dependency_name, artifact_name)"), expr, exn);
     reg.register_dependency_artifact(
       DependencyArtifactRef(
-        dependency_name : _build_extract_string(args, usize(0), "dependency_name", expr, ctx, exn),
-        artifact_name : _build_extract_string(args, usize(1), "artifact_name", expr, ctx, exn)
+        dependency_name : _build_extract_string(&args, usize(0), "dependency_name", expr, ctx, exn),
+        artifact_name : _build_extract_string(&args, usize(1), "artifact_name", expr, ctx, exn)
       )
     );
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE, Option(usize).None), {
-    _build_require_args(args, usize(1), String.from("__yo_build_module expects 1 argument (name)"), expr, exn);
+    _build_require_args(&args, usize(1), String.from("__yo_build_module expects 1 argument (name)"), expr, exn);
     reg.register_module(
       BuildModuleEntry(
-        name : _build_extract_string(args, usize(0), "name", expr, ctx, exn),
+        name : _build_extract_string(&args, usize(0), "name", expr, ctx, exn),
         linked_system_libraries : ArrayList(String).new()
       )
     );
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_MODULE_LINK, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_module_link expects 2 arguments (module_name, system_library_name)"), expr, exn);
+    _build_require_args(&args, usize(2), String.from("__yo_build_module_link expects 2 arguments (module_name, system_library_name)"), expr, exn);
     reg.register_module_link(
-      _build_extract_string(args, usize(0), "module_name", expr, ctx, exn),
-      _build_extract_string(args, usize(1), "system_library_name", expr, ctx, exn)
+      _build_extract_string(&args, usize(0), "module_name", expr, ctx, exn),
+      _build_extract_string(&args, usize(1), "system_library_name", expr, ctx, exn)
     );
     return(_build_unit_result(expr, env, ctx));
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_BUILD_ADD_CFLAGS, Option(usize).None), {
-    _build_require_args(args, usize(2), String.from("__yo_build_add_cflags expects 2 arguments (artifact_name, flags)"), expr, exn);
-    cf_artifact := _build_extract_string(args, usize(0), "artifact_name", expr, ctx, exn);
-    cf_flags := _build_split_ws(_build_extract_string(args, usize(1), "flags", expr, ctx, exn));
+    _build_require_args(&args, usize(2), String.from("__yo_build_add_cflags expects 2 arguments (artifact_name, flags)"), expr, exn);
+    cf_artifact := _build_extract_string(&args, usize(0), "artifact_name", expr, ctx, exn);
+    cf_flags := _build_split_ws(_build_extract_string(&args, usize(1), "flags", expr, ctx, exn));
     match(
-      reg.find_artifact(cf_artifact),
+      reg.find_artifact(&cf_artifact),
       .Some(art) => {
         (fi : usize) = usize(0);
         while(fi < cf_flags.len(), {

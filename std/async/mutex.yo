@@ -96,7 +96,7 @@ impl(
   with_lock : (fn(generic(R : Type), imm(self) : Self, imm(body) : Impl(Fn(mut(v) : T) -> R), io : Io) -> Impl(Future(R)))(
     io.async((io : Io) => {
       io.await(self.lock(io), io);
-      r := body(self._value);
+      r := body(&mut self._value);
       self.unlock();
       return(r);
     })

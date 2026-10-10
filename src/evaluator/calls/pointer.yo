@@ -54,17 +54,17 @@ evaluate_raw_pointer_call :: (
   // If expectedType is a pointer type, the inner type would be passed as expected.
   // Phase 2am: expectedType modification skipped — simplified port.
   // Evaluate the argument
-  evaluated := evaluate_expression_raw(arg_expr, env, ctx, exn);
+  evaluated := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   // Read the expr info for the evaluated argument
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
     info_opt,
     .None => {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg_expr),
-            `Failed to evaluate the argument expression for pointer:\n${ast_expr_to_string(arg_expr)}`
+            ast_expr_token(&arg_expr),
+            `Failed to evaluate the argument expression for pointer:\n${ast_expr_to_string(&arg_expr)}`
           )
         )
       );
@@ -78,7 +78,7 @@ evaluate_raw_pointer_call :: (
   );
   // If the argument is a type value, create a pointer type; otherwise error.
   cond(
-    is_type_value(arg_info.value) => {
+    is_type_value(&arg_info.value) => {
       inner_ty := match(
         arg_info.value,
         .Some(v) => match(v, .TypeVal(inner) => inner, _ => t_i32()),
@@ -94,8 +94,8 @@ evaluate_raw_pointer_call :: (
         exn.throw(
           dyn(
             format_error_message(
-              ptok,
-              `Raw pointer types ('*(${type_to_string(inner_ty)})') are not available in safe code.\n\nUse 'ArrayList(T)' (or 'Array(T, N)') for bounded byte/element storage, 'mut(name) : T' parameters for in-place mutation, or wrap the underlying pointer in an 'object' type. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top — but consider whether the unsafe surface really belongs in this module.`
+              &ptok,
+              `Raw pointer types ('*(${type_to_string(&inner_ty)})') are not available in safe code.\n\nUse 'ArrayList(T)' (or 'Array(T, N)') for bounded byte/element storage, 'mut(name) : T' parameters for in-place mutation, or wrap the underlying pointer in an 'object' type. If this file genuinely needs raw pointers, add 'pragma(Pragma.AllowUnsafe);' at the top — but consider whether the unsafe surface really belongs in this module.`
             )
           )
         );
@@ -104,38 +104,38 @@ evaluate_raw_pointer_call :: (
       // control-bound pointee. A `ctl(...)` value's lifetime is bound to its
       // install frame; a pointer would let writes-through-indirection escape
       // that frame. Banning the TYPE prevents the construction.
-      if(type_is_control_bound(inner_ty), {
+      if(type_is_control_bound(&inner_ty), {
         exn.throw(
           dyn(
             format_error_message(
-              ptok,
+              &ptok,
               `Cannot form a pointer to a control-bound type. The pointee transitively contains a \`ctl(...) -> ret\` function value, whose lifetime is bound to its install frame. A pointer would allow writes-through-indirection that escape that frame.
 
-Pointee type: ${type_to_string(inner_ty)}
+Pointee type: ${type_to_string(&inner_ty)}
 
 If you need to thread a handler through code, pass it by value (handlers are fn-pointer-sized; copying is free).`
             )
           )
         );
       });
-      ptr_ty := t_ptr(inner_ty);
-      ptr_val := create_type_value(ptr_ty);
+      ptr_ty := t_ptr(&inner_ty);
+      ptr_val := create_type_value(&ptr_ty);
       if(in_def_time_trial() && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
-        eprintln(`[ptr-call] inner=${type_to_string(inner_ty)} out=${type_to_string(ptr_ty)}`);
+        eprintln(`[ptr-call] inner=${type_to_string(&inner_ty)} out=${type_to_string(&ptr_ty)}`);
       });
-      meta_ty := type_of_type(ptr_ty);
-      next_env := expr_info_adopt_env(arg_info);
-      out_info := new_expr_info(next_env, meta_ty);
+      meta_ty := type_of_type(&ptr_ty);
+      next_env := expr_info_adopt_env(&arg_info);
+      out_info := new_expr_info(&next_env, &meta_ty);
       out_info.value = .Some(ptr_val);
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
       expr
     },
     true => {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_expr),
-            `Cannot create a pointer to a value. Use "addr_of(x)" to create a pointer to a value:\n${ast_expr_to_string(arg_expr)}`
+            ast_expr_token(&arg_expr),
+            `Cannot create a pointer to a value. Use "addr_of(x)" to create a pointer to a value:\n${ast_expr_to_string(&arg_expr)}`
           )
         )
       );

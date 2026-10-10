@@ -90,15 +90,15 @@ process_unquotes_in_expr :: (
             return(expr);
           }
         );
-        eval_arg := evaluate_expression_raw(arg, env, ctx, exn);
+        eval_arg := evaluate_expression_raw(&arg, env, ctx, exn);
         arg_info := match(
-          expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
           .Some(i) => i,
           .None => {
             exn.throw(
               dyn(
                 format_error_message(
-                  tok,
+                  &tok,
                   String.from("unquote: failed to evaluate argument")
                 )
               )
@@ -109,19 +109,19 @@ process_unquotes_in_expr :: (
         val := match(
           arg_info.value,
           .None => {
-            exn.throw(dyn(format_error_message(tok, String.from("unquote: argument must have a compile-time value"))));
+            exn.throw(dyn(format_error_message(&tok, String.from("unquote: argument must have a compile-time value"))));
             EvalValue.ExprVal(make_err_expr())
           },
           .Some(v) => v
         );
         // If type is not Expr but value is unknown → leave original expr in
-        if(!is_expr_type(arg_info.ty), {
-          if(is_unknown_val(val), {
+        if(!is_expr_type(&arg_info.ty), {
+          if(is_unknown_val(&val), {
             return(expr);
           });
-          exn.throw(dyn(format_error_message(tok, String.from("unquote: expected Expr type"))));
+          exn.throw(dyn(format_error_message(&tok, String.from("unquote: expected Expr type"))));
         });
-        if(is_unknown_val(val), {
+        if(is_unknown_val(&val), {
           return(expr);
         });
         // FRESH-ID CLONE of the spliced AST — `eb` alone embeds the
@@ -129,16 +129,16 @@ process_unquotes_in_expr :: (
         // expansion; see the template-clone comment in `evaluate_quote`.
         inner_expr := match(
           val,
-          .ExprVal(eb) => clone_expr_fresh_ids(eb),
+          .ExprVal(eb) => clone_expr_fresh_ids(&eb),
           _ => {
-            exn.throw(dyn(format_error_message(tok, String.from("unquote: expected ExprVal"))));
+            exn.throw(dyn(format_error_message(&tok, String.from("unquote: expected ExprVal"))));
             make_err_expr()
           }
         );
         return(inner_expr);
       });
       // Case 2: Process func and each arg, expanding unquote_splicing.
-      new_func := recur(func_box, env, ctx, exn);
+      new_func := recur(&func_box, env, ctx, exn);
       new_args := ArrayList(AstExpr).new();
       i := usize(0);
       n := args.len();
@@ -149,15 +149,15 @@ process_unquotes_in_expr :: (
           opt_arg,
           .None => (),
           .Some(arg) => {
-            if(_is_unquote_splicing(arg), {
+            if(_is_unquote_splicing(&arg), {
               // The unquote_splicing argument.
               splice_inner := match(
                 arg,
                 .FnCall(_, _, splice_args, _, _) => match(splice_args.get(usize(0)), .Some(a) => a, .None => arg),
                 .Atom(_, _) => arg
               );
-              eval_splice := evaluate_expression_raw(splice_inner, env, ctx, exn);
-              opt_splice_info := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_splice));
+              eval_splice := evaluate_expression_raw(&splice_inner, env, ctx, exn);
+              opt_splice_info := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_splice));
               match(
                 opt_splice_info,
                 .None => {
@@ -171,21 +171,21 @@ process_unquotes_in_expr :: (
                       new_args.push(arg);
                     },
                     .Some(splice_val) => {
-                      if(!is_expr_list_type(splice_info.ty), {
-                        if(is_unknown_val(splice_val), {
+                      if(!is_expr_list_type(&splice_info.ty), {
+                        if(is_unknown_val(&splice_val), {
                           new_args.push(arg);
                         }, {
                           exn.throw(
                             dyn(
                               format_error_message(
-                                ast_expr_token(arg),
+                                ast_expr_token(&arg),
                                 String.from("unquote_splicing: expected ComptimeList(Expr) type")
                               )
                             )
                           );
                         });
                       }, {
-                        if(is_comptime_list_val(splice_val), {
+                        if(is_comptime_list_val(&splice_val), {
                           match(
                             splice_val,
                             .ComptimeListVal(elems) => {
@@ -198,8 +198,8 @@ process_unquotes_in_expr :: (
                                   opt_elem,
                                   .None => (),
                                   .Some(elem) => {
-                                    if(is_expr_val(elem), {
-                                      inner_node := match(elem, .ExprVal(eb) => clone_expr_fresh_ids(eb), _ => arg);
+                                    if(is_expr_val(&elem), {
+                                      inner_node := match(elem, .ExprVal(eb) => clone_expr_fresh_ids(&eb), _ => arg);
                                       new_args.push(inner_node);
                                     }, {
                                       new_args.push(arg);
@@ -220,7 +220,7 @@ process_unquotes_in_expr :: (
                 }
               );
             }, {
-              new_args.push(recur(arg, env, ctx, exn));
+              new_args.push(recur(&arg, env, ctx, exn));
             });
           }
         );
@@ -259,12 +259,12 @@ evaluate_quote :: (
   // of the same macro — table writes then drop values other holders still
   // reference (intermittent allocator SIGTRAPs). `clone_expr_fresh_ids`
   // gives every expansion fresh ids under the id-keyed table.
-  quoted := process_unquotes_in_expr(clone_expr_fresh_ids(arg), env, ctx, exn);
+  quoted := process_unquotes_in_expr(clone_expr_fresh_ids(&arg), env, ctx, exn);
   // Wrap result in ExprVal and register ExprInfo.
   val := EvalValue.ExprVal(quoted);
   out_info := new_expr_info(env, t_expr_t());
   out_info.value = Option(EvalValue).Some(val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(process_unquotes_in_expr, evaluate_quote);

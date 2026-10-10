@@ -92,8 +92,8 @@ impl(
   join : (fn(imm(self) : Self, io : Io) -> Impl(Future(Option(T), Io)))(
     io.async((io : Io) => {
       w := unsafe(__yo_join_wait_new());
-      unsafe(__yo_join_wait_add(w, self.as_ptr()));
-      _w := io.await(w, io);
+      unsafe(__yo_join_wait_add(&w, self.as_ptr()));
+      _w := io.await(&w, io);
       // Terminal now: this read returns without driving the loop.
       self.await(io)
     })
@@ -106,7 +106,7 @@ _wait_any :: (fn(generic(T : Type), imm(handles) : ArrayList(JoinHandle(T))) -> 
   (i : usize) = usize(0);
   while(i < handles.len(), i = (i + usize(1)), {
     h := handles(i);
-    unsafe(__yo_join_wait_add(w, h.as_ptr()));
+    unsafe(__yo_join_wait_add(&w, h.as_ptr()));
   });
   w
 });
@@ -185,7 +185,7 @@ any :: (fn(generic(T : Type), imm(handles) : ArrayList(JoinHandle(T)), io : Io) 
           decided = true;
         },
         true => {
-          _w := io.await(_wait_any(pending), io);
+          _w := io.await(_wait_any(&pending), io);
         }
       );
     });
@@ -299,12 +299,12 @@ timeout :: (
       io.await(IO_timer.sleep(ms.*), io);
       return(());
     });
-    dh := io.spawn(deadline_fut, io);
+    dh := io.spawn(&deadline_fut, io);
     // One wait over the task and the deadline: resolves when either ends.
     w := unsafe(__yo_join_wait_new());
-    unsafe(__yo_join_wait_add(w, handle.as_ptr()));
-    unsafe(__yo_join_wait_add(w, dh.as_ptr()));
-    _w := io.await(w, io);
+    unsafe(__yo_join_wait_add(&w, handle.as_ptr()));
+    unsafe(__yo_join_wait_add(&w, dh.as_ptr()));
+    _w := io.await(&w, io);
     // Which arm ended the wait — the ONLY place the two failure modes are
     // distinguishable. Afterwards `join` reports `.None` for a deadline abort
     // and a self-abort alike.

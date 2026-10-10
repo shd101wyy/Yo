@@ -82,7 +82,7 @@ _intern_type_c_name_fresh :: (fn(imm(key) : String) -> String)({
   while(collided, {
     collided = false;
     match(
-      _g_type_c_name_intern_r.get(id),
+      _g_type_c_name_intern_r.get(&id),
       .Some(owner) => {
         if(!(owner == key), {
           ord = (ord + usize(1));
@@ -126,11 +126,11 @@ _struct_some_type_is_only_in_function_fields :: (
       while((i < n) && ok, {
         ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         cond(
-          is_function_type(ft) => (),
+          is_function_type(&ft) => (),
           // fn-ptr field — fine
-          (is_struct_type(ft) && recur(ft, visited)) => (),
+          (is_struct_type(&ft) && recur(&ft, visited)) => (),
           // nested ok
-          type_contains_some_type(ft) => {
+          type_contains_some_type(&ft) => {
             ok = false;
           },
           true => ()
@@ -164,10 +164,10 @@ _enum_some_type_is_only_in_function_fields :: (
         while((fi < nf) && ok, {
           ft := match(fields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
           cond(
-            is_function_type(ft) => (),
-            (is_struct_type(ft) && _struct_some_type_is_only_in_function_fields(ft, visited)) => (),
-            is_dyn_type(ft) => (),
-            type_contains_some_type(ft) => {
+            is_function_type(&ft) => (),
+            (is_struct_type(&ft) && _struct_some_type_is_only_in_function_fields(&ft, visited)) => (),
+            is_dyn_type(&ft) => (),
+            type_contains_some_type(&ft) => {
               ok = false;
             },
             true => ()
@@ -203,21 +203,21 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
   // registers the C struct decl under the same type_key as the final, and the
   // final is then deduped away — emitting `struct { header; }` with no members.
   type := resolve_struct_shell(resolve_enum_shell(type_in));
-  if(context.get_type_entry(type_key(type)).is_some(), {
+  if(context.get_type_entry(type_key(&type)).is_some(), {
     return(()); // Already collected this type
   });
   // SomeTypes (generic) — conservatively skip (monomorphized before
   // codegen in the supported corpus). Fn/Future/resolved-concrete branches
   // would need env+substitute resolution.
-  if(is_some_type(type), {
+  if(is_some_type(&type), {
     return(());
   });
   // Skip types that contain SomeType (generic params), except struct/enum
   // whose only SomeType content is inside function-typed fields.
-  if(type_contains_some_type(type), {
+  if(type_contains_some_type(&type), {
     keep := (
-      (is_struct_type(type) && _struct_some_type_is_only_in_function_fields(type, HashSet(String).new()))
-      || (is_enum_type(type) && _enum_some_type_is_only_in_function_fields(type, HashSet(String).new()))
+      (is_struct_type(&type) && _struct_some_type_is_only_in_function_fields(&type, HashSet(String).new()))
+      || (is_enum_type(&type) && _enum_some_type_is_only_in_function_fields(&type, HashSet(String).new()))
     );
     if(!keep, {
       return(());
@@ -229,20 +229,20 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
   // declarations runs in the type-decl phase. Register it here, during
   // collection, so the typedef is emitted before any reference; also collect
   // the element type. (Same side-effect registration as the Iso arm below.)
-  if(is_array_type(type), {
-    match(type, .Array({ element }) => recur(element, context), _ => ());
-    _gs := get_type_string(type, context);
+  if(is_array_type(&type), {
+    match(type, .Array({ element }) => recur(&element, context), _ => ());
+    _gs := get_type_string(&type, context);
     return(());
   });
   is_registerable := (
-    is_struct_type(type) || is_union_type(type) || is_enum_type(type) || is_tuple_type(type)
+    is_struct_type(&type) || is_union_type(&type) || is_enum_type(&type) || is_tuple_type(&type)
     // FutureTraitT: the generic Future trait-object interface struct — a
     // SEPARATE variant (not a TraitT subtype), so it
     // needs its own clause. Registered so a future-typed parameter's
     // `__yo_future_trait_*` interface struct gets a C name + declaration
     // (generation.yo's is_future_trait_type declaration pass).
-    || is_dyn_type(type) || is_trait_type(type) || is_future_trait_type(type)
-    || is_module_type(type) || is_iso_type(type)
+    || is_dyn_type(&type) || is_trait_type(&type) || is_future_trait_type(&type)
+    || is_module_type(&type) || is_iso_type(&type)
   );
   if(is_registerable, {
     // Gap 3: extern-C names not modelled generally. Intern the (full) type_key
@@ -250,8 +250,8 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
     // registry stays keyed by the full type_key, so all lookups are unchanged;
     // this only shrinks the EMITTED identifier (was `__yo_<full type_key>`,
     // which reached 200 KB+ for recursive types → ~10× C bloat).
-    tk := type_key(type);
-    stable := stable_type_identity(type);
+    tk := type_key(&type);
+    stable := stable_type_identity(&type);
     (aliased : bool) = false;
     match(
       g_stable_to_key.get(stable.clone()),
@@ -264,7 +264,7 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
         // pattern-era `Option` instance while the first-collected rendition
         // held the concrete-era one). Emission walks THIS rendition's actual
         // embedded instances, so each must be collected (or aliased) too.
-        context.register_type_alias(tk, prev_key.clone());
+        context.register_type_alias(&tk, prev_key.clone());
         aliased = true;
       }),
       .None => {
@@ -279,13 +279,13 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
       // an entry whose `c_include` is set, so the emitted C uses the header's
       // struct and passes it BY VALUE across the real ABI.
       match(
-        get_adopted_extern_c_type(type),
+        get_adopted_extern_c_type(&type),
         .Some(adopted) => {
-          context.register_type(tk, type, adopted.c_name.clone(), Option(String).Some(adopted.c_header.clone()));
+          context.register_type(&tk, &type, adopted.c_name.clone(), Option(String).Some(adopted.c_header.clone()));
         },
         .None => {
           c_name := _intern_type_c_name(tk.clone());
-          context.register_type(tk, type, c_name, Option(String).None);
+          context.register_type(&tk, &type, &c_name, Option(String).None);
         }
       );
     });
@@ -293,8 +293,8 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
     // C name appears as the interface struct's `result` field.
     match(
       type,
-      .FutureTraitT({ output : ftc_out }) => if(!is_some_type(ftc_out), {
-        recur(ftc_out, context);
+      .FutureTraitT({ output : ftc_out }) => if(!is_some_type(&ftc_out), {
+        recur(&ftc_out, context);
       }),
       _ => ()
     );
@@ -302,14 +302,14 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
     match(
       type,
       .Struct({}) => {
-        runtime_fields := get_runtime_struct_fields(type);
+        runtime_fields := get_runtime_struct_fields(&type);
         n := runtime_fields.len();
         (i : usize) = usize(0);
         while(i < n, {
           match(
             runtime_fields.get(i),
-            .Some(rf) => if(!is_function_type(rf.ty), {
-              recur(rf.ty, context);
+            .Some(rf) => if(!is_function_type(&rf.ty), {
+              recur(&rf.ty, context);
             }),
             .None => ()
           );
@@ -331,8 +331,8 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
           while(fi < nf, {
             match(
               fields.get(fi),
-              .Some(ft) => if(!is_function_type(ft), {
-                recur(ft, context);
+              .Some(ft) => if(!is_function_type(&ft), {
+                recur(&ft, context);
               }),
               .None => ()
             );
@@ -350,7 +350,7 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
         n := field_types.len();
         (i : usize) = usize(0);
         while(i < n, {
-          match(field_types.get(i), .Some(ft) => recur(ft, context), .None => ());
+          match(field_types.get(i), .Some(ft) => recur(&ft, context), .None => ());
           i = (i + usize(1));
         });
       },
@@ -363,7 +363,7 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
         n := required_trait_types.len();
         (i : usize) = usize(0);
         while(i < n, {
-          match(required_trait_types.get(i), .Some(tt) => recur(tt, context), .None => ());
+          match(required_trait_types.get(i), .Some(tt) => recur(&tt, context), .None => ());
           i = (i + usize(1));
         });
       },
@@ -373,8 +373,8 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
     match(
       type,
       .IsoT({ child }) => {
-        recur(child, context);
-        _gs := get_type_string(type, context);
+        recur(&child, context);
+        _gs := get_type_string(&type, context);
       },
       _ => ()
     );
@@ -402,12 +402,12 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
               .Func({ param_types : __mpt, result : __mres }) => {
                 (__mpi : usize) = usize(0);
                 while(__mpi < __mpt.len(), {
-                  match(__mpt.get(__mpi), .Some(__pt) => recur(__pt, context), .None => ());
+                  match(__mpt.get(__mpi), .Some(__pt) => recur(&__pt, context), .None => ());
                   __mpi = (__mpi + usize(1));
                 });
-                recur(__mres, context);
+                recur(&__mres, context);
               },
-              _ => recur(ft, context)
+              _ => recur(&ft, context)
             ),
             .None => ()
           );
@@ -427,7 +427,7 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
 _collect_field_pointees :: (fn(imm(ft) : TypeValue, imm(context) : CodeGenContext) -> unit)(
   match(
     ft,
-    .Pointer(p) => collect_type(p, context),
+    .Pointer(p) => collect_type(&p, context),
     .EnumT({ variant_fields }) => {
       nv := variant_fields.len();
       (vi : usize) = usize(0);
@@ -438,7 +438,7 @@ _collect_field_pointees :: (fn(imm(ft) : TypeValue, imm(context) : CodeGenContex
         while(fj < nfi, {
           match(
             fields.get(fj),
-            .Some(vf) => match(vf, .Pointer(p) => collect_type(p, context), _ => ()),
+            .Some(vf) => match(vf, .Pointer(p) => collect_type(&p, context), _ => ()),
             .None => ()
           );
           fj = (fj + usize(1));
@@ -478,7 +478,7 @@ collect_pointer_pointees :: (fn(imm(context) : CodeGenContext) -> unit)({
       match(
         vit.next(),
         .Some(entry) => {
-          if(is_struct_type(entry.ty), {
+          if(is_struct_type(&entry.ty), {
             snapshot.push(entry.ty);
           });
         },
@@ -493,11 +493,11 @@ collect_pointer_pointees :: (fn(imm(context) : CodeGenContext) -> unit)({
       match(
         snapshot.get(i),
         .Some(t) => {
-          rfs := get_runtime_struct_fields(t);
+          rfs := get_runtime_struct_fields(&t);
           nf := rfs.len();
           (fi : usize) = usize(0);
           while(fi < nf, {
-            match(rfs.get(fi), .Some(rf) => _collect_field_pointees(rf.ty, context), .None => ());
+            match(rfs.get(fi), .Some(rf) => _collect_field_pointees(&rf.ty, context), .None => ());
             fi = (fi + usize(1));
           });
         },
@@ -520,16 +520,16 @@ collect_types_from_function_type :: (fn(imm(function_type) : TypeValue, imm(cont
       np := param_types.len();
       (pi : usize) = usize(0);
       while(pi < np, {
-        match(param_types.get(pi), .Some(pt) => collect_type(pt, context), .None => ());
+        match(param_types.get(pi), .Some(pt) => collect_type(&pt, context), .None => ());
         pi = (pi + usize(1));
       });
       nf := forall_types.len();
       (fi : usize) = usize(0);
       while(fi < nf, {
-        match(forall_types.get(fi), .Some(ft) => collect_type(ft, context), .None => ());
+        match(forall_types.get(fi), .Some(ft) => collect_type(&ft, context), .None => ());
         fi = (fi + usize(1));
       });
-      collect_type(result, context);
+      collect_type(&result, context);
     },
     _ => ()
   )
@@ -556,19 +556,19 @@ collect_types_from_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenContex
     ei_opt,
     .Some(ei) => {
       // The expression's own type.
-      collect_type(ei.ty, context);
+      collect_type(&ei.ty, context);
       // A function value it resolves to (e.g. method lookups like temp.___drop).
       match(
         ei.value,
-        .Some(v) => if(is_func_val(v), {
-          fid := _fv_id(v);
+        .Some(v) => if(is_func_val(&v), {
+          fid := _fv_id(&v);
           cond(
             is_control_fn(fid.clone()) => {
-              _call_find_function_calls_in_expr(_fv_body(v), context, info);
+              _call_find_function_calls_in_expr(_fv_body(&v), context, info);
             },
             !context.has_function(fid.clone()) => {
-              context.register_function(fid.clone(), v, function_c_name(fid));
-              _call_find_function_calls_in_expr(_fv_body(v), context, info);
+              context.register_function(fid.clone(), &v, function_c_name(&fid));
+              _call_find_function_calls_in_expr(_fv_body(&v), context, info);
             },
             true => ()
           );
@@ -582,7 +582,7 @@ collect_types_from_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenContex
           nd := drops.len();
           (di : usize) = usize(0);
           while(di < nd, {
-            match(drops.get(di), .Some(de) => recur(de, context, info), .None => ());
+            match(drops.get(di), .Some(de) => recur(&de, context, info), .None => ());
             di = (di + usize(1));
           });
         },
@@ -595,22 +595,22 @@ collect_types_from_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenContex
       // otherwise codegen emits the expansion but its capture/closure structs
       // were never collected → get_type_string panic).
       match(
-        expr_info_macro_expansion(ei),
-        .Some(me) => recur(me, context, info),
+        expr_info_macro_expansion(&ei),
+        .Some(me) => recur(&me, context, info),
         .None => match(
           lookup_macro_expansion(ast_expr_id(expr)),
-          .Some(me) => recur(me, context, info),
+          .Some(me) => recur(&me, context, info),
           .None => ()
         )
       );
       // Runtime destructurings (comptime→runtime conversions).
       match(
-        expr_info_runtime_destructurings(ei),
+        expr_info_runtime_destructurings(&ei),
         .Some(rds) => {
           nr := rds.len();
           (ri : usize) = usize(0);
           while(ri < nr, {
-            match(rds.get(ri), .Some(rd) => collect_type(rd.ty, context), .None => ());
+            match(rds.get(ri), .Some(rd) => collect_type(&rd.ty, context), .None => ());
             ri = (ri + usize(1));
           });
         },
@@ -618,7 +618,7 @@ collect_types_from_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenContex
       );
       // Capture struct type for closures / async blocks (registers + recurses
       // into field types via collect_type).
-      match(expr_info_capture_type(ei), .Some(ct) => collect_type(ct, context), .None => ());
+      match(expr_info_capture_type(&ei), .Some(ct) => collect_type(&ct, context), .None => ());
     },
     .None => ()
   );
@@ -629,18 +629,18 @@ collect_types_from_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenContex
       if(ast_expr_is_fn_call_of(expr, BK_TEST, .None), {
         return(());
       });
-      recur(func_box, context, info);
+      recur(&func_box, context, info);
       n := args.len();
       (i : usize) = usize(0);
       while(i < n, {
-        match(args.get(i), .Some(a) => recur(a, context, info), .None => ());
+        match(args.get(i), .Some(a) => recur(&a, context, info), .None => ());
         i = (i + usize(1));
       });
     },
     .Atom(_, _) => match(
       ei_opt,
-      .Some(ei) => if(is_type_value(ei.value), {
-        match(ei.value, .Some(v) => match(v, .TypeVal(t) => collect_type(t, context), _ => ()), .None => ());
+      .Some(ei) => if(is_type_value(&ei.value), {
+        match(ei.value, .Some(v) => match(v, .TypeVal(t) => collect_type(&t, context), _ => ()), .None => ());
       }),
       .None => ()
     )
@@ -659,20 +659,20 @@ collect_required_types :: (fn(imm(module_value) : EvalValue, imm(context) : Code
         match(
           field_values.get(i),
           .Some(value) => cond(
-            is_func_val(value) => {
+            is_func_val(&value) => {
               // Collect the function's SIGNATURE types (param + return), not just
               // its body — a param type used only in the signature (e.g. a
               // non-async `main(io : Io)` whose body never mentions Io) would
               // otherwise never be collected. Bridges the missing Func type on
               // FuncVal via the get_func_type
               // side-table.
-              collect_types_from_function_type(get_func_type(_fv_id(value)), context);
-              collect_types_from_expr(_fv_body(value), context, info);
+              collect_types_from_function_type(get_func_type(_fv_id(&value)), context);
+              collect_types_from_expr(_fv_body(&value), context, info);
             },
             true => {
-              vt := type_of_eval_value(value);
-              if(!is_function_type(vt), {
-                collect_type(vt, context);
+              vt := type_of_eval_value(&value);
+              if(!is_function_type(&vt), {
+                collect_type(&vt, context);
               });
             }
           ),
@@ -692,7 +692,7 @@ collect_required_types :: (fn(imm(module_value) : EvalValue, imm(context) : Code
   while(mli < mlv_inits.len(), {
     match(
       mlv_inits.get(mli),
-      .Some(ie) => collect_types_from_expr(ie, context, info),
+      .Some(ie) => collect_types_from_expr(&ie, context, info),
       .None => ()
     );
     mli = (mli + usize(1));
@@ -730,7 +730,7 @@ collect_required_types :: (fn(imm(module_value) : EvalValue, imm(context) : Code
             // Signature types (param + return) in addition to the body — see the
             // module-level branch above.
             collect_types_from_function_type(get_func_type(key.clone()), context);
-            collect_types_from_expr(_fv_body(entry.value), context, info);
+            collect_types_from_expr(_fv_body(&entry.value), context, info);
           },
           .None => ()
         );

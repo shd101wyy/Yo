@@ -92,7 +92,7 @@ _tk_resolve_arg_slot :: (fn(imm(t_in) : TypeValue) -> TypeValue)({
         // `ArrayList(typeof(k))` a C type per copy
         // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
         // A `Future` or unresolved annotation wrapper keeps its id.
-        if((ras_nm.len() == usize(0)) || ((ras_nm == "Impl") && !is_bound_closure_identity(cur)), {
+        if((ras_nm.len() == usize(0)) || ((ras_nm == "Impl") && !is_bound_closure_identity(&cur)), {
           return(t_in);
         });
         (revisit : bool) = false;
@@ -128,7 +128,7 @@ _tk_resolve_arg_slot :: (fn(imm(t_in) : TypeValue) -> TypeValue)({
     );
   });
   // An unresolved chain keeps the ORIGINAL slot (bare-id keying as before).
-  if(is_some_type(cur), t_in, cur)
+  if(is_some_type(&cur), t_in, cur)
 });
 /// True when `somes` holds a SomeT whose id is `id`.
 _tk_somes_have_id :: (fn(imm(somes) : ArrayList(TypeValue), imm(id) : String) -> bool)({
@@ -169,7 +169,7 @@ _tk_args_sig :: (fn(imm(head) : String, imm(tas) : ArrayList(TypeValue), depth :
       tas.get(i),
       .Some(ta) => {
         node.push_str("|");
-        node.push_string(_tk_arg_id(ta, depth));
+        node.push_string(_tk_arg_id(&ta, depth));
       },
       .None => ()
     );
@@ -186,11 +186,11 @@ _tk_args_sig :: (fn(imm(head) : String, imm(tas) : ArrayList(TypeValue), depth :
 _tk_arg_id :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
   match(
     t,
-    .Struct({ id : sh_sid, type_arguments : sh_tas }) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, sh_tas, depth + usize(1)), `s:${sh_sid}`),
-    .EnumT({ id : sh_eid, type_arguments : sh_etas }) => if(depth < usize(8), _tk_args_sig(`e:${sh_eid}(`, sh_etas, depth + usize(1)), `e:${sh_eid}`),
+    .Struct({ id : sh_sid, type_arguments : sh_tas }) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, &sh_tas, depth + usize(1)), `s:${sh_sid}`),
+    .EnumT({ id : sh_eid, type_arguments : sh_etas }) => if(depth < usize(8), _tk_args_sig(`e:${sh_eid}(`, &sh_etas, depth + usize(1)), `e:${sh_eid}`),
     .SomeT({ id : sh_tid }) => {
       sh_end := resolve_cell_chain(t);
-      match(sh_end, .SomeT({ id : _ }) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(sh_end, depth)}`)
+      match(sh_end, .SomeT({ id : _ }) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(&sh_end, depth)}`)
     },
     _ => type_to_string(t)
   )
@@ -226,10 +226,10 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
       // one `IterMap` inside another under ONE id, and an id-only guard cut
       // the inner one to its bare id, which gave the returned instance a
       // second C type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
-      tk_node := _tk_node_id(sid, stas);
-      if((sid.len() > usize(0)) && _tk_seen(tk_node), {
+      tk_node := _tk_node_id(&sid, &stas);
+      if((sid.len() > usize(0)) && _tk_seen(&tk_node), {
         cyc_inner := match(
-          g_struct_cfid_keys.get(sid),
+          g_struct_cfid_keys.get(&sid),
           // A POISONED slot ("!AMBIG" — multiple instantiations share this
           // sid) must NOT leak the sentinel as a key: two different nested
           // types would both render "!AMBIG" and collide (the sentinel
@@ -242,7 +242,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
           .None => sid.clone()
         );
         cyc_out := ref_pfx.clone();
-        cyc_out.push_string(cyc_inner);
+        cyc_out.push_string(&cyc_inner);
         return(cyc_out);
       });
       if(sid.len() > usize(0), {
@@ -268,16 +268,16 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
               .Some(ta_raw) => {
                 // Resolve a SomeT slot through its resolution chain first (the
                 // closure-F identity repair — see _tk_resolve_arg_slot).
-                ta := _tk_resolve_arg_slot(ta_raw);
+                ta := _tk_resolve_arg_slot(&ta_raw);
                 // `Type` AND `unit` argument slots are value-erased: a comptime
                 // VALUE argument (`N : usize`) has no TypeValue representation,
                 // so the stamp records `unit` (fresh re-stamps) or `Type`
                 // (def-era binder) in its slot.
-                if(is_type_hierarchy_type(ta) || is_unit_type(ta), {
+                if(is_type_hierarchy_type(&ta) || is_unit_type(&ta), {
                   tk_has_uni = true;
                 });
                 key.push_str("_");
-                key.push_string(recur(ta, depth + usize(1)));
+                key.push_string(recur(&ta, depth + usize(1)));
               },
               .None => ()
             );
@@ -297,7 +297,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
                 sfts.get(tkf),
                 .Some(tk_ft) => {
                   key.push_str("_f");
-                  key.push_string(recur(tk_ft, depth + usize(1)));
+                  key.push_string(recur(&tk_ft, depth + usize(1)));
                 },
                 .None => ()
               );
@@ -316,7 +316,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
           // with registration order deciding the winner per emit.
           if(sid.len() > usize(0), {
             match(
-              g_struct_cfid_keys.get(sid),
+              g_struct_cfid_keys.get(&sid),
               .Some(prev) => if(!((prev == key) || (prev == "!AMBIG")), {
                 g_struct_cfid_keys.insert(sid.clone(), String.from("!AMBIG"));
               }),
@@ -341,7 +341,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
         // must get its own visit fn. Unpoisoned REGISTERED sids
         // (.Some non-poison) behave exactly as before.
         (sid.len() > usize(0)) => {
-          slot := g_struct_cfid_keys.get(sid);
+          slot := g_struct_cfid_keys.get(&sid);
           need_structural := match(
             slot,
             .Some(k) => (k == "!AMBIG"),
@@ -368,8 +368,8 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
                   skey.push_string(
                     match(
                       sft,
-                      .SomeT({ id : cf_sid }) => if(is_capture && (cf_sid.len() > usize(0)), cf_sid.clone(), recur(sft, depth + usize(1))),
-                      _ => recur(sft, depth + usize(1))
+                      .SomeT({ id : cf_sid }) => if(is_capture && (cf_sid.len() > usize(0)), cf_sid.clone(), recur(&sft, depth + usize(1))),
+                      _ => recur(&sft, depth + usize(1))
                     )
                   );
                 },
@@ -384,10 +384,10 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
             .None => sid.clone()
           ))
         },
-        true => type_to_string(st)
+        true => type_to_string(&st)
       );
       out_key := ref_pfx.clone();
-      out_key.push_string(raw_key);
+      out_key.push_string(&raw_key);
       out_key
     },
     .EnumT({ id, variant_fields : vfs }) => {
@@ -413,8 +413,8 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
       // second C type beside the declared `Option(Option(i32))`
       // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
       e_node_targs := match(rs, .EnumT({ type_arguments : nd_tas }) => nd_tas, _ => ArrayList(TypeValue).new());
-      e_node := _tk_node_id(eid, e_node_targs);
-      if((eid.len() > usize(0)) && _tk_seen(e_node), {
+      e_node := _tk_node_id(&eid, &e_node_targs);
+      if((eid.len() > usize(0)) && _tk_seen(&e_node), {
         return(eid.clone());
       });
       if(eid.len() > usize(0), {
@@ -432,7 +432,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
       // instances (same sig). Only the DEPTH guard keeps the name-only shortcut
       // (recursion bound); empty-id enums are leaf-shaped here (no id-keyed
       // cycle guard), so the depth bound suffices.
-      if(depth > usize(4), if(eid.len() > usize(0), eid.clone(), type_to_string(rs)), {
+      if(depth > usize(4), if(eid.len() > usize(0), eid.clone(), type_to_string(&rs)), {
         // Build the per-field structural suffix ONCE (used in both the full key
         // and the structural signature).
         field_part := String.new();
@@ -459,7 +459,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
                       .Some(vfl_row) => match(
                         vfl_row.get(fi),
                         .Some(fl_nm) => {
-                          field_part.push_string(fl_nm);
+                          field_part.push_string(&fl_nm);
                           field_part.push_str(":");
                         },
                         .None => ()
@@ -475,14 +475,14 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
                     // depth-expanded names → "field has incomplete type").
                     // Value-enum fields still expand, distinguishing generic
                     // instantiations (Option(Token) vs Option(u8)).
-                    rft := resolve_enum_shell(ft);
+                    rft := resolve_enum_shell(&ft);
                     fk := match(
                       rft,
                       .EnumT({ id : rid, is_reference_semantics : rrs }) =>
-                        if(rrs && (rid.len() > usize(0)), rid.clone(), recur(ft, depth + usize(1))),
-                      _ => recur(ft, depth + usize(1))
+                        if(rrs && (rid.len() > usize(0)), rid.clone(), recur(&ft, depth + usize(1))),
+                      _ => recur(&ft, depth + usize(1))
                     );
-                    field_part.push_string(fk);
+                    field_part.push_string(&fk);
                   },
                   .None => ()
                 );
@@ -509,20 +509,20 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
         // position keys exactly as before.
         e_targs := match(rs, .EnumT({ type_arguments : rtas }) => rtas, _ => ArrayList(TypeValue).new());
         if(e_targs.len() > usize(0), {
-          e_mask := enum_phantom_positions(eid);
-          e_some_phantoms := enum_phantom_type_args_masked(rs, e_mask);
+          e_mask := enum_phantom_positions(&eid);
+          e_some_phantoms := enum_phantom_type_args_masked(&rs, &e_mask);
           (pti : usize) = usize(0);
           while(pti < e_targs.len(), {
             pt := match(e_targs.get(pti), .Some(x) => x, .None => TypeValue.Unit);
             pt_masked := match(e_mask.get(pti), .Some(b) => b, .None => false);
             pt_free_var := match(
               pt,
-              .SomeT({ id : pt_id, resolution : pt_res }) => (pt_res.is_none() && _tk_somes_have_id(e_some_phantoms, pt_id)),
+              .SomeT({ id : pt_id, resolution : pt_res }) => (pt_res.is_none() && _tk_somes_have_id(&e_some_phantoms, &pt_id)),
               _ => false
             );
-            if((pt_masked && !is_unit_type(pt)) || pt_free_var, {
+            if((pt_masked && !is_unit_type(&pt)) || pt_free_var, {
               field_part.push_str("_ph:");
-              field_part.push_string(recur(resolve_cell_chain(pt), depth + usize(1)));
+              field_part.push_string(recur(resolve_cell_chain(&pt), depth + usize(1)));
             });
             pti = (pti + usize(1));
           });
@@ -530,7 +530,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
         // Full key = id-based (UNCHANGED behavior). This is what a single,
         // first-seen enum gets.
         key := eid.clone();
-        key.push_string(field_part);
+        key.push_string(&field_part);
         // Reference-semantics enums keep the id-based key verbatim (no structural
         // dedup — their id is load-bearing for recursion termination).
         if(e_is_ref, key, {
@@ -545,7 +545,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
           (si : usize) = usize(0);
           while(si < evns.len(), {
             sig.push_str("_");
-            match(evns.get(si), .Some(vn) => sig.push_string(vn), .None => ());
+            match(evns.get(si), .Some(vn) => sig.push_string(&vn), .None => ());
             match(
               evds.get(si),
               .Some(d) => {
@@ -556,8 +556,8 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
             );
             si = (si + usize(1));
           });
-          sig.push_string(field_part);
-          _lookup_or_register_enum_sig(sig, key)
+          sig.push_string(&field_part);
+          _lookup_or_register_enum_sig(&sig, &key)
         })
       })
     },
@@ -598,7 +598,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
           drtt.get(di),
           .Some(tt) => {
             key.push_str("_");
-            key.push_string(recur(tt, depth + usize(1)));
+            key.push_string(recur(&tt, depth + usize(1)));
           },
           .None => ()
         );
@@ -610,7 +610,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
           dntt.get(ni),
           .Some(tt) => {
             key.push_str("_n");
-            key.push_string(recur(tt, depth + usize(1)));
+            key.push_string(recur(&tt, depth + usize(1)));
           },
           .None => ()
         );
@@ -629,7 +629,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
     // issues/fixed/yo-self-specialization-signature-type-identity.md.
     .Pointer(pointee) => {
       key := String.from("*(");
-      key.push_string(recur(pointee, depth + usize(1)));
+      key.push_string(recur(&pointee, depth + usize(1)));
       key.push_str(")");
       key
     },
@@ -650,7 +650,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
         match(
           tk_labels.get(ti),
           .Some(tl) => if(tl.len() > usize(0), {
-            key.push_string(tl);
+            key.push_string(&tl);
             key.push_str(":");
           }),
           .None => ()
@@ -658,7 +658,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
         match(
           tk_fts.get(ti),
           .Some(ft) => {
-            key.push_string(recur(ft, depth + usize(1)));
+            key.push_string(recur(&ft, depth + usize(1)));
           },
           .None => ()
         );
@@ -737,24 +737,24 @@ _stable_identity_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)({
         _ => (id, fls, fts, t_is_ref)
       );
       pfx := if(s_is_ref, String.from("R#"), String.from(""));
-      if((sid.len() > usize(0)) && _sti_seen(sid), {
+      if((sid.len() > usize(0)) && _sti_seen(&sid), {
         out_cyc := pfx.clone();
-        out_cyc.push_string(sid);
+        out_cyc.push_string(&sid);
         return(out_cyc);
       });
       if(sid.len() > usize(0), {
         g_sti_visited.push(sid.clone());
       });
       out := pfx;
-      out.push_string(sid);
+      out.push_string(&sid);
       (i : usize) = usize(0);
       while(i < sfts.len(), {
         ft := match(sfts.get(i), .Some(x) => x, .None => TypeValue.Unit);
         fl := match(sfls.get(i), .Some(x) => x, .None => String.from(""));
         out.push_str("_");
-        out.push_string(fl);
+        out.push_string(&fl);
         out.push_str(":");
-        out.push_string(recur(ft, depth + usize(1)));
+        out.push_string(recur(&ft, depth + usize(1)));
         i = (i + usize(1));
       });
       out
@@ -772,22 +772,22 @@ _stable_identity_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)({
       // `Option(Option(String))` alike, so collect_type aliased the second
       // onto the first's C type
       // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
-      e_node := _tk_node_id(eid, match(rs, .EnumT({ type_arguments : sti_tas }) => sti_tas, _ => ArrayList(TypeValue).new()));
-      if((eid.len() > usize(0)) && _sti_seen(e_node), {
+      e_node := _tk_node_id(&eid, match(rs, .EnumT({ type_arguments : sti_tas }) => sti_tas, _ => ArrayList(TypeValue).new()));
+      if((eid.len() > usize(0)) && _sti_seen(&e_node), {
         out_cyc := pfx.clone();
-        out_cyc.push_string(eid);
+        out_cyc.push_string(&eid);
         return(out_cyc);
       });
       if(eid.len() > usize(0), {
         g_sti_visited.push(e_node);
       });
       out := pfx;
-      out.push_string(eid);
+      out.push_string(&eid);
       (vi : usize) = usize(0);
       while(vi < evfs.len(), {
         vn := match(evns.get(vi), .Some(x) => x, .None => String.from(""));
         out.push_str("_");
-        out.push_string(vn);
+        out.push_string(&vn);
         match(
           evfs.get(vi),
           .Some(fields) => {
@@ -795,7 +795,7 @@ _stable_identity_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)({
             while(fi < fields.len(), {
               ft := match(fields.get(fi), .Some(x) => x, .None => TypeValue.Unit);
               out.push_str(":");
-              out.push_string(recur(ft, depth + usize(1)));
+              out.push_string(recur(&ft, depth + usize(1)));
               fi = (fi + usize(1));
             });
           },
@@ -807,7 +807,7 @@ _stable_identity_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)({
     },
     .Pointer(pointee) => {
       out := String.from("*(");
-      out.push_string(recur(pointee, depth + usize(1)));
+      out.push_string(recur(&pointee, depth + usize(1)));
       out.push_str(")");
       out
     },
@@ -827,7 +827,7 @@ _stable_identity_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)({
         match(
           sti_labels.get(sti_i),
           .Some(sti_l) => if(sti_l.len() > usize(0), {
-            out.push_string(sti_l);
+            out.push_string(&sti_l);
             out.push_str(":");
           }),
           .None => ()
@@ -835,7 +835,7 @@ _stable_identity_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)({
         match(
           sti_fts.get(sti_i),
           .Some(sti_ft) => {
-            out.push_string(recur(sti_ft, depth + usize(1)));
+            out.push_string(recur(&sti_ft, depth + usize(1)));
           },
           .None => ()
         );
@@ -852,14 +852,14 @@ _stable_identity_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)({
     .SomeT({ id : sti_sid }) => {
       sti_term := resolve_cell_chain(t);
       cond(
-        !is_some_type(sti_term) => {
+        !is_some_type(&sti_term) => {
           out := String.from("S#");
-          out.push_string(recur(sti_term, depth + usize(1)));
+          out.push_string(recur(&sti_term, depth + usize(1)));
           out
         },
         (sti_sid.len() > usize(0)) => {
           out := String.from("S#");
-          out.push_string(sti_sid);
+          out.push_string(&sti_sid);
           out
         },
         true => type_to_string(t)
@@ -881,7 +881,7 @@ stable_type_identity :: (fn(imm(t) : TypeValue) -> String)({
 enum_instance_node_id :: (fn(imm(t) : TypeValue) -> String)(
   match(
     t,
-    .EnumT({ id : ein_id, type_arguments : ein_tas }) => _tk_node_id(ein_id, ein_tas),
+    .EnumT({ id : ein_id, type_arguments : ein_tas }) => _tk_node_id(&ein_id, &ein_tas),
     _ => String.new()
   )
 );

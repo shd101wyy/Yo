@@ -295,15 +295,15 @@ install_agent_files :: (
         return(());
       });
       agents_path := project_dir.join(Path.new(String.from("AGENTS.md")));
-      agents_exists := io.await(exists(agents_path.clone(), io), io);
+      agents_exists := io.await(exists(agents_path.clone(), io), &io);
       cond(
         !agents_exists => {
-          io.await(write_string(agents_path, generate_agents_md(res.skills, res.targets), io), IoExn(io : io, exn : exn));
+          io.await(write_string(&agents_path, generate_agents_md(&res.skills, &res.targets), io), IoExn(io : io, exn : exn));
           println(String.from("  create     AGENTS.md"));
         },
         true => ()
       );
-      print_skills_summary(res);
+      print_skills_summary(&res);
     }
   );
 });
@@ -336,8 +336,8 @@ init_project :: (
     );
     // Build the absolute project directory path
     project_dir := cond(
-      options.dir.starts_with(String.from("/")) => Path.new(options.dir),
-      true => Path.new(user_cwd_str).join(Path.new(options.dir))
+      options.dir.starts_with(String.from("/")) => Path.new(&options.dir),
+      true => Path.new(&user_cwd_str).join(Path.new(&options.dir))
     );
     // Derive project name
     raw_name := match(
@@ -349,64 +349,64 @@ init_project :: (
         .None => String.from("my-project")
       )
     );
-    project_name := sanitize_project_name(raw_name);
+    project_name := sanitize_project_name(&raw_name);
     // Create directory structure
-    e.io.await(create_dir_all(project_dir, e.io), e);
+    e.io.await(create_dir_all(&project_dir, e.io), e);
     e.io.await(create_dir_all(project_dir.join(Path.new(String.from("src"))), e.io), e);
     e.io.await(create_dir_all(project_dir.join(Path.new(String.from("tests"))), e.io), e);
     e.io.await(create_dir_all(project_dir.join(Path.new(String.from("spec"))), e.io), e);
     // build.yo — abort if already exists
     build_yo_path := project_dir.join(Path.new(String.from("build.yo")));
-    build_yo_exists := e.io.await(exists(build_yo_path, e.io), e.io);
+    build_yo_exists := e.io.await(exists(&build_yo_path, e.io), &e.io);
     cond(
       build_yo_exists => {
         e.exn.throw(dyn(`Error: ${build_yo_path.to_string()} already exists. Aborting.`));
       },
       true => ()
     );
-    e.io.await(write_string(build_yo_path, generate_build_yo(project_name), e.io), e);
+    e.io.await(write_string(&build_yo_path, generate_build_yo(&project_name), e.io), e);
     // yo.toml
     yo_toml_path := project_dir.join(Path.new(String.from("yo.toml")));
-    yo_toml_exists := e.io.await(exists(yo_toml_path, e.io), e.io);
+    yo_toml_exists := e.io.await(exists(&yo_toml_path, e.io), &e.io);
     cond(
       !yo_toml_exists => {
-        e.io.await(write_string(yo_toml_path, generate_yo_toml(project_name), e.io), e);
+        e.io.await(write_string(&yo_toml_path, generate_yo_toml(&project_name), e.io), e);
       },
       true => ()
     );
     // src/main.yo
     main_path := project_dir.join(Path.new(String.from("src/main.yo")));
-    main_exists := e.io.await(exists(main_path, e.io), e.io);
+    main_exists := e.io.await(exists(&main_path, e.io), &e.io);
     cond(
       !main_exists => {
-        e.io.await(write_string(main_path, String.from(generate_main_source()), e.io), e);
+        e.io.await(write_string(&main_path, String.from(generate_main_source()), e.io), e);
       },
       true => ()
     );
     // src/lib.yo
     lib_path := project_dir.join(Path.new(String.from("src/lib.yo")));
-    lib_exists := e.io.await(exists(lib_path, e.io), e.io);
+    lib_exists := e.io.await(exists(&lib_path, e.io), &e.io);
     cond(
       !lib_exists => {
-        e.io.await(write_string(lib_path, String.from(generate_lib_source()), e.io), e);
+        e.io.await(write_string(&lib_path, String.from(generate_lib_source()), e.io), e);
       },
       true => ()
     );
     // tests/main.test.yo
     test_path := project_dir.join(Path.new(String.from("tests/main.test.yo")));
-    test_exists := e.io.await(exists(test_path, e.io), e.io);
+    test_exists := e.io.await(exists(&test_path, e.io), &e.io);
     cond(
       !test_exists => {
-        e.io.await(write_string(test_path, String.from(generate_test_file()), e.io), e);
+        e.io.await(write_string(&test_path, String.from(generate_test_file()), e.io), e);
       },
       true => ()
     );
     // tests/lib.test.yo
     lib_test_path := project_dir.join(Path.new(String.from("tests/lib.test.yo")));
-    lib_test_exists := e.io.await(exists(lib_test_path, e.io), e.io);
+    lib_test_exists := e.io.await(exists(&lib_test_path, e.io), &e.io);
     cond(
       !lib_test_exists => {
-        e.io.await(write_string(lib_test_path, generate_lib_test_file(project_name.clone()), e.io), e);
+        e.io.await(write_string(&lib_test_path, generate_lib_test_file(project_name.clone()), e.io), e);
       },
       true => ()
     );
@@ -414,36 +414,36 @@ init_project :: (
     // the `yo verify ./spec --strict` line AGENTS.md teaches is green (not
     // a "no .yo files found" error) on a fresh project.
     spec_readme_path := project_dir.join(Path.new(String.from("spec/README.md")));
-    spec_readme_exists := e.io.await(exists(spec_readme_path, e.io), e.io);
+    spec_readme_exists := e.io.await(exists(&spec_readme_path, e.io), &e.io);
     cond(
       !spec_readme_exists => {
-        e.io.await(write_string(spec_readme_path, generate_spec_readme(), e.io), e);
+        e.io.await(write_string(&spec_readme_path, generate_spec_readme(), e.io), e);
       },
       true => ()
     );
     spec_example_path := project_dir.join(Path.new(String.from("spec/example.yo")));
-    spec_example_exists := e.io.await(exists(spec_example_path, e.io), e.io);
+    spec_example_exists := e.io.await(exists(&spec_example_path, e.io), &e.io);
     cond(
       !spec_example_exists => {
-        e.io.await(write_string(spec_example_path, generate_spec_example_law(), e.io), e);
+        e.io.await(write_string(&spec_example_path, generate_spec_example_law(), e.io), e);
       },
       true => ()
     );
     // .gitignore
     gitignore_path := project_dir.join(Path.new(String.from(".gitignore")));
-    gitignore_exists := e.io.await(exists(gitignore_path, e.io), e.io);
+    gitignore_exists := e.io.await(exists(&gitignore_path, e.io), &e.io);
     cond(
       !gitignore_exists => {
-        e.io.await(write_string(gitignore_path, String.from(generate_gitignore()), e.io), e);
+        e.io.await(write_string(&gitignore_path, String.from(generate_gitignore()), e.io), e);
       },
       true => ()
     );
     // README.md
     readme_path := project_dir.join(Path.new(String.from("README.md")));
-    readme_exists := e.io.await(exists(readme_path, e.io), e.io);
+    readme_exists := e.io.await(exists(&readme_path, e.io), &e.io);
     cond(
       !readme_exists => {
-        e.io.await(write_string(readme_path, generate_readme(project_name), e.io), e);
+        e.io.await(write_string(&readme_path, generate_readme(&project_name), e.io), e);
       },
       true => ()
     );

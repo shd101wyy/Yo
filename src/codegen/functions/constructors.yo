@@ -28,7 +28,7 @@ _has_generic_fields :: (fn(imm(fields) : ArrayList(RuntimeStructField)) -> bool)
   while((i < n) && !found, {
     match(
       fields.get(i),
-      .Some(field) => if(type_contains_some_type(field.ty), {
+      .Some(field) => if(type_contains_some_type(&field.ty), {
         found = true;
       }),
       .None => ()
@@ -64,7 +64,7 @@ _child_traverse_fn_expr :: (fn(imm(ty) : TypeValue, imm(context) : FunctionGener
     true => match(
       context.base.types.get(type_key(ty)),
       .Some(entry) => match(
-        _traversal_fn_name(entry.ty, entry.c_name.clone()),
+        _traversal_fn_name(&entry.ty, entry.c_name.clone()),
         .Some(n) => `(void*)${n}`,
         .None => String.from("NULL")
       ),
@@ -77,7 +77,7 @@ _child_traverse_fn_expr :: (fn(imm(ty) : TypeValue, imm(context) : FunctionGener
 _nullable_payload_traverse_fn_expr :: (fn(imm(ty) : TypeValue, imm(context) : FunctionGenerationContext) -> String)(
   match(
     can_optimize_as_nullable_pointer(ty),
-    .Some(payload) => _child_traverse_fn_expr(payload, context),
+    .Some(payload) => _child_traverse_fn_expr(&payload, context),
     .None => String.from("NULL")
   )
 );
@@ -96,7 +96,7 @@ _emit_traversal_prototypes :: (fn(imm(context) : FunctionGenerationContext) -> u
     match(
       vals.next(),
       .Some(entry) => match(
-        _traversal_fn_name(entry.ty, entry.c_name.clone()),
+        _traversal_fn_name(&entry.ty, entry.c_name.clone()),
         .Some(n) => em.emit_string_line(`static void ${n}(void* ptr, void (*visit)(void*, void*));`),
         .None => ()
       ),
@@ -133,7 +133,7 @@ dispose_fn_thunk :: (fn(imm(dispose_c_name) : String, imm(context) : FunctionGen
 _generate_one_constructor :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm(context) : FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   runtime_fields := get_runtime_struct_fields(type);
-  if(_has_generic_fields(runtime_fields), {
+  if(_has_generic_fields(&runtime_fields), {
     return();
   });
   constructor_name := String.from("__yo_new_");
@@ -148,12 +148,12 @@ _generate_one_constructor :: (fn(imm(type) : TypeValue, imm(c_name) : String, im
   while(pi < nf, {
     match(
       runtime_fields.get(pi),
-      .Some(field) => if(!is_unit_type(field.ty), {
+      .Some(field) => if(!is_unit_type(&field.ty), {
         if(any_param, {
           params.push_str(", ");
         });
         any_param = true;
-        params.push_string(get_type_string(field.ty, context.base));
+        params.push_string(get_type_string(&field.ty, &context.base));
         params.push_str(" ");
         params.push_string(sanitize_for_c_identifier(field.label.clone(), false));
       }),
@@ -164,7 +164,7 @@ _generate_one_constructor :: (fn(imm(type) : TypeValue, imm(c_name) : String, im
   dispose_opt := get_dispose_function_for_type(type, context);
   (dispose_thunk : String) = match(
     dispose_opt,
-    .Some(dn) => if(context.base.needs_cycle_gc, dispose_fn_thunk(dn, context), String.new()),
+    .Some(dn) => if(context.base.needs_cycle_gc, dispose_fn_thunk(&dn, context), String.new()),
     .None => String.new()
   );
   // Signature + malloc.
@@ -173,9 +173,9 @@ _generate_one_constructor :: (fn(imm(type) : TypeValue, imm(c_name) : String, im
   sig.push_str("* ");
   sig.push_string(constructor_name.clone());
   sig.push_str("(");
-  sig.push_string(params);
+  sig.push_string(&params);
   sig.push_str(") {");
-  em.emit_string_line(sig);
+  em.emit_string_line(&sig);
   // Placed by the current allocation scope (plans/archive/EXPLICIT_ALLOCATORS.md §3.5).
   em.emit_string_line(String.from("  __yo_alloc_scope_t __yo_sc = __yo_scope_current();"));
   alloc := String.from("  ");
@@ -185,7 +185,7 @@ _generate_one_constructor :: (fn(imm(type) : TypeValue, imm(c_name) : String, im
   alloc.push_str("*)__yo_rc_alloc_scoped(__yo_sc, sizeof(");
   alloc.push_string(c_name.clone());
   alloc.push_str("));");
-  em.emit_string_line(alloc);
+  em.emit_string_line(&alloc);
   // RC header.
   em.emit_string_line(String.from("  obj->header.ref_count = 1u | __yo_rc_tag_of(__yo_sc);  // One reference; the tag marks an explicit allocator's block"));
   em.emit_string_line(String.from("  obj->header.borrow_count = 0;  // Law-of-Exclusivity: no live interior borrows yet"));
@@ -214,7 +214,7 @@ _generate_one_constructor :: (fn(imm(type) : TypeValue, imm(c_name) : String, im
       line := String.from("  obj->header.type_id = ");
       line.push_string(dispose_id.to_string());
       line.push_str(";");
-      em.emit_string_line(line);
+      em.emit_string_line(&line);
     }),
     .None => if(context.base.needs_cycle_gc, {
       em.emit_string_line(String.from("  obj->header.dispose_fn = NULL;"));
@@ -229,21 +229,21 @@ _generate_one_constructor :: (fn(imm(type) : TypeValue, imm(c_name) : String, im
     line := String.from("  obj->header.traverse_fn = __yo_traverse_");
     line.push_string(c_name.clone());
     line.push_str(";");
-    em.emit_string_line(line);
+    em.emit_string_line(&line);
   });
   // Initialize fields (a `unit` field has no member to store into).
   (fi : usize) = usize(0);
   while(fi < nf, {
     match(
       runtime_fields.get(fi),
-      .Some(field) => if(!is_unit_type(field.ty), {
+      .Some(field) => if(!is_unit_type(&field.ty), {
         fname := sanitize_for_c_identifier(field.label.clone(), false);
         line := String.from("  obj->");
         line.push_string(fname.clone());
         line.push_str(" = ");
         line.push_string(fname.clone());
         line.push_str(";");
-        em.emit_string_line(line);
+        em.emit_string_line(&line);
       }),
       .None => ()
     );
@@ -323,7 +323,7 @@ _traverse_value :: (fn(imm(access) : String, imm(ty) : TypeValue, imm(context) :
                 while(ci < nvf, {
                   match(
                     vfields.get(ci),
-                    .Some(vt) => if(type_contains_rc_cell_or_move_only(vt), {
+                    .Some(vt) => if(type_contains_rc_cell_or_move_only(&vt), {
                       has_rc = true;
                     }),
                     .None => ()
@@ -331,16 +331,16 @@ _traverse_value :: (fn(imm(access) : String, imm(ty) : TypeValue, imm(context) :
                   ci = (ci + usize(1));
                 });
                 if(has_rc, {
-                  tag_c := get_enum_variant_c_name(ty, vname.clone(), context.base);
+                  tag_c := get_enum_variant_c_name(ty, vname.clone(), &context.base);
                   em.emit_string_line(`  case ${tag_c}:`);
                   (vfi : usize) = usize(0);
                   while(vfi < nvf, {
                     match(
                       vfields.get(vfi),
-                      .Some(vt) => if(type_contains_rc_cell_or_move_only(vt), {
+                      .Some(vt) => if(type_contains_rc_cell_or_move_only(&vt), {
                         vflabel := match(vlabels.get(vfi), .Some(l) => l, .None => String.from(""));
-                        vfname := sanitize_for_c_identifier(vflabel, false);
-                        recur(`${access}.data.${c_variant_member_name(vname.clone())}.${vfname}`, vt, context);
+                        vfname := sanitize_for_c_identifier(&vflabel, false);
+                        recur(`${access}.data.${c_variant_member_name(vname.clone())}.${vfname}`, &vt, context);
                       }),
                       .None => ()
                     );
@@ -363,7 +363,7 @@ _traverse_value :: (fn(imm(access) : String, imm(ty) : TypeValue, imm(context) :
       if(is_newtype_type(ty), {
         // A newtype is a C-transparent typedef alias for its single underlying
         // type — the value IS the inner value, so recurse with the SAME access.
-        match(rf.get(usize(0)), .Some(sfield) => recur(access, sfield.ty, context), .None => ());
+        match(rf.get(usize(0)), .Some(sfield) => recur(access, &sfield.ty, context), .None => ());
       }, {
         nrf := rf.len();
         (si : usize) = usize(0);
@@ -372,7 +372,7 @@ _traverse_value :: (fn(imm(access) : String, imm(ty) : TypeValue, imm(context) :
             rf.get(si),
             .Some(sfield) => {
               sfname := sanitize_for_c_identifier(sfield.label.clone(), false);
-              recur(`${access}.${sfname}`, sfield.ty, context);
+              recur(`${access}.${sfname}`, &sfield.ty, context);
             },
             .None => ()
           );
@@ -389,7 +389,7 @@ _traverse_value :: (fn(imm(access) : String, imm(ty) : TypeValue, imm(context) :
         while(ti < ntf, {
           match(
             field_types.get(ti),
-            .Some(tt) => recur(`${access}._${ti.to_string()}`, tt, context),
+            .Some(tt) => recur(`${access}._${ti.to_string()}`, &tt, context),
             .None => ()
           );
           ti = (ti + usize(1));
@@ -407,7 +407,7 @@ _traverse_value :: (fn(imm(access) : String, imm(ty) : TypeValue, imm(context) :
       ty,
       .Array({ element }) => {
         em.emit_string_line(`  for (size_t __yo_ti = 0; __yo_ti < (sizeof(${access}.data) / sizeof(${access}.data[0])); __yo_ti++) {`);
-        recur(`${access}.data[__yo_ti]`, element, context);
+        recur(`${access}.data[__yo_ti]`, &element, context);
         em.emit_string_line(`  }`);
       },
       _ => ()
@@ -424,7 +424,7 @@ _generate_one_ref_struct_traversal :: (fn(imm(type) : TypeValue, imm(c_name) : S
   runtime_fields := get_runtime_struct_fields(type);
   // Generic structs (any runtime field carrying a SomeType) get no traversal —
   // only concrete instantiations, matching the constructor path.
-  if(_has_generic_fields(runtime_fields), {
+  if(_has_generic_fields(&runtime_fields), {
     return();
   });
   em.emit_string_line(`static void __yo_traverse_${c_name}(void* ptr, void (*visit)(void*, void*)) {`);
@@ -448,7 +448,7 @@ _generate_one_ref_struct_traversal :: (fn(imm(type) : TypeValue, imm(c_name) : S
           .Some(field) => {
             fname := sanitize_for_c_identifier(field.label.clone(), false);
             g_traverse_visit_expr = String.from("visit");
-            _traverse_value(`obj->${fname}`, field.ty, context);
+            _traverse_value(`obj->${fname}`, &field.ty, context);
           },
           .None => ()
         );
@@ -470,8 +470,8 @@ generate_ref_struct_traversal_functions :: (fn(imm(context) : FunctionGeneration
       .Some(entry) => {
         ty := entry.ty;
         // Atomic objects don't participate in cycle GC — no traversal needed.
-        if(is_reference_struct_type(ty) && _traversal_fn_name(ty, entry.c_name.clone()).is_some(), {
-          _generate_one_ref_struct_traversal(ty, entry.c_name.clone(), context);
+        if(is_reference_struct_type(&ty) && _traversal_fn_name(&ty, entry.c_name.clone()).is_some(), {
+          _generate_one_ref_struct_traversal(&ty, entry.c_name.clone(), context);
         });
       },
       .None => {
@@ -493,8 +493,8 @@ generate_ref_struct_constructor_functions :: (fn(imm(context) : FunctionGenerati
   while(go, {
     match(
       vals.next(),
-      .Some(entry) => if(is_reference_struct_type(entry.ty), {
-        _generate_one_constructor(entry.ty, entry.c_name.clone(), context);
+      .Some(entry) => if(is_reference_struct_type(&entry.ty), {
+        _generate_one_constructor(&entry.ty, entry.c_name.clone(), context);
       }),
       .None => {
         go = false;
@@ -540,7 +540,7 @@ _generate_one_ref_enum_traversal :: (fn(imm(type) : TypeValue, imm(c_name) : Str
         while(ci < nf, {
           match(
             fields.get(ci),
-            .Some(ft) => if(type_contains_rc_cell_or_move_only(ft), {
+            .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
               has_rc = true;
             }),
             .None => ()
@@ -548,17 +548,17 @@ _generate_one_ref_enum_traversal :: (fn(imm(type) : TypeValue, imm(c_name) : Str
           ci = (ci + usize(1));
         });
         if(has_rc, {
-          tag_c := get_enum_variant_c_name(type, vname.clone(), context.base);
+          tag_c := get_enum_variant_c_name(type, vname.clone(), &context.base);
           em.emit_string_line(`  case ${tag_c}:`);
           (fi : usize) = usize(0);
           while(fi < nf, {
             match(
               fields.get(fi),
-              .Some(ft) => if(type_contains_rc_cell_or_move_only(ft), {
+              .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
                 flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
-                fname := sanitize_for_c_identifier(flabel, false);
+                fname := sanitize_for_c_identifier(&flabel, false);
                 g_traverse_visit_expr = String.from("visit");
-                _traverse_value(`obj->data.${c_variant_member_name(vname.clone())}.${fname}`, ft, context);
+                _traverse_value(`obj->data.${c_variant_member_name(vname.clone())}.${fname}`, &ft, context);
               }),
               .None => ()
             );
@@ -586,8 +586,8 @@ generate_ref_enum_traversal_functions :: (fn(imm(context) : FunctionGenerationCo
       .Some(entry) => {
         ty := entry.ty;
         // Atomic ref-enums never participate in cycle GC; generic enums skip.
-        if(is_reference_enum_type(ty) && _traversal_fn_name(ty, entry.c_name.clone()).is_some(), {
-          _generate_one_ref_enum_traversal(ty, entry.c_name.clone(), context);
+        if(is_reference_enum_type(&ty) && _traversal_fn_name(&ty, entry.c_name.clone()).is_some(), {
+          _generate_one_ref_enum_traversal(&ty, entry.c_name.clone(), context);
         });
       },
       .None => {
@@ -611,7 +611,7 @@ _generate_one_ref_enum_constructor_set :: (fn(imm(type) : TypeValue, imm(c_name)
   dispose_opt := get_dispose_function_for_type(type, context);
   (dispose_thunk : String) = match(
     dispose_opt,
-    .Some(dn) => if(context.base.needs_cycle_gc, dispose_fn_thunk(dn, context), String.new()),
+    .Some(dn) => if(context.base.needs_cycle_gc, dispose_fn_thunk(&dn, context), String.new()),
     .None => String.new()
   );
   is_atomic := is_atomic_reference_enum_type(type);
@@ -639,7 +639,7 @@ _generate_one_ref_enum_constructor_set :: (fn(imm(type) : TypeValue, imm(c_name)
           while((ci < nf) && !variant_registers_with_gc, {
             match(
               fields.get(ci),
-              .Some(ft) => if(_type_refs_back_to_cyclic(ft, enum_id.clone(), ArrayList(String).new()), {
+              .Some(ft) => if(_type_refs_back_to_cyclic(&ft, enum_id.clone(), ArrayList(String).new()), {
                 variant_registers_with_gc = true;
               }),
               .None => ()
@@ -654,14 +654,14 @@ _generate_one_ref_enum_constructor_set :: (fn(imm(type) : TypeValue, imm(c_name)
         while(pi < nf, {
           match(
             fields.get(pi),
-            .Some(ft) => if(!is_unit_type(ft), {
+            .Some(ft) => if(!is_unit_type(&ft), {
               if(emitted > usize(0), {
                 params.push_str(", ");
               });
               flabel := match(labels.get(pi), .Some(l) => l, .None => String.from(""));
-              params.push_string(get_type_string(ft, context.base));
+              params.push_string(get_type_string(&ft, &context.base));
               params.push_str(" ");
-              params.push_string(sanitize_for_c_identifier(flabel, false));
+              params.push_string(sanitize_for_c_identifier(&flabel, false));
               emitted = (emitted + usize(1));
             }),
             .None => ()
@@ -705,15 +705,15 @@ _generate_one_ref_enum_constructor_set :: (fn(imm(type) : TypeValue, imm(c_name)
           em.emit_string_line(`  obj->header.traverse_fn = __yo_traverse_${c_name};`);
         });
         // Tag + active variant's non-unit field assignments.
-        tag_c := get_enum_variant_c_name(type, vname.clone(), context.base);
+        tag_c := get_enum_variant_c_name(type, vname.clone(), &context.base);
         em.emit_string_line(`  obj->tag = ${tag_c};`);
         (fi : usize) = usize(0);
         while(fi < nf, {
           match(
             fields.get(fi),
-            .Some(ft) => if(!is_unit_type(ft), {
+            .Some(ft) => if(!is_unit_type(&ft), {
               flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
-              fname := sanitize_for_c_identifier(flabel, false);
+              fname := sanitize_for_c_identifier(&flabel, false);
               em.emit_string_line(`  obj->data.${c_variant_member_name(vname.clone())}.${fname} = ${fname};`);
             }),
             .None => ()
@@ -744,8 +744,8 @@ generate_ref_enum_constructor_functions :: (fn(imm(context) : FunctionGeneration
   while(go, {
     match(
       vals.next(),
-      .Some(entry) => if(is_reference_enum_type(entry.ty), {
-        _generate_one_ref_enum_constructor_set(entry.ty, entry.c_name.clone(), context);
+      .Some(entry) => if(is_reference_enum_type(&entry.ty), {
+        _generate_one_ref_enum_constructor_set(&entry.ty, entry.c_name.clone(), context);
       }),
       .None => {
         go = false;
@@ -845,10 +845,10 @@ static bool __yo_iso_uq_run(void* root, void* root_traverse) {
         .Some(info) => match(
           info.iso_type,
           .IsoT(child) => {
-            child_c := get_type_string(child, context.base);
-            if(is_reference_struct_type(child) || is_reference_enum_type(child), {
+            child_c := get_type_string(&child, &context.base);
+            if(is_reference_struct_type(&child) || is_reference_enum_type(&child), {
               em.emit_string_line(`static bool __yo_iso_unique_${iso_name}(${child_c} value) {`);
-              em.emit_string_line(`  return __yo_iso_uq_run((void*)value, ${_child_traverse_fn_expr(child, context)});`);
+              em.emit_string_line(`  return __yo_iso_uq_run((void*)value, ${_child_traverse_fn_expr(&child, context)});`);
               em.emit_string_line(`}`);
             }, {
               // A VALUE child (plans/VALUES_BY_DEFAULT.md §3.6): the walk's
@@ -859,7 +859,7 @@ static bool __yo_iso_uq_run(void* root, void* root_traverse) {
               em.emit_string_line(`  ${child_c} value = *(${child_c}*)__yo_p;`);
               saved_visit := g_traverse_visit_expr.clone();
               g_traverse_visit_expr = String.from("__yo_iso_uq_visit");
-              _traverse_value(String.from("value"), child, context);
+              _traverse_value(String.from("value"), &child, context);
               g_traverse_visit_expr = saved_visit;
               em.emit_string_line(`}`);
               em.emit_string_line(`static bool __yo_iso_unique_${iso_name}(${child_c} value) {`);
@@ -870,7 +870,7 @@ static bool __yo_iso_uq_run(void* root, void* root_traverse) {
               if(!info.dispose_generated, {
                 em.emit_string_line(`static void __yo_iso_dispose_${iso_name}(${iso_name} iso) {`);
                 em.emit_string_line(String.from("  if (!atomic_load(&iso->extracted)) {"));
-                drop_tail := generate_drop_code_for_value(String.from("iso->value"), child, context);
+                drop_tail := generate_drop_code_for_value(String.from("iso->value"), &child, context);
                 if(drop_tail.len() > usize(0), {
                   em.emit_string_line(`    ${drop_tail};`);
                 });

@@ -61,12 +61,12 @@ z3_host_asset_stem :: (fn() -> String)({
   t := host_target();
   arch := String.from(arch_triple_str(t.arch));
   cond(
-    (is_target_linux(t) && (arch == "x86_64")) => String.from("x64-glibc-2.39"),
-    (is_target_linux(t) && (arch == "aarch64")) => String.from("arm64-glibc-2.38"),
-    (is_target_macos(t) && (arch == "x86_64")) => String.from("x64-osx-13.3"),
-    (is_target_macos(t) && (arch == "aarch64")) => String.from("arm64-osx-13.3"),
-    (is_target_windows(t) && (arch == "x86_64")) => String.from("x64-win"),
-    (is_target_windows(t) && (arch == "aarch64")) => String.from("arm64-win"),
+    (is_target_linux(&t) && (arch == "x86_64")) => String.from("x64-glibc-2.39"),
+    (is_target_linux(&t) && (arch == "aarch64")) => String.from("arm64-glibc-2.38"),
+    (is_target_macos(&t) && (arch == "x86_64")) => String.from("x64-osx-13.3"),
+    (is_target_macos(&t) && (arch == "aarch64")) => String.from("arm64-osx-13.3"),
+    (is_target_windows(&t) && (arch == "x86_64")) => String.from("x64-win"),
+    (is_target_windows(&t) && (arch == "aarch64")) => String.from("arm64-win"),
     true => String.from("")
   )
 });
@@ -282,11 +282,11 @@ _install_z3 :: (
     opts = opts.with_header(`User-Agent`, `yo-verifier`);
     opts = opts.with_max_redirects(usize(5));
     opts = opts.with_max_response_bytes(usize(268435456));
-    resp := e.io.await(fetch_with(url.clone(), opts, e.io), e);
+    resp := e.io.await(fetch_with(url.clone(), &opts, e.io), e);
     if(resp.status.is_error(), {
       e.exn.throw(dyn(`verify: failed to download Z3 (HTTP ${resp.status.to_string()}) from ${url}`));
     });
-    if(!_z3_write_file_sync(zip_path.clone(), resp.body), {
+    if(!_z3_write_file_sync(zip_path.clone(), &resp.body), {
       e.exn.throw(dyn(`verify: failed to write ${zip_path}`));
     });
     uc := Command.new(String.from("unzip"));
@@ -320,7 +320,7 @@ ensure_z3 :: (
     (e : IoExn) => match(
       discover_z3(),
       .Some(p) => p,
-      .None => e.io.await(_install_z3(e.io, e.exn), e)
+      .None => e.io.await(_install_z3(e.io, &e.exn), e)
     )
   )
 );
@@ -334,7 +334,7 @@ run_z3_script :: (fn(imm(binary) : String, imm(script) : String) -> Result(Strin
   script_path := _z3_temp_path(String.from("smt2"));
   out_path := _z3_temp_path(String.from("out"));
   sp_write := script_path.clone();
-  if(!_z3_write_file_sync(sp_write, script), {
+  if(!_z3_write_file_sync(&sp_write, script), {
     return(Result(String, String).Err(`verify: failed to write ${script_path}`));
   });
   cmd := `${binary} -smt2 ${script_path} > ${out_path} 2>&1`;
@@ -345,11 +345,11 @@ run_z3_script :: (fn(imm(binary) : String, imm(script) : String) -> Result(Strin
   cmd_cstr := cmd_buf.ptr().unwrap();
   status := unsafe(stdlib.system(Option(*char).Some((*char)(cmd_cstr))));
   op_read := out_path.clone();
-  out_opt := _z3_read_file_sync(op_read);
+  out_opt := _z3_read_file_sync(&op_read);
   sp_unlink := script_path.clone();
-  _z3_unlink_sync(sp_unlink);
+  _z3_unlink_sync(&sp_unlink);
   op_unlink := out_path.clone();
-  _z3_unlink_sync(op_unlink);
+  _z3_unlink_sync(&op_unlink);
   out := match(
     out_opt,
     .Some(o) => o,
@@ -364,7 +364,7 @@ run_z3_script :: (fn(imm(binary) : String, imm(script) : String) -> Result(Strin
   // (get-value on unsat, get-unsat-core on sat) — it still prints the error
   // AND the verdict, so a parseable verdict wins over the exit status.
   out_scan := out.clone();
-  if((exit_code != int(0)) && z3_check_sat_of(parse_z3_sexprs(out_scan)).is_none(), {
+  if((exit_code != int(0)) && z3_check_sat_of(parse_z3_sexprs(&out_scan)).is_none(), {
     return(
       Result(String, String).Err(`verify: z3 exited with status ${exit_code.to_string()}\n${out}`)
     );
@@ -473,7 +473,7 @@ z3_sexpr_to_string :: (fn(imm(s) : Z3Sexpr) -> String)(
             if(i > usize(0), {
               sb.write_byte(u8(0x20));
             });
-            sb.write_string(z3_sexpr_to_string(x));
+            sb.write_string(z3_sexpr_to_string(&x));
           },
           .None => ()
         );
@@ -530,9 +530,9 @@ z3_error_before_verdict :: (fn(imm(forms) : ArrayList(Z3Sexpr)) -> Option(String
           });
         },
         .List(items) => match(
-          _head_atom_text(items),
+          _head_atom_text(&items),
           .Some(h) => if(h == "error", {
-            return(Option(String).Some(z3_sexpr_to_string(form)));
+            return(Option(String).Some(z3_sexpr_to_string(&form)));
           }),
           .None => ()
         )
@@ -568,7 +568,7 @@ z3_unsat_core_of :: (fn(imm(forms) : ArrayList(Z3Sexpr)) -> ArrayList(String))({
           form,
           .List(items) => {
             head_kw := match(
-              _head_atom_text(items),
+              _head_atom_text(&items),
               .Some(t) => ((t == "error") || (t == "model") || (t == "define-fun")),
               .None => false
             );
@@ -681,7 +681,7 @@ z3_value_pairs_of :: (fn(imm(forms) : ArrayList(Z3Sexpr)) -> ArrayList(String))(
                         );
                         v := match(
                           kv2.get(usize(1)),
-                          .Some(value_form) => z3_sexpr_to_string(value_form),
+                          .Some(value_form) => z3_sexpr_to_string(&value_form),
                           .None => String.from("?")
                         );
                         out.push(`${n} = ${v}`);

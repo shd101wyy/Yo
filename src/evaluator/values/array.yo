@@ -65,7 +65,7 @@ evaluate_array_value :: (
   expected_elem_type_opt := match(
     ctx.expected_type,
     .Some(et) => cond(
-      is_array_type(et.ty) => match(
+      is_array_type(&et.ty) => match(
         et.ty,
         .Array(box_elem, _, _) => Option(TypeValue).Some(box_elem),
         _ => Option(TypeValue).None
@@ -90,17 +90,17 @@ evaluate_array_value :: (
       .None => Option(ExpectedTypeCtx).None
     );
     evaluated_elem_gout := ArrayList(AstExpr).new();
-    evaluated_elem_gerr := evaluate_expression_guarded(arg, env_loop, ctx, evaluated_elem_gout);
+    evaluated_elem_gerr := evaluate_expression_guarded(&arg, &env_loop, ctx, &mut evaluated_elem_gout);
     ctx.expected_type = old_expected;
-    match(evaluated_elem_gerr, .Some(evaluated_elem_ge) => exn.throw(evaluated_elem_ge), .None => ());
+    match(evaluated_elem_gerr, .Some(evaluated_elem_ge) => exn.throw(&evaluated_elem_ge), .None => ());
     evaluated_elem := match(evaluated_elem_gout.get(usize(0)), .Some(evaluated_elem_g) => evaluated_elem_g, .None => make_err_expr());
-    set_expr_as_needs_to_call_dup(evaluated_elem, ctx, exn, "element");
-    elem_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem));
+    set_expr_as_needs_to_call_dup(&evaluated_elem, ctx, exn, "element");
+    elem_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_elem));
     if(elem_info_opt.is_none(), {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg),
+            ast_expr_token(&arg),
             `Failed to evaluate array element`
           )
         )
@@ -109,9 +109,9 @@ evaluate_array_value :: (
     elem_info := match(
       elem_info_opt,
       .Some(info) => info,
-      .None => new_expr_info(env_loop, t_usize()) // unreachable
+      .None => new_expr_info(&env_loop, t_usize()) // unreachable
     );
-    env_loop = expr_info_adopt_env(elem_info);
+    env_loop = expr_info_adopt_env(&elem_info);
     element_values.push(elem_info.value);
     runtime_arg_exprs.push(evaluated_elem);
     elem_ty := elem_info.ty;
@@ -128,22 +128,22 @@ evaluate_array_value :: (
       ),
       // Subsequent elements: check compatibility.
       .Some(inferred_ty) => {
-        compat := are_types_compatible(elem_ty, inferred_ty);
+        compat := are_types_compatible(&elem_ty, &inferred_ty);
         cond(
           compat => Option(TypeValue).Some(inferred_ty),
           true => {
             // Try promoting comptime type to runtime type (e.g. comptime_int → i32).
-            converted := convert_comptime_type_to_runtime_type(inferred_ty, env_loop);
-            compat2 := are_types_compatible(elem_ty, converted);
+            converted := convert_comptime_type_to_runtime_type(&inferred_ty, &env_loop);
+            compat2 := are_types_compatible(&elem_ty, &converted);
             cond(
               compat2 => Option(TypeValue).Some(elem_ty),
               true => {
-                inferred_str := type_to_string(inferred_ty);
-                elem_str := type_to_string(elem_ty);
+                inferred_str := type_to_string(&inferred_ty);
+                elem_str := type_to_string(&elem_ty);
                 exn.throw(
                   dyn(
                     format_error_message(
-                      ast_expr_token(arg),
+                      ast_expr_token(&arg),
                       `Array element type mismatch:\nExpected type: ${inferred_str}\nGiven type: ${elem_str}`
                     )
                   )
@@ -173,7 +173,7 @@ evaluate_array_value :: (
       t_usize() // unreachable
     }
   );
-  array_type := t_array(array_elem_type, array_len);
+  array_type := t_array(&array_elem_type, array_len);
   // Build a compile-time ArrayVal if every element has a compile-time value.
   (all_have_values : bool) = true;
   (check_i : usize) = usize(0);
@@ -204,10 +204,10 @@ evaluate_array_value :: (
     true => Option(EvalValue).None
   );
   // Write ExprInfo into the table.
-  info := new_expr_info(env_loop, array_type);
+  info := new_expr_info(&env_loop, &array_type);
   info.value = array_value_opt;
   info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   attach_temp_variable_to_expr(expr, true, ctx);
   expr
 });

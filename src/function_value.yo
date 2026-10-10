@@ -136,7 +136,7 @@ register_closure_capture_info :: (fn(imm(func_id) : String, imm(info) : ClosureC
           match(
             rfl.get(rgi),
             .Some(rfn) => {
-              reg_flds.push_string(rfn);
+              reg_flds.push_string(&rfn);
               reg_flds.push_str(",");
             },
             .None => ()
@@ -158,7 +158,7 @@ register_closure_capture_info :: (fn(imm(func_id) : String, imm(info) : ClosureC
   // clobber the complete one; keep the registration with MORE fields.
   match(
     g_closure_capture_info.get(func_id.clone()),
-    .Some(prev_cci) => if(_capture_struct_field_count(prev_cci.capture_type) > _capture_struct_field_count(info.capture_type), {
+    .Some(prev_cci) => if(_capture_struct_field_count(&prev_cci.capture_type) > _capture_struct_field_count(&info.capture_type), {
       return(());
     }),
     .None => ()
@@ -170,7 +170,7 @@ register_closure_capture_info :: (fn(imm(func_id) : String, imm(info) : ClosureC
       (src_do_set : bool) = true;
       match(
         g_closure_capture_by_source.get(src_key1.clone()),
-        .Some(prev_src) => if(_capture_struct_field_count(prev_src.capture_type) > _capture_struct_field_count(info.capture_type), {
+        .Some(prev_src) => if(_capture_struct_field_count(&prev_src.capture_type) > _capture_struct_field_count(&info.capture_type), {
           src_do_set = false;
         }),
         .None => ()
@@ -222,14 +222,14 @@ get_closure_capture_info :: (fn(imm(func_id) : String) -> Option(ClosureCaptureI
   // generation of this SOURCE closure recorded (see g_closure_capture_by_source).
   src_info := match(
     g_closure_fid_source.get(func_id.clone()),
-    .Some(sk) => g_closure_capture_by_source.get(sk),
+    .Some(sk) => g_closure_capture_by_source.get(&sk),
     .None => Option(ClosureCaptureInfo).None
   );
   match(
     src_info,
     .Some(si) => match(
       fid_info,
-      .Some(fi) => if(_capture_struct_field_count(si.capture_type) > _capture_struct_field_count(fi.capture_type), Option(ClosureCaptureInfo).Some(si), Option(ClosureCaptureInfo).Some(fi)),
+      .Some(fi) => if(_capture_struct_field_count(&si.capture_type) > _capture_struct_field_count(&fi.capture_type), Option(ClosureCaptureInfo).Some(si), Option(ClosureCaptureInfo).Some(fi)),
       .None => Option(ClosureCaptureInfo).Some(si)
     ),
     .None => fid_info

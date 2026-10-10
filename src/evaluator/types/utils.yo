@@ -48,7 +48,7 @@ _all_fields_implement_send :: (fn(imm(field_types) : ArrayList(TypeValue), imm(e
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(!type_implements_send(ft, env), {
+    if(!type_implements_send(&ft, env), {
       all_ok = false;
     });
     i = (i + usize(1));
@@ -61,7 +61,7 @@ _all_fields_implement_sync :: (fn(imm(field_types) : ArrayList(TypeValue), imm(e
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(!type_implements_sync(ft, env), {
+    if(!type_implements_sync(&ft, env), {
       all_ok = false;
     });
     i = (i + usize(1));
@@ -74,7 +74,7 @@ _all_fields_implement_acyclic :: (fn(imm(field_types) : ArrayList(TypeValue), im
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(!type_implements_acyclic(ft, env), {
+    if(!type_implements_acyclic(&ft, env), {
       all_ok = false;
     });
     i = (i + usize(1));
@@ -93,8 +93,8 @@ _all_buffer_elements_acyclic :: (fn(imm(field_types) : ArrayList(TypeValue), imm
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     match(
-      buffer_element_type(ft),
-      .Some(elem) => if(!type_implements_acyclic(elem, env), {
+      buffer_element_type(&ft),
+      .Some(elem) => if(!type_implements_acyclic(&elem, env), {
         all_ok = false;
       }),
       .None => ()
@@ -109,7 +109,7 @@ _all_fields_implement_comptime :: (fn(imm(field_types) : ArrayList(TypeValue), i
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(!type_implements_comptime(ft, env), {
+    if(!type_implements_comptime(&ft, env), {
       all_ok = false;
     });
     i = (i + usize(1));
@@ -122,7 +122,7 @@ _all_fields_implement_runtime :: (fn(imm(field_types) : ArrayList(TypeValue), im
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
     ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(!type_implements_runtime_full(ft, env), {
+    if(!type_implements_runtime_full(&ft, env), {
       all_ok = false;
     });
     i = (i + usize(1));
@@ -330,13 +330,13 @@ enforce_atomic_object_send :: (
       // so a real non-Sync field is still rejected there.
       // Hoisted out of the `||` (an owned temp inside a short-circuit RHS in a
       // loop body trips the drop-emission bug — see _is_dots_atom's note).
-      ft_somes := get_all_some_types(ft);
-      ft_is_generic := (is_some_type(ft) || (ft_somes.len() > usize(0)));
-      if(!ft_is_generic && !type_implements_sync(ft, env), {
+      ft_somes := get_all_some_types(&ft);
+      ft_is_generic := (is_some_type(&ft) || (ft_somes.len() > usize(0)));
+      if(!ft_is_generic && !type_implements_sync(&ft, env), {
         if(non_send_fields.len() > usize(0), {
           non_send_fields = non_send_fields.concat(String.from("\n"));
         });
-        non_send_fields = non_send_fields.concat(`  - ${fl}: ${type_to_string(ft)}`);
+        non_send_fields = non_send_fields.concat(`  - ${fl}: ${type_to_string(&ft)}`);
       });
       i = (i + usize(1));
     });

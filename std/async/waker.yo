@@ -129,13 +129,13 @@ impl(
   /// A token that will resume whoever is waiting on this park. Call it before
   /// `wait`, and as many times as there are signallers.
   waker : (fn(imm(self) : Self) -> Waker)(
-    Waker(_p : unsafe(__yo_waker_new(self._future)))
+    Waker(_p : unsafe(__yo_waker_new(&self._future)))
   ),
   /// Suspend the current task until one of this park's wakers fires. Resolves
   /// immediately if a wake already arrived.
   wait : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, Io)))(
     io.async((io : Io) => {
-      _r := io.await(self._future, io);
+      _r := io.await(&self._future, io);
       ()
     })
   )

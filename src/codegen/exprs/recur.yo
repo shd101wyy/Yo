@@ -43,15 +43,15 @@ generate_recur :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
             if(i > usize(0), {
               args_list.push_str(", ");
             });
-            arg_code := _call_generate_expr(arg, indent.clone(), context);
+            arg_code := _call_generate_expr(&arg, indent.clone(), context);
             // Strip `(*name)` to `name` for ref (inout) params — both the
             // caller and callee expect a pointer, so the deref is wrong.
             match(
-              context.base.get_expr_info(arg),
+              context.base.get_expr_info(&arg),
               .Some(aei) => match(
                 aei.variable_name,
                 .Some(vn) => {
-                  arg_vars := scope_variables(ast_expr_id(arg), aei.env, vn.clone());
+                  arg_vars := scope_variables(ast_expr_id(&arg), &aei.env, vn.clone());
                   if((arg_vars.len() > usize(0)) && arg_code.starts_with("(*") && arg_code.ends_with(")"), {
                     match(
                       arg_vars.last(),
@@ -77,43 +77,43 @@ generate_recur :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
             // (`recur(K, V, h._left, key)` in
             // std/imm/sorted_map.yo _node_contains surfaced this).
             match(
-              context.base.get_expr_info(arg),
+              context.base.get_expr_info(&arg),
               .Some(aei2) => match(
-                expr_info_deferred_dup_expressions(aei2),
+                expr_info_deferred_dup_expressions(&aei2),
                 .Some(dups) => if(dups.len() > usize(0), {
                   match(
                     aei2.variable_name,
                     .Some(avn) => {
-                      sanitized_arg_temp := get_variable_name_for_codegen_at(ast_expr_id(arg), avn.clone(), Option(Environment).Some(aei2.env));
+                      sanitized_arg_temp := get_variable_name_for_codegen_at(ast_expr_id(&arg), avn.clone(), Option(Environment).Some(aei2.env));
                       if(!(arg_code == sanitized_arg_temp), {
                         already_arg := match(context.declared_temp_vars, .Some(s) => s.contains(sanitized_arg_temp.clone()), .None => false);
                         if(!already_arg, {
                           record_declared_temp_var(context, sanitized_arg_temp.clone());
-                          eff_ty := match(expr_info_converted_runtime_type(aei2), .Some(ct) => ct, .None => aei2.ty);
+                          eff_ty := match(expr_info_converted_runtime_type(&aei2), .Some(ct) => ct, .None => aei2.ty);
                           dline := indent.clone();
-                          dline.push_string(get_variable_type_string(eff_ty, avn.clone(), context.base));
+                          dline.push_string(get_variable_type_string(&eff_ty, avn.clone(), &context.base));
                           dline.push_str(" = ");
                           dline.push_string(arg_code.clone());
                           dline.push_str(";");
                           dem := context.base.emitter;
-                          dem.emit_string_line(dline);
+                          dem.emit_string_line(&dline);
                         });
                       });
                     },
                     .None => ()
                   );
-                  generate_deferred_dup_expressions(arg, indent.clone(), context);
+                  generate_deferred_dup_expressions(&arg, indent.clone(), context);
                   // Pass the dup RESULT temp instead of the original.
                   match(
                     dups.get(usize(0)),
                     .Some(de) => if(
-                      ast_expr_is_fn_call(de),
+                      ast_expr_is_fn_call(&de),
                       match(
-                        context.base.get_expr_info(de),
+                        context.base.get_expr_info(&de),
                         .Some(dei) => match(
                           dei.variable_name,
                           .Some(dvn) => {
-                            arg_code = get_variable_name_for_codegen_at(ast_expr_id(de), dvn.clone(), Option(Environment).Some(dei.env));
+                            arg_code = get_variable_name_for_codegen_at(ast_expr_id(&de), dvn.clone(), Option(Environment).Some(dei.env));
                           },
                           .None => ()
                         ),
@@ -128,7 +128,7 @@ generate_recur :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
               ),
               .None => ()
             );
-            args_list.push_string(arg_code);
+            args_list.push_string(&arg_code);
           },
           .None => ()
         );
@@ -136,13 +136,13 @@ generate_recur :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
       });
       call_code := context.base.current_function_name.clone();
       call_code.push_str("(");
-      call_code.push_string(args_list);
+      call_code.push_string(&args_list);
       call_code.push_str(")");
       // Result-temp: emit `<cType> <temp> = <call>;` then return the temp.
       match(
         ei.variable_name,
-        .Some(temp_var) => if(!is_unit_type(ei.ty), {
-          c_type := get_type_string(ei.ty, context.base);
+        .Some(temp_var) => if(!is_unit_type(&ei.ty), {
+          c_type := get_type_string(&ei.ty, &context.base);
           temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(expr), temp_var.clone(), Option(Environment).Some(ei.env));
           already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
           if(!already, {
@@ -150,13 +150,13 @@ generate_recur :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
             em := context.base.emitter;
             em.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
             line := indent.clone();
-            line.push_string(c_type);
+            line.push_string(&c_type);
             line.push_str(" ");
             line.push_string(temp_var_name.clone());
             line.push_str(" = ");
             line.push_string(call_code.clone());
             line.push_str(";");
-            em.emit_string_line(line);
+            em.emit_string_line(&line);
             // Deferred drops on the recur node — flushed AFTER the call is
             // emitted (aliasing Stage 0 attaches the balancing drop of a
             // projection-arg dup here; flushing BEFORE the call freed the
@@ -180,13 +180,13 @@ generate_recur :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
       // drop of a by-value composite argument's dup — one leaked interior
       // reference per call (`recur(values(i), out)` in std/encoding/json.yo
       // `_stringify_into`; issues/fixed/unit-recur-never-flushes-its-argument-drops.md).
-      if(is_unit_type(ei.ty), {
+      if(is_unit_type(&ei.ty), {
         uem := context.base.emitter;
         uem.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
         uline := indent.clone();
-        uline.push_string(call_code);
+        uline.push_string(&call_code);
         uline.push_str(";");
-        uem.emit_string_line(uline);
+        uem.emit_string_line(&uline);
         generate_deferred_drop_expressions(expr, indent.clone(), context, true);
         emit_effect_unwind_check(indent.clone(), context, false, expr);
         return(String.from(""));
@@ -199,13 +199,13 @@ generate_recur :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
       fem := context.base.emitter;
       fem.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
       fline := indent.clone();
-      fline.push_string(get_type_string(ei.ty, context.base));
+      fline.push_string(get_type_string(&ei.ty, &context.base));
       fline.push_str(" ");
       fline.push_string(fresh.clone());
       fline.push_str(" = ");
       fline.push_string(call_code.clone());
       fline.push_str(";");
-      fem.emit_string_line(fline);
+      fem.emit_string_line(&fline);
       generate_deferred_drop_expressions(expr, indent.clone(), context, true);
       emit_effect_unwind_check(indent.clone(), context, false, expr);
       fresh

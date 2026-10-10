@@ -332,7 +332,7 @@ parse_target :: (fn(imm(triple) : String) -> Result(TargetInfo, String))({
   });
   arch_str := match(parts.get(usize(0)), .None => String.new(), .Some(p) => p);
   a := match(
-    parse_arch(arch_str),
+    parse_arch(&arch_str),
     .None => {
       return(
         _target_error(
@@ -353,7 +353,7 @@ parse_target :: (fn(imm(triple) : String) -> Result(TargetInfo, String))({
       // `aarch64-macos`, `wasm32-wasi`, `x86_64-linux`: an OS where the vendor
       // belongs — the pre-triple vocabulary. Say what the triple is.
       match(
-        _parse_os_for_hint(os_word),
+        _parse_os_for_hint(&os_word),
         .Some(vo) => {
           return(_target_error(triple, `the triple needs a vendor — did you mean "${_build_triple(a, vo, _hint_abi(vo, Option(Abi).None))}"?`));
         },
@@ -371,14 +371,14 @@ parse_target :: (fn(imm(triple) : String) -> Result(TargetInfo, String))({
   // `x86_64-linux-gnu`, `x86_64-windows-msvc`: an OS in the vendor slot is the
   // pre-triple vocabulary. Say what the triple is, keeping a typed env.
   match(
-    _parse_os_for_hint(vendor_str),
+    _parse_os_for_hint(&vendor_str),
     .Some(vo) => {
-      return(_target_error(triple, `"${vendor_str}" is an OS and the triple needs a vendor — did you mean "${_build_triple(a, vo, _hint_abi(vo, parse_abi(os_str)))}"?`));
+      return(_target_error(triple, `"${vendor_str}" is an OS and the triple needs a vendor — did you mean "${_build_triple(a, vo, _hint_abi(vo, parse_abi(&os_str)))}"?`));
     },
     .None => ()
   );
   o := match(
-    parse_os(os_str),
+    parse_os(&os_str),
     .None => {
       return(_target_error(triple, `unknown OS "${os_str}".`));
     },
@@ -399,7 +399,7 @@ parse_target :: (fn(imm(triple) : String) -> Result(TargetInfo, String))({
     (parts_n == usize(4)) => {
       env_str := match(parts.get(usize(3)), .None => String.new(), .Some(p) => p);
       env := match(
-        parse_abi(env_str),
+        parse_abi(&env_str),
         .None => {
           return(_target_error(triple, `unknown environment "${env_str}".`));
         },

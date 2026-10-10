@@ -428,17 +428,17 @@ impl(
       decl.push_string(static_var_name.clone());
       decl.push_str(";");
       decl.push_string(comment.clone());
-      self.emitter.emit_declaration_string_line(decl);
+      self.emitter.emit_declaration_string_line(&decl);
       def := String.from("const char ");
       def.push_string(static_var_name);
       def.push_str(" = 0;\n");
-      self.chunk_globals.push_string(def);
+      self.chunk_globals.push_string(&def);
     }, {
       decl := String.from("static const char ");
       decl.push_string(static_var_name);
       decl.push_str(" = 0;");
       decl.push_string(comment);
-      self.emitter.emit_declaration_string_line(decl);
+      self.emitter.emit_declaration_string_line(&decl);
     });
   }),
   /// The C name of a static holding a compile-time constant `init` of C type
@@ -512,7 +512,7 @@ impl(
       .Some(e) => .Some(e),
       .None => match(
         self.type_key_aliases.get(id),
-        .Some(target) => self.types.get(target),
+        .Some(target) => self.types.get(&target),
         .None => Option(CodegenTypeEntry).None
       )
     )
@@ -532,7 +532,7 @@ impl(
   /// The per-expression evaluation metadata for `expr`, or
   /// `.None` if the node was never evaluated.
   get_expr_info : (fn(imm(self) : Self, imm(expr) : AstExpr) -> Option(ExprInfo))(
-    expr_info_table_get(self.info_table, ast_expr_id(expr))
+    expr_info_table_get(&self.info_table, ast_expr_id(expr))
   ),
   /// Register a reachable function to be generated (idempotent on func_id).
   /// C names are content-derived (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §5),
@@ -567,7 +567,7 @@ impl(
     );
     def_mod := match(
       value,
-      .FuncVal(fvd, _) => ast_expr_token(fvd.*.body).module_path,
+      .FuncVal(fvd, _) => ast_expr_token(&fvd.*.body).module_path,
       _ => String.new()
     );
     self.functions.insert(func_id, CodegenFunctionEntry(value : value, c_name : final_name, def_module : def_mod));
@@ -626,7 +626,7 @@ impl(
     targets := match(self.dyn_upcasts.get(src_key.clone()), .Some(t) => t, .None => ArrayList(TypeValue).new());
     (i : usize) = usize(0);
     while(i < targets.len(), {
-      if(match(targets.get(i), .Some(t) => (type_key(t) == tgt_key), .None => false), {
+      if(match(targets.get(i), .Some(t) => (type_key(&t) == tgt_key), .None => false), {
         return(());
       });
       i = (i + usize(1));
@@ -826,7 +826,7 @@ fresh_local_counts_reset :: (fn() -> unit)({
 fresh_local_name :: (fn(imm(prefix) : String, imm(current_function_name) : String) -> String)({
   key := `${prefix}@${current_function_name}`;
   k := match(
-    g_fresh_local_counts.get(key),
+    g_fresh_local_counts.get(&key),
     .Some(n) => n,
     .None => usize(0)
   );
@@ -854,8 +854,8 @@ pattern_param_is_literal :: (fn(imm(e) : AstExpr) -> bool)(
       .FnCall(_, _, neg_args, _, _) => match(
         neg_args.get(usize(0)),
         .Some(op) => (
-          ast_expr_is_atom(op) && match(
-            ast_expr_token(op).kind,
+          ast_expr_is_atom(&op) && match(
+            ast_expr_token(&op).kind,
             .Integer => true,
             .Float => true,
             _ => false
@@ -882,7 +882,7 @@ pattern_literal_param_code :: (fn(imm(e) : AstExpr) -> String)({
     ),
     .Atom(_, _) => e
   );
-  txt := ast_expr_token(neg).value.clone();
+  txt := ast_expr_token(&neg).value.clone();
   negated := match(
     e,
     .FnCall(_, _, _, _, _) => true,
@@ -931,7 +931,7 @@ pattern_literal_arm_guards :: (
           match(
             params.get(pi2),
             .Some(pp) => {
-              if(pattern_param_is_literal(pp), {
+              if(pattern_param_is_literal(&pp), {
                 field_label := match(labels.get(pi2), .Some(fl) => fl, .None => String.from(""));
                 if(out.len() > usize(0), {
                   out.push_str(" && ");
@@ -944,7 +944,7 @@ pattern_literal_arm_guards :: (
                 out.push_str(".");
                 out.push_string(sanitize_for_c_identifier(field_label.clone(), false));
                 out.push_str(" == ");
-                out.push_string(pattern_literal_param_code(pp));
+                out.push_string(pattern_literal_param_code(&pp));
                 out.push_str(")");
               });
             },
@@ -987,7 +987,7 @@ extern_c_global_matches :: (fn(imm(name) : String, imm(ty) : TypeValue) -> bool)
   while(i < tys.len(), {
     match(
       tys.get(i),
-      .Some(gty) => if(type_key(gty) == tk, {
+      .Some(gty) => if(type_key(&gty) == tk, {
         return(true);
       }),
       .None => ()
@@ -1040,12 +1040,12 @@ sanitize_for_c_identifier :: (fn(imm(s) : String, is_extern_c : bool) -> String)
   if(is_extern_c, {
     return(sanitized);
   });
-  if(!_is_compiler_shaped_identifier(sanitized), {
+  if(!_is_compiler_shaped_identifier(&sanitized), {
     prefixed := String.from("__yo_v_");
-    prefixed.push_string(sanitized);
+    prefixed.push_string(&sanitized);
     return(prefixed);
   });
-  _avoid_c_reserved_word(sanitized)
+  _avoid_c_reserved_word(&sanitized)
 });
 /// The C spelling of a symbol whose name is an ABI or a compiler-generated
 /// fragment rather than a Yo local: an exported or extern "Yo" function's
@@ -1165,7 +1165,7 @@ _inline_unwrap_transparent :: (fn(imm(e) : AstExpr) -> AstExpr)({
     inner,
     .Atom(_, _) => inner,
     .FnCall(_, _, addr_args, _, _) => if(
-      ast_expr_is_address_of_call(inner, .None) && (addr_args.len() == usize(1)),
+      ast_expr_is_address_of_call(&inner, .None) && (addr_args.len() == usize(1)),
       match(addr_args.get(usize(0)), .Some(a) => a, .None => inner),
       inner
     )
@@ -1222,7 +1222,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
   fn(imm(fv) : EvalValue) -> Option(String)
 )({
   body_box := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.body, _ => return(.None));
-  body := _unwrap_unsafe(body_box);
+  body := _unwrap_unsafe(&body_box);
   // The call node the operator name comes from — needed by the pass-through
   // check below, which must inspect THAT call's arguments and not the
   // `begin`/`unsafe` wrapper's.
@@ -1233,14 +1233,14 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
     // expression with no trailing semicolon parses as a STRUCT LITERAL, not a
     // block (`{ ... } without semicolons is parsed as a struct literal`).
     .FnCall(_, _, body_args, _, _) => if(
-      ast_expr_is_fn_call_of(body, BK_BEGIN, .None) && (body_args.len() == usize(1)),
+      ast_expr_is_fn_call_of(&body, BK_BEGIN, .None) && (body_args.len() == usize(1)),
       _unwrap_unsafe(match(body_args.get(usize(0)), .Some(a) => a, .None => body)),
       body
     )
   );
   operator_name := match(
-    _fn_call_callee_name(call_node),
-    .Some(callee) => if(is_builtin_yo_inline_function(callee), Option(String).Some(callee), Option(String).None),
+    _fn_call_callee_name(&call_node),
+    .Some(callee) => if(is_builtin_yo_inline_function(&callee), Option(String).Some(callee), Option(String).None),
     .None => Option(String).None
   );
   op := match(operator_name, .Some(o) => o, .None => return(.None));
@@ -1248,7 +1248,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
   if(op == BF_YO_AS, {
     return(.None);
   });
-  if(!_inline_body_passes_params_through(call_node, fv), {
+  if(!_inline_body_passes_params_through(&call_node, fv), {
     return(.None);
   });
   Option(String).Some(op)
@@ -1257,7 +1257,7 @@ is_function_value_with_only_builtin_yo_inline_function_call :: (
 /// handling both parse forms (`."(Variant, p...)` and `(.Variant)(p...)`).
 /// Returns ("", empty) if the pattern is not a variant.
 arm_variant_name :: (fn(imm(case_value) : AstExpr) -> Option(String))(
-  match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(v).value), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(v).value), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
+  match(case_value, .FnCall(_, func, args, _, _) => match(func, .Atom(_, tok) => if((tok.value == BF_DOT) && (args.len() >= usize(1)), match(args.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value), .None => Option(String).None), Option(String).None), .FnCall(_, ffunc, fargs, _, _) => if(match(ffunc, .Atom(_, ft) => (ft.value == BF_DOT), .FnCall(_, _, _, _, _) => false) && (fargs.len() == usize(1)), match(fargs.get(usize(0)), .Some(v) => Option(String).Some(ast_expr_token(&v).value), .None => Option(String).None), Option(String).None)), .Atom(_, _) => Option(String).None)
 );
 /// The destructuring params of a tagged-union arm: `args[1..]` for form 1
 /// (func is the `.` atom) or all `args` for form 2 (func is `.Variant`).
@@ -1342,13 +1342,13 @@ nullable_arm_selects_payload :: (fn(imm(enum_type) : TypeValue, imm(case_value) 
 /// to, or `.None` when it binds nothing (`.Some`, `.Some(_)`, a literal).
 nullable_arm_payload_binder :: (fn(imm(case_value) : AstExpr) -> Option(AstExpr))({
   params := arm_params(case_value);
-  is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(p0, "_", Option(usize).None), .None => false));
+  is_curly := ((params.len() == usize(1)) && match(params.get(usize(0)), .Some(p0) => ast_expr_is_fn_call_of(&p0, "_", Option(usize).None), .None => false));
   dparams := if(is_curly, match(params.get(usize(0)), .Some(p0) => match(p0, .FnCall(_, _, ca, _, _) => ca, .Atom(_, _) => ArrayList(AstExpr).new()), .None => params.clone()), params.clone());
   match(
     dparams.get(usize(0)),
     .Some(p) => {
-      var := if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), match(p, .FnCall(_, _, la, _, _) => match(la.get(usize(1)), .Some(v) => v, .None => p), .Atom(_, _) => p), p);
-      if(ast_expr_is_atom(var) && !(ast_expr_token(var).value == "_") && !pattern_param_is_literal(var), Option(AstExpr).Some(var), Option(AstExpr).None)
+      var := if(ast_expr_is_fn_call_of(&p, ":", Option(usize).Some(usize(2))), match(p, .FnCall(_, _, la, _, _) => match(la.get(usize(1)), .Some(v) => v, .None => p), .Atom(_, _) => p), p);
+      if(ast_expr_is_atom(&var) && !(ast_expr_token(&var).value == "_") && !pattern_param_is_literal(&var), Option(AstExpr).Some(var), Option(AstExpr).None)
     },
     .None => Option(AstExpr).None
   )
@@ -1543,7 +1543,7 @@ get_type_string :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> Str
     // type IS the inner's. Without this arm the variant reached the
     // `// Unknown type:` fallback INSIDE prototypes and emitted malformed C
     // for every refined-parameter signature (array_list's annotated ops).
-    .RefineT(inner, _) => get_type_string(inner, context),
+    .RefineT(inner, _) => get_type_string(&inner, context),
     .Unit => String.from("void"),
     .Void => String.from("void"),
     // `never` has no values; a `-> never` function returns `void` in C.
@@ -1593,7 +1593,7 @@ get_type_string :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> Str
     // heap-allocated RC handle, exactly like a reference-semantics struct.
     .EnumT({ is_reference_semantics : is_ref }) => match(
       can_optimize_as_nullable_pointer(t),
-      .Some(ptr_type) => recur(ptr_type, context),
+      .Some(ptr_type) => recur(&ptr_type, context),
       .None => {
         base := _lookup_named_c_type(t, context);
         if(is_ref, {
@@ -1610,7 +1610,7 @@ get_type_string :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> Str
       // In Yo a PtrType is a borrow `*(T)`. Object types are already pointers
       // in C; for value types a borrow is a pointer to the value. Either way
       // the C type is `<base>*`.
-      base := recur(pointee, context);
+      base := recur(&pointee, context);
       base.push_str("*");
       base
     },
@@ -1619,13 +1619,13 @@ get_type_string :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> Str
     // length — falls through to the unknown fallback.)
     .Array(element, length, length_var) => cond(
       (length_var.len() == usize(0)) => {
-        element_type_string := recur(element, context);
+        element_type_string := recur(&element, context);
         array_type_name := String.from("Array_");
         array_type_name.push_string(c_symbol_name(element_type_string.clone()));
         array_type_name.push_str("_");
         array_type_name.push_string(length.to_string());
         if(!context.has_array_struct_type(array_type_name.clone()), {
-          context.register_array_struct_type(array_type_name.clone(), element_type_string, i64(length));
+          context.register_array_struct_type(array_type_name.clone(), &element_type_string, i64(length));
         });
         array_type_name
       },
@@ -1650,7 +1650,7 @@ get_type_string :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> Str
       // The cycle guard (g_gts_some_stack above) demotes a REVISITED SomeT
       // to the unresolved fallback instead of recursing forever.
       cond(
-        _gts_stack_contains(sid) => Option(TypeValue).None,
+        _gts_stack_contains(&sid) => Option(TypeValue).None,
         true => some_resolution(t)
       ),
       .Some(rct) => {
@@ -1672,7 +1672,7 @@ get_type_string :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> Str
           );
         });
         g_gts_some_stack.push(sid.clone());
-        gts_out := recur(rct, context);
+        gts_out := recur(&rct, context);
         g_gts_some_stack.drain((g_gts_some_stack.len() - usize(1)) .. g_gts_some_stack.len());
         gts_out
       },
@@ -1695,16 +1695,16 @@ get_type_string :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> Str
             match(
               _extract_future_trait_of_some_t(t),
               .Some(gft_ftt) => match(
-                context.get_type_c_name(type_key(gft_ftt)),
+                context.get_type_c_name(type_key(&gft_ftt)),
                 .Some(gft_cn) => `${gft_cn}*`,
                 .None => {
                   match(
                     g_on_demand_declare_fn,
-                    .Some(gft_odf) => gft_odf(gft_ftt, context),
+                    .Some(gft_odf) => gft_odf(&gft_ftt, context),
                     .None => ()
                   );
                   match(
-                    context.get_type_c_name(type_key(gft_ftt)),
+                    context.get_type_c_name(type_key(&gft_ftt)),
                     .Some(gft_cn2) => `${gft_cn2}*`,
                     .None => String.from("__yo_io_future_t*")
                   )
@@ -1732,10 +1732,10 @@ get_type_string :: (fn(imm(t) : TypeValue, imm(context) : CodeGenContext) -> Str
     // struct + runtime helpers
     // (__yo_create_iso_*, __yo_iso_extract_*, __yo_iso_dispose_*) get emitted.
     .IsoT(c) => {
-      child_c_name := recur(c, context);
+      child_c_name := recur(&c, context);
       clean := _strip_stars(child_c_name.clone()).trim();
       iso_name := String.from("Iso_");
-      iso_name.push_string(c_symbol_name(clean));
+      iso_name.push_string(c_symbol_name(&clean));
       if(!context.has_iso_type(iso_name.clone()), {
         context.register_iso_type(iso_name.clone(), child_c_name.clone(), t);
       });
@@ -1812,7 +1812,7 @@ get_variable_type_string :: (
   // Record the declared C name (choke-point for every typed declaration) so the
   // deferred-drop pass can skip drops for temps that were never materialized.
   declare_c_var_name(context, c_name.clone());
-  result.push_string(c_name);
+  result.push_string(&c_name);
   result
 });
 /// Record `c_name` as a C declaration of the current function
@@ -1883,13 +1883,13 @@ _codegen_name_of_variables :: (fn(imm(variable_name) : String, imm(variables) : 
       // returned Other instead of NotFound). Match the RESOLVED
       // variable's type against the global's DECLARED type to restore the
       // per-variable semantics.
-      is_extern_c_glob := extern_c_global_matches(variable.name.clone(), variable.ty);
+      is_extern_c_glob := extern_c_global_matches(variable.name.clone(), &variable.ty);
       is_extern_c := (is_extern_c_fn || is_extern_c_glob);
       // A global bound under a Yo alias (`{ stdout : out } :: c_include(...)`)
       // is emitted by its C symbol, not by the alias
       // (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4).
       c_symbol := if(is_extern_c_glob, extern_c_global_c_name(variable.name.clone()), variable.name.clone());
-      var_name := sanitize_for_c_identifier(c_symbol, is_extern_c);
+      var_name := sanitize_for_c_identifier(&c_symbol, is_extern_c);
       // A generated fn_* name shadowing a local → prefer the original name.
       if((var_name != variable_name) && var_name.starts_with(String.from("fn_yo_id_")), {
         return(sanitize_for_c_identifier(variable_name.clone(), false));
@@ -1907,7 +1907,7 @@ _codegen_name_of_variables :: (fn(imm(variable_name) : String, imm(variables) : 
       // must keep theirs.
       // issues/fixed/module-global-c-names-are-not-namespaced.md.
       if(g_debug_mg, {
-        eprintln(`[mg] name=${variable.name} path=${variable.token.module_path} param=${variable.is_parameter} hit=${is_module_level_global(variable.token.module_path, variable.name)}`);
+        eprintln(`[mg] name=${variable.name} path=${variable.token.module_path} param=${variable.is_parameter} hit=${is_module_level_global(&variable.token.module_path, &variable.name)}`);
       });
       // Never qualify when ANY match for this name is a PARAMETER: a
       // same-named parameter lexically shadows the global, so the bare
@@ -1933,15 +1933,15 @@ _codegen_name_of_variables :: (fn(imm(variable_name) : String, imm(variables) : 
           mg_i = (mg_i + usize(1));
         });
       };
-      if(!is_extern_c && !mg_any_param && is_module_level_global(variable.token.module_path, variable.name), {
-        mg_qualified := `${var_name}${module_global_c_suffix(variable.token.module_path)}`;
+      if(!is_extern_c && !mg_any_param && is_module_level_global(&variable.token.module_path, &variable.name), {
+        mg_qualified := `${var_name}${module_global_c_suffix(&variable.token.module_path)}`;
         // A thread-local reads and writes through its lazy accessor, so
         // the FIRST touch on each thread runs the initializer. The
         // dereference is an lvalue, so this substitution is equally valid
         // in read and write position — which is what lets the whole rest
         // of codegen keep treating a thread-local as an ordinary
         // module-level global (plans/reference/THREAD_LOCAL_STORAGE.md).
-        if(is_thread_local(variable.token.module_path, variable.name), {
+        if(is_thread_local(&variable.token.module_path, &variable.name), {
           return(`(*${mg_qualified}__tl_get())`);
         });
         return(mg_qualified);
@@ -1955,7 +1955,7 @@ get_variable_name_for_codegen :: (fn(imm(variable_name) : String, imm(env) : Opt
   match(
     env,
     .None => sanitize_for_c_identifier(variable_name.clone(), false),
-    .Some(e) => _codegen_name_of_variables(variable_name, get_variables_from_env(e, variable_name.clone()))
+    .Some(e) => _codegen_name_of_variables(variable_name, get_variables_from_env(&e, variable_name.clone()))
   )
 );
 /// `get_variable_name_for_codegen` through node `key`'s recorded scope: the
@@ -1965,7 +1965,7 @@ get_variable_name_for_codegen_at :: (fn(key : ExprId, imm(variable_name) : Strin
   match(
     env,
     .None => sanitize_for_c_identifier(variable_name.clone(), false),
-    .Some(e) => _codegen_name_of_variables(variable_name, scope_variables(key, e, variable_name.clone()))
+    .Some(e) => _codegen_name_of_variables(variable_name, scope_variables(key, &e, variable_name.clone()))
   )
 );
 /// Extract the target atom name from a deferred dup expression.
@@ -1981,7 +1981,7 @@ get_deferred_dup_target_atom_name :: (fn(imm(dup_expr) : AstExpr) -> Option(Stri
         match(
           args.get(usize(0)),
           .Some(first_arg) => {
-            if(ast_expr_is_atom(first_arg), {
+            if(ast_expr_is_atom(&first_arg), {
               return(.Some(match(first_arg, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
@@ -1993,8 +1993,8 @@ get_deferred_dup_target_atom_name :: (fn(imm(dup_expr) : AstExpr) -> Option(Stri
         match(
           func_box,
           .FnCall(_, _, dot_args, _, _) => {
-            if(ast_expr_is_fn_call_of(func_box, BF_DOT, .Some(usize(2))), {
-              first_ok := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false);
+            if(ast_expr_is_fn_call_of(&func_box, BF_DOT, .Some(usize(2))), {
+              first_ok := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               second_is_dup := match(
                 dot_args.get(usize(1)),
                 .Some(a) => match(a, .Atom(_, tok) => (tok.value == BF_DUP), .FnCall(_, _, _, _, _) => false),
@@ -2024,12 +2024,12 @@ get_deferred_drop_target_atom :: (fn(imm(drop_expr) : AstExpr) -> Option(AstExpr
       if(args.len() == usize(0), {
         match(
           func_box,
-          .FnCall(_, _, dot_args, _, _) => if(ast_expr_is_fn_call_of(func_box, BF_DOT, .Some(usize(2))), {
+          .FnCall(_, _, dot_args, _, _) => if(ast_expr_is_fn_call_of(&func_box, BF_DOT, .Some(usize(2))), {
             second_is_drop := match(dot_args.get(usize(1)), .Some(a) => match(a, .Atom(_, tok) => (tok.value == BF_DROP), .FnCall(_, _, _, _, _) => false), .None => false);
             if(second_is_drop, {
               match(
                 dot_args.get(usize(0)),
-                .Some(a) => if(ast_expr_is_atom(a), {
+                .Some(a) => if(ast_expr_is_atom(&a), {
                   return(.Some(a));
                 }),
                 .None => ()
@@ -2042,7 +2042,7 @@ get_deferred_drop_target_atom :: (fn(imm(drop_expr) : AstExpr) -> Option(AstExpr
       if(ast_expr_is_fn_call_of(drop_expr, BF_DROP, .None) && (args.len() >= usize(1)), {
         match(
           args.get(usize(0)),
-          .Some(first_arg) => if(ast_expr_is_atom(first_arg), {
+          .Some(first_arg) => if(ast_expr_is_atom(&first_arg), {
             return(.Some(first_arg));
           }),
           .None => ()
@@ -2058,8 +2058,8 @@ deferred_drop_target_variable :: (fn(imm(drop_expr) : AstExpr, imm(base) : CodeG
   match(
     get_deferred_drop_target_atom(drop_expr),
     .Some(atom) => match(
-      base.get_expr_info(atom),
-      .Some(aei) => scope_variables(ast_expr_id(atom), aei.env, ast_expr_token(atom).value).last(),
+      base.get_expr_info(&atom),
+      .Some(aei) => scope_variables(ast_expr_id(&atom), &aei.env, ast_expr_token(&atom).value).last(),
       .None => Option(Variable).None
     ),
     .None => Option(Variable).None
@@ -2075,13 +2075,13 @@ get_deferred_drop_target_atom_name :: (fn(imm(drop_expr) : AstExpr) -> Option(St
         match(
           func_box,
           .FnCall(_, _, dot_args, _, _) => {
-            if(ast_expr_is_fn_call_of(func_box, BF_DOT, .Some(usize(2))), {
+            if(ast_expr_is_fn_call_of(&func_box, BF_DOT, .Some(usize(2))), {
               second_is_drop := match(
                 dot_args.get(usize(1)),
                 .Some(a) => match(a, .Atom(_, tok) => (tok.value == BF_DROP), .FnCall(_, _, _, _, _) => false),
                 .None => false
               );
-              first_is_atom := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false);
+              first_is_atom := match(dot_args.get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false);
               if(second_is_drop && first_is_atom, {
                 return(.Some(match(dot_args.get(usize(0)), .Some(a) => match(a, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from("")), .None => String.from(""))));
               });
@@ -2095,7 +2095,7 @@ get_deferred_drop_target_atom_name :: (fn(imm(drop_expr) : AstExpr) -> Option(St
         match(
           args.get(usize(0)),
           .Some(first_arg) => {
-            if(ast_expr_is_atom(first_arg), {
+            if(ast_expr_is_atom(&first_arg), {
               return(.Some(match(first_arg, .Atom(_, tok) => tok.value, .FnCall(_, _, _, _, _) => String.from(""))));
             });
           },
@@ -2124,7 +2124,7 @@ is_deferred_drop_for_closure_capture :: (
     .Some(name) => match(
       current_closure_captures,
       .None => false,
-      .Some(captures) => captures.contains(name)
+      .Some(captures) => captures.contains(&name)
     )
   )
 });
@@ -2136,8 +2136,8 @@ find_returned_async_block :: (fn(imm(expr) : Option(AstExpr)) -> Option(AstExpr)
     expr,
     .None => .None,
     .Some(e) => cond(
-      is_io_async_call(e) => .Some(e),
-      ast_expr_is_fn_call(e) => match(
+      is_io_async_call(&e) => .Some(e),
+      ast_expr_is_fn_call(&e) => match(
         e,
         .FnCall(_, _, args, _, _) => {
           (found : Option(AstExpr)) = .None;
@@ -2250,7 +2250,7 @@ _checked_fixed_array_subscript :: (fn(imm(index_code) : String, imm(array_type) 
   if(len_code.len() == usize(0), {
     return(index_code);
   });
-  _checked_index_expr(index_code, len_code, expr)
+  _checked_index_expr(index_code, &len_code, expr)
 });
 /// An atom whose recorded `variable_name` is the variable itself, not a minted
 /// temp. Its value is its own rendering (a C local, a `(*ref)` deref, or a
@@ -2269,7 +2269,7 @@ dyn_slot_param_type_string :: (fn(imm(t) : Option(TypeValue), is_ref : Option(bo
   match(
     t,
     .Some(pt) => {
-      pts := get_type_string(pt, context);
+      pts := get_type_string(&pt, context);
       if(match(is_ref, .Some(r) => r, .None => false), {
         pts.push_str("*");
       });
@@ -2286,7 +2286,7 @@ dyn_slot_param_type_string :: (fn(imm(t) : Option(TypeValue), is_ref : Option(bo
 /// unconditionally.
 note_line_position :: (fn(imm(em) : Emitter, imm(expr) : AstExpr) -> unit)({
   tok := ast_expr_token(expr);
-  em.set_yo_line_position(tok.module_path, tok.row);
+  em.set_yo_line_position(&tok.module_path, tok.row);
 });
 export(
   is_self_named_atom,

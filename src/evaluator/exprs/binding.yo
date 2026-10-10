@@ -115,31 +115,31 @@ evaluate_binding :: (
     .Atom(_, _) => make_err_expr()
   );
   // Evaluate the rhs to obtain the declared type.
-  evaluated_rhs := evaluate_expression_raw(rhs, env, ctx, exn);
-  rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs));
+  evaluated_rhs := evaluate_expression_raw(&rhs, &env, ctx, exn);
+  rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs));
   if(rhs_info_opt.is_none(), {
     exn.throw(
       dyn(
         format_eval_failure(
-          ast_expr_token(rhs),
-          `Failed to evaluate rhs expression:\n${ast_expr_to_string(rhs)}`
+          ast_expr_token(&rhs),
+          `Failed to evaluate rhs expression:\n${ast_expr_to_string(&rhs)}`
         )
       )
     );
   });
-  rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
+  rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
   // Update env from rhs evaluation.
   env.frames = rhs_info.env.frames;
   env.module_path = rhs_info.env.module_path;
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
   // Rhs must evaluate to a TypeValue.
-  if(!is_type_value(rhs_info.value), {
+  if(!is_type_value(&rhs_info.value), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(rhs),
-          `Expected type for rhs, got ${ast_expr_to_string(rhs)}`
+          ast_expr_token(&rhs),
+          `Expected type for rhs, got ${ast_expr_to_string(&rhs)}`
         )
       )
     );
@@ -163,7 +163,7 @@ evaluate_binding :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(rhs),
+            ast_expr_token(&rhs),
             `Array type with inferred length '_' is not allowed in type annotations.\nUse explicit length like 'Array(i32, 3)' or omit the type annotation and initialize with 'arr := Array(i32, _)(1, 2, 3)'`
           )
         )
@@ -172,11 +172,11 @@ evaluate_binding :: (
     _ => ()
   );
   // Prohibit void type.
-  prohibit_void_type(user_defined_type, ast_expr_token(rhs), exn);
+  prohibit_void_type(&user_defined_type, ast_expr_token(&rhs), exn);
   // Strip optional `comptime(...)` wrapper from lhs.
   (is_compile_time_only : bool) = false;
   (lhs : AstExpr) = lhs_arg;
-  if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, .None), {
+  if(ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, .None), {
     is_compile_time_only = true;
     n_comptime_args := match(
       lhs,
@@ -187,7 +187,7 @@ evaluate_binding :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(lhs),
+            ast_expr_token(&lhs),
             `Expected one argument for "comptime", got ${n_comptime_args.to_string()}`
           )
         )
@@ -201,7 +201,7 @@ evaluate_binding :: (
   });
   // Strip optional `given(...)` wrapper (implies implicit + comptime).
   (is_implicit : bool) = false;
-  if(ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None), {
+  if(ast_expr_is_fn_call_of(&lhs, BK_GIVEN, .None), {
     n_given_args := match(
       lhs,
       .FnCall(_, _, gargs, _, _) => gargs.len(),
@@ -211,7 +211,7 @@ evaluate_binding :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(lhs),
+            ast_expr_token(&lhs),
             `Expected exactly one argument for "given", got ${n_given_args.to_string()}`
           )
         )
@@ -233,13 +233,13 @@ evaluate_binding :: (
   // `force_compile_time_bindings` is consulted, which turns every binding of a
   // body evaluated at compile time into a compile-time one.
   if(!is_compile_time_only && in_compile_time_fn_body(ctx), {
-    b_name := ast_expr_token(lhs).value;
-    b_ty := ast_expr_to_string(rhs);
+    b_name := ast_expr_token(&lhs).value;
+    b_ty := ast_expr_to_string(&rhs);
     exn.throw(
       dyn(
         with_code(
           format_error_message_with_repair(
-            ast_expr_token(lhs),
+            ast_expr_token(&lhs),
             `"(${b_name} : ${b_ty})" declares a runtime variable, but this is the body of a function that returns a compile-time value; write "(comptime(${b_name}) : ${b_ty})" (it is still mutable).`,
             Option(String).Some(`replace "${b_name}" with "comptime(${b_name})"`),
             `comptime(${b_name})`,
@@ -257,12 +257,12 @@ evaluate_binding :: (
     is_compile_time_only = true;
   });
   // Validate lhs is a valid variable name (identifier or operator).
-  if(!is_valid_variable_name(lhs), {
-    lhs_tok_val := ast_expr_token(lhs).value;
+  if(!is_valid_variable_name(&lhs), {
+    lhs_tok_val := ast_expr_token(&lhs).value;
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(lhs),
+          ast_expr_token(&lhs),
           `Invalid binding to "${lhs_tok_val}", expected identifier or operator`
         )
       )
@@ -270,12 +270,12 @@ evaluate_binding :: (
   });
   // Reserved operators cannot be bound or overloaded
   // (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md Part 1).
-  res_tok := ast_expr_token(lhs);
+  res_tok := ast_expr_token(&lhs);
   if((res_tok.kind == TokenKind.Operator) && is_reserved_operator_name(res_tok.value.clone()), {
     exn.throw(
       dyn(
         format_error_message(
-          res_tok,
+          &res_tok,
           `Operator "${res_tok.value}" is reserved and cannot be bound or overloaded (plans/reference/OPERATOR_SET_AND_PRECEDENCE.md).`
         )
       )
@@ -289,7 +289,7 @@ evaluate_binding :: (
   if(is_reserved_builtin_binding_name(res_tok.value.clone()) && !res_tok.module_path.ends_with(String.from("std/prelude.yo")), {
     raise_flow_violation(
       format_error_message(
-        res_tok,
+        &res_tok,
         `"${res_tok.value}" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run. Choose a different name.`
       ),
       ctx,
@@ -299,7 +299,7 @@ evaluate_binding :: (
   // Reject type annotations that require comptime but binding is runtime.
   // Env-aware fallback for COMPOUND comptime-only types — see the twin gate
   // in initialization_assignment.yo.
-  binding_requires_ct := (type_requires_comptime_modifier(user_defined_type) || (type_implements_comptime(user_defined_type, env) && !type_implements_runtime_full(user_defined_type, env)));
+  binding_requires_ct := (type_requires_comptime_modifier(&user_defined_type) || (type_implements_comptime(&user_defined_type, &env) && !type_implements_runtime_full(&user_defined_type, &env)));
   // In a DEFINITION-time body trial a type still carrying unresolved SomeTs
   // cannot be judged comptime-only — the twin of the ::-vs-:= skip in
   // initialization_assignment.yo (root 7837, IterFilter's
@@ -307,43 +307,43 @@ evaluate_binding :: (
   // issues/fixed/def-eval-swallow-remaining-roots.md). The specialization-time
   // re-eval re-checks with concrete types.
   binding_ct_check := cond(
-    (in_def_time_trial() && binding_requires_ct && (get_all_some_types(user_defined_type).len() > usize(0))) => false,
+    (in_def_time_trial() && binding_requires_ct && (get_all_some_types(&user_defined_type).len() > usize(0))) => false,
     true => binding_requires_ct
   );
   if(binding_ct_check && !is_compile_time_only, {
-    ty_str := type_to_string(user_defined_type);
+    ty_str := type_to_string(&user_defined_type);
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(lhs),
+          ast_expr_token(&lhs),
           `Expected "comptime" for compile-time known value binding:\n${ty_str}`
         )
       )
     );
   });
   // Reject comptime modifier on runtime-only types.
-  if(type_prohibits_comptime_modifier(user_defined_type) && is_compile_time_only, {
-    ty_str := type_to_string(user_defined_type);
+  if(type_prohibits_comptime_modifier(&user_defined_type) && is_compile_time_only, {
+    ty_str := type_to_string(&user_defined_type);
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(lhs),
+          ast_expr_token(&lhs),
           `Unexpected "comptime" for ${ty_str} which can only be used at runtime.`
         )
       )
     );
   });
-  variable_name := ast_expr_token(lhs).value;
+  variable_name := ast_expr_token(&lhs).value;
   // Reject runtime vars with generic function types — DEFERRABLE: exprs/
   // assignment.yo sets the flag around its typed-binding eval and re-runs
   // the check itself after the RHS is evaluated, relaxing it for ctl
   // handlers whose body ALWAYS unwinds.
-  if(!is_compile_time_only && !g_defer_generic_fn_type_check && (is_function_type(user_defined_type) && is_function_type_generic(user_defined_type)), {
-    ty_str := type_to_string(user_defined_type);
+  if(!is_compile_time_only && !g_defer_generic_fn_type_check && (is_function_type(&user_defined_type) && is_function_type_generic(&user_defined_type)), {
+    ty_str := type_to_string(&user_defined_type);
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(lhs),
+          ast_expr_token(&lhs),
           `Runtime variables with generic function types are not allowed:\n${ty_str}\n\nGeneric functions must be compile-time known to enable monomorphization. Consider using:\ncomptime(${variable_name}) : ${ty_str}`
         )
       )
@@ -359,7 +359,7 @@ evaluate_binding :: (
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(lhs),
+          ast_expr_token(&lhs),
           `Mutable runtime variable "${variable_name}" is not allowed inside an impl block.\nUse "::" for compile-time definitions inside impl.`
         )
       )
@@ -369,13 +369,13 @@ evaluate_binding :: (
   is_module_level := (!is_compile_time_only && !is_inside_fn_body);
   // Initial value: comptime vars get an UnknownVal placeholder; runtime vars get None.
   initial_value_opt := cond(
-    is_compile_time_only => Option(EvalValue).Some(create_unknown_val(user_defined_type)),
+    is_compile_time_only => Option(EvalValue).Some(create_unknown_val(&user_defined_type)),
     true => Option(EvalValue).None
   );
   // No-shadowing rule — same check as initialization_assignment.yo; see the
   // comment there for why it lives at the user binding-introduction sites.
   if(variable_name != String.from("__yo_self"), {
-    shadow_existing := get_variables_from_env(env, variable_name);
+    shadow_existing := get_variables_from_env(&env, &variable_name);
     if(shadow_existing.len() > usize(0), {
       match(
         shadow_existing.last(),
@@ -383,7 +383,7 @@ evaluate_binding :: (
           sh_entries := ArrayList(TokenAndError).new();
           sh_entries.push(
             TokenAndError(
-              token : ast_expr_token(lhs),
+              token : ast_expr_token(&lhs),
               error_message : `Failed to define variable "${variable_name}":`
             )
           );
@@ -393,7 +393,7 @@ evaluate_binding :: (
               error_message : `Variable "${variable_name}" is already defined here (variable shadowing is not allowed):`
             )
           );
-          exn.throw(dyn(format_error_messages(sh_entries)));
+          exn.throw(dyn(format_error_messages(&sh_entries)));
         },
         .None => ()
       );
@@ -401,17 +401,17 @@ evaluate_binding :: (
   });
   // Add the variable to the environment.
   _var_opt := add_variable_to_env(
-    env,
-    variable_name,
-    user_defined_type,
-    initial_value_opt,
+    &env,
+    &variable_name,
+    &user_defined_type,
+    &initial_value_opt,
     is_compile_time_only,
     true,
     // is_reassignable
-    type_contains_rc_type(user_defined_type),
+    type_contains_rc_type(&user_defined_type),
     // is_owning_the_rc_value
     is_implicit,
-    ast_expr_token(lhs)
+    ast_expr_token(&lhs)
   );
   // The variable is NOT initialized yet — initialization happens in the
   // enclosing `=` assignment. add_variable_to_env stamps
@@ -431,21 +431,21 @@ evaluate_binding :: (
       // expr_info.yo g_module_level_globals).
       new_binding_var.is_module_level = is_module_level;
       if(is_module_level, {
-        register_module_level_global(ast_expr_token(lhs).module_path.clone(), variable_name.clone());
+        register_module_level_global(ast_expr_token(&lhs).module_path.clone(), variable_name.clone());
       });
     },
     .None => ()
   );
   // Write ExprInfo for the lhs expression.
   // pathCollection = [[variableName]] (one-element path collection).
-  lhs_info := new_expr_info(env, user_defined_type);
-  lhs_info.path_collection = path_collection_of_name(variable_name);
+  lhs_info := new_expr_info(&env, &user_defined_type);
+  lhs_info.path_collection = path_collection_of_name(&variable_name);
   lhs_info.variable_name = .Some(variable_name);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(lhs), lhs_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&lhs), &lhs_info);
   // Write ExprInfo for the whole ":" expression.
-  expr_info := new_expr_info(env, t_unit());
+  expr_info := new_expr_info(&env, t_unit());
   expr_info.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), expr_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   BindingResult(
     expr : expr,
     variable_expr : lhs,

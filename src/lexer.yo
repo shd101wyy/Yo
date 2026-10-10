@@ -137,11 +137,11 @@ tokenize_span :: (
   line := base_row;
   line_start := usize(0);
   while(i < n, {
-    c := chars.get(i).unwrap_or(null_rune);
+    c := chars.get(i).unwrap_or(&null_rune);
     col := ((i - line_start) + cond((line == base_row) => base_col, true => usize(0)));
     char_idx := (base_char + i);
-    byte_idx := char_byte_offsets.get(i).unwrap_or(input_byte_len);
-    next_c := chars.get(i + usize(1)).unwrap_or(null_rune);
+    byte_idx := char_byte_offsets.get(i).unwrap_or(&input_byte_len);
+    next_c := chars.get(i + usize(1)).unwrap_or(&null_rune);
     is_fwd_slash := (c.char == u32(0x2F));
     next_is_slash := (next_c.char == u32(0x2F));
     next_is_star := (next_c.char == u32(0x2A));
@@ -152,7 +152,7 @@ tokenize_span :: (
         j := i;
         dot_sb := StringBuilder.new();
         while(j < n, {
-          cj := chars.get(j).unwrap_or(null_rune);
+          cj := chars.get(j).unwrap_or(&null_rune);
           if(cj.char != u32(0x2E), {
             break;
           });
@@ -162,7 +162,7 @@ tokenize_span :: (
         // Dots consumed by the loop above, BEFORE the '=' suffix widens j - i.
         dot_run_len := (j - i);
         // Check for trailing '=' to form '..=' (inclusive range)
-        next_after_dots := chars.get(j).unwrap_or(null_rune);
+        next_after_dots := chars.get(j).unwrap_or(&null_rune);
         if((dot_run_len == usize(2)) && (next_after_dots.char == u32(0x3D)), {
           dot_sb.write_rune(next_after_dots);
           j = (j + usize(1));
@@ -193,7 +193,7 @@ tokenize_span :: (
         });
         dot_str := dot_sb.to_string();
         kind := cond(((j - i) == usize(1)) => TokenKind.Dot, true => TokenKind.Operator);
-        tokens.push(Token(kind : kind, value : intern_token_str(dot_str), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : kind, value : intern_token_str(&dot_str), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = j;
       },
       // Non-comment operator characters
@@ -201,7 +201,7 @@ tokenize_span :: (
         j := i;
         op_sb := StringBuilder.new();
         while(j < n, {
-          cj := chars.get(j).unwrap_or(null_rune);
+          cj := chars.get(j).unwrap_or(&null_rune);
           is_op_cont := (is_operator_char(cj) && (cj.char != u32(0x2E)));
           if(!is_op_cont, {
             break;
@@ -260,11 +260,11 @@ tokenize_span :: (
           // logical and, so `a &&mut` is `&&` then `mut`.
           is_borrow_mut := (
             (tok_len == usize(1)) && ((k + usize(1)) == run_len) && (op_str.byte_at(k) == u8(38)) &&
-              (chars.get(j).unwrap_or(null_rune).char == u32(109)) && (chars.get(j + usize(1)).unwrap_or(null_rune).char == u32(117)) && (chars.get(j + usize(2)).unwrap_or(null_rune).char == u32(116)) &&
-                !is_identifier_continue(chars.get(j + usize(3)).unwrap_or(null_rune))
+              (chars.get(j).unwrap_or(&null_rune).char == u32(109)) && (chars.get(j + usize(1)).unwrap_or(&null_rune).char == u32(117)) && (chars.get(j + usize(2)).unwrap_or(&null_rune).char == u32(116)) &&
+                !is_identifier_continue(chars.get(j + usize(3)).unwrap_or(&null_rune))
           );
           tok_text := if(is_borrow_mut, String.from("&mut"), op_str.slice_copy(k .. (k + tok_len)));
-          tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(tok_text), row : u32(line), column : u32(col + k), character : u32(char_idx + k), byte_offset : u32(byte_idx + k), module_path : module_path, input : input));
+          tokens.push(Token(kind : TokenKind.Operator, value : intern_token_str(&tok_text), row : u32(line), column : u32(col + k), character : u32(char_idx + k), byte_offset : u32(byte_idx + k), module_path : module_path, input : input));
           if(is_borrow_mut, {
             j = (j + usize(3));
           });
@@ -278,7 +278,7 @@ tokenize_span :: (
         ws_sb := StringBuilder.new();
         ws_start_ln := line;
         while(k < n, {
-          ck := chars.get(k).unwrap_or(null_rune);
+          ck := chars.get(k).unwrap_or(&null_rune);
           if(!ck.is_whitespace(), {
             break;
           });
@@ -295,8 +295,8 @@ tokenize_span :: (
       },
       // Line comment: //, ///, //!
       (is_fwd_slash && next_is_slash) => {
-        third_c := chars.get(i + usize(2)).unwrap_or(null_rune);
-        fourth_c := chars.get(i + usize(3)).unwrap_or(null_rune);
+        third_c := chars.get(i + usize(2)).unwrap_or(&null_rune);
+        fourth_c := chars.get(i + usize(3)).unwrap_or(&null_rune);
         (comment_kind : TokenKind) = cond(
           ((third_c.char == u32(0x2F)) && (fourth_c.char != u32(0x2F))) => TokenKind.DocLineComment,
           (third_c.char == u32(0x21)) => TokenKind.InnerDocLineComment,
@@ -305,7 +305,7 @@ tokenize_span :: (
         k := i;
         cm_sb := StringBuilder.new();
         while(k < n, {
-          ck := chars.get(k).unwrap_or(null_rune);
+          ck := chars.get(k).unwrap_or(&null_rune);
           if(ck.char == u32(0x0A), {
             break;
           });
@@ -318,8 +318,8 @@ tokenize_span :: (
       },
       // Block comment: /*, /**, /*!
       (is_fwd_slash && next_is_star) => {
-        third_bc := chars.get(i + usize(2)).unwrap_or(null_rune);
-        fourth_bc := chars.get(i + usize(3)).unwrap_or(null_rune);
+        third_bc := chars.get(i + usize(2)).unwrap_or(&null_rune);
+        fourth_bc := chars.get(i + usize(3)).unwrap_or(&null_rune);
         (block_kind : TokenKind) = cond(
           ((third_bc.char == u32(0x2A)) && (fourth_bc.char != u32(0x2F))) => TokenKind.DocBlockComment,
           (third_bc.char == u32(0x21)) => TokenKind.InnerDocBlockComment,
@@ -329,14 +329,14 @@ tokenize_span :: (
         cm_sb := StringBuilder.new();
         k := i;
         // write opening /*
-        cm_sb.write_rune(chars.get(k).unwrap_or(null_rune));
+        cm_sb.write_rune(chars.get(k).unwrap_or(&null_rune));
         k = (k + usize(1));
-        cm_sb.write_rune(chars.get(k).unwrap_or(null_rune));
+        cm_sb.write_rune(chars.get(k).unwrap_or(&null_rune));
         k = (k + usize(1));
         nesting := usize(1);
         while((nesting > usize(0)) && (k < n), {
-          ck := chars.get(k).unwrap_or(null_rune);
-          next_k := chars.get(k + usize(1)).unwrap_or(null_rune);
+          ck := chars.get(k).unwrap_or(&null_rune);
+          next_k := chars.get(k + usize(1)).unwrap_or(&null_rune);
           if(ck.char == u32(0x0A), {
             line = (line + usize(1));
             line_start = (k + usize(1));
@@ -406,7 +406,7 @@ tokenize_span :: (
         (first_is_backslash : bool) = false;
         val_sb.write_byte(u8(0x27));
         while(k < n, {
-          ck := chars.get(k).unwrap_or(null_rune);
+          ck := chars.get(k).unwrap_or(&null_rune);
           cond(
             (ck.char == u32(0x5C)) => {
               if(utf16_len == usize(0), {
@@ -416,7 +416,7 @@ tokenize_span :: (
               utf16_len = (utf16_len + usize(1));
               k = (k + usize(1));
               if(k < n, {
-                esc := chars.get(k).unwrap_or(null_rune);
+                esc := chars.get(k).unwrap_or(&null_rune);
                 val_sb.write_rune(esc);
                 utf16_len = (utf16_len + usize(1));
                 if(esc.char > u32(0xFFFF), {
@@ -465,7 +465,7 @@ tokenize_span :: (
         // the LOW half's own iteration reads it.
         (u_escape_pending : usize) = usize(0);
         while(k < n, {
-          ck := chars.get(k).unwrap_or(null_rune);
+          ck := chars.get(k).unwrap_or(&null_rune);
           cond(
             (ck.char == u32(0x5C)) => {
               // A `\u` escape is VALIDATED here and left in the token text
@@ -475,11 +475,11 @@ tokenize_span :: (
               // Validating in the lexer is what gives the diagnostic a
               // position — and the decoder can then trust its digits
               // (issues/fixed/unicode-escape-accepts-non-hex-digits.md).
-              if((chars.get(k + usize(1)).unwrap_or(null_rune)).char == u32(0x75), {
+              if((chars.get(k + usize(1)).unwrap_or(&null_rune)).char == u32(0x75), {
                 match(
-                  scan_unicode_escape(chars, k + usize(1)),
+                  scan_unicode_escape(&chars, k + usize(1)),
                   .Bad(msg) => exn.throw(
-                    dyn(format_lexer_error(module_path, input, line, col, msg))
+                    dyn(format_lexer_error(module_path, input, line, col, &msg))
                   ),
                   // A LONE surrogate half is rejected exactly like the braced
                   // form's: the four-digit form spells an astral code point
@@ -495,10 +495,10 @@ tokenize_span :: (
                     if((cp >= u32(0xD800)) && (cp <= u32(0xDFFF)), {
                       paired := false;
                       if(cp <= u32(0xDBFF), {
-                        if(((chars.get(k + usize(1) + consumed).unwrap_or(null_rune)).char == u32(0x5C))
-                        && ((chars.get(k + usize(2) + consumed).unwrap_or(null_rune)).char == u32(0x75)), {
+                        if(((chars.get(k + usize(1) + consumed).unwrap_or(&null_rune)).char == u32(0x5C))
+                        && ((chars.get(k + usize(2) + consumed).unwrap_or(&null_rune)).char == u32(0x75)), {
                           match(
-                            scan_unicode_escape(chars, k + usize(2) + consumed),
+                            scan_unicode_escape(&chars, k + usize(2) + consumed),
                             .Ok(lo, _) => if((lo >= u32(0xDC00)) && (lo <= u32(0xDFFF)), {
                               paired = true;
                             }),
@@ -529,7 +529,7 @@ tokenize_span :: (
               val_sb.write_rune(ck);
               k = (k + usize(1));
               if(k < n, {
-                val_sb.write_rune(chars.get(k).unwrap_or(null_rune));
+                val_sb.write_rune(chars.get(k).unwrap_or(&null_rune));
               });
               k = (k + usize(1));
             },
@@ -601,8 +601,8 @@ tokenize_span :: (
         ts_sb := StringBuilder.new();
         template_closed := false;
         while(k < n, {
-          ck := chars.get(k).unwrap_or(null_rune);
-          nck := chars.get(k + usize(1)).unwrap_or(null_rune);
+          ck := chars.get(k).unwrap_or(&null_rune);
+          nck := chars.get(k + usize(1)).unwrap_or(&null_rune);
           cond(
             // Unwind sequence
             (ck.char == u32(0x5C)) => {
@@ -667,9 +667,9 @@ tokenize_span :: (
                 // (issues/fixed/unicode-escape-accepts-non-hex-digits.md).
                 (nck.char == u32(0x75)) => {
                   match(
-                    scan_unicode_escape(chars, k + usize(1)),
+                    scan_unicode_escape(&chars, k + usize(1)),
                     .Bad(msg) => exn.throw(
-                      dyn(format_lexer_error(module_path, input, line, col, msg))
+                      dyn(format_lexer_error(module_path, input, line, col, &msg))
                     ),
                     .Ok(cp, consumed) => {
                       // A `\uXXXX` high surrogate combines with a following
@@ -678,10 +678,10 @@ tokenize_span :: (
                       (code : u32) = cp;
                       (adv : usize) = (usize(1) + consumed);
                       if((cp >= u32(0xD800)) && (cp <= u32(0xDBFF))
-                      && ((chars.get(k + adv).unwrap_or(null_rune)).char == u32(0x5C))
-                      && ((chars.get(k + adv + usize(1)).unwrap_or(null_rune)).char == u32(0x75)), {
+                      && ((chars.get(k + adv).unwrap_or(&null_rune)).char == u32(0x5C))
+                      && ((chars.get(k + adv + usize(1)).unwrap_or(&null_rune)).char == u32(0x75)), {
                         match(
-                          scan_unicode_escape(chars, k + adv + usize(1)),
+                          scan_unicode_escape(&chars, k + adv + usize(1)),
                           .Ok(lo, lo_consumed) => if((lo >= u32(0xDC00)) && (lo <= u32(0xDFFF)), {
                             code = (
                               u32(0x10000)
@@ -724,9 +724,9 @@ tokenize_span :: (
             ((ck.char == u32(0x24)) && (nck.char == u32(0x7B))) => {
               ts_sb.write_str("${");
               k = (k + usize(2));
-              body_end := interpolation_body_end(input_bytes, char_byte_offsets.get(k).unwrap_or(input_byte_len));
-              while((k < n) && (char_byte_offsets.get(k).unwrap_or(input_byte_len) < body_end), {
-                bk := chars.get(k).unwrap_or(null_rune);
+              body_end := interpolation_body_end(&input_bytes, char_byte_offsets.get(k).unwrap_or(&input_byte_len));
+              while((k < n) && (char_byte_offsets.get(k).unwrap_or(&input_byte_len) < body_end), {
+                bk := chars.get(k).unwrap_or(&null_rune);
                 if(bk.char == u32(0x0A), {
                   line = (line + usize(1));
                   line_start = (k + usize(1));
@@ -780,7 +780,7 @@ tokenize_span :: (
         num_sb := StringBuilder.new();
         num_sb.write_rune(c);
         j = (j + usize(1));
-        nd := chars.get(j).unwrap_or(null_rune);
+        nd := chars.get(j).unwrap_or(&null_rune);
         is_hex := false;
         is_bin := false;
         is_oct := false;
@@ -809,7 +809,7 @@ tokenize_span :: (
         cond(
           is_hex => {
             while(j < n, {
-              dj := chars.get(j).unwrap_or(null_rune);
+              dj := chars.get(j).unwrap_or(&null_rune);
               is_hex_d := (dj.is_digit() || ((dj.char >= u32(0x41)) && (dj.char <= u32(0x46))) || ((dj.char >= u32(0x61)) && (dj.char <= u32(0x66))));
               if(!is_hex_d, {
                 break;
@@ -820,7 +820,7 @@ tokenize_span :: (
           },
           is_bin => {
             while(j < n, {
-              dj := chars.get(j).unwrap_or(null_rune);
+              dj := chars.get(j).unwrap_or(&null_rune);
               is_bin_d := ((dj.char == u32(0x30)) || (dj.char == u32(0x31)));
               if(!is_bin_d, {
                 break;
@@ -831,7 +831,7 @@ tokenize_span :: (
           },
           is_oct => {
             while(j < n, {
-              dj := chars.get(j).unwrap_or(null_rune);
+              dj := chars.get(j).unwrap_or(&null_rune);
               is_oct_d := ((dj.char >= u32(0x30)) && (dj.char <= u32(0x37)));
               if(!is_oct_d, {
                 break;
@@ -842,7 +842,7 @@ tokenize_span :: (
           },
           true => {
             while(j < n, {
-              dj := chars.get(j).unwrap_or(null_rune);
+              dj := chars.get(j).unwrap_or(&null_rune);
               is_dec_d := (dj.is_digit() || (dj.char == u32(0x5F)));
               if(!is_dec_d, {
                 break;
@@ -856,24 +856,24 @@ tokenize_span :: (
         is_decimal := (!is_hex && (!is_bin && !is_oct));
         // Float: decimal point followed by a digit
         if(is_decimal, {
-          dot_check := chars.get(j).unwrap_or(null_rune);
+          dot_check := chars.get(j).unwrap_or(&null_rune);
           // NOTE: For parsing case like x.0.0 — the char BEFORE the number
           // start must not be '.', so the middle 0 of `x.0.0` stays an
           // Integer and the second dot remains a field access instead of
           // merging into `0.0`.
           prev_is_dot := cond(
             (i == usize(0)) => false,
-            true => (chars.get(i - usize(1)).unwrap_or(null_rune).char == u32(0x2E))
+            true => (chars.get(i - usize(1)).unwrap_or(&null_rune).char == u32(0x2E))
           );
           if((dot_check.char == u32(0x2E)) && (prev_is_dot == false), {
             next_j := (j + usize(1));
-            next_j_rune := chars.get(next_j).unwrap_or(null_rune);
+            next_j_rune := chars.get(next_j).unwrap_or(&null_rune);
             if(next_j_rune.is_digit(), {
               is_float = true;
               num_sb.write_rune(dot_check);
               j = next_j;
               while(j < n, {
-                dj := chars.get(j).unwrap_or(null_rune);
+                dj := chars.get(j).unwrap_or(&null_rune);
                 is_dec_d := (dj.is_digit() || (dj.char == u32(0x5F)));
                 if(!is_dec_d, {
                   break;
@@ -894,27 +894,27 @@ tokenize_span :: (
         // the `+` surfaces as an operator, because atof("1e+") would
         // silently stop at 1.0.
         if(is_decimal, {
-          exp_check := chars.get(j).unwrap_or(null_rune);
+          exp_check := chars.get(j).unwrap_or(&null_rune);
           if((exp_check.char == u32(0x65)) || (exp_check.char == u32(0x45)), {
             next_j := (j + usize(1));
-            next_j_rune := chars.get(next_j).unwrap_or(null_rune);
+            next_j_rune := chars.get(next_j).unwrap_or(&null_rune);
             sign_j := cond(
               ((next_j < n) && ((next_j_rune.char == u32(0x2B)) || (next_j_rune.char == u32(0x2D)))) => (next_j + usize(1)),
               true => next_j
             );
-            first_digit := chars.get(sign_j).unwrap_or(null_rune);
+            first_digit := chars.get(sign_j).unwrap_or(&null_rune);
             has_exp_digits := ((sign_j < n) && first_digit.is_digit());
             if(has_exp_digits, {
               is_float = true;
               num_sb.write_rune(exp_check);
               j = next_j;
-              sign_rune := chars.get(j).unwrap_or(null_rune);
+              sign_rune := chars.get(j).unwrap_or(&null_rune);
               if((sign_rune.char == u32(0x2B)) || (sign_rune.char == u32(0x2D)), {
                 num_sb.write_rune(sign_rune);
                 j = (j + usize(1));
               });
               while(j < n, {
-                dj := chars.get(j).unwrap_or(null_rune);
+                dj := chars.get(j).unwrap_or(&null_rune);
                 is_dec_d := (dj.is_digit() || (dj.char == u32(0x5F)));
                 if(!is_dec_d, {
                   break;
@@ -927,7 +927,7 @@ tokenize_span :: (
         });
         num_str := num_sb.to_string();
         kind := cond(is_float => TokenKind.Float, true => TokenKind.Integer);
-        tokens.push(Token(kind : kind, value : intern_token_str(num_str), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : kind, value : intern_token_str(&num_str), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = j;
       },
       // Identifier or Bool keyword
@@ -937,7 +937,7 @@ tokenize_span :: (
         id_sb.write_rune(c);
         j = (j + usize(1));
         while(j < n, {
-          cj := chars.get(j).unwrap_or(null_rune);
+          cj := chars.get(j).unwrap_or(&null_rune);
           if(!is_identifier_continue(cj), {
             break;
           });
@@ -975,7 +975,7 @@ tokenize_span :: (
           (id_str == `false`) => TokenKind.Bool,
           true => TokenKind.Identifier
         );
-        tokens.push(Token(kind : kind, value : intern_token_str(id_str), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
+        tokens.push(Token(kind : kind, value : intern_token_str(&id_str), row : u32(line), column : u32(col), character : u32(char_idx), byte_offset : u32(byte_idx), module_path : module_path, input : input));
         i = j;
       },
       // Unknown character: error

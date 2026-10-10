@@ -50,12 +50,12 @@ _binding_token_of :: (
       return(Option(Token).None);
     }
   );
-  vars := get_variables_from_env(info.env, tok.value.clone());
+  vars := get_variables_from_env(&info.env, tok.value.clone());
   if(vars.len() == usize(0), {
     return(Option(Token).None);
   });
   match(
-    _select_best_variable(vars, tok),
+    _select_best_variable(&vars, tok),
     .Some(v) => match(
       v.initialized_at_token,
       .Some(it) => Option(Token).Some(it),
@@ -87,7 +87,7 @@ _top_level_decl_token :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : String
     match(
       exprs.get(i),
       .Some(e) => {
-        if(ast_expr_is_fn_call_of(e, "::", .Some(usize(2))) || ast_expr_is_fn_call_of(e, ":=", .Some(usize(2))), {
+        if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))) || ast_expr_is_fn_call_of(&e, ":=", .Some(usize(2))), {
           match(
             e,
             .FnCall(_, _, args, _, _) => match(
@@ -106,20 +106,20 @@ _top_level_decl_token :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : String
             .Atom(_, _) => ()
           );
         });
-        if(ast_expr_is_fn_call_of(e, "=", .Some(usize(2))), {
+        if(ast_expr_is_fn_call_of(&e, "=", .Some(usize(2))), {
           match(
             e,
             .FnCall(_, _, args, _, _) => match(
               args.get(usize(0)),
               .Some(lhs) => {
-                if(ast_expr_is_fn_call_of(lhs, ":", .Some(usize(2))), {
+                if(ast_expr_is_fn_call_of(&lhs, ":", .Some(usize(2))), {
                   match(
                     lhs,
                     .FnCall(_, _, pair, _, _) => match(
                       pair.get(usize(0)),
                       .Some(name_expr) => {
-                        if(ast_expr_is_atom(name_expr), {
-                          name_tok := ast_expr_token(name_expr);
+                        if(ast_expr_is_atom(&name_expr), {
+                          name_tok := ast_expr_token(&name_expr);
                           if(name_tok.value == name, {
                             return(Option(Token).Some(name_tok));
                           });
@@ -176,7 +176,7 @@ collect_symbol_occurrences_with_decl :: (
   while(ci < exprs.len(), {
     match(
       exprs.get(ci),
-      .Some(e) => _collect_candidates(e, target, cands),
+      .Some(e) => _collect_candidates(&e, target, &mut cands),
       .None => ()
     );
     ci = (ci + usize(1));
@@ -184,12 +184,12 @@ collect_symbol_occurrences_with_decl :: (
   roles := classify_atom_roles(exprs);
   (def : Option(Token)) = Option(Token).None;
   match(
-    _best_candidate(cands, info_table),
+    _best_candidate(&cands, info_table),
     .Some(best) => {
-      if(atom_is_member_or_label(roles, ast_expr_id(best)), {
+      if(atom_is_member_or_label(&roles, ast_expr_id(&best)), {
         return(out);
       });
-      def = _binding_token_of(best, target, info_table);
+      def = _binding_token_of(&best, target, info_table);
     },
     .None => ()
   );
@@ -213,7 +213,7 @@ collect_symbol_occurrences_with_decl :: (
   while(ei < exprs.len(), {
     match(
       exprs.get(ei),
-      .Some(e) => _collect_occurrences(e, target.value.clone(), roles, info_table, def, seen, out),
+      .Some(e) => _collect_occurrences(&e, target.value.clone(), &roles, info_table, &def, &mut seen, &mut out),
       .None => ()
     );
     ei = (ei + usize(1));
@@ -243,8 +243,8 @@ _collect_occurrences :: (
           def,
           .None => true,
           .Some(d) => match(
-            _binding_token_of(e, tok, info_table),
-            .Some(bt) => _same_declaration(bt, d),
+            _binding_token_of(e, &tok, info_table),
+            .Some(bt) => _same_declaration(&bt, &d),
             .None => true
           )
         );
@@ -258,12 +258,12 @@ _collect_occurrences :: (
       });
     },
     .FnCall(_, func_box, args, _, _) => {
-      recur(func_box, name, roles, info_table, def, seen, out);
+      recur(&func_box, name, roles, info_table, def, seen, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => recur(a, name, roles, info_table, def, seen, out),
+          .Some(a) => recur(&a, name, roles, info_table, def, seen, out),
           .None => ()
         );
         i = (i + usize(1));
@@ -294,9 +294,9 @@ handle_references :: (
       _err -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
     )
   );
-  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  tokens := tokenize(text.clone(), doc_abs.clone(), &lex_exn);
   target := match(
-    _find_token_at(tokens, line, character),
+    _find_token_at(&tokens, line, character),
     .Some(t) => t,
     .None => {
       return(JsonValue.Array(items : empty));
@@ -306,7 +306,7 @@ handle_references :: (
     return(JsonValue.Array(items : empty));
   });
   decl := ArrayList(Token).new();
-  occurrences := collect_symbol_occurrences_with_decl(exprs, info_table, target, decl);
+  occurrences := collect_symbol_occurrences_with_decl(exprs, info_table, &target, &mut decl);
   out := ArrayList(JsonValue).new();
   (oi : usize) = usize(0);
   while(oi < occurrences.len(), {
@@ -352,9 +352,9 @@ handle_document_highlight :: (
       _err -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
     )
   );
-  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  tokens := tokenize(text.clone(), doc_abs.clone(), &lex_exn);
   target := match(
-    _find_token_at(tokens, line, character),
+    _find_token_at(&tokens, line, character),
     .Some(t) => t,
     .None => {
       return(JsonValue.Array(items : ArrayList(JsonValue).new()));
@@ -364,7 +364,7 @@ handle_document_highlight :: (
     return(JsonValue.Array(items : ArrayList(JsonValue).new()));
   });
   decl := ArrayList(Token).new();
-  occurrences := collect_symbol_occurrences_with_decl(exprs, info_table, target, decl);
+  occurrences := collect_symbol_occurrences_with_decl(exprs, info_table, &target, &mut decl);
   out := ArrayList(JsonValue).new();
   (oi : usize) = usize(0);
   while(oi < occurrences.len(), {

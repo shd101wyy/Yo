@@ -46,12 +46,12 @@ _parses_as_binding :: (fn(imm(new_name) : String) -> bool)({
   exprs := parse(
     `${new_name} :: i32;`,
     String.from("/virtual/rename-validation.yo"),
-    parse_exn
+    &parse_exn
   );
   match(
     exprs.get(usize(0)),
     .Some(e) => cond(
-      ast_expr_is_fn_call_of(e, "::", .Some(usize(2))) => match(
+      ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))) => match(
         e,
         .FnCall(_, _, args, _, _) => match(
           args.get(usize(0)),
@@ -140,9 +140,9 @@ handle_prepare_rename :: (
       _err -> unwind(Option(JsonValue).None)
     )
   );
-  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  tokens := tokenize(text.clone(), doc_abs.clone(), &lex_exn);
   target := match(
-    _find_token_at(tokens, line, character),
+    _find_token_at(&tokens, line, character),
     .Some(t) => t,
     .None => {
       return(Option(JsonValue).None);
@@ -151,7 +151,7 @@ handle_prepare_rename :: (
   if(target.kind != TokenKind.Identifier, {
     return(Option(JsonValue).None);
   });
-  if(collect_symbol_occurrences(exprs, info_table, target).len() == usize(0), {
+  if(collect_symbol_occurrences(exprs, info_table, &target).len() == usize(0), {
     return(Option(JsonValue).None);
   });
   Option(JsonValue).Some(
@@ -183,9 +183,9 @@ handle_rename :: (
       _err -> unwind(Option(JsonValue).None)
     )
   );
-  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  tokens := tokenize(text.clone(), doc_abs.clone(), &lex_exn);
   target := match(
-    _find_token_at(tokens, line, character),
+    _find_token_at(&tokens, line, character),
     .Some(t) => t,
     .None => {
       return(Option(JsonValue).None);
@@ -194,7 +194,7 @@ handle_rename :: (
   if((target.kind != TokenKind.Identifier) || (new_name.len() == usize(0)), {
     return(Option(JsonValue).None);
   });
-  occurrences := collect_symbol_occurrences(exprs, info_table, target);
+  occurrences := collect_symbol_occurrences(exprs, info_table, &target);
   if(occurrences.len() == usize(0), {
     return(Option(JsonValue).None);
   });

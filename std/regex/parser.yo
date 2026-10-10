@@ -124,7 +124,7 @@ impl(
   // truncated tail.
   _read_codepoint : (fn(imm(self) : Self, first : u8) -> u32)({
     start := (self._pos - usize(1));
-    d := utf8.decode_lossy(self._bytes, start);
+    d := utf8.decode_lossy(&self._bytes, start);
     self._pos = (start + d.width);
     d.code.to_u32()
   }),
@@ -450,11 +450,11 @@ impl(
       cond(
         found_end => {
           self._pos = (self._pos + usize(1));
-          return(.Ok(RegexNode.char_class(ranges, negated)));
+          return(.Ok(RegexNode.char_class(&ranges, negated)));
         },
         true => ()
       );
-      result := self._parse_char_class_content(ranges);
+      result := self._parse_char_class_content(&mut ranges);
       match(
         result,
         .Ok(_) => (),
@@ -497,11 +497,11 @@ impl(
         (nb_val == u8(125)) => {
           self._pos = (self._pos + usize(1));
           name_str := String.from_bytes(name_bytes);
-          lookup := unicode_property_ranges(name_str);
+          lookup := unicode_property_ranges(&name_str);
           return(
             match(
               lookup,
-              .Some(ranges) => .Ok(RegexNode.char_class(ranges, negated)),
+              .Some(ranges) => .Ok(RegexNode.char_class(&ranges, negated)),
               .None => .Err(RegexError.UnknownUnicodeProperty(name_str, self._pos))
             )
           );
@@ -566,7 +566,7 @@ impl(
                 (nb_val == u8(62)) => {
                   self._pos = (self._pos + usize(1));
                   name_str := String.from_bytes(name_bytes);
-                  lookup := self._lookup_group_name(name_str);
+                  lookup := self._lookup_group_name(&name_str);
                   return(
                     match(
                       lookup,
@@ -729,7 +729,7 @@ impl(
     atom := self._parse_atom();
     match(
       atom,
-      .Ok(a) => self._maybe_quantify(a),
+      .Ok(a) => self._maybe_quantify(&a),
       .Err(e) => .Err(e)
     )
   })
@@ -752,11 +752,11 @@ impl(
       true => ()
     );
     alts.push(seq);
-    result := self._make_sequence(alts(usize(0)));
+    result := self._make_sequence(&alts(usize(0)));
     i := usize(1);
     while(i < alts.len(), i = (i + usize(1)), {
-      right := self._make_sequence(alts(i));
-      result = RegexNode.alternation(result, right);
+      right := self._make_sequence(&alts(i));
+      result = RegexNode.alternation(&result, &right);
     });
     result
   }),
@@ -942,15 +942,15 @@ impl(
             },
             true => ()
           );
-          inner := self._finalize_frame(cur_alts, cur_seq);
+          inner := self._finalize_frame(&mut cur_alts, &cur_seq);
           // Save this group's type before restoring parent frame
           this_is_la := cur_is_la;
           this_is_lb := cur_is_lb;
           group_node := cond(
-            cur_is_la => RegexNode.lookahead(inner, cur_is_pos),
-            cur_is_lb => RegexNode.lookbehind(inner, cur_is_pos),
-            cur_non_cap => RegexNode.non_capturing_group(inner),
-            true => RegexNode.group(inner, cur_group_idx)
+            cur_is_la => RegexNode.lookahead(&inner, cur_is_pos),
+            cur_is_lb => RegexNode.lookbehind(&inner, cur_is_pos),
+            cur_non_cap => RegexNode.non_capturing_group(&inner),
+            true => RegexNode.group(&inner, cur_group_idx)
           );
           parent := stack(stack.len() - usize(1));
           stack.pop();
@@ -967,7 +967,7 @@ impl(
               cur_seq.push(group_node);
             },
             true => {
-              quantified := self._maybe_quantify(group_node);
+              quantified := self._maybe_quantify(&group_node);
               match(
                 quantified,
                 .Ok(q) => {
@@ -1006,7 +1006,7 @@ impl(
       },
       true => ()
     );
-    result := self._finalize_frame(cur_alts, cur_seq);
+    result := self._finalize_frame(&mut cur_alts, &cur_seq);
     .Ok(result)
   })
 );

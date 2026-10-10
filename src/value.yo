@@ -255,7 +255,7 @@ eval_value_eq :: (fn(imm(a) : EvalValue, imm(b) : EvalValue) -> bool)(
                     match(
                       bfs.get(i),
                       .Some(bf) => {
-                        ok = recur(af, bf);
+                        ok = recur(&af, &bf);
                       },
                       .None => {
                         ok = false;
@@ -285,7 +285,7 @@ eval_value_eq :: (fn(imm(a) : EvalValue, imm(b) : EvalValue) -> bool)(
       // but NOT identical — a lenient key let `Self._alloc_with_capacity`'s specialization
       // for one V be reused for the other, so the callee's `Result<Self>` return type
       // disagreed with the call site (stage-2 Family-C incompatible-type cluster).
-      match(b, .TypeVal(bt) => are_types_compatible_exact(at, bt), _ => false),
+      match(b, .TypeVal(bt) => are_types_compatible_exact(&at, &bt), _ => false),
     .StructVal(atn, anames, avals) =>
       match(
         b,
@@ -327,7 +327,7 @@ eval_value_eq :: (fn(imm(a) : EvalValue, imm(b) : EvalValue) -> bool)(
                       bvals.get(sf_i),
                       .Some(bv) => {
                         cond(
-                          !recur(av, bv) => {
+                          !recur(&av, &bv) => {
                             sf_ok = false;
                           },
                           true => ()
@@ -366,7 +366,7 @@ eval_value_eq :: (fn(imm(a) : EvalValue, imm(b) : EvalValue) -> bool)(
                     match(
                       bfs.get(tv_i),
                       .Some(bf) => {
-                        tv_ok = recur(af, bf);
+                        tv_ok = recur(&af, &bf);
                       },
                       .None => {
                         tv_ok = false;
@@ -400,7 +400,7 @@ eval_value_eq :: (fn(imm(a) : EvalValue, imm(b) : EvalValue) -> bool)(
                     match(
                       bes.get(av_i),
                       .Some(be) => {
-                        av_ok = recur(ae, be);
+                        av_ok = recur(&ae, &be);
                       },
                       .None => {
                         av_ok = false;
@@ -506,7 +506,7 @@ eval_value_eq :: (fn(imm(a) : EvalValue, imm(b) : EvalValue) -> bool)(
                     match(
                       bes.get(cl_i),
                       .Some(be) => {
-                        cl_ok = recur(ae, be);
+                        cl_ok = recur(&ae, &be);
                       },
                       .None => {
                         cl_ok = false;
@@ -527,13 +527,13 @@ eval_value_eq :: (fn(imm(a) : EvalValue, imm(b) : EvalValue) -> bool)(
     // callee + args recursively.
     .ExprVal(a_ex) => match(
       b,
-      .ExprVal(b_ex) => exprs_are_equal(a_ex, b_ex),
+      .ExprVal(b_ex) => exprs_are_equal(&a_ex, &b_ex),
       _ => false
     ),
     // UnknownVal: two unknowns are equal if they represent the same type.
     // The `is_runtime_only` flag is provenance, not identity — equality
     // compares the TYPES only, so it is excluded here.
-    .UnknownVal(aty, _) => match(b, .UnknownVal(bty, _) => are_types_compatible(aty, bty), _ => false)
+    .UnknownVal(aty, _) => match(b, .UnknownVal(bty, _) => are_types_compatible(&aty, &bty), _ => false)
   )
 );
 impl(
@@ -574,7 +574,7 @@ value_to_string :: (fn(imm(v) : EvalValue) -> String)(
             match(
               fields.get(fi),
               .Some(f) => {
-                fs := recur(f);
+                fs := recur(&f);
                 parts = `${parts}${fs}`;
               },
               .None => ()
@@ -607,12 +607,12 @@ value_to_string :: (fn(imm(v) : EvalValue) -> String)(
       `<fn(${param_str})>`
     },
     .ReturnVal(val, _) => {
-      inner := recur(val);
+      inner := recur(&val);
       `return(${inner})`
     },
     .BreakVal => String.from("break"),
     .ContinueVal => String.from("continue"),
-    .TypeVal(ty) => type_to_string(ty),
+    .TypeVal(ty) => type_to_string(&ty),
     .StructVal(ty_name, field_names, field_values) => {
       parts_sv := String.from("");
       (svi : usize) = usize(0);
@@ -630,7 +630,7 @@ value_to_string :: (fn(imm(v) : EvalValue) -> String)(
             match(
               field_values.get(svi),
               .Some(fv_s) => {
-                fvs := recur(fv_s);
+                fvs := recur(&fv_s);
                 parts_sv = `${parts_sv}${fn_s}: ${fvs}`;
               },
               .None => {
@@ -661,7 +661,7 @@ value_to_string :: (fn(imm(v) : EvalValue) -> String)(
             match(
               fields.get(ti),
               .Some(f) => {
-                fs_tup := recur(f);
+                fs_tup := recur(&f);
                 parts_tup = `${parts_tup}${fs_tup}`;
               },
               .None => ()
@@ -689,7 +689,7 @@ value_to_string :: (fn(imm(v) : EvalValue) -> String)(
         match(
           elements.get(arri),
           .Some(e) => {
-            es_arr := recur(e);
+            es_arr := recur(&e);
             parts_arr = `${parts_arr}${es_arr}`;
           },
           .None => ()
@@ -710,13 +710,13 @@ value_to_string :: (fn(imm(v) : EvalValue) -> String)(
             match(
               elems.get(target_index),
               .Some(e) => {
-                es_ptr := recur(e);
+                es_ptr := recur(&e);
                 `<ptr to ${es_ptr}>`
               },
               .None => String.from("<ptr to ?>")
             ),
           _ => {
-            ts_ptr := recur(cell0);
+            ts_ptr := recur(&cell0);
             `<ptr to ${ts_ptr}>`
           }
         ),
@@ -742,7 +742,7 @@ value_to_string :: (fn(imm(v) : EvalValue) -> String)(
                 match(
                   fv_opt,
                   .Some(fv_tr) => {
-                    fvtrs := recur(fv_tr);
+                    fvtrs := recur(&fv_tr);
                     parts_tr = `${parts_tr}${fn_tr}: ${fvtrs}`;
                   },
                   .None => {
@@ -774,7 +774,7 @@ value_to_string :: (fn(imm(v) : EvalValue) -> String)(
         match(
           elements.get(cli),
           .Some(e) => {
-            es_cl := recur(e);
+            es_cl := recur(&e);
             parts_cl = `${parts_cl}${es_cl}`;
           },
           .None => ()
@@ -785,7 +785,7 @@ value_to_string :: (fn(imm(v) : EvalValue) -> String)(
     },
     .ExprVal(_) => String.from("<expr>"),
     .UnknownVal(ty, _) => {
-      ts := type_to_string(ty);
+      ts := type_to_string(&ty);
       `<unknown: ${ts}>`
     }
   )
@@ -944,7 +944,7 @@ type_of_eval_value :: (fn(imm(v) : EvalValue) -> TypeValue)(
       while(i < vals.len(), {
         match(
           vals.get(i),
-          .Some(fv) => tys.push(recur(fv)),
+          .Some(fv) => tys.push(recur(&fv)),
           .None => tys.push(t_unit())
         );
         i = (i + usize(1));

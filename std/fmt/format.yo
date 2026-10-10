@@ -57,7 +57,7 @@ Format :: trait(
       (self, spec) -> {
         s := FormatSpec.parse(spec);
         body := self.to_string();
-        s.pad(body, Alignment.Left)
+        s.pad(&body, Alignment.Left)
       }
     ),
   where(Self <: ToString)
@@ -124,7 +124,7 @@ _format_int :: (fn(neg : bool, mag : u64, imm(decimal) : String, spec : str) -> 
     s.plus => String.from("+"),
     true => String.new()
   );
-  s.pad_numeric(sign, _prefix_of(radix, s.alt), digits)
+  s.pad_numeric(&sign, _prefix_of(radix, s.alt), &digits)
 });
 impl(
   i8,
@@ -237,7 +237,7 @@ impl(
         s.plus => String.from("+"),
         true => String.new()
       );
-      s.pad_numeric(sign, String.new(), body)
+      s.pad_numeric(&sign, String.new(), &body)
     })
   )
 );

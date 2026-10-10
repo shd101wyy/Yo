@@ -79,7 +79,7 @@ evaluate_impl_constraint :: (
       },
       .Some(arg) => {
         // Check if this argument is a negated trait: !(Trait)
-        is_negated := ast_expr_is_fn_call_of(arg, "!", .Some(usize(1)));
+        is_negated := ast_expr_is_fn_call_of(&arg, "!", .Some(usize(1)));
         // Get the actual module expression (inner arg if negated)
         module_expr := match(
           is_negated,
@@ -95,30 +95,30 @@ evaluate_impl_constraint :: (
           false => arg
         );
         // Evaluate the trait expression
-        eval_mod := evaluate_expression_raw(module_expr, cur_env, ctx, exn);
+        eval_mod := evaluate_expression_raw(&module_expr, &cur_env, ctx, exn);
         mod_info := match(
-          expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_mod)),
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_mod)),
           .Some(info) => info,
           .None => {
             exn.throw(
               dyn(
                 format_eval_failure(
-                  ast_expr_token(module_expr),
+                  ast_expr_token(&module_expr),
                   String.from("Failed to evaluate Impl argument.")
                 )
               )
             );
-            new_expr_info(cur_env, TypeValue.TypeUni(usize(0)))
+            new_expr_info(&cur_env, TypeValue.TypeUni(usize(0)))
           }
         );
-        cur_env = expr_info_adopt_env(mod_info);
+        cur_env = expr_info_adopt_env(&mod_info);
         // Expect a TypeVal containing a trait type
-        if(!is_type_value(mod_info.value), {
+        if(!is_type_value(&mod_info.value), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(module_expr),
-                `Impl argument must be a trait type, got: ${ast_expr_to_string(module_expr)}`
+                ast_expr_token(&module_expr),
+                `Impl argument must be a trait type, got: ${ast_expr_to_string(&module_expr)}`
               )
             )
           );
@@ -129,12 +129,12 @@ evaluate_impl_constraint :: (
           .Some(_) => TypeValue.TypeUni(usize(0)),
           .None => TypeValue.TypeUni(usize(0))
         );
-        if(!is_trait_type(trait_tv), {
+        if(!is_trait_type(&trait_tv), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(module_expr),
-                `Impl argument must be a trait type, got: ${ast_expr_to_string(module_expr)}`
+                ast_expr_token(&module_expr),
+                `Impl argument must be a trait type, got: ${ast_expr_to_string(&module_expr)}`
               )
             )
           );
@@ -148,12 +148,12 @@ evaluate_impl_constraint :: (
         // the extern body returns `__yo_io_future_t*` — the fs/sys
         // incompatible-pointer class (errors on emcc 6 / clang 16+;
         // issues/fixed/yo-self-io-future-return-type-mismatch.md).
-        if(is_concrete_trait_type(trait_tv), {
+        if(is_concrete_trait_type(&trait_tv), {
           if(concrete_type.is_some(), {
             exn.throw(
               dyn(
                 format_error_message(
-                  ast_expr_token(module_expr),
+                  ast_expr_token(&module_expr),
                   String.from("Impl can only have one Concrete(T) specifier")
                 )
               )
@@ -197,10 +197,10 @@ evaluate_impl_constraint :: (
     Option(TypeValue).None,
     concrete_type
   );
-  type_val := create_type_value(some_type);
-  out_info := new_expr_info(cur_env, TypeValue.TypeUni(usize(0)));
+  type_val := create_type_value(&some_type);
+  out_info := new_expr_info(&cur_env, TypeValue.TypeUni(usize(0)));
   out_info.value = Option(EvalValue).Some(type_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_impl_constraint);

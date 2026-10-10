@@ -68,14 +68,14 @@ _expr_may_have_side_effects :: (fn(imm(expr) : AstExpr, imm(context) : FunctionG
       while(i < n, {
         match(
           args.get(i),
-          .Some(arg) => if(recur(arg, context), {
+          .Some(arg) => if(recur(&arg, context), {
             return(true);
           }),
           .None => ()
         );
         i = (i + usize(1));
       });
-      recur(func, context)
+      recur(&func, context)
     },
     .Atom(_, _) => false
   )
@@ -106,7 +106,7 @@ _collect_created_var_names_from_expr :: (fn(imm(expr) : AstExpr, mut(result) : H
           // identifier and an unconditional drop for a conditionally-run
           // dup.
           match(
-            expr_info_deferred_dup_expressions(ei),
+            expr_info_deferred_dup_expressions(&ei),
             .Some(dups) => {
               nd := dups.len();
               (di : usize) = usize(0);
@@ -114,7 +114,7 @@ _collect_created_var_names_from_expr :: (fn(imm(expr) : AstExpr, mut(result) : H
                 match(
                   dups.get(di),
                   .Some(de) => match(
-                    context.base.get_expr_info(de),
+                    context.base.get_expr_info(&de),
                     .Some(dei) => match(
                       dei.variable_name,
                       .Some(dvn) => {
@@ -137,16 +137,16 @@ _collect_created_var_names_from_expr :: (fn(imm(expr) : AstExpr, mut(result) : H
       is_nested := (ast_expr_is_fn_call_of(expr, BK_OP_AND, Option(usize).None) || ast_expr_is_fn_call_of(expr, BK_OP_OR, Option(usize).None));
       if(is_nested, {
         if(args.len() > usize(0), {
-          match(args.get(usize(0)), .Some(a0) => recur(a0, result, context), .None => ());
+          match(args.get(usize(0)), .Some(a0) => recur(&a0, result, context), .None => ());
         });
       }, {
         n := args.len();
         (i : usize) = usize(0);
         while(i < n, {
-          match(args.get(i), .Some(arg) => recur(arg, result, context), .None => ());
+          match(args.get(i), .Some(arg) => recur(&arg, result, context), .None => ());
           i = (i + usize(1));
         });
-        recur(func, result, context);
+        recur(&func, result, context);
       });
     },
     .Atom(_, _) => ()
@@ -189,7 +189,7 @@ _emit_node_list_drops :: (
           match(
             node_drops.get(j),
             .Some(nd_drop) => match(
-              get_deferred_drop_target_atom_name(nd_drop),
+              get_deferred_drop_target_atom_name(&nd_drop),
               .Some(ntarget) => if(var_names.contains(ntarget.clone()), {
                 already_emitted := match(
                   context.short_circuit_emitted_drop_targets,
@@ -201,10 +201,10 @@ _emit_node_list_drops :: (
                   .Some(nh) => nh.contains(ntarget.clone()),
                   .None => false
                 );
-                if(!already_emitted && !n_handled && !context.emitted_deferred_drop_ids.contains(ast_expr_id(nd_drop)) && !is_deferred_drop_for_closure_capture(nd_drop, context.current_closure_captures), {
+                if(!already_emitted && !n_handled && !context.emitted_deferred_drop_ids.contains(ast_expr_id(&nd_drop)) && !is_deferred_drop_for_closure_capture(&nd_drop, &context.current_closure_captures), {
                   n_cn := sanitize_for_c_identifier(ntarget.clone(), false);
-                  n_undeclared := ((is_temp_variable_name(String.from(""), n_cn.clone()) || _looks_like_minted_temp(n_cn.clone())) && !context.base.declared_c_var_names.*.contains(n_cn));
-                  if(!n_undeclared && scope_stack_contains(context.base.declared_scopes.*, n_cn), {
+                  n_undeclared := ((is_temp_variable_name(String.from(""), n_cn.clone()) || _looks_like_minted_temp(n_cn.clone())) && !context.base.declared_c_var_names.*.contains(&n_cn));
+                  if(!n_undeclared && scope_stack_contains(&context.base.declared_scopes.*, &n_cn), {
                     // `_call_generate_expr` on a drop expr may EMIT and return "".
                     // An enum/Option-typed target lowers to a multi-line
                     // `switch` block that the drop generator writes to the
@@ -216,16 +216,16 @@ _emit_node_list_drops :: (
                     // fresh and emits it a SECOND time. That is the
                     // double-drop that sank two earlier attempts at the chain
                     // fix; record unconditionally, emit conditionally.
-                    nd_code := _call_generate_expr(nd_drop, indent.clone(), context);
-                    context.emitted_deferred_drop_ids.insert(ast_expr_id(nd_drop));
+                    nd_code := _call_generate_expr(&nd_drop, indent.clone(), context);
+                    context.emitted_deferred_drop_ids.insert(ast_expr_id(&nd_drop));
                     _mark_sc_target_emitted(ntarget.clone(), context);
-                    note_short_circuit_handled(context, ntarget);
+                    note_short_circuit_handled(context, &ntarget);
                     if(nd_code.len() > usize(0), {
                       nline := indent.clone();
-                      nline.push_string(nd_code);
+                      nline.push_string(&nd_code);
                       nline.push_str(";");
                       nem := context.base.emitter;
-                      nem.emit_string_line(nline);
+                      nem.emit_string_line(&nline);
                     });
                   });
                 });
@@ -283,7 +283,7 @@ _emit_drops_for_conditional_branch :: (
           match(
             pending_drops.get(i),
             .Some(drop_expr) => match(
-              get_deferred_drop_target_atom_name(drop_expr),
+              get_deferred_drop_target_atom_name(&drop_expr),
               .Some(target) => if(var_names.contains(target.clone()), {
                 // Skip a drop whose target TEMP was never emitted as a C
                 // declaration (e.g. an aliasing-Stage-0 dup RESULT temp whose
@@ -292,22 +292,22 @@ _emit_drops_for_conditional_branch :: (
                 // holds no +1 to release; emitting the drop is an undeclared-
                 // identifier C error (the rc1 stage-2 clang break).
                 sc_target_cn := sanitize_for_c_identifier(target.clone(), false);
-                sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.*.contains(sc_target_cn));
+                sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.*.contains(&sc_target_cn));
                 if(!sc_undeclared, {
-                  drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+                  drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
                   // Same decoupling as the node source below: the generator
                   // may have emitted a multi-line drop already and returned "".
-                  context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
+                  context.emitted_deferred_drop_ids.insert(ast_expr_id(&drop_expr));
                   _mark_sc_target_emitted(target.clone(), context);
                   if(drop_code.len() > usize(0), {
                     line := indent.clone();
-                    line.push_string(drop_code);
+                    line.push_string(&drop_code);
                     line.push_str(";");
                     em := context.base.emitter;
-                    em.emit_string_line(line);
+                    em.emit_string_line(&line);
                   });
                 });
-                note_short_circuit_handled(context, target);
+                note_short_circuit_handled(context, &target);
                 removed = (removed + usize(1));
               }, {
                 new_pending.push(drop_expr);
@@ -332,11 +332,11 @@ _emit_drops_for_conditional_branch :: (
     match(
       node_expr,
       .Some(ne) => {
-        _emit_node_list_drops(ne, var_names, indent.clone(), context);
+        _emit_node_list_drops(&ne, var_names, indent.clone(), context);
         match(
           context.short_circuit_root_node,
-          .Some(root) => if(ast_expr_id(root) != ast_expr_id(ne), {
-            _emit_node_list_drops(root, var_names, indent.clone(), context);
+          .Some(root) => if(ast_expr_id(&root) != ast_expr_id(&ne), {
+            _emit_node_list_drops(&root, var_names, indent.clone(), context);
           }),
           .None => ()
         );
@@ -362,7 +362,7 @@ generate_op_and :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) :
     match(
       args.get(i),
       .Some(arg) => match(
-        _comptime_bool(arg, context),
+        _comptime_bool(&arg, context),
         .Some(b) => if(!b, {
           return(String.from("false"));
         }),
@@ -387,7 +387,7 @@ generate_op_and :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) :
   while(k < rn, {
     match(
       runtime_args.get(k),
-      .Some(arg) => if(_expr_may_have_side_effects(arg, context), {
+      .Some(arg) => if(_expr_may_have_side_effects(&arg, context), {
         needs = true;
       }),
       .None => ()
@@ -404,7 +404,7 @@ generate_op_and :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) :
           if(m > usize(0), {
             out.push_str(" && ");
           });
-          out.push_string(_call_generate_expr(arg, indent.clone(), context));
+          out.push_string(_call_generate_expr(&arg, indent.clone(), context));
         },
         .None => ()
       );
@@ -427,13 +427,13 @@ generate_op_and :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) :
     }
   );
   sc_tok := ast_expr_token(expr);
-  sc_var := stable_label_id(String.from("__yo_sc_"), sc_tok.module_path, usize(sc_tok.row), usize(sc_tok.column));
+  sc_var := stable_label_id(String.from("__yo_sc_"), &sc_tok.module_path, usize(sc_tok.row), usize(sc_tok.column));
   em := context.base.emitter;
   d := indent.clone();
   d.push_str("bool ");
   d.push_string(sc_var.clone());
   d.push_str(" = false;");
-  em.emit_string_line(d);
+  em.emit_string_line(&d);
   depth := (rn - usize(1));
   (level : usize) = usize(0);
   (i2 : usize) = usize(0);
@@ -442,21 +442,21 @@ generate_op_and :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) :
     match(
       runtime_args.get(i2),
       .Some(arg) => {
-        arg_code := _call_generate_expr(arg, ci.clone(), context);
+        arg_code := _call_generate_expr(&arg, ci.clone(), context);
         if(i2 < (rn - usize(1)), {
           line := ci.clone();
           line.push_str("if (");
-          line.push_string(arg_code);
+          line.push_string(&arg_code);
           line.push_str(") {");
-          em.emit_string_line(line);
+          em.emit_string_line(&line);
           level = (level + usize(1));
         }, {
           line := ci.clone();
           line.push_string(sc_var.clone());
           line.push_str(" = ");
-          line.push_string(arg_code);
+          line.push_string(&arg_code);
           line.push_str(";");
-          em.emit_string_line(line);
+          em.emit_string_line(&line);
         });
       },
       .None => ()
@@ -467,14 +467,14 @@ generate_op_and :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) :
   while(c > usize(0), {
     conditional_arg := match(runtime_args.get(c), .Some(a) => a, .None => expr);
     var_names := HashSet(String).new();
-    _collect_created_var_names_from_expr(conditional_arg, var_names, context);
+    _collect_created_var_names_from_expr(&conditional_arg, &mut var_names, context);
     drops_indent := _indent_n(indent.clone(), level);
-    _emit_drops_for_conditional_branch(var_names, drops_indent, context, Option(AstExpr).Some(expr));
+    _emit_drops_for_conditional_branch(&var_names, &drops_indent, context, Option(AstExpr).Some(expr));
     level = (level - usize(1));
     close_indent := _indent_n(indent.clone(), level);
     cl := close_indent.clone();
     cl.push_str("}");
-    em.emit_string_line(cl);
+    em.emit_string_line(&cl);
     c = (c - usize(1));
   });
   // The FIRST operand is evaluated UNCONDITIONALLY, so its created temps
@@ -494,8 +494,8 @@ generate_op_and :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) :
   // issues/fixed/short-circuit-bare-fn-body-operand-temps-leak.md).
   first_arg := match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr);
   first_var_names := HashSet(String).new();
-  _collect_created_var_names_from_expr(first_arg, first_var_names, context);
-  _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context, Option(AstExpr).Some(expr));
+  _collect_created_var_names_from_expr(&first_arg, &mut first_var_names, context);
+  _emit_drops_for_conditional_branch(&first_var_names, indent.clone(), context, Option(AstExpr).Some(expr));
   context.short_circuit_root_node = prev_sc_root;
   sc_var
 });
@@ -516,7 +516,7 @@ generate_op_or :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
     match(
       args.get(i),
       .Some(arg) => match(
-        _comptime_bool(arg, context),
+        _comptime_bool(&arg, context),
         .Some(b) => if(b, {
           return(String.from("true"));
         }),
@@ -540,7 +540,7 @@ generate_op_or :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
   while(k < rn, {
     match(
       runtime_args.get(k),
-      .Some(arg) => if(_expr_may_have_side_effects(arg, context), {
+      .Some(arg) => if(_expr_may_have_side_effects(&arg, context), {
         needs = true;
       }),
       .None => ()
@@ -557,7 +557,7 @@ generate_op_or :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
           if(m > usize(0), {
             out.push_str(" || ");
           });
-          out.push_string(_call_generate_expr(arg, indent.clone(), context));
+          out.push_string(_call_generate_expr(&arg, indent.clone(), context));
         },
         .None => ()
       );
@@ -580,13 +580,13 @@ generate_op_or :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
     }
   );
   sc_tok := ast_expr_token(expr);
-  sc_var := stable_label_id(String.from("__yo_sc_"), sc_tok.module_path, usize(sc_tok.row), usize(sc_tok.column));
+  sc_var := stable_label_id(String.from("__yo_sc_"), &sc_tok.module_path, usize(sc_tok.row), usize(sc_tok.column));
   em := context.base.emitter;
   d := indent.clone();
   d.push_str("bool ");
   d.push_string(sc_var.clone());
   d.push_str(" = true;");
-  em.emit_string_line(d);
+  em.emit_string_line(&d);
   depth := (rn - usize(1));
   (level : usize) = usize(0);
   (i2 : usize) = usize(0);
@@ -595,21 +595,21 @@ generate_op_or :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
     match(
       runtime_args.get(i2),
       .Some(arg) => {
-        arg_code := _call_generate_expr(arg, ci.clone(), context);
+        arg_code := _call_generate_expr(&arg, ci.clone(), context);
         if(i2 < (rn - usize(1)), {
           line := ci.clone();
           line.push_str("if (!(");
-          line.push_string(arg_code);
+          line.push_string(&arg_code);
           line.push_str(")) {");
-          em.emit_string_line(line);
+          em.emit_string_line(&line);
           level = (level + usize(1));
         }, {
           line := ci.clone();
           line.push_string(sc_var.clone());
           line.push_str(" = ");
-          line.push_string(arg_code);
+          line.push_string(&arg_code);
           line.push_str(";");
-          em.emit_string_line(line);
+          em.emit_string_line(&line);
         });
       },
       .None => ()
@@ -620,22 +620,22 @@ generate_op_or :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
   while(c > usize(0), {
     conditional_arg := match(runtime_args.get(c), .Some(a) => a, .None => expr);
     var_names := HashSet(String).new();
-    _collect_created_var_names_from_expr(conditional_arg, var_names, context);
+    _collect_created_var_names_from_expr(&conditional_arg, &mut var_names, context);
     drops_indent := _indent_n(indent.clone(), level);
-    _emit_drops_for_conditional_branch(var_names, drops_indent, context, Option(AstExpr).Some(expr));
+    _emit_drops_for_conditional_branch(&var_names, &drops_indent, context, Option(AstExpr).Some(expr));
     level = (level - usize(1));
     close_indent := _indent_n(indent.clone(), level);
     cl := close_indent.clone();
     cl.push_str("}");
-    em.emit_string_line(cl);
+    em.emit_string_line(&cl);
     c = (c - usize(1));
   });
   // Same first-operand fall-through drop emission as generate_op_and — the
   // unconditional operand's temps have no in-branch point and no later flush.
   first_arg := match(runtime_args.get(usize(0)), .Some(a) => a, .None => expr);
   first_var_names := HashSet(String).new();
-  _collect_created_var_names_from_expr(first_arg, first_var_names, context);
-  _emit_drops_for_conditional_branch(first_var_names, indent.clone(), context, Option(AstExpr).Some(expr));
+  _collect_created_var_names_from_expr(&first_arg, &mut first_var_names, context);
+  _emit_drops_for_conditional_branch(&first_var_names, indent.clone(), context, Option(AstExpr).Some(expr));
   context.short_circuit_root_node = prev_sc_root;
   sc_var
 });

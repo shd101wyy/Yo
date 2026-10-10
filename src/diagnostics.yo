@@ -368,8 +368,8 @@ take_user_warnings :: (fn(imm(std_root) : String, imm(cache_root) : String) -> A
     match(
       ws.get(kwi),
       .Some(w) => {
-        under_std := _path_is_under(w.span.path, std_root);
-        under_cache := _path_is_under(w.span.path, cache_root);
+        under_std := _path_is_under(&w.span.path, std_root);
+        under_cache := _path_is_under(&w.span.path, cache_root);
         if(!under_std && !under_cache, {
           kept.push(w.clone());
         });
@@ -391,7 +391,7 @@ flush_user_warnings :: (fn(imm(std_root) : String, imm(cache_root) : String) -> 
   });
   kept := take_user_warnings(std_root, cache_root);
   if(kept.len() > usize(0), {
-    emit_rendered_text(render_diagnostics_for_mode(kept));
+    emit_rendered_text(render_diagnostics_for_mode(&kept));
   });
 });
 /// One diagnostic entry. `source_line` is the source text at `span.row`,
@@ -526,7 +526,7 @@ suggest_name :: (
         if(c == target, {
           return(Option(String).None);
         });
-        d := edit_distance(target, c);
+        d := edit_distance(target, &c);
         if(d < best_d, {
           best_d = d;
           best = Option(String).Some(c);
@@ -584,7 +584,7 @@ _render_block :: (fn(imm(d) : Diagnostic, w : usize, color : bool, mut(out) : Ar
           match(
             d.code,
             .Some(c) => out.push(`${_colorize(`${prefix}[${c}]`, sev_ansi, color)}: ${line}`),
-            .None => out.push(`${_colorize(prefix, sev_ansi, color)}: ${line}`)
+            .None => out.push(`${_colorize(&prefix, sev_ansi, color)}: ${line}`)
           );
         }, {
           out.push(line);
@@ -598,7 +598,7 @@ _render_block :: (fn(imm(d) : Diagnostic, w : usize, color : bool, mut(out) : Ar
     row_plus1 := (d.span.row + usize(1));
     col_plus1 := (d.span.col + usize(1));
     indent := String.from(" ").repeat(w + usize(1));
-    out.push(_colorize(`${indent}--> ${_display_path(d.span.path)}:${row_plus1}:${col_plus1}`, _ANSI_LOCATION, color));
+    out.push(_colorize(`${indent}--> ${_display_path(&d.span.path)}:${row_plus1}:${col_plus1}`, _ANSI_LOCATION, color));
     if(d.source_line.len() > usize(0), {
       out.push(_colorize(`${indent}|`, _ANSI_LOCATION, color));
       padded := `${row_plus1}`;
@@ -612,7 +612,7 @@ _render_block :: (fn(imm(d) : Diagnostic, w : usize, color : bool, mut(out) : Ar
       );
       col_spaces := String.from(" ").repeat(d.span.col);
       carets := String.from("^").repeat(underline_len);
-      out.push(`${_colorize(`${indent}|`, _ANSI_LOCATION, color)} ${col_spaces}${_colorize(carets, sev_ansi, color)}`);
+      out.push(`${_colorize(`${indent}|`, _ANSI_LOCATION, color)} ${col_spaces}${_colorize(&carets, sev_ansi, color)}`);
     });
   });
   if(d.help.is_some(), {
@@ -668,13 +668,13 @@ _render_diagnostics_human_colored :: (
         if(dj > usize(0), {
           out.push(String.new());
         });
-        _render_block(d, w, color, out);
+        _render_block(&d, w, color, &mut out);
       },
       .None => ()
     );
     dj = (dj + usize(1));
   });
-  String.from("\n").join(out)
+  String.from("\n").join(&out)
 });
 /// The one-line-per-entry rendering: `path:row:col: severity[code]: msg`
 /// (1-based positions, first message line) — for CI logs and greps.
@@ -686,14 +686,14 @@ render_diagnostics_short :: (fn(imm(diagnostics) : ArrayList(Diagnostic)) -> Str
       diagnostics.get(di),
       .Some(d) => {
         prefix := _severity_prefix(d.severity);
-        head := _first_message_line(d.message);
+        head := _first_message_line(&d.message);
         match(
           d.code,
           .Some(c) => out.push(
-            `${_display_path(d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}[${c}]: ${head}`
+            `${_display_path(&d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}[${c}]: ${head}`
           ),
           .None => out.push(
-            `${_display_path(d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}: ${head}`
+            `${_display_path(&d.span.path)}:${(d.span.row + usize(1))}:${(d.span.col + usize(1))}: ${prefix}: ${head}`
           )
         );
       },
@@ -701,7 +701,7 @@ render_diagnostics_short :: (fn(imm(diagnostics) : ArrayList(Diagnostic)) -> Str
     );
     di = (di + usize(1));
   });
-  String.from("\n").join(out)
+  String.from("\n").join(&out)
 });
 /// The JSON Lines rendering (P2): one JSON object per diagnostic, one line
 /// each — so `head`/`jq` work per line. Positions are 0-based (the internal
@@ -783,14 +783,14 @@ render_diagnostics_json :: (fn(imm(diagnostics) : ArrayList(Diagnostic)) -> Stri
           )
         );
         keys.push(String.from("rendered"));
-        vals.push(JsonValue.Str(value : _render_diagnostics_human_colored(single, false)));
+        vals.push(JsonValue.Str(value : _render_diagnostics_human_colored(&single, false)));
         out.push(json.stringify(JsonValue.Object(keys : keys, values : vals)));
       },
       .None => ()
     );
     di = (di + usize(1));
   });
-  String.from("\n").join(out)
+  String.from("\n").join(&out)
 });
 /// One SARIF `region` for a span: 1-BASED lines/columns (SARIF's own
 /// convention — the opposite of our json render, whose 0-based basis is
@@ -907,7 +907,7 @@ render_diagnostics_sarif :: (fn(imm(diagnostics) : ArrayList(Diagnostic)) -> Str
           pkeys.push(String.from("artifactLocation"));
           pvals.push(JsonValue.Object(keys : lkeys, values : lvals));
           pkeys.push(String.from("region"));
-          pvals.push(_sarif_region(d.span));
+          pvals.push(_sarif_region(&d.span));
           plkeys := ArrayList(String).new();
           plvals := ArrayList(JsonValue).new();
           plkeys.push(String.from("physicalLocation"));
@@ -935,7 +935,7 @@ render_diagnostics_sarif :: (fn(imm(diagnostics) : ArrayList(Diagnostic)) -> Str
             rkeys := ArrayList(String).new();
             rvals := ArrayList(JsonValue).new();
             rkeys.push(String.from("deletedRegion"));
-            rvals.push(_sarif_region(r.span));
+            rvals.push(_sarif_region(&r.span));
             ick := ArrayList(String).new();
             icv := ArrayList(JsonValue).new();
             ick.push(String.from("text"));

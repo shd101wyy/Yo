@@ -130,11 +130,11 @@ resolve_evidence_field_from_given_bindings :: (fn(imm(field_label) : String, imm
     .Some(ei) => ei.env,
     .None => {
       func_expr := match(expr, .FnCall(_, f, _, _, _) => f, _ => return(Option(String).None));
-      match(context.base.get_expr_info(func_expr), .Some(fei) => fei.env, .None => return(Option(String).None))
+      match(context.base.get_expr_info(&func_expr), .Some(fei) => fei.env, .None => return(Option(String).None))
     }
   );
   scope_release_note_hard(String.from("evidence-await"), ast_expr_id(expr));
-  implicit_vars := get_variables_from_env_by_filter(call_env, (v : Variable) => true);
+  implicit_vars := get_variables_from_env_by_filter(&call_env, (v : Variable) => true);
   // Reverse iteration: innermost (most-recently bound) given binding first.
   n := implicit_vars.len();
   (k : usize) = n;
@@ -144,7 +144,7 @@ resolve_evidence_field_from_given_bindings :: (fn(imm(field_label) : String, imm
       implicit_vars.get(k),
       .Some(v) => match(
         v.value.get(usize(0)),
-        .Some(val) => if(is_struct_val(val), {
+        .Some(val) => if(is_struct_val(&val), {
           field_names := match(val, .StructVal(_, fns, _) => fns, _ => ArrayList(String).new());
           field_values := match(val, .StructVal(_, _, fvs) => fvs, _ => ArrayList(EvalValue).new());
           (fi : usize) = usize(0);
@@ -153,11 +153,11 @@ resolve_evidence_field_from_given_bindings :: (fn(imm(field_label) : String, imm
             if(flbl == field_label, {
               match(
                 field_values.get(fi),
-                .Some(fv) => if(is_func_val(fv), {
+                .Some(fv) => if(is_func_val(&fv), {
                   match(
                     fv,
                     .FuncVal(__fvd1, _) => match(
-                      context.base.get_function_entry(__fvd1.*.func_id),
+                      context.base.get_function_entry(&__fvd1.*.func_id),
                       .Some(e) => return(Option(String).Some(e.c_name)),
                       .None => ()
                     ),
@@ -187,7 +187,7 @@ emit_effect_record_injection :: (fn(imm(source_namespace_type) : TypeValue, imm(
   while(i < field_labels.len(), {
     flbl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
     fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(is_function_type(fty), {
+    if(is_function_type(&fty), {
       (member_code : Option(String)) = Option(String).None;
       // Inside SM: member captured in state-machine variables.
       match(
@@ -245,7 +245,7 @@ emit_effect_record_injection :: (fn(imm(source_namespace_type) : TypeValue, imm(
       });
       match(
         member_code,
-        .Some(code) => emit_future_effect_injection_line(future_type, future_var.clone(), flbl.clone(), code, indent.clone(), context),
+        .Some(code) => emit_future_effect_injection_line(future_type, future_var.clone(), flbl.clone(), &code, indent.clone(), context),
         .None => ()
       );
     });
@@ -257,11 +257,11 @@ emit_effect_record_injection :: (fn(imm(source_namespace_type) : TypeValue, imm(
 emit_io_spawn_effect_injection :: (fn(imm(expr) : AstExpr, imm(future_var) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return());
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return());
-  future_arg_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return());
-  ft := match(extract_future_trait_from_type(future_arg_type), .Some(t) => t, .None => return());
-  effect := match(_first_future_effect(ft), .Some(e) => e, .None => return());
+  future_arg_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => ei.ty, .None => return());
+  ft := match(extract_future_trait_from_type(&future_arg_type), .Some(t) => t, .None => return());
+  effect := match(_first_future_effect(&ft), .Some(e) => e, .None => return());
   bundle_arg := match(args.get(usize(1)), .Some(a) => a, .None => return());
-  bundle_code := _call_generate_expr(bundle_arg, indent.clone(), context);
+  bundle_code := _call_generate_expr(&bundle_arg, indent.clone(), context);
   // Type the temp by the BUNDLE ARG's own recorded type when it is a concrete
   // struct/module (the value crosses type-erased as void*; an anonymous record
   // literal's C struct is a distinct twin of the future's named effect type —
@@ -269,16 +269,16 @@ emit_io_spawn_effect_injection :: (fn(imm(expr) : AstExpr, imm(future_var) : Str
   // effect type when the arg's type is not a concrete struct/module (e.g. a
   // closure-param SomeType bundle).
   cast_type := match(
-    context.base.get_expr_info(bundle_arg),
+    context.base.get_expr_info(&bundle_arg),
     .Some(ei) => cond(
-      (is_module_type(ei.ty) || is_struct_type(ei.ty)) => ei.ty,
-      (is_module_type(effect.ty) || is_struct_type(effect.ty)) => effect.ty,
+      (is_module_type(&ei.ty) || is_struct_type(&ei.ty)) => ei.ty,
+      (is_module_type(&effect.ty) || is_struct_type(&effect.ty)) => effect.ty,
       true => ei.ty
     ),
     .None => effect.ty
   );
-  bundle_type := get_type_string(cast_type, context.base);
-  tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), context.base.current_function_name);
+  bundle_type := get_type_string(&cast_type, &context.base);
+  tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
   em := context.base.emitter;
   em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
   // Only a COLD future takes the bundle: it is the one this spawn starts. A
@@ -298,20 +298,20 @@ emit_io_spawn_effect_injection :: (fn(imm(expr) : AstExpr, imm(future_var) : Str
 emit_effect_injection_for_await :: (fn(imm(expr) : AstExpr, imm(future_var) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return());
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return());
-  future_arg_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return());
-  ft := match(extract_future_trait_from_type(future_arg_type), .Some(t) => t, .None => return());
-  effect := match(_first_future_effect(ft), .Some(e) => e, .None => return());
+  future_arg_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => ei.ty, .None => return());
+  ft := match(extract_future_trait_from_type(&future_arg_type), .Some(t) => t, .None => return());
+  effect := match(_first_future_effect(&ft), .Some(e) => e, .None => return());
   em := context.base.emitter;
   cond(
-    is_function_type(effect.ty) => match(
+    is_function_type(&effect.ty) => match(
       resolve_effect_field_from_scope(effect.label.clone(), context),
-      .Some(handler_code) => emit_future_effect_injection_line(future_arg_type, future_var.clone(), effect.label.clone(), handler_code, indent.clone(), context),
+      .Some(handler_code) => emit_future_effect_injection_line(&future_arg_type, future_var.clone(), effect.label.clone(), &handler_code, indent.clone(), context),
       .None => ()
     ),
-    (is_module_type(effect.ty) || is_struct_type(effect.ty)) => match(
+    (is_module_type(&effect.ty) || is_struct_type(&effect.ty)) => match(
       args.get(usize(1)),
       .Some(bundle_arg) => {
-        bundle_code := _call_generate_expr(bundle_arg, indent.clone(), context);
+        bundle_code := _call_generate_expr(&bundle_arg, indent.clone(), context);
         // Type the temp by the BUNDLE ARG's own recorded type when it is a
         // concrete struct/module — the value crosses type-erased (void*), and
         // an anonymous record literal (`{ io, raise }`) lowers to its OWN C
@@ -321,25 +321,25 @@ emit_effect_injection_for_await :: (fn(imm(expr) : AstExpr, imm(future_var) : St
         // both sides consistent; fall back to the effect type when the
         // arg's type is not a concrete struct/module.
         bundle_cast_ty := match(
-          context.base.get_expr_info(bundle_arg),
-          .Some(bae) => if(is_module_type(bae.ty) || is_struct_type(bae.ty), bae.ty, effect.ty),
+          context.base.get_expr_info(&bundle_arg),
+          .Some(bae) => if(is_module_type(&bae.ty) || is_struct_type(&bae.ty), bae.ty, effect.ty),
           .None => effect.ty
         );
-        bundle_type := get_type_string(bundle_cast_ty, context.base);
-        tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), context.base.current_function_name);
+        bundle_type := get_type_string(&bundle_cast_ty, &context.base);
+        tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
         em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
         em.emit_string_line(`${indent.clone()}__yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
       },
-      .None => emit_effect_record_injection(effect.ty, future_arg_type, future_var.clone(), indent.clone(), context, expr)
+      .None => emit_effect_record_injection(&effect.ty, &future_arg_type, future_var.clone(), indent.clone(), context, expr)
     ),
     true => match(
       args.get(usize(1)),
       .Some(bundle_arg) => match(
-        context.base.get_expr_info(bundle_arg),
+        context.base.get_expr_info(&bundle_arg),
         .Some(bei) => {
-          bundle_code := _call_generate_expr(bundle_arg, indent.clone(), context);
-          bundle_type := get_type_string(bei.ty, context.base);
-          tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), context.base.current_function_name);
+          bundle_code := _call_generate_expr(&bundle_arg, indent.clone(), context);
+          bundle_type := get_type_string(&bei.ty, &context.base);
+          tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
           em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
           em.emit_string_line(`${indent.clone()}__yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
         },
@@ -355,11 +355,11 @@ emit_effect_injection_for_await :: (fn(imm(expr) : AstExpr, imm(future_var) : St
 generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
-  future_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("await argument must be a Future type"))));
-  if(!type_implements_future(future_type), {
+  future_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("await argument must be a Future type"))));
+  if(!type_implements_future(&future_type), {
     return(codegen_fatal_expr(String.from("await argument must be a Future type")));
   });
-  future_trait_type := match(extract_future_trait_from_type(future_type), .Some(t) => t, .None => return(codegen_fatal_expr(String.from("could not extract Future trait from type"))));
+  future_trait_type := match(extract_future_trait_from_type(&future_type), .Some(t) => t, .None => return(codegen_fatal_expr(String.from("could not extract Future trait from type"))));
   // Inside a state machine the task suspends right here, wherever the await
   // sits (the single-pass lowering).
   if(context.sm_inline_lowering.is_some(), {
@@ -373,8 +373,8 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
   });
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("await missing ExprInfo"))));
   expr_type := expr_ei.ty;
-  future_code := _call_generate_expr(future_arg, indent.clone(), context);
-  future_type_name := get_type_string(future_type, context.base);
+  future_code := _call_generate_expr(&future_arg, indent.clone(), context);
+  future_type_name := get_type_string(&future_type, &context.base);
   // Result type (resolve SomeType to concrete): read the await
   // expr's own recorded type, then that type's resolution — never a global.
   // Until Phase 3.7 a SomeT's resolution was a per-LINEAGE shared cell (the
@@ -387,10 +387,10 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
   // (The poisoned-global order emitted `int32_t r0 = ;` — the await returned
   // "" as unit while the binding knew i32.)
   (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.clone(), _ => future_type);
-  if(is_some_type(result_type), {
+  if(is_some_type(&result_type), {
     own_cell := match(result_type, .SomeT({ resolution : orc }) => orc, _ => Option(TypeValue).None);
     cond(
-      !is_some_type(expr_type) => {
+      !is_some_type(&expr_type) => {
         result_type = expr_type;
       },
       true => {
@@ -411,7 +411,7 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
   });
   em := context.base.emitter;
   // Unit-result detection (output unit, or unresolved-SomeType + unit call type).
-  is_result_unit := (is_unit_type(result_type) || (is_some_type(result_type) && is_unit_type(expr_type)));
+  is_result_unit := (is_unit_type(&result_type) || (is_some_type(&result_type) && is_unit_type(&expr_type)));
   // Unique names per io.await call site. When the await result has no bound temp
   // variable name, fall back to the call's unique expr id so multiple `io.await`
   // calls in one function don't collide on the fixed `__sync_future` /
@@ -423,7 +423,7 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
   em.emit_string_line(`${indent.clone()}${future_type_name} ${sync_future_var.clone()} = ${future_code};`);
   em.emit_string_line(`${indent.clone()}int ${pre_await_state_var.clone()} = ${sync_future_var.clone()}->state;`);
   // Only cold-start state-machine futures; Io futures are already submitted.
-  is_io_future := is_io_future_type(future_type);
+  is_io_future := is_io_future_type(&future_type);
   if(!is_io_future, {
     em.emit_string_line(`${indent.clone()}if (${pre_await_state_var.clone()} == 0 && ${sync_future_var.clone()}->vt && ${sync_future_var.clone()}->vt->resume) {`);
     emit_effect_injection_for_await(expr, sync_future_var.clone(), indent.clone(), context);
@@ -461,7 +461,7 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
           match(
             drops.get(di),
             .Some(dexpr) => {
-              target := get_deferred_drop_target_atom_name(dexpr);
+              target := get_deferred_drop_target_atom_name(&dexpr);
               skip := match(result_var_to_skip, .Some(rv) => match(target, .Some(t) => (t == rv), .None => false), .None => false);
               if(!skip, {
                 filtered.push(dexpr);
@@ -485,15 +485,15 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
     // its own result: type confusion, a SIGSEGV or a silent rc 0
     // (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
     match(
-      match(context.unwind_catches, .Some(ucs) => unwind_catch_condition(ucs), .None => Option(String).None),
+      match(context.unwind_catches, .Some(ucs) => unwind_catch_condition(&ucs), .None => Option(String).None),
       .Some(catch_cond) => {
         em.emit_string_line(`${indent.clone()}    if ${catch_cond} {`);
         em.emit_string_line(`${indent.clone()}      __yo_unwind_target = 0;`);
         em.emit_string_line(`${indent.clone()}      __yo_effect_escaped = 0;`);
         match(
           return_type,
-          .Some(rt) => if(!is_unit_type(rt), {
-            caller_c_type := get_type_string(rt, context.base);
+          .Some(rt) => if(!is_unit_type(&rt), {
+            caller_c_type := get_type_string(&rt, &context.base);
             if(caller_c_type != "void", {
               em.emit_string_line(`${indent.clone()}      ${caller_c_type.clone()} _unw_result;`);
               em.emit_string_line(`${indent.clone()}      memcpy(&_unw_result, __yo_unwind_value, sizeof(${caller_c_type}));`);
@@ -514,8 +514,8 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
     em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 1;`);
     match(
       return_type,
-      .Some(rt) => if(!is_unit_type(rt), {
-        return_type_str := get_type_string(rt, context.base);
+      .Some(rt) => if(!is_unit_type(&rt), {
+        return_type_str := get_type_string(&rt, &context.base);
         if(return_type_str != "void", {
           em.emit_string_line(`${indent.clone()}    return (${return_type_str}){0};`);
         }, {
@@ -530,13 +530,13 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
   em.emit_string_line(`${indent.clone()}  }`);
   em.emit_string_line(`${indent.clone()}}`);
   if(!is_result_unit, {
-    result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(n, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
-    result_type_str := get_type_string(result_type, context.base);
-    var_decl := get_variable_type_string(result_type, result_var.clone(), context.base);
+    result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
+    result_type_str := get_type_string(&result_type, &context.base);
+    var_decl := get_variable_type_string(&result_type, result_var.clone(), &context.base);
     // Every abort returned above, so the future is Completed here.
-    if(type_contains_rc_cell_or_move_only(result_type), {
+    if(type_contains_rc_cell_or_move_only(&result_type), {
       match(
-        get_dup_function_for_type(result_type, context),
+        get_dup_function_for_type(&result_type, context),
         .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_fn}(${sync_future_var.clone()}->result);`),
         // INLINE dup, not a bare copy. No `___dup` methods are synthesized
         // (see drop_dup.yo), so `.None` is the ONLY path — and a bare copy
@@ -547,7 +547,7 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
         // tests/async_await.test.yo "Test await future multiple times returns
         // same result".
         .None => {
-          dup_code := generate_dup_code_for_value(`${sync_future_var.clone()}->result`, result_type, context);
+          dup_code := generate_dup_code_for_value(`${sync_future_var.clone()}->result`, &result_type, context);
           em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_code};`);
         }
       );
@@ -565,18 +565,18 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
 generate_state :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
-  future_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("io.state argument must be a Future type"))));
-  if(!type_implements_future(future_type), {
+  future_type := match(context.base.get_expr_info(&future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("io.state argument must be a Future type"))));
+  if(!type_implements_future(&future_type), {
     return(codegen_fatal_expr(String.from("io.state argument must be a Future type")));
   });
   em := context.base.emitter;
-  future_code := _call_generate_expr(future_arg, indent.clone(), context);
+  future_code := _call_generate_expr(&future_arg, indent.clone(), context);
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("io.state missing ExprInfo"))));
   name_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from(""));
   raw_var := if(name_suffix.len() > usize(0), `__raw_state_${name_suffix.clone()}`, String.from("__raw_state"));
-  result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(n, false), .None => String.from("__io_state_result"));
+  result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__io_state_result"));
   fut_var := if(name_suffix.len() > usize(0), `__state_future_${name_suffix.clone()}`, String.from("__state_future"));
-  em.emit_string_line(`${indent.clone()}${get_type_string(future_type, context.base)} ${fut_var.clone()} = ${future_code};`);
+  em.emit_string_line(`${indent.clone()}${get_type_string(&future_type, &context.base)} ${fut_var.clone()} = ${future_code};`);
   em.emit_string_line(`${indent.clone()}int ${raw_var.clone()} = ${fut_var.clone()}->state;`);
   // Reading Aborted observes an effect-unwind abort (emit_task_abort_registry).
   em.emit_string_line(`${indent.clone()}if (${raw_var.clone()} == -2) __yo_task_abort_observed((void*)${fut_var.clone()});`);
@@ -619,38 +619,38 @@ generate_join_handle_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm
     args := ast_call_args_unmarked(expr);
     match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   });
-  handle_code := _call_generate_expr(handle_arg, indent.clone(), context);
+  handle_code := _call_generate_expr(&handle_arg, indent.clone(), context);
   // The handle (a `ref` struct) keeps its reference until its Dispose.
   jh_member := String.from("->__future");
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("JoinHandle.await missing ExprInfo"))));
   option_type := expr_ei.ty;
-  if(!is_enum_type(option_type), {
+  if(!is_enum_type(&option_type), {
     return(codegen_fatal_expr(String.from("JoinHandle.await return type must be Option(T)")));
   });
-  option_type_name := get_type_string(option_type, context.base);
+  option_type_name := get_type_string(&option_type, &context.base);
   // Extract T from Option(T): the .Some variant's first field type.
-  result_type_opt := _option_some_field_type(option_type);
-  is_result_unit := match(result_type_opt, .Some(t) => is_unit_type(t), .None => true);
+  result_type_opt := _option_some_field_type(&option_type);
+  is_result_unit := match(result_type_opt, .Some(t) => is_unit_type(&t), .None => true);
   result_type_name := match(
     result_type_opt,
-    .Some(t) => if(is_unit_type(t), String.from("uint8_t"), get_type_string(t, context.base)),
+    .Some(t) => if(is_unit_type(&t), String.from("uint8_t"), get_type_string(&t, &context.base)),
     .None => String.from("uint8_t")
   );
-  some_tag := get_enum_variant_c_name(option_type, String.from("Some"), context.base);
-  none_tag := get_enum_variant_c_name(option_type, String.from("None"), context.base);
+  some_tag := get_enum_variant_c_name(&option_type, String.from("Some"), &context.base);
+  none_tag := get_enum_variant_c_name(&option_type, String.from("None"), &context.base);
   // `Option(T)` of a pointer or reference handle is the bare pointer (NULL =
   // `.None`, `can_optimize_as_nullable_pointer`): `.Some(v)` is `v` itself.
-  jh_nullable := can_optimize_as_nullable_pointer(option_type).is_some();
+  jh_nullable := can_optimize_as_nullable_pointer(&option_type).is_some();
   some_open := if(jh_nullable, String.new(), `(${option_type_name.clone()}){ .tag = ${some_tag.clone()}, .data = { .${c_variant_member_name(String.from("Some"))} = { .${sanitize_for_c_identifier(String.from("value"), false)} = `);
   some_close := if(jh_nullable, String.new(), String.from(" } } }"));
   none_code := if(jh_nullable, String.from("NULL"), `(${option_type_name.clone()}){ .tag = ${none_tag.clone()} }`);
   unique_suffix := match(expr_ei.variable_name, .Some(n) => n, .None => String.from("jh"));
   fut_var := `__jh_future_${unique_suffix.clone()}`;
   header_var := `__jh_header_${unique_suffix.clone()}`;
-  result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(n, false), .None => String.from("__jh_result"));
+  result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => String.from("__jh_result"));
   header_struct_name := `__yo_jh_header_${unique_suffix.clone()}`;
   em.emit_string_line(`${indent.clone()}// JoinHandle.await — poll spawned task, return Option(T)`);
-  var_decl := get_variable_type_string(option_type, result_var.clone(), context.base);
+  var_decl := get_variable_type_string(&option_type, result_var.clone(), &context.base);
   em.emit_string_line(`${indent.clone()}${var_decl};`);
   em.emit_string_line(`${indent.clone()}{`);
   em.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = ${handle_code}${jh_member};`);
@@ -669,9 +669,9 @@ generate_join_handle_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm
     em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()} };`);
   }, {
     rt := match(result_type_opt, .Some(t) => t, .None => TypeValue.Unit);
-    if(type_contains_rc_cell_or_move_only(rt), {
+    if(type_contains_rc_cell_or_move_only(&rt), {
       match(
-        get_dup_function_for_type(rt, context),
+        get_dup_function_for_type(&rt, context),
         .Some(dup_fn) => em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_fn}(${header_var.clone()}->result)${some_close.clone()};`),
         // INLINE dup, not a bare copy — same trap as generate_await's sync
         // path above: no ___dup methods are synthesized, so `.None` is
@@ -684,7 +684,7 @@ generate_join_handle_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm
         // (issues/fixed/async-postwhile-branch-cleanup-double-drop.md notes the
         // sibling). The dup's side statements go through the same emitter.
         .None => {
-          dup_code := generate_dup_code_for_value(`${header_var.clone()}->result`, rt, context);
+          dup_code := generate_dup_code_for_value(`${header_var.clone()}->result`, &rt, context);
           em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_code}${some_close.clone()};`);
         }
       );
@@ -711,7 +711,7 @@ generate_join_handle_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm
       .Some(rvn) => match(
         context.state_machine_variables,
         .Some(smv) => match(
-          sm_slot_of(ast_expr_id(expr), expr_ei.env, rvn, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot),
+          sm_slot_of(ast_expr_id(expr), &expr_ei.env, &rvn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
           .Some(slot) => em.emit_string_line(`${indent.clone()}${slot} = ${result_var.clone()};`),
           .None => ()
         ),

@@ -214,7 +214,7 @@ _func_snippet :: (fn(imm(name) : String, imm(ty) : TypeValue) -> String)(
           if(n > usize(1), {
             parts = (parts + String.from(", "));
           });
-          parts = (parts + _placeholder(n, label));
+          parts = (parts + _placeholder(n, &label));
         });
         i = (i + usize(1));
       });
@@ -251,21 +251,21 @@ _push_variant :: (
       flabel := match(labels.get(i), .Some(l) => l, .None => String.new());
       ph := cond(
         (flabel.len() > usize(0)) => flabel.clone(),
-        true => type_to_string(ft)
+        true => type_to_string(&ft)
       );
       if(i > usize(0), {
         dparts = (dparts + String.from(", "));
         sparts = (sparts + String.from(", "));
       });
-      dparts = (dparts + type_to_string(ft));
-      sparts = (sparts + _placeholder(i + usize(1), ph));
+      dparts = (dparts + type_to_string(&ft));
+      sparts = (sparts + _placeholder(i + usize(1), &ph));
       i = (i + usize(1));
     });
     detail = (String.from("(") + dparts + String.from(")"));
     insert = (name.clone() + String.from("(") + sparts + String.from(")"));
   });
   label := cond(dot_prefix => (String.from(".") + name.clone()), true => name.clone());
-  out.push(_ci(label, K_ENUM_MEMBER, detail, String.from("0_") + name.clone(), insert));
+  out.push(_ci(&label, K_ENUM_MEMBER, &detail, String.from("0_") + name.clone(), &insert));
 });
 
 /// Direct members of a receiver type: struct/module fields, enum variants,
@@ -290,8 +290,8 @@ _type_member_items :: (
             is_mod => K_MODULE,
             true => K_FIELD
           );
-          insert := cond(is_fn => _func_snippet(label.clone(), fty), true => String.new());
-          out.push(_ci(label.clone(), kind, type_to_string(fty), String.from("0_") + label.clone(), insert));
+          insert := cond(is_fn => _func_snippet(label.clone(), &fty), true => String.new());
+          out.push(_ci(label.clone(), kind, type_to_string(&fty), String.from("0_") + label.clone(), &insert));
         });
         i = (i + usize(1));
       });
@@ -303,7 +303,7 @@ _type_member_items :: (
         vfields := match(variant_fields.get(i), .Some(f) => f, .None => ArrayList(TypeValue).new());
         vlabels := match(variant_field_labels.get(i), .Some(l) => l, .None => ArrayList(String).new());
         if(vname.len() > usize(0), {
-          _push_variant(vname, vfields, vlabels, false, out, seen);
+          _push_variant(&vname, &vfields, &vlabels, false, out, seen);
         });
         i = (i + usize(1));
       });
@@ -315,7 +315,7 @@ _type_member_items :: (
         fty := match(u_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         if((label.len() > usize(0)) && !seen.contains(label.clone()), {
           seen.insert(label.clone());
-          out.push(_ci(label.clone(), K_FIELD, type_to_string(fty), String.from("0_") + label.clone(), String.new()));
+          out.push(_ci(label.clone(), K_FIELD, type_to_string(&fty), String.from("0_") + label.clone(), String.new()));
         });
         i = (i + usize(1));
       });
@@ -330,8 +330,8 @@ _type_member_items :: (
           seen.insert(label.clone());
           is_fn := match(fty, .Func(_, _, _, _, _, _, _) => true, _ => false);
           kind := cond(is_fn => K_METHOD, true => K_PROPERTY);
-          insert := cond(is_fn => _func_snippet(label.clone(), fty), true => String.new());
-          out.push(_ci(label.clone(), kind, type_to_string(fty), String.from("0_") + label.clone(), insert));
+          insert := cond(is_fn => _func_snippet(label.clone(), &fty), true => String.new());
+          out.push(_ci(label.clone(), kind, type_to_string(&fty), String.from("0_") + label.clone(), &insert));
         });
         i = (i + usize(1));
       });
@@ -365,7 +365,7 @@ _push_registry_methods :: (
     while(i < entries.len(), {
       match(
         entries.get(i),
-        .Some(en) => _push_method(en.label.clone(), en.ty, out, seen),
+        .Some(en) => _push_method(en.label.clone(), &en.ty, out, seen),
         .None => ()
       );
       i = (i + usize(1));
@@ -389,7 +389,7 @@ _add_methods :: (
   deref_id := type_id_or_empty(deref);
   _push_registry_methods(recv_id.clone(), out, seen);
   if(deref_id != recv_id, {
-    _push_registry_methods(deref_id, out, seen);
+    _push_registry_methods(&deref_id, out, seen);
   });
   gentries := get_generic_impl_doc_entries(deref, env, String.new());
   (gi : usize) = usize(0);
@@ -402,7 +402,7 @@ _add_methods :: (
           mname := match(ge.method_names.get(mi), .Some(n) => n, .None => String.new());
           mty := match(ge.method_types.get(mi), .Some(t) => t, .None => TypeValue.Unit);
           if(mname.len() > usize(0), {
-            _push_method(mname, mty, out, seen);
+            _push_method(&mname, &mty, out, seen);
           });
           mi = (mi + usize(1));
         });
@@ -433,20 +433,20 @@ _receiver_at :: (
   while(ei < exprs.len(), {
     match(
       exprs.get(ei),
-      .Some(e) => _collect_candidates(e, target, cands),
+      .Some(e) => _collect_candidates(&e, target, &mut cands),
       .None => ()
     );
     ei = (ei + usize(1));
   });
   expr := match(
-    _best_candidate(cands, info_table),
+    _best_candidate(&cands, info_table),
     .Some(x) => x,
     .None => {
       return(());
     }
   );
   info := match(
-    expr_info_table_get(info_table, ast_expr_id(expr)),
+    expr_info_table_get(info_table, ast_expr_id(&expr)),
     .Some(i) => i,
     .None => {
       return(());
@@ -467,10 +467,10 @@ _receiver_at :: (
   // the nearest declaration wins, and a type-valued binding unwraps to the
   // type it names.
   if(!unwrapped && (target.kind == TokenKind.Identifier), {
-    vars := get_variables_from_env(info.env, target.value.clone());
+    vars := get_variables_from_env(&info.env, target.value.clone());
     if(vars.len() > usize(0), {
       match(
-        _select_best_variable(vars, target),
+        _select_best_variable(&vars, target),
         .Some(sv) => {
           (var_unwrapped : bool) = false;
           match(
@@ -526,14 +526,14 @@ _expr_near_line :: (fn(imm(e) : AstExpr, line : usize) -> bool)(
       if(usize(tok2.row) == line, {
         return(true);
       });
-      if(recur(func_box, line), {
+      if(recur(&func_box, line), {
         return(true);
       });
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => if(recur(a, line), {
+          .Some(a) => if(recur(&a, line), {
             return(true);
           }),
           .None => ()
@@ -564,8 +564,8 @@ _expected_enum_at :: (
         // defines it to nothing), and user locals keep their names in the
         // emitted C, so `if (near)` became `if ()` on the windows target.
         near_cursor := (
-          match(args.get(usize(1)), .Some(r) => _expr_near_line(r, line), .None => false) ||
-            match(args.get(usize(0)), .Some(l) => _expr_near_line(l, line), .None => false)
+          match(args.get(usize(1)), .Some(r) => _expr_near_line(&r, line), .None => false) ||
+            match(args.get(usize(0)), .Some(l) => _expr_near_line(&l, line), .None => false)
         );
         if(near_cursor, {
           match(
@@ -578,7 +578,7 @@ _expected_enum_at :: (
                   match(
                     lhs_args.get(usize(1)),
                     .Some(ty_expr) => match(
-                      expr_info_table_get(info_table, ast_expr_id(ty_expr)),
+                      expr_info_table_get(info_table, ast_expr_id(&ty_expr)),
                       .Some(tinfo) => {
                         (found : TypeValue) = tinfo.ty;
                         match(
@@ -615,7 +615,7 @@ _expected_enum_at :: (
         while(bi < args.len(), {
           match(
             args.get(bi),
-            .Some(b) => if(_expr_near_line(b, line), {
+            .Some(b) => if(_expr_near_line(&b, line), {
               branch_near = true;
             }),
             .None => ()
@@ -626,7 +626,7 @@ _expected_enum_at :: (
           match(
             args.get(usize(0)),
             .Some(subject) => match(
-              expr_info_table_get(info_table, ast_expr_id(subject)),
+              expr_info_table_get(info_table, ast_expr_id(&subject)),
               .Some(sinfo) => match(
                 sinfo.ty,
                 .EnumT(_, _, _, _, _, _, _, _, _, _) => {
@@ -640,12 +640,12 @@ _expected_enum_at :: (
           );
         });
       });
-      recur(func_box, info_table, line, out);
+      recur(&func_box, info_table, line, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => recur(a, info_table, line, out),
+          .Some(a) => recur(&a, info_table, line, out),
           .None => ()
         );
         i = (i + usize(1));
@@ -719,12 +719,12 @@ _scan_idents :: (
       });
     },
     .FnCall(_, func_box, args, _, _) => {
-      recur(func_box, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth);
+      recur(&func_box, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => recur(a, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth),
+          .Some(a) => recur(&a, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth),
           .None => ()
         );
         i = (i + usize(1));
@@ -790,7 +790,7 @@ _import_items :: (
         true => String.new()
       );
       base = cond(
-        (sub.len() > usize(0)) => Path.new(std_path.clone()).join(Path.new(sub)).to_string(),
+        (sub.len() > usize(0)) => Path.new(std_path.clone()).join(Path.new(&sub)).to_string(),
         true => std_path.clone()
       );
     },
@@ -810,7 +810,7 @@ _import_items :: (
     }
   );
   ls_exn := Exception(throw : (_e -> unwind(ArrayList(JsonValue).new())));
-  entries := io.await(read_dir(Path.new(base), io), IoExn(io : io, exn : ls_exn));
+  entries := io.await(read_dir(Path.new(&base), io), IoExn(io : io, exn : ls_exn));
   prefix_lower := prefix.to_lowercase();
   // Sorted for a deterministic answer — read_dir order is platform-dependent
   // (the readdir-order lesson).
@@ -899,7 +899,7 @@ _import_list_path :: (
             open_idx = Option(usize).Some(k);
             scanning = false;
           },
-          ((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Comma) || _is_trivia_token(t)) => (),
+          ((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Comma) || _is_trivia_token(&t)) => (),
           true => {
             scanning = false;
           }
@@ -937,7 +937,7 @@ _import_list_path :: (
       (t.kind == TokenKind.Identifier) => {
         listed.push(t.value.clone());
       },
-      ((t.kind == TokenKind.Comma) || _is_trivia_token(t)) => (),
+      ((t.kind == TokenKind.Comma) || _is_trivia_token(&t)) => (),
       true => {
         walking = false;
       }
@@ -955,7 +955,7 @@ _import_list_path :: (
   (m : usize) = (ci + usize(1));
   while((m < tokens.len()) && (tail.len() < usize(4)), {
     t := tokens(m);
-    if(!_is_trivia_token(t), {
+    if(!_is_trivia_token(&t), {
       tail.push(t);
     });
     m = (m + usize(1));
@@ -968,7 +968,7 @@ _import_list_path :: (
       (tail(usize(2)).kind == TokenKind.LParen) && (tail(usize(3)).kind == TokenKind.StringLit)
   );
   cond(
-    shape_ok => str_lit_unquote_bytes(tail(usize(3)).value),
+    shape_ok => str_lit_unquote_bytes(&tail(usize(3)).value),
     true => String.new()
   )
 });
@@ -985,7 +985,7 @@ _module_type_at :: (fn(imm(abs) : String, imm(std_path) : String, io : Io) -> Ty
       _err -> unwind(TypeValue.Unit)
     )
   );
-  mm_load_file(uri_to_fs_path(abs), std_path, false, io, load_exn).module_type
+  mm_load_file(uri_to_fs_path(abs), std_path, false, io, &load_exn).module_type
 });
 /// Completion items for the exports of `import_path` (as written in the
 /// document) not already in `listed`, filtered by the word prefix.
@@ -1006,7 +1006,7 @@ _import_member_items :: (
     .None => String.from(".")
   );
   abs := match(
-    resolve_module_path(import_path, doc_dir, std_path.clone()),
+    resolve_module_path(import_path, &doc_dir, std_path.clone()),
     .Found(p) => p,
     .NotFound(_) => {
       return(items);
@@ -1019,7 +1019,7 @@ _import_member_items :: (
     }
   );
   match(
-    _module_type_at(abs, std_path, io),
+    _module_type_at(&abs, std_path, io),
     .Struct({ field_labels, field_types, is_source_namespace }) => {
       if(!is_source_namespace, {
         return(items);
@@ -1044,7 +1044,7 @@ _import_member_items :: (
           is_fn := match(fty, .Func(_, _, _, _, _, _, _) => true, _ => false);
           is_mod := match(fty, .Struct({ is_source_namespace : ns }) => ns, _ => false);
           kind := cond(is_fn => K_FUNCTION, is_mod => K_MODULE, true => K_VARIABLE);
-          items.push(_ci(label.clone(), kind, type_to_string(fty), _sort_key(label.clone(), prefix_lower.clone()), String.new()));
+          items.push(_ci(label.clone(), kind, type_to_string(&fty), _sort_key(label.clone(), prefix_lower.clone()), String.new()));
         });
         i = (i + usize(1));
       });
@@ -1079,11 +1079,11 @@ handle_completion :: (
   // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S9). The previous shape clamped the
   // rune column against a byte length and then sliced with it — two bases in
   // one expression, wrong on any line containing a multibyte character.
-  (cur : usize) = rune_col_to_byte_offset(line_text, character);
+  (cur : usize) = rune_col_to_byte_offset(&line_text, character);
   up_to := line_text.substring(usize(0), cur);
   // 1. Import-path completion (works even while the document fails analysis
   //    — typing inside the string literal usually breaks the parse).
-  imp := _import_items(up_to, doc_abs, std_path, io);
+  imp := _import_items(&up_to, doc_abs, std_path, io);
   if(imp.len() > usize(0), {
     return(JsonValue.Array(items : imp));
   });
@@ -1107,12 +1107,12 @@ handle_completion :: (
         _err -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
       )
     );
-    list_tokens := tokenize(text.clone(), doc_abs.clone(), list_exn);
+    list_tokens := tokenize(text.clone(), doc_abs.clone(), &list_exn);
     listed := ArrayList(String).new();
-    import_path := _import_list_path(list_tokens, line, character, listed);
+    import_path := _import_list_path(&list_tokens, line, character, &mut listed);
     if(import_path.len() > usize(0), {
       word_prefix := line_text.substring(ws, cur).to_lowercase();
-      return(JsonValue.Array(items : _import_member_items(import_path, doc_abs, std_path, word_prefix, listed, io)));
+      return(JsonValue.Array(items : _import_member_items(&import_path, doc_abs, std_path, &word_prefix, &listed, io)));
     });
   };
   dot_before := cond(
@@ -1122,13 +1122,13 @@ handle_completion :: (
   if(dot_before, {
     // `ws - 1` is the BYTE offset of the `.`; `t.column` below is a RUNE
     // column, so convert before comparing.
-    dot_col := byte_offset_to_rune_col(line_text, ws - usize(1));
+    dot_col := byte_offset_to_rune_col(&line_text, ws - usize(1));
     lex_exn := Exception(
       throw : (
         _err -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
       )
     );
-    tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+    tokens := tokenize(text.clone(), doc_abs.clone(), &lex_exn);
     // Receiver mode: a non-trivia token ends exactly at the dot.
     (receiver : Option(Token)) = Option(Token).None;
     // Enum-prefix mode context: the latest non-trivia token BEFORE the dot
@@ -1177,14 +1177,14 @@ handle_completion :: (
         out_recv := ArrayList(TypeValue).new();
         out_deref := ArrayList(TypeValue).new();
         out_env := ArrayList(Environment).new();
-        _receiver_at(rt, exprs, info_table, out_recv, out_deref, out_env);
+        _receiver_at(&rt, exprs, info_table, &mut out_recv, &mut out_deref, &mut out_env);
         if(out_recv.len() > usize(0), {
           recv := out_recv(usize(0));
           deref := out_deref(usize(0));
           env := out_env(usize(0));
           seen := HashSet(String).new();
-          _type_member_items(deref, items, seen);
-          _add_methods(recv, deref, env, items, seen);
+          _type_member_items(&deref, &mut items, &mut seen);
+          _add_methods(&recv, &deref, &env, &mut items, &mut seen);
         });
       },
       .None => {
@@ -1203,7 +1203,7 @@ handle_completion :: (
           while(xi < exprs.len(), {
             match(
               exprs.get(xi),
-              .Some(e) => _expected_enum_at(e, info_table, line, expected),
+              .Some(e) => _expected_enum_at(&e, info_table, line, &mut expected),
               .None => ()
             );
             xi = (xi + usize(1));
@@ -1219,7 +1219,7 @@ handle_completion :: (
                   vfields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
                   vlabels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
                   if(vname.len() > usize(0), {
-                    _push_variant(vname, vfields, vlabels, true, items, seen2);
+                    _push_variant(&vname, &vfields, &vlabels, true, &mut items, &mut seen2);
                   });
                   vi = (vi + usize(1));
                 });
@@ -1247,7 +1247,7 @@ handle_completion :: (
   while(si < exprs.len(), {
     match(
       exprs.get(si),
-      .Some(e) => _scan_idents(e, info_table, line, character, names, name_rows, name_cols, name_expr_ids, name_index, env_holder, env_depth),
+      .Some(e) => _scan_idents(&e, info_table, line, character, &mut names, &mut name_rows, &mut name_cols, &mut name_expr_ids, &mut name_index, &mut env_holder, &mut env_depth),
       .None => ()
     );
     si = (si + usize(1));
@@ -1264,7 +1264,7 @@ handle_completion :: (
       match(
         expr_info_table_get(info_table, eid),
         .Some(info) => {
-          detail = type_to_string(info.ty);
+          detail = type_to_string(&info.ty);
           match(
             info.ty,
             .Func(_, _, _, _, _, _, _) => {
@@ -1275,7 +1275,7 @@ handle_completion :: (
         },
         .None => ()
       );
-      items.push(_ci(name.clone(), kind, detail, _sort_key(name.clone(), prefix_lower.clone()), String.new()));
+      items.push(_ci(name.clone(), kind, &detail, _sort_key(name.clone(), prefix_lower.clone()), String.new()));
     });
     ni = (ni + usize(1));
   });
@@ -1307,7 +1307,7 @@ handle_completion :: (
                   emitted.insert(vname.clone());
                   is_fn := match(v.ty, .Func(_, _, _, _, _, _, _) => true, _ => false);
                   kind2 := cond(is_fn => K_FUNCTION, true => K_VARIABLE);
-                  items.push(_ci(vname.clone(), kind2, type_to_string(v.ty), _sort_key(vname.clone(), prefix_lower.clone()), String.new()));
+                  items.push(_ci(vname.clone(), kind2, type_to_string(&v.ty), _sort_key(vname.clone(), prefix_lower.clone()), String.new()));
                 });
               },
               .None => ()

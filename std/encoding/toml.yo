@@ -842,7 +842,7 @@ _parse_quoted_string :: (
       },
       ((b == _BACKSLASH) && escapes) => {
         _esc := match(
-          _read_escape(p, bytes, multiline),
+          _read_escape(p, &mut bytes, multiline),
           .Ok(_) => true,
           .Err(e) => {
             return(Result(String, TomlError).Err(e));
@@ -1221,7 +1221,7 @@ _classify_number :: (fn(imm(tok) : String, start : usize) -> Result(TomlValue, T
     true => ()
   );
   cond(
-    _rest_is(b, i, "inf") => {
+    _rest_is(&b, i, "inf") => {
       return(
         Result(TomlValue, TomlError).Ok(
           TomlValue.Float(cond(neg => f64.NEG_INFINITY, true => f64.INFINITY))
@@ -1231,7 +1231,7 @@ _classify_number :: (fn(imm(tok) : String, start : usize) -> Result(TomlValue, T
     // TOML admits `nan`, `+nan` and `-nan`; the sign of a NaN is not
     // observable through `is_nan`, and Rust's parser keeps it likewise
     // unspecified.
-    _rest_is(b, i, "nan") => {
+    _rest_is(&b, i, "nan") => {
       return(Result(TomlValue, TomlError).Ok(TomlValue.Float(f64.NAN)));
     },
     true => ()
@@ -1265,7 +1265,7 @@ _classify_number :: (fn(imm(tok) : String, start : usize) -> Result(TomlValue, T
         true => ()
       );
       digits := match(
-        _clean_radix(b, i + usize(2), n, radix),
+        _clean_radix(&b, i + usize(2), n, radix),
         .Some(s) => s,
         .None => {
           return(bad);
@@ -1282,7 +1282,7 @@ _classify_number :: (fn(imm(tok) : String, start : usize) -> Result(TomlValue, T
     true => ()
   );
   dec := match(
-    _clean_decimal(b, i, n),
+    _clean_decimal(&b, i, n),
     .Some(d) => d,
     .None => {
       return(bad);
@@ -1622,10 +1622,10 @@ _insert_inline :: (
   i := usize(0);
   while(i < last, i = (i + usize(1)), {
     k := keys(i);
-    child_path := _path_key(path, k);
+    child_path := _path_key(&path, &k);
     (next_tbl : TomlValue) = cur;
     match(
-      cur.get(k),
+      cur.get(&k),
       .None => {
         t := TomlValue.new_table();
         _old := cur.insert(k, t);
@@ -1665,7 +1665,7 @@ _insert_inline :: (
   });
   final_key := keys(last);
   cond(
-    cur.has_key(final_key) => {
+    cur.has_key(&final_key) => {
       return(Result(unit, TomlError).Err(TomlError.DuplicateKey(key : final_key, pos : pos)));
     },
     true => ()
@@ -1808,7 +1808,7 @@ _parse_value :: (fn(imm(p) : _Parser) -> Result(TomlValue, TomlError))({
               }
             );
             _ins := match(
-              _insert_inline(tbl, keys, v, dotted, kv_pos),
+              _insert_inline(&tbl, &keys, &v, &mut dotted, kv_pos),
               .Ok(_) => true,
               .Err(e) => {
                 return(Result(TomlValue, TomlError).Err(e));
@@ -1848,7 +1848,7 @@ _parse_value :: (fn(imm(p) : _Parser) -> Result(TomlValue, TomlError))({
       cond(
         (tok == `true`) => Result(TomlValue, TomlError).Ok(TomlValue.Bool(true)),
         (tok == `false`) => Result(TomlValue, TomlError).Ok(TomlValue.Bool(false)),
-        true => _classify_number(tok, start)
+        true => _classify_number(&tok, start)
       )
     }
   )
@@ -1873,22 +1873,22 @@ _walk_header_path :: (
   i := usize(0);
   while(i < upto, i = (i + usize(1)), {
     k := keys(i);
-    child_path := _path_key(path, k);
+    child_path := _path_key(&path, &k);
     (next_tbl : TomlValue) = cur;
     (next_path : String) = child_path;
     match(
-      cur.get(k),
+      cur.get(&k),
       .None => {
         t := TomlValue.new_table();
         _old := cur.insert(k, t);
-        p.set_kind(child_path, _TableKind.Implicit);
+        p.set_kind(&child_path, _TableKind.Implicit);
         next_tbl = t;
       },
       .Some(v) => {
         cond(
           v.is_table() => {
             extendable := match(
-              p.kind_of(child_path),
+              p.kind_of(&child_path),
               .Some(kk) => match(
                 kk,
                 .Explicit => true,
@@ -1909,7 +1909,7 @@ _walk_header_path :: (
           },
           v.is_array() => {
             is_aot := match(
-              p.kind_of(child_path),
+              p.kind_of(&child_path),
               .Some(kk2) => match(kk2, .ArrayOfTables => true, _ => false),
               .None => false
             );
@@ -1918,7 +1918,7 @@ _walk_header_path :: (
                 items := match(v.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
                 idx := (items.len() - usize(1));
                 next_tbl = items(idx);
-                next_path = _path_index(child_path, idx);
+                next_path = _path_index(&child_path, idx);
               },
               true => {
                 return(Result(_Cursor, TomlError).Err(TomlError.RedefinedTable(key : k, pos : pos)));
@@ -1976,15 +1976,15 @@ _parse_header :: (fn(imm(p) : _Parser) -> Result(unit, TomlError))({
   );
   last := (keys.len() - usize(1));
   cursor := match(
-    _walk_header_path(p, keys, last, pos),
+    _walk_header_path(p, &keys, last, pos),
     .Ok(c) => c,
     .Err(e) => {
       return(Result(unit, TomlError).Err(e));
     }
   );
   k := keys(last);
-  child_path := _path_key(cursor.path, k);
-  existing := cursor.table.get(k);
+  child_path := _path_key(&cursor.path, &k);
+  existing := cursor.table.get(&k);
   cond(
     is_array => match(
       existing,
@@ -1993,15 +1993,15 @@ _parse_header :: (fn(imm(p) : _Parser) -> Result(unit, TomlError))({
         elem := TomlValue.new_table();
         items.push(elem);
         _old := cursor.table.insert(k, TomlValue.Array(items));
-        p.set_kind(child_path, _TableKind.ArrayOfTables);
-        elem_path := _path_index(child_path, usize(0));
-        p.set_kind(elem_path, _TableKind.ArrayElem);
+        p.set_kind(&child_path, _TableKind.ArrayOfTables);
+        elem_path := _path_index(&child_path, usize(0));
+        p.set_kind(&elem_path, _TableKind.ArrayElem);
         p.cur = elem;
         p.cur_path = elem_path;
       },
       .Some(v) => {
         is_aot := match(
-          p.kind_of(child_path),
+          p.kind_of(&child_path),
           .Some(kk) => match(kk, .ArrayOfTables => true, _ => false),
           .None => false
         );
@@ -2010,8 +2010,8 @@ _parse_header :: (fn(imm(p) : _Parser) -> Result(unit, TomlError))({
             items := match(v.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
             elem := TomlValue.new_table();
             items.push(elem);
-            elem_path := _path_index(child_path, items.len() - usize(1));
-            p.set_kind(elem_path, _TableKind.ArrayElem);
+            elem_path := _path_index(&child_path, items.len() - usize(1));
+            p.set_kind(&elem_path, _TableKind.ArrayElem);
             p.cur = elem;
             p.cur_path = elem_path;
           },
@@ -2026,7 +2026,7 @@ _parse_header :: (fn(imm(p) : _Parser) -> Result(unit, TomlError))({
       .None => {
         t := TomlValue.new_table();
         _old := cursor.table.insert(k, t);
-        p.set_kind(child_path, _TableKind.Explicit);
+        p.set_kind(&child_path, _TableKind.Explicit);
         p.cur = t;
         p.cur_path = child_path;
       },
@@ -2036,13 +2036,13 @@ _parse_header :: (fn(imm(p) : _Parser) -> Result(unit, TomlError))({
         // dotted key's table, an inline table, an array of tables — is a
         // redefinition.
         promotable := match(
-          p.kind_of(child_path),
+          p.kind_of(&child_path),
           .Some(kk) => match(kk, .Implicit => true, _ => false),
           .None => false
         );
         cond(
           (promotable && v.is_table()) => {
-            p.set_kind(child_path, _TableKind.Explicit);
+            p.set_kind(&child_path, _TableKind.Explicit);
             p.cur = v;
             p.cur_path = child_path;
           },
@@ -2073,21 +2073,21 @@ _insert_keyval :: (
   i := usize(0);
   while(i < last, i = (i + usize(1)), {
     k := keys(i);
-    child_path := _path_key(path, k);
+    child_path := _path_key(&path, &k);
     (next_tbl : TomlValue) = cur;
     match(
-      cur.get(k),
+      cur.get(&k),
       .None => {
         t := TomlValue.new_table();
         _old := cur.insert(k, t);
-        p.set_kind(child_path, _TableKind.Dotted);
+        p.set_kind(&child_path, _TableKind.Dotted);
         next_tbl = t;
       },
       .Some(v) => {
         cond(
           v.is_table() => {
             reopenable := match(
-              p.kind_of(child_path),
+              p.kind_of(&child_path),
               .Some(kk) => match(kk, .Dotted => true, _ => false),
               .None => false
             );
@@ -2111,7 +2111,7 @@ _insert_keyval :: (
   });
   final_key := keys(last);
   cond(
-    cur.has_key(final_key) => {
+    cur.has_key(&final_key) => {
       return(Result(unit, TomlError).Err(TomlError.DuplicateKey(key : final_key, pos : pos)));
     },
     true => ()
@@ -2146,7 +2146,7 @@ _parse_keyval :: (fn(imm(p) : _Parser) -> Result(unit, TomlError))({
       return(Result(unit, TomlError).Err(e));
     }
   );
-  _insert_keyval(p, keys, value, pos)
+  _insert_keyval(p, &keys, &value, pos)
 });
 /// The document: a sequence of headers and key/value pairs, one per line,
 /// each of which must be followed by nothing but spaces, a comment, and a
@@ -2312,7 +2312,7 @@ _write_key :: (fn(imm(key) : String, mut(out) : ArrayList(u8)) -> unit)(
 );
 _key_string :: (fn(imm(key) : String) -> String)({
   out := ArrayList(u8).new();
-  _write_key(key, out);
+  _write_key(key, &mut out);
   String.from_bytes(out)
 });
 /// A float, in the SHORTEST `%g` rendering that reads back as the same
@@ -2369,7 +2369,7 @@ _write_f64 :: (fn(v : f64, mut(out) : ArrayList(u8)) -> unit)({
       true => ()
     );
   });
-  _push_string(text, out);
+  _push_string(&text, out);
   cond(
     needs_point => _push_lit(".0", out),
     true => ()
@@ -2457,7 +2457,7 @@ _write_datetime :: (fn(d : TomlDateTime, mut(out) : ArrayList(u8)) -> unit)({
 _write_inline :: (fn(imm(value) : TomlValue, mut(out) : ArrayList(u8)) -> unit)(
   match(
     value,
-    .Str(s) => _write_basic_string(s, out),
+    .Str(s) => _write_basic_string(&s, out),
     .Int(n) => _push_string(n.to_string(), out),
     .Float(f) => _write_f64(f, out),
     .Bool(b) => cond(
@@ -2473,7 +2473,7 @@ _write_inline :: (fn(imm(value) : TomlValue, mut(out) : ArrayList(u8)) -> unit)(
           (i > usize(0)) => _push_lit(", ", out),
           true => ()
         );
-        recur(items(i), out);
+        recur(&items(i), out);
       });
       out.push(_RBRACKET);
     },
@@ -2485,9 +2485,9 @@ _write_inline :: (fn(imm(value) : TomlValue, mut(out) : ArrayList(u8)) -> unit)(
           (i > usize(0)) => _push_lit(", ", out),
           true => _push_lit(" ", out)
         );
-        _write_key(keys(i), out);
+        _write_key(&keys(i), out);
         _push_lit(" = ", out);
-        recur(values(i), out);
+        recur(&values(i), out);
       });
       cond(
         (keys.len() > usize(0)) => _push_lit(" ", out),
@@ -2541,11 +2541,11 @@ _write_table_body :: (fn(imm(table) : TomlValue, imm(prefix) : String, mut(out) 
       while(i < keys.len(), i = (i + usize(1)), {
         v := values(i);
         cond(
-          (v.is_table() || _is_array_of_tables(v)) => (),
+          (v.is_table() || _is_array_of_tables(&v)) => (),
           true => {
-            _write_key(keys(i), out);
+            _write_key(&keys(i), out);
             _push_lit(" = ", out);
-            _write_inline(v, out);
+            _write_inline(&v, out);
             out.push(_LF);
           }
         );
@@ -2553,7 +2553,7 @@ _write_table_body :: (fn(imm(table) : TomlValue, imm(prefix) : String, mut(out) 
       j := usize(0);
       while(j < keys.len(), j = (j + usize(1)), {
         v2 := values(j);
-        key_text := _key_string(keys(j));
+        key_text := _key_string(&keys(j));
         child_prefix := cond(
           prefix.is_empty() => key_text,
           true => `${prefix}.${key_text}`
@@ -2565,12 +2565,12 @@ _write_table_body :: (fn(imm(table) : TomlValue, imm(prefix) : String, mut(out) 
               true => ()
             );
             out.push(_LBRACKET);
-            _push_string(child_prefix, out);
+            _push_string(&child_prefix, out);
             out.push(_RBRACKET);
             out.push(_LF);
-            recur(v2, child_prefix, out);
+            recur(&v2, &child_prefix, out);
           },
-          _is_array_of_tables(v2) => {
+          _is_array_of_tables(&v2) => {
             items := match(v2.as_array(), .Some(xs) => xs, .None => ArrayList(TomlValue).new());
             k := usize(0);
             while(k < items.len(), k = (k + usize(1)), {
@@ -2579,10 +2579,10 @@ _write_table_body :: (fn(imm(table) : TomlValue, imm(prefix) : String, mut(out) 
                 true => ()
               );
               _push_lit("[[", out);
-              _push_string(child_prefix, out);
+              _push_string(&child_prefix, out);
               _push_lit("]]", out);
               out.push(_LF);
-              recur(items(k), child_prefix, out);
+              recur(&items(k), &child_prefix, out);
             });
           },
           true => ()
@@ -2599,8 +2599,8 @@ _write_table_body :: (fn(imm(table) : TomlValue, imm(prefix) : String, mut(out) 
 stringify :: (fn(imm(value) : TomlValue) -> String)({
   out := ArrayList(u8).new();
   cond(
-    value.is_table() => _write_table_body(value, String.new(), out),
-    true => _write_inline(value, out)
+    value.is_table() => _write_table_body(value, String.new(), &mut out),
+    true => _write_inline(value, &mut out)
   );
   String.from_bytes(out)
 });
@@ -2621,7 +2621,7 @@ impl(
   ToString(
     to_string : (fn(mut(self) : Self) -> String)({
       out := ArrayList(u8).new();
-      _write_datetime(self, out);
+      _write_datetime(self, &mut out);
       String.from_bytes(out)
     })
   )
@@ -2679,7 +2679,7 @@ _toml_eq :: (fn(imm(lhs) : TomlValue, imm(rhs) : TomlValue) -> bool)(
         i := usize(0);
         while(i < a.len(), i = (i + usize(1)), {
           cond(
-            !recur(a(i), b(i)) => {
+            !recur(&a(i), &b(i)) => {
               same = false;
             },
             true => ()
@@ -2709,7 +2709,7 @@ _toml_eq :: (fn(imm(lhs) : TomlValue, imm(rhs) : TomlValue) -> bool)(
               (b_keys(j) == key) => {
                 found = true;
                 cond(
-                  !recur(a_values(i), b_values(j)) => {
+                  !recur(&a_values(i), &b_values(j)) => {
                     same = false;
                   },
                   true => ()

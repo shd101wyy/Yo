@@ -67,7 +67,7 @@ _resolve_path :: (fn(imm(p) : String, imm(exn) : Exception) -> String)({
     .Ok(c) => c,
     .Err(e) => exn.throw(dyn(`doc: cannot determine cwd: ${e.to_string()}`))
   );
-  base.join(path).normalize().to_string()
+  base.join(&path).normalize().to_string()
 });
 /// One `git -C <dir> <args...>` invocation → trimmed stdout, or `.None` on
 /// failure/empty (mirrors `detect_git_version`'s catch).
@@ -87,7 +87,7 @@ _run_git :: (
     match(
       git_args.get(ai),
       .Some(a) => {
-        _arg_c := cmd.arg(a);
+        _arg_c := cmd.arg(&a);
       },
       .None => ()
     );
@@ -117,7 +117,7 @@ detect_git_version :: (
   describe_args.push(String.from("--tags"));
   describe_args.push(String.from("--exact-match"));
   describe_args.push(String.from("HEAD"));
-  exact := _run_git(dir.clone(), describe_args, io, exn);
+  exact := _run_git(dir.clone(), &describe_args, io, exn);
   match(
     exact,
     .Some(v) => Option(String).Some(v),
@@ -126,7 +126,7 @@ detect_git_version :: (
       rev_args.push(String.from("rev-parse"));
       rev_args.push(String.from("--short"));
       rev_args.push(String.from("HEAD"));
-      _run_git(dir, rev_args, io, exn)
+      _run_git(dir, &rev_args, io, exn)
     }
   )
 });
@@ -161,7 +161,7 @@ _collect_yo_files :: (
           full := Path.new(dir.clone()).join(Path.new(entry.name.clone())).to_string();
           match(
             entry.file_type,
-            .Directory => recur(full, files, io, exn),
+            .Directory => recur(&full, files, io, exn),
             .File => {
               if(entry.name.ends_with(String.from(".yo")) && !entry.name.ends_with(String.from(".test.yo")), {
                 files.push(full);
@@ -181,7 +181,7 @@ _find_yo_files :: (
   fn(imm(input_path) : String, io : Io, imm(exn) : Exception) -> ArrayList(String)
 )({
   abs := _resolve_path(input_path, exn);
-  path_exists := io.await(exists(Path.new(abs.clone()), io), io);
+  path_exists := io.await(exists(Path.new(abs.clone()), io), &io);
   if(!path_exists, {
     exn.throw(dyn(`Path does not exist: ${abs}`));
   });
@@ -198,7 +198,7 @@ _find_yo_files :: (
     exn.throw(dyn(`Not a file or directory: ${abs}`));
   });
   files := ArrayList(String).new();
-  _collect_yo_files(abs, files, io, exn);
+  _collect_yo_files(&abs, &mut files, io, exn);
   files.sort();
   files
 });
@@ -310,12 +310,12 @@ _infer_project_name :: (
     );
   });
   pkg_path := Path.new(base_path.clone()).join(Path.new(String.from("package.json")));
-  pkg_exists := io.await(exists(pkg_path, io), io);
+  pkg_exists := io.await(exists(&pkg_path, io), &io);
   if(pkg_exists, {
     pkg_bytes := io.await(read(Path.new(base_path.clone()).join(Path.new(String.from("package.json"))), io), IoExn(io : io, exn : exn));
     content := String.from_bytes(pkg_bytes);
     match(
-      _scan_quoted_value_after(content, `"name"`, `:`),
+      _scan_quoted_value_after(&content, `"name"`, `:`),
       .Some(n) => {
         return(n);
       },
@@ -323,12 +323,12 @@ _infer_project_name :: (
     );
   });
   build_path := Path.new(base_path.clone()).join(Path.new(String.from("build.yo")));
-  build_exists := io.await(exists(build_path, io), io);
+  build_exists := io.await(exists(&build_path, io), &io);
   if(build_exists, {
     build_bytes := io.await(read(Path.new(base_path.clone()).join(Path.new(String.from("build.yo"))), io), IoExn(io : io, exn : exn));
     content := String.from_bytes(build_bytes);
     match(
-      _scan_quoted_value_after(content, `.name`, `=`),
+      _scan_quoted_value_after(&content, `.name`, `=`),
       .Some(n) => {
         return(n);
       },
@@ -384,8 +384,8 @@ document_one_file :: (
       }
     )
   );
-  tokens := tokenize(src, `file://${file_path}`, lex_exn);
-  extraction := extract_doc_comments(tokens);
+  tokens := tokenize(&src, `file://${file_path}`, &lex_exn);
+  extraction := extract_doc_comments(&tokens);
   outcome := mm_load_file(file_path.clone(), std_path.clone(), false, io, exn);
   if(outcome.ok, {
     (labels : ArrayList(String)) = ArrayList(String).new();
@@ -404,11 +404,11 @@ document_one_file :: (
           doc_module : build_doc_module(
             module_name.clone(),
             module_name.clone(),
-            outcome.module_value,
-            outcome.module_type,
-            extraction,
-            tokens,
-            outcome.env
+            &outcome.module_value,
+            &outcome.module_type,
+            &extraction,
+            &tokens,
+            &outcome.env
           ),
           degraded : false,
           export_labels : labels,
@@ -420,7 +420,7 @@ document_one_file :: (
   eprintln(`  Warning: ${module_name} evaluation failed, using token-only docs`);
   Option(DocumentedFile).Some(
     DocumentedFile(
-      doc_module : build_doc_module_from_tokens(module_name.clone(), module_name.clone(), extraction, tokens),
+      doc_module : build_doc_module_from_tokens(module_name.clone(), module_name.clone(), &extraction, &tokens),
       degraded : true,
       export_labels : ArrayList(String).new(),
       export_types : ArrayList(TypeValue).new()
@@ -433,29 +433,29 @@ _render_markdown_site :: (
   fn(imm(model) : DocModel, imm(out_dir) : String, io : Io, imm(exn) : Exception) -> unit
 )({
   ioexn := IoExn(io : io, exn : exn);
-  io.await(create_dir_all(Path.new(out_dir.clone()), io), ioexn);
-  io.await(create_dir_all(Path.new(out_dir.clone()).join(Path.new(String.from("module"))), io), ioexn);
+  io.await(create_dir_all(Path.new(out_dir.clone()), io), &ioexn);
+  io.await(create_dir_all(Path.new(out_dir.clone()).join(Path.new(String.from("module"))), io), &ioexn);
   io.await(
     write_string(Path.new(out_dir.clone()).join(Path.new(String.from("README.md"))), render_index_md(model), io),
-    ioexn
+    &ioexn
   );
   (i : usize) = usize(0);
   while(i < model.modules.len(), {
     match(
       model.modules.get(i),
       .Some(m) => {
-        page := render_module_md(m);
+        page := render_module_md(&m);
         target := Path.new(out_dir.clone()).join(Path.new(String.from("module"))).join(Path.new(`${m.name}.md`));
         // A nested module name ("collections/array_list") needs its parent
         // dir — creating it is the working superset.
         match(
           target.parent(),
           .Some(parent_dir) => {
-            io.await(create_dir_all(parent_dir, io), ioexn);
+            io.await(create_dir_all(&parent_dir, io), &ioexn);
           },
           .None => ()
         );
-        io.await(write_string(target, page, io), ioexn);
+        io.await(write_string(&target, &page, io), &ioexn);
       },
       .None => ()
     );
@@ -468,7 +468,7 @@ run_doc :: (
 )({
   start := Instant.now();
   input_abs := _resolve_path(options.input.clone(), exn);
-  input_exists := io.await(exists(Path.new(input_abs.clone()), io), io);
+  input_exists := io.await(exists(Path.new(input_abs.clone()), io), &io);
   if(!input_exists, {
     exn.throw(dyn(`Path does not exist: ${input_abs}`));
   });
@@ -495,7 +495,7 @@ run_doc :: (
   // evaluate it against its own root, not the bundled std an installed
   // binary finds beside itself
   // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
-  prefer_entry_std_root(files);
+  prefer_entry_std_root(&files);
   std_path := resolve_std_path();
   println(`Generating documentation...`);
   modules := ArrayList(DocModule).new();
@@ -505,7 +505,7 @@ run_doc :: (
     match(
       files.get(fi),
       .Some(file) => match(
-        document_one_file(file, base_path.clone(), std_path.clone(), options.verbose, io, exn),
+        document_one_file(&file, base_path.clone(), std_path.clone(), options.verbose, io, exn),
         .Some(df) => {
           modules.push(df.doc_module);
           if(df.degraded, {
@@ -545,7 +545,7 @@ run_doc :: (
     );
     exn.throw(
       dyn(
-        `doc: ${degraded.len().to_string()} of ${modules.len().to_string()} module(s) failed to evaluate and would be documented from tokens only (no signatures, members untyped): ${String.from(", ").join(names)}${more}. Pass --allow-token-only to accept token-only docs, or evaluate against the std tree these sources belong to (--std-path <dir>).`
+        `doc: ${degraded.len().to_string()} of ${modules.len().to_string()} module(s) failed to evaluate and would be documented from tokens only (no signatures, members untyped): ${String.from(", ").join(&names)}${more}. Pass --allow-token-only to accept token-only docs, or evaluate against the std tree these sources belong to (--std-path <dir>).`
       )
     );
   });
@@ -558,7 +558,7 @@ run_doc :: (
     println(`No documentable modules found.`);
     return(());
   });
-  build_cross_references(modules);
+  build_cross_references(&modules);
   resolved_version := if(
     options.version.len() > usize(0),
     Option(String).Some(options.version.clone()),
@@ -576,15 +576,15 @@ run_doc :: (
   cond(
     (options.format == "markdown") => {
       println(`Rendering Markdown to ${abs_output_dir}...`);
-      _render_markdown_site(model, abs_output_dir.clone(), io, exn);
+      _render_markdown_site(&model, abs_output_dir.clone(), io, exn);
       output_file = String.from("README.md");
     },
     (options.format == "json") => {
       println(`Rendering JSON to ${abs_output_dir}...`);
       io.await(create_dir_all(Path.new(abs_output_dir.clone()), io), IoExn(io : io, exn : exn));
-      json := render_doc_json_string(model, true);
+      json := render_doc_json_string(&model, true);
       io.await(
-        write_string(Path.new(abs_output_dir.clone()).join(Path.new(String.from("doc.json"))), json, io),
+        write_string(Path.new(abs_output_dir.clone()).join(Path.new(String.from("doc.json"))), &json, io),
         IoExn(io : io, exn : exn)
       );
       output_file = String.from("doc.json");
@@ -592,7 +592,7 @@ run_doc :: (
     true => {
       // html (the default).
       println(`Rendering HTML to ${abs_output_dir}...`);
-      render_doc_site(model, abs_output_dir.clone(), io, IoExn(io : io, exn : exn));
+      render_doc_site(&model, abs_output_dir.clone(), io, IoExn(io : io, exn : exn));
     }
   );
   elapsed_ms := start.elapsed().as_millis();

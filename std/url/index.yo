@@ -642,7 +642,7 @@ impl(
       },
       .Some(h) =>
         match(
-          _validate_component(h, `host`, `/?#@`),
+          _validate_component(&h, `host`, `/?#@`),
           .Err(e) => .Err(e),
           .Ok(_) =>
             cond(
@@ -697,7 +697,7 @@ impl(
       },
       .Some(q) =>
         match(
-          _validate_component(q, `query`, `#`),
+          _validate_component(&q, `query`, `#`),
           .Err(e) => .Err(e),
           .Ok(_) => {
             self._query = Option(String).Some(q);
@@ -719,7 +719,7 @@ impl(
       },
       .Some(f) =>
         match(
-          _validate_component(f, `fragment`, ``),
+          _validate_component(&f, `fragment`, ``),
           .Err(e) => .Err(e),
           .Ok(_) => {
             self._fragment = Option(String).Some(f);
@@ -744,7 +744,7 @@ impl(
       },
       .Some(u) =>
         match(
-          _validate_component(u, `userinfo`, `/?#@`),
+          _validate_component(&u, `userinfo`, `/?#@`),
           .Err(e) => .Err(e),
           .Ok(_) => {
             self._userinfo = Option(String).Some(u);
@@ -940,7 +940,7 @@ _split_ref :: (fn(imm(s) : String) -> _UrlRef)({
       candidate := rest.substring(usize(0), i);
       slash_first := match(rest.index_of(`/`), .Some(j) => (j < i), .None => false);
       cond(
-        (!slash_first && _is_scheme(candidate)) => {
+        (!slash_first && _is_scheme(&candidate)) => {
           rest = rest.substring(i + usize(1), rest.len());
           Option(String).Some(candidate)
         },
@@ -1013,7 +1013,7 @@ _remove_dot_segments :: (fn(imm(path) : String) -> String)({
     if(j > usize(0), {
       result = result.concat(`/`);
     });
-    result = result.concat(out(j));
+    result = result.concat(&out(j));
   });
   if(trailing && (out.len() > usize(0)), {
     result = result.concat(`/`);
@@ -1081,7 +1081,7 @@ impl(
           },
           .None => ()
         );
-        out.write_string(_remove_dot_segments(r.path));
+        out.write_string(_remove_dot_segments(&r.path));
       },
       .None => {
         out.write_string(`${self._scheme}:`);
@@ -1089,7 +1089,7 @@ impl(
           r.authority,
           .Some(a) => {
             out.write_string(`//${a}`);
-            out.write_string(_remove_dot_segments(r.path));
+            out.write_string(_remove_dot_segments(&r.path));
           },
           .None => {
             match(
@@ -1101,13 +1101,13 @@ impl(
             );
             cond(
               (r.path.len() == usize(0)) => {
-                out.write_string(self._path);
+                out.write_string(&self._path);
               },
               r.path.starts_with(`/`) => {
-                out.write_string(_remove_dot_segments(r.path));
+                out.write_string(_remove_dot_segments(&r.path));
               },
               true => {
-                out.write_string(_remove_dot_segments(_merge_paths(self, r.path)));
+                out.write_string(_remove_dot_segments(_merge_paths(self, &r.path)));
               }
             );
           }
@@ -1167,7 +1167,7 @@ impl(
             parts := body.split(`/`);
             i := usize(0);
             while(i < parts.len(), i = (i + usize(1)), {
-              out.push(_decode_lossy(parts(i)));
+              out.push(_decode_lossy(&parts(i)));
             });
             Option(ArrayList(String)).Some(out)
           }
@@ -1203,7 +1203,7 @@ impl(
             out.push((k, v));
           },
           .None => {
-            out.push((_form_decode(part), String.new()));
+            out.push((_form_decode(&part), String.new()));
           }
         );
       });
@@ -1225,11 +1225,11 @@ impl(
             match(
               self._userinfo,
               .Some(ui) => {
-                result = result.concat(ui).concat(`@`);
+                result = result.concat(&ui).concat(`@`);
               },
               .None => ()
             );
-            result = result.concat(h);
+            result = result.concat(&h);
             match(
               self._port,
               .Some(p) => {
@@ -1240,18 +1240,18 @@ impl(
           },
           .None => ()
         );
-        result = result.concat(self._path);
+        result = result.concat(&self._path);
         match(
           self._query,
           .Some(q) => {
-            result = result.concat(`?`).concat(q);
+            result = result.concat(`?`).concat(&q);
           },
           .None => ()
         );
         match(
           self._fragment,
           .Some(f) => {
-            result = result.concat(`#`).concat(f);
+            result = result.concat(`#`).concat(&f);
           },
           .None => ()
         );

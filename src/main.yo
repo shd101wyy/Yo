@@ -233,7 +233,7 @@ extract_import_path :: (fn(imm(expr) : AstExpr) -> Option(String))(
           match(
             fn_imp_args.get(usize(1)),
             .None => Option(String).None,
-            .Some(rhs) => extract_bare_import_path(rhs)
+            .Some(rhs) => extract_bare_import_path(&rhs)
           ),
         // Pattern: bare import("path")
         true => extract_bare_import_path(expr)
@@ -268,12 +268,12 @@ collect_import_paths_recursive :: (
     expr,
     .Atom(_, _) => (),
     .FnCall(_, fb, walk_args, _, _) => {
-      recur(fb, out);
+      recur(&fb, out);
       (i : usize) = usize(0);
       while(i < walk_args.len(), {
         match(
           walk_args.get(i),
-          .Some(a) => recur(a, out),
+          .Some(a) => recur(&a, out),
           .None => ()
         );
         i = (i + usize(1));
@@ -323,12 +323,12 @@ try_populate_expr_info_table :: (
   // `ctx.expr_info_table` accumulated as a side effect.
   _r := evaluate_anonymous_module_begin_exprs(
     exprs,
-    env,
-    ctx,
+    &env,
+    &ctx,
     false,
     false,
     true,
-    local_exn
+    &local_exn
   );
   Option(ExprInfoTable).Some(ctx.expr_info_table)
 });
@@ -359,7 +359,7 @@ extract_test_name :: (fn(imm(expr) : AstExpr) -> Option(String))(
               // with the evaluator's own table (a `\"` in a test name printed
               // as a backslash + quote, and `--json` then escaped both), then
               // strip the surrounding double-quotes the decoder keeps.
-              decoded := decode_str_lit_escapes(ntok.value);
+              decoded := decode_str_lit_escapes(&ntok.value);
               n := decoded.len();
               cond(
                 (n >= usize(2)) => .Some(decoded.substring(usize(1), n - usize(1))),
@@ -446,13 +446,13 @@ collect_module_deps :: (
   });
   // Handle directory modules: if path.yo doesn't exist but path/index.yo does, use the latter.
   (abs_path : String) = abs_path_raw.clone();
-  (file_found : bool) = io.await(exists(Path.new(abs_path_raw.clone()), io), io);
+  (file_found : bool) = io.await(exists(Path.new(abs_path_raw.clone()), io), &io);
   if(!file_found, {
     // Strip the trailing .yo (3 chars) to get the base name, then try index.yo
     base_len := abs_path_raw.len();
     base_no_ext := abs_path_raw.substring(usize(0), base_len - usize(3));
     index_path := `${base_no_ext}/index.yo`;
-    index_found := io.await(exists(Path.new(index_path), io), io);
+    index_found := io.await(exists(Path.new(&index_path), io), &io);
     cond(
       index_found => {
         abs_path = index_path;
@@ -492,7 +492,7 @@ collect_module_deps :: (
   // Read and parse the imported module
   src_bytes := io.await(read(Path.new(abs_path.clone()), io), IoExn(io : io, exn : exn));
   src := String.from_bytes(src_bytes);
-  mod_exprs := parse(src, mod_base_dir.clone(), exn);
+  mod_exprs := parse(&src, mod_base_dir.clone(), exn);
   // Recursively collect dependencies of this module first (post-order DFS)
   nm := mod_exprs.len();
   (im : usize) = usize(0);
@@ -502,7 +502,7 @@ collect_module_deps :: (
       mod_exprs.get(im - usize(1)),
       .None => (),
       .Some(e) => match(
-        extract_import_path(e),
+        extract_import_path(&e),
         .None => (),
         .Some(child_path) => {
           recur(
@@ -562,7 +562,7 @@ _resolve_for_match :: (fn(imm(p) : String) -> String)({
   while(ki < kept.len(), {
     seg := match(kept.get(ki), .Some(s) => s, .None => String.from(""));
     rebuilt.push_string(String.from("/"));
-    rebuilt.push_string(seg);
+    rebuilt.push_string(&seg);
     ki = (ki + usize(1));
   });
   if(rebuilt.len() == usize(0), {
@@ -624,8 +624,8 @@ _index_std_dir :: (
   });
   // readdir order is filesystem-dependent; the index order decides which
   // module a help text names first, so sort.
-  _sort_strings(files);
-  _sort_strings(dirs);
+  _sort_strings(&mut files);
+  _sort_strings(&mut dirs);
   (fi : usize) = usize(0);
   while(fi < files.len(), {
     name := match(files.get(fi), .Some(n) => n, .None => String.new());
@@ -670,7 +670,7 @@ _index_std_dir :: (
           pi = (pi + usize(1));
           // Identifiers only: a `:` (aliased export) or a space is not a name.
           if((nm.len() > usize(0)) && !nm.contains(String.from(":")) && !nm.contains(String.from(" ")), {
-            register_std_export(nm, spec.clone());
+            register_std_export(&nm, spec.clone());
           });
         });
         collecting = false;
@@ -729,7 +729,7 @@ _walk_check_dir :: (
               true => false
             );
             if(!skip, {
-              recur(full, out, io, exn);
+              recur(&full, out, io, exn);
             });
           },
           .File => {
@@ -769,7 +769,7 @@ collect_check_files :: (
         raw.push(path_str.clone());
       });
     },
-    meta.is_dir() => _walk_check_dir(path_str, raw, io, exn),
+    meta.is_dir() => _walk_check_dir(path_str, &mut raw, io, exn),
     true => ()
   );
   // ANCHORED exclude matching: both sides resolve against the cwd, and a file
@@ -782,7 +782,7 @@ collect_check_files :: (
   while(rei < excludes.len(), {
     rex := match(excludes.get(rei), .Some(e) => e, .None => String.from(""));
     if(!rex.is_empty(), {
-      resolved_excludes.push(_resolve_for_match(rex));
+      resolved_excludes.push(_resolve_for_match(&rex));
     });
     rei = (rei + usize(1));
   });
@@ -868,7 +868,7 @@ _run_contract_verification :: (
   });
   fail_without_solver := (strict_missing_solver && needs_proofs);
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     .InvalidPath(p) => {
       eprintln(`verify: solver path '${p}' does not exist`);
@@ -893,11 +893,11 @@ _run_contract_verification :: (
       return(true);
     }
   );
-  reports := verify_and_strip_tasks(cfg, binary, tasks);
+  reports := verify_and_strip_tasks(&cfg, &binary, &tasks);
   // 5b: license codegen to drop the guards these proofs discharge
   // (plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md).
   if(record_guard_sites, {
-    _ := record_elidable_guard_sites(reports);
+    _ := record_elidable_guard_sites(&reports);
   });
   (all_ok : bool) = true;
   (ri : usize) = usize(0);
@@ -905,15 +905,15 @@ _run_contract_verification :: (
     match(
       reports.get(ri),
       .Some(rp) => {
-        _print_verify_fn_report(rp, false);
+        _print_verify_fn_report(&rp, false);
         // The pass/fail rule lives in the driver so this site, `yo verify`
         // and the self-verification sweep cannot disagree. `check`/`compile`
         // pass no deny set: `--strict` belongs to `yo verify`, and silently
         // hardening every build would change what today's code compiles.
-        if(verify_report_is_failure(rp, ArrayList(String).new()), {
+        if(verify_report_is_failure(&rp, ArrayList(String).new()), {
           all_ok = false;
         }, {
-          if(verify_report_is_degraded(rp, ArrayList(String).new()), {
+          if(verify_report_is_degraded(&rp, ArrayList(String).new()), {
             eprintln(`           (verify+ fallback: the runtime assert stays)`);
           });
         });
@@ -940,7 +940,7 @@ check_single_file :: (
   targets := ArrayList(String).new();
   targets.push(input_path.clone());
   targets.push(mm_resolve_entry_abs(input_path.clone(), std_path.clone()));
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   outcome := mm_load_file(input_path, std_path, true, io, exn);
   if(!outcome.ok, {
     // The loader's handlers only stash the rendered diagnostic (the P1
@@ -948,7 +948,7 @@ check_single_file :: (
     // own edge prints it here, exactly once, anchored at the failing file.
     match(
       _take_load_error(),
-      .Some(rendered) => emit_rendered_text(rendered),
+      .Some(rendered) => emit_rendered_text(&rendered),
       .None => eprintln(`check: error in: ${input_path} (no diagnostic recorded)`)
     );
     return(false);
@@ -1059,14 +1059,14 @@ _apply_fixes_to_file :: (
       fixes.get(fi),
       .Some(f) => if(f.row < lines.len(), {
         old_line := match(lines.get(f.row), .Some(l) => l, .None => String.new());
-        lines(f.row) = _splice_runes(old_line, f.col, f.len, f.replacement.clone());
+        lines(f.row) = _splice_runes(&old_line, f.col, f.len, f.replacement.clone());
         applied = (applied + usize(1));
       }),
       .None => ()
     );
     fi = (fi + usize(1));
   });
-  io.await(write_string(Path.new(path.clone()), String.from("\n").join(lines), io), IoExn(io : io, exn : exn));
+  io.await(write_string(Path.new(path.clone()), String.from("\n").join(&lines), io), IoExn(io : io, exn : exn));
   applied
 });
 /// The runes `[col, col + len)` of `line` (empty when the line is shorter).
@@ -1160,7 +1160,7 @@ _run_migrate_params :: (
     while(pi < pending.len(), pi = (pi + usize(1)), {
       p := match(pending.get(pi), .Some(x) => x, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
       line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
-      if(_rune_slice(line, p.col, p.len) != p.description, {
+      if(_rune_slice(&line, p.col, p.len) != p.description, {
         n_stale = (n_stale + usize(1));
         continue;
       });
@@ -1168,12 +1168,12 @@ _run_migrate_params :: (
       checked.push(p);
     });
     if(!dry_run && (checked.len() > usize(0)), {
-      _apply_fixes_to_file(file.clone(), checked, io, exn);
+      _apply_fixes_to_file(file.clone(), &mut checked, io, exn);
       fmt_argv := ArrayList(String).new();
       fmt_argv.push(String.from("yo"));
       fmt_argv.push(String.from("fmt"));
       fmt_argv.push(file.clone());
-      run_fmt(fmt_argv, io, exn);
+      run_fmt(&fmt_argv, io, exn);
     });
   });
   verb := if(dry_run, String.from("would migrate"), String.from("migrated"));
@@ -1199,7 +1199,7 @@ _modes_walk :: (fn(imm(e) : AstExpr, in_asm : bool, mut(out) : ArrayList(_Pendin
       callee_word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
       child_asm := (in_asm || (callee_word == "asm"));
       if(!in_asm && (callee_word == "inout") && (args.len() == usize(1)), {
-        ct := ast_expr_token(callee);
+        ct := ast_expr_token(&callee);
         out.push(_PendingFix(row : usize(ct.row), col : usize(ct.column), len : usize(5), replacement : String.from("mut"), description : String.from("inout")));
       });
       // `own(x) : T` — the old spelling of `sink(x)`, as a parameter label.
@@ -1216,10 +1216,10 @@ _modes_walk :: (fn(imm(e) : AstExpr, in_asm : bool, mut(out) : ArrayList(_Pendin
           _ => ()
         );
       });
-      recur(callee, child_asm, out);
+      recur(&callee, child_asm, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
-        match(args.get(i), .Some(a) => recur(a, child_asm, out), .None => ());
+        match(args.get(i), .Some(a) => recur(&a, child_asm, out), .None => ());
         i = (i + usize(1));
       });
     }
@@ -1228,7 +1228,7 @@ _modes_walk :: (fn(imm(e) : AstExpr, in_asm : bool, mut(out) : ArrayList(_Pendin
 /// `parse`, or `.None` when the file does not parse.
 _parse_or_none :: (fn(imm(src) : String, imm(file) : String) -> Option(ArrayList(AstExpr)))({
   local_exn := Exception(throw : (_err -> unwind(Option(ArrayList(AstExpr)).None)));
-  Option(ArrayList(AstExpr)).Some(parse(src, file, local_exn))
+  Option(ArrayList(AstExpr)).Some(parse(src, file, &local_exn))
 });
 _run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : Io, imm(exn) : Exception) -> unit)({
   (n_mut : usize) = usize(0);
@@ -1240,7 +1240,7 @@ _run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : I
     file := match(files.get(fi), .Some(f) => f, .None => String.new());
     src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
     match(
-      _parse_or_none(src, file.clone()),
+      _parse_or_none(&src, file.clone()),
       .None => {
         failed = (failed + usize(1));
         println(`fix: ${file} does not parse; skipped`);
@@ -1249,7 +1249,7 @@ _run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : I
         pending := ArrayList(_PendingFix).new();
         (ai : usize) = usize(0);
         while(ai < asts.len(), ai = (ai + usize(1)), {
-          match(asts.get(ai), .Some(a) => _modes_walk(a, false, &mut pending), .None => ());
+          match(asts.get(ai), .Some(a) => _modes_walk(&a, false, &mut pending), .None => ());
         });
         lines := src.split(String.from("\n"));
         checked := ArrayList(_PendingFix).new();
@@ -1258,12 +1258,12 @@ _run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : I
         while(pi < pending.len(), pi = (pi + usize(1)), {
           p := match(pending.get(pi), .Some(x) => x, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
           key := `${p.row.to_string()}:${p.col.to_string()}`;
-          if(seen.contains(key), {
+          if(seen.contains(&key), {
             continue;
           });
           seen.insert(key);
           line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
-          if(_rune_slice(line, p.col, p.len) != p.description, {
+          if(_rune_slice(&line, p.col, p.len) != p.description, {
             n_stale = (n_stale + usize(1));
             continue;
           });
@@ -1275,12 +1275,12 @@ _run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : I
           checked.push(p);
         });
         if(!dry_run && (checked.len() > usize(0)), {
-          _apply_fixes_to_file(file.clone(), checked, io, exn);
+          _apply_fixes_to_file(file.clone(), &mut checked, io, exn);
           fmt_argv := ArrayList(String).new();
           fmt_argv.push(String.from("yo"));
           fmt_argv.push(String.from("fmt"));
           fmt_argv.push(file.clone());
-          run_fmt(fmt_argv, io, exn);
+          run_fmt(&fmt_argv, io, exn);
         });
       }
     );
@@ -1333,8 +1333,8 @@ _expr_span_end :: (fn(imm(runes) : ArrayList(rune), col : usize, scan_from : usi
         cand.push_rune(runes(k));
       });
       match(
-        _parse_or_none(cand, file.clone()),
-        .Some(asts) => if((asts.len() == usize(1)) && (ast_expr_to_string(asts(usize(0))) == expect), {
+        _parse_or_none(&cand, file.clone()),
+        .Some(asts) => if((asts.len() == usize(1)) && (ast_expr_to_string(&asts(usize(0))) == expect), {
           return(.Some(end));
         }),
         .None => ()
@@ -1441,7 +1441,7 @@ _run_migrate_addr_of :: (
         continue;
       });
       match(
-        _addr_of_span_end(runes, st.col, st.expect, file),
+        _addr_of_span_end(&runes, st.col, &st.expect, &file),
         .None => {
           n_skipped = (n_skipped + usize(1));
           println(`fix: ${at}: the source text does not print as \`${st.expect}\` on one line; left as written`);
@@ -1506,12 +1506,12 @@ _run_migrate_addr_of :: (
     });
     n_addr = (n_addr + checked.len());
     if(!dry_run && (checked.len() > usize(0)), {
-      _apply_fixes_to_file(file.clone(), checked, io, exn);
+      _apply_fixes_to_file(file.clone(), &mut checked, io, exn);
       fmt_argv := ArrayList(String).new();
       fmt_argv.push(String.from("yo"));
       fmt_argv.push(String.from("fmt"));
       fmt_argv.push(file.clone());
-      run_fmt(fmt_argv, io, exn);
+      run_fmt(&fmt_argv, io, exn);
     });
   });
   verb := if(dry_run, String.from("would migrate"), String.from("migrated"));
@@ -1615,7 +1615,7 @@ _run_migrate_markers :: (
           }
         );
       });
-      span_end := if(st.col < runes.len(), _expr_span_end(runes, st.col, st.col, st.expect, file), Option(usize).None);
+      span_end := if(st.col < runes.len(), _expr_span_end(&runes, st.col, st.col, &st.expect, &file), Option(usize).None);
       match(
         span_end,
         .None => {
@@ -1631,11 +1631,11 @@ _run_migrate_markers :: (
             with_marker.push_rune(runes(k));
           });
           (marked_ok : bool) = match(
-            _parse_or_none(with_marker, file.clone()),
+            _parse_or_none(&with_marker, file.clone()),
             .Some(asts) => (
               (asts.len() == usize(1)) && match(
                 asts(usize(0)),
-                .FnCall(_, _, m_args, _, _) => (ast_expr_is_fn_call_of(asts(usize(0)), if(st.marker == "&", BF_ADDRESS_OF, BK_BORROW_MUT), .Some(usize(1))) && match(m_args.get(usize(0)), .Some(m_place) => (ast_expr_to_string(m_place) == st.expect), .None => false)),
+                .FnCall(_, _, m_args, _, _) => (ast_expr_is_fn_call_of(&asts(usize(0)), if(st.marker == "&", BF_ADDRESS_OF, BK_BORROW_MUT), .Some(usize(1))) && match(m_args.get(usize(0)), .Some(m_place) => (ast_expr_to_string(&m_place) == st.expect), .None => false)),
                 .Atom(_, _) => false
               )
             ),
@@ -1656,12 +1656,12 @@ _run_migrate_markers :: (
       );
     });
     if(!dry_run && (checked.len() > usize(0)), {
-      _apply_fixes_to_file(file.clone(), checked, io, exn);
+      _apply_fixes_to_file(file.clone(), &mut checked, io, exn);
       fmt_argv := ArrayList(String).new();
       fmt_argv.push(String.from("yo"));
       fmt_argv.push(String.from("fmt"));
       fmt_argv.push(file.clone());
-      run_fmt(fmt_argv, io, exn);
+      run_fmt(&fmt_argv, io, exn);
     });
   });
   verb := if(dry_run, String.from("would insert"), String.from("inserted"));
@@ -1730,18 +1730,18 @@ run_fix :: (
   if(target_path.len() == usize(0), {
     exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--dry-run]`));
   });
-  files := collect_check_files(target_path.clone(), excludes, io, exn);
+  files := collect_check_files(target_path.clone(), &excludes, io, exn);
   if(files.len() == usize(0), {
     exn.throw(dyn(`fix: no .yo files found at ${target_path}`));
   });
   // Same rule as `check`: a std tree is evaluated against its own root, not
   // the std the resolver found beside the binary
   // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
-  prefer_entry_std_root(files);
+  prefer_entry_std_root(&files);
   std_path := resolve_std_path();
   // The spelling sweep is syntactic: nothing is evaluated.
   if(migrate == "modes", {
-    _run_migrate_modes(files, dry_run, io, exn);
+    _run_migrate_modes(&files, dry_run, io, exn);
     return(());
   });
   // A migration records from the first evaluated parameter on, the
@@ -1766,15 +1766,15 @@ run_fix :: (
   });
   _index_std_exports(std_path.clone(), io, exn);
   if(migrate == "addr-of", {
-    _run_migrate_addr_of(files, std_path.clone(), dry_run, io, exn);
+    _run_migrate_addr_of(&files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   if(migrate == "params", {
-    _run_migrate_params(files, std_path.clone(), dry_run, io, exn);
+    _run_migrate_params(&files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   if(migrate == "markers", {
-    _run_migrate_markers(files, std_path.clone(), dry_run, io, exn);
+    _run_migrate_markers(&files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -1904,7 +1904,7 @@ run_fix :: (
         );
       });
       if(!dry_run && (pending.len() > usize(0)), {
-        n_applied := _apply_fixes_to_file(file.clone(), pending, io, exn);
+        n_applied := _apply_fixes_to_file(file.clone(), &mut pending, io, exn);
         if(n_applied > usize(0), {
           total_applied = (total_applied + n_applied);
           progress = true;
@@ -1918,7 +1918,7 @@ run_fix :: (
           fmt_argv.push(String.from("yo"));
           fmt_argv.push(String.from("fmt"));
           fmt_argv.push(file.clone());
-          run_fmt(fmt_argv, io, exn);
+          run_fmt(&fmt_argv, io, exn);
         });
       });
     });
@@ -1996,7 +1996,7 @@ run_check :: (
   if(target_path.len() == usize(0), {
     exn.throw(dyn(`check: missing input file. Usage: yo check <input.yo | dir>`));
   });
-  files := collect_check_files(target_path.clone(), excludes, io, exn);
+  files := collect_check_files(target_path.clone(), &excludes, io, exn);
   if(files.len() == usize(0), {
     exn.throw(dyn(`check: no .yo files found at ${target_path}`));
   });
@@ -2019,7 +2019,7 @@ run_check :: (
   // finds its bundled std beside the exe before ./std), the run evaluates
   // two copies of std and reports false failures — prefer the entry-side
   // root (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
-  prefer_entry_std_root(files);
+  prefer_entry_std_root(&files);
   std_path := resolve_std_path();
   // Reset the per-module loader cache for this run. Keys are absolute
   // paths, so cache entries are valid for the whole run (a module
@@ -2044,7 +2044,7 @@ run_check :: (
       files.get(fi),
       .None => (),
       .Some(file_path) => {
-        if(!check_single_file(file_path, std_path.clone(), io, exn), {
+        if(!check_single_file(&file_path, std_path.clone(), io, exn), {
           failed = (failed + usize(1));
         });
       }
@@ -2058,10 +2058,10 @@ run_check :: (
   // Watch modes survive a failing initial pass — that is their whole point.
   // (Phase C, plans/reference/INCREMENTAL_COMPILATION.md; src/check_watch.yo.)
   if(watch_once, {
-    run_watch_once(files, std_path.clone(), io, exn);
+    run_watch_once(&files, std_path.clone(), io, exn);
   });
   if(watch, {
-    run_check_watch(files, std_path.clone(), poll_ms, io, exn);
+    run_check_watch(&files, std_path.clone(), poll_ms, io, exn);
   });
   if(failed > usize(0), {
     exn.throw(dyn(`check: ${failed.to_string()} file(s) failed evaluator coverage`));
@@ -2123,7 +2123,7 @@ run_verify_cmd :: (
         }, {
           solver_path = Option(String).Some(v);
         });
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--rlimit") => {
         v2 := _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
@@ -2136,7 +2136,7 @@ run_verify_cmd :: (
             exn.throw(dyn(`verify: --rlimit expects a non-negative integer, got '${v2}'`));
           }
         );
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--format") => {
         v3 := _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
@@ -2149,7 +2149,7 @@ run_verify_cmd :: (
             exn.throw(dyn(`verify: --format expects 'text' or 'json', got '${v3}'`));
           });
         });
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--no-cache") => {
         no_cache = true;
@@ -2193,11 +2193,11 @@ run_verify_cmd :: (
           });
           di = (di + usize(1));
         });
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--explain") => {
         explain_fn = Option(String).Some(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       a.starts_with(String.from("-")) => {
         exn.throw(
@@ -2255,7 +2255,7 @@ run_verify_cmd :: (
   // runs the async one-time download install — the rest of the harness is
   // synchronous by design (see src/verifier/z3.yo's header note).
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(path) => path,
     .InvalidPath(path) => {
       exn.throw(dyn(`verify: solver path '${path}' does not exist`));
@@ -2263,7 +2263,7 @@ run_verify_cmd :: (
     },
     .Installable => io.await(ensure_z3(io, exn), IoExn(io : io, exn : exn))
   );
-  results := verifier_harness_self_test(cfg, binary.clone());
+  results := verifier_harness_self_test(&cfg, binary.clone());
   // Harness health: obligation 1 must PROVE, obligation 2 must REFUTE with
   // a concrete counter-example (guards against a solver that answers
   // garbage, or an encoding that proves by being wrong).
@@ -2311,7 +2311,7 @@ run_verify_cmd :: (
   // Same rule as `check`: verifying a std tree against a different std
   // (the bundle an installed binary finds beside itself) evaluates two
   // copies of it (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
-  prefer_entry_std_root(files);
+  prefer_entry_std_root(&files);
   std_path := resolve_std_path();
   abs_targets := ArrayList(String).new();
   (fi : usize) = usize(0);
@@ -2344,7 +2344,7 @@ run_verify_cmd :: (
           eval_failed = (eval_failed + usize(1));
           match(
             _take_load_error(),
-            .Some(rendered) => emit_rendered_text(rendered),
+            .Some(rendered) => emit_rendered_text(&rendered),
             .None => eprintln(`verify: error in: ${fp} (no diagnostic recorded)`)
           );
         });
@@ -2360,7 +2360,7 @@ run_verify_cmd :: (
   // and query count, so checker speed is a number the campaign can improve
   // rather than a claim. Timed around the solving, not the evaluation.
   verify_t0 := Instant.now();
-  all_reports := verify_registered_functions(cfg, binary.clone());
+  all_reports := verify_registered_functions(&cfg, binary.clone());
   verify_elapsed_ms := verify_t0.elapsed().as_millis();
   // `--explain PATTERN` narrows the report to functions whose id matches
   // (a substring of the id — ids are `fn@<file>:<row>` / `law@<file>:<row>:<col>`,
@@ -2398,7 +2398,7 @@ run_verify_cmd :: (
       reports.get(ri3),
       .Some(rp) => {
         // Same driver-side rule, now consulting `--deny` / `--strict`.
-        if(verify_report_is_failure(rp, denied.clone()), {
+        if(verify_report_is_failure(&rp, denied.clone()), {
           bad = (bad + usize(1));
           if(rp.outcome == "refuted", {
             refuted_n = (refuted_n + usize(1));
@@ -2416,7 +2416,7 @@ run_verify_cmd :: (
       match(
         reports.get(rj),
         .Some(rp) => {
-          fn_entries.push(_verify_fn_report_json(rp));
+          fn_entries.push(_verify_fn_report_json(&rp));
         },
         .None => ()
       );
@@ -2435,10 +2435,10 @@ run_verify_cmd :: (
     vs2.push(JsonValue.Str(String.from(Z3_VERSION)));
     vs2.push(JsonValue.Str(mode_str.clone()));
     vs2.push(JsonValue.Bool(harness_ok));
-    vs2.push(JsonValue.Array(_verify_self_test_json(results)));
+    vs2.push(JsonValue.Array(_verify_self_test_json(&results)));
     vs2.push(
       _verify_summary_json(
-        summarize_verify_reports(reports),
+        summarize_verify_reports(&reports),
         strict,
         denied.clone(),
         verify_elapsed_ms
@@ -2456,7 +2456,7 @@ run_verify_cmd :: (
       match(
         reports.get(rk),
         .Some(rp) => {
-          _print_verify_fn_report(rp, explain_fn.is_some());
+          _print_verify_fn_report(&rp, explain_fn.is_some());
         },
         .None => ()
       );
@@ -2470,7 +2470,7 @@ run_verify_cmd :: (
         )
       );
     });
-    println(_verify_summary_line(summarize_verify_reports(reports), verify_elapsed_ms));
+    println(_verify_summary_line(summarize_verify_reports(&reports), verify_elapsed_ms));
     if(strict, {
       println(
         tr(
@@ -2515,7 +2515,7 @@ _verify_summary_line :: (fn(imm(sum) : VerifySummary, elapsed_ms : i64) -> Strin
         });
         sb.write_string(verify_summary_count(sum, nm.clone()).to_string());
         sb.write_string(String.from(" "));
-        sb.write_string(nm);
+        sb.write_string(&nm);
       },
       .None => ()
     );
@@ -2582,7 +2582,7 @@ _verify_fn_report_json :: (fn(imm(rp) : VerifyFnReport) -> JsonValue)({
       .Some(obl) => {
         model := match(
           obl.verdict,
-          .Refuted(ce) => _verify_json_strs(ce),
+          .Refuted(ce) => _verify_json_strs(&ce),
           _ => JsonValue.Array(ArrayList(JsonValue).new())
         );
         verdict_str := match(
@@ -2674,7 +2674,7 @@ _verify_self_test_json :: (fn(imm(results) : ArrayList(VerifyResult)) -> ArrayLi
         verdict_json := match(
           r.verdict,
           .Proved(_) => JsonValue.Str(String.from("proved")),
-          .Refuted(ce) => _verify_json_strs(ce),
+          .Refuted(ce) => _verify_json_strs(&ce),
           .Unproven(reason) => JsonValue.Str(`unproven: ${reason}`),
           .SolverError(msg) => JsonValue.Str(`solver-error: ${msg}`)
         );
@@ -2771,7 +2771,7 @@ _print_verify_fn_report :: (fn(imm(rp) : VerifyFnReport, detailed : bool) -> uni
                 .Refuted(ce) => if(
                   ce.len() == usize(0),
                   String.from("REFUTED"),
-                  `REFUTED  counter-example: ${_verify_join_strs(ce, String.from(", "))}`
+                  `REFUTED  counter-example: ${_verify_join_strs(&ce, String.from(", "))}`
                 ),
                 .Unproven(reason) => `UNPROVEN  ${reason}`,
                 .SolverError(msg) => `SOLVER-ERROR  ${msg}`
@@ -2822,7 +2822,7 @@ _verify_join_strs :: (fn(imm(ss) : ArrayList(String), imm(sep) : String) -> Stri
         if(i > usize(0), {
           sb.write_string(sep);
         });
-        sb.write_string(s);
+        sb.write_string(&s);
       },
       .None => ()
     );
@@ -2969,7 +2969,7 @@ export(windows_path_with_dir_first);
 /// `windows_path_with_dir_first`); children inherit it.
 _put_asan_dll_dir_on_path :: (fn(imm(dll_dir) : String) -> unit)({
   cur_path := match(proc_env.get(`PATH`), .Some(pv) => pv, .None => String.from(""));
-  _sv_path := proc_env.set(String.from("PATH"), windows_path_with_dir_first(cur_path, dll_dir));
+  _sv_path := proc_env.set(String.from("PATH"), windows_path_with_dir_first(&cur_path, dll_dir));
 });
 /// Windows: the directory holding clang's ASan runtime DLL, to prepend to
 /// PATH before running ASan-instrumented test binaries (the DLL lives at
@@ -2994,7 +2994,7 @@ _find_clang_asan_dll_path :: (fn(imm(compiler) : String, io : Io) -> Option(Stri
   compiler_dir := _win_dirname(first_line.clone());
   llvm_root := _win_dirname(compiler_dir.clone());
   clang_lib := `${llvm_root}\\lib\\clang`;
-  clang_lib_found := io.await(exists(Path.new(clang_lib.clone()), io), io);
+  clang_lib_found := io.await(exists(Path.new(clang_lib.clone()), io), &io);
   if(!clang_lib_found, {
     return(Option(String).None);
   });
@@ -3012,7 +3012,7 @@ _find_clang_asan_dll_path :: (fn(imm(compiler) : String, io : Io) -> Option(Stri
         // into the path and the probe silently found nothing
         // (issues/backslash-then-interpolation-in-a-template-is-not-interpolated.md).
         win_lib := (`${clang_lib}\\` + vname + String.from("\\lib\\windows"));
-        win_found := io.await(exists(Path.new(win_lib.clone()), io), io);
+        win_found := io.await(exists(Path.new(win_lib.clone()), io), &io);
         if(win_found, {
           return(Option(String).Some(win_lib));
         });
@@ -3070,7 +3070,7 @@ _remove_batch_artifact :: (fn(imm(path) : String, io : Io) -> unit)({
   (pause_ms : usize) = usize(25);
   while(!removed && (attempt < usize(8)), {
     ok := ArrayList(bool).new();
-    _try_remove_once(path.clone(), io, ok);
+    _try_remove_once(path.clone(), io, &mut ok);
     removed = (ok.len() > usize(0));
     attempt = (attempt + usize(1));
     // No pause after the FINAL failed attempt — it would only delay the warning.
@@ -3134,7 +3134,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
   while((ki < kegs.len()) && flags.is_none(), {
     keg := kegs(ki);
     kprobe := Command.new(String.from("pkg-config"));
-    kprobe.env(String.from("PKG_CONFIG_PATH"), keg);
+    kprobe.env(String.from("PKG_CONFIG_PATH"), &keg);
     kprobe.arg(String.from("--cflags"));
     kprobe.arg(String.from("--libs"));
     kprobe.arg(String.from("openssl"));
@@ -3240,7 +3240,7 @@ _asan_runtime_is_usable :: (fn(imm(base) : String, imm(cc) : String, io : Io) ->
     // run untouched.
     match(
       _find_clang_asan_dll_path(cc.clone(), io),
-      .Some(dll_dir) => _put_asan_dll_dir_on_path(dll_dir),
+      .Some(dll_dir) => _put_asan_dll_dir_on_path(&dll_dir),
       .None => ()
     );
     run_cmd.arg(String.from("-c"));
@@ -3402,9 +3402,9 @@ _compile_chunks_parallel :: (
       stamp_src.push(match(sb.get_byte(si), .Some(x) => x, .None => u8(0)));
       si = (si + usize(1));
     });
-    stamp := sha256_hex(stamp_src);
+    stamp := sha256_hex(&stamp_src);
     stamp_path := `${obj}.inputs-sha256`;
-    obj_exists := io.await(exists(Path.new(obj.clone()), io), io);
+    obj_exists := io.await(exists(Path.new(obj.clone()), io), &io);
     cached := (!no_cache && (obj_exists && match(_chunk_read_stamp(stamp_path.clone(), io), .Some(prev) => (prev == stamp), .None => false)));
     if(!cached, {
       cmdline := String.new();
@@ -3475,7 +3475,7 @@ _compile_chunks_parallel :: (
       });
       script.push_str("for p in $pids; do wait $p || rc=1; done\nexit $rc\n");
       script_path := `${out_base}_chunks_compile.sh`;
-      io.await(write_string(Path.new(script_path.clone()), script, io), IoExn(io : io, exn : exn));
+      io.await(write_string(Path.new(script_path.clone()), &script, io), IoExn(io : io, exn : exn));
       shcmd := Command.new(String.from("sh"));
       shcmd.arg(script_path.clone());
       shst := io.await(shcmd.status(io), IoExn(io : io, exn : exn));
@@ -3674,7 +3674,7 @@ _print_compile_profile :: (
     js.push_str(",\"minted_during_emission\":");
     js.push_string((profile_fn_total() - profile_fn_at_collect()).to_string());
     js.push_str("}}\n");
-    io.await(write_string(Path.new(json_path.clone()), js, io), IoExn(io : io, exn : exn));
+    io.await(write_string(Path.new(json_path.clone()), &js, io), IoExn(io : io, exn : exn));
   });
 });
 /// Write the evaluation's input list for `--emit-deps`
@@ -3701,7 +3701,7 @@ _write_depfile :: (
       );
       i = (i + usize(1));
     });
-    e.io.await(write_string(Path.new(path.clone()), body, e.io), e)
+    e.io.await(write_string(Path.new(path.clone()), &body, e.io), e)
   })
 );
 /// Run the `compile` subcommand.
@@ -3764,13 +3764,13 @@ run_warm_selfcheck_compile :: (fn(imm(argv) : ArrayList(String), io : Io, imm(ex
     _rm_b := io.await(remove_file(Path.new(out_b.clone()), io), IoExn(io : io, exn : exn));
   });
   t0 := Instant.now();
-  run_compile(argv_a, io, exn);
+  run_compile(&argv_a, io, exn);
   // Pass1's duration must be captured HERE: `t1.elapsed()` interpolated in
   // the print below runs after pass2, so it measured pass1+pass2. The
   // unused-variable lint (D15) is what surfaced this.
   pass1_ms := t0.elapsed().as_millis().to_string();
   t1 := Instant.now();
-  run_compile(argv_b, io, exn);
+  run_compile(&argv_b, io, exn);
   pass2_ms := t1.elapsed().as_millis().to_string();
   exists_a := file_exists_sync(out_a.clone());
   if(!exists_a, {
@@ -3917,15 +3917,15 @@ _cc_plan_serialize :: (fn(imm(plan) : CcPlan) -> String)({
   out.push_string(`jobs_memory_capped ${if(plan.jobs_memory_capped, String.from("1"), String.from("0"))}\n`);
   out.push_string(`capture_cc ${if(plan.capture_cc, String.from("1"), String.from("0"))}\n`);
   out.push_string(`verbose ${if(plan.verbose, String.from("1"), String.from("0"))}\n`);
-  out.push_string(`cc ${_cc_plan_escape(plan.cc)}\n`);
-  out.push_string(`c_path ${_cc_plan_escape(plan.c_path)}\n`);
-  out.push_string(`output ${_cc_plan_escape(plan.output)}\n`);
-  out.push_string(`obj_path ${_cc_plan_escape(plan.obj_path)}\n`);
-  out.push_string(`ar_out ${_cc_plan_escape(plan.ar_out)}\n`);
-  _cc_plan_push_list(out, "argv", plan.argv);
-  _cc_plan_push_list(out, "chunk_flag", plan.chunk_flags);
-  _cc_plan_push_list(out, "chunk_file", plan.chunk_files);
-  _cc_plan_push_list(out, "chunk_hash", plan.chunk_hashes);
+  out.push_string(`cc ${_cc_plan_escape(&plan.cc)}\n`);
+  out.push_string(`c_path ${_cc_plan_escape(&plan.c_path)}\n`);
+  out.push_string(`output ${_cc_plan_escape(&plan.output)}\n`);
+  out.push_string(`obj_path ${_cc_plan_escape(&plan.obj_path)}\n`);
+  out.push_string(`ar_out ${_cc_plan_escape(&plan.ar_out)}\n`);
+  _cc_plan_push_list(&mut out, "argv", &plan.argv);
+  _cc_plan_push_list(&mut out, "chunk_flag", &plan.chunk_flags);
+  _cc_plan_push_list(&mut out, "chunk_file", &plan.chunk_files);
+  _cc_plan_push_list(&mut out, "chunk_hash", &plan.chunk_hashes);
   out
 });
 _cc_plan_parse :: (fn(imm(text) : String, imm(exn) : Exception) -> CcPlan)({
@@ -4019,7 +4019,7 @@ _physical_memory_mb :: (fn() -> usize)(
 _physical_memory_mb_linux :: (fn() -> usize)({
   swallow := Exception(throw : (_err -> unwind(usize(0))));
   (total_mb : usize) = usize(0);
-  lines := String.from_bytes(read_file_sync(String.from("/proc/meminfo"), swallow)).split(String.from("\n"));
+  lines := String.from_bytes(read_file_sync(String.from("/proc/meminfo"), &swallow)).split(String.from("\n"));
   (li : usize) = usize(0);
   while(li < lines.len(), {
     line := match(lines.get(li), .Some(l) => l, .None => String.new());
@@ -4029,11 +4029,11 @@ _physical_memory_mb_linux :: (fn() -> usize)({
     });
     li = (li + usize(1));
   });
-  cg_lines := String.from_bytes(read_file_sync(String.from("/proc/self/cgroup"), swallow)).split(String.from("\n"));
+  cg_lines := String.from_bytes(read_file_sync(String.from("/proc/self/cgroup"), &swallow)).split(String.from("\n"));
   match(
     cg_lines.get(usize(0)),
     .Some(cg) => if(cg.starts_with(String.from("0::")), {
-      max_text := String.from_bytes(read_file_sync(`/sys/fs/cgroup${cg.substring(usize(3), cg.len())}/memory.max`, swallow)).trim();
+      max_text := String.from_bytes(read_file_sync(`/sys/fs/cgroup${cg.substring(usize(3), cg.len())}/memory.max`, &swallow)).trim();
       match(
         max_text.parse_u64(),
         .Some(limit) => {
@@ -4256,10 +4256,10 @@ _report_captured_cc_stderr :: (fn(imm(captured_err) : ArrayList(u8)) -> unit)({
     i = (i + usize(1));
   });
   if(raw.len() > usize(0), {
-    emit_chatter(raw);
+    emit_chatter(&raw);
   });
   if(diags.len() > usize(0), {
-    emit_rendered_text(render_diagnostics_for_mode(diags));
+    emit_rendered_text(render_diagnostics_for_mode(&diags));
   });
 });
 /// Run a plan: the C-compiler half of `run_compile`, unchanged in behaviour
@@ -4268,9 +4268,9 @@ _run_cc_plan :: (fn(imm(plan) : CcPlan, io : Io, imm(exn) : Exception) -> unit)(
   cc := plan.cc;
   if(plan.mode == _CC_PLAN_STATIC_LIB, {
     if(plan.verbose, {
-      _print_cc_argv(cc.clone(), plan.argv);
+      _print_cc_argv(cc.clone(), &plan.argv);
     });
-    cst := io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
+    cst := io.await(_cc_command(cc.clone(), &plan.argv).status(io), IoExn(io : io, exn : exn));
     if(cst.raw != i32(0), {
       exn.throw(dyn(`compile: C compiler failed (exit ${cst.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
       return(())
@@ -4284,7 +4284,7 @@ _run_cc_plan :: (fn(imm(plan) : CcPlan, io : Io, imm(exn) : Exception) -> unit)(
       ar_argv.push(String.from("rcs"));
       ar_argv.push(plan.ar_out.clone());
       ar_argv.push(plan.obj_path.clone());
-      _print_cc_argv(String.from("ar"), ar_argv);
+      _print_cc_argv(String.from("ar"), &ar_argv);
     });
     ast := io.await(arcmd.status(io), IoExn(io : io, exn : exn));
     if(ast.raw != i32(0), {
@@ -4302,13 +4302,13 @@ _run_cc_plan :: (fn(imm(plan) : CcPlan, io : Io, imm(exn) : Exception) -> unit)(
     prof_cc_t0 := Instant.now();
     _objs := _compile_chunks_parallel(
       cc.clone(),
-      plan.chunk_flags,
-      plan.chunk_files,
-      plan.chunk_hashes,
+      &plan.chunk_flags,
+      &plan.chunk_files,
+      &plan.chunk_hashes,
       plan.output.clone(),
       chunk_jobs,
       false,
-      chunk_hits,
+      &mut chunk_hits,
       plan.verbose,
       io,
       exn
@@ -4322,10 +4322,10 @@ _run_cc_plan :: (fn(imm(plan) : CcPlan, io : Io, imm(exn) : Exception) -> unit)(
   // warnings visible by printing what was captured.
   (link_st : ExitStatus) = ExitStatus(raw : i32(0));
   if(plan.verbose, {
-    _print_cc_argv(cc.clone(), plan.argv);
+    _print_cc_argv(cc.clone(), &plan.argv);
   });
   if(plan.capture_cc, {
-    cap := io.await(_cc_command(cc.clone(), plan.argv).output(io), IoExn(io : io, exn : exn));
+    cap := io.await(_cc_command(cc.clone(), &plan.argv).output(io), IoExn(io : io, exn : exn));
     link_st = cap.status;
     if(link_st.raw != i32(0), {
       _report_captured_cc_stderr(cap.stderr.clone());
@@ -4338,7 +4338,7 @@ _run_cc_plan :: (fn(imm(plan) : CcPlan, io : Io, imm(exn) : Exception) -> unit)(
       });
     });
   }, {
-    link_st = io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
+    link_st = io.await(_cc_command(cc.clone(), &plan.argv).status(io), IoExn(io : io, exn : exn));
   });
   profile_record_phase(
     if(chunked, String.from("link"), String.from("cc compile+link")),
@@ -4355,21 +4355,21 @@ _run_cc_plan :: (fn(imm(plan) : CcPlan, io : Io, imm(exn) : Exception) -> unit)(
       retry_hits := ArrayList(usize).new();
       _r := _compile_chunks_parallel(
         cc.clone(),
-        plan.chunk_flags,
-        plan.chunk_files,
-        plan.chunk_hashes,
+        &plan.chunk_flags,
+        &plan.chunk_files,
+        &plan.chunk_hashes,
         plan.output.clone(),
         chunk_jobs,
         true,
-        retry_hits,
+        &mut retry_hits,
         plan.verbose,
         io,
         exn
       );
       if(plan.verbose, {
-        _print_cc_argv(cc.clone(), plan.argv);
+        _print_cc_argv(cc.clone(), &plan.argv);
       });
-      st2 := io.await(_cc_command(cc.clone(), plan.argv).status(io), IoExn(io : io, exn : exn));
+      st2 := io.await(_cc_command(cc.clone(), &plan.argv).status(io), IoExn(io : io, exn : exn));
       if(st2.raw != i32(0), {
         exn.throw(dyn(`compile: C compiler failed (exit ${st2.code().unwrap_or(i32(-1)).to_string()}) on ${plan.c_path}`));
       });
@@ -4402,7 +4402,7 @@ _finish_cc_plan :: (fn(imm(plan) : CcPlan, imm(profile_json) : String, io : Io, 
         exec_cstrs.push(exe.to_string().to_cstr());
         exec_cstrs.push(String.from("__cc-plan").to_cstr());
         exec_cstrs.push(plan_path.to_cstr());
-        _exec_argv(exec_cstrs);
+        _exec_argv(&exec_cstrs);
       },
       // No executable path to re-exec: keep the step in this process.
       .Err(_) => ()
@@ -4424,7 +4424,7 @@ run_cc_plan_cmd :: (fn(imm(argv) : ArrayList(String), io : Io, imm(exn) : Except
   );
   plan := _cc_plan_parse(String.from_bytes(read_file_sync(plan_path.clone(), exn)), exn);
   _rm := io.await(remove_file(Path.new(plan_path.clone()), io), IoExn(io : io, exn : exn));
-  _run_cc_plan(plan, io, exn);
+  _run_cc_plan(&plan, io, exn);
 });
 run_compile :: (
   fn(
@@ -4567,23 +4567,23 @@ run_compile :: (
     cond(
       (a_name == "-o") => {
         output = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       ((a_name == "--c-compiler") || (a_name == "--cc") || (a_name == "-cc")) => {
         cc = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       ((a_name == "--target") || (a_name == "-t")) => {
         target_triple = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--sysroot") => {
         sysroot = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--emcc-environment") => {
         emcc_environment = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--no-verify") => {
         no_verify = true;
@@ -4591,7 +4591,7 @@ run_compile :: (
       },
       (a_name == "--compile-timeout-ms") => {
         compile_timeout_ms = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--profile") => {
         profile = true;
@@ -4599,7 +4599,7 @@ run_compile :: (
       },
       (a_name == "--profile-json") => {
         profile_json = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       ((a_name == "-v") || (a_name == "--verbose")) => {
         verbose = true;
@@ -4607,11 +4607,11 @@ run_compile :: (
       },
       (a_name == "--allocator") => {
         allocator = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--heap-size") => {
         heap_size_raw = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--debug-heap") => {
         debug_heap = true;
@@ -4619,22 +4619,22 @@ run_compile :: (
       },
       (a_name == "--optimize") => {
         optimize = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--sanitize") => {
         sanitize = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--cflags") => {
         cflags = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       // Array options. Space/`=` forms are GREEDY: following non-dash args
       // join the list (`-I a b` = two include paths — previously `b` silently
       // became input_path, a wrong-file success).
       ((a_name == "-D") || (a_name == "--define")) => {
         defines.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
         while((ai < argv.len()) && !argv(ai).starts_with("-"), {
           defines.push(argv(ai));
           ai = (ai + usize(1));
@@ -4642,7 +4642,7 @@ run_compile :: (
       },
       (a_name == "-I") => {
         include_paths.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
         while((ai < argv.len()) && !argv(ai).starts_with("-"), {
           include_paths.push(argv(ai));
           ai = (ai + usize(1));
@@ -4650,7 +4650,7 @@ run_compile :: (
       },
       (a_name == "-L") => {
         library_paths.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
         while((ai < argv.len()) && !argv(ai).starts_with("-"), {
           library_paths.push(argv(ai));
           ai = (ai + usize(1));
@@ -4658,7 +4658,7 @@ run_compile :: (
       },
       (a_name == "-l") => {
         libraries.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
         while((ai < argv.len()) && !argv(ai).starts_with("-"), {
           libraries.push(argv(ai));
           ai = (ai + usize(1));
@@ -4666,7 +4666,7 @@ run_compile :: (
       },
       (a_name == "--extern") => {
         externs.push(_opt_value(argv, ai, a_name.clone(), a_val.clone(), exn));
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
         while((ai < argv.len()) && !argv(ai).starts_with("-"), {
           externs.push(argv(ai));
           ai = (ai + usize(1));
@@ -4716,14 +4716,14 @@ run_compile :: (
       (a_name == "--emit-deps") => {
         emit_deps_to = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
         set_input_hashing(true);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       // `--emit-c-to <path>` REDIRECTS the sidecar (it does not add a second
       // copy), so the C compiler consumes this same path. Distinct from
       // `--emit-c`, which only prints to stdout.
       (a_name == "--emit-c-to") => {
         emit_c_to = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
-        ai = (ai + _opt_step(a_val));
+        ai = (ai + _opt_step(&a_val));
       },
       (a_name == "--skip-c-compiler") => {
         skip_cc = true;
@@ -4973,7 +4973,7 @@ run_compile :: (
   target := match(
     cond(
       (target_triple == "") => Result(TargetInfo, String).Ok(host_target()),
-      true => parse_target(target_triple)
+      true => parse_target(&target_triple)
     ),
     .Ok(t) => t,
     .Err(e) => {
@@ -4986,7 +4986,7 @@ run_compile :: (
   // fold for the TARGET rather than the emitting host. Must precede
   // evaluation: `cond(platform == ...)` arms in std/ are selected during
   // evaluation, and the untaken arm never reaches the AST.
-  set_current_target(target);
+  set_current_target(&target);
   // The fixed-region heap becomes a size_t-typed static array in the emitted
   // C; a 32-bit target's size_t cannot hold a 4 GiB byte count.
   if((allocator == "fixed") && (target.pointer_size_bits == u32(32)) && (heap_size > usize(4294967295)), {
@@ -5003,10 +5003,10 @@ run_compile :: (
   set_target_pointer_size(target.pointer_size_bits);
   // Auto-add the output extension when none was given:
   // emcc → `.wasm` for standalone WASI, else `.html`; Windows targets → `.exe`.
-  if((cc == "emcc") && !_path_has_extension(output), {
-    output = if(is_target_standalone_wasi(target), `${output}.wasm`, `${output}.html`);
+  if((cc == "emcc") && !_path_has_extension(&output), {
+    output = if(is_target_standalone_wasi(&target), `${output}.wasm`, `${output}.html`);
   });
-  if(is_target_windows(target) && !shared_library && !_path_has_extension(output), {
+  if(is_target_windows(&target) && !shared_library && !_path_has_extension(&output), {
     output = `${output}.exe`;
   });
   // A shared library carries the platform's extension, the way the static
@@ -5014,15 +5014,15 @@ run_compile :: (
   // a hand-written `-o libfoo.dylib` is left alone.
   if(shared_library, {
     so_ext := cond(
-      is_target_windows(target) => ".dll",
-      is_target_macos(target) => ".dylib",
+      is_target_windows(&target) => ".dll",
+      is_target_macos(&target) => ".dylib",
       true => ".so"
     );
-    output = if(output.ends_with(so_ext), output.clone(), `${output}${so_ext}`);
+    output = if(output.ends_with(&so_ext), output.clone(), `${output}${so_ext}`);
   });
   // mimalloc isn't available on wasm — downgrade
   // BEFORE codegen so the emitted runtime matches the link line.
-  if((allocator == "mimalloc") && is_target_wasm(target), {
+  if((allocator == "mimalloc") && is_target_wasm(&target), {
     allocator = String.from("system");
   });
   // Same rule as `check`: compiling a module that lives inside a std tree
@@ -5032,7 +5032,7 @@ run_compile :: (
   // writes next to the test files inside the very tree being tested.
   compile_entries := ArrayList(String).new();
   compile_entries.push(input_path.clone());
-  prefer_entry_std_root(compile_entries);
+  prefer_entry_std_root(&compile_entries);
   std_path := resolve_std_path();
   // Create the shared ExprInfoTable BEFORE loading the prelude, and publish it
   // via g_shared_expr_info_table now (not after the prelude load). The prelude
@@ -5157,7 +5157,7 @@ run_compile :: (
         .None => ()
       );
     });
-    mm_set_shared_expr_info_table(shared_info_table);
+    mm_set_shared_expr_info_table(&shared_info_table);
     // Ensure the prelude env is cached (provides std types to the evaluator).
     // Quiet: `compile` has no `check:` chatter.
     // A prelude that fails to evaluate is the root cause of everything that
@@ -5183,12 +5183,12 @@ run_compile :: (
     record_input_file(
       input_path.clone(),
       cond(
-        input_hashing_enabled() => sha256_hex(src_bytes),
+        input_hashing_enabled() => sha256_hex(&src_bytes),
         true => String.new()
       )
     );
     src := String.from_bytes(src_bytes);
-    exprs := parse(src, input_path.clone(), exn);
+    exprs := parse(&src, input_path.clone(), exn);
     profile_record_phase(String.from("read+parse entry"), prof_parse_t0.elapsed().as_nanos());
     // Demand-driven module loading. The entry module's eval context reuses the
     // shared ExprInfoTable (created above, also used by the prelude load and every
@@ -5203,10 +5203,10 @@ run_compile :: (
       v_targets := ArrayList(String).new();
       v_targets.push(input_path.clone());
       v_targets.push(entry_abs.clone());
-      set_verify_target_paths(v_targets);
+      set_verify_target_paths(&v_targets);
     });
     prof_eval_t0 := Instant.now();
-    outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, exn);
+    outcome := mm_eval_entry_exprs(&entry_abs, std_path.clone(), &exprs, exn);
     // Wall, not exclusive: the entry's evaluation includes every demand load
     // it triggered (the per-module rows decompose this same wall exclusively).
     profile_record_phase(String.from("entry module evaluation"), prof_eval_t0.elapsed().as_nanos());
@@ -5228,7 +5228,7 @@ run_compile :: (
         true => match(
           _take_load_error(),
           .Some(rendered) => {
-            emit_rendered_text(rendered);
+            emit_rendered_text(&rendered);
             _compile_fail(watch_mode, int(1));
             return(());
           },
@@ -5296,8 +5296,8 @@ run_compile :: (
     // `<base>_chunk` prefix the chunk files are named from.
     line_c_name := if(emit_c_to.len() > usize(0), emit_c_to.clone(), `${c_base}.c`);
     line_chunk_base := `${c_base}_chunk`;
-    c_parts := compile_module(module_value, ctx.expr_info_table, target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, ctx, env, exn, chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone());
-    (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), io);
+    c_parts := compile_module(&module_value, &mut ctx.expr_info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone());
+    (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), &io);
     // `--emit-c` (a debug path) reads the spill whole to print it; the file
     // write below copies it in pieces.
     (c_spilled : String) = String.new();
@@ -5324,9 +5324,9 @@ run_compile :: (
       (pi0 : usize) = usize(0);
       while(pi0 < c_parts.len(), {
         if((pi0 == usize(4)) && (c_spilled.len() > usize(0)), {
-          print(c_spilled);
+          print(&c_spilled);
         });
-        match(c_parts.get(pi0), .Some(part) => print(part), .None => ());
+        match(c_parts.get(pi0), .Some(part) => print(&part), .None => ());
         pi0 = (pi0 + usize(1));
       });
       println("");
@@ -5341,7 +5341,7 @@ run_compile :: (
       match(
         Path.new(c_path.clone()).parent(),
         .Some(pdir) => {
-          io.await(create_dir_all(pdir, io), IoExn(io : io, exn : exn));
+          io.await(create_dir_all(&pdir, io), IoExn(io : io, exn : exn));
         },
         .None => ()
       );
@@ -5388,12 +5388,12 @@ run_compile :: (
         (pw : usize) = usize(0);
         while(pw < c_parts.len(), {
           if((pw == usize(4)) && c_spill_exists, {
-            _copy_file_into(code_spill_path.clone(), c_file, io, exn);
+            _copy_file_into(code_spill_path.clone(), &c_file, io, exn);
           });
           match(
             c_parts.get(pw),
             .Some(part) => {
-              _pw_n := io.await(c_file.write_string(part, io), IoExn(io : io, exn : exn));
+              _pw_n := io.await(c_file.write_string(&part, io), IoExn(io : io, exn : exn));
             },
             .None => ()
           );
@@ -5444,7 +5444,7 @@ run_compile :: (
   cmd.arg(String.from("-fwrapv"));
   // Inline assembly with intel_syntax needs the C compiler in Intel mode
   // (skipped for wasm targets).
-  if(get_needs_intel_asm_syntax() && !is_target_wasm(target), {
+  if(get_needs_intel_asm_syntax() && !is_target_wasm(&target), {
     cmd.arg(String.from("-masm=intel"));
   });
   // Optimization + warnings. `--optimize` is the ONE mechanism here: an empty
@@ -5553,7 +5553,7 @@ run_compile :: (
   // chunk flag. The condition matches the -O selection above exactly.
   // Not for wasm: emcc's LTO story is separate and chunked wasm is out of scope.
   chunk_lto_wanted := ((optimize != "") && (optimize != "0"));
-  if((emit_chunks >= usize(1)) && chunk_lto_wanted && (!chunk_no_lto && !is_target_wasm(target)), {
+  if((emit_chunks >= usize(1)) && chunk_lto_wanted && (!chunk_no_lto && !is_target_wasm(&target)), {
     cmd.arg(String.from("-flto=thin"));
   });
   if(debug_symbols, {
@@ -5577,7 +5577,7 @@ run_compile :: (
       // init before main — skip the flags with a warning instead. The
       // probe runs through THIS cc (the driver about to link the real
       // binary), not the system `cc`.
-      if(_asan_runtime_is_usable(output, cc.clone(), io), {
+      if(_asan_runtime_is_usable(&output, cc.clone(), io), {
         cmd.arg(String.from("-fsanitize=address"));
         cmd.arg(String.from("-fno-omit-frame-pointer"));
       }, {
@@ -5656,7 +5656,7 @@ run_compile :: (
   // guarded by existence with a fallback warning.
   if(allocator == "mimalloc", {
     mim_static := `${std_root}/../vendor/mimalloc/src/static.c`;
-    mim_found := io.await(exists(Path.new(mim_static.clone()), io), io);
+    mim_found := io.await(exists(Path.new(mim_static.clone()), io), &io);
     if(mim_found, {
       cmd.arg(`-I${std_root}/../vendor/mimalloc/include`);
       cmd.arg(mim_static.clone());
@@ -5682,7 +5682,7 @@ run_compile :: (
       // The canonical triple is what LLVM speaks, except MinGW
       // (`<arch>-w64-mingw32`) and WASI (`wasm32-wasi`) — `clang_triple`
       // owns those spellings, so never hand clang the raw --target string.
-      cmd.arg(`--target=${clang_triple(target)}`);
+      cmd.arg(`--target=${clang_triple(&target)}`);
     }, {
       // Native compiles trust the C compiler's DEFAULT triple to equal the
       // host. On Windows that trust is misplaced: an x86_64 LLVM build runs
@@ -5693,8 +5693,8 @@ run_compile :: (
       // 32413596987, where tests/asm.test.yo's aarch64 inline-asm templates
       // reached an x64-targeting clang). Pin the resolved host triple
       // explicitly — clang only; gcc has no --target flag.
-      if(is_target_windows(target) && cc.contains("clang"), {
-        cmd.arg(`--target=${clang_triple(target)}`);
+      if(is_target_windows(&target) && cc.contains("clang"), {
+        cmd.arg(`--target=${clang_triple(&target)}`);
       });
     });
     if(sysroot != "", {
@@ -5709,7 +5709,7 @@ run_compile :: (
     // Yo emits C11, not C++. Emscripten 4.0.23+ otherwise fails to link on
     // __cxa_increment_exception_refcount from its JS symbols library.
     cmd.arg(String.from("-fno-exceptions"));
-    if(is_target_standalone_wasi(target), {
+    if(is_target_standalone_wasi(&target), {
       // Standalone WASI: a bare .wasm with no JS glue.
       cmd.arg(String.from("-sSTANDALONE_WASM"));
     }, {
@@ -5721,7 +5721,7 @@ run_compile :: (
     });
     // `&& !standalone_wasi` — emcc REJECTS the combination outright:
     // "explicitly setting EXIT_RUNTIME not compatible with STANDALONE_WASM".
-    if(get_uses_parallelism() && !is_target_standalone_wasi(target), {
+    if(get_uses_parallelism() && !is_target_standalone_wasi(&target), {
       cmd.arg(String.from("-pthread"));
       cmd.arg(String.from("-sPTHREAD_POOL_SIZE=4"));
       // `main` runs on a pthread, not on the JS main thread. A thread
@@ -5739,7 +5739,7 @@ run_compile :: (
   // linked into the library itself, so a consumer needs only -l<name>.
   if(shared_library, {
     cmd.arg(String.from("-shared"));
-    if(!is_target_windows(target), {
+    if(!is_target_windows(&target), {
       cmd.arg(String.from("-fPIC"));
     });
     // The name a CONSUMER records for this library. Without it macOS records
@@ -5752,10 +5752,10 @@ run_compile :: (
       .Some(b) => b,
       .None => output.clone()
     );
-    if(is_target_macos(target), {
+    if(is_target_macos(&target), {
       cmd.arg(`-Wl,-install_name,@rpath/${so_base}`);
     });
-    if(is_target_linux(target), {
+    if(is_target_linux(&target), {
       cmd.arg(`-Wl,-soname,${so_base}`);
     });
   });
@@ -5764,7 +5764,7 @@ run_compile :: (
   if(static_library, {
     obj_path := `${output}.o`;
     cmd.arg(String.from("-c"));
-    if(!is_target_windows(target), {
+    if(!is_target_windows(&target), {
       cmd.arg(String.from("-fPIC"));
     });
     cmd.arg(c_path.clone());
@@ -5775,7 +5775,7 @@ run_compile :: (
     lib_plan.obj_path = obj_path;
     lib_plan.ar_out = if(output.clone().ends_with(".a"), output.clone(), `${output}.a`);
     lib_plan.verbose = verbose;
-    _finish_cc_plan(lib_plan, profile_json.clone(), io, exn);
+    _finish_cc_plan(&lib_plan, profile_json.clone(), io, exn);
     return(())
   });
   // The OpenSSL probe's INCLUDE flags must precede the chunk compiles below —
@@ -5785,7 +5785,7 @@ run_compile :: (
   // program using std/crypto
   // (issues/fixed/chunked-emission-drops-probed-include-flags-and-an-extern-runtime-declaration.md).
   // The `-L`/`-l` half stays with the link flags below.
-  openssl_ok := (!is_target_windows(target) && !is_target_wasm(target) && _probe_openssl(io));
+  openssl_ok := (!is_target_windows(&target) && !is_target_wasm(&target) && _probe_openssl(io));
   if(openssl_ok, {
     (oii : usize) = usize(0);
     while(oii < g_openssl_includes.len(), {
@@ -5820,7 +5820,7 @@ run_compile :: (
         match(
           chunk_c_files.get(cci),
           .Some(cf) => {
-            _arg_c := cmd.arg(_chunk_obj_path(cf));
+            _arg_c := cmd.arg(_chunk_obj_path(&cf));
           },
           .None => ()
         );
@@ -5852,7 +5852,7 @@ run_compile :: (
   // of the generated output. Passing it unconditionally is why the first
   // self-hosted wasm smoke test built `hello-world.html` but produced no
   // `hello-world.js` for the runner to execute (run 31874422392).
-  if(!is_target_windows(target) && !is_target_wasm(target), {
+  if(!is_target_windows(&target) && !is_target_wasm(&target), {
     cmd.arg(String.from("-lm"));
     cmd.arg(String.from("-pthread"));
   });
@@ -5882,7 +5882,7 @@ run_compile :: (
     );
     xi = (xi + usize(1));
   });
-  if(is_target_windows(target), {
+  if(is_target_windows(&target), {
     cmd.arg(String.from("-lws2_32"));
     cmd.arg(String.from("-lbcrypt"));
     // mimalloc's Windows large-page support needs advapi32
@@ -5904,7 +5904,7 @@ run_compile :: (
   plan.jobs_memory_capped = jobs_defaulted;
   plan.capture_cc = line_directives;
   plan.verbose = verbose;
-  _finish_cc_plan(plan, profile_json.clone(), io, exn);
+  _finish_cc_plan(&plan, profile_json.clone(), io, exn);
 });
 // Exported for tests/internal/compile.test.yo, which drives the compile
 // command in-process (the test runner's own child compiles are separate yo
@@ -5941,11 +5941,11 @@ _collect_workspace_test_files :: (
       dyn(`test --workspace: ${root_path} declares no [workspace] members, so it is a single package — run \`yo test\` without --workspace`)
     );
   });
-  members := io.await(expand_workspace_members(root, io), IoExn(io : io, exn : exn));
+  members := io.await(expand_workspace_members(&root, io), IoExn(io : io, exn : exn));
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < members.len(), {
-    found := _collect_test_files(members(i), excludes, io, exn);
+    found := _collect_test_files(&members(i), excludes, io, exn);
     (j : usize) = usize(0);
     while(j < found.len(), {
       out.push(found(j));
@@ -6011,13 +6011,13 @@ _module_has_inline_tests :: (fn(imm(path) : String, io : Io, imm(exn) : Exceptio
   if(!(src.starts_with(String.from("test(")) || src.contains(String.from("\ntest("))), {
     return(false);
   });
-  prog := parse(src, path, exn);
+  prog := parse(&src, path, exn);
   (found : bool) = false;
   (pi : usize) = usize(0);
   while((pi < prog.len()) && !found, {
     match(
       prog.get(pi),
-      .Some(e) => if(ast_expr_is_fn_call_of(e, BK_TEST, .None), {
+      .Some(e) => if(ast_expr_is_fn_call_of(&e, BK_TEST, .None), {
         found = true;
       }),
       .None => ()
@@ -6034,7 +6034,7 @@ _is_main_definition :: (fn(imm(e) : AstExpr) -> bool)(
       e,
       .FnCall(_, _, args, _, _) => match(
         args.get(usize(0)),
-        .Some(lhs) => (ast_expr_is_atom(lhs) && (ast_expr_token(lhs).value == "main")),
+        .Some(lhs) => (ast_expr_is_atom(&lhs) && (ast_expr_token(&lhs).value == "main")),
         .None => false
       ),
       _ => false
@@ -6054,8 +6054,8 @@ _export_without_main :: (fn(imm(e) : AstExpr) -> Option(String))({
       while(ai < args.len(), {
         match(
           args.get(ai),
-          .Some(a) => if(!(ast_expr_is_atom(a) && (ast_expr_token(a).value == "main")), {
-            kept.push(ast_expr_to_string(a));
+          .Some(a) => if(!(ast_expr_is_atom(&a) && (ast_expr_token(&a).value == "main")), {
+            kept.push(ast_expr_to_string(&a));
           }),
           .None => ()
         );
@@ -6066,7 +6066,7 @@ _export_without_main :: (fn(imm(e) : AstExpr) -> Option(String))({
   );
   cond(
     (kept.len() == usize(0)) => Option(String).None,
-    true => Option(String).Some(String.from("export(") + String.from(", ").join(kept) + String.from(")"))
+    true => Option(String).Some(String.from("export(") + String.from(", ").join(&kept) + String.from(")"))
   )
 });
 /// One extracted `test("name", { body })` declaration (source-string form).
@@ -6142,7 +6142,7 @@ _peak_rss_mb :: (fn() -> usize)(
 );
 _peak_rss_mb_linux :: (fn() -> usize)({
   swallow := Exception(throw : (_err -> unwind(usize(0))));
-  status := String.from_bytes(read_file_sync(String.from("/proc/self/status"), swallow));
+  status := String.from_bytes(read_file_sync(String.from("/proc/self/status"), &swallow));
   lines := status.split(String.from("\n"));
   (li : usize) = usize(0);
   while(li < lines.len(), {
@@ -6161,7 +6161,7 @@ _peak_rss_mb_linux :: (fn() -> usize)({
 /// Linux: field 2 of `/proc/self/statm` is the resident page count.
 _current_rss_mb_linux :: (fn() -> usize)({
   swallow := Exception(throw : (_err -> unwind(usize(0))));
-  statm_bytes := read_file_sync(String.from("/proc/self/statm"), swallow);
+  statm_bytes := read_file_sync(String.from("/proc/self/statm"), &swallow);
   fields := String.from_bytes(statm_bytes).split(String.from(" "));
   match(
     fields.get(usize(1)),
@@ -6586,8 +6586,8 @@ run_test :: (
   // ordering is the sorted member order, so the report is stable.
   all_files := if(
     workspace,
-    _collect_workspace_test_files(excludes, io, exn),
-    _collect_test_files(target_path, excludes, io, exn)
+    _collect_workspace_test_files(&excludes, io, exn),
+    _collect_test_files(&target_path, &excludes, io, exn)
   );
   // `--shard i/n`: stripe the SORTED collection. `_collect_test_files` already
   // returns sorted paths, so the partition is deterministic across shards and
@@ -6645,7 +6645,7 @@ run_test :: (
     (wasm_target_kind == "") => false,
     true => match(
       parse_target(wasm_target_kind.clone()),
-      .Ok(wt) => is_target_standalone_wasi(wt),
+      .Ok(wt) => is_target_standalone_wasi(&wt),
       .Err(_) => false
     )
   );
@@ -6673,7 +6673,7 @@ run_test :: (
       }
     );
     targeted_variant := if(
-      is_target_standalone_wasi(wt_parsed),
+      is_target_standalone_wasi(&wt_parsed),
       String.from("pragma(Pragma.SkipWasm32Wasi)"),
       String.from("pragma(Pragma.SkipWasm32Emscripten)")
     );
@@ -6826,7 +6826,7 @@ run_test :: (
   // Installing the override here also forwards it to every batch-compile
   // child below as an explicit `--std-path`, so the runner and its children
   // cannot disagree.
-  prefer_entry_std_root(files);
+  prefer_entry_std_root(&files);
   // §7 items 3+4: the counts START from the restart's forwarded totals when
   // the RSS valve resumed this process (see --resume-from).
   (passed : usize) = accum_passed;
@@ -6861,14 +6861,14 @@ run_test :: (
     });
     src_bytes := io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
     src := String.from_bytes(src_bytes);
-    prog := parse(src, file.clone(), exn);
+    prog := parse(&src, file.clone(), exn);
     tests := ArrayList(TestDecl).new();
     non_test := ArrayList(String).new();
     (pi : usize) = usize(0);
     while(pi < prog.len(), {
       e := match(prog.get(pi), .Some(x) => x, .None => make_err_expr());
       pi = (pi + usize(1));
-      if(ast_expr_is_fn_call_of(e, BK_TEST, .None), {
+      if(ast_expr_is_fn_call_of(&e, BK_TEST, .None), {
         targs := match(e, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new());
         if(targs.len() >= usize(2), {
           // Go through extract_test_name, which strips the surrounding quotes a
@@ -6876,20 +6876,20 @@ run_test :: (
           // EVALUATED comptime string and only falls back to the raw token
           // value. Taking ntok.value directly printed `✓ "name"` and made
           // --test-name-pattern match against the quote characters.
-          tname := match(extract_test_name(e), .Some(n) => n, .None => String.from("unnamed_test"));
-          tbody := match(extract_test_body(e), .Some(b) => b, .None => make_err_expr());
+          tname := match(extract_test_name(&e), .Some(n) => n, .None => String.from("unnamed_test"));
+          tbody := match(extract_test_body(&e), .Some(b) => b, .None => make_err_expr());
           keep := match(name_regex, .Some(nre) => nre.is_match(tname.clone()), .None => true);
           if(keep, {
-            tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(tbody)));
+            tests.push(TestDecl(name : tname, body_src : ast_expr_to_string(&tbody)));
           });
         });
       }, {
         // A program's own `main` / `export(main)` stays out of the batch: the
         // batch defines and exports the `main` that runs the tests (in-file
         // tests in a module that is also a program — Rust binaries have them).
-        if(!_is_main_definition(e), {
+        if(!_is_main_definition(&e), {
           match(
-            _export_without_main(e),
+            _export_without_main(&e),
             .Some(stmt) => {
               non_test.push(stmt);
             },
@@ -7180,7 +7180,7 @@ run_test :: (
         (batch_failed : bool) = false;
         if(test_in_process, {
           g_compile_watch_failed = false;
-          run_compile(cargv, io, exn);
+          run_compile(&cargv, io, exn);
           batch_failed = g_compile_watch_failed;
         }, {
           // DEFAULT: the proven child-process spawn — one fresh evaluator
@@ -7265,17 +7265,17 @@ run_test :: (
           // (issues/retired/compiler-build-runner-nests-event-loop.md).
           _sv_strict := proc_env.set(String.from("YO_ASYNC_STRICT"), String.from("1"));
           // macOS: suppress the well-known system-library leak reports.
-          if(is_target_macos(host_ti), {
+          if(is_target_macos(&host_ti), {
             lsan_supp_file = `${tmp_bin}.lsan_supp.txt`;
             io.await(write_string(Path.new(lsan_supp_file.clone()), String.from("leak:libobjc\nleak:libdyld\nleak:libxpc\nleak:libsystem_malloc\nleak:dyld"), io), IoExn(io : io, exn : exn));
             _sv_lsan := proc_env.set(String.from("LSAN_OPTIONS"), `suppressions=${lsan_supp_file}`);
           });
           // Windows + clang: the ASan runtime DLL directory must be on PATH.
-          if(is_target_windows(host_ti) && ((test_cc == "") || (test_cc == "cc") || (test_cc == "clang")), {
+          if(is_target_windows(&host_ti) && ((test_cc == "") || (test_cc == "cc") || (test_cc == "clang")), {
             dll_cc := if((test_cc == "") || (test_cc == "cc"), String.from("clang"), test_cc.clone());
             match(
-              _find_clang_asan_dll_path(dll_cc, io),
-              .Some(dll_dir) => _put_asan_dll_dir_on_path(dll_dir),
+              _find_clang_asan_dll_path(&dll_cc, io),
+              .Some(dll_dir) => _put_asan_dll_dir_on_path(&dll_dir),
               .None => ()
             );
           });
@@ -7479,7 +7479,7 @@ run_test :: (
       exec_cstrs.push(passed.to_string().to_cstr());
       exec_cstrs.push(String.from("--accum-failed").to_cstr());
       exec_cstrs.push(failed.to_string().to_cstr());
-      _exec_argv(exec_cstrs);
+      _exec_argv(&exec_cstrs);
     });
     if(test_profile, {
       eprintln(`profile: file ${file} ${_fmt_profile_ms(file_t0.elapsed().as_nanos())} rss=${_current_rss_mb().to_string()}MB`);
@@ -7574,13 +7574,13 @@ run_effects :: (
   if(target_path.len() == usize(0), {
     exn.throw(dyn(String.from("effects: missing input file. Usage: yo effects <file-or-dir> [--exclude PATH] [--json]")));
   });
-  files := collect_check_files(target_path.clone(), excludes, io, exn);
+  files := collect_check_files(target_path.clone(), &excludes, io, exn);
   if(files.len() == usize(0), {
     exn.throw(dyn(`effects: no .yo files found at ${target_path}`));
   });
   // Same rule as `check`: a std tree is evaluated against its own root
   // (issues/fixed/check-std-in-a-checkout-evaluates-two-copies-of-std.md).
-  prefer_entry_std_root(files);
+  prefer_entry_std_root(&files);
   std_path := resolve_std_path();
   if(!mm_preload_prelude(std_path.clone(), false, io, exn), {
     exn.throw(dyn(`effects: could not load the prelude from ${std_path}`));
@@ -7627,7 +7627,7 @@ run_effects :: (
     while(ci < labels.len(), {
       match(
         types.get(ci),
-        .Some(t) => if(is_function_type(t), {
+        .Some(t) => if(is_function_type(&t), {
           n_fns = (n_fns + usize(1));
         }),
         .None => ()
@@ -7653,10 +7653,10 @@ run_effects :: (
             plabel := match(param_labels.get(pi), .Some(l) => l, .None => String.new());
             pty := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
             pi = (pi + usize(1));
-            kinds := _effect_kinds_of_type(pty, usize(0));
+            kinds := _effect_kinds_of_type(&pty, usize(0));
             if(kinds.len() > usize(0), {
-              entries.push(`${plabel} : ${type_to_string(pty)} [${_join_strings(kinds, ", ")}]`);
-              json_entries.push(`{"param":"${_json_escape(plabel.clone())}","type":"${_json_escape(type_to_string(pty))}","via":"param","kinds":[${_json_string_list(kinds)}]}`);
+              entries.push(`${plabel} : ${type_to_string(&pty)} [${_join_strings(&kinds, ", ")}]`);
+              json_entries.push(`{"param":"${_json_escape(plabel.clone())}","type":"${_json_escape(type_to_string(&pty))}","via":"param","kinds":[${_json_string_list(&kinds)}]}`);
             });
           });
           implicit_labels := meta.*.implicit_labels;
@@ -7666,38 +7666,38 @@ run_effects :: (
             ity := match(implicit_types.get(ii), .Some(t) => t, .None => TypeValue.Unit);
             ii = (ii + usize(1));
             // An implicit (`using`) parameter is an effect by construction.
-            kinds := _effect_kinds_of_type(ity, usize(0));
+            kinds := _effect_kinds_of_type(&ity, usize(0));
             if(kinds.len() == usize(0), {
               kinds.push(String.from("implicit"));
             });
-            entries.push(`using ${ilabel} : ${type_to_string(ity)} [${_join_strings(kinds, ", ")}]`);
-            json_entries.push(`{"param":"${_json_escape(ilabel.clone())}","type":"${_json_escape(type_to_string(ity))}","via":"implicit","kinds":[${_json_string_list(kinds)}]}`);
+            entries.push(`using ${ilabel} : ${type_to_string(&ity)} [${_join_strings(&kinds, ", ")}]`);
+            json_entries.push(`{"param":"${_json_escape(ilabel.clone())}","type":"${_json_escape(type_to_string(&ity))}","via":"implicit","kinds":[${_json_string_list(&kinds)}]}`);
           });
           // A returned future carries the effects its awaiter must supply.
           // `Impl(Future(T, E))` is a SomeT whose required traits hold the
           // FutureTraitT; a bare FutureTraitT result is read directly.
           fut_labels := ArrayList(String).new();
           fut_types := ArrayList(TypeValue).new();
-          _collect_future_effects(result, fut_labels, fut_types);
+          _collect_future_effects(&result, &mut fut_labels, &mut fut_types);
           (ei : usize) = usize(0);
           while((ei < fut_labels.len()) && (ei < fut_types.len()), {
             elabel := match(fut_labels.get(ei), .Some(l) => l, .None => String.new());
             ety := match(fut_types.get(ei), .Some(t) => t, .None => TypeValue.Unit);
             ei = (ei + usize(1));
-            kinds := _effect_kinds_of_type(ety, usize(0));
+            kinds := _effect_kinds_of_type(&ety, usize(0));
             // The row label of an `Impl(Future(T, E))` is E's own name; say
             // the type once.
-            fut_shown := if(elabel == type_to_string(ety), type_to_string(ety), `${elabel} : ${type_to_string(ety)}`);
-            entries.push(`future ${fut_shown} [${_join_strings(kinds, ", ")}]`);
-            json_entries.push(`{"param":"${_json_escape(elabel.clone())}","type":"${_json_escape(type_to_string(ety))}","via":"future","kinds":[${_json_string_list(kinds)}]}`);
+            fut_shown := if(elabel == type_to_string(&ety), type_to_string(&ety), `${elabel} : ${type_to_string(&ety)}`);
+            entries.push(`future ${fut_shown} [${_join_strings(&kinds, ", ")}]`);
+            json_entries.push(`{"param":"${_json_escape(elabel.clone())}","type":"${_json_escape(type_to_string(&ety))}","via":"future","kinds":[${_json_string_list(&kinds)}]}`);
           });
           if(as_json, {
-            println(`    {"name":"${_json_escape(name.clone())}","effects":[${_join_strings(json_entries, ",")}]}${fn_sep}`);
+            println(`    {"name":"${_json_escape(name.clone())}","effects":[${_join_strings(&json_entries, ",")}]}${fn_sep}`);
           }, {
             if(entries.len() == usize(0), {
               println(`  ${name}: (none)`);
             }, {
-              println(`  ${name}: ${_join_strings(entries, "; ")}`);
+              println(`  ${name}: ${_join_strings(&entries, "; ")}`);
             });
           });
         },
@@ -7751,10 +7751,10 @@ _effect_kinds_of_type :: (fn(imm(t) : TypeValue, depth : usize) -> ArrayList(Str
           },
           _ => {
             if(depth < usize(2), {
-              inner := recur(fty, depth + usize(1));
+              inner := recur(&fty, depth + usize(1));
               (ki : usize) = usize(0);
               while(ki < inner.len(), {
-                match(inner.get(ki), .Some(k) => _push_unique(kinds, k.clone()), .None => ());
+                match(inner.get(ki), .Some(k) => _push_unique(&mut kinds, k.clone()), .None => ());
                 ki = (ki + usize(1));
               });
             });
@@ -7762,10 +7762,10 @@ _effect_kinds_of_type :: (fn(imm(t) : TypeValue, depth : usize) -> ArrayList(Str
         );
       });
       if(has_ctl, {
-        _push_unique(kinds, String.from("ctl"));
+        _push_unique(&mut kinds, String.from("ctl"));
       });
       if(has_async, {
-        _push_unique(kinds, String.from("io"));
+        _push_unique(&mut kinds, String.from("io"));
       });
     },
     _ => ()
@@ -7790,7 +7790,7 @@ _collect_future_effects :: (
     .SomeT({ required_trait_types }) => {
       (i : usize) = usize(0);
       while(i < required_trait_types.len(), {
-        match(required_trait_types.get(i), .Some(rt) => recur(rt, labels, types), .None => ());
+        match(required_trait_types.get(i), .Some(rt) => recur(&rt, labels, types), .None => ());
         i = (i + usize(1));
       });
     },
@@ -7892,7 +7892,7 @@ run_init :: (
   // install_agent_files is SYNC (blocking awaits inside, like
   // run_skills_install) — a plain call, no io.await.
   if(install_skills, {
-    install_agent_files(project_dir, io, exn);
+    install_agent_files(&project_dir, io, exn);
   });
 });
 run_fmt :: (
@@ -7940,7 +7940,7 @@ run_fmt :: (
     )
   );
   options := FormatYoFilesOptions(check : check_mode, cwd : fmt_cwd.clone());
-  result := format_yo_files(input_paths, options, io, fmt_exn);
+  result := format_yo_files(&input_paths, &options, io, &fmt_exn);
   // Report: check mode lists cwd-relative paths on
   // STDERR under a header and exits 1; write mode prints one summary line.
   cn := result.changed.len();
@@ -7990,9 +7990,9 @@ run_cache :: (
   });
   cache_dir := get_global_cache_dir();
   cond(
-    (action == "path") => println(cache_dir),
-    (action == "clean") => _cache_clean(cache_dir, io, exn),
-    (action == "gc") => _cache_gc(cache_dir, io, exn),
+    (action == "path") => println(&cache_dir),
+    (action == "clean") => _cache_clean(&cache_dir, io, exn),
+    (action == "gc") => _cache_gc(&cache_dir, io, exn),
     true => {
       exn.throw(dyn(`cache: unknown action '${action}'. ${usage}`));
     }
@@ -8008,7 +8008,7 @@ _cache_clean :: (
     imm(exn) : Exception
   ) -> unit
 )({
-  present := io.await(exists(Path.new(cache_dir.clone()), io), io);
+  present := io.await(exists(Path.new(cache_dir.clone()), io), &io);
   if(!present, {
     println(`Cache directory does not exist: ${cache_dir}`);
     return(());
@@ -8023,9 +8023,9 @@ _cache_clean :: (
   while(i < dirs.len(), {
     d := dirs(i);
     i = (i + usize(1));
-    d_present := io.await(exists(Path.new(d.clone()), io), io);
+    d_present := io.await(exists(Path.new(d.clone()), io), &io);
     if(d_present, {
-      io.await(remove_dir_all(Path.new(d), io), e);
+      io.await(remove_dir_all(Path.new(&d), io), &e);
     });
   });
   files := ArrayList(String).new();
@@ -8035,9 +8035,9 @@ _cache_clean :: (
   while(j < files.len(), {
     f := files(j);
     j = (j + usize(1));
-    f_present := io.await(exists(Path.new(f.clone()), io), io);
+    f_present := io.await(exists(Path.new(f.clone()), io), &io);
     if(f_present, {
-      io.await(remove_file(Path.new(f), io), e);
+      io.await(remove_file(Path.new(&f), io), &e);
     });
   });
   println(`Removed the dependency store under ${cache_dir} (store/, git/, index/). versions/ is kept — 'yo version clean' removes it.`);
@@ -8051,7 +8051,7 @@ _cache_gc :: (
     imm(exn) : Exception
   ) -> unit
 )({
-  present := io.await(exists(Path.new(cache_dir.clone()), io), io);
+  present := io.await(exists(Path.new(cache_dir.clone()), io), &io);
   if(!present, {
     println(`Cache directory does not exist: ${cache_dir}`);
     return(());
@@ -8064,8 +8064,8 @@ _cache_gc :: (
   context_keep := ArrayList(String).new();
   context_keep.push(String.from("context.lock"));
   context_keep.push(context_tree_key(resolve_std_path(), String.new(), io, exn));
-  report := io.await(gc_store(cache_dir.clone(), context_keep, io, exn), IoExn(io : io, exn : exn));
-  context_unlock(ctx_lock);
+  report := io.await(gc_store(cache_dir.clone(), &context_keep, io, exn), IoExn(io : io, exn : exn));
+  context_unlock(&ctx_lock);
   println(`Kept ${report.trees_kept.to_string()} tree(s) referenced by ${report.projects_kept.to_string()} project(s); removed ${report.trees_removed.to_string()} tree(s), ${report.mirrors_removed.to_string()} mirror(s), ${report.indexes_removed.to_string()} tag list(s), ${report.context_dirs_removed.to_string()} context index(es); forgot ${report.projects_forgotten.to_string()} project(s) whose yo.lock is gone.`);
 });
 /// Run the `add` subcommand — declare a dependency in `yo.toml`, resolve and
@@ -8191,7 +8191,7 @@ run_remove_cmd :: (
   if(!name_seen, {
     exn.throw(dyn(`remove: missing dependency name. ${usage}`));
   });
-  io.await(run_remove(name, verbose, io, exn), IoExn(io : io, exn : exn));
+  io.await(run_remove(&name, verbose, io, exn), IoExn(io : io, exn : exn));
 });
 /// Run the `install` subcommand — fetch every git dependency `yo.toml` names
 /// into the global cache and write `yo.lock`.
@@ -8319,7 +8319,7 @@ _build_round_watch :: (fn(imm(opts) : BuildOptions, io : Io) -> bool)({
       }
     )
   );
-  io.await(run_build(opts, io, swallow), IoExn(io : io, exn : swallow));
+  io.await(run_build(opts, io, &swallow), IoExn(io : io, exn : swallow));
   true
 });
 /// `-j N` — nodes per DAG level (§4.8). Zero, a non-number or a negative
@@ -8424,7 +8424,7 @@ run_build_cmd :: (
         if((ai + usize(1)) >= argv.len(), {
           exn.throw(dyn(String.from("build: -j requires a value")));
         });
-        jobs = _parse_jobs(argv(ai + usize(1)), exn);
+        jobs = _parse_jobs(&argv(ai + usize(1)), exn);
         ai = (ai + usize(1));
       },
       arg.starts_with(String.from("--jobs=")) => {
@@ -8552,7 +8552,7 @@ run_build_cmd :: (
     package : package
   );
   if(!watch, {
-    io.await(run_build(opts, io, exn), IoExn(io : io, exn : exn));
+    io.await(run_build(&opts, io, exn), IoExn(io : io, exn : exn));
     return(());
   });
   // `yo build --watch` (Phase C, plans/reference/INCREMENTAL_COMPILATION.md): a thin
@@ -8562,7 +8562,7 @@ run_build_cmd :: (
   // and `run_compile`'s self-containment invariant (fresh ExprInfoTable per
   // compile) is exactly what a warm parent would violate. A failing round
   // does not exit the loop.
-  _first := _build_round_watch(opts, io);
+  _first := _build_round_watch(&opts, io);
   // §7 item 4, applied at the EDIT-ROUND boundaries: report RSS per round
   // under --profile, and past --max-rss-mb re-exec the whole watch process
   // (see the flag's parse arm). Round 1's universe is the BASELINE, not
@@ -8577,17 +8577,17 @@ run_build_cmd :: (
   });
   watch_files := collect_check_files(String.from("."), ArrayList(String).new(), io, exn);
   stats := HashMap(String, String).new();
-  watch_snapshot(watch_files, stats, io);
+  watch_snapshot(&watch_files, &mut stats, io);
   println(`build: watching ${watch_files.len().to_string()} file(s), polling every ${poll_ms.to_string()}ms — Ctrl-C to exit`);
   while(true, {
-    changed := wait_for_change(watch_files, stats, poll_ms, io);
+    changed := wait_for_change(&watch_files, &mut stats, poll_ms, io);
     println(`build: ${changed.len().to_string()} file(s) changed — rebuilding`);
     // The round compiles in process against the warm module cache; evict the
     // changed files and their importers first, or an edited import is served
     // from the cache and the rebuilt binary keeps the old code.
-    _dropped := invalidate_changed_files(changed, resolve_std_path());
+    _dropped := invalidate_changed_files(&changed, resolve_std_path());
     round_t0 := Instant.now();
-    _ok := _build_round_watch(opts, io);
+    _ok := _build_round_watch(&opts, io);
     round_no = (round_no + usize(1));
     if(profile, {
       eprintln(`profile: watch round ${round_no.to_string()} ${_fmt_profile_ms(round_t0.elapsed().as_nanos())} rss=${_current_rss_mb().to_string()}MB`);
@@ -8604,7 +8604,7 @@ run_build_cmd :: (
         );
         wcj = (wcj + usize(1));
       });
-      _exec_argv(watch_cstrs2);
+      _exec_argv(&watch_cstrs2);
     });
     ()
   });
@@ -8641,16 +8641,16 @@ run_unsafe_report_cmd :: (
     ai = (ai + usize(1));
   });
   // Path.new(".") normalizes to the empty path, so check the CWD directly.
-  target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), io));
+  target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), &io));
   if(!target_exists, {
     eprintln(`unsafe-report: path does not exist: ${target}`);
     exn.throw(dyn(`unsafe-report: path does not exist`));
   });
   report := io.await(generate_unsafe_report(target.clone(), io, exn), IoExn(io : io, exn : exn));
   if(as_json, {
-    println(unsafe_report_to_json(report));
+    println(unsafe_report_to_json(&report));
   }, {
-    println(format_unsafe_report(report));
+    println(format_unsafe_report(&report));
   });
 });
 /// `yo public-safe-report [path] [--json]` — the public-signature raw-
@@ -8679,16 +8679,16 @@ run_public_safe_report_cmd :: (
     ai = (ai + usize(1));
   });
   // Path.new(".") normalizes to the empty path, so check the CWD directly.
-  target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), io));
+  target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), &io));
   if(!target_exists, {
     eprintln(`public-safe-report: path does not exist: ${target}`);
     exn.throw(dyn(`public-safe-report: path does not exist`));
   });
   report := io.await(generate_public_safe_report(target.clone(), io, exn), IoExn(io : io, exn : exn));
   if(as_json, {
-    println(public_safe_report_to_json(report));
+    println(public_safe_report_to_json(&report));
   }, {
-    println(format_public_safe_report(report));
+    println(format_public_safe_report(&report));
   });
 });
 run_doc_cmd :: (
@@ -9255,7 +9255,7 @@ run_explain :: (
         entries.get(ei),
         .Some(e) => {
           if(as_json, {
-            println(explain_to_json(e));
+            println(explain_to_json(&e));
           }, {
             if(lang == "zh-CN", {
               println(`${e.code}  ${e.title_zh}`);
@@ -9276,41 +9276,41 @@ run_explain :: (
     );
   });
   match(
-    lookup_explain(target),
+    lookup_explain(&target),
     .Some(e) => {
       if(as_json, {
-        println(explain_to_json(e));
+        println(explain_to_json(&e));
         return(());
       });
       if(lang == "zh-CN", {
         println(`${e.code} — ${e.title_zh}`);
         println(``);
-        println(e.summary_zh);
+        println(&e.summary_zh);
         println(``);
-        println(e.explanation_zh);
+        println(&e.explanation_zh);
         println(``);
         println(`示例 — 这样会报错：`);
-        _print_indented(e.bad);
+        _print_indented(&e.bad);
         println(`示例 — 改成这样：`);
-        _print_indented(e.good);
-        _print_indented(e.why_zh);
+        _print_indented(&e.good);
+        _print_indented(&e.why_zh);
       }, {
         println(`${e.code} — ${e.title}`);
         println(``);
-        println(e.summary);
+        println(&e.summary);
         println(``);
-        println(e.explanation);
+        println(&e.explanation);
         println(``);
         println(`Example — this fails:`);
-        _print_indented(e.bad);
+        _print_indented(&e.bad);
         println(`Example — write this instead:`);
-        _print_indented(e.good);
-        _print_indented(e.why);
+        _print_indented(&e.good);
+        _print_indented(&e.why);
       });
       println(`Run 'yo explain --list' for all codes.`);
     },
     .None => {
-      hint := suggest_code(target);
+      hint := suggest_code(&target);
       match(
         hint,
         .Some(h) => exn.throw(
@@ -10384,12 +10384,12 @@ main :: (fn(io : Io) -> unit)({
           .None => match(
             downcast(err, YoError),
             .Some(ye) => {
-              emit_rendered_text(render_diagnostics_for_mode(ye.diagnostics));
+              emit_rendered_text(render_diagnostics_for_mode(&ye.diagnostics));
             },
             .None => {
               text := err.to_string();
               if(text.starts_with(String.from("error: ")), {
-                emit_rendered_text(text);
+                emit_rendered_text(&text);
               }, {
                 eprintln(`yo: error: ${text}`);
               });
@@ -10439,7 +10439,7 @@ main :: (fn(io : Io) -> unit)({
         )
       );
     });
-    set_error_format(err_format);
+    set_error_format(&err_format);
   });
   // Color (P4/D14): `--color auto|always|never` (global, stripped before
   // subcommand dispatch, like --error-format) or the YO_COLOR env var (lower
@@ -10578,8 +10578,8 @@ main :: (fn(io : Io) -> unit)({
   });
   if(help_wanted, {
     match(
-      _subcommand_help_text(subcmd),
-      .Some(t) => println(t),
+      _subcommand_help_text(&subcmd),
+      .Some(t) => println(&t),
       .None => println(_top_level_help_text())
     );
     return(());
@@ -10595,13 +10595,13 @@ main :: (fn(io : Io) -> unit)({
       .None => match(cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from("."))
     );
     pin_exn := Exception(throw : (_pe -> unwind(())));
-    pinned_opt := io.await(read_yo_version(Path.new(dispatch_cwd.clone()), io, pin_exn), IoExn(io : io, exn : pin_exn));
+    pinned_opt := io.await(read_yo_version(Path.new(dispatch_cwd.clone()), io, &pin_exn), IoExn(io : io, exn : pin_exn));
     match(
       pinned_opt,
       .Some(pinned_v) => if(pinned_v != String.from(CURRENT_YO_VERSION), {
-        cached_dir := io.await(ensure_cached_version(pinned_v.clone(), io, exn), IoExn(io : io, exn : exn));
-        bin_path := cached_binary_path(cached_dir);
-        bin_found := io.await(exists(Path.new(bin_path.clone()), io), io);
+        cached_dir := io.await(ensure_cached_version(pinned_v.clone(), io, &exn), IoExn(io : io, exn : exn));
+        bin_path := cached_binary_path(&cached_dir);
+        bin_found := io.await(exists(Path.new(bin_path.clone()), io), &io);
         if(!bin_found, {
           exn.throw(dyn(`Error: Cached Yo v${pinned_v} is missing its compiler binary at ${bin_path}`));
         });
@@ -10610,7 +10610,7 @@ main :: (fn(io : Io) -> unit)({
         dcmd := Command.new(bin_path.clone());
         (dai : usize) = usize(1);
         while(dai < argv.len(), {
-          dcmd.arg(argv(dai));
+          dcmd.arg(&argv(dai));
           dai = (dai + usize(1));
         });
         dst := io.await(dcmd.status(io), IoExn(io : io, exn : exn));
@@ -10628,14 +10628,14 @@ main :: (fn(io : Io) -> unit)({
     (subcmd == "check") || (subcmd == "compile") || (subcmd == "build")
   );
   if(subcmd == "explain", {
-    run_explain(argv, io, exn);
+    run_explain(&argv, io, &exn);
   }, if(subcmd == "lsp", {
     // LSP frames are a PROTOCOL channel — ANSI in a diagnostic text would
     // corrupt the client's rendering, so the LSP ignores --color entirely
     // (plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §4.4).
     set_color_enabled(false);
     set_codegen_tables_enabled(false);
-    run_lsp_server(io, exn);
+    run_lsp_server(io, &exn);
   }, if(subcmd == "compile", {
     // The Phase-4 warm gate intercepts before run_compile ever sees the
     // flag (it strips it by building fresh argvs).
@@ -10652,62 +10652,62 @@ main :: (fn(io : Io) -> unit)({
       wi = (wi + usize(1));
     });
     if(warm_gate, {
-      run_warm_selfcheck_compile(argv, io, exn);
+      run_warm_selfcheck_compile(&argv, io, &exn);
     }, {
       // The top-level compile is the one process that may hand its C-compiler
       // step to a fresh image (`_finish_cc_plan`). Nothing invalidates a module
       // in it either, so it records no owner logs (memory plan §0.15).
       g_compile_may_exec_cc = true;
       set_owner_logs_enabled(false);
-      run_compile(argv, io, exn);
+      run_compile(&argv, io, &exn);
     });
   }, if(subcmd == "__cc-plan", {
-    run_cc_plan_cmd(argv, io, exn);
+    run_cc_plan_cmd(&argv, io, &exn);
   }, if(subcmd == "test", {
-    run_test(argv, io, exn);
+    run_test(&argv, io, &exn);
   }, if(subcmd == "fmt", {
-    run_fmt(argv, io, exn);
+    run_fmt(&argv, io, &exn);
   }, if(subcmd == "fix", {
-    run_fix(argv, io, exn);
+    run_fix(&argv, io, &exn);
   }, if(subcmd == "check", {
-    run_check(argv, io, exn);
+    run_check(&argv, io, &exn);
   }, if(subcmd == "verify", {
     set_owner_logs_enabled(false);
     // The verifier's match walk reads the compiled Pattern IR
     // (`lookup_match_arms`) — the one codegen-side table verify needs, so
     // the tables stay ON here (unlike check/lsp/doc). Nothing invalidates
     // in a one-shot run, so no owner log is required.
-    run_verify_cmd(argv, io, exn);
+    run_verify_cmd(&argv, io, &exn);
   }, if(subcmd == "init", {
-    run_init(argv, io, exn);
+    run_init(&argv, io, &exn);
   }, if(subcmd == "build", {
-    run_build_cmd(argv, io, exn);
+    run_build_cmd(&argv, io, &exn);
   }, if(subcmd == "add", {
-    run_add_cmd(argv, io, exn);
+    run_add_cmd(&argv, io, &exn);
   }, if(subcmd == "remove", {
-    run_remove_cmd(argv, io, exn);
+    run_remove_cmd(&argv, io, &exn);
   }, if(subcmd == "install", {
-    run_install_cmd(argv, io, exn);
+    run_install_cmd(&argv, io, &exn);
   }, if(subcmd == "update", {
-    run_update_cmd(argv, io, exn);
+    run_update_cmd(&argv, io, &exn);
   }, if(subcmd == "cache", {
-    run_cache(argv, io, exn);
+    run_cache(&argv, io, &exn);
   }, if(subcmd == "effects", {
-    run_effects(argv, io, exn);
+    run_effects(&argv, io, &exn);
   }, if(subcmd == "doc", {
     set_owner_logs_enabled(false);
     set_codegen_tables_enabled(false);
-    run_doc_cmd(argv, io, exn);
+    run_doc_cmd(&argv, io, &exn);
   }, if(subcmd == "unsafe-report", {
-    run_unsafe_report_cmd(argv, io, exn);
+    run_unsafe_report_cmd(&argv, io, &exn);
   }, if(subcmd == "public-safe-report", {
-    run_public_safe_report_cmd(argv, io, exn);
+    run_public_safe_report_cmd(&argv, io, &exn);
   }, if(subcmd == "skills", {
-    run_skills_install(argv, io, exn);
+    run_skills_install(&argv, io, &exn);
   }, if(subcmd == "context", {
-    run_context(argv, io, exn);
+    run_context(&argv, io, &exn);
   }, if(subcmd == "version", {
-    run_version_cmd(argv, io, exn);
+    run_version_cmd(&argv, io, &exn);
   }, {
     exn.throw(dyn(tr(`unknown subcommand '${subcmd}'. Usage: yo <${SUBCOMMAND_NAMES}> ... (yo --help lists them)`, `未知子命令 '${subcmd}'。用法：yo <${SUBCOMMAND_NAMES}> ...（yo --help 列出全部）`)));
   }))))))))))))))))));

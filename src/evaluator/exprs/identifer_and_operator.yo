@@ -166,10 +166,10 @@ evaluate_identifier_and_operator :: (
     type_kw_opt,
     .Some(ty) => {
       if(!shadowed_by_binding, {
-        ev := create_type_value(ty);
+        ev := create_type_value(&ty);
         info := new_expr_info(env, t_type());
         info.value = Option(EvalValue).Some(ev);
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
         return(expr);
       });
     },
@@ -182,21 +182,21 @@ evaluate_identifier_and_operator :: (
   self_type_opt := ctx.self_type;
   if((identifier == "Self") && self_type_opt.is_some(), {
     self_tv := match(self_type_opt, .Some(tv) => tv, .None => t_unit());
-    resolved := if(is_some_type(self_tv), {
-      bound := get_value_of_some_type_from_env(env, self_tv);
+    resolved := if(is_some_type(&self_tv), {
+      bound := get_value_of_some_type_from_env(env, &self_tv);
       if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-        st_r := if(is_some_type(bound), String.from("<unresolved-some>"), type_key(bound));
+        st_r := if(is_some_type(&bound), String.from("<unresolved-some>"), type_key(&bound));
         eprintln(`[selfatom] path=ctx-some bound=${st_r} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
       });
-      if(is_some_type(bound), self_tv, bound)
+      if(is_some_type(&bound), self_tv, bound)
     }, self_tv);
     if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
-      eprintln(`[selfatom] resolved=${type_key(resolved)} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
+      eprintln(`[selfatom] resolved=${type_key(&resolved)} mod=${env.module_path} loc=${token.module_path}:${token.row.to_string()}:${token.column.to_string()}`);
     });
-    ev := create_type_value(resolved);
+    ev := create_type_value(&resolved);
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
   // ------------------------------------------------------------------
@@ -205,10 +205,10 @@ evaluate_identifier_and_operator :: (
   self_trait_opt := ctx.self_trait_type;
   if((identifier == "SelfTrait") && self_trait_opt.is_some(), {
     trait_tv := match(self_trait_opt, .Some(tv) => tv, .None => t_unit());
-    ev := create_type_value(trait_tv);
+    ev := create_type_value(&trait_tv);
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
   // ------------------------------------------------------------------
@@ -217,10 +217,10 @@ evaluate_identifier_and_operator :: (
   self_module_opt := ctx.self_module_type;
   if((identifier == "SelfModule") && self_module_opt.is_some(), {
     module_tv := match(self_module_opt, .Some(tv) => tv, .None => t_unit());
-    ev := create_type_value(module_tv);
+    ev := create_type_value(&module_tv);
     info := new_expr_info(env, t_type());
     info.value = Option(EvalValue).Some(ev);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
   // ------------------------------------------------------------------
@@ -233,7 +233,7 @@ evaluate_identifier_and_operator :: (
   });
   found_frame_idx_out := ArrayList(usize).new();
   variable := match(
-    find_variable_in_env_at(env, identifier_string, found_frame_idx_out),
+    find_variable_in_env_at(env, &identifier_string, &mut found_frame_idx_out),
     .Some(v) => {
       // V5 task 3: a `ghost(name := e)` binding is spec-only. Reading it
       // from ordinary code is the "ghost value escapes specification
@@ -247,7 +247,7 @@ evaluate_identifier_and_operator :: (
         exn.throw(
           dyn(
             format_error_message(
-              token,
+              &token,
               `ghost value escapes specification context: '${identifier_string}' is a ghost binding, readable only from contract clauses, ghost(...) code and ghost_fn bodies`
             )
           )
@@ -266,7 +266,7 @@ evaluate_identifier_and_operator :: (
     .None => match(
       resolve_pending_definition(identifier_string.clone(), token.module_path.clone()),
       .Resolved({ var : pending_var, frame_id : pending_frame_id }) => {
-        found_frame_idx_out.push(adopt_resolved_definition(env, pending_var, pending_frame_id));
+        found_frame_idx_out.push(adopt_resolved_definition(env, &pending_var, pending_frame_id));
         pending_var
       },
       .Error({ msg : pending_msg }) => {
@@ -278,7 +278,7 @@ evaluate_identifier_and_operator :: (
         if(string_is_operator(identifier_string.clone()), {
           fallback_info := new_expr_info(env, t_unit());
           fallback_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), fallback_info);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &fallback_info);
           return(expr);
         });
         // Phase V3: a `requires(...)`/`ensures(...)` predicate references
@@ -290,7 +290,7 @@ evaluate_identifier_and_operator :: (
         if(ctx.is_evaluating_contract_predicate, {
           pred_info := new_expr_info(env, t_unit());
           pred_info.value = Option(EvalValue).Some(create_unknown_val(t_unit()));
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), pred_info);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &pred_info);
           return(expr);
         });
         // Ordinary identifiers throw.
@@ -303,7 +303,7 @@ evaluate_identifier_and_operator :: (
         // ensures-atom branch below APPENDING advice to the help — a second
         // piece of advice means the rename is no longer the unique fix, and
         // that branch clears the repair for exactly that reason.
-        not_found_suggestion := suggest_name(identifier_string, env_candidate_names(env));
+        not_found_suggestion := suggest_name(&identifier_string, env_candidate_names(env));
         (not_found_repair : Option(String)) = not_found_suggestion;
         not_found_help := match(
           not_found_suggestion,
@@ -316,7 +316,7 @@ evaluate_identifier_and_operator :: (
         // first non-comment line, so a module's `//!` docs stay first. A
         // rename candidate AND an import candidate, or two exporting modules,
         // are two fixes: help only, `yo fix` never picks.
-        std_exporters := lookup_std_exporters(identifier_string);
+        std_exporters := lookup_std_exporters(&identifier_string);
         (import_repair : Option(String)) = Option(String).None;
         if(std_exporters.len() > usize(0), {
           first_spec := match(std_exporters.get(usize(0)), .Some(s0) => s0, .None => String.new());
@@ -377,26 +377,26 @@ evaluate_identifier_and_operator :: (
               match(
                 not_found_repair,
                 .Some(fix_name) => format_error_message_with_repair(
-                  token,
+                  &token,
                   `Variable "${identifier_string}" not found.`,
-                  not_found_help,
+                  &not_found_help,
                   fix_name.clone(),
                   `rename to "${fix_name}"`
                 ),
                 .None => match(
                   import_repair,
                   .Some(line) => format_error_message_with_repair_at(
-                    token,
+                    &token,
                     `Variable "${identifier_string}" not found.`,
-                    not_found_help,
-                    Span(path : token.module_path, row : _first_code_row(token.input), col : usize(0), len : usize(0)),
+                    &not_found_help,
+                    Span(path : token.module_path, row : _first_code_row(&token.input), col : usize(0), len : usize(0)),
                     `${line}\n`,
                     `add ${line}`
                   ),
                   .None => format_error_message_with_help(
-                    token,
+                    &token,
                     `Variable "${identifier_string}" not found.`,
-                    not_found_help
+                    &not_found_help
                   )
                 )
               ),
@@ -410,11 +410,11 @@ evaluate_identifier_and_operator :: (
   );
   // Check initialization (unless it's a function type or type value — mutual recursion)
   if((variable.initialized_at_token == Option(Token).None) && throw_error_on_undefined, {
-    if(!(is_function_type(variable.ty) || is_type_value(variable.value.get(usize(0)))), {
+    if(!(is_function_type(&variable.ty) || is_type_value(variable.value.get(usize(0)))), {
       exn.throw(
         dyn(
           format_error_message(
-            token,
+            &token,
             String.from("Variable \"") + identifier_string + String.from("\" is not initialized")
           )
         )
@@ -434,11 +434,11 @@ evaluate_identifier_and_operator :: (
     variable.consumed_at_token,
     .Some(moved_at) => {
       same_site := ((moved_at.*.row == token.row) && ((moved_at.*.column == token.column) && (moved_at.*.module_path == token.module_path)));
-      if(!same_site && _read_after_move_is_checked(variable, token, env), {
+      if(!same_site && _read_after_move_is_checked(&variable, &token, env), {
         // Through the flow-violation channel, so a definition-time trial
         // (a closure or `io.async` body) re-raises it instead of swallowing
         // it into an abort stub.
-        raise_flow_violation(use_of_moved_value_error(variable.name.clone(), variable.ty, token, variable_move_note(variable, moved_at.*)), ctx, exn);
+        raise_flow_violation(use_of_moved_value_error(variable.name.clone(), &variable.ty, &token, variable_move_note(&variable, &moved_at.*)), ctx, exn);
         return(expr);
       });
     },
@@ -448,7 +448,7 @@ evaluate_identifier_and_operator :: (
   // access (decision 18 rule 2); synthesized drops and dups are not accesses
   // of the source.
   if(!variable.is_compile_time_only && !token.module_path.starts_with(String.from("auto-generated://")), {
-    check_capture_freeze_access(variable, ctx.is_lhs_of_assignment, token, env, ctx, exn);
+    check_capture_freeze_access(&variable, ctx.is_lhs_of_assignment, &token, env, ctx, exn);
   });
   // c_include constants (e.g. O_RDONLY from <fcntl.h>) have UnknownValue.
   // NOTE: `is_extern` is not consulted here; skip the runtime-value
@@ -462,22 +462,22 @@ evaluate_identifier_and_operator :: (
   // A read of the whole variable: E0911 while a `mut` borrow of a place
   // overlapping it is live (plans/VALUES_BY_DEFAULT.md decision 18).
   if(!lb_is_receiver && local_borrows_active(), {
-    local_borrow_access(local_borrow_place_of_variable(variable), LocalBorrowAccess.Read, token, ctx, exn);
+    local_borrow_access(local_borrow_place_of_variable(&variable), LocalBorrowAccess.Read, &token, ctx, exn);
   });
   // Build ExprInfo
-  info := new_expr_info(env, variable.ty);
+  info := new_expr_info(env, &variable.ty);
   info.value = resolved_value;
-  expr_info_set_origin_type(info, Option(TypeValue).Some(variable.ty));
+  expr_info_set_origin_type(&info, Option(TypeValue).Some(variable.ty));
   info.variable_name = Option(String).Some(variable.name);
   info.source_variable = Option(Variable).Some(variable);
   // path_collection = [[variable.name]], shared per name.
-  info.path_collection = path_collection_of_name(variable.name);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  info.path_collection = path_collection_of_name(&variable.name);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   // An extern C symbol's atom can be re-recorded by its call without a
   // `source_variable`; codegen still resolves the symbol by name through
   // the atom, so the scope release records the name (cheap gates first:
   // this path runs for every identifier).
-  if(match(variable.ty, .Func({ meta : __xm }) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(variable.ty) && is_extern_c_global(variable.name.clone()))), {
+  if(match(variable.ty, .Func({ meta : __xm }) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(&variable.ty) && is_extern_c_global(variable.name.clone()))), {
     scope_release_note_query(ast_expr_id(expr), variable.name.clone());
   });
   // ------------------------------------------------------------------
@@ -528,10 +528,10 @@ evaluate_identifier_and_operator :: (
               });
               if(!cap_is_inner && (variable.frame_level < closure_frame_level), {
                 track_variable_usage_resolved(
-                  variable.name,
+                  &variable.name,
                   variable.frame_level,
                   CaptureUsage.Own,
-                  token,
+                  &token,
                   ctx,
                   Option(bool).Some(variable.is_compile_time_only)
                 );
@@ -546,10 +546,10 @@ evaluate_identifier_and_operator :: (
                   cap_rec_level = (closure_frame_level - usize(1));
                 });
                 track_variable_usage_resolved(
-                  variable.name,
+                  &variable.name,
                   cap_rec_level,
                   CaptureUsage.Own,
-                  token,
+                  &token,
                   ctx,
                   Option(bool).Some(variable.is_compile_time_only)
                 );
@@ -586,10 +586,10 @@ evaluate_identifier_and_operator :: (
               );
               if(!ab_is_inner && (variable.frame_level < async_frame_level), {
                 track_variable_usage_resolved(
-                  variable.name,
+                  &variable.name,
                   variable.frame_level,
                   CaptureUsage.Own,
-                  token,
+                  &token,
                   ctx,
                   Option(bool).Some(variable.is_compile_time_only)
                 );
@@ -604,10 +604,10 @@ evaluate_identifier_and_operator :: (
                   ab_rec_level = (async_frame_level - usize(1));
                 });
                 track_variable_usage_resolved(
-                  variable.name,
+                  &variable.name,
                   ab_rec_level,
                   CaptureUsage.Own,
-                  token,
+                  &token,
                   ctx,
                   Option(bool).Some(variable.is_compile_time_only)
                 );
@@ -631,7 +631,7 @@ evaluate_identifier_and_operator :: (
 /// (issues/fixed/a-reference-value-read-after-a-sink-move-reads-freed-memory.md).
 _read_after_move_is_checked :: (fn(imm(variable) : Variable, imm(token) : Token, imm(env) : Environment) -> bool)(
   !token.module_path.starts_with(String.from("auto-generated://"))
-  && !is_temp_variable_name(env.module_path, variable.name)
+  && !is_temp_variable_name(&env.module_path, &variable.name)
 );
 /// The row of the first line that is neither blank nor a `//` comment — where
 /// the E0401 import repair inserts its line, so `//!` module docs stay first.

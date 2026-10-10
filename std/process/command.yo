@@ -475,7 +475,7 @@ _spawn_with_fds :: (
       },
       .None => ()
     );
-    pid := e.io.await(IO_process.spawn_cwd(program_cstr, argv_buf, envp_arg, stdin_fd, stdout_fd, stderr_fd, cwd_ptr), e.io);
+    pid := e.io.await(IO_process.spawn_cwd(program_cstr, argv_buf, envp_arg, stdin_fd, stdout_fd, stderr_fd, cwd_ptr), &e.io);
     // Free argv/envp buffers (storage lists drop naturally at scope end).
     free(.Some(argv_raw));
     match(
@@ -483,7 +483,7 @@ _spawn_with_fds :: (
       .Some(em) => free(.Some(em)),
       .None => ()
     );
-    IoError.check(pid, e.exn)
+    IoError.check(pid, &e.exn)
   })
 });
 // Configure the PARENT's end of a pipe shared with a child.
@@ -519,7 +519,7 @@ _drain_fd :: (fn(fd : i32, io : Io) -> Impl(Future(ArrayList(u8), IoExn)))(
     buf := (*u8)(malloc(buf_size).unwrap());
     out := ArrayList(u8).new();
     while(runtime(true), {
-      n := e.io.await(IO_file.read(fd, buf, u32(buf_size), u64(0)), e.io);
+      n := e.io.await(IO_file.read(fd, buf, u32(buf_size), u64(0)), &e.io);
       cond(
         (n < i32(0)) => {
           free(.Some((*void)(buf)));
@@ -555,8 +555,8 @@ impl(
         _spawn_with_fds(self, i32(-1), i32(-1), i32(-1), io),
         e
       );
-      raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
-      IoError.check(raw, e.exn);
+      raw := e.io.await(IO_process.waitpid(pid, i32(0)), &e.io);
+      IoError.check(raw, &e.exn);
       ExitStatus(raw : raw)
     })
   ),
@@ -570,7 +570,7 @@ impl(
       out_fd_buf := MaybeUninit(Array(i32, usize(2))).new();
       out_fd := (*i32)(out_fd_buf.as_ptr());
       pr1 := IO_pipe.pipe(out_fd);
-      IoError.check(pr1, e.exn);
+      IoError.check(pr1, &e.exn);
       ();
       out_read := (out_fd.add(usize(0))).*;
       out_write := (out_fd.add(usize(1))).*;
@@ -579,24 +579,24 @@ impl(
       pr2 := IO_pipe.pipe(err_fd);
       cond(
         (pr2 < i32(0)) => {
-          e.io.await(IO_file.close(out_read), e.io);
-          e.io.await(IO_file.close(out_write), e.io);
+          e.io.await(IO_file.close(out_read), &e.io);
+          e.io.await(IO_file.close(out_write), &e.io);
           e.exn.throw(dyn(IoError.from_errno(i32(0) - pr2)));
         },
         true => ()
       );
       err_read := (err_fd.add(usize(0))).*;
       err_write := (err_fd.add(usize(1))).*;
-      _mark_parent_end(out_read, e.exn);
-      _mark_parent_end(err_read, e.exn);
+      _mark_parent_end(out_read, &e.exn);
+      _mark_parent_end(err_read, &e.exn);
       // Spawn child with the write ends of both pipes.
       pid := e.io.await(
         _spawn_with_fds(self, i32(-1), out_write, err_write, io),
         e
       );
       // Close write ends in parent so reads see EOF when child exits.
-      e.io.await(IO_file.close(out_write), e.io);
-      e.io.await(IO_file.close(err_write), e.io);
+      e.io.await(IO_file.close(out_write), &e.io);
+      e.io.await(IO_file.close(err_write), &e.io);
       // Drain both pipes CONCURRENTLY. Draining stdout to EOF first deadlocked
       // on any child that filled the 64 KiB stderr pipe before closing stdout
       // (it blocks in write(2); we block in read) —
@@ -608,7 +608,7 @@ impl(
       err_task := e.io.spawn(_drain_fd(err_read, io), e);
       stdout_buf := e.io.await(_drain_fd(out_read, io), e);
       stderr_buf := match(
-        e.io.await(err_task.join(e.io), e.io),
+        e.io.await(err_task.join(e.io), &e.io),
         .Some(b) => b,
         .None => {
           // The drain task unwound: its IoError already went to `e.exn`
@@ -618,10 +618,10 @@ impl(
           ArrayList(u8).new()
         }
       );
-      e.io.await(IO_file.close(out_read), e.io);
-      e.io.await(IO_file.close(err_read), e.io);
-      raw := e.io.await(IO_process.waitpid(pid, i32(0)), e.io);
-      IoError.check(raw, e.exn);
+      e.io.await(IO_file.close(out_read), &e.io);
+      e.io.await(IO_file.close(err_read), &e.io);
+      raw := e.io.await(IO_process.waitpid(pid, i32(0)), &e.io);
+      IoError.check(raw, &e.exn);
       Output(
         status : ExitStatus(raw : raw),
         stdout : stdout_buf,
@@ -653,14 +653,14 @@ Child :: ref(
 // before use reports itself, with no branch inside the `io.async` body.
 _pipe_write :: (fn(fd : i32, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
-    n := e.io.await(IO_file.write(fd, buf, u32(size), u64(0)), e.io);
-    usize(IoError.check(n, e.exn))
+    n := e.io.await(IO_file.write(fd, buf, u32(size), u64(0)), &e.io);
+    usize(IoError.check(n, &e.exn))
   })
 );
 _pipe_read :: (fn(fd : i32, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async(e => {
-    n := e.io.await(IO_file.read(fd, buf, u32(size), u64(0)), e.io);
-    usize(IoError.check(n, e.exn))
+    n := e.io.await(IO_file.read(fd, buf, u32(size), u64(0)), &e.io);
+    usize(IoError.check(n, &e.exn))
   })
 );
 /// The parent's write end of a child's stdin pipe — a `Writer`, so
@@ -699,9 +699,9 @@ impl(
         cond(
           self._closed => (),
           true => {
-            result := e.io.await(IO_file.close(raw), e.io);
+            result := e.io.await(IO_file.close(raw), &e.io);
             self._closed = true;
-            IoError.check(result, e.exn);
+            IoError.check(result, &e.exn);
             ()
           }
         )
@@ -780,9 +780,9 @@ impl(
         cond(
           self._closed => (),
           true => {
-            result := e.io.await(IO_file.close(raw), e.io);
+            result := e.io.await(IO_file.close(raw), &e.io);
             self._closed = true;
-            IoError.check(result, e.exn);
+            IoError.check(result, &e.exn);
             ()
           }
         )
@@ -831,9 +831,9 @@ impl(
         cond(
           self._closed => (),
           true => {
-            result := e.io.await(IO_file.close(raw), e.io);
+            result := e.io.await(IO_file.close(raw), &e.io);
             self._closed = true;
-            IoError.check(result, e.exn);
+            IoError.check(result, &e.exn);
             ()
           }
         )
@@ -926,8 +926,8 @@ impl(
           i32(-1)
         }
       );
-      n := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)), e.io);
-      usize(IoError.check(n, e.exn))
+      n := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), u64(0)), &e.io);
+      usize(IoError.check(n, &e.exn))
     })
   }),
   /// Close the child's stdin pipe — the EOF the child is usually waiting for.
@@ -937,7 +937,7 @@ impl(
       match(
         fd_opt,
         .Some(f) => {
-          e.io.await(IO_file.close(f), e.io);
+          e.io.await(IO_file.close(f), &e.io);
           self._stdin_fd = Option(i32).None;
         },
         .None => ()
@@ -991,7 +991,7 @@ impl(
       match(
         self._stdin_fd,
         .Some(sf) => {
-          e.io.await(IO_file.close(sf), e.io);
+          e.io.await(IO_file.close(sf), &e.io);
           self._stdin_fd = Option(i32).None;
         },
         .None => ()
@@ -999,7 +999,7 @@ impl(
       match(
         self._stdout_fd,
         .Some(of) => {
-          e.io.await(IO_file.close(of), e.io);
+          e.io.await(IO_file.close(of), &e.io);
           self._stdout_fd = Option(i32).None;
         },
         .None => ()
@@ -1007,13 +1007,13 @@ impl(
       match(
         self._stderr_fd,
         .Some(ef) => {
-          e.io.await(IO_file.close(ef), e.io);
+          e.io.await(IO_file.close(ef), &e.io);
           self._stderr_fd = Option(i32).None;
         },
         .None => ()
       );
-      raw := e.io.await(IO_process.waitpid(self._pid, i32(0)), e.io);
-      IoError.check(raw, e.exn);
+      raw := e.io.await(IO_process.waitpid(self._pid, i32(0)), &e.io);
+      IoError.check(raw, &e.exn);
       self._reaped = true;
       ExitStatus(raw : raw)
     })
@@ -1063,9 +1063,9 @@ impl(
   /// reap.
   spawn : (fn(imm(self) : Self, io : Io) -> Impl(Future(Child, IoExn)))(
     io.async(e => {
-      in_pair := _stdio_fds(self._stdin, true, e.exn);
-      out_pair := _stdio_fds(self._stdout, false, e.exn);
-      err_pair := _stdio_fds(self._stderr, false, e.exn);
+      in_pair := _stdio_fds(self._stdin, true, &e.exn);
+      out_pair := _stdio_fds(self._stdout, false, &e.exn);
+      err_pair := _stdio_fds(self._stderr, false, &e.exn);
       pid := e.io.await(
         _spawn_with_fds(self, in_pair(usize(0)), out_pair(usize(0)), err_pair(usize(0)), io),
         e
@@ -1073,19 +1073,19 @@ impl(
       // Close the CHILD ends in the parent (the child holds its own copies).
       cond(
         (in_pair(usize(0)) >= i32(0)) => {
-          e.io.await(IO_file.close(in_pair(usize(0))), e.io);
+          e.io.await(IO_file.close(in_pair(usize(0))), &e.io);
         },
         true => ()
       );
       cond(
         (out_pair(usize(0)) >= i32(0)) => {
-          e.io.await(IO_file.close(out_pair(usize(0))), e.io);
+          e.io.await(IO_file.close(out_pair(usize(0))), &e.io);
         },
         true => ()
       );
       cond(
         (err_pair(usize(0)) >= i32(0)) => {
-          e.io.await(IO_file.close(err_pair(usize(0))), e.io);
+          e.io.await(IO_file.close(err_pair(usize(0))), &e.io);
         },
         true => ()
       );

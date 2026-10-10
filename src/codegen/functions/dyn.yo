@@ -34,7 +34,7 @@ _is_reserved_dyn_label :: (fn(imm(label) : String) -> bool)(
 _box_field_name :: (fn(imm(data_type) : TypeValue) -> String)(
   match(
     data_type,
-    .Struct({ field_labels }) => match(field_labels.get(usize(0)), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("__0")),
+    .Struct({ field_labels }) => match(field_labels.get(usize(0)), .Some(l) => sanitize_for_c_identifier(&l, false), .None => String.from("__0")),
     _ => String.from("__0")
   )
 );
@@ -123,7 +123,7 @@ generate_dyn_box_functions :: (fn(imm(context) : FunctionGenerationContext) -> u
         box_name := `__yo_dyn_box_${concrete_c}`;
         if(!generated.contains(box_name.clone()), {
           generated.insert(box_name.clone());
-          value_str := get_type_string(dyn_concrete_res.clone(), context.base);
+          value_str := get_type_string(dyn_concrete_res.clone(), &context.base);
           // Late-registered dyn impl (registered during body generation, after
           // the type-decl phase's box pass): emit the missing typedef into the
           // DECLARATIONS section now — see CodeGenContext.dyn_box_typedefs.
@@ -250,9 +250,9 @@ _emit_wrapper_call :: (fn(imm(em) : Emitter, imm(cname) : String, imm(first_arg)
       line.push_str(")");
     });
   });
-  line.push_string(call);
+  line.push_string(&call);
   line.push_str(";");
-  em.emit_declaration_string_line(line);
+  em.emit_declaration_string_line(&line);
 });
 /// Resolve a boxed dyn payload type's SomeT fields/type-arguments through
 /// their resolutions (`Rc(W)` → `Rc(<capture struct>)`). The
@@ -280,8 +280,8 @@ _resolve_box_payload :: (fn(imm(t) : TypeValue) -> TypeValue)(
       while(rbp_i < rbp_ft.len(), {
         rbp_e := match(rbp_ft.get(rbp_i), .Some(x) => x, .None => TypeValue.Unit);
         (rbp_r : TypeValue) = rbp_e;
-        if(is_some_type(rbp_e), {
-          rbp_r = resolve_some_type_to_concrete(rbp_e);
+        if(is_some_type(&rbp_e), {
+          rbp_r = resolve_some_type_to_concrete(&rbp_e);
         });
         rbp_new_ft.push(rbp_r);
         rbp_i = (rbp_i + usize(1));
@@ -291,8 +291,8 @@ _resolve_box_payload :: (fn(imm(t) : TypeValue) -> TypeValue)(
       while(rbp_j < rbp_ta.len(), {
         rbp_e2 := match(rbp_ta.get(rbp_j), .Some(x) => x, .None => TypeValue.Unit);
         (rbp_r2 : TypeValue) = rbp_e2;
-        if(is_some_type(rbp_e2), {
-          rbp_r2 = resolve_some_type_to_concrete(rbp_e2);
+        if(is_some_type(&rbp_e2), {
+          rbp_r2 = resolve_some_type_to_concrete(&rbp_e2);
         });
         rbp_new_ta.push(rbp_r2);
         rbp_j = (rbp_j + usize(1));
@@ -328,7 +328,7 @@ _wrapper_params :: (fn(imm(param_types) : ArrayList(TypeValue), imm(param_is_ref
       param_types.get(j),
       .Some(pt) => {
         out.push_str(", ");
-        out.push_string(dyn_slot_param_type_string(Option(TypeValue).Some(pt), param_is_ref.get(j), context.base));
+        out.push_string(dyn_slot_param_type_string(Option(TypeValue).Some(pt), param_is_ref.get(j), &context.base));
         out.push_str(" arg");
         // arg index is 1-based from the first non-self param.
         out.push_string(((j - start) + usize(1)).to_string());
@@ -376,7 +376,7 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
               match(
                 rt,
                 .FnTraitT({ base_name : fn_base, call_param_types, call_result, call_param_is_ref }) => {
-                  return_str := get_type_string(call_result, context.base);
+                  return_str := get_type_string(&call_result, &context.base);
                   // A `Dyn(FnOnce(...))` call consumes the Dyn (decision 37):
                   // the wrapper releases the box after the call.
                   is_call_once := (fn_base == "FnOnce");
@@ -384,7 +384,7 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                   params := _wrapper_params(call_param_types.clone(), call_param_is_ref.clone(), usize(0), context);
                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
                   ncp := call_param_types.len();
-                  is_void := is_void_type(call_result);
+                  is_void := is_void_type(&call_result);
                   // Dyn'd CLOSURE: the boxed payload is the closure's CAPTURE
                   // STRUCT — resolve the closure C fn via impl_closure_call_map
                   // (capture-struct id → fn name) and call it directly with
@@ -401,7 +401,7 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                     ),
                     _ => String.from("")
                   );
-                  cc_info := if(cc_struct_id.len() > usize(0), context.base.impl_closure_call_map.get(cc_struct_id), Option(ImplClosureCallInfo).None);
+                  cc_info := if(cc_struct_id.len() > usize(0), context.base.impl_closure_call_map.get(&cc_struct_id), Option(ImplClosureCallInfo).None);
                   if(is_boxed && match(cc_info, .Some(_) => true, .None => false), {
                     boxed_cname := _boxed_c_name(data_type.clone(), context);
                     field_name := _box_field_name(data_type.clone());
@@ -411,7 +411,7 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                     if(!is_void, {
                       call.push_string(if(is_call_once, `${return_str} __yo_once_r = `, String.from("return ")));
                     });
-                    call.push_string(cc_fn);
+                    call.push_string(&cc_fn);
                     call.push_str("((void*)&box->");
                     call.push_string(field_name.clone());
                     (cai : usize) = usize(0);
@@ -421,7 +421,7 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                       cai = (cai + usize(1));
                     });
                     call.push_str(");");
-                    em.emit_declaration_string_line(call);
+                    em.emit_declaration_string_line(&call);
                     if(is_call_once, {
                       // The call consumed the Dyn: release the box here. A
                       // payload closure typed `FnOnce(...)` with a capture
@@ -468,7 +468,7 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                       ai = (ai + usize(1));
                     });
                     call.push_str(");");
-                    em.emit_declaration_string_line(call);
+                    em.emit_declaration_string_line(&call);
                   }, {
                     em.emit_declaration_string_line(`  (void)self_ptr; /* Dyn(Fn): expected Rc(...) data */`);
                     (ai2 : usize) = usize(0);
@@ -528,7 +528,7 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                           while((sl_j < tfl.len()) && sl_found.is_none(), {
                             if(match(tfl.get(sl_j), .Some(l) => (l == label), .None => false), {
                               sl_ty := match(tft.get(sl_j), .Some(t) => t, .None => TypeValue.Unit);
-                              if(dyn_member_is_method(sl_ty) && dyn_member_unsafe_reason(sl_ty).is_none(), {
+                              if(dyn_member_is_method(&sl_ty) && dyn_member_unsafe_reason(&sl_ty).is_none(), {
                                 sl_found = Option(TypeValue).Some(sl_ty);
                               });
                             });
@@ -547,8 +547,8 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                         field_values.get(fi),
                         .Some(opt_fv) => match(
                           opt_fv,
-                          .Some(fv) => if(is_func_val(fv), {
-                            func_id := _func_val_id(fv);
+                          .Some(fv) => if(is_func_val(&fv), {
+                            func_id := _func_val_id(&fv);
                             match(
                               context.base.get_function_entry(func_id.clone()),
                               .Some(entry) => match(
@@ -561,7 +561,7 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                                   // spelled raw is not a C identifier
                                   // (issues/fixed/a-dyn-over-an-operator-trait-emits-an-invalid-c-wrapper-name.md).
                                   wrapper := `__yo_wrap_${impl_key}_${sanitize_for_c_identifier(label.clone(), false)}`;
-                                  return_str := get_type_string(result, context.base);
+                                  return_str := get_type_string(&result, &context.base);
                                   // Defined with the SLOT's signature (the vtable
                                   // initializer below takes it uncast); the impl's
                                   // own C types are reached by casts inside. A
@@ -570,19 +570,19 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                                   // the trait the Future interface pointer.
                                   slot_params_tys := match(slot_ty, .Some(.Func({ param_types : spt })) => spt, _ => param_types.clone());
                                   slot_param_is_ref := match(slot_ty, .Some(.Func({ meta : sfm })) => sfm.*.param_is_ref, _ => param_is_ref.clone());
-                                  slot_ret := match(slot_ty, .Some(.Func({ result : sres })) => get_type_string(sres, context.base), _ => return_str.clone());
+                                  slot_ret := match(slot_ty, .Some(.Func({ result : sres })) => get_type_string(&sres, &context.base), _ => return_str.clone());
                                   params := _wrapper_params(slot_params_tys.clone(), slot_param_is_ref.clone(), usize(1), context);
                                   arg_casts := ArrayList(String).new();
                                   (ac_j : usize) = usize(1);
                                   while(ac_j < param_types.len(), {
-                                    impl_pt := match(param_types.get(ac_j), .Some(t) => dyn_slot_param_type_string(Option(TypeValue).Some(t), param_is_ref.get(ac_j), context.base), .None => String.new());
-                                    slot_pt := match(slot_params_tys.get(ac_j), .Some(t) => dyn_slot_param_type_string(Option(TypeValue).Some(t), slot_param_is_ref.get(ac_j), context.base), .None => String.new());
+                                    impl_pt := match(param_types.get(ac_j), .Some(t) => dyn_slot_param_type_string(Option(TypeValue).Some(t), param_is_ref.get(ac_j), &context.base), .None => String.new());
+                                    slot_pt := match(slot_params_tys.get(ac_j), .Some(t) => dyn_slot_param_type_string(Option(TypeValue).Some(t), slot_param_is_ref.get(ac_j), &context.base), .None => String.new());
                                     arg_casts.push(if(impl_pt == slot_pt, String.new(), impl_pt));
                                     ac_j = (ac_j + usize(1));
                                   });
                                   ret_cast := if(slot_ret == return_str, String.new(), slot_ret.clone());
                                   em.emit_declaration_string_line(`static ${slot_ret} ${wrapper}(${params}) {`);
-                                  pbp := (match(param_types.get(usize(0)), .Some(p0) => is_pointer_type(p0), .None => false) || match(param_is_ref.get(usize(0)), .Some(r) => r, .None => false));
+                                  pbp := (match(param_types.get(usize(0)), .Some(p0) => is_pointer_type(&p0), .None => false) || match(param_is_ref.get(usize(0)), .Some(r) => r, .None => false));
                                   (first_arg : String) = String.from("");
                                   if(is_boxed, {
                                     boxed_cname := _boxed_c_name(data_type.clone(), context);
@@ -590,7 +590,7 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                                     em.emit_declaration_string_line(`  ${boxed_cname}* box = (${boxed_cname}*)self_ptr;`);
                                     first_arg = if(pbp, `&box->${field_name}`, `box->${field_name}`);
                                   }, {
-                                    concrete_str := get_type_string(impl_entry.concrete_type.clone(), context.base);
+                                    concrete_str := get_type_string(impl_entry.concrete_type.clone(), &context.base);
                                     em.emit_declaration_string_line(`  ${concrete_str} concrete_value = (${concrete_str})self_ptr;`);
                                     first_arg = if(pbp, String.from("&concrete_value"), String.from("concrete_value"));
                                   });
@@ -600,10 +600,10 @@ generate_dyn_wrapper_functions :: (fn(imm(context) : FunctionGenerationContext) 
                                   // undeclared function and fail the whole batch. Emit a
                                   // visible runtime trap instead — every other test in the
                                   // batch compiles; only dispatching THIS method aborts.
-                                  if(should_skip_function_codegen(func_id.clone(), entry.c_name.clone(), entry.value, context.base), {
+                                  if(should_skip_function_codegen(func_id.clone(), entry.c_name.clone(), &entry.value, &context.base), {
                                     em.emit_declaration_string_line(`  __yo_abort(); /* dyn method unavailable: impl fn skipped (degraded type) */`);
                                   }, {
-                                    _emit_wrapper_call(em, impl_cname, first_arg, param_types.len(), is_void_type(result), arg_casts, ret_cast);
+                                    _emit_wrapper_call(&em, &impl_cname, &first_arg, param_types.len(), is_void_type(&result), &arg_casts, &ret_cast);
                                   });
                                   em.emit_declaration_line("}");
                                   em.emit_declaration_line("");
@@ -752,7 +752,7 @@ generate_dyn_vtables :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
                       // receiver (the vtable typedef's rule, types/utils.yo).
                       has_self := match(
                         field_types.get(fi),
-                        .Some(ft) => (dyn_member_is_method(ft) && dyn_member_unsafe_reason(ft).is_none()),
+                        .Some(ft) => (dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none()),
                         .None => false
                       );
                       if(has_self, {
@@ -779,7 +779,7 @@ generate_dyn_vtables :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
         while(ui < up_targets.len(), {
           ut := match(up_targets.get(ui), .Some(t) => t, .None => TypeValue.Unit);
           ut_key := type_key(ut.clone());
-          ut_c := match(context.base.get_type_c_name(ut_key.clone()), .Some(cn) => cn, .None => get_type_string(ut.clone(), context.base));
+          ut_c := match(context.base.get_type_c_name(ut_key.clone()), .Some(cn) => cn, .None => get_type_string(ut.clone(), &context.base));
           concrete_key := type_key(impl_entry.concrete_type.clone());
           (uk : usize) = usize(0);
           (u_found : bool) = false;

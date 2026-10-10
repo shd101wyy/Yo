@@ -300,7 +300,7 @@ impl(
       // human regardless of the mode (measured on the released v0.2.35 seed,
       // so the defect predates this branch). `render_diagnostics_for_mode`
       // returns human when no mode is set, so the default is unchanged.
-      render_diagnostics_for_mode(self.diagnostics)
+      render_diagnostics_for_mode(&self.diagnostics)
     )
   )
 );
@@ -360,7 +360,7 @@ format_error_message_with_repair :: (
   d.repair = Option(Repair).Some(
     Repair(span : _span_of_token(token), replacement : replacement, description : repair_description)
   );
-  _yo_error_of(d)
+  _yo_error_of(&d)
 });
 /// Like `format_error_message_with_repair`, but the edit lands at `span`
 /// rather than on the anchor token: an INSERTION (`len` 0) or an edit away
@@ -383,7 +383,7 @@ format_error_message_with_repair_at :: (
   d.repair = Option(Repair).Some(
     Repair(span : span, replacement : replacement, description : repair_description)
   );
-  _yo_error_of(d)
+  _yo_error_of(&d)
 });
 format_error_message_with_help :: (
   fn(imm(token) : Token, imm(error_message) : String, imm(help) : Option(String)) -> YoError
@@ -397,7 +397,7 @@ format_error_message_with_help :: (
     );
     d.help = Option(String).Some(h);
   });
-  _yo_error_of(d)
+  _yo_error_of(&d)
 });
 /// Create a `YoError` with a path anchor but no snippet — end-of-input and
 /// other position-less parser errors.
@@ -441,9 +441,9 @@ format_error_messages :: (fn(imm(token_and_error_list) : ArrayList(TokenAndError
       token_and_error_list.get(i),
       .Some(entry) => {
         if(i == usize(0), {
-          entries.push(_diagnostic_of_token(entry.token, Severity.Error, entry.error_message));
+          entries.push(_diagnostic_of_token(&entry.token, Severity.Error, &entry.error_message));
         }, {
-          entries.push(_diagnostic_of_token(entry.token, Severity.Note, entry.error_message));
+          entries.push(_diagnostic_of_token(&entry.token, Severity.Note, &entry.error_message));
         });
       },
       .None => ()
@@ -508,7 +508,7 @@ format_lexer_error :: (
 render_any_error :: (fn(imm(err) : AnyError) -> String)(
   match(
     downcast(err, YoError),
-    .Some(ye) => render_diagnostics_for_mode(ye.diagnostics),
+    .Some(ye) => render_diagnostics_for_mode(&ye.diagnostics),
     .None => err.to_string()
   )
 );
@@ -570,7 +570,7 @@ error_message_text :: (fn(imm(err) : AnyError) -> String)(
         );
         i = (i + usize(1));
       });
-      String.from("\n").join(parts)
+      String.from("\n").join(&parts)
     },
     .None => err.to_string()
   )
@@ -623,7 +623,7 @@ format_eval_failure :: (fn(imm(token) : Token, imm(error_message) : String) -> Y
       entries.push(note);
       YoError(diagnostics : entries)
     },
-    .None => _yo_error_of(generic)
+    .None => _yo_error_of(&generic)
   )
 });
 stash_error_diagnostics :: (fn(imm(err) : AnyError) -> unit)({
@@ -836,7 +836,7 @@ format_warning_messages :: (
     match(
       token_and_warning_list.get(i),
       .Some(entry) => {
-        line := get_line_at_token(entry.token);
+        line := get_line_at_token(&entry.token);
         parts.push(`Warning: ${entry.warning_message}\n${line}`);
       },
       .None => ()
@@ -844,7 +844,7 @@ format_warning_messages :: (
     i = (i + usize(1));
   });
   sep := String.from("\n\n");
-  warnings := sep.join(parts);
+  warnings := sep.join(&parts);
   match(
     warning_message,
     .Some(msg) => `Warning: ${msg}\n${warnings}`,

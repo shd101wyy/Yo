@@ -79,17 +79,17 @@ evaluate_runtime :: (
     .Atom(_, _) => make_err_expr()
   );
   // Recursively evaluate the argument.
-  evaluated := evaluate_expression_raw(arg_expr, env, ctx, exn);
+  evaluated := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   // Read the evaluated arg's info.
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   match(
     info_opt,
     .None => {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(evaluated),
-            `Failed to evaluate runtime argument:\n${ast_expr_to_string(evaluated)}`
+            ast_expr_token(&evaluated),
+            `Failed to evaluate runtime argument:\n${ast_expr_to_string(&evaluated)}`
           )
         )
       );
@@ -102,11 +102,11 @@ evaluate_runtime :: (
     .None => new_expr_info(env, t_i32())
   );
   // Convert comptime type to runtime type and emit a runtime ExprInfo.
-  next_env := expr_info_adopt_env(arg_info);
-  runtime_type := convert_comptime_type_to_runtime_type(arg_info.ty, next_env);
-  out_info := new_expr_info(next_env, runtime_type);
+  next_env := expr_info_adopt_env(&arg_info);
+  runtime_type := convert_comptime_type_to_runtime_type(&arg_info.ty, &next_env);
+  out_info := new_expr_info(&next_env, &runtime_type);
   // value stays .None — `runtime(_)` always yields a runtime value.
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 // Unused fallback used to satisfy the type system for the impossible
@@ -148,17 +148,17 @@ evaluate_borrow_check :: (
     .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
-  evaluated_coll := evaluate_expression_raw(coll_expr, env, ctx, exn);
-  evaluated_loop := evaluate_expression_raw(loop_expr, env, ctx, exn);
+  evaluated_coll := evaluate_expression_raw(&coll_expr, env, ctx, exn);
+  evaluated_loop := evaluate_expression_raw(&loop_expr, env, ctx, exn);
   loop_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_loop)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_loop)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(evaluated_loop),
-            `Failed to evaluate the borrowed loop:\n${ast_expr_to_string(evaluated_loop)}`
+            ast_expr_token(&evaluated_loop),
+            `Failed to evaluate the borrowed loop:\n${ast_expr_to_string(&evaluated_loop)}`
           )
         )
       );
@@ -169,11 +169,11 @@ evaluate_borrow_check :: (
   // it was copied from (`coll_var := xs` records `xs` as the shared owner).
   borrowed_ids := ArrayList(usize).new();
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_coll)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_coll)),
     .Some(ci) => match(
       ci.variable_name,
       .Some(vn) => {
-        vars := get_variables_from_env(ci.env, vn);
+        vars := get_variables_from_env(&ci.env, &vn);
         match(
           vars.last(),
           .Some(v) => {
@@ -199,12 +199,12 @@ evaluate_borrow_check :: (
     ),
     .None => ()
   );
-  violations := strict_borrow_violations(evaluated_loop, borrowed_ids, ctx.expr_info_table);
+  violations := strict_borrow_violations(&evaluated_loop, &borrowed_ids, &ctx.expr_info_table);
   if(violations.len() > usize(0), {
-    exn.throw(dyn(format_error_messages(violations)));
+    exn.throw(dyn(format_error_messages(&violations)));
   });
-  out_info := new_expr_info(loop_info.env, loop_info.ty);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  out_info := new_expr_info(&loop_info.env, &loop_info.ty);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_runtime, evaluate_borrow_check);

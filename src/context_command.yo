@@ -76,10 +76,10 @@ _find_bundled_context_pack :: (
     p := Path.new(override.unwrap_or(String.from(".")));
     pinned_file := p.join(Path.new(String.from(PACK_FILENAME)));
     target := cond(
-      _is_dir(p, io, exn) => pinned_file,
+      _is_dir(&p, io, exn) => pinned_file,
       true => p
     );
-    if(_is_file(target, io, exn), {
+    if(_is_file(&target, io, exn), {
       return(Option(Path).Some(target));
     });
     return(Option(Path).None);
@@ -91,7 +91,7 @@ _find_bundled_context_pack :: (
     (i : usize) = usize(0);
     while(i < anc.len(), {
       candidate := anc(i).join(Path.new(String.from("pack"))).join(Path.new(String.from(PACK_FILENAME)));
-      if(_is_file(candidate, io, exn), {
+      if(_is_file(&candidate, io, exn), {
         return(Option(Path).Some(candidate));
       });
       i = (i + usize(1));
@@ -137,7 +137,7 @@ _find_bundled_docs :: (fn(io : Io, imm(exn) : Exception) -> Option(Path))({
   override := env.get(String.from("YO_CONTEXT_DOCS"));
   if(override.is_some(), {
     p := Path.new(override.unwrap_or(String.from(".")));
-    if(_is_dir(p, io, exn), {
+    if(_is_dir(&p, io, exn), {
       return(Option(Path).Some(p));
     });
     return(Option(Path).None);
@@ -163,7 +163,7 @@ _find_bundled_docs :: (fn(io : Io, imm(exn) : Exception) -> Option(Path))({
 _is_dir :: (
   fn(imm(p) : Path, io : Io, imm(exn) : Exception) -> bool
 )({
-  found := io.await(exists(p.clone(), io), io);
+  found := io.await(exists(p.clone(), io), &io);
   if(!found, {
     return(false);
   });
@@ -174,7 +174,7 @@ _is_dir :: (
 _is_file :: (
   fn(imm(p) : Path, io : Io, imm(exn) : Exception) -> bool
 )({
-  found := io.await(exists(p.clone(), io), io);
+  found := io.await(exists(p.clone(), io), &io);
   if(!found, {
     return(false);
   });
@@ -389,7 +389,7 @@ _context_corpus_root :: (fn(imm(explicit) : String, io : Io, imm(exn) : Exceptio
   p := Path.new(explicit.clone());
   root := cond(
     p.is_absolute() => explicit.clone(),
-    true => Path.new(_user_cwd()).join(p).normalize().to_string()
+    true => Path.new(_user_cwd()).join(&p).normalize().to_string()
   );
   if(!_is_dir(Path.new(root.clone()), io, exn), {
     _fail(_EXIT_USAGE, tr(`context: --path '${explicit}' is not a directory`, `context：--path '${explicit}' 不是目录`), exn);
@@ -440,12 +440,12 @@ _dep_corpora :: (
   );
   base := Path.new(manifest_path.clone()).parent().unwrap_or(Path.new(String.from(".")));
   lock_path := base.join(Path.new(String.from("yo.lock"))).to_string();
-  if(!io.await(exists(Path.new(lock_path.clone()), io), io), {
+  if(!io.await(exists(Path.new(lock_path.clone()), io), &io), {
     _fail(_EXIT_USAGE, tr(`context: --deps: ${lock_path} does not exist. Run yo install.`, `context：--deps：${lock_path} 不存在。请运行 yo install。`), exn);
   });
   text := io.await(read_to_string(Path.new(lock_path.clone()), io), IoExn(io : io, exn : exn));
   lock := match(
-    parse_lock_file(text),
+    parse_lock_file(&text),
     .Ok(l) => l,
     .Err(msg) => {
       _fail(_EXIT_USAGE, tr(`context: --deps: ${lock_path} does not parse: ${msg}`, `context：--deps：无法解析 ${lock_path}：${msg}`), exn);
@@ -460,7 +460,7 @@ _dep_corpora :: (
       match(
         store_tree_dir(get_global_cache_dir(), pkg.integrity.clone()),
         .Ok(tree) => {
-          if(!io.await(exists(Path.new(tree.clone()), io), io), {
+          if(!io.await(exists(Path.new(tree.clone()), io), &io), {
             _fail(
               _EXIT_USAGE,
               tr(
@@ -477,8 +477,8 @@ _dep_corpora :: (
     }, {
       rel := pkg.path();
       if(rel.len() > usize(0), {
-        root := base.join(Path.new(rel)).normalize().to_string();
-        if(!io.await(exists(Path.new(root.clone()), io), io), {
+        root := base.join(Path.new(&rel)).normalize().to_string();
+        if(!io.await(exists(Path.new(root.clone()), io), &io), {
           _fail(_EXIT_USAGE, tr(`context: path dependency '${pkg.name}' not found at ${root}`, `context：路径依赖 '${pkg.name}' 不在 ${root}`), exn);
         });
         out.push(Corpus(root : root, prefix : pkg.name.clone()));
@@ -514,7 +514,7 @@ _load_world :: (
   while(ci < corpora.len(), {
     c := corpora(ci);
     ci = (ci + usize(1));
-    key := context_index_ensure(c.root, cache_root.clone(), q.refresh, c.prefix, io, exn);
+    key := context_index_ensure(&c.root, cache_root.clone(), q.refresh, &c.prefix, io, exn);
     idx_dir := context_index_dir(cache_root.clone(), key.clone());
     centries := context_index_load(cache_root.clone(), key.clone(), io, exn);
     (i : usize) = usize(0);
@@ -522,7 +522,7 @@ _load_world :: (
       world.entries.push(centries(i));
       i = (i + usize(1));
     });
-    cmods := context_index_load_modules(cache_root.clone(), key, io, exn);
+    cmods := context_index_load_modules(cache_root.clone(), &key, io, exn);
     (j : usize) = usize(0);
     while(j < cmods.len(), {
       m := cmods(j);
@@ -531,11 +531,11 @@ _load_world :: (
       j = (j + usize(1));
     });
   });
-  context_unlock(lock);
+  context_unlock(&lock);
   // D3: every listing sorted — module rows by path, entries by (module,
   // name) — so a merged `--deps` corpus orders like a single one.
-  _sort_modules(world.mods);
-  _sort_entries(world.entries);
+  _sort_modules(&mut world.mods);
+  _sort_entries(&mut world.entries);
   world
 });
 /// `a` sorts before `b`: by module, then name, then kind.
@@ -553,7 +553,7 @@ _sort_entries :: (fn(mut(xs) : ArrayList(ContextIndexEntry)) -> unit)({
   while(i < xs.len(), {
     cur := xs(i);
     (j : usize) = i;
-    while((j > usize(0)) && _entry_less(cur, xs(j - usize(1))), {
+    while((j > usize(0)) && _entry_less(&cur, &xs(j - usize(1))), {
       xs(j) = xs(j - usize(1));
       j = (j - usize(1));
     });
@@ -596,7 +596,7 @@ _str_array :: (fn(imm(xs) : ArrayList(String)) -> JsonValue)({
   items := match(arr, .Array(v) => v, _ => ArrayList(JsonValue).new());
   (i : usize) = usize(0);
   while(i < xs.len(), {
-    items.push(_jstr(xs(i)));
+    items.push(_jstr(&xs(i)));
     i = (i + usize(1));
   });
   JsonValue.Array(items)
@@ -611,7 +611,7 @@ _miss :: (
     o := JsonValue.object();
     o.insert(String.from("error"), _jstr(message));
     o.insert(String.from("suggestions"), _str_array(suggestions));
-    println(json.stringify(o));
+    println(json.stringify(&o));
     _fail(code, String.new(), exn);
   });
   text := message.clone();
@@ -620,7 +620,7 @@ _miss :: (
     text.push_string(tr(`\n  Did you mean: ${suggestions(i)}`, `\n  你是否想要：${suggestions(i)}`));
     i = (i + usize(1));
   });
-  _fail(code, text, exn);
+  _fail(code, &text, exn);
 });
 // ---------------------------------------------------------------------------
 // Did-you-mean
@@ -668,7 +668,7 @@ _did_you_mean :: (
   while(i < names.len(), {
     nm := names(i);
     i = (i + usize(1));
-    if(!cands.contains(nm), {
+    if(!cands.contains(&nm), {
       low_n := nm.to_lowercase();
       // A module path is judged by its last segment too: `hashmap` is one
       // edit from `std/collections/hash_map`'s `hash_map`.
@@ -691,7 +691,7 @@ _did_you_mean :: (
     (best : usize) = cands.len();
     (bi : usize) = usize(0);
     while(bi < cands.len(), {
-      if(!out.contains(cands(bi)), {
+      if(!out.contains(&cands(bi)), {
         better := cond(
           (best == cands.len()) => true,
           (dists(bi) != dists(best)) => (dists(bi) < dists(best)),
@@ -780,14 +780,14 @@ _resolve_module :: (fn(imm(mods) : ArrayList(ContextIndexModule), imm(arg) : Str
 /// The module a TWO-positional query names, or a miss (exit 1).
 _require_module :: (fn(imm(world) : LoadedWorld, imm(arg) : String, as_json : bool, imm(exn) : Exception) -> String)(
   match(
-    _resolve_module(world.mods, arg),
+    _resolve_module(&world.mods, arg),
     .Found(m) => m,
     .Ambiguous(c) => {
-      _miss(_EXIT_NO_MATCH, tr(`context: '${arg}' matches ${c.len().to_string()} modules — spell more of the path`, `context：'${arg}' 匹配 ${c.len().to_string()} 个模块——请写出更多路径`), c, as_json, exn);
+      _miss(_EXIT_NO_MATCH, tr(`context: '${arg}' matches ${c.len().to_string()} modules — spell more of the path`, `context：'${arg}' 匹配 ${c.len().to_string()} 个模块——请写出更多路径`), &c, as_json, exn);
       String.new()
     },
     .NotFound => {
-      _miss(_EXIT_NO_MATCH, tr(`context: no module '${arg}' in the corpus`, `context：语料中没有模块 '${arg}'`), _did_you_mean(_module_names(world.mods), arg), as_json, exn);
+      _miss(_EXIT_NO_MATCH, tr(`context: no module '${arg}' in the corpus`, `context：语料中没有模块 '${arg}'`), _did_you_mean(_module_names(&world.mods), arg), as_json, exn);
       String.new()
     }
   )
@@ -902,10 +902,10 @@ _module_page :: (fn(imm(mods) : ArrayList(ContextIndexModule), imm(module) : Str
     i = (i + usize(1));
     if(m.module == module, {
       path := Path.new(module_md_dir(m.index_dir.clone(), module.clone())).join(Path.new(`${module_leaf(module.clone())}.md`));
-      if(!io.await(exists(path.clone(), io), io), {
+      if(!io.await(exists(path.clone(), io), &io), {
         return(String.new());
       });
-      return(String.from_bytes(io.await(read(path, io), IoExn(io : io, exn : exn))));
+      return(String.from_bytes(io.await(read(&path, io), IoExn(io : io, exn : exn))));
     });
   });
   String.new()
@@ -974,7 +974,7 @@ _run_context_list :: (fn(imm(world) : LoadedWorld, as_json : bool) -> unit)({
     });
     top := JsonValue.object();
     top.insert(String.from("modules"), JsonValue.Array(arr));
-    println(json.stringify(top));
+    println(json.stringify(&top));
     return(());
   });
   (degraded : usize) = usize(0);
@@ -1067,8 +1067,8 @@ _deep_score :: (
     imm(exn) : Exception
   ) -> usize
 )({
-  d := _defining_entry(world.entries, e);
-  text := _section_text(_sections_of(cache, world.mods, d.module.clone(), io, exn), d.name.clone());
+  d := _defining_entry(&world.entries, e);
+  text := _section_text(_sections_of(cache, &world.mods, d.module.clone(), io, exn), d.name.clone());
   low := text.to_lowercase();
   tokens := _query_tokens(query);
   (i : usize) = usize(0);
@@ -1102,9 +1102,9 @@ _search_entries :: (
     key := `${e.module}\t${e.name}\t${e.kind}\t${e.signature}\t${e.doc}\t${e.origin}`;
     if(!seen.contains_key(key.clone()), {
       seen.insert(key, true);
-      (score : usize) = search_score(e, query.clone());
+      (score : usize) = search_score(&e, query.clone());
       if((score == usize(0)) && deep, {
-        score = _deep_score(e, query.clone(), world, cache, io, exn);
+        score = _deep_score(&e, query.clone(), world, &mut cache, io, exn);
       });
       if(score > usize(0), {
         hits.push(SearchHit(entry : e, score : score));
@@ -1132,7 +1132,7 @@ _run_context_search :: (fn(imm(q) : ContextQuery, imm(world) : LoadedWorld, io :
     _miss(
       _EXIT_NO_MATCH,
       tr(`context: no matches for '${q.search}'`, `context：没有与 '${q.search}' 匹配的条目`),
-      _did_you_mean(_entry_names(world.entries, String.new()), q.search.clone()),
+      _did_you_mean(_entry_names(&world.entries, String.new()), q.search.clone()),
       q.as_json,
       exn
     );
@@ -1142,7 +1142,7 @@ _run_context_search :: (fn(imm(q) : ContextQuery, imm(world) : LoadedWorld, io :
     (i : usize) = usize(0);
     while(i < hits.len(), {
       h := hits(i);
-      o := _entry_json(h.entry);
+      o := _entry_json(&h.entry);
       o.insert(String.from("score"), JsonValue.Int(i64(h.score)));
       arr.push(o);
       i = (i + usize(1));
@@ -1151,7 +1151,7 @@ _run_context_search :: (fn(imm(q) : ContextQuery, imm(world) : LoadedWorld, io :
     top.insert(String.from("query"), _jstr(q.search.clone()));
     top.insert(String.from("count"), JsonValue.Int(i64(hits.len())));
     top.insert(String.from("hits"), JsonValue.Array(arr));
-    println(json.stringify(top));
+    println(json.stringify(&top));
     return(());
   });
   (i2 : usize) = usize(0);
@@ -1206,15 +1206,15 @@ _run_context_describe_module :: (fn(imm(module) : String, imm(world) : LoadedWor
     arr := ArrayList(JsonValue).new();
     (j : usize) = usize(0);
     while(j < items.len(), {
-      arr.push(_entry_json(items(j)));
+      arr.push(_entry_json(&items(j)));
       j = (j + usize(1));
     });
     o := JsonValue.object();
     o.insert(String.from("module"), _jstr(module.clone()));
-    o.insert(String.from("doc"), _jstr(doc));
+    o.insert(String.from("doc"), _jstr(&doc));
     o.insert(String.from("degraded"), JsonValue.Bool(degraded));
     o.insert(String.from("items"), JsonValue.Array(arr));
-    println(json.stringify(o));
+    println(json.stringify(&o));
     return(());
   });
   println(cond((doc.len() > usize(0)) => `${module} — ${doc}`, true => module.clone()));
@@ -1238,22 +1238,22 @@ _run_context_describe_module :: (fn(imm(module) : String, imm(world) : LoadedWor
 _print_item :: (
   fn(imm(e) : ContextIndexEntry, imm(world) : LoadedWorld, mut(cache) : HashMap(String, ArrayList(PageSection)), io : Io, imm(exn) : Exception) -> unit
 )({
-  d := _defining_entry(world.entries, e);
+  d := _defining_entry(&world.entries, e);
   println(`${e.module} — ${e.name}`);
   if(e.origin.len() > usize(0), {
     println(tr(`  (re-exported from ${e.origin})`, `  （从 ${e.origin} 重新导出）`));
   });
   println(String.new());
   println(`${d.kind}  ${d.signature}`);
-  section := _section_text(_sections_of(cache, world.mods, d.module.clone(), io, exn), d.name.clone());
+  section := _section_text(_sections_of(cache, &world.mods, d.module.clone(), io, exn), d.name.clone());
   cond(
     (section.len() > usize(0)) => {
       println(String.new());
-      println(section);
+      println(&section);
     },
     (d.doc.len() > usize(0)) => {
       println(String.new());
-      println(d.doc);
+      println(&d.doc);
     },
     true => ()
   );
@@ -1262,13 +1262,13 @@ _print_item :: (
 _item_json :: (
   fn(imm(e) : ContextIndexEntry, imm(world) : LoadedWorld, mut(cache) : HashMap(String, ArrayList(PageSection)), io : Io, imm(exn) : Exception) -> JsonValue
 )({
-  d := _defining_entry(world.entries, e);
+  d := _defining_entry(&world.entries, e);
   o := _entry_json(e);
   if(e.origin.len() > usize(0), {
     o.insert(String.from("signature"), _jstr(d.signature.clone()));
     o.insert(String.from("doc"), _jstr(d.doc.clone()));
   });
-  o.insert(String.from("text"), _jstr(_section_text(_sections_of(cache, world.mods, d.module.clone(), io, exn), d.name.clone())));
+  o.insert(String.from("text"), _jstr(_section_text(_sections_of(cache, &world.mods, d.module.clone(), io, exn), d.name.clone())));
   o
 });
 /// Does `e` answer to `item` (a plain name, or `Type.name` for a method —
@@ -1285,8 +1285,8 @@ _entry_names_item :: (
   if((e.name != leaf) || (e.kind != "method"), {
     return(false);
   });
-  d := _defining_entry(world.entries, e);
-  _section_text(_sections_of(cache, world.mods, d.module.clone(), io, exn), item).len() > usize(0)
+  d := _defining_entry(&world.entries, e);
+  _section_text(_sections_of(cache, &world.mods, d.module.clone(), io, exn), item).len() > usize(0)
 });
 /// `yo context <module> <name>`: one item's full entry. Several items of that
 /// name in the module (two types' `new`) list their headings and exit 1.
@@ -1299,7 +1299,7 @@ _run_context_describe_item :: (
   while(i < world.entries.len(), {
     e := world.entries(i);
     i = (i + usize(1));
-    if((e.module == module) && _entry_names_item(e, item.clone(), world, cache, io, exn), {
+    if((e.module == module) && _entry_names_item(&e, item.clone(), world, &mut cache, io, exn), {
       matches.push(e);
     });
   });
@@ -1307,14 +1307,14 @@ _run_context_describe_item :: (
     _miss(
       _EXIT_NO_MATCH,
       tr(`context: no item '${item}' in ${module}`, `context：${module} 中没有条目 '${item}'`),
-      _did_you_mean(_entry_names(world.entries, module.clone()), item.clone()),
+      _did_you_mean(_entry_names(&world.entries, module.clone()), item.clone()),
       as_json,
       exn
     );
   });
   if(matches.len() > usize(1), {
     anchors := ArrayList(String).new();
-    sections := _sections_of(cache, world.mods, module.clone(), io, exn);
+    sections := _sections_of(&mut cache, &world.mods, module.clone(), io, exn);
     (s : usize) = usize(0);
     while(s < sections.len(), {
       if(_anchor_names(sections(s).anchor.clone(), item.clone()), {
@@ -1325,17 +1325,17 @@ _run_context_describe_item :: (
     _miss(
       _EXIT_NO_MATCH,
       tr(`context: '${item}' names ${matches.len().to_string()} items in ${module} — qualify it`, `context：'${item}' 在 ${module} 中对应 ${matches.len().to_string()} 个条目——请加上类型限定`),
-      anchors,
+      &anchors,
       as_json,
       exn
     );
   });
   e := matches(usize(0));
   if(as_json, {
-    println(json.stringify(_item_json(e, world, cache, io, exn)));
+    println(json.stringify(_item_json(&e, world, &mut cache, io, exn)));
     return(());
   });
-  _print_item(e, world, cache, io, exn);
+  _print_item(&e, world, &mut cache, io, exn);
 });
 /// `yo context <name>` when the name is no module: one hit prints its full
 /// entry; several print the ranked hit list (the full entries of the top
@@ -1373,32 +1373,32 @@ _run_context_describe_bare :: (fn(imm(q) : ContextQuery, imm(world) : LoadedWorl
     });
   });
   if(hits.len() == usize(0), {
-    names := _module_names(world.mods);
-    ents := _entry_names(world.entries, String.new());
+    names := _module_names(&world.mods);
+    ents := _entry_names(&world.entries, String.new());
     (k : usize) = usize(0);
     while(k < ents.len(), {
       names.push(ents(k));
       k = (k + usize(1));
     });
-    _miss(_EXIT_NO_MATCH, tr(`context: no module or item '${name}' in the corpus`, `context：语料中没有模块或条目 '${name}'`), _did_you_mean(names, name.clone()), q.as_json, exn);
+    _miss(_EXIT_NO_MATCH, tr(`context: no module or item '${name}' in the corpus`, `context：语料中没有模块或条目 '${name}'`), _did_you_mean(&names, name.clone()), q.as_json, exn);
   });
   cache := HashMap(String, ArrayList(PageSection)).new();
   if(q.as_json, {
     arr := ArrayList(JsonValue).new();
     (j : usize) = usize(0);
     while(j < hits.len(), {
-      arr.push(_item_json(hits(j), world, cache, io, exn));
+      arr.push(_item_json(&hits(j), world, &mut cache, io, exn));
       j = (j + usize(1));
     });
     top := JsonValue.object();
     top.insert(String.from("query"), _jstr(name.clone()));
     top.insert(String.from("count"), JsonValue.Int(i64(hits.len())));
     top.insert(String.from("hits"), JsonValue.Array(arr));
-    println(json.stringify(top));
+    println(json.stringify(&top));
     return(());
   });
   if(hits.len() == usize(1), {
-    _print_item(hits(usize(0)), world, cache, io, exn);
+    _print_item(&hits(usize(0)), world, &mut cache, io, exn);
     return(());
   });
   println(tr(`'${name}' names ${hits.len().to_string()} items — yo context <module> ${name} for one:`, `'${name}' 对应 ${hits.len().to_string()} 个条目——用 yo context <module> ${name} 查看其一：`));
@@ -1412,7 +1412,7 @@ _run_context_describe_bare :: (fn(imm(q) : ContextQuery, imm(world) : LoadedWorl
     (v : usize) = usize(0);
     while((v < hits.len()) && (v < usize(3)), {
       println(String.new());
-      _print_item(hits(v), world, cache, io, exn);
+      _print_item(&hits(v), world, &mut cache, io, exn);
       v = (v + usize(1));
     });
   });
@@ -1487,7 +1487,7 @@ _run_context_docs_list :: (fn(as_json : bool, io : Io, imm(exn) : Exception) -> 
   (i : usize) = usize(0);
   while(i < names.len(), {
     content := io.await(read_to_string(dir.join(Path.new(`${names(i)}.md`)), io), IoExn(io : io, exn : exn));
-    titles.push(_doc_title(content));
+    titles.push(_doc_title(&content));
     i = (i + usize(1));
   });
   if(as_json, {
@@ -1495,14 +1495,14 @@ _run_context_docs_list :: (fn(as_json : bool, io : Io, imm(exn) : Exception) -> 
     (j : usize) = usize(0);
     while(j < names.len(), {
       o := JsonValue.object();
-      o.insert(String.from("name"), _jstr(names(j)));
-      o.insert(String.from("title"), _jstr(titles(j)));
+      o.insert(String.from("name"), _jstr(&names(j)));
+      o.insert(String.from("title"), _jstr(&titles(j)));
       arr.push(o);
       j = (j + usize(1));
     });
     top := JsonValue.object();
     top.insert(String.from("docs"), JsonValue.Array(arr));
-    println(json.stringify(top));
+    println(json.stringify(&top));
     return(());
   });
   (k : usize) = usize(0);
@@ -1535,7 +1535,7 @@ _run_context_doc :: (fn(imm(query) : String, as_json : bool, io : Io, imm(exn) :
       _miss(
         _EXIT_NO_MATCH,
         tr(`context: no manual named '${query}' (yo context --docs lists them)`, `context：没有名为 '${query}' 的手册（yo context --docs 列出全部）`),
-        _did_you_mean(names, query.clone()),
+        _did_you_mean(&names, query.clone()),
         as_json,
         exn
       );
@@ -1549,13 +1549,13 @@ _run_context_doc :: (fn(imm(query) : String, as_json : bool, io : Io, imm(exn) :
     o.insert(String.from("title"), _jstr(_doc_title(content.clone())));
     // The same citation the text header carries (`yo X.Y.Z — doc: NAME`).
     o.insert(String.from("citation"), _jstr(`yo ${String.from(CURRENT_YO_VERSION)} — doc: ${name}`));
-    o.insert(String.from("content"), _jstr(content));
-    println(json.stringify(o));
+    o.insert(String.from("content"), _jstr(&content));
+    println(json.stringify(&o));
     return(());
   });
   // Citation header, like the pack's: which toolchain's copy this is.
   println(`yo ${String.from(CURRENT_YO_VERSION)} — doc: ${name}`);
-  println(content);
+  println(&content);
 });
 // ---------------------------------------------------------------------------
 // Entry point
@@ -1601,22 +1601,22 @@ run_context :: (
     _usage_error(`--deep refines --search`, `--deep 用于细化 --search`, exn);
   });
   if(has_query, {
-    world := _load_world(q, io, exn);
+    world := _load_world(&q, io, exn);
     cond(
-      q.list => _run_context_list(world, q.as_json),
-      (q.search.len() > usize(0)) => _run_context_search(q, world, io, exn),
-      (q.item.len() > usize(0)) => _run_context_describe_item(_require_module(world, q.subject.clone(), q.as_json, exn), q.item.clone(), world, q.as_json, io, exn),
+      q.list => _run_context_list(&world, q.as_json),
+      (q.search.len() > usize(0)) => _run_context_search(&q, &world, io, exn),
+      (q.item.len() > usize(0)) => _run_context_describe_item(_require_module(&world, q.subject.clone(), q.as_json, exn), q.item.clone(), &world, q.as_json, io, exn),
       true => match(
-        _resolve_module(world.mods, q.subject.clone()),
-        .Found(m) => _run_context_describe_module(m, world, q.as_json),
+        _resolve_module(&world.mods, q.subject.clone()),
+        .Found(m) => _run_context_describe_module(&m, &world, q.as_json),
         .Ambiguous(c) => _miss(
           _EXIT_NO_MATCH,
           tr(`context: '${q.subject}' matches ${c.len().to_string()} modules — spell more of the path`, `context：'${q.subject}' 匹配 ${c.len().to_string()} 个模块——请写出更多路径`),
-          c,
+          &c,
           q.as_json,
           exn
         ),
-        .NotFound => _run_context_describe_bare(q, world, io, exn)
+        .NotFound => _run_context_describe_bare(&q, &world, io, exn)
       )
     );
     return(());
@@ -1650,10 +1650,10 @@ run_context :: (
       Path.new(String.new())
     }
   );
-  content := io.await(read_to_string(pack_path, io), IoExn(io : io, exn : exn));
+  content := io.await(read_to_string(&pack_path, io), IoExn(io : io, exn : exn));
   // Citation header first (D2): which toolchain version and which pack
   // revision produced this text, so an agent can cite what it read.
-  println(`yo ${String.from(CURRENT_YO_VERSION)} — ${_pack_version_line(content).unwrap_or(String.from("pack-version: unknown"))}`);
-  println(content);
+  println(`yo ${String.from(CURRENT_YO_VERSION)} — ${_pack_version_line(&content).unwrap_or(String.from("pack-version: unknown"))}`);
+  println(&content);
 });
 export(run_context, search_score, _search_entries, LoadedWorld);

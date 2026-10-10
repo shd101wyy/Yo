@@ -57,9 +57,9 @@ encode_sort :: (fn(imm(s) : VcSort) -> String)(
     .BoolS => String.from("Bool"),
     .BvS(w) => `(_ BitVec ${w.to_string()})`,
     .DataS(name) => name.clone(),
-    .SeqS(elem) => `(Seq ${encode_sort(elem)})`,
-    .FunS(domain, range) => `(Array ${encode_sort(domain)} ${encode_sort(range)})`,
-    .ArrS(elem, _) => `(Array (_ BitVec 64) ${encode_sort(elem)})`,
+    .SeqS(elem) => `(Seq ${encode_sort(&elem)})`,
+    .FunS(domain, range) => `(Array ${encode_sort(&domain)} ${encode_sort(&range)})`,
+    .ArrS(elem, _) => `(Array (_ BitVec 64) ${encode_sort(&elem)})`,
     .Uninterpreted(name) => name.clone()
   )
 );
@@ -133,7 +133,7 @@ encode_fun_decl :: (fn(imm(d) : VcFunDecl) -> String)({
     sb.write_string(encode_sort(d.args.get(ai).unwrap()));
     ai = (ai + usize(1));
   });
-  sb.write_string(`) ${encode_sort(d.result)})`);
+  sb.write_string(`) ${encode_sort(&d.result)})`);
   sb.to_string()
 });
 encode_fundecl :: (fn(imm(elem) : VcSort) -> String)(
@@ -147,9 +147,9 @@ _msof_key :: (fn(imm(elem) : VcSort) -> String)(
     .BoolS => String.from("bool"),
     .BvS(w) => `bv${w.to_string()}`,
     .DataS(name) => name.clone(),
-    .SeqS(e) => `seq_${_msof_key(e)}`,
-    .FunS(d, r) => `arr_${_msof_key(d)}_${_msof_key(r)}`,
-    .ArrS(e, _) => `arr_${_msof_key(e)}`,
+    .SeqS(e) => `seq_${_msof_key(&e)}`,
+    .FunS(d, r) => `arr_${_msof_key(&d)}_${_msof_key(&r)}`,
+    .ArrS(e, _) => `arr_${_msof_key(&e)}`,
     .Uninterpreted(name) => name.clone()
   )
 );
@@ -167,7 +167,7 @@ _encode_ctor_app :: (fn(imm(name) : String, imm(args) : ArrayList(VcTerm)) -> St
       args.get(ci),
       .Some(a) => {
         sb.write_byte(u8(0x20));
-        sb.write_string(encode_term(a));
+        sb.write_string(encode_term(&a));
       },
       .None => ()
     );
@@ -183,7 +183,7 @@ encode_term :: (fn(imm(t) : VcTerm) -> String)(
     .Var(name, _) => name.clone(),
     .BvLit(value, width) => `(_ bv${value.to_string()} ${width.to_string()})`,
     .BoolLit(value) => cond(value => String.from("true"), true => String.from("false")),
-    .ArrConst(sort, lit) => `((as const ${encode_sort(sort)}) ${encode_term(lit)})`,
+    .ArrConst(sort, lit) => `((as const ${encode_sort(&sort)}) ${encode_term(&lit)})`,
     .App(op, args) => {
       head := match(
         op,
@@ -202,14 +202,14 @@ encode_term :: (fn(imm(t) : VcTerm) -> String)(
       );
       sb := StringBuilder.new();
       sb.write_byte(u8(0x28));
-      sb.write_string(head);
+      sb.write_string(&head);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
           .Some(a) => {
             sb.write_byte(u8(0x20));
-            sb.write_string(encode_term(a));
+            sb.write_string(encode_term(&a));
           },
           .None => ()
         );
@@ -222,7 +222,7 @@ encode_term :: (fn(imm(t) : VcTerm) -> String)(
     // `(Name)` ("invalid function application, arguments missing").
     .Ctor(name, args) => cond(
       (args.len() == usize(0)) => name.clone(),
-      true => _encode_ctor_app(name, args)
+      true => _encode_ctor_app(&name, &args)
     ),
     // NOTE: the child bindings are deliberately NOT named `t` — binding the
     // scrutinee's own name hit the codegen self-referential-initializer UB
@@ -232,8 +232,8 @@ encode_term :: (fn(imm(t) : VcTerm) -> String)(
     // accessor is the MANGLED `<ctor>_<label>` symbol the datatype's
     // constructor declares (z3 resolves field access by symbol, not
     // position).
-    .Test(ctor, child) => `(is-${ctor} ${encode_term(child)})`,
-    .Proj(ctor, _, child) => `(${ctor} ${encode_term(child)})`,
+    .Test(ctor, child) => `(is-${ctor} ${encode_term(&child)})`,
+    .Proj(ctor, _, child) => `(${ctor} ${encode_term(&child)})`,
     .Quant(kind, names, sorts, body, triggers) => {
       kw := match(
         kind,
@@ -242,23 +242,23 @@ encode_term :: (fn(imm(t) : VcTerm) -> String)(
       );
       sb := StringBuilder.new();
       sb.write_byte(u8(0x28));
-      sb.write_string(kw);
+      sb.write_string(&kw);
       sb.write_str(" (");
       (i : usize) = usize(0);
       while(i < names.len(), {
         n := match(names.get(i), .Some(x) => x, .None => String.from("_"));
         s := match(
           sorts.get(i),
-          .Some(x) => encode_sort(x),
+          .Some(x) => encode_sort(&x),
           .None => String.from("Bool")
         );
         if(i > usize(0), {
           sb.write_byte(u8(0x20));
         });
         sb.write_byte(u8(0x28));
-        sb.write_string(n);
+        sb.write_string(&n);
         sb.write_byte(u8(0x20));
-        sb.write_string(s);
+        sb.write_string(&s);
         sb.write_byte(u8(0x29));
         i = (i + usize(1));
       });
@@ -273,14 +273,14 @@ encode_term :: (fn(imm(t) : VcTerm) -> String)(
         sb.write_byte(u8(0x28));
         sb.write_byte(u8(0x21));
         sb.write_byte(u8(0x20));
-        sb.write_string(encode_term(body));
+        sb.write_string(encode_term(&body));
         (ti : usize) = usize(0);
         while(ti < triggers.len(), {
           match(
             triggers.get(ti),
             .Some(tr) => {
               sb.write_str(" :pattern (");
-              sb.write_string(encode_term(tr));
+              sb.write_string(encode_term(&tr));
               sb.write_byte(u8(0x29));
             },
             .None => ()
@@ -289,7 +289,7 @@ encode_term :: (fn(imm(t) : VcTerm) -> String)(
         });
         sb.write_byte(u8(0x29));
       }, {
-        sb.write_string(encode_term(body));
+        sb.write_string(encode_term(&body));
       });
       sb.write_byte(u8(0x29));
       sb.to_string()
@@ -412,7 +412,7 @@ encode_content :: (fn(imm(q) : VcQuery) -> String)({
   // builder; a stable re-sort keeps the encoding reproducible regardless.
   // V6 task 2: declared uninterpreted sorts (one `declare-sort` per
   // abstractly verified generic parameter), deterministically ordered.
-  sort_entries := _sorted_lines(q.sorts);
+  sort_entries := _sorted_lines(&q.sorts);
   if(sort_entries.len() > usize(0), {
     (si : usize) = usize(0);
     while(si < sort_entries.len(), {
@@ -429,7 +429,7 @@ encode_content :: (fn(imm(q) : VcQuery) -> String)({
       si = (si + usize(1));
     });
   });
-  dt_entries := _sorted_lines(q.datatypes);
+  dt_entries := _sorted_lines(&q.datatypes);
   if(dt_entries.len() > usize(0), {
     sb.write_str("(declare-datatypes (");
     (ti : usize) = usize(0);
@@ -462,7 +462,7 @@ encode_content :: (fn(imm(q) : VcQuery) -> String)({
             .Some(b) => entry.substring(b + usize(1), entry.len()),
             .None => String.new()
           );
-          sb.write_string(`(${_wrap_ctor_segments(ctors)})`);
+          sb.write_string(`(${_wrap_ctor_segments(&ctors)})`);
         },
         .None => ()
       );
@@ -475,7 +475,7 @@ encode_content :: (fn(imm(q) : VcQuery) -> String)({
     match(
       q.declarations.get(di),
       .Some(d) => {
-        sb.write_string(`(declare-fun ${d.name} () ${encode_sort(d.sort)})\n`);
+        sb.write_string(`(declare-fun ${d.name} () ${encode_sort(&d.sort)})\n`);
       },
       .None => ()
     );
@@ -489,7 +489,7 @@ encode_content :: (fn(imm(q) : VcQuery) -> String)({
     match(
       q.fundecls.get(fi),
       .Some(fs) => {
-        sb.write_string(`${encode_fundecl(fs)}\n`);
+        sb.write_string(`${encode_fundecl(&fs)}\n`);
       },
       .None => ()
     );
@@ -500,7 +500,7 @@ encode_content :: (fn(imm(q) : VcQuery) -> String)({
     match(
       q.fun_decls.get(ufi),
       .Some(ufd) => {
-        sb.write_string(`${encode_fun_decl(ufd)}\n`);
+        sb.write_string(`${encode_fun_decl(&ufd)}\n`);
       },
       .None => ()
     );
@@ -511,7 +511,7 @@ encode_content :: (fn(imm(q) : VcQuery) -> String)({
     match(
       q.axioms.get(xi),
       .Some(ax) => {
-        sb.write_string(`(assert ${encode_term(ax)})\n`);
+        sb.write_string(`(assert ${encode_term(&ax)})\n`);
       },
       .None => ()
     );
@@ -525,10 +525,10 @@ encode_content :: (fn(imm(q) : VcQuery) -> String)({
         match(
           a.name,
           .Some(n) => {
-            sb.write_string(`(assert (! ${encode_term(a.term)} :named ${n}))\n`);
+            sb.write_string(`(assert (! ${encode_term(&a.term)} :named ${n}))\n`);
           },
           .None => {
-            sb.write_string(`(assert ${encode_term(a.term)})\n`);
+            sb.write_string(`(assert ${encode_term(&a.term)})\n`);
           }
         );
       },
@@ -536,7 +536,7 @@ encode_content :: (fn(imm(q) : VcQuery) -> String)({
     );
     ai = (ai + usize(1));
   });
-  sb.write_string(`(assert (not ${encode_term(q.goal)}))\n`);
+  sb.write_string(`(assert (not ${encode_term(&q.goal)}))\n`);
   sb.write_str("(check-sat)\n");
   sb.to_string()
 });
@@ -596,7 +596,7 @@ encode_script :: (fn(imm(q) : VcQuery, opts : EncodeOptions) -> String)({
           if(i > usize(0), {
             sb.write_byte(u8(0x20));
           });
-          sb.write_string(d.name);
+          sb.write_string(&d.name);
         },
         .None => ()
       );

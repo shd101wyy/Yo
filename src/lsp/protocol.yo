@@ -235,7 +235,7 @@ j_diagnostic :: (
   match(
     code,
     .Some(c) => {
-      _b := b.put("code", jstr(c));
+      _b := b.put("code", jstr(&c));
     },
     .None => ()
   );
@@ -379,13 +379,13 @@ fs_path_to_uri :: (fn(imm(path) : String) -> String)({
     match(
       segs.get(i),
       .Some(seg) => {
-        encoded.push(percent.encode(seg));
+        encoded.push(percent.encode(&seg));
       },
       .None => ()
     );
     i = (i + usize(1));
   });
-  joined := String.from("/").join(encoded);
+  joined := String.from("/").join(&encoded);
   cond(
     joined.starts_with(String.from("/")) => `file://${joined}`,
     true => `file:///${joined}`

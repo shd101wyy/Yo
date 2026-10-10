@@ -63,7 +63,7 @@ _c_function_name :: (fn(imm(context) : FunctionGenerationContext, imm(func_id) :
 );
 /// Whether `object_value` is a TypeValue wrapping an enum type.
 _is_typevalue_enum :: (fn(imm(object_value) : Option(EvalValue)) -> bool)(
-  match(object_value, .Some(v) => match(v, .TypeVal(t) => is_enum_type(t), _ => false), .None => false)
+  match(object_value, .Some(v) => match(v, .TypeVal(t) => is_enum_type(&t), _ => false), .None => false)
 );
 /// Enum field access: nullable-pointer optimization returns the pointer; else
 /// resolve `object.data.<Variant>.<field>` by locating the variant declaring it.
@@ -95,7 +95,7 @@ _enum_field_access :: (fn(imm(object_type) : TypeValue, imm(object_code) : Strin
                     }, {
                       out.push_str(".data.");
                     });
-                    out.push_string(c_variant_member_name(vname));
+                    out.push_string(c_variant_member_name(&vname));
                     out.push_str(".");
                     out.push_string(sanitize_for_c_identifier(field_name.clone(), false));
                     return(out);
@@ -112,7 +112,7 @@ _enum_field_access :: (fn(imm(object_type) : TypeValue, imm(object_code) : Strin
         err := String.from("/* ERROR: field ");
         err.push_string(field_name);
         err.push_str(" not found in enum ");
-        err.push_string(ename);
+        err.push_string(&ename);
         err.push_str(" */");
         err
       },
@@ -139,19 +139,19 @@ _typevalue_enum_access :: (fn(imm(object_value) : Option(EvalValue), imm(field_n
                 .Some(vn) => if(vn == field_name, {
                   fields_empty := match(vfields.get(vi), .Some(fs) => (fs.len() == usize(0)), .None => true);
                   // A nullable-pointer enum's fieldless variant is NULL.
-                  if(fields_empty && can_optimize_as_nullable_pointer(et).is_some(), {
+                  if(fields_empty && can_optimize_as_nullable_pointer(&et).is_some(), {
                     return(String.from("NULL"));
                   });
                   if(
                     fields_empty,
                     match(
-                      context.base.get_type_c_name(type_key(et)),
+                      context.base.get_type_c_name(type_key(&et)),
                       .Some(c_name) => {
-                        tag_name := get_enum_variant_c_name(et, field_name.clone(), context.base);
+                        tag_name := get_enum_variant_c_name(&et, field_name.clone(), &context.base);
                         out := String.from("(");
-                        out.push_string(c_name);
+                        out.push_string(&c_name);
                         out.push_str("){ .tag = ");
-                        out.push_string(tag_name);
+                        out.push_string(&tag_name);
                         out.push_str(", .data = {  } }");
                         return(out);
                       },
@@ -184,7 +184,7 @@ _ptr_field_access :: (fn(imm(object_type) : TypeValue, imm(object_code) : String
   }, {
     (deref_level : usize) = usize(0);
     (current_type : TypeValue) = object_type;
-    while(is_pointer_type(current_type), {
+    while(is_pointer_type(&current_type), {
       current_type = match(current_type, .Pointer(p) => p, _ => current_type);
       deref_level = (deref_level + usize(1));
     });
@@ -194,7 +194,7 @@ _ptr_field_access :: (fn(imm(object_type) : TypeValue, imm(object_code) : String
       deref_level = (deref_level + usize(1));
     });
     // Newtype field through a pointer is just the dereference.
-    nt_match := if(is_newtype_type(current_type), match(current_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name), .None => false), false), _ => false), false);
+    nt_match := if(is_newtype_type(&current_type), match(current_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name), .None => false), false), _ => false), false);
     if(nt_match, {
       res := if(deref_level == usize(1), {
         out := String.from("(*");
@@ -213,7 +213,7 @@ _ptr_field_access :: (fn(imm(object_type) : TypeValue, imm(object_code) : String
     if(deref_level > usize(0), if(deref_level == usize(1), {
       out := object_code.clone();
       out.push_str("->");
-      out.push_string(c_field_name(current_type, field_name.clone()));
+      out.push_string(c_field_name(&current_type, field_name.clone()));
       out
     }, {
       deref := String.from("(");
@@ -221,12 +221,12 @@ _ptr_field_access :: (fn(imm(object_type) : TypeValue, imm(object_code) : String
       deref.push_string(object_code.clone());
       deref.push_str(")");
       deref.push_str("->");
-      deref.push_string(c_field_name(current_type, field_name.clone()));
+      deref.push_string(c_field_name(&current_type, field_name.clone()));
       deref
     }), {
       out := object_code.clone();
       out.push_str(".");
-      out.push_string(c_field_name(current_type, field_name.clone()));
+      out.push_string(c_field_name(&current_type, field_name.clone()));
       out
     })
   })
@@ -278,12 +278,12 @@ generate_field_access :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(cont
   });
   object_expr := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
   field_expr := match(args.get(usize(1)), .Some(x) => x, .None => return(String.from("/* ERROR: invalid field access arguments */")));
-  if(!ast_expr_is_atom(field_expr), {
+  if(!ast_expr_is_atom(&field_expr), {
     return(String.from("/* ERROR: field name must be an identifier */"));
   });
-  field_name := ast_expr_token(field_expr).value;
-  object_code := _call_generate_expr(object_expr, indent.clone(), context);
-  obj_ei_opt := context.base.get_expr_info(object_expr);
+  field_name := ast_expr_token(&field_expr).value;
+  object_code := _call_generate_expr(&object_expr, indent.clone(), context);
+  obj_ei_opt := context.base.get_expr_info(&object_expr);
   object_type := match(obj_ei_opt, .Some(oei) => oei.ty, .None => TypeValue.Unit);
   object_value := match(obj_ei_opt, .Some(oei) => oei.value, .None => Option(EvalValue).None);
   // Dyn method access takes PRIORITY over static method resolution: even when
@@ -294,18 +294,18 @@ generate_field_access :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(cont
   // name that isn't collected for a dyn call → the call fails to transpile.
   // Only a vtable SLOT: a blanket inherent method has none (see the call
   // site in other_fn_call.yo) and takes the static path below.
-  if(is_dyn_type(object_type) && dyn_type_has_vtable_slot(object_type, field_name.clone()), {
+  if(is_dyn_type(&object_type) && dyn_type_has_vtable_slot(&object_type, field_name.clone()), {
     out := object_code.clone();
     out.push_str(".vtable->");
-    out.push_string(sanitize_for_c_identifier(field_name, false));
+    out.push_string(sanitize_for_c_identifier(&field_name, false));
     return(out);
   });
   // Method access: the field resolved to a function → emit its C name.
   match(
     ei.value,
-    .Some(v) => if(is_func_val(v), {
+    .Some(v) => if(is_func_val(&v), {
       fid := match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
-      return(_c_function_name(context, fid));
+      return(_c_function_name(context, &fid));
     }),
     .None => ()
   );
@@ -318,17 +318,17 @@ generate_field_access :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(cont
   // `_call_generate_expr` has already emitted any statement-level side effect
   // it had. Dyn/method/module accesses above are NOT unit-typed values and
   // never reach this rule.
-  if(is_unit_type(ei.ty) && (is_struct_type(object_type) || is_tuple_type(object_type) || is_pointer_type(object_type)), {
+  if(is_unit_type(&ei.ty) && (is_struct_type(&object_type) || is_tuple_type(&object_type) || is_pointer_type(&object_type)), {
     return(String.from(""));
   });
   // Module namespace / struct-value field access (compile-time field value).
-  if(is_module_type(object_type) || match(object_value, .Some(v) => is_struct_val(v), .None => false), {
+  if(is_module_type(&object_type) || match(object_value, .Some(v) => is_struct_val(&v), .None => false), {
     match(
       ei.value,
       .Some(fv) => if(
-        !is_unknown_val(fv),
-        if(!is_struct_val(fv), {
-          return(generate_comptime_value(fv, ei.ty, context.base));
+        !is_unknown_val(&fv),
+        if(!is_struct_val(&fv), {
+          return(generate_comptime_value(&fv, &ei.ty, &context.base));
         })
       ),
       .None => ()
@@ -337,7 +337,7 @@ generate_field_access :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(cont
     // (`c.stdout`): no variable carries it, so resolve it the way the atom
     // resolver does — by name + declared type — and keep the REAL C name
     // (no reserved-word prefix). plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §3.4.
-    if(is_module_type(object_type) && extern_c_global_matches(field_name.clone(), ei.ty), {
+    if(is_module_type(&object_type) && extern_c_global_matches(field_name.clone(), &ei.ty), {
       return(sanitize_for_c_identifier(field_name.clone(), true));
     });
     return(get_variable_name_for_codegen_at(ast_expr_id(expr), field_name.clone(), Option(Environment).Some(ei.env)));
@@ -347,7 +347,7 @@ generate_field_access :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(cont
   // body (`e.io.await(f, e.io)`) whose effect bound to the bare Io emits
   // `e`, not a nonexistent `e.io` field. Keyed on the io-builtin side
   // table, so a user struct with an `io` field is untouched.
-  if((field_name == "io") && is_struct_type(object_type) && match(
+  if((field_name == "io") && is_struct_type(&object_type) && match(
     object_type,
     .Struct({ id : oid }) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
     _ => false
@@ -357,7 +357,7 @@ generate_field_access :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(cont
   // Newtype: accessing the single field returns the value itself (zero-cost).
   // A by-`ref` receiver is already dereferenced by generate_atom (`(*self)`), so
   // `object_code` is the newtype VALUE here — just return it.
-  if(is_newtype_type(object_type), {
+  if(is_newtype_type(&object_type), {
     match(
       object_type,
       .Struct({ field_labels : fls }) => if(fls.len() == usize(1), {
@@ -374,26 +374,26 @@ generate_field_access :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(cont
   });
   // Value-shape field access, mutually exclusive branches.
   cond(
-    is_enum_type(object_type) => _enum_field_access(object_type, object_code, field_name, context),
-    _is_typevalue_enum(object_value) => _typevalue_enum_access(object_value, field_name, context),
-    is_pointer_type(object_type) => _ptr_field_access(object_type, object_code, field_name),
-    is_tuple_type(object_type) => _tuple_field_access(object_type, object_code, field_name),
-    is_dyn_type(object_type) => {
+    is_enum_type(&object_type) => _enum_field_access(&object_type, &object_code, &field_name, context),
+    _is_typevalue_enum(&object_value) => _typevalue_enum_access(&object_value, &field_name, context),
+    is_pointer_type(&object_type) => _ptr_field_access(&object_type, &object_code, &field_name),
+    is_tuple_type(&object_type) => _tuple_field_access(&object_type, &object_code, &field_name),
+    is_dyn_type(&object_type) => {
       out := object_code.clone();
       out.push_str(".vtable->");
-      out.push_string(sanitize_for_c_identifier(field_name, false));
+      out.push_string(sanitize_for_c_identifier(&field_name, false));
       out
     },
-    is_reference_struct_type(object_type) => {
+    is_reference_struct_type(&object_type) => {
       out := object_code.clone();
       out.push_str("->");
-      out.push_string(c_field_name(object_type, field_name));
+      out.push_string(c_field_name(&object_type, &field_name));
       out
     },
     true => {
       out := object_code.clone();
       out.push_str(".");
-      out.push_string(c_field_name(object_type, field_name));
+      out.push_string(c_field_name(&object_type, &field_name));
       out
     }
   )

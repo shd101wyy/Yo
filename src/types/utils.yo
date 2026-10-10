@@ -257,7 +257,7 @@ type_requires_comptime_modifier :: (fn(imm(ty) : TypeValue) -> bool)(
       while(rcm_i < rcm_fts.len(), {
         match(
           rcm_fts.get(rcm_i),
-          .Some(rcm_ft) => if(recur(rcm_ft), {
+          .Some(rcm_ft) => if(recur(&rcm_ft), {
             rcm_any = true;
           }),
           .None => ()
@@ -266,7 +266,7 @@ type_requires_comptime_modifier :: (fn(imm(ty) : TypeValue) -> bool)(
       });
       rcm_any
     },
-    .Array(rcm_el, _, _) => recur(rcm_el),
+    .Array(rcm_el, _, _) => recur(&rcm_el),
     _ => type_is_comptime_only(ty)
   )
 );
@@ -337,7 +337,7 @@ type_implements_runtime_builtin :: (fn(imm(ty) : TypeValue) -> Option(bool))({
           true => Option(bool).None
         ),
         _ => match(
-          type_value_tag(rb_base),
+          type_value_tag(&rb_base),
           .TComptimeInt => Option(bool).Some(false),
           .TComptimeFloat => Option(bool).Some(false),
           .TComptimeString => Option(bool).Some(false),
@@ -503,12 +503,12 @@ collect_type_borrows :: (fn(imm(ty) : TypeValue, mut(out) : ArrayList(CaptureBor
 );
 _collect_type_borrows_inner :: (fn(imm(ty_in) : TypeValue, mut(out) : ArrayList(CaptureBorrow), depth : u32) -> unit)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
-  if((depth > u32(12)) || is_rc_type(ty), {
+  if((depth > u32(12)) || is_rc_type(&ty), {
     return(());
   });
   match(
     ty,
-    .Array(element : elem, length : _) => recur(elem, out, depth + u32(1)),
+    .Array(element : elem, length : _) => recur(&elem, out, depth + u32(1)),
     .Tuple({ field_types : fields }) => {
       (i : usize) = usize(0);
       while(i < fields.len(), {
@@ -518,7 +518,7 @@ _collect_type_borrows_inner :: (fn(imm(ty_in) : TypeValue, mut(out) : ArrayList(
     },
     .Struct({ id : sid, field_types : fields }) => {
       match(
-        g_capture_borrows.get(sid),
+        g_capture_borrows.get(&sid),
         .Some(bs) => {
           (bi : usize) = usize(0);
           while(bi < bs.len(), {
@@ -546,7 +546,7 @@ _collect_type_borrows_inner :: (fn(imm(ty_in) : TypeValue, mut(out) : ArrayList(
         vi = (vi + usize(1));
       });
     },
-    .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(concrete, out, depth + u32(1)), .None => ()),
+    .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(&concrete, out, depth + u32(1)), .None => ()),
     _ => ()
   );
 });
@@ -563,14 +563,14 @@ type_pointee_second_class :: (fn(imm(ty) : TypeValue) -> Option(TypeValue))(
 );
 _pointee_second_class_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> Option(TypeValue))({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
-  if((depth > u32(8)) || is_rc_type(ty), {
+  if((depth > u32(8)) || is_rc_type(&ty), {
     return(Option(TypeValue).None);
   });
   comps := ArrayList(TypeValue).new();
   match(
     ty,
     .Pointer(inner) => {
-      return(if(type_is_second_class(inner), Option(TypeValue).Some(inner), Option(TypeValue).None));
+      return(if(type_is_second_class(&inner), Option(TypeValue).Some(inner), Option(TypeValue).None));
     },
     .Array(element : elem, length : _) => comps.push(elem),
     .Tuple({ field_types : fields }) => {
@@ -626,7 +626,7 @@ type_is_second_class :: (fn(imm(ty) : TypeValue) -> bool)(
     (g_capture_borrows.len() == usize(0)) => false,
     true => {
       bs := ArrayList(CaptureBorrow).new();
-      _collect_type_borrows_inner(ty, bs, u32(0));
+      _collect_type_borrows_inner(ty, &mut bs, u32(0));
       bs.len() > usize(0)
     }
   )
@@ -638,7 +638,7 @@ type_first_mut_borrow :: (fn(imm(ty) : TypeValue) -> Option(CaptureBorrow))({
     return(Option(CaptureBorrow).None);
   });
   bs := ArrayList(CaptureBorrow).new();
-  _collect_type_borrows_inner(ty, bs, u32(0));
+  _collect_type_borrows_inner(ty, &mut bs, u32(0));
   (i : usize) = usize(0);
   while(i < bs.len(), {
     match(
@@ -660,7 +660,7 @@ _capture_struct_declares_mut :: (fn(imm(ty) : TypeValue) -> bool)(
     true => match(
       ty,
       .Struct({ id : sid }) => match(
-        g_capture_borrows.get(sid),
+        g_capture_borrows.get(&sid),
         .Some(bs) => {
           (found : bool) = false;
           (i : usize) = usize(0);
@@ -733,19 +733,19 @@ _type_is_move_only_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> bool)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   cond(
     (depth > u32(8)) => false,
-    _is_dyn_fnonce(ty) => true,
-    is_rc_type(ty) => false,
-    _nominal_declares_move_only(ty) => true,
+    _is_dyn_fnonce(&ty) => true,
+    is_rc_type(&ty) => false,
+    _nominal_declares_move_only(&ty) => true,
     // A closure with a `mut` capture (decision 35): two copies of one
     // exclusive borrow would alias.
-    _capture_struct_declares_mut(ty) => true,
+    _capture_struct_declares_mut(&ty) => true,
     true => match(
       ty,
-      .Array(element : elem, length : _) => recur(elem, depth + u32(1)),
+      .Array(element : elem, length : _) => recur(&elem, depth + u32(1)),
       .Tuple(field_labels : _, field_types : fields) => {
         (i : usize) = usize(0);
         while(i < fields.len(), {
-          if(match(fields.get(i), .Some(ft) => recur(ft, depth + u32(1)), .None => false), {
+          if(match(fields.get(i), .Some(ft) => recur(&ft, depth + u32(1)), .None => false), {
             return(true);
           });
           i = (i + usize(1));
@@ -755,7 +755,7 @@ _type_is_move_only_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> bool)({
       .Struct({ field_types : fields }) => {
         (i : usize) = usize(0);
         while(i < fields.len(), {
-          if(match(fields.get(i), .Some(ft) => recur(ft, depth + u32(1)), .None => false), {
+          if(match(fields.get(i), .Some(ft) => recur(&ft, depth + u32(1)), .None => false), {
             return(true);
           });
           i = (i + usize(1));
@@ -768,7 +768,7 @@ _type_is_move_only_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> bool)({
           vf := match(all_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           (fi : usize) = usize(0);
           while(fi < vf.len(), {
-            if(match(vf.get(fi), .Some(ft) => recur(ft, depth + u32(1)), .None => false), {
+            if(match(vf.get(fi), .Some(ft) => recur(&ft, depth + u32(1)), .None => false), {
               return(true);
             });
             fi = (fi + usize(1));
@@ -779,7 +779,7 @@ _type_is_move_only_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> bool)({
       },
       // A generic parameter is judged where it is bound: a generic body is
       // re-evaluated per instantiation (§3.4 "checked per instantiation").
-      .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(concrete, depth + u32(1)), .None => false),
+      .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(&concrete, depth + u32(1)), .None => false),
       _ => false
     )
   )
@@ -851,12 +851,12 @@ _plain_data_lacks_copy :: (fn(imm(ty_in) : TypeValue) -> bool)({
     ),
     _ => ty_in
   );
-  if(type_contains_rc_cell_or_move_only(ty), {
+  if(type_contains_rc_cell_or_move_only(&ty), {
     return(false);
   });
-  lacks := match(g_type_lacks_copy_fn, .Some(f) => f(ty), .None => false);
+  lacks := match(g_type_lacks_copy_fn, .Some(f) => f(&ty), .None => false);
   if(lacks && g_flip_report, {
-    shown := type_to_string(ty);
+    shown := type_to_string(&ty);
     if(g_flip_reported.get(shown.clone()).is_none(), {
       eprintln(`[flip] ${shown}`);
       _ := g_flip_reported.insert(shown, true);
@@ -886,17 +886,17 @@ move_only_reason :: (fn(imm(ty) : TypeValue) -> Option(String))(
 );
 _move_only_reason_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> Option(String))({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
-  if(_is_dyn_fnonce(ty), {
-    return(Option(String).Some(`\`${type_to_string(ty)}\` is a call-once closure: its call consumes it, so a copy could call it twice`));
+  if(_is_dyn_fnonce(&ty), {
+    return(Option(String).Some(`\`${type_to_string(&ty)}\` is a call-once closure: its call consumes it, so a copy could call it twice`));
   });
-  if((depth > u32(8)) || is_rc_type(ty), {
+  if((depth > u32(8)) || is_rc_type(&ty), {
     return(Option(String).None);
   });
-  tn := _nominal_move_only_trait(ty);
+  tn := _nominal_move_only_trait(&ty);
   if(tn == "Dispose", {
-    return(Option(String).Some(`\`${type_to_string(ty)}\` implements Dispose`));
+    return(Option(String).Some(`\`${type_to_string(&ty)}\` implements Dispose`));
   });
-  if(_capture_struct_declares_mut(ty), {
+  if(_capture_struct_declares_mut(&ty), {
     return(Option(String).Some(String.from("the closure has a `mut` capture, and two copies of one exclusive borrow would alias")));
   });
   // The first move-only component, as `<label> : <type>` and its own reason.
@@ -942,7 +942,7 @@ _move_only_reason_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> Option(St
     .SomeT({ resolution : rc }) => match(
       rc,
       .Some(concrete) => {
-        return(recur(concrete, depth + u32(1)));
+        return(recur(&concrete, depth + u32(1)));
       },
       .None => ()
     ),
@@ -952,10 +952,10 @@ _move_only_reason_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> Option(St
   while(ci < comps.len(), {
     c := match(comps.get(ci), .Some(t) => t, .None => TypeValue.Unit);
     match(
-      recur(c, depth + u32(1)),
+      recur(&c, depth + u32(1)),
       .Some(inner) => {
         lbl := match(labels.get(ci), .Some(l) => l, .None => String.new());
-        return(Option(String).Some(`\`${type_to_string(ty)}\` holds a move-only value in its ${lbl} (\`${type_to_string(c)}\`): ${inner}`));
+        return(Option(String).Some(`\`${type_to_string(&ty)}\` holds a move-only value in its ${lbl} (\`${type_to_string(&c)}\`): ${inner}`));
       },
       .None => ()
     );
@@ -981,23 +981,23 @@ _type_contains_rc_inner :: (fn(imm(ty_in) : TypeValue, depth : u32, flip : bool)
     // Depth limit — conservative: return false at max depth
     (depth > u32(8)) => false,
     // Direct RC type
-    is_rc_type(ty) => true,
+    is_rc_type(&ty) => true,
     // A move-only value (§3.4) has a drop to run (its `dispose`) and an
     // owner to track, exactly like an RC value; its fields are walked below.
-    _nominal_declares_move_only(ty) => true,
+    _nominal_declares_move_only(&ty) => true,
     // A closure with a `mut` capture is move-only too (decision 35).
-    _capture_struct_declares_mut(ty) => true,
+    _capture_struct_declares_mut(&ty) => true,
     // Decision 36's flip: a plain-data value type that is not `Copy` is
     // copied only explicitly, so, like a move-only value, its owner is
     // tracked (a call or constructor result transfers, a named local is
     // consumed by a move). The value types reaching here are the nominal
     // structs and enums (a `ref` one is `is_rc_type` above).
-    (flip && _nominal_lacks_copy(ty)) => true,
+    (flip && _nominal_lacks_copy(&ty)) => true,
     true => match(
       ty,
       // Array — recurse on element type
       .Array(element : elem, length : _) =>
-        recur(elem, depth + u32(1), flip),
+        recur(&elem, depth + u32(1), flip),
       // Tuple — check all field types
       .Tuple(field_labels : _, field_types : fields) => {
         (found : bool) = false;
@@ -1006,7 +1006,7 @@ _type_contains_rc_inner :: (fn(imm(ty_in) : TypeValue, depth : u32, flip : bool)
           match(
             fields.get(i),
             .Some(ft) => {
-              if(recur(ft, depth + u32(1), flip), {
+              if(recur(&ft, depth + u32(1), flip), {
                 found = true;
               });
             },
@@ -1024,7 +1024,7 @@ _type_contains_rc_inner :: (fn(imm(ty_in) : TypeValue, depth : u32, flip : bool)
           match(
             fields.get(i),
             .Some(ft) => {
-              if(recur(ft, depth + u32(1), flip), {
+              if(recur(&ft, depth + u32(1), flip), {
                 found = true;
               });
             },
@@ -1042,7 +1042,7 @@ _type_contains_rc_inner :: (fn(imm(ty_in) : TypeValue, depth : u32, flip : bool)
           match(
             fields.get(i),
             .Some(ft) => {
-              if(recur(ft, depth + u32(1), flip), {
+              if(recur(&ft, depth + u32(1), flip), {
                 found = true;
               });
             },
@@ -1065,7 +1065,7 @@ _type_contains_rc_inner :: (fn(imm(ty_in) : TypeValue, depth : u32, flip : bool)
                 match(
                   v_fields.get(fi),
                   .Some(ft) => {
-                    if(recur(ft, depth + u32(1), flip), {
+                    if(recur(&ft, depth + u32(1), flip), {
                       found = true;
                     });
                   },
@@ -1081,7 +1081,7 @@ _type_contains_rc_inner :: (fn(imm(ty_in) : TypeValue, depth : u32, flip : bool)
         found
       },
       // Iso — check child type
-      .IsoT(child : child) => recur(child, depth + u32(1), flip),
+      .IsoT(child : child) => recur(&child, depth + u32(1), flip),
       // SomeT — follow the resolved concrete type if present; an unresolved
       // SomeType is treated as RC. The Future carve-out is already handled
       // by `is_rc_type(ty)` above (line ~307). Without this follow-through a
@@ -1091,7 +1091,7 @@ _type_contains_rc_inner :: (fn(imm(ty_in) : TypeValue, depth : u32, flip : bool)
       // over-release (issues/retired/yo-self-stage2-unwind-check-coverage.md).
       .SomeT({ required_trait_types : _, resolution : resolved }) => match(
         resolved,
-        .Some(concrete) => recur(concrete, depth + u32(1), flip),
+        .Some(concrete) => recur(&concrete, depth + u32(1), flip),
         .None => true
       ),
       // Function — false (functions are not reference types)
@@ -1113,7 +1113,7 @@ type_has_no_open_some :: (fn(imm(t) : TypeValue) -> bool)({
     match(
       hno_somes.get(hno_i),
       .Some(hno_s) => {
-        if(is_some_type(resolve_cell_chain(hno_s)), {
+        if(is_some_type(resolve_cell_chain(&hno_s)), {
           return(false);
         });
       },
@@ -1158,7 +1158,7 @@ _any_reaches_non_atomic_cell :: (fn(imm(fields) : ArrayList(TypeValue), depth : 
   while(i < fields.len(), {
     match(
       fields.get(i),
-      .Some(ft) => if(_reaches_non_atomic_cell_inner(ft, depth), {
+      .Some(ft) => if(_reaches_non_atomic_cell_inner(&ft, depth), {
         return(true);
       }),
       .None => ()
@@ -1177,7 +1177,7 @@ _reaches_non_atomic_cell_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> bo
     .Struct({ field_types : fields, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => cond(
       (is_ref && !is_atomic) => true,
       is_ref => false,
-      true => _any_reaches_non_atomic_cell(fields, depth + u32(1))
+      true => _any_reaches_non_atomic_cell(&fields, depth + u32(1))
     ),
     .EnumT({ variant_fields : all_fields, is_reference_semantics : e_is_ref, is_atomic_rc : e_is_atomic }) => cond(
       (e_is_ref && !e_is_atomic) => true,
@@ -1187,7 +1187,7 @@ _reaches_non_atomic_cell_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> bo
         while(vi < all_fields.len(), {
           match(
             all_fields.get(vi),
-            .Some(v_fields) => if(_any_reaches_non_atomic_cell(v_fields, depth + u32(1)), {
+            .Some(v_fields) => if(_any_reaches_non_atomic_cell(&v_fields, depth + u32(1)), {
               return(true);
             }),
             .None => ()
@@ -1197,13 +1197,13 @@ _reaches_non_atomic_cell_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> bo
         false
       }
     ),
-    .Tuple(field_labels : _, field_types : fields) => _any_reaches_non_atomic_cell(fields, depth + u32(1)),
-    .Union(name : _, field_labels : _, field_types : fields) => _any_reaches_non_atomic_cell(fields, depth + u32(1)),
-    .Array(element : elem, length : _) => _reaches_non_atomic_cell_inner(elem, depth + u32(1)),
+    .Tuple(field_labels : _, field_types : fields) => _any_reaches_non_atomic_cell(&fields, depth + u32(1)),
+    .Union(name : _, field_labels : _, field_types : fields) => _any_reaches_non_atomic_cell(&fields, depth + u32(1)),
+    .Array(element : elem, length : _) => _reaches_non_atomic_cell_inner(&elem, depth + u32(1)),
     .DynT(required_trait_types : _) => true,
     .SomeT({ resolution : resolved }) => match(
       resolved,
-      .Some(concrete) => _reaches_non_atomic_cell_inner(concrete, depth + u32(1)),
+      .Some(concrete) => _reaches_non_atomic_cell_inner(&concrete, depth + u32(1)),
       .None => false
     ),
     _ => false
@@ -1230,7 +1230,7 @@ _type_is_control_bound_inner :: (fn(imm(ty) : TypeValue, depth : u32) -> bool)(
         while((i < fields.len()) && !found, {
           match(
             fields.get(i),
-            .Some(ft) => if(recur(ft, depth + u32(1)), {
+            .Some(ft) => if(recur(&ft, depth + u32(1)), {
               found = true;
             }),
             .None => ()
@@ -1245,7 +1245,7 @@ _type_is_control_bound_inner :: (fn(imm(ty) : TypeValue, depth : u32) -> bool)(
         while((i < fields.len()) && !found, {
           match(
             fields.get(i),
-            .Some(ft) => if(recur(ft, depth + u32(1)), {
+            .Some(ft) => if(recur(&ft, depth + u32(1)), {
               found = true;
             }),
             .None => ()
@@ -1260,7 +1260,7 @@ _type_is_control_bound_inner :: (fn(imm(ty) : TypeValue, depth : u32) -> bool)(
         while((i < fields.len()) && !found, {
           match(
             fields.get(i),
-            .Some(ft) => if(recur(ft, depth + u32(1)), {
+            .Some(ft) => if(recur(&ft, depth + u32(1)), {
               found = true;
             }),
             .None => ()
@@ -1280,7 +1280,7 @@ _type_is_control_bound_inner :: (fn(imm(ty) : TypeValue, depth : u32) -> bool)(
               while((fi < v_fields.len()) && !found, {
                 match(
                   v_fields.get(fi),
-                  .Some(ft) => if(recur(ft, depth + u32(1)), {
+                  .Some(ft) => if(recur(&ft, depth + u32(1)), {
                     found = true;
                   }),
                   .None => ()
@@ -1296,8 +1296,8 @@ _type_is_control_bound_inner :: (fn(imm(ty) : TypeValue, depth : u32) -> bool)(
       },
       // Element/pointee recursion (rule 11: a pointer to a ctl type is itself
       // control-bound — `*(Raise)` must be rejected).
-      .Array(element : elem, length : _, length_var : _) => recur(elem, depth + u32(1)),
-      .Pointer(pointee : p) => recur(p, depth + u32(1)),
+      .Array(element : elem, length : _, length_var : _) => recur(&elem, depth + u32(1)),
+      .Pointer(pointee : p) => recur(&p, depth + u32(1)),
       // SomeT — conservatively false (no resolved concrete type to follow
       // on this path).
       _ => false
@@ -1391,7 +1391,7 @@ _type_refs_back_to_cyclic :: (
       // A different RC object — re-root the search at it, with a fresh
       // visited set seeded from the current path.
       sref => cond(
-        _id_already_visited(visited, sid) => true,
+        _id_already_visited(visited, &sid) => true,
         true => {
           v2 := visited.clone();
           v2.push(sid);
@@ -1400,7 +1400,7 @@ _type_refs_back_to_cyclic :: (
           while((i < sfields.len()) && !found, {
             match(
               sfields.get(i),
-              .Some(ft) => if(recur(ft, sid, v2), {
+              .Some(ft) => if(recur(&ft, &sid, &v2), {
                 found = true;
               }),
               .None => ()
@@ -1416,8 +1416,8 @@ _type_refs_back_to_cyclic :: (
               match(
                 sfields.get(bi),
                 .Some(ft) => match(
-                  buffer_element_type(ft),
-                  .Some(elem) => if(recur(elem, sid, v2), {
+                  buffer_element_type(&ft),
+                  .Some(elem) => if(recur(&elem, &sid, &v2), {
                     found = true;
                   }),
                   .None => ()
@@ -1438,7 +1438,7 @@ _type_refs_back_to_cyclic :: (
         while((i < sfields.len()) && !found, {
           match(
             sfields.get(i),
-            .Some(ft) => if(recur(ft, original_id, visited), {
+            .Some(ft) => if(recur(&ft, original_id, visited), {
               found = true;
             }),
             .None => ()
@@ -1454,7 +1454,7 @@ _type_refs_back_to_cyclic :: (
       // Direct self-reference back to a ref-enum root (must precede the visited
       // guard, which would otherwise hide the root's own id).
       (eid == original_id) => true,
-      _id_already_visited(visited, eid) => false,
+      _id_already_visited(visited, &eid) => false,
       true => {
         v2 := visited.clone();
         v2.push(eid);
@@ -1468,7 +1468,7 @@ _type_refs_back_to_cyclic :: (
               while((fi < vf.len()) && !found, {
                 match(
                   vf.get(fi),
-                  .Some(ft) => if(recur(ft, original_id, v2), {
+                  .Some(ft) => if(recur(&ft, original_id, &v2), {
                     found = true;
                   }),
                   .None => ()
@@ -1497,14 +1497,14 @@ _type_refs_back_to_cyclic :: (
       true => true
     ),
     .ExternOpaqueT(_, _) => false,
-    .Array({ element : el }) => recur(el, original_id, visited),
+    .Array({ element : el }) => recur(&el, original_id, visited),
     .Tuple({ field_types : tf }) => {
       (found : bool) = false;
       (i : usize) = usize(0);
       while((i < tf.len()) && !found, {
         match(
           tf.get(i),
-          .Some(ft) => if(recur(ft, original_id, visited), {
+          .Some(ft) => if(recur(&ft, original_id, visited), {
             found = true;
           }),
           .None => ()
@@ -1519,7 +1519,7 @@ _type_refs_back_to_cyclic :: (
       while((i < uf.len()) && !found, {
         match(
           uf.get(i),
-          .Some(ft) => if(recur(ft, original_id, visited), {
+          .Some(ft) => if(recur(&ft, original_id, visited), {
             found = true;
           }),
           .None => ()
@@ -1554,7 +1554,7 @@ can_type_form_rc_cycle :: (fn(imm(ty) : TypeValue) -> bool)(
         while((i < fields.len()) && !found, {
           match(
             fields.get(i),
-            .Some(ft) => if(_type_refs_back_to_cyclic(ft, sid, visited), {
+            .Some(ft) => if(_type_refs_back_to_cyclic(&ft, &sid, &visited), {
               found = true;
             }),
             .None => ()
@@ -1570,8 +1570,8 @@ can_type_form_rc_cycle :: (fn(imm(ty) : TypeValue) -> bool)(
             match(
               fields.get(bi),
               .Some(ft) => match(
-                buffer_element_type(ft),
-                .Some(elem) => if(_type_refs_back_to_cyclic(elem, sid, visited), {
+                buffer_element_type(&ft),
+                .Some(elem) => if(_type_refs_back_to_cyclic(&elem, &sid, &visited), {
                   found = true;
                 }),
                 .None => ()
@@ -1603,7 +1603,7 @@ can_type_form_rc_cycle :: (fn(imm(ty) : TypeValue) -> bool)(
               while((fi < vf.len()) && !found, {
                 match(
                   vf.get(fi),
-                  .Some(ft) => if(_type_refs_back_to_cyclic(ft, eid, visited), {
+                  .Some(ft) => if(_type_refs_back_to_cyclic(&ft, &eid, &visited), {
                     found = true;
                   }),
                   .None => ()
@@ -1713,47 +1713,47 @@ _collect_some_types_into :: (
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   // V6 task 3: a refinement is erased for layout — sizeof(refine(T, p))
   // == sizeof(T) (the zero-runtime-cost rule).
-  ty = t_refine_inner(ty);
+  ty = t_refine_inner(&ty);
   match(
     ty,
     .SomeT(_, _, _, _, _, _, _, _, _, _) => {
       acc.push(ty);
     },
     .TypeAppT(constructor : con, args : args_list) => {
-      recur(con, acc, visited_ids);
+      recur(&con, acc, visited_ids);
       (i : usize) = usize(0);
       n := args_list.len();
       while(i < n, {
-        match(args_list.get(i), .Some(a) => recur(a, acc, visited_ids), .None => ());
+        match(args_list.get(i), .Some(a) => recur(&a, acc, visited_ids), .None => ());
         i = (i + usize(1));
       });
     },
     .Array(element : el, _, _) => {
-      recur(el, acc, visited_ids);
+      recur(&el, acc, visited_ids);
     },
     .Pointer(pointee : pt) => {
-      recur(pt, acc, visited_ids);
+      recur(&pt, acc, visited_ids);
     },
     .IsoT(child : ch) => {
-      recur(ch, acc, visited_ids);
+      recur(&ch, acc, visited_ids);
     },
     .Func({ forall_types : ftys, param_types : ptys, result : res }) => {
       (i : usize) = usize(0);
       while(i < ftys.len(), {
-        match(ftys.get(i), .Some(ft) => recur(ft, acc, visited_ids), .None => ());
+        match(ftys.get(i), .Some(ft) => recur(&ft, acc, visited_ids), .None => ());
         i = (i + usize(1));
       });
       (j : usize) = usize(0);
       while(j < ptys.len(), {
-        match(ptys.get(j), .Some(pt) => recur(pt, acc, visited_ids), .None => ());
+        match(ptys.get(j), .Some(pt) => recur(&pt, acc, visited_ids), .None => ());
         j = (j + usize(1));
       });
-      recur(res, acc, visited_ids);
+      recur(&res, acc, visited_ids);
     },
     .Tuple(_, field_types : ftys) => {
       (i : usize) = usize(0);
       while(i < ftys.len(), {
-        match(ftys.get(i), .Some(ft) => recur(ft, acc, visited_ids), .None => ());
+        match(ftys.get(i), .Some(ft) => recur(&ft, acc, visited_ids), .None => ());
         i = (i + usize(1));
       });
     },
@@ -1763,7 +1763,7 @@ _collect_some_types_into :: (
       // graph; an unguarded field walk recurses forever (pure-SIGSEGV,
       // no message). Same class of bug as `substitute()`'s
       // `visited_trait_ids` guard.
-      if(_id_already_visited(visited_ids, st_id), {
+      if(_id_already_visited(visited_ids, &st_id), {
         return(());
       });
       if(st_id.len() > usize(0), {
@@ -1771,13 +1771,13 @@ _collect_some_types_into :: (
       });
       (i : usize) = usize(0);
       while(i < ftys.len(), {
-        match(ftys.get(i), .Some(ft) => recur(ft, acc, visited_ids), .None => ());
+        match(ftys.get(i), .Some(ft) => recur(&ft, acc, visited_ids), .None => ());
         i = (i + usize(1));
       });
     },
     .EnumT(en_id, _, _, vfs, _, _, _, _, _, _) => {
       // Cycle guard — see the Struct arm above.
-      if(_id_already_visited(visited_ids, en_id), {
+      if(_id_already_visited(visited_ids, &en_id), {
         return(());
       });
       if(en_id.len() > usize(0), {
@@ -1790,7 +1790,7 @@ _collect_some_types_into :: (
           .Some(field_list) => {
             (fi : usize) = usize(0);
             while(fi < field_list.len(), {
-              match(field_list.get(fi), .Some(ft) => recur(ft, acc, visited_ids), .None => ());
+              match(field_list.get(fi), .Some(ft) => recur(&ft, acc, visited_ids), .None => ());
               fi = (fi + usize(1));
             });
           },
@@ -1809,7 +1809,7 @@ _collect_some_types_into :: (
 get_all_some_types :: (fn(imm(ty) : TypeValue) -> ArrayList(TypeValue))({
   acc := ArrayList(TypeValue).new();
   visited_ids := ArrayList(String).new();
-  _collect_some_types_into(ty, acc, visited_ids);
+  _collect_some_types_into(ty, &mut acc, &mut visited_ids);
   acc
 });
 /// A value with nothing to transfer: no counted payload, implicitly
@@ -1820,7 +1820,7 @@ get_all_some_types :: (fn(imm(ty) : TypeValue) -> ArrayList(TypeValue))({
 /// concrete `Copy` type. Such a value is COPIED into a by-value parameter and
 /// is never consumed (V3b's flip, plans/VALUES_BY_DEFAULT.md decision 30).
 type_is_bitwise_copy :: (fn(ty : TypeValue) -> bool)(
-  !is_some_type(ty) && !type_contains_rc_type(ty) && !type_requires_explicit_copy(ty)
+  !is_some_type(&ty) && !type_contains_rc_type(&ty) && !type_requires_explicit_copy(&ty)
 );
 /// Does `ty` mention a `SomeT` anywhere — through fields, elements, pointees
 /// AND a generic instantiation's TYPE ARGUMENTS? `get_all_some_types` walks
@@ -1831,18 +1831,18 @@ type_is_bitwise_copy :: (fn(ty : TypeValue) -> bool)(
 /// src/evaluator/values/impl.yo) gates on this wider question.
 type_mentions_some_type :: (fn(imm(ty) : TypeValue) -> bool)({
   visited_ids := ArrayList(String).new();
-  _mentions_some_type_into(ty, visited_ids)
+  _mentions_some_type_into(ty, &mut visited_ids)
 });
 _mentions_some_type_into :: (fn(imm(ty_in) : TypeValue, mut(visited_ids) : ArrayList(String)) -> bool)({
   // Same shell/refine conventions and cycle guards as
   // `_collect_some_types_into` above (its sixth-shell comment).
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
-  ty = t_refine_inner(ty);
+  ty = t_refine_inner(&ty);
   match(
     ty,
     .SomeT(_, _, _, _, _, _, _, _, _, _) => true,
     .Struct({ id : st_id, field_types : st_fts, type_arguments : st_tas }) => {
-      if(_id_already_visited(visited_ids, st_id), {
+      if(_id_already_visited(visited_ids, &st_id), {
         return(false);
       });
       if(st_id.len() > usize(0), {
@@ -1865,7 +1865,7 @@ _mentions_some_type_into :: (fn(imm(ty_in) : TypeValue, mut(visited_ids) : Array
       false
     },
     .EnumT(en_id, _, _, en_vfs, _, _, _, _, _, en_tas) => {
-      if(_id_already_visited(visited_ids, en_id), {
+      if(_id_already_visited(visited_ids, &en_id), {
         return(false);
       });
       if(en_id.len() > usize(0), {
@@ -1892,11 +1892,11 @@ _mentions_some_type_into :: (fn(imm(ty_in) : TypeValue, mut(visited_ids) : Array
       });
       false
     },
-    .Pointer(pt) => recur(pt, visited_ids),
-    .Array(element : el, _, _) => recur(el, visited_ids),
-    .IsoT(ch) => recur(ch, visited_ids),
+    .Pointer(pt) => recur(&pt, visited_ids),
+    .Array(element : el, _, _) => recur(&el, visited_ids),
+    .IsoT(ch) => recur(&ch, visited_ids),
     .TypeAppT(constructor : con, args : cargs) => {
-      if(recur(con, visited_ids), {
+      if(recur(&con, visited_ids), {
         return(true);
       });
       (cai : usize) = usize(0);
@@ -1923,7 +1923,7 @@ _mentions_some_type_into :: (fn(imm(ty_in) : TypeValue, mut(visited_ids) : Array
         });
         pi2 = (pi2 + usize(1));
       });
-      recur(res, visited_ids)
+      recur(&res, visited_ids)
     },
     .Tuple(_, field_types : tt_fts) => {
       (ti : usize) = usize(0);
@@ -1949,7 +1949,7 @@ _mentions_some_type_into :: (fn(imm(ty_in) : TypeValue, mut(visited_ids) : Array
 enum_phantom_type_arg_somes :: (fn(imm(ty) : TypeValue) -> ArrayList(TypeValue))(
   match(
     ty,
-    .EnumT({ id : eid, type_arguments : ta }) => if(ta.len() == usize(0), ArrayList(TypeValue).new(), enum_phantom_type_args_masked(ty, enum_phantom_positions(eid))),
+    .EnumT({ id : eid, type_arguments : ta }) => if(ta.len() == usize(0), ArrayList(TypeValue).new(), enum_phantom_type_args_masked(ty, enum_phantom_positions(&eid))),
     _ => ArrayList(TypeValue).new()
   )
 );
@@ -1965,7 +1965,7 @@ enum_phantom_type_args_masked :: (fn(imm(ty) : TypeValue, imm(mask) : ArrayList(
       targs.get(i),
       .Some(ta) => cond(
         match(mask.get(i), .Some(b) => b, .None => false) => out.push(ta),
-        is_some_type(ta) => {
+        is_some_type(&ta) => {
           if(field_somes.is_none(), {
             field_somes = Option(ArrayList(TypeValue)).Some(get_all_some_types(ty));
           });
@@ -2031,13 +2031,13 @@ fields_have_incompatible_contexts :: (fn(imm(fts) : ArrayList(TypeValue)) -> boo
       has_rt_only = true;
       continue;
     });
-    if(is_some_type(ft) || (get_all_some_types(ft).len() > usize(0)), {
+    if(is_some_type(&ft) || (get_all_some_types(&ft).len() > usize(0)), {
       continue;
     });
-    if(type_is_comptime_only(ft), {
+    if(type_is_comptime_only(&ft), {
       has_ct_only = true;
     });
-    if(type_prohibits_comptime_modifier(ft), {
+    if(type_prohibits_comptime_modifier(&ft), {
       has_rt_only = true;
     });
   });
@@ -2065,10 +2065,10 @@ type_somes_all_resolve_concrete :: (fn(imm(ty) : TypeValue) -> bool)({
         match(
           sarc_tas.get(sarc_ti),
           .Some(sarc_ta) => {
-            if(is_some_type(sarc_ta), {
+            if(is_some_type(&sarc_ta), {
               somes.push(sarc_ta);
             }, {
-              sarc_inner := get_all_some_types(sarc_ta);
+              sarc_inner := get_all_some_types(&sarc_ta);
               (sarc_ii : usize) = usize(0);
               while(sarc_ii < sarc_inner.len(), {
                 match(
@@ -2133,7 +2133,7 @@ type_somes_all_resolve_concrete :: (fn(imm(ty) : TypeValue) -> bool)({
           });
         },
         _ => {
-          terminal_concrete = (get_all_some_types(cur).len() == usize(0));
+          terminal_concrete = (get_all_some_types(&cur).len() == usize(0));
           walk = false;
         }
       );
@@ -2191,7 +2191,7 @@ resolve_cell_chain :: (fn(imm(t_in) : TypeValue) -> TypeValue)({
       }
     );
   });
-  if(is_some_type(cur), t_in, cur)
+  if(is_some_type(&cur), t_in, cur)
 });
 /// A closure's capture struct (`capture_<hash>`, evaluator/utils/closure.yo):
 /// the layout of one closure literal's captured state, and, through closure
@@ -2215,7 +2215,7 @@ is_bound_closure_identity :: (fn(imm(t) : TypeValue) -> bool)(
   match(
     t,
     .SomeT({ name : bci_nm, required_trait_types : bci_rtt }) => (
-      (bci_nm == "Impl") && !_any_future_trait(bci_rtt) && _resolves_to_concrete_type(t)
+      (bci_nm == "Impl") && !_any_future_trait(&bci_rtt) && _resolves_to_concrete_type(t)
     ),
     _ => false
   )
@@ -2225,12 +2225,12 @@ is_bound_closure_identity :: (fn(imm(t) : TypeValue) -> bool)(
 /// needs no resolution.
 _resolves_to_concrete_type :: (fn(imm(t) : TypeValue) -> bool)({
   rtc_term := resolve_cell_chain(t);
-  !is_some_type(rtc_term) && type_has_no_open_some(rtc_term)
+  !is_some_type(&rtc_term) && type_has_no_open_some(&rtc_term)
 });
 _any_future_trait :: (fn(imm(tys) : ArrayList(TypeValue)) -> bool)({
   (aft_i : usize) = usize(0);
   while(aft_i < tys.len(), {
-    if(match(tys.get(aft_i), .Some(aft_t) => is_future_trait_type(aft_t), .None => false), {
+    if(match(tys.get(aft_i), .Some(aft_t) => is_future_trait_type(&aft_t), .None => false), {
       return(true);
     });
     aft_i = (aft_i + usize(1));
@@ -2272,7 +2272,7 @@ type_contains_some_type_deep :: (fn(imm(ty) : TypeValue) -> bool)({
   while((i < n) && !found, {
     match(
       sts.get(i),
-      .Some(st) => if(type_contains_some_type(st), {
+      .Some(st) => if(type_contains_some_type(&st), {
         found = true;
       }),
       .None => ()
@@ -2370,7 +2370,7 @@ _max_field_alignment :: (fn(imm(fts) : ArrayList(TypeValue)) -> Option(usize))({
   while((i < n) && !unknown, {
     ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
     match(
-      _align_via_slot(ft),
+      _align_via_slot(&ft),
       .Some(a) => {
         acc = _max_usize(acc, a);
       },
@@ -2394,9 +2394,9 @@ _aggregate_size :: (fn(imm(fts) : ArrayList(TypeValue)) -> Option(usize))({
   while((i < n) && !unknown, {
     ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
     match(
-      _size_via_slot(ft),
+      _size_via_slot(&ft),
       .Some(fbits) => match(
-        _align_via_slot(ft),
+        _align_via_slot(&ft),
         .Some(fa) => {
           fbytes := ((fbits + usize(7)) / usize(8));
           offset_bytes = _round_up(offset_bytes, fa);
@@ -2436,7 +2436,7 @@ _c_aggregate_size :: (fn(imm(fts) : ArrayList(TypeValue)) -> Option(usize))({
   while(i < n, {
     match(
       fts.get(i),
-      .Some(ft) => if(!is_unit_type(ft), {
+      .Some(ft) => if(!is_unit_type(&ft), {
         members = (members + usize(1));
       }),
       .None => ()
@@ -2463,7 +2463,7 @@ _variant_storage_field_types :: (fn(imm(fts) : ArrayList(TypeValue)) -> ArrayLis
   while(i < n, {
     match(
       fts.get(i),
-      .Some(ft) => if(!is_unit_type(ft), {
+      .Some(ft) => if(!is_unit_type(&ft), {
         kept.push(ft);
       }),
       .None => ()
@@ -2482,7 +2482,7 @@ get_alignment_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   // V6 task 3: a refinement is erased for layout — sizeof(refine(T, p))
   // == sizeof(T) (the zero-runtime-cost rule).
-  ty = t_refine_inner(ty);
+  ty = t_refine_inner(&ty);
   match(
     ty,
     // comptime-only types have minimal alignment
@@ -2516,7 +2516,7 @@ get_alignment_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
     .Pointer(_) => .Some(usize(get_target_pointer_size_bytes())),
     .Func({ result : _ }) => .Some(usize(get_target_pointer_size_bytes())),
     // Array: element alignment
-    .Array({ element : el }) => recur(el),
+    .Array({ element : el }) => recur(&el),
     // str: pointer-aligned (fat pointer {ptr,len})
     .Str => .Some(usize(get_target_pointer_size_bytes())),
     // Dyn: pointer-aligned (fat pointer {data, vtable}; see get_size_of_type).
@@ -2526,13 +2526,13 @@ get_alignment_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
     .Struct({ field_types : sfts, is_reference_semantics : s_ref, is_newtype : s_nt }) =>
       cond(
         s_ref => Option(usize).Some(usize(get_target_pointer_size_bytes())),
-        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(f0), .None => Option(usize).None),
-        true => _max_field_alignment(sfts)
+        (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(&f0), .None => Option(usize).None),
+        true => _max_field_alignment(&sfts)
       ),
     // Tuple: max field alignment.
-    .Tuple({ field_types : tfts }) => _max_field_alignment(tfts),
+    .Tuple({ field_types : tfts }) => _max_field_alignment(&tfts),
     // Union: max field alignment.
-    .Union({ field_types : ufts }) => _max_field_alignment(ufts),
+    .Union({ field_types : ufts }) => _max_field_alignment(&ufts),
     // Enum: reference-semantics (`ref(enum(…))`) → pointer-aligned (it is a heap
     // handle); otherwise the max alignment across all variants' fields. The
     // `e_ref` short-circuit matches the struct branch and prevents an infinite
@@ -2540,7 +2540,7 @@ get_alignment_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
     .EnumT({ variant_fields : evf, is_reference_semantics : e_ref }) => cond(
       e_ref => Option(usize).Some(usize(get_target_pointer_size_bytes())),
       // Lowered to the bare pointer (NULL = the empty variant), as codegen emits it.
-      can_optimize_as_nullable_pointer(ty).is_some() => Option(usize).Some(usize(get_target_pointer_size_bytes())),
+      can_optimize_as_nullable_pointer(&ty).is_some() => Option(usize).Some(usize(get_target_pointer_size_bytes())),
       true => {
         (acc : usize) = usize(1);
         (unknown : bool) = false;
@@ -2549,7 +2549,7 @@ get_alignment_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
         while((vi < n_v) && !unknown, {
           vf := match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           match(
-            _max_field_alignment(vf),
+            _max_field_alignment(&vf),
             .Some(a) => {
               acc = _max_usize(acc, a);
             },
@@ -2618,9 +2618,9 @@ _enum_value_size :: (fn(imm(evf) : ArrayList(ArrayList(TypeValue))) -> Option(us
       match(evf.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new())
     );
     match(
-      _aggregate_size(vf),
+      _aggregate_size(&vf),
       .Some(vbits) => match(
-        _max_field_alignment(vf),
+        _max_field_alignment(&vf),
         .Some(va_bytes) => {
           max_data = _max_usize(max_data, vbits);
           max_align_bits = _max_usize(max_align_bits, va_bytes * usize(8));
@@ -2660,7 +2660,7 @@ get_size_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
   // V6 task 3: a refinement is erased for layout — sizeof(refine(T, p))
   // == sizeof(T) (the zero-runtime-cost rule).
-  ty = t_refine_inner(ty);
+  ty = t_refine_inner(&ty);
   match(
     ty,
     // `unit` is a TRUE zero-sized type, as in Rust (`size_of::<()>() == 0`):
@@ -2724,9 +2724,9 @@ get_size_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
     // `_zst_dummy` (`_emit_array_wrapper`) — see `_c_aggregate_size` for why an
     // empty struct is not usable.
     .Array({ element : el, length : n }) => cond(
-      is_unit_type(el) => Option(usize).Some(usize(8)),
+      is_unit_type(&el) => Option(usize).Some(usize(8)),
       true => match(
-        recur(el),
+        recur(&el),
         .Some(elem_bits) => .Some(elem_bits * n),
         .None => .None
       )
@@ -2750,8 +2750,8 @@ get_size_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
         true => {
           g_size_walk_stack.push(s_sz_id.clone());
           out := cond(
-            (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(f0), .None => Option(usize).None),
-            true => _c_aggregate_size(sfts)
+            (s_nt && (sfts.len() > usize(0))) => match(sfts.get(usize(0)), .Some(f0) => recur(&f0), .None => Option(usize).None),
+            true => _c_aggregate_size(&sfts)
           );
           g_size_walk_stack.pop();
           out
@@ -2759,7 +2759,7 @@ get_size_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
       ),
     // Tuple: C-laid-out aggregate size (a member-less tuple carries the dummy
     // byte, see `_c_aggregate_size`).
-    .Tuple({ field_types : tfts }) => _c_aggregate_size(tfts),
+    .Tuple({ field_types : tfts }) => _c_aggregate_size(&tfts),
     // Union: max field size (overlapping storage).
     .Union({ field_types : ufts }) => {
       (acc : usize) = usize(0);
@@ -2769,7 +2769,7 @@ get_size_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
       while((i < n) && !unknown, {
         ft := match(ufts.get(i), .Some(t) => t, .None => TypeValue.Unit);
         match(
-          recur(ft),
+          recur(&ft),
           .Some(s) => {
             acc = _max_usize(acc, s);
           },
@@ -2790,7 +2790,7 @@ get_size_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
       e_ref => Option(usize).Some(usize(get_target_pointer_size_bits())),
       // Lowered to the bare pointer (NULL = the empty variant), as codegen emits
       // it: `sizeof(Option(*(i32)))` is a pointer, not a tag plus a pointer.
-      can_optimize_as_nullable_pointer(ty).is_some() => Option(usize).Some(usize(get_target_pointer_size_bits())),
+      can_optimize_as_nullable_pointer(&ty).is_some() => Option(usize).Some(usize(get_target_pointer_size_bits())),
       // Cycle backstop (issues/fixed/plain-recursive-enum-segfaults-the-evaluator.md):
       // a VALUE enum re-entered on the walk stack is an infinite-size type the
       // definition-time check should have rejected — yield unknown rather than
@@ -2798,7 +2798,7 @@ get_size_of_type :: (fn(imm(ty_in) : TypeValue) -> Option(usize))({
       _size_walk_stack_has(e_sz_id.clone()) => Option(usize).None,
       true => {
         g_size_walk_stack.push(e_sz_id.clone());
-        out := _enum_value_size(evf);
+        out := _enum_value_size(&evf);
         g_size_walk_stack.pop();
         out
       }
@@ -2834,7 +2834,7 @@ _ReprMemoEntry :: struct(ty : TypeValue, answer : bool);
 _repr_path_contains :: (fn(imm(ty) : TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_repr_path.len(), {
-    if(match(g_repr_path.get(i), .Some(p) => __yo_ptr_eq(p, ty), .None => false), {
+    if(match(g_repr_path.get(i), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
       return(true);
     });
     i = (i + usize(1));
@@ -2847,7 +2847,7 @@ _repr_memo_lookup :: (fn(imm(key) : String, imm(ty) : TypeValue) -> Option(bool)
   while(i < bucket.len(), {
     match(
       bucket.get(i),
-      .Some(e) => if(__yo_ptr_eq(e.ty, ty), {
+      .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
         return(Option(bool).Some(e.answer));
       }),
       .None => ()
@@ -2905,14 +2905,14 @@ _type_repr_contains_raw_ptr :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
             (found : bool) = false;
             while((i < fts.len()) && !found, {
               ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-              if(recur(ft, depth - usize(1)), {
+              if(recur(&ft, depth - usize(1)), {
                 found = true;
               });
               i = (i + usize(1));
             });
             _ := g_repr_path.pop();
             if(found || !g_repr_cut, {
-              _repr_memo_store(key, ty, found);
+              _repr_memo_store(&key, ty, found);
             });
             g_repr_cut = (g_repr_cut || outer_cut);
             found
@@ -2924,7 +2924,7 @@ _type_repr_contains_raw_ptr :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
         (found : bool) = false;
         while((i < fts.len()) && !found, {
           ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-          if(recur(ft, depth - usize(1)), {
+          if(recur(&ft, depth - usize(1)), {
             found = true;
           });
           i = (i + usize(1));
@@ -2936,7 +2936,7 @@ _type_repr_contains_raw_ptr :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
         (found : bool) = false;
         while((i < fts.len()) && !found, {
           ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-          if(recur(ft, depth - usize(1)), {
+          if(recur(&ft, depth - usize(1)), {
             found = true;
           });
           i = (i + usize(1));
@@ -2963,7 +2963,7 @@ _type_repr_contains_raw_ptr :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
               (fi : usize) = usize(0);
               while((fi < vf.len()) && !found, {
                 ft := match(vf.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-                if(recur(ft, depth - usize(1)), {
+                if(recur(&ft, depth - usize(1)), {
                   found = true;
                 });
                 fi = (fi + usize(1));
@@ -2972,14 +2972,14 @@ _type_repr_contains_raw_ptr :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
             });
             _ := g_repr_path.pop();
             if(found || !g_repr_cut, {
-              _repr_memo_store(key, ty, found);
+              _repr_memo_store(&key, ty, found);
             });
             g_repr_cut = (g_repr_cut || outer_cut);
             found
           }
         )
       },
-      .Array({ element : el }) => recur(el, depth - usize(1)),
+      .Array({ element : el }) => recur(&el, depth - usize(1)),
       _ => false
     )
   )
@@ -3021,14 +3021,14 @@ _type_provides_slice_source :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
             (found : bool) = false;
             while((i < fts.len()) && !found, {
               ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-              if(recur(ft, depth - usize(1)), {
+              if(recur(&ft, depth - usize(1)), {
                 found = true;
               });
               i = (i + usize(1));
             });
             _ := g_repr_path.pop();
             if(found || !g_repr_cut, {
-              _repr_memo_store(key, ty, found);
+              _repr_memo_store(&key, ty, found);
             });
             g_repr_cut = (g_repr_cut || outer_cut);
             found
@@ -3040,7 +3040,7 @@ _type_provides_slice_source :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
         (found : bool) = false;
         while((i < fts.len()) && !found, {
           ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-          if(recur(ft, depth - usize(1)), {
+          if(recur(&ft, depth - usize(1)), {
             found = true;
           });
           i = (i + usize(1));
@@ -3052,7 +3052,7 @@ _type_provides_slice_source :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
         (found : bool) = false;
         while((i < fts.len()) && !found, {
           ft := match(fts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-          if(recur(ft, depth - usize(1)), {
+          if(recur(&ft, depth - usize(1)), {
             found = true;
           });
           i = (i + usize(1));
@@ -3079,7 +3079,7 @@ _type_provides_slice_source :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
               (fi : usize) = usize(0);
               while((fi < vf.len()) && !found, {
                 ft := match(vf.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-                if(recur(ft, depth - usize(1)), {
+                if(recur(&ft, depth - usize(1)), {
                   found = true;
                 });
                 fi = (fi + usize(1));
@@ -3088,14 +3088,14 @@ _type_provides_slice_source :: (fn(imm(ty) : TypeValue, depth : usize) -> bool)(
             });
             _ := g_repr_path.pop();
             if(found || !g_repr_cut, {
-              _repr_memo_store(key, ty, found);
+              _repr_memo_store(&key, ty, found);
             });
             g_repr_cut = (g_repr_cut || outer_cut);
             found
           }
         )
       },
-      .Array({ element : el }) => recur(el, depth - usize(1)),
+      .Array({ element : el }) => recur(&el, depth - usize(1)),
       _ => false
     )
   )
@@ -3146,7 +3146,7 @@ func_params_have_raw_some_type :: (fn(imm(ty) : TypeValue) -> bool)(
       while((i < param_types.len()) && !found, {
         match(
           param_types.get(i),
-          .Some(pt) => if(get_all_some_types(pt).len() > usize(0), {
+          .Some(pt) => if(get_all_some_types(&pt).len() > usize(0), {
             found = true;
           }),
           .None => ()
@@ -3209,14 +3209,14 @@ dyn_member_unsafe_reason :: (fn(imm(member_ty) : TypeValue) -> Option(String))(
       (i : usize) = usize(1);
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        if(_mentions_trait_self(pt), {
+        if(_mentions_trait_self(&pt), {
           label := match(labels.get(i), .Some(l) => l, .None => String.from("?"));
-          return(Option(String).Some(`its parameter "${label}" has type ${type_to_string(pt)}, which the Dyn erases`));
+          return(Option(String).Some(`its parameter "${label}" has type ${type_to_string(&pt)}, which the Dyn erases`));
         });
         i = (i + usize(1));
       });
-      if(_mentions_trait_self(res), {
-        return(Option(String).Some(`it returns ${type_to_string(res)}, which the Dyn erases`));
+      if(_mentions_trait_self(&res), {
+        return(Option(String).Some(`it returns ${type_to_string(&res)}, which the Dyn erases`));
       });
       Option(String).None
     },
@@ -3245,7 +3245,7 @@ dyn_type_has_vtable_slot :: (fn(imm(dyn_ty) : TypeValue, imm(name) : String) -> 
             while((j < fls.len()) && !found, {
               if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
                 ft := match(fts.get(j), .Some(t) => t, .None => TypeValue.Unit);
-                found = (dyn_member_is_method(ft) && dyn_member_unsafe_reason(ft).is_none());
+                found = (dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none());
               });
               j = (j + usize(1));
             });
@@ -3290,7 +3290,7 @@ dyn_vtable_slot_param_is_ref :: (fn(imm(dyn_ty) : TypeValue, imm(name) : String)
             while((j < fls.len()) && out.is_empty(), {
               if(match(fls.get(j), .Some(l) => (l == name), .None => false), {
                 ft := match(fts.get(j), .Some(t) => t, .None => TypeValue.Unit);
-                if(dyn_member_is_method(ft) && dyn_member_unsafe_reason(ft).is_none(), {
+                if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
                   match(
                     ft,
                     .Func({ param_types : fpts, meta : fm }) => {
@@ -3463,12 +3463,12 @@ _type_mentions_generic_length :: (fn(imm(ty) : TypeValue, depth : u32) -> bool)(
     (depth > u32(16)) => false,
     true => match(
       ty,
-      .Array(element : el, length : _, length_var : lv) => ((lv.len() > usize(0)) || _type_mentions_generic_length(el, depth + u32(1))),
-      .Pointer(pointee : p) => _type_mentions_generic_length(p, depth + u32(1)),
-      .Tuple(_, fts) => _any_mentions_generic_length(fts, depth),
-      .Struct({ field_types : sfts }) => _any_mentions_generic_length(sfts, depth),
-      .TypeAppT(_, args) => _any_mentions_generic_length(args, depth),
-      .Func({ param_types : pts, result : r }) => (_any_mentions_generic_length(pts, depth) || _type_mentions_generic_length(r, depth + u32(1))),
+      .Array(element : el, length : _, length_var : lv) => ((lv.len() > usize(0)) || _type_mentions_generic_length(&el, depth + u32(1))),
+      .Pointer(pointee : p) => _type_mentions_generic_length(&p, depth + u32(1)),
+      .Tuple(_, fts) => _any_mentions_generic_length(&fts, depth),
+      .Struct({ field_types : sfts }) => _any_mentions_generic_length(&sfts, depth),
+      .TypeAppT(_, args) => _any_mentions_generic_length(&args, depth),
+      .Func({ param_types : pts, result : r }) => (_any_mentions_generic_length(&pts, depth) || _type_mentions_generic_length(&r, depth + u32(1))),
       _ => false
     )
   )
@@ -3476,7 +3476,7 @@ _type_mentions_generic_length :: (fn(imm(ty) : TypeValue, depth : u32) -> bool)(
 _any_mentions_generic_length :: (fn(imm(tys) : ArrayList(TypeValue), depth : u32) -> bool)({
   (i : usize) = usize(0);
   while(i < tys.len(), {
-    if(match(tys.get(i), .Some(t) => _type_mentions_generic_length(t, depth + u32(1)), .None => false), {
+    if(match(tys.get(i), .Some(t) => _type_mentions_generic_length(&t, depth + u32(1)), .None => false), {
       return(true);
     });
     i = (i + usize(1));

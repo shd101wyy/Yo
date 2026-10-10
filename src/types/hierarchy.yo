@@ -66,7 +66,7 @@ _determine_type_universe :: (
     field := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
     subtype := match(
       g_type_of_type_visited_fn,
-      .Some(f) => f(field, visited_names),
+      .Some(f) => f(&field, visited_names),
       .None => TypeValue.TypeUni(usize(0))
     );
     sub_level := match(
@@ -101,7 +101,7 @@ _universe_memo_lookup :: (fn(imm(key) : String, imm(ty) : TypeValue) -> Option(T
   while(i < bucket.len(), {
     match(
       bucket.get(i),
-      .Some(e) => if(__yo_ptr_eq(e.ty, ty), {
+      .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
         return(Option(TypeValue).Some(e.universe));
       }),
       .None => ()
@@ -121,7 +121,7 @@ _universe_memo_compute :: (
   g_universe_guard_fired = false;
   new_visited := visited.clone();
   new_visited.push(name);
-  r := _determine_type_universe(fields, new_visited);
+  r := _determine_type_universe(fields, &new_visited);
   if(!g_universe_guard_fired, {
     bucket := match(g_universe_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_UniverseMemoEntry).new());
     bucket.push(_UniverseMemoEntry(ty : ty, universe : r));
@@ -168,11 +168,11 @@ _universe_of :: (fn(imm(ty) : TypeValue, imm(visited) : ArrayList(String)) -> Ty
     // Array: recurse into element type --------------------------------------
     .Array(elem_box, _, _) => match(
       g_type_of_type_visited_fn,
-      .Some(f) => f(elem_box, visited),
+      .Some(f) => f(&elem_box, visited),
       .None => TypeValue.TypeUni(usize(0))
     ),
     // Tuple: check all field types ------------------------------------------
-    .Tuple(_, ftypes) => _determine_type_universe(ftypes, visited),
+    .Tuple(_, ftypes) => _determine_type_universe(&ftypes, visited),
     // Function types: all functions are level-0 types -----------------------
     .Func({ result : _ }) => TypeValue.TypeUni(usize(0)),
     // Struct: recurse into fields, guard against cycles by name.
@@ -182,7 +182,7 @@ _universe_of :: (fn(imm(ty) : TypeValue, imm(visited) : ArrayList(String)) -> Ty
     .Struct({ id : sid, name : sname, field_types : ftypes, is_source_namespace : s_sns }) =>
       cond(
         s_sns => TypeValue.TypeUni(usize(1)),
-        _name_in_visited(visited, sname) => {
+        _name_in_visited(visited, &sname) => {
           g_universe_guard_fired = true;
           TypeValue.TypeUni(usize(0))
         },
@@ -191,14 +191,14 @@ _universe_of :: (fn(imm(ty) : TypeValue, imm(visited) : ArrayList(String)) -> Ty
           match(
             _universe_memo_lookup(mk.clone(), ty),
             .Some(hit) => hit,
-            .None => _universe_memo_compute(mk, ty, sname.clone(), ftypes, visited)
+            .None => _universe_memo_compute(&mk, ty, sname.clone(), &ftypes, visited)
           )
         }
       ),
     // EnumT: flatten all variant field types, then check the universe ------
     .EnumT(eid, ename, _, variant_fields, _, _, _, _, _, _) =>
       cond(
-        _name_in_visited(visited, ename) => {
+        _name_in_visited(visited, &ename) => {
           g_universe_guard_fired = true;
           TypeValue.TypeUni(usize(0))
         },
@@ -220,7 +220,7 @@ _universe_of :: (fn(imm(ty) : TypeValue, imm(visited) : ArrayList(String)) -> Ty
                 });
                 vi = (vi + usize(1));
               });
-              _universe_memo_compute(mk2, ty, ename.clone(), all_fields, visited)
+              _universe_memo_compute(&mk2, ty, ename.clone(), &all_fields, visited)
             }
           )
         }
@@ -230,14 +230,14 @@ _universe_of :: (fn(imm(ty) : TypeValue, imm(visited) : ArrayList(String)) -> Ty
     // define same-named unions, so unions are not memoized.
     .Union(uname, _, ftypes) =>
       cond(
-        _name_in_visited(visited, uname) => {
+        _name_in_visited(visited, &uname) => {
           g_universe_guard_fired = true;
           TypeValue.TypeUni(usize(0))
         },
         true => {
           new_visited := visited.clone();
           new_visited.push(uname.clone());
-          _determine_type_universe(ftypes, new_visited)
+          _determine_type_universe(&ftypes, &new_visited)
         }
       ),
     // Traits and modules are type-level-1 types ----------------------------

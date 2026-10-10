@@ -167,13 +167,13 @@ _lex_abs_path :: (fn(imm(p) : String) -> String)({
   if(s.starts_with(`file://`), {
     s = s.slice_copy(usize(7) .. s.len());
   });
-  (path : Path) = Path.new(s);
+  (path : Path) = Path.new(&s);
   if(path.is_absolute(), {
     return(path.to_string());
   });
   match(
     cwd(),
-    .Ok(d) => d.join(path).to_string(),
+    .Ok(d) => d.join(&path).to_string(),
     .Err(_) => path.to_string()
   )
 });
@@ -190,7 +190,7 @@ _is_std_module_path :: (fn(imm(mp) : String, imm(std_path) : String) -> bool)({
   if(sp.len() == usize(0), {
     return(false);
   });
-  _lex_abs_path(mp.clone()).starts_with(`${_lex_abs_path(sp)}/`)
+  _lex_abs_path(mp.clone()).starts_with(`${_lex_abs_path(&sp)}/`)
 });
 /// `_is_std_module_path`, memoized per module path: the call-boundary
 /// re-anchoring (calls/function.yo `evaluate_function_call`) asks it for every
@@ -281,7 +281,7 @@ is_prelude_or_generated_file :: (fn(imm(module_path) : Option(String), imm(std_p
       if(sp.len() == usize(0), {
         return(false);
       });
-      return(_lex_abs_path(mp.clone()) == `${_lex_abs_path(sp)}/prelude.yo`);
+      return(_lex_abs_path(mp.clone()) == `${_lex_abs_path(&sp)}/prelude.yo`);
     }
   )
 );
@@ -321,7 +321,7 @@ is_class1_panic_receiver_type :: (fn(imm(t) : TypeValue) -> bool)(
     },
     // A `*(T)`-typed self parameter (`fn(self : *(Self))`-shaped impls):
     // look through the pointer.
-    .Pointer(inner) => is_class1_panic_receiver_type(inner),
+    .Pointer(inner) => is_class1_panic_receiver_type(&inner),
     _ => false
   )
 );

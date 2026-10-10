@@ -111,7 +111,7 @@ impl(
     );
     // Split path by "/" separator (backslashes already normalized)
     sep := String.from("/");
-    parts := body.split(sep);
+    parts := body.split(&sep);
     dot := String.from(".");
     // Process each part
     i := usize(0);
@@ -134,7 +134,7 @@ impl(
                   _b2 := prefix.push_byte(u8(92));
                 }
               );
-              _ps := prefix.push_string(part);
+              _ps := prefix.push_string(&part);
               unc_take = (unc_take - usize(1));
             },
             // Skip "." — it always denotes the directory itself, so dropping
@@ -156,7 +156,7 @@ impl(
     match(
       str_result,
       .Ok(s) => {
-        return(Self.new(s));
+        return(Self.new(&s));
       },
       .Err(_) => {
         // Return empty path on error
@@ -299,7 +299,7 @@ impl(
       .Some(name) => {
         // Find the last dot using String methods
         dot := String.from(".");
-        last_dot_result := name.last_index_of(dot);
+        last_dot_result := name.last_index_of(&dot);
         match(
           last_dot_result,
           .Some(idx) => {
@@ -326,7 +326,7 @@ impl(
       .Some(name) => {
         // Find the last dot using String methods
         dot := String.from(".");
-        last_dot_result := name.last_index_of(dot);
+        last_dot_result := name.last_index_of(&dot);
         match(
           last_dot_result,
           .Some(idx) => {
@@ -367,7 +367,7 @@ impl(
       .Some(stem) => {
         // Build new file name with extension
         dot := String.from(".");
-        new_name := stem.concat(dot).concat(ext);
+        new_name := stem.concat(&dot).concat(ext);
         // Replace the last segment
         new_segments := ArrayList(String).with_capacity(self._segments.len());
         i := usize(0);
@@ -682,10 +682,10 @@ impl(
         // leading separator.
         cond(
           has_prefix => {
-            result = result.concat(self._prefix);
+            result = result.concat(&self._prefix);
           },
           self._is_absolute => {
-            result = result.concat(sep);
+            result = result.concat(&sep);
           },
           true => ()
         );
@@ -700,11 +700,11 @@ impl(
               // other position needs one before the segment.
               cond(
                 ((i > usize(0)) || has_prefix) => {
-                  result = result.concat(sep);
+                  result = result.concat(&sep);
                 },
                 true => ()
               );
-              result = result.concat(s);
+              result = result.concat(&s);
             },
             .None => ()
           );
@@ -860,7 +860,7 @@ impl(
   push : (fn(generic(P : Type), mut(self) : Self, imm(other) : P, where(P <: ToString)) -> unit)({
     joined := self._join_path(Path.new(other.to_string()));
     self._segments.clear();
-    _e := self._segments.extend(joined._segments);
+    _e := self._segments.extend(&joined._segments);
     self._is_absolute = joined._is_absolute;
     self._prefix = joined._prefix.clone();
   })

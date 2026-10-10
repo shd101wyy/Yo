@@ -125,7 +125,7 @@ _wake_waiters :: (fn(imm(w) : Watcher) -> unit)({
 /// The runtime callback: runs on the event loop thread, so touching the
 /// watcher's queue needs no lock. `user_data` is the `Watcher` handle itself.
 _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
-  w := unsafe.cast(user_data, Watcher);
+  w := unsafe.cast(&user_data, Watcher);
   if(w._active, {
     // SAFETY: every backend hands a NUL-terminated entry name (`""` when it
     // has none — runtime_io_common's inotify/kqueue paths, the Windows
@@ -143,7 +143,7 @@ _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
     if((mask & events.FS_EVENT_CHANGE) != i32(0), {
       w._queue.push(FsEvent(name : name, kind : FsEventKind.Change));
     });
-    _wake_waiters(w);
+    _wake_waiters(&w);
   });
 });
 /// Start watching `path`. Throws the backend's `IoError` (e.g. `NotFound`)
@@ -160,7 +160,7 @@ watch :: (fn(imm(path) : Path, opts : WatchOptions, imm(exn) : Exception) -> Wat
   cstr_bytes := path.to_string().to_cstr();
   cstr := cstr_bytes.ptr().unwrap();
   flags := cond(opts.recursive => events.FS_EVENT_RECURSIVE, true => u32(0));
-  status := events.fs_event_start(w._handle, cstr, flags, _on_fs_event, unsafe.cast(w, *u8));
+  status := events.fs_event_start(w._handle, cstr, flags, _on_fs_event, unsafe.cast(&w, *u8));
   if(status < i32(0), {
     events.fs_event_close(w._handle);
     exn.throw(dyn(IoError.from_errno(i32(0) - status)));

@@ -166,13 +166,13 @@ _verdict_to_json :: (fn(imm(v) : VerifyVerdict) -> JsonValue)(
       String.from("verdict"),
       JsonValue.Str(String.from("proved")),
       String.from("core"),
-      _strs_to_json(core)
+      _strs_to_json(&core)
     ),
     .Refuted(ce) => _json_obj2(
       String.from("verdict"),
       JsonValue.Str(String.from("refuted")),
       String.from("counterexample"),
-      _strs_to_json(ce)
+      _strs_to_json(&ce)
     ),
     .Unproven(reason) => _json_obj2(
       String.from("verdict"),
@@ -206,12 +206,12 @@ _verdict_of_json :: (fn(imm(v) : JsonValue) -> Option(VerifyVerdict))({
   cond(
     (kind == "proved") => match(
       v.get(String.from("core")),
-      .Some(core_json) => Option(VerifyVerdict).Some(VerifyVerdict.Proved(_strs_of_json(core_json))),
+      .Some(core_json) => Option(VerifyVerdict).Some(VerifyVerdict.Proved(_strs_of_json(&core_json))),
       .None => Option(VerifyVerdict).Some(VerifyVerdict.Proved(ArrayList(String).new()))
     ),
     (kind == "refuted") => match(
       v.get(String.from("counterexample")),
-      .Some(ce_json) => Option(VerifyVerdict).Some(VerifyVerdict.Refuted(_strs_of_json(ce_json))),
+      .Some(ce_json) => Option(VerifyVerdict).Some(VerifyVerdict.Refuted(_strs_of_json(&ce_json))),
       .None => Option(VerifyVerdict).None
     ),
     (kind == "unproven") => match(
@@ -279,17 +279,17 @@ verdict_of_response :: (fn(imm(response) : String) -> VerifyVerdict)({
   // verdict token after the errors says (the `sat` of an empty assertion
   // set read as a refutation with an empty model — the R1 datatype bug).
   match(
-    z3_error_before_verdict(forms),
+    z3_error_before_verdict(&forms),
     .Some(err) => {
       return(VerifyVerdict.SolverError(`z3 rejected the script: ${err}`));
     },
     .None => ()
   );
   match(
-    z3_check_sat_of(forms),
+    z3_check_sat_of(&forms),
     .Some(v) => cond(
-      (v == "unsat") => VerifyVerdict.Proved(z3_unsat_core_of(forms)),
-      (v == "sat") => VerifyVerdict.Refuted(z3_value_pairs_of(forms)),
+      (v == "unsat") => VerifyVerdict.Proved(z3_unsat_core_of(&forms)),
+      (v == "sat") => VerifyVerdict.Refuted(z3_value_pairs_of(&forms)),
       true => VerifyVerdict.Unproven(response.trim())
     ),
     .None => VerifyVerdict.SolverError(response.trim())
@@ -307,14 +307,14 @@ _cache_lookup :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig) -> Option(Ver
     _z3_read_file_sync(cache_path.clone()),
     .None => Option(VerifyResult).None,
     .Some(content) => match(
-      json.parse_string(content),
+      json.parse_string(&content),
       // The store's shape is {query, verdict: {...}} — unwrap the verdict
       // member before parsing it. A corrupt cache entry is a MISS, not an
       // error — the store overwrites.
       .Ok(j) => match(
         j.get(String.from("verdict")),
         .Some(vj) => match(
-          _verdict_of_json(vj),
+          _verdict_of_json(&vj),
           .Some(v) => Option(VerifyResult).Some(VerifyResult(query_name : q.name.clone(), verdict : v, cached : true)),
           .None => Option(VerifyResult).None
         ),
@@ -339,7 +339,7 @@ _cache_store :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig, imm(verdict) :
     String.from("verdict"),
     _verdict_to_json(verdict)
   );
-  _z3_write_file_sync(cache_path.clone(), json.stringify(payload));
+  _z3_write_file_sync(cache_path.clone(), json.stringify(&payload));
   ()
 });
 /// Run one obligation end-to-end: cache lookup → solver → parse → cache
@@ -363,8 +363,8 @@ run_vc_query :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig, imm(binary) : 
   );
   script := encode_script(q, cfg.encode_opts);
   verdict := match(
-    run_z3_script(binary.clone(), script),
-    .Ok(response) => verdict_of_response(response),
+    run_z3_script(binary.clone(), &script),
+    .Ok(response) => verdict_of_response(&response),
     .Err(msg) => VerifyVerdict.SolverError(msg)
   );
   match(
@@ -379,8 +379,8 @@ run_vc_query :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig, imm(binary) : 
       );
       retry := encode_script(q, retry_opts);
       verdict = match(
-        run_z3_script(binary.clone(), retry),
-        .Ok(response) => verdict_of_response(response),
+        run_z3_script(binary.clone(), &retry),
+        .Ok(response) => verdict_of_response(&response),
         .Err(msg) => VerifyVerdict.SolverError(msg)
       );
     },
@@ -392,7 +392,7 @@ run_vc_query :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig, imm(binary) : 
     _ => true
   );
   if(is_terminal, {
-    _cache_store(q, cfg, verdict);
+    _cache_store(q, cfg, &verdict);
   });
   VerifyResult(query_name : q.name.clone(), verdict : verdict, cached : false)
 });
@@ -462,9 +462,9 @@ _self_test_query :: (fn(imm(name) : String, goal_val : u64) -> VcQuery)({
 verifier_harness_self_test :: (fn(imm(cfg) : VerifyRunConfig, imm(binary) : String) -> ArrayList(VerifyResult))({
   results := ArrayList(VerifyResult).new();
   q1 := _self_test_query(String.from("self-test: one_plus_one_eq_2"), u64(2));
-  results.push(run_vc_query(q1, cfg, binary.clone()));
+  results.push(run_vc_query(&q1, cfg, binary.clone()));
   q2 := _self_test_query(String.from("self-test: one_plus_one_eq_3"), u64(3));
-  results.push(run_vc_query(q2, cfg, binary.clone()));
+  results.push(run_vc_query(&q2, cfg, binary.clone()));
   results
 });
 // ============================================================================
@@ -647,7 +647,7 @@ summarize_verify_reports :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> Ver
           );
           ci = (ci + usize(1));
         });
-        if(verify_report_is_vacuous(rp), {
+        if(verify_report_is_vacuous(&rp), {
           vacuous = (vacuous + usize(1));
         });
         (oi : usize) = usize(0);
@@ -885,7 +885,7 @@ verify_and_strip_tasks :: (
           elision_obligations : cfg.elision_obligations,
           body_abstract : t.body_abstract
         );
-        body_res := verify_function_body(input);
+        body_res := verify_function_body(&input);
         match(
           body_res.error,
           .Some(err) => {
@@ -939,7 +939,7 @@ verify_and_strip_tasks :: (
                         verdict : pre_verdict,
                         cached : false,
                         folded : true,
-                        goal : encode_term(obl.query.goal),
+                        goal : encode_term(&obl.query.goal),
                         site : obl.site,
                         elidable : obl.elidable,
                         elision_only : obl.elision_only
@@ -951,14 +951,14 @@ verify_and_strip_tasks :: (
                     });
                   });
                   if(!pre_done, {
-                    r := run_vc_query(obl.query, cfg, binary.clone());
+                    r := run_vc_query(&obl.query, cfg, binary.clone());
                     // Counter-examples carry source names: unmangle the
                     // model's `__yo_v<fn>_<name> = value` pairs against
                     // this function's id at report-construction time, so
                     // every consumer (text, JSON, tests) sees `x = ...`.
                     clean_verdict := match(
                       r.verdict,
-                      .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), ce)),
+                      .Refuted(ce) => VerifyVerdict.Refuted(_unmangle_pairs(t.fn_id.clone(), &ce)),
                       .Proved(core) => VerifyVerdict.Proved(core),
                       .Unproven(reason) => VerifyVerdict.Unproven(reason),
                       .SolverError(msg) => VerifyVerdict.SolverError(msg)
@@ -968,7 +968,7 @@ verify_and_strip_tasks :: (
                         name : r.query_name.clone(),
                         verdict : clean_verdict,
                         cached : r.cached,
-                        goal : encode_term(obl.query.goal),
+                        goal : encode_term(&obl.query.goal),
                         site : obl.site,
                         elidable : obl.elidable,
                         elision_only : obl.elision_only
@@ -1002,7 +1002,7 @@ verify_and_strip_tasks :: (
             // REFUTED function never reaches here (it is a compile error at
             // the caller); unproven ones keep their asserts (the fallback).
             if(t.mode == "verify+", {
-              strip_proved_ensures_asserts(t.func_val, _proved_ensures(obligations));
+              strip_proved_ensures_asserts(&t.func_val, _proved_ensures(&obligations));
               ()
             });
             reports.push(
@@ -1072,7 +1072,7 @@ _unmangle_pairs :: (fn(imm(fn_id) : String, imm(ce) : ArrayList(String)) -> Arra
           .Some(at) => {
             mangled := pair.substring(usize(0), at);
             value := pair.substring(at + usize(3), pair.len());
-            out.push(`${unmangle_for_display(fn_id.clone(), mangled)} = ${value}`);
+            out.push(`${unmangle_for_display(fn_id.clone(), &mangled)} = ${value}`);
           },
           .None => {
             out.push(pair.clone());

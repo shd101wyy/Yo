@@ -29,7 +29,7 @@ _is_fn_type_expr :: (fn(imm(e) : AstExpr) -> bool)({
       .FnCall(_, _, arrow_args, _, _) => match(
         arrow_args.get(usize(0)),
         .Some(lhs) => {
-          return(ast_expr_is_fn_call_of(lhs, "fn", .None));
+          return(ast_expr_is_fn_call_of(&lhs, "fn", .None));
         },
         .None => ()
       ),
@@ -63,7 +63,7 @@ _symbol_kind_of :: (fn(imm(value_expr) : AstExpr) -> usize)({
   match(
     value_expr,
     .FnCall(_, func_box, _, _, _) => {
-      if(_is_fn_type_expr(func_box), {
+      if(_is_fn_type_expr(&func_box), {
         return(usize(12));
       });
     },
@@ -87,7 +87,7 @@ _typed_decl_symbol :: (fn(imm(e) : AstExpr, imm(lines) : ArrayList(String)) -> O
     .FnCall(_, _, args, _, _) => match(
       args.get(usize(0)),
       .Some(lhs) => {
-        if(!ast_expr_is_fn_call_of(lhs, ":", .Some(usize(2))), {
+        if(!ast_expr_is_fn_call_of(&lhs, ":", .Some(usize(2))), {
           return(Option(SymbolEntry).None);
         });
         match(
@@ -95,10 +95,10 @@ _typed_decl_symbol :: (fn(imm(e) : AstExpr, imm(lines) : ArrayList(String)) -> O
           .FnCall(_, _, pair, _, _) => match(
             pair.get(usize(0)),
             .Some(name_expr) => {
-              if(!ast_expr_is_atom(name_expr), {
+              if(!ast_expr_is_atom(&name_expr), {
                 return(Option(SymbolEntry).None);
               });
-              name_tok := ast_expr_token(name_expr);
+              name_tok := ast_expr_token(&name_expr);
               rng := j_range_in(
                 lines,
                 usize(name_tok.row),
@@ -175,7 +175,7 @@ _runtime_decl_symbol :: (fn(imm(e) : AstExpr, imm(lines) : ArrayList(String)) ->
           args.get(usize(0)),
           .Some(lhs) => {
             match(
-              _decl_name_tok(lhs),
+              _decl_name_tok(&lhs),
               .Some(t) => {
                 rng := j_range_in(
                   lines,
@@ -205,7 +205,7 @@ _runtime_decl_symbol :: (fn(imm(e) : AstExpr, imm(lines) : ArrayList(String)) ->
         match(
           args.get(usize(0)),
           .Some(lhs) => {
-            if(ast_expr_is_fn_call_of(lhs, ":", .Some(usize(2))), {
+            if(ast_expr_is_fn_call_of(&lhs, ":", .Some(usize(2))), {
               match(
                 lhs,
                 .FnCall(_, _, pair, _, _) =>
@@ -213,7 +213,7 @@ _runtime_decl_symbol :: (fn(imm(e) : AstExpr, imm(lines) : ArrayList(String)) ->
                     pair.get(usize(0)),
                     .Some(name_expr) => {
                       match(
-                        _decl_name_tok(name_expr),
+                        _decl_name_tok(&name_expr),
                         .Some(t) => {
                           rng := j_range_in(
                             lines,
@@ -260,14 +260,14 @@ collect_document_symbols :: (
         return(());
       }
     );
-    if(ast_expr_is_fn_call_of(e, "::", .Some(usize(2))), {
+    if(ast_expr_is_fn_call_of(&e, "::", .Some(usize(2))), {
       match(
         e,
         .FnCall(_, _, args, _, _) => {
           name_expr := match(args.get(usize(0)), .Some(a) => a, .None => e);
           value_expr := match(args.get(usize(1)), .Some(a) => a, .None => e);
-          if(ast_expr_is_atom(name_expr), {
-            name_tok := ast_expr_token(name_expr);
+          if(ast_expr_is_atom(&name_expr), {
+            name_tok := ast_expr_token(&name_expr);
             rng := j_range_in(
               lines,
               usize(name_tok.row),
@@ -277,7 +277,7 @@ collect_document_symbols :: (
               usize(name_tok.column) + name_tok.value.chars().count()
             );
             out.push(
-              SymbolEntry(name : name_tok.value.clone(), kind : _symbol_kind_of(value_expr), range : rng)
+              SymbolEntry(name : name_tok.value.clone(), kind : _symbol_kind_of(&value_expr), range : rng)
             );
           });
         },
@@ -285,13 +285,13 @@ collect_document_symbols :: (
       );
     }, {
       match(
-        _typed_decl_symbol(e, lines),
+        _typed_decl_symbol(&e, lines),
         .Some(sym) => {
           out.push(sym);
         },
         .None => {
           match(
-            _runtime_decl_symbol(e, lines),
+            _runtime_decl_symbol(&e, lines),
             .Some(sym) => {
               out.push(sym);
             },
@@ -309,7 +309,7 @@ handle_document_symbols :: (
   fn(imm(exprs) : ArrayList(AstExpr), imm(lines) : ArrayList(String)) -> JsonValue
 )({
   entries := ArrayList(SymbolEntry).new();
-  collect_document_symbols(exprs, lines, entries);
+  collect_document_symbols(exprs, lines, &mut entries);
   items := ArrayList(JsonValue).new();
   (i : usize) = usize(0);
   while(i < entries.len(), {
@@ -317,7 +317,7 @@ handle_document_symbols :: (
       entries.get(i),
       .Some(en) => {
         items.push(
-          jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put("range", en.range).put("selectionRange", en.range).obj()
+          jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put("range", &en.range).put("selectionRange", &en.range).obj()
         );
       },
       .None => ()
@@ -337,7 +337,7 @@ handle_document_symbols_flat :: (
   fn(imm(exprs) : ArrayList(AstExpr), imm(lines) : ArrayList(String), imm(uri) : String) -> JsonValue
 )({
   entries := ArrayList(SymbolEntry).new();
-  collect_document_symbols(exprs, lines, entries);
+  collect_document_symbols(exprs, lines, &mut entries);
   items := ArrayList(JsonValue).new();
   (i : usize) = usize(0);
   while(i < entries.len(), {
@@ -347,7 +347,7 @@ handle_document_symbols_flat :: (
         items.push(
           jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put(
             "location",
-            jb().put("uri", jstr(uri.clone())).put("range", en.range).obj()
+            jb().put("uri", jstr(uri.clone())).put("range", &en.range).obj()
           ).obj()
         );
       },
@@ -378,7 +378,7 @@ handle_workspace_symbols :: (fn(imm(query) : String, imm(docs) : ArrayList(Works
       docs.get(di),
       .Some(doc) => {
         entries := ArrayList(SymbolEntry).new();
-        collect_document_symbols(doc.exprs, doc.lines, entries);
+        collect_document_symbols(&doc.exprs, &doc.lines, &mut entries);
         (ei : usize) = usize(0);
         while(ei < entries.len(), {
           match(
@@ -386,7 +386,7 @@ handle_workspace_symbols :: (fn(imm(query) : String, imm(docs) : ArrayList(Works
             .Some(en) => {
               if((q.len() == usize(0)) || en.name.to_lowercase().contains(q.clone()), {
                 out.push(
-                  jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put("location", jb().put("uri", jstr(doc.uri.clone())).put("range", en.range).obj()).obj()
+                  jb().put("name", jstr(en.name.clone())).put("kind", jnum(en.kind)).put("location", jb().put("uri", jstr(doc.uri.clone())).put("range", &en.range).obj()).obj()
                 );
               });
             },
@@ -421,7 +421,7 @@ _impl_arg_is :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
 _impl_arg_is_generic :: (fn(imm(args) : ArrayList(AstExpr), a : usize) -> bool)(
   match(
     args.get(a),
-    .Some(arg) => ast_expr_is_fn_call_of(arg, "generic", .None),
+    .Some(arg) => ast_expr_is_fn_call_of(&arg, "generic", .None),
     .None => false
   )
 );
@@ -449,9 +449,9 @@ handle_implementations :: (
       _err -> unwind(JsonValue.Array(items : ArrayList(JsonValue).new()))
     )
   );
-  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  tokens := tokenize(text.clone(), doc_abs.clone(), &lex_exn);
   target := match(
-    _find_token_at(tokens, line, character),
+    _find_token_at(&tokens, line, character),
     .Some(t) => t,
     .None => {
       return(JsonValue.Array(items : out));
@@ -465,7 +465,7 @@ handle_implementations :: (
     match(
       exprs.get(i),
       .Some(e) => {
-        if(ast_expr_is_fn_call_of(e, "impl", .None), {
+        if(ast_expr_is_fn_call_of(&e, "impl", .None), {
           match(
             e,
             .FnCall(_, _, args, _, itok) => {
@@ -473,17 +473,17 @@ handle_implementations :: (
               // argument is the Self type, the second (when present) the
               // trait.
               (a : usize) = usize(0);
-              while(_impl_arg_is_generic(args, a), {
+              while(_impl_arg_is_generic(&args, a), {
                 a = (a + usize(1));
               });
               self_matches := match(
                 args.get(a),
-                .Some(self_expr) => _impl_arg_is(self_expr, target.value.clone()),
+                .Some(self_expr) => _impl_arg_is(&self_expr, target.value.clone()),
                 .None => false
               );
               trait_matches := match(
                 args.get(a + usize(1)),
-                .Some(trait_expr) => _impl_arg_is(trait_expr, target.value.clone()),
+                .Some(trait_expr) => _impl_arg_is(&trait_expr, target.value.clone()),
                 .None => false
               );
               if(self_matches || trait_matches, {

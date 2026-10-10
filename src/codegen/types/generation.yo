@@ -88,7 +88,7 @@ _array_wrapper_names_sorted :: (fn(imm(context) : CodeGenContext) -> ArrayList(S
     while(ci < keys.len(), {
       cand := match(keys.get(ci), .Some(s) => s, .None => String.new());
       cur_min := match(keys.get(min_i), .Some(s) => s, .None => String.new());
-      if(_array_wrapper_name_lt(cand, cur_min), {
+      if(_array_wrapper_name_lt(&cand, &cur_min), {
         min_i = ci;
       });
       ci = (ci + usize(1));
@@ -150,7 +150,7 @@ _drain_ready_array_wrappers :: (
         .Some(info) => info.child_type.clone(),
         .None => String.from("")
       );
-      ready := (!deferred.contains(child.clone()) || available.contains(child));
+      ready := (!deferred.contains(child.clone()) || available.contains(&child));
       if(ready, {
         _emit_array_wrapper(context, name.clone());
         available.insert(name);
@@ -203,8 +203,8 @@ _prewarm_runtime_field_types :: (fn(imm(fields) : ArrayList(RuntimeStructField),
   while(i < n, {
     match(
       fields.get(i),
-      .Some(field) => if(!is_unit_type(field.ty), {
-        get_type_string(field.ty, context);
+      .Some(field) => if(!is_unit_type(&field.ty), {
+        get_type_string(&field.ty, context);
       }),
       .None => ()
     );
@@ -226,8 +226,8 @@ _emit_runtime_fields :: (fn(imm(fields) : ArrayList(RuntimeStructField), imm(con
       // (exprs/other_fn_call.yo, exprs/comptime_value.yo), and a read of the
       // field (exprs/property_access.yo). A struct whose every field is `unit`
       // is an empty C struct (GNU extension, sizeof 0 — same as Rust).
-      .Some(field) => if(!is_unit_type(field.ty), {
-        fts := get_type_string(field.ty, context);
+      .Some(field) => if(!is_unit_type(&field.ty), {
+        fts := get_type_string(&field.ty, context);
         fname := sanitize_for_c_identifier(field.label.clone(), false);
         context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
         emitted = true;
@@ -247,7 +247,7 @@ generate_struct_declaration :: (fn(imm(struct_type) : TypeValue, imm(c_name) : S
       // Newtype: zero-cost typedef over the single underlying type.
       if(is_newtype && (field_types.len() == usize(1)), {
         underlying := match(field_types.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
-        uts := get_type_string(underlying, context);
+        uts := get_type_string(&underlying, context);
         // `get_type_string` renders a type that has no C form as the LINE
         // COMMENT `// Unknown type: …` (utils/index.yo). Interpolated into
         // `typedef ${uts} ${c_name};` that comment swallows the rest of the
@@ -274,7 +274,7 @@ generate_struct_declaration :: (fn(imm(struct_type) : TypeValue, imm(c_name) : S
       });
       runtime_fields := get_runtime_struct_fields(struct_type);
       // Before ANY line of this struct is emitted — see the helper's header.
-      _prewarm_runtime_field_types(runtime_fields, context);
+      _prewarm_runtime_field_types(&runtime_fields, context);
       cond(
         is_reference_semantics => {
           atomic_word := if(is_atomic_rc, "atomic ", "");
@@ -285,12 +285,12 @@ generate_struct_declaration :: (fn(imm(struct_type) : TypeValue, imm(c_name) : S
           }, {
             context.emitter.emit_declaration_string_line(`  __yo_ref_header_t header; // ${header_word}eference count header`);
           });
-          _rf := _emit_runtime_fields(runtime_fields, context);
+          _rf := _emit_runtime_fields(&runtime_fields, context);
           context.emitter.emit_declaration_line("};");
         },
         true => {
           context.emitter.emit_declaration_string_line(`struct ${c_name}_struct { // ${name} : ${type_to_string(struct_type)}`);
-          if(!_emit_runtime_fields(runtime_fields, context), {
+          if(!_emit_runtime_fields(&runtime_fields, context), {
             _emit_zst_dummy(context);
           });
           context.emitter.emit_declaration_line("};");
@@ -323,8 +323,8 @@ generate_tuple_declaration :: (fn(imm(tuple_type) : TypeValue, imm(c_name) : Str
           field_types.get(i),
           // As for struct fields: a `unit` element is zero-sized and emits no
           // member; `_N` keeps its declaration index, so accesses stay aligned.
-          .Some(ft) => if(!is_unit_type(ft), {
-            fts := get_type_string(ft, context);
+          .Some(ft) => if(!is_unit_type(&ft), {
+            fts := get_type_string(&ft, context);
             context.emitter.emit_declaration_string_line(`  ${fts} _${i.to_string()};`);
             emitted = true;
           }),
@@ -356,8 +356,8 @@ generate_union_declaration :: (fn(imm(union_type) : TypeValue, imm(c_name) : Str
         match(
           field_types.get(i),
           .Some(ft) => {
-            fts := get_type_string(ft, context);
-            fname := sanitize_for_c_identifier(label, false);
+            fts := get_type_string(&ft, context);
+            fname := sanitize_for_c_identifier(&label, false);
             context.emitter.emit_declaration_string_line(`  ${fts} ${fname};`);
           },
           .None => ()
@@ -403,7 +403,7 @@ generate_enum_declaration :: (fn(imm(enum_type) : TypeValue, imm(c_name) : Strin
       match(
         can_optimize_as_nullable_pointer(enum_type),
         .Some(ptr_type) => {
-          pts := get_type_string(ptr_type, context);
+          pts := get_type_string(&ptr_type, context);
           context.emitter.emit_declaration_string_line(`typedef ${pts} ${c_name}; // ${name} : ${type_to_string(enum_type)} (optimized as nullable pointer)`);
           context.emitter.emit_declaration_line("");
           return(());
@@ -413,7 +413,7 @@ generate_enum_declaration :: (fn(imm(enum_type) : TypeValue, imm(c_name) : Strin
       // Simple C enum (all variants fieldless).
       if(can_optimize_as_simple_enum(enum_type), {
         context.emitter.emit_declaration_string_line(`typedef enum { // ${name} : ${type_to_string(enum_type)} (optimized as simple enum)`);
-        _emit_enum_tags(c_name, variant_names, variant_discriminants, context);
+        _emit_enum_tags(c_name, &variant_names, &variant_discriminants, context);
         context.emitter.emit_declaration_string_line(`} ${c_name};`);
         context.emitter.emit_declaration_line("");
         return(());
@@ -423,7 +423,7 @@ generate_enum_declaration :: (fn(imm(enum_type) : TypeValue, imm(c_name) : Strin
       tag_enum_name.push_string(c_name.clone());
       tag_enum_name.push_str("_tag");
       context.emitter.emit_declaration_line("typedef enum {");
-      _emit_enum_tags(c_name, variant_names, variant_discriminants, context);
+      _emit_enum_tags(c_name, &variant_names, &variant_discriminants, context);
       context.emitter.emit_declaration_string_line(`} ${tag_enum_name};`);
       context.emitter.emit_declaration_line("");
       // Data union (struct per variant with non-unit fields). When NO variant
@@ -445,7 +445,7 @@ generate_enum_declaration :: (fn(imm(enum_type) : TypeValue, imm(c_name) : Strin
         while(pfi < pfields.len(), {
           match(
             pfields.get(pfi),
-            .Some(ft) => if(!is_unit_type(ft), {
+            .Some(ft) => if(!is_unit_type(&ft), {
               union_has_members = true;
               // Resolve the payload's type string BEFORE the union opens: the
               // resolution may fire an on-demand declaration into the same
@@ -453,7 +453,7 @@ generate_enum_declaration :: (fn(imm(enum_type) : TypeValue, imm(c_name) : Strin
               // ("type name does not allow storage class to be specified").
               // The enum twin of `_prewarm_runtime_field_types`
               // (issues/fixed/an-io-async-future-stored-in-an-enum-payload-emits-a-nested-typedef.md).
-              get_type_string(ft, context);
+              get_type_string(&ft, context);
             }),
             .None => ()
           );
@@ -475,7 +475,7 @@ generate_enum_declaration :: (fn(imm(enum_type) : TypeValue, imm(c_name) : Strin
         while(cfi < nf, {
           match(
             fields.get(cfi),
-            .Some(ft) => if(!is_unit_type(ft), {
+            .Some(ft) => if(!is_unit_type(&ft), {
               non_unit = (non_unit + usize(1));
             }),
             .None => ()
@@ -489,10 +489,10 @@ generate_enum_declaration :: (fn(imm(enum_type) : TypeValue, imm(c_name) : Strin
           while(fi < nf, {
             match(
               fields.get(fi),
-              .Some(ft) => if(!is_unit_type(ft), {
+              .Some(ft) => if(!is_unit_type(&ft), {
                 label := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
-                fts := get_type_string(ft, context);
-                fname := sanitize_for_c_identifier(label, false);
+                fts := get_type_string(&ft, context);
+                fname := sanitize_for_c_identifier(&label, false);
                 context.emitter.emit_declaration_string_line(`    ${fts} ${fname};`);
               }),
               .None => ()
@@ -599,7 +599,7 @@ typedef enum {
 `
   );
   // Thread synchronization — target-specific types + macros.
-  if(is_target_windows(context.target_info), {
+  if(is_target_windows(&context.target_info), {
     em.emit_declaration_string_line(
       `// Thread synchronization for stop-the-world GC (Windows)
 #ifndef WIN32_LEAN_AND_MEAN
@@ -658,7 +658,7 @@ static inline bool __yo_cond_timedwait(__YO_COND_TYPE* c, __YO_THREAD_SYNC_TYPE*
 #define __yo_thread_self() ((uintptr_t)GetCurrentThreadId())`
     );
   }, {
-    macos_includes := if(is_target_macos(context.target_info), String.from("#include <sys/types.h>\n#include <sys/sysctl.h>"), String.from(""));
+    macos_includes := if(is_target_macos(&context.target_info), String.from("#include <sys/types.h>\n#include <sys/sysctl.h>"), String.from(""));
     em.emit_declaration_string_line(
       `// Thread synchronization for stop-the-world GC (POSIX)
 #include <pthread.h>
@@ -1282,9 +1282,9 @@ _walk_struct_some_only :: (fn(imm(type) : TypeValue, mut(visited) : HashSet(Stri
       while((i < n) && ok, {
         ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         cond(
-          is_function_type(ft) => (),
-          (is_struct_type(ft) && recur(ft, visited)) => (),
-          type_contains_some_type(ft) => {
+          is_function_type(&ft) => (),
+          (is_struct_type(&ft) && recur(&ft, visited)) => (),
+          type_contains_some_type(&ft) => {
             ok = false;
           },
           true => ()
@@ -1316,9 +1316,9 @@ _walk_enum_some_only :: (fn(imm(type) : TypeValue, mut(visited) : HashSet(String
         while((fi < nf) && ok, {
           ft := match(fields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
           cond(
-            is_function_type(ft) => (),
-            (is_struct_type(ft) && _walk_struct_some_only(ft, visited)) => (),
-            type_contains_some_type(ft) => {
+            is_function_type(&ft) => (),
+            (is_struct_type(&ft) && _walk_struct_some_only(&ft, visited)) => (),
+            type_contains_some_type(&ft) => {
               ok = false;
             },
             true => ()
@@ -1347,7 +1347,7 @@ _walk_pointee_newtype :: (fn(imm(ft) : TypeValue) -> Option(TypeValue))(
     ft,
     .Pointer(pointee) => {
       p := pointee;
-      if(is_struct_type(p) && is_newtype_type(p), Option(TypeValue).Some(p), Option(TypeValue).None)
+      if(is_struct_type(&p) && is_newtype_type(&p), Option(TypeValue).Some(p), Option(TypeValue).None)
     },
     _ => if(
       is_enum_type(ft),
@@ -1357,7 +1357,7 @@ _walk_pointee_newtype :: (fn(imm(ft) : TypeValue) -> Option(TypeValue))(
           ptrty,
           .Pointer(pe) => {
             p := pe;
-            if(is_struct_type(p) && is_newtype_type(p), Option(TypeValue).Some(p), Option(TypeValue).None)
+            if(is_struct_type(&p) && is_newtype_type(&p), Option(TypeValue).Some(p), Option(TypeValue).None)
           },
           _ => Option(TypeValue).None
         ),
@@ -1372,7 +1372,7 @@ _walk_pointee_newtype :: (fn(imm(ft) : TypeValue) -> Option(TypeValue))(
 _walk_add_dep :: (fn(mut(deps_set) : HashSet(String), imm(dep_ty) : TypeValue, imm(self_type_id) : String, imm(cname_to_typeid) : HashMap(String, String), imm(context) : CodeGenContext) -> unit)({
   dep_cname := get_type_string(dep_ty, context);
   match(
-    cname_to_typeid.get(dep_cname),
+    cname_to_typeid.get(&dep_cname),
     .Some(dep_tid) => if(!(dep_tid == self_type_id), {
       deps_set.insert(dep_tid.clone());
     }),
@@ -1400,7 +1400,7 @@ _walk_by_value_dep :: (fn(mut(deps_set) : HashSet(String), imm(ft) : TypeValue, 
         // struct while the dep walk adds no edge → "field has incomplete
         // type" when a capture struct embeds another closure's capture struct
         // by value.
-        .Some(wrct) => recur(deps_set, wrct, self_type_id, guard_nullable, cname_to_typeid, context),
+        .Some(wrct) => recur(deps_set, &wrct, self_type_id, guard_nullable, cname_to_typeid, context),
         .None => ()
       ),
       _ => ()
@@ -1436,7 +1436,7 @@ _walk_by_value_dep :: (fn(mut(deps_set) : HashSet(String), imm(ft) : TypeValue, 
     // wrapper too late — "array has incomplete element type".
     is_array_type(ft) => match(
       ft,
-      .Array(elem, _, _) => recur(deps_set, elem, self_type_id, guard_nullable, cname_to_typeid, context),
+      .Array(elem, _, _) => recur(deps_set, &elem, self_type_id, guard_nullable, cname_to_typeid, context),
       _ => ()
     ),
     true => ()
@@ -1500,7 +1500,7 @@ generate_dyn_forward_declarations :: (fn(imm(context) : CodeGenContext) -> unit)
     key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
     match(
       context.types.get(key.clone()),
-      .Some(entry) => if(is_dyn_type(entry.ty), {
+      .Some(entry) => if(is_dyn_type(&entry.ty), {
         if(!has_any, {
           em.emit_declaration_line("");
           em.emit_declaration_line("// === Dyn Type Forward Declarations ===");
@@ -1508,7 +1508,7 @@ generate_dyn_forward_declarations :: (fn(imm(context) : CodeGenContext) -> unit)
         });
         vtable_name := `${entry.c_name}_vtable`;
         em.emit_declaration_string_line(`typedef struct ${vtable_name}_s ${vtable_name};`);
-        em.emit_declaration_string_line(`typedef struct { // ${type_to_string(entry.ty)} (value type - fat pointer)`);
+        em.emit_declaration_string_line(`typedef struct { // ${type_to_string(&entry.ty)} (value type - fat pointer)`);
         em.emit_declaration_line("  void* data; // Pointer to boxed data (with __yo_ref_header_t)");
         em.emit_declaration_string_line(`  const ${vtable_name}* vtable; // Pointer to static vtable (no allocation needed)`);
         em.emit_declaration_string_line(`} ${entry.c_name};`);
@@ -1545,7 +1545,7 @@ _dyn_vtable_method_line :: (fn(imm(label) : String, imm(field_ty) : TypeValue, m
         // (`dyn_member_unsafe_reason`: no `generic(...)`, `Self` only as the
         // receiver), go in the vtable.
         if(dyn_member_is_method(field_ty) && dyn_member_unsafe_reason(field_ty).is_none(), {
-          ret_str := get_type_string(result, context);
+          ret_str := get_type_string(&result, context);
           plist := String.new();
           np := param_labels.len();
           (pi : usize) = usize(0);
@@ -1557,10 +1557,10 @@ _dyn_vtable_method_line :: (fn(imm(label) : String, imm(field_ty) : TypeValue, m
               plist.push_str("void* self");
             }, {
               pty := dyn_slot_param_type_string(param_types.get(pi), param_is_ref.get(pi), context);
-              pn := match(param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("arg"));
-              plist.push_string(pty);
+              pn := match(param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(&l, false), .None => String.from("arg"));
+              plist.push_string(&pty);
               plist.push_str(" ");
-              plist.push_string(pn);
+              plist.push_string(&pn);
             });
             pi = (pi + usize(1));
           });
@@ -1595,10 +1595,10 @@ generate_dyn_declaration :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm
       while(ti < nt, {
         tt := match(required_trait_types.get(ti), .Some(x) => x, .None => TypeValue.Unit);
         cond(
-          is_fn_trait_type(tt) => match(
+          is_fn_trait_type(&tt) => match(
             tt,
             .FnTraitT({ call_param_labels, call_param_types, call_result, call_param_is_ref }) => {
-              ret_str := get_type_string(call_result, context);
+              ret_str := get_type_string(&call_result, context);
               plist := String.new();
               np := call_param_labels.len();
               (pi : usize) = usize(0);
@@ -1607,10 +1607,10 @@ generate_dyn_declaration :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm
                   plist.push_str(", ");
                 });
                 pty := dyn_slot_param_type_string(call_param_types.get(pi), call_param_is_ref.get(pi), context);
-                pn := match(call_param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(l, false), .None => String.from("arg"));
-                plist.push_string(pty);
+                pn := match(call_param_labels.get(pi), .Some(l) => sanitize_for_c_identifier(&l, false), .None => String.from("arg"));
+                plist.push_string(&pty);
                 plist.push_str(" ");
-                plist.push_string(pn);
+                plist.push_string(&pn);
                 pi = (pi + usize(1));
               });
               sep := if(plist.len() > usize(0), String.from(", "), String.from(""));
@@ -1628,7 +1628,7 @@ generate_dyn_declaration :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm
                 flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
                 fty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
                 match(
-                  _dyn_vtable_method_line(flabel, fty, processed, context),
+                  _dyn_vtable_method_line(&flabel, &fty, &mut processed, context),
                   .Some(line) => {
                     members.push(line);
                   },
@@ -1654,7 +1654,7 @@ generate_dyn_declaration :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm
       up_targets.get(ui),
       .Some(ut) => {
         ut_c := get_type_string(ut.clone(), context);
-        members.push(`  const ${ut_c}_vtable* __yo_up_${ut_c}; // upcast to ${type_to_string(ut)}`);
+        members.push(`  const ${ut_c}_vtable* __yo_up_${ut_c}; // upcast to ${type_to_string(&ut)}`);
       },
       .None => ()
     );
@@ -1668,7 +1668,7 @@ generate_dyn_declaration :: (fn(imm(type) : TypeValue, imm(c_name) : String, imm
   em.emit_declaration_line("  void (*__yo_release)(void*); // payload release");
   (mi : usize) = usize(0);
   while(mi < members.len(), {
-    match(members.get(mi), .Some(line) => em.emit_declaration_string_line(line), .None => ());
+    match(members.get(mi), .Some(line) => em.emit_declaration_string_line(&line), .None => ());
     mi = (mi + usize(1));
   });
   em.emit_declaration_string_line(`} ${vtable_name};`);
@@ -1715,13 +1715,13 @@ generate_dyn_box_types :: (fn(imm(context) : CodeGenContext) -> unit)({
         // the SomeT id) while `get_type_string` resolves — the ctor then
         // referenced `__yo_dyn_box_unknown_<id>` with no typedef (the
         // suspension_analysis batch "unknown type name").
-        concrete := resolve_some_type_to_concrete(impl_entry.concrete_type);
-        concrete_c_name := match(context.get_type_c_name(type_key(concrete)), .Some(cn) => cn, .None => `unknown_${type_key(concrete)}`);
+        concrete := resolve_some_type_to_concrete(&impl_entry.concrete_type);
+        concrete_c_name := match(context.get_type_c_name(type_key(&concrete)), .Some(cn) => cn, .None => `unknown_${type_key(&concrete)}`);
         box_name := `__yo_dyn_box_${concrete_c_name}`;
         if(!generated.contains(box_name.clone()), {
           generated.insert(box_name.clone());
           context.dyn_box_typedefs.insert(box_name.clone());
-          value_str := get_type_string(concrete, context);
+          value_str := get_type_string(&concrete, context);
           em.emit_declaration_line("typedef struct {");
           em.emit_declaration_line("  __yo_ref_header_t header;");
           em.emit_declaration_string_line(`  ${value_str} value;`);
@@ -1751,10 +1751,10 @@ generate_future_trait_declaration :: (fn(imm(type) : TypeValue, imm(c_name) : St
   result_type := match(type, .FutureTraitT({ output : ftd_o }) => ftd_o.clone(), _ => return(()));
   em.emit_declaration_string_line(`struct ${c_name.clone()}_struct { // Generic Future interface for ${type_to_string(type)}`);
   em.emit_declaration_string_line(String.from("  __YO_FUTURE_PREFIX  // header, state (0 cold, -1 completed, -2 aborted), type operations, waiter"));
-  if(is_unit_type(result_type), {
+  if(is_unit_type(&result_type), {
     em.emit_declaration_string_line(String.from("  uint8_t result;"));
   }, {
-    result_c := get_type_string(result_type, context);
+    result_c := get_type_string(&result_type, context);
     em.emit_declaration_string_line(`  ${result_c.clone()} result;`);
   });
   em.emit_declaration_string_line(String.from("};"));
@@ -1773,7 +1773,7 @@ generate_future_trait_declaration :: (fn(imm(type) : TypeValue, imm(c_name) : St
 /// Is the child of the Iso type `iso_type` a reference object (held by its
 /// handle), rather than a value held inline?
 iso_child_is_object :: (fn(imm(iso_type) : TypeValue) -> bool)(
-  match(iso_type, .IsoT(c) => (is_reference_struct_type(c) || is_reference_enum_type(c)), _ => true)
+  match(iso_type, .IsoT(c) => (is_reference_struct_type(&c) || is_reference_enum_type(&c)), _ => true)
 );
 /// The Iso wrapper struct bodies, emitted after every other type declaration
 /// (see `generate_iso_type_declarations`'s first pass).
@@ -1860,7 +1860,7 @@ generate_iso_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
           // A value child's dispose lives in the constructor block, which chunked
           // emission copies into every unit, so it is `static` like the rest of
           // that block.
-          dispose_linkage := if(iso_child_is_object(info.iso_type), String.new(), String.from("static "));
+          dispose_linkage := if(iso_child_is_object(&info.iso_type), String.new(), String.from("static "));
           em.emit_declaration_string_line(`${dispose_linkage}void __yo_iso_dispose_${iso_name.clone()}(${iso_name.clone()} iso);`);
           em.emit_declaration_string_line(`static void __yo_dispose_iso_${iso_name.clone()}(void* ptr);`);
         }),
@@ -1915,7 +1915,7 @@ generate_iso_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
       k5.next(),
       .Some(iso_name) => match(
         context.iso_types.get(iso_name.clone()),
-        .Some(info) => if(info.create_generated && !info.dispose_generated && iso_child_is_object(info.iso_type), {
+        .Some(info) => if(info.create_generated && !info.dispose_generated && iso_child_is_object(&info.iso_type), {
           em.emit_string_line(`void __yo_iso_dispose_${iso_name.clone()}(${iso_name.clone()} iso) {`);
           em.emit_string_line(String.from("  if (!atomic_load(&iso->extracted)) {"));
           em.emit_string_line(String.from("    __yo_decr_rc((void*)iso->value);"));
@@ -1990,19 +1990,19 @@ _deferred_decl_cnames :: (
         .Some(entry) => {
           ty := entry.ty;
           skip := (
-            _walk_skip_some(ty)
+            _walk_skip_some(&ty)
             || entry.c_include.is_some() || context.on_demand_body_cnames.contains(entry.c_name.clone())
           );
           if(
             !skip,
             cond(
-              is_struct_type(ty) => {
+              is_struct_type(&ty) => {
                 out.insert(entry.c_name.clone());
               },
-              (is_enum_type(ty) && (!can_optimize_as_simple_enum(ty) && !can_optimize_as_nullable_pointer(ty).is_some())) => {
+              (is_enum_type(&ty) && (!can_optimize_as_simple_enum(&ty) && !can_optimize_as_nullable_pointer(&ty).is_some())) => {
                 out.insert(entry.c_name.clone());
               },
-              is_tuple_type(ty) => {
+              is_tuple_type(&ty) => {
                 out.insert(entry.c_name.clone());
               },
               true => ()
@@ -2040,22 +2040,22 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
         .Some(entry) => {
           ty := entry.ty;
           cn := entry.c_name.clone();
-          skip := (_walk_skip_some(ty) || entry.c_include.is_some());
+          skip := (_walk_skip_some(&ty) || entry.c_include.is_some());
           if(
             !skip,
             cond(
-              is_future_trait_type(ty) => {
+              is_future_trait_type(&ty) => {
                 l := String.from("typedef struct ");
                 l.push_string(cn.clone());
                 l.push_str("_struct ");
                 l.push_string(cn.clone());
                 l.push_str("; // Forward declaration");
-                em.emit_declaration_string_line(l);
+                em.emit_declaration_string_line(&l);
               },
-              is_struct_type(ty) => {
+              is_struct_type(&ty) => {
                 // Newtypes are plain typedefs — no forward struct declaration.
                 is_nt_single := (
-                  is_newtype_type(ty) && match(ty, .Struct({ field_types }) => (field_types.len() == usize(1)), _ => false)
+                  is_newtype_type(&ty) && match(ty, .Struct({ field_types }) => (field_types.len() == usize(1)), _ => false)
                 );
                 if(!is_nt_single, {
                   l := String.from("typedef struct ");
@@ -2063,31 +2063,31 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
                   l.push_str("_struct ");
                   l.push_string(cn.clone());
                   l.push_str("; // Forward declaration");
-                  em.emit_declaration_string_line(l);
+                  em.emit_declaration_string_line(&l);
                 });
               },
-              is_enum_type(ty) => {
-                optimized := (can_optimize_as_nullable_pointer(ty).is_some() || can_optimize_as_simple_enum(ty));
+              is_enum_type(&ty) => {
+                optimized := (can_optimize_as_nullable_pointer(&ty).is_some() || can_optimize_as_simple_enum(&ty));
                 if(!optimized, {
                   l := String.from("typedef struct ");
                   l.push_string(cn.clone());
                   l.push_str("_struct ");
                   l.push_string(cn.clone());
                   l.push_str("; // Forward declaration");
-                  em.emit_declaration_string_line(l);
+                  em.emit_declaration_string_line(&l);
                 });
               },
               // A tuple is a plain value struct, but it can still be reached
               // THROUGH A POINTER from a struct emitted earlier — an
               // `ArrayList(Tuple(..))`'s `_ptr` is exactly that — so it needs
               // its name declared up here like any other struct.
-              is_tuple_type(ty) => {
+              is_tuple_type(&ty) => {
                 l := String.from("typedef struct ");
                 l.push_string(cn.clone());
                 l.push_str("_struct ");
                 l.push_string(cn.clone());
                 l.push_str("; // Forward declaration");
-                em.emit_declaration_string_line(l);
+                em.emit_declaration_string_line(&l);
               },
               true => ()
             )
@@ -2107,8 +2107,8 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
   // this pass may embed by value.
   array_pending := _array_wrapper_names_sorted(context);
   array_available := HashSet(String).new();
-  array_deferred := _deferred_decl_cnames(context, array_pending);
-  _drain_ready_array_wrappers(context, array_pending, array_available, array_deferred);
+  array_deferred := _deferred_decl_cnames(context, &array_pending);
+  _drain_ready_array_wrappers(context, &mut array_pending, &mut array_available, &array_deferred);
   generate_str_type_declaration(context);
   generate_iso_type_declarations(context);
   // Dedup type-DECLARATION emission by C name. `context.types` is keyed by
@@ -2128,11 +2128,11 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
         context.get_type_entry(tid.clone()),
         .Some(entry) => {
           ty := entry.ty;
-          skip := (type_contains_some_type(ty) || entry.c_include.is_some());
-          if(!skip && (is_enum_type(ty) && can_optimize_as_simple_enum(ty)), {
+          skip := (type_contains_some_type(&ty) || entry.c_include.is_some());
+          if(!skip && (is_enum_type(&ty) && can_optimize_as_simple_enum(&ty)), {
             if(!emitted_decl_cnames.contains(entry.c_name.clone()) && !context.on_demand_body_cnames.contains(entry.c_name.clone()), {
               emitted_decl_cnames.insert(entry.c_name.clone());
-              generate_enum_declaration(ty, entry.c_name.clone(), context);
+              generate_enum_declaration(&ty, entry.c_name.clone(), context);
             });
           });
         },
@@ -2155,19 +2155,19 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
         context.get_type_entry(tid.clone()),
         .Some(entry) => {
           ty := entry.ty;
-          skip := (_walk_skip_some(ty) || entry.c_include.is_some() || cname_to_typeid.contains_key(entry.c_name.clone()));
+          skip := (_walk_skip_some(&ty) || entry.c_include.is_some() || cname_to_typeid.contains_key(entry.c_name.clone()));
           if(
             !skip,
             cond(
-              is_struct_type(ty) => {
+              is_struct_type(&ty) => {
                 entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("struct")));
                 cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
               },
-              (is_enum_type(ty) && (!can_optimize_as_simple_enum(ty) && !can_optimize_as_nullable_pointer(ty).is_some())) => {
+              (is_enum_type(&ty) && (!can_optimize_as_simple_enum(&ty) && !can_optimize_as_nullable_pointer(&ty).is_some())) => {
                 entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("enum")));
                 cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
               },
-              is_tuple_type(ty) => {
+              is_tuple_type(&ty) => {
                 entries.push(_TypeWalkEntry(type_id : tid.clone(), ty : ty, c_name : entry.c_name.clone(), kind : String.from("tuple")));
                 cname_to_typeid.insert(entry.c_name.clone(), tid.clone());
               },
@@ -2193,7 +2193,7 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
         dset := HashSet(String).new();
         cond(
           (e.kind == "struct") => {
-            rfs := get_runtime_struct_fields(e.ty);
+            rfs := get_runtime_struct_fields(&e.ty);
             nf := rfs.len();
             (fi : usize) = usize(0);
             while(fi < nf, {
@@ -2201,8 +2201,8 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
                 rfs.get(fi),
                 .Some(field) => {
                   ft := field.ty;
-                  match(_walk_pointee_newtype(ft), .Some(p) => _walk_add_dep(dset, p, e.type_id.clone(), cname_to_typeid, context), .None => ());
-                  _walk_by_value_dep(dset, ft, e.type_id.clone(), true, cname_to_typeid, context);
+                  match(_walk_pointee_newtype(&ft), .Some(p) => _walk_add_dep(&mut dset, &p, e.type_id.clone(), &cname_to_typeid, context), .None => ());
+                  _walk_by_value_dep(&mut dset, &ft, e.type_id.clone(), true, &cname_to_typeid, context);
                 },
                 .None => ()
               );
@@ -2219,7 +2219,7 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
                 nvf := vfs.len();
                 (vfi : usize) = usize(0);
                 while(vfi < nvf, {
-                  match(vfs.get(vfi), .Some(ft) => _walk_by_value_dep(dset, ft, e.type_id.clone(), false, cname_to_typeid, context), .None => ());
+                  match(vfs.get(vfi), .Some(ft) => _walk_by_value_dep(&mut dset, &ft, e.type_id.clone(), false, &cname_to_typeid, context), .None => ());
                   vfi = (vfi + usize(1));
                 });
                 vi = (vi + usize(1));
@@ -2233,7 +2233,7 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
               nft := field_types.len();
               (ti : usize) = usize(0);
               while(ti < nft, {
-                match(field_types.get(ti), .Some(ft) => _walk_by_value_dep(dset, ft, e.type_id.clone(), false, cname_to_typeid, context), .None => ());
+                match(field_types.get(ti), .Some(ft) => _walk_by_value_dep(&mut dset, &ft, e.type_id.clone(), false, &cname_to_typeid, context), .None => ());
                 ti = (ti + usize(1));
               });
             },
@@ -2357,9 +2357,9 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
           if(
             !context.on_demand_body_cnames.contains(e.c_name.clone()),
             cond(
-              (e.kind == "struct") => generate_struct_declaration(e.ty, e.c_name.clone(), context),
-              (e.kind == "enum") => generate_enum_declaration(e.ty, e.c_name.clone(), context),
-              (e.kind == "tuple") => generate_tuple_declaration(e.ty, e.c_name.clone(), context),
+              (e.kind == "struct") => generate_struct_declaration(&e.ty, e.c_name.clone(), context),
+              (e.kind == "enum") => generate_enum_declaration(&e.ty, e.c_name.clone(), context),
+              (e.kind == "tuple") => generate_tuple_declaration(&e.ty, e.c_name.clone(), context),
               true => ()
             )
           );
@@ -2368,7 +2368,7 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
           // a later struct embedding `Array(<this type>, N)` by value sees a
           // finished element type.
           array_available.insert(e.c_name.clone());
-          _drain_ready_array_wrappers(context, array_pending, array_available, array_deferred);
+          _drain_ready_array_wrappers(context, &mut array_pending, &mut array_available, &array_deferred);
         }),
         .None => ()
       );
@@ -2384,14 +2384,14 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
   while(_flush_i < array_pending.len(), {
     match(
       array_pending.get(_flush_i),
-      .Some(pn) => _emit_array_wrapper(context, pn),
+      .Some(pn) => _emit_array_wrapper(context, &pn),
       .None => ()
     );
     _flush_i = (_flush_i + usize(1));
   });
   // Fourth pass: nullable-pointer-optimized enums.
   pass4_seen := HashSet(String).new();
-  nkeys := _unseen_type_ids(context, pass4_seen);
+  nkeys := _unseen_type_ids(context, &mut pass4_seen);
   while(nkeys.len() > usize(0), {
     (ni : usize) = usize(0);
     while(ni < nkeys.len(), {
@@ -2401,10 +2401,10 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
           context.get_type_entry(tid.clone()),
           .Some(entry) => {
             ty := entry.ty;
-            skip := (_walk_skip_some(ty) || entry.c_include.is_some());
-            if(!skip && (is_enum_type(ty) && can_optimize_as_nullable_pointer(ty).is_some()), {
+            skip := (_walk_skip_some(&ty) || entry.c_include.is_some());
+            if(!skip && (is_enum_type(&ty) && can_optimize_as_nullable_pointer(&ty).is_some()), {
               if(!context.on_demand_body_cnames.contains(entry.c_name.clone()), {
-                generate_enum_declaration(ty, entry.c_name.clone(), context);
+                generate_enum_declaration(&ty, entry.c_name.clone(), context);
               });
             });
           },
@@ -2414,12 +2414,12 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
       );
       ni = (ni + usize(1));
     });
-    nkeys = _unseen_type_ids(context, pass4_seen);
+    nkeys = _unseen_type_ids(context, &mut pass4_seen);
   });
   // Fifth pass: dyn / union / future-trait declarations.
   pass5_futures := HashSet(String).new();
   pass5_seen := HashSet(String).new();
-  okeys := _unseen_type_ids(context, pass5_seen);
+  okeys := _unseen_type_ids(context, &mut pass5_seen);
   while(okeys.len() > usize(0), {
     (oi : usize) = usize(0);
     while(oi < okeys.len(), {
@@ -2429,16 +2429,16 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
           context.get_type_entry(tid.clone()),
           .Some(entry) => {
             ty := entry.ty;
-            skip := (type_contains_some_type(ty) || entry.c_include.is_some());
+            skip := (type_contains_some_type(&ty) || entry.c_include.is_some());
             od_done := context.on_demand_body_cnames.contains(entry.c_name.clone());
             if(
               !skip,
               cond(
-                is_dyn_type(ty) => generate_dyn_declaration(ty, entry.c_name.clone(), context),
-                (is_union_type(ty) && !od_done) => generate_union_declaration(ty, entry.c_name.clone(), context),
-                (is_future_trait_type(ty) && !od_done) => {
+                is_dyn_type(&ty) => generate_dyn_declaration(&ty, entry.c_name.clone(), context),
+                (is_union_type(&ty) && !od_done) => generate_union_declaration(&ty, entry.c_name.clone(), context),
+                (is_future_trait_type(&ty) && !od_done) => {
                   pass5_futures.insert(entry.c_name.clone());
-                  generate_future_trait_declaration(ty, entry.c_name.clone(), context);
+                  generate_future_trait_declaration(&ty, entry.c_name.clone(), context);
                 },
                 true => ()
               )
@@ -2450,7 +2450,7 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
       );
       oi = (oi + usize(1));
     });
-    okeys = _unseen_type_ids(context, pass5_seen);
+    okeys = _unseen_type_ids(context, &mut pass5_seen);
   });
   // Bodies of on-demand Future interfaces the hook deferred that pass 5's key
   // walk did not reach (the hook met them DURING pass 5).
@@ -2464,7 +2464,7 @@ generate_type_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
           context.on_demand_fwd_only.get(fcn.clone()),
           .Some(fty) => {
             context.on_demand_body_cnames.insert(fcn.clone());
-            generate_future_trait_declaration(fty, fcn.clone(), context);
+            generate_future_trait_declaration(&fty, fcn.clone(), context);
           },
           .None => ()
         );

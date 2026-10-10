@@ -182,7 +182,7 @@ impl(
     if(!skip_prelude, {
       prelude_path := `file://${std_path}/prelude.yo`;
       match(
-        load_module_fn(prelude_path),
+        load_module_fn(&prelude_path),
         .Some(pval) =>
           match(
             pval,
@@ -198,7 +198,7 @@ impl(
                     match(
                       pvalues.get(pi),
                       .Some(pval_item) => {
-                        env.define_val(pname, TypeValue.Unit, true, .Some(pval_item));
+                        env.define_val(&pname, TypeValue.Unit, true, .Some(pval_item));
                         ()
                       },
                       .None => ()
@@ -238,9 +238,9 @@ impl(
       ctx.is_executing = true;
       ctx.load_module = g_evaluator_ctx_loader;
       result := evaluate_anonymous_module_begin_exprs(
-        program_for_eval,
-        env,
-        ctx,
+        &program_for_eval,
+        &env,
+        &ctx,
         false,
         true,
         true,
@@ -252,7 +252,7 @@ impl(
       // Build the O(1) prelude variable cache after evaluating
       // the prelude itself.
       if(module_path.ends_with(String.from("prelude.yo")), {
-        build_prelude_var_cache(result.env);
+        build_prelude_var_cache(&result.env);
       });
     });
     Evaluator(

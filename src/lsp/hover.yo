@@ -83,7 +83,7 @@ _contract_block :: (
   if((reqs.len() == usize(0)) && ((enss.len() == usize(0)) && !ghost), {
     return(Option(String).None);
   });
-  Option(String).Some(_render_contract_block(reqs, enss, label, ghost, resolve_verify_mode(module_path)))
+  Option(String).Some(_render_contract_block(&reqs, &enss, &label, ghost, resolve_verify_mode(module_path)))
 });
 _render_contract_block :: (
   fn(
@@ -105,7 +105,7 @@ _render_contract_block :: (
     match(
       reqs.get(ri),
       .Some(r) => {
-        sb.write_string(`\n- requires: ${ast_expr_to_string(r)}`);
+        sb.write_string(`\n- requires: ${ast_expr_to_string(&r)}`);
       },
       .None => ()
     );
@@ -116,7 +116,7 @@ _render_contract_block :: (
     match(
       enss.get(ei),
       .Some(e) => {
-        sb.write_string(`\n- ensures: ${ast_expr_to_string(e)}`);
+        sb.write_string(`\n- ensures: ${ast_expr_to_string(&e)}`);
       },
       .None => ()
     );
@@ -181,12 +181,12 @@ _collect_candidates :: (
       });
     },
     .FnCall(_, func_box, args, _, _) => {
-      recur(func_box, target, out);
+      recur(&func_box, target, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => recur(a, target, out),
+          .Some(a) => recur(&a, target, out),
           .None => ()
         );
         i = (i + usize(1));
@@ -204,7 +204,7 @@ _best_candidate :: (
     match(
       cands.get(i),
       .Some(c) => {
-        if(expr_info_table_get(info_table, ast_expr_id(c)).is_some(), {
+        if(expr_info_table_get(info_table, ast_expr_id(&c)).is_some(), {
           return(Option(AstExpr).Some(c));
         });
       },
@@ -302,13 +302,13 @@ _mark_member :: (fn(imm(a) : AstExpr, imm(roles) : AtomRoles) -> unit)({
         .Atom(fid, _) => {
           roles.members.insert(fid);
         },
-        .FnCall(_, _, _, _, _) => _classify_roles(func_box, roles)
+        .FnCall(_, _, _, _, _) => _classify_roles(&func_box, roles)
       );
       (i : usize) = usize(0);
       while(i < cargs.len(), {
         match(
           cargs.get(i),
-          .Some(ca) => _classify_roles(ca, roles),
+          .Some(ca) => _classify_roles(&ca, roles),
           .None => ()
         );
         i = (i + usize(1));
@@ -334,7 +334,7 @@ _classify_roles :: (fn(imm(e) : AstExpr, imm(roles) : AtomRoles) -> unit)({
           if(is_infix, {
             match(
               args.get(usize(0)),
-              .Some(receiver) => recur(receiver, roles),
+              .Some(receiver) => recur(&receiver, roles),
               .None => ()
             );
             start = usize(1);
@@ -343,15 +343,15 @@ _classify_roles :: (fn(imm(e) : AstExpr, imm(roles) : AtomRoles) -> unit)({
           while(i < args.len(), {
             match(
               args.get(i),
-              .Some(a) => _mark_member(a, roles),
+              .Some(a) => _mark_member(&a, roles),
               .None => ()
             );
             i = (i + usize(1));
           });
         },
         true => {
-          declaring := _is_declaring_callee(callee);
-          recur(func_box, roles);
+          declaring := _is_declaring_callee(&callee);
+          recur(&func_box, roles);
           (j : usize) = usize(0);
           while(j < args.len(), {
             match(
@@ -372,13 +372,13 @@ _classify_roles :: (fn(imm(e) : AstExpr, imm(roles) : AtomRoles) -> unit)({
                             .Atom(lid, _) => {
                               roles.labels.insert(lid);
                             },
-                            .FnCall(_, _, _, _, _) => recur(lhs, roles)
+                            .FnCall(_, _, _, _, _) => recur(&lhs, roles)
                           ),
                           .None => ()
                         );
                         match(
                           pair_args.get(usize(1)),
-                          .Some(rhs) => recur(rhs, roles),
+                          .Some(rhs) => recur(&rhs, roles),
                           .None => ()
                         );
                       });
@@ -387,7 +387,7 @@ _classify_roles :: (fn(imm(e) : AstExpr, imm(roles) : AtomRoles) -> unit)({
                   );
                 });
                 if(!handled, {
-                  recur(a, roles);
+                  recur(&a, roles);
                 });
               },
               .None => ()
@@ -406,7 +406,7 @@ classify_atom_roles :: (fn(imm(exprs) : ArrayList(AstExpr)) -> AtomRoles)({
   while(i < exprs.len(), {
     match(
       exprs.get(i),
-      .Some(e) => _classify_roles(e, roles),
+      .Some(e) => _classify_roles(&e, &roles),
       .None => ()
     );
     i = (i + usize(1));
@@ -416,7 +416,7 @@ classify_atom_roles :: (fn(imm(exprs) : ArrayList(AstExpr)) -> AtomRoles)({
 /// True iff atom `id` is a member name or a label — not a variable
 /// reference.
 atom_is_member_or_label :: (fn(imm(roles) : AtomRoles, id : usize) -> bool)(
-  roles.members.contains(id) || roles.labels.contains(id)
+  roles.members.contains(&id) || roles.labels.contains(&id)
 );
 
 /// The innermost `.` call whose member position holds an atom at `target`
@@ -450,12 +450,12 @@ _find_member_access :: (
           i = (i + usize(1));
         });
       });
-      recur(func_box, target, out);
+      recur(&func_box, target, out);
       (j : usize) = usize(0);
       while(j < args.len(), {
         match(
           args.get(j),
-          .Some(a2) => recur(a2, target, out),
+          .Some(a2) => recur(&a2, target, out),
           .None => ()
         );
         j = (j + usize(1));
@@ -484,9 +484,9 @@ handle_hover :: (
       _err -> unwind(Option(JsonValue).None)
     )
   );
-  tokens := tokenize(text.clone(), doc_abs.clone(), lex_exn);
+  tokens := tokenize(text.clone(), doc_abs.clone(), &lex_exn);
   target := match(
-    _find_token_at(tokens, line, character),
+    _find_token_at(&tokens, line, character),
     .Some(t) => t,
     .None => {
       return(Option(JsonValue).None);
@@ -497,26 +497,26 @@ handle_hover :: (
   while(ei < exprs.len(), {
     match(
       exprs.get(ei),
-      .Some(e) => _collect_candidates(e, target, cands),
+      .Some(e) => _collect_candidates(&e, &target, &mut cands),
       .None => ()
     );
     ei = (ei + usize(1));
   });
   expr := match(
-    _best_candidate(cands, info_table),
+    _best_candidate(&cands, info_table),
     .Some(x) => x,
     .None => {
       return(Option(JsonValue).None);
     }
   );
   roles := classify_atom_roles(exprs);
-  is_member := roles.members.contains(ast_expr_id(expr));
-  if(roles.labels.contains(ast_expr_id(expr)), {
+  is_member := roles.members.contains(ast_expr_id(&expr));
+  if(roles.labels.contains(ast_expr_id(&expr)), {
     // A label names a field or a method slot, not a value — nothing to show
     // that would not be a guess.
     return(Option(JsonValue).None);
   });
-  (info_opt : Option(ExprInfo)) = expr_info_table_get(info_table, ast_expr_id(expr));
+  (info_opt : Option(ExprInfo)) = expr_info_table_get(info_table, ast_expr_id(&expr));
   if(is_member, {
     // A member's type is the type of the ACCESS, recorded on the enclosing
     // `.` call — the atom itself may carry nothing, or a stale reading.
@@ -525,7 +525,7 @@ handle_hover :: (
     while(ai < exprs.len(), {
       match(
         exprs.get(ai),
-        .Some(e) => _find_member_access(e, target, accesses),
+        .Some(e) => _find_member_access(&e, &target, &mut accesses),
         .None => ()
       );
       ai = (ai + usize(1));
@@ -535,7 +535,7 @@ handle_hover :: (
       match(
         accesses.get(mi),
         .Some(acc) => match(
-          expr_info_table_get(info_table, ast_expr_id(acc)),
+          expr_info_table_get(info_table, ast_expr_id(&acc)),
           .Some(acc_info) => {
             info_opt = Option(ExprInfo).Some(acc_info);
           },
@@ -558,35 +558,35 @@ handle_hover :: (
   match(
     info_opt,
     .Some(info) => {
-      ty_opt = Option(String).Some(type_to_string(info.ty));
+      ty_opt = Option(String).Some(type_to_string(&info.ty));
       fn_val = info.value;
       match(
         info.value,
         .Some(v) => {
-          vs := value_to_string(v);
+          vs := value_to_string(&v);
           if(vs != "<runtime value>", {
             val_opt = Option(String).Some(vs);
           });
         },
         .None => ()
       );
-      doc_opt = expr_info_doc_comment(info);
+      doc_opt = expr_info_doc_comment(&info);
       // Env refinement: several bindings can share the name; pick the one
       // declared at/nearest the cursor. NOT for a
       // member — `p.x` is the field, never the local `x` in scope.
       if(!is_member, {
-        vars := get_variables_from_env(info.env, target.value.clone());
+        vars := get_variables_from_env(&info.env, target.value.clone());
         if(vars.len() > usize(0), {
           match(
-            _select_best_variable(vars, target),
+            _select_best_variable(&vars, &target),
             .Some(sv) => {
-              ty_opt = Option(String).Some(type_to_string(sv.ty));
+              ty_opt = Option(String).Some(type_to_string(&sv.ty));
               is_comptime = sv.is_compile_time_only;
               match(
                 sv.value.get(usize(0)),
                 .Some(vv) => {
                   fn_val = Option(EvalValue).Some(vv);
-                  vs2 := value_to_string(vv);
+                  vs2 := value_to_string(&vv);
                   if(vs2 != "<runtime value>", {
                     val_opt = Option(String).Some(vs2);
                   });
@@ -594,7 +594,7 @@ handle_hover :: (
                 .None => ()
               );
               match(
-                variable_doc_comment(sv),
+                variable_doc_comment(&sv),
                 .Some(dc) => {
                   doc_opt = Option(String).Some(dc);
                 },
@@ -639,7 +639,7 @@ handle_hover :: (
   );
   // V7 task 1: contracts + verification status for a function-valued hover.
   match(
-    _contract_block(fn_val, doc_abs.clone()),
+    _contract_block(&fn_val, doc_abs.clone()),
     .Some(cb) => {
       content = `${content}${cb}`;
     },
@@ -653,7 +653,7 @@ handle_hover :: (
       // it (issues/fixed/lsp-hover-claims-markdown-without-the-capability.md).
       jb().put("kind", jstr(cond(hover_markdown() => String.from("markdown"), true => String.from("plaintext")))).put(
         "value",
-        jstr(content)
+        jstr(&content)
       ).obj()
     ).put(
       "range",

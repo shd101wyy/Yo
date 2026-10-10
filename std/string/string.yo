@@ -133,7 +133,7 @@ impl(
   /// Validation is a single linear scan through `std/encoding/utf8`.
   from_utf8 : (fn(sink(bytes) : ArrayList(u8)) -> Result(Self, StringError))(
     match(
-      utf8.validate(bytes),
+      utf8.validate(&bytes),
       .Ok(_) => .Ok(Self.from_bytes(bytes)),
       .Err(cause) => {
         _release_bytes(bytes);
@@ -291,7 +291,7 @@ impl(
       .None => .None,
       .Some(bytes) =>
         match(
-          utf8.decode(bytes, byte_index),
+          utf8.decode(&bytes, byte_index),
           .Ok(d) => .Some(d.code),
           .Err(_) => .None
         )
@@ -411,7 +411,7 @@ impl(
   /// outside ASCII.
   push_rune : (fn(mut(self) : Self, r : rune) -> unit)({
     al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(usize(8)));
-    utf8.encode_into(r, al);
+    utf8.encode_into(r, &mut al);
     self._bytes = .Some(al);
   }),
   /// Reserve capacity for at least `additional` more bytes.
@@ -1218,7 +1218,7 @@ impl(
                         // once identifier tokens are interned (yo-self
                         // lexer intern table).
                         .Some(other_ptr) =>
-                          (unsafe(__yo_ptr_eq(self_ptr, other_ptr)) || (unsafe(memcmp((*void)(self_ptr), (*void)(other_ptr), self_len)) == int(0))),
+                          (unsafe(__yo_ptr_eq(&self_ptr, &other_ptr)) || (unsafe(memcmp((*void)(self_ptr), (*void)(other_ptr), self_len)) == int(0))),
                         .None => false
                       ),
                     .None => false
@@ -1455,7 +1455,7 @@ impl(
       bytes := haystack._byte_list();
       pos := usize(0);
       while(pos < eff, {
-        d := utf8.decode_lossy(bytes, pos);
+        d := utf8.decode_lossy(&bytes, pos);
         cond(
           ((d.code == self) && ((pos + d.width) == eff)) => {
             return(true);
@@ -1474,7 +1474,7 @@ impl(
       // next boundary before scanning.
       while((pos < n) && !haystack.is_char_boundary(pos), pos = (pos + usize(1)), ());
       while(pos < n, {
-        d := utf8.decode_lossy(bytes, pos);
+        d := utf8.decode_lossy(&bytes, pos);
         cond(
           (d.code == self) => {
             return(.Some(pos));
@@ -1499,7 +1499,7 @@ impl(
       pos := usize(0);
       (last : Option(usize)) = .None;
       while(pos < n, {
-        d := utf8.decode_lossy(bytes, pos);
+        d := utf8.decode_lossy(&bytes, pos);
         cond(
           ((d.code == self) && (pos <= lim)) => {
             last = .Some(pos);
@@ -1515,7 +1515,7 @@ impl(
       cond(
         (at < bytes.len()) =>
           match(
-            utf8.decode(bytes, at),
+            utf8.decode(&bytes, at),
             .Ok(d) => cond(
               (d.code == self) => d.width,
               true => usize(0)
@@ -1532,7 +1532,7 @@ impl(
       seg_start := usize(0);
       pos := usize(0);
       while(pos < n, {
-        d := utf8.decode_lossy(bytes, pos);
+        d := utf8.decode_lossy(&bytes, pos);
         cond(
           (d.code == self) => {
             parts.push(haystack.substring(seg_start, pos));
@@ -1631,7 +1631,7 @@ impl(
             rest.index_of(separator),
             .Some(at) => {
               out.push(rest.substring(usize(0), at));
-              rest = rest.substring(at + separator.length_in(rest, at), rest.len());
+              rest = rest.substring(at + separator.length_in(&rest, at), rest.len());
               made = (made + usize(1));
             },
             .None => {
@@ -1806,16 +1806,16 @@ impl(
     head := self.substring(usize(0), idx);
     tail := self.substring(idx, self.len());
     self.clear();
-    self.push_string(head);
+    self.push_string(&head);
     self.push_string(s);
-    self.push_string(tail);
+    self.push_string(&tail);
   }),
   /// Insert one rune at BYTE index `idx` — Rust's `insert`. Same panics as
   /// `insert_str`.
   insert : (fn(mut(self) : Self, idx : usize, r : rune) -> unit)({
     one := Self.new();
     one.push_rune(r);
-    self.insert_str(idx, one);
+    self.insert_str(idx, &one);
   }),
   /// Remove and return the rune STARTING at byte index `idx` — Rust's
   /// `remove`.
@@ -1833,8 +1833,8 @@ impl(
     head := self.substring(usize(0), idx);
     tail := self.substring(idx + utf8.encoded_len(r), self.len());
     self.clear();
-    self.push_string(head);
-    self.push_string(tail);
+    self.push_string(&head);
+    self.push_string(&tail);
     r
   }),
   /// Remove and return the LAST rune, or `.None` when empty — Rust's `pop`.
@@ -1967,7 +1967,7 @@ impl(
                     pos = (after + usize(1));
                   },
                   true => {
-                    d := utf8.decode_lossy(self_bytes, after);
+                    d := utf8.decode_lossy(&self_bytes, after);
                     pos = (after + d.width);
                   }
                 );
@@ -2133,7 +2133,7 @@ impl(
       cond(
         (self._end <= self._byte_index) => Option(rune).None,
         true => {
-          start := _prev_rune_start(self._string, self._end);
+          start := _prev_rune_start(&self._string, self._end);
           r := self._string._decode_rune_at(start);
           self._end = start;
           r
@@ -2241,7 +2241,7 @@ impl(
       cond(
         (self._end <= self._byte_index) => Option(IterPair(usize, rune)).None,
         true => {
-          start := _prev_rune_start(self._string, self._end);
+          start := _prev_rune_start(&self._string, self._end);
           self._end = start;
           match(
             self._string._decode_rune_at(start),
@@ -2475,7 +2475,7 @@ impl(
                 (i < stop) => (i + usize(1)),
                 true => stop
               );
-              .Some(_line_slice(al, start, i))
+              .Some(_line_slice(&al, start, i))
             }
           )
         }
@@ -2524,7 +2524,7 @@ impl(
               (line_start > self._byte_index) => (line_start - usize(1)),
               true => self._byte_index
             );
-            Option(String).Some(_line_slice(al, line_start, stop))
+            Option(String).Some(_line_slice(&al, line_start, stop))
           }
         )
       )

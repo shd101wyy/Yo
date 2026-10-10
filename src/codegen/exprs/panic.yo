@@ -33,11 +33,11 @@ generate_panic :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
       em := context.base.emitter;
       l := indent.clone();
       l.push_str("__yo_abort();");
-      em.emit_string_line(l);
+      em.emit_string_line(&l);
     },
     (na == usize(1)) => {
       msg_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("panic missing argument"))));
-      msg_ei := context.base.get_expr_info(msg_arg);
+      msg_ei := context.base.get_expr_info(&msg_arg);
       // Compile-time string message → fprintf the escaped literal.
       comptime_msg := match(msg_ei, .Some(mei) => match(mei.value, .Some(v) => match(v, .StrLit(raw) => Option(String).Some(raw), _ => Option(String).None), .None => .None), .None => .None);
       match(
@@ -48,14 +48,14 @@ generate_panic :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
           // StrLit's literal quotes are stripped.
           ptok := ast_expr_token(expr);
           ploc := ` (at ${ptok.module_path}:${(usize(ptok.row) + usize(1))}:${(usize(ptok.column) + usize(1))})`;
-          pmsg := `${_strip_panic_quotes(raw)}${ploc}`;
+          pmsg := `${_strip_panic_quotes(&raw)}${ploc}`;
           l := indent.clone();
           // Flush stdout first, so a piped run keeps the terminal's order
           // (issues/fixed/panic-loses-buffered-stdout-when-piped.md).
           l.push_str("fflush(stdout); fprintf(stderr, \"%s\\n\", ");
-          l.push_string(_c_string_literal(pmsg));
+          l.push_string(_c_string_literal(&pmsg));
           l.push_str(");");
-          em.emit_string_line(l);
+          em.emit_string_line(&l);
           em.emit_string_line({
             l2 := indent.clone();
             l2.push_str("__yo_abort();");
@@ -65,12 +65,12 @@ generate_panic :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
         .None => {
           // Runtime message — evaluate it; str uses the fat-pointer fields,
           // *(u8) is a C string pointer.
-          msg_code := _call_generate_expr(msg_arg, indent.clone(), context);
+          msg_code := _call_generate_expr(&msg_arg, indent.clone(), context);
           msg_ei_ty := match(msg_ei, .Some(mei) => Option(TypeValue).Some(mei.ty), .None => .None);
-          msg_is_str := match(msg_ei, .Some(mei) => is_str_type(mei.ty), .None => false);
+          msg_is_str := match(msg_ei, .Some(mei) => is_str_type(&mei.ty), .None => false);
           msg_is_ptr_u8 := match(
             msg_ei_ty,
-            .Some(.Pointer(pointee)) => is_u8_type(pointee),
+            .Some(.Pointer(pointee)) => is_u8_type(&pointee),
             .Some(_) => false,
             .None => false
           );
@@ -102,10 +102,10 @@ generate_panic :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
               }
             );
           });
-          em.emit_string_line(line);
+          em.emit_string_line(&line);
           l2 := indent.clone();
           l2.push_str("__yo_abort();");
-          em.emit_string_line(l2);
+          em.emit_string_line(&l2);
         }
       );
     },
@@ -117,12 +117,12 @@ generate_panic :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
   // statement, or every arm of its cond diverges): nothing to render after
   // the abort. (A unit panic used to render `(*((void*)NULL))`, which C
   // warns about as a statement.)
-  if(is_never_type(return_type) || is_unit_type(return_type) || is_void_type(return_type), {
+  if(is_never_type(&return_type) || is_unit_type(&return_type) || is_void_type(&return_type), {
     return(String.new());
   });
   // Unreachable, type-correct dummy value.
   out := String.from("(*((");
-  out.push_string(get_type_string(return_type, context.base));
+  out.push_string(get_type_string(&return_type, &context.base));
   out.push_str("*)NULL))");
   out
 });

@@ -93,7 +93,7 @@ emit_async_future_escape :: (
 /// AST and the function generated from it agree however the two were reached.
 unwind_origin_id :: (fn(imm(body) : AstExpr) -> String)({
   tok := ast_expr_token(body);
-  h := fnv1a64(`${canonical_module_path(tok.module_path)}:${tok.row.to_string()}:${tok.column.to_string()}`);
+  h := fnv1a64(`${canonical_module_path(&tok.module_path)}:${tok.row.to_string()}:${tok.column.to_string()}`);
   if(h == u64(0), {
     h = u64(1);
   });
@@ -127,7 +127,7 @@ _same_frame_children :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))({
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => if(is_branching && ast_expr_is_fn_call_of(a, "=>", .None), {
+          .Some(a) => if(is_branching && ast_expr_is_fn_call_of(&a, "=>", .None), {
             match(
               a,
               .FnCall(_, _, parts, _, _) => {
@@ -154,8 +154,8 @@ _collect_unwind_catches :: (fn(imm(e) : AstExpr, mut(out) : ArrayList(String)) -
     match(
       _boundary_body(e),
       .Some(body) => {
-        if(evaluated_body_contains_unwind(body), {
-          out.push(unwind_origin_id(body));
+        if(evaluated_body_contains_unwind(&body), {
+          out.push(unwind_origin_id(&body));
         });
       },
       .None => ()
@@ -165,7 +165,7 @@ _collect_unwind_catches :: (fn(imm(e) : AstExpr, mut(out) : ArrayList(String)) -
   kids := _same_frame_children(e);
   (i : usize) = usize(0);
   while(i < kids.len(), {
-    match(kids.get(i), .Some(k) => _collect_unwind_catches(k, out), .None => ());
+    match(kids.get(i), .Some(k) => _collect_unwind_catches(&k, out), .None => ());
     i = (i + usize(1));
   });
 });
@@ -178,7 +178,7 @@ _collect_unwind_catches :: (fn(imm(e) : AstExpr, mut(out) : ArrayList(String)) -
 /// (issues/fixed/unwind-from-a-handler-installed-inside-io-async-exits-main-with-rc-0.md).
 unwind_catches_of_body :: (fn(imm(body) : AstExpr) -> ArrayList(String))({
   out := ArrayList(String).new();
-  _collect_unwind_catches(body, out);
+  _collect_unwind_catches(body, &mut out);
   out
 });
 /// `(__yo_unwind_target == id1 || ...)` for `catches`, or `.None` when empty.

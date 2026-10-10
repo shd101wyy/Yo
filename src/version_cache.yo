@@ -77,10 +77,10 @@ _json_string_for_key :: (fn(imm(json) : String, imm(key) : String) -> Option(Str
   pat1 := `"${key}":"`;
   pat2 := `"${key}": "`;
   start_opt := match(
-    json.index_of(pat1),
+    json.index_of(&pat1),
     .Some(i) => Option(usize).Some(i + pat1.len()),
     .None => match(
-      json.index_of(pat2),
+      json.index_of(&pat2),
       .Some(i) => Option(usize).Some(i + pat2.len()),
       .None => Option(usize).None
     )
@@ -142,7 +142,7 @@ _sort_by_semver :: (fn(imm(versions) : ArrayList(String)) -> ArrayList(String))(
         }, {
           j_ver := match(versions.get(j), .None => String.new(), .Some(v) => v);
           min_ver := match(versions.get(min_idx), .None => String.new(), .Some(v) => v);
-          if(compare_semver(j_ver, min_ver) < i64(0), {
+          if(compare_semver(&j_ver, &min_ver) < i64(0), {
             min_idx = j;
           });
         });
@@ -184,9 +184,9 @@ cached_binary_path :: (fn(imm(version_dir) : String) -> String)({
 _host_bundle_name_base :: (fn(imm(version) : String, imm(exn) : Exception) -> String)({
   target := host_target();
   os_name := cond(
-    is_target_macos(target) => `macos`,
-    is_target_linux(target) => `linux`,
-    is_target_windows(target) => `windows`,
+    is_target_macos(&target) => `macos`,
+    is_target_linux(&target) => `linux`,
+    is_target_windows(&target) => `windows`,
     true => {
       platform_str := String.from(os_to_str(target.os));
       exn.throw(
@@ -222,7 +222,7 @@ _host_bundle_name_base :: (fn(imm(version) : String, imm(exn) : Exception) -> St
 host_bundle_triple_name :: (fn(imm(version) : String, imm(exn) : Exception) -> String)({
   target := host_target();
   triple := cond(
-    is_target_macos(target) =>
+    is_target_macos(&target) =>
       match(
         target.arch,
         .X86_64 => `x86_64-apple-darwin`,
@@ -231,14 +231,14 @@ host_bundle_triple_name :: (fn(imm(version) : String, imm(exn) : Exception) -> S
       ),
     // Linux is musl-only: the static musl bundle IS the Linux bundle and runs
     // on glibc hosts too (see `host_bundle_name`).
-    is_target_linux(target) =>
+    is_target_linux(&target) =>
       match(
         target.arch,
         .X86_64 => `x86_64-unknown-linux-musl`,
         .Aarch64 => `aarch64-unknown-linux-musl`,
         _ => String.new()
       ),
-    is_target_windows(target) =>
+    is_target_windows(&target) =>
       match(
         target.arch,
         .X86_64 => `x86_64-pc-windows-msvc`,
@@ -303,15 +303,15 @@ is_version_cached :: (
     // does not exist.
     inst_path := match(
       get_install_version_dir(version.clone()),
-      .Some(d) => cached_binary_path(d),
+      .Some(d) => cached_binary_path(&d),
       .None => _never_path()
     );
-    installed := e.io.await(exists(Path.new(inst_path), e.io), e.io);
+    installed := e.io.await(exists(Path.new(&inst_path), e.io), &e.io);
     if(installed, {
       return(true);
     });
     version_dir := get_version_cache_dir(version);
-    e.io.await(exists(Path.new(cached_binary_path(version_dir)), e.io), e.io)
+    e.io.await(exists(Path.new(cached_binary_path(&version_dir)), e.io), &e.io)
   })
 );
 /// Resolve the directory holding `version`, preferring a script-installed copy
@@ -331,12 +331,12 @@ resolve_version_dir :: (
       .Some(d) => d,
       .None => _never_path()
     );
-    inst_found := e.io.await(exists(Path.new(cached_binary_path(inst_dir.clone())), e.io), e.io);
+    inst_found := e.io.await(exists(Path.new(cached_binary_path(inst_dir.clone())), e.io), &e.io);
     if(inst_found, {
       return(Option(String).Some(inst_dir));
     });
     cached := get_version_cache_dir(version);
-    cached_found := e.io.await(exists(Path.new(cached_binary_path(cached.clone())), e.io), e.io);
+    cached_found := e.io.await(exists(Path.new(cached_binary_path(cached.clone())), e.io), &e.io);
     if(cached_found, {
       return(Option(String).Some(cached));
     });
@@ -376,7 +376,7 @@ _scan_versions_root :: (
 )(
   io.async((e : IoExn) => {
     found := ArrayList(String).new();
-    root_exists := e.io.await(exists(Path.new(versions_dir.clone()), e.io), e.io);
+    root_exists := e.io.await(exists(Path.new(versions_dir.clone()), e.io), &e.io);
     if(!root_exists, {
       return(found);
     });
@@ -389,9 +389,9 @@ _scan_versions_root :: (
         .Some(entry) => {
           if(match(entry.file_type, .Directory => true, _ => false), {
             entry_path := `${versions_dir}/${entry.name}`;
-            bin_exists := e.io.await(exists(Path.new(cached_binary_path(entry_path)), e.io), e.io);
+            bin_exists := e.io.await(exists(Path.new(cached_binary_path(&entry_path)), e.io), &e.io);
             // A version present in BOTH roots must appear once.
-            if(bin_exists && !_contains_version(known, entry.name.clone()) && !_contains_version(found, entry.name.clone()), {
+            if(bin_exists && !_contains_version(known, entry.name.clone()) && !_contains_version(&found, entry.name.clone()), {
               found.push(entry.name);
             });
           });
@@ -425,11 +425,11 @@ list_cached_versions :: (
       .Some(d) => d,
       .None => _never_path()
     );
-    installed := e.io.await(_scan_versions_root(inst_root, versions, e.io, e.exn), e);
-    versions.extend(installed);
-    cached := e.io.await(_scan_versions_root(get_global_versions_cache_dir(), versions, e.io, e.exn), e);
-    versions.extend(cached);
-    _sort_by_semver(versions)
+    installed := e.io.await(_scan_versions_root(&inst_root, &versions, e.io, &e.exn), e);
+    versions.extend(&installed);
+    cached := e.io.await(_scan_versions_root(get_global_versions_cache_dir(), &versions, e.io, &e.exn), e);
+    versions.extend(&cached);
+    _sort_by_semver(&versions)
   })
 );
 /// Remove a specific cached version, or all cached versions when `version_opt` is `.None`.
@@ -444,17 +444,17 @@ clean_version_cache :: (
     match(
       version_opt,
       .Some(version) => {
-        version_dir := get_version_cache_dir(version);
-        dir_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
+        version_dir := get_version_cache_dir(&version);
+        dir_exists := e.io.await(exists(Path.new(&version_dir), e.io), &e.io);
         if(dir_exists, {
-          e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
+          e.io.await(remove_dir_all(Path.new(&version_dir), e.io), e);
         });
       },
       .None => {
         versions_dir := get_global_versions_cache_dir();
-        dir_exists := e.io.await(exists(Path.new(versions_dir), e.io), e.io);
+        dir_exists := e.io.await(exists(Path.new(&versions_dir), e.io), &e.io);
         if(dir_exists, {
-          e.io.await(remove_dir_all(Path.new(versions_dir), e.io), e);
+          e.io.await(remove_dir_all(Path.new(&versions_dir), e.io), e);
         });
       }
     );
@@ -475,7 +475,7 @@ _http_get :: (
     opts = opts.with_header(`User-Agent`, `yo-version-cache`);
     opts = opts.with_header(`Accept`, `application/vnd.github+json`);
     opts = opts.with_max_redirects(usize(5));
-    resp := e.io.await(fetch_with(url, opts, e.io), e);
+    resp := e.io.await(fetch_with(url, &opts, e.io), e);
     if(resp.status == StatusCode.FORBIDDEN(), {
       // Unauthenticated GitHub API rate limit (60 requests/hour/IP).
       e.exn.throw(
@@ -509,8 +509,8 @@ _download_file :: (
     // Release bundles are tens of MiB; give them ample headroom over the
     // 64 MiB default response cap.
     opts = opts.with_max_response_bytes(usize(536870912));
-    resp := e.io.await(fetch_with(url, opts, e.io), e);
-    e.io.await(write_string(Path.new(dest_path), resp.body, e.io), e);
+    resp := e.io.await(fetch_with(url, &opts, e.io), e);
+    e.io.await(write_string(Path.new(dest_path), &resp.body, e.io), e);
     `${resp.status}`
   })
 );
@@ -572,7 +572,7 @@ _scan_release_page :: (fn(imm(json) : String) -> _ReleasePage)({
           is_prerelease := (span.contains(String.from("\"prerelease\":true")) || span.contains(String.from("\"prerelease\": true")));
           if(!(is_draft || is_prerelease), {
             match(
-              _json_string_for_key(span, String.from("tag_name")),
+              _json_string_for_key(&span, String.from("tag_name")),
               .None => (),
               .Some(tag) => {
                 cleaned := cond(
@@ -602,7 +602,7 @@ _cleanup_failed_download :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
+    ver_exists := e.io.await(exists(Path.new(version_dir), e.io), &e.io);
     if(ver_exists, {
       e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
     });
@@ -620,7 +620,7 @@ download_version :: (
 )(
   io.async((e : IoExn) => {
     min_version := String.from(MIN_BUNDLE_VERSION);
-    if(compare_semver(version, min_version) < i64(0), {
+    if(compare_semver(version, &min_version) < i64(0), {
       e.exn.throw(
         dyn(
           `Yo v${version} predates the native release bundles (first bundled release: v${min_version}) and is no longer distributed — npm publishing stopped at v0.2.0. Pin v${min_version} or later.`
@@ -643,7 +643,7 @@ download_version :: (
     // then fall back — this BRIDGES the changeover so the current release stays
     // installable, and is removable once nothing in use predates it
     // (plans/reference/RELEASE_ASSET_TRIPLES.md).
-    (bundle_name : String) = host_bundle_triple_name(version, e.exn);
+    (bundle_name : String) = host_bundle_triple_name(version, &e.exn);
     version_dir := get_version_cache_dir(version);
     // 1. Download the tarball to a temp directory. The EXTRACTION STAGING
     // dir lives INSIDE the versions cache (~/.cache/yo/versions/), not the
@@ -661,7 +661,7 @@ download_version :: (
     (url : String) = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
     (tarball_path : String) = `${tmp_path_str}/${bundle_name}.tar.gz`;
     println(`Downloading Yo v${version} (${bundle_name}) from GitHub Releases...`);
-    code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
+    code_str := e.io.await(_download_file(&url, &tarball_path, e.io), e);
     (code : i64) = match(code_str.parse_i64(), .None => i64(0), .Some(c) => c);
     // Pre-triple fallback: the short `yo-v<v>-<os>-<arch>[-musl]` name.
     if(code == i64(404), {
@@ -671,12 +671,12 @@ download_version :: (
       // which is what broke `yo version install` in v0.2.19/v0.2.20
       // (issues/questions/builtin-name-shadows-user-definition.md, third face;
       // issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md).
-      short_name := host_bundle_name(version, e.exn);
+      short_name := host_bundle_name(version, &e.exn);
       println(`No ${bundle_name}.tar.gz on v${version} — retrying the pre-triple bundle name (${short_name})...`);
       bundle_name = short_name;
       url = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
       tarball_path = `${tmp_path_str}/${bundle_name}.tar.gz`;
-      short_code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
+      short_code_str := e.io.await(_download_file(&url, &tarball_path, e.io), e);
       code = match(short_code_str.parse_i64(), .None => i64(0), .Some(c1) => c1);
     });
     // Linux glibc-era fallback: releases that predate the musl legs only
@@ -684,23 +684,23 @@ download_version :: (
     // is fully functional; on a musl host it will not run, but a download
     // that exists beats a hard 404 (install.sh makes the same call).
     if((code == i64(404)) && is_target_linux(host_target()), {
-      legacy := _host_bundle_name_base(version, e.exn);
+      legacy := _host_bundle_name_base(version, &e.exn);
       println(`No ${bundle_name}.tar.gz on v${version} — retrying the pre-musl bundle name (${legacy})...`);
       bundle_name = legacy;
       url = `${_releases_download_url()}/v${version}/${bundle_name}.tar.gz`;
       tarball_path = `${tmp_path_str}/${bundle_name}.tar.gz`;
-      legacy_code_str := e.io.await(_download_file(url, tarball_path, e.io), e);
+      legacy_code_str := e.io.await(_download_file(&url, &tarball_path, e.io), e);
       code = match(legacy_code_str.parse_i64(), .None => i64(0), .Some(c2) => c2);
     });
     if(code == i64(404), {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.io.await(_cleanup_failed_download(&version_dir, tmp_dir.path(), e.io, &e.exn), e);
       msg := `Yo v${version} has no ${bundle_name}.tar.gz release asset.`;
       msg.push_string(String.from("\nRun `yo version list --remote` to see the published releases, or check "));
       msg.push_string(`https://github.com/${_github_repo()}/releases`);
       e.exn.throw(dyn(msg));
     });
     if(code >= i64(400), {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.io.await(_cleanup_failed_download(&version_dir, tmp_dir.path(), e.io, &e.exn), e);
       e.exn.throw(dyn(`HTTP ${code.to_string()} downloading ${url}`));
     });
     // 2. Extract; the tarball root is a `<bundleName>/` directory holding
@@ -708,12 +708,12 @@ download_version :: (
     // walking up from the executable, and mimalloc as <std>/../vendor).
     tar_cmd := Command.new(String.from("tar"));
     tar_cmd.arg(String.from("xzf"));
-    tar_cmd.arg(tarball_path);
+    tar_cmd.arg(&tarball_path);
     tar_cmd.arg(String.from("-C"));
-    tar_cmd.arg(tmp_path_str);
+    tar_cmd.arg(&tmp_path_str);
     tar_out := e.io.await(tar_cmd.output(e.io), e);
     if(!tar_out.status.success(), {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.io.await(_cleanup_failed_download(&version_dir, tmp_dir.path(), e.io, &e.exn), e);
       e.exn.throw(dyn(`Failed to extract ${bundle_name}.tar.gz for Yo v${version}`));
     });
     // The tarball root is conventionally named after the asset, but do not
@@ -724,13 +724,13 @@ download_version :: (
     // conventional name only for the error message.
     (extracted_dir : String) = `${tmp_path_str}/${bundle_name}`;
     (found_root : bool) = false;
-    entries := e.io.await(read_dir(Path.new(tmp_path_str), e.io), e);
+    entries := e.io.await(read_dir(Path.new(&tmp_path_str), e.io), e);
     (ei : usize) = usize(0);
     while(runtime((ei < entries.len()) && (found_root == false)), {
       entry := entries(ei);
       cand := `${tmp_path_str}/${entry.name}`;
-      cand_bin := e.io.await(exists(Path.new(`${cand}/bin`), e.io), e.io);
-      cand_std := e.io.await(exists(Path.new(`${cand}/std`), e.io), e.io);
+      cand_bin := e.io.await(exists(Path.new(`${cand}/bin`), e.io), &e.io);
+      cand_std := e.io.await(exists(Path.new(`${cand}/std`), e.io), &e.io);
       if(cand_bin && cand_std, {
         extracted_dir = cand;
         found_root = true;
@@ -738,16 +738,16 @@ download_version :: (
       ei = (ei + usize(1));
     });
     if(found_root == false, {
-      e.io.await(_cleanup_failed_download(version_dir, tmp_dir.path(), e.io, e.exn), e);
+      e.io.await(_cleanup_failed_download(&version_dir, tmp_dir.path(), e.io, &e.exn), e);
       e.exn.throw(dyn(`Unexpected bundle layout in ${bundle_name}.tar.gz (no directory with bin/ and std/).`));
     });
     // 3. Remove any existing partial extraction (or a dead npm-shaped
     // entry), then MOVE the extracted bundle root to the version directory.
-    ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
+    ver_exists := e.io.await(exists(Path.new(&version_dir), e.io), &e.io);
     if(ver_exists, {
-      e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
+      e.io.await(remove_dir_all(Path.new(&version_dir), e.io), e);
     });
-    e.io.await(rename(Path.new(extracted_dir), Path.new(version_dir), e.io), e);
+    e.io.await(rename(Path.new(&extracted_dir), Path.new(&version_dir), e.io), e);
     println(`Installed Yo v${version} to ${version_dir}`);
     // 4. Clean up the temp directory (the tarball stays behind in it).
     e.io.await(remove_dir_all(tmp_dir.path(), e.io), e);
@@ -771,11 +771,11 @@ ensure_cached_version :: (
     // (rc=0, nothing cached), falsy garbage continued into corrupted state
     // (rc=134) — `yo version install` was broken in every release
     // (issues/fixed/wrong-arity-call-silently-accepted-version-install-broken.md).
-    cached := e.io.await(is_version_cached(version, e.io, e.exn), e);
+    cached := e.io.await(is_version_cached(version, e.io, &e.exn), e);
     if(cached, {
       return(get_version_cache_dir(version));
     });
-    e.io.await(download_version(version, e.io, e.exn), e)
+    e.io.await(download_version(version, e.io, &e.exn), e)
   })
 );
 /// Fetch all published Yo versions from the GitHub Releases API.
@@ -802,12 +802,12 @@ fetch_remote_versions :: (
     done := false;
     while((page <= i64(3)) && !done, {
       url := `${_releases_api_url()}?per_page=100&page=${page}`;
-      body := e.io.await(_http_get(url, e.io), e);
+      body := e.io.await(_http_get(&url, e.io), e);
       trimmed := body.trim();
       if(!trimmed.starts_with(String.from("[")), {
         e.exn.throw(dyn(`Unexpected GitHub Releases API response shape.`));
       });
-      scanned := _scan_release_page(body);
+      scanned := _scan_release_page(&body);
       i := usize(0);
       while(i < scanned.tags.len(), {
         match(
@@ -824,7 +824,7 @@ fetch_remote_versions :: (
       });
       page = (page + i64(1));
     });
-    _sort_by_semver(versions)
+    _sort_by_semver(&versions)
   })
 );
 // ---------------------------------------------------------------------------

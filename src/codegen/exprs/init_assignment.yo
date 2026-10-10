@@ -91,7 +91,7 @@ _sm_binding_slot :: (fn(key : ExprId, imm(env) : Environment, imm(name) : String
   if(context.in_async_state_machine.is_none(), {
     return(Option(String).None);
   });
-  sm_slot_of(key, env, name, smv, context.variable_id_remapping, context.state_machine_field_aliases, context.sm_capture_slot)
+  sm_slot_of(key, env, name, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot)
 });
 /// A store into a named local's task slot gives the slot a value it owns: it
 /// clears the move flag a move out of its previous value set (`sm_move_flag_of`;
@@ -115,8 +115,8 @@ _binding_atom_key :: (fn(imm(pattern) : AstExpr, imm(name) : String) -> ExprId)(
     cur := match(stack.pop(), .Some(x) => x, .None => pattern);
     match(
       cur,
-      .Atom(_, _) => if(ast_expr_token(cur).value == name, {
-        return(ast_expr_id(cur));
+      .Atom(_, _) => if(ast_expr_token(&cur).value == name, {
+        return(ast_expr_id(&cur));
       }),
       .FnCall(_, _, args, _, _) => {
         (i : usize) = usize(0);
@@ -144,7 +144,7 @@ _emit_destructurings :: (fn(imm(destructurings) : ArrayList(RuntimeDestructuring
       destructurings.get(i),
       .Some(rd) => if(!(rd.variable_name == "_"), {
         sanitized := sanitize_for_c_identifier(rd.variable_name.clone(), false);
-        var_type_and_name := match(_sm_binding_slot(_binding_atom_key(pattern, rd.variable_name), bind_env, rd.variable_name.clone(), context), .Some(slot) => slot, .None => get_variable_type_string(rd.ty, sanitized, context.base));
+        var_type_and_name := match(_sm_binding_slot(_binding_atom_key(pattern, &rd.variable_name), bind_env, rd.variable_name.clone(), context), .Some(slot) => slot, .None => get_variable_type_string(&rd.ty, &sanitized, &context.base));
         // Newtype: destructuring the single field is just the value.
         handled_newtype := match(
           _newtype_single_label(rhs_type),
@@ -156,20 +156,20 @@ _emit_destructurings :: (fn(imm(destructurings) : ArrayList(RuntimeDestructuring
             line.push_str("; // Destructuring ");
             line.push_string(rd.label.clone());
             line.push_str(" (newtype)");
-            em.emit_string_line(line);
+            em.emit_string_line(&line);
             true
           }, false),
           .None => false
         );
         if(!handled_newtype, {
-          field_name := if(_all_digits(rd.label), {
+          field_name := if(_all_digits(&rd.label), {
             f := String.from("_");
             f.push_string(rd.label.clone());
             f
           }, sanitize_for_c_identifier(rd.label.clone(), false));
           // Tuple label → positional `_index`.
           field_name2 := if(
-            is_tuple_type(rhs_type) && !_all_digits(rd.label),
+            is_tuple_type(rhs_type) && !_all_digits(&rd.label),
             match(
               _tuple_index_of(rhs_type, rd.label.clone()),
               .Some(idx) => {
@@ -182,16 +182,16 @@ _emit_destructurings :: (fn(imm(destructurings) : ArrayList(RuntimeDestructuring
             field_name
           );
           line := indent.clone();
-          line.push_string(var_type_and_name);
+          line.push_string(&var_type_and_name);
           line.push_str(" = ");
           line.push_string(rhs_code.clone());
           line.push_string(member_op.clone());
-          line.push_string(field_name2);
+          line.push_string(&field_name2);
           line.push_str("; // Destructuring ");
           line.push_string(rd.label.clone());
-          em.emit_string_line(line);
+          em.emit_string_line(&line);
         });
-        _clear_sm_move_flag(var_type_and_name, indent.clone(), context);
+        _clear_sm_move_flag(&var_type_and_name, indent.clone(), context);
       }),
       .None => ()
     );
@@ -228,10 +228,10 @@ _sm_local_slot :: (fn(imm(v) : Variable, imm(context) : FunctionGenerationContex
       id := v.id.to_string();
       canon := match(context.variable_id_remapping, .Some(rm) => match(rm.get(id.clone()), .Some(m) => m, .None => id), .None => id);
       match(
-        smv.get(canon),
+        smv.get(&canon),
         .Some(cv) => match(
           cv.kind,
-          .Local => Option(String).Some(`sm->${get_state_machine_field_name(cv.base.id.to_string(), context.state_machine_field_aliases)}`),
+          .Local => Option(String).Some(`sm->${get_state_machine_field_name(cv.base.id.to_string(), &context.state_machine_field_aliases)}`),
           .Outer => Option(String).None
         ),
         .None => Option(String).None
@@ -246,12 +246,12 @@ _generate_inout_local_binding :: (fn(imm(lhs) : AstExpr, imm(rhs) : AstExpr, bin
   lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None));
   name_ei := match(
-    context.base.get_expr_info(name_expr),
+    context.base.get_expr_info(&name_expr),
     .Some(e) => e,
-    .None => return(Option(String).Some(`// Error: No type information for mut binding ${ast_expr_token(name_expr).value}`))
+    .None => return(Option(String).Some(`// Error: No type information for mut binding ${ast_expr_token(&name_expr).value}`))
   );
-  var_name := ast_expr_token(name_expr).value;
-  place_type := resolve_some_type_to_concrete(name_ei.ty);
+  var_name := ast_expr_token(&name_expr).value;
+  place_type := resolve_some_type_to_concrete(&name_ei.ty);
   // In an `io.async` state machine the reference and its pin live in their
   // task slots when they are live across a suspension (`_sm_local_slot`);
   // the place's root keeps its slot to the end of its scope, so the address
@@ -261,11 +261,11 @@ _generate_inout_local_binding :: (fn(imm(lhs) : AstExpr, imm(rhs) : AstExpr, bin
   // empty here, filled by each re-point, released by its scope-end drop.
   match(
     lookup_local_borrow_step_pin(ast_expr_id(lhs)),
-    .Some(sp) => if(!is_unit_type(sp.ty), {
+    .Some(sp) => if(!is_unit_type(&sp.ty), {
       sp_decl := indent.clone();
-      sp_decl.push_string(match(_sm_local_slot(sp, context), .Some(slot) => slot, .None => get_variable_type_string(sp.ty, sp.name.clone(), context.base)));
+      sp_decl.push_string(match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => get_variable_type_string(&sp.ty, sp.name.clone(), &context.base)));
       sp_decl.push_str(" = NULL;");
-      em.emit_string_line(sp_decl);
+      em.emit_string_line(&sp_decl);
     }),
     .None => ()
   );
@@ -275,15 +275,15 @@ _generate_inout_local_binding :: (fn(imm(lhs) : AstExpr, imm(rhs) : AstExpr, bin
     .Some(lhs_ei) => match(
       lhs_ei.source_variable,
       .Some(pin_var) => match(
-        expr_info_macro_expansion(lhs_ei),
+        expr_info_macro_expansion(&lhs_ei),
         .Some(pin_expr) => {
-          pin_code := _call_generate_expr(pin_expr, indent.clone(), context);
+          pin_code := _call_generate_expr(&pin_expr, indent.clone(), context);
           pin_decl := indent.clone();
-          pin_decl.push_string(match(_sm_local_slot(pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(pin_var.ty, pin_var.name.clone(), context.base)));
+          pin_decl.push_string(match(_sm_local_slot(&pin_var, context), .Some(slot) => slot, .None => get_variable_type_string(&pin_var.ty, pin_var.name.clone(), &context.base)));
           pin_decl.push_str(" = ");
-          pin_decl.push_string(generate_dup_code_for_value(pin_code, pin_var.ty, context));
+          pin_decl.push_string(generate_dup_code_for_value(&pin_code, &pin_var.ty, context));
           pin_decl.push_str(";");
-          em.emit_string_line(pin_decl);
+          em.emit_string_line(&pin_decl);
         },
         .None => ()
       ),
@@ -297,7 +297,7 @@ _generate_inout_local_binding :: (fn(imm(lhs) : AstExpr, imm(rhs) : AstExpr, bin
   if(place_code.starts_with("(*") && place_code.ends_with(")"), {
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
-    if(!_is_c_lvalue_chain(place_code), {
+    if(!_is_c_lvalue_chain(&place_code), {
       return(Option(String).Some(codegen_fatal_expr(`mut binding "${var_name}": place lowered to a non-lvalue C expression: ${place_code}`)));
     });
     addr = String.from("(&(");
@@ -308,19 +308,19 @@ _generate_inout_local_binding :: (fn(imm(lhs) : AstExpr, imm(rhs) : AstExpr, bin
   ref_slot := match(
     bind_env,
     .Some(benv) => {
-      vs := scope_variables(bind_key, benv, var_name.clone());
+      vs := scope_variables(bind_key, &benv, var_name.clone());
       cond(
         (vs.len() == usize(0)) => Option(String).None,
-        true => match(vs.get(vs.len() - usize(1)), .Some(rv) => _sm_local_slot(rv, context), .None => Option(String).None)
+        true => match(vs.get(vs.len() - usize(1)), .Some(rv) => _sm_local_slot(&rv, context), .None => Option(String).None)
       )
     },
     .None => Option(String).None
   );
-  line.push_string(match(ref_slot, .Some(slot) => slot, .None => get_variable_type_string(t_ptr(place_type), var_name.clone(), context.base)));
+  line.push_string(match(ref_slot, .Some(slot) => slot, .None => get_variable_type_string(t_ptr(&place_type), var_name.clone(), &context.base)));
   line.push_str(" = ");
-  line.push_string(addr);
+  line.push_string(&addr);
   line.push_str(";");
-  em.emit_string_line(line);
+  em.emit_string_line(&line);
   Option(String).Some(String.from(""))
 });
 /// Is `code` plausibly a C lvalue chain — it starts with an identifier (after
@@ -374,18 +374,18 @@ generate_local_borrow_repoint :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
   name_expr := match(lhs, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => n, .None => lhs), .Atom(_, _) => lhs);
   // The step: take the new cell, release the previous one.
   match(
-    context.base.get_expr_info(lhs),
+    context.base.get_expr_info(&lhs),
     .Some(lhs_ei) => match(
       lhs_ei.source_variable,
       .Some(sp) => match(
-        expr_info_macro_expansion(lhs_ei),
+        expr_info_macro_expansion(&lhs_ei),
         .Some(cell_expr) => {
-          sp_slot := match(_sm_local_slot(sp, context), .Some(slot) => slot, .None => sanitize_for_c_identifier(sp.name.clone(), false));
-          cell_code := _call_generate_expr(cell_expr, indent.clone(), context);
+          sp_slot := match(_sm_local_slot(&sp, context), .Some(slot) => slot, .None => sanitize_for_c_identifier(sp.name.clone(), false));
+          cell_code := _call_generate_expr(&cell_expr, indent.clone(), context);
           tmp := `${sanitize_for_c_identifier(sp.name.clone(), false)}_step`;
           em.emit_string_line(`${indent}{`);
-          em.emit_string_line(`${indent}  ${get_variable_type_string(sp.ty, tmp.clone(), context.base)} = ${generate_dup_code_for_value(cell_code, sp.ty, context)};`);
-          em.emit_string_line(`${indent}  ${generate_drop_code_for_value(sp_slot.clone(), sp.ty, context)};`);
+          em.emit_string_line(`${indent}  ${get_variable_type_string(&sp.ty, tmp.clone(), &context.base)} = ${generate_dup_code_for_value(&cell_code, &sp.ty, context)};`);
+          em.emit_string_line(`${indent}  ${generate_drop_code_for_value(sp_slot.clone(), &sp.ty, context)};`);
           em.emit_string_line(`${indent}  ${sp_slot} = ${tmp};`);
           em.emit_string_line(`${indent}}`);
         },
@@ -396,18 +396,18 @@ generate_local_borrow_repoint :: (fn(imm(expr) : AstExpr, imm(indent) : String, 
     .None => ()
   );
   // The pointer: `cur`'s reads are `(*cur)`, so its C lvalue is inside.
-  name_code := _call_generate_expr(name_expr, indent.clone(), context);
+  name_code := _call_generate_expr(&name_expr, indent.clone(), context);
   if(!(name_code.starts_with("(*") && name_code.ends_with(")")), {
-    return(codegen_fatal_expr(`re-point of "${ast_expr_token(name_expr).value}": the borrow lowered to ${name_code}, not a pointer read`));
+    return(codegen_fatal_expr(`re-point of "${ast_expr_token(&name_expr).value}": the borrow lowered to ${name_code}, not a pointer read`));
   });
   ptr := name_code.substring(usize(2), name_code.len() - usize(1));
-  place_code := _call_generate_expr(rhs, indent.clone(), context);
+  place_code := _call_generate_expr(&rhs, indent.clone(), context);
   (addr : String) = String.new();
   if(place_code.starts_with("(*") && place_code.ends_with(")"), {
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
-    if(!_is_c_lvalue_chain(place_code), {
-      return(codegen_fatal_expr(`re-point of "${ast_expr_token(name_expr).value}": place lowered to a non-lvalue C expression: ${place_code}`));
+    if(!_is_c_lvalue_chain(&place_code), {
+      return(codegen_fatal_expr(`re-point of "${ast_expr_token(&name_expr).value}": place lowered to a non-lvalue C expression: ${place_code}`));
     });
     addr = `(&(${place_code}))`;
   });
@@ -420,27 +420,27 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
   lhs := match(args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None));
   rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(Option(String).None));
   // Compile-time variable → no runtime code.
-  if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, Option(usize).Some(usize(1))), {
+  if(ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, Option(usize).Some(usize(1))), {
     return(Option(String).Some(String.from("")));
   });
-  if(ast_expr_is_local_borrow_mode_call(lhs, Option(usize).Some(usize(1))), {
+  if(ast_expr_is_local_borrow_mode_call(&lhs, Option(usize).Some(usize(1))), {
     // Keyed by the `inout(name)` name atom: its scope record holds the binding.
-    inout_key := match(lhs, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => ast_expr_id(n), .None => ast_expr_id(expr)), .Atom(_, _) => ast_expr_id(expr));
-    return(_generate_inout_local_binding(lhs, rhs, inout_key, Option(Environment).Some(ei.env), indent.clone(), context));
+    inout_key := match(lhs, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => ast_expr_id(&n), .None => ast_expr_id(expr)), .Atom(_, _) => ast_expr_id(expr));
+    return(_generate_inout_local_binding(&lhs, &rhs, inout_key, Option(Environment).Some(ei.env), indent.clone(), context));
   });
   // Destructuring binds.
   match(
-    expr_info_runtime_destructurings(ei),
+    expr_info_runtime_destructurings(&ei),
     .Some(destructurings) => {
-      rhs_type := match(context.base.get_expr_info(rhs), .Some(rei) => rei.ty, .None => TypeValue.Unit);
-      _emit_destructurings(destructurings, rhs, lhs, rhs_type, ei.env, indent.clone(), context);
+      rhs_type := match(context.base.get_expr_info(&rhs), .Some(rei) => rei.ty, .None => TypeValue.Unit);
+      _emit_destructurings(&destructurings, &rhs, &lhs, &rhs_type, &ei.env, indent.clone(), context);
       return(Option(String).Some(String.from("")));
     },
     .None => ()
   );
-  if(ast_expr_is_atom(lhs), {
+  if(ast_expr_is_atom(&lhs), {
     lhs_ei := match(
-      context.base.get_expr_info(lhs),
+      context.base.get_expr_info(&lhs),
       .Some(e) => e,
       .None => return(
         // NOT fatal: the MISSING-ExprInfo class, which multi-pass emission
@@ -448,21 +448,21 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
         // iteration and a discarded pass has no type info). Kept a comment,
         // not an error; the harmful case is the `__yo_user_main` gate in
         // codegen/functions/generation.yo.
-        Option(String).Some(`// Error: No type information for variable ${ast_expr_token(lhs).value}`)
+        Option(String).Some(`// Error: No type information for variable ${ast_expr_token(&lhs).value}`)
       )
     );
-    var_name := match(lhs_ei.variable_name, .Some(vn) => vn, .None => ast_expr_token(lhs).value);
+    var_name := match(lhs_ei.variable_name, .Some(vn) => vn, .None => ast_expr_token(&lhs).value);
     // Resolve a SomeT binding type through its concrete resolution BEFORE the
     // unit guards below — a binding typed as an unresolved SomeT that resolves
     // to unit rendered `void x = <rhs>;` (invalid C: the worker batch's
     // `void _temp = ;` class, issues/retired/yo-self-async-emission-cluster.md item 4).
     // Same prototype-agreement rule as generate_function_body's result_is_unit.
-    lhs_type := resolve_some_type_to_concrete(lhs_ei.ty);
+    lhs_type := resolve_some_type_to_concrete(&lhs_ei.ty);
     // Skip compile-time and module-level globals.
-    if(_last_is_compile_time_only(ast_expr_id(lhs), ei.env, var_name.clone()), {
+    if(_last_is_compile_time_only(ast_expr_id(&lhs), &ei.env, var_name.clone()), {
       return(Option(String).Some(String.from("")));
     });
-    if(_last_is_module_level(ast_expr_id(lhs), ei.env, var_name.clone()), {
+    if(_last_is_module_level(ast_expr_id(&lhs), &ei.env, var_name.clone()), {
       return(Option(String).Some(String.from("")));
     });
     em := context.base.emitter;
@@ -474,7 +474,7 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
     // atom's env predates the binding and misses the variable.
     if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
       match(
-        _sm_binding_slot(ast_expr_id(lhs), ei.env, var_name.clone(), context),
+        _sm_binding_slot(ast_expr_id(&lhs), &ei.env, var_name.clone(), context),
         .Some(sm_slot) => {
           // The RHS must go through the deferred-dup chain before it lands
           // in the slot: compute ONE `rhsCode` through all four
@@ -483,15 +483,15 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
           // the raw expression skipped the +1 while the slot's drop was
           // still emitted, so `element := list(i)` inside an async loop
           // freed the element out from under the live list.
-          sm_rhs := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
+          sm_rhs := emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context);
           em.emit_string_line(`${indent.clone()}${sm_slot.clone()} = ${sm_rhs.clone()};`);
-          _clear_sm_move_flag(sm_slot, indent.clone(), context);
+          _clear_sm_move_flag(&sm_slot, indent.clone(), context);
           return(Option(String).Some(String.from("")));
         },
         .None => ()
       );
     });
-    if(is_array_type(lhs_type), {
+    if(is_array_type(&lhs_type), {
       // Array initialization (literal or struct copy — copy spills an Rc/temp
       // RHS into its temp variable first).
       //
@@ -503,15 +503,15 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
       // `out(i) = …` still DROPPED the old one — the source array's strings
       // were freed under it ("malloc returned None" on the next allocation).
       rhs_code := if(
-        ast_expr_is_fn_call_of(rhs, BK_ARRAY_VAL, Option(usize).None),
-        emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context),
+        ast_expr_is_fn_call_of(&rhs, BK_ARRAY_VAL, Option(usize).None),
+        emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context),
         match(
-          context.base.get_expr_info(rhs),
+          context.base.get_expr_info(&rhs),
           .Some(rei) => match(
             rei.variable_name,
             .Some(tvn) => {
-              temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(rhs), tvn, Option(Environment).Some(rei.env));
-              rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
+              temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env));
+              rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
               // The spill below exists for an Rc/temp RHS that has to be
               // materialized before the array copy. A PLAIN read of an existing
               // variable needs none — and a by-`ref` binding (`inout(self) :
@@ -529,36 +529,36 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
                 (temp_var_name == rhs_expr_code) => temp_var_name,
                 (rhs_expr_code == `(*${temp_var_name})`) => rhs_expr_code,
                 true => {
-                  tv := get_variable_type_string(rei.ty, temp_var_name.clone(), context.base);
+                  tv := get_variable_type_string(&rei.ty, temp_var_name.clone(), &context.base);
                   line := indent.clone();
-                  line.push_string(tv);
+                  line.push_string(&tv);
                   line.push_str(" = ");
-                  line.push_string(rhs_expr_code);
+                  line.push_string(&rhs_expr_code);
                   line.push_str(";");
-                  em.emit_string_line(line);
+                  em.emit_string_line(&line);
                   temp_var_name
                 }
               );
-              emit_deferred_dup_or_code(rhs, spilled, indent.clone(), context)
+              emit_deferred_dup_or_code(&rhs, &spilled, indent.clone(), context)
             },
-            .None => emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context)
+            .None => emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context)
           ),
-          .None => _call_generate_expr(rhs, indent.clone(), context)
+          .None => _call_generate_expr(&rhs, indent.clone(), context)
         )
       );
-      if(!is_unit_type(lhs_type), {
-        var_type_and_name := get_variable_type_string(lhs_type, var_name.clone(), context.base);
+      if(!is_unit_type(&lhs_type), {
+        var_type_and_name := get_variable_type_string(&lhs_type, var_name.clone(), &context.base);
         line := indent.clone();
-        line.push_string(var_type_and_name);
+        line.push_string(&var_type_and_name);
         line.push_str(" = ");
-        line.push_string(rhs_code);
+        line.push_string(&rhs_code);
         line.push_str(";");
-        em.emit_string_line(line);
+        em.emit_string_line(&line);
       });
     }, {
       // Non-array scalar initialization.
       // The `:=` node's env: the lhs atom's predates the binding.
-      sanitized_var_name := get_variable_name_for_codegen_at(ast_expr_id(lhs), var_name.clone(), Option(Environment).Some(ei.env));
+      sanitized_var_name := get_variable_name_for_codegen_at(ast_expr_id(&lhs), var_name.clone(), Option(Environment).Some(ei.env));
       // A STATIC-dispatch call whose callee's prototype returns `void` has no
       // value, whatever this binding's own types say. They can disagree: a
       // generic `Impl(Fn(...) -> T)` callee specialised at `T = unit` emits a
@@ -571,23 +571,23 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
       rhs_is_void_call := match(
         rhs,
         .FnCall(_, rhs_callee, _, _, _) => match(
-          static_dispatch_callee_return_type(rhs_callee, context.base),
+          static_dispatch_callee_return_type(&rhs_callee, &context.base),
           .Some(sd_ret) => (sd_ret == `void`),
           .None => false
         ),
         .Atom(_, _) => false
       );
       rhs_code := match(
-        context.base.get_expr_info(rhs),
+        context.base.get_expr_info(&rhs),
         .Some(rei) => match(
           rei.variable_name,
           .Some(tvn) => {
-            temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(rhs), tvn, Option(Environment).Some(rei.env));
+            temp_var_name := get_variable_name_for_codegen_at(ast_expr_id(&rhs), &tvn, Option(Environment).Some(rei.env));
             // Same name as the binding, or a bare atom already named — no temp.
-            rhs_is_same_atom := (ast_expr_is_atom(rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(rhs), ast_expr_token(rhs).value, Option(Environment).Some(rei.env))));
-            if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context), {
-              rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
-              effective_type := match(expr_info_converted_runtime_type(rei), .Some(crt) => crt, .None => rei.ty);
+            rhs_is_same_atom := (ast_expr_is_atom(&rhs) && (temp_var_name == get_variable_name_for_codegen_at(ast_expr_id(&rhs), ast_expr_token(&rhs).value, Option(Environment).Some(rei.env))));
+            if((temp_var_name == sanitized_var_name) || rhs_is_same_atom, emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context), {
+              rhs_expr_code := _call_generate_expr(&rhs, indent.clone(), context);
+              effective_type := match(expr_info_converted_runtime_type(&rei), .Some(crt) => crt, .None => rei.ty);
               // A UNIT-typed RHS has no value to hold. `_call_generate_expr`
               // has already emitted the call as a STATEMENT (so the side effect
               // is preserved) and returned "", so declaring a temp for it
@@ -597,7 +597,7 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
               // the missing half. Resolve through SomeT first, so a type
               // parameter that resolves to unit takes the same path.
               // See issues/fixed/binding-a-unit-returning-call-emits-invalid-c.md.
-              rhs_is_unit := (rhs_is_void_call || is_unit_type(resolve_some_type_to_concrete(effective_type)));
+              rhs_is_unit := (rhs_is_void_call || is_unit_type(resolve_some_type_to_concrete(&effective_type)));
               if(rhs_is_unit, {
                 // No value to hold, so no declaration — but the code must
                 // still RUN. Most unit calls are already emitted as a
@@ -611,20 +611,20 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
                   ustmt := indent.clone();
                   ustmt.push_string(rhs_expr_code.clone());
                   ustmt.push_str(";");
-                  em.emit_string_line(ustmt);
+                  em.emit_string_line(&ustmt);
                 });
               }, {
                 if(!(rhs_expr_code == temp_var_name), {
-                  tv := get_variable_type_string(effective_type, temp_var_name.clone(), context.base);
+                  tv := get_variable_type_string(&effective_type, temp_var_name.clone(), &context.base);
                   line := indent.clone();
-                  line.push_string(tv);
+                  line.push_string(&tv);
                   line.push_str(" = ");
-                  line.push_string(rhs_expr_code);
+                  line.push_string(&rhs_expr_code);
                   line.push_str(";");
-                  em.emit_string_line(line);
+                  em.emit_string_line(&line);
                 });
               });
-              emit_deferred_dup_or_code(rhs, temp_var_name, indent.clone(), context)
+              emit_deferred_dup_or_code(&rhs, &temp_var_name, indent.clone(), context)
             })
           },
           // No temp variable name on the RHS — STILL emit the RHS's
@@ -632,10 +632,10 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
           // matching +1. This arm is unreachable for state-machine bindings
           // (those return early above); it exists for parity with the three
           // sibling arms, which all already route through this helper.
-          .None => emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context)
+          .None => emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context)
         ),
         // No ExprInfo at all — no deferred dups can exist.
-        .None => _call_generate_expr(rhs, indent.clone(), context)
+        .None => _call_generate_expr(&rhs, indent.clone(), context)
       );
       // Raw-pointer-deref RHS (`(p &+ i).*` / `p.*`) of an RC-carrying type:
       // dup the copy AT THE DEREF SITE (`temp2 = Bucket___dup(temp);`) so the
@@ -646,9 +646,9 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
       // fresh copy after the declaration below (HashMap._find_bucket stole
       // the map's own key+value on every probe hit — the round-6
       // `s2 compile main.yo` UAF; see issues/fixed/yo-self-dyn-throw-double-drop.md).
-      rhs_is_deref := (ast_expr_is_fn_call_of(rhs, BF_DOT, Option(usize).Some(usize(2))) && match(rhs, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(pe) => ast_expr_is_atom_of(pe, "*"), .None => false), .Atom(_, _) => false));
-      rhs_has_dup := match(context.base.get_expr_info(rhs), .Some(r2) => match(expr_info_deferred_dup_expressions(r2), .Some(d2) => (d2.len() > usize(0)), .None => false), .None => false);
-      if(!is_unit_type(lhs_type) && !rhs_is_void_call, {
+      rhs_is_deref := (ast_expr_is_fn_call_of(&rhs, BF_DOT, Option(usize).Some(usize(2))) && match(rhs, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(pe) => ast_expr_is_atom_of(&pe, "*"), .None => false), .Atom(_, _) => false));
+      rhs_has_dup := match(context.base.get_expr_info(&rhs), .Some(r2) => match(expr_info_deferred_dup_expressions(&r2), .Some(d2) => (d2.len() > usize(0)), .None => false), .None => false);
+      if(!is_unit_type(&lhs_type) && !rhs_is_void_call, {
         // get_variable_type_string (not get_type_string + manual name append)
         // so the scalar binding's C name is REGISTERED in declared_c_var_names
         // — _keep_pending_drop (return.yo) rejects a drop whose target was
@@ -656,18 +656,18 @@ generate_initialization_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : Str
         // paths (the HashMap._find_bucket same-key-overwrite leak). The name is
         // already the codegen name (get_variable_name_for_codegen above);
         // sanitize_for_c_identifier is idempotent, so emission is unchanged.
-        var_type_and_name := get_variable_type_string(lhs_type, sanitized_var_name.clone(), context.base);
+        var_type_and_name := get_variable_type_string(&lhs_type, sanitized_var_name.clone(), &context.base);
         line := indent.clone();
-        line.push_string(var_type_and_name);
+        line.push_string(&var_type_and_name);
         line.push_str(" = ");
-        line.push_string(rhs_code);
+        line.push_string(&rhs_code);
         line.push_str(";");
-        em.emit_string_line(line);
-        if(rhs_is_deref && type_contains_rc_cell_or_move_only(lhs_type) && !rhs_has_dup, {
+        em.emit_string_line(&line);
+        if(rhs_is_deref && type_contains_rc_cell_or_move_only(&lhs_type) && !rhs_has_dup, {
           dup_line := indent.clone();
-          dup_line.push_string(generate_dup_code_for_value(sanitized_var_name.clone(), lhs_type, context));
+          dup_line.push_string(generate_dup_code_for_value(sanitized_var_name.clone(), &lhs_type, context));
           dup_line.push_str(";");
-          em.emit_string_line(dup_line);
+          em.emit_string_line(&dup_line);
         });
       });
     });

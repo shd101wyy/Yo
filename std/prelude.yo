@@ -5407,7 +5407,7 @@ _trailing_zeros_u64 :: (fn(x : u64) -> u32)(
     (x == u64(0)) => u32(64),
     // `x & -x` isolates the lowest set bit; `x-1` then has exactly that many
     // ones below it. The negation wraps by design (wrapping_sub).
-    true => _popcount_u64((x & u64(0).wrapping_sub(x)) - u64(1))
+    true => _popcount_u64((x & u64(0).wrapping_sub(&x)) - u64(1))
   )
 );
 /// Reverse all 64 bits.
@@ -5749,8 +5749,8 @@ impl(
   /// opposite sides of zero (`u64(1) - u64(-1)`).
   abs_diff : (fn(self : Self, other : Self) -> u8)(
     cond(
-      (self >= other) => u8(self.wrapping_sub(other)),
-      true => u8(other.wrapping_sub(self))
+      (self >= other) => u8(self.wrapping_sub(&other)),
+      true => u8(other.wrapping_sub(&self))
     )
   )
 );
@@ -5761,8 +5761,8 @@ impl(
   /// `i16.MAX.abs_diff(i16.MIN)`.
   abs_diff : (fn(self : Self, other : Self) -> u16)(
     cond(
-      (self >= other) => u16(self.wrapping_sub(other)),
-      true => u16(other.wrapping_sub(self))
+      (self >= other) => u16(self.wrapping_sub(&other)),
+      true => u16(other.wrapping_sub(&self))
     )
   )
 );
@@ -5773,8 +5773,8 @@ impl(
   /// `i32.MAX.abs_diff(i32.MIN)` (see the i8 impl for the wrapping_sub note).
   abs_diff : (fn(self : Self, other : Self) -> u32)(
     cond(
-      (self >= other) => u32(self.wrapping_sub(other)),
-      true => u32(other.wrapping_sub(self))
+      (self >= other) => u32(self.wrapping_sub(&other)),
+      true => u32(other.wrapping_sub(&self))
     )
   )
 );
@@ -5785,8 +5785,8 @@ impl(
   /// `i64.MAX.abs_diff(i64.MIN)`.
   abs_diff : (fn(self : Self, other : Self) -> u64)(
     cond(
-      (self >= other) => u64(self.wrapping_sub(other)),
-      true => u64(other.wrapping_sub(self))
+      (self >= other) => u64(self.wrapping_sub(&other)),
+      true => u64(other.wrapping_sub(&self))
     )
   )
 );
@@ -5814,8 +5814,8 @@ impl(
   /// impl for the wrapping_sub note).
   abs_diff : (fn(self : Self, other : Self) -> usize)(
     cond(
-      (self >= other) => usize(self.wrapping_sub(other)),
-      true => usize(other.wrapping_sub(self))
+      (self >= other) => usize(self.wrapping_sub(&other)),
+      true => usize(other.wrapping_sub(&self))
     )
   )
 );
@@ -8267,7 +8267,7 @@ impl(
   map : (fn(generic(B : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> B)) -> Option(B))(
     match(
       self,
-      .Some(value) => Option(B).Some(f(value)),
+      .Some(value) => Option(B).Some(f(&value)),
       .None => Option(B).None
     )
   ),
@@ -8275,7 +8275,7 @@ impl(
   and_then : (fn(generic(B : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> Option(B))) -> Option(B))(
     match(
       self,
-      .Some(value) => f(value),
+      .Some(value) => f(&value),
       .None => Option(B).None
     )
   ),
@@ -8284,7 +8284,7 @@ impl(
     match(
       self,
       .Some(value) => cond(
-        predicate(value) => Option(T).Some(value),
+        predicate(&value) => Option(T).Some(value),
         true => Option(T).None
       ),
       .None => Option(T).None
@@ -8302,7 +8302,7 @@ impl(
   map_or : (fn(generic(B : Type), imm(self) : Self, imm(default_val) : B, imm(f) : Impl(Fn(imm(a) : T) -> B)) -> B)(
     match(
       self,
-      .Some(value) => f(value),
+      .Some(value) => f(&value),
       .None => default_val
     )
   ),
@@ -8310,7 +8310,7 @@ impl(
   map_or_else : (fn(generic(B : Type), imm(self) : Self, imm(default_fn) : Impl(Fn() -> B), imm(f) : Impl(Fn(imm(a) : T) -> B)) -> B)(
     match(
       self,
-      .Some(value) => f(value),
+      .Some(value) => f(&value),
       .None => default_fn()
     )
   ),
@@ -8350,7 +8350,7 @@ impl(
   is_some_and : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> bool)) -> bool)(
     match(
       self,
-      .Some(value) => f(value),
+      .Some(value) => f(&value),
       .None => false
     )
   ),
@@ -8359,7 +8359,7 @@ impl(
     match(
       self,
       .Some(value) => {
-        f(value);
+        f(&value);
         Option(T).Some(value)
       },
       .None => Option(T).None
@@ -9146,7 +9146,7 @@ impl(
   map : (fn(generic(B : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : OkType) -> B)) -> Result(B, ErrorType))(
     match(
       self,
-      .Ok(value) => Result(B, ErrorType).Ok(f(value)),
+      .Ok(value) => Result(B, ErrorType).Ok(f(&value)),
       .Err(error) => Result(B, ErrorType).Err(error)
     )
   ),
@@ -9155,14 +9155,14 @@ impl(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
-      .Err(error) => Result(OkType, F).Err(f(error))
+      .Err(error) => Result(OkType, F).Err(f(&error))
     )
   ),
   /// Chain a computation that may fail on the `Ok` value.
   and_then : (fn(generic(B : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
     match(
       self,
-      .Ok(value) => f(value),
+      .Ok(value) => f(&value),
       .Err(error) => Result(B, ErrorType).Err(error)
     )
   ),
@@ -9171,7 +9171,7 @@ impl(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
-      .Err(error) => f(error)
+      .Err(error) => f(&error)
     )
   ),
   /// Return `res` if `Ok`, otherwise propagate `Err`.
@@ -9210,7 +9210,7 @@ impl(
   map_or : (fn(generic(B : Type), imm(self) : Self, imm(default_val) : B, imm(f) : Impl(Fn(imm(a) : OkType) -> B)) -> B)(
     match(
       self,
-      .Ok(value) => f(value),
+      .Ok(value) => f(&value),
       .Err(_) => default_val
     )
   ),
@@ -9218,8 +9218,8 @@ impl(
   map_or_else : (fn(generic(B : Type), imm(self) : Self, imm(default_fn) : Impl(Fn(imm(a) : ErrorType) -> B), imm(f) : Impl(Fn(imm(a) : OkType) -> B)) -> B)(
     match(
       self,
-      .Ok(value) => f(value),
-      .Err(error) => default_fn(error)
+      .Ok(value) => f(&value),
+      .Err(error) => default_fn(&error)
     )
   ),
   /// Extract the `Ok` value, or call `f` with the error to produce a fallback.
@@ -9227,7 +9227,7 @@ impl(
     match(
       self,
       .Ok(value) => value,
-      .Err(error) => f(error)
+      .Err(error) => f(&error)
     )
   ),
   /// Extract the `Ok` value, or return `or_value` if `Err`.
@@ -9259,7 +9259,7 @@ impl(
     match(
       self,
       .Ok(value) => {
-        f(value);
+        f(&value);
         Result(OkType, ErrorType).Ok(value)
       },
       .Err(error) => Result(OkType, ErrorType).Err(error)
@@ -9271,7 +9271,7 @@ impl(
       self,
       .Ok(value) => Result(OkType, ErrorType).Ok(value),
       .Err(error) => {
-        f(error);
+        f(&error);
         Result(OkType, ErrorType).Err(error)
       }
     )
@@ -9948,7 +9948,7 @@ impl(
   /// initialized through: a raw pointer only unsafe-capable code can hold, so
   /// safe code cannot reach the uninitialized read. It is not inspected.
   assume_init : (fn(sink(self) : Self, imm(written) : *BaseType) -> BaseType)(
-    __yo_maybe_uninit_assume_init(Self, BaseType, self, written)
+    __yo_maybe_uninit_assume_init(Self, BaseType, &self, written)
   ),
   /// Test-support probe for the member-visibility rule (E0405): a `_`-prefixed
   /// method declared in the PRELUDE is private to this module exactly like one
@@ -10203,7 +10203,7 @@ impl(
   __BorrowGuard(C),
   Dispose(
     dispose : (fn(imm(self) : Self) -> unit)({
-      __yo_borrow_release(self._c);
+      __yo_borrow_release(&self._c);
     })
   )
 );
@@ -12010,7 +12010,7 @@ impl(
           break;
         },
         .Some(item) => {
-          acc = (f)(acc, item);
+          acc = (f)(&acc, &item);
         }
       );
     });
@@ -12033,7 +12033,7 @@ impl(
           break;
         },
         .Some(item) => {
-          (f)(item);
+          (f)(&item);
         }
       );
     });
@@ -12080,7 +12080,7 @@ impl(
         },
         .Some(item) => {
           cond(
-            (pred)(item) => {
+            (pred)(&item) => {
               result = true;
               break;
             },
@@ -12110,7 +12110,7 @@ impl(
         },
         .Some(item) => {
           cond(
-            !pred(item) => {
+            !pred(&item) => {
               result = false;
               break;
             },
@@ -12140,7 +12140,7 @@ impl(
         },
         .Some(item) => {
           cond(
-            (pred)(item) => {
+            (pred)(&item) => {
               found = .Some(item);
               break;
             },
@@ -12171,7 +12171,7 @@ impl(
         },
         .Some(item) => {
           cond(
-            (pred)(item) => {
+            (pred)(&item) => {
               found = .Some(idx);
               break;
             },
@@ -12407,7 +12407,7 @@ impl(
           break;
         },
         .Some(item) => {
-          out = (C <: FromIterator).from_iter_add(out, item);
+          out = (C <: FromIterator).from_iter_add(out, &item);
         }
       );
     });

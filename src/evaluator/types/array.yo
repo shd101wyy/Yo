@@ -58,11 +58,11 @@ _length_projection_text :: (fn(imm(e) : AstExpr) -> Option(String))({
   });
   recv := match(parts.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   memb := match(parts.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-  if(!ast_expr_is_atom(recv) || !ast_expr_is_atom(memb), {
+  if(!ast_expr_is_atom(&recv) || !ast_expr_is_atom(&memb), {
     return(Option(String).None);
   });
-  rname := ast_expr_token(recv).value.clone();
-  mname := ast_expr_token(memb).value.clone();
+  rname := ast_expr_token(&recv).value.clone();
+  mname := ast_expr_token(&memb).value.clone();
   if((rname.len() == usize(0)) || (mname.len() == usize(0)), {
     return(Option(String).None);
   });
@@ -95,14 +95,14 @@ evaluate_array_type :: (
   element_type_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   length_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Evaluate the element type expression.
-  evaluated_elem_type := evaluate_expression_raw(element_type_expr, env, ctx, exn);
-  elem_type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem_type));
+  evaluated_elem_type := evaluate_expression_raw(&element_type_expr, env, ctx, exn);
+  elem_type_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_elem_type));
   if(elem_type_info_opt.is_none(), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(element_type_expr),
-          `Failed to evaluate the element type expression:\n${ast_expr_to_string(element_type_expr)}`
+          ast_expr_token(&element_type_expr),
+          `Failed to evaluate the element type expression:\n${ast_expr_to_string(&element_type_expr)}`
         )
       )
     );
@@ -112,12 +112,12 @@ evaluate_array_type :: (
     .Some(info) => info,
     .None => new_expr_info(env, t_usize()) // unreachable
   );
-  if(!is_type_value(elem_type_info.value), {
+  if(!is_type_value(&elem_type_info.value), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(element_type_expr),
-          `Expected type for element type, got:\n${ast_expr_to_string(element_type_expr)}\n\nIf you are creating an array value with 1 element, please consider adding a "," in the end, like [1,]`
+          ast_expr_token(&element_type_expr),
+          `Expected type for element type, got:\n${ast_expr_to_string(&element_type_expr)}\n\nIf you are creating an array value with 1 element, please consider adding a "," in the end, like [1,]`
         )
       )
     );
@@ -131,7 +131,7 @@ evaluate_array_type :: (
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(element_type_expr),
+              ast_expr_token(&element_type_expr),
               `Expected TypeVal for element type`
             )
           )
@@ -143,7 +143,7 @@ evaluate_array_type :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(element_type_expr),
+            ast_expr_token(&element_type_expr),
             `Expected type value for element type`
           )
         )
@@ -151,7 +151,7 @@ evaluate_array_type :: (
       t_usize() // unreachable
     }
   );
-  env_after_elem := expr_info_adopt_env(elem_type_info);
+  env_after_elem := expr_info_adopt_env(&elem_type_info);
   // `Array(T, _)` — underscore length INFERENCE: mint a
   // UNIQUE placeholder variable name, bind it compile-time as an
   // UnknownVal(usize) in the env, and record the name as the array type's
@@ -161,10 +161,10 @@ evaluate_array_type :: (
   // time. This replaces the former hard "not supported in the self-hosted
   // compiler" throw, which emptied every batch main whose test file used
   // `Array(T, _)` (the array-family hollow).
-  if(ast_expr_is_atom_of(length_expr, "_"), {
-    lp_name := stable_module_id(`_array_length_`, env_after_elem.module_path);
+  if(ast_expr_is_atom_of(&length_expr, "_"), {
+    lp_name := stable_module_id(`_array_length_`, &env_after_elem.module_path);
     _lp := add_variable_to_env(
-      env_after_elem,
+      &env_after_elem,
       lp_name.clone(),
       t_usize(),
       Option(EvalValue).Some(create_unknown_val(t_usize())),
@@ -172,28 +172,28 @@ evaluate_array_type :: (
       false,
       false,
       false,
-      ast_expr_token(length_expr)
+      ast_expr_token(&length_expr)
     );
-    u_array_type := t_array_var(child_type, lp_name);
-    u_val := create_type_value(u_array_type);
-    u_meta := type_of_type(u_array_type);
-    u_info := new_expr_info(env_after_elem, u_meta);
+    u_array_type := t_array_var(&child_type, &lp_name);
+    u_val := create_type_value(&u_array_type);
+    u_meta := type_of_type(&u_array_type);
+    u_info := new_expr_info(&env_after_elem, &u_meta);
     u_info.value = Option(EvalValue).Some(u_val);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), u_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &u_info);
     return(expr);
   });
   // Evaluate the length expression with expected type usize.
   old_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).Some(ExpectedTypeCtx(ty : t_usize(), env : env_after_elem));
-  evaluated_length := evaluate_expression_raw(length_expr, env_after_elem, ctx, exn);
+  evaluated_length := evaluate_expression_raw(&length_expr, &env_after_elem, ctx, exn);
   ctx.expected_type = old_expected;
-  len_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_length));
+  len_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_length));
   if(len_info_opt.is_none(), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(length_expr),
-          `Failed to evaluate the length expression:\n${ast_expr_to_string(length_expr)}`
+          ast_expr_token(&length_expr),
+          `Failed to evaluate the length expression:\n${ast_expr_to_string(&length_expr)}`
         )
       )
     );
@@ -201,7 +201,7 @@ evaluate_array_type :: (
   len_info := match(
     len_info_opt,
     .Some(info) => info,
-    .None => new_expr_info(env_after_elem, t_usize()) // unreachable
+    .None => new_expr_info(&env_after_elem, t_usize()) // unreachable
   );
   // Length type / value checks are best-effort under the bootstrap's
   // partial HKT support. The legacy strict checks fired on
@@ -239,13 +239,13 @@ evaluate_array_type :: (
   len_usize := match(
     len_value,
     .IntLit(raw) => match(
-      parse_raw_int(raw),
+      parse_raw_int(&raw),
       .Some(n) => usize(n),
       .None => {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(length_expr),
+              ast_expr_token(&length_expr),
               `Failed to parse array length as integer`
             )
           )
@@ -290,24 +290,24 @@ evaluate_array_type :: (
   // evaluator/types/function.yo rejects it with a precise message. The marker
   // itself is loud everywhere else (codegen's unknown-type fallback), never a
   // silent zero (issues/fixed/associated-constant-in-a-type-position-resolves-to-zero.md).
-  len_proj := _length_projection_text(length_expr);
+  len_proj := _length_projection_text(&length_expr);
   array_type := cond(
-    (len_is_var && ast_expr_is_atom(length_expr)) =>
-      t_array_var(child_type, ast_expr_token(length_expr).value.clone()),
+    (len_is_var && ast_expr_is_atom(&length_expr)) =>
+      t_array_var(&child_type, ast_expr_token(&length_expr).value.clone()),
     // `Array(u8, T.BYTES)` — carry the projection; substitution resolves it
     // once `T` is bound. See `_length_projection_text` above.
     (len_is_var && len_proj.is_some()) =>
-      t_array_var(child_type, match(len_proj, .Some(pt) => pt, .None => String.new())),
+      t_array_var(&child_type, match(len_proj, .Some(pt) => pt, .None => String.new())),
     len_is_var =>
-      t_array_var(child_type, `${COMPUTED_ARRAY_LEN_PREFIX}${ast_expr_to_string(length_expr)}`),
-    true => t_array(child_type, len_usize)
+      t_array_var(&child_type, `${COMPUTED_ARRAY_LEN_PREFIX}${ast_expr_to_string(&length_expr)}`),
+    true => t_array(&child_type, len_usize)
   );
-  array_type_val := create_type_value(array_type);
-  meta_ty := type_of_type(array_type);
-  env_final := expr_info_adopt_env(len_info);
-  out_info := new_expr_info(env_final, meta_ty);
+  array_type_val := create_type_value(&array_type);
+  meta_ty := type_of_type(&array_type);
+  env_final := expr_info_adopt_env(&len_info);
+  out_info := new_expr_info(&env_final, &meta_ty);
   out_info.value = Option(EvalValue).Some(array_type_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_array_type);

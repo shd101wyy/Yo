@@ -87,7 +87,7 @@ _on_demand_collect_and_declare :: (fn(imm(t) : TypeValue, imm(context) : CodeGen
       match(
         od_hit,
         .Some(od_target) => {
-          context.register_type_alias(odk.clone(), od_target);
+          context.register_type_alias(odk.clone(), &od_target);
           return(());
         },
         .None => ()
@@ -96,7 +96,7 @@ _on_demand_collect_and_declare :: (fn(imm(t) : TypeValue, imm(context) : CodeGen
   });
   collect_type(t, context);
   match(
-    context.get_type_entry(odk),
+    context.get_type_entry(&odk),
     .Some(od_e) => {
       od_cn := od_e.c_name.clone();
       od_ty := od_e.ty;
@@ -107,9 +107,9 @@ _on_demand_collect_and_declare :: (fn(imm(t) : TypeValue, imm(context) : CodeGen
       od_is_future := match(od_ty, .FutureTraitT(_, _, _, _) => true, _ => false);
       od_need_fwd := cond(
         od_is_struct => !(
-          is_newtype_type(od_ty) && match(od_ty, .Struct({ field_types : od_fts }) => (od_fts.len() == usize(1)), _ => false)
+          is_newtype_type(&od_ty) && match(od_ty, .Struct({ field_types : od_fts }) => (od_fts.len() == usize(1)), _ => false)
         ),
-        od_is_enum => !(can_optimize_as_nullable_pointer(od_ty).is_some() || can_optimize_as_simple_enum(od_ty)),
+        od_is_enum => !(can_optimize_as_nullable_pointer(&od_ty).is_some() || can_optimize_as_simple_enum(&od_ty)),
         // Future trait interface uses the same `<cn>_struct` typedef pattern
         // (forward-declared like the other reference types).
         od_is_future => true,
@@ -130,7 +130,7 @@ _on_demand_collect_and_declare :: (fn(imm(t) : TypeValue, imm(context) : CodeGen
         od_l.push_str("_struct ");
         od_l.push_string(od_cn.clone());
         od_l.push_str("; // Forward declaration (on-demand)");
-        context.emitter.emit_declaration_string_line(od_l);
+        context.emitter.emit_declaration_string_line(&od_l);
       });
       // Record the body emission so the declaration passes skip this C name
       // (they may not have reached it yet — the hook can fire DURING a pass).
@@ -143,11 +143,11 @@ _on_demand_collect_and_declare :: (fn(imm(t) : TypeValue, imm(context) : CodeGen
         context.on_demand_body_cnames.insert(od_cn.clone());
       });
       cond(
-        od_is_struct => generate_struct_declaration(od_ty, od_cn.clone(), context),
-        od_is_enum => generate_enum_declaration(od_ty, od_cn.clone(), context),
-        od_is_tuple => generate_tuple_declaration(od_ty, od_cn.clone(), context),
-        od_is_union => generate_union_declaration(od_ty, od_cn.clone(), context),
-        od_is_future => generate_future_trait_declaration(od_ty, od_cn.clone(), context),
+        od_is_struct => generate_struct_declaration(&od_ty, od_cn.clone(), context),
+        od_is_enum => generate_enum_declaration(&od_ty, od_cn.clone(), context),
+        od_is_tuple => generate_tuple_declaration(&od_ty, od_cn.clone(), context),
+        od_is_union => generate_union_declaration(&od_ty, od_cn.clone(), context),
+        od_is_future => generate_future_trait_declaration(&od_ty, od_cn.clone(), context),
         true => ()
       );
     },
@@ -174,7 +174,7 @@ _struct_has_generic_field :: (fn(imm(ty) : TypeValue) -> bool)(
           // instantiation is accepted as a concrete CYCLE ROOT and forces the
           // heavy GC runtime for the entire program. See
           // issues/repros/toplevel-some-type-check-forces-cycle-gc.yo.
-          .Some(ft) => if(type_contains_some_type_deep(ft), {
+          .Some(ft) => if(type_contains_some_type_deep(&ft), {
             found = true;
           }),
           .None => ()
@@ -202,11 +202,11 @@ compute_needs_cycle_gc :: (fn(imm(context) : CodeGenContext) -> unit)({
       vals.next(),
       .Some(entry) => {
         ty := entry.ty;
-        is_struct_root := (is_reference_struct_type(ty) && !is_atomic_reference_struct_type(ty) && !_struct_has_generic_field(ty));
+        is_struct_root := (is_reference_struct_type(&ty) && !is_atomic_reference_struct_type(&ty) && !_struct_has_generic_field(&ty));
         // A reference-semantics enum can also form an RC cycle (recursive Self
         // variant field), so it is a cycle root too.
-        is_enum_root := (is_reference_enum_type(ty) && !is_atomic_reference_enum_type(ty) && !type_contains_some_type_deep(ty));
-        if((is_struct_root || is_enum_root) && can_type_form_rc_cycle(ty), {
+        is_enum_root := (is_reference_enum_type(&ty) && !is_atomic_reference_enum_type(&ty) && !type_contains_some_type_deep(&ty));
+        if((is_struct_root || is_enum_root) && can_type_form_rc_cycle(&ty), {
           context.needs_cycle_gc = true;
           go = false;
         });
@@ -275,7 +275,7 @@ static int __yo_dispose_dispatch(void* ptr) {
               },
               .None => line.push_str("(ptr); return 0;")
             );
-            em.emit_string_line(line);
+            em.emit_string_line(&line);
           },
           .None => ()
         ),
@@ -396,7 +396,7 @@ compile_module :: (fn(imm(module_value) : EvalValue, mut(info) : ExprInfoTable, 
   register_inline_await_emitter(emit_inline_await);
   register_fused_await_emitter(emit_fused_await);
   emitter := Emitter.new();
-  base := CodeGenContext.new(emitter, info, target, allocator, heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library);
+  base := CodeGenContext.new(&emitter, info, target, allocator, heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library);
   // The entry module's path decides which top-level exports get plain,
   // externally-linked C names (functions/collection.yo).
   base.current_module_path = Option(String).Some(module_env.module_path.clone());
@@ -441,7 +441,7 @@ compile_module :: (fn(imm(module_value) : EvalValue, mut(info) : ExprInfoTable, 
   // register a header of their own.
   // See issues/fixed/comptime-float-infinity-emits-invalid-c.md.
   base.add_c_include(String.from("<math.h>"));
-  ctx := FunctionGenerationContext.new(base);
+  ctx := FunctionGenerationContext.new(&base);
   base.emitter.emit_declaration_line("// Module (self-hosted codegen)");
   // Phase 0 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §3): the
   // collection/emission split. The boundary is `generate_type_declarations` —
@@ -459,7 +459,7 @@ compile_module :: (fn(imm(module_value) : EvalValue, mut(info) : ExprInfoTable, 
     debug_knob(`YO_CODEGEN_KEEP`),
     .Some(keep_path) => {
       keep := HashSet(usize).new();
-      keep_text := String.from_bytes(read_file_sync(keep_path, exn));
+      keep_text := String.from_bytes(read_file_sync(&keep_path, exn));
       keep_lines := keep_text.split(String.from("\n"));
       (kli : usize) = usize(0);
       while(kli < keep_lines.len(), {
@@ -478,7 +478,7 @@ compile_module :: (fn(imm(module_value) : EvalValue, mut(info) : ExprInfoTable, 
         );
         kli = (kli + usize(1));
       });
-      eprintln(`[codegen-keep] kept ${keep.len().to_string()} keys, dropped ${expr_info_table_retain_keys(info, keep).to_string()} entries`);
+      eprintln(`[codegen-keep] kept ${keep.len().to_string()} keys, dropped ${expr_info_table_retain_keys(info, &keep).to_string()} entries`);
     },
     .None => ()
   );
@@ -488,16 +488,16 @@ compile_module :: (fn(imm(module_value) : EvalValue, mut(info) : ExprInfoTable, 
   });
   prof_collect_t0 := Instant.now();
   // First pass: collect functions and types reachable from the module exports.
-  collect_required_functions(module_value, base, info, true);
-  collect_module_level_init_functions(base, info);
-  collect_required_types(module_value, base, info);
+  collect_required_functions(module_value, &base, info, true);
+  collect_module_level_init_functions(&base, info);
+  collect_required_types(module_value, &base, info);
   // Pointer-field pointees missed by the dup/drop walk (e.g. HashMap/ArrayList
   // element types behind `data : ?(*(T))`); a separate pass so the main collection
   // order — which the lazy array-struct registration depends on — is untouched.
   // See issues/fixed/yo-self-p1-uncollected-pointee.md.
-  collect_pointer_pointees(base);
-  collect_c_includes(base);
-  emit_c_includes(base);
+  collect_pointer_pointees(&base);
+  collect_c_includes(&base);
+  emit_c_includes(&base);
   // Future state enum (needed before type declarations reference it).
   base.emitter.emit_declaration_string_line(
     `
@@ -510,7 +510,7 @@ typedef enum {
 `
   );
   // Pre-scan: select the __yo_ref_header_t layout (must precede type decls).
-  compute_needs_cycle_gc(base);
+  compute_needs_cycle_gc(&base);
   // Cycle-GC: when any type can form an RC cycle, monomorphize each cyclable
   // container's generic `trace` method (the Trace trait) and register it under the
   // concrete container id, so the traversal generators delegate to it. Must run
@@ -520,13 +520,13 @@ typedef enum {
   // The same traversals serve Iso's uniqueness walk (rule D2), so the trace
   // methods are needed whenever the program uses Iso too.
   if(base.needs_cycle_gc || (base.iso_types.len() > usize(0)), {
-    collect_trace_methods_from_generic_impls(base, eval_ctx, module_env, info, exn);
+    collect_trace_methods_from_generic_impls(&base, eval_ctx, module_env, info, exn);
   });
   // Auto-derive the ___dispose (recursive RC-field drop) for RC struct types lacking
   // one, so freeing them drops their RC fields (runtime calls header.dispose_fn). The
   // RC-function synthesis is deferred until here; it runs with the threaded ctx/exn. Must precede
   // function declarations + constructor emission (which read get_dispose_function_for_type).
-  collect_dispose_methods(base, eval_ctx, module_env, info, exn);
+  collect_dispose_methods(&base, eval_ctx, module_env, info, exn);
   // plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §9: how much of what the
   // evaluator FORCED (every top-level definition of every imported module —
   // rule 5) does codegen actually REACH? `forced_defs` counts pending-def
@@ -548,16 +548,16 @@ typedef enum {
   // `Option(Impl(Future(…)))`'s payload fell back to the erased interface while
   // its constructor took the sync-future pointer
   // (issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md).
-  preregister_async_block_types(ctx);
+  preregister_async_block_types(&ctx);
   // Second pass: type declarations (runtime preamble + topo-sorted types).
-  generate_type_declarations(base);
+  generate_type_declarations(&base);
   raise_codegen_error(exn);
   profile_memory_mark("emit: type declarations");
   // Upcast target impls first (they re-key with the rest), then re-key dyn
   // impls to C names (now available), then emit dyn box types.
-  register_dyn_upcast_targets(base);
-  fixup_dyn_impl_keys(base);
-  generate_dyn_box_types(base);
+  register_dyn_upcast_targets(&base);
+  fixup_dyn_impl_keys(&base);
+  generate_dyn_box_types(&base);
   // Command-line arguments runtime shim. Chunked emission: written by main
   // (chunk 0), read from any chunk — one definition, extern in the header.
   if(base.chunk_mode, {
@@ -585,46 +585,46 @@ static Slice_uint8_t_u42_ __yo_args;
     );
   });
   // Third pass: function declarations (prototypes).
-  generate_function_declarations(base);
+  generate_function_declarations(&base);
   raise_codegen_error(exn);
   profile_memory_mark("emit: function declarations");
   // Register Impl(Fn) closure → impl-fn mappings BEFORE function bodies, so a
   // specialized callee whose body calls a closure (e.g. Thread.spawn →
   // __yo_thread_spawn(cb)) resolves the closure regardless of generation order.
-  register_impl_closure_call_mappings(ctx);
+  register_impl_closure_call_mappings(&ctx);
   // Fourth pass: function bodies (the dispatcher was registered above).
-  generate_all_functions(ctx);
+  generate_all_functions(&ctx);
   raise_codegen_error(exn);
   profile_memory_mark("emit: function bodies");
   // Dyn dispatch scaffolding (box ctor/dispose, wrapper functions, typeid
   // vtables, and RC dup/drop).
-  generate_dyn_box_functions(ctx);
-  generate_dyn_wrapper_functions(ctx);
-  generate_dyn_vtables(ctx);
-  generate_dyn_dup_drop(ctx);
+  generate_dyn_box_functions(&ctx);
+  generate_dyn_wrapper_functions(&ctx);
+  generate_dyn_vtables(&ctx);
+  generate_dyn_dup_drop(&ctx);
   profile_memory_mark("emit: dyn scaffolding");
   // Deferred async-block implementations (resume / set_effect / dispose / ctor),
   // after all regular + dyn functions to avoid nesting.
-  generate_deferred_async_blocks(ctx);
+  generate_deferred_async_blocks(&ctx);
   raise_codegen_error(exn);
   profile_memory_mark("emit: deferred async blocks");
   // Module-level mutable variable declarations (file-scope statics). Emitted for
   // both executable and library builds so the C symbols exist. Returns the
   // (c_var_name, rhs) list for initialization.
-  module_vars := emit_module_level_variable_declarations(ctx);
+  module_vars := emit_module_level_variable_declarations(&ctx);
   profile_memory_mark("emit: module variables");
   // Thread-local accessors carry their initializers and are needed by library
   // builds too, so they are emitted here rather than inside the (executable-
   // only) main wrapper.
-  emit_thread_local_accessors(ctx, module_vars);
+  emit_thread_local_accessors(&ctx, &module_vars);
   // Main wrapper (executable mode only); initializes the module-level vars first.
   if(!is_library, {
-    generate_main_wrapper(ctx, module_vars);
+    generate_main_wrapper(&ctx, &module_vars);
   });
   profile_memory_mark("emit: thread-locals + main wrapper");
   // Type-tag dispose dispatch switch.
-  emit_dispose_dispatch(base);
-  emit_sm_pools(base, ctx.uses_async);
+  emit_dispose_dispatch(&base);
+  emit_sm_pools(&base, ctx.uses_async);
   raise_codegen_error(exn);
   profile_memory_mark("emit: dispose dispatch");
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): assemble the
@@ -646,12 +646,12 @@ static Slice_uint8_t_u42_ __yo_args;
       );
     });
     asm2 := assemble_chunks(
-      base.emitter.headers,
-      base.emitter.declarations,
-      base.emitter.code,
-      base.chunk_fn_ranges,
-      base.chunk_header_ranges,
-      base.chunk_globals,
+      &base.emitter.headers,
+      &base.emitter.declarations,
+      &base.emitter.code,
+      &base.chunk_fn_ranges,
+      &base.chunk_header_ranges,
+      &base.chunk_globals,
       n_chunks,
       base.chunk_by_module,
       .Some(chunk_name_base.clone())
@@ -702,12 +702,12 @@ static Slice_uint8_t_u42_ __yo_args;
   while(prof_i < base.function_order.len(), {
     fid := match(base.function_order.get(prof_i), .Some(f) => f, .None => String.new());
     match(
-      base.get_function_entry(fid),
+      base.get_function_entry(&fid),
       .Some(fe) => {
         match(
           fe.value,
           .FuncVal(__fvd, _) => {
-            if(ast_expr_token(__fvd.*.body).module_path.contains(prof_std_key), {
+            if(ast_expr_token(&__fvd.*.body).module_path.contains(&prof_std_key), {
               prof_fn_std = (prof_fn_std + usize(1));
             });
           },

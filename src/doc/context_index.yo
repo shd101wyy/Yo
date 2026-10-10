@@ -134,7 +134,7 @@ _collect_index_files :: (
           full := Path.new(dir.clone()).join(Path.new(entry.name.clone())).to_string();
           match(
             entry.file_type,
-            .Directory => _collect_index_files(full, root, files, io, exn),
+            .Directory => _collect_index_files(&full, root, files, io, exn),
             .File => {
               if(entry.name.ends_with(String.from(".yo")) && !entry.name.ends_with(String.from(".test.yo")), {
                 files.push(full);
@@ -188,7 +188,7 @@ context_tree_key :: (
   fn(imm(root) : String, imm(prefix) : String, io : Io, imm(exn) : Exception) -> String
 )({
   files := ArrayList(String).new();
-  _collect_index_files(root.clone(), root.clone(), files, io, exn);
+  _collect_index_files(root.clone(), root.clone(), &files, io, exn);
   files.sort();
   corpus := `name ${context_corpus_name(root.clone(), prefix)}\nformat ${INDEX_FORMAT_VERSION}\nyo ${String.from(CURRENT_YO_VERSION)}\n`;
   (fi : usize) = usize(0);
@@ -196,9 +196,9 @@ context_tree_key :: (
     match(
       files.get(fi),
       .Some(file) => {
-        rel := Path.new(file).relative_to(Path.new(root)).to_string();
+        rel := Path.new(&file).relative_to(Path.new(root)).to_string();
         bytes := io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn));
-        corpus.push_string(`${rel} ${sha256_hex(bytes)}\n`);
+        corpus.push_string(`${rel} ${sha256_hex(&bytes)}\n`);
       },
       .None => ()
     );
@@ -243,7 +243,7 @@ _doc_first_line :: (fn(imm(doc) : Option(String)) -> String)(
           .Some(line) => {
             trimmed := line.trim();
             if(trimmed.len() > usize(0), {
-              return(_collapse_ws(trimmed));
+              return(_collapse_ws(&trimmed));
             });
           },
           .None => ()
@@ -296,7 +296,7 @@ context_index_ensure :: (
   key := context_tree_key(root.clone(), prefix.clone(), io, exn);
   idx_dir := context_index_dir(cache_root.clone(), key.clone());
   manifest := Path.new(idx_dir.clone()).join(Path.new(String.from("manifest.txt"))).to_string();
-  has_manifest := io.await(exists(Path.new(manifest.clone()), io), io);
+  has_manifest := io.await(exists(Path.new(manifest.clone()), io), &io);
   if(has_manifest && !refresh, {
     return(key);
   });
@@ -305,7 +305,7 @@ context_index_ensure :: (
   });
   eprintln(`Building the context index for ${root} (key ${key})...`);
   files := ArrayList(String).new();
-  _collect_index_files(root.clone(), root.clone(), files, io, exn);
+  _collect_index_files(root.clone(), root.clone(), &files, io, exn);
   files.sort();
   io.await(create_dir_all(Path.new(idx_dir.clone()).join(Path.new(String.from("modules"))), io), IoExn(io : io, exn : exn));
   std_path := resolve_std_path();
@@ -324,22 +324,22 @@ context_index_ensure :: (
           .None => (),
           .Some(d) => {
             m := d.doc_module;
-            entries := _module_entries(module.clone(), m);
+            entries := _module_entries(module.clone(), &m);
             // A barrel's re-exports come from its spread sources (which
             // carry the true origin); its own export labels would only add
             // originless duplicates. Any other module's export surface is
             // exactly what the label sweep is for.
             if(file.ends_with(String.from("/index.yo")), {
-              _mark_barrel_origins(module.clone(), file.clone(), root.clone(), prefix.clone(), entries, io, exn);
+              _mark_barrel_origins(module.clone(), file.clone(), root.clone(), prefix.clone(), &mut entries, io, exn);
             }, {
-              _export_label_entries(module.clone(), entries, d.export_labels, d.export_types);
+              _export_label_entries(module.clone(), &mut entries, &d.export_labels, &d.export_types);
             });
             (ei : usize) = usize(0);
             while(ei < entries.len(), {
               match(
                 entries.get(ei),
                 .Some(e) => {
-                  index_txt.push_string(_entry_line(e));
+                  index_txt.push_string(_entry_line(&e));
                   index_txt.push_str("\n");
                 },
                 .None => ()
@@ -352,10 +352,10 @@ context_index_ensure :: (
               desc = `${desc} (untyped)`;
             });
             modules_txt.push_string(`${module}\t${desc}\t${entries.len().to_string()}\t${cond(d.degraded => `degraded`, true => `ok`)}\n`);
-            md := render_module_md(m);
+            md := render_module_md(&m);
             md_dir := module_md_dir(idx_dir.clone(), module.clone());
             io.await(create_dir_all(Path.new(md_dir.clone()), io), IoExn(io : io, exn : exn));
-            io.await(write_string(Path.new(md_dir).join(Path.new(`${module_leaf(module)}.md`)), md, io), IoExn(io : io, exn : exn));
+            io.await(write_string(Path.new(&md_dir).join(Path.new(`${module_leaf(&module)}.md`)), &md, io), IoExn(io : io, exn : exn));
           }
         );
       },
@@ -364,12 +364,12 @@ context_index_ensure :: (
     fi = (fi + usize(1));
     eprintln(`  [${fi.to_string()}/${files.len().to_string()}] indexed`);
   });
-  io.await(write_string(Path.new(idx_dir.clone()).join(Path.new(String.from("index.txt"))), index_txt, io), IoExn(io : io, exn : exn));
-  io.await(write_string(Path.new(idx_dir.clone()).join(Path.new(String.from("modules.txt"))), modules_txt, io), IoExn(io : io, exn : exn));
+  io.await(write_string(Path.new(idx_dir.clone()).join(Path.new(String.from("index.txt"))), &index_txt, io), IoExn(io : io, exn : exn));
+  io.await(write_string(Path.new(idx_dir.clone()).join(Path.new(String.from("modules.txt"))), &modules_txt, io), IoExn(io : io, exn : exn));
   // No absolute path and no timestamp: identical inputs give byte-identical
   // caches (D3).
   manifest_txt := `format=${INDEX_FORMAT_VERSION}\nname=${context_corpus_name(root.clone(), prefix.clone())}\nkey=${key}\nfiles=${files.len().to_string()}\nyo=${String.from(CURRENT_YO_VERSION)}\n`;
-  io.await(write_string(Path.new(manifest.clone()), manifest_txt, io), IoExn(io : io, exn : exn));
+  io.await(write_string(Path.new(manifest.clone()), &manifest_txt, io), IoExn(io : io, exn : exn));
   if(degraded_count > usize(0), {
     eprintln(`Warning: ${degraded_count.to_string()} module(s) fell back to token-only docs (marked "(untyped)" in --list).`);
   });
@@ -503,7 +503,7 @@ module_md_dir :: (fn(imm(idx_dir) : String, imm(module) : String) -> String)({
     match(
       segs.get(i),
       .Some(seg) => {
-        dir = Path.new(dir).join(Path.new(seg.clone())).to_string();
+        dir = Path.new(&dir).join(Path.new(seg.clone())).to_string();
       },
       .None => ()
     );
@@ -570,8 +570,8 @@ _export_label_entries :: (
                 ContextIndexEntry(
                   module : module.clone(),
                   name : label.clone(),
-                  kind : _export_kind(tv),
-                  signature : _collapse_ws(type_to_string(tv)),
+                  kind : _export_kind(&tv),
+                  signature : _collapse_ws(type_to_string(&tv)),
                   doc : String.new(),
                   origin : String.new()
                 )
@@ -601,7 +601,7 @@ _significant_tokens :: (fn(imm(source) : String) -> ArrayList(Token))({
       }
     )
   );
-  all := tokenize(source, `<barrel>`, exn);
+  all := tokenize(source, `<barrel>`, &exn);
   out := ArrayList(Token).new();
   (i : usize) = usize(0);
   while(i < all.len(), {
@@ -655,7 +655,7 @@ _barrel_spreads :: (fn(imm(source) : String) -> ArrayList(Pair))({
               .Some(t4) => {
                 is_import := ((t0.kind == TokenKind.Identifier) && (t1.value == "::") && (t2.value == "import") && (t3.value == "(") && (t4.kind == TokenKind.StringLit));
                 if(is_import, {
-                  imports.push(Pair(first : t0.value, second : _unquote(t4.value)));
+                  imports.push(Pair(first : t0.value, second : _unquote(&t4.value)));
                 });
               },
               .None => ()
@@ -744,7 +744,7 @@ _mark_barrel_origins :: (
 )({
   bytes := io.await(read(Path.new(file_path.clone()), io), IoExn(io : io, exn : exn));
   source := String.from_bytes(bytes);
-  spreads := _barrel_spreads(source);
+  spreads := _barrel_spreads(&source);
   // The barrel's directory: everything up to the last `/`.
   fp := file_path.clone();
   (cut : usize) = fp.len();
@@ -761,11 +761,11 @@ _mark_barrel_origins :: (
     match(
       spreads.get(pi),
       .Some(p) => {
-        src_path := Path.new(dir).join(Path.new(p.second.clone())).normalize().to_string();
-        origin := context_module_name(src_path, root, prefix);
+        src_path := Path.new(&dir).join(Path.new(p.second.clone())).normalize().to_string();
+        origin := context_module_name(&src_path, root, prefix);
         // Names this spread source defines.
         defined := ArrayList(String).new();
-        outcome := mm_load_file(src_path, resolve_std_path(), false, io, exn);
+        outcome := mm_load_file(&src_path, resolve_std_path(), false, io, exn);
         if(outcome.ok, {
           match(
             outcome.module_type,
@@ -792,7 +792,7 @@ _mark_barrel_origins :: (
           match(
             entries.get(ei),
             .Some(e) => {
-              if((e.origin.len() == usize(0)) && defined.contains(e.name), {
+              if((e.origin.len() == usize(0)) && defined.contains(&e.name), {
                 // `e` borrows the element: write an owned copy back.
                 updated := e;
                 updated.origin = origin.clone();
@@ -830,7 +830,7 @@ context_index_load :: (
       lines.get(li),
       .Some(line) => {
         if(line.len() > usize(0), {
-          entries.push(_parse_entry(line));
+          entries.push(_parse_entry(&line));
         });
       },
       .None => ()

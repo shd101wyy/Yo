@@ -53,7 +53,7 @@ register_sm_captured_names :: (
             `var_${v.base.name}_${fnv1a64(v.base.decl_site.clone()).to_string()}`,
             false
           );
-          register_sm_local_field_name(v.base.id.to_string(), field);
+          register_sm_local_field_name(v.base.id.to_string(), &field);
         }),
         .Outer => ()
       ),
@@ -73,7 +73,7 @@ sm_local_field_name :: (fn(imm(variable_id) : String) -> String)(
     .None => {
       pre := String.from("var_");
       pre.push_string(variable_id);
-      sanitize_for_c_identifier(pre, false)
+      sanitize_for_c_identifier(&pre, false)
     }
   )
 );
@@ -130,7 +130,7 @@ sm_slot_of :: (
   // Through node `key`'s recorded scope (scope-exit release,
   // plans/CODEGEN_MEMORY_REDUCTION.md §6.1).
   vs := scope_variables(key, env, name);
-  match(vs.last(), .Some(v) => sm_slot_of_variable(v, smv, remap, aliases, capture_slot), .None => Option(String).None)
+  match(vs.last(), .Some(v) => sm_slot_of_variable(&v, smv, remap, aliases, capture_slot), .None => Option(String).None)
 });
 /// `sm_slot_of` for an already resolved binding. An outer (captured)
 /// variable's storage is its capture-struct field,

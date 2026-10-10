@@ -40,7 +40,7 @@ hmac :: (
   // K': hash an over-long key, then zero-pad to the block size.
   (k : ArrayList(u8)) = key;
   if(k.len() > block, {
-    k = (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).new(), k));
+    k = (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).new(), &k));
   });
   ikey := ArrayList(u8).with_capacity(block);
   okey := ArrayList(u8).with_capacity(block);
@@ -50,9 +50,9 @@ hmac :: (
     ikey.push(kb ^ u8(0x36));
     okey.push(kb ^ u8(0x5c));
   });
-  inner_h := (D <: Digest).update((D <: Digest).update((D <: Digest).new(), ikey), message);
-  inner := (D <: Digest).finish_bytes(inner_h);
-  (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).update((D <: Digest).new(), okey), inner))
+  inner_h := (D <: Digest).update((D <: Digest).update((D <: Digest).new(), &ikey), message);
+  inner := (D <: Digest).finish_bytes(&inner_h);
+  (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).update((D <: Digest).new(), &okey), &inner))
 });
 /// HMAC-SHA256.
 hmac_sha256 :: (fn(imm(key) : ArrayList(u8), imm(message) : ArrayList(u8)) -> ArrayList(u8))(

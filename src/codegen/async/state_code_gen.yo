@@ -63,7 +63,7 @@ is_io_future_type :: (fn(imm(ty) : TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < rts.len(), {
     rt := match(rts.get(i), .Some(t) => t, .None => TypeValue.Unit);
-    if(is_concrete_trait_type(rt), {
+    if(is_concrete_trait_type(&rt), {
       return(true);
     });
     i = (i + usize(1));
@@ -95,7 +95,7 @@ collect_branch_await_exprs :: (
   match(
     lookup_macro_expansion(ast_expr_id(expr)),
     .Some(me) => {
-      recur(me, out);
+      recur(&me, out);
       return(());
     },
     .None => ()
@@ -104,12 +104,12 @@ collect_branch_await_exprs :: (
     expr,
     .Atom(_, _) => (),
     .FnCall(_, f, args, _, _) => {
-      recur(f, out);
+      recur(&f, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => recur(a, out),
+          .Some(a) => recur(&a, out),
           .None => ()
         );
         i = (i + usize(1));
@@ -123,19 +123,19 @@ _await_future_expr_is_borrowed_place :: (fn(imm(e) : AstExpr) -> bool)({
   });
   e_args := match(e, .FnCall(_, _, __afp_a, _, _) => __afp_a, .Atom(_, _) => ArrayList(AstExpr).new());
   field := match(e_args.get(usize(1)), .Some(x) => x, .None => return(false));
-  if(!ast_expr_is_atom(field), {
+  if(!ast_expr_is_atom(&field), {
     return(false);
   });
   (root : AstExpr) = match(e_args.get(usize(0)), .Some(x) => x, .None => return(false));
-  while(ast_expr_is_fn_call_of(root, BF_DOT, Option(usize).Some(usize(2))), {
+  while(ast_expr_is_fn_call_of(&root, BF_DOT, Option(usize).Some(usize(2))), {
     r_args := match(root, .FnCall(_, _, __afp_ra, _, _) => __afp_ra, .Atom(_, _) => ArrayList(AstExpr).new());
     r_field := match(r_args.get(usize(1)), .Some(x) => x, .None => return(false));
-    if(!ast_expr_is_atom(r_field), {
+    if(!ast_expr_is_atom(&r_field), {
       return(false);
     });
     root = match(r_args.get(usize(0)), .Some(x) => x, .None => return(false));
   });
-  ast_expr_is_atom(root)
+  ast_expr_is_atom(&root)
 });
 emit_future_store_into_slot :: (
   fn(imm(future_expr) : AstExpr, imm(future_code) : String, imm(slot) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit

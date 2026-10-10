@@ -117,7 +117,7 @@ _adoptable_type_binding :: (fn(imm(env) : Environment, imm(name) : String) -> Op
   v := match(vars.get(n - usize(1)), .Some(x) => x, .None => return(Option(TypeValue).None));
   val := match(v.value.get(usize(0)), .Some(x) => x, .None => return(Option(TypeValue).None));
   ty := match(val, .TypeVal(t) => t, _ => return(Option(TypeValue).None));
-  match(type_decl_id(ty), .Some(_) => Option(TypeValue).Some(ty), .None => Option(TypeValue).None)
+  match(type_decl_id(&ty), .Some(_) => Option(TypeValue).Some(ty), .None => Option(TypeValue).None)
 });
 /// A `label : c_type("<C spelling>")` field — an opaque C type whose C name
 /// is not a Yo identifier (`struct stat`, `struct timespec`). `.Some(spelling)`
@@ -129,15 +129,15 @@ _c_type_field_spelling :: (fn(imm(arg) : AstExpr, imm(exn) : Exception) -> Optio
   });
   pair := match(arg, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   rhs := match(pair.get(usize(1)), .Some(r) => r, .None => arg);
-  if(!ast_expr_is_fn_call_of(rhs, "c_type", .None), {
+  if(!ast_expr_is_fn_call_of(&rhs, "c_type", .None), {
     return(Option(String).None);
   });
   cargs := match(rhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   spelling_atom := match(cargs.get(usize(0)), .Some(a) => a, .None => rhs);
-  raw := ast_expr_token(spelling_atom).value.clone();
+  raw := ast_expr_token(&spelling_atom).value.clone();
   rn := raw.len();
   (spelling : String) = if(
-    (cargs.len() == usize(1)) && ast_expr_is_atom(spelling_atom) && (rn >= usize(2)) && raw.starts_with(String.from("\"")),
+    (cargs.len() == usize(1)) && ast_expr_is_atom(&spelling_atom) && (rn >= usize(2)) && raw.starts_with(String.from("\"")),
     raw.substring(usize(1), rn - usize(1)),
     String.new()
   );
@@ -145,7 +145,7 @@ _c_type_field_spelling :: (fn(imm(arg) : AstExpr, imm(exn) : Exception) -> Optio
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(rhs),
+          ast_expr_token(&rhs),
           String.from("Expected `c_type(\"<C spelling>\")` with one string argument, such as:\n\n  stat_buf : c_type(\"struct stat\")")
         )
       )
@@ -199,7 +199,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   all_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   // First arg must be an atom (the C header file string literal, e.g. "<stdio.h>").
   first_arg_opt := all_args.get(usize(0));
-  if(!match(first_arg_opt, .Some(a) => ast_expr_is_atom(a), .None => false), {
+  if(!match(first_arg_opt, .Some(a) => ast_expr_is_atom(&a), .None => false), {
     exn.throw(
       dyn(
         format_error_message(
@@ -210,9 +210,9 @@ User code should normally call stdlib wrappers (e.g. functions in
     );
   });
   c_header_file_arg := match(first_arg_opt, .Some(a) => a, .None => expr);
-  evaluated_hdr := evaluate_expression_raw(c_header_file_arg, env, ctx, exn);
-  hdr_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_hdr));
-  hdr_info := match(hdr_info_opt, .Some(i) => i, .None => new_expr_info(env, t_unit()));
+  evaluated_hdr := evaluate_expression_raw(&c_header_file_arg, &env, ctx, exn);
+  hdr_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_hdr));
+  hdr_info := match(hdr_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
   env.frames = hdr_info.env.frames;
   env.module_path = hdr_info.env.module_path;
   env.function_declaration_frame_level = hdr_info.env.function_declaration_frame_level;
@@ -226,7 +226,7 @@ User code should normally call stdlib wrappers (e.g. functions in
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(c_header_file_arg),
+              ast_expr_token(&c_header_file_arg),
               `Expected string for C header file argument`
             )
           )
@@ -238,7 +238,7 @@ User code should normally call stdlib wrappers (e.g. functions in
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(c_header_file_arg),
+            ast_expr_token(&c_header_file_arg),
             `Failed to evaluate C header file argument`
           )
         )
@@ -284,19 +284,19 @@ User code should normally call stdlib wrappers (e.g. functions in
     // `label : c_type("struct stat")` is a `Type` field with an explicit C
     // spelling; it is not a type EXPRESSION, so it never reaches
     // evaluate_module_field.
-    c_type_spelling := _c_type_field_spelling(arg, exn);
+    c_type_spelling := _c_type_field_spelling(&arg, exn);
     result := match(
       c_type_spelling,
       .Some(_) => EvalModuleFieldResult(
         label : match(
           match(arg, .FnCall(_, _, pa, _, _) => pa.get(usize(0)), .Atom(_, _) => Option(AstExpr).None),
-          .Some(l) => ast_expr_token(l).value.clone(),
+          .Some(l) => ast_expr_token(&l).value.clone(),
           .None => String.new()
         ),
         field_type : t_type(),
         env : env
       ),
-      .None => evaluate_module_field(arg, field_idx, env, ctx, false, exn)
+      .None => evaluate_module_field(&arg, field_idx, &env, ctx, false, exn)
     );
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
@@ -310,18 +310,18 @@ User code should normally call stdlib wrappers (e.g. functions in
     });
     if(has_dup, {
       err_tok := if(
-        ast_expr_is_fn_call(arg),
+        ast_expr_is_fn_call(&arg),
         match(
           match(arg, .FnCall(_, _, a2, _, _) => a2, _ => ArrayList(AstExpr).new()).get(usize(0)),
-          .Some(fe) => ast_expr_token(fe),
-          .None => ast_expr_token(arg)
+          .Some(fe) => ast_expr_token(&fe),
+          .None => ast_expr_token(&arg)
         ),
-        ast_expr_token(arg)
+        ast_expr_token(&arg)
       );
       exn.throw(
         dyn(
           format_error_message(
-            err_tok,
+            &err_tok,
             `Duplicate label "${result.label}" in module`
           )
         )
@@ -404,11 +404,11 @@ User code should normally call stdlib wrappers (e.g. functions in
           // is registered under it so `*label` becomes `struct stat*`.
           c_spelling := match(c_type_spelling, .Some(s) => s, .None => result.label.clone());
           match(
-            _adoptable_type_binding(env, result.label.clone()),
+            _adoptable_type_binding(&env, result.label.clone()),
             .Some(existing_ty) => {
               register_adopted_extern_c_type(
-                match(type_decl_id(existing_ty), .Some(d) => d, .None => String.from("")),
-                c_spelling,
+                match(type_decl_id(&existing_ty), .Some(d) => d, .None => String.from("")),
+                &c_spelling,
                 c_header_file.clone()
               );
               EvalValue.TypeVal(existing_ty)
@@ -417,17 +417,17 @@ User code should normally call stdlib wrappers (e.g. functions in
             // Yo type is an extern-C OPAQUE type exactly like
             // `extern("Yo", X : Type)`: a nominal `ExternOpaqueT` named by its
             // C spelling (types/definitions.yo).
-            .None => EvalValue.TypeVal(t_extern_opaque(result.label.clone(), c_spelling))
+            .None => EvalValue.TypeVal(t_extern_opaque(result.label.clone(), &c_spelling))
           )
         },
-        true => create_unknown_val_with_name(result.field_type, result.label.clone())
+        true => create_unknown_val_with_name(&result.field_type, result.label.clone())
       ),
       _ => cond(
         // An extern FUNCTION keeps the plain unknown: codegen identifies a
         // c_include callee by exactly that value shape
         // (`_register_extern_fn_callee`'s "callee value present but not a
         // function value" arm).
-        is_function_type(field_ty_with_extern) => create_unknown_val_with_name(field_ty_with_extern, result.label.clone()),
+        is_function_type(&field_ty_with_extern) => create_unknown_val_with_name(&field_ty_with_extern, result.label.clone()),
         // An extern-C GLOBAL (`HUGE_VAL`, `M_PI`, `stdout`) is a C object the
         // compiler cannot read — it exists only at RUN time. Saying so is what
         // makes `X :: HUGE_VAL` hit the existing "Got runtime value. Please
@@ -435,26 +435,26 @@ User code should normally call stdlib wrappers (e.g. functions in
         // reads as a comptime value there, so the binding was accepted and
         // codegen then emitted a C name that was never declared.
         // See issues/c-include-global-accepted-by-comptime-binding.md.
-        true => create_runtime_unknown_val_with_name(field_ty_with_extern, result.label.clone())
+        true => create_runtime_unknown_val_with_name(&field_ty_with_extern, result.label.clone())
       )
     );
     field_vals.push(field_val);
     // Bind the field so the remaining field declarations can refer to it
     // (compile-time only, unknown value placeholder); removed below.
     _var_opt := add_variable_to_env(
-      env,
+      &env,
       result.label.clone(),
-      field_ty_with_extern,
+      &field_ty_with_extern,
       Option(EvalValue).Some(field_val),
       true,
       // is_compile_time_only
       false,
       // is_reassignable
-      type_contains_rc_type(field_ty_with_extern),
+      type_contains_rc_type(&field_ty_with_extern),
       // is_owning_the_rc_value
       false,
       // is_implicit
-      ast_expr_token(arg)
+      ast_expr_token(&arg)
     );
     // Mark this c_include symbol as an extern-C global so codegen keeps its REAL
     // C name (e.g. `stdout`) instead of the `__yo_c_reserved_` prefix.
@@ -468,7 +468,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   // Remove the field bindings again. A shrunk frame violates the name
   // index's append-only contract, so drop the index (the same idiom as
   // comptime_expect_error's frame restore and the pending-def reset).
-  frame_truncate_variables(scratch_frame, scratch_base);
+  frame_truncate_variables(&scratch_frame, scratch_base);
   // The module value: a source-namespace struct, exactly the shape an
   // `import(...)` produces (anonymous_module.yo), so destructuring, property
   // access and the glob all work unchanged. The id is `source_namespace_`-
@@ -497,12 +497,12 @@ User code should normally call stdlib wrappers (e.g. functions in
     // type_arguments
     true // is_source_namespace
   );
-  mod_info := new_expr_info(env, module_type);
+  mod_info := new_expr_info(&env, &module_type);
   mod_info.value = .Some(EvalValue.StructVal(sns_id, field_labels, field_vals));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), mod_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &mod_info);
   // Annotate callee (the "c_include" func node) with same info.
   callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), mod_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &mod_info);
   expr
 });
 export(evaluate_c_include);

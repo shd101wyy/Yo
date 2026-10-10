@@ -53,16 +53,16 @@ _last_is_compile_time_only :: (fn(key : ExprId, imm(env) : Environment, imm(name
 _lhs_root_binder :: (fn(imm(lhs) : AstExpr, imm(name) : String, imm(context) : FunctionGenerationContext) -> AstExpr)({
   (cur : AstExpr) = lhs;
   while(runtime(true), {
-    binds := match(context.base.get_expr_info(cur), .Some(ci) => match(ci.variable_name, .Some(vn) => (vn == name), .None => false), .None => false);
+    binds := match(context.base.get_expr_info(&cur), .Some(ci) => match(ci.variable_name, .Some(vn) => (vn == name), .None => false), .None => false);
     if(binds, {
       return(cur);
     });
     match(
       cur,
       .Atom(_, _) => {
-        return(if(ast_expr_token(cur).value == name, cur, lhs));
+        return(if(ast_expr_token(&cur).value == name, cur, lhs));
       },
-      .FnCall(_, callee, args, _, _) => if(ast_expr_is_fn_call_of(cur, BF_DOT, Option(usize).None), {
+      .FnCall(_, callee, args, _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).None), {
         cur = match(args.get(usize(0)), .Some(a0) => a0, .None => callee);
       }, {
         cur = callee;
@@ -75,33 +75,33 @@ _lhs_root_binder :: (fn(imm(lhs) : AstExpr, imm(name) : String, imm(context) : F
 generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("")));
   // Compile-time-only assignment (e.g. `p.* = v` where `p` is comptime).
-  if(match(expr_info_is_compile_time_only_assignment(ei), .Some(b) => b, .None => false), {
+  if(match(expr_info_is_compile_time_only_assignment(&ei), .Some(b) => b, .None => false), {
     return(String.from(""));
   });
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs0 := match(args.get(usize(0)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("assignment missing lhs"))));
   rhs := match(args.get(usize(1)), .Some(x) => x, .None => return(codegen_fatal_expr(String.from("assignment missing rhs"))));
   // `(lhs : T) = rhs` is an initialization; unwrap to the real lhs variable.
-  is_init := ast_expr_is_fn_call_of(lhs0, BK_COLON, Option(usize).Some(usize(2)));
+  is_init := ast_expr_is_fn_call_of(&lhs0, BK_COLON, Option(usize).Some(usize(2)));
   lhs := if(is_init, match(lhs0, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(x) => x, .None => lhs0), .Atom(_, _) => lhs0), lhs0);
   lhs_ei := match(
-    context.base.get_expr_info(lhs),
+    context.base.get_expr_info(&lhs),
     .Some(e) => e,
     // NOT fatal: the MISSING-ExprInfo class, which multi-pass emission
     // legitimately reaches (a comptime `while` unrolls its body once per
     // iteration and a discarded pass has no type info). Kept a comment,
     // not an error; the harmful case is the `__yo_user_main` gate in
     // codegen/functions/generation.yo.
-    .None => return(`// Error: No type information for left-hand side ${ast_expr_to_string(lhs)}`)
+    .None => return(`// Error: No type information for left-hand side ${ast_expr_to_string(&lhs)}`)
   );
   // Module-level globals are declared in the main wrapper — skip here.
-  if(is_init && ast_expr_is_atom(lhs), {
-    if(_last_is_module_level(ast_expr_id(lhs), lhs_ei.env, ast_expr_token(lhs).value), {
+  if(is_init && ast_expr_is_atom(&lhs), {
+    if(_last_is_module_level(ast_expr_id(&lhs), &lhs_ei.env, ast_expr_token(&lhs).value), {
       return(String.from(""));
     });
   });
   // Compile-time variable.
-  if(ast_expr_is_fn_call_of(lhs, BK_COMPTIME, Option(usize).None), {
+  if(ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, Option(usize).None), {
     return(String.from(""));
   });
   // LHS is a field/index write whose base variable is compile-time.
@@ -112,7 +112,7 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
       .Some(path) => if(path.len() >= usize(2), {
         match(
           path.get(usize(0)),
-          .Some(base_var) => if(_last_is_compile_time_only(ast_expr_id(_lhs_root_binder(lhs, base_var.clone(), context)), lhs_ei.env, base_var.clone()), {
+          .Some(base_var) => if(_last_is_compile_time_only(ast_expr_id(_lhs_root_binder(&lhs, base_var.clone(), context)), &lhs_ei.env, base_var.clone()), {
             return(String.from(""));
           }),
           .None => ()
@@ -122,8 +122,8 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
     );
   });
   // LHS is a simple comptime variable name.
-  if(ast_expr_is_atom(lhs), {
-    if(_last_is_compile_time_only(ast_expr_id(lhs), lhs_ei.env, ast_expr_token(lhs).value), {
+  if(ast_expr_is_atom(&lhs), {
+    if(_last_is_compile_time_only(ast_expr_id(&lhs), &lhs_ei.env, ast_expr_token(&lhs).value), {
       return(String.from(""));
     });
   });
@@ -132,7 +132,7 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
   // one nested in its operands.
   save_by_bytes := context.consume_assignment_saves_by_bytes;
   context.consume_assignment_saves_by_bytes = false;
-  lhs_code := _call_generate_expr(lhs, indent.clone(), context);
+  lhs_code := _call_generate_expr(&lhs, indent.clone(), context);
   em := context.base.emitter;
   // In a state machine the save is written AFTER the RHS, right before the
   // store: the RHS may suspend, and an abort there disposes every non-null
@@ -147,9 +147,9 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
       in_sm := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
       if(
         !in_sm,
-        if(!is_unit_type(lhs_type), {
+        if(!is_unit_type(&lhs_type), {
           save := indent.clone();
-          save.push_string(get_variable_type_string(lhs_type, temp_var_name.clone(), context.base));
+          save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
           if(save_by_bytes, {
             // `consume(p.* = v)`: copy the bytes, never a typed load of a slot
             // that may be uninitialized (see consume_assignment_saves_by_bytes).
@@ -165,7 +165,7 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
             save.push_string(lhs_code.clone());
             save.push_str("; // Save old value for later use");
           });
-          em.emit_string_line(save);
+          em.emit_string_line(&save);
         }),
         // The LHS is an sm-> slot. When the old-value temp was itself lowered
         // into the
@@ -174,7 +174,7 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
         // same-state), a plain LOCAL temp is the correct home. This branch
         // previously emitted NOTHING, so the deferred drop either dropped
         // calloc zero (silent leak) or referenced an undeclared temp.
-        if(!is_unit_type(lhs_type), {
+        if(!is_unit_type(&lhs_type), {
           (sm_field : Option(String)) = Option(String).None;
           match(
             context.state_machine_variables,
@@ -217,7 +217,7 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
             sm_field,
             .Some(fld) => {
               save_sm.push_str("sm->");
-              save_sm.push_string(fld);
+              save_sm.push_string(&fld);
               save_sm.push_str(" = ");
               save_sm.push_string(lhs_code.clone());
               save_sm.push_str("; // Save old value for deferred drop");
@@ -225,10 +225,10 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
               // scope-end drop of an undeclared minted temp is skipped, which
               // leaked the old value of every such reassignment
               // (issues/fixed/reassigned-heap-local-in-an-arm-after-a-loop-await-leaks.md).
-              declare_c_var_name(context.base, temp_var_name.clone());
+              declare_c_var_name(&context.base, temp_var_name.clone());
             },
             .None => {
-              save_sm.push_string(get_variable_type_string(lhs_type, temp_var_name.clone(), context.base));
+              save_sm.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
               save_sm.push_str(" = ");
               save_sm.push_string(lhs_code.clone());
               save_sm.push_str("; // Save old value for later use (not an sm-> slot)");
@@ -255,35 +255,35 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
     .None => ()
   );
   // Array assignment uses direct struct copy; everything else is scalar.
-  if(is_array_type(lhs_type), {
-    rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
+  if(is_array_type(&lhs_type), {
+    rhs_code := emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context);
     // Same FTT degrade as the scalar arm below.
     if(rhs_code.starts_with("// Failed to transpile"), {
       ftl := indent.clone();
-      ftl.push_string(rhs_code);
-      em.emit_string_line(ftl);
+      ftl.push_string(&rhs_code);
+      em.emit_string_line(&ftl);
       context.current_assignment_save_temp = prev_save_temp;
-      return(match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(v, false), .None => String.from("")));
+      return(match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
     });
-    match(sm_save_line, .Some(sl) => em.emit_string_line(sl), .None => ());
+    match(sm_save_line, .Some(sl) => em.emit_string_line(&sl), .None => ());
     if(is_init, {
-      vt := get_variable_type_string(lhs_type, _call_generate_expr(lhs, indent.clone(), context), context.base);
+      vt := get_variable_type_string(&lhs_type, _call_generate_expr(&lhs, indent.clone(), context), &context.base);
       line := indent.clone();
-      line.push_string(vt);
+      line.push_string(&vt);
       line.push_str(" = ");
-      line.push_string(rhs_code);
+      line.push_string(&rhs_code);
       line.push_str(";");
-      em.emit_string_line(line);
+      em.emit_string_line(&line);
     }, {
       line := indent.clone();
       line.push_string(lhs_code.clone());
       line.push_str(" = ");
-      line.push_string(rhs_code);
+      line.push_string(&rhs_code);
       line.push_str(";");
-      em.emit_string_line(line);
+      em.emit_string_line(&line);
     });
   }, {
-    rhs_code := emit_deferred_dup_or_code(rhs, _call_generate_expr(rhs, indent.clone(), context), indent.clone(), context);
+    rhs_code := emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context);
     // DEGRADED assignment when the RHS render failed to transpile: splicing
     // the comment into `<type> <name> = <comment>;` breaks the C
     // ("unexpected type name", the c03 dyn(rc(closure)) shape). Same
@@ -291,18 +291,18 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
     // as the comment.
     if(rhs_code.starts_with("// Failed to transpile"), {
       ftl := indent.clone();
-      ftl.push_string(rhs_code);
-      em.emit_string_line(ftl);
+      ftl.push_string(&rhs_code);
+      em.emit_string_line(&ftl);
       context.current_assignment_save_temp = prev_save_temp;
-      return(match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(v, false), .None => String.from("")));
+      return(match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from("")));
     });
-    match(sm_save_line, .Some(sl) => em.emit_string_line(sl), .None => ());
-    if(!is_unit_type(lhs_type), {
-      c_type_string := get_type_string(lhs_type, context.base);
+    match(sm_save_line, .Some(sl) => em.emit_string_line(&sl), .None => ());
+    if(!is_unit_type(&lhs_type), {
+      c_type_string := get_type_string(&lhs_type, &context.base);
       is_sm_var := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
       line := indent.clone();
       if(is_init && !is_sm_var, {
-        line.push_string(c_type_string);
+        line.push_string(&c_type_string);
         line.push_str(" ");
       });
       line.push_string(lhs_code.clone());
@@ -310,10 +310,10 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
       // An `Impl(Future(T, E))` place is the type-erased future interface:
       // a concrete future stored into it is upcast, as at a constructor
       // (`_future_field_upcast`, other_fn_call.yo).
-      is_future_iface := (type_implements_future(lhs_type) && c_type_string.ends_with("*"));
+      is_future_iface := (type_implements_future(&lhs_type) && c_type_string.ends_with("*"));
       line.push_string(if(is_future_iface, `((${c_type_string})(${rhs_code}))`, rhs_code));
       line.push_str(";");
-      em.emit_string_line(line);
+      em.emit_string_line(&line);
       // The slot owns its new value: clear a move out of the old one.
       if(is_sm_var, match(sm_move_flag_of(lhs_code.clone()), .Some(flag) => em.emit_string_line(`${indent.clone()}${flag} = 0;`), .None => ()));
     });
@@ -325,9 +325,9 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
   // gone.
   match(
     lookup_immediate_old_value_drop(ast_expr_id(expr)),
-    .Some(drop_expr) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(drop_expr)), {
-      context.emitted_deferred_drop_ids.insert(ast_expr_id(drop_expr));
-      drop_code := _call_generate_expr(drop_expr, indent.clone(), context);
+    .Some(drop_expr) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)), {
+      context.emitted_deferred_drop_ids.insert(ast_expr_id(&drop_expr));
+      drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
       if(drop_code.len() > usize(0), {
         em.emit_string_line(`${indent.clone()}${drop_code};`);
       });
@@ -335,6 +335,6 @@ generate_assignment :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
     }),
     .None => ()
   );
-  match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(v, false), .None => String.from(""))
+  match(ei.variable_name, .Some(v) => sanitize_for_c_identifier(&v, false), .None => String.from(""))
 });
 export(generate_assignment);

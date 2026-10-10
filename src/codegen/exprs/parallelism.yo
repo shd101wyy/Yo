@@ -51,7 +51,7 @@ _capture_type_c_name :: (fn(imm(capture_type) : TypeValue, imm(context) : Functi
   while(go, {
     match(
       vals.next(),
-      .Some(entry) => if(type_key(entry.ty) == target_key, {
+      .Some(entry) => if(type_key(&entry.ty) == target_key, {
         found = Option(String).Some(entry.c_name.clone());
         go = false;
       }),
@@ -66,7 +66,7 @@ _capture_type_c_name :: (fn(imm(capture_type) : TypeValue, imm(context) : Functi
     .None => {
       cap_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
       o := String.from("async_capture_");
-      o.push_string(cap_id);
+      o.push_string(&cap_id);
       o
     }
   )
@@ -76,11 +76,11 @@ _closure_fn_c_name :: (fn(imm(cb_ei_value) : Option(EvalValue), imm(cb_closure_f
   fv_opt := match(
     cb_closure_fn_val,
     .Some(fv) => Option(EvalValue).Some(fv),
-    .None => match(cb_ei_value, .Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+    .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   match(
     fv_opt,
-    .Some(fv) => match(fv, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None),
+    .Some(fv) => match(fv, .FuncVal(__fvd1, _) => match(context.base.get_function_entry(&__fvd1.*.func_id), .Some(e) => Option(String).Some(e.c_name), .None => Option(String).None), _ => Option(String).None),
     .None => Option(String).None
   )
 });
@@ -89,7 +89,7 @@ _closure_fid :: (fn(imm(cb_ei_value) : Option(EvalValue), imm(cb_closure_fn_val)
   fv_opt := match(
     cb_closure_fn_val,
     .Some(fv) => Option(EvalValue).Some(fv),
-    .None => match(cb_ei_value, .Some(v) => if(is_func_val(v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
+    .None => match(cb_ei_value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
   match(fv_opt, .Some(fv) => match(fv, .FuncVal(__fvd2, _) => __fvd2.*.func_id, _ => String.new()), .None => String.new())
 });
@@ -109,7 +109,7 @@ _closure_runtime_arg_zeroinits :: (fn(imm(closure_fid) : String, imm(context) : 
           pts.get(i),
           .Some(pt) => {
             out.push_str(", (");
-            out.push_string(get_type_string(pt, context.base));
+            out.push_string(get_type_string(&pt, &context.base));
             out.push_str("){0}");
           },
           .None => ()
@@ -149,23 +149,23 @@ _emit_capture_dispose_lines :: (
   });
   concrete := resolve_enum_shell(resolve_struct_shell(resolve_some_type_to_concrete(ty)));
   // The RC walk owns every subtree that contains an RC reference.
-  if(type_contains_rc_cell_or_move_only(concrete), {
+  if(type_contains_rc_cell_or_move_only(&concrete), {
     return();
   });
   // Plain data only: no move-only value inside.
-  if(!type_is_move_only(concrete), {
+  if(!type_is_move_only(&concrete), {
     return();
   });
   em := context.base.emitter;
-  if(is_value_nominal_type(concrete), {
+  if(is_value_nominal_type(&concrete), {
     match(
-      get_dispose_function_for_type(concrete, context),
+      get_dispose_function_for_type(&concrete, context),
       .Some(df) => {
         line := df;
         line.push_str("(");
         line.push_string(ref_code.clone());
         line.push_str(");");
-        em.emit_string_line(line);
+        em.emit_string_line(&line);
         return();
       },
       .None => ()
@@ -178,17 +178,17 @@ _emit_capture_dispose_lines :: (
     // A newtype is a transparent typedef to its single field: recurse on the
     // inner type with the SAME ref (no `._f` member exists at the C ABI).
     .Struct({ id : _ }) => {
-      if(is_newtype_type(concrete), {
+      if(is_newtype_type(&concrete), {
         // A newtype is a transparent typedef to its single field: recurse on
         // the inner type with the SAME ref (no  member at the C ABI).
-        nt_fields := get_runtime_struct_fields(concrete);
+        nt_fields := get_runtime_struct_fields(&concrete);
         match(
           nt_fields.get(usize(0)),
-          .Some(nt_f) => _emit_capture_dispose_lines(ref_code.clone(), nt_f.ty, context, depth + u32(1)),
+          .Some(nt_f) => _emit_capture_dispose_lines(ref_code.clone(), &nt_f.ty, context, depth + u32(1)),
           .None => ()
         );
       }, {
-        ds_fields := get_runtime_struct_fields(concrete);
+        ds_fields := get_runtime_struct_fields(&concrete);
         (ds_i : usize) = usize(0);
         while(ds_i < ds_fields.len(), {
           match(
@@ -198,7 +198,7 @@ _emit_capture_dispose_lines :: (
               ds_ref.push_string(ref_code.clone());
               ds_ref.push_str(").");
               ds_ref.push_string(sanitize_for_c_identifier(ds_f.label.clone(), false));
-              _emit_capture_dispose_lines(ds_ref, ds_f.ty, context, depth + u32(1));
+              _emit_capture_dispose_lines(&ds_ref, &ds_f.ty, context, depth + u32(1));
             },
             .None => ()
           );
@@ -216,7 +216,7 @@ _emit_capture_dispose_lines :: (
             dt_ref.push_string(ref_code.clone());
             dt_ref.push_str(")._");
             dt_ref.push_string(dt_i.to_string());
-            _emit_capture_dispose_lines(dt_ref, dt_ft, context, depth + u32(1));
+            _emit_capture_dispose_lines(&dt_ref, &dt_ft, context, depth + u32(1));
           },
           .None => ()
         );
@@ -225,7 +225,7 @@ _emit_capture_dispose_lines :: (
     },
     .Array(element : ds_elem, length : ds_len, length_var : ds_lv) => {
       if((ds_lv.len() == usize(0)) && (ds_len > usize(0)), {
-        ds_loop := fresh_local_name(String.from("i_"), context.base.current_function_name);
+        ds_loop := fresh_local_name(String.from("i_"), &context.base.current_function_name);
         ds_hdr := String.from("for (size_t ");
         ds_hdr.push_string(ds_loop.clone());
         ds_hdr.push_str(" = 0; ");
@@ -235,13 +235,13 @@ _emit_capture_dispose_lines :: (
         ds_hdr.push_str("; ");
         ds_hdr.push_string(ds_loop.clone());
         ds_hdr.push_str("++) {");
-        em.emit_string_line(ds_hdr);
+        em.emit_string_line(&ds_hdr);
         ds_eref := String.from("(");
         ds_eref.push_string(ref_code.clone());
         ds_eref.push_str(").data[");
         ds_eref.push_string(ds_loop.clone());
         ds_eref.push_str("]");
-        _emit_capture_dispose_lines(ds_eref, ds_elem, context, depth + u32(1));
+        _emit_capture_dispose_lines(&ds_eref, &ds_elem, context, depth + u32(1));
         em.emit_string_line(String.from("}"));
       });
     },
@@ -251,10 +251,10 @@ _emit_capture_dispose_lines :: (
     // same non-NULL check its drop uses.
     .EnumT({ variant_names : ds_vns, variant_fields : ds_vfs, variant_field_labels : ds_vls }) => {
       match(
-        can_optimize_as_nullable_pointer(concrete),
+        can_optimize_as_nullable_pointer(&concrete),
         .Some(nb_inner) => {
           em.emit_string_line(`if ((${ref_code.clone()}) != NULL) {`);
-          _emit_capture_dispose_lines(ref_code.clone(), nb_inner, context, depth + u32(1));
+          _emit_capture_dispose_lines(ref_code.clone(), &nb_inner, context, depth + u32(1));
           em.emit_string_line(String.from("}"));
         },
         .None => {
@@ -269,7 +269,7 @@ _emit_capture_dispose_lines :: (
             while(dv_j < dv_fields.len(), {
               match(
                 dv_fields.get(dv_j),
-                .Some(dv_ft) => if(type_is_move_only(dv_ft) && !type_contains_rc_cell_or_move_only(dv_ft), {
+                .Some(dv_ft) => if(type_is_move_only(&dv_ft) && !type_contains_rc_cell_or_move_only(&dv_ft), {
                   dv_has = true;
                 }),
                 .None => ()
@@ -277,13 +277,13 @@ _emit_capture_dispose_lines :: (
               dv_j = (dv_j + usize(1));
             });
             if(dv_has, {
-              dv_tag := get_enum_variant_c_name(concrete, dv_name.clone(), context.base);
+              dv_tag := get_enum_variant_c_name(&concrete, dv_name.clone(), &context.base);
               em.emit_string_line(`  case ${dv_tag}: {`);
               (dv_k : usize) = usize(0);
               while(dv_k < dv_fields.len(), {
                 match(
                   dv_fields.get(dv_k),
-                  .Some(dv_ft) => if(type_is_move_only(dv_ft) && !type_contains_rc_cell_or_move_only(dv_ft), {
+                  .Some(dv_ft) => if(type_is_move_only(&dv_ft) && !type_contains_rc_cell_or_move_only(&dv_ft), {
                     dv_label := match(dv_labels.get(dv_k), .Some(l) => l, .None => String.new());
                     dv_fname := sanitize_for_c_identifier(dv_label.clone(), false);
                     dv_access := String.from("(");
@@ -291,8 +291,8 @@ _emit_capture_dispose_lines :: (
                     dv_access.push_str(").data.");
                     dv_access.push_string(c_variant_member_name(dv_name.clone()));
                     dv_access.push_str(".");
-                    dv_access.push_string(dv_fname);
-                    _emit_capture_dispose_lines(dv_access, dv_ft, context, depth + u32(1));
+                    dv_access.push_string(&dv_fname);
+                    _emit_capture_dispose_lines(&dv_access, &dv_ft, context, depth + u32(1));
                   }),
                   .None => ()
                 );
@@ -368,21 +368,21 @@ _emit_capture_drop_lines :: (
     match(
       cd_fields.get(cd_i),
       .Some(cd_f) => {
-        cd_ty := resolve_some_type_to_concrete(cd_f.ty);
+        cd_ty := resolve_some_type_to_concrete(&cd_f.ty);
         cd_ref := String.from("(");
         cd_ref.push_string(target.clone());
         cd_ref.push_str(").");
         cd_ref.push_string(sanitize_for_c_identifier(cd_f.label.clone(), false));
-        if(type_contains_rc_cell_or_move_only(cd_ty), {
-          cd_line := generate_drop_code_for_value(cd_ref.clone(), cd_ty, context);
+        if(type_contains_rc_cell_or_move_only(&cd_ty), {
+          cd_line := generate_drop_code_for_value(cd_ref.clone(), &cd_ty, context);
           if(cd_line.len() > usize(0), {
             cd_line.push_str(";");
-            em.emit_string_line(cd_line);
+            em.emit_string_line(&cd_line);
           });
         });
         // The move-only content of a field the RC walk cannot see (see
         // `_emit_capture_dispose_lines`): the heap copy OWNS it now.
-        _emit_capture_dispose_lines(cd_ref, cd_f.ty, context, u32(0));
+        _emit_capture_dispose_lines(&cd_ref, &cd_f.ty, context, u32(0));
       },
       .None => ()
     );
@@ -406,7 +406,7 @@ _emit_capture_drop_lines :: (
       if(pi > start, {
         line := String.from("  ");
         line.push_string(produced.substring(start, pi));
-        em.emit_declaration_string_line(line);
+        em.emit_declaration_string_line(&line);
       });
       start = (pi + usize(1));
     });
@@ -416,9 +416,9 @@ _emit_capture_drop_lines :: (
   // the RETURN value rather than an emitted line.
   if(tail.len() > usize(0), {
     line := String.from("  ");
-    line.push_string(tail);
+    line.push_string(&tail);
     line.push_str(";");
-    em.emit_declaration_string_line(line);
+    em.emit_declaration_string_line(&line);
   });
 });
 /// Emit a spawn-wrapper function (RC cleanup for the heap-copied capture struct)
@@ -438,7 +438,7 @@ _generate_spawn_wrapper :: (fn(imm(closure_fn_c_name) : String, imm(capture_stru
   open_line := String.from("static void ");
   open_line.push_string(wrapper_name.clone());
   open_line.push_str("(void* closure) {");
-  em.emit_declaration_string_line(open_line);
+  em.emit_declaration_string_line(&open_line);
   // Step 1: call the closure with the closure-context pointer + runtime-param
   // zero-inits.
   call_line := String.from("  ");
@@ -446,7 +446,7 @@ _generate_spawn_wrapper :: (fn(imm(closure_fn_c_name) : String, imm(capture_stru
   call_line.push_str("(closure");
   call_line.push_string(runtime_args);
   call_line.push_str(");");
-  em.emit_declaration_string_line(call_line);
+  em.emit_declaration_string_line(&call_line);
   // Step 2-3: drop the capture struct (releases the thread's RC refs), free it.
   // (consumed-capture NULLing omitted — see module doc.) A closure typed
   // `FnOnce(...)` with a capture list owns its by-value captures
@@ -462,11 +462,11 @@ _generate_spawn_wrapper :: (fn(imm(closure_fn_c_name) : String, imm(capture_stru
     get_drop_function_for_type(capture_type, context),
     .Some(drop_fn) => {
       drop_line := String.from("  ");
-      drop_line.push_string(drop_fn);
+      drop_line.push_string(&drop_fn);
       drop_line.push_str("(*(");
       drop_line.push_string(capture_struct_c_name.clone());
       drop_line.push_str("*)closure);");
-      em.emit_declaration_string_line(drop_line);
+      em.emit_declaration_string_line(&drop_line);
     },
     // No synthesized `___drop` — walk the fields instead. Taking this arm as a
     // no-op is what leaked every spawned closure's captures.
@@ -474,7 +474,7 @@ _generate_spawn_wrapper :: (fn(imm(closure_fn_c_name) : String, imm(capture_stru
       target := String.from("*(");
       target.push_string(capture_struct_c_name.clone());
       target.push_str("*)closure");
-      _emit_capture_drop_lines(target, capture_type, context);
+      _emit_capture_drop_lines(&target, capture_type, context);
     }
   );
   em.emit_declaration_string_line(String.from("  __yo_free(closure);"));
@@ -491,7 +491,7 @@ _generate_spawn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(conte
     .Some(ra) => if(ra.len() == usize(1), match(ra.get(usize(0)), .Some(c) => c, .None => return(Option(String).None)), return(Option(String).None)),
     .None => return(Option(String).None)
   );
-  cei := match(context.base.get_expr_info(cb), .Some(e) => e, .None => return(Option(String).None));
+  cei := match(context.base.get_expr_info(&cb), .Some(e) => e, .None => return(Option(String).None));
   // `cb` is either a closure literal (cei.capture_type set) OR — inside a
   // SPECIALIZED Thread.spawn body — the lowered capture-struct PARAM (cei.ty IS
   // the capture struct, registered in impl_closure_call_map by the closure
@@ -501,7 +501,7 @@ _generate_spawn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(conte
   // the param was bound to (callable) — resolve it to the concrete capture struct
   // (via the value's own resolution) so the map key matches what the construction /
   // pre-pass registered (the capture-struct id, not the SomeT id).
-  capture_type := resolve_some_type_to_concrete(match(expr_info_capture_type(cei), .Some(c) => c, .None => cei.ty));
+  capture_type := resolve_some_type_to_concrete(match(expr_info_capture_type(&cei), .Some(c) => c, .None => cei.ty));
   // The impl_closure_call_map is keyed by the BARE capture-struct id at every
   // set site (closures.yo — capture-struct sids are unique per closure), NOT
   // by type_key: type_key of a cfid-empty struct with field types is now
@@ -512,28 +512,28 @@ _generate_spawn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(conte
     .SomeT({ id : cb_sid }) => cb_sid,
     _ => type_key(capture_type.clone())
   );
-  mapped_opt := context.base.impl_closure_call_map.get(cb_map_key);
+  mapped_opt := context.base.impl_closure_call_map.get(&cb_map_key);
   capture_c_name := _capture_type_c_name(capture_type.clone(), context);
   closure_fn := match(
-    _closure_fn_c_name(cei.value, expr_info_closure_function_value(cei), context),
+    _closure_fn_c_name(&cei.value, expr_info_closure_function_value(&cei), context),
     .Some(n) => n,
     .None => match(mapped_opt, .Some(m) => m.function_c_name, .None => return(Option(String).Some(String.from("/* Error: spawn cb has no closure function */"))))
   );
-  closure_fid_direct := _closure_fid(cei.value, expr_info_closure_function_value(cei));
+  closure_fid_direct := _closure_fid(&cei.value, expr_info_closure_function_value(&cei));
   closure_fid := if(
     closure_fid_direct.len() > usize(0),
     closure_fid_direct,
     match(mapped_opt, .Some(m) => m.closure_fid, .None => String.from(""))
   );
-  runtime_args := _closure_runtime_arg_zeroinits(closure_fid, context);
-  wrapper := _generate_spawn_wrapper(closure_fn, capture_c_name.clone(), capture_type, runtime_args, is_fnonce_closure_fn(closure_fid), context);
+  runtime_args := _closure_runtime_arg_zeroinits(&closure_fid, context);
+  wrapper := _generate_spawn_wrapper(&closure_fn, capture_c_name.clone(), &capture_type, &runtime_args, is_fnonce_closure_fn(&closure_fid), context);
   // The capture-struct VALUE (the cb arg's variable, or its generated code).
-  cb_code := _call_generate_expr(cb, indent.clone(), context);
-  cb_var := match(cei.variable_name, .Some(vn) => get_variable_name_for_codegen_at(ast_expr_id(cb), vn, Option(Environment).Some(cei.env)), .None => cb_code);
+  cb_code := _call_generate_expr(&cb, indent.clone(), context);
+  cb_var := match(cei.variable_name, .Some(vn) => get_variable_name_for_codegen_at(ast_expr_id(&cb), &vn, Option(Environment).Some(cei.env)), .None => cb_code);
   em := context.base.emitter;
   heap_var := fresh_local_name(
     String.from(if(is_worker, "_worker_closure_data_", "_thread_closure_data_")),
-    context.base.current_function_name
+    &context.base.current_function_name
   );
   // <capCName>* <heapVar> = (<capCName>*)__yo_malloc(sizeof(<capCName>));
   alloc_line := indent.clone();
@@ -545,15 +545,15 @@ _generate_spawn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(conte
   alloc_line.push_str("*)__yo_rc_alloc(sizeof(");
   alloc_line.push_string(capture_c_name.clone());
   alloc_line.push_str("));");
-  em.emit_string_line(alloc_line);
+  em.emit_string_line(&alloc_line);
   // *<heapVar> = <cbVar>;
   copy_line := indent.clone();
   copy_line.push_str("*");
   copy_line.push_string(heap_var.clone());
   copy_line.push_str(" = ");
-  copy_line.push_string(cb_var);
+  copy_line.push_string(&cb_var);
   copy_line.push_str(";");
-  em.emit_string_line(copy_line);
+  em.emit_string_line(&copy_line);
   // NO dup of the heap copy: the spawn primitives take the closure OWN
   // (`own(cb)` on the `__yo_thread_spawn` / `__yo_worker_spawn` externs), so
   // the call-site capture struct's references TRANSFER to the heap copy —
@@ -568,28 +568,28 @@ _generate_spawn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(conte
     // __yo_worker_spawn returns void (unit).
     ws := indent.clone();
     ws.push_str("__yo_worker_spawn(");
-    ws.push_string(wrapper);
+    ws.push_string(&wrapper);
     ws.push_str(", ");
-    ws.push_string(heap_var);
+    ws.push_string(&heap_var);
     ws.push_str(");");
-    em.emit_string_line(ws);
+    em.emit_string_line(&ws);
     Option(String).Some(String.from(""))
   }, {
     // __yo_thread_t <tv> = __yo_thread_spawn(<wrapper>, <heapVar>);
     tv := match(
       ei.variable_name,
       .Some(v) => v,
-      .None => fresh_local_name(String.from("_thr_"), context.base.current_function_name)
+      .None => fresh_local_name(String.from("_thr_"), &context.base.current_function_name)
     );
     ts := indent.clone();
     ts.push_str("__yo_thread_t ");
     ts.push_string(tv.clone());
     ts.push_str(" = __yo_thread_spawn(");
-    ts.push_string(wrapper);
+    ts.push_string(&wrapper);
     ts.push_str(", ");
-    ts.push_string(heap_var);
+    ts.push_string(&heap_var);
     ts.push_str(");");
-    em.emit_string_line(ts);
+    em.emit_string_line(&ts);
     Option(String).Some(tv)
   })
 });

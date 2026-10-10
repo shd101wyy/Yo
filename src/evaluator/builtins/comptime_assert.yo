@@ -50,8 +50,8 @@ _throw_assert_failed :: (
   err_msg := match(
     msg_expr_opt,
     .Some(msg_expr) => {
-      eval_msg := evaluate_expression_raw(msg_expr, env, ctx, exn);
-      msg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_msg));
+      eval_msg := evaluate_expression_raw(&msg_expr, env, ctx, exn);
+      msg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_msg));
       match(
         msg_info_opt,
         .Some(mi) => match(
@@ -62,7 +62,7 @@ _throw_assert_failed :: (
               rn := raw.len();
               raw.substring(usize(1), rn - usize(1))
             },
-            _ => value_to_string(mv)
+            _ => value_to_string(&mv)
           ),
           .None => String.from("")
         ),
@@ -72,7 +72,7 @@ _throw_assert_failed :: (
     .None => String.from("")
   );
   if(err_msg.len() > usize(0), {
-    exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg)));
+    exn.throw(dyn(format_error_message(ast_expr_token(expr), &err_msg)));
   }, {
     exn.throw(
       dyn(
@@ -113,17 +113,17 @@ evaluate_comptime_assert :: (
         // `evaluate_expression` made a malformed condition inside a function
         // body pass validation silently — Phase 6 site #16 residue); a def-time
         // trial around the body decides what to raise.
-        evaluated_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
-        arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+        evaluated_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
+        arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
         match(
           arg_info_opt,
           .Some(ai) => {
-            if(!is_bool_type(ai.ty) && !is_unknown_val(match(ai.value, .Some(v) => v, .None => EvalValue.UnitVal)), {
+            if(!is_bool_type(&ai.ty) && !is_unknown_val(match(ai.value, .Some(v) => v, .None => EvalValue.UnitVal)), {
               exn.throw(
                 dyn(
                   format_error_message(
-                    ast_expr_token(arg_expr),
-                    `Expected bool expression for "comptime_assert", got:\n${ast_expr_to_string(arg_expr)}\n\nType:\n${String.from("unknown")}`
+                    ast_expr_token(&arg_expr),
+                    `Expected bool expression for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}\n\nType:\n${String.from("unknown")}`
                   )
                 )
               );
@@ -145,7 +145,7 @@ evaluate_comptime_assert :: (
               .None => false
             );
             if(is_false, {
-              _throw_assert_failed(expr, arg_expr, msg_expr_opt, env, ctx, exn);
+              _throw_assert_failed(expr, &arg_expr, &msg_expr_opt, env, ctx, exn);
             });
           },
           .None => {}
@@ -160,13 +160,13 @@ evaluate_comptime_assert :: (
       .None => t_unit()
     );
     (ret_val : Option(EvalValue)) = if(
-      is_unit_type(ret_type),
+      is_unit_type(&ret_type),
       .Some(EvalValue.UnitVal),
-      .Some(create_unknown_val(ret_type))
+      .Some(create_unknown_val(&ret_type))
     );
-    out_info := new_expr_info(env, ret_type);
+    out_info := new_expr_info(env, &ret_type);
     out_info.value = ret_val;
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
   // --- Executing path ---
@@ -177,8 +177,8 @@ evaluate_comptime_assert :: (
       return(expr);
     }
   );
-  evaluated_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
-  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+  evaluated_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   arg_info := match(
     arg_info_opt,
     .Some(ai) => ai,
@@ -186,8 +186,8 @@ evaluate_comptime_assert :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_expr),
-            `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(arg_expr)}`
+            ast_expr_token(&arg_expr),
+            `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}`
           )
         )
       );
@@ -201,20 +201,20 @@ evaluate_comptime_assert :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_expr),
-            `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(arg_expr)}`
+            ast_expr_token(&arg_expr),
+            `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}`
           )
         )
       );
       EvalValue.UnitVal
     }
   );
-  if(!is_bool_val(arg_val), {
+  if(!is_bool_val(&arg_val), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(arg_expr),
-          `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(arg_expr)}\n\nValue:\n${value_to_string(arg_val)}`
+          ast_expr_token(&arg_expr),
+          `Expected bool value for "comptime_assert", got:\n${ast_expr_to_string(&arg_expr)}\n\nValue:\n${value_to_string(&arg_val)}`
         )
       )
     );
@@ -224,9 +224,9 @@ evaluate_comptime_assert :: (
     // Assertion passed — return unit.
     out_info := new_expr_info(env, t_unit());
     out_info.value = .Some(EvalValue.UnitVal);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   }, {
-    _throw_assert_failed(expr, arg_expr, msg_expr_opt, env, ctx, exn);
+    _throw_assert_failed(expr, &arg_expr, &msg_expr_opt, env, ctx, exn);
   });
   expr
 });

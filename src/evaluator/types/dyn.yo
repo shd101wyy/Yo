@@ -71,7 +71,7 @@ _dyn_trait_slot_names :: (fn(imm(t) : TypeValue) -> ArrayList(String))({
       (i : usize) = usize(0);
       while(i < fls.len(), {
         ft := match(fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
-        if(dyn_member_is_method(ft) && dyn_member_unsafe_reason(ft).is_none(), {
+        if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
           match(fls.get(i), .Some(l) => out.push(l), .None => ());
         });
         i = (i + usize(1));
@@ -88,7 +88,7 @@ _reject_dyn_slot_name_clash :: (fn(imm(traits) : ArrayList(TypeValue), imm(tok) 
   (ti : usize) = usize(0);
   while(ti < traits.len(), {
     tt := match(traits.get(ti), .Some(x) => x, .None => TypeValue.Unit);
-    names := _dyn_trait_slot_names(tt);
+    names := _dyn_trait_slot_names(&tt);
     (ni : usize) = usize(0);
     while(ni < names.len(), {
       nm := match(names.get(ni), .Some(x) => x, .None => String.new());
@@ -101,7 +101,7 @@ _reject_dyn_slot_name_clash :: (fn(imm(traits) : ArrayList(TypeValue), imm(tok) 
               with_code(
                 format_error_message(
                   tok,
-                  `A Dyn cannot hold two methods named "${nm}": both ${other} and ${type_to_string(tt)} declare one. A Dyn calls its methods by name, so the call could not say which trait it means.\nUse one of the traits in this Dyn, or rename one of the methods.`
+                  `A Dyn cannot hold two methods named "${nm}": both ${other} and ${type_to_string(&tt)} declare one. A Dyn calls its methods by name, so the call could not say which trait it means.\nUse one of the traits in this Dyn, or rename one of the methods.`
                 ),
                 E_AMBIGUOUS_METHOD
               )
@@ -111,7 +111,7 @@ _reject_dyn_slot_name_clash :: (fn(imm(traits) : ArrayList(TypeValue), imm(tok) 
         si = (si + usize(1));
       });
       seen_names.push(nm);
-      seen_owner.push(type_to_string(tt));
+      seen_owner.push(type_to_string(&tt));
       ni = (ni + usize(1));
     });
     ti = (ti + usize(1));
@@ -155,7 +155,7 @@ evaluate_dyn_type :: (
       .None => make_err_expr()
     );
     // Detect a negated trait: `!(Trait)`.
-    is_negated := ast_expr_is_fn_call_of(trait_arg, "!", .Some(usize(1)));
+    is_negated := ast_expr_is_fn_call_of(&trait_arg, "!", .Some(usize(1)));
     actual_arg := if(
       is_negated,
       match(
@@ -169,8 +169,8 @@ evaluate_dyn_type :: (
       ),
       trait_arg
     );
-    eval_trait := evaluate_expression_raw(actual_arg, cur_env, ctx, exn);
-    info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_trait));
+    eval_trait := evaluate_expression_raw(&actual_arg, &cur_env, ctx, exn);
+    info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_trait));
     trait_info := match(
       info_opt,
       .Some(inf) => inf,
@@ -178,12 +178,12 @@ evaluate_dyn_type :: (
         exn.throw(
           dyn(
             format_eval_failure(
-              ast_expr_token(actual_arg),
+              ast_expr_token(&actual_arg),
               `Failed to evaluate argument ${(i + usize(1))} of 'Dyn' expression.`
             )
           )
         );
-        new_expr_info(cur_env, t_i32())
+        new_expr_info(&cur_env, t_i32())
       }
     );
     // Validate it is a TypeVal carrying a TraitT.
@@ -193,28 +193,28 @@ evaluate_dyn_type :: (
       .Some(_) => t_i32(),
       .None => t_i32()
     );
-    if(!is_type_value(trait_info.value), {
+    if(!is_type_value(&trait_info.value), {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(actual_arg),
+            ast_expr_token(&actual_arg),
             `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression.`
           )
         )
       );
     });
-    if(!is_trait_type(inner_ty), {
+    if(!is_trait_type(&inner_ty), {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(actual_arg),
-            `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression, got:\n${type_to_string(inner_ty)}`
+            ast_expr_token(&actual_arg),
+            `Expected a trait type for argument ${(i + usize(1))} of 'Dyn' expression, got:\n${type_to_string(&inner_ty)}`
           )
         )
       );
     });
-    cur_env = expr_info_adopt_env(trait_info);
-    tid := trait_id_for_dedup(inner_ty);
+    cur_env = expr_info_adopt_env(&trait_info);
+    tid := trait_id_for_dedup(&inner_ty);
     if(is_negated, {
       // Duplicate-in-negative check.
       already := false;
@@ -230,8 +230,8 @@ evaluate_dyn_type :: (
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(actual_arg),
-              `Trait type ${type_to_string(inner_ty)} is already included in negative constraints of 'Dyn' expression.`
+              ast_expr_token(&actual_arg),
+              `Trait type ${type_to_string(&inner_ty)} is already included in negative constraints of 'Dyn' expression.`
             )
           )
         );
@@ -263,8 +263,8 @@ evaluate_dyn_type :: (
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(actual_arg),
-              `Trait type ${type_to_string(inner_ty)} is already included in 'Dyn' expression.`
+              ast_expr_token(&actual_arg),
+              `Trait type ${type_to_string(&inner_ty)} is already included in 'Dyn' expression.`
             )
           )
         );
@@ -300,7 +300,7 @@ evaluate_dyn_type :: (
     k := usize(0);
     while(k < scs.len(), {
       constraint := match(scs.get(k), .Some(t) => t, .None => t_i32());
-      cid := trait_id_for_dedup(constraint);
+      cid := trait_id_for_dedup(&constraint);
       already := false;
       m := usize(0);
       while(m < required_ids.len(), {
@@ -324,15 +324,15 @@ evaluate_dyn_type :: (
   // say which impl it means, and the vtable could hold only one of them
   // (issues/fixed/two-traits-sharing-a-method-name-in-one-dyn-emit-a-duplicate-c-wrapper.md).
   // Only SLOTS count — a method a Dyn cannot call (E0614) has none.
-  _reject_dyn_slot_name_clash(required_traits, ast_expr_token(expr), exn);
+  _reject_dyn_slot_name_clash(&required_traits, ast_expr_token(expr), exn);
   // Phase 2aq deferred: reserved function-name check.
   // Phase 2aq deferred: addRcFunctionsToDynType ARC injection.
-  dyn_ty := t_dyn(required_traits, required_levels, negative_traits, negative_levels);
-  dyn_val := create_type_value(dyn_ty);
-  meta_type := type_of_type(dyn_ty);
-  out_info := new_expr_info(cur_env, meta_type);
+  dyn_ty := t_dyn(&required_traits, &required_levels, &negative_traits, &negative_levels);
+  dyn_val := create_type_value(&dyn_ty);
+  meta_type := type_of_type(&dyn_ty);
+  out_info := new_expr_info(&cur_env, &meta_type);
   out_info.value = .Some(dyn_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_dyn_type);

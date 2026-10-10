@@ -36,7 +36,7 @@ _upcast_trait_values :: (fn(imm(entry) : DynImplEntry, imm(tgt) : TypeValue) -> 
       while((si < src_req.len()) && !found, {
         st := match(src_req.get(si), .Some(t) => t, .None => TypeValue.Unit);
         if(_carries_trait_value(st.clone()), {
-          if(are_types_compatible_exact(st, tt.clone()), {
+          if(are_types_compatible_exact(&st, tt.clone()), {
             match(entry.trait_values.get(vi), .Some(v) => out.push(v), .None => ());
             found = true;
           });
@@ -81,7 +81,7 @@ register_dyn_upcast_targets :: (fn(imm(context) : CodeGenContext) -> unit)({
     while(i < keys.len(), {
       key := match(keys.get(i), .Some(k) => k, .None => String.from(""));
       match(
-        context.dyn_impls.get(key),
+        context.dyn_impls.get(&key),
         .Some(entry) => {
           targets := context.dyn_upcast_targets(entry.dyn_type.clone());
           (t : usize) = usize(0);
@@ -90,12 +90,12 @@ register_dyn_upcast_targets :: (fn(imm(context) : CodeGenContext) -> unit)({
             tkey := `${type_key(entry.concrete_type.clone())}_${type_key(tgt.clone())}`;
             if(context.dyn_impls.get(tkey.clone()).is_none(), {
               context.register_dyn_impl(
-                tkey,
+                &tkey,
                 DynImplEntry(
                   dyn_type : tgt.clone(),
                   concrete_type : entry.concrete_type.clone(),
                   data_type : entry.data_type.clone(),
-                  trait_values : _upcast_trait_values(entry, tgt)
+                  trait_values : _upcast_trait_values(&entry, &tgt)
                 )
               );
               changed = true;
@@ -142,7 +142,7 @@ fixup_dyn_impl_keys :: (fn(imm(context) : CodeGenContext) -> unit)({
           .Some(cn) => cn,
           .None => match(
             extract_fn_trait_from_type(impl_entry.concrete_type.clone()),
-            .Some(ft) => match(context.get_type_c_name(type_key(ft)), .Some(c) => c, .None => `unknown_${concrete_key}`),
+            .Some(ft) => match(context.get_type_c_name(type_key(&ft)), .Some(c) => c, .None => `unknown_${concrete_key}`),
             .None => `unknown_${concrete_key}`
           )
         );

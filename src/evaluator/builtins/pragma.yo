@@ -102,13 +102,13 @@ pre_scan_for_skip_prelude :: (fn(imm(program) : ArrayList(AstExpr)) -> bool)({
     match(
       program.get(i),
       .Some(expr) => {
-        if(ast_expr_is_fn_call_of(expr, BF_PRAGMA, Option(usize).Some(usize(1))), {
+        if(ast_expr_is_fn_call_of(&expr, BF_PRAGMA, Option(usize).Some(usize(1))), {
           match(
             expr,
             .FnCall(_, _, args, _, _) => match(
               args.get(usize(0)),
               .Some(arg) => match(
-                recognize_pragma_arg(arg),
+                recognize_pragma_arg(&arg),
                 .Some(.SkipPrelude) => {
                   found = true;
                 },
@@ -170,7 +170,7 @@ evaluate_pragma :: (
   // macros in prelude-less snippets), where evaluating the argument cannot
   // resolve `Pragma`.
   skip_fast := match(
-    recognize_pragma_arg(arg),
+    recognize_pragma_arg(&arg),
     .Some(.SkipPrelude) => true,
     .Some(.AllowMacroDef) => {
       register_file_pragma(ast_expr_token(expr).module_path.clone(), Pragma.AllowMacroDef);
@@ -182,13 +182,13 @@ evaluate_pragma :: (
   if(skip_fast, {
     out0 := new_expr_info(env, t_unit());
     out0.value = Option(EvalValue).Some(EvalValue.UnitVal);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out0);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out0);
     return(expr);
   });
   // Normal path: evaluate the argument, then check it's a Pragma enum
   // variant. Catches typos, misuse, and shadowed `Pragma` names.
-  evaluated := evaluate_expression_raw(arg, env, ctx, exn);
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   (arg_env : Environment) = env;
   (variant : Option(String)) = Option(String).None;
   (got_ty_str : String) = String.from("");
@@ -197,14 +197,14 @@ evaluate_pragma :: (
     .None => exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(arg),
+          ast_expr_token(&arg),
           `Failed to evaluate the argument of 'pragma(...)'.`
         )
       )
     ),
     .Some(info) => {
-      arg_env = expr_info_adopt_env(info);
-      got_ty_str = type_to_string(info.ty);
+      arg_env = expr_info_adopt_env(&info);
+      got_ty_str = type_to_string(&info.ty);
       match(
         info.ty,
         .EnumT({ name, selected_variant_name }) => if(name == "Pragma", {
@@ -219,8 +219,8 @@ evaluate_pragma :: (
     .None => exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(arg),
-          `'pragma(...)' expects a 'Pragma.X' argument (e.g. 'pragma(Pragma.AllowUnsafe);'). Got value of type ${got_ty_str} from: ${ast_expr_to_string(arg)}`
+          ast_expr_token(&arg),
+          `'pragma(...)' expects a 'Pragma.X' argument (e.g. 'pragma(Pragma.AllowUnsafe);'). Got value of type ${got_ty_str} from: ${ast_expr_to_string(&arg)}`
         )
       )
     ),
@@ -229,7 +229,7 @@ evaluate_pragma :: (
       .None => exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg),
+            ast_expr_token(&arg),
             `Unknown 'Pragma' variant '${vname}'. The compiler does not recognize this pragma — make sure the prelude's 'Pragma' enum and 'evaluator/memory_safety.yo' agree on the set of supported variants.`
           )
         )
@@ -244,9 +244,9 @@ evaluate_pragma :: (
       }
     )
   );
-  out := new_expr_info(arg_env, t_unit());
+  out := new_expr_info(&arg_env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 export(pre_scan_for_skip_prelude, recognize_pragma_arg, evaluate_pragma);

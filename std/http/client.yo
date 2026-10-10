@@ -195,8 +195,8 @@ impl(
   close_sync : (fn(imm(self) : Self) -> unit)(
     match(
       self,
-      .Plain(stream) => (TcpStream <: Dispose).dispose(stream),
-      .Secure(stream) => (TlsStream <: Dispose).dispose(stream)
+      .Plain(stream) => (TcpStream <: Dispose).dispose(&stream),
+      .Secure(stream) => (TlsStream <: Dispose).dispose(&stream)
     )
   )
 );
@@ -414,7 +414,7 @@ _response_has_conn_token :: (fn(imm(resp) : HttpResponse, imm(token) : String) -
   (found : bool) = false;
   while(runtime(i < values.len()), {
     cond(
-      _value_has_token(values(i), token) => {
+      _value_has_token(&values(i), token) => {
         found = true;
       },
       true => ()
@@ -553,8 +553,8 @@ _prepare :: (fn(imm(url_str) : String, imm(opts) : FetchOptions, keep_alive : bo
     },
     .None => ()
   );
-  req := HttpRequest.new(opts.method, req_path);
-  req.set_host(host);
+  req := HttpRequest.new(opts.method, &req_path);
+  req.set_host(&host);
   // Add user-provided headers. APPEND, not set: a caller who added the same
   // name twice (two Accept-Encoding values, say) meant both, and `set_header`
   // now replaces rather than accumulates. A caller who wrote
@@ -565,9 +565,9 @@ _prepare :: (fn(imm(url_str) : String, imm(opts) : FetchOptions, keep_alive : bo
   (user_close : bool) = false;
   while(runtime(hi < user_headers.len()), {
     h := user_headers(hi);
-    req.headers.append(h.name, h.value);
+    req.headers.append(&h.name, &h.value);
     cond(
-      ((h.name.to_lowercase() == `connection`) && _value_has_token(h.value, `close`)) => {
+      ((h.name.to_lowercase() == `connection`) && _value_has_token(&h.value, `close`)) => {
         user_close = true;
       },
       true => ()
@@ -577,7 +577,7 @@ _prepare :: (fn(imm(url_str) : String, imm(opts) : FetchOptions, keep_alive : bo
   // Set Content-Length if body is provided
   cond(
     !opts.body.is_empty() => {
-      req.set_body(opts.body);
+      req.set_body(&opts.body);
       req.set_header(`Content-Length`, `${opts.body.len()}`);
     },
     true => ()
@@ -610,7 +610,7 @@ _connect :: (fn(imm(prep) : _Prepared, io : Io) -> Impl(Future(_Transport, IoExn
         out = Option(_Transport).Some(_Transport.Secure(tls));
       },
       true => {
-        addrs := e.io.await(lookup_host(prep.host, e.io), e);
+        addrs := e.io.await(lookup_host(&prep.host, e.io), e);
         cond(
           (addrs.len() == usize(0)) => {
             e.exn.throw(dyn(HttpError.ConnectionFailed(`DNS resolution failed for ${prep.host}`)));
@@ -657,7 +657,7 @@ _fetch_once :: (
     Impl(Future(HttpResponse, IoExn))
 )(
   io.async(e => {
-    prep := _prepare(url_str, opts, pool.is_some(), e.exn);
+    prep := _prepare(url_str, opts, pool.is_some(), &e.exn);
     idempotent := _is_idempotent(opts.method);
     (out : Option(HttpResponse)) = Option(HttpResponse).None;
     // A `done`/`attempt` pair rather than break/continue: an awaiting loop is
@@ -676,7 +676,7 @@ _fetch_once :: (
           match(
             pool,
             .Some(client) => {
-              taken = client._take(prep.key);
+              taken = client._take(&prep.key);
             },
             .None => ()
           );
@@ -698,15 +698,15 @@ _fetch_once :: (
       );
       cond(
         conn_opt.is_none() => {
-          fresh := e.io.await(_connect(prep, e.io), e);
+          fresh := e.io.await(_connect(&prep, e.io), e);
           conn_opt = Option(_Transport).Some(fresh);
         },
         true => ()
       );
       conn := conn_opt.unwrap();
-      _wn := e.io.await(conn.write_string(prep.request, e.io), e);
+      _wn := e.io.await(conn.write_string(&prep.request, e.io), e);
       framed := e.io.await(
-        read_http_message_buffered(conn, opts.max_response_bytes, prep.kind, carry, e.io),
+        read_http_message_buffered(&conn, opts.max_response_bytes, prep.kind, &carry, e.io),
         e
       );
       (raw : String) = String.new();
@@ -755,7 +755,7 @@ _fetch_once :: (
       cond(
         !dead => {
           resp := match(
-            parse_response(raw),
+            parse_response(&raw),
             .Ok(r) => r,
             .Err(err) => {
               conn.close_sync();
@@ -763,14 +763,14 @@ _fetch_once :: (
               HttpResponse.new(StatusCode.OK(), ``) // unreachable
             }
           );
-          keep := (!prep.sent_close && _response_keeps_alive(resp, prep.kind));
+          keep := (!prep.sent_close && _response_keeps_alive(&resp, prep.kind));
           (stored : bool) = false;
           cond(
             keep => {
               match(
                 pool,
                 .Some(client) => {
-                  stored = client._put(prep.key, conn, carry);
+                  stored = client._put(&prep.key, &conn, &carry);
                 },
                 .None => ()
               );
@@ -856,7 +856,7 @@ _fetch_follow :: (
     // state machine (C24).
     done := false;
     while(runtime(!done), {
-      resp := e.io.await(_fetch_once(current.clone(), hop_opts, pool, e.io), e);
+      resp := e.io.await(_fetch_once(current.clone(), &hop_opts, pool, e.io), e);
       location := match(resp.get_header(`Location`), .Some(l) => l, .None => ``);
       // `max_redirects == 0` means "do not follow": the first 3xx comes back
       // verbatim (reqwest's `Policy::none`). Otherwise the cap counts hops
@@ -871,8 +871,8 @@ _fetch_follow :: (
             true => ()
           );
           hops = (hops + usize(1));
-          current = _resolve_location(current, location, e.exn);
-          hop_opts = _redirect_options(hop_opts, resp.status);
+          current = _resolve_location(&current, &location, &e.exn);
+          hop_opts = _redirect_options(&hop_opts, resp.status);
         },
         true => {
           result = Option(HttpResponse).Some(resp);
@@ -915,7 +915,7 @@ _fetch_deadline :: (
         // its `Dispose` closes it — it never reaches the pool.
         h := e.io.spawn(_fetch_follow(url_str, opts, pool, e.io), e);
         match(
-          e.io.await(timeout(h, limit, e.io), e.io),
+          e.io.await(timeout(&h, limit, e.io), &e.io),
           .Ok(resp) => {
             result = resp;
           },

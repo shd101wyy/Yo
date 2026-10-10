@@ -140,7 +140,7 @@ _template_body_origins :: (fn(imm(tok) : Token) -> ArrayList(_TemplateBodyOrigin
         ((b == u8(0x24)) && (nb == u8(0x7B))) => {
           pos = _advance_body_origin(_advance_body_origin(pos, b), nb);
           out.push(pos);
-          body_end := interpolation_body_end(bytes, pos.byte);
+          body_end := interpolation_body_end(&bytes, pos.byte);
           while(pos.byte < body_end, {
             pos = _advance_body_origin(pos, bytes.byte_at(pos.byte));
           });
@@ -297,7 +297,7 @@ impl(
           break;
         },
         .Some(tok) => {
-          if((tok.kind == TokenKind.Whitespace) && tok.value.contains(nl_str), {
+          if((tok.kind == TokenKind.Whitespace) && tok.value.contains(&nl_str), {
             result = true;
             break;
           });
@@ -327,7 +327,7 @@ impl(
             scan_done = true;
           },
           .Some(tok) => cond(
-            ((tok.kind == TokenKind.Whitespace) && tok.value.contains(nl_str)) => {
+            ((tok.kind == TokenKind.Whitespace) && tok.value.contains(&nl_str)) => {
               // Found newline — check tokens[j+1..op_idx) are all whitespace
               all_ws := true;
               k := (j + usize(1));
@@ -384,7 +384,7 @@ impl(
       return(false);
     });
     match_idx := match(
-      find_matching_bracket(self.tokens, s),
+      find_matching_bracket(&self.tokens, s),
       .None => {
         return(false);
       },
@@ -424,7 +424,7 @@ impl(
           });
           // The body is code the lexer copied verbatim; the shared scanner
           // finds the `}` that closes it (not a brace inside a literal).
-          body_end := interpolation_body_end(ts_bytes, i + usize(2));
+          body_end := interpolation_body_end(&ts_bytes, i + usize(2));
           part_is_expr.push(true);
           part_content.push(template_value.substring(i + usize(2), body_end));
           i = cond((body_end < n) => (body_end + usize(1)), true => n);
@@ -595,7 +595,7 @@ impl(
         is_expr => {
           // Peel a `:spec` suffix BEFORE parsing, so the spec text never reaches
           // the expression parser (D3.10).
-          sp := _peel_spec(content);
+          sp := _peel_spec(&content);
           // Parse the interpolated expression with a fresh sub-parser.
           // The sub-parse must NOT carry the auto-import (see
           // `get_expression_program`); a `:spec` the inner source used has to
@@ -608,8 +608,8 @@ impl(
             body_origins.get(expr_ordinal),
             .Some(o) => cond(
               (((o.byte + sp.expr_text.len()) <= tok.input.len()) && (tok.input.substring(o.byte, o.byte + sp.expr_text.len()) == sp.expr_text)) => Parser.new_span(
-                tok.input,
-                self.module_path,
+                &tok.input,
+                &self.module_path,
                 o.byte,
                 o.byte + sp.expr_text.len(),
                 o.row,
@@ -617,9 +617,9 @@ impl(
                 o.ch,
                 exn
               ),
-              true => Parser.new(sp.expr_text, self.module_path, exn)
+              true => Parser.new(&sp.expr_text, &self.module_path, exn)
             ),
-            .None => Parser.new(sp.expr_text, self.module_path, exn)
+            .None => Parser.new(&sp.expr_text, &self.module_path, exn)
           );
           expr_ordinal = (expr_ordinal + usize(1));
           (inner_prog : ArrayList(AstExpr)) = sub_parser.get_expression_program(exn);
@@ -650,11 +650,11 @@ impl(
                 input : tok.input
               );
               make_ts_spec_call(
-                inner_expr,
-                dot_tok,
-                fmt_tok,
+                &inner_expr,
+                &dot_tok,
+                &fmt_tok,
                 tok,
-                spec_tok,
+                &spec_tok,
                 self.alloc_id(),
                 self.alloc_id(),
                 self.alloc_id(),
@@ -662,7 +662,7 @@ impl(
                 self.alloc_id()
               )
             },
-            true => make_ts_call(inner_expr, dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
+            true => make_ts_call(&inner_expr, &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
           )
         },
         true => {
@@ -679,7 +679,7 @@ impl(
             module_path : tok.module_path,
             input : tok.input
           );
-          make_ts_call(.Atom(self.alloc_id(), str_tok), dot_tok, to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
+          make_ts_call(.Atom(self.alloc_id(), str_tok), &dot_tok, &to_str_tok, tok, self.alloc_id(), self.alloc_id(), self.alloc_id(), self.alloc_id())
         }
       );
       result_expr_opt = match(
@@ -757,7 +757,7 @@ impl(
           exn.throw(
             dyn(
               make_parse_error(
-                curr,
+                &curr,
                 cond(
                   has_whitespace => `expected ; to end function call`,
                   true => `expected , or ) in function call`
@@ -790,11 +790,11 @@ impl(
   parse_paren_expr : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
-      .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
+      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `unexpected end of input`))),
       .Some(t) => t
     );
     if(tok.kind != TokenKind.LParen, {
-      exn.throw(dyn(make_parse_error(tok, `expected (`)));
+      exn.throw(dyn(make_parse_error(&tok, `expected (`)));
     });
     // Check for unit ()
     next_tok_kind := match(
@@ -826,7 +826,7 @@ impl(
     (curr_kind : TokenKind) = match(
       self.tokens.get(idx),
       .Some(t) => t.kind,
-      .None => exn.throw(dyn(make_parse_error(tok, `expected ) or , in (...)`)))
+      .None => exn.throw(dyn(make_parse_error(&tok, `expected ) or , in (...)`)))
     );
     // Single expression wrapped in parens: (expr)
     if(curr_kind == TokenKind.RParen, {
@@ -839,7 +839,7 @@ impl(
     while(true, {
       (curr : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(tok, `expected ) or , for tuple`))),
+        .None => exn.throw(dyn(make_parse_error(&tok, `expected ) or , for tuple`))),
         .Some(t) => t
       );
       cond(
@@ -850,7 +850,7 @@ impl(
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn(make_parse_error(curr, `cannot mix , and ; in (...)`)));
+                exn.throw(dyn(make_parse_error(&curr, `cannot mix , and ; in (...)`)));
                 Option(bool).Some(false)
               }
             )
@@ -863,7 +863,7 @@ impl(
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn(make_parse_error(curr, `cannot mix ; and , in (...)`)));
+                exn.throw(dyn(make_parse_error(&curr, `cannot mix ; and , in (...)`)));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -876,7 +876,7 @@ impl(
       idx = self.skip_ws_fwd(idx);
       (curr2 : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(tok, `expected ) for tuple`))),
+        .None => exn.throw(dyn(make_parse_error(&tok, `expected ) for tuple`))),
         .Some(t) => t
       );
       if(curr2.kind == TokenKind.RParen, {
@@ -912,11 +912,11 @@ impl(
   parse_array_expr : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
-      .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
+      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `unexpected end of input`))),
       .Some(t) => t
     );
     if(tok.kind != TokenKind.LBracket, {
-      exn.throw(dyn(make_parse_error(tok, `expected [`)));
+      exn.throw(dyn(make_parse_error(&tok, `expected [`)));
     });
     idx := (index + usize(1));
     (separator_is_comma : Option(bool)) = .None;
@@ -924,7 +924,7 @@ impl(
     while(true, {
       (curr : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(tok, `expected ] or , for array`))),
+        .None => exn.throw(dyn(make_parse_error(&tok, `expected ] or , for array`))),
         .Some(t) => t
       );
       cond(
@@ -935,7 +935,7 @@ impl(
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn(make_parse_error(curr, `cannot mix , and ; in [...]`)));
+                exn.throw(dyn(make_parse_error(&curr, `cannot mix , and ; in [...]`)));
                 Option(bool).Some(false)
               }
             )
@@ -948,7 +948,7 @@ impl(
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn(make_parse_error(curr, `cannot mix ; and , in [...]`)));
+                exn.throw(dyn(make_parse_error(&curr, `cannot mix ; and , in [...]`)));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -960,7 +960,7 @@ impl(
       );
       (curr2 : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(tok, `expected ]`))),
+        .None => exn.throw(dyn(make_parse_error(&tok, `expected ]`))),
         .Some(t) => t
       );
       if(curr2.kind == TokenKind.RBracket, {
@@ -980,10 +980,10 @@ impl(
     );
     n_args := args.len();
     if(is_array_type_form && (n_args == usize(1)), {
-      exn.throw(dyn(make_parse_error(tok, `[T] slice type syntax has been removed; write RawSlice(T) for the pointer+length view`)));
+      exn.throw(dyn(make_parse_error(&tok, `[T] slice type syntax has been removed; write RawSlice(T) for the pointer+length view`)));
     });
     if(is_array_type_form && (n_args > usize(2)), {
-      exn.throw(dyn(make_parse_error(tok, `expected 2 expressions for Array type [T; N]`)));
+      exn.throw(dyn(make_parse_error(&tok, `expected 2 expressions for Array type [T; N]`)));
     });
     is_array_type := (is_array_type_form && (n_args == usize(2)));
     kw := cond(
@@ -1030,11 +1030,11 @@ impl(
   parse_curly_bracket_expr : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     (tok : Token) = match(
       self.tokens.get(index),
-      .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
+      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `unexpected end of input`))),
       .Some(t) => t
     );
     if(tok.kind != TokenKind.LCurlyBracket, {
-      exn.throw(dyn(make_parse_error(tok, `expected {`)));
+      exn.throw(dyn(make_parse_error(&tok, `expected {`)));
     });
     args := ArrayList(AstExpr).new();
     (separator_is_comma : Option(bool)) = .None;
@@ -1043,7 +1043,7 @@ impl(
       idx = self.skip_ws_fwd(idx);
       (curr : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(tok, `unexpected end of {...}`))),
+        .None => exn.throw(dyn(make_parse_error(&tok, `unexpected end of {...}`))),
         .Some(t) => t
       );
       cond(
@@ -1054,7 +1054,7 @@ impl(
             .Some(__sb) => cond(
               __sb => Option(bool).Some(true),
               true => {
-                exn.throw(dyn(make_parse_error(curr, `cannot mix , and ; in {...}`)));
+                exn.throw(dyn(make_parse_error(&curr, `cannot mix , and ; in {...}`)));
                 Option(bool).Some(false)
               }
             )
@@ -1067,7 +1067,7 @@ impl(
             .None => Option(bool).Some(false),
             .Some(__sb) => cond(
               __sb => {
-                exn.throw(dyn(make_parse_error(curr, `cannot mix ; and , in {...}`)));
+                exn.throw(dyn(make_parse_error(&curr, `cannot mix ; and , in {...}`)));
                 Option(bool).Some(true)
               },
               true => Option(bool).Some(false)
@@ -1080,7 +1080,7 @@ impl(
       idx = self.skip_ws_fwd(idx);
       (curr2 : Token) = match(
         self.tokens.get(idx),
-        .None => exn.throw(dyn(make_parse_error(tok, `unexpected end of {...}`))),
+        .None => exn.throw(dyn(make_parse_error(&tok, `unexpected end of {...}`))),
         .Some(t) => t
       );
       if(curr2.kind == TokenKind.RCurlyBracket, {
@@ -1134,7 +1134,7 @@ impl(
             args.get(vi),
             .None => (),
             .Some(arg) => {
-              if(!self.is_valid_struct_field_arg(arg), {
+              if(!self.is_valid_struct_field_arg(&arg), {
                 block_msg := String.from(
                   "{ ... } without semicolons is parsed as a struct literal, not a block. To write a block, use semicolons: { stmt1; stmt2; }"
                 );
@@ -1148,8 +1148,8 @@ impl(
                   exn.throw(
                     dyn(
                       format_error_message_with_repair_at(
-                        tok,
-                        block_msg,
+                        &tok,
+                        &block_msg,
                         Option(String).None,
                         Span(path : close_tok.module_path, row : usize(close_tok.row), col : usize(close_tok.column), len : usize(0)),
                         String.from(";"),
@@ -1158,7 +1158,7 @@ impl(
                     )
                   );
                 }, {
-                  exn.throw(dyn(make_parse_error(tok, block_msg)));
+                  exn.throw(dyn(make_parse_error(&tok, &block_msg)));
                 });
               });
             }
@@ -1177,7 +1177,7 @@ impl(
             },
             .Some(arg) => {
               (new_arg : AstExpr) = cond(
-                ast_expr_is_atom(arg) => {
+                ast_expr_is_atom(&arg) => {
                   colon_tok := Token(
                     kind : TokenKind.Operator,
                     value : intern_token_str(String.from(":")),
@@ -1313,18 +1313,18 @@ impl(
         .FnCall(_, _, rargs, _, _) => match(
           rargs.get(usize(0)),
           .Some(a) => a,
-          .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `internal: missing left arg in rhs`)))
+          .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `internal: missing left arg in rhs`)))
         ),
-        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(self.module_path, `internal: rhs is atom`)))
+        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(&self.module_path, `internal: rhs is atom`)))
       );
       (right_operand : AstExpr) = match(
         rhs,
         .FnCall(_, _, rargs, _, _) => match(
           rargs.get(usize(1)),
           .Some(a) => a,
-          .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `internal: missing right arg in rhs`)))
+          .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `internal: missing right arg in rhs`)))
         ),
-        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(self.module_path, `internal: rhs is atom`)))
+        .Atom(_, _) => exn.throw(dyn(make_parse_error_raw(&self.module_path, `internal: rhs is atom`)))
       );
       rhs_func_tok := match(
         rhs,
@@ -1375,7 +1375,7 @@ impl(
             });
             at_rhs_level := match(
               cand_tok,
-              .Some(ct) => self._op_token_at_rhs_depth(rhs_start, ct),
+              .Some(ct) => self._op_token_at_rhs_depth(rhs_start, &ct),
               .None => false
             );
             step = cond(
@@ -1426,7 +1426,7 @@ impl(
         lvl_args.push(lvl_rhs);
         acc = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), lvl_tok), lvl_args, true, lvl_tok);
       });
-      self.parse_primary_end(acc, index, exn)
+      self.parse_primary_end(&acc, index, exn)
     }, {
       simple_args := ArrayList(AstExpr).new();
       simple_args.push(primary);
@@ -1438,7 +1438,7 @@ impl(
     idx := self.skip_ws_fwd(index);
     (tok : Token) = match(
       self.tokens.get(idx),
-      .None => exn.throw(dyn(make_parse_error_raw(self.module_path, `unexpected end of input`))),
+      .None => exn.throw(dyn(make_parse_error_raw(&self.module_path, `unexpected end of input`))),
       .Some(t) => t
     );
     cond(
@@ -1449,8 +1449,8 @@ impl(
       (tok.kind == TokenKind.LBracket) => self.parse_array_expr(idx, exn),
       (tok.kind == TokenKind.LCurlyBracket) => self.parse_curly_bracket_expr(idx, exn),
       (tok.kind == TokenKind.Dot) => ParseResult(expr : .Atom(self.alloc_id(), tok), index : (idx + usize(1))),
-      (tok.kind == TokenKind.TemplateString) => self.parse_template_string(tok, idx, exn),
-      true => exn.throw(dyn(make_parse_error(tok, `unexpected token: ${tok.value}`)))
+      (tok.kind == TokenKind.TemplateString) => self.parse_template_string(&tok, idx, exn),
+      true => exn.throw(dyn(make_parse_error(&tok, `unexpected token: ${tok.value}`)))
     )
   }),
   parse_primary_end : (
@@ -1562,7 +1562,7 @@ impl(
             }
           );
         });
-        recur(self, cur_expr, cur_idx, exn)
+        recur(self, &cur_expr, cur_idx, exn)
       },
       // Infix operator
       ((tok.kind == TokenKind.Operator) || ((tok.kind == TokenKind.Dot) && (has_ws_fwd == false))) => {
@@ -1606,12 +1606,12 @@ impl(
           );
           cond(
             (tok.value == rhs_op_value) =>
-              self.parse_left_assoc_op(primary_expr, tok, rhs, rhs_start, rhs_end, exn),
+              self.parse_left_assoc_op(primary_expr, &tok, &rhs, rhs_start, rhs_end, exn),
             true =>
               exn.throw(
                 dyn(
                   make_parse_error(
-                    tok,
+                    &tok,
                     `Adjacent different operators need parentheses to clarify grouping (near ${tok.value}).`
                   )
                 )
@@ -1632,14 +1632,14 @@ impl(
       // Function call without whitespace: `func(arg1, arg2)`
       ((has_ws_fwd == false) && (tok.kind == TokenKind.LParen)) => {
         fn_pr := self.parse_fn_call(primary_expr, idx + usize(1), false, exn);
-        recur(self, fn_pr.expr, fn_pr.index, exn)
+        recur(self, &fn_pr.expr, fn_pr.index, exn)
       },
       ((has_ws_fwd == true) && (tok.kind == TokenKind.LParen)) => {
-        exn.throw(dyn(make_parse_error(tok, `whitespace before '(' is not allowed in function calls`)));
+        exn.throw(dyn(make_parse_error(&tok, `whitespace before '(' is not allowed in function calls`)));
         ParseResult(expr : primary_expr, index : idx)
       },
       true => {
-        exn.throw(dyn(make_parse_error(tok, `paren-less function and operator calls are not supported; use parentheses`)));
+        exn.throw(dyn(make_parse_error(&tok, `paren-less function and operator calls are not supported; use parentheses`)));
         ParseResult(expr : primary_expr, index : idx)
       }
     )
@@ -1653,7 +1653,7 @@ impl(
       .None => false,
       .Some(t) => cond(
         ((t.kind == TokenKind.Identifier) || (t.kind == TokenKind.Integer) || (t.kind == TokenKind.Float) || (t.kind == TokenKind.Bool) || (t.kind == TokenKind.StringLit) || (t.kind == TokenKind.CharLit) || (t.kind == TokenKind.TemplateString) || (t.kind == TokenKind.LParen) || (t.kind == TokenKind.LBracket) || (t.kind == TokenKind.LCurlyBracket) || (t.kind == TokenKind.Dot)) => true,
-        true => _is_prefix_op_token(t)
+        true => _is_prefix_op_token(&t)
       )
     )
   ),
@@ -1669,12 +1669,12 @@ impl(
     (cur_idx : usize) = pr.index;
     started_at_op := match(
       self.tokens.get(idx),
-      .Some(t) => _is_prefix_op_token(t),
+      .Some(t) => _is_prefix_op_token(&t),
       .None => false
     );
     prim_is_op_atom := match(
       cur_expr,
-      .Atom(_, at) => _is_prefix_op_token(at),
+      .Atom(_, at) => _is_prefix_op_token(&at),
       .FnCall(_, _, _, _, _) => false
     );
     if(started_at_op && prim_is_op_atom, {
@@ -1703,7 +1703,7 @@ impl(
       );
       cond(
         (t.kind == TokenKind.LParen) => {
-          fn_pr := self.parse_fn_call(cur_expr, cur_idx + usize(1), false, exn);
+          fn_pr := self.parse_fn_call(&cur_expr, cur_idx + usize(1), false, exn);
           cur_expr = fn_pr.expr;
           cur_idx = fn_pr.index;
         },
@@ -1739,12 +1739,12 @@ impl(
     // `-(a, b)`).
     started_at_op := match(
       self.tokens.get(idx),
-      .Some(t) => _is_prefix_op_token(t),
+      .Some(t) => _is_prefix_op_token(&t),
       .None => false
     );
     prim_is_op_atom := match(
       pr.expr,
-      .Atom(_, at) => _is_prefix_op_token(at),
+      .Atom(_, at) => _is_prefix_op_token(&at),
       .FnCall(_, _, _, _, _) => false
     );
     if(started_at_op && prim_is_op_atom, {
@@ -1759,7 +1759,7 @@ impl(
         return(self.parse_primary_end(.FnCall(self.alloc_id(), pr.expr, array_list(operand.expr), false, op_tok), operand.index, exn));
       });
     });
-    self.parse_primary_end(pr.expr, pr.index, exn)
+    self.parse_primary_end(&pr.expr, pr.index, exn)
   }),
   do_parse : (fn(mut(self) : Self, imm(exn) : Exception) -> unit)({
     idx := usize(0);
@@ -1921,7 +1921,7 @@ generate_expr_from_code :: (
   ) -> AstExpr
 )({
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
-  exprs := parse(code.clone(), module_path, exn);
+  exprs := parse(code.clone(), &module_path, exn);
   n := exprs.len();
   cond(
     (n == usize(1)) => match(
@@ -1936,7 +1936,7 @@ generate_expr_from_code :: (
       while((gefc_li < (n - usize(1))) && gefc_leading_all_imports, {
         gefc_is_imp := match(
           exprs.get(gefc_li),
-          .Some(ge) => ast_expr_is_fn_call_of(ge, BK_IMPORT, Option(usize).Some(usize(1))),
+          .Some(ge) => ast_expr_is_fn_call_of(&ge, BK_IMPORT, Option(usize).Some(usize(1))),
           .None => false
         );
         if(!gefc_is_imp, {
@@ -1968,7 +1968,7 @@ generate_exprs_from_code :: (
   ) -> ArrayList(AstExpr)
 )({
   module_path := `auto-generated://\n// === START auto-generated code ===\n${code}\n// === END auto-generated code ===\n`;
-  parse(code.clone(), module_path, exn)
+  parse(code.clone(), &module_path, exn)
 });
 export(ParseResult, FnArgsResult, Parser, parse);
 export(extract_source_line, make_parse_error, make_parse_error_raw);

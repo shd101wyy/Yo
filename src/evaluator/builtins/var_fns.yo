@@ -48,31 +48,31 @@ _introspected_variable :: (
       return(Option(_VarArg).None);
     }
   );
-  if(!(ast_expr_is_atom(var_arg) && (ast_expr_token(var_arg).kind == TokenKind.Identifier)), {
+  if(!(ast_expr_is_atom(&var_arg) && (ast_expr_token(&var_arg).kind == TokenKind.Identifier)), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(var_arg),
-          `"${builtin_name}" expects a variable, got:\n${ast_expr_to_string(var_arg)}`
+          ast_expr_token(&var_arg),
+          `"${builtin_name}" expects a variable, got:\n${ast_expr_to_string(&var_arg)}`
         )
       )
     );
     return(Option(_VarArg).None);
   });
-  eval_var_arg := evaluate_expression_raw(var_arg, env, ctx, exn);
-  var_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_var_arg));
-  (cur_env : Environment) = match(var_info_opt, .Some(i) => expr_info_adopt_env(i), .None => env);
+  eval_var_arg := evaluate_expression_raw(&var_arg, env, ctx, exn);
+  var_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_var_arg));
+  (cur_env : Environment) = match(var_info_opt, .Some(i) => expr_info_adopt_env(&i), .None => env);
   variables := match(
     match(var_info_opt, .Some(i) => i.variable_name, .None => Option(String).None),
-    .Some(vname) => get_variables_from_env(cur_env, vname),
+    .Some(vname) => get_variables_from_env(&cur_env, &vname),
     .None => ArrayList(Variable).new()
   );
   if(variables.len() == usize(0), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(var_arg),
-          `"${builtin_name}" expects a variable, got:\n${ast_expr_to_string(var_arg)}`
+          ast_expr_token(&var_arg),
+          `"${builtin_name}" expects a variable, got:\n${ast_expr_to_string(&var_arg)}`
         )
       )
     );
@@ -87,7 +87,7 @@ _introspected_variable :: (
 _set_bool_result :: (fn(imm(expr) : AstExpr, imm(env) : Environment, b : bool, imm(ctx) : EvalContext) -> AstExpr)({
   out_info := new_expr_info(env, t_bool());
   out_info.value = Option(EvalValue).Some(EvalValue.BoolVal(b));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 evaluate_yo_var_is_owning_the_rc_value :: (
@@ -100,7 +100,7 @@ evaluate_yo_var_is_owning_the_rc_value :: (
 )(
   match(
     _introspected_variable(expr, String.from("Var.is_owning_the_rc_value"), env, ctx, exn),
-    .Some(va) => _set_bool_result(expr, va.env, va.variable.is_owning_the_rc_value, ctx),
+    .Some(va) => _set_bool_result(expr, &va.env, va.variable.is_owning_the_rc_value, ctx),
     .None => expr
   )
 );
@@ -148,7 +148,7 @@ evaluate_yo_var_has_other_aliases :: (
 )(
   match(
     _introspected_variable(expr, String.from("Var.has_other_aliases"), env, ctx, exn),
-    .Some(va) => _set_bool_result(expr, va.env, _has_other_aliases(va.variable, va.env), ctx),
+    .Some(va) => _set_bool_result(expr, &va.env, _has_other_aliases(&va.variable, &va.env), ctx),
     .None => expr
   )
 );

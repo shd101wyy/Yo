@@ -109,32 +109,32 @@ evaluate_module_field :: (
   label_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   type_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Validate label identifier
-  if(!is_valid_variable_name(label_expr), {
+  if(!is_valid_variable_name(&label_expr), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(label_expr),
-          `Expected identifier for module field label, got ${ast_expr_to_string(label_expr)}`
+          ast_expr_token(&label_expr),
+          `Expected identifier for module field label, got ${ast_expr_to_string(&label_expr)}`
         )
       )
     );
   });
-  label := ast_expr_token(label_expr).value;
+  label := ast_expr_token(&label_expr).value;
   (env_mut : Environment) = env;
   // Evaluate type expression
-  evaluated_te := evaluate_expression_raw(type_expr, env_mut, ctx, exn);
-  te_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_te));
-  te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env_mut, TypeValue.Unit));
+  evaluated_te := evaluate_expression_raw(&type_expr, &env_mut, ctx, exn);
+  te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
+  te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env_mut, TypeValue.Unit));
   env_mut.frames = te_info.env.frames;
   env_mut.module_path = te_info.env.module_path;
   env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
   env_mut.input_string = te_info.env.input_string;
-  if(!is_type_value(te_info.value), {
+  if(!is_type_value(&te_info.value), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(type_expr),
-          `Expected type for module field, got ${ast_expr_to_string(type_expr)}`
+          ast_expr_token(&type_expr),
+          `Expected type for module field, got ${ast_expr_to_string(&type_expr)}`
         )
       )
     );
@@ -146,13 +146,13 @@ evaluate_module_field :: (
     .None => TypeValue.Unit
   );
   // Set expr info on label_expr
-  label_info := new_expr_info(env_mut, field_type);
-  label_info.value = Option(EvalValue).Some(create_unknown_val(field_type));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(label_expr), label_info);
+  label_info := new_expr_info(&env_mut, &field_type);
+  label_info.value = Option(EvalValue).Some(create_unknown_val(&field_type));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&label_expr), &label_info);
   // Set expr info on the field expr itself
-  unit_info := new_expr_info(env_mut, TypeValue.Unit);
+  unit_info := new_expr_info(&env_mut, TypeValue.Unit);
   unit_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), unit_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
   EvalModuleFieldResult(label, field_type, env_mut)
 });
 export(EvalModuleFieldResult, evaluate_module_field);

@@ -256,13 +256,13 @@ _is_punned_single_field :: (fn(imm(expr) : AstExpr) -> bool)(
       (args.len() == usize(1)) && match(
         args.get(usize(0)),
         .Some(pair) => (
-          ast_expr_is_fn_call_of(pair, BK_COLON, Option(usize).Some(usize(2))) && match(
+          ast_expr_is_fn_call_of(&pair, BK_COLON, Option(usize).Some(usize(2))) && match(
             pair,
             .FnCall(_, _, pargs, _, _) => match(
               pargs.get(usize(0)),
               .Some(l) => match(
                 pargs.get(usize(1)),
-                .Some(r) => (ast_expr_is_atom(l) && ast_expr_is_atom(r) && (ast_expr_token(l).value == ast_expr_token(r).value)),
+                .Some(r) => (ast_expr_is_atom(&l) && ast_expr_is_atom(&r) && (ast_expr_token(&l).value == ast_expr_token(&r).value)),
                 .None => false
               ),
               .None => false
@@ -286,7 +286,7 @@ _punned_field_name :: (fn(imm(expr) : AstExpr) -> String)(
         pair,
         .FnCall(_, _, pargs, _, _) => match(
           pargs.get(usize(0)),
-          .Some(l) => ast_expr_token(l).value.clone(),
+          .Some(l) => ast_expr_token(&l).value.clone(),
           .None => String.new()
         ),
         _ => String.new()
@@ -664,7 +664,7 @@ _evaluate_expression :: (
           exn.throw(
             dyn(
               format_error_message(
-                tok,
+                &tok,
                 `(1) Evaluating the expression (token: ${tok.value}) is not implemented:\n${ast_expr_to_string(expr)}`
               )
             )
@@ -717,15 +717,15 @@ _evaluate_expression :: (
           arg0 := ast_expr_get_arg0(expr);
           cond(
             (
-              ast_expr_is_fn_call(arg0) &&
+              ast_expr_is_fn_call(&arg0) &&
                 (
-                  ast_expr_is_fn_call_of(arg0, BK_FN, .None) ||
-                    ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN, .None) ||
-                      ast_expr_is_fn_call_of(arg0, BK_CTL, .None)
+                  ast_expr_is_fn_call_of(&arg0, BK_FN, .None) ||
+                    ast_expr_is_fn_call_of(&arg0, BK_UNSAFE_FN, .None) ||
+                      ast_expr_is_fn_call_of(&arg0, BK_CTL, .None)
                 )
             ) => {
-              is_unsafe := ast_expr_is_fn_call_of(arg0, BK_UNSAFE_FN, .None);
-              is_control := ast_expr_is_fn_call_of(arg0, BK_CTL, .None);
+              is_unsafe := ast_expr_is_fn_call_of(&arg0, BK_UNSAFE_FN, .None);
+              is_control := ast_expr_is_fn_call_of(&arg0, BK_CTL, .None);
               old_is_unsafe := ctx.is_unsafe_function_type;
               old_is_control := ctx.is_control_function_type;
               ctx.is_unsafe_function_type = is_unsafe;
@@ -736,8 +736,8 @@ _evaluate_expression :: (
               result
             },
             (
-              ast_expr_is_fn_call(arg0) &&
-                (ast_expr_is_fn_call_of(arg0, BK_FN_TRAIT, .None) || ast_expr_is_fn_call_of(arg0, BK_FN_ONCE_TRAIT, .None))
+              ast_expr_is_fn_call(&arg0) &&
+                (ast_expr_is_fn_call_of(&arg0, BK_FN_TRAIT, .None) || ast_expr_is_fn_call_of(&arg0, BK_FN_ONCE_TRAIT, .None))
             ) =>
               evaluate_fn_trait_type(expr, env, ctx, exn),
             true =>
@@ -748,8 +748,8 @@ _evaluate_expression :: (
           arg0 := ast_expr_get_arg0(expr);
           cond(
             (
-              ast_expr_is_fn_call(arg0) &&
-                ast_expr_is_fn_call_of(arg0, BK_FN, .None)
+              ast_expr_is_fn_call(&arg0) &&
+                ast_expr_is_fn_call_of(&arg0, BK_FN, .None)
             ) =>
               evaluate_closure_type(expr, env, ctx, exn),
             true =>
@@ -838,12 +838,12 @@ _evaluate_expression :: (
             // expected type that can never be a record — a primitive, unit,
             // or an enum. A trait/Impl/Dyn position can legitimately receive
             // a record literal, so those are left alone.
-            if(!expected_is_anon_struct && _is_punned_single_field(expr) && (is_primitive_type(et_ty) || is_unit_type(et_ty) || is_enum_type(et_ty)), {
+            if(!expected_is_anon_struct && _is_punned_single_field(expr) && (is_primitive_type(&et_ty) || is_unit_type(&et_ty) || is_enum_type(&et_ty)), {
               exn.throw(
                 dyn(
                   format_error_message_with_help(
                     ast_expr_token(expr),
-                    `"{ ${_punned_field_name(expr)} }" is a one-field record, but ${type_to_string(et_ty)} is expected here`,
+                    `"{ ${_punned_field_name(expr)} }" is a one-field record, but ${type_to_string(&et_ty)} is expected here`,
                     Option(String).Some(
                       `a brace group without a semicolon is a record: write "${_punned_field_name(expr)}" for the value, or "{ ${_punned_field_name(expr)}; }" for a block`
                     )
@@ -852,8 +852,8 @@ _evaluate_expression :: (
               );
               make_err_expr()
             }, if(
-              expected_is_anon_struct && !is_some_type(et_ty),
-              evaluate_function_call(expr, env, type_of_type(et_ty), Option(EvalValue).Some(EvalValue.TypeVal(et_ty)), ctx, exn),
+              expected_is_anon_struct && !is_some_type(&et_ty),
+              evaluate_function_call(expr, env, type_of_type(&et_ty), Option(EvalValue).Some(EvalValue.TypeVal(et_ty)), ctx, exn),
               evaluate_anonymous_struct_value(expr, env, ctx, exn)
             ))
           },
@@ -891,7 +891,7 @@ _evaluate_expression :: (
                   match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())
               );
               cond(
-                ast_expr_is_fn_call_of(inner_expr, BK_REF, .None) => {
+                ast_expr_is_fn_call_of(&inner_expr, BK_REF, .None) => {
                   // atomic(ref(struct(...))) — canonical reference-semantics form.
                   ref_inner := match(
                     inner_expr,
@@ -900,16 +900,16 @@ _evaluate_expression :: (
                       match(rargs.get(usize(0)), .Some(a) => a, .None => make_err_expr())
                   );
                   cond(
-                    ast_expr_is_fn_call_of(ref_inner, BK_STRUCT, .None) =>
-                      evaluate_struct_type(ref_inner, env, ctx, true, true, exn),
-                    ast_expr_is_fn_call_of(ref_inner, BK_ENUM, .None) =>
-                      evaluate_enum_type(ref_inner, env, ctx, true, true, exn),
+                    ast_expr_is_fn_call_of(&ref_inner, BK_STRUCT, .None) =>
+                      evaluate_struct_type(&ref_inner, env, ctx, true, true, exn),
+                    ast_expr_is_fn_call_of(&ref_inner, BK_ENUM, .None) =>
+                      evaluate_enum_type(&ref_inner, env, ctx, true, true, exn),
                     true => {
                       exn.throw(
                         dyn(
                           format_error_message(
-                            ast_expr_token(ref_inner),
-                            `"atomic(ref(...))" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${ast_expr_to_string(ref_inner)}`
+                            ast_expr_token(&ref_inner),
+                            `"atomic(ref(...))" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${ast_expr_to_string(&ref_inner)}`
                           )
                         )
                       );
@@ -921,8 +921,8 @@ _evaluate_expression :: (
                   exn.throw(
                     dyn(
                       format_error_message(
-                        ast_expr_token(inner_expr),
-                        `"atomic" modifier is only valid before "ref(struct(...))". Got:\n${ast_expr_to_string(inner_expr)}`
+                        ast_expr_token(&inner_expr),
+                        `"atomic" modifier is only valid before "ref(struct(...))". Got:\n${ast_expr_to_string(&inner_expr)}`
                       )
                     )
                   );
@@ -960,16 +960,16 @@ _evaluate_expression :: (
                   match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr())
               );
               cond(
-                ast_expr_is_fn_call_of(ref_inner, BK_STRUCT, .None) =>
-                  evaluate_struct_type(ref_inner, env, ctx, false, true, exn),
-                ast_expr_is_fn_call_of(ref_inner, BK_ENUM, .None) =>
-                  evaluate_enum_type(ref_inner, env, ctx, false, true, exn),
+                ast_expr_is_fn_call_of(&ref_inner, BK_STRUCT, .None) =>
+                  evaluate_struct_type(&ref_inner, env, ctx, false, true, exn),
+                ast_expr_is_fn_call_of(&ref_inner, BK_ENUM, .None) =>
+                  evaluate_enum_type(&ref_inner, env, ctx, false, true, exn),
                 true => {
                   exn.throw(
                     dyn(
                       format_error_message(
-                        ast_expr_token(ref_inner),
-                        `"ref(...)" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${ast_expr_to_string(ref_inner)}`
+                        ast_expr_token(&ref_inner),
+                        `"ref(...)" wraps an inline "struct(...)" or "enum(...)" literal. Got:\n${ast_expr_to_string(&ref_inner)}`
                       )
                     )
                   );
@@ -1357,7 +1357,7 @@ _evaluate_expression :: (
             match(
               build_call_args.get(bca_i),
               .Some(ba) => {
-                build_call_args(bca_i) = recur(ba, env, ctx, exn);
+                build_call_args(bca_i) = recur(&ba, env, ctx, exn);
               },
               .None => ()
             );
@@ -1408,12 +1408,12 @@ _bridge_expr_info :: (fn(imm(orig) : AstExpr, imm(result) : AstExpr, imm(ctx) : 
   rid := ast_expr_id(result);
   if(!(oid == rid), {
     match(
-      expr_info_table_get(ctx.expr_info_table, oid),
+      expr_info_table_get(&ctx.expr_info_table, oid),
       .Some(_) => (),
       .None => match(
-        expr_info_table_get(ctx.expr_info_table, rid),
+        expr_info_table_get(&ctx.expr_info_table, rid),
         .Some(rinfo) => {
-          expr_info_table_set(ctx.expr_info_table, oid, rinfo);
+          expr_info_table_set(&ctx.expr_info_table, oid, &rinfo);
         },
         .None => ()
       )
@@ -1453,22 +1453,22 @@ _evaluate_expression_wrapper :: (
   // generic message: `format_eval_failure` only attaches a cause recorded on
   // the current attempt.
   note_eval_attempt();
-  result := _evaluate_expression(expr, env, ctx, exn);
+  result := _evaluate_expression(expr, env, ctx, &exn);
   // Inline _bridge_expr_info to avoid the codegen emitting an
   // `if(__yo_effect_escaped) return NULL` after the call. HashMap ops
   // (ExprInfo table get/set) can leak the escaped flag through GC,
   // causing the outer wrapper to return NULL → SIGSEGV in callers
   // that don't check for NULL (try_to_convert_to_pointer_type).
   (oid : usize) = ast_expr_id(expr);
-  (rid : usize) = ast_expr_id(result);
+  (rid : usize) = ast_expr_id(&result);
   if(!(oid == rid), {
     match(
-      expr_info_table_get(ctx.expr_info_table, oid),
+      expr_info_table_get(&ctx.expr_info_table, oid),
       .Some(_) => (),
       .None => match(
-        expr_info_table_get(ctx.expr_info_table, rid),
+        expr_info_table_get(&ctx.expr_info_table, rid),
         .Some(rinfo) => {
-          expr_info_table_set(ctx.expr_info_table, oid, rinfo);
+          expr_info_table_set(&ctx.expr_info_table, oid, &rinfo);
         },
         .None => ()
       )
@@ -1513,7 +1513,7 @@ _surfaces_raw_pointer :: (fn(imm(ty) : TypeValue) -> bool)({
             while((fi < v_fields.len()) && !found, {
               match(
                 v_fields.get(fi),
-                .Some(ft) => if(is_pointer_type(ft), {
+                .Some(ft) => if(is_pointer_type(&ft), {
                   found = true;
                 }),
                 .None => ()
@@ -1542,12 +1542,12 @@ _evaluate_expression_raw_wrapper :: (
   // arguments are being matched: its recorded ExprInfo is authoritative (see
   // `mark_node_preevaluated`). Re-evaluating it here doubled the work of
   // every level of a call chain below.
-  if(node_is_preevaluated(ast_expr_id(expr)) && expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr)).is_some(), {
+  if(node_is_preevaluated(ast_expr_id(expr)) && expr_info_table_get(&ctx.expr_info_table, ast_expr_id(expr)).is_some(), {
     return(expr);
   });
   record_node_eval(ast_expr_id(expr), ast_expr_token(expr));
   result := _evaluate_expression(expr, env, ctx, exn);
-  _bridge_expr_info(expr, result, ctx);
+  _bridge_expr_info(expr, &result, ctx);
   // Memory-safety gate (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md Phase D): a raw
   // pointer VALUE — not only its dereference — exists only in unsafe-capable
   // code. Safe code that could hold `it.next()`'s `Option(*(T))` could pass
@@ -1556,17 +1556,17 @@ _evaluate_expression_raw_wrapper :: (
   // privilege) is the one way safe code borrows an element.
   if(!ctx.unsafe_context, {
     match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(result)),
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result)),
       .Some(ri) => {
-        is_runtime := match(ri.value, .Some(v) => is_unknown_val(v), .None => true);
-        if(is_runtime && _surfaces_raw_pointer(ri.ty), {
-          tok := ast_expr_token(result);
+        is_runtime := match(ri.value, .Some(v) => is_unknown_val(&v), .None => true);
+        if(is_runtime && _surfaces_raw_pointer(&ri.ty), {
+          tok := ast_expr_token(&result);
           if(!is_pointer_value_capable_file(Option(String).Some(tok.module_path.clone()), ctx.std_path.clone()), {
             exn.throw(
               dyn(
                 format_error_message(
-                  tok,
-                  `Raw pointer values are not available in safe code: '${ast_expr_to_string(result)}' has type '${type_to_string(ri.ty)}'.
+                  &tok,
+                  `Raw pointer values are not available in safe code: '${ast_expr_to_string(&result)}' has type '${type_to_string(&ri.ty)}'.
 
 To borrow the elements of a collection, iterate it with 'for(coll, mut(x) => ...)'. If this file genuinely needs raw pointers, declare 'pragma(Pragma.AllowUnsafe);'.`
                 )

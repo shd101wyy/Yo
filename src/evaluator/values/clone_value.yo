@@ -39,7 +39,7 @@ clone_value :: (fn(imm(v) : EvalValue, preserve_pointer_refs : bool) -> EvalValu
     .UnknownVal(_, _) => v,
     // ReturnVal — recursively clone the wrapped value
     .ReturnVal(val : val_box, ty : ty) =>
-      EvalValue.ReturnVal(val : recur(val_box, preserve_pointer_refs), ty : ty.clone()),
+      EvalValue.ReturnVal(val : recur(&val_box, preserve_pointer_refs), ty : ty.clone()),
     // PtrVal — preserve or deep-clone depending on flag. Preserving keeps
     // the SAME cell (reference semantics); cloning mints a FRESH 1-elem cell
     // around the cloned pointee (no aliasing dedup between cloned cells —
@@ -53,7 +53,7 @@ clone_value :: (fn(imm(v) : EvalValue, preserve_pointer_refs : bool) -> EvalValu
           match(
             tgt_cell.get(usize(0)),
             .Some(cv_p0) => {
-              cv_new_cell.push(recur(cv_p0, preserve_pointer_refs));
+              cv_new_cell.push(recur(&cv_p0, preserve_pointer_refs));
             },
             .None => ()
           );
@@ -66,7 +66,7 @@ clone_value :: (fn(imm(v) : EvalValue, preserve_pointer_refs : bool) -> EvalValu
       i := usize(0);
       while(i < flds.len(), {
         elem := match(flds.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
-        new_fields.push(recur(elem, preserve_pointer_refs));
+        new_fields.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
       EvalValue.EnumVal(variant : vname, fields : new_fields)
@@ -77,7 +77,7 @@ clone_value :: (fn(imm(v) : EvalValue, preserve_pointer_refs : bool) -> EvalValu
       i := usize(0);
       while(i < fvals.len(), {
         elem := match(fvals.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
-        new_fvals.push(recur(elem, preserve_pointer_refs));
+        new_fvals.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
       EvalValue.StructVal(ty_name : tname, field_names : fnames, field_values : new_fvals)
@@ -88,7 +88,7 @@ clone_value :: (fn(imm(v) : EvalValue, preserve_pointer_refs : bool) -> EvalValu
       i := usize(0);
       while(i < flds.len(), {
         elem := match(flds.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
-        new_fields.push(recur(elem, preserve_pointer_refs));
+        new_fields.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
       EvalValue.TupleVal(fields : new_fields)
@@ -99,7 +99,7 @@ clone_value :: (fn(imm(v) : EvalValue, preserve_pointer_refs : bool) -> EvalValu
       i := usize(0);
       while(i < elems.len(), {
         elem := match(elems.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
-        new_elems.push(recur(elem, preserve_pointer_refs));
+        new_elems.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
       EvalValue.ArrayVal(elements : new_elems)
@@ -113,7 +113,7 @@ clone_value :: (fn(imm(v) : EvalValue, preserve_pointer_refs : bool) -> EvalValu
         cloned_opt := match(
           opt_f,
           .None => Option(EvalValue).None,
-          .Some(f) => Option(EvalValue).Some(recur(f, preserve_pointer_refs))
+          .Some(f) => Option(EvalValue).Some(recur(&f, preserve_pointer_refs))
         );
         new_fvals.push(cloned_opt);
         i = (i + usize(1));
@@ -126,7 +126,7 @@ clone_value :: (fn(imm(v) : EvalValue, preserve_pointer_refs : bool) -> EvalValu
       i := usize(0);
       while(i < elems.len(), {
         elem := match(elems.get(i), .Some(e) => e, .None => EvalValue.UnitVal);
-        new_elems.push(recur(elem, preserve_pointer_refs));
+        new_elems.push(recur(&elem, preserve_pointer_refs));
         i = (i + usize(1));
       });
       EvalValue.ComptimeListVal(elements : new_elems)

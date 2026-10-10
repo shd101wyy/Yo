@@ -133,7 +133,7 @@ _join_path :: (fn(imm(base) : String, imm(name) : String) -> String)(
 // issues/fixed/async-nested-cond-await-duplicate-while-labels.md.
 _canon_dir_target :: (fn(imm(lp) : String, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
-    is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), e.io);
+    is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), &e.io);
     cond(
       is_d => {
         canon := e.io.await(_file.canonicalize(Path.new(lp), e.io), e);
@@ -169,7 +169,7 @@ _filter_by_pattern :: (fn(imm(results) : ArrayList(WalkEntry), imm(root_s) : Str
       true => wentry.name.clone()
     );
     cond(
-      glob_match(pat.clone(), rel) => {
+      glob_match(pat.clone(), &rel) => {
         kept.push(wentry);
       },
       true => ()
@@ -218,11 +218,11 @@ walk_with :: (fn(imm(root) : Path, imm(options) : WalkOptions, io : Io) -> Impl(
       );
       cond(
         should_continue => {
-          entries := e.io.await(_dir.read_dir(Path.new(cur_path), e.io), e);
+          entries := e.io.await(_dir.read_dir(Path.new(&cur_path), e.io), e);
           i := usize(0);
           while(runtime(i < entries.len()), {
             entry := entries(i);
-            entry_path := _join_path(cur_path, entry.name);
+            entry_path := _join_path(&cur_path, &entry.name);
             match(
               entry.file_type,
               .Directory => {
@@ -230,7 +230,7 @@ walk_with :: (fn(imm(root) : Path, imm(options) : WalkOptions, io : Io) -> Impl(
                   options.include_dirs => {
                     results.push(
                       WalkEntry(
-                        path : Path.new(entry_path),
+                        path : Path.new(&entry_path),
                         name : entry.name,
                         depth : cur_depth,
                         file_type : .Directory
@@ -250,7 +250,7 @@ walk_with :: (fn(imm(root) : Path, imm(options) : WalkOptions, io : Io) -> Impl(
                 // issues/fixed/async-nested-cond-await-duplicate-while-labels.md).
                 results.push(
                   WalkEntry(
-                    path : Path.new(entry_path),
+                    path : Path.new(&entry_path),
                     name : entry.name,
                     depth : cur_depth,
                     file_type : .Symlink
@@ -266,7 +266,7 @@ walk_with :: (fn(imm(root) : Path, imm(options) : WalkOptions, io : Io) -> Impl(
               _ => {
                 results.push(
                   WalkEntry(
-                    path : Path.new(entry_path),
+                    path : Path.new(&entry_path),
                     name : entry.name,
                     depth : cur_depth,
                     file_type : entry.file_type
@@ -282,9 +282,9 @@ walk_with :: (fn(imm(root) : Path, imm(options) : WalkOptions, io : Io) -> Impl(
           j := usize(0);
           while(runtime(j < pending_links.len()), {
             lp := pending_links(j);
-            canon_s := e.io.await(_canon_dir_target(lp, e.io), e);
+            canon_s := e.io.await(_canon_dir_target(&lp, e.io), e);
             cond(
-              (!canon_s.is_empty() && !followed.contains(canon_s)) => {
+              (!canon_s.is_empty() && !followed.contains(&canon_s)) => {
                 followed.insert(canon_s);
                 stack.push({ path : lp, depth : (cur_depth + u32(1)) });
               },
@@ -298,7 +298,7 @@ walk_with :: (fn(imm(root) : Path, imm(options) : WalkOptions, io : Io) -> Impl(
       );
     });
     // The pattern post-filter is a sync helper over the drained results.
-    _filter_by_pattern(results, root_s, options.pattern)
+    _filter_by_pattern(&results, &root_s, &options.pattern)
   })
 });
 /// `walk_with` taking a NUL-terminated C string as the root, for callers
@@ -372,7 +372,7 @@ glob :: (fn(imm(pattern) : String, io : Io) -> Impl(Future(ArrayList(Path), IoEx
       include_dirs : true,
       pattern : Option(String).Some(parts.rest)
     );
-    entries := e.io.await(walk_with(Path.new(parts.base), opts, e.io), e);
+    entries := e.io.await(walk_with(Path.new(&parts.base), &opts, e.io), e);
     out := ArrayList(Path).new();
     (i : usize) = usize(0);
     while(runtime(i < entries.len()), {
@@ -396,7 +396,7 @@ export(walk, walk_cstr, walk_with, walk_with_cstr, glob);
 remove_dir_all :: (fn(imm(path) : Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async((e : IoExn) => {
     opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true, pattern : .None);
-    entries := e.io.await(walk_with(path, opts, e.io), e);
+    entries := e.io.await(walk_with(path, &opts, e.io), e);
     n := entries.len();
     // Delete deepest entries first (reverse order from walk output).
     while(n > usize(0), {
@@ -408,10 +408,10 @@ remove_dir_all :: (fn(imm(path) : Path, io : Io) -> Impl(Future(unit, IoExn)))(
           match(
             entry.file_type,
             .Directory => {
-              e.io.await(remove_dir(entry.path, e.io), e);
+              e.io.await(remove_dir(&entry.path, e.io), e);
             },
             _ => {
-              e.io.await(remove_file(entry.path, e.io), e);
+              e.io.await(remove_file(&entry.path, e.io), e);
             }
           )
       );

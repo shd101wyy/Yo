@@ -42,7 +42,7 @@ _cv0 :: (fn(imm(variant) : String) -> EvalValue)(_cv(variant, ArrayList(EvalValu
 _cv1 :: (fn(imm(variant) : String, imm(field) : EvalValue) -> EvalValue)({
   fs := ArrayList(EvalValue).new();
   fs.push(field);
-  _cv(variant, fs)
+  _cv(variant, &fs)
 });
 /// Lift a parsed JSON value into the `ComptimeValue` shape.
 ///
@@ -69,7 +69,7 @@ _lift_json :: (fn(imm(v) : JsonValue) -> EvalValue)(
       out := ArrayList(EvalValue).new();
       (i : usize) = usize(0);
       while(i < items.len(), {
-        match(items.get(i), .Some(it) => out.push(_lift_json(it)), .None => ());
+        match(items.get(i), .Some(it) => out.push(_lift_json(&it)), .None => ());
         i = (i + usize(1));
       });
       _cv1(String.from("List"), EvalValue.ComptimeListVal(out))
@@ -80,13 +80,13 @@ _lift_json :: (fn(imm(v) : JsonValue) -> EvalValue)(
       (i : usize) = usize(0);
       while(i < keys.len(), {
         match(keys.get(i), .Some(k) => ks.push(EvalValue.StrLit(`"${k}"`)), .None => ());
-        match(values.get(i), .Some(val) => vs.push(_lift_json(val)), .None => ());
+        match(values.get(i), .Some(val) => vs.push(_lift_json(&val)), .None => ());
         i = (i + usize(1));
       });
       fs := ArrayList(EvalValue).new();
       fs.push(EvalValue.ComptimeListVal(ks));
       fs.push(EvalValue.ComptimeListVal(vs));
-      _cv(String.from("Table"), fs)
+      _cv(String.from("Table"), &fs)
     }
   )
 );
@@ -106,7 +106,7 @@ _lift_toml :: (fn(imm(v) : TomlValue) -> EvalValue)(
       out := ArrayList(EvalValue).new();
       (i : usize) = usize(0);
       while(i < items.len(), {
-        match(items.get(i), .Some(it) => out.push(_lift_toml(it)), .None => ());
+        match(items.get(i), .Some(it) => out.push(_lift_toml(&it)), .None => ());
         i = (i + usize(1));
       });
       _cv1(String.from("List"), EvalValue.ComptimeListVal(out))
@@ -117,13 +117,13 @@ _lift_toml :: (fn(imm(v) : TomlValue) -> EvalValue)(
       (i : usize) = usize(0);
       while(i < keys.len(), {
         match(keys.get(i), .Some(k) => ks.push(EvalValue.StrLit(`"${k}"`)), .None => ());
-        match(values.get(i), .Some(val) => vs.push(_lift_toml(val)), .None => ());
+        match(values.get(i), .Some(val) => vs.push(_lift_toml(&val)), .None => ());
         i = (i + usize(1));
       });
       fs := ArrayList(EvalValue).new();
       fs.push(EvalValue.ComptimeListVal(ks));
       fs.push(EvalValue.ComptimeListVal(vs));
-      _cv(String.from("Table"), fs)
+      _cv(String.from("Table"), &fs)
     }
   )
 );
@@ -165,16 +165,16 @@ _string_argument :: (
     );
   });
   arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
-  evaluated := evaluate_expression_raw(arg, env, ctx, exn);
+  evaluated := evaluate_expression_raw(&arg, env, ctx, exn);
   match(
     match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)),
       .Some(info) => info.value,
       .None => Option(EvalValue).None
     ),
     .Some(v) => match(
       v,
-      .StrLit(raw) => Option(String).Some(_unquote(raw)),
+      .StrLit(raw) => Option(String).Some(_unquote(&raw)),
       .UnknownVal(_t, _r) => Option(String).None,
       _ => {
         exn.throw(
@@ -194,9 +194,9 @@ _string_argument :: (
 /// Annotate `expr` with the `ComptimeValue` type and `value`.
 _annotate :: (fn(imm(expr) : AstExpr, imm(value) : Option(EvalValue), imm(env) : Environment, imm(ctx) : EvalContext) -> AstExpr)({
   ty := match(_comptime_value_type(env), .Some(t) => t, .None => t_unit());
-  info := new_expr_info(env, ty);
+  info := new_expr_info(env, &ty);
   info.value = value;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 evaluate_comptime_json_parse :: (
@@ -209,7 +209,7 @@ evaluate_comptime_json_parse :: (
   text := src.unwrap_or(String.new());
   lifted := match(
     json_parse_string(text.clone()),
-    .Ok(v) => _lift_json(v),
+    .Ok(v) => _lift_json(&v),
     .Err(e) => {
       exn.throw(
         dyn(
@@ -234,7 +234,7 @@ evaluate_comptime_toml_parse :: (
   text := src.unwrap_or(String.new());
   lifted := match(
     toml_parse(text.clone()),
-    .Ok(v) => _lift_toml(v),
+    .Ok(v) => _lift_toml(&v),
     .Err(e) => {
       exn.throw(
         dyn(

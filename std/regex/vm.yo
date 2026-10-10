@@ -184,7 +184,7 @@ impl(
   // rather than failing. The old hand-rolled version indexed `_bytes` past the
   // end on a truncated tail; `decode_lossy` bounds-checks instead.
   _decode_codepoint : (fn(imm(self) : Self, pos : usize) -> DecodedChar)({
-    d := utf8.decode_lossy(self._bytes, pos);
+    d := utf8.decode_lossy(&self._bytes, pos);
     DecodedChar(codepoint : d.code.to_u32(), byte_len : d.width)
   }),
   _to_lower : (fn(imm(self) : Self, cp : u32) -> u32)(
@@ -326,12 +326,12 @@ impl(
       .Split => {
         t1 := thread.fork(instr.target_a);
         t2 := thread.fork(instr.target_b);
-        recur(self, list, t1, byte_pos, seen);
-        recur(self, list, t2, byte_pos, seen);
+        recur(self, list, &t1, byte_pos, seen);
+        recur(self, list, &t2, byte_pos, seen);
       },
       .Jump => {
         new_t := thread.fork(instr.target);
-        recur(self, list, new_t, byte_pos, seen);
+        recur(self, list, &new_t, byte_pos, seen);
       },
       .Save => {
         cond(
@@ -341,7 +341,7 @@ impl(
           true => ()
         );
         new_t := NfaThread(pc : (thread.pc + usize(1)), slots : thread.slots);
-        recur(self, list, new_t, byte_pos, seen);
+        recur(self, list, &new_t, byte_pos, seen);
       },
       .AssertStart => {
         passes := cond(
@@ -352,7 +352,7 @@ impl(
         cond(
           passes => {
             new_t := thread.fork(thread.pc + usize(1));
-            recur(self, list, new_t, byte_pos, seen);
+            recur(self, list, &new_t, byte_pos, seen);
           },
           true => ()
         );
@@ -366,7 +366,7 @@ impl(
         cond(
           passes => {
             new_t := thread.fork(thread.pc + usize(1));
-            recur(self, list, new_t, byte_pos, seen);
+            recur(self, list, &new_t, byte_pos, seen);
           },
           true => ()
         );
@@ -375,7 +375,7 @@ impl(
         cond(
           self._is_word_boundary(byte_pos) => {
             new_t := thread.fork(thread.pc + usize(1));
-            recur(self, list, new_t, byte_pos, seen);
+            recur(self, list, &new_t, byte_pos, seen);
           },
           true => ()
         );
@@ -384,7 +384,7 @@ impl(
         cond(
           !self._is_word_boundary(byte_pos) => {
             new_t := thread.fork(thread.pc + usize(1));
-            recur(self, list, new_t, byte_pos, seen);
+            recur(self, list, &new_t, byte_pos, seen);
           },
           true => ()
         );
@@ -407,7 +407,7 @@ impl(
     sub_seen := ArrayList(bool).with_capacity(self._program.instructions.len());
     sub_seen.resize_with_byte(self._program.instructions.len(), int(0));
     initial := NfaThread.new(sub_start_pc, self._n_slots);
-    self._add_thread(sub_current, initial, start_byte, sub_seen);
+    self._add_thread(&mut sub_current, &initial, start_byte, &mut sub_seen);
     sub_pos := start_byte;
     input_len := self._bytes.len();
     while(sub_pos <= input_len, {
@@ -467,7 +467,7 @@ impl(
             cond(
               self._char_matches(st_instr.codepoint, sub_cp) => {
                 new_t := st_thread.fork(st_thread.pc + usize(1));
-                self._add_thread(sub_next, new_t, sub_pos + sub_blen, sub_seen);
+                self._add_thread(&mut sub_next, &new_t, sub_pos + sub_blen, &mut sub_seen);
               },
               true => ()
             );
@@ -480,7 +480,7 @@ impl(
             cond(
               should_match => {
                 new_t := st_thread.fork(st_thread.pc + usize(1));
-                self._add_thread(sub_next, new_t, sub_pos + sub_blen, sub_seen);
+                self._add_thread(&mut sub_next, &new_t, sub_pos + sub_blen, &mut sub_seen);
               },
               true => ()
             );
@@ -491,9 +491,9 @@ impl(
               class_opt,
               .Some(cls) => {
                 cond(
-                  self._codepoint_in_class(sub_cp, cls) => {
+                  self._codepoint_in_class(sub_cp, &cls) => {
                     new_t := st_thread.fork(st_thread.pc + usize(1));
-                    self._add_thread(sub_next, new_t, sub_pos + sub_blen, sub_seen);
+                    self._add_thread(&mut sub_next, &new_t, sub_pos + sub_blen, &mut sub_seen);
                   },
                   true => ()
                 );
@@ -546,7 +546,7 @@ impl(
     seen.fill_with_byte(int(0));
     next_seen.fill_with_byte(int(0));
     initial := NfaThread.new(usize(0), self._n_slots);
-    self._add_thread(current, initial, start_byte, seen);
+    self._add_thread(&mut current, &initial, start_byte, &mut seen);
     best_match := VmMatch(matched : false, slots : ArrayList(usize).new());
     byte_pos := start_byte;
     input_len := self._bytes.len();
@@ -573,7 +573,7 @@ impl(
         d := deferred(di);
         cond(
           (d.target_byte_pos == byte_pos) => {
-            self._add_thread(current, d.thread, byte_pos, seen);
+            self._add_thread(&mut current, &d.thread, byte_pos, &mut seen);
           },
           true => {
             new_deferred.push(d);
@@ -600,7 +600,7 @@ impl(
             cond(
               (!at_end && self._char_matches(instr.codepoint, cur_cp)) => {
                 new_thread := thread.fork(thread.pc + usize(1));
-                self._add_thread(next, new_thread, byte_pos + char_byte_len, next_seen);
+                self._add_thread(&mut next, &new_thread, byte_pos + char_byte_len, &mut next_seen);
               },
               true => ()
             );
@@ -615,7 +615,7 @@ impl(
                 cond(
                   should_match => {
                     new_thread := thread.fork(thread.pc + usize(1));
-                    self._add_thread(next, new_thread, byte_pos + char_byte_len, next_seen);
+                    self._add_thread(&mut next, &new_thread, byte_pos + char_byte_len, &mut next_seen);
                   },
                   true => ()
                 );
@@ -631,9 +631,9 @@ impl(
                   class_opt,
                   .Some(cls) => {
                     cond(
-                      self._codepoint_in_class(cur_cp, cls) => {
+                      self._codepoint_in_class(cur_cp, &cls) => {
                         new_thread := thread.fork(thread.pc + usize(1));
-                        self._add_thread(next, new_thread, byte_pos + char_byte_len, next_seen);
+                        self._add_thread(&mut next, &new_thread, byte_pos + char_byte_len, &mut next_seen);
                       },
                       true => ()
                     );
@@ -696,7 +696,7 @@ impl(
                             cond(
                               (captured_len == usize(0)) => {
                                 // Empty capture — epsilon-like, process in current gen
-                                self._add_thread(current, new_thread, byte_pos, seen);
+                                self._add_thread(&mut current, &new_thread, byte_pos, &mut seen);
                               },
                               true => {
                                 // Defer to the target byte position
@@ -725,7 +725,7 @@ impl(
               (sub_matched == positive) => {
                 sub_end := instr.target_b;
                 new_thread := thread.fork(sub_end);
-                self._add_thread(current, new_thread, byte_pos, seen);
+                self._add_thread(&mut current, &new_thread, byte_pos, &mut seen);
               },
               true => ()
             );
@@ -788,7 +788,7 @@ impl(
               (lb_matched == positive) => {
                 sub_end := instr.target_b;
                 new_thread := thread.fork(sub_end);
-                self._add_thread(current, new_thread, byte_pos, seen);
+                self._add_thread(&mut current, &new_thread, byte_pos, &mut seen);
               },
               true => ()
             );

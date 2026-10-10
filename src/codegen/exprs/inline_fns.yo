@@ -87,11 +87,11 @@ _binop :: (fn(imm(args) : ArrayList(String), op : str) -> String)({
     return(`// Failed to transpile (${lhs}) ${op} (${rhs})`);
   });
   out := String.from("((");
-  out.push_string(lhs);
+  out.push_string(&lhs);
   out.push_str(") ");
   out.push_str(op);
   out.push_str(" (");
-  out.push_string(rhs);
+  out.push_string(&rhs);
   out.push_str("))");
   out
 });
@@ -104,9 +104,9 @@ _callop2 :: (fn(imm(args) : ArrayList(String), fname : str) -> String)({
   });
   out := String.from(fname);
   out.push_str("((");
-  out.push_string(lhs);
+  out.push_string(&lhs);
   out.push_str("), (");
-  out.push_string(rhs);
+  out.push_string(&rhs);
   out.push_str("))");
   out
 });
@@ -128,9 +128,9 @@ _div_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm
   file_lit := _idx_c_string_literal(tok.module_path.clone());
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
   signed_wide := cond(
-    (is_i8_type(ty) || is_i16_type(ty) || is_i32_type(ty)) => String.from("(-2147483647 - 1)"),
-    is_i64_type(ty) => String.from("(-9223372036854775807LL - 1)"),
-    is_isize_type(ty) => if(is_target_wasm(context.base.target_info), String.from("(-2147483647 - 1)"), String.from("(-9223372036854775807LL - 1)")),
+    (is_i8_type(&ty) || is_i16_type(&ty) || is_i32_type(&ty)) => String.from("(-2147483647 - 1)"),
+    is_i64_type(&ty) => String.from("(-9223372036854775807LL - 1)"),
+    is_isize_type(&ty) => if(is_target_wasm(&context.base.target_info), String.from("(-2147483647 - 1)"), String.from("(-9223372036854775807LL - 1)")),
     true => String.new()
   );
   if(signed_wide.len() > usize(0), {
@@ -141,7 +141,7 @@ _div_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm
     });
     return(`(__yo_div_guard((long long)(${a}), (long long)(${b}), ${signed_wide}${loc}), ((${a}) ${op} (${b})))`);
   });
-  if(is_u8_type(ty) || is_u16_type(ty) || is_u32_type(ty) || is_u64_type(ty) || is_usize_type(ty), {
+  if(is_u8_type(&ty) || is_u16_type(&ty) || is_u32_type(&ty) || is_u64_type(&ty) || is_usize_type(&ty), {
     // 5b: a proved non-zero divisor needs no guard.
     if(guard_site_is_proved(expr, "divisor-nonzero"), {
       return(_binop(args, op));
@@ -170,10 +170,10 @@ _wrap_binop :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(conte
     return(raw);
   });
   ty := ei_ty(expr, context);
-  if(!is_primitive_type(ty) || is_unit_type(ty), {
+  if(!is_primitive_type(&ty) || is_unit_type(&ty), {
     return(raw);
   });
-  ct := get_type_string(ty, context.base);
+  ct := get_type_string(&ty, &context.base);
   `((${ct})((unsigned long long)(${_a(args, usize(0))}) ${op} (unsigned long long)(${_a(args, usize(1))})))`
 });
 _arith_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext, op : str) -> String)({
@@ -186,18 +186,18 @@ _arith_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, i
   tok := ast_expr_token(expr);
   file_lit := _idx_c_string_literal(tok.module_path.clone());
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
-  ct := get_type_string(ty, context.base);
-  wasm := is_target_wasm(context.base.target_info);
+  ct := get_type_string(&ty, &context.base);
+  wasm := is_target_wasm(&context.base.target_info);
   fnbase := cond((op == "*") => String.from("mul"), (op == "-") => String.from("sub"), true => String.from("add"));
   // 5b Phase 2: where a guard is emitted, a proof that the exact result fits
   // the type licenses the plain operation, narrowed back to it (same value).
   // Asked inside each guarded branch only, so an unguarded operation is never
   // counted as elided.
   plain := `((${ct})((${a}) ${op} (${b})))`;
-  if(is_i8_type(ty) || is_i16_type(ty) || is_i32_type(ty) || (is_isize_type(ty) && wasm), {
+  if(is_i8_type(&ty) || is_i16_type(&ty) || is_i32_type(&ty) || (is_isize_type(&ty) && wasm), {
     bounds := cond(
-      is_i16_type(ty) => String.from("(-32768), 32767"),
-      (is_i32_type(ty) || is_isize_type(ty)) => String.from("(-2147483647 - 1), 2147483647"),
+      is_i16_type(&ty) => String.from("(-32768), 32767"),
+      (is_i32_type(&ty) || is_isize_type(&ty)) => String.from("(-2147483647 - 1), 2147483647"),
       true => String.from("(-128), 127")
     );
     if(guard_site_is_proved(expr, "no-overflow"), {
@@ -205,16 +205,16 @@ _arith_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, i
     });
     return(`((${ct})__yo_${fnbase}_chk_s((long long)(${a}), (long long)(${b}), ${bounds}${loc}))`);
   });
-  if(is_i64_type(ty) || is_isize_type(ty), {
+  if(is_i64_type(&ty) || is_isize_type(&ty), {
     if(guard_site_is_proved(expr, "no-overflow"), {
       return(plain);
     });
     return(`(__yo_${fnbase}_chk_s64((${a}), (${b})${loc}))`);
   });
-  if(is_u8_type(ty) || is_u16_type(ty) || is_u32_type(ty) || (is_usize_type(ty) && wasm), {
+  if(is_u8_type(&ty) || is_u16_type(&ty) || is_u32_type(&ty) || (is_usize_type(&ty) && wasm), {
     hi := cond(
-      is_u16_type(ty) => String.from("65535"),
-      (is_u32_type(ty) || is_usize_type(ty)) => String.from("4294967295ULL"),
+      is_u16_type(&ty) => String.from("65535"),
+      (is_u32_type(&ty) || is_usize_type(&ty)) => String.from("4294967295ULL"),
       true => String.from("255")
     );
     if(guard_site_is_proved(expr, "no-overflow"), {
@@ -224,7 +224,7 @@ _arith_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, i
   });
   // A 64-bit `usize` is a u64: it traps too
   // (issues/fixed/usize-arithmetic-is-unguarded-on-64-bit-targets.md).
-  if(is_u64_type(ty) || is_usize_type(ty), {
+  if(is_u64_type(&ty) || is_usize_type(&ty), {
     if(guard_site_is_proved(expr, "no-overflow"), {
       return(plain);
     });
@@ -244,22 +244,22 @@ _neg_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm
   tok := ast_expr_token(expr);
   file_lit := _idx_c_string_literal(tok.module_path.clone());
   loc := `, ${file_lit}, ${(usize(tok.row) + usize(1)).to_string()}, ${(usize(tok.column) + usize(1)).to_string()}`;
-  ct := get_type_string(ty, context.base);
-  wasm := is_target_wasm(context.base.target_info);
+  ct := get_type_string(&ty, &context.base);
+  wasm := is_target_wasm(&context.base.target_info);
   // 5b Phase 2: the verifier proved the operand is not the type's MIN.
   if(guard_site_is_proved(expr, "neg-no-overflow"), {
     return(_unop_narrowed(args, "-", expr, context));
   });
-  if(is_i8_type(ty), {
+  if(is_i8_type(&ty), {
     return(`((${ct})__yo_neg_chk_s((long long)(${a}), (-128)${loc}))`);
   });
-  if(is_i16_type(ty), {
+  if(is_i16_type(&ty), {
     return(`((${ct})__yo_neg_chk_s((long long)(${a}), (-32768)${loc}))`);
   });
-  if(is_i32_type(ty) || (is_isize_type(ty) && wasm), {
+  if(is_i32_type(&ty) || (is_isize_type(&ty) && wasm), {
     return(`((${ct})__yo_neg_chk_s((long long)(${a}), (-2147483647 - 1)${loc}))`);
   });
-  if(is_i64_type(ty) || is_isize_type(ty), {
+  if(is_i64_type(&ty) || is_isize_type(&ty), {
     return(`(__yo_neg_chk_s64((${a})${loc}))`);
   });
   _unop_narrowed(args, "-", expr, context)
@@ -275,13 +275,13 @@ _shift_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, i
     return(`// Failed to transpile (${a}) ${op} (${b})`);
   });
   bits := cond(
-    (is_i8_type(ty) || is_u8_type(ty)) => String.from("8"),
-    (is_i16_type(ty) || is_u16_type(ty)) => String.from("16"),
-    (is_i32_type(ty) || is_u32_type(ty) || (is_isize_type(ty) && is_target_wasm(context.base.target_info)) || (is_usize_type(ty) && is_target_wasm(context.base.target_info))) => String.from("32"),
+    (is_i8_type(&ty) || is_u8_type(&ty)) => String.from("8"),
+    (is_i16_type(&ty) || is_u16_type(&ty)) => String.from("16"),
+    (is_i32_type(&ty) || is_u32_type(&ty) || (is_isize_type(&ty) && is_target_wasm(&context.base.target_info)) || (is_usize_type(&ty) && is_target_wasm(&context.base.target_info))) => String.from("32"),
     true => String.from("64")
   );
-  if(_is_decimal_literal(b), {
-    if(_parse_decimal(b) < _parse_decimal(bits.clone()), {
+  if(_is_decimal_literal(&b), {
+    if(_parse_decimal(&b) < _parse_decimal(bits.clone()), {
       return(_binop(args, op));
     });
   });
@@ -301,14 +301,14 @@ _as_saturating_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, i
     expr,
     .FnCall(_, _, ua, _, _) => match(
       ua.get(usize(0)),
-      .Some(a0) => match(context.base.get_expr_info(a0), .Some(aei) => Option(TypeValue).Some(aei.ty), .None => Option(TypeValue).None),
+      .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => Option(TypeValue).Some(aei.ty), .None => Option(TypeValue).None),
       .None => Option(TypeValue).None
     ),
     .Atom(_, _) => Option(TypeValue).None
   );
   src_is_float := match(
     sty,
-    .Some(s) => (is_f32_type(s) || is_f64_type(s)),
+    .Some(s) => (is_f32_type(&s) || is_f64_type(&s)),
     .None => false
   );
   if(!src_is_float, {
@@ -319,30 +319,30 @@ _as_saturating_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, i
   if((a.len() == usize(0)) || a.starts_with("// Failed to transpile"), {
     return(Option(String).None);
   });
-  ct := get_type_string(ty, context.base);
-  wasm := is_target_wasm(context.base.target_info);
-  if(is_i8_type(ty), {
+  ct := get_type_string(&ty, &context.base);
+  wasm := is_target_wasm(&context.base.target_info);
+  if(is_i8_type(&ty), {
     return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-128), 127))`));
   });
-  if(is_i16_type(ty), {
+  if(is_i16_type(&ty), {
     return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-32768), 32767))`));
   });
-  if(is_i32_type(ty) || (is_isize_type(ty) && wasm), {
+  if(is_i32_type(&ty) || (is_isize_type(&ty) && wasm), {
     return(Option(String).Some(`((${ct})__yo_sat_i64((double)(${a}), (-2147483647 - 1), 2147483647))`));
   });
-  if(is_i64_type(ty) || is_isize_type(ty), {
+  if(is_i64_type(&ty) || is_isize_type(&ty), {
     return(Option(String).Some(`((__yo_sat_i64((double)(${a}), (-9223372036854775807LL - 1), 9223372036854775807LL)))`));
   });
-  if(is_u8_type(ty), {
+  if(is_u8_type(&ty), {
     return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 255))`));
   });
-  if(is_u16_type(ty), {
+  if(is_u16_type(&ty), {
     return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 65535))`));
   });
-  if(is_u32_type(ty) || (is_usize_type(ty) && wasm), {
+  if(is_u32_type(&ty) || (is_usize_type(&ty) && wasm), {
     return(Option(String).Some(`((${ct})__yo_sat_u64((double)(${a}), 4294967295ULL))`));
   });
-  if(is_u64_type(ty) || is_usize_type(ty), {
+  if(is_u64_type(&ty) || is_usize_type(&ty), {
     return(Option(String).Some(`((__yo_sat_u64((double)(${a}), 18446744073709551615ULL)))`));
   });
   Option(String).None
@@ -363,8 +363,8 @@ _as_saturating_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, i
 _mod_op :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> String)({
   ty := ei_ty(expr, context);
   cond(
-    is_f32_type(ty) => _callop2(args, "fmodf"),
-    is_f64_type(ty) => _callop2(args, "fmod"),
+    is_f32_type(&ty) => _callop2(args, "fmodf"),
+    is_f64_type(&ty) => _callop2(args, "fmod"),
     true => _div_checked_expr(args, expr, context, "%")
   )
 });
@@ -386,10 +386,10 @@ _unary_operand_c_type :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerat
     .FnCall(_, _, ua, _, _) => match(
       ua.get(usize(0)),
       .Some(u0) => match(
-        context.base.get_expr_info(u0),
+        context.base.get_expr_info(&u0),
         .Some(uei) => if(
-          is_primitive_type(uei.ty) && !is_unit_type(uei.ty),
-          Option(String).Some(get_type_string(uei.ty, context.base)),
+          is_primitive_type(&uei.ty) && !is_unit_type(&uei.ty),
+          Option(String).Some(get_type_string(&uei.ty, &context.base)),
           Option(String).None
         ),
         .None => Option(String).None
@@ -452,7 +452,7 @@ ei_ty :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> T
 );
 /// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
 _as_source_is_tagged_enum :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
-  match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(a0), .Some(aei) => (is_enum_type(aei.ty) && !can_optimize_as_simple_enum(aei.ty)), .None => false), .None => false), .Atom(_, _) => false)
+  match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => (is_enum_type(&aei.ty) && !can_optimize_as_simple_enum(&aei.ty)), .None => false), .None => false), .Atom(_, _) => false)
 );
 /// Generate a Yo operator / inline-builtin function call.
 generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext, imm(indent) : String) -> String)(
@@ -494,7 +494,7 @@ generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) :
       line.push_string(_a(args, usize(0)));
       line.push_str("));");
       em := context.base.emitter;
-      em.emit_string_line(line);
+      em.emit_string_line(&line);
       String.from("")
     },
     (function_name == BF_YO_BORROW_ACQUIRE) => {
@@ -503,7 +503,7 @@ generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) :
       line.push_string(_a(args, usize(0)));
       line.push_str("));");
       em := context.base.emitter;
-      em.emit_string_line(line);
+      em.emit_string_line(&line);
       String.from("")
     },
     (function_name == BF_YO_BORROW_RELEASE) => {
@@ -512,10 +512,10 @@ generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) :
       line.push_string(_a(args, usize(0)));
       line.push_str("));");
       em := context.base.emitter;
-      em.emit_string_line(line);
+      em.emit_string_line(&line);
       String.from("")
     },
-    (function_name == BF_YO_MS_SLEEP) => if(is_target_windows(context.base.target_info), {
+    (function_name == BF_YO_MS_SLEEP) => if(is_target_windows(&context.base.target_info), {
       out := String.from("Sleep(");
       out.push_string(_a(args, usize(0)));
       out.push_str(")");
@@ -536,17 +536,17 @@ generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) :
       _as_saturating_expr(args, expr, context),
       .Some(sat) => sat,
       .None => {
-        target_c_type := get_type_string(ei_ty(expr, context), context.base);
+        target_c_type := get_type_string(ei_ty(expr, context), &context.base);
         if(_as_source_is_tagged_enum(expr, context), {
           out := String.from("((");
-          out.push_string(target_c_type);
+          out.push_string(&target_c_type);
           out.push_str(")((");
           out.push_string(_a(args, usize(0)));
           out.push_str(").tag))");
           out
         }, {
           out := String.from("((");
-          out.push_string(target_c_type);
+          out.push_string(&target_c_type);
           out.push_str(")(");
           out.push_string(_a(args, usize(0)));
           out.push_str("))");
@@ -582,7 +582,7 @@ generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) :
       out := String.from("(");
       out.push_string(_a(args, usize(0)));
       out.push_str(".ptr[");
-      out.push_string(str_idx);
+      out.push_string(&str_idx);
       out.push_str("])");
       out
     },
@@ -633,9 +633,9 @@ generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) :
       out
     },
     (function_name == BF_YO_MAYBE_UNINIT_NEW) => {
-      self_c_type := get_type_string(ei_ty(expr, context), context.base);
+      self_c_type := get_type_string(ei_ty(expr, context), &context.base);
       uninit_tok := ast_expr_token(expr);
-      uninit_var := stable_label_id(String.from("__yo_uninit_"), uninit_tok.module_path, usize(uninit_tok.row), usize(uninit_tok.column));
+      uninit_var := stable_label_id(String.from("__yo_uninit_"), &uninit_tok.module_path, usize(uninit_tok.row), usize(uninit_tok.column));
       // `= {0}`, not a bare declaration: the value is copied into temporaries
       // by value right away (`T t = __yo_uninit_…;`), and reading an
       // indeterminate automatic object is undefined behavior (C11 6.3.2.1p2).
@@ -644,18 +644,18 @@ generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) :
       // The zeroing is dead whenever every byte is written before a read, and
       // clang removes it then.
       line := indent.clone();
-      line.push_string(self_c_type);
+      line.push_string(&self_c_type);
       line.push_str(" ");
       line.push_string(uninit_var.clone());
       line.push_str(" = {0};");
       em := context.base.emitter;
-      em.emit_string_line(line);
+      em.emit_string_line(&line);
       uninit_var
     },
     (function_name == BF_YO_MAYBE_UNINIT_AS_PTR) => {
-      return_c_type := get_type_string(ei_ty(expr, context), context.base);
+      return_c_type := get_type_string(ei_ty(expr, context), &context.base);
       out := String.from("((");
-      out.push_string(return_c_type);
+      out.push_string(&return_c_type);
       out.push_str(")(");
       out.push_string(_a(args, usize(0)));
       out.push_str("))");
@@ -675,8 +675,8 @@ generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) :
       arr_idx := match(
         arr_expr_opt,
         .Some(ae) => match(
-          context.base.get_expr_info(ae),
-          .Some(aei) => _checked_fixed_array_subscript(_a(args, usize(1)), aei.ty, expr),
+          context.base.get_expr_info(&ae),
+          .Some(aei) => _checked_fixed_array_subscript(_a(args, usize(1)), &aei.ty, expr),
           .None => _a(args, usize(1))
         ),
         .None => _a(args, usize(1))
@@ -684,7 +684,7 @@ generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) :
       out := String.from("(&((");
       out.push_string(_a(args, usize(0)));
       out.push_str(")->data[");
-      out.push_string(arr_idx);
+      out.push_string(&arr_idx);
       out.push_str("]))");
       out
     },

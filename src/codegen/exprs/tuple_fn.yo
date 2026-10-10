@@ -38,14 +38,14 @@ _build_tuple :: (fn(imm(arg_exprs) : ArrayList(AstExpr), imm(c_name) : String, i
       // A `unit` element is zero-sized and has no `_N` member
       // (types/generation.yo), so it gets no initializer; its expression still
       // runs for its side effects.
-      .Some(arg) => if(match(elem_types.get(i), .Some(et) => is_unit_type(et), .None => false), {
-        u_code := _call_generate_expr(arg, indent.clone(), context);
+      .Some(arg) => if(match(elem_types.get(i), .Some(et) => is_unit_type(&et), .None => false), {
+        u_code := _call_generate_expr(&arg, indent.clone(), context);
         if(u_code.len() > usize(0), {
           u_stmt := indent.clone();
-          u_stmt.push_string(u_code);
+          u_stmt.push_string(&u_code);
           u_stmt.push_str(";");
           em_u := context.base.emitter;
-          em_u.emit_string_line(u_stmt);
+          em_u.emit_string_line(&u_stmt);
         });
       }, {
         if(any_elem, {
@@ -55,26 +55,26 @@ _build_tuple :: (fn(imm(arg_exprs) : ArrayList(AstExpr), imm(c_name) : String, i
         args_list.push_str("._");
         args_list.push_string(i.to_string());
         args_list.push_str(" = ");
-        arg_code := _call_generate_expr(arg, indent.clone(), context);
+        arg_code := _call_generate_expr(&arg, indent.clone(), context);
         // Deferred dup for a moved RC field:
         // emit the field's deferred `___dup` expressions and reference the
         // DUP RESULT temp — the literal owns its own +1 per field.
         (used_dup_temp : bool) = false;
         match(
-          context.base.get_expr_info(arg),
+          context.base.get_expr_info(&arg),
           .Some(arg_ei) => match(
-            expr_info_deferred_dup_expressions(arg_ei),
+            expr_info_deferred_dup_expressions(&arg_ei),
             .Some(arg_dups) => if(arg_dups.len() > usize(0), {
-              generate_deferred_dup_expressions(arg, indent.clone(), context);
+              generate_deferred_dup_expressions(&arg, indent.clone(), context);
               match(
                 arg_dups.get(usize(0)),
-                .Some(dup_expr) => if(ast_expr_is_fn_call(dup_expr), {
+                .Some(dup_expr) => if(ast_expr_is_fn_call(&dup_expr), {
                   match(
-                    context.base.get_expr_info(dup_expr),
+                    context.base.get_expr_info(&dup_expr),
                     .Some(dup_ei) => match(
                       dup_ei.variable_name,
                       .Some(dup_vn) => {
-                        args_list.push_string(get_variable_name_for_codegen_at(ast_expr_id(dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
+                        args_list.push_string(get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), dup_vn.clone(), Option(Environment).Some(dup_ei.env)));
                         used_dup_temp = true;
                       },
                       .None => ()
@@ -90,7 +90,7 @@ _build_tuple :: (fn(imm(arg_exprs) : ArrayList(AstExpr), imm(c_name) : String, i
           .None => ()
         );
         if(!used_dup_temp, {
-          args_list.push_string(arg_code);
+          args_list.push_string(&arg_code);
         });
       }),
       .None => ()
@@ -100,18 +100,18 @@ _build_tuple :: (fn(imm(arg_exprs) : ArrayList(AstExpr), imm(c_name) : String, i
   tuple_value := String.from("(");
   tuple_value.push_string(c_name);
   tuple_value.push_str("){ ");
-  tuple_value.push_string(args_list);
+  tuple_value.push_string(&args_list);
   tuple_value.push_str(" }");
   match(
     ei.variable_name,
     .Some(temp_var) => {
       decl := indent.clone();
-      decl.push_string(get_variable_type_string(ei.ty, temp_var.clone(), context.base));
+      decl.push_string(get_variable_type_string(&ei.ty, temp_var.clone(), &context.base));
       decl.push_str(" = ");
-      decl.push_string(tuple_value);
+      decl.push_string(&tuple_value);
       decl.push_str(";");
       em := context.base.emitter;
-      em.emit_string_line(decl);
+      em.emit_string_line(&decl);
       // A tuple result temp declared as a C local inside a state machine may
       // own an `sm->var_<id>` slot (its deferred drop reads the slot), so store
       // the value there too — the same rule as every other temp-declaring
@@ -132,14 +132,14 @@ _type_not_found :: (fn(imm(ei_ty_key) : String) -> String)({
 /// The `tuple(...)` function call, generating a tuple value.
 generate_anonymous_tuple :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("tuple has no evaluation info"))));
-  ty_key := type_key(ei.ty);
+  ty_key := type_key(&ei.ty);
   c_name_opt := context.base.get_type_c_name(ty_key.clone());
   match(
     ei.runtime_arg_exprs_in_order,
     .Some(arg_exprs) => match(
       c_name_opt,
-      .Some(c_name) => _build_tuple(arg_exprs, c_name, expr, indent, context),
-      .None => if(_args(expr).len() == usize(0), String.from(""), _type_not_found(ty_key))
+      .Some(c_name) => _build_tuple(&arg_exprs, &c_name, expr, indent, context),
+      .None => if(_args(expr).len() == usize(0), String.from(""), _type_not_found(&ty_key))
     ),
     .None => {
       args := _args(expr);
@@ -148,8 +148,8 @@ generate_anonymous_tuple :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(c
         String.from(""),
         match(
           c_name_opt,
-          .Some(c_name) => _build_tuple(args, c_name, expr, indent, context),
-          .None => _type_not_found(ty_key)
+          .Some(c_name) => _build_tuple(&args, &c_name, expr, indent, context),
+          .None => _type_not_found(&ty_key)
         )
       )
     }

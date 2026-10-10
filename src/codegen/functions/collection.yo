@@ -91,11 +91,11 @@ expr_contains_unknown_value :: (fn(imm(expr) : AstExpr, imm(info) : ExprInfoTabl
     ei_opt,
     .Some(ei) => match(
       ei.value,
-      .Some(v) => if(is_unknown_val(v), {
+      .Some(v) => if(is_unknown_val(&v), {
         cond(
-          (is_function_type(ei.ty) && _type_is_extern(ei.ty)) => (),
+          (is_function_type(&ei.ty) && _type_is_extern(&ei.ty)) => (),
           // known extern fn
-          is_unit_type(ei.ty) => (),
+          is_unit_type(&ei.ty) => (),
           true => {
             return(true);
           }
@@ -109,7 +109,7 @@ expr_contains_unknown_value :: (fn(imm(expr) : AstExpr, imm(info) : ExprInfoTabl
   match(
     expr,
     .FnCall(_, func_box, args, _, _) => {
-      if(recur(func_box, info), {
+      if(recur(&func_box, info), {
         return(true);
       });
       n := args.len();
@@ -119,11 +119,11 @@ expr_contains_unknown_value :: (fn(imm(expr) : AstExpr, imm(info) : ExprInfoTabl
           args.get(i),
           .Some(arg) => {
             arg_is_unit := match(
-              expr_info_table_get(info, ast_expr_id(arg)),
-              .Some(aei) => is_unit_type(aei.ty),
+              expr_info_table_get(info, ast_expr_id(&arg)),
+              .Some(aei) => is_unit_type(&aei.ty),
               .None => false
             );
-            if(!arg_is_unit && recur(arg, info), {
+            if(!arg_is_unit && recur(&arg, info), {
               return(true);
             });
           },
@@ -138,12 +138,12 @@ expr_contains_unknown_value :: (fn(imm(expr) : AstExpr, imm(info) : ExprInfoTabl
   match(
     ei_opt,
     .Some(ei) => match(
-      expr_info_macro_expansion(ei),
+      expr_info_macro_expansion(&ei),
       .Some(me) => {
-        if(is_unit_type(ei.ty), {
+        if(is_unit_type(&ei.ty), {
           return(false);
         });
-        if(recur(me, info), {
+        if(recur(&me, info), {
           return(true);
         });
       },
@@ -156,14 +156,14 @@ expr_contains_unknown_value :: (fn(imm(expr) : AstExpr, imm(info) : ExprInfoTabl
     ei_opt,
     .Some(ei) => {
       match(
-        expr_info_deferred_dup_expressions(ei),
+        expr_info_deferred_dup_expressions(&ei),
         .Some(dups) => {
           nd := dups.len();
           (di : usize) = usize(0);
           while(di < nd, {
             match(
               dups.get(di),
-              .Some(de) => if(recur(de, info), {
+              .Some(de) => if(recur(&de, info), {
                 return(true);
               }),
               .None => ()
@@ -181,7 +181,7 @@ expr_contains_unknown_value :: (fn(imm(expr) : AstExpr, imm(info) : ExprInfoTabl
           while(ri < nr, {
             match(
               drops.get(ri),
-              .Some(re) => if(recur(re, info), {
+              .Some(re) => if(recur(&re, info), {
                 return(true);
               }),
               .None => ()
@@ -221,17 +221,17 @@ collect_effect_record_members :: (fn(imm(mv) : EvalValue, imm(context) : CodeGen
         match(
           field_values.get(i),
           .Some(fv) => cond(
-            (is_func_val(fv) && !is_module_namespace) => {
+            (is_func_val(&fv) && !is_module_namespace) => {
               func_id := match(fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
               if(!context.has_function(func_id.clone()), {
                 mark_as_effect_record_member(func_id.clone());
-                context.register_function(func_id.clone(), fv, function_c_name(func_id));
+                context.register_function(func_id.clone(), &fv, function_c_name(&func_id));
                 body := match(fv, .FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr());
-                _call_find_function_calls_in_expr(body, context, info);
+                _call_find_function_calls_in_expr(&body, context, info);
               });
             },
-            is_struct_val(fv) => {
-              recur(fv, context, info);
+            is_struct_val(&fv) => {
+              recur(&fv, context, info);
             },
             true => ()
           ),
@@ -296,7 +296,7 @@ _register_extern_fn_callee :: (
           // A symbol declared under SEVERAL headers (two `c_include` modules
           // binding it) gets every one of them — the registration slot holds
           // one, the rest go straight to the include set.
-          _add_all_c_includes(get_c_includes_for_extern(c_name), context);
+          _add_all_c_includes(get_c_includes_for_extern(&c_name), context);
         });
       },
       .None => ()
@@ -334,7 +334,7 @@ _register_extern_fn_callee :: (
 _add_all_c_includes :: (fn(imm(headers) : ArrayList(String), imm(context) : CodeGenContext) -> unit)({
   (i : usize) = usize(0);
   while(i < headers.len(), {
-    match(headers.get(i), .Some(h) => context.add_c_include(h), .None => ());
+    match(headers.get(i), .Some(h) => context.add_c_include(&h), .None => ());
     i = (i + usize(1));
   });
 });
@@ -345,14 +345,14 @@ _register_extern_global_header :: (
     return(());
   });
   ei := match(ei_opt, .Some(e) => e, .None => return(()));
-  vs := scope_variables(key, ei.env, name.clone());
+  vs := scope_variables(key, &ei.env, name.clone());
   n := vs.len();
   resolved_ty := cond(
     (n > usize(0)) => match(vs.get(n - usize(1)), .Some(x) => x.ty, .None => return(())),
     match(ei.is_accessing_property, .Some(b) => b, .None => false) => ei.ty,
     true => return(())
   );
-  if(extern_c_global_matches(name.clone(), resolved_ty), {
+  if(extern_c_global_matches(name.clone(), &resolved_ty), {
     _add_all_c_includes(get_c_includes_for_extern(extern_c_global_c_name(name)), context);
   });
 });
@@ -376,7 +376,7 @@ _any_expr_param :: (fn(imm(tys) : ArrayList(TypeValue)) -> bool)({
   while((i < n) && !found, {
     match(
       tys.get(i),
-      .Some(t) => if(is_expr_type(t), {
+      .Some(t) => if(is_expr_type(&t), {
         found = true;
       }),
       .None => ()
@@ -443,7 +443,7 @@ _is_generic_unspecialized_func :: (fn(imm(v) : EvalValue) -> bool)({
       // resolution is exactly what must not count as concrete here
       // (issues/fixed/forwarded-closure-param-shares-specialization.md).
       has_raw_some := (fn_has_specializations(_func_val_id(v)) && func_params_have_raw_some_type(get_func_type(_func_val_id(v))));
-      has_type_param || has_raw_some || (__fm2.*.forall_labels.len() > usize(0)) || _any_expr_param(param_types)
+      has_type_param || has_raw_some || (__fm2.*.forall_labels.len() > usize(0)) || _any_expr_param(&param_types)
     },
     _ => false
   )
@@ -473,7 +473,7 @@ _func_has_some_param :: (fn(imm(fid) : String) -> bool)(
           // IS concrete at codegen (utils.yo carve-out) — the raw scan
           // wrongly skipped collecting the box-of-closure fn ("no C function
           // name for func value", the dyn-of-closure-capture family).
-          .Some(pt) => if(type_contains_some_type(pt), {
+          .Some(pt) => if(type_contains_some_type(&pt), {
             found = true;
           }),
           .None => ()
@@ -526,12 +526,12 @@ _collect_required_function_field :: (
       // (issues/fixed/static-library-exports-no-symbols.md).
       // A plain name that collides with an already-registered C name falls
       // back to the mangled one.
-      wants_plain_exports := (context.is_library || is_target_wasm(context.target_info));
+      wants_plain_exports := (context.is_library || is_target_wasm(&context.target_info));
       from_current_module := (
         is_top_level_export && wants_plain_exports
         && match(
           context.current_module_path,
-          .Some(entry_path) => _is_entry_module_path(ast_expr_token(_func_val_body(value)).module_path, entry_path),
+          .Some(entry_path) => _is_entry_module_path(ast_expr_token(_func_val_body(value)).module_path, &entry_path),
           .None => false
         )
       );
@@ -544,12 +544,12 @@ _collect_required_function_field :: (
               context.set_exported_function_label(func_id.clone(), label.clone());
             },
             true => {
-              context.register_function(func_id.clone(), value, function_c_name(func_id));
+              context.register_function(func_id.clone(), value, function_c_name(&func_id));
             }
           );
         },
         true => {
-          context.register_function(func_id.clone(), value, function_c_name(func_id));
+          context.register_function(func_id.clone(), value, function_c_name(&func_id));
         }
       );
     }
@@ -571,7 +571,7 @@ collect_required_functions :: (
         label := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
         match(
           field_values.get(i),
-          .Some(value) => _collect_required_function_field(label, value, context, info, is_top_level_export),
+          .Some(value) => _collect_required_function_field(&label, &value, context, info, is_top_level_export),
           .None => ()
         );
         i = (i + usize(1));
@@ -584,7 +584,7 @@ collect_required_functions :: (
         label := match(field_names.get(i), .Some(l) => l, .None => String.from(""));
         match(
           field_values.get(i),
-          .Some(.Some(value)) => _collect_required_function_field(label, value, context, info, is_top_level_export),
+          .Some(.Some(value)) => _collect_required_function_field(&label, &value, context, info, is_top_level_export),
           .Some(.None) => (),
           .None => ()
         );
@@ -609,7 +609,7 @@ collect_module_level_init_functions :: (fn(imm(context) : CodeGenContext, imm(in
   while(i < inits.len(), {
     match(
       inits.get(i),
-      .Some(ie) => find_function_calls_in_expr(ie, context, info),
+      .Some(ie) => find_function_calls_in_expr(&ie, context, info),
       .None => ()
     );
     i = (i + usize(1));
@@ -625,8 +625,8 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
     ei_opt,
     .Some(ei) => match(
       ei.value,
-      .Some(v) => if(is_struct_val(v), {
-        collect_effect_record_members(v, context, info);
+      .Some(v) => if(is_struct_val(&v), {
+        collect_effect_record_members(&v, context, info);
       }),
       .None => ()
     ),
@@ -645,9 +645,9 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
       .Some(uei) => match(
         match(expr, .FnCall(_, _, uargs, _, _) => uargs.get(usize(0)), .Atom(_, _) => Option(AstExpr).None),
         .Some(usrc) => match(
-          expr_info_table_get(info, ast_expr_id(usrc)),
-          .Some(usei) => if(is_dyn_type(usei.ty) && is_dyn_type(uei.ty), {
-            context.register_dyn_upcast(usei.ty, uei.ty);
+          expr_info_table_get(info, ast_expr_id(&usrc)),
+          .Some(usei) => if(is_dyn_type(&usei.ty) && is_dyn_type(&uei.ty), {
+            context.register_dyn_upcast(&usei.ty, &uei.ty);
           }),
           .None => ()
         ),
@@ -671,40 +671,40 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
       // emits "// Failed to transpile" (which corrupts the C line). Mirrors the
       // same fallback in collect_types_from_expr (types/collection.yo).
       match(
-        expr_info_macro_expansion(ei),
-        .Some(me) => recur(me, context, info),
-        .None => match(lookup_macro_expansion(ast_expr_id(expr)), .Some(me) => recur(me, context, info), .None => ())
+        expr_info_macro_expansion(&ei),
+        .Some(me) => recur(&me, context, info),
+        .None => match(lookup_macro_expansion(ast_expr_id(expr)), .Some(me) => recur(&me, context, info), .None => ())
       );
       match(
-        expr_info_effect_analysis(ei),
+        expr_info_effect_analysis(&ei),
         .Some(ea) => match(
           ea.handler_value,
-          .Some(hv) => if(is_func_val(hv), {
-            recur(_func_val_body(hv), context, info);
+          .Some(hv) => if(is_func_val(&hv), {
+            recur(_func_val_body(&hv), context, info);
           }),
           .None => ()
         ),
         .None => ()
       );
       match(
-        expr_info_closure_function_value(ei),
-        .Some(cfv) => if(is_func_val(cfv), {
-          cid := _func_val_id(cfv);
+        expr_info_closure_function_value(&ei),
+        .Some(cfv) => if(is_func_val(&cfv), {
+          cid := _func_val_id(&cfv);
           if(!context.has_function(cid.clone()), {
-            context.register_function(cid.clone(), cfv, function_c_name(cid));
-            recur(_func_val_body(cfv), context, info);
+            context.register_function(cid.clone(), &cfv, function_c_name(&cid));
+            recur(_func_val_body(&cfv), context, info);
           });
         }),
         .None => ()
       );
       match(
-        expr_info_index_method_value(ei),
-        .Some(imv) => if(is_func_val(imv), {
-          iid := _func_val_id(imv);
+        expr_info_index_method_value(&ei),
+        .Some(imv) => if(is_func_val(&imv), {
+          iid := _func_val_id(&imv);
           mark_as_index_entry_method(iid.clone());
           if(!context.has_function(iid.clone()), {
-            context.register_function(iid.clone(), imv, function_c_name(iid));
-            recur(_func_val_body(imv), context, info);
+            context.register_function(iid.clone(), &imv, function_c_name(&iid));
+            recur(_func_val_body(&imv), context, info);
           });
         }),
         .None => ()
@@ -715,12 +715,12 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
       // (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
       match(
         index_unchecked_twin_of(ast_expr_id(expr)),
-        .Some(tw) => if(is_func_val(tw), {
-          twid := _func_val_id(tw);
+        .Some(tw) => if(is_func_val(&tw), {
+          twid := _func_val_id(&tw);
           mark_as_index_entry_method(twid.clone());
           if(!context.has_function(twid.clone()), {
-            context.register_function(twid.clone(), tw, function_c_name(twid));
-            recur(_func_val_body(tw), context, info);
+            context.register_function(twid.clone(), &tw, function_c_name(&twid));
+            recur(_func_val_body(&tw), context, info);
           });
         }),
         .None => ()
@@ -743,17 +743,17 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
       // collect it (+ recurse its body), so codegen's concrete-method dispatch
       // gets a C name (the same collection the dyn path does for
       // trait-value methods).
-      if(ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
+      if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
         cdot_args := match(callee, .FnCall(_, _, da, _, _) => da, .Atom(_, _) => ArrayList(AstExpr).new());
-        recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(r)), .Some(ri) => ri.ty, .None => TypeValue.Unit), .None => TypeValue.Unit);
-        cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(m), ast_expr_token(m).value, String.from("")), .None => String.from(""));
+        recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.ty, .None => TypeValue.Unit), .None => TypeValue.Unit);
+        cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_token(&m).value, String.from("")), .None => String.from(""));
         // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
         // forward-referenced `Self.callee`) evaluates to a TypeValue, so recv_ty
         // is the metatype `Type`, not the receiver type P — `type_id_or_empty`
         // on it misses P's static methods in the registry, leaving the callee
         // uncollected ("call to undeclared function"). Prefer the WRAPPED type's
         // id from the receiver's TypeVal value.
-        recv_static_id := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(r)), .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(t) => type_id_or_empty(t), _ => String.from("")), .None => String.from("")), .None => String.from("")), .None => String.from(""));
+        recv_static_id := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => match(ri.value, .Some(rv) => match(rv, .TypeVal(t) => type_id_or_empty(&t), _ => String.from("")), .None => String.from("")), .None => String.from("")), .None => String.from(""));
         // A POINTER receiver (`self : *(Self)`) carries its methods on the
         // POINTEE type. `type_id_or_empty` has no Pointer case, so it returns ""
         // for `*(P)`, skipping the registry lookup below. That lookup is the ONLY
@@ -766,9 +766,9 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
         // collected → "call to undeclared function". Deref to the pointee for the
         // id, the same deref idiom as match.yo:1153 / property_access.yo:524.
         recv_ty_for_id := match(recv_ty, .Pointer(inner) => inner, _ => recv_ty);
-        ctid := if(recv_static_id.len() > usize(0), recv_static_id, type_id_or_empty(recv_ty_for_id));
+        ctid := if(recv_static_id.len() > usize(0), recv_static_id, type_id_or_empty(&recv_ty_for_id));
         if((ctid.len() > usize(0)) && (cmname.len() > usize(0)), {
-          ments := get_type_trait_methods_by_name(ctid, cmname);
+          ments := get_type_trait_methods_by_name(&ctid, &cmname);
           nme := ments.len();
           (mmi : usize) = usize(0);
           while(mmi < nme, {
@@ -776,11 +776,11 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
               ments.get(mmi),
               .Some(me) => match(
                 me.value,
-                .Some(mv) => if(is_func_val(mv), {
-                  mfid := _func_val_id(mv);
+                .Some(mv) => if(is_func_val(&mv), {
+                  mfid := _func_val_id(&mv);
                   if(!context.has_function(mfid.clone()), {
-                    context.register_function(mfid.clone(), mv, function_c_name(mfid));
-                    recur(_func_val_body(mv), context, info);
+                    context.register_function(mfid.clone(), &mv, function_c_name(&mfid));
+                    recur(_func_val_body(&mv), context, info);
                   });
                 }),
                 .None => ()
@@ -801,7 +801,7 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
         // FuncVal from the receiver's module StructVal by label and register
         // it as a REGULAR function first, before the receiver walk.
         if(cmname.len() > usize(0), {
-          recv_mod_val := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(r)), .Some(ri) => ri.value, .None => Option(EvalValue).None), .None => Option(EvalValue).None);
+          recv_mod_val := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.value, .None => Option(EvalValue).None), .None => Option(EvalValue).None);
           match(
             recv_mod_val,
             .Some(rmv) => match(
@@ -814,11 +814,11 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
                   if(rm_hit, {
                     match(
                       rm_vals.get(rmi),
-                      .Some(rmv2) => if(is_func_val(rmv2) && !_is_generic_unspecialized_func(rmv2), {
-                        rm_fid := _func_val_id(rmv2);
+                      .Some(rmv2) => if(is_func_val(&rmv2) && !_is_generic_unspecialized_func(&rmv2), {
+                        rm_fid := _func_val_id(&rmv2);
                         if(!context.has_function(rm_fid.clone()) && !is_control_fn(rm_fid.clone()), {
-                          context.register_function(rm_fid.clone(), rmv2, function_c_name(rm_fid));
-                          recur(_func_val_body(rmv2), context, info);
+                          context.register_function(rm_fid.clone(), &rmv2, function_c_name(&rm_fid));
+                          recur(_func_val_body(&rmv2), context, info);
                         });
                       }),
                       .None => ()
@@ -847,64 +847,64 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
       // resolves to a real C function. Idempotent (has_function-guarded).
       match(
         lookup_method_callee_value(ast_expr_id(expr)),
-        .Some(scv) => if(is_func_val(scv), {
-          sfid := _func_val_id(scv);
+        .Some(scv) => if(is_func_val(&scv), {
+          sfid := _func_val_id(&scv);
           if(!context.has_function(sfid.clone()), {
-            context.register_function(sfid.clone(), scv, function_c_name(sfid));
-            recur(_func_val_body(scv), context, info);
+            context.register_function(sfid.clone(), &scv, function_c_name(&sfid));
+            recur(_func_val_body(&scv), context, info);
           });
         }),
         .None => ()
       );
       match(
-        expr_info_table_get(info, ast_expr_id(callee)),
-        .Some(cei) => if(is_function_type(cei.ty), {
+        expr_info_table_get(info, ast_expr_id(&callee)),
+        .Some(cei) => if(is_function_type(&cei.ty), {
           is_comptime_only := match(cei.ty, .Func({ meta : __fm3 }) => __fm3.*.result_is_comptime_only, _ => false);
           match(
             cei.value,
             .Some(fv) => cond(
               // ctl handler: inlined at the call site; recurse body, don't collect.
-              (is_func_val(fv) && is_control_fn(_func_val_id(fv))) => {
-                recur(_func_val_body(fv), context, info);
+              (is_func_val(&fv) && is_control_fn(_func_val_id(&fv))) => {
+                recur(_func_val_body(&fv), context, info);
               },
-              is_func_val(fv) => cond(
+              is_func_val(&fv) => cond(
                 // Skip CTFE (compile-time-only return) functions.
                 is_comptime_only => (),
-                _is_generic_unspecialized_func(fv) => (),
-                context.has_function(_func_val_id(fv)) => (),
-                (expr_contains_unknown_value(_func_val_body(fv), info) && _func_has_some_param(_func_val_id(fv))) => (),
+                _is_generic_unspecialized_func(&fv) => (),
+                context.has_function(_func_val_id(&fv)) => (),
+                (expr_contains_unknown_value(_func_val_body(&fv), info) && _func_has_some_param(_func_val_id(&fv))) => (),
                 true => {
-                  context.register_function(_func_val_id(fv), fv, c_symbol_name(_func_val_id(fv)));
-                  recur(_func_val_body(fv), context, info);
+                  context.register_function(_func_val_id(&fv), &fv, c_symbol_name(_func_val_id(&fv)));
+                  recur(_func_val_body(&fv), context, info);
                 }
               ),
               // Callee value present but not a function value (UnknownVal —
               // a c_include/extern symbol): register as an extern function,
               // exactly like the no-value arm below.
-              true => _register_extern_fn_callee(cei.ty, expr, context)
+              true => _register_extern_fn_callee(&cei.ty, expr, context)
             ),
             // No callee value → extern "c"/"yo": register as an extern function.
-            .None => _register_extern_fn_callee(cei.ty, expr, context)
+            .None => _register_extern_fn_callee(&cei.ty, expr, context)
           );
         }),
         .None => ()
       );
-      recur(callee, context, info);
+      recur(&callee, context, info);
       na := args.len();
       (ai : usize) = usize(0);
       while(ai < na, {
-        match(args.get(ai), .Some(a) => recur(a, context, info), .None => ());
+        match(args.get(ai), .Some(a) => recur(&a, context, info), .None => ());
         ai = (ai + usize(1));
       });
     },
-    .Atom(_, atom_tok) => _register_extern_global_header(ast_expr_id(expr), atom_tok.value, ei_opt, context)
+    .Atom(_, atom_tok) => _register_extern_global_header(ast_expr_id(expr), &atom_tok.value, &ei_opt, context)
   );
   // Anonymous function value bound to this expression.
   match(
     ei_opt,
     .Some(ei) => match(
       ei.value,
-      .Some(v) => if(is_func_val(v) && is_function_type(ei.ty), {
+      .Some(v) => if(is_func_val(&v) && is_function_type(&ei.ty), {
         // A control function (ctl handler) used as a fn-pointer value must be a
         // standalone C function marked an effect-record member so `unwind(v)`
         // stashes into __yo_unwind_value. The control-fn side-table can miss
@@ -912,24 +912,24 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
         // also read the ground truth: the func's own registered type and the
         // use-site type carrying `is_control`.
         v_is_control := (
-          is_control_fn(_func_val_id(v)) ||
-            match(get_func_type(_func_val_id(v)), .Func({ meta : __fm5 }) => __fm5.*.is_control, _ => false) ||
+          is_control_fn(_func_val_id(&v)) ||
+            match(get_func_type(_func_val_id(&v)), .Func({ meta : __fm5 }) => __fm5.*.is_control, _ => false) ||
               match(ei.ty, .Func({ meta : __fm6 }) => __fm6.*.is_control, _ => false)
         );
         cond(
           v_is_control => {
-            mark_as_effect_record_member(_func_val_id(v));
-            if(!context.has_function(_func_val_id(v)), {
-              context.register_function(_func_val_id(v), v, c_symbol_name(_func_val_id(v)));
+            mark_as_effect_record_member(_func_val_id(&v));
+            if(!context.has_function(_func_val_id(&v)), {
+              context.register_function(_func_val_id(&v), &v, c_symbol_name(_func_val_id(&v)));
             });
-            recur(_func_val_body(v), context, info);
+            recur(_func_val_body(&v), context, info);
           },
-          _is_generic_unspecialized_func(v) => (),
-          context.has_function(_func_val_id(v)) => (),
-          (expr_contains_unknown_value(_func_val_body(v), info) && _func_has_some_param(_func_val_id(v))) => (),
+          _is_generic_unspecialized_func(&v) => (),
+          context.has_function(_func_val_id(&v)) => (),
+          (expr_contains_unknown_value(_func_val_body(&v), info) && _func_has_some_param(_func_val_id(&v))) => (),
           true => {
-            context.register_function(_func_val_id(v), v, c_symbol_name(_func_val_id(v)));
-            recur(_func_val_body(v), context, info);
+            context.register_function(_func_val_id(&v), &v, c_symbol_name(_func_val_id(&v)));
+            recur(_func_val_body(&v), context, info);
           }
         );
       }),
@@ -940,8 +940,8 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
   // Comptime function call returning a type → collect the type.
   match(
     ei_opt,
-    .Some(ei) => if(is_type_value(ei.value), {
-      match(ei.value, .Some(v) => match(v, .TypeVal(t) => _call_collect_type(t, context), _ => ()), .None => ());
+    .Some(ei) => if(is_type_value(&ei.value), {
+      match(ei.value, .Some(v) => match(v, .TypeVal(t) => _call_collect_type(&t, context), _ => ()), .None => ());
     }),
     .None => ()
   );
@@ -950,12 +950,12 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
     ei_opt,
     .Some(ei) => {
       match(
-        expr_info_deferred_dup_expressions(ei),
+        expr_info_deferred_dup_expressions(&ei),
         .Some(dups) => {
           nd := dups.len();
           (di : usize) = usize(0);
           while(di < nd, {
-            match(dups.get(di), .Some(de) => recur(de, context, info), .None => ());
+            match(dups.get(di), .Some(de) => recur(&de, context, info), .None => ());
             di = (di + usize(1));
           });
         },
@@ -967,19 +967,19 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
           nr := drops.len();
           (ri : usize) = usize(0);
           while(ri < nr, {
-            match(drops.get(ri), .Some(re) => recur(re, context, info), .None => ());
+            match(drops.get(ri), .Some(re) => recur(&re, context, info), .None => ());
             ri = (ri + usize(1));
           });
         },
         .None => ()
       );
       match(
-        expr_info_dyn_call_trait_values(ei),
+        expr_info_dyn_call_trait_values(&ei),
         .Some(tvs) => {
           nt := tvs.len();
           (ti : usize) = usize(0);
           while(ti < nt, {
-            match(tvs.get(ti), .Some(tv) => collect_required_functions(tv, context, info, false), .None => ());
+            match(tvs.get(ti), .Some(tv) => collect_required_functions(&tv, context, info, false), .None => ());
             ti = (ti + usize(1));
           });
           // Register the dyn impl during collection so __yo_dyn_box_<concrete>
@@ -988,7 +988,7 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
           // names. NOTE: type_key on a cyclic dyn (Dyn(Error)) could loop — the
           // corpus's Dyn(Speak) is acyclic so this is corpus-safe; a cycle-safe
           // key is future work for compiling std's self-referential traits.
-          if((tvs.len() > usize(0)) && is_dyn_type(ei.ty), {
+          if((tvs.len() > usize(0)) && is_dyn_type(&ei.ty), {
             // The dyn payload codegen emits is runtime_arg_exprs_in_order[0] —
             // for `dyn(valueStruct)` this is a SYNTHESIZED `rc(value)` (auto-box,
             // type Rc(Sq)) that is NOT the source arg `cargs[0]` (the bare value).
@@ -1005,13 +1005,13 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
             match(
               varg_opt,
               .Some(varg) => {
-                recur(varg, context, info);
+                recur(&varg, context, info);
                 match(
-                  expr_info_table_get(info, ast_expr_id(varg)),
+                  expr_info_table_get(info, ast_expr_id(&varg)),
                   .Some(vei) => {
                     vty := vei.ty;
-                    if(is_reference_struct_type(vty) || is_boxed_type(vty), {
-                      concrete := if(is_boxed_type(vty), match(vty, .Struct({ field_types }) => match(field_types.get(usize(0)), .Some(ft) => ft, .None => vty), _ => vty), vty);
+                    if(is_reference_struct_type(&vty) || is_boxed_type(&vty), {
+                      concrete := if(is_boxed_type(&vty), match(vty, .Struct({ field_types }) => match(field_types.get(usize(0)), .Some(ft) => ft, .None => vty), _ => vty), vty);
                       // Build the impl key in a FRESH string. `type_key` can
                       // return a String sharing its buffer with the canonical
                       // key stored in g_enum_sig_keys / g_struct_cfid_keys (a
@@ -1021,8 +1021,8 @@ find_function_calls_in_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenCo
                       // longer key → a fresh __yo_tN c-name per dyn-impl
                       // registration while the typedef stayed under the first
                       // name (stage-2: 416 "unknown type name" clang errors).
-                      impl_key := `${type_key(concrete.clone())}_${type_key(ei.ty)}`;
-                      context.register_dyn_impl(impl_key, DynImplEntry(dyn_type : ei.ty, concrete_type : concrete, data_type : vty, trait_values : tvs));
+                      impl_key := `${type_key(concrete.clone())}_${type_key(&ei.ty)}`;
+                      context.register_dyn_impl(&impl_key, DynImplEntry(dyn_type : ei.ty, concrete_type : concrete, data_type : vty, trait_values : tvs));
                     });
                   },
                   .None => ()
@@ -1057,18 +1057,18 @@ _specialize_and_register_trace :: (
   match(
     fv,
     .FuncVal(__fvd, cap_vals) => {
-      csrc := fv_capture_source(__fvd.*);
+      csrc := fv_capture_source(&__fvd.*);
       (ci : usize) = usize(0);
-      (n_cap : usize) = fv_source_count(csrc, cap_vals);
+      (n_cap : usize) = fv_source_count(&csrc, &cap_vals);
       while(ci < n_cap, {
-        cn := fv_source_name(csrc, ci);
+        cn := fv_source_name(&csrc, ci);
         match(
-          fv_source_val(csrc, cap_vals, ci),
+          fv_source_val(&csrc, &cap_vals, ci),
           .Some(cv) => match(
             cv,
             .TypeVal(ctb) => {
               _bv := add_variable_to_env(
-                fresh,
+                &fresh,
                 cn.clone(),
                 TypeValue.TypeUni(usize(0)),
                 Option(EvalValue).Some(EvalValue.TypeVal(ctb)),
@@ -1101,7 +1101,7 @@ _specialize_and_register_trace :: (
     plabel := match(p_labels.get(pi), .Some(l) => l, .None => String.from(""));
     pty := if(pi == usize(0), ct.clone(), match(p_types.get(pi), .Some(t) => t, .None => TypeValue.Unit));
     _bp := add_variable_to_env(
-      fresh,
+      &fresh,
       plabel.clone(),
       pty.clone(),
       Option(EvalValue).Some(EvalValue.UnknownVal(pty.clone(), false)),
@@ -1109,7 +1109,7 @@ _specialize_and_register_trace :: (
       false,
       false,
       false,
-      synthetic_token(plabel, module_env.module_path.clone())
+      synthetic_token(&plabel, module_env.module_path.clone())
     );
     pi = (pi + usize(1));
   });
@@ -1134,7 +1134,7 @@ _specialize_and_register_trace :: (
   );
   saved_self := ctx.self_type;
   ctx.self_type = Option(TypeValue).Some(ct.clone());
-  spec := create_specialized_function_inline(fv, method_ty, av, fresh, module_env, ctx, exn);
+  spec := create_specialized_function_inline(fv, method_ty, &av, &fresh, module_env, ctx, exn);
   ctx.self_type = saved_self;
   // Register only a real monomorphization (create_specialized can soft-fall-back
   // to unit on an unresolved body — never register garbage as a method).
@@ -1144,7 +1144,7 @@ _specialize_and_register_trace :: (
       spec_fid := __sfvd.*.func_id;
       spec_body := __sfvd.*.body;
       if(!base.has_function(spec_fid.clone()), {
-        base.register_function(spec_fid.clone(), spec, function_c_name(spec_fid));
+        base.register_function(spec_fid.clone(), &spec, function_c_name(&spec_fid));
         // Collect the types in the trace signature — notably GcTracer, which
         // appears nowhere in the module's own type graph (only in this method),
         // so without this its C typedef is never emitted. Uses the collect_type
@@ -1152,14 +1152,14 @@ _specialize_and_register_trace :: (
         // module already imports this one).
         (cti : usize) = usize(0);
         while(cti < p_types.len(), {
-          match(p_types.get(cti), .Some(pt) => _call_collect_type(pt, base), .None => ());
+          match(p_types.get(cti), .Some(pt) => _call_collect_type(&pt, base), .None => ());
           cti = (cti + usize(1));
         });
         _call_collect_type(tracer_ty.clone(), base);
         // Pull in the functions the trace body calls (the per-element
         // GcTracer.visit / __yo_gc_trace_child intrinsic lowerings live inline,
         // but any helper calls must be collected for emission).
-        find_function_calls_in_expr(spec_body, base, info);
+        find_function_calls_in_expr(&spec_body, base, info);
       });
       // Key by type_key(ct), NOT the raw struct id: shared-id generics (every
       // MapEntry/ArrayList instantiation shares ONE eval struct id, differing
@@ -1227,7 +1227,7 @@ collect_trace_methods_from_generic_impls :: (
         // instances), and the error pointed at `array_list.yo` — a file the
         // change never touched
         // (issues/fixed/a-generic-instance-in-the-type-registry-breaks-trace-monomorphization.md).
-        if((is_reference_struct_type(ty) || is_reference_enum_type(ty)) && !type_contains_some_type_deep(ty), {
+        if((is_reference_struct_type(&ty) || is_reference_enum_type(&ty)) && !type_contains_some_type_deep(&ty), {
           type_list.push(ty);
         });
       },
@@ -1242,14 +1242,14 @@ collect_trace_methods_from_generic_impls :: (
     ct := match(type_list.get(ti), .Some(t) => t, .None => TypeValue.Unit);
     // Only types carrying a generic Trace impl produce a candidate; all others
     // (auto-derived structs/enums) return [] and keep their field-walk traversal.
-    candidates := find_methods_from_generic_impls(ct, String.from("trace"), module_env);
+    candidates := find_methods_from_generic_impls(&ct, String.from("trace"), module_env);
     if(candidates.len() > usize(0), {
       match(
         candidates.get(usize(0)),
         .Some(cand) => match(
           cand.method_value,
-          .Some(fv) => if(is_func_val(fv), {
-            _specialize_and_register_trace(base, ctx, module_env, info, exn, ct, fv, cand.method_type);
+          .Some(fv) => if(is_func_val(&fv), {
+            _specialize_and_register_trace(base, ctx, module_env, info, exn, &ct, &fv, &cand.method_type);
           }),
           .None => ()
         ),
@@ -1311,20 +1311,20 @@ _eval_and_register_rc_method :: (
   fresh := clone_env(module_env);
   saved_self := ctx.self_type;
   ctx.self_type = Option(TypeValue).Some(ct.clone());
-  evaluated := evaluate_expression_raw(expr, fresh, ctx, exn);
+  evaluated := evaluate_expression_raw(&expr, &fresh, ctx, exn);
   ctx.self_type = saved_self;
-  fv_opt := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)), .Some(ei) => ei.value, .None => Option(EvalValue).None);
+  fv_opt := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated)), .Some(ei) => ei.value, .None => Option(EvalValue).None);
   match(
     fv_opt,
-    .Some(fv) => if(is_func_val(fv), {
+    .Some(fv) => if(is_func_val(&fv), {
       match(
         fv,
         .FuncVal(__dfvd, _) => {
           fid := __dfvd.*.func_id;
           fbody := __dfvd.*.body;
           if(!base.has_function(fid.clone()), {
-            base.register_function(fid.clone(), fv, function_c_name(fid));
-            find_function_calls_in_expr(fbody, base, info);
+            base.register_function(fid.clone(), &fv, function_c_name(&fid));
+            find_function_calls_in_expr(&fbody, base, info);
           });
           register_type_trait_method(
             // Key by type_key (instantiation-precise), NOT the shared struct id:
@@ -1387,15 +1387,15 @@ _synthesize_and_register_dispose :: (
         existing.get(mi),
         .Some(m) => match(
           m.value,
-          .Some(mfv) => if(is_func_val(mfv), {
+          .Some(mfv) => if(is_func_val(&mfv), {
             match(
               mfv,
               .FuncVal(__dfvd, _) => {
                 fid := __dfvd.*.func_id;
                 fbody := __dfvd.*.body;
                 if(!base.has_function(fid.clone()), {
-                  base.register_function(fid.clone(), mfv, function_c_name(fid));
-                  find_function_calls_in_expr(fbody, base, info);
+                  base.register_function(fid.clone(), &mfv, function_c_name(&fid));
+                  find_function_calls_in_expr(&fbody, base, info);
                 });
               },
               _ => ()
@@ -1436,7 +1436,7 @@ _synthesize_and_register_dispose :: (
   while(fi < nf, {
     lbl := match(flabels.get(fi), .Some(l) => l, .None => String.from(""));
     fty := match(ftypes.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-    if(type_contains_rc_cell_or_move_only(fty), {
+    if(type_contains_rc_cell_or_move_only(&fty), {
       // Index-based alias (the field label may not be a valid identifier — e.g. the
       // newtype/box `*` field — so it must not be interpolated into the binding name).
       alias := `__yo_disp_f${fi.to_string()}`;
@@ -1447,7 +1447,7 @@ _synthesize_and_register_dispose :: (
       destructs.push_str(" : ");
       destructs.push_string(alias.clone());
       calls.push_str("(___drop)(");
-      calls.push_string(alias);
+      calls.push_string(&alias);
       calls.push_str("); ");
       any = true;
     });
@@ -1465,14 +1465,14 @@ _synthesize_and_register_dispose :: (
   });
   if(any, {
     body.push_str("{ ");
-    body.push_string(destructs);
+    body.push_string(&destructs);
     body.push_str(" } := self; ");
-    body.push_string(calls);
+    body.push_string(&calls);
   });
   body.push_str("()");
   // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
   code := `(fn(imm(self) : Self) -> unit)({ ${body} })`;
-  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
+  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, &code, String.from("___dispose"));
 });
 /// Synthesize + register the auto-derived `___dispose` for a concrete reference-
 /// semantics ENUM (`ref(enum(…))`) — the enum counterpart of
@@ -1497,15 +1497,15 @@ _synthesize_and_register_enum_dispose :: (
         existing_e.get(mi),
         .Some(m) => match(
           m.value,
-          .Some(mfv) => if(is_func_val(mfv), {
+          .Some(mfv) => if(is_func_val(&mfv), {
             match(
               mfv,
               .FuncVal(__dfvd, _) => {
                 fid := __dfvd.*.func_id;
                 fbody := __dfvd.*.body;
                 if(!base.has_function(fid.clone()), {
-                  base.register_function(fid.clone(), mfv, function_c_name(fid));
-                  find_function_calls_in_expr(fbody, base, info);
+                  base.register_function(fid.clone(), &mfv, function_c_name(&fid));
+                  find_function_calls_in_expr(&fbody, base, info);
                 });
               },
               _ => ()
@@ -1544,7 +1544,7 @@ _synthesize_and_register_enum_dispose :: (
     while(fi < nf, {
       match(
         fields.get(fi),
-        .Some(ft) => if(type_contains_rc_cell_or_move_only(ft), {
+        .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
           has_rc = true;
         }),
         .None => ()
@@ -1572,7 +1572,7 @@ _synthesize_and_register_enum_dispose :: (
       while(di < nf, {
         match(
           fields.get(di),
-          .Some(ft) => if(type_contains_rc_cell_or_move_only(ft), {
+          .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
             arms.push_str("(___drop)(__yo_disp_f");
             arms.push_string(di.to_string());
             arms.push_str("); ");
@@ -1596,7 +1596,7 @@ _synthesize_and_register_enum_dispose :: (
   });
   if(rc_variants > usize(0), {
     body.push_str("match(self, ");
-    body.push_string(arms);
+    body.push_string(&arms);
     if(rc_variants < nv, {
       body.push_str(", _ => ()");
     });
@@ -1605,7 +1605,7 @@ _synthesize_and_register_enum_dispose :: (
   body.push_str("()");
   // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
   code := `(fn(imm(self) : Self) -> unit)({ ${body} })`;
-  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, code, String.from("___dispose"));
+  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, &code, String.from("___dispose"));
 });
 /// Register the `___dispose` of a move-only VALUE type with a user `Dispose`
 /// (plans/VALUES_BY_DEFAULT.md §3.4): `(fn(self : Self) -> unit)({ self.dispose(); () })`.
@@ -1631,8 +1631,8 @@ _synthesize_and_register_value_dispose :: (
             .FuncVal(__vdfvd, _) => {
               fid := __vdfvd.*.func_id;
               if(!base.has_function(fid.clone()), {
-                base.register_function(fid.clone(), mfv, function_c_name(fid));
-                find_function_calls_in_expr(__vdfvd.*.body, base, info);
+                base.register_function(fid.clone(), &mfv, function_c_name(&fid));
+                find_function_calls_in_expr(&__vdfvd.*.body, base, info);
               });
             },
             _ => ()
@@ -1690,7 +1690,7 @@ collect_dispose_methods :: (
       // ("call to undeclared function 'yo_id_XXXX'"). Filter with the deep
       // predicate here so no `___dispose` is registered for a body that will
       // never be emitted.
-      .Some(entry) => if((is_reference_struct_type(entry.ty) || (is_reference_enum_type(entry.ty) || (is_value_nominal_type(entry.ty) && type_is_move_only(entry.ty)))) && !type_contains_some_type_deep(entry.ty), {
+      .Some(entry) => if((is_reference_struct_type(&entry.ty) || (is_reference_enum_type(&entry.ty) || (is_value_nominal_type(&entry.ty) && type_is_move_only(&entry.ty)))) && !type_contains_some_type_deep(&entry.ty), {
         type_list.push(entry.ty);
       }),
       .None => {
@@ -1703,9 +1703,9 @@ collect_dispose_methods :: (
   while(ti < nt, {
     ct := match(type_list.get(ti), .Some(t) => t, .None => TypeValue.Unit);
     cond(
-      is_value_nominal_type(ct) => _synthesize_and_register_value_dispose(base, ctx, module_env, info, exn, ct),
-      is_reference_enum_type(ct) => _synthesize_and_register_enum_dispose(base, ctx, module_env, info, exn, ct),
-      true => _synthesize_and_register_dispose(base, ctx, module_env, info, exn, ct)
+      is_value_nominal_type(&ct) => _synthesize_and_register_value_dispose(base, ctx, module_env, info, exn, &ct),
+      is_reference_enum_type(&ct) => _synthesize_and_register_enum_dispose(base, ctx, module_env, info, exn, &ct),
+      true => _synthesize_and_register_dispose(base, ctx, module_env, info, exn, &ct)
     );
     ti = (ti + usize(1));
   });

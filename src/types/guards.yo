@@ -88,7 +88,7 @@ type_decl_id :: (fn(imm(t) : TypeValue) -> Option(String))(
 get_adopted_extern_c_type :: (fn(imm(t) : TypeValue) -> Option(AdoptedExternCType))(
   match(
     type_decl_id(t),
-    .Some(did) => g_adopted_extern_c_types.get(did),
+    .Some(did) => g_adopted_extern_c_types.get(&did),
     .None => Option(AdoptedExternCType).None
   )
 );
@@ -380,7 +380,7 @@ _is_shared_cell_instance_name :: (fn(imm(name) : String) -> bool)({
       .Some(n) => {
         head := String.from(n.type_name);
         head.push_str("(");
-        found = name.starts_with(head);
+        found = name.starts_with(&head);
       },
       .None => {
         break;
@@ -401,7 +401,7 @@ is_box_type :: (fn(imm(t) : TypeValue) -> bool)(
     .Struct({ name, field_labels, is_reference_semantics : is_ref }) => cond(
       !is_ref => false,
       (field_labels.len() != usize(1)) => false,
-      !_is_shared_cell_instance_name(name) => false,
+      !_is_shared_cell_instance_name(&name) => false,
       true => match(
         field_labels.get(usize(0)),
         .Some(label) => (label == "*"),
@@ -457,7 +457,7 @@ is_function_type_and_returns_comptime_value :: (fn(imm(t) : TypeValue) -> bool)(
     // result type with the comptime-ness carried in the meta flag. The
     // type-based test alone made every "runtime binding in a comptime-only
     // fn body" gate silently never fire (tests/fn.test.yo).
-    .Func({ result : r, meta : __gm }) => (__gm.*.result_is_comptime_only || is_comptime_only_type_simple(r)),
+    .Func({ result : r, meta : __gm }) => (__gm.*.result_is_comptime_only || is_comptime_only_type_simple(&r)),
     _ => false
   )
 );
@@ -611,7 +611,7 @@ is_rc_type :: (fn(imm(t) : TypeValue) -> bool)(
         match(
           req_traits.get(i),
           .Some(tr) => {
-            if(is_future_trait_type(tr), {
+            if(is_future_trait_type(&tr), {
               found = true;
             });
           },
@@ -663,7 +663,7 @@ _some_type_implements_future :: (fn(imm(t) : TypeValue) -> bool)(
       while((sf_i < sf_rtts.len()) && !sf_found, {
         match(
           sf_rtts.get(sf_i),
-          .Some(sf_rt) => if(is_future_trait_type(sf_rt), {
+          .Some(sf_rt) => if(is_future_trait_type(&sf_rt), {
             sf_found = true;
           }),
           .None => ()
@@ -693,7 +693,7 @@ is_function_type_generic :: (fn(imm(t) : TypeValue) -> bool)(
               .Some(pt) => match(
                 pt,
                 // Future-implementing SomeT params are exempt.
-                .SomeT(name : _) => if(!_some_type_implements_future(pt), {
+                .SomeT(name : _) => if(!_some_type_implements_future(&pt), {
                   found = true;
                 }),
                 _ => ()
@@ -740,7 +740,7 @@ is_function_type_hard_generic :: (fn(imm(t) : TypeValue) -> bool)(
                   // unspecialized form IS valid C. A resolution travels on
                   // the value (`SomeT.resolution`, Phase 3 step 7 part 2) —
                   // the id-keyed registry this once consulted is retired.
-                  if(!_some_type_implements_future(pt) && hg_res.is_none(), {
+                  if(!_some_type_implements_future(&pt) && hg_res.is_none(), {
                     found = true;
                   });
                 },
@@ -793,11 +793,11 @@ is_boxed_type :: (fn(imm(t) : TypeValue) -> bool)(
       .Struct({ name, field_labels, field_types }) =>
         (
           (field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false) && (
-            _is_shared_cell_instance_name(name)
+            _is_shared_cell_instance_name(&name)
             // A value boxed ATOMICALLY for a `Dyn(..., Send)` (`dyn(...)` boxes
             // with `arc` there; issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
             // An Arc of an OBJECT is an object in its own right, not a box.
-            || (name.starts_with("Arc(") && !match(field_types.get(usize(0)), .Some(ft) => is_reference_struct_type(ft), .None => false))
+            || (name.starts_with("Arc(") && !match(field_types.get(usize(0)), .Some(ft) => is_reference_struct_type(&ft), .None => false))
           )
         ),
       _ => false
@@ -860,7 +860,7 @@ can_optimize_as_nullable_pointer :: (fn(imm(t) : TypeValue) -> Option(TypeValue)
           (fc == usize(1)) => {
             child := match(fields.get(usize(0)), .Some(c) => c, .None => return(.None));
             cond(
-              _is_nullable_payload_type(child) => {
+              _is_nullable_payload_type(&child) => {
                 match(
                   pointer_type,
                   .Some(_) => {

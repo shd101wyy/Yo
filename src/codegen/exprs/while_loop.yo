@@ -18,7 +18,7 @@
 _emit_line :: (fn(imm(em) : Emitter, imm(indent) : String, imm(text) : String) -> unit)({
   line := indent.clone();
   line.push_string(text);
-  em.emit_string_line(line);
+  em.emit_string_line(&line);
 });
 /// Args of a FnCall (empty for an Atom).
 _args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
@@ -42,20 +42,20 @@ generate_step_expression :: (fn(imm(step_expr) : AstExpr, imm(indent) : String, 
   cond(
     ast_expr_is_fn_call_of(step_expr, BK_BEGIN, .None) => {
       em := context.base.emitter;
-      _emit_line(em, indent.clone(), String.from("{"));
+      _emit_line(&em, indent.clone(), String.from("{"));
       inner := indent.clone();
       inner.push_str("  ");
-      _call_generate_expr(step_expr, inner, context);
-      _emit_line(em, indent.clone(), String.from("}"));
+      _call_generate_expr(step_expr, &inner, context);
+      _emit_line(&em, indent.clone(), String.from("}"));
       String.from("")
     },
     ast_expr_is_fn_call_of(step_expr, BK_ASSIGN, .Some(usize(2))) => {
       aargs := _args(step_expr);
       lhs := match(aargs.get(usize(0)), .Some(l) => l, .None => step_expr);
       rhs := match(aargs.get(usize(1)), .Some(r) => r, .None => step_expr);
-      out := _call_generate_expr(lhs, String.from(""), context);
+      out := _call_generate_expr(&lhs, String.from(""), context);
       out.push_str(" = ");
-      out.push_string(_call_generate_expr(rhs, String.from(""), context));
+      out.push_string(_call_generate_expr(&rhs, String.from(""), context));
       out
     },
     true => _call_generate_expr(step_expr, String.from(""), context)
@@ -110,17 +110,17 @@ generate_loop_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(co
     ast_expr_is_fn_call_of(body_expr, BK_BEGIN, .None) => {
       ei_opt := context.base.get_expr_info(body_expr);
       current_drops := match(ei_opt, .Some(ei) => ei.deferred_drop_expressions, .None => .None);
-      current_consumed := match(ei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(ei), .None => Option(ArrayList(AstExpr)).None);
+      current_consumed := match(ei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
       prev_pending := context.pending_deferred_drops;
       prev_consumed := context.consumed_var_pending_drops;
-      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(current_drops, prev_pending));
-      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(current_consumed, prev_consumed));
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&current_drops, &prev_pending));
+      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&current_consumed, &prev_consumed));
       em := context.base.emitter;
       // Scope-marker: C block for begin-local variables (as in begin.yo:137).
       // Required so deferred drops of locals declared here scope-clean.
       hdr := indent.clone();
       hdr.push_str("{ // begin block (loop body)");
-      em.emit_string_line(hdr);
+      em.emit_string_line(&hdr);
       args := _args(body_expr);
       n := args.len();
       (i : usize) = usize(0);
@@ -128,8 +128,8 @@ generate_loop_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(co
         match(
           args.get(i),
           .Some(arg) => {
-            note_line_position(em, arg);
-            code := _call_generate_expr(arg, indent.clone(), context);
+            note_line_position(&em, &arg);
+            code := _call_generate_expr(&arg, indent.clone(), context);
             if(code.len() > usize(0), {
               // Bare-temp-name skip (same gate as generate_state_segment_code,
               // state_code_gen.yo): a statement whose generation already
@@ -139,15 +139,15 @@ generate_loop_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(co
               // (the SM loop-body `i = i + 1` tail class, fs/file + bufio
               // flag-on).
               is_bare_temp := match(
-                context.base.get_expr_info(arg),
+                context.base.get_expr_info(&arg),
                 .Some(aei) => is_temp_variable_name(aei.env.module_path.clone(), code.clone()),
                 .None => false
               );
               if(!is_bare_temp, {
                 line := indent.clone();
-                line.push_string(code);
+                line.push_string(&code);
                 line.push_str(";");
-                em.emit_string_line(line);
+                em.emit_string_line(&line);
               });
             });
           },
@@ -174,10 +174,10 @@ generate_loop_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(co
                 // stage-2 hole). Safe: a never-declared C variable cannot be
                 // double-freed and holds no value to leak.
                 undeclared_temp := match(
-                  get_deferred_drop_target_atom_name(de),
+                  get_deferred_drop_target_atom_name(&de),
                   .Some(nm) => {
-                    cn := sanitize_for_c_identifier(nm, false);
-                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env.module_path.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.*.contains(cn)
+                    cn := sanitize_for_c_identifier(&nm, false);
+                    (is_temp_variable_name(match(ei_opt, .Some(e2) => e2.env.module_path.clone(), .None => String.from("")), cn.clone()) || _looks_like_minted_temp(cn.clone())) && !context.base.declared_c_var_names.*.contains(&cn)
                   },
                   .None => false
                 );
@@ -188,14 +188,14 @@ generate_loop_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(co
                   // an owned temp created in a `||`/`&&` RHS in a
                   // loop body was re-dropped at the loop scope end:
                   // issues/fixed/ts-while-loop-body-drops-missing-guards.md.
-                  sc_skip := match(get_deferred_drop_target_atom_name(de), .Some(target) => take_short_circuit_handled(context, target), .None => false);
+                  sc_skip := match(get_deferred_drop_target_atom_name(&de), .Some(target) => take_short_circuit_handled(context, &target), .None => false);
                   if(!sc_skip, {
-                    code := _call_generate_expr(de, indent.clone(), context);
+                    code := _call_generate_expr(&de, indent.clone(), context);
                     if(code.len() > usize(0), {
                       line := indent.clone();
-                      line.push_string(code);
+                      line.push_string(&code);
                       line.push_str(";");
-                      em.emit_string_line(line);
+                      em.emit_string_line(&line);
                     });
                   });
                 });
@@ -209,7 +209,7 @@ generate_loop_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(co
       );
       ftr := indent.clone();
       ftr.push_str("} // end begin block (loop body)");
-      em.emit_string_line(ftr);
+      em.emit_string_line(&ftr);
       context.pending_deferred_drops = prev_pending;
       context.consumed_var_pending_drops = prev_consumed;
     },
@@ -220,21 +220,21 @@ generate_loop_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(co
       // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
       bei_opt := context.base.get_expr_info(body_expr);
       body_drops := match(bei_opt, .Some(ei) => ei.deferred_drop_expressions, .None => .None);
-      body_consumed := match(bei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(ei), .None => Option(ArrayList(AstExpr)).None);
+      body_consumed := match(bei_opt, .Some(ei) => expr_info_consumed_variable_drop_expressions(&ei), .None => Option(ArrayList(AstExpr)).None);
       prev_pending := context.pending_deferred_drops;
       prev_consumed := context.consumed_var_pending_drops;
-      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(body_drops, prev_pending));
-      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(body_consumed, prev_consumed));
+      context.pending_deferred_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&body_drops, &prev_pending));
+      context.consumed_var_pending_drops = Option(ArrayList(AstExpr)).Some(_concat_drops(&body_consumed, &prev_consumed));
       em := context.base.emitter;
-      note_line_position(em, body_expr);
+      note_line_position(&em, body_expr);
       code := _call_generate_expr(body_expr, indent.clone(), context);
       context.pending_deferred_drops = prev_pending;
       context.consumed_var_pending_drops = prev_consumed;
       if(code.len() > usize(0), {
         line := indent.clone();
-        line.push_string(code);
+        line.push_string(&code);
         line.push_str(";");
-        em.emit_string_line(line);
+        em.emit_string_line(&line);
       });
     }
   )
@@ -246,12 +246,12 @@ generate_while_loop :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
   match(
     ei_opt,
     .Some(ei) => match(
-      expr_info_comptime_unrolled_bodies(ei),
+      expr_info_comptime_unrolled_bodies(&ei),
       .Some(bodies) => {
         n := bodies.len();
         (i : usize) = usize(0);
         while(i < n, {
-          match(bodies.get(i), .Some(b) => generate_loop_body(b, indent.clone(), context), .None => ());
+          match(bodies.get(i), .Some(b) => generate_loop_body(&b, indent.clone(), context), .None => ());
           i = (i + usize(1));
         });
         return(String.from(""));
@@ -270,24 +270,24 @@ generate_while_loop :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
       body_expr := match(args.get(usize(1)), .Some(b) => b, .None => expr);
       saved_loop := context.base.current_loop_label;
       loop_tok := ast_expr_token(expr);
-      loop_label := stable_label_id(String.from("loop_"), loop_tok.module_path, usize(loop_tok.row), usize(loop_tok.column));
+      loop_label := stable_label_id(String.from("loop_"), &loop_tok.module_path, usize(loop_tok.row), usize(loop_tok.column));
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
       saved_baseline := context.loop_body_drops_baseline_count;
       context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
       em := context.base.emitter;
-      _emit_line(em, indent.clone(), String.from("while (true) {"));
-      cond_code := _call_generate_expr(cond_expr, body_indent.clone(), context);
-      _emit_line(em, body_indent.clone(), {
+      _emit_line(&em, indent.clone(), String.from("while (true) {"));
+      cond_code := _call_generate_expr(&cond_expr, body_indent.clone(), context);
+      _emit_line(&em, body_indent.clone(), {
         s := String.from("if (!(");
-        s.push_string(cond_code);
+        s.push_string(&cond_code);
         s.push_str(")) {");
         s
       });
-      _emit_line(em, body_indent.clone(), String.from("  break;"));
-      _emit_line(em, body_indent.clone(), String.from("}"));
-      generate_loop_body(body_expr, body_indent.clone(), context);
-      _emit_line(em, indent.clone(), String.from("}"));
-      _emit_line(em, indent.clone(), {
+      _emit_line(&em, body_indent.clone(), String.from("  break;"));
+      _emit_line(&em, body_indent.clone(), String.from("}"));
+      generate_loop_body(&body_expr, body_indent.clone(), context);
+      _emit_line(&em, indent.clone(), String.from("}"));
+      _emit_line(&em, indent.clone(), {
         s := loop_label.clone();
         s.push_str(":;");
         s
@@ -303,39 +303,39 @@ generate_while_loop :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
       saved_loop := context.base.current_loop_label;
       saved_continue := context.base.current_continue_label;
       loop3_tok := ast_expr_token(expr);
-      loop_label := stable_label_id(String.from("loop_"), loop3_tok.module_path, usize(loop3_tok.row), usize(loop3_tok.column));
-      continue_label := stable_label_id(String.from("continue_"), loop3_tok.module_path, usize(loop3_tok.row), usize(loop3_tok.column));
+      loop_label := stable_label_id(String.from("loop_"), &loop3_tok.module_path, usize(loop3_tok.row), usize(loop3_tok.column));
+      continue_label := stable_label_id(String.from("continue_"), &loop3_tok.module_path, usize(loop3_tok.row), usize(loop3_tok.column));
       context.base.current_loop_label = Option(String).Some(loop_label.clone());
       context.base.current_continue_label = Option(String).Some(continue_label.clone());
       saved_baseline := context.loop_body_drops_baseline_count;
       context.loop_body_drops_baseline_count = Option(usize).Some(match(context.pending_deferred_drops, .Some(p) => p.len(), .None => usize(0)));
       em := context.base.emitter;
-      _emit_line(em, indent.clone(), String.from("while (true) {"));
-      cond_code := _call_generate_expr(cond_expr, body_indent.clone(), context);
-      _emit_line(em, body_indent.clone(), {
+      _emit_line(&em, indent.clone(), String.from("while (true) {"));
+      cond_code := _call_generate_expr(&cond_expr, body_indent.clone(), context);
+      _emit_line(&em, body_indent.clone(), {
         s := String.from("if (!(");
-        s.push_string(cond_code);
+        s.push_string(&cond_code);
         s.push_str(")) {");
         s
       });
-      _emit_line(em, body_indent.clone(), String.from("  break;"));
-      _emit_line(em, body_indent.clone(), String.from("}"));
-      generate_loop_body(body_expr, body_indent.clone(), context);
-      _emit_line(em, indent.clone(), {
+      _emit_line(&em, body_indent.clone(), String.from("  break;"));
+      _emit_line(&em, body_indent.clone(), String.from("}"));
+      generate_loop_body(&body_expr, body_indent.clone(), context);
+      _emit_line(&em, indent.clone(), {
         s := continue_label.clone();
         s.push_str(":;");
         s
       });
-      step_code := generate_step_expression(step_expr, body_indent.clone(), context);
+      step_code := generate_step_expression(&step_expr, body_indent.clone(), context);
       if(step_code.len() > usize(0), {
-        _emit_line(em, body_indent.clone(), {
+        _emit_line(&em, body_indent.clone(), {
           s := step_code;
           s.push_str(";");
           s
         });
       });
-      _emit_line(em, indent.clone(), String.from("}"));
-      _emit_line(em, indent.clone(), {
+      _emit_line(&em, indent.clone(), String.from("}"));
+      _emit_line(&em, indent.clone(), {
         s := loop_label.clone();
         s.push_str(":;");
         s
@@ -347,7 +347,7 @@ generate_while_loop :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(contex
     },
     true => {
       em := context.base.emitter;
-      _emit_line(em, indent.clone(), String.from("/* Error: while loop expects 2 or 3 arguments */"));
+      _emit_line(&em, indent.clone(), String.from("/* Error: while loop expects 2 or 3 arguments */"));
       String.from("")
     }
   )

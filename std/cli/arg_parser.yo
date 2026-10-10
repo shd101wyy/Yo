@@ -176,7 +176,7 @@ impl(
   /// the number of options seen; this is a linear scan of two parallel
   /// lists, not a map.
   get_option : (fn(imm(self) : Self, imm(name) : String) -> Option(String))(
-    self._lookup(self._option_names, self._option_values, name)
+    self._lookup(&self._option_names, &self._option_values, name)
   ),
   /// The positional argument registered under `name` (bare, no dashes —
   /// `get_positional(`input`)`).
@@ -188,7 +188,7 @@ impl(
   /// collected but get no name, so they are reachable only through
   /// `get_positional_at`. O(n) in the positionals seen.
   get_positional : (fn(imm(self) : Self, imm(name) : String) -> Option(String))(
-    self._lookup(self._positional_names, self._positionals, name)
+    self._lookup(&self._positional_names, &self._positionals, name)
   ),
   /// The `index`-th positional argument in command-line order, 0-based,
   /// `.None` past the end.
@@ -429,7 +429,7 @@ impl(
                     true => ()
                   );
                   line = line.concat(`\t${arg_def._description}\n`);
-                  text = text.concat(line);
+                  text = text.concat(&line);
                 },
                 .Opt => {
                   line := `  ${arg_def._long_name}`;
@@ -447,7 +447,7 @@ impl(
                     true => ()
                   );
                   line = line.concat(`\n`);
-                  text = text.concat(line);
+                  text = text.concat(&line);
                 },
                 .Positional => ()
               );
@@ -551,7 +551,7 @@ impl(
             },
             current_arg.starts_with(`-`) => {
               match(
-                self._find_arg_index(current_arg),
+                self._find_arg_index(&current_arg),
                 .Some(arg_idx) => {
                   match(
                     self._args.get(arg_idx),
@@ -598,7 +598,7 @@ impl(
               cond(
                 (self._subcommand_names.len() > usize(0)) => {
                   match(
-                    self._find_subcommand(current_arg),
+                    self._find_subcommand(&current_arg),
                     .Some(sub_idx) => {
                       match(
                         self._subcommand_parsers.get(sub_idx),
@@ -626,7 +626,7 @@ impl(
                           });
                           // Recursively parse the subcommand.
                           match(
-                            recur(sub_parser, sub_args),
+                            recur(&sub_parser, &sub_args),
                             .Ok(sub_parsed) => {
                               parsed._subcommand = .Some(current_arg);
                               parsed._subcommand_args = .Some(sub_parsed);
@@ -703,7 +703,7 @@ impl(
             def._kind,
             .Opt => {
               cond(
-                (!parsed._option_names.contains(def._long_name) && !def._default_value.is_empty()) => {
+                (!parsed._option_names.contains(&def._long_name) && !def._default_value.is_empty()) => {
                   parsed._option_names.push(def._long_name);
                   parsed._option_values.push(def._default_value);
                 },

@@ -95,8 +95,8 @@ parse_yo_version :: (fn(imm(content) : String) -> Result(String, String))({
           major := version.substring(usize(0), dot1);
           minor := rest1.substring(usize(0), dot2);
           patch_and_rest := rest1.substring(dot2 + usize(1), rest1.len());
-          major_ok := ((major.len() > usize(0)) && _all_digits(major, usize(0), major.len()));
-          minor_ok := ((minor.len() > usize(0)) && _all_digits(minor, usize(0), minor.len()));
+          major_ok := ((major.len() > usize(0)) && _all_digits(&major, usize(0), major.len()));
+          minor_ok := ((minor.len() > usize(0)) && _all_digits(&minor, usize(0), minor.len()));
           patch_ok := cond(
             (patch_and_rest.len() == usize(0)) => false,
             true => match(
@@ -132,7 +132,7 @@ find_yo_version_file :: (
     current := start_dir;
     while(keep_going, {
       candidate := current.join(Path.new(String.from(YO_VERSION_FILE)));
-      found := io.await(exists(candidate, io), io);
+      found := io.await(exists(&candidate, io), io);
       if(found, {
         result = .Some(candidate);
         keep_going = false;
@@ -166,14 +166,14 @@ read_yo_version :: (
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
-    path_opt := e.io.await(find_yo_version_file(start_dir, e.io), e.io);
+    path_opt := e.io.await(find_yo_version_file(start_dir, e.io), &e.io);
     match(
       path_opt,
       .None => Option(String).None,
       .Some(path) => {
-        content := e.io.await(read_to_string(path, e.io), e);
+        content := e.io.await(read_to_string(&path, e.io), e);
         match(
-          parse_yo_version(content),
+          parse_yo_version(&content),
           .Err(msg) => e.exn.throw(dyn(msg)),
           .Ok(version) => .Some(version)
         )

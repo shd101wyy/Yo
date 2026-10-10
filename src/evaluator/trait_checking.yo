@@ -138,7 +138,7 @@ register_type_trait :: (fn(imm(type_id) : String, trait_name : str, imm(env) : E
   match(
     get_trait_type_from_env(env, String.from(trait_name)),
     .Some(trait_ty) => {
-      register_type_trait_value(type_id, trait_ty);
+      register_type_trait_value(type_id, &trait_ty);
     },
     .None => ()
   );
@@ -187,7 +187,7 @@ is_type_registered_as_trait :: (fn(imm(type_id) : String, imm(query_trait) : Typ
       query_id := _trait_type_id(query_trait);
       while((i < n) && !found, {
         reg := match(list.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        if(query_id == _trait_type_id(reg), {
+        if(query_id == _trait_type_id(&reg), {
           found = true;
         });
         i = (i + usize(1));
@@ -248,7 +248,7 @@ _marker_name_of :: (fn(imm(trait_type) : TypeValue, imm(env) : Environment) -> S
     marker := match(markers.get(i), .Some(m) => m, .None => String.from(""));
     match(
       get_trait_type_from_env(env, marker.clone()),
-      .Some(mt) => if(_trait_type_id(mt) == tid, {
+      .Some(mt) => if(_trait_type_id(&mt) == tid, {
         found = marker.clone();
       }),
       .None => ()
@@ -480,9 +480,9 @@ _assoc_synth_env :: (
     env,
     resolved_ty,
     env,
-    checked,
+    &mut checked,
     Option(SynthesizeOptions).None,
-    exn_s
+    &exn_s
   );
   Option(Environment).Some(sr.expected_env)
 });
@@ -595,7 +595,7 @@ _check_associated_type_constraints :: (
     };
     // Step 2: the generic impl registry (see the note above).
     if(resolved_opt.is_none(), {
-      resolved_opt = find_associated_type_from_generic_impls(target_type, label, cur_env);
+      resolved_opt = find_associated_type_from_generic_impls(target_type, &label, &cur_env);
     });
     match(
       resolved_opt,
@@ -610,13 +610,13 @@ _check_associated_type_constraints :: (
         // against resolved `i32` missed the concrete-vs-SomeT wildcard rule
         // and the whole trait check reported "does not implement Iterator"
         // (the tests/closure_capture_rc_leak `any` where-clause).
-        if(!are_types_compatible(resolved, constraint_ty), {
+        if(!are_types_compatible(&resolved, &constraint_ty), {
           ok = false;
         }, {
           // Propagate SomeType bindings from constraint matching
           // (`Item := A` resolved to `i32` → binds A := i32).
           match(
-            _assoc_synth_env(constraint_ty, resolved, cur_env),
+            _assoc_synth_env(&constraint_ty, &resolved, &cur_env),
             .Some(e2) => {
               cur_env = e2;
             },
@@ -648,7 +648,7 @@ _is_anonymous_record_type :: (fn(imm(ty) : TypeValue) -> bool)(
     .Struct({ id : ar_id, name : ar_name, is_reference_semantics : ar_ref, is_newtype : ar_new, constructor_func_id : ar_cfid, is_source_namespace : ar_sns }) => (
       // A type rebuilt from a value carries no id at all, and is not
       // known to be anonymous.
-      !ar_ref && !ar_new && (!ar_sns && ar_name.is_empty()) && ar_cfid.is_empty() && !ar_id.is_empty() && type_binding_name(ar_id).is_none()
+      !ar_ref && !ar_new && (!ar_sns && ar_name.is_empty()) && ar_cfid.is_empty() && !ar_id.is_empty() && type_binding_name(&ar_id).is_none()
     ),
     _ => false
   )
@@ -659,10 +659,10 @@ _is_anonymous_record_type :: (fn(imm(ty) : TypeValue) -> bool)(
 /// for every other type, which answers `Copy` through an impl.
 copy_structural_parts :: (fn(imm(ty_in) : TypeValue) -> Option(ArrayList(TypeValue)))({
   ty := resolve_enum_shell(ty_in);
-  if(is_bound_closure_identity(ty), {
+  if(is_bound_closure_identity(&ty), {
     return(
       match(
-        resolve_cell_chain(ty),
+        resolve_cell_chain(&ty),
         .Struct({ field_types : cs_fields }) => Option(ArrayList(TypeValue)).Some(cs_fields),
         _ => Option(ArrayList(TypeValue)).None
       )
@@ -678,7 +678,7 @@ copy_structural_parts :: (fn(imm(ty_in) : TypeValue) -> Option(ArrayList(TypeVal
     },
     .Func({ result : _ }) => Option(ArrayList(TypeValue)).Some(ArrayList(TypeValue).new()),
     .Struct({ field_types : rec_fields }) => cond(
-      _is_anonymous_record_type(ty) => Option(ArrayList(TypeValue)).Some(rec_fields),
+      _is_anonymous_record_type(&ty) => Option(ArrayList(TypeValue)).Some(rec_fields),
       true => Option(ArrayList(TypeValue)).None
     ),
     _ => Option(ArrayList(TypeValue)).None
@@ -724,21 +724,21 @@ _first_non_copy_part :: (fn(imm(target) : TypeValue, imm(copy_tt) : TypeValue, i
   (pi : usize) = usize(0);
   while(pi < parts.len(), {
     part := match(parts.get(pi), .Some(p) => p, .None => TypeValue.Unit);
-    (part_is_copy : bool) = type_implements_trait(part, copy_tt, env).implemented;
+    (part_is_copy : bool) = type_implements_trait(&part, copy_tt, env).implemented;
     // The part's own `impl(P, Copy())` may sit later in its module
     // (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): force it first.
     if(!part_is_copy, {
       match(
-        force_pending_impls_for_type_name(type_head_name_for_impl_forcing(part), Option(String).None),
+        force_pending_impls_for_type_name(type_head_name_for_impl_forcing(&part), Option(String).None),
         .Forced => {
-          part_is_copy = type_implements_trait(part, copy_tt, env).implemented;
+          part_is_copy = type_implements_trait(&part, copy_tt, env).implemented;
         },
         _ => ()
       );
     });
     if(!part_is_copy, {
       lbl := match(labels.get(pi), .Some(l) => l, .None => String.new());
-      return(Option(String).Some(`${lbl} has type \`${type_to_string(part)}\``));
+      return(Option(String).Some(`${lbl} has type \`${type_to_string(&part)}\``));
     });
     pi = (pi + usize(1));
   });
@@ -808,14 +808,14 @@ _copy_without_clone_msg :: (fn(imm(target_type) : TypeValue, imm(env) : Environm
   match(
     get_trait_type_from_env(env, String.from("Clone")),
     .Some(clone_tt) => {
-      (has_clone : bool) = type_implements_trait(target_type, clone_tt, env).implemented;
+      (has_clone : bool) = type_implements_trait(target_type, &clone_tt, env).implemented;
       // A `Clone` impl placed after the `Copy` impl in its module
       // (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): force it first.
       if(!has_clone, {
         match(
           force_pending_impls_for_type_name(type_head_name_for_impl_forcing(target_type), Option(String).None),
           .Forced => {
-            has_clone = type_implements_trait(target_type, clone_tt, env).implemented;
+            has_clone = type_implements_trait(target_type, &clone_tt, env).implemented;
           },
           _ => ()
         );
@@ -836,7 +836,7 @@ _copy_without_clone_msg :: (fn(imm(target_type) : TypeValue, imm(env) : Environm
           // (not `get_all_some_types`): a parameter no field mentions
           // (`Tag(T)` = `struct(id : i32)`) is carried by the instantiation's
           // type arguments alone.
-          if(type_mentions_some_type(target_type) && generic_pattern_implements_trait(target_type, clone_tt, env), {
+          if(type_mentions_some_type(target_type) && generic_pattern_implements_trait(target_type, &clone_tt, env), {
             return(Option(String).None);
           });
           shown := type_to_string(target_type);
@@ -894,8 +894,8 @@ _type_lacks_clone_for_diagnostics :: (fn(imm(ty) : TypeValue) -> bool)(
   match(
     g_flip_env,
     .Some(env) => match(
-      get_trait_type_from_env(env, String.from("Clone")),
-      .Some(clone_tt) => !type_implements_trait(ty, clone_tt, env).implemented,
+      get_trait_type_from_env(&env, String.from("Clone")),
+      .Some(clone_tt) => !type_implements_trait(ty, &clone_tt, &env).implemented,
       .None => false
     ),
     .None => false
@@ -912,7 +912,7 @@ type_lacks_copy_for_flip :: (fn(imm(ty_in) : TypeValue) -> bool)({
   // A refinement `refine(T, p)` copies as its `T` (the erasure rule).
   (ty : TypeValue) = ty_in;
   while(match(ty, .RefineT(_, _) => true, _ => false), {
-    ty = t_refine_inner(ty);
+    ty = t_refine_inner(&ty);
   });
   // A type still mentioning a type variable is judged per instantiation (a
   // generic body is evaluated again for each), as `type_is_move_only` does.
@@ -920,7 +920,7 @@ type_lacks_copy_for_flip :: (fn(imm(ty_in) : TypeValue) -> bool)({
   // resolved to `Option(i32)` binds the impl's `T` to the variable itself, not
   // to its resolution, and answers no (`_ww_thrice`,
   // tests/generic_instantiation_compat.test.yo).
-  if(type_mentions_some_type(ty), {
+  if(type_mentions_some_type(&ty), {
     return(false);
   });
   env := match(
@@ -932,14 +932,14 @@ type_lacks_copy_for_flip :: (fn(imm(ty_in) : TypeValue) -> bool)({
   );
   // A `union` copies its raw bits, as in C, and `derive` cannot give it
   // `Copy`, so it keeps copying implicitly, like a C opaque type.
-  if(is_some_type(ty) || match(ty, .ExternOpaqueT(_, _) => true, .Union(name : _, field_labels : _, field_types : _) => true, _ => false), {
+  if(is_some_type(&ty) || match(ty, .ExternOpaqueT(_, _) => true, .Union(name : _, field_labels : _, field_types : _) => true, _ => false), {
     return(false);
   });
   if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {
     g_lacks_copy_memo.clear();
     g_lacks_copy_memo_epoch = trait_impl_epoch();
   });
-  key := type_key(ty);
+  key := type_key(&ty);
   // Not memoized: the answer changes once the derive registers `Copy`.
   (pi : usize) = usize(0);
   while(pi < g_copy_pending_keys.len(), {
@@ -964,10 +964,10 @@ type_lacks_copy_for_flip :: (fn(imm(ty_in) : TypeValue) -> bool)({
   });
   g_lacks_copy_in_progress.push(key.clone());
   answer := cond(
-    (type_is_comptime_only_full(ty, env) || type_is_control_bound(ty)) => false,
+    (type_is_comptime_only_full(&ty, &env) || type_is_control_bound(&ty)) => false,
     true => match(
-      get_trait_type_from_env(env, String.from("Copy")),
-      .Some(copy_tt) => !type_implements_trait(ty, copy_tt, env).implemented,
+      get_trait_type_from_env(&env, String.from("Copy")),
+      .Some(copy_tt) => !type_implements_trait(&ty, &copy_tt, &env).implemented,
       .None => false
     )
   );
@@ -990,26 +990,26 @@ copy_trait_blockers :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> Array
   });
   match(
     get_trait_type_from_env(env, String.from("Copy")),
-    .Some(copy_tt) => _copy_blockers_into(ty, copy_tt, env, u32(0), out),
+    .Some(copy_tt) => _copy_blockers_into(ty, &copy_tt, env, u32(0), &mut out),
     .None => ()
   );
   out
 });
 _copy_blockers_into :: (fn(imm(ty_in) : TypeValue, imm(copy_tt) : TypeValue, imm(env) : Environment, depth : u32, mut(out) : ArrayList(String)) -> unit)({
   ty := resolve_enum_shell(ty_in);
-  if((depth > u32(6)) || is_some_type(ty) || type_implements_trait(ty, copy_tt, env).implemented, {
+  if((depth > u32(6)) || is_some_type(&ty) || type_implements_trait(&ty, copy_tt, env).implemented, {
     return(());
   });
   parts := match(
-    copy_structural_parts(ty),
+    copy_structural_parts(&ty),
     .Some(sp) => sp,
     .None => ArrayList(TypeValue).new()
   );
-  if(is_value_nominal_type(ty), {
-    if(!type_has_impl_shape_for(ty, copy_tt), {
-      raw := type_to_string(ty);
+  if(is_value_nominal_type(&ty), {
+    if(!type_has_impl_shape_for(&ty, copy_tt), {
+      raw := type_to_string(&ty);
       base := match(raw.index_of(String.from("(")), .Some(p) => raw.substring(usize(0), p), .None => raw);
-      if(!out.contains(base), {
+      if(!out.contains(&base), {
         out.push(base);
       });
     });
@@ -1038,8 +1038,8 @@ _copy_blockers_into :: (fn(imm(ty_in) : TypeValue, imm(copy_tt) : TypeValue, imm
     );
   });
   if(match(ty, .ExternOpaqueT(_, _) => true, _ => false), {
-    shown := type_to_string(ty);
-    if(!out.contains(shown), {
+    shown := type_to_string(&ty);
+    if(!out.contains(&shown), {
       out.push(shown);
     });
   });
@@ -1120,7 +1120,7 @@ type_implements_trait :: (
   // leaving the statement with no ExprInfo, so codegen emitted
   // `// Failed to transpile` for it and voided all 23 tests in the batch.
   // See issues/fixed/yo-self-option-eq-ref-enum-not-specialized.md.
-  target = resolve_enum_shell(target);
+  target = resolve_enum_shell(&target);
   // A closure identity IS its capture struct (plans/reference/TYPE_IDENTITY.md),
   // so its representation markers (Runtime, Comptime, Acyclic) are the
   // struct's: `Option(typeof(k))` is a runtime type because k's capture struct
@@ -1129,10 +1129,10 @@ type_implements_trait :: (
   // value knows (`function_value_marker`); as a type, the wrapper keeps the
   // SomeT rule below
   // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
-  if(is_bound_closure_identity(target), {
+  if(is_bound_closure_identity(&target), {
     cim := _marker_name_of(trait_type, env);
     if((cim == "Runtime") || (cim == "Comptime") || (cim == "Acyclic"), {
-      return(type_implements_trait(resolve_cell_chain(target), trait_type, env));
+      return(type_implements_trait(resolve_cell_chain(&target), trait_type, env));
     });
   });
   // An extern opaque type (`ExternOpaqueT`: `atomic_bool`, `FILE`) is a C
@@ -1157,7 +1157,7 @@ type_implements_trait :: (
   // other type answers through its impls below.
   if(is_copy_trait(trait_type, env) || _is_clone_trait(trait_type, env), {
     match(
-      copy_structural_parts(target),
+      copy_structural_parts(&target),
       .Some(cp_parts) => {
         (cp_i : usize) = usize(0);
         while(cp_i < cp_parts.len(), {
@@ -1178,10 +1178,10 @@ type_implements_trait :: (
   // (registration site impl.yo). Generic negative impls
   // (`impl(generic(T), Pattern, !(Trait))`) are matched structurally via
   // `find_matching_negative_generic_impl`.
-  if(has_negative_impl(type_id_or_empty(target), get_trait_key(trait_type)), {
+  if(has_negative_impl(type_id_or_empty(&target), get_trait_key(trait_type)), {
     return(TraitCheckResult(implemented : false, env : env));
   });
-  if(find_matching_negative_generic_impl(target, trait_type, env), {
+  if(find_matching_negative_generic_impl(&target, trait_type, env), {
     return(TraitCheckResult(implemented : false, env : env));
   });
   // 1. Comptime builtin fast path.
@@ -1189,9 +1189,9 @@ type_implements_trait :: (
     get_trait_type_from_env(env, String.from("Comptime")),
     .None => (),
     .Some(ct) => {
-      if(_trait_type_id(trait_type) == _trait_type_id(ct), {
+      if(_trait_type_id(trait_type) == _trait_type_id(&ct), {
         match(
-          type_implements_comptime_builtin(target),
+          type_implements_comptime_builtin(&target),
           .Some(b) => {
             return(TraitCheckResult(implemented : b, env : env));
           },
@@ -1205,9 +1205,9 @@ type_implements_trait :: (
     get_trait_type_from_env(env, String.from("Runtime")),
     .None => (),
     .Some(rt) => {
-      if(_trait_type_id(trait_type) == _trait_type_id(rt), {
+      if(_trait_type_id(trait_type) == _trait_type_id(&rt), {
         match(
-          type_implements_runtime_builtin(target),
+          type_implements_runtime_builtin(&target),
           .Some(b) => {
             return(TraitCheckResult(implemented : b, env : env));
           },
@@ -1223,7 +1223,7 @@ type_implements_trait :: (
   // Runtime builtins above. The prelude declares both impls for the same set.
   if(_is_thread_marker(trait_type, env), {
     match(
-      type_implements_send_builtin(target),
+      type_implements_send_builtin(&target),
       .Some(b) => {
         return(TraitCheckResult(implemented : b, env : env));
       },
@@ -1235,9 +1235,9 @@ type_implements_trait :: (
     get_trait_type_from_env(env, String.from("Acyclic")),
     .None => (),
     .Some(at) => {
-      if(_trait_type_id(trait_type) == _trait_type_id(at), {
+      if(_trait_type_id(trait_type) == _trait_type_id(&at), {
         match(
-          type_implements_acyclic_builtin(target),
+          type_implements_acyclic_builtin(&target),
           .Some(b) => {
             return(TraitCheckResult(implemented : b, env : env));
           },
@@ -1248,7 +1248,7 @@ type_implements_trait :: (
   );
   // 3. Fn-trait satisfaction: FnTraitT + Func → check compatibility.
   // Phase 3 TODO: call synthesize_types for binding propagation.
-  if(is_fn_trait_type(trait_type) && is_function_type(target), {
+  if(is_fn_trait_type(trait_type) && is_function_type(&target), {
     fn_trait_call_ty := match(
       trait_type,
       .FnTraitT(_, param_labels, param_types, result, _, _, ft_refs, ft_owns) => TypeValue.Func(
@@ -1283,7 +1283,7 @@ type_implements_trait :: (
         return(TraitCheckResult(implemented : false, env : env));
       }
     );
-    if(!are_types_compatible(target, fn_trait_call_ty), {
+    if(!are_types_compatible(&target, &fn_trait_call_ty), {
       return(TraitCheckResult(implemented : false, env : env));
     });
     // Binding propagation: synthesize the
@@ -1294,7 +1294,7 @@ type_implements_trait :: (
     // member \"_f\"" — tests/where_clause_fn_inference,
     // tests/iterator_combinators).
     syn_env := match(
-      _assoc_synth_env(fn_trait_call_ty, target, env),
+      _assoc_synth_env(&fn_trait_call_ty, &target, env),
       .Some(se) => se,
       .None => env
     );
@@ -1303,13 +1303,13 @@ type_implements_trait :: (
   // 4. Direct registry match — the auto-derive registry stores the type's
   // derived trait VALUES; match `trait_type` against them by trait identity
   // (`is_type_registered_as_trait`). No name lookup (trait values are nameless).
-  tid := _type_id_for_trait_check(target);
+  tid := _type_id_for_trait_check(&target);
   if(!tid.is_empty(), {
-    if(is_type_registered_as_trait(tid, trait_type, env), {
+    if(is_type_registered_as_trait(&tid, trait_type, env), {
       // Associated-type constraints (`Iterator(Item := A)`) must hold and
       // their bindings propagate. On failure,
       // fall through to the later steps rather than rejecting outright.
-      assoc_result_reg := _check_associated_type_constraints(target, trait_type, env);
+      assoc_result_reg := _check_associated_type_constraints(&target, trait_type, env);
       if(assoc_result_reg.satisfied, {
         return(TraitCheckResult(implemented : true, env : assoc_result_reg.env));
       });
@@ -1342,11 +1342,11 @@ type_implements_trait :: (
   // comptime-only and `a := wrap(wrap(n))` demanded `::`
   // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
   ondemand_key := cond(
-    tid.is_empty() => `${type_to_string(target)}:${_trait_type_id(trait_type)}`,
-    is_enum_type(target) => `${enum_instance_node_id(target)}:${_trait_type_id(trait_type)}`,
+    tid.is_empty() => `${type_to_string(&target)}:${_trait_type_id(trait_type)}`,
+    is_enum_type(&target) => `${enum_instance_node_id(&target)}:${_trait_type_id(trait_type)}`,
     true => `${tid}:${_trait_type_id(trait_type)}`
   );
-  if(!marker_name.is_empty() && !_ondemand_guard_contains(ondemand_key), {
+  if(!marker_name.is_empty() && !_ondemand_guard_contains(&ondemand_key), {
     tn := marker_name.clone();
     is_thread_marker := ((tn == "Send") || (tn == "Sync"));
     marker_relevant := (is_thread_marker || (tn == "Comptime") || (tn == "Acyclic") || (tn == "Runtime"));
@@ -1482,7 +1482,7 @@ type_implements_trait :: (
             fty := match(fields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
             // Self-recurse via `recur` (Yo cannot reference the enclosing
             // function by name inside its own body).
-            if(!recur(fty, field_trait, env).implemented, {
+            if(!recur(&fty, &field_trait, env).implemented, {
               all_pass = false;
             });
             fi = (fi + usize(1));
@@ -1512,7 +1512,7 @@ type_implements_trait :: (
           }
         );
         // Direct match.
-        if(_trait_type_id(req_trait) == _trait_type_id(trait_type), {
+        if(_trait_type_id(&req_trait) == _trait_type_id(trait_type), {
           return(TraitCheckResult(implemented : true, env : env));
         });
         // selfConstraints of the required trait.
@@ -1530,7 +1530,7 @@ type_implements_trait :: (
                   continue;
                 }
               );
-              if(_trait_type_id(sc) == _trait_type_id(trait_type), {
+              if(_trait_type_id(&sc) == _trait_type_id(trait_type), {
                 return(TraitCheckResult(implemented : true, env : env));
               });
               j = (j + usize(1));
@@ -1552,7 +1552,7 @@ type_implements_trait :: (
             continue;
           }
         );
-        if(_trait_type_id(neg_trait) == _trait_type_id(trait_type), {
+        if(_trait_type_id(&neg_trait) == _trait_type_id(trait_type), {
           return(TraitCheckResult(implemented : false, env : env));
         });
         k = (k + usize(1));
@@ -1580,7 +1580,7 @@ type_implements_trait :: (
             continue;
           }
         );
-        if(_trait_or_supertrait_is(req_t, trait_type, u32(0)), {
+        if(_trait_or_supertrait_is(&req_t, trait_type, u32(0)), {
           found_req = true;
         });
         ir = (ir + usize(1));
@@ -1597,7 +1597,7 @@ type_implements_trait :: (
             continue;
           }
         );
-        if(_trait_type_id(neg_t) == _trait_type_id(trait_type), {
+        if(_trait_type_id(&neg_t) == _trait_type_id(trait_type), {
           found_neg = true;
         });
         in2 = (in2 + usize(1));
@@ -1609,7 +1609,7 @@ type_implements_trait :: (
       // required_trait_types — e.g. `Arc`'s `atomic(ref(struct((*) : V)))`
       // body must see V as Send during the atomic-Send enforcement.
       match(
-        get_where_clause_constraints_for_some_type(env, target),
+        get_where_clause_constraints_for_some_type(env, &target),
         .Some(wcc) => {
           nwr := wcc.required_traits.len();
           (iwr : usize) = usize(0);
@@ -1622,7 +1622,7 @@ type_implements_trait :: (
                 continue;
               }
             );
-            if(_trait_or_supertrait_is(wr_t, trait_type, u32(0)), {
+            if(_trait_or_supertrait_is(&wr_t, trait_type, u32(0)), {
               found_req = true;
             });
             iwr = (iwr + usize(1));
@@ -1638,7 +1638,7 @@ type_implements_trait :: (
                 continue;
               }
             );
-            if(_trait_type_id(wn_t) == _trait_type_id(trait_type), {
+            if(_trait_type_id(&wn_t) == _trait_type_id(trait_type), {
               found_neg = true;
             });
             iwn = (iwn + usize(1));
@@ -1657,16 +1657,16 @@ type_implements_trait :: (
     _ => ()
   );
   // 7. Resolve SomeType to its concrete type before generic impl check.
-  if(is_some_type(target), {
-    resolved := get_value_of_some_type_from_env(env, target);
-    if(is_some_type(resolved), {
+  if(is_some_type(&target), {
+    resolved := get_value_of_some_type_from_env(env, &target);
+    if(is_some_type(&resolved), {
       return(TraitCheckResult(implemented : false, env : env));
     });
     target = resolved;
   });
   // 7.5. Concrete impl currently being registered (recursive types).
   if(_is_concrete_impl_being_registered(
-    _trait_type_id(target),
+    _trait_type_id(&target),
     _trait_type_id(trait_type)
   ), {
     return(TraitCheckResult(implemented : true, env : env));
@@ -1690,8 +1690,8 @@ type_implements_trait :: (
   // outer read as not `Copy` (decision 36's flip rejected its copy;
   // `_ww_thrice`, tests/generic_instantiation_compat.test.yo).
   guard_key := cond(
-    is_enum_type(target) => enum_instance_node_id(target),
-    true => _type_id_for_trait_check(target)
+    is_enum_type(&target) => enum_instance_node_id(&target),
+    true => _type_id_for_trait_check(&target)
   ).concat(`:`).concat(_trait_type_id(trait_type));
   // Recursion guard: return false if already checking this pair.
   (already_checking : bool) = false;
@@ -1715,7 +1715,7 @@ type_implements_trait :: (
     return(TraitCheckResult(implemented : false, env : env));
   });
   g_trait_check_recursion_guard.push(guard_key);
-  result := _find_matching_generic_impl(target, trait_type, env);
+  result := _find_matching_generic_impl(&target, trait_type, env);
   // Pop the guard key.
   last_idx := (g_trait_check_recursion_guard.len() - usize(1));
   g_trait_check_recursion_guard.remove(last_idx);
@@ -1725,7 +1725,7 @@ type_implements_trait :: (
   // Associated-type constraints on the matched trait:
   // `Iterator(Item := A)` must resolve the target's `Item` and the
   // returned env carries the `A := <concrete>` binding.
-  assoc_result := _check_associated_type_constraints(target, trait_type, env);
+  assoc_result := _check_associated_type_constraints(&target, trait_type, env);
   TraitCheckResult(implemented : assoc_result.satisfied, env : assoc_result.env)
 });
 // ---------------------------------------------------------------------------
@@ -1749,7 +1749,7 @@ type_implements_trait_bool :: (
 _is_prelude_trait_named :: (fn(imm(trait_type) : TypeValue, name : str, imm(env) : Environment) -> bool)(
   match(
     get_trait_type_from_env(env, String.from(name)),
-    .Some(t) => (_trait_type_id(t) == _trait_type_id(trait_type)),
+    .Some(t) => (_trait_type_id(&t) == _trait_type_id(trait_type)),
     .None => false
   )
 );
@@ -1792,20 +1792,20 @@ receiver_kind_trait_violation_msg :: (
     return(Option(String).None);
   });
   (target : TypeValue) = resolve_enum_shell(target_type);
-  if(is_some_type(target), {
-    target = resolve_enum_shell(get_value_of_some_type_from_env(env, target));
+  if(is_some_type(&target), {
+    target = resolve_enum_shell(get_value_of_some_type_from_env(env, &target));
   });
-  is_reference := (is_reference_struct_type(target) || is_reference_enum_type(target));
-  is_value_nominal := is_value_nominal_type(target);
+  is_reference := (is_reference_struct_type(&target) || is_reference_enum_type(&target));
+  is_value_nominal := is_value_nominal_type(&target);
   if(trait_name == "Copy", {
-    return(_copy_impl_violation_msg(target_type, target, trait_type, env));
+    return(_copy_impl_violation_msg(target_type, &target, trait_type, env));
   });
   // A Copy type is never move-only (decision 36): the other direction of
   // the impl check, for a `Dispose` impl registered after `Copy`.
   if(is_value_nominal && (trait_name == "Dispose"), {
     match(
       get_trait_type_from_env(env, String.from("Copy")),
-      .Some(dm_copy_tt) => if(type_implements_trait(target, dm_copy_tt, env).implemented, {
+      .Some(dm_copy_tt) => if(type_implements_trait(&target, &dm_copy_tt, env).implemented, {
         return(Option(String).Some(`Type "${type_to_string(target_type)}" cannot implement "${trait_name}": it implements Copy, and a Copy value is duplicated bitwise, so it can never be move-only. A type that releases a resource is moved, never copied: remove Copy.`));
       }),
       .None => ()
@@ -1860,14 +1860,14 @@ check_self_constraints_violation_msg :: (
             continue;
           }
         );
-        (sc_implemented : bool) = type_implements_trait_bool(target_type, constraint, env);
+        (sc_implemented : bool) = type_implements_trait_bool(target_type, &constraint, env);
         // Lazy impls (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): force a later
         // impl of the target type before rejecting.
         if(!sc_implemented, {
           match(
             force_pending_impls_for_type_name(type_head_name_for_impl_forcing(target_type), Option(String).None),
             .Forced => {
-              sc_implemented = type_implements_trait_bool(target_type, constraint, env);
+              sc_implemented = type_implements_trait_bool(target_type, &constraint, env);
             },
             .Error({ msg : sc_force_msg }) => {
               return(Option(String).Some(sc_force_msg));
@@ -1876,7 +1876,7 @@ check_self_constraints_violation_msg :: (
           );
         });
         if(!sc_implemented, {
-          msg := `Type "`.concat(type_to_string(target_type)).concat(`" does not implement required constraint "`).concat(type_to_string(constraint)).concat(`" from trait "`).concat(name).concat(`"'s where clause.`);
+          msg := `Type "`.concat(type_to_string(target_type)).concat(`" does not implement required constraint "`).concat(type_to_string(&constraint)).concat(`" from trait "`).concat(&name).concat(`"'s where clause.`);
           return(Option(String).Some(msg));
         });
         ip = (ip + usize(1));
@@ -1893,8 +1893,8 @@ check_self_constraints_violation_msg :: (
             continue;
           }
         );
-        if(type_implements_trait_bool(target_type, constraint, env), {
-          msg := `Type "`.concat(type_to_string(target_type)).concat(`" implements "`).concat(type_to_string(constraint)).concat(`" but the trait "`).concat(name).concat(`"'s where clause requires it to NOT implement this trait.`);
+        if(type_implements_trait_bool(target_type, &constraint, env), {
+          msg := `Type "`.concat(type_to_string(target_type)).concat(`" implements "`).concat(type_to_string(&constraint)).concat(`" but the trait "`).concat(&name).concat(`"'s where clause requires it to NOT implement this trait.`);
           return(Option(String).Some(msg));
         });
         in_ = (in_ + usize(1));
@@ -1917,7 +1917,7 @@ check_type_implements_self_constraints :: (
 )(
   match(
     check_self_constraints_violation_msg(target_type, trait_type, env),
-    .Some(msg) => exn.throw(dyn(format_error_message(error_token, msg))),
+    .Some(msg) => exn.throw(dyn(format_error_message(error_token, &msg))),
     .None => ()
   )
 );
@@ -1938,7 +1938,7 @@ type_implements_comptime :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> 
   match(
     get_trait_type_from_env(env, String.from("Comptime")),
     .None => false,
-    .Some(comptime_trait) => type_implements_trait_bool(ty, comptime_trait, env)
+    .Some(comptime_trait) => type_implements_trait_bool(ty, &comptime_trait, env)
   )
 });
 // ---------------------------------------------------------------------------
@@ -1958,7 +1958,7 @@ type_implements_runtime_full :: (fn(imm(ty) : TypeValue, imm(env) : Environment)
   match(
     get_trait_type_from_env(env, String.from("Runtime")),
     .None => false,
-    .Some(runtime_trait) => type_implements_trait_bool(ty, runtime_trait, env)
+    .Some(runtime_trait) => type_implements_trait_bool(ty, &runtime_trait, env)
   )
 });
 // ---------------------------------------------------------------------------
@@ -2035,7 +2035,7 @@ _type_implements_thread_marker :: (fn(imm(ty) : TypeValue, marker : str, imm(env
   match(
     get_trait_type_from_env(env, String.from(marker)),
     .None => false,
-    .Some(marker_trait) => type_implements_trait_bool(ty, marker_trait, env)
+    .Some(marker_trait) => type_implements_trait_bool(ty, &marker_trait, env)
   )
 });
 // ---------------------------------------------------------------------------
@@ -2048,7 +2048,7 @@ type_implements_dispose :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> b
   match(
     get_trait_type_from_env(env, String.from("Dispose")),
     .None => false,
-    .Some(dispose_trait) => type_implements_trait_bool(ty, dispose_trait, env)
+    .Some(dispose_trait) => type_implements_trait_bool(ty, &dispose_trait, env)
   )
 );
 // ---------------------------------------------------------------------------
@@ -2061,7 +2061,7 @@ type_implements_acyclic :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> b
   match(
     get_trait_type_from_env(env, String.from("Acyclic")),
     .None => false,
-    .Some(acyclic_trait) => type_implements_trait_bool(ty, acyclic_trait, env)
+    .Some(acyclic_trait) => type_implements_trait_bool(ty, &acyclic_trait, env)
   )
 );
 // ---------------------------------------------------------------------------
@@ -2081,7 +2081,7 @@ deref_target_type :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> Option(
     get_trait_type_from_env(env, String.from("Deref")),
     .None => Option(TypeValue).None,
     .Some(deref_trait) => cond(
-      type_implements_trait_bool(ty, deref_trait, env) => resolve_assoc_type_for_target(ty, String.from("Target"), env),
+      type_implements_trait_bool(ty, &deref_trait, env) => resolve_assoc_type_for_target(ty, String.from("Target"), env),
       true => Option(TypeValue).None
     )
   )
@@ -2389,7 +2389,7 @@ function_value_slot_mismatch :: (fn(imm(expected) : TypeValue, imm(given) : Type
             g_lbl := match(fm_g.labels.get(fm_i), .Some(l) => l, .None => e_lbl.clone());
             return(
               Option(String).Some(
-                `\nParameter ${fm_i + usize(1)} is \`${_param_mode_spelling(e_lbl, e_ref, e_own)}\` in the expected type and \`${_param_mode_spelling(g_lbl, g_ref, g_own)}\` in the given one: a parameter's mode is part of the function type.`
+                `\nParameter ${fm_i + usize(1)} is \`${_param_mode_spelling(&e_lbl, e_ref, e_own)}\` in the expected type and \`${_param_mode_spelling(&g_lbl, g_ref, g_own)}\` in the given one: a parameter's mode is part of the function type.`
               )
             );
           });
@@ -2433,8 +2433,8 @@ impl_param_unmet_trait :: (fn(imm(param_type) : TypeValue, imm(arg_type) : TypeV
         while((ip_i < ip_req.len()) && ip_miss.is_none(), {
           match(
             ip_req.get(ip_i),
-            .Some(ip_t) => if(!is_fn_trait_type(ip_t) && !(markers_judged && ((type_to_string(ip_t) == "Send") || (type_to_string(ip_t) == "Sync") || (type_to_string(ip_t) == "Acyclic")))
-            && !type_implements_trait_bool(arg_type, ip_t, env), {
+            .Some(ip_t) => if(!is_fn_trait_type(&ip_t) && !(markers_judged && ((type_to_string(&ip_t) == "Send") || (type_to_string(&ip_t) == "Sync") || (type_to_string(&ip_t) == "Acyclic")))
+            && !type_implements_trait_bool(arg_type, &ip_t, env), {
               ip_miss = Option(TypeValue).Some(ip_t);
             }),
             .None => ()
@@ -2464,13 +2464,13 @@ judge_function_argument_markers :: (
         match(
           prtts.get(pi),
           .Some(pt) => match(
-            call_function_value_marker(arg_type, arg_value, pt, env, ctx),
+            call_function_value_marker(arg_type, arg_value, &pt, env, ctx),
             .Some(v) => {
               judged = true;
               match(
                 v,
                 .Some(o) => {
-                  return(FunctionArgMarkers(judged : true, offense : Option(String).Some(`the function value does not implement ${type_to_string(pt)}: ${o}`)));
+                  return(FunctionArgMarkers(judged : true, offense : Option(String).Some(`the function value does not implement ${type_to_string(&pt)}: ${o}`)));
                 },
                 .None => ()
               );
@@ -2615,7 +2615,7 @@ type_contains_some_type_for_codegen_param :: (
     match(
       tc_rc,
       .Some(tc_conc) => {
-        return(recur(tc_conc, checked_ids));
+        return(recur(&tc_conc, checked_ids));
       },
       .None => ()
     );
@@ -2629,14 +2629,14 @@ type_contains_some_type_for_codegen_param :: (
   });
   match(
     ty,
-    .Array(element, _, _) => recur(element, checked_ids),
-    .Pointer(pointee) => recur(pointee, checked_ids),
+    .Array(element, _, _) => recur(&element, checked_ids),
+    .Pointer(pointee) => recur(&pointee, checked_ids),
     .Tuple(_, field_types) => {
       (found : bool) = false;
       (i : usize) = usize(0);
       while((i < field_types.len()) && !found, {
         ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        if(recur(ft, checked_ids), {
+        if(recur(&ft, checked_ids), {
           found = true;
         });
         i = (i + usize(1));
@@ -2654,7 +2654,7 @@ type_contains_some_type_for_codegen_param :: (
       (i : usize) = usize(0);
       while((i < field_types.len()) && !found, {
         ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        if(!is_function_type(ft) && recur(ft, checked_ids), {
+        if(!is_function_type(&ft) && recur(&ft, checked_ids), {
           found = true;
         });
         i = (i + usize(1));
@@ -2663,7 +2663,7 @@ type_contains_some_type_for_codegen_param :: (
       while((ti < st_targs.len()) && !found, {
         match(
           st_targs.get(ti),
-          .Some(ta) => if(recur(ta, checked_ids), {
+          .Some(ta) => if(recur(&ta, checked_ids), {
             found = true;
           }),
           .None => ()
@@ -2685,7 +2685,7 @@ type_contains_some_type_for_codegen_param :: (
         (vj : usize) = usize(0);
         while((vj < vf.len()) && !found, {
           ft := match(vf.get(vj), .Some(t) => t, .None => TypeValue.Unit);
-          if(recur(ft, checked_ids), {
+          if(recur(&ft, checked_ids), {
             found = true;
           });
           vj = (vj + usize(1));
@@ -2698,7 +2698,7 @@ type_contains_some_type_for_codegen_param :: (
         while((ti < en_phantoms.len()) && !found, {
           match(
             en_phantoms.get(ti),
-            .Some(ta) => if(recur(ta, checked_ids), {
+            .Some(ta) => if(recur(&ta, checked_ids), {
               found = true;
             }),
             .None => ()
@@ -2713,7 +2713,7 @@ type_contains_some_type_for_codegen_param :: (
       (i : usize) = usize(0);
       while((i < field_types.len()) && !found, {
         ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        if(recur(ft, checked_ids), {
+        if(recur(&ft, checked_ids), {
           found = true;
         });
         i = (i + usize(1));
@@ -2726,13 +2726,13 @@ type_contains_some_type_for_codegen_param :: (
       (i : usize) = usize(0);
       while((i < param_types.len()) && !found, {
         pt := match(param_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
-        if(recur(pt, checked_ids), {
+        if(recur(&pt, checked_ids), {
           found = true;
         });
         i = (i + usize(1));
       });
       if(!found, {
-        found = recur(result_box, checked_ids);
+        found = recur(&result_box, checked_ids);
       });
       found
     },
@@ -2835,7 +2835,7 @@ validate_type_availability :: (
   });
   if(!(type_implements_comptime(ty, env) || type_implements_runtime_full(ty, env)), {
     msg := `Type `.concat(type_to_string(ty)).concat(` has incompatible field contexts and cannot be used in any evaluation context.`);
-    exn.throw(dyn(format_error_message(token, msg)));
+    exn.throw(dyn(format_error_message(token, &msg)));
   })
 });
 // ---------------------------------------------------------------------------
@@ -2889,7 +2889,7 @@ find_some_type_missing_comptime_constraint :: (
                   continue;
                 }
               );
-              if(_trait_type_id(req_t) == _trait_type_id(comptime_trait), {
+              if(_trait_type_id(&req_t) == _trait_type_id(&comptime_trait), {
                 has_comptime = true;
               });
               i = (i + usize(1));
@@ -2909,7 +2909,7 @@ find_some_type_missing_comptime_constraint :: (
                   while(wi < wc_reqs.len(), {
                     match(
                       wc_reqs.get(wi),
-                      .Some(wc_t) => if(_trait_type_id(wc_t) == _trait_type_id(comptime_trait), {
+                      .Some(wc_t) => if(_trait_type_id(&wc_t) == _trait_type_id(&comptime_trait), {
                         has_comptime = true;
                       }),
                       .None => ()
@@ -2935,7 +2935,7 @@ find_some_type_missing_comptime_constraint :: (
     match(
       ty,
       .Pointer(inner) => {
-        return(recur(inner, env));
+        return(recur(&inner, env));
       },
       _ => ()
     );

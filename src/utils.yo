@@ -281,7 +281,7 @@ emission_occurrence_key :: (fn(imm(key) : String) -> usize)(
 /// `emission_occurrence_key` for a caller that already hashed its key.
 emission_occurrence_hashed :: (fn(h : u64) -> usize)({
   next := match(
-    g_emission_occurrence.get(h),
+    g_emission_occurrence.get(&h),
     .Some(n) => n,
     .None => usize(0)
   );
@@ -418,7 +418,7 @@ stable_type_id :: (
   (suffix : usize) = usize(1);
   while(runtime(true), {
     match(
-      g_stable_type_id_owner.get(candidate),
+      g_stable_type_id_owner.get(&candidate),
       .Some(prev) => {
         if(prev == owner, {
           return(candidate);
@@ -461,7 +461,7 @@ stable_position_id :: (
   (suffix : usize) = usize(1);
   while(runtime(true), {
     match(
-      g_stable_id_owner.get(candidate),
+      g_stable_id_owner.get(&candidate),
       .Some(owner) => {
         if(owner == src_key, {
           return(candidate);
@@ -509,7 +509,7 @@ stable_func_id :: (
 )({
   (pos_key, _pos_part) := _anchored_position(module_path, row, column);
   src_key := `fid:${module_path}:${pos_key}`;
-  k := stable_occurrence_key(src_key);
+  k := stable_occurrence_key(&src_key);
   h := fnv1a64(`${prefix}:${module_path}:${pos_key}`);
   occ := k.to_string();
   while(occ.len() < usize(6), {
@@ -831,13 +831,13 @@ generate_new_temp_variable_name :: (
   // positionless mint passes no anchor module and keeps the raw key.
   pos_key := cond(
     (anchor_module.len() > usize(0)) => {
-      (k0, _k1) := _anchored_position(anchor_module, row, column);
+      (k0, _k1) := _anchored_position(&anchor_module, row, column);
       k0
     },
     true => `${row.to_string()}:${column.to_string()}`
   );
   key := `${mp}:${pos_key}:${slot}`;
-  k := fnv1a64(key);
+  k := fnv1a64(&key);
   // EMISSION-name namespace (reset per compile) — see g_emission_occurrence.
   n := emission_occurrence_hashed(k);
   `${prefix}${k.to_string()}${n.to_string()}`
@@ -846,7 +846,7 @@ generate_new_temp_variable_name :: (
 /// for the given `module_path`.
 is_temp_variable_name :: (fn(imm(module_path) : String, imm(var_name) : String) -> bool)({
   prefix := generate_temp_variable_name_prefix(module_path);
-  var_name.starts_with(prefix)
+  var_name.starts_with(&prefix)
 });
 /// True iff `b` is a byte `generate_temp_variable_name_prefix` can emit
 /// between its underscores: an alphanumeric it kept, or the `_` it
@@ -1171,7 +1171,7 @@ _parse_prefixed_int :: (fn(imm(bytes) : String, start : usize, base : i64) -> Op
                 // u64-range literals (2^63 and above) are legal and are
                 // carried as the i64 MIN-side bit pattern, exactly like the
                 // comptime integer domain.
-                result = (result.wrapping_mul(base)).wrapping_add(d);
+                result = (result.wrapping_mul(&base)).wrapping_add(&d);
               },
               .None => {
                 ok = false;
@@ -1215,11 +1215,11 @@ parse_raw_int :: (fn(imm(raw) : String) -> Option(i64))({
   stripped := raw.replace_all(`_`, ``);
   cond(
     (stripped.starts_with(`0x`) || stripped.starts_with(`0X`)) =>
-      _parse_prefixed_int(stripped, usize(2), i64(16)),
+      _parse_prefixed_int(&stripped, usize(2), i64(16)),
     (stripped.starts_with(`0b`) || stripped.starts_with(`0B`)) =>
-      _parse_prefixed_int(stripped, usize(2), i64(2)),
+      _parse_prefixed_int(&stripped, usize(2), i64(2)),
     (stripped.starts_with(`0o`) || stripped.starts_with(`0O`)) =>
-      _parse_prefixed_int(stripped, usize(2), i64(8)),
+      _parse_prefixed_int(&stripped, usize(2), i64(8)),
     // A signed literal is in i64's own range by construction.
     stripped.starts_with(`-`) => stripped.parse_i64(),
     // Unsigned magnitude, reinterpreted as the i64 bit pattern.
@@ -1275,9 +1275,9 @@ canonical_module_path :: (fn(imm(p) : String) -> String)({
   stripped := p.replace(String.from("file://"), String.new());
   abs := if(Path.new(stripped.clone()).is_absolute(), stripped, {
     cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
-    Path.new(cwd_str).join(Path.new(stripped)).to_string()
+    Path.new(&cwd_str).join(Path.new(&stripped)).to_string()
   });
-  Path.new(abs).normalize().to_string()
+  Path.new(&abs).normalize().to_string()
 });
 /// The module path as an ID / DIAGNOSTIC spelling: `file://` stripped and,
 /// when the module lives under the working directory, relative to it.
@@ -1297,7 +1297,7 @@ display_module_path :: (fn(imm(p) : String) -> String)({
     return(canon);
   });
   match(
-    Path.new(canon.clone()).strip_prefix(Path.new(cwd_str)),
+    Path.new(canon.clone()).strip_prefix(Path.new(&cwd_str)),
     .Some(rel) => {
       rel_str := rel.to_string();
       // An empty remainder means the path IS the cwd — keep the canonical
@@ -1374,7 +1374,7 @@ private_member_blocked :: (
   });
   match(
     decl_module_opt,
-    .Some(d) => !member_visible_from(d, access_module),
+    .Some(d) => !member_visible_from(&d, access_module),
     .None => false
   )
 });

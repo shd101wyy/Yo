@@ -31,10 +31,10 @@ generate_yo_gc_trace_child :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm
       tracer_arg := match(args.get(usize(0)), .Some(a) => a, .None => expr);
       slot_arg := match(args.get(usize(1)), .Some(a) => a, .None => expr);
       match(
-        context.base.get_expr_info(slot_arg),
+        context.base.get_expr_info(&slot_arg),
         .Some(ei) => {
           slot_ty := ei.ty;
-          if(!is_pointer_type(slot_ty), {
+          if(!is_pointer_type(&slot_ty), {
             return(codegen_fatal_expr(String.from("__yo_gc_trace_child slot must be a pointer")));
           });
           pointee := match(slot_ty, .Pointer(p) => p, _ => TypeValue.Unit);
@@ -75,20 +75,20 @@ generate_yo_gc_trace_child :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm
             .None => pointee
           );
           walk_ty := match(
-            context.base.types.get(type_key(sig_pointee)),
+            context.base.types.get(type_key(&sig_pointee)),
             .Some(entry) => entry.ty,
             .None => sig_pointee
           );
-          tracer_code := _call_generate_expr(tracer_arg, indent.clone(), context);
-          slot_code := _call_generate_expr(slot_arg, indent.clone(), context);
+          tracer_code := _call_generate_expr(&tracer_arg, indent.clone(), context);
+          slot_code := _call_generate_expr(&slot_arg, indent.clone(), context);
           deref := String.from("(*(");
-          deref.push_string(slot_code);
+          deref.push_string(&slot_code);
           deref.push_str("))");
           // Set the traversal visit-callback global (see g_traverse_visit_expr
           // in constructors.yo — hoisted out of a param to sidestep a codegen
           // RC-lifetime bug, task #54).
-          set_traverse_visit_expr(tracer_code);
-          _traverse_value(deref, walk_ty, context);
+          set_traverse_visit_expr(&tracer_code);
+          _traverse_value(&deref, &walk_ty, context);
           String.from("((void)0)")
         },
         .None => codegen_fatal_expr(String.from("__yo_gc_trace_child slot missing type information"))

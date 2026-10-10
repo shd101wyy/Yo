@@ -220,7 +220,7 @@ _std_canonicalize :: (fn(imm(p) : String) -> String)({
     match(
       cwd(),
       .Ok(base) => {
-        path = base.join(path);
+        path = base.join(&path);
       },
       .Err(_) => ()
     );
@@ -268,7 +268,7 @@ resolve_std_path :: (fn() -> String)({
   match(
     _yo_std_env_value(),
     .Some(v) => {
-      return(_std_canonicalize(v));
+      return(_std_canonicalize(&v));
     },
     .None => {}
   );
@@ -559,7 +559,7 @@ mm_module_source :: (fn(imm(fs_path) : String) -> Option(String))({
       _err -> unwind(Option(String).None)
     )
   );
-  Option(String).Some(String.from_bytes(read_file_sync(fs_path, read_exn)))
+  Option(String).Some(String.from_bytes(read_file_sync(fs_path, &read_exn)))
 });
 /// Phase 3b (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6 step 4): the
 /// parse-only diff of one changed file WITH the per-definition detail the
@@ -602,7 +602,7 @@ mm_changed_definitions :: (fn(imm(fs_path) : String) -> Option(DefDiff))({
   // A read or parse error means no diff: the caller falls back to the
   // file-level reload, which reports the error.
   read_out := ArrayList(ArrayList(u8)).new();
-  _read_source_capturing_error(fs_path.clone(), read_out);
+  _read_source_capturing_error(fs_path.clone(), &mut read_out);
   src_bytes := match(
     read_out.get(usize(0)),
     .Some(b) => b,
@@ -620,7 +620,7 @@ mm_changed_definitions :: (fn(imm(fs_path) : String) -> Option(DefDiff))({
     .None => ()
   );
   parse_out := ArrayList(ArrayList(AstExpr)).new();
-  _parse_capturing_error(src, walk_key.clone(), parse_out);
+  _parse_capturing_error(&src, walk_key.clone(), &mut parse_out);
   mod_exprs := match(
     parse_out.get(usize(0)),
     .Some(es) => es,
@@ -638,9 +638,9 @@ mm_changed_definitions :: (fn(imm(fs_path) : String) -> Option(DefDiff))({
     match(
       mod_exprs.get(i),
       .Some(e) => match(
-        classify_pending_def(e, i),
+        classify_pending_def(&e, i),
         .None => {
-          stmt_state.push_string(ast_expr_to_string(e));
+          stmt_state.push_string(ast_expr_to_string(&e));
           stmt_state.push_str("\n");
         },
         .Some(_) => ()
@@ -652,7 +652,7 @@ mm_changed_definitions :: (fn(imm(fs_path) : String) -> Option(DefDiff))({
   (fallback : bool) = false;
   match(
     stored_stmt_hash(walk_key.clone()),
-    .Some(old_h) => if(!(old_h == fnv1a64(stmt_state)), {
+    .Some(old_h) => if(!(old_h == fnv1a64(&stmt_state)), {
       if(env_mod.env.get(`YO_DEBUG_P3DIFF`).is_some(), {
         eprintln(`[p3diff] ${fs_path}: STMT HASH moved`);
       });
@@ -669,11 +669,11 @@ mm_changed_definitions :: (fn(imm(fs_path) : String) -> Option(DefDiff))({
     match(
       mod_exprs.get(j),
       .Some(e) => match(
-        classify_pending_def(e, j),
+        classify_pending_def(&e, j),
         .Some(d) => {
           fresh_defs = (fresh_defs + usize(1));
           match(
-            stored_def_hash(walk_key.clone(), d.index, d.name),
+            stored_def_hash(walk_key.clone(), d.index, &d.name),
             .Some(old_h) => if(!(old_h == d.src_hash), {
               changed.push(d);
             }),
@@ -758,13 +758,13 @@ mm_invalidate_document :: (fn(imm(fs_path) : String) -> ArrayList(String))({
         // re-summarizes these functions (bounded memo growth across rounds;
         // a stale entry could not answer anyway — memos match by body).
         purge_mutation_summaries(owned_fids.clone());
-        purge_function_value_tables(owned_fids);
+        purge_function_value_tables(&owned_fids);
         owned_eids := take_owned_expr_ids(owner.clone());
         purge_match_arms(owned_eids.clone());
-        purge_expr_side_tables(owned_eids);
+        purge_expr_side_tables(&owned_eids);
         purge_ifc_memo_owned_by(owner.clone());
         purge_trait_defaults_owned_by(owner.clone());
-        purge_type_intern_owned_by(owner);
+        purge_type_intern_owned_by(&owner);
       },
       .None => ()
     );
@@ -813,7 +813,7 @@ _def_fn_head :: (fn(imm(rhs) : AstExpr) -> Option(AstExpr))(
     .FnCall(_, callee, cargs, _, _) => {
       // The fn-type head renders as `fn(...) -> T` (a leading source paren
       // is not part of the callee). `fn(` specifically — not any `fn…` name.
-      head := ast_expr_to_string(callee);
+      head := ast_expr_to_string(&callee);
       cond(
         (head.starts_with(String.from("fn(")) || head.starts_with(String.from("(fn("))) => Option(AstExpr).Some(callee),
         true => Option(AstExpr).None
@@ -841,12 +841,12 @@ _def_fn_head :: (fn(imm(rhs) : AstExpr) -> Option(AstExpr))(
 _def_is_per_def_able :: (fn(imm(old) : PendingDef, imm(fresh) : PendingDef) -> bool)({
   old_head := match(
     _def_rhs(old),
-    .Some(r) => _def_fn_head(r),
+    .Some(r) => _def_fn_head(&r),
     .None => Option(AstExpr).None
   );
   fresh_head := match(
     _def_rhs(fresh),
-    .Some(r) => _def_fn_head(r),
+    .Some(r) => _def_fn_head(&r),
     .None => Option(AstExpr).None
   );
   match(
@@ -869,7 +869,7 @@ _expr_mentions :: (fn(imm(e) : AstExpr, imm(names) : ArrayList(String)) -> bool)
     .Atom(
       _,
       tok
-    ) => names.contains(tok.value),
+    ) => names.contains(&tok.value),
     .FnCall(
       _,
       func,
@@ -877,12 +877,12 @@ _expr_mentions :: (fn(imm(e) : AstExpr, imm(names) : ArrayList(String)) -> bool)
       _,
       _
     ) => {
-      (hit : bool) = _expr_mentions(func, names);
+      (hit : bool) = _expr_mentions(&func, names);
       (ai : usize) = usize(0);
       while((ai < args.len()) && !hit, {
         match(
           args.get(ai),
-          .Some(a) => if(_expr_mentions(a, names), {
+          .Some(a) => if(_expr_mentions(&a, names), {
             hit = true;
           }),
           .None => ()
@@ -903,8 +903,8 @@ _ordered_stmts_mention :: (fn(imm(exprs) : ArrayList(AstExpr), imm(names) : Arra
     match(
       exprs.get(i),
       .Some(e) => if(
-        classify_pending_def(e, i).is_none() && !ast_expr_is_fn_call_of(e, BK_EXPORT, .None),
-        if(_expr_mentions(e, names), {
+        classify_pending_def(&e, i).is_none() && !ast_expr_is_fn_call_of(&e, BK_EXPORT, .None),
+        if(_expr_mentions(&e, names), {
           hit = true;
         })
       ),
@@ -922,7 +922,7 @@ _export_aliases_name :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : String)
   while((i < exprs.len()) && !hit, {
     match(
       exprs.get(i),
-      .Some(e) => if(ast_expr_is_fn_call_of(e, BK_EXPORT, .None), {
+      .Some(e) => if(ast_expr_is_fn_call_of(&e, BK_EXPORT, .None), {
         match(
           e,
           .FnCall(_, _, eargs, _, _) => {
@@ -930,12 +930,12 @@ _export_aliases_name :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : String)
             while((ai < eargs.len()) && !hit, {
               match(
                 eargs.get(ai),
-                .Some(arg) => if(ast_expr_is_fn_call_of(arg, BK_COLON, .Some(usize(2))), {
+                .Some(arg) => if(ast_expr_is_fn_call_of(&arg, BK_COLON, .Some(usize(2))), {
                   match(
                     arg,
                     .FnCall(_, _, pair, _, _) => match(
                       pair.get(usize(1)),
-                      .Some(orig) => if(ast_expr_is_atom(orig) && (ast_expr_token(orig).value == name), {
+                      .Some(orig) => if(ast_expr_is_atom(&orig) && (ast_expr_token(&orig).value == name), {
                         hit = true;
                       }),
                       .None => ()
@@ -1087,7 +1087,7 @@ _admit_closure_key :: (
     }
   );
   d := match(
-    w.by_index.get(index),
+    w.by_index.get(&index),
     .Some(found) => found,
     .None => {
       fallbacks.push(module);
@@ -1131,8 +1131,8 @@ _reader_rebindable :: (fn(imm(reader_module) : String, imm(names) : ArrayList(St
     match(
       rw.begin_exprs.get(i),
       .Some(e) => if(
-        classify_pending_def(e, i).is_none() && !ast_expr_is_fn_call_of(e, BK_EXPORT, .None),
-        if(_expr_mentions(e, names) && !_expr_mentions(e, imports), {
+        classify_pending_def(&e, i).is_none() && !ast_expr_is_fn_call_of(&e, BK_EXPORT, .None),
+        if(_expr_mentions(&e, names) && !_expr_mentions(&e, &imports), {
           return(false);
         })
       ),
@@ -1162,7 +1162,7 @@ _defs_mentioning :: (fn(imm(module) : String, imm(names) : ArrayList(String)) ->
       while(i < w.defs.len(), {
         match(
           w.defs.get(i),
-          .Some(d) => if(_expr_mentions(d.expr, names), {
+          .Some(d) => if(_expr_mentions(&d.expr, names), {
             out.push(def_key(module.clone(), d.index, d.name.clone()));
           }),
           .None => ()
@@ -1215,7 +1215,7 @@ _revalidation_closure :: (fn(imm(seeds) : ArrayList(String)) -> ArrayList(String
             .Some(ix) => match(
               finished_walk_for(module.clone()),
               .Some(w) => match(
-                w.by_index.get(ix),
+                w.by_index.get(&ix),
                 .Some(d) => {
                   names := match(
                     names_by_module.get(module.clone()),
@@ -1249,7 +1249,7 @@ _revalidation_closure :: (fn(imm(seeds) : ArrayList(String)) -> ArrayList(String
         .Some(m) => match(
           names_by_module.get(m.clone()),
           .Some(names) => {
-            mentioning := _defs_mentioning(m.clone(), names);
+            mentioning := _defs_mentioning(m.clone(), &names);
             (ki : usize) = usize(0);
             while(ki < mentioning.len(), {
               match(
@@ -1269,7 +1269,7 @@ _revalidation_closure :: (fn(imm(seeds) : ArrayList(String)) -> ArrayList(String
       mi = (mi + usize(1));
     });
     if(fresh.len() > usize(0), {
-      more := def_dependents_closure(fresh);
+      more := def_dependents_closure(&fresh);
       (xi : usize) = usize(0);
       while(xi < more.len(), {
         match(
@@ -1317,9 +1317,9 @@ mm_revalidate_plan :: (fn(imm(fs_path) : String) -> Option(RevalPlan))({
         match(
           walk,
           .Some(w) => match(
-            w.by_index.get(fresh.index),
+            w.by_index.get(&fresh.index),
             .Some(old) => {
-              if(!_def_is_per_def_able(old, fresh), {
+              if(!_def_is_per_def_able(&old, &fresh), {
                 allowed = false;
               });
             },
@@ -1371,7 +1371,7 @@ mm_revalidate_plan :: (fn(imm(fs_path) : String) -> Option(RevalPlan))({
   while(ki < closure.len(), {
     match(
       closure.get(ki),
-      .Some(key) => if(!_list_contains(seeds, key.clone()), {
+      .Some(key) => if(!_list_contains(&seeds, key.clone()), {
         module := def_key_module(key.clone());
         index := def_key_index(key.clone());
         (def_ok : bool) = index.is_some();
@@ -1530,8 +1530,8 @@ mm_revalidate_plan :: (fn(imm(fs_path) : String) -> Option(RevalPlan))({
           match(
             extra.get(xi),
             .Some(key) => if(
-              !(_list_contains(seeds, key.clone()) || _list_contains(closure_keys, key.clone())),
-              if(!_admit_closure_key(key.clone(), closure_keys, fallbacks, names2_by_module), {
+              !(_list_contains(&seeds, key.clone()) || _list_contains(&closure_keys, key.clone())),
+              if(!_admit_closure_key(key.clone(), &mut closure_keys, &mut fallbacks, &mut names2_by_module), {
                 ok = false;
               })
             ),
@@ -1566,7 +1566,7 @@ mm_revalidate_plan :: (fn(imm(fs_path) : String) -> Option(RevalPlan))({
           while(r2i < readers2.len(), {
             match(
               readers2.get(r2i),
-              .Some(importer2) => if(!_rebinds_contain(rebinds, importer2.clone()), {
+              .Some(importer2) => if(!_rebinds_contain(&rebinds, importer2.clone()), {
                 fallbacks.push(importer2.clone());
               }),
               .None => ()
@@ -1632,7 +1632,7 @@ mm_revalidate_apply :: (
       plan.closure_keys.get(ki),
       .Some(key) => match(
         def_key_index(key.clone()),
-        .Some(ix) => _rev_add_index(indexes_by_module, def_key_module(key.clone()), ix),
+        .Some(ix) => _rev_add_index(&mut indexes_by_module, def_key_module(key.clone()), ix),
         .None => ()
       ),
       .None => ()
@@ -1643,7 +1643,7 @@ mm_revalidate_apply :: (
   while(ci < plan.changed.len(), {
     match(
       plan.changed.get(ci),
-      .Some(d) => _rev_add_index(indexes_by_module, plan.module_key.clone(), d.index),
+      .Some(d) => _rev_add_index(&mut indexes_by_module, plan.module_key.clone(), d.index),
       .None => ()
     );
     ci = (ci + usize(1));
@@ -1651,12 +1651,12 @@ mm_revalidate_apply :: (
   // Module list, insertion-ordered (changed module first), minus excluded /
   // dropped-cache modules.
   modules := ArrayList(String).new();
-  _rev_add_module(modules, excluded, plan.module_key.clone());
+  _rev_add_module(&mut modules, excluded, plan.module_key.clone());
   (li : usize) = usize(0);
   while(li < plan.closure_keys.len(), {
     match(
       plan.closure_keys.get(li),
-      .Some(key) => _rev_add_module(modules, excluded, def_key_module(key.clone())),
+      .Some(key) => _rev_add_module(&mut modules, excluded, def_key_module(key.clone())),
       .None => ()
     );
     li = (li + usize(1));
@@ -1690,7 +1690,7 @@ mm_revalidate_apply :: (
                         match(
                           finished_walk_for(m.clone()),
                           .Some(w) => match(
-                            w.by_index.get(ix),
+                            w.by_index.get(&ix),
                             .Some(d) => d.name.clone(),
                             .None => String.new()
                           ),
@@ -1711,7 +1711,7 @@ mm_revalidate_apply :: (
                             while((xi < modules.len()) && !involved, {
                               match(
                                 modules.get(xi),
-                                .Some(x) => if((x == dep_mod) && !settled.contains(dep_mod), {
+                                .Some(x) => if((x == dep_mod) && !settled.contains(&dep_mod), {
                                   involved = true;
                                 }),
                                 .None => ()
@@ -1780,7 +1780,7 @@ mm_revalidate_apply :: (
               match(
                 idxs.get(pick),
                 .Some(ix) => match(
-                  walk.by_index.get(ix),
+                  walk.by_index.get(&ix),
                   .Some(d) => defs.push(d),
                   .None => ()
                 ),
@@ -1802,8 +1802,8 @@ mm_revalidate_apply :: (
                 plan.changed.get(gi),
                 .Some(fresh) => if(module == plan.module_key, {
                   match(
-                    walk.by_index.get(fresh.index),
-                    .Some(d) => graft_pending_def(walk, d, fresh),
+                    walk.by_index.get(&fresh.index),
+                    .Some(d) => graft_pending_def(&walk, &d, &fresh),
                     .None => ()
                   );
                 }),
@@ -1827,8 +1827,8 @@ mm_revalidate_apply :: (
             while(di2 < defs.len(), {
               match(
                 defs.get(di2),
-                .Some(d) => if(!((module == plan.module_key) && changed_indexes.contains(d.index)), {
-                  cloned := clone_expr_fresh_ids(d.expr);
+                .Some(d) => if(!((module == plan.module_key) && changed_indexes.contains(&d.index)), {
+                  cloned := clone_expr_fresh_ids(&d.expr);
                   d.expr = cloned;
                   walk.begin_exprs(d.index) = cloned;
                 }),
@@ -1840,14 +1840,14 @@ mm_revalidate_apply :: (
             while(ri < defs.len(), {
               match(
                 defs.get(ri),
-                .Some(d) => reset_pending_def(walk, d),
+                .Some(d) => reset_pending_def(&walk, &d),
                 .None => ()
               );
               ri = (ri + usize(1));
             });
             (reval_per_module_table : bool) = g_shared_expr_info_table.is_none();
             (reval_mark : usize) = if(reval_per_module_table, specialization_recording_begin(), usize(0));
-            mod_failures := revalidate_walk_defs(walk, defs);
+            mod_failures := revalidate_walk_defs(&walk, &defs);
             revalidated = (revalidated + defs.len());
             // The re-forced bodies are new (fresh AST ids), so the memos other
             // modules' walks read are re-taken against this module's table,
@@ -1858,13 +1858,13 @@ mm_revalidate_apply :: (
                 walk.ctx,
                 .Some(wctx) => {
                   reval_values := ArrayList(EvalValue).new();
-                  _push_non_generic_fn_values(_walk_def_values(defs), reval_values);
+                  _push_non_generic_fn_values(_walk_def_values(&defs), &mut reval_values);
                   (rmi : usize) = usize(0);
                   while(rmi < reval_minted.len(), {
                     match(reval_minted.get(rmi), .Some(v) => reval_values.push(v), .None => ());
                     rmi = (rmi + usize(1));
                   });
-                  summarize_function_bodies(reval_values, wctx.expr_info_table, walk.env);
+                  summarize_function_bodies(&reval_values, &wctx.expr_info_table, &walk.env);
                 },
                 .None => ()
               );
@@ -1892,14 +1892,14 @@ mm_revalidate_apply :: (
                   match(
                     d.variable,
                     .Some(var) => match(
-                      update_module_cache_slot(module.clone(), d.name.clone(), var),
+                      update_module_cache_slot(module.clone(), d.name.clone(), &var),
                       .None => (),
                       .Some(patched) => if(!patched, {
                         exprs := cond(
                           (module == plan.module_key) => plan.fresh_exprs.clone(),
                           true => walk.begin_exprs.clone()
                         );
-                        if(_export_aliases_name(exprs, d.name.clone()), {
+                        if(_export_aliases_name(&exprs, d.name.clone()), {
                           fallbacks.push(module.clone());
                         });
                       })
@@ -1938,7 +1938,7 @@ mm_revalidate_apply :: (
                               match(
                                 d.variable,
                                 .Some(var) => {
-                                  found = rebind_destructured_name(entry.reader_module.clone(), nm.clone(), var);
+                                  found = rebind_destructured_name(entry.reader_module.clone(), nm.clone(), &var);
                                 },
                                 .None => ()
                               );
@@ -2041,9 +2041,9 @@ _load_imports_file :: (fn(imm(exn) : Exception) -> unit)({
               abs_root := if(
                 Path.new(root.clone()).is_absolute(),
                 root,
-                Path.new(cwd_str.clone()).join(Path.new(root)).normalize().to_string()
+                Path.new(cwd_str.clone()).join(Path.new(&root)).normalize().to_string()
               );
-              set_import_root(name, abs_root);
+              set_import_root(&name, &abs_root);
             }
           );
         });
@@ -2077,7 +2077,7 @@ _register_manifest_import_roots :: (fn(imm(fs_path) : String, imm(exn) : Excepti
     },
     .None => String.from(".")
   );
-  found := find_manifest(entry_dir);
+  found := find_manifest(&entry_dir);
   key := match(found, .Some(p) => p, .None => String.new());
   match(
     g_manifest_roots_for,
@@ -2099,16 +2099,16 @@ _register_manifest_import_roots :: (fn(imm(fs_path) : String, imm(exn) : Excepti
           // Forget the failed registration so a corrected manifest is re-read.
           g_manifest_roots_for = Option(String).None;
           exn.throw(dyn(msg));
-          load_manifest(manifest_path, exn).unwrap()
+          load_manifest(&manifest_path, exn).unwrap()
         }
       );
       roots := match(
-        resolve_import_roots(manifest, read_lock_text(manifest, exn), exn),
+        resolve_import_roots(&manifest, read_lock_text(&manifest, exn), exn),
         .Ok(r) => r,
         .Err(msg) => {
           g_manifest_roots_for = Option(String).None;
           exn.throw(dyn(`${manifest.path}: ${msg}`));
-          resolve_import_roots(manifest, Option(String).None, exn).unwrap()
+          resolve_import_roots(&manifest, Option(String).None, exn).unwrap()
         }
       );
       (i : usize) = usize(0);
@@ -2162,7 +2162,7 @@ _eval_module_exprs_capturing_error :: (
       }
     )
   );
-  result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, true, local_exn);
+  result := evaluate_anonymous_module_begin_exprs(mod_exprs, env, ctx, false, false, true, &local_exn);
   out.push(result.module_value);
   out_tys.push(result.module_type);
   true
@@ -2182,7 +2182,7 @@ _read_source_capturing_error :: (fn(imm(fs_path) : String, mut(out) : ArrayList(
       }
     )
   );
-  out.push(read_file_sync(fs_path, local_exn));
+  out.push(read_file_sync(fs_path, &local_exn));
   true
 });
 /// Parse `src` as the module `module_path`, capturing a parse error the same
@@ -2197,7 +2197,7 @@ _parse_capturing_error :: (fn(imm(src) : String, imm(module_path) : String, mut(
       }
     )
   );
-  out.push(parse(src, module_path, local_exn));
+  out.push(parse(src, module_path, &local_exn));
   true
 });
 export(_eval_module_exprs_capturing_error, _take_load_error);
@@ -2234,7 +2234,7 @@ _record_static_import_edges :: (
 )({
   current_file := importer.replace(String.from("file://"), String.new());
   current_dir := match(
-    Path.new(current_file).parent(),
+    Path.new(&current_file).parent(),
     .Some(p) => p.to_string(),
     .None => String.from(".")
   );
@@ -2242,7 +2242,7 @@ _record_static_import_edges :: (
   while(i < exprs.len(), {
     match(
       exprs.get(i),
-      .Some(e) => _scan_import_literals(e, importer.clone(), current_dir.clone(), std_path.clone()),
+      .Some(e) => _scan_import_literals(&e, importer.clone(), current_dir.clone(), std_path.clone()),
       .None => ()
     );
     i = (i + usize(1));
@@ -2267,7 +2267,7 @@ _scan_import_literals :: (
               if((n >= usize(2)) && raw.starts_with(String.from("\"")) && raw.ends_with(String.from("\"")), {
                 match(
                   resolve_module_path_ex(raw.substring(usize(1), n - usize(1)), current_dir.clone(), std_path.clone(), true),
-                  .Found(p) => record_import_edge(importer.clone(), p),
+                  .Found(p) => record_import_edge(importer.clone(), &p),
                   _ => ()
                 );
               });
@@ -2277,12 +2277,12 @@ _scan_import_literals :: (
           .None => ()
         );
       });
-      _scan_import_literals(func, importer.clone(), current_dir.clone(), std_path.clone());
+      _scan_import_literals(&func, importer.clone(), current_dir.clone(), std_path.clone());
       (ai : usize) = usize(0);
       while(ai < args.len(), {
         match(
           args.get(ai),
-          .Some(a) => _scan_import_literals(a, importer.clone(), current_dir.clone(), std_path.clone()),
+          .Some(a) => _scan_import_literals(&a, importer.clone(), current_dir.clone(), std_path.clone()),
           .None => ()
         );
         ai = (ai + usize(1));
@@ -2309,7 +2309,7 @@ _load_module_at_abs :: (fn(imm(abs) : String) -> Option(String))({
   // loader runs inside the evaluator's comptime import resolution, where the
   // async read's blocking poll loop would nest the event loop (C37/C42).
   read_out := ArrayList(ArrayList(u8)).new();
-  _read_source_capturing_error(fs_path.clone(), read_out);
+  _read_source_capturing_error(fs_path.clone(), &mut read_out);
   src_bytes := match(
     read_out.get(usize(0)),
     .Some(b) => b,
@@ -2324,7 +2324,7 @@ _load_module_at_abs :: (fn(imm(abs) : String) -> Option(String))({
   record_input_file(
     fs_path.clone(),
     cond(
-      input_hashing_enabled() => sha256_hex(src_bytes),
+      input_hashing_enabled() => sha256_hex(&src_bytes),
       true => String.new()
     )
   );
@@ -2341,13 +2341,13 @@ _load_module_at_abs :: (fn(imm(abs) : String) -> Option(String))({
     .None => ()
   );
   parse_out := ArrayList(ArrayList(AstExpr)).new();
-  _parse_capturing_error(src, abs.clone(), parse_out);
+  _parse_capturing_error(&src, abs.clone(), &mut parse_out);
   mod_exprs := match(
     parse_out.get(usize(0)),
     .Some(es) => es,
     .None => return(Option(String).Some(match(_take_load_error(), .Some(m) => m, .None => `Failed to parse module "${abs}"`)))
   );
-  _record_static_import_edges(abs.clone(), mod_exprs, std_path.clone());
+  _record_static_import_edges(abs.clone(), &mod_exprs, std_path.clone());
   (prof_parse_ns : i64) = prof_t0.elapsed().as_nanos();
   prof_eval_t0 := Instant.now();
   (prof_saved_child : i64) = g_prof_child_load_ns;
@@ -2366,18 +2366,18 @@ _load_module_at_abs :: (fn(imm(abs) : String) -> Option(String))({
     .None => ()
   );
   register_evaluate_expression();
-  register_loading(abs.clone(), env);
+  register_loading(abs.clone(), &env);
   out_vals := ArrayList(EvalValue).new();
   out_tys := ArrayList(TypeValue).new();
   // check: this module's table dies with it, so the bodies evaluated into it
   // are summarized for later modules' walks first (summarize_function_bodies).
   (per_module_table : bool) = g_shared_expr_info_table.is_none();
   (mint_mark : usize) = if(per_module_table, specialization_recording_begin(), usize(0));
-  _eval_module_exprs_capturing_error(mod_exprs, env, ctx, out_vals, out_tys);
+  _eval_module_exprs_capturing_error(&mod_exprs, &env, &ctx, &mut out_vals, &mut out_tys);
   if(per_module_table, {
     minted := specialization_recording_take(mint_mark);
     if(out_vals.len() > usize(0), {
-      _summarize_module_bodies(abs.clone(), minted, env, ctx.expr_info_table);
+      _summarize_module_bodies(abs.clone(), &minted, &env, &ctx.expr_info_table);
     });
   });
   // ALWAYS unregister — a leaked currently-loading entry poisons every
@@ -2394,7 +2394,7 @@ _load_module_at_abs :: (fn(imm(abs) : String) -> Option(String))({
     out_vals.get(usize(0)),
     .Some(mv) => {
       reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
-      register_module(abs.clone(), mv, reg_ty);
+      register_module(abs.clone(), &mv, &reg_ty);
       Option(String).None
     },
     // Root-cause detail printed by the helper's handler (and stashed).
@@ -2417,10 +2417,10 @@ _load_module_at_abs :: (fn(imm(abs) : String) -> Option(String))({
 /// are in `minted` (or in the minting module's own load).
 _summarize_module_bodies :: (fn(imm(abs) : String, imm(minted) : ArrayList(EvalValue), imm(env) : Environment, imm(table) : ExprInfoTable) -> unit)({
   values := ArrayList(EvalValue).new();
-  _push_non_generic_fn_values(type_trait_method_values_owned_by(abs.clone()), values);
+  _push_non_generic_fn_values(type_trait_method_values_owned_by(abs.clone()), &mut values);
   match(
     finished_walk_for(abs),
-    .Some(walk) => _push_non_generic_fn_values(_walk_def_values(walk.defs), values),
+    .Some(walk) => _push_non_generic_fn_values(_walk_def_values(&walk.defs), &mut values),
     .None => ()
   );
   (mi : usize) = usize(0);
@@ -2428,7 +2428,7 @@ _summarize_module_bodies :: (fn(imm(abs) : String, imm(minted) : ArrayList(EvalV
     match(minted.get(mi), .Some(v) => values.push(v), .None => ());
     mi = (mi + usize(1));
   });
-  summarize_function_bodies(values, table, env);
+  summarize_function_bodies(&values, table, env);
 });
 /// The values the definitions `defs` bound (each def's own Variable).
 _walk_def_values :: (fn(imm(defs) : ArrayList(PendingDef)) -> ArrayList(EvalValue))({
@@ -2475,7 +2475,7 @@ demand_load_module :: (fn(imm(path) : String) -> LoadModuleResult)({
   // plans/reference/INCREMENTAL_COMPILATION.md.
   match(
     current_loading_module(),
-    .Some(importer) => record_import_edge(importer, path.clone()),
+    .Some(importer) => record_import_edge(&importer, path.clone()),
     .None => ()
   );
   if(module_cache_has(path.clone()), {
@@ -2486,7 +2486,7 @@ demand_load_module :: (fn(imm(path) : String) -> LoadModuleResult)({
     .Some(env) => {
       return(
         LoadModuleResult(
-          module_value : _build_module_val_from_env(env),
+          module_value : _build_module_val_from_env(&env),
           module_type : TypeValue.Unit,
           module_error : Option(String).None
         )
@@ -2579,14 +2579,14 @@ mm_load_prelude_file :: (
   (prelude_mint_mark : usize) = if(prelude_per_module_table, specialization_recording_begin(), usize(0));
   prelude_result := evaluate_anonymous_module_begin_exprs(
     exprs,
-    prelude_env,
-    prelude_ctx,
+    &prelude_env,
+    &prelude_ctx,
     false,
     true,
     true,
     local_exn
   );
-  set_registration_owner(prev_owner);
+  set_registration_owner(&prev_owner);
   // check: the prelude's table goes with this frame like any module's, and
   // every module calls into it (its operators, its loop machinery).
   if(prelude_per_module_table, {
@@ -2594,10 +2594,10 @@ mm_load_prelude_file :: (
     // above; its definitions are its walk's.
     prelude_minted := specialization_recording_take(prelude_mint_mark);
     prelude_values := ArrayList(EvalValue).new();
-    _push_non_generic_fn_values(type_trait_method_values_owned_by(prelude_owner.clone()), prelude_values);
+    _push_non_generic_fn_values(type_trait_method_values_owned_by(prelude_owner.clone()), &mut prelude_values);
     match(
       finished_walk_for(input_path.clone()),
-      .Some(pw) => _push_non_generic_fn_values(_walk_def_values(pw.defs), prelude_values),
+      .Some(pw) => _push_non_generic_fn_values(_walk_def_values(&pw.defs), &mut prelude_values),
       .None => ()
     );
     (pmi : usize) = usize(0);
@@ -2605,7 +2605,7 @@ mm_load_prelude_file :: (
       match(prelude_minted.get(pmi), .Some(v) => prelude_values.push(v), .None => ());
       pmi = (pmi + usize(1));
     });
-    summarize_function_bodies(prelude_values, prelude_ctx.expr_info_table, prelude_env);
+    summarize_function_bodies(&prelude_values, &prelude_ctx.expr_info_table, &prelude_env);
   });
   profile_record_module(
     mm_resolve_entry_abs(input_path.clone(), std_path.clone()).replace(
@@ -2624,14 +2624,14 @@ mm_load_prelude_file :: (
     // bindings into every load after it (measured 2026-09-15, see the
     // g_cached_prelude_frame_count doc). The prelude walk is complete here,
     // so the snapshot holds every prelude binding.
-    snapshot := clone_env(prelude_env);
+    snapshot := clone_env(&prelude_env);
     g_cached_prelude_frame_count = snapshot.frames.len();
     g_cached_prelude_env = Option(Environment).Some(snapshot);
     // Decision 36's flip asks `Copy` of plain-data types in this environment
     // (`type_lacks_copy_for_flip`, evaluator/trait_checking.yo). Its own
     // copy, for the reason above: a query that pushes a frame must not
     // reach the cached snapshot.
-    set_flip_prelude_env(clone_env(prelude_env));
+    set_flip_prelude_env(clone_env(&prelude_env));
     // The export namespace from the same (first, only) evaluation: labels,
     // values AND per-field types. A namespace rebuilt from the env alone
     // cannot recover fn field types — a FuncVal carries none — so keep the
@@ -2682,12 +2682,12 @@ _reject_non_unit_main :: (fn(imm(module_value) : EvalValue, imm(exn) : Exception
                   .Func({ result : __main_res }) => __main_res,
                   _ => t_unit()
                 );
-                if(!is_unit_type(main_result), {
+                if(!is_unit_type(&main_result), {
                   exn.throw(
                     dyn(
                       format_error_message(
-                        ast_expr_token(__main_fvd.*.body),
-                        `"main" must return unit, but this one returns ${type_to_string(main_result)}. The entry point's result is discarded — it can never become the process exit status. Write \`-> unit\` and call \`exit(code)\` from "std/process" to set a status.`
+                        ast_expr_token(&__main_fvd.*.body),
+                        `"main" must return unit, but this one returns ${type_to_string(&main_result)}. The entry point's result is discarded — it can never become the process exit status. Write \`-> unit\` and call \`exit(code)\` from "std/process" to set a status.`
                       )
                     )
                   );
@@ -2716,8 +2716,8 @@ _reject_non_unit_main :: (fn(imm(module_value) : EvalValue, imm(exn) : Exception
                             exn.throw(
                               dyn(
                                 format_error_message(
-                                  ast_expr_token(__main_fvd.*.body),
-                                  `"main" accepts at most an \`io : Io\` parameter, but this one takes ${type_to_string(pt)}. The runtime can only provide the Io record; any other effect record would carry NULL handler pointers and crash on first use. Bind handlers inside main instead (for example: exn := Exception(throw : ((err) -> { unwind(()); }));).`
+                                  ast_expr_token(&__main_fvd.*.body),
+                                  `"main" accepts at most an \`io : Io\` parameter, but this one takes ${type_to_string(&pt)}. The runtime can only provide the Io record; any other effect record would carry NULL handler pointers and crash on first use. Bind handlers inside main instead (for example: exn := Exception(throw : ((err) -> { unwind(()); }));).`
                                 )
                               )
                             );
@@ -2770,18 +2770,18 @@ mm_eval_entry_exprs :: (
   // exclusive of the demand loads it triggers (which record their own rows).
   prof_t0 := Instant.now();
   g_prof_child_load_ns = i64(0);
-  register_loading(entry_abs.clone(), env);
+  register_loading(entry_abs.clone(), &env);
   out_vals := ArrayList(EvalValue).new();
   out_tys := ArrayList(TypeValue).new();
   // check: the specializations this entry mints are cached for every later
   // file of a directory check, but their bodies live in this entry's table.
   (entry_per_module_table : bool) = g_shared_expr_info_table.is_none();
   (entry_mint_mark : usize) = if(entry_per_module_table, specialization_recording_begin(), usize(0));
-  _eval_module_exprs_capturing_error(exprs, env, ctx, out_vals, out_tys);
+  _eval_module_exprs_capturing_error(exprs, &env, &ctx, &mut out_vals, &mut out_tys);
   if(entry_per_module_table, {
     entry_minted := specialization_recording_take(entry_mint_mark);
     if(out_vals.len() > usize(0), {
-      _summarize_module_bodies(entry_abs.clone(), entry_minted, env, ctx.expr_info_table);
+      _summarize_module_bodies(entry_abs.clone(), &entry_minted, &env, &ctx.expr_info_table);
     });
   });
   profile_record_module(
@@ -2796,7 +2796,7 @@ mm_eval_entry_exprs :: (
   match(
     out_vals.get(usize(0)),
     .Some(mv) => {
-      _reject_non_unit_main(mv, exn);
+      _reject_non_unit_main(&mv, exn);
       ModuleLoadOutcome(
         ok : true,
         module_value : mv,
@@ -2853,12 +2853,12 @@ _prelude_load_outcome :: (fn(imm(input_path) : String, imm(std_path) : String) -
   prelude_val := match(
     g_cached_prelude_module_value,
     .Some(mv) => mv,
-    .None => _build_module_val_from_env(prelude_env)
+    .None => _build_module_val_from_env(&prelude_env)
   );
   prelude_ty := match(
     g_cached_prelude_module_type,
     .Some(mt) => mt,
-    .None => type_of_eval_value(prelude_val)
+    .None => type_of_eval_value(&prelude_val)
   );
   ModuleLoadOutcome(
     ok : true,
@@ -2948,13 +2948,13 @@ mm_load_file :: (
   record_input_file(
     input_path.clone(),
     cond(
-      input_hashing_enabled() => sha256_hex(src_bytes),
+      input_hashing_enabled() => sha256_hex(&src_bytes),
       true => String.new()
     )
   );
   src := String.from_bytes(src_bytes);
-  exprs := parse(src, input_path.clone(), local_exn);
-  _record_static_import_edges(mm_resolve_entry_abs(input_path.clone(), std_path.clone()), exprs, std_path.clone());
+  exprs := parse(&src, input_path.clone(), &local_exn);
+  _record_static_import_edges(mm_resolve_entry_abs(input_path.clone(), std_path.clone()), &exprs, std_path.clone());
   if(verbose, {
     emit_chatter(`check: parsed ${exprs.len().to_string()} top-level exprs`);
   });
@@ -2962,7 +2962,7 @@ mm_load_file :: (
     if(verbose, {
       emit_chatter(`check: invoking evaluate_anonymous_module_begin_exprs (prelude)`);
     });
-    _pr := mm_load_prelude_file(input_path.clone(), std_path.clone(), exprs, local_exn);
+    _pr := mm_load_prelude_file(input_path.clone(), std_path.clone(), &exprs, &local_exn);
     if(verbose, {
       emit_chatter(`check: ${input_path} — evaluator OK`);
     });
@@ -2981,7 +2981,7 @@ mm_load_file :: (
   });
   // The demand loader must use the LOCAL exn: a nested import's failure has to
   // unwind this file's handler, not the driver's.
-  outcome := mm_eval_entry_exprs(entry_abs, std_path.clone(), exprs, local_exn);
+  outcome := mm_eval_entry_exprs(&entry_abs, std_path.clone(), &exprs, &local_exn);
   if(outcome.ok && verbose, {
     emit_chatter(`check: ${input_path} — evaluator OK`);
   });
@@ -3033,14 +3033,14 @@ mm_preload_prelude :: (
         evaluator_deadline_tripped() => eprintln(evaluator_deadline_message()),
         true => match(
           _take_load_error(),
-          .Some(rendered) => eprintln(rendered),
+          .Some(rendered) => eprintln(&rendered),
           .None => eprintln(`check: error in: ${std_path}/prelude.yo`)
         )
       );
     });
     // Build the O(1) prelude variable cache here rather than inside
     // `mm_load_file`, to avoid interference with the compile path.
-    match(g_cached_prelude_env, .Some(pe) => build_prelude_var_cache(pe), .None => ());
+    match(g_cached_prelude_env, .Some(pe) => build_prelude_var_cache(&pe), .None => ());
   });
   ok
 });
@@ -3057,7 +3057,7 @@ mm_load_yo_file :: (
   ) -> ModuleLoadOutcome
 )({
   std_path := resolve_std_path();
-  mm_load_file(input_path, std_path, false, io, exn)
+  mm_load_file(input_path, &std_path, false, io, exn)
 });
 export(
   ModuleLoadOutcome,

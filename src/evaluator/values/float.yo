@@ -29,7 +29,7 @@ evaluate_float_literal :: (
     exn.throw(
       dyn(
         format_error_message(
-          tok,
+          &tok,
           `Expected float literal, got ${tok.value}`
         )
       )
@@ -37,13 +37,13 @@ evaluate_float_literal :: (
   });
   // Parse to f64, normalize to decimal string
   parsed := match(
-    parse_raw_float(tok.value),
+    parse_raw_float(&tok.value),
     .Some(f) => f,
     .None => {
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             `Failed to parse float literal: ${tok.value}`
           )
         )
@@ -58,16 +58,16 @@ evaluate_float_literal :: (
   ty := match(
     ctx.expected_type,
     .Some(ectx) => cond(
-      is_f32_type(ectx.ty) => t_f32(),
-      is_f64_type(ectx.ty) => t_f64(),
+      is_f32_type(&ectx.ty) => t_f32(),
+      is_f64_type(&ectx.ty) => t_f64(),
       true => t_comptime_float()
     ),
     .None => t_comptime_float()
   );
   val := EvalValue.FloatLit(raw.clone());
-  info := new_expr_info(env, ty);
+  info := new_expr_info(env, &ty);
   info.value = .Some(val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 export(evaluate_float_literal);

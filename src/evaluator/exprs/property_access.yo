@@ -239,13 +239,13 @@ _deref_chain_has_field :: (fn(imm(t) : TypeValue, imm(label) : String, imm(env) 
   (cur : TypeValue) = t;
   while(runtime(true), {
     match(
-      deref_target_type(cur, env),
+      deref_target_type(&cur, env),
       .None => {
         return(.Err(cur));
       },
       .Some(payload) => {
-        cur = resolve_struct_shell(payload);
-        if(find_first_field_index(_field_labels_of(cur), label.clone()).is_some(), {
+        cur = resolve_struct_shell(&payload);
+        if(find_first_field_index(_field_labels_of(&cur), label.clone()).is_some(), {
           return(.Ok(()));
         });
       }
@@ -332,7 +332,7 @@ _reject_private_static_member :: (
     (entry_owner.len() > usize(0)) => Option(String).Some(entry_owner),
     true => type_decl_module(type_id)
   );
-  if(private_member_blocked(prop_name.clone(), decl, ast_expr_token(property_expr).module_path.clone()), {
+  if(private_member_blocked(prop_name.clone(), &decl, ast_expr_token(property_expr).module_path.clone()), {
     exn.throw(
       dyn(
         format_error_message(
@@ -366,11 +366,11 @@ _try_resolve_associated_type :: (
             match(
               last_spec.value.get(usize(0)),
               .Some(spec_tv) => {
-                out_spec := new_expr_info(env, type_of_eval_value(spec_tv));
+                out_spec := new_expr_info(env, type_of_eval_value(&spec_tv));
                 out_spec.value = Option(EvalValue).Some(spec_tv);
                 out_spec.is_accessing_property = Option(bool).Some(true);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_spec);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_spec);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_spec);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(property_expr), &out_spec);
                 return(true);
               },
               .None => ()
@@ -412,11 +412,11 @@ _try_resolve_associated_type :: (
         .Some(rm) => match(
           rm.value,
           .Some(rmv) => {
-            out_rm := new_expr_info(env, rm.ty);
+            out_rm := new_expr_info(env, &rm.ty);
             out_rm.value = Option(EvalValue).Some(rmv);
             out_rm.is_accessing_property = Option(bool).Some(true);
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rm);
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rm);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rm);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(property_expr), &out_rm);
             return(true);
           },
           .None => ()
@@ -462,8 +462,8 @@ evaluate_property_access :: (
   if(dot_args.len() == usize(2), {
     obj_expr := match(dot_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     prop_expr := match(dot_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-    if(ast_expr_is_atom(obj_expr) && (ast_expr_token(obj_expr).value == "Type") && ast_expr_is_atom(prop_expr), {
-      kind_name := ast_expr_token(prop_expr).value.clone();
+    if(ast_expr_is_atom(&obj_expr) && (ast_expr_token(&obj_expr).value == "Type") && ast_expr_is_atom(&prop_expr), {
+      kind_name := ast_expr_token(&prop_expr).value.clone();
       (is_kind : bool) = cond(
         (kind_name == "Struct") => true,
         (kind_name == "Enum") => true,
@@ -477,7 +477,7 @@ evaluate_property_access :: (
         // catches + prints + CONTINUES with a missing ExprInfo, and the
         // caller then proceeds on corrupted state (the SIGTRAP-in-malloc
         // crash class).
-        evaluated := evaluate_expression_raw(obj_expr, env, ctx, exn);
+        evaluated := evaluate_expression_raw(&obj_expr, &env, ctx, exn);
         return(evaluated);
       });
     });
@@ -499,12 +499,12 @@ evaluate_property_access :: (
       }
     );
     // Property must be an identifier atom.
-    if(!ast_expr_is_atom(prop_expr_1) || !is_valid_variable_name(prop_expr_1), {
+    if(!ast_expr_is_atom(&prop_expr_1) || !is_valid_variable_name(&prop_expr_1), {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(prop_expr_1),
-            `Expected identifier for enum variant access, got:\n${ast_expr_to_string(prop_expr_1)}`
+            ast_expr_token(&prop_expr_1),
+            `Expected identifier for enum variant access, got:\n${ast_expr_to_string(&prop_expr_1)}`
           )
         )
       );
@@ -526,7 +526,7 @@ evaluate_property_access :: (
         return(expr);
       },
       .Some(exp_ctx_1) => {
-        if(!is_enum_type(exp_ctx_1.ty), {
+        if(!is_enum_type(&exp_ctx_1.ty), {
           exn.throw(
             dyn(
               format_error_message_with_help(
@@ -538,26 +538,26 @@ evaluate_property_access :: (
           );
           return(expr);
         });
-        variant_name_1 := ast_expr_token(prop_expr_1).value;
+        variant_name_1 := ast_expr_token(&prop_expr_1).value;
         match(
           // Resolve an in-definition Self shell (enum.yo) so the variant
           // lookup sees the finalized enum (`.Table(...)` shorthand where
           // the expected `T` came from an `ArrayList(Self)` instantiation,
           // std/encoding/toml.yo).
-          resolve_enum_shell(exp_ctx_1.ty),
+          resolve_enum_shell(&exp_ctx_1.ty),
           .EnumT(en_id_1, en_name_1, en_vnames_1, en_vfields_1, _, en_vflabels_1, en_discs_1, en_irs_1, en_iar_1, en_tas_1) => {
             // Find the variant.
-            fidx_1 := find_first_field_index(en_vnames_1, variant_name_1.clone());
+            fidx_1 := find_first_field_index(&en_vnames_1, variant_name_1.clone());
             match(
               fidx_1,
               .None => {
                 exn.throw(
                   dyn(
                     format_error_message_with_help(
-                      ast_expr_token(prop_expr_1),
-                      unknown_variant_message(variant_name_1.clone(), resolve_enum_shell(exp_ctx_1.ty), en_vnames_1),
+                      ast_expr_token(&prop_expr_1),
+                      unknown_variant_message(variant_name_1.clone(), resolve_enum_shell(&exp_ctx_1.ty), &en_vnames_1),
                       match(
-                        suggest_name(variant_name_1, en_vnames_1),
+                        suggest_name(&variant_name_1, &en_vnames_1),
                         .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
                         .None => Option(String).None
                       )
@@ -567,7 +567,7 @@ evaluate_property_access :: (
                 return(expr);
               },
               .Some(vi_1) => {
-                _reject_gadt_unreachable_variant(exp_ctx_1.ty, en_id_1.clone(), vi_1, variant_name_1.clone(), prop_expr_1, exn);
+                _reject_gadt_unreachable_variant(&exp_ctx_1.ty, en_id_1.clone(), vi_1, variant_name_1.clone(), &prop_expr_1, exn);
                 new_en_ty_1 := TypeValue.EnumT(
                   en_id_1,
                   en_name_1,
@@ -589,18 +589,18 @@ evaluate_property_access :: (
                   // Fieldless variant: Color.Red
                   dot_vname_1 := `.${ variant_name_1 }`;
                   ev_1 := EvalValue.EnumVal(dot_vname_1, ArrayList(EvalValue).new());
-                  out_1 := new_expr_info(env, new_en_ty_1);
+                  out_1 := new_expr_info(&env, &new_en_ty_1);
                   out_1.value = Option(EvalValue).Some(ev_1);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_1);
-                  _attach_owned_temp_for_rc_unit_variant(expr, new_en_ty_1, ctx);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(prop_expr_1), out_1);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_1);
+                  _attach_owned_temp_for_rc_unit_variant(expr, &new_en_ty_1, ctx);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&prop_expr_1), &out_1);
                 }, {
                   // Variant with fields: Shape.Circle(3)
-                  ev_tv_1 := create_type_value(new_en_ty_1);
-                  out_tv_1 := new_expr_info(env, t_type());
+                  ev_tv_1 := create_type_value(&new_en_ty_1);
+                  out_tv_1 := new_expr_info(&env, t_type());
                   out_tv_1.value = Option(EvalValue).Some(ev_tv_1);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tv_1);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(prop_expr_1), out_tv_1);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tv_1);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&prop_expr_1), &out_tv_1);
                 });
                 return(expr);
               }
@@ -652,26 +652,26 @@ evaluate_property_access :: (
     .Some(a) => a,
     .None => make_err_expr()
   );
-  if(ast_expr_is_atom(property_expr), {
-    scope_release_note_query(ast_expr_id(property_expr), ast_expr_token(property_expr).value);
+  if(ast_expr_is_atom(&property_expr), {
+    scope_release_note_query(ast_expr_id(&property_expr), ast_expr_token(&property_expr).value);
   });
   // Evaluate the object without passing the expected type (it applies to the
   // property result, not the object itself).
   old_expected_type := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   // RAW — see the comment at the `is_kind` early-return above.
-  local_borrow_mark_receiver(object_expr);
-  object_expr = evaluate_expression_raw(object_expr, env, ctx, exn);
+  local_borrow_mark_receiver(&object_expr);
+  object_expr = evaluate_expression_raw(&object_expr, &env, ctx, exn);
   local_borrow_clear_receiver();
   ctx.expected_type = old_expected_type;
   // The outermost node of a place chain reads the whole place: E0911 while a
   // `mut` borrow of an overlapping place is live (decision 18; siblings stay
   // free).
   if(!lb_is_receiver && local_borrows_active(), {
-    local_borrow_access_expr(expr, LocalBorrowAccess.Read, ast_expr_token(property_expr), env, ctx, exn);
+    local_borrow_access_expr(expr, LocalBorrowAccess.Read, ast_expr_token(&property_expr), &env, ctx, exn);
   });
   // Update env from the evaluated object's ExprInfo.
-  obj_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(object_expr));
+  obj_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&object_expr));
   match(
     obj_info_opt,
     .Some(oi) => {
@@ -689,13 +689,13 @@ evaluate_property_access :: (
   // evaluated twice. Receivers with no info yet (fresh call results) fall
   // through to the dispatch-time gate in calls/function.yo; type-value
   // receivers (`Option(i32).unwrap`) are gated in the TypeVal arm below.
-  if(ast_expr_is_atom(property_expr) && is_class1_panic_method_name(ast_expr_token(property_expr).value), {
-    pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(oi_c1.ty), .None => false);
-    if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
+  if(ast_expr_is_atom(&property_expr) && is_class1_panic_method_name(ast_expr_token(&property_expr).value), {
+    pa_c1_banned := match(obj_info_opt, .Some(oi_c1) => is_class1_panic_receiver_type(&oi_c1.ty), .None => false);
+    if(pa_c1_banned && !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).module_path.clone())), {
       raise_flow_violation(
         format_error_message_with_help(
-          ast_expr_token(property_expr),
-          `\`${ast_expr_token(property_expr).value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+          ast_expr_token(&property_expr),
+          `\`${ast_expr_token(&property_expr).value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
           Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
         ),
         ctx,
@@ -703,33 +703,33 @@ evaluate_property_access :: (
       );
     });
   });
-  if(ast_expr_is_atom(property_expr) && ast_expr_is_atom_of(property_expr, "*") && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
+  if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom_of(&property_expr, "*") && debug_knob(`YO_DEBUG_CTFE`).is_some(), {
     pa_deref_obj_ty := match(
       obj_info_opt,
-      .Some(pd_oi) => type_to_string(pd_oi.ty),
+      .Some(pd_oi) => type_to_string(&pd_oi.ty),
       .None => String.from("<no-info>")
     );
-    eprintln(`[pa-deref-in] obj=${ast_expr_to_string(object_expr)} obj_ty=${pa_deref_obj_ty}`);
+    eprintln(`[pa-deref-in] obj=${ast_expr_to_string(&object_expr)} obj_ty=${pa_deref_obj_ty}`);
   });
   // -------------------------------------------------------------------------
   // `.*` dereference
   // -------------------------------------------------------------------------
-  if(ast_expr_is_atom(property_expr) && ast_expr_is_atom_of(property_expr, "*"), {
+  if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom_of(&property_expr, "*"), {
     obj_ty_deref := match(obj_info_opt, .Some(oi) => Option(TypeValue).Some(oi.ty), .None => Option(TypeValue).None);
     match(
       obj_ty_deref,
       .Some(ot) => {
-        if(is_pointer_type(ot), {
+        if(is_pointer_type(&ot), {
           // Memory-safety gate: pointer dereference requires `unsafe(...)`.
           // Files under std/ and src/ are implicitly unsafe-capable.
-          if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
+          if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&property_expr).module_path.clone())), {
             exn.throw(
               dyn(
                 format_error_message(
-                  ast_expr_token(property_expr),
+                  ast_expr_token(&property_expr),
                   `Pointer dereference requires 'unsafe(...)'.
 
-Wrap as: unsafe(${ast_expr_to_string(object_expr)}.*)
+Wrap as: unsafe(${ast_expr_to_string(&object_expr)}.*)
 
 Raw pointer operations may dereference invalid memory.`
                 )
@@ -739,7 +739,7 @@ Raw pointer operations may dereference invalid memory.`
           base_ty_deref := match(ot, .Pointer(pt) => pt, _ => t_unit());
           // Resolve SomeType from env if needed.
           (resolved_base : TypeValue) = cond(
-            is_some_type(base_ty_deref) => get_value_of_some_type_from_env(env, base_ty_deref),
+            is_some_type(&base_ty_deref) => get_value_of_some_type_from_env(&env, &base_ty_deref),
             true => base_ty_deref
           );
           obj_val_deref := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
@@ -780,18 +780,18 @@ Raw pointer operations may dereference invalid memory.`
                       deref_place = Option(ComptimeRef).Some(ComptimeRef.ArrayRef(target_cell, ptr_tgt_idx));
                     }
                   );
-                  out_ptr := new_expr_info(env, resolved_base);
+                  out_ptr := new_expr_info(&env, &resolved_base);
                   out_ptr.value = Option(EvalValue).Some(deref_val);
-                  expr_info_set_comptime_ref(out_ptr, deref_place);
-                  expr_info_set_origin_type(out_ptr, Option(TypeValue).Some(ot));
+                  expr_info_set_comptime_ref(&out_ptr, &deref_place);
+                  expr_info_set_origin_type(&out_ptr, Option(TypeValue).Some(ot));
                   out_ptr.is_accessing_property = Option(bool).Some(true);
                   out_ptr.source_variable = match(
                     obj_info_opt,
                     .Some(oi) => oi.source_variable,
                     .None => Option(Variable).None
                   );
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ptr);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_ptr);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ptr);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_ptr);
                   return(expr);
                 },
                 .UnknownVal(_, _) => {
@@ -803,13 +803,13 @@ Raw pointer operations may dereference invalid memory.`
                   // (missing dup freed every ArrayList(ref-struct) element on
                   // get(); see issues/fixed/yo-self-stage2-parser-divergence.md).
                   if(ctx.is_in_function_call_checking_phase, {
-                    deref_unk := create_unknown_val(resolved_base);
-                    out_unk := new_expr_info(env, resolved_base);
+                    deref_unk := create_unknown_val(&resolved_base);
+                    out_unk := new_expr_info(&env, &resolved_base);
                     out_unk.value = Option(EvalValue).Some(deref_unk);
-                    expr_info_set_origin_type(out_unk, Option(TypeValue).Some(ot));
+                    expr_info_set_origin_type(&out_unk, Option(TypeValue).Some(ot));
                     out_unk.is_accessing_property = Option(bool).Some(true);
-                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unk);
-                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_unk);
+                    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unk);
+                    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_unk);
                     return(expr);
                   });
                 },
@@ -819,11 +819,11 @@ Raw pointer operations may dereference invalid memory.`
             .None => ()
           );
           // No compile-time pointer value — runtime dereference.
-          out_rt := new_expr_info(env, resolved_base);
-          expr_info_set_origin_type(out_rt, Option(TypeValue).Some(ot));
+          out_rt := new_expr_info(&env, &resolved_base);
+          expr_info_set_origin_type(&out_rt, Option(TypeValue).Some(ot));
           out_rt.is_accessing_property = Option(bool).Some(true);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rt);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rt);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rt);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_rt);
           attach_temp_variable_to_expr(expr, false, ctx);
           return(expr);
         });
@@ -836,7 +836,7 @@ Raw pointer operations may dereference invalid memory.`
   // TypeVal cases: `EnumType.Variant`, `StructType.field`, etc.
   // -------------------------------------------------------------------------
   obj_val_opt := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
-  if(is_type_value(obj_val_opt), {
+  if(is_type_value(&obj_val_opt), {
     type_val_inner := match(
       obj_val_opt,
       .Some(.TypeVal(ty_box)) => ty_box,
@@ -851,17 +851,17 @@ Raw pointer operations may dereference invalid memory.`
     // None of the specific `is_*_type` branches below match primitives,
     // so without this path the lookup falls through to the runtime
     // method-dispatch slow path and the comptime value is lost.
-    if(ast_expr_is_atom(property_expr) &&
-      !is_enum_type(type_val_inner) &&
-        !is_struct_type(type_val_inner) &&
-          !is_union_type(type_val_inner) &&
-            !is_module_type(type_val_inner) &&
-              !is_some_type(type_val_inner), {
-      prim_type_id := type_id_or_empty(type_val_inner);
+    if(ast_expr_is_atom(&property_expr) &&
+      !is_enum_type(&type_val_inner) &&
+        !is_struct_type(&type_val_inner) &&
+          !is_union_type(&type_val_inner) &&
+            !is_module_type(&type_val_inner) &&
+              !is_some_type(&type_val_inner), {
+      prim_type_id := type_id_or_empty(&type_val_inner);
       if(prim_type_id != "", {
-        prim_prop_name := ast_expr_token(property_expr).value;
-        _reject_private_static_member(prim_type_id.clone(), prim_prop_name.clone(), type_val_inner, property_expr, exn);
-        prim_methods := get_type_trait_methods_by_name(prim_type_id, prim_prop_name);
+        prim_prop_name := ast_expr_token(&property_expr).value;
+        _reject_private_static_member(prim_type_id.clone(), prim_prop_name.clone(), &type_val_inner, &property_expr, exn);
+        prim_methods := get_type_trait_methods_by_name(&prim_type_id, &prim_prop_name);
         if(prim_methods.len() > usize(0), {
           (pm_idx : usize) = usize(0);
           (pm_done : bool) = false;
@@ -871,11 +871,11 @@ Raw pointer operations may dereference invalid memory.`
               .Some(pm) => match(
                 pm.value,
                 .Some(pmv) => {
-                  out_prim := new_expr_info(env, pm.ty);
+                  out_prim := new_expr_info(&env, &pm.ty);
                   out_prim.value = Option(EvalValue).Some(pmv);
                   out_prim.is_accessing_property = Option(bool).Some(true);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_prim);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_prim);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_prim);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_prim);
                   pm_done = true;
                 },
                 .None => ()
@@ -897,18 +897,18 @@ Raw pointer operations may dereference invalid memory.`
       // `findMethodsFromGenericImpls` lookup as the struct branch
       //; single candidate only — multiple
       // candidates defer to function.yo's arg-type disambiguation.
-      pr_prop_name := ast_expr_token(property_expr).value;
+      pr_prop_name := ast_expr_token(&property_expr).value;
       // Safe mode (D7): the generic-impl fallback below RESOLVES and RETURNS
       // for `Option(i32).unwrap`-shaped extractions (Option/Result methods
       // live in the generic-impl registry), never reaching the EnumT arm's
       // gate — so the extraction ban is checked here as well.
-      if(ast_expr_is_atom(property_expr) &&
+      if(ast_expr_is_atom(&property_expr) &&
         is_class1_panic_method_name(pr_prop_name.clone()) &&
-          is_class1_panic_receiver_type(type_val_inner) &&
-            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
+          is_class1_panic_receiver_type(&type_val_inner) &&
+            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).module_path.clone())), {
         raise_flow_violation(
           format_error_message_with_help(
-            ast_expr_token(property_expr),
+            ast_expr_token(&property_expr),
             `\`${pr_prop_name}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
             Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
           ),
@@ -916,7 +916,7 @@ Raw pointer operations may dereference invalid memory.`
           exn
         );
       });
-      generic_methods_pr := find_methods_from_generic_impls(type_val_inner, pr_prop_name, env);
+      generic_methods_pr := find_methods_from_generic_impls(&type_val_inner, &pr_prop_name, &env);
       if(generic_methods_pr.len() == usize(1), {
         method_pr := match(
           generic_methods_pr.get(usize(0)),
@@ -925,11 +925,11 @@ Raw pointer operations may dereference invalid memory.`
             return(expr);
           }
         );
-        out_gm_pr := new_expr_info(env, method_pr.method_type);
+        out_gm_pr := new_expr_info(&env, &method_pr.method_type);
         out_gm_pr.value = method_pr.method_value;
         out_gm_pr.is_accessing_property = Option(bool).Some(true);
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_pr);
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_pr);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_pr);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_pr);
         return(expr);
       });
     });
@@ -943,9 +943,9 @@ Raw pointer operations may dereference invalid memory.`
     // the context (`current_impl_trait_field_*`). Scoped to literal `Self`
     // receivers — the only spelling these in-impl references use — so
     // unrelated TypeVal property accesses are untouched.
-    if(ast_expr_is_atom(property_expr) && ast_expr_is_atom(object_expr) &&
-      (ast_expr_token(object_expr).value == "Self"), {
-      wt_prop := ast_expr_token(property_expr).value;
+    if(ast_expr_is_atom(&property_expr) && ast_expr_is_atom(&object_expr) &&
+      (ast_expr_token(&object_expr).value == "Self"), {
+      wt_prop := ast_expr_token(&property_expr).value;
       n_wt := ctx.current_impl_trait_field_labels.len();
       (wt_i : usize) = usize(0);
       while(wt_i < n_wt, {
@@ -958,11 +958,11 @@ Raw pointer operations may dereference invalid memory.`
               // own type is the plain meta type — walking the type graph
               // (type_of_eval_value) crashes on CYCLIC recursive types
               // like JsonValue.
-              out_wt := new_expr_info(env, t_type());
-              out_wt.value = Option(EvalValue).Some(create_type_value(wt_ty));
+              out_wt := new_expr_info(&env, t_type());
+              out_wt.value = Option(EvalValue).Some(create_type_value(&wt_ty));
               out_wt.is_accessing_property = Option(bool).Some(true);
-              expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wt);
-              expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_wt);
+              expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_wt);
+              expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_wt);
               return(expr);
             },
             .None => ()
@@ -972,48 +972,48 @@ Raw pointer operations may dereference invalid memory.`
       });
     });
     // --- TypeVal + EnumT --------------------------------------------------
-    if(is_enum_type(type_val_inner), {
+    if(is_enum_type(&type_val_inner), {
       // Safe mode (D7): `Option(i32).unwrap` as an EXTRACTION — the same ban
       // as the value-receiver gate near the top of this function, with the
       // receiver type taken from the TypeVal itself.
-      if(ast_expr_is_atom(property_expr) &&
-        is_class1_panic_method_name(ast_expr_token(property_expr).value) &&
-          is_class1_panic_receiver_type(type_val_inner) &&
-            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(property_expr).module_path.clone())), {
+      if(ast_expr_is_atom(&property_expr) &&
+        is_class1_panic_method_name(ast_expr_token(&property_expr).value) &&
+          is_class1_panic_receiver_type(&type_val_inner) &&
+            !is_class1_panic_exempt_file(Option(String).Some(ast_expr_token(&property_expr).module_path.clone())), {
         raise_flow_violation(
           format_error_message_with_help(
-            ast_expr_token(property_expr),
-            `\`${ast_expr_token(property_expr).value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
+            ast_expr_token(&property_expr),
+            `\`${ast_expr_token(&property_expr).value}\` on an Option/Result discards the failure case, and calling it would abort the program.`,
             Option(String).Some(String.from("handle the failure: match on .Some/.None (or .Ok/.Err), unwrap_or(...) a default, unwrap_or_else(...) compute one, or propagate the Option/Result. tests/*.test.yo and pragma(Pragma.AllowUnsafe) files are exempt (safe-mode rule D7)."))
           ),
           ctx,
           exn
         );
       });
-      if(!ast_expr_is_atom(property_expr), {
+      if(!ast_expr_is_atom(&property_expr), {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(property_expr),
-              `Expected identifier for enum variant, got:\n${ast_expr_to_string(property_expr)}`
+              ast_expr_token(&property_expr),
+              `Expected identifier for enum variant, got:\n${ast_expr_to_string(&property_expr)}`
             )
           )
         );
         return(expr);
       });
-      variant_name_tv := ast_expr_token(property_expr).value;
+      variant_name_tv := ast_expr_token(&property_expr).value;
       match(
         // Same Self-shell resolution as the shorthand path above.
-        resolve_enum_shell(type_val_inner),
+        resolve_enum_shell(&type_val_inner),
         .EnumT(tv_en_id, tv_en_name, tv_en_vnames, tv_en_vfields, _, tv_en_vflabels, tv_en_discs, tv_en_irs, tv_en_iar, tv_en_tas) => {
-          fidx_tv_en := find_first_field_index(tv_en_vnames, variant_name_tv.clone());
+          fidx_tv_en := find_first_field_index(&tv_en_vnames, variant_name_tv.clone());
           match(
             fidx_tv_en,
             .None => {
               // Not an enum variant — try resolving as an associated type
               // (e.g. `Self.Output` from `impl(JsonValue, Index(String)(
               // Output : JsonValue, …))`). Only throw if that also fails.
-              if(_try_resolve_associated_type(type_val_inner, variant_name_tv, expr, property_expr, env, ctx), {
+              if(_try_resolve_associated_type(&type_val_inner, &variant_name_tv, expr, &property_expr, &env, ctx), {
                 return(expr);
               });
               // Still unresolved — consult the GENERIC-impl registry before
@@ -1028,7 +1028,7 @@ Raw pointer operations may dereference invalid memory.`
               // branch already has below. Resolve only a SINGLE candidate —
               // multiple are left unresolved so function.yo can disambiguate by
               // argument types.
-              generic_methods_en := find_methods_from_generic_impls(type_val_inner, variant_name_tv.clone(), env);
+              generic_methods_en := find_methods_from_generic_impls(&type_val_inner, variant_name_tv.clone(), &env);
               if(generic_methods_en.len() == usize(1), {
                 method_en := match(
                   generic_methods_en.get(usize(0)),
@@ -1037,11 +1037,11 @@ Raw pointer operations may dereference invalid memory.`
                     return(expr);
                   }
                 );
-                out_gm_en := new_expr_info(env, method_en.method_type);
+                out_gm_en := new_expr_info(&env, &method_en.method_type);
                 out_gm_en.value = method_en.method_value;
                 out_gm_en.is_accessing_property = Option(bool).Some(true);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_en);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_en);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_en);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_en);
                 return(expr);
               });
               if(generic_methods_en.len() > usize(1), {
@@ -1050,10 +1050,10 @@ Raw pointer operations may dereference invalid memory.`
               exn.throw(
                 dyn(
                   format_error_message_with_help(
-                    ast_expr_token(property_expr),
-                    unknown_variant_message(variant_name_tv.clone(), type_val_inner, tv_en_vnames),
+                    ast_expr_token(&property_expr),
+                    unknown_variant_message(variant_name_tv.clone(), &type_val_inner, &tv_en_vnames),
                     match(
-                      suggest_name(variant_name_tv, tv_en_vnames),
+                      suggest_name(&variant_name_tv, &tv_en_vnames),
                       .Some(h) => Option(String).Some(`did you mean ".${h}"?`),
                       .None => Option(String).None
                     )
@@ -1063,7 +1063,7 @@ Raw pointer operations may dereference invalid memory.`
               return(expr);
             },
             .Some(tv_vi) => {
-              _reject_gadt_unreachable_variant(type_val_inner, tv_en_id.clone(), tv_vi, variant_name_tv.clone(), property_expr, exn);
+              _reject_gadt_unreachable_variant(&type_val_inner, tv_en_id.clone(), tv_vi, variant_name_tv.clone(), &property_expr, exn);
               new_en_tv := TypeValue.EnumT(
                 tv_en_id,
                 tv_en_name,
@@ -1084,19 +1084,19 @@ Raw pointer operations may dereference invalid memory.`
               if(!has_fields_tv, {
                 dot_tv_vname := `.${ variant_name_tv }`;
                 ev_tv_en := EvalValue.EnumVal(dot_tv_vname, ArrayList(EvalValue).new());
-                out_tv_en := new_expr_info(env, new_en_tv);
+                out_tv_en := new_expr_info(&env, &new_en_tv);
                 out_tv_en.value = Option(EvalValue).Some(ev_tv_en);
                 out_tv_en.is_accessing_property = Option(bool).Some(true);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tv_en);
-                _attach_owned_temp_for_rc_unit_variant(expr, new_en_tv, ctx);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tv_en);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tv_en);
+                _attach_owned_temp_for_rc_unit_variant(expr, &new_en_tv, ctx);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_tv_en);
               }, {
-                tv_en_type_val := create_type_value(new_en_tv);
-                out_tv_en2 := new_expr_info(env, t_type());
+                tv_en_type_val := create_type_value(&new_en_tv);
+                out_tv_en2 := new_expr_info(&env, t_type());
                 out_tv_en2.value = Option(EvalValue).Some(tv_en_type_val);
                 out_tv_en2.is_accessing_property = Option(bool).Some(true);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tv_en2);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tv_en2);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tv_en2);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_tv_en2);
               });
               return(expr);
             }
@@ -1108,19 +1108,19 @@ Raw pointer operations may dereference invalid memory.`
       );
     });
     // --- TypeVal + Struct or Union ---
-    if(is_struct_type(type_val_inner) || is_union_type(type_val_inner), {
-      if(!is_valid_variable_name(property_expr), {
+    if(is_struct_type(&type_val_inner) || is_union_type(&type_val_inner), {
+      if(!is_valid_variable_name(&property_expr), {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(property_expr),
-              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`
+              ast_expr_token(&property_expr),
+              `Expected identifier for type method, got:\n${ast_expr_to_string(&property_expr)}`
             )
           )
         );
         return(expr);
       });
-      prop_name_su := ast_expr_token(property_expr).value;
+      prop_name_su := ast_expr_token(&property_expr).value;
       su_labels := match(
         type_val_inner,
         .Struct({ field_labels : labels }) => labels,
@@ -1134,16 +1134,16 @@ Raw pointer operations may dereference invalid memory.`
         _ => ArrayList(TypeValue).new()
       );
       // Search field_labels.
-      fidx_su := find_last_field_index(su_labels, prop_name_su.clone());
+      fidx_su := find_last_field_index(&su_labels, prop_name_su.clone());
       match(
         fidx_su,
         .Some(fi_su) => {
           ft_su := match(su_types.get(fi_su), .Some(t) => t, .None => t_unit());
-          out_su := new_expr_info(env, ft_su);
-          out_su.value = Option(EvalValue).Some(create_unknown_val(ft_su));
+          out_su := new_expr_info(&env, &ft_su);
+          out_su.value = Option(EvalValue).Some(create_unknown_val(&ft_su));
           out_su.is_accessing_property = Option(bool).Some(true);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_su);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_su);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_su);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_su);
           return(expr);
         },
         .None => ()
@@ -1152,7 +1152,7 @@ Raw pointer operations may dereference invalid memory.`
       // (`findMethodsFromGenericImpls`).
       // Only resolve when exactly 1 candidate — multiple candidates are deferred to
       // function.yo which can disambiguate by argument types.
-      generic_methods_su := find_methods_from_generic_impls(type_val_inner, prop_name_su, env);
+      generic_methods_su := find_methods_from_generic_impls(&type_val_inner, &prop_name_su, &env);
       if(generic_methods_su.len() == usize(1), {
         method_su := match(
           generic_methods_su.get(usize(0)),
@@ -1161,16 +1161,16 @@ Raw pointer operations may dereference invalid memory.`
             return(expr);
           }
         );
-        out_gm_su := new_expr_info(env, method_su.method_type);
+        out_gm_su := new_expr_info(&env, &method_su.method_type);
         out_gm_su.value = method_su.method_value;
         out_gm_su.is_accessing_property = Option(bool).Some(true);
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_gm_su);
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_gm_su);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_gm_su);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_gm_su);
         return(expr);
       });
       // During generic impl specialization, the associated type may be in env.
       if(ctx.is_evaluating_generic_impl_specialization, {
-        spec_vars := get_variables_from_env(env, prop_name_su);
+        spec_vars := get_variables_from_env(&env, &prop_name_su);
         n_spec := spec_vars.len();
         if(n_spec > usize(0), {
           match(
@@ -1180,12 +1180,12 @@ Raw pointer operations may dereference invalid memory.`
                 match(
                   last_spec.value.get(usize(0)),
                   .Some(spec_tv) => {
-                    spec_tv_ty := type_of_eval_value(spec_tv);
-                    out_spec_su := new_expr_info(env, spec_tv_ty);
+                    spec_tv_ty := type_of_eval_value(&spec_tv);
+                    out_spec_su := new_expr_info(&env, &spec_tv_ty);
                     out_spec_su.value = Option(EvalValue).Some(spec_tv);
                     out_spec_su.is_accessing_property = Option(bool).Some(true);
-                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_spec_su);
-                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_spec_su);
+                    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_spec_su);
+                    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_spec_su);
                     return(expr);
                   },
                   .None => ()
@@ -1202,10 +1202,10 @@ Raw pointer operations may dereference invalid memory.`
       // "Item" with value `TypeVal(i32)`). Only entries with
       // assigned values are eligible — the
       // function dispatch path handles method overload resolution.
-      su_type_id := type_id_or_empty(type_val_inner);
+      su_type_id := type_id_or_empty(&type_val_inner);
       if(su_type_id != "", {
-        _reject_private_static_member(su_type_id.clone(), prop_name_su.clone(), type_val_inner, property_expr, exn);
-        registry_methods := get_assoc_type_entries(type_val_inner, prop_name_su.clone());
+        _reject_private_static_member(su_type_id.clone(), prop_name_su.clone(), &type_val_inner, &property_expr, exn);
+        registry_methods := get_assoc_type_entries(&type_val_inner, prop_name_su.clone());
         // OVERLOAD DEFER — the struct-arm twin of
         // _try_resolve_associated_type's rule (:216-231): when the type
         // carries MULTIPLE fn-typed overloads of this member (HeteroEqW's
@@ -1222,7 +1222,7 @@ Raw pointer operations may dereference invalid memory.`
           while(su_oi < registry_methods.len(), {
             match(
               registry_methods.get(su_oi),
-              .Some(su_om) => if(is_function_type(su_om.ty), {
+              .Some(su_om) => if(is_function_type(&su_om.ty), {
                 su_fn_overloads = (su_fn_overloads + usize(1));
               }),
               .None => ()
@@ -1243,12 +1243,12 @@ Raw pointer operations may dereference invalid memory.`
                 match(
                   rm.value,
                   .Some(rmv) => {
-                    rm_v_ty := type_of_eval_value(rmv);
-                    out_rm := new_expr_info(env, rm.ty);
+                    rm_v_ty := type_of_eval_value(&rmv);
+                    out_rm := new_expr_info(&env, &rm.ty);
                     out_rm.value = Option(EvalValue).Some(rmv);
                     out_rm.is_accessing_property = Option(bool).Some(true);
-                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_rm);
-                    expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_rm);
+                    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_rm);
+                    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_rm);
                     rm_done = true;
                     // rm_v_ty is computed but not used; the field's
                     // declared ty (rm.ty) is what we report so
@@ -1272,19 +1272,19 @@ Raw pointer operations may dereference invalid memory.`
       return(expr);
     });
     // --- TypeVal + ModuleT ------------------------------------------------
-    if(is_module_type(type_val_inner), {
-      if(!is_valid_variable_name(property_expr), {
+    if(is_module_type(&type_val_inner), {
+      if(!is_valid_variable_name(&property_expr), {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(property_expr),
-              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`
+              ast_expr_token(&property_expr),
+              `Expected identifier for type method, got:\n${ast_expr_to_string(&property_expr)}`
             )
           )
         );
         return(expr);
       });
-      prop_name_mt := ast_expr_token(property_expr).value;
+      prop_name_mt := ast_expr_token(&property_expr).value;
       mt_labels := match(
         type_val_inner,
         .Struct({ field_labels : labels }) => labels,
@@ -1295,16 +1295,16 @@ Raw pointer operations may dereference invalid memory.`
         .Struct({ field_types : types }) => types,
         _ => ArrayList(TypeValue).new()
       );
-      fidx_mt := find_first_field_index(mt_labels, prop_name_mt.clone());
+      fidx_mt := find_first_field_index(&mt_labels, prop_name_mt.clone());
       match(
         fidx_mt,
         .Some(fi_mt) => {
           ft_mt := match(mt_types.get(fi_mt), .Some(t) => t, .None => t_unit());
-          out_mt := new_expr_info(env, ft_mt);
-          out_mt.value = Option(EvalValue).Some(create_unknown_val(ft_mt));
+          out_mt := new_expr_info(&env, &ft_mt);
+          out_mt.value = Option(EvalValue).Some(create_unknown_val(&ft_mt));
           out_mt.is_accessing_property = Option(bool).Some(true);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_mt);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_mt);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_mt);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_mt);
           return(expr);
         },
         .None => {
@@ -1316,18 +1316,18 @@ Raw pointer operations may dereference invalid memory.`
     // --- TypeVal + TraitT -------------------------------------------------
     is_plain_trait_type := match(type_val_inner, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
     if(is_plain_trait_type, {
-      if(!is_valid_variable_name(property_expr), {
+      if(!is_valid_variable_name(&property_expr), {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(property_expr),
-              `Expected identifier for type method, got:\n${ast_expr_to_string(property_expr)}`
+              ast_expr_token(&property_expr),
+              `Expected identifier for type method, got:\n${ast_expr_to_string(&property_expr)}`
             )
           )
         );
         return(expr);
       });
-      prop_name_tt := ast_expr_token(property_expr).value;
+      prop_name_tt := ast_expr_token(&property_expr).value;
       // `<:` WITNESS member access:
       // a TraitT whose `is_concrete` carries the receiver type — e.g.
       // `(Rc(i32) <: Isolation).can_isolate` — resolves the method against
@@ -1348,7 +1348,7 @@ Raw pointer operations may dereference invalid memory.`
           // Base key: entry.trait_key is now the constructor funcId for
           // parameterized traits (get_base_trait_key), so the witness filter
           // must query with the same base trait key.
-          tt_trait_key := get_base_trait_key(type_val_inner);
+          tt_trait_key := get_base_trait_key(&type_val_inner);
           // CONCRETE impls first: a witness
           // on a type with a direct `impl(R, Trait(...))` must resolve THAT
           // impl's method — `(T <: TraitDisambigB).get_number(self)` at spec
@@ -1361,19 +1361,19 @@ Raw pointer operations may dereference invalid memory.`
             .TraitT(_, _, _, _, tt_own_id, _, _, _, _, _) => tt_own_id,
             _ => String.from("")
           );
-          tt_recv_id := type_id_or_empty(tt_recv_ty);
+          tt_recv_id := type_id_or_empty(&tt_recv_ty);
           if(tt_recv_id != "", {
-            tt_conc := get_assoc_type_entries(tt_recv_ty, prop_name_tt.clone());
+            tt_conc := get_assoc_type_entries(&tt_recv_ty, prop_name_tt.clone());
             (tt_ki : usize) = usize(0);
             while(tt_ki < tt_conc.len(), {
               match(
                 tt_conc.get(tt_ki),
                 .Some(tt_km) => if((tt_km.source_trait_id == tt_trait_id) || (tt_km.source_trait_id == tt_trait_key), {
-                  out_wc := new_expr_info(env, tt_km.ty);
+                  out_wc := new_expr_info(&env, &tt_km.ty);
                   out_wc.value = tt_km.value;
                   out_wc.is_accessing_property = Option(bool).Some(true);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_wc);
-                  expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_wc);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_wc);
+                  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_wc);
                   return(expr);
                 }),
                 .None => ()
@@ -1381,7 +1381,7 @@ Raw pointer operations may dereference invalid memory.`
               tt_ki = (tt_ki + usize(1));
             });
           });
-          tt_cands := find_methods_from_generic_impls(tt_recv_ty, prop_name_tt.clone(), env);
+          tt_cands := find_methods_from_generic_impls(&tt_recv_ty, prop_name_tt.clone(), &env);
           (tt_ci : usize) = usize(0);
           while(tt_ci < tt_cands.len(), {
             tt_cand := match(
@@ -1396,11 +1396,11 @@ Raw pointer operations may dereference invalid memory.`
             // ONLY the trait's registry bucket): a same-named method on an
             // unrelated trait must not match this witness.
             if(tt_cand.source_trait_id == tt_trait_key, {
-              out_w := new_expr_info(env, tt_cand.method_type);
+              out_w := new_expr_info(&env, &tt_cand.method_type);
               out_w.value = tt_cand.method_value;
               out_w.is_accessing_property = Option(bool).Some(true);
-              expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_w);
-              expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_w);
+              expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_w);
+              expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_w);
               return(expr);
             });
             tt_ci = (tt_ci + usize(1));
@@ -1418,16 +1418,16 @@ Raw pointer operations may dereference invalid memory.`
         .TraitT(_, _, _, types, _, _, _, _, _, _) => types,
         _ => ArrayList(TypeValue).new()
       );
-      fidx_tt := find_first_field_index(tt_labels, prop_name_tt.clone());
+      fidx_tt := find_first_field_index(&tt_labels, prop_name_tt.clone());
       match(
         fidx_tt,
         .Some(fi_tt) => {
           ft_tt := match(tt_types.get(fi_tt), .Some(t) => t, .None => t_unit());
-          out_tt := new_expr_info(env, ft_tt);
-          out_tt.value = Option(EvalValue).Some(create_unknown_val(ft_tt));
+          out_tt := new_expr_info(&env, &ft_tt);
+          out_tt.value = Option(EvalValue).Some(create_unknown_val(&ft_tt));
           out_tt.is_accessing_property = Option(bool).Some(true);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_tt);
-          expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_tt);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_tt);
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_tt);
           return(expr);
         },
         .None => {
@@ -1450,9 +1450,9 @@ Raw pointer operations may dereference invalid memory.`
     // (typically `Type` for assoc-type fields), which is enough for
     // the function-type evaluator to accept `Self.Output` as a type
     // slot.
-    if(is_some_type(type_val_inner), {
-      if(is_valid_variable_name(property_expr), {
-        st_prop_name := ast_expr_token(property_expr).value;
+    if(is_some_type(&type_val_inner), {
+      if(is_valid_variable_name(&property_expr), {
+        st_prop_name := ast_expr_token(&property_expr).value;
         st_rtt := match(
           type_val_inner,
           .SomeT(_, _, _, _, rtt, _, _, _, _, _) => rtt,
@@ -1485,7 +1485,7 @@ Raw pointer operations may dereference invalid memory.`
         st_n := candidate_traits.len();
         while((st_idx < st_n) && !st_found, {
           st_trait := match(candidate_traits.get(st_idx), .Some(t) => t, .None => t_unit());
-          if(is_trait_type(st_trait), {
+          if(is_trait_type(&st_trait), {
             st_labels := match(
               st_trait,
               .TraitT(_, _, labels, _, _, _, _, _, _, _) => labels,
@@ -1496,7 +1496,7 @@ Raw pointer operations may dereference invalid memory.`
               .TraitT(_, _, _, types, _, _, _, _, _, _) => types,
               _ => ArrayList(TypeValue).new()
             );
-            st_fidx := find_first_field_index(st_labels, st_prop_name.clone());
+            st_fidx := find_first_field_index(&st_labels, st_prop_name.clone());
             match(
               st_fidx,
               .Some(st_fi) => {
@@ -1513,16 +1513,16 @@ Raw pointer operations may dereference invalid memory.`
                 // carried the constraint, field types carried `Output#85`
                 // with an empty required list).
                 (placeholder_ty : TypeValue) = st_ft;
-                if(is_type_0(st_ft), {
+                if(is_type_0(&st_ft), {
                   (st_env_bound : Option(TypeValue)) = Option(TypeValue).None;
-                  st_env_vars := get_variables_from_env(env, st_prop_name);
+                  st_env_vars := get_variables_from_env(&env, &st_prop_name);
                   if(st_env_vars.len() > usize(0), {
                     match(
                       st_env_vars.last(),
                       .Some(st_ev) => match(
                         st_ev.value.get(usize(0)),
                         .Some(.TypeVal(st_evt)) => {
-                          if(is_some_type(st_evt), {
+                          if(is_some_type(&st_evt), {
                             st_env_bound = Option(TypeValue).Some(st_evt);
                           });
                         },
@@ -1539,15 +1539,15 @@ Raw pointer operations may dereference invalid memory.`
                   );
                 });
                 ev_st := if(
-                  is_type_0(st_ft),
-                  create_type_value(placeholder_ty),
-                  create_unknown_val(st_ft)
+                  is_type_0(&st_ft),
+                  create_type_value(&placeholder_ty),
+                  create_unknown_val(&st_ft)
                 );
-                out_st := new_expr_info(env, st_ft);
+                out_st := new_expr_info(&env, &st_ft);
                 out_st.value = Option(EvalValue).Some(ev_st);
                 out_st.is_accessing_property = Option(bool).Some(true);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_st);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_st);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_st);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_st);
                 st_found = true;
               },
               .None => ()
@@ -1570,7 +1570,7 @@ Raw pointer operations may dereference invalid memory.`
   original_obj_ty := obj_ty_main;
   (base_ty : TypeValue) = obj_ty_main;
   // Dereference pointer chain.
-  while(is_pointer_type(base_ty), {
+  while(is_pointer_type(&base_ty), {
     match(
       base_ty,
       .Pointer(pt) => {
@@ -1585,14 +1585,14 @@ Raw pointer operations may dereference invalid memory.`
   // and the field lookup degenerates to unit. Resolve the shell to its final
   // populated form so `fields_labels`/`fields_types` come from the real struct
   // (no-op for non-structs and populated structs — see resolve_struct_shell).
-  base_ty = resolve_struct_shell(base_ty);
+  base_ty = resolve_struct_shell(&base_ty);
   // Resolve a SomeType value-receiver (e.g. the io.async closure's `io : E`
   // bundle param) to its concrete type from env before field access — E is
   // bound into the closure's body_eval_env by evaluate_anonymous_function.
-  if(is_some_type(base_ty), {
-    resolved_recv := get_value_of_some_type_from_env(env, base_ty);
-    if(!is_some_type(resolved_recv), {
-      base_ty = resolve_struct_shell(resolved_recv);
+  if(is_some_type(&base_ty), {
+    resolved_recv := get_value_of_some_type_from_env(&env, &base_ty);
+    if(!is_some_type(&resolved_recv), {
+      base_ty = resolve_struct_shell(&resolved_recv);
     });
   });
   obj_val_main := match(obj_info_opt, .Some(oi) => oi.value, .None => Option(EvalValue).None);
@@ -1609,10 +1609,10 @@ Raw pointer operations may dereference invalid memory.`
   // total: `.exn` on a bare Io stays a field-miss (there is no exception
   // capability to project). Identity is keyed on the io-builtin side table,
   // so a user struct that merely has an `io` field is untouched.
-  if(is_struct_type(base_ty) && ast_expr_is_atom(property_expr) && (ast_expr_token(property_expr).value == "io"), {
+  if(is_struct_type(&base_ty) && ast_expr_is_atom(&property_expr) && (ast_expr_token(&property_expr).value == "io"), {
     io_proj_sid := match(base_ty, .Struct({ id : ips }) => ips, _ => String.from(""));
     if((io_proj_sid.len() > usize(0)) && lookup_io_builtin_struct_field(io_proj_sid.clone(), String.from("await")).is_some(), {
-      out_io := new_expr_info(env, base_ty);
+      out_io := new_expr_info(&env, &base_ty);
       out_io.value = obj_val_main;
       out_io.variable_name = match(obj_info_opt, .Some(oi_io) => oi_io.variable_name, .None => Option(String).None);
       out_io.path_collection = match(
@@ -1621,15 +1621,15 @@ Raw pointer operations may dereference invalid memory.`
         .None => ArrayList(ArrayList(String)).new()
       );
       out_io.is_accessing_property = Option(bool).Some(true);
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_io);
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_io);
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_io);
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_io);
       return(expr);
     });
   });
   // -------------------------------------------------------------------------
   // Struct / Tuple / Union field access
   // -------------------------------------------------------------------------
-  if(is_tuple_type(base_ty) || is_struct_type(base_ty) || is_union_type(base_ty), {
+  if(is_tuple_type(&base_ty) || is_struct_type(&base_ty) || is_union_type(&base_ty), {
     fields_labels := match(
       base_ty,
       .Tuple(labels, _) => labels,
@@ -1653,36 +1653,36 @@ Raw pointer operations may dereference invalid memory.`
       .Union(pa_uid, _, _) => pa_uid.clone(),
       _ => String.new()
     );
-    if(ast_expr_is_atom(property_expr), {
+    if(ast_expr_is_atom(&property_expr), {
       // --- Union member READ gate (safe mode) ------------------------------
       // A write (`u.x = v`, evaluated with is_lhs_of_assignment) stays legal.
-      pa_union_member := ast_expr_token(property_expr).value;
-      if(is_union_type(base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(property_expr).module_path.clone()), ctx.unsafe_context)), {
-        exn.throw(dyn(format_error_message(ast_expr_token(property_expr), union_member_read_error_message(pa_union_member.clone(), type_to_string(base_ty)))));
+      pa_union_member := ast_expr_token(&property_expr).value;
+      if(is_union_type(&base_ty) && !ctx.is_lhs_of_assignment && (fields_labels.contains(pa_union_member.clone()) && !is_union_member_read_capable(Option(String).Some(ast_expr_token(&property_expr).module_path.clone()), ctx.unsafe_context)), {
+        exn.throw(dyn(format_error_message(ast_expr_token(&property_expr), union_member_read_error_message(pa_union_member.clone(), type_to_string(&base_ty)))));
         return(expr);
       });
       // --- Integer index access (tuple fields only) -----------------------
-      if(ast_expr_token(property_expr).kind == TokenKind.Integer, {
+      if(ast_expr_token(&property_expr).kind == TokenKind.Integer, {
         if(!is_tuple_type(match(obj_info_opt, .Some(oi) => oi.ty, .None => t_unit())), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(property_expr),
+                ast_expr_token(&property_expr),
                 String.from("Accessing tuple field by index is only allowed for tuples.")
               )
             )
           );
           return(expr);
         });
-        idx_str := ast_expr_token(property_expr).value;
+        idx_str := ast_expr_token(&property_expr).value;
         match(
           idx_str.parse_i64(),
           .None => {
             exn.throw(
               dyn(
                 format_error_message(
-                  ast_expr_token(property_expr),
-                  `Expected integer for tuple index, got:\n${ast_expr_to_string(property_expr)}`
+                  ast_expr_token(&property_expr),
+                  `Expected integer for tuple index, got:\n${ast_expr_to_string(&property_expr)}`
                 )
               )
             );
@@ -1695,8 +1695,8 @@ Raw pointer operations may dereference invalid memory.`
               exn.throw(
                 dyn(
                   format_error_message(
-                    ast_expr_token(property_expr),
-                    `Index out of bounds: ${idx_str} for accessing field in:\n${type_to_string(base_ty)}`
+                    ast_expr_token(&property_expr),
+                    `Index out of bounds: ${idx_str} for accessing field in:\n${type_to_string(&base_ty)}`
                   )
                 )
               );
@@ -1704,21 +1704,21 @@ Raw pointer operations may dereference invalid memory.`
             });
             ft_idx := match(fields_types.get(idx), .Some(t) => t, .None => t_unit());
             field_origin_idx := match(
-              match(obj_info_opt, .Some(oi) => expr_info_origin_type(oi), .None => Option(TypeValue).None),
+              match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
               .Some(ot) => ot,
               .None => original_obj_ty
             );
             idx_pc := build_field_path_collection(
               match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
               match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
-              idx_str
+              &idx_str
             );
-            out_idx := new_expr_info(env, ft_idx);
-            expr_info_set_origin_type(out_idx, Option(TypeValue).Some(field_origin_idx));
+            out_idx := new_expr_info(&env, &ft_idx);
+            expr_info_set_origin_type(&out_idx, Option(TypeValue).Some(field_origin_idx));
             out_idx.is_accessing_property = Option(bool).Some(true);
             out_idx.path_collection = idx_pc;
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_idx);
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_idx);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_idx);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_idx);
             // Propagate compile-time value if available.
             match(
               obj_val_main,
@@ -1754,9 +1754,9 @@ Raw pointer operations may dereference invalid memory.`
         );
       });
       // --- Label name access ----------------------------------------------
-      if(is_valid_variable_name(property_expr), {
-        label_str := ast_expr_token(property_expr).value;
-        field_idx_lbl := find_first_field_index(fields_labels, label_str.clone());
+      if(is_valid_variable_name(&property_expr), {
+        label_str := ast_expr_token(&property_expr).value;
+        field_idx_lbl := find_first_field_index(&fields_labels, label_str.clone());
         match(
           field_idx_lbl,
           .None => {
@@ -1764,7 +1764,7 @@ Raw pointer operations may dereference invalid memory.`
               exn.throw(
                 dyn(
                   format_error_message(
-                    ast_expr_token(property_expr),
+                    ast_expr_token(&property_expr),
                     `Module field "${label_str}" not found in module type`
                   )
                 )
@@ -1787,19 +1787,19 @@ Raw pointer operations may dereference invalid memory.`
             // receiver retry in `_try_find_receiver_method`. So the order is
             // wrapper field, wrapper method, payload field, payload method.
             pa_is_callee := is_dot_callee(ast_expr_id(expr));
-            if(!is_pointer_type(original_obj_ty) && deref_target_type(base_ty, env).is_some(), {
+            if(!is_pointer_type(&original_obj_ty) && deref_target_type(&base_ty, &env).is_some(), {
               match(
-                _deref_chain_has_field(base_ty, label_str.clone(), env),
-                .Ok(_) => if(!pa_is_callee || (get_receiver_methods_by_name_from_env(env, label_str.clone(), base_ty, false).len() == usize(0)), {
+                _deref_chain_has_field(&base_ty, label_str.clone(), &env),
+                .Ok(_) => if(!pa_is_callee || (get_receiver_methods_by_name_from_env(&env, label_str.clone(), &base_ty, false).len() == usize(0)), {
                   // The tree's own object node, unless its evaluation
                   // returned a different node that carries the ExprInfo.
                   orig_obj := match(
                     all_args.get(usize(0)),
-                    .Some(a) => cond(expr_info_table_get(ctx.expr_info_table, ast_expr_id(a)).is_some() => a, true => object_expr),
+                    .Some(a) => cond(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)).is_some() => a, true => object_expr),
                     .None => object_expr
                   );
-                  all_args(usize(0)) = make_deref_expr(orig_obj, ast_expr_token(expr), ast_expr_token(property_expr));
-                  obj_id := ast_expr_id(orig_obj);
+                  all_args(usize(0)) = make_deref_expr(&orig_obj, ast_expr_token(expr), ast_expr_token(&property_expr));
+                  obj_id := ast_expr_id(&orig_obj);
                   mark_node_preevaluated(obj_id);
                   rewritten := recur(expr, env_in, ctx, exn);
                   unmark_node_preevaluated(obj_id);
@@ -1811,8 +1811,8 @@ Raw pointer operations may dereference invalid memory.`
                   // method used to win silently. Off inside a specialized
                   // generic body, as `calls/function.yo`'s
                   // `_reject_wrapper_payload_clash` is.
-                  obj_shown := ast_expr_to_string(object_expr);
-                  wrapper_s := type_to_string(base_ty);
+                  obj_shown := ast_expr_to_string(&object_expr);
+                  wrapper_s := type_to_string(&base_ty);
                   ctor := match(
                     wrapper_s.index_of(`(`),
                     .Some(pidx) => wrapper_s.substring(usize(0), pidx),
@@ -1822,7 +1822,7 @@ Raw pointer operations may dereference invalid memory.`
                     dyn(
                       with_code(
                         format_error_message(
-                          ast_expr_token(property_expr),
+                          ast_expr_token(&property_expr),
                           `"${label_str}" is a method of ${wrapper_s} and a field of its payload, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32).\nWrite ${ctor}.${label_str}(${obj_shown}, ...) for the ${ctor}'s own ${label_str}, or ${obj_shown}.*.${label_str}(...) to call the payload's field.`
                         ),
                         E_AMBIGUOUS_METHOD
@@ -1836,10 +1836,10 @@ Raw pointer operations may dereference invalid memory.`
                     dyn(
                       with_code(
                         format_error_message(
-                          ast_expr_token(property_expr),
-                          unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(object_expr), base_ty, innermost, _field_labels_of(innermost))
+                          ast_expr_token(&property_expr),
+                          unknown_field_through_deref_message(label_str.clone(), ast_expr_to_string(&object_expr), &base_ty, &innermost, _field_labels_of(&innermost))
                         ),
-                        unknown_field_code(base_ty)
+                        unknown_field_code(&base_ty)
                       )
                     )
                   );
@@ -1855,7 +1855,7 @@ Raw pointer operations may dereference invalid memory.`
             // read "arg not evaluated", and `(p.xx + i32(1))` passed `check`
             // (issues/fixed/unknown-struct-field-has-no-diagnostic.md).
             if(!pa_is_callee, {
-              exn.throw(dyn(with_code(format_error_message(ast_expr_token(property_expr), unknown_field_message(label_str, base_ty, fields_labels)), unknown_field_code(base_ty))));
+              exn.throw(dyn(with_code(format_error_message(ast_expr_token(&property_expr), unknown_field_message(&label_str, &base_ty, &fields_labels)), unknown_field_code(&base_ty))));
               return(expr);
             });
             // A method call — return without setting ExprInfo.
@@ -1865,12 +1865,12 @@ Raw pointer operations may dereference invalid memory.`
             // The access site is the label TOKEN's module (lexical) — never
             // `env.module_path`, which inside a generic impl body evaluated at
             // call time is the CALLER's module.
-            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), ast_expr_token(property_expr).module_path.clone()), {
+            if(private_member_blocked(label_str.clone(), type_decl_module(pa_vis_type_id.clone()), ast_expr_token(&property_expr).module_path.clone()), {
               exn.throw(
                 dyn(
                   format_error_message(
-                    ast_expr_token(property_expr),
-                    `Field "${label_str}" of ${type_to_string(base_ty)} is private to its declaring module`
+                    ast_expr_token(&property_expr),
+                    `Field "${label_str}" of ${type_to_string(&base_ty)} is private to its declaring module`
                   )
                 )
               );
@@ -1889,14 +1889,14 @@ Raw pointer operations may dereference invalid memory.`
             // method calls through a pointer do not reach the pointee's own
             // methods (E0610), so a pointee METHOD named like a pointer
             // method has no second reading to clash with.
-            if(is_dot_callee(ast_expr_id(expr)) && is_pointer_type(original_obj_ty), {
-              if(get_pointer_own_methods_by_name_from_env(env, label_str.clone(), original_obj_ty).len() > usize(0), {
-                obj_shown := ast_expr_to_string(object_expr);
+            if(is_dot_callee(ast_expr_id(expr)) && is_pointer_type(&original_obj_ty), {
+              if(get_pointer_own_methods_by_name_from_env(&env, label_str.clone(), &original_obj_ty).len() > usize(0), {
+                obj_shown := ast_expr_to_string(&object_expr);
                 exn.throw(
                   dyn(
                     format_error_message(
-                      ast_expr_token(property_expr),
-                      `"${label_str}" is both a field of ${type_to_string(base_ty)} and a method of the raw pointer ${type_to_string(original_obj_ty)}, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32, covering raw pointers per decision 36). Write ${obj_shown}.*.${label_str}(...) to call the pointee's field. For the pointer's own ${label_str} there is no second spelling: a raw pointer is Copy, so for its clone the copy itself, q := ${obj_shown}, is the spelling.`
+                      ast_expr_token(&property_expr),
+                      `"${label_str}" is both a field of ${type_to_string(&base_ty)} and a method of the raw pointer ${type_to_string(&original_obj_ty)}, so ${obj_shown}.${label_str}(...) could mean either (plans/VALUES_BY_DEFAULT.md decision 32, covering raw pointers per decision 36). Write ${obj_shown}.*.${label_str}(...) to call the pointee's field. For the pointer's own ${label_str} there is no second spelling: a raw pointer is Copy, so for its clone the copy itself, q := ${obj_shown}, is the spelling.`
                     )
                   )
                 );
@@ -1905,21 +1905,21 @@ Raw pointer operations may dereference invalid memory.`
             });
             ft_lbl := match(fields_types.get(fi_lbl), .Some(t) => t, .None => t_unit());
             field_origin_lbl := match(
-              match(obj_info_opt, .Some(oi) => expr_info_origin_type(oi), .None => Option(TypeValue).None),
+              match(obj_info_opt, .Some(oi) => expr_info_origin_type(&oi), .None => Option(TypeValue).None),
               .Some(ot) => ot,
               .None => original_obj_ty
             );
             lbl_pc := build_field_path_collection(
               match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
               match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
-              label_str
+              &label_str
             );
-            out_lbl := new_expr_info(env, ft_lbl);
-            expr_info_set_origin_type(out_lbl, Option(TypeValue).Some(field_origin_lbl));
+            out_lbl := new_expr_info(&env, &ft_lbl);
+            expr_info_set_origin_type(&out_lbl, Option(TypeValue).Some(field_origin_lbl));
             out_lbl.is_accessing_property = Option(bool).Some(true);
             out_lbl.path_collection = lbl_pc;
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_lbl);
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_lbl);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_lbl);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_lbl);
             // Propagate compile-time value if available.
             match(
               obj_val_main,
@@ -1931,8 +1931,8 @@ Raw pointer operations may dereference invalid memory.`
                     out_lbl.value = Option(EvalValue).Some(
                       if(
                         ov_lbl_ro,
-                        create_runtime_unknown_val(ft_lbl),
-                        create_unknown_val(ft_lbl)
+                        create_runtime_unknown_val(&ft_lbl),
+                        create_unknown_val(&ft_lbl)
                       )
                     );
                   },
@@ -1969,7 +1969,7 @@ Raw pointer operations may dereference invalid memory.`
                             out_lbl.value = Option(EvalValue).Some(fv);
                           },
                           .None => {
-                            out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
+                            out_lbl.value = Option(EvalValue).Some(create_unknown_val(&ft_lbl));
                           }
                         );
                         // Field access THROUGH A COMPTIME POINTER is a mutable
@@ -1982,7 +1982,7 @@ Raw pointer operations may dereference invalid memory.`
                         // Expected to return a compile-time known value."
                         if(lbl_via_ptr, {
                           expr_info_set_comptime_ref(
-                            out_lbl,
+                            &out_lbl,
                             Option(ComptimeRef).Some(
                               ComptimeRef.TupleRef(flds_l, fi_lbl)
                             )
@@ -1996,13 +1996,13 @@ Raw pointer operations may dereference invalid memory.`
                             out_lbl.value = Option(EvalValue).Some(fv);
                           },
                           .None => {
-                            out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
+                            out_lbl.value = Option(EvalValue).Some(create_unknown_val(&ft_lbl));
                           }
                         );
                         // See the TupleVal arm above.
                         if(lbl_via_ptr, {
                           expr_info_set_comptime_ref(
-                            out_lbl,
+                            &out_lbl,
                             Option(ComptimeRef).Some(
                               ComptimeRef.StructRef(sflds_l, fi_lbl)
                             )
@@ -2010,7 +2010,7 @@ Raw pointer operations may dereference invalid memory.`
                         });
                       },
                       _ => {
-                        out_lbl.value = Option(EvalValue).Some(create_unknown_val(ft_lbl));
+                        out_lbl.value = Option(EvalValue).Some(create_unknown_val(&ft_lbl));
                       }
                     );
                   }
@@ -2029,21 +2029,21 @@ Raw pointer operations may dereference invalid memory.`
   // -------------------------------------------------------------------------
   // Module field access
   // -------------------------------------------------------------------------
-  if(is_module_type(base_ty), {
-    if(ast_expr_is_atom(property_expr), {
-      if(ast_expr_token(property_expr).kind == TokenKind.Integer, {
+  if(is_module_type(&base_ty), {
+    if(ast_expr_is_atom(&property_expr), {
+      if(ast_expr_token(&property_expr).kind == TokenKind.Integer, {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(property_expr),
-              `Accessing module field by index is not allowed, got:\n${ast_expr_to_string(property_expr)}`
+              ast_expr_token(&property_expr),
+              `Accessing module field by index is not allowed, got:\n${ast_expr_to_string(&property_expr)}`
             )
           )
         );
         return(expr);
       });
-      if(is_valid_variable_name(property_expr), {
-        mod_label := ast_expr_token(property_expr).value;
+      if(is_valid_variable_name(&property_expr), {
+        mod_label := ast_expr_token(&property_expr).value;
         // Phase 3 (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6):
         // attribute this module-member read — the enclosing def (forcing
         // top) gains a def-level edge; an ordered statement (empty stack)
@@ -2053,7 +2053,7 @@ Raw pointer operations may dereference invalid memory.`
           .Struct({ id : pa3_sns, is_source_namespace : pa3_is_sns }) => if(pa3_is_sns, {
             match(
               sns_module_of(pa3_sns.clone()),
-              .Some(pa3_target) => record_module_member_read(env.module_path, pa3_target, mod_label.clone()),
+              .Some(pa3_target) => record_module_member_read(&env.module_path, &pa3_target, mod_label.clone()),
               .None => ()
             );
           }),
@@ -2069,7 +2069,7 @@ Raw pointer operations may dereference invalid memory.`
           .Struct({ field_types : types }) => types,
           _ => ArrayList(TypeValue).new()
         );
-        mod_fidx := find_first_field_index(mod_labels_rt, mod_label.clone());
+        mod_fidx := find_first_field_index(&mod_labels_rt, mod_label.clone());
         match(
           mod_fidx,
           .None => {
@@ -2078,7 +2078,7 @@ Raw pointer operations may dereference invalid memory.`
               exn.throw(
                 dyn(
                   format_error_message(
-                    ast_expr_token(property_expr),
+                    ast_expr_token(&property_expr),
                     `Module field "${mod_label}" not found in module type`
                   )
                 )
@@ -2093,13 +2093,13 @@ Raw pointer operations may dereference invalid memory.`
             mod_pc := build_field_path_collection(
               match(obj_info_opt, .Some(oi) => oi.path_collection, .None => ArrayList(ArrayList(String)).new()),
               match(obj_info_opt, .Some(oi) => oi.variable_name, .None => Option(String).None),
-              mod_label
+              &mod_label
             );
-            out_mod := new_expr_info(env, ft_mod);
+            out_mod := new_expr_info(&env, &ft_mod);
             out_mod.is_accessing_property = Option(bool).Some(true);
             out_mod.path_collection = mod_pc;
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_mod);
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_mod);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_mod);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_mod);
             // Propagate compile-time value.
             match(
               obj_val_main,
@@ -2111,8 +2111,8 @@ Raw pointer operations may dereference invalid memory.`
                     out_mod.value = Option(EvalValue).Some(
                       if(
                         ov_mod_ro,
-                        create_runtime_unknown_val(ft_mod),
-                        create_unknown_val(ft_mod)
+                        create_runtime_unknown_val(&ft_mod),
+                        create_unknown_val(&ft_mod)
                       )
                     );
                   },
@@ -2123,12 +2123,12 @@ Raw pointer operations may dereference invalid memory.`
                         out_mod.value = Option(EvalValue).Some(mfv);
                       },
                       .None => {
-                        out_mod.value = Option(EvalValue).Some(create_unknown_val(ft_mod));
+                        out_mod.value = Option(EvalValue).Some(create_unknown_val(&ft_mod));
                       }
                     );
                   },
                   _ => {
-                    out_mod.value = Option(EvalValue).Some(create_unknown_val(ft_mod));
+                    out_mod.value = Option(EvalValue).Some(create_unknown_val(&ft_mod));
                   }
                 );
               },
@@ -2143,7 +2143,7 @@ Raw pointer operations may dereference invalid memory.`
                 mod_sid := match(base_ty, .Struct({ id : msid }) => msid, _ => String.from(""));
                 (mod_reg_val : Option(EvalValue)) = Option(EvalValue).None;
                 match(
-                  get_struct_fields(mod_sid),
+                  get_struct_fields(&mod_sid),
                   .Some(mod_tfs) => match(
                     mod_tfs.get(fi_mod),
                     .Some(mod_tf) => {
@@ -2156,7 +2156,7 @@ Raw pointer operations may dereference invalid memory.`
                 out_mod.value = match(
                   mod_reg_val,
                   .Some(av) => Option(EvalValue).Some(av),
-                  .None => Option(EvalValue).Some(create_unknown_val(ft_mod))
+                  .None => Option(EvalValue).Some(create_unknown_val(&ft_mod))
                 );
               }
             );
@@ -2169,27 +2169,27 @@ Raw pointer operations may dereference invalid memory.`
   // -------------------------------------------------------------------------
   // Enum selected-variant field access
   // -------------------------------------------------------------------------
-  if(is_enum_type(base_ty), {
-    if(ast_expr_is_atom(property_expr), {
-      if(!is_valid_variable_name(property_expr), {
+  if(is_enum_type(&base_ty), {
+    if(ast_expr_is_atom(&property_expr), {
+      if(!is_valid_variable_name(&property_expr), {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(property_expr),
-              `Expected identifier for enum variant property, got:\n${ast_expr_to_string(property_expr)}`
+              ast_expr_token(&property_expr),
+              `Expected identifier for enum variant property, got:\n${ast_expr_to_string(&property_expr)}`
             )
           )
         );
         return(expr);
       });
-      prop_name_ev := ast_expr_token(property_expr).value;
+      prop_name_ev := ast_expr_token(&property_expr).value;
       match(
         base_ty,
         .EnumT(_, _, ev_vnames, ev_vfields, ev_sel, ev_vflabels, _, _, _, _) => {
           match(
             ev_sel,
             .Some(sel_vname) => {
-              sel_vi_opt := find_first_field_index(ev_vnames, sel_vname.clone());
+              sel_vi_opt := find_first_field_index(&ev_vnames, sel_vname.clone());
               match(
                 sel_vi_opt,
                 .Some(sel_vi) => {
@@ -2203,7 +2203,7 @@ Raw pointer operations may dereference invalid memory.`
                     .Some(ft) => ft,
                     .None => ArrayList(TypeValue).new()
                   );
-                  prop_fidx_ev := find_first_field_index(vfl, prop_name_ev.clone());
+                  prop_fidx_ev := find_first_field_index(&vfl, prop_name_ev.clone());
                   match(
                     prop_fidx_ev,
                     .None => {
@@ -2221,11 +2221,11 @@ Raw pointer operations may dereference invalid memory.`
                       ep_path.push(ep_obj_vname);
                       ep_path.push(prop_name_ev);
                       enum_pc.push(ep_path);
-                      out_ev := new_expr_info(env, ft_ev);
+                      out_ev := new_expr_info(&env, &ft_ev);
                       out_ev.path_collection = enum_pc;
                       out_ev.is_accessing_property = Option(bool).Some(true);
-                      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_ev);
-                      expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), out_ev);
+                      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_ev);
+                      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &out_ev);
                       // Propagate compile-time enum value.
                       match(
                         obj_val_main,
@@ -2273,7 +2273,7 @@ Raw pointer operations may dereference invalid memory.`
               while(dv_i < ev_vflabels.len(), {
                 dv_fl := match(ev_vflabels.get(dv_i), .Some(fl) => fl, .None => ArrayList(String).new());
                 match(
-                  find_first_field_index(dv_fl, prop_name_ev.clone()),
+                  find_first_field_index(&dv_fl, prop_name_ev.clone()),
                   .Some(_) => {
                     n_dv = (n_dv + usize(1));
                     dv_idx = dv_i;
@@ -2285,7 +2285,7 @@ Raw pointer operations may dereference invalid memory.`
               if(n_dv == usize(1), {
                 dv_vfl := match(ev_vflabels.get(dv_idx), .Some(fl) => fl, .None => ArrayList(String).new());
                 dv_vft := match(ev_vfields.get(dv_idx), .Some(ft) => ft, .None => ArrayList(TypeValue).new());
-                dv_pfi := match(find_first_field_index(dv_vfl, prop_name_ev.clone()), .Some(i) => i, .None => usize(0));
+                dv_pfi := match(find_first_field_index(&dv_vfl, prop_name_ev.clone()), .Some(i) => i, .None => usize(0));
                 dv_ft := match(dv_vft.get(dv_pfi), .Some(t) => t, .None => t_unit());
                 dv_pc := ArrayList(ArrayList(String)).new();
                 dv_path := ArrayList(String).new();
@@ -2297,11 +2297,11 @@ Raw pointer operations may dereference invalid memory.`
                 dv_path.push(dv_obj_vname);
                 dv_path.push(prop_name_ev);
                 dv_pc.push(dv_path);
-                dv_out := new_expr_info(env, dv_ft);
+                dv_out := new_expr_info(&env, &dv_ft);
                 dv_out.path_collection = dv_pc;
                 dv_out.is_accessing_property = Option(bool).Some(true);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), dv_out);
-                expr_info_table_set(ctx.expr_info_table, ast_expr_id(property_expr), dv_out);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &dv_out);
+                expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&property_expr), &dv_out);
                 match(
                   obj_val_main,
                   .Some(eov) => match(
@@ -2338,11 +2338,11 @@ Raw pointer operations may dereference invalid memory.`
   // -------------------------------------------------------------------------
   if(debug_knob(`YO_DEBUG_CTFE`).is_some(), {
     pa_obj_ty := match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(object_expr)),
-      .Some(pa_oi) => type_to_string(pa_oi.ty),
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&object_expr)),
+      .Some(pa_oi) => type_to_string(&pa_oi.ty),
       .None => String.from("<no-info>")
     );
-    eprintln(`[pa-fallthrough] prop=${ast_expr_token(property_expr).value} obj_ty=${pa_obj_ty}`);
+    eprintln(`[pa-fallthrough] prop=${ast_expr_token(&property_expr).value} obj_ty=${pa_obj_ty}`);
   });
   expr
 });

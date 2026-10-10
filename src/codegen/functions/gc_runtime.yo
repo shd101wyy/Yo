@@ -36,9 +36,9 @@ _collect_unwind_value_ctypes_from_expr :: (fn(imm(expr) : AstExpr, imm(context) 
       .FnCall(_, _, args, _, _) => match(
         args.get(usize(0)),
         .Some(arg0) => match(
-          context.base.get_expr_info(arg0),
-          .Some(ei) => if(!is_unit_type(ei.ty), {
-            out.push(get_type_string(ei.ty, context.base));
+          context.base.get_expr_info(&arg0),
+          .Some(ei) => if(!is_unit_type(&ei.ty), {
+            out.push(get_type_string(&ei.ty, &context.base));
           }),
           .None => ()
         ),
@@ -57,7 +57,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(imm(expr) : AstExpr, imm(context) 
           match(
             args.get(ai),
             .Some(arg) => {
-              sub := recur(arg, context);
+              sub := recur(&arg, context);
               sn := sub.len();
               (sj : usize) = usize(0);
               while(sj < sn, {
@@ -75,7 +75,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(imm(expr) : AstExpr, imm(context) 
           );
           ai = (ai + usize(1));
         });
-        fsub := recur(func, context);
+        fsub := recur(&func, context);
         fn := fsub.len();
         (fk : usize) = usize(0);
         while(fk < fn, {
@@ -106,7 +106,7 @@ collect_unwind_value_ctypes :: (fn(imm(context) : FunctionGenerationContext) -> 
       .Some(entry) => match(
         entry.value,
         .FuncVal(__fvd1, _) => {
-          found := _collect_unwind_value_ctypes_from_expr(__fvd1.*.body, context);
+          found := _collect_unwind_value_ctypes_from_expr(&__fvd1.*.body, context);
           fnlen := found.len();
           (fj : usize) = usize(0);
           while(fj < fnlen, {
@@ -198,7 +198,7 @@ emit_unwind_value_buffer :: (fn(imm(context) : FunctionGenerationContext) -> uni
     decl.push_str("#define __yo_unwind_value ((char*)&__yo_unwind_value_storage)");
   });
   decl.push_str("\n#define __YO_UNWIND_VALUE_SIZE sizeof(__yo_unwind_value_storage)");
-  em.emit_declaration_string_line(decl);
+  em.emit_declaration_string_line(&decl);
 });
 // ---------------------------------------------------------------------------
 // emitTaskAbortRegistry
@@ -702,7 +702,7 @@ static inline void __yo_dyn_release(void* data, const void* vtable) {
 // (__yo_current_thread_gc + thresholds are declared earlier, before __yo_decr_rc)
 static __yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of all thread GC states (for cleanup)`
   );
-  if(is_target_windows(ti), {
+  if(is_target_windows(&ti), {
     em.emit_string_line(`static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex;`);
   }, {
     em.emit_string_line(`static __YO_THREAD_SYNC_TYPE __yo_thread_list_mutex = __YO_THREAD_SYNC_INIT;`);
@@ -710,7 +710,7 @@ static __yo_thread_gc_state_t* __yo_all_thread_gcs = NULL;  // Global list of al
   em.emit_string_line(
     `// Thread cleanup infrastructure`
   );
-  if(is_target_windows(ti), {
+  if(is_target_windows(&ti), {
     em.emit_string_line(
       `// Windows: Use native TLS API instead of C11 tss_t (better compiler support)
 static DWORD __yo_thread_cleanup_key = TLS_OUT_OF_INDEXES;
@@ -753,7 +753,7 @@ static void __yo_init_thread_gc() {
   if (__yo_current_thread_gc != NULL) return;
 `
   );
-  if(is_target_windows(ti), {
+  if(is_target_windows(&ti), {
     em.emit_string_line(
       `  __yo_init_thread_cleanup_key();
   if (__yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
@@ -1252,7 +1252,7 @@ static void __yo_process_cleanup(void) {
   }
 `
   );
-  if(is_target_windows(ti), {
+  if(is_target_windows(&ti), {
     em.emit_string_line(
       `  if (__yo_thread_cleanup_key != TLS_OUT_OF_INDEXES) {
     TlsFree(__yo_thread_cleanup_key);
@@ -1267,7 +1267,7 @@ static void __yo_process_cleanup(void) {
     );
   });
   em.emit_string_line(`}`);
-  if(is_target_windows(ti), {
+  if(is_target_windows(&ti), {
     em.emit_string_line(
       `static INIT_ONCE __yo_process_cleanup_once = INIT_ONCE_STATIC_INIT;
 static BOOL CALLBACK __yo_process_cleanup_init_callback(PINIT_ONCE InitOnce, PVOID Parameter, PVOID *Context) {

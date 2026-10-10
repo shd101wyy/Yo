@@ -57,7 +57,7 @@ _copy_skills_file :: (
     imm(exn) : Exception
   ) -> unit
 )({
-  existed := io.await(exists(dest.clone(), io), io);
+  existed := io.await(exists(dest.clone(), io), &io);
   io.await(copy(src.clone(), dest.clone(), io), IoExn(io : io, exn : exn));
   if(existed, {
     println(`  overwrite  ${display}`);
@@ -117,7 +117,7 @@ _copy_skills_dir :: (
       if(md.is_dir(), {
         stack.push({ src : src_entry, dest : dest_entry, prefix : display });
       }, {
-        _copy_skills_file(src_entry, dest_entry, display, counters, io, exn);
+        _copy_skills_file(&src_entry, &dest_entry, &display, counters, io, exn);
       });
       j = (j + usize(1));
     });
@@ -135,12 +135,12 @@ _skill_description :: (
   ) -> String
 )({
   (desc : String) = String.from("");
-  present := io.await(exists(skill_md.clone(), io), io);
+  present := io.await(exists(skill_md.clone(), io), &io);
   if(!present, {
     return(desc);
   });
   content := io.await(read_to_string(skill_md.clone(), io), IoExn(io : io, exn : exn));
-  description_from_frontmatter(content)
+  description_from_frontmatter(&content)
 });
 /// The pure half of `_skill_description`: pull `description:` out of a
 /// SKILL.md's YAML frontmatter. Split from the file read so it can be tested
@@ -167,7 +167,7 @@ description_from_frontmatter :: (fn(imm(content) : String) -> String)({
           in_frontmatter = false;
           closed = true;
         },
-        line.starts_with(key) => {
+        line.starts_with(&key) => {
           desc = line.substring(key.len(), line.len()).trim();
         },
         true => ()
@@ -200,7 +200,7 @@ _find_bundled_skills_dir :: (
   override := env.get(String.from("YO_SKILLS"));
   if(override.is_some(), {
     p := Path.new(override.unwrap_or(String.from(".")));
-    pinned := io.await(exists(p.clone(), io), io);
+    pinned := io.await(exists(p.clone(), io), &io);
     if(pinned, {
       md := io.await(metadata(p.clone(), io), IoExn(io : io, exn : exn));
       if(md.is_dir(), {
@@ -229,7 +229,7 @@ _find_bundled_skills_dir :: (
     (i : usize) = usize(0);
     while(i < anc.len(), {
       candidate := anc(i).join(Path.new(String.from(".github"))).join(Path.new(String.from("skills")));
-      found := io.await(exists(candidate.clone(), io), io);
+      found := io.await(exists(candidate.clone(), io), &io);
       if(found, {
         md := io.await(metadata(candidate.clone(), io), IoExn(io : io, exn : exn));
         if(md.is_dir(), {
@@ -316,7 +316,7 @@ install_skills_into :: (
   while(i < project_agent_dirs.len(), {
     d := project_agent_dirs(i);
     p := project.join(Path.new(d.clone()));
-    present := io.await(exists(p.clone(), io), io);
+    present := io.await(exists(p.clone(), io), &io);
     if(present, {
       md := io.await(metadata(p.clone(), io), IoExn(io : io, exn : exn));
       if(md.is_dir(), {
@@ -343,9 +343,9 @@ install_skills_into :: (
       display := `${parent}/skills/${name}`;
       md := io.await(metadata(src_entry.clone(), io), IoExn(io : io, exn : exn));
       if(md.is_dir(), {
-        _copy_skills_dir(src_entry, dest_entry, display, counters, io, exn);
+        _copy_skills_dir(&src_entry, &dest_entry, &display, &counters, io, exn);
       }, {
-        _copy_skills_file(src_entry, dest_entry, display, counters, io, exn);
+        _copy_skills_file(&src_entry, &dest_entry, &display, &counters, io, exn);
       });
       e = (e + usize(1));
     });
@@ -428,6 +428,6 @@ run_skills_install :: (
   if(res.skills.len() == usize(0), {
     return(());
   });
-  print_skills_summary(res);
+  print_skills_summary(&res);
 });
 export(run_skills_install, install_skills_into, print_skills_summary, description_from_frontmatter, SkillEntry, SkillsInstallResult);

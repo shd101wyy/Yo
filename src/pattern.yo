@@ -120,7 +120,7 @@ register_match_arms :: (fn(match_id : usize, imm(arms) : ArrayList(Arm)) -> unit
   _old := g_match_arms.insert(match_id, arms);
   record_owned_expr_id(match_id);
 });
-lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_arms.get(match_id));
+lookup_match_arms :: (fn(match_id : usize) -> Option(ArrayList(Arm)))(g_match_arms.get(&match_id));
 /// Drop the compiled arms of the given match ids (a removed module's
 /// `take_owned_expr_ids`).
 purge_match_arms :: (fn(imm(ids) : ArrayList(usize)) -> unit)({
@@ -129,7 +129,7 @@ purge_match_arms :: (fn(imm(ids) : ArrayList(usize)) -> unit)({
     match(
       ids.get(i),
       .Some(id) => {
-        _r := g_match_arms.remove(id);
+        _r := g_match_arms.remove(&id);
       },
       .None => ()
     );
@@ -168,8 +168,8 @@ gadt_branch_reachable :: (fn(imm(enum_id) : String, variant_idx : usize) -> bool
         while((k < tca.len()) && reachable, {
           tk := gadt_resolve_tca_entry(match(tca.get(k), .Some(t) => t, .None => TypeValue.Unit));
           gk := match(gra.get(k), .Some(g) => g, .None => TypeValue.Unit);
-          if(!is_some_type(tk), {
-            if(!are_types_compatible(tk, gk), {
+          if(!is_some_type(&tk), {
+            if(!are_types_compatible(&tk, &gk), {
               reachable = false;
             });
           });
@@ -190,11 +190,11 @@ gadt_branch_reachable :: (fn(imm(enum_id) : String, variant_idx : usize) -> bool
 norm_position_type :: (fn(imm(t) : TypeValue) -> TypeValue)({
   inner := match(t, .Pointer(p) => p, _ => t);
   inner2 := match(
-    is_box_type(inner),
-    true => match(box_inner_type(inner), .Some(bi) => bi, .None => inner),
+    is_box_type(&inner),
+    true => match(box_inner_type(&inner), .Some(bi) => bi, .None => inner),
     false => inner
   );
-  resolve_enum_shell(inner2)
+  resolve_enum_shell(&inner2)
 });
 /// True when the struct's single field is labeled `*` (the Rc shape).
 _box_shaped :: (fn(imm(fls) : ArrayList(String), imm(fts) : ArrayList(TypeValue)) -> bool)(
@@ -211,7 +211,7 @@ box_inner_type :: (fn(imm(t) : TypeValue) -> Option(TypeValue))(
   match(
     t,
     .Struct({ field_labels : fls, field_types : fts }) => cond(
-      _box_shaped(fls, fts) => match(
+      _box_shaped(&fls, &fts) => match(
         fts.get(usize(0)),
         .Some(ft) => Option(TypeValue).Some(ft),
         .None => Option(TypeValue).None
@@ -287,7 +287,7 @@ _push_names :: (fn(imm(p) : Pattern, mut(out) : ArrayList(String)) -> unit)({
         match(
           subs.get(i),
           .Some(s) => {
-            recur(s, out);
+            recur(&s, out);
           },
           .None => ()
         );
@@ -300,17 +300,17 @@ _push_names :: (fn(imm(p) : Pattern, mut(out) : ArrayList(String)) -> unit)({
       match(
         alts.get(usize(0)),
         .Some(a0) => {
-          recur(a0, out);
+          recur(&a0, out);
         },
         .None => ()
       );
     },
     .At(name, _, _, sub) => {
       out.push(name.clone());
-      recur(sub, out);
+      recur(&sub, out);
     },
     .ThroughBox(_, _, sub) => {
-      recur(sub, out);
+      recur(&sub, out);
     },
     .Tuple(subs, _) => {
       (i : usize) = usize(0);
@@ -318,7 +318,7 @@ _push_names :: (fn(imm(p) : Pattern, mut(out) : ArrayList(String)) -> unit)({
         match(
           subs.get(i),
           .Some(s) => {
-            recur(s, out);
+            recur(&s, out);
           },
           .None => ()
         );
@@ -331,7 +331,7 @@ _push_names :: (fn(imm(p) : Pattern, mut(out) : ArrayList(String)) -> unit)({
         match(
           subs.get(i),
           .Some(s) => {
-            recur(s, out);
+            recur(&s, out);
           },
           .None => ()
         );
@@ -343,7 +343,7 @@ _push_names :: (fn(imm(p) : Pattern, mut(out) : ArrayList(String)) -> unit)({
 /// The names a pattern binds, in source order.
 pattern_bindings :: (fn(imm(p) : Pattern) -> ArrayList(String))({
   out := ArrayList(String).new();
-  _push_names(p, out);
+  _push_names(p, &mut out);
   out
 });
 /// True when the pattern matches every value of its type.
@@ -362,7 +362,7 @@ pattern_is_irrefutable :: (fn(imm(p) : Pattern) -> bool)(
         match(
           alts.get(i),
           .Some(a) => {
-            any_irref = recur(a);
+            any_irref = recur(&a);
           },
           .None => ()
         );
@@ -370,10 +370,10 @@ pattern_is_irrefutable :: (fn(imm(p) : Pattern) -> bool)(
       });
       any_irref
     },
-    .At(_, _, _, sub) => recur(sub),
-    .ThroughBox(_, _, sub) => recur(sub),
-    .Tuple(subs, _) => _all_subs_irrefutable(subs),
-    .Struct(_, _, subs, _) => _all_subs_irrefutable(subs)
+    .At(_, _, _, sub) => recur(&sub),
+    .ThroughBox(_, _, sub) => recur(&sub),
+    .Tuple(subs, _) => _all_subs_irrefutable(&subs),
+    .Struct(_, _, subs, _) => _all_subs_irrefutable(&subs)
   )
 );
 /// Every sub-pattern of `subs` is irrefutable (a single-constructor
@@ -385,7 +385,7 @@ _all_subs_irrefutable :: (fn(imm(subs) : ArrayList(Pattern)) -> bool)({
     match(
       subs.get(i),
       .Some(s) => {
-        ok = pattern_is_irrefutable(s);
+        ok = pattern_is_irrefutable(&s);
       },
       .None => ()
     );
@@ -399,8 +399,8 @@ pattern_to_string :: (fn(imm(p) : Pattern) -> String)(
     p,
     .Wildcard => String.from("_"),
     .Bind(name, _, _) => name.clone(),
-    .Const(_, _, src, _, _) => ast_expr_to_string(src),
-    .Range(src, _, _, _, _, _, _) => ast_expr_to_string(src),
+    .Const(_, _, src, _, _) => ast_expr_to_string(&src),
+    .Range(src, _, _, _, _, _, _) => ast_expr_to_string(&src),
     .Variant(name, _, field_idx, subs, enum_ty, _, arity) => {
       out := String.from(".");
       out.push_string(name.clone());
@@ -420,14 +420,14 @@ pattern_to_string :: (fn(imm(p) : Pattern) -> String)(
               match(
                 subs.get(si),
                 .Some(s) => {
-                  sub_str = recur(s);
+                  sub_str = recur(&s);
                 },
                 .None => ()
               );
             });
             si = (si + usize(1));
           });
-          out.push_string(sub_str);
+          out.push_string(&sub_str);
           fi = (fi + usize(1));
         });
         out.push_str(")");
@@ -444,7 +444,7 @@ pattern_to_string :: (fn(imm(p) : Pattern) -> String)(
         match(
           alts.get(i),
           .Some(a) => {
-            out.push_string(recur(a));
+            out.push_string(recur(&a));
           },
           .None => ()
         );
@@ -457,11 +457,11 @@ pattern_to_string :: (fn(imm(p) : Pattern) -> String)(
       out := String.from("(");
       out.push_string(name.clone());
       out.push_str(" := ");
-      out.push_string(recur(sub));
+      out.push_string(recur(&sub));
       out.push_str(")");
       out
     },
-    .ThroughBox(_, _, sub) => recur(sub),
+    .ThroughBox(_, _, sub) => recur(&sub),
     .Tuple(subs, _) => {
       out := String.from("(");
       (i : usize) = usize(0);
@@ -472,7 +472,7 @@ pattern_to_string :: (fn(imm(p) : Pattern) -> String)(
         match(
           subs.get(i),
           .Some(s) => {
-            out.push_string(recur(s));
+            out.push_string(recur(&s));
           },
           .None => ()
         );
@@ -482,7 +482,7 @@ pattern_to_string :: (fn(imm(p) : Pattern) -> String)(
       out
     },
     .Struct(struct_ty, field_idx, subs, arity) => {
-      out := _struct_type_name(struct_ty);
+      out := _struct_type_name(&struct_ty);
       out.push_str("(");
       (fi : usize) = usize(0);
       while(fi < arity, {
@@ -490,11 +490,11 @@ pattern_to_string :: (fn(imm(p) : Pattern) -> String)(
           out.push_str(", ");
         });
         lbl := match(
-          _struct_field_labels(struct_ty).get(fi),
+          _struct_field_labels(&struct_ty).get(fi),
           .Some(l) => l.clone(),
           .None => String.from("_")
         );
-        out.push_string(lbl);
+        out.push_string(&lbl);
         out.push_str(" : ");
         (sub_str : String) = String.from("_");
         (si : usize) = usize(0);
@@ -503,14 +503,14 @@ pattern_to_string :: (fn(imm(p) : Pattern) -> String)(
             match(
               subs.get(si),
               .Some(s) => {
-                sub_str = recur(s);
+                sub_str = recur(&s);
               },
               .None => ()
             );
           });
           si = (si + usize(1));
         });
-        out.push_string(sub_str);
+        out.push_string(&sub_str);
         fi = (fi + usize(1));
       });
       out.push_str(")");
@@ -659,11 +659,11 @@ _expand_row_heads :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayList
             (.At(_, _, _, sub) | .ThroughBox(_, _, sub)) => {
               nr := ArrayList(Pattern).new();
               nr.push(sub);
-              rest := _tail_patterns(row);
+              rest := _tail_patterns(&row);
               // Re-run on the rewritten row (the sub may be an Or).
               one := ArrayList(ArrayList(Pattern)).new();
-              one.push(_concat_patterns(nr, rest));
-              expanded := recur(one);
+              one.push(_concat_patterns(&nr, &rest));
+              expanded := recur(&one);
               (k : usize) = usize(0);
               while(k < expanded.len(), {
                 match(
@@ -677,7 +677,7 @@ _expand_row_heads :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayList
               });
             },
             .Or(alts) => {
-              rest := _tail_patterns(row);
+              rest := _tail_patterns(&row);
               (ai : usize) = usize(0);
               while(ai < alts.len(), {
                 match(
@@ -686,8 +686,8 @@ _expand_row_heads :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayList
                     nr := ArrayList(Pattern).new();
                     nr.push(alt);
                     one := ArrayList(ArrayList(Pattern)).new();
-                    one.push(_concat_patterns(nr, rest));
-                    expanded := recur(one);
+                    one.push(_concat_patterns(&nr, &rest));
+                    expanded := recur(&one);
                     (k : usize) = usize(0);
                     while(k < expanded.len(), {
                       match(
@@ -725,10 +725,10 @@ _expand_row_heads :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayList
 _const_key :: (fn(imm(p) : Pattern) -> String)(
   match(
     p,
-    .Const(v, _, _, _, _) => value_to_string(v),
+    .Const(v, _, _, _, _) => value_to_string(&v),
     .Range(src, _, _, _, _, _, _) => {
       k := String.from("range:");
-      k.push_string(ast_expr_to_string(src));
+      k.push_string(ast_expr_to_string(&src));
       k
     },
     _ => String.new()
@@ -764,14 +764,14 @@ _specialize_variant :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), imm(name) 
         row.get(usize(0)),
         .Some(.Variant(vn, _, fidx, subs, _, _, _)) => {
           if(vn == name, {
-            out.push(_concat_patterns(_variant_full_subs(fidx, subs, arity), _tail_patterns(row)));
+            out.push(_concat_patterns(_variant_full_subs(&fidx, &subs, arity), _tail_patterns(&row)));
           });
         },
         .Some(.Wildcard) => {
-          out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
+          out.push(_concat_patterns(_wildcards(arity), _tail_patterns(&row)));
         },
         .Some(.Bind(_, _, _)) => {
-          out.push(_concat_patterns(_wildcards(arity), _tail_patterns(row)));
+          out.push(_concat_patterns(_wildcards(arity), _tail_patterns(&row)));
         },
         .Some(_) => (),
         .None => ()
@@ -797,16 +797,16 @@ _specialize_aggregate :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), n : usiz
         .Some(head) => match(
           head,
           .Tuple(subs, _) => {
-            out.push(_concat_patterns(subs, _tail_patterns(row)));
+            out.push(_concat_patterns(&subs, _tail_patterns(&row)));
           },
           .Struct(_, fidx, subs, arity) => {
-            out.push(_concat_patterns(_variant_full_subs(fidx, subs, arity), _tail_patterns(row)));
+            out.push(_concat_patterns(_variant_full_subs(&fidx, &subs, arity), _tail_patterns(&row)));
           },
           .Wildcard => {
-            out.push(_concat_patterns(_wildcards(n), _tail_patterns(row)));
+            out.push(_concat_patterns(_wildcards(n), _tail_patterns(&row)));
           },
           .Bind(_, _, _) => {
-            out.push(_concat_patterns(_wildcards(n), _tail_patterns(row)));
+            out.push(_concat_patterns(_wildcards(n), _tail_patterns(&row)));
           },
           _ => ()
         ),
@@ -828,12 +828,12 @@ _specialize_const :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), imm(key) : S
       .Some(row) => match(
         row.get(usize(0)),
         .Some(head) => {
-          if(_head_is_wild(head), {
-            out.push(_tail_patterns(row));
+          if(_head_is_wild(&head), {
+            out.push(_tail_patterns(&row));
           }, {
-            hk := _const_key(head);
+            hk := _const_key(&head);
             if((hk.len() > usize(0)) && (hk == key), {
-              out.push(_tail_patterns(row));
+              out.push(_tail_patterns(&row));
             });
           });
         },
@@ -855,8 +855,8 @@ _default_matrix :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayList(A
       .Some(row) => match(
         row.get(usize(0)),
         .Some(head) => {
-          if(_head_is_wild(head), {
-            out.push(_tail_patterns(row));
+          if(_head_is_wild(&head), {
+            out.push(_tail_patterns(&row));
           });
         },
         .None => ()
@@ -921,7 +921,7 @@ _render_variant_witness :: (fn(imm(name) : String, arity : usize, imm(w) : Array
     );
     k = (k + usize(1));
   });
-  _cons_str(head, rest)
+  _cons_str(&head, &rest)
 });
 /// Render a tuple witness from the first `n` entries of `w`, returning the
 /// full vector (`(a, b)` prepended to the remaining columns).
@@ -954,7 +954,7 @@ _render_tuple_witness :: (fn(imm(w) : ArrayList(String), n : usize) -> ArrayList
     );
     k = (k + usize(1));
   });
-  _cons_str(head, rest)
+  _cons_str(&head, &rest)
 });
 /// Render a struct witness `S(label : w, …)` from the first `n` entries of
 /// `w` (every field rendered, `_` included — like the variant renderer).
@@ -997,7 +997,7 @@ _render_struct_witness :: (fn(imm(struct_ty) : TypeValue, imm(w) : ArrayList(Str
     );
     k = (k + usize(1));
   });
-  _cons_str(head, rest)
+  _cons_str(&head, &rest)
 });
 /// Does the head column of `rows` name every variant of `enum_ty` that has
 /// values? With `gadt_exact` a variant the enum's GADT index excludes has
@@ -1131,7 +1131,7 @@ _present_bool_consts :: (fn(imm(rows) : ArrayList(ArrayList(Pattern))) -> ArrayL
         .Some(head) => match(
           head,
           .Const(_, _, _, _, _) => {
-            k := _const_key(head);
+            k := _const_key(&head);
             (dup : bool) = false;
             (si : usize) = usize(0);
             while((si < seen.len()) && !dup, {
@@ -1193,7 +1193,7 @@ _int_key :: (fn(imm(v) : EvalValue, d : _IntDomain) -> Option(u64))(
   match(
     v,
     .IntLit(raw) => match(
-      parse_raw_int(raw),
+      parse_raw_int(&raw),
       .Some(bits) => Option(u64).Some(cond(d.signed => (u64(bits) ^ _KEY_SIGN), true => u64(bits))),
       .None => Option(u64).None
     ),
@@ -1214,13 +1214,13 @@ _iv_head :: (fn(imm(p) : Pattern, d : _IntDomain) -> _IvHead)(
   match(
     p,
     .Const(v, _, _, _, _) => match(
-      _int_key(v, d),
+      _int_key(&v, d),
       .Some(k) => _iv_of_keys(k, k, d),
       .None => _IvHead.NotInt
     ),
     .Range(_, _, _, _, lo_v, hi_v, inclusive) => {
-      lo_k := match(lo_v, .Some(v) => _int_key(v, d), .None => Option(u64).None);
-      hi_k := match(hi_v, .Some(v) => _int_key(v, d), .None => Option(u64).None);
+      lo_k := match(lo_v, .Some(v) => _int_key(&v, d), .None => Option(u64).None);
+      hi_k := match(hi_v, .Some(v) => _int_key(&v, d), .None => Option(u64).None);
       match(
         lo_k,
         .Some(l) => match(
@@ -1252,7 +1252,7 @@ _int_column_ok :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), imm(head) : Pat
       .Some(row) => match(
         row.get(usize(0)),
         .Some(rh) => {
-          if(!_head_is_wild(rh) && match(_iv_head(rh, d), .NotInt => true, _ => false), {
+          if(!_head_is_wild(&rh) && match(_iv_head(&rh, d), .NotInt => true, _ => false), {
             return(false);
           });
         },
@@ -1295,14 +1295,14 @@ _specialize_key :: (fn(imm(rows) : ArrayList(ArrayList(Pattern)), k : u64, d : _
       .Some(row) => match(
         row.get(usize(0)),
         .Some(head) => {
-          if(_head_is_wild(head), {
-            out.push(_tail_patterns(row));
+          if(_head_is_wild(&head), {
+            out.push(_tail_patterns(&row));
           }, {
             match(
-              _iv_head(head, d),
+              _iv_head(&head, d),
               .Iv(l, h) => {
                 if((l <= k) && (k <= h), {
-                  out.push(_tail_patterns(row));
+                  out.push(_tail_patterns(&row));
                 });
               },
               _ => ()
@@ -1368,11 +1368,11 @@ _useful_int :: (
       .Some(row) => match(
         row.get(usize(0)),
         .Some(rh) => match(
-          _iv_head(rh, d),
+          _iv_head(&rh, d),
           .Iv(l, h) => {
-            _add_cut(cuts, l, q_lo, q_hi);
+            _add_cut(&mut cuts, l, q_lo, q_hi);
             if(h < q_hi, {
-              _add_cut(cuts, h + u64(1), q_lo, q_hi);
+              _add_cut(&mut cuts, h + u64(1), q_lo, q_hi);
             });
           },
           _ => ()
@@ -1391,7 +1391,7 @@ _useful_int :: (
     match(
       _useful(_specialize_key(rows, seg_lo, d), q_rest, tys_rest, gadt_exact),
       .Some(w) => {
-        return(Option(ArrayList(String)).Some(_cons_str(_render_keys(seg_lo, seg_hi, d), w)));
+        return(Option(ArrayList(String)).Some(_cons_str(_render_keys(seg_lo, seg_hi, d), &w)));
       },
       .None => ()
     );
@@ -1411,7 +1411,7 @@ _useful_int :: (
     match(
       _useful(_default_matrix(rows), q_rest, tys_rest, gadt_exact),
       .Some(w) => {
-        return(Option(ArrayList(String)).Some(_cons_str(String.from("_"), w)));
+        return(Option(ArrayList(String)).Some(_cons_str(String.from("_"), &w)));
       },
       .None => ()
     );
@@ -1453,10 +1453,10 @@ _useful :: (
     _ => true
   ), {
     match(
-      _int_domain(ty0),
+      _int_domain(&ty0),
       .Some(d) => {
-        if(_int_column_ok(rows, head0, d), {
-          return(_useful_int(rows, head0, q_rest, tys_rest, d, gadt_exact));
+        if(_int_column_ok(&rows, &head0, d), {
+          return(_useful_int(&rows, &head0, &q_rest, &tys_rest, d, gadt_exact));
         });
       },
       .None => ()
@@ -1467,7 +1467,7 @@ _useful :: (
     (.At(_, _, _, sub) | .ThroughBox(_, _, sub)) => {
       nq := ArrayList(Pattern).new();
       nq.push(sub);
-      return(recur(rows, _concat_patterns(nq, q_rest), tys, gadt_exact));
+      return(recur(&rows, _concat_patterns(&nq, &q_rest), tys, gadt_exact));
     },
     .Or(alts) => {
       (ai : usize) = usize(0);
@@ -1478,7 +1478,7 @@ _useful :: (
             nq := ArrayList(Pattern).new();
             nq.push(alt);
             match(
-              recur(rows, _concat_patterns(nq, q_rest), tys, gadt_exact),
+              recur(&rows, _concat_patterns(&nq, &q_rest), tys, gadt_exact),
               .Some(w) => {
                 return(Option(ArrayList(String)).Some(w));
               },
@@ -1493,15 +1493,15 @@ _useful :: (
     },
     .Variant(name, idx, fidx, subs, enum_ty, _, arity) => {
       // A variant the scrutinee's GADT index excludes matches no value.
-      if(gadt_exact && !gadt_branch_reachable(_enum_id(norm_position_type(enum_ty)), idx), {
+      if(gadt_exact && !gadt_branch_reachable(_enum_id(norm_position_type(&enum_ty)), idx), {
         return(Option(ArrayList(String)).None);
       });
-      spec := _specialize_variant(rows, name.clone(), arity);
-      ftys := variant_field_types(enum_ty, idx);
+      spec := _specialize_variant(&rows, name.clone(), arity);
+      ftys := variant_field_types(&enum_ty, idx);
       match(
-        recur(spec, _concat_patterns(_variant_full_subs(fidx, subs, arity), q_rest), _concat_types(ftys, tys_rest), gadt_exact),
+        recur(&spec, _concat_patterns(_variant_full_subs(&fidx, &subs, arity), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
         .Some(w) => {
-          return(Option(ArrayList(String)).Some(_render_variant_witness(name.clone(), arity, w)));
+          return(Option(ArrayList(String)).Some(_render_variant_witness(name.clone(), arity, &w)));
         },
         .None => {
           return(Option(ArrayList(String)).None);
@@ -1510,11 +1510,11 @@ _useful :: (
     },
     .Tuple(subs, elem_tys) => {
       // A tuple is ONE constructor of arity `subs.len()`: specialize by it.
-      spec := _specialize_aggregate(rows, subs.len());
+      spec := _specialize_aggregate(&rows, subs.len());
       match(
-        recur(spec, _concat_patterns(subs, q_rest), _concat_types(elem_tys, tys_rest), gadt_exact),
+        recur(&spec, _concat_patterns(&subs, &q_rest), _concat_types(&elem_tys, &tys_rest), gadt_exact),
         .Some(w) => {
-          return(Option(ArrayList(String)).Some(_render_tuple_witness(w, subs.len())));
+          return(Option(ArrayList(String)).Some(_render_tuple_witness(&w, subs.len())));
         },
         .None => {
           return(Option(ArrayList(String)).None);
@@ -1522,17 +1522,17 @@ _useful :: (
       );
     },
     .Struct(struct_ty, fidx, subs, arity) => {
-      ftys := _struct_field_tys(struct_ty);
-      spec := _specialize_aggregate(rows, arity);
+      ftys := _struct_field_tys(&struct_ty);
+      spec := _specialize_aggregate(&rows, arity);
       match(
         recur(
-          spec,
-          _concat_patterns(_variant_full_subs(fidx, subs, arity), q_rest),
-          _concat_types(ftys, tys_rest),
+          &spec,
+          _concat_patterns(_variant_full_subs(&fidx, &subs, arity), &q_rest),
+          _concat_types(&ftys, &tys_rest),
           gadt_exact
         ),
         .Some(w) => {
-          return(Option(ArrayList(String)).Some(_render_struct_witness(struct_ty, w, arity)));
+          return(Option(ArrayList(String)).Some(_render_struct_witness(&struct_ty, &w, arity)));
         },
         .None => {
           return(Option(ArrayList(String)).None);
@@ -1540,11 +1540,11 @@ _useful :: (
       );
     },
     .Const(_, _, _, _, _) => {
-      spec := _specialize_const(rows, _const_key(head0));
+      spec := _specialize_const(&rows, _const_key(&head0));
       match(
-        recur(spec, q_rest, tys_rest, gadt_exact),
+        recur(&spec, &q_rest, &tys_rest, gadt_exact),
         .Some(w) => {
-          return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(head0), w)));
+          return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(&head0), &w)));
         },
         .None => {
           return(Option(ArrayList(String)).None);
@@ -1552,11 +1552,11 @@ _useful :: (
       );
     },
     .Range(_, _, _, _, _, _, _) => {
-      spec := _specialize_const(rows, _const_key(head0));
+      spec := _specialize_const(&rows, _const_key(&head0));
       match(
-        recur(spec, q_rest, tys_rest, gadt_exact),
+        recur(&spec, &q_rest, &tys_rest, gadt_exact),
         .Some(w) => {
-          return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(head0), w)));
+          return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(&head0), &w)));
         },
         .None => {
           return(Option(ArrayList(String)).None);
@@ -1565,13 +1565,13 @@ _useful :: (
     },
     _ => {
       // Wildcard / binding head.
-      if(is_enum_type(ty0), {
-        missing := _missing_variants(rows, ty0, gadt_exact);
+      if(is_enum_type(&ty0), {
+        missing := _missing_variants(&rows, &ty0, gadt_exact);
         if(missing.len() == usize(0), {
           // Complete signature: q is useful iff it is useful for some ctor
           // that has values.
-          present := _present_variants(rows);
-          eid := _enum_id(ty0);
+          present := _present_variants(&rows);
+          eid := _enum_id(&ty0);
           (pi : usize) = usize(0);
           while(pi < present.len(), {
             match(
@@ -1580,12 +1580,12 @@ _useful :: (
                 cp,
                 .Variant(cn, cidx, _, _, cenum, _, carity) => {
                   if(!gadt_exact || gadt_branch_reachable(eid.clone(), cidx), {
-                    spec := _specialize_variant(rows, cn.clone(), carity);
-                    ftys := variant_field_types(cenum, cidx);
+                    spec := _specialize_variant(&rows, cn.clone(), carity);
+                    ftys := variant_field_types(&cenum, cidx);
                     match(
-                      recur(spec, _concat_patterns(_wildcards(carity), q_rest), _concat_types(ftys, tys_rest), gadt_exact),
+                      recur(&spec, _concat_patterns(_wildcards(carity), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
                       .Some(w) => {
-                        return(Option(ArrayList(String)).Some(_render_variant_witness(cn.clone(), carity, w)));
+                        return(Option(ArrayList(String)).Some(_render_variant_witness(cn.clone(), carity, &w)));
                       },
                       .None => ()
                     );
@@ -1601,12 +1601,12 @@ _useful :: (
         });
         // Incomplete: only the rows that match anything constrain q's tail.
         match(
-          recur(_default_matrix(rows), q_rest, tys_rest, gadt_exact),
+          recur(_default_matrix(&rows), &q_rest, &tys_rest, gadt_exact),
           .Some(w) => {
-            vns := _enum_variant_names(ty0);
+            vns := _enum_variant_names(&ty0);
             first_missing := match(missing.get(usize(0)), .Some(m) => m, .None => usize(0));
             mname := match(vns.get(first_missing), .Some(n) => n, .None => String.from("_"));
-            marity := variant_field_types(ty0, first_missing).len();
+            marity := variant_field_types(&ty0, first_missing).len();
             wild_w := ArrayList(String).new();
             (wi : usize) = usize(0);
             while(wi < marity, {
@@ -1624,27 +1624,27 @@ _useful :: (
               );
               k = (k + usize(1));
             });
-            return(Option(ArrayList(String)).Some(_render_variant_witness(mname, marity, wild_w)));
+            return(Option(ArrayList(String)).Some(_render_variant_witness(&mname, marity, &wild_w)));
           },
           .None => {
             return(Option(ArrayList(String)).None);
           }
         );
       });
-      if(is_bool_type(ty0), {
-        missing_b := _missing_bools(rows);
+      if(is_bool_type(&ty0), {
+        missing_b := _missing_bools(&rows);
         if(missing_b.len() == usize(0), {
-          present_c := _present_bool_consts(rows);
+          present_c := _present_bool_consts(&rows);
           (ci : usize) = usize(0);
           while(ci < present_c.len(), {
             match(
               present_c.get(ci),
               .Some(cp) => {
-                spec := _specialize_const(rows, _const_key(cp));
+                spec := _specialize_const(&rows, _const_key(&cp));
                 match(
-                  recur(spec, q_rest, tys_rest, gadt_exact),
+                  recur(&spec, &q_rest, &tys_rest, gadt_exact),
                   .Some(w) => {
-                    return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(cp), w)));
+                    return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(&cp), &w)));
                   },
                   .None => ()
                 );
@@ -1656,10 +1656,10 @@ _useful :: (
           return(Option(ArrayList(String)).None);
         });
         match(
-          recur(_default_matrix(rows), q_rest, tys_rest, gadt_exact),
+          recur(_default_matrix(&rows), &q_rest, &tys_rest, gadt_exact),
           .Some(w) => {
             mb := match(missing_b.get(usize(0)), .Some(s) => s, .None => String.from("_"));
-            return(Option(ArrayList(String)).Some(_cons_str(mb, w)));
+            return(Option(ArrayList(String)).Some(_cons_str(&mb, &w)));
           },
           .None => {
             return(Option(ArrayList(String)).None);
@@ -1669,26 +1669,26 @@ _useful :: (
       // A tuple/struct column has ONE constructor: when a row names it, the
       // signature is complete and q is useful iff it is useful for that
       // constructor. When no row does, the default matrix below decides.
-      if(is_tuple_type(ty0) && _column_has_aggregate(rows), {
-        ftys := _tuple_elem_tys(ty0);
-        spec := _specialize_aggregate(rows, ftys.len());
+      if(is_tuple_type(&ty0) && _column_has_aggregate(&rows), {
+        ftys := _tuple_elem_tys(&ty0);
+        spec := _specialize_aggregate(&rows, ftys.len());
         match(
-          recur(spec, _concat_patterns(_wildcards(ftys.len()), q_rest), _concat_types(ftys, tys_rest), gadt_exact),
+          recur(&spec, _concat_patterns(_wildcards(ftys.len()), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
           .Some(w) => {
-            return(Option(ArrayList(String)).Some(_render_tuple_witness(w, ftys.len())));
+            return(Option(ArrayList(String)).Some(_render_tuple_witness(&w, ftys.len())));
           },
           .None => {
             return(Option(ArrayList(String)).None);
           }
         );
       });
-      if(is_struct_type(ty0) && _column_has_aggregate(rows), {
-        ftys := _struct_field_tys(ty0);
-        spec := _specialize_aggregate(rows, ftys.len());
+      if(is_struct_type(&ty0) && _column_has_aggregate(&rows), {
+        ftys := _struct_field_tys(&ty0);
+        spec := _specialize_aggregate(&rows, ftys.len());
         match(
-          recur(spec, _concat_patterns(_wildcards(ftys.len()), q_rest), _concat_types(ftys, tys_rest), gadt_exact),
+          recur(&spec, _concat_patterns(_wildcards(ftys.len()), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
           .Some(w) => {
-            return(Option(ArrayList(String)).Some(_render_struct_witness(ty0, w, ftys.len())));
+            return(Option(ArrayList(String)).Some(_render_struct_witness(&ty0, &w, ftys.len())));
           },
           .None => {
             return(Option(ArrayList(String)).None);
@@ -1698,8 +1698,8 @@ _useful :: (
       // Infinite domain (`comptime_int`, floats, strings, …): only wildcard
       // rows cover it.
       match(
-        recur(_default_matrix(rows), q_rest, tys_rest, gadt_exact),
-        .Some(w) => Option(ArrayList(String)).Some(_cons_str(String.from("_"), w)),
+        recur(_default_matrix(&rows), &q_rest, &tys_rest, gadt_exact),
+        .Some(w) => Option(ArrayList(String)).Some(_cons_str(String.from("_"), &w)),
         .None => Option(ArrayList(String)).None
       )
     }
@@ -1769,7 +1769,7 @@ variant_group_covers :: (
   });
   tys := ArrayList(TypeValue).new();
   tys.push(scrutinee_ty);
-  _useful(matrix, qrow, tys, true).is_none()
+  _useful(&matrix, &qrow, &tys, true).is_none()
 });
 /// The rows that count toward COVERAGE: the arms before `upto`, unguarded
 /// ones only unless `count_guarded` (a guard can fail, so a guarded arm
@@ -1782,7 +1782,7 @@ _coverage_rows :: (fn(imm(arms) : ArrayList(Arm), upto : usize, count_guarded : 
       arms.get(i),
       .Some(a) => {
         if(count_guarded || a.guard.is_none(), {
-          rows.push(_row_of(a.pattern));
+          rows.push(_row_of(&a.pattern));
         });
       },
       .None => ()
@@ -1800,7 +1800,7 @@ match_missing_witness :: (fn(imm(arms) : ArrayList(Arm), imm(scrutinee_ty) : Typ
   tys := ArrayList(TypeValue).new();
   tys.push(scrutinee_ty);
   match(
-    _useful(rows, _row_of(Pattern.Wildcard), tys, true),
+    _useful(&rows, _row_of(Pattern.Wildcard), &tys, true),
     .Some(w) => match(w.get(usize(0)), .Some(s) => Option(String).Some(s), .None => Option(String).Some(String.from("_"))),
     .None => Option(String).None
   )
@@ -1832,7 +1832,7 @@ _top_alternatives :: (fn(imm(p) : Pattern, mut(out) : ArrayList(Pattern)) -> uni
           alts.get(i),
           .Some(alt) => match(
             alt,
-            .Or(_) => recur(alt, out),
+            .Or(_) => recur(&alt, out),
             _ => out.push(alt)
           ),
           .None => ()
@@ -1840,7 +1840,7 @@ _top_alternatives :: (fn(imm(p) : Pattern, mut(out) : ArrayList(Pattern)) -> uni
         i = (i + usize(1));
       });
     },
-    .At(_, _, _, sub) => recur(sub, out),
+    .At(_, _, _, sub) => recur(&sub, out),
     _ => ()
   )
 );
@@ -1848,7 +1848,7 @@ _top_alternatives :: (fn(imm(p) : Pattern, mut(out) : ArrayList(Pattern)) -> uni
 /// earlier unguarded arms and earlier sibling alternatives).
 _part_reach :: (fn(imm(part) : Pattern, whole : bool, imm(rows) : ArrayList(ArrayList(Pattern)), imm(tys) : ArrayList(TypeValue), gadt_exact : bool) -> ArmReach)({
   q := _row_of(part);
-  if(_useful(ArrayList(ArrayList(Pattern)).new(), q, tys, gadt_exact).is_none(), {
+  if(_useful(ArrayList(ArrayList(Pattern)).new(), &q, tys, gadt_exact).is_none(), {
     return(ArmReach.MatchesNothing(part : part, whole : whole));
   });
   (j : usize) = usize(0);
@@ -1858,7 +1858,7 @@ _part_reach :: (fn(imm(part) : Pattern, whole : bool, imm(rows) : ArrayList(Arra
       .Some(r) => {
         one := ArrayList(ArrayList(Pattern)).new();
         one.push(r);
-        if(_useful(one, q, tys, gadt_exact).is_none(), {
+        if(_useful(&one, &q, tys, gadt_exact).is_none(), {
           return(ArmReach.Subsumed(part : part, whole : whole));
         });
       },
@@ -1866,7 +1866,7 @@ _part_reach :: (fn(imm(part) : Pattern, whole : bool, imm(rows) : ArrayList(Arra
     );
     j = (j + usize(1));
   });
-  if(_useful(rows, q, tys, gadt_exact).is_none(), {
+  if(_useful(rows, &q, tys, gadt_exact).is_none(), {
     return(ArmReach.Covered(part : part, whole : whole));
   });
   ArmReach.Reachable
@@ -1896,20 +1896,20 @@ arm_reachability :: (fn(imm(arms) : ArrayList(Arm), i : usize, imm(scrutinee_ty)
   tys := ArrayList(TypeValue).new();
   tys.push(scrutinee_ty);
   rows := _coverage_rows(arms, i, false);
-  verdict_all := _part_reach(arm.pattern, true, rows, tys, gadt_exact);
+  verdict_all := _part_reach(&arm.pattern, true, &rows, &tys, gadt_exact);
   if(match(verdict_all, .Reachable => false, _ => true), {
     return(verdict_all);
   });
   alts := ArrayList(Pattern).new();
-  _top_alternatives(arm.pattern, alts);
+  _top_alternatives(&arm.pattern, &mut alts);
   (k : usize) = usize(0);
   while(k < alts.len(), {
     alt := match(alts.get(k), .Some(a) => a, .None => Pattern.Wildcard);
-    verdict := _part_reach(alt, false, rows, tys, gadt_exact);
+    verdict := _part_reach(&alt, false, &rows, &tys, gadt_exact);
     if(match(verdict, .Reachable => false, _ => true), {
       return(verdict);
     });
-    rows.push(_row_of(alt));
+    rows.push(_row_of(&alt));
     k = (k + usize(1));
   });
   ArmReach.Reachable
@@ -1935,7 +1935,7 @@ pattern_test_exprs :: (fn(imm(p) : Pattern, mut(out) : ArrayList(AstExpr)) -> un
         match(
           subs.get(i),
           .Some(s) => {
-            recur(s, out);
+            recur(&s, out);
           },
           .None => ()
         );
@@ -1948,7 +1948,7 @@ pattern_test_exprs :: (fn(imm(p) : Pattern, mut(out) : ArrayList(AstExpr)) -> un
         match(
           alts.get(i),
           .Some(a) => {
-            recur(a, out);
+            recur(&a, out);
           },
           .None => ()
         );
@@ -1956,10 +1956,10 @@ pattern_test_exprs :: (fn(imm(p) : Pattern, mut(out) : ArrayList(AstExpr)) -> un
       });
     },
     .At(_, _, _, sub) => {
-      recur(sub, out);
+      recur(&sub, out);
     },
     .ThroughBox(_, _, sub) => {
-      recur(sub, out);
+      recur(&sub, out);
     },
     .Tuple(subs, _) => {
       (i : usize) = usize(0);
@@ -1967,7 +1967,7 @@ pattern_test_exprs :: (fn(imm(p) : Pattern, mut(out) : ArrayList(AstExpr)) -> un
         match(
           subs.get(i),
           .Some(s) => {
-            recur(s, out);
+            recur(&s, out);
           },
           .None => ()
         );
@@ -1980,7 +1980,7 @@ pattern_test_exprs :: (fn(imm(p) : Pattern, mut(out) : ArrayList(AstExpr)) -> un
         match(
           subs.get(i),
           .Some(s) => {
-            recur(s, out);
+            recur(&s, out);
           },
           .None => ()
         );

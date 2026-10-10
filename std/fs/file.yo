@@ -104,8 +104,8 @@ impl(
       path_str := path.to_string();
       cstr_bytes := path_str.to_cstr();
       cstr := cstr_bytes.ptr().unwrap();
-      result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
-      fd := IoError.check(result, e.exn);
+      result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), &e.io);
+      fd := IoError.check(result, &e.exn);
       File(
         _fd : fd,
         _path : path,
@@ -151,13 +151,13 @@ impl(
       flags := match(
         opts.to_flags(),
         .Ok(f) => f,
-        .Err(msg) => e.exn.throw(dyn(Context.new(msg, dyn(IoError.InvalidInput))))
+        .Err(msg) => e.exn.throw(dyn(Context.new(&msg, dyn(IoError.InvalidInput))))
       );
       path_str := path.to_string();
       cstr_bytes := path_str.to_cstr();
       cstr := cstr_bytes.ptr().unwrap();
-      result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), e.io);
-      fd := IoError.check(result, e.exn);
+      result := e.io.await(IO_file.openat(AT_FDCWD, cstr, flags, file_mode), &e.io);
+      fd := IoError.check(result, &e.exn);
       File(
         _fd : fd,
         _path : path,
@@ -180,8 +180,8 @@ impl(
   read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      result := e.io.await(IO_file.read(fd, buf, u32(size), self._pos), e.io);
-      n := IoError.check(result, e.exn);
+      result := e.io.await(IO_file.read(fd, buf, u32(size), self._pos), &e.io);
+      n := IoError.check(result, &e.exn);
       self._pos = (self._pos + u64(n));
       usize(n)
     })
@@ -191,8 +191,8 @@ impl(
   write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      result := e.io.await(IO_file.write(fd, buf, u32(size), self._pos), e.io);
-      n := IoError.check(result, e.exn);
+      result := e.io.await(IO_file.write(fd, buf, u32(size), self._pos), &e.io);
+      n := IoError.check(result, &e.exn);
       self._pos = (self._pos + u64(n));
       usize(n)
     })
@@ -206,8 +206,8 @@ impl(
       cond(
         (data_bytes.len() == usize(0)) => usize(0),
         true => {
-          result := e.io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), self._pos), e.io);
-          n := IoError.check(result, e.exn);
+          result := e.io.await(IO_file.write(fd, data_bytes.ptr().unwrap(), u32(data_bytes.len()), self._pos), &e.io);
+          n := IoError.check(result, &e.exn);
           self._pos = (self._pos + u64(n));
           usize(n)
         }
@@ -223,8 +223,8 @@ impl(
         cond(
           (data.len() == usize(0)) => usize(0),
           true => {
-            result := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), self._pos), e.io);
-            n := IoError.check(result, e.exn);
+            result := e.io.await(IO_file.write(fd, data.ptr().unwrap(), u32(data.len()), self._pos), &e.io);
+            n := IoError.check(result, &e.exn);
             self._pos = (self._pos + u64(n));
             usize(n)
           }
@@ -240,8 +240,8 @@ impl(
   flush : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      result := e.io.await(IO_file.fsync(fd), e.io);
-      IoError.check(result, e.exn);
+      result := e.io.await(IO_file.fsync(fd), &e.io);
+      IoError.check(result, &e.exn);
       ()
     })
   }),
@@ -251,8 +251,8 @@ impl(
   set_len : (fn(imm(self) : Self, length : i64, io : Io) -> Impl(Future(unit, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      result := e.io.await(IO_file.ftruncate(fd, length), e.io);
-      IoError.check(result, e.exn);
+      result := e.io.await(IO_file.ftruncate(fd, length), &e.io);
+      IoError.check(result, &e.exn);
       ()
     })
   }),
@@ -318,9 +318,9 @@ impl(
         cond(
           self._is_closed => (),
           true => {
-            result := e.io.await(IO_file.close(fd), e.io);
+            result := e.io.await(IO_file.close(fd), &e.io);
             self._is_closed = true;
-            IoError.check(result, e.exn);
+            IoError.check(result, &e.exn);
             ()
           }
         )
@@ -528,7 +528,7 @@ try_exists :: (fn(imm(path) : Path, io : Io) -> Impl(Future(bool, IoExn)))(
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
-    result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), e.io);
+    result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, buf), &e.io);
     free(.Some((*void)(buf)));
     cond(
       (result >= i32(0)) => true,
@@ -563,7 +563,7 @@ set_permissions_str :: (fn(path : str, perm : FilePermission, io : Io) -> Impl(F
 copy :: (fn(imm(from) : Path, imm(to) : Path, io : Io) -> Impl(Future(u64, IoExn)))(
   io.async(e => {
     bytes := e.io.await(read(from, e.io), e);
-    e.io.await(write(to, bytes, e.io), e);
+    e.io.await(write(to, &bytes, e.io), e);
     md := e.io.await(metadata(from, e.io), e);
     e.io.await(set_permissions(to, FilePermission(mode : (md.mode() & u32(4095))), e.io), e);
     u64(bytes.len())
@@ -640,22 +640,22 @@ canonicalize :: (fn(imm(path) : Path, io : Io) -> Impl(Future(Path, IoExn)))(
     // Async stat to verify path exists (provides await point for proper RC cleanup)
     buf_size := __yo_statx_buf_size();
     stat_buf := (*u8)(malloc(buf_size).unwrap());
-    stat_result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, stat_buf), e.io);
+    stat_result := e.io.await(IO_file.statx(AT_FDCWD, cstr, AT_STATX_SYNC_AS_STAT, STATX_BASIC_STATS, stat_buf), &e.io);
     free(.Some((*void)(stat_buf)));
-    IoError.check(stat_result, e.exn);
+    IoError.check(stat_result, &e.exn);
     // Resolve the canonical path
     resolved_buf := (*u8)(malloc(usize(4096)).unwrap());
     rp_result := IO_path.realpath(cstr, resolved_buf);
     cond(
       (rp_result < i32(0)) => {
         free(.Some((*void)(resolved_buf)));
-        IoError.check(rp_result, e.exn);
+        IoError.check(rp_result, &e.exn);
       },
       true => ()
     );
     resolved := String.from_cstr(resolved_buf).unwrap();
     free(.Some((*void)(resolved_buf)));
-    Path.new(resolved)
+    Path.new(&resolved)
   })
 );
 /// Resolve a path to its canonical absolute form (`str` path variant).

@@ -32,7 +32,7 @@ _md_doc :: (fn(imm(d) : String) -> String)({
       out.push_string(line.substring(usize(0), lead));
       out.push_str("```rust");
     }, {
-      out.push_string(line);
+      out.push_string(&line);
     });
     if((i + usize(1)) < lines.len(), {
       out.push_str("\n");
@@ -123,7 +123,7 @@ format_type_params_ :: (fn(imm(params) : Option(ArrayList(DocParam))) -> String)
             i = (i + usize(1));
           });
           sep := `, `;
-          `(${sep.join(names)})`
+          `(${sep.join(&names)})`
         }
       )
   )
@@ -149,7 +149,7 @@ render_fields_ :: (fn(imm(fields) : ArrayList(DocField)) -> String)({
     i = (i + usize(1));
   });
   lines.push(``);
-  `\n`.join(lines)
+  `\n`.join(&lines)
 });
 // Render a list of DocVariant as "**Variants:**\n\n- `Name`...".
 render_variants_ :: (fn(imm(variants) : ArrayList(DocVariant)) -> String)({
@@ -188,7 +188,7 @@ render_variants_ :: (fn(imm(variants) : ArrayList(DocVariant)) -> String)({
             parts.push(`${f.name}: ${f.type_}`);
             fi = (fi + usize(1));
           });
-          `, `.join(parts)
+          `, `.join(&parts)
         }
       );
       lines.push(`- \`${v.name}(${field_parts})\`${disc}${doc}`);
@@ -198,7 +198,7 @@ render_variants_ :: (fn(imm(variants) : ArrayList(DocVariant)) -> String)({
     i = (i + usize(1));
   });
   lines.push(``);
-  `\n`.join(lines)
+  `\n`.join(&lines)
 });
 // Render a list of DocAssociatedType as "**Associated Types:**\n\n- ...".
 render_associated_types_ :: (fn(imm(types) : ArrayList(DocAssociatedType)) -> String)({
@@ -221,7 +221,7 @@ render_associated_types_ :: (fn(imm(types) : ArrayList(DocAssociatedType)) -> St
     i = (i + usize(1));
   });
   lines.push(``);
-  `\n`.join(lines)
+  `\n`.join(&lines)
 });
 // ── Public renderers ──────────────────────────────────────────────────────────
 /// Render a single DocFunction as Markdown (### heading + signature + docs).
@@ -255,7 +255,7 @@ render_function_md :: (fn(imm(fn_) : DocFunction) -> String)({
     fn_.doc,
     .None => (),
     .Some(d) => {
-      lines.push(_md_doc(d));
+      lines.push(_md_doc(&d));
       lines.push(``);
     }
   );
@@ -311,12 +311,12 @@ render_function_md :: (fn(imm(fn_) : DocFunction) -> String)({
       lines.push(``);
     }
   );
-  `\n`.join(lines)
+  `\n`.join(&lines)
 });
 /// Render a single DocType as Markdown (### heading + signature + fields/variants + methods).
 render_type_md :: (fn(imm(t) : DocType) -> String)({
   lines := ArrayList(String).new();
-  tp := format_type_params_(t.type_params);
+  tp := format_type_params_(&t.type_params);
   lines.push(`### \`${t.name}${tp}\``);
   lines.push(``);
   match(
@@ -337,7 +337,7 @@ render_type_md :: (fn(imm(t) : DocType) -> String)({
     t.doc,
     .None => (),
     .Some(d) => {
-      lines.push(_md_doc(d));
+      lines.push(_md_doc(&d));
       lines.push(``);
     }
   );
@@ -346,7 +346,7 @@ render_type_md :: (fn(imm(t) : DocType) -> String)({
     .None => (),
     .Some(fields) => {
       if(fields.len() > usize(0), {
-        lines.push(render_fields_(fields));
+        lines.push(render_fields_(&fields));
       });
     }
   );
@@ -355,7 +355,7 @@ render_type_md :: (fn(imm(t) : DocType) -> String)({
     .None => (),
     .Some(variants) => {
       if(variants.len() > usize(0), {
-        lines.push(render_variants_(variants));
+        lines.push(render_variants_(&variants));
       });
     }
   );
@@ -375,7 +375,7 @@ render_type_md :: (fn(imm(t) : DocType) -> String)({
       ti = (ti + usize(1));
     });
     sep := `, `;
-    lines.push(`**Implements:** ${sep.join(impl_names)}`);
+    lines.push(`**Implements:** ${sep.join(&impl_names)}`);
     lines.push(``);
   });
   has_impls := match(t.impls, .None => false, .Some(impls) => (impls.len() > usize(0)));
@@ -445,12 +445,12 @@ render_type_md :: (fn(imm(t) : DocType) -> String)({
               }
             );
             match(
-              find_method_by_name_(t.methods, method_name),
+              find_method_by_name_(&t.methods, &method_name),
               .None => {
                 unresolved.push(method_name);
               },
               .Some(m) => {
-                lines.push(render_function_md(m));
+                lines.push(render_function_md(&m));
               }
             );
             mi2 = (mi2 + usize(1));
@@ -471,7 +471,7 @@ render_type_md :: (fn(imm(t) : DocType) -> String)({
               ui = (ui + usize(1));
             });
             sep2 := `, `;
-            lines.push(`Methods: ${sep2.join(unresolved_quoted)}`);
+            lines.push(`Methods: ${sep2.join(&unresolved_quoted)}`);
             lines.push(``);
           });
           ii = (ii + usize(1));
@@ -489,7 +489,7 @@ render_type_md :: (fn(imm(t) : DocType) -> String)({
           break;
         }
       );
-      if(!is_in_list_(claimed, m.name), {
+      if(!is_in_list_(&claimed, &m.name), {
         unclaimed_methods.push(m);
       });
       umi = (umi + usize(1));
@@ -507,7 +507,7 @@ render_type_md :: (fn(imm(t) : DocType) -> String)({
             break;
           }
         );
-        lines.push(render_function_md(m));
+        lines.push(render_function_md(&m));
         mui = (mui + usize(1));
       });
     });
@@ -522,12 +522,12 @@ render_type_md :: (fn(imm(t) : DocType) -> String)({
       lines.push(``);
     }
   );
-  `\n`.join(lines)
+  `\n`.join(&lines)
 });
 /// Render a single DocTrait as Markdown.
 render_trait_md :: (fn(imm(t) : DocTrait) -> String)({
   lines := ArrayList(String).new();
-  tp := format_type_params_(t.type_params);
+  tp := format_type_params_(&t.type_params);
   lines.push(`### \`${t.name}${tp}\``);
   lines.push(``);
   match(
@@ -548,7 +548,7 @@ render_trait_md :: (fn(imm(t) : DocTrait) -> String)({
     t.doc,
     .None => (),
     .Some(d) => {
-      lines.push(_md_doc(d));
+      lines.push(_md_doc(&d));
       lines.push(``);
     }
   );
@@ -557,7 +557,7 @@ render_trait_md :: (fn(imm(t) : DocTrait) -> String)({
     .None => (),
     .Some(assoc_types) => {
       if(assoc_types.len() > usize(0), {
-        lines.push(render_associated_types_(assoc_types));
+        lines.push(render_associated_types_(&assoc_types));
       });
     }
   );
@@ -574,7 +574,7 @@ render_trait_md :: (fn(imm(t) : DocTrait) -> String)({
           break;
         }
       );
-      lines.push(render_function_md(m));
+      lines.push(render_function_md(&m));
       i = (i + usize(1));
     });
   });
@@ -594,7 +594,7 @@ render_trait_md :: (fn(imm(t) : DocTrait) -> String)({
       i = (i + usize(1));
     });
     sep := `, `;
-    lines.push(`**Implementors:** ${sep.join(impl_quoted)}`);
+    lines.push(`**Implementors:** ${sep.join(&impl_quoted)}`);
     lines.push(``);
   });
   match(
@@ -607,7 +607,7 @@ render_trait_md :: (fn(imm(t) : DocTrait) -> String)({
       lines.push(``);
     }
   );
-  `\n`.join(lines)
+  `\n`.join(&lines)
 });
 /// Render a single DocConstant as Markdown.
 render_constant_md :: (fn(imm(c) : DocConstant) -> String)({
@@ -629,11 +629,11 @@ render_constant_md :: (fn(imm(c) : DocConstant) -> String)({
     c.doc,
     .None => (),
     .Some(d) => {
-      lines.push(_md_doc(d));
+      lines.push(_md_doc(&d));
       lines.push(``);
     }
   );
-  `\n`.join(lines)
+  `\n`.join(&lines)
 });
 /// Render a single DocModule as a Markdown page.
 render_module_md :: (fn(imm(mod) : DocModule) -> String)({
@@ -648,7 +648,7 @@ render_module_md :: (fn(imm(mod) : DocModule) -> String)({
     .Some(st) => {
       // LEVEL only — the full `## Stability` section is still in `mod.doc`
       // and is rendered below, so repeating it here printed it twice.
-      lvl := stability_level(st);
+      lvl := stability_level(&st);
       if(!lvl.is_empty(), {
         gloss := cond(
           (lvl == `stable`) => String.from("changes additively from here."),
@@ -664,7 +664,7 @@ render_module_md :: (fn(imm(mod) : DocModule) -> String)({
     mod.doc,
     .None => (),
     .Some(d) => {
-      lines.push(_md_doc(d));
+      lines.push(_md_doc(&d));
       lines.push(``);
     }
   );
@@ -756,7 +756,7 @@ render_module_md :: (fn(imm(mod) : DocModule) -> String)({
           break;
         }
       );
-      lines.push(render_type_md(t));
+      lines.push(render_type_md(&t));
       i = (i + usize(1));
     });
   });
@@ -775,7 +775,7 @@ render_module_md :: (fn(imm(mod) : DocModule) -> String)({
           break;
         }
       );
-      lines.push(render_trait_md(t));
+      lines.push(render_trait_md(&t));
       i = (i + usize(1));
     });
   });
@@ -794,7 +794,7 @@ render_module_md :: (fn(imm(mod) : DocModule) -> String)({
           break;
         }
       );
-      lines.push(render_function_md(f));
+      lines.push(render_function_md(&f));
       i = (i + usize(1));
     });
   });
@@ -813,11 +813,11 @@ render_module_md :: (fn(imm(mod) : DocModule) -> String)({
           break;
         }
       );
-      lines.push(render_constant_md(c));
+      lines.push(render_constant_md(&c));
       i = (i + usize(1));
     });
   });
-  `\n`.join(lines)
+  `\n`.join(&lines)
 });
 /// Render the index page listing all modules in a DocModel.
 render_index_md :: (fn(imm(model) : DocModel) -> String)({
@@ -848,14 +848,14 @@ render_index_md :: (fn(imm(model) : DocModel) -> String)({
     badge_word := match(
       mod.stability,
       .None => ``,
-      .Some(st) => stability_level(st)
+      .Some(st) => stability_level(&st)
     );
     badge := if(badge_word.is_empty(), ``, ` _(${badge_word})_`);
     lines.push(`- [\`${mod.path}\`](module/${mod.name}.md)${badge} (${item_count.to_string()} items)${summary}`);
     i = (i + usize(1));
   });
   lines.push(``);
-  `\n`.join(lines)
+  `\n`.join(&lines)
 });
 export(
   render_function_md,

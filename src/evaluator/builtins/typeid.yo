@@ -55,8 +55,8 @@ evaluate_type_id :: (
     }
   );
   // Evaluate the type expression.
-  evaluated_type_expr := evaluate_expression_raw(type_expr, env, ctx, exn);
-  type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_type_expr));
+  evaluated_type_expr := evaluate_expression_raw(&type_expr, env, ctx, exn);
+  type_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_type_expr));
   type_info := match(
     type_info_opt,
     .Some(ti) => ti,
@@ -64,7 +64,7 @@ evaluate_type_id :: (
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(type_expr),
+            ast_expr_token(&type_expr),
             `Failed to evaluate expression for typeid.`
           )
         )
@@ -72,13 +72,13 @@ evaluate_type_id :: (
       return(expr);
     }
   );
-  cur_env := expr_info_adopt_env(type_info);
+  cur_env := expr_info_adopt_env(&type_info);
   // typeid only accepts compile-time Type values.
-  if(!is_type_value(type_info.value), {
+  if(!is_type_value(&type_info.value), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(type_expr),
+          ast_expr_token(&type_expr),
           `typeid expects a type argument. For a runtime type check on a Dyn value use downcast(value, T), which returns Option(T) — or err.is(T) for an AnyError.`
         )
       )
@@ -86,9 +86,9 @@ evaluate_type_id :: (
   });
   // The result is a runtime usize value (resolved in C codegen).
   result_val := create_unknown_val(t_usize());
-  info := new_expr_info(cur_env, t_usize());
+  info := new_expr_info(&cur_env, t_usize());
   info.value = .Some(result_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 export(evaluate_type_id);

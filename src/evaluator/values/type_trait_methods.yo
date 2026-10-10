@@ -61,12 +61,12 @@ _dyn_type_id :: (fn(imm(rtt) : ArrayList(TypeValue), imm(ntt) : ArrayList(TypeVa
   keys := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < rtt.len(), {
-    match(rtt.get(i), .Some(t) => keys.push(_dyn_member_key(t)), .None => ());
+    match(rtt.get(i), .Some(t) => keys.push(_dyn_member_key(&t)), .None => ());
     i = (i + usize(1));
   });
   (j : usize) = usize(0);
   while(j < ntt.len(), {
-    match(ntt.get(j), .Some(t) => keys.push(`!${_dyn_member_key(t)}`), .None => ());
+    match(ntt.get(j), .Some(t) => keys.push(`!${_dyn_member_key(&t)}`), .None => ());
     j = (j + usize(1));
   });
   // Insertion sort: trait sets are a handful of entries.
@@ -79,7 +79,7 @@ _dyn_type_id :: (fn(imm(rtt) : ArrayList(TypeValue), imm(ntt) : ArrayList(TypeVa
     });
     a = (a + usize(1));
   });
-  `__yo_dyn(${String.from("+").join(keys)})`
+  `__yo_dyn(${String.from("+").join(&keys)})`
 });
 _dyn_member_key :: (fn(imm(t) : TypeValue) -> String)(
   match(
@@ -147,7 +147,7 @@ type_id_or_empty :: (fn(imm(t) : TypeValue) -> String)(
     // A `Dyn` is identified by its trait set, so `impl(AnyError, is : ...)`
     // registers under `Dyn(Error)` and `err.is(T)` resolves. Without an id the
     // registration was silently skipped and the method was unreachable.
-    .DynT({ required_trait_types : rtt, negative_trait_types : ntt }) => _dyn_type_id(rtt, ntt),
+    .DynT({ required_trait_types : rtt, negative_trait_types : ntt }) => _dyn_type_id(&rtt, &ntt),
     _ => String.from("")
   )
 );
@@ -480,7 +480,7 @@ type_trait_methods_entry_count :: (fn() -> usize)({
     match(
       it.next(),
       .Some(key) => match(
-        _type_trait_methods.get(key),
+        _type_trait_methods.get(&key),
         .Some(list) => {
           total = (total + list.len());
         },
@@ -727,7 +727,7 @@ purge_trait_impl_sites_owned_by :: (fn(imm(owner) : String) -> unit)({
   while(si < stale.len(), {
     sk := match(stale.get(si), .Some(k) => k, .None => String.new());
     _trait_impl_sites.remove(sk.clone());
-    _trait_impl_site_owners.remove(sk);
+    _trait_impl_site_owners.remove(&sk);
     si = (si + usize(1));
   });
 });
@@ -742,7 +742,7 @@ purge_trait_impl_sites_owned_by :: (fn(imm(owner) : String) -> unit)({
 (_trait_default_owned : OwnedKeys) = owned_keys_new();
 register_trait_default :: (fn(imm(trait_id) : String, imm(label) : String, imm(value) : EvalValue) -> unit)({
   key := (trait_id + String.from("::") + label);
-  owned_keys_record(_trait_default_owned, key.clone());
+  owned_keys_record(&_trait_default_owned, key.clone());
   _trait_method_defaults.insert(key, value);
 });
 /// Registered trait defaults (the B2 plateau test's probe).
@@ -750,13 +750,13 @@ trait_default_entry_count :: (fn() -> usize)(_trait_method_defaults.len());
 /// Drop the trait defaults `owner`'s evaluation registered (its traits are
 /// re-minted under fresh ids when it is re-evaluated).
 purge_trait_defaults_owned_by :: (fn(imm(owner) : String) -> unit)({
-  keys := owned_keys_take(_trait_default_owned, owner);
+  keys := owned_keys_take(&_trait_default_owned, owner);
   (i : usize) = usize(0);
   while(i < keys.len(), {
     match(
       keys.get(i),
       .Some(k) => {
-        _r := _trait_method_defaults.remove(k);
+        _r := _trait_method_defaults.remove(&k);
       },
       .None => ()
     );
@@ -923,7 +923,7 @@ find_associated_const_usize :: (
   if(tid.len() == usize(0), {
     return(Option(usize).None);
   });
-  entries := get_type_trait_methods_for_type(tid);
+  entries := get_type_trait_methods_for_type(&tid);
   (i : usize) = usize(0);
   n := entries.len();
   while(i < n, {
@@ -935,7 +935,7 @@ find_associated_const_usize :: (
           .Some(v) => match(
             v,
             .IntLit(raw) => match(
-              _parse_usize_literal(raw),
+              _parse_usize_literal(&raw),
               .Some(k) => {
                 return(Option(usize).Some(k));
               },

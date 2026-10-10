@@ -128,7 +128,7 @@ _try_ctfe_range_ctor :: (
     env,
     env,
     ctx,
-    local_exn
+    &local_exn
   );
   match(
     res.value,
@@ -153,8 +153,8 @@ _resolve_prelude_range_type :: (
       vars.get(vi),
       .Some(v) => match(
         v.value.get(usize(0)),
-        .Some(fv) => if(is_func_val(fv) && is_function_type(v.ty), {
-          _try_ctfe_range_ctor(v.ty, fv, env, ctx, out);
+        .Some(fv) => if(is_func_val(&fv) && is_function_type(&v.ty), {
+          _try_ctfe_range_ctor(&v.ty, &fv, env, ctx, &mut out);
         }),
         .None => ()
       ),
@@ -201,7 +201,7 @@ _cached_range_type :: (
     .Some(hit) => Option(TypeValue).Some(hit),
     .None => {
       name := if(inclusive, String.from("RangeInclusive"), String.from("Range"));
-      resolved := _resolve_prelude_range_type(name, env, ctx);
+      resolved := _resolve_prelude_range_type(&name, env, ctx);
       match(
         resolved,
         .Some(rt) => {
@@ -249,14 +249,14 @@ _check_range_type :: (
   if(arg_fid.len() > usize(0), {
     match(
       ri_opt,
-      .Some(ri_ty) => if(_struct_ctor_fid(ri_ty) == arg_fid, {
+      .Some(ri_ty) => if(_struct_ctor_fid(&ri_ty) == arg_fid, {
         return(_RangeCheck(is_range : true, is_inclusive : true));
       }),
       .None => ()
     );
     match(
       r_opt,
-      .Some(r_ty) => if(_struct_ctor_fid(r_ty) == arg_fid, {
+      .Some(r_ty) => if(_struct_ctor_fid(&r_ty) == arg_fid, {
         return(_RangeCheck(is_range : true, is_inclusive : false));
       }),
       .None => ()
@@ -264,14 +264,14 @@ _check_range_type :: (
   });
   match(
     ri_opt,
-    .Some(ri_ty2) => if(are_types_compatible(arg_type.clone(), ri_ty2), {
+    .Some(ri_ty2) => if(are_types_compatible(arg_type.clone(), &ri_ty2), {
       return(_RangeCheck(is_range : true, is_inclusive : true));
     }),
     .None => ()
   );
   match(
     r_opt,
-    .Some(r_ty2) => if(are_types_compatible(arg_type.clone(), r_ty2), {
+    .Some(r_ty2) => if(are_types_compatible(arg_type.clone(), &r_ty2), {
       return(_RangeCheck(is_range : true, is_inclusive : false));
     }),
     .None => ()
@@ -306,7 +306,7 @@ _extract_range_indices :: (
           return(Option(_IdxRange).None);
         }
       );
-      if(!is_int_lit(start_field) || !is_int_lit(end_field), {
+      if(!is_int_lit(&start_field) || !is_int_lit(&end_field), {
         return(Option(_IdxRange).None);
       });
       start_raw := match(
@@ -469,7 +469,7 @@ _find_index_method :: (
                       // self must be a pointer type OR a `ref` parameter —
                       // both `(self : *(Self), ...)` and the modern
                       // `(inout(self) : Self, ...)` shape are accepted.
-                      p0_is_ptr := is_pointer_type(p0);
+                      p0_is_ptr := is_pointer_type(&p0);
                       p0_is_ref := match(
                         param_is_ref.get(usize(0)),
                         .Some(b) => b,
@@ -483,8 +483,8 @@ _find_index_method :: (
                       // `actual` — never fired: `l(0)` on a `ComptimeIndex(usize)` impl was
                       // rejected with "Type does not implement Index for the given argument
                       // type" while `l(usize(0))` worked.
-                      p1_compatible := are_types_compatible(arg_type, p1);
-                      ret_is_ptr := is_pointer_type(ret_ty);
+                      p1_compatible := are_types_compatible(arg_type, &p1);
+                      ret_is_ptr := is_pointer_type(&ret_ty);
                       if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
                         found = Option(_IndexMethodEntry).Some(m);
                       });
@@ -527,7 +527,7 @@ _try_comptime_element_access :: (
   );
   match(
     arg_val,
-    .Some(v) => if(is_int_lit(v), {
+    .Some(v) => if(is_int_lit(&v), {
       // Comptime integer index — direct element access
       idx_raw := match(v, .IntLit(r) => r, _ => String.from("0"));
       idx_i64 := match(
@@ -594,7 +594,7 @@ _try_comptime_element_access :: (
                   IndexCallResult(
                     value : Option(EvalValue).Some(elem_val),
                     ty : elem_ty,
-                    ptr_type : t_ptr(elem_ty),
+                    ptr_type : t_ptr(&elem_ty),
                     index_method_type : Option(TypeValue).None,
                     index_method_value : Option(EvalValue).None,
                     caller_env : caller_env,
@@ -618,12 +618,12 @@ _try_comptime_element_access :: (
       Option(IndexCallResult).None
     }, {
       // Non-integer comptime value (e.g. UnknownVal) — return unknown element
-      unk_val := create_unknown_val(elem_ty);
+      unk_val := create_unknown_val(&elem_ty);
       Option(IndexCallResult).Some(
         IndexCallResult(
           value : Option(EvalValue).Some(unk_val),
           ty : elem_ty,
-          ptr_type : t_ptr(elem_ty),
+          ptr_type : t_ptr(&elem_ty),
           index_method_type : Option(TypeValue).None,
           index_method_value : Option(EvalValue).None,
           caller_env : caller_env,
@@ -634,12 +634,12 @@ _try_comptime_element_access :: (
     }),
     .None => {
       // Runtime index (no comptime value) — convert element type to runtime
-      rt_elem_ty := convert_comptime_type_to_runtime_type(elem_ty, caller_env);
+      rt_elem_ty := convert_comptime_type_to_runtime_type(&elem_ty, caller_env);
       Option(IndexCallResult).Some(
         IndexCallResult(
           value : Option(EvalValue).None,
           ty : rt_elem_ty,
-          ptr_type : t_ptr(elem_ty),
+          ptr_type : t_ptr(&elem_ty),
           index_method_type : Option(TypeValue).None,
           index_method_value : Option(EvalValue).None,
           caller_env : caller_env,
@@ -672,11 +672,11 @@ _try_comptime_array_index :: (
   cai_saved_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   evaluated_gout := ArrayList(AstExpr).new();
-  evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, evaluated_gout);
+  evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = cai_saved_expected;
-  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
+  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(&evaluated_ge), .None => ());
   evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
     .Some(i) => i,
@@ -692,10 +692,10 @@ _try_comptime_array_index :: (
       new_expr_info(env, t_unit())
     }
   );
-  caller_env := expr_info_adopt_env(info);
+  caller_env := expr_info_adopt_env(&info);
   arg_type := info.ty;
   arg_val := info.value;
-  range_check := _check_range_type(arg_type, env, ctx);
+  range_check := _check_range_type(&arg_type, env, ctx);
   if(range_check.is_range, {
     // Range slicing is no longer a comptime operation — fall through to the
     // runtime path (slice_copy rewriting happens before Index dispatch;
@@ -704,10 +704,10 @@ _try_comptime_array_index :: (
   });
   _try_comptime_element_access(
     arg_expr,
-    arg_val,
+    &arg_val,
     array_val,
     value_type,
-    caller_env,
+    &caller_env,
     exn
   )
 });
@@ -800,7 +800,7 @@ _compute_comptime_string_index :: (
       idx_usize,
       str_value.ceil_char_boundary(idx_usize + usize(1))
     );
-    return(EvalValue.StrLit(_str_quote(char_str)));
+    return(EvalValue.StrLit(_str_quote(&char_str)));
   });
   // Range access
   if(!is_struct_val(arg_value), {
@@ -877,7 +877,7 @@ _compute_comptime_string_index :: (
     );
   });
   sliced := str_value.substring(start_idx, end_idx);
-  EvalValue.StrLit(_str_quote(sliced))
+  EvalValue.StrLit(_str_quote(&sliced))
 });
 // ---------------------------------------------------------------------------
 // _try_comptime_string_index
@@ -896,11 +896,11 @@ _try_comptime_string_index :: (
   csi_saved_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   evaluated_gout := ArrayList(AstExpr).new();
-  evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, evaluated_gout);
+  evaluated_gerr := evaluate_expression_guarded(arg_expr, env, ctx, &mut evaluated_gout);
   ctx.expected_type = csi_saved_expected;
-  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(evaluated_ge), .None => ());
+  match(evaluated_gerr, .Some(evaluated_ge) => exn.throw(&evaluated_ge), .None => ());
   evaluated := match(evaluated_gout.get(usize(0)), .Some(evaluated_g) => evaluated_g, .None => make_err_expr());
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
     .Some(i) => i,
@@ -931,19 +931,19 @@ _try_comptime_string_index :: (
       EvalValue.UnitVal
     }
   );
-  caller_env := expr_info_adopt_env(info);
+  caller_env := expr_info_adopt_env(&info);
   arg_type := info.ty;
-  range_check := _check_range_type(arg_type, env, ctx);
+  range_check := _check_range_type(&arg_type, env, ctx);
   result_val := _compute_comptime_string_index(
     str_value,
-    arg_val,
+    &arg_val,
     arg_expr,
     range_check.is_range,
     range_check.is_inclusive,
     exn
   );
   result_ty := TypeValue.ComptimeString;
-  ptr_result_ty := t_ptr(result_ty);
+  ptr_result_ty := t_ptr(&result_ty);
   IndexCallResult(
     value : Option(EvalValue).Some(result_val),
     ty : result_ty,
@@ -988,7 +988,7 @@ _specialize_index_method :: (
   margs.push(recv);
   margs.push(idx_expr);
   inner_exn := Exception(throw : (_err -> unwind(())));
-  r := try_to_call_function_with_arguments(mv, mty, expr, recv, margs, caller_env, ctx, true, false, false, inner_exn);
+  r := try_to_call_function_with_arguments(mv, mty, expr, &recv, &margs, caller_env, ctx, true, false, false, &inner_exn);
   match(
     r.specialized_function_value,
     .Some(sv) => {
@@ -1043,7 +1043,7 @@ _find_comptime_index_method :: (
                   match(
                     param_types.get(usize(1)),
                     .Some(p1) => {
-                      p0_is_ptr := is_pointer_type(p0);
+                      p0_is_ptr := is_pointer_type(&p0);
                       p0_is_ref := match(
                         ci_param_is_ref.get(usize(0)),
                         .Some(b) => b,
@@ -1066,8 +1066,8 @@ _find_comptime_index_method :: (
                       // two structs built by DIFFERENT constructors are different types,
                       // while `Range(comptime_int)` and `Range(usize)` share one and stay
                       // compatible. Only fires when both sides carry a constructor id.
-                      p1_compatible := (_ctor_ids_agree(arg_type, p1) && are_types_compatible(arg_type, p1));
-                      ret_is_ptr := is_pointer_type(ci_result);
+                      p1_compatible := (_ctor_ids_agree(arg_type, &p1) && are_types_compatible(arg_type, &p1));
+                      ret_is_ptr := is_pointer_type(&ci_result);
                       if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
                         // Comptime-parameter gate.
                         ci_flags := match(
@@ -1149,7 +1149,7 @@ _try_comptime_custom_type_index :: (
   evaluated_arg := evaluate_expression(arg_expr, caller_env, ctx);
   ctx.expected_type = cci_saved_expected;
   arg_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg)),
     .Some(i) => i,
     .None => {
       return(Option(IndexCallResult).None);
@@ -1163,14 +1163,14 @@ _try_comptime_custom_type_index :: (
     }
   );
   // Runtime argument — fall through (see the header note on UnknownVal).
-  if(is_unknown_val(arg_value), {
+  if(is_unknown_val(&arg_value), {
     return(Option(IndexCallResult).None);
   });
-  ct_caller_env := expr_info_adopt_env(arg_info);
+  ct_caller_env := expr_info_adopt_env(&arg_info);
   arg_type := arg_info.ty;
   // Find a ComptimeIndex method.
   ct_method := match(
-    _find_comptime_index_method(value_type, arg_type, ct_caller_env),
+    _find_comptime_index_method(value_type, &arg_type, &ct_caller_env),
     .Some(m) => m,
     .None => {
       return(Option(IndexCallResult).None);
@@ -1182,12 +1182,12 @@ _try_comptime_custom_type_index :: (
     return(Option(IndexCallResult).None);
   });
   ct_fn_value := match(ct_method.method_value, .Some(mv) => mv, .None => EvalValue.UnitVal);
-  if(!is_func_val(ct_fn_value), {
+  if(!is_func_val(&ct_fn_value), {
     return(Option(IndexCallResult).None);
   });
   // The return type must be `*(Output)`.
   ct_ret_type := match(ct_fn_type, .Func({ result : ct_r }) => ct_r, _ => t_unit());
-  if(!is_pointer_type(ct_ret_type), {
+  if(!is_pointer_type(&ct_ret_type), {
     return(Option(IndexCallResult).None);
   });
   output_ty := match(ct_ret_type, .Pointer(ct_pt) => ct_pt, _ => ct_ret_type);
@@ -1219,26 +1219,26 @@ _try_comptime_custom_type_index :: (
   );
   // Rebuild the method's definition-time scope from its capture snapshot, then
   // push a frame with `self` / `idx` bound.
-  ct_cap_src := match(ct_fn_value, .FuncVal(__cifvd2, _) => fv_capture_source(__cifvd2.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
-  ct_cap_vals := match(ct_fn_value, .FuncVal(__cifvd3, __cicv) => fv_capture_vals(__cifvd3.*, __cicv), _ => ArrayList(EvalValue).new());
+  ct_cap_src := match(ct_fn_value, .FuncVal(__cifvd2, _) => fv_capture_source(&__cifvd2.*), _ => FvCaptureSource.Flat(ArrayList(String).new(), ArrayList(TypeValue).new()));
+  ct_cap_vals := match(ct_fn_value, .FuncVal(__cifvd3, __cicv) => fv_capture_vals(&__cifvd3.*, &__cicv), _ => ArrayList(EvalValue).new());
   ct_module_path := ct_caller_env.module_path;
-  ct_callee_env := Environment.new(ct_module_path);
+  ct_callee_env := Environment.new(&ct_module_path);
   (ct_ci : usize) = usize(0);
   while(ct_ci < ct_cap_vals.len(), {
-    ct_cn := fv_source_name(ct_cap_src, ct_ci);
-    ct_cty := fv_source_ty(ct_cap_src, ct_ci);
+    ct_cn := fv_source_name(&ct_cap_src, ct_ci);
+    ct_cty := fv_source_ty(&ct_cap_src, ct_ci);
     ct_cv := match(ct_cap_vals.get(ct_ci), .Some(v) => Option(EvalValue).Some(v), .None => Option(EvalValue).None);
     ct_cv_is_ct := match(ct_cv, .Some(_) => true, .None => false);
     _ct_add_cap := add_variable_to_env(
-      ct_callee_env,
+      &ct_callee_env,
       ct_cn.clone(),
-      ct_cty,
-      ct_cv,
+      &ct_cty,
+      &ct_cv,
       ct_cv_is_ct,
       false,
       false,
       false,
-      synthetic_token(ct_cn, ct_module_path)
+      synthetic_token(&ct_cn, &ct_module_path)
     );
     ct_ci = (ct_ci + usize(1));
   });
@@ -1247,26 +1247,26 @@ _try_comptime_custom_type_index :: (
     match(expr, .FnCall(_, ct_func_slot, _, _, _) => ct_func_slot, .Atom(_, _) => expr)
   );
   _ct_add_self := add_variable_to_env(
-    ct_callee_env,
+    &ct_callee_env,
     ct_p0_label.clone(),
-    ct_p0_ty,
+    &ct_p0_ty,
     Option(EvalValue).Some(self_ptr_value),
     true,
     false,
     false,
     false,
-    ct_param_token
+    &ct_param_token
   );
   _ct_add_idx := add_variable_to_env(
-    ct_callee_env,
+    &ct_callee_env,
     ct_p1_label.clone(),
-    ct_p1_ty,
+    &ct_p1_ty,
     Option(EvalValue).Some(arg_value),
     true,
     false,
     false,
     false,
-    ct_param_token
+    &ct_param_token
   );
   ct_args := ArrayList(ArgEntry).new();
   ct_args.push(
@@ -1295,18 +1295,18 @@ _try_comptime_custom_type_index :: (
   ctx.is_validating_function_definition = false;
   ct_result := evaluate_comptime_fn_call(
     Option(AstExpr).Some(match(expr, .FnCall(_, ct_func_slot2, _, _, _) => ct_func_slot2, .Atom(_, _) => expr)),
-    ct_fn_type,
-    ct_fn_value,
-    ct_arg_values,
-    ct_caller_env,
-    ct_callee_env,
+    &ct_fn_type,
+    &ct_fn_value,
+    &ct_arg_values,
+    &ct_caller_env,
+    &ct_callee_env,
     ctx,
     exn
   );
   ctx.is_validating_function_definition = ct_saved_validating;
   ct_return_value := ct_result.value;
   // Also record the RUNTIME index method for codegen.
-  ct_rt_method := _find_index_method(value_type, arg_type, ct_caller_env);
+  ct_rt_method := _find_index_method(value_type, &arg_type, &ct_caller_env);
   ct_rt_method_type := match(ct_rt_method, .Some(rm) => Option(TypeValue).Some(rm.method_type), .None => Option(TypeValue).None);
   ct_rt_method_value := match(ct_rt_method, .Some(rm) => rm.method_value, .None => Option(EvalValue).None);
   // A PtrVal return derefs to the pointed-at element/field and yields the
@@ -1424,7 +1424,7 @@ try_to_call_with_index_trait :: (
   array_val := match(
     self_value,
     .Some(v) => if(
-      is_array_val(v),
+      is_array_val(&v),
       Option(EvalValue).Some(v),
       Option(EvalValue).None
     ),
@@ -1441,8 +1441,8 @@ try_to_call_with_index_trait :: (
   // 3. Comptime array/slice path
   if(has_array_or_slice && is_arr_or_slice_ty, {
     ct_result := _try_comptime_array_index(
-      arg_expr,
-      array_val,
+      &arg_expr,
+      &array_val,
       value_type,
       caller_env,
       ctx,
@@ -1463,10 +1463,10 @@ try_to_call_with_index_trait :: (
       rn := raw.len();
       str_unquoted := if(
         rn >= usize(2),
-        str_lit_unquote_bytes(raw),
+        str_lit_unquote_bytes(&raw),
         String.new()
       );
-      result := _try_comptime_string_index(arg_expr, str_unquoted, caller_env, ctx, exn);
+      result := _try_comptime_string_index(&arg_expr, &str_unquoted, caller_env, ctx, exn);
       return(result);
     },
     .None => ()
@@ -1476,12 +1476,12 @@ try_to_call_with_index_trait :: (
   //    `ComptimeIndex(usize)`.
   match(
     self_value,
-    .Some(sv_ct) => if(!is_unknown_val(sv_ct) && array_val.is_none() && string_raw_opt.is_none(), {
+    .Some(sv_ct) => if(!is_unknown_val(&sv_ct) && array_val.is_none() && string_raw_opt.is_none(), {
       match(
         _try_comptime_custom_type_index(
           expr,
-          arg_expr,
-          sv_ct,
+          &arg_expr,
+          &sv_ct,
           value_type,
           caller_env,
           ctx,
@@ -1504,11 +1504,11 @@ try_to_call_with_index_trait :: (
   rt_arg_saved_expected := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   evaluated_arg_gout := ArrayList(AstExpr).new();
-  evaluated_arg_gerr := evaluate_expression_guarded(arg_expr, caller_env, ctx, evaluated_arg_gout);
+  evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, caller_env, ctx, &mut evaluated_arg_gout);
   ctx.expected_type = rt_arg_saved_expected;
-  match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
+  match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(&evaluated_arg_ge), .None => ());
   evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
-  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   arg_info := match(
     arg_info_opt,
     .Some(i) => i,
@@ -1516,7 +1516,7 @@ try_to_call_with_index_trait :: (
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg_expr),
+            ast_expr_token(&arg_expr),
             String.from("Failed to evaluate index argument")
           )
         )
@@ -1524,7 +1524,7 @@ try_to_call_with_index_trait :: (
       new_expr_info(caller_env, t_unit())
     }
   );
-  updated_env := expr_info_adopt_env(arg_info);
+  updated_env := expr_info_adopt_env(&arg_info);
   // For array/slice: derive element type directly from TypeValue (no method lookup needed)
   if(is_arr_or_slice_ty, {
     elem_ty := match(
@@ -1532,12 +1532,12 @@ try_to_call_with_index_trait :: (
       .Array(et, _, _) => et,
       _ => t_unit()
     );
-    result_val := create_unknown_val(elem_ty);
+    result_val := create_unknown_val(&elem_ty);
     return(
       IndexCallResult(
         value : Option(EvalValue).Some(result_val),
         ty : elem_ty,
-        ptr_type : t_ptr(elem_ty),
+        ptr_type : t_ptr(&elem_ty),
         index_method_type : Option(TypeValue).None,
         index_method_value : Option(EvalValue).None,
         caller_env : updated_env,
@@ -1548,7 +1548,7 @@ try_to_call_with_index_trait :: (
   });
   // For custom types: find the index method via trait lookup
   arg_type := arg_info.ty;
-  method_opt := _find_index_method(value_type, arg_type, caller_env);
+  method_opt := _find_index_method(value_type, &arg_type, caller_env);
   method := match(
     method_opt,
     .Some(m) => m,
@@ -1580,7 +1580,7 @@ try_to_call_with_index_trait :: (
   );
   // Runtime dispatch through a trait method — the result is runtime-only,
   // so overload resolution doesn't prefer comptime functions.
-  result_val := create_runtime_unknown_val(output_ty);
+  result_val := create_runtime_unknown_val(&output_ty);
   // Specialize the index method so codegen has an emittable concrete FuncVal (see
   // _specialize_index_method). On any failure, fall back to the generic value
   // (no worse than before — the codegen branch then references an unemitted fn).
@@ -1592,16 +1592,16 @@ try_to_call_with_index_trait :: (
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   match(
     method.method_value,
-    .Some(_) => _specialize_index_method(method.method_value, method.method_type, expr, caller_env, ctx, arg_expr, spec_out),
+    .Some(_) => _specialize_index_method(&method.method_value, &method.method_type, expr, caller_env, ctx, &arg_expr, &mut spec_out),
     .None => ()
   );
-  _record_index_unchecked_twin(value_type, arg_type, output_ty, expr, caller_env, ctx, arg_expr);
+  _record_index_unchecked_twin(value_type, &arg_type, &output_ty, expr, caller_env, ctx, &arg_expr);
   ctx.expected_type = saved_idx_exp;
   spec_method_value := match(spec_out.get(usize(0)), .Some(sv) => Option(EvalValue).Some(sv), .None => method.method_value);
   IndexCallResult(
     value : Option(EvalValue).Some(result_val),
     ty : output_ty,
-    ptr_type : t_ptr(output_ty),
+    ptr_type : t_ptr(&output_ty),
     index_method_type : Option(TypeValue).Some(method.method_type),
     index_method_value : spec_method_value,
     caller_env : updated_env,
@@ -1652,7 +1652,7 @@ _record_index_unchecked_twin :: (
     if((c.source_trait_id == trait_id) && c.value.is_some(), {
       same_output := match(
         c.ty,
-        .Func({ result : .Pointer(twin_out) }) => (are_types_compatible(twin_out, output_ty) && are_types_compatible(output_ty, twin_out)),
+        .Func({ result : .Pointer(twin_out) }) => (are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)),
         _ => false
       );
       if(same_output, {
@@ -1665,10 +1665,10 @@ _record_index_unchecked_twin :: (
     picked,
     .Some(tw) => {
       twin_out := ArrayList(EvalValue).new();
-      _specialize_index_method(tw.method_value, tw.method_type, expr, caller_env, ctx, idx_expr, twin_out);
+      _specialize_index_method(&tw.method_value, &tw.method_type, expr, caller_env, ctx, idx_expr, &mut twin_out);
       match(
         twin_out.get(usize(0)),
-        .Some(sv) => record_index_unchecked_twin(ast_expr_id(expr), sv),
+        .Some(sv) => record_index_unchecked_twin(ast_expr_id(expr), &sv),
         .None => ()
       );
     },

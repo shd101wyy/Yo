@@ -125,7 +125,7 @@ _jfield_bool :: (fn(imm(v) : JsonValue, key : str, dflt : bool) -> bool)(
 _params_uri :: (fn(imm(params) : JsonValue) -> String)(
   match(
     params.get(String.from("textDocument")),
-    .Some(td) => _jfield_str(td, "uri"),
+    .Some(td) => _jfield_str(&td, "uri"),
     .None => String.new()
   )
 );
@@ -142,8 +142,8 @@ _rune_position :: (fn(imm(params) : JsonValue, imm(lines) : ArrayList(String)) -
   match(
     params.get(String.from("position")),
     .Some(pos) => {
-      line := _jfield_usize(pos, "line");
-      character := _jfield_usize(pos, "character");
+      line := _jfield_usize(&pos, "line");
+      character := _jfield_usize(&pos, "character");
       LspPos(line : line, character : client_col_to_rune(line_at(lines, line), character))
     },
     .None => LspPos(line : usize(0), character : usize(0))
@@ -177,7 +177,7 @@ _related_json :: (fn(imm(related) : ArrayList(RelatedInfo), imm(lines) : ArrayLi
           )
         );
         items.push(
-          jb().put("location", jb().put("uri", jstr(module_path_to_uri(r.path.clone()))).put("range", range).obj()).put("message", jstr(r.message.clone())).obj()
+          jb().put("location", jb().put("uri", jstr(module_path_to_uri(r.path.clone()))).put("range", &range).obj()).put("message", jstr(r.message.clone())).obj()
         );
       },
       .None => ()
@@ -202,7 +202,7 @@ _analyze_and_publish :: (
   mm_set_open_document(fs_path.clone(), text.clone());
   _inv := mm_invalidate_document(fs_path.clone());
   out_state := ArrayList(AnalyzeOutcome).new();
-  diags := analyze_document(fs_path.clone(), text.clone(), std_path, io, out_state);
+  diags := analyze_document(fs_path.clone(), text.clone(), std_path, io, &mut out_state);
   lines := text.split(String.from("\n"));
   match(
     out_state.get(usize(0)),
@@ -232,7 +232,7 @@ _analyze_and_publish :: (
       diags.get(i),
       .Some(d) => {
         items.push(
-          j_diagnostic(j_range_in(lines, d.row, d.col, d.row, d.end_col), d.severity, d.code, d.message, _related_json(d.related, lines, fs_path))
+          j_diagnostic(j_range_in(&lines, d.row, d.col, d.row, d.end_col), d.severity, &d.code, &d.message, _related_json(&d.related, &lines, &fs_path))
         );
       },
       .None => ()
@@ -240,13 +240,13 @@ _analyze_and_publish :: (
     i = (i + usize(1));
   });
   params := jb().put("uri", jstr(uri)).put("diagnostics", JsonValue.Array(items : items)).obj();
-  write_lsp_message(json.stringify(j_notification("textDocument/publishDiagnostics", params)));
+  write_lsp_message(json.stringify(j_notification("textDocument/publishDiagnostics", &params)));
 });
 
 /// Send an empty diagnostics list for `uri` (clears squiggles on close).
 _publish_empty :: (fn(imm(uri) : String) -> unit)({
   params := jb().put("uri", jstr(uri)).put("diagnostics", JsonValue.Array(items : ArrayList(JsonValue).new())).obj();
-  write_lsp_message(json.stringify(j_notification("textDocument/publishDiagnostics", params)));
+  write_lsp_message(json.stringify(j_notification("textDocument/publishDiagnostics", &params)));
 });
 
 /// The idle window a `didChange` analysis waits out, in milliseconds. Every
@@ -473,7 +473,7 @@ _client_wants_hierarchical_symbols :: (fn(imm(params) : JsonValue) -> bool)(
       caps.get(String.from("textDocument")),
       .Some(td) => match(
         td.get(String.from("documentSymbol")),
-        .Some(ds) => _jfield_bool(ds, "hierarchicalDocumentSymbolSupport", false),
+        .Some(ds) => _jfield_bool(&ds, "hierarchicalDocumentSymbolSupport", false),
         .None => false
       ),
       .None => false
@@ -544,7 +544,7 @@ _initialize_result :: (fn(imm(params) : JsonValue) -> JsonValue)({
     (enc == usize(2)) => String.from("utf-8"),
     true => String.from("utf-16")
   );
-  jb().put("capabilities", jb().put("positionEncoding", jstr(encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("declarationProvider", JsonValue.Bool(value : true)).put("implementationProvider", JsonValue.Bool(value : true)).put("documentLinkProvider", JsonValue.Bool(value : true)).put("typeDefinitionProvider", JsonValue.Bool(value : true)).put("documentHighlightProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", jb().put("prepareProvider", JsonValue.Bool(value : true)).obj()).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("workspaceSymbolProvider", JsonValue.Bool(value : true)).put("semanticTokensProvider", jb().put("legend", jb().put("tokenTypes", JsonValue.Array(items : _semantic_token_types())).put("tokenModifiers", JsonValue.Array(items : ArrayList(JsonValue).new())).obj()).put("full", JsonValue.Bool(value : true)).obj()).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
+  jb().put("capabilities", jb().put("positionEncoding", jstr(&encoding)).put("textDocumentSync", jnum(usize(1))).put("hoverProvider", JsonValue.Bool(value : true)).put("definitionProvider", JsonValue.Bool(value : true)).put("declarationProvider", JsonValue.Bool(value : true)).put("implementationProvider", JsonValue.Bool(value : true)).put("documentLinkProvider", JsonValue.Bool(value : true)).put("typeDefinitionProvider", JsonValue.Bool(value : true)).put("documentHighlightProvider", JsonValue.Bool(value : true)).put("documentSymbolProvider", JsonValue.Bool(value : true)).put("referencesProvider", JsonValue.Bool(value : true)).put("foldingRangeProvider", JsonValue.Bool(value : true)).put("renameProvider", jb().put("prepareProvider", JsonValue.Bool(value : true)).obj()).put("codeActionProvider", JsonValue.Bool(value : true)).put("documentFormattingProvider", JsonValue.Bool(value : true)).put("workspaceSymbolProvider", JsonValue.Bool(value : true)).put("semanticTokensProvider", jb().put("legend", jb().put("tokenTypes", JsonValue.Array(items : _semantic_token_types())).put("tokenModifiers", JsonValue.Array(items : ArrayList(JsonValue).new())).obj()).put("full", JsonValue.Bool(value : true)).obj()).put("signatureHelpProvider", jb().put("triggerCharacters", JsonValue.Array(items : _sig_triggers())).obj()).put("completionProvider", jb().put("triggerCharacters", JsonValue.Array(items : _completion_triggers())).obj()).obj()).put(
     "serverInfo",
     // No `version` field on purpose: it is optional in the protocol, the
     // client can ask `yo --version`, and a version here would churn the
@@ -564,7 +564,7 @@ _format_document :: (fn(imm(text) : String, imm(doc_abs) : String) -> JsonValue)
       _err -> unwind(JsonValue.Null)
     )
   );
-  formatted := format_yo_source(text.clone(), doc_abs.clone(), fmt_exn);
+  formatted := format_yo_source(text.clone(), doc_abs.clone(), &fmt_exn);
   if(formatted == text, {
     return(JsonValue.Array(items : ArrayList(JsonValue).new()));
   });
@@ -578,7 +578,7 @@ _format_document :: (fn(imm(text) : String, imm(doc_abs) : String) -> JsonValue)
     // golden (issues/fixed/lsp-formatting-edit-end-position-past-document-end.md).
     // Column 0 needs no wire conversion; the end column runs through
     // j_range_in like every emitted column.
-    jb().put("range", j_range_in(lines, usize(0), usize(0), line_count - usize(1), line_at(lines, line_count - usize(1)).chars().count())).put("newText", jstr(formatted)).obj()
+    jb().put("range", j_range_in(&lines, usize(0), usize(0), line_count - usize(1), line_at(&lines, line_count - usize(1)).chars().count())).put("newText", jstr(&formatted)).obj()
   );
   JsonValue.Array(items : edits)
 });
@@ -588,7 +588,7 @@ _format_document :: (fn(imm(text) : String, imm(doc_abs) : String) -> JsonValue)
 _respond :: (fn(imm(id_opt) : Option(JsonValue), imm(result) : JsonValue) -> unit)({
   match(
     id_opt,
-    .Some(id) => write_lsp_message(json.stringify(j_response(id, result))),
+    .Some(id) => write_lsp_message(json.stringify(j_response(&id, result))),
     .None => ()
   );
 });
@@ -623,8 +623,8 @@ _handle_message :: (
   );
   // D13: json.parse_string's Result form is for callers outside an effect
   // scope; this caller is already inside one, so it takes the _exn wrapper.
-  v := json.parse_string_exn(body, local_exn);
-  method := _jfield_str(v, "method");
+  v := json.parse_string_exn(body, &local_exn);
+  method := _jfield_str(&v, "method");
   id_opt := v.get(String.from("id"));
   params_opt := v.get(String.from("params"));
   cond(
@@ -635,14 +635,14 @@ _handle_message :: (
         (g_server_state == usize(0)) => {
           g_server_state = usize(1);
           params := match(params_opt, .Some(p) => p, .None => JsonValue.Null);
-          _respond(id_opt, _initialize_result(params));
+          _respond(&id_opt, _initialize_result(&params));
         },
         true => {
           match(
             id_opt,
             .Some(id) => write_lsp_message(
               json.stringify(
-                j_error_response(id, i64(0) - i64(32600), `initialize may only be sent once`)
+                j_error_response(&id, i64(0) - i64(32600), `initialize may only be sent once`)
               )
             ),
             .None => ()
@@ -668,7 +668,7 @@ _handle_message :: (
         id_opt,
         .Some(id) => write_lsp_message(
           json.stringify(
-            j_error_response(id, i64(0) - i64(32002), `server not initialized: ${method} arrived before initialize`)
+            j_error_response(&id, i64(0) - i64(32002), `server not initialized: ${method} arrived before initialize`)
           )
         ),
         .None => ()
@@ -680,7 +680,7 @@ _handle_message :: (
         id_opt,
         .Some(id) => write_lsp_message(
           json.stringify(
-            j_error_response(id, i64(0) - i64(32600), `server is shut down: ${method} arrived after shutdown`)
+            j_error_response(&id, i64(0) - i64(32600), `server is shut down: ${method} arrived after shutdown`)
           )
         ),
         .None => ()
@@ -698,7 +698,7 @@ _handle_message :: (
         id_opt,
         .Some(id) => write_lsp_message(
           json.stringify(
-            j_error_response(id, i64(0) - i64(32601), `method not found: ${method}`)
+            j_error_response(&id, i64(0) - i64(32601), `method not found: ${method}`)
           )
         ),
         .None => ()
@@ -707,18 +707,18 @@ _handle_message :: (
     (method == String.from("initialized")) => (),
     (method == String.from("shutdown")) => {
       g_server_state = usize(2);
-      _respond(id_opt, JsonValue.Null);
+      _respond(&id_opt, JsonValue.Null);
     },
     (method == String.from("textDocument/hover")) => {
       (hover_result : JsonValue) = JsonValue.Null;
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            pos := _rune_position(params, st.lines);
+            pos := _rune_position(&params, &st.lines);
             match(
-              handle_hover(st.text, st.entry_abs, st.lines, st.outcome.exprs, st.outcome.info_table, pos.line, pos.character),
+              handle_hover(&st.text, &st.entry_abs, &st.lines, &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(h) => {
                 hover_result = h;
               },
@@ -729,18 +729,18 @@ _handle_message :: (
         ),
         .None => ()
       );
-      _respond(id_opt, hover_result);
+      _respond(&id_opt, &hover_result);
     },
     (method == String.from("textDocument/definition")) => {
       (def_result : JsonValue) = JsonValue.Null;
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            pos := _rune_position(params, st.lines);
+            pos := _rune_position(&params, &st.lines);
             match(
-              handle_definition(st.text, st.entry_abs, st.lines, std_path.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character),
+              handle_definition(&st.text, &st.entry_abs, &st.lines, std_path.clone(), &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(loc) => {
                 def_result = loc;
               },
@@ -751,7 +751,7 @@ _handle_message :: (
         ),
         .None => ()
       );
-      _respond(id_opt, def_result);
+      _respond(&id_opt, &def_result);
     },
     (method == String.from("textDocument/declaration")) => {
       // A binding's declaration IS its definition in yo (no separate .h
@@ -762,11 +762,11 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            pos := _rune_position(params, st.lines);
+            pos := _rune_position(&params, &st.lines);
             match(
-              handle_definition(st.text, st.entry_abs, st.lines, std_path.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character),
+              handle_definition(&st.text, &st.entry_abs, &st.lines, std_path.clone(), &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(loc) => {
                 decl_result = loc;
               },
@@ -777,18 +777,18 @@ _handle_message :: (
         ),
         .None => ()
       );
-      _respond(id_opt, decl_result);
+      _respond(&id_opt, &decl_result);
     },
     (method == String.from("textDocument/typeDefinition")) => {
       (td_result : JsonValue) = JsonValue.Null;
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            pos := _rune_position(params, st.lines);
+            pos := _rune_position(&params, &st.lines);
             match(
-              handle_type_definition(st.text, st.entry_abs, st.lines, st.outcome.exprs, st.outcome.info_table, pos.line, pos.character),
+              handle_type_definition(&st.text, &st.entry_abs, &st.lines, &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(loc) => {
                 td_result = loc;
               },
@@ -799,22 +799,22 @@ _handle_message :: (
         ),
         .None => ()
       );
-      _respond(id_opt, td_result);
+      _respond(&id_opt, &td_result);
     },
     (method == String.from("textDocument/implementation")) => {
       (impl_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            pos := _rune_position(params, st.lines);
+            pos := _rune_position(&params, &st.lines);
             impl_result = handle_implementations(
-              st.text,
-              st.entry_abs,
-              _params_uri(params),
-              st.lines,
-              st.outcome.exprs,
+              &st.text,
+              &st.entry_abs,
+              _params_uri(&params),
+              &st.lines,
+              &st.outcome.exprs,
               pos.line,
               pos.character
             );
@@ -823,43 +823,43 @@ _handle_message :: (
         ),
         .None => ()
       );
-      _respond(id_opt, impl_result);
+      _respond(&id_opt, &impl_result);
     },
     (method == String.from("textDocument/documentHighlight")) => {
       (dh_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            pos := _rune_position(params, st.lines);
-            dh_result = handle_document_highlight(st.text, st.entry_abs, st.lines, st.outcome.exprs, st.outcome.info_table, pos.line, pos.character);
+            pos := _rune_position(&params, &st.lines);
+            dh_result = handle_document_highlight(&st.text, &st.entry_abs, &st.lines, &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character);
           },
           .None => ()
         ),
         .None => ()
       );
-      _respond(id_opt, dh_result);
+      _respond(&id_opt, &dh_result);
     },
     (method == String.from("textDocument/documentSymbol")) => {
       (sym_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
             // Hierarchical DocumentSymbol[] only for clients that declared
             // the capability; flat SymbolInformation[] otherwise.
             sym_result = cond(
-              g_hierarchical_symbols => handle_document_symbols(st.outcome.exprs, st.lines),
-              true => handle_document_symbols_flat(st.outcome.exprs, st.lines, _params_uri(params))
+              g_hierarchical_symbols => handle_document_symbols(&st.outcome.exprs, &st.lines),
+              true => handle_document_symbols_flat(&st.outcome.exprs, &st.lines, _params_uri(&params))
             );
           },
           .None => ()
         ),
         .None => ()
       );
-      _respond(id_opt, sym_result);
+      _respond(&id_opt, &sym_result);
     },
     (method == String.from("workspace/symbol")) => {
       // The top-level symbols of every OPEN document whose name matches the
@@ -869,7 +869,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => {
-          query := _jfield_str(params, "query");
+          query := _jfield_str(&params, "query");
           ws_docs := ArrayList(WorkspaceDoc).new();
           // `for(map, ...)` hands out owned entries (into_iter); `iter()`
           // would need raw pointers.
@@ -882,79 +882,79 @@ _handle_message :: (
               )
             );
           });
-          ws_result = handle_workspace_symbols(query, ws_docs);
+          ws_result = handle_workspace_symbols(&query, &ws_docs);
         },
         .None => ()
       );
-      _respond(id_opt, ws_result);
+      _respond(&id_opt, &ws_result);
     },
     (method == String.from("textDocument/references")) => {
       (refs_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
       match(
         params_opt,
         .Some(params) => {
-          uri := _params_uri(params);
+          uri := _params_uri(&params);
           // `context.includeDeclaration` (LSP) — absent context keeps the
           // declaration, the pre-audit behavior
           // (issues/fixed/lsp-references-ignore-include-declaration.md).
           include_decl := match(
             params.get(String.from("context")),
-            .Some(ctx) => _jfield_bool(ctx, "includeDeclaration", true),
+            .Some(ctx) => _jfield_bool(&ctx, "includeDeclaration", true),
             .None => true
           );
           match(
             docs.get(uri.clone()),
             .Some(st) => {
-              pos := _rune_position(params, st.lines);
-              refs_result = handle_references(st.text, st.entry_abs, st.lines, uri.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character, include_decl);
+              pos := _rune_position(&params, &st.lines);
+              refs_result = handle_references(&st.text, &st.entry_abs, &st.lines, uri.clone(), &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character, include_decl);
             },
             .None => ()
           );
         },
         .None => ()
       );
-      _respond(id_opt, refs_result);
+      _respond(&id_opt, &refs_result);
     },
     (method == String.from("textDocument/foldingRange")) => {
       (fold_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            fold_result = handle_folding_ranges(st.text, st.entry_abs);
+            fold_result = handle_folding_ranges(&st.text, &st.entry_abs);
           },
           .None => ()
         ),
         .None => ()
       );
-      _respond(id_opt, fold_result);
+      _respond(&id_opt, &fold_result);
     },
     (method == String.from("textDocument/semanticTokens/full")) => {
       (st_result : JsonValue) = jb().put("data", JsonValue.Array(items : ArrayList(JsonValue).new())).obj();
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            st_result = handle_semantic_tokens(st.text, st.entry_abs, st.outcome.exprs, st.outcome.info_table);
+            st_result = handle_semantic_tokens(&st.text, &st.entry_abs, &st.outcome.exprs, &st.outcome.info_table);
           },
           .None => ()
         ),
         .None => ()
       );
-      _respond(id_opt, st_result);
+      _respond(&id_opt, &st_result);
     },
     (method == String.from("textDocument/prepareRename")) => {
       (pr_result : JsonValue) = JsonValue.Null;
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            pos := _rune_position(params, st.lines);
+            pos := _rune_position(&params, &st.lines);
             match(
-              handle_prepare_rename(st.text, st.entry_abs, st.lines, st.outcome.exprs, st.outcome.info_table, pos.line, pos.character),
+              handle_prepare_rename(&st.text, &st.entry_abs, &st.lines, &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(pr) => {
                 pr_result = pr;
               },
@@ -965,7 +965,7 @@ _handle_message :: (
         ),
         .None => ()
       );
-      _respond(id_opt, pr_result);
+      _respond(&id_opt, &pr_result);
     },
     (method == String.from("textDocument/rename")) => {
       // newName is validated BEFORE any edit is built: an illegal identifier
@@ -977,8 +977,8 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => {
-          uri := _params_uri(params);
-          new_name := _jfield_str(params, "newName");
+          uri := _params_uri(&params);
+          new_name := _jfield_str(&params, "newName");
           match(
             rename_rejection(new_name.clone()),
             .Some(reason) => {
@@ -987,7 +987,7 @@ _handle_message :: (
                 id_opt,
                 .Some(id) => write_lsp_message(
                   json.stringify(
-                    j_error_response(id, i64(0) - i64(32803), `rename rejected: ${reason}`)
+                    j_error_response(&id, i64(0) - i64(32803), `rename rejected: ${reason}`)
                   )
                 ),
                 .None => ()
@@ -997,9 +997,9 @@ _handle_message :: (
               match(
                 docs.get(uri.clone()),
                 .Some(st) => {
-                  pos := _rune_position(params, st.lines);
+                  pos := _rune_position(&params, &st.lines);
                   match(
-                    handle_rename(st.text, st.entry_abs, st.lines, uri.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character, new_name),
+                    handle_rename(&st.text, &st.entry_abs, &st.lines, uri.clone(), &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character, &new_name),
                     .Some(we) => {
                       rn_result = we;
                     },
@@ -1014,7 +1014,7 @@ _handle_message :: (
         .None => ()
       );
       if(!rn_rejected, {
-        _respond(id_opt, rn_result);
+        _respond(&id_opt, &rn_result);
       });
     },
     (method == String.from("textDocument/codeAction")) => {
@@ -1027,7 +1027,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => {
-          uri := _params_uri(params);
+          uri := _params_uri(&params);
           match(
             docs.get(uri.clone()),
             .Some(st) => {
@@ -1036,8 +1036,8 @@ _handle_message :: (
               match(
                 params.get(String.from("range")),
                 .Some(rg) => {
-                  from_line = match(rg.get(String.from("start")), .Some(sp) => _jfield_usize(sp, "line"), .None => usize(0));
-                  to_line = match(rg.get(String.from("end")), .Some(ep) => _jfield_usize(ep, "line"), .None => from_line);
+                  from_line = match(rg.get(String.from("start")), .Some(sp) => _jfield_usize(&sp, "line"), .None => usize(0));
+                  to_line = match(rg.get(String.from("end")), .Some(ep) => _jfield_usize(&ep, "line"), .None => from_line);
                 },
                 .None => ()
               );
@@ -1050,14 +1050,14 @@ _handle_message :: (
                     .Some(r) => if((d.row >= from_line) && (d.row <= to_line), {
                       edits := ArrayList(JsonValue).new();
                       edits.push(
-                        jb().put("range", j_range_in(st.lines, r.span.row, r.span.col, r.span.row, r.span.col + r.span.len)).put("newText", jstr(r.replacement.clone())).obj()
+                        jb().put("range", j_range_in(&st.lines, r.span.row, r.span.col, r.span.row, r.span.col + r.span.len)).put("newText", jstr(r.replacement.clone())).obj()
                       );
                       ck := ArrayList(String).new();
                       cv := ArrayList(JsonValue).new();
                       ck.push(uri.clone());
                       cv.push(JsonValue.Array(items : edits));
                       diag_items := ArrayList(JsonValue).new();
-                      diag_items.push(j_diagnostic(j_range_in(st.lines, d.row, d.col, d.row, d.end_col), d.severity, d.code, d.message.clone()));
+                      diag_items.push(j_diagnostic(j_range_in(&st.lines, d.row, d.col, d.row, d.end_col), d.severity, &d.code, d.message.clone()));
                       actions.push(
                         jb().put("title", jstr(r.description.clone())).put("kind", jstr(String.from("quickfix"))).put("isPreferred", JsonValue.Bool(value : true)).put("diagnostics", JsonValue.Array(items : diag_items)).put("edit", jb().put("changes", JsonValue.Object(keys : ck, values : cv)).obj()).obj()
                       );
@@ -1074,33 +1074,33 @@ _handle_message :: (
         },
         .None => ()
       );
-      _respond(id_opt, JsonValue.Array(items : actions));
+      _respond(&id_opt, JsonValue.Array(items : actions));
     },
     (method == String.from("textDocument/formatting")) => {
       (fmt_result : JsonValue) = JsonValue.Null;
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            fmt_result = _format_document(st.text, st.entry_abs);
+            fmt_result = _format_document(&st.text, &st.entry_abs);
           },
           .None => ()
         ),
         .None => ()
       );
-      _respond(id_opt, fmt_result);
+      _respond(&id_opt, &fmt_result);
     },
     (method == String.from("textDocument/signatureHelp")) => {
       (sh_result : JsonValue) = JsonValue.Null;
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            pos := _rune_position(params, st.lines);
+            pos := _rune_position(&params, &st.lines);
             match(
-              handle_signature_help(st.outcome.exprs, st.outcome.info_table, pos.line, pos.character),
+              handle_signature_help(&st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character),
               .Some(sh) => {
                 sh_result = sh;
               },
@@ -1111,38 +1111,38 @@ _handle_message :: (
         ),
         .None => ()
       );
-      _respond(id_opt, sh_result);
+      _respond(&id_opt, &sh_result);
     },
     (method == String.from("textDocument/completion")) => {
       (comp_result : JsonValue) = JsonValue.Null;
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            pos := _rune_position(params, st.lines);
-            comp_result = handle_completion(st.text, st.entry_abs, std_path.clone(), st.outcome.exprs, st.outcome.info_table, pos.line, pos.character, io);
+            pos := _rune_position(&params, &st.lines);
+            comp_result = handle_completion(&st.text, &st.entry_abs, std_path.clone(), &st.outcome.exprs, &st.outcome.info_table, pos.line, pos.character, io);
           },
           .None => ()
         ),
         .None => ()
       );
-      _respond(id_opt, comp_result);
+      _respond(&id_opt, &comp_result);
     },
     (method == String.from("textDocument/documentLink")) => {
       (links_result : JsonValue) = JsonValue.Array(items : ArrayList(JsonValue).new());
       match(
         params_opt,
         .Some(params) => match(
-          docs.get(_params_uri(params)),
+          docs.get(_params_uri(&params)),
           .Some(st) => {
-            links_result = handle_document_links(st.text, st.entry_abs, st.lines, std_path.clone());
+            links_result = handle_document_links(&st.text, &st.entry_abs, &st.lines, std_path.clone());
           },
           .None => ()
         ),
         .None => ()
       );
-      _respond(id_opt, links_result);
+      _respond(&id_opt, &links_result);
     },
     (method == String.from("textDocument/didOpen")) => {
       match(
@@ -1150,10 +1150,10 @@ _handle_message :: (
         .Some(params) => match(
           params.get(String.from("textDocument")),
           .Some(td) => {
-            uri := _jfield_str(td, "uri");
-            text := _jfield_str(td, "text");
+            uri := _jfield_str(&td, "uri");
+            text := _jfield_str(&td, "text");
             if(uri.len() > usize(0), {
-              _analyze_and_publish(uri, text, std_path.clone(), docs, io);
+              _analyze_and_publish(&uri, &text, std_path.clone(), docs, io);
             });
           },
           .None => ()
@@ -1165,7 +1165,7 @@ _handle_message :: (
       match(
         params_opt,
         .Some(params) => {
-          uri := _params_uri(params);
+          uri := _params_uri(&params);
           // Full sync: the last contentChanges entry's `text` is the whole
           // document (we advertise TextDocumentSyncKind.Full). The text is
           // retained at once but the analysis is DEBOUNCED — see
@@ -1178,7 +1178,7 @@ _handle_message :: (
               .Array(items) => cond(
                 (items.len() > usize(0)) => match(
                   items.last(),
-                  .Some(last) => Option(String).Some(_jfield_str(last, "text")),
+                  .Some(last) => Option(String).Some(_jfield_str(&last, "text")),
                   .None => Option(String).None
                 ),
                 true => Option(String).None
@@ -1190,7 +1190,7 @@ _handle_message :: (
           match(
             text_opt,
             .Some(text) => if(uri.len() > usize(0), {
-              _note_document_change(uri, text, std_path.clone(), docs, pending, io);
+              _note_document_change(&uri, &text, std_path.clone(), docs, pending, io);
             }),
             .None => ()
           );
@@ -1204,15 +1204,15 @@ _handle_message :: (
         .Some(params) => match(
           params.get(String.from("textDocument")),
           .Some(td) => {
-            uri := _jfield_str(td, "uri");
+            uri := _jfield_str(&td, "uri");
             if(uri.len() > usize(0), {
               _r := docs.remove(uri.clone());
               // Phase B1: the disk becomes this file's truth again — drop
               // the open-buffer overlay and anything cached from it.
               closed_fs := uri_to_fs_path(uri.clone());
               mm_forget_open_document(closed_fs.clone());
-              _inv2 := mm_invalidate_document(closed_fs);
-              _publish_empty(uri);
+              _inv2 := mm_invalidate_document(&closed_fs);
+              _publish_empty(&uri);
             });
           },
           .None => ()
@@ -1236,7 +1236,7 @@ _handle_message :: (
               match(
                 changes.get(ci),
                 .Some(ch) => {
-                  changed_fs := uri_to_fs_path(_jfield_str(ch, "uri"));
+                  changed_fs := uri_to_fs_path(_jfield_str(&ch, "uri"));
                   if(changed_fs.len() > usize(0), {
                     is_open := false;
                     for(docs, entry => {
@@ -1245,7 +1245,7 @@ _handle_message :: (
                       });
                     });
                     if(!is_open, {
-                      _inv3 := mm_invalidate_document(changed_fs);
+                      _inv3 := mm_invalidate_document(&changed_fs);
                     });
                   });
                 },
@@ -1303,7 +1303,7 @@ _handle_message :: (
         id_opt,
         .Some(id) => write_lsp_message(
           json.stringify(
-            j_error_response(id, i64(0) - i64(32601), `method not found: ${method}`)
+            j_error_response(&id, i64(0) - i64(32601), `method not found: ${method}`)
           )
         ),
         .None => ()
@@ -1343,12 +1343,12 @@ run_lsp_server :: (fn(io : Io, imm(exn) : Exception) -> unit)({
     // (issues/fixed/lsp-per-keystroke-full-reanalysis-limits-responsiveness.md).
     if(pending.uris.len() > usize(0), {
       match(
-        wait_lsp_input(reader, pending.deadline),
-        .Idle => _flush_pending_analyses(std_path.clone(), docs, pending, io),
+        wait_lsp_input(&reader, pending.deadline),
+        .Idle => _flush_pending_analyses(std_path.clone(), &mut docs, &pending, io),
         .Readable => ()
       );
     });
-    msg_opt := read_lsp_message(reader, io, exn);
+    msg_opt := read_lsp_message(&reader, io, exn);
     match(
       msg_opt,
       .None => {
@@ -1356,7 +1356,7 @@ run_lsp_server :: (fn(io : Io, imm(exn) : Exception) -> unit)({
         running = false;
       },
       .Some(body) => {
-        action := _handle_message(body, docs, std_path.clone(), pending, io);
+        action := _handle_message(&body, &mut docs, std_path.clone(), &pending, io);
         if(action == i32(10), {
           running = false;
         });
@@ -1372,7 +1372,7 @@ run_lsp_server :: (fn(io : Io, imm(exn) : Exception) -> unit)({
   // diagnostics before the server goes — a redirected/piped client reads
   // stdout to the end.
   if(pending.uris.len() > usize(0), {
-    _flush_pending_analyses(std_path.clone(), docs, pending, io);
+    _flush_pending_analyses(std_path.clone(), &mut docs, &pending, io);
   });
   if(exit_code != i32(0), {
     exn.throw(dyn(`lsp: exit notification received without a shutdown request`));

@@ -80,15 +80,15 @@ impl(
         addr.ip.is_v4() => AF_INET,
         true => AF_INET6
       );
-      raw_fd := e.io.await(IO_udp.socket(domain, i32(0)), e.io);
-      fd := NetError.check(raw_fd, e.exn);
+      raw_fd := e.io.await(IO_udp.socket(domain, i32(0)), &e.io);
+      fd := NetError.check(raw_fd, &e.exn);
       saddr := make_sockaddr(addr);
-      bind_r := e.io.await(IO_udp.bind(fd, saddr.buf, saddr.len), e.io);
+      bind_r := e.io.await(IO_udp.bind(fd, saddr.buf, saddr.len), &e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(
         (bind_r < i32(0)) => {
-          e.io.await(IO_udp.close(fd), e.io);
-          _throw_net_io(i32(0) - bind_r, e.exn);
+          e.io.await(IO_udp.close(fd), &e.io);
+          _throw_net_io(i32(0) - bind_r, &e.exn);
         },
         true => ()
       );
@@ -117,11 +117,11 @@ impl(
     fd := self._fd;
     io.async(e => {
       saddr := make_sockaddr(addr);
-      r := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len), e.io);
+      r := e.io.await(IO_tcp.connect(fd, saddr.buf, saddr.len), &e.io);
       IO_tcp.free_sockaddr(saddr);
       cond(
         (r < i32(0)) => {
-          _throw_net_io(i32(0) - r, e.exn);
+          _throw_net_io(i32(0) - r, &e.exn);
         },
         true => ()
       );
@@ -134,9 +134,9 @@ impl(
     fd := self._fd;
     io.async(e => {
       saddr := make_sockaddr(addr);
-      r := e.io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len), e.io);
+      r := e.io.await(IO_udp.sendto(fd, data.ptr().unwrap(), data.len(), i32(0), saddr.buf, saddr.len), &e.io);
       IO_tcp.free_sockaddr(saddr);
-      usize(NetError.check(r, e.exn))
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Receive a datagram into the provided buffer.
@@ -144,8 +144,8 @@ impl(
   recv : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_udp.recv(fd, buf, size, i32(0)), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_udp.recv(fd, buf, size, i32(0)), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Receive a datagram into `buf`, resolving to the byte count AND the
@@ -163,14 +163,14 @@ impl(
       sa_buf := (*u8)(malloc(usize(128)).unwrap());
       sa_len := (*u32)(malloc(usize(4)).unwrap());
       sa_len.* = u32(128);
-      r := e.io.await(IO_udp.recvfrom(fd, buf, size, i32(0), sa_buf, sa_len), e.io);
+      r := e.io.await(IO_udp.recvfrom(fd, buf, size, i32(0), sa_buf, sa_len), &e.io);
       // Decode BEFORE the throw check would abandon the buffers: on an error
       // there is nothing to decode, so free and let `check` throw.
       cond(
         (r < i32(0)) => {
           free(.Some((*void)(sa_buf)));
           free(.Some((*void)(sa_len)));
-          NetError.check(r, e.exn);
+          NetError.check(r, &e.exn);
         },
         true => ()
       );
@@ -199,8 +199,8 @@ impl(
         out.push(u8(0));
       });
       p := match(out.ptr(), .Some(q) => q, .None => (*u8)(""));
-      r := e.io.await(IO_udp.recv(fd, p, max, i32(0)), e.io);
-      n := usize(NetError.check(r, e.exn));
+      r := e.io.await(IO_udp.recv(fd, p, max, i32(0)), &e.io);
+      n := usize(NetError.check(r, &e.exn));
       out.truncate(n);
       out
     })
@@ -225,8 +225,8 @@ impl(
   send : (fn(imm(self) : Self, imm(data) : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_udp.send(fd, data.ptr().unwrap(), data.len(), i32(0)), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Close the socket.
@@ -236,11 +236,11 @@ impl(
       cond(
         self._is_closed => (),
         true => {
-          r := e.io.await(IO_udp.close(fd), e.io);
+          r := e.io.await(IO_udp.close(fd), &e.io);
           self._is_closed = true;
           cond(
             (r < i32(0)) => {
-              _throw_net_io(i32(0) - r, e.exn);
+              _throw_net_io(i32(0) - r, &e.exn);
             },
             true => ()
           );
@@ -254,10 +254,10 @@ impl(
     io.async(e => {
       val := cond(enabled => i32(1), true => i32(0));
       val_ptr := addr_of(val);
-      r := e.io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, (*u8)(val_ptr), u32(4)), e.io);
+      r := e.io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, (*u8)(val_ptr), u32(4)), &e.io);
       cond(
         (r < i32(0)) => {
-          _throw_net_io(i32(0) - r, e.exn);
+          _throw_net_io(i32(0) - r, &e.exn);
         },
         true => ()
       );

@@ -401,9 +401,9 @@ impl(
       token := raw.replace(`~1`, `/`).replace(`~0`, `~`);
       step := match(
         current,
-        .Object(_, _) => current.get(token),
+        .Object(_, _) => current.get(&token),
         .Array(items) => cond(
-          _is_rfc6901_index(token) => match(
+          _is_rfc6901_index(&token) => match(
             token.parse(usize),
             .Ok(idx) => items.get(idx),
             .Err(_) => Option(JsonValue).None
@@ -712,7 +712,7 @@ impl(
                       });
                       // Surrogate halves were already rejected above, so
                       // `cp` is a scalar and nothing is substituted here.
-                      utf8.encode_lossy_into(cp, bytes);
+                      utf8.encode_lossy_into(cp, &mut bytes);
                     },
                     true => {
                       return(.Err(.InvalidEscape));
@@ -1131,8 +1131,8 @@ _expect_eof :: (fn(imm(p) : _Parser) -> Result(unit, JsonError))({
 parse_bytes :: (fn(imm(bytes) : ArrayList(u8)) -> Result(JsonValue, JsonError))({
   p := _Parser.new(bytes);
   match(
-    _parse_value(p),
-    .Ok(v) => match(_expect_eof(p), .Ok(_) => .Ok(v), .Err(e) => .Err(e)),
+    _parse_value(&p),
+    .Ok(v) => match(_expect_eof(&p), .Ok(_) => .Ok(v), .Err(e) => .Err(e)),
     .Err(e) => .Err(e)
   )
 });
@@ -1145,7 +1145,7 @@ parse :: (fn(s : str) -> Result(JsonValue, JsonError))({
     bytes.push(s.bytes(i));
     i = (i + usize(1));
   });
-  parse_bytes(bytes)
+  parse_bytes(&bytes)
 });
 /// Parse a runtime `String` of JSON into a `JsonValue` tree. (`parse`
 /// takes the STATIC `str` view; runtime input — an HTTP body, an LSP frame —
@@ -1279,7 +1279,7 @@ _stringify_into :: (fn(imm(value) : JsonValue, mut(out) : ArrayList(u8)) -> unit
       });
     },
     .Str(s) => {
-      _write_str_escaped(s, out);
+      _write_str_escaped(&s, out);
     },
     .Array(items) => {
       out.push(u8(91)); // '['
@@ -1291,7 +1291,7 @@ _stringify_into :: (fn(imm(value) : JsonValue, mut(out) : ArrayList(u8)) -> unit
           },
           true => ()
         );
-        recur(items(i), out);
+        recur(&items(i), out);
       });
       out.push(u8(93)); // ']'
     },
@@ -1305,9 +1305,9 @@ _stringify_into :: (fn(imm(value) : JsonValue, mut(out) : ArrayList(u8)) -> unit
           },
           true => ()
         );
-        _write_str_escaped(keys(i), out);
+        _write_str_escaped(&keys(i), out);
         out.push(u8(58)); // ':'
-        recur(values(i), out);
+        recur(&values(i), out);
       });
       out.push(u8(125)); // '}'
     }
@@ -1316,7 +1316,7 @@ _stringify_into :: (fn(imm(value) : JsonValue, mut(out) : ArrayList(u8)) -> unit
 /// Serialize a `JsonValue` to a compact JSON string.
 stringify :: (fn(imm(value) : JsonValue) -> String)({
   out := ArrayList(u8).new();
-  _stringify_into(value, out);
+  _stringify_into(value, &mut out);
   String.from_bytes(out)
 });
 /// Write `n` spaces to `out`.
@@ -1355,7 +1355,7 @@ _stringify_pretty_into :: (
             );
             out.push(u8(10)); // '\n'
             _write_spaces(indent * (depth + usize(1)), out);
-            recur(items(i), indent, depth + usize(1), out);
+            recur(&items(i), indent, depth + usize(1), out);
           });
           out.push(u8(10));
           _write_spaces(indent * depth, out);
@@ -1378,10 +1378,10 @@ _stringify_pretty_into :: (
             );
             out.push(u8(10)); // '\n'
             _write_spaces(indent * (depth + usize(1)), out);
-            _write_str_escaped(keys(i), out);
+            _write_str_escaped(&keys(i), out);
             out.push(u8(58)); // ':'
             out.push(u8(32)); // ' '
-            recur(values(i), indent, depth + usize(1), out);
+            recur(&values(i), indent, depth + usize(1), out);
           });
           out.push(u8(10));
           _write_spaces(indent * depth, out);
@@ -1401,7 +1401,7 @@ stringify_pretty :: (fn(imm(value) : JsonValue, indent : usize) -> String)(
     (indent == usize(0)) => stringify(value),
     true => {
       out := ArrayList(u8).new();
-      _stringify_pretty_into(value, indent, usize(0), out);
+      _stringify_pretty_into(value, indent, usize(0), &mut out);
       String.from_bytes(out)
     }
   )
@@ -1435,7 +1435,7 @@ _json_clone :: (fn(imm(v) : JsonValue) -> JsonValue)(
       out := ArrayList(JsonValue).new();
       i := usize(0);
       while(i < items.len(), i = (i + usize(1)), {
-        out.push(_json_clone(items(i)));
+        out.push(_json_clone(&items(i)));
       });
       JsonValue.Array(out)
     },
@@ -1445,7 +1445,7 @@ _json_clone :: (fn(imm(v) : JsonValue) -> JsonValue)(
       i := usize(0);
       while(i < keys.len(), i = (i + usize(1)), {
         out_keys.push(keys(i).clone());
-        out_values.push(_json_clone(values(i)));
+        out_values.push(_json_clone(&values(i)));
       });
       JsonValue.Object(out_keys, out_values)
     }
@@ -1495,7 +1495,7 @@ _json_eq :: (fn(imm(lhs) : JsonValue, imm(rhs) : JsonValue) -> bool)(
         });
         i := usize(0);
         while(i < a.len(), i = (i + usize(1)), {
-          if(!_json_eq(a(i), b(i)), {
+          if(!_json_eq(&a(i), &b(i)), {
             return(false);
           });
         });
@@ -1516,7 +1516,7 @@ _json_eq :: (fn(imm(lhs) : JsonValue, imm(rhs) : JsonValue) -> bool)(
           j := usize(0);
           while(j < b_keys.len(), j = (j + usize(1)), {
             if(b_keys(j) == key, {
-              if(!_json_eq(a_values(i), b_values(j)), {
+              if(!_json_eq(&a_values(i), &b_values(j)), {
                 return(false);
               });
               found = true;
@@ -1788,7 +1788,7 @@ impl(
             match(
               items.get(i),
               .Some(jv) => match(
-                _from_json_of(T, jv),
+                _from_json_of(T, &jv),
                 .Ok(x) => {
                   out.push(x);
                 },
@@ -1855,7 +1855,7 @@ impl(
             match(
               values.get(i),
               .Some(jv) => match(
-                _from_json_of(V, jv),
+                _from_json_of(V, &jv),
                 .Ok(decoded_v) => {
                   out.insert(k, decoded_v);
                 },
@@ -1889,7 +1889,7 @@ encode :: (fn(generic(T : Type), imm(v) : T, where(T <: ToJson)) -> String)(
 /// Parse JSON text and decode it into `T`:
 /// `json.decode(Point, s)` → `Result(Point, JsonError)`.
 decode :: (fn(comptime(T) : Type, imm(s) : String, where(T <: FromJson)) -> Result(T, JsonError))(
-  match(parse_string(s), .Ok(v) => T.from_json(v), .Err(e) => .Err(e))
+  match(parse_string(s), .Ok(v) => T.from_json(&v), .Err(e) => .Err(e))
 );
 export(ToJson, FromJson, json_parse_result, encode, decode);
 // ============================================================================

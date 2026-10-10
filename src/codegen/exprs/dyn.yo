@@ -69,7 +69,7 @@ _concrete_c_name :: (fn(imm(concrete_type) : TypeValue, imm(context) : FunctionG
     .None => match(
       extract_fn_trait_from_type(concrete_type),
       .Some(ft) => match(
-        context.base.get_type_c_name(type_key(ft)),
+        context.base.get_type_c_name(type_key(&ft)),
         .Some(fcn) => fcn,
         .None => {
           out := String.from("unknown_");
@@ -88,23 +88,23 @@ _concrete_c_name :: (fn(imm(concrete_type) : TypeValue, imm(context) : FunctionG
 /// Generate C code for a `dyn()` constructor call.
 generate_dyn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() not evaluated */")));
-  trait_values := match(expr_info_dyn_call_trait_values(ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
+  trait_values := match(expr_info_dyn_call_trait_values(&ei), .Some(tv) => if(tv.len() == usize(0), return(String.from("/* Error: dyn() call missing trait values */")), tv), .None => return(String.from("/* Error: dyn() call missing trait values */")));
   args0 := match(expr, .FnCall(_, _, a, _, _) => a.get(usize(0)), .Atom(_, _) => Option(AstExpr).None);
   value_expr := match(ei.runtime_arg_exprs_in_order, .Some(rargs) => match(rargs.get(usize(0)), .Some(v) => v, .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */")))), .None => match(args0, .Some(a) => a, .None => return(String.from("/* Error: dyn() requires a value argument */"))));
   dyn_type := ei.ty;
-  if(!is_dyn_type(dyn_type), {
+  if(!is_dyn_type(&dyn_type), {
     return(String.from("/* Error: dyn() result type is not DynType */"));
   });
-  value_ei := match(context.base.get_expr_info(value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
+  value_ei := match(context.base.get_expr_info(&value_expr), .Some(e) => e, .None => return(String.from("/* Error: dyn() value has no type */")));
   value_type := value_ei.ty;
   // dyn() requires an object type (value types must use rc()). Box is not
   // modeled (is_boxed_type ≡ false), so the Box branch is dead.
-  if(!is_reference_struct_type(value_type) && !is_boxed_type(value_type), {
+  if(!is_reference_struct_type(&value_type) && !is_boxed_type(&value_type), {
     return(String.from("/* Error: dyn() requires an object type (use rc() for value types) */"));
   });
   // Unwrap a boxed payload: impl concrete type = underlying (`Sq`), runtime data
   // type = `Rc(Sq)`.
-  concrete_type := _unwrap_box_concrete(value_type);
+  concrete_type := _unwrap_box_concrete(&value_type);
   // Resolve a SomeType (`Impl(Fn(...))` for a boxed closure) to its concrete
   // type BEFORE deriving the impl KEY.
   // The key is the wrapper/vtable dedup unit: unresolved, every same-signature
@@ -116,19 +116,19 @@ generate_dyn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   // box-ctor/typedef passes do their own resolution (functions/dyn.yo:121,
   // types/generation.yo:1068).
   resolved_concrete_type := resolve_some_type_to_concrete(concrete_type.clone());
-  dyn_type_c_name := _dyn_c_name(dyn_type, context);
-  concrete_type_c_name := _concrete_c_name(resolved_concrete_type, context);
+  dyn_type_c_name := _dyn_c_name(&dyn_type, context);
+  concrete_type_c_name := _concrete_c_name(&resolved_concrete_type, context);
   impl_key := concrete_type_c_name.clone();
   impl_key.push_str("_");
   impl_key.push_string(dyn_type_c_name.clone());
   // An atomically boxed payload (`Arc(V)`) needs its own vtable: its
   // retain/release are the atomic RC functions, and its wrappers read the
   // `Arc(V)` box.
-  if(is_atomic_reference_struct_type(value_type), {
+  if(is_atomic_reference_struct_type(&value_type), {
     impl_key.push_str("_A");
   });
   context.base.register_dyn_impl(impl_key.clone(), DynImplEntry(dyn_type : dyn_type, concrete_type : concrete_type, data_type : value_type, trait_values : trait_values));
-  (value_code : String) = _call_generate_expr(value_expr, indent.clone(), context);
+  (value_code : String) = _call_generate_expr(&value_expr, indent.clone(), context);
   em := context.base.emitter;
   // DEGRADED dyn when the INNER value failed to transpile (e.g. a
   // `rc(<closure>)` whose spec was dropped — the c03 cluster-B shape):
@@ -138,8 +138,8 @@ generate_dyn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   // FTT marker — same convention as the return/tail/assignment degrades.
   if(value_code.starts_with("// Failed to transpile"), {
     ftl := indent.clone();
-    ftl.push_string(value_code);
-    em.emit_string_line(ftl);
+    ftl.push_string(&value_code);
+    em.emit_string_line(&ftl);
     return(`// Failed to transpile ${ast_expr_to_string(expr)}`);
   });
   // Declare the inner value's temp if the evaluator assigned one (deferred
@@ -152,13 +152,13 @@ generate_dyn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
     .Some(vn) => {
       vn_c := sanitize_for_c_identifier(vn.clone(), false);
       if(!(value_code == vn_c), {
-        var_type_and_name := get_variable_type_string(value_type, vn.clone(), context.base);
+        var_type_and_name := get_variable_type_string(&value_type, vn.clone(), &context.base);
         line := indent.clone();
-        line.push_string(var_type_and_name);
+        line.push_string(&var_type_and_name);
         line.push_str(" = ");
         line.push_string(value_code.clone());
         line.push_str(";");
-        em.emit_string_line(line);
+        em.emit_string_line(&line);
         value_code = vn_c;
       });
     },
@@ -166,17 +166,17 @@ generate_dyn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   );
   // Dup the inner value (Dyn wrapper holds a reference too).
   match(
-    expr_info_deferred_dup_expressions(value_ei),
+    expr_info_deferred_dup_expressions(&value_ei),
     .Some(dups) => if(dups.len() > usize(0), {
-      generate_deferred_dup_expressions(value_expr, indent.clone(), context);
+      generate_deferred_dup_expressions(&value_expr, indent.clone(), context);
       match(
         dups.get(usize(0)),
         .Some(dup_expr) => match(
-          context.base.get_expr_info(dup_expr),
+          context.base.get_expr_info(&dup_expr),
           .Some(dei) => match(
             dei.variable_name,
             .Some(dvn) => {
-              value_code = get_variable_name_for_codegen_at(ast_expr_id(dup_expr), dvn, Option(Environment).Some(dei.env));
+              value_code = get_variable_name_for_codegen_at(ast_expr_id(&dup_expr), &dvn, Option(Environment).Some(dei.env));
             },
             .None => ()
           ),
@@ -189,7 +189,7 @@ generate_dyn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   );
   temp_var_name := match(ei.variable_name, .Some(tv) => tv, .None => return(String.from("/* Error: dyn() expression missing temp variable name */")));
   vtable_name := String.from("__yo_vtable_");
-  vtable_name.push_string(impl_key);
+  vtable_name.push_string(&impl_key);
   // Track the temp var (SM-field routing is Phase 5, gated dead here).
   already := match(context.declared_temp_vars, .Some(s) => s.contains(temp_var_name.clone()), .None => false);
   if(
@@ -197,23 +197,23 @@ generate_dyn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
     record_declared_temp_var(context, temp_var_name.clone())
   );
   l1 := indent.clone();
-  l1.push_string(dyn_type_c_name);
+  l1.push_string(&dyn_type_c_name);
   l1.push_str(" ");
   l1.push_string(temp_var_name.clone());
   l1.push_str(" = {");
-  em.emit_string_line(l1);
+  em.emit_string_line(&l1);
   l2 := indent.clone();
   l2.push_str("  .data = ");
-  l2.push_string(value_code);
+  l2.push_string(&value_code);
   l2.push_str(",");
-  em.emit_string_line(l2);
+  em.emit_string_line(&l2);
   l3 := indent.clone();
   l3.push_str("  .vtable = &");
-  l3.push_string(vtable_name);
-  em.emit_string_line(l3);
+  l3.push_string(&vtable_name);
+  em.emit_string_line(&l3);
   l4 := indent.clone();
   l4.push_str("};");
-  em.emit_string_line(l4);
+  em.emit_string_line(&l4);
   // Inside a state machine the temp's scope-end release reads its slot, and
   // so does the abort dispose when a call escapes: a `dyn(msg)` thrown from
   // an `io.async` body leaked its box

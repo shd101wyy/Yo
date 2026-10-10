@@ -23,7 +23,7 @@ evaluate_boolean_literal :: (
     exn.throw(
       dyn(
         format_error_message(
-          tok,
+          &tok,
           `Expected bool literal, got ${tok.value}`
         )
       )
@@ -33,7 +33,7 @@ evaluate_boolean_literal :: (
   val := EvalValue.BoolVal(b);
   info := new_expr_info(env, t_bool());
   info.value = .Some(val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 export(evaluate_boolean_literal);

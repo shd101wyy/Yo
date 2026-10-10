@@ -58,8 +58,8 @@ evaluate_size_of :: (
       return(expr);
     }
   );
-  evaluated := evaluate_expression_raw(type_expr, env, ctx, exn);
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+  evaluated := evaluate_expression_raw(&type_expr, env, ctx, exn);
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
   info := match(
     info_opt,
     .Some(i) => i,
@@ -67,7 +67,7 @@ evaluate_size_of :: (
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(type_expr),
+            ast_expr_token(&type_expr),
             String.from("Failed to evaluate expression.")
           )
         )
@@ -75,7 +75,7 @@ evaluate_size_of :: (
       new_expr_info(env, t_usize())
     }
   );
-  (cur_env : Environment) = expr_info_adopt_env(info);
+  (cur_env : Environment) = expr_info_adopt_env(&info);
   // Determine the type to measure: TypeVal → its wrapped type, otherwise expr type.
   (type_to_check : TypeValue) = match(
     info.value,
@@ -84,8 +84,8 @@ evaluate_size_of :: (
     .None => info.ty
   );
   // Convert size in bits to bytes (divide by 8). Unknown size → no value.
-  size_bits_opt := get_size_of_type(type_to_check);
-  out_info := new_expr_info(cur_env, t_usize());
+  size_bits_opt := get_size_of_type(&type_to_check);
+  out_info := new_expr_info(&cur_env, t_usize());
   match(
     size_bits_opt,
     .Some(bits) => {
@@ -101,7 +101,7 @@ evaluate_size_of :: (
       out_info.value = .Some(create_unknown_val(t_usize()));
     }
   );
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_size_of);

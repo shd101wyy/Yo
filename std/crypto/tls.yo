@@ -190,7 +190,7 @@ impl(
       addrs := e.io.await(lookup_host(host, e.io), e);
       cond(
         (addrs.len() == usize(0)) => {
-          _throw_tls(TlsError.Connect(host : host.clone()), e.exn);
+          _throw_tls(TlsError.Connect(host : host.clone()), &e.exn);
         },
         true => ()
       );
@@ -201,12 +201,12 @@ impl(
       host_c := host.to_cstr();
       ctx_opt := unsafe(__yo_tls_ctx_new());
       if(ctx_opt.is_none(), {
-        _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
+        _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), &e.exn);
       });
       ctx := ctx_opt.unwrap();
       ssl_opt := unsafe(__yo_tls_ssl_new(ctx, (*char)(host_c.ptr().unwrap())));
       if(ssl_opt.is_none(), {
-        _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
+        _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), &e.exn);
       });
       ssl := ssl_opt.unwrap();
       rbio := unsafe(__yo_tls_rbio(ssl));
@@ -218,7 +218,7 @@ impl(
       (done : bool) = false;
       while(!done, {
         ret := unsafe(__yo_tls_handshake(ssl));
-        e.io.await(_flush_wbio(s, e.io), e);
+        e.io.await(_flush_wbio(&s, e.io), e);
         (need_read : bool) = false;
         cond(
           (ret == int(1)) => {
@@ -232,16 +232,16 @@ impl(
               },
               (err == _SSL_ERROR_WANT_WRITE()) => (),
               true => {
-                _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);
+                _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), &e.exn);
               }
             );
           }
         );
         if(need_read, {
-          got := e.io.await(_feed_rbio(s, e.io), e);
+          got := e.io.await(_feed_rbio(&s, e.io), e);
           cond(
             (got == usize(0)) => {
-              _throw_tls(TlsError.Handshake(detail : `peer closed during handshake`.to_string()), e.exn);
+              _throw_tls(TlsError.Handshake(detail : `peer closed during handshake`.to_string()), &e.exn);
             },
             true => ()
           );
@@ -278,7 +278,7 @@ impl(
                 act = int(2);
               },
               true => {
-                _throw_tls(TlsError.Io(detail : _ssl_err_string()), e.exn);
+                _throw_tls(TlsError.Io(detail : _ssl_err_string()), &e.exn);
                 settled = true;
               }
             );
@@ -330,7 +330,7 @@ impl(
               },
               (err == _SSL_ERROR_WANT_WRITE()) => (),
               true => {
-                _throw_tls(TlsError.Io(detail : _ssl_err_string()), e.exn);
+                _throw_tls(TlsError.Io(detail : _ssl_err_string()), &e.exn);
                 settled = true;
               }
             );
@@ -340,7 +340,7 @@ impl(
           got := e.io.await(_feed_rbio(self, e.io), e);
           cond(
             (got == usize(0)) => {
-              _throw_tls(TlsError.Closed, e.exn);
+              _throw_tls(TlsError.Closed, &e.exn);
               settled = true;
             },
             true => ()
@@ -404,7 +404,7 @@ impl(
           // __yo_tls_free releases both BIOs (owned by the SSL object) and
           // the context.
           unsafe(__yo_tls_free(self._ssl, self._ctx));
-          (TcpStream <: Dispose).dispose(self._tcp);
+          (TcpStream <: Dispose).dispose(&self._tcp);
         },
         true => ()
       );

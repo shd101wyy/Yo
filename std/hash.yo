@@ -95,17 +95,17 @@ impl(
   _round : (fn(mut(self) : Self) -> unit)({
     // SipHash's mixing is DEFINED by two's-complement wrap: every add here
     // is a wrapping_add (safe mode D1 — plain + traps on overflow).
-    self.v0 = self.v0.wrapping_add(self.v1);
+    self.v0 = self.v0.wrapping_add(&self.v1);
     self.v1 = _rotl64(self.v1, u64(13));
     self.v1 = (self.v1 ^ self.v0);
     self.v0 = _rotl64(self.v0, u64(32));
-    self.v2 = self.v2.wrapping_add(self.v3);
+    self.v2 = self.v2.wrapping_add(&self.v3);
     self.v3 = _rotl64(self.v3, u64(16));
     self.v3 = (self.v3 ^ self.v2);
-    self.v0 = self.v0.wrapping_add(self.v3);
+    self.v0 = self.v0.wrapping_add(&self.v3);
     self.v3 = _rotl64(self.v3, u64(21));
     self.v3 = (self.v3 ^ self.v0);
-    self.v2 = self.v2.wrapping_add(self.v1);
+    self.v2 = self.v2.wrapping_add(&self.v1);
     self.v1 = _rotl64(self.v1, u64(17));
     self.v1 = (self.v1 ^ self.v2);
     self.v2 = _rotl64(self.v2, u64(32));
@@ -235,14 +235,14 @@ DefaultHasher :: SipHasher13;
 /// ```
 hash_one :: (fn(generic(T : Type), mut(value) : T, where(T <: Hash)) -> u64)({
   h := DefaultHasher.new();
-  value.hash(h);
+  value.hash(&mut h);
   h.finish()
 });
 /// Hash one value with `DefaultHasher` keyed by `k0`, `k1` — what a
 /// `HashMap.with_keys(k0, k1)` computes for its keys.
 hash_one_with_keys :: (fn(generic(T : Type), mut(value) : T, k0 : u64, k1 : u64, where(T <: Hash)) -> u64)({
   h := DefaultHasher.new_with_keys(k0, k1);
-  value.hash(h);
+  value.hash(&mut h);
   h.finish()
 });
 /// `Default` — a hasher with the default keys, so `DefaultHasher.default()`

@@ -253,7 +253,7 @@ _parse_key_path :: (fn(imm(line) : String, from : usize) -> Option(_KeyPath))({
           return(Option(_KeyPath).None);
         });
         raw := line.substring(start, j);
-        keys.push(if(b == _QUOTE, _unescape_basic(raw), raw));
+        keys.push(if(b == _QUOTE, _unescape_basic(&raw), raw));
         i = (j + usize(1));
       },
       _is_bare_key_byte(b) => {
@@ -304,12 +304,12 @@ _classify :: (fn(imm(lines) : ArrayList(String)) -> Result(ArrayList(_Line), Str
     line := lines(li);
     if((st.ml != u8(0)) || (st.depth != i32(0)), {
       // Continuation of the previous entry's value.
-      _ := _scan_line(line, usize(0), st);
+      _ := _scan_line(&line, usize(0), &st);
       out.push(_Line(kind : _LineKind.Other, end : li));
       li = (li + usize(1));
       continue;
     });
-    start := _skip_ws(line, usize(0));
+    start := _skip_ws(&line, usize(0));
     cond(
       ((start >= line.len()) || (line.byte_at(start) == _HASH) || (line.byte_at(start) == _CR)) => {
         out.push(_Line(kind : _LineKind.Other, end : li));
@@ -318,7 +318,7 @@ _classify :: (fn(imm(lines) : ArrayList(String)) -> Result(ArrayList(_Line), Str
         is_array := (((start + usize(1)) < line.len()) && (line.byte_at(start + usize(1)) == _LBRACKET));
         path_from := if(is_array, start + usize(2), start + usize(1));
         path := match(
-          _parse_key_path(line, path_from),
+          _parse_key_path(&line, path_from),
           .Some(kp) => kp,
           .None => {
             return(Result(ArrayList(_Line), String).Err(`line ${(li + usize(1)).to_string()}: malformed table header`));
@@ -328,13 +328,13 @@ _classify :: (fn(imm(lines) : ArrayList(String)) -> Result(ArrayList(_Line), Str
       },
       true => {
         path := match(
-          _parse_key_path(line, start),
+          _parse_key_path(&line, start),
           .Some(kp) => kp,
           .None => {
             return(Result(ArrayList(_Line), String).Err(`line ${(li + usize(1)).to_string()}: expected a key`));
           }
         );
-        eq_at := _scan_line(line, path.end, st);
+        eq_at := _scan_line(&line, path.end, &st);
         if(eq_at >= line.len(), {
           return(Result(ArrayList(_Line), String).Err(`line ${(li + usize(1)).to_string()}: expected "=" after the key`));
         });
@@ -343,7 +343,7 @@ _classify :: (fn(imm(lines) : ArrayList(String)) -> Result(ArrayList(_Line), Str
         (end : usize) = li;
         (lj : usize) = (li + usize(1));
         while(((st.ml != u8(0)) || (st.depth != i32(0))) && (lj < lines.len()), {
-          _ := _scan_line(lines(lj), usize(0), st);
+          _ := _scan_line(&lines(lj), usize(0), &st);
           end = lj;
           lj = (lj + usize(1));
         });
@@ -511,7 +511,7 @@ set_entry :: (
   // document.
   probe := `${toml_key(key.clone())} = ${value_text}\n`;
   match(
-    parse(probe),
+    parse(&probe),
     .Ok(_) => (),
     .Err(err) => {
       return(Result(String, String).Err(`invalid value for "${key}": ${err.to_string()}`));
@@ -519,22 +519,22 @@ set_entry :: (
   );
   lines := text.split("\n");
   kinds := match(
-    _classify(lines),
+    _classify(&lines),
     .Ok(k) => k,
     .Err(msg) => {
       return(Result(String, String).Err(msg));
     }
   );
   entry_line := `${toml_key(key.clone())} = ${value_text}`;
-  ranges := _entry_ranges(kinds, table.clone(), key.clone());
+  ranges := _entry_ranges(&kinds, table.clone(), key.clone());
   // Replace in place when an inline/dotted entry exists inside [table]: the
   // first such range keeps its position, the rest are deleted.
   (inline_at : Option(usize)) = Option(usize).None;
   match(
-    _find_table_header(kinds, table.clone()),
+    _find_table_header(&kinds, table.clone()),
     .None => (),
     .Some(h) => {
-      end := _section_end(kinds, h + usize(1));
+      end := _section_end(&kinds, h + usize(1));
       (ri : usize) = usize(0);
       while(ri < ranges.len(), {
         rg := ranges(ri);
@@ -567,7 +567,7 @@ set_entry :: (
         });
         oi = (oi + usize(1));
       });
-      pruned := _delete_ranges(lines, others);
+      pruned := _delete_ranges(&lines, &others);
       out := ArrayList(String).new();
       (i : usize) = usize(0);
       while(i < pruned.len(), {
@@ -586,18 +586,18 @@ set_entry :: (
     },
     .None => {
       // No inline entry: drop any `[table.key]` sections, then insert.
-      pruned := _delete_ranges(lines, ranges);
+      pruned := _delete_ranges(&lines, &ranges);
       pruned_kinds := match(
-        _classify(pruned),
+        _classify(&pruned),
         .Ok(k) => k,
         .Err(msg) => {
           return(Result(String, String).Err(msg));
         }
       );
       match(
-        _find_table_header(pruned_kinds, table.clone()),
+        _find_table_header(&pruned_kinds, table.clone()),
         .Some(h) => {
-          end := _section_end(pruned_kinds, h + usize(1));
+          end := _section_end(&pruned_kinds, h + usize(1));
           // After the last entry of the section (or the header when the
           // section has none), so trailing blank lines stay trailing.
           (insert_at : usize) = (h + usize(1));
@@ -637,7 +637,7 @@ set_entry :: (
             j = (j + usize(1));
           });
           // Trim trailing blank elements, then rebuild the ending.
-          while((out.len() > usize(0)) && _is_blank(out(out.len() - usize(1))), {
+          while((out.len() > usize(0)) && _is_blank(&out(out.len() - usize(1))), {
             _ := out.pop();
           });
           if(out.len() > usize(0), {
@@ -651,7 +651,7 @@ set_entry :: (
       )
     }
   );
-  result := _join_lines(result_lines);
+  result := _join_lines(&result_lines);
   // The edited document must parse, and the entry must be where we put it.
   parsed := match(
     parse(result.clone()),
@@ -681,17 +681,17 @@ remove_entry :: (
 )({
   lines := text.split("\n");
   kinds := match(
-    _classify(lines),
+    _classify(&lines),
     .Ok(k) => k,
     .Err(msg) => {
       return(Result(Option(String), String).Err(msg));
     }
   );
-  ranges := _entry_ranges(kinds, table.clone(), key.clone());
+  ranges := _entry_ranges(&kinds, table.clone(), key.clone());
   if(ranges.len() == usize(0), {
     return(Result(Option(String), String).Ok(Option(String).None));
   });
-  result := _join_lines(_delete_ranges(lines, ranges));
+  result := _join_lines(_delete_ranges(&lines, &ranges));
   match(
     parse(result.clone()),
     .Ok(_) => (),

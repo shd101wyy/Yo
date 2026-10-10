@@ -143,7 +143,7 @@ parse_semver :: (fn(imm(tag) : String) -> Option(SemVer))({
     ids := pre.split(".");
     (pi : usize) = usize(0);
     while(pi < ids.len(), {
-      if(!_is_identifier(ids(pi)), return(Option(SemVer).None));
+      if(!_is_identifier(&ids(pi)), return(Option(SemVer).None));
       pi = (pi + usize(1));
     });
   });
@@ -154,7 +154,7 @@ parse_semver :: (fn(imm(tag) : String) -> Option(SemVer))({
   minor_str := parts(usize(1));
   patch_str := parts(usize(2));
   if(
-    !(is_all_digits(major_str) && is_all_digits(minor_str) && is_all_digits(patch_str)),
+    !(is_all_digits(&major_str) && is_all_digits(&minor_str) && is_all_digits(&patch_str)),
     return(Option(SemVer).None)
   );
   major := match(major_str.parse_i32(), .None => return(Option(SemVer).None), .Some(x) => x);
@@ -176,8 +176,8 @@ _compare_pre :: (fn(imm(a) : String, imm(b) : String) -> i32)({
   while((i < ia.len()) && (i < ib.len()), {
     x := ia(i);
     y := ib(i);
-    xn := is_all_digits(x);
-    yn := is_all_digits(y);
+    xn := is_all_digits(&x);
+    yn := is_all_digits(&y);
     cond(
       (xn && yn) => {
         xv := match(x.parse_i64(), .Some(v) => v, .None => i64(0));
@@ -204,7 +204,7 @@ compare_semver :: (fn(imm(a) : SemVer, imm(b) : SemVer) -> i32)(
     (a.major != b.major) => if(a.major > b.major, i32(1), i32(-1)),
     (a.minor != b.minor) => if(a.minor > b.minor, i32(1), i32(-1)),
     (a.patch != b.patch) => if(a.patch > b.patch, i32(1), i32(-1)),
-    true => _compare_pre(a.pre, b.pre)
+    true => _compare_pre(&a.pre, &b.pre)
   )
 );
 /// Every semver tag in `git ls-remote --tags` output (`<sha>\trefs/tags/<tag>`
@@ -226,7 +226,7 @@ semver_tags_from_ls_remote :: (fn(imm(text) : String) -> ArrayList(SemVer))({
           if(ref_path.starts_with(prefix.clone()), {
             tag_name := ref_path.substring(prefix.len(), ref_path.len());
             match(
-              parse_semver(tag_name),
+              parse_semver(&tag_name),
               .None => (),
               .Some(sv) => tags.push(sv)
             );
@@ -249,7 +249,7 @@ latest_release :: (fn(imm(tags) : ArrayList(SemVer)) -> Option(SemVer))({
       best = match(
         best,
         .None => Option(SemVer).Some(t),
-        .Some(b) => if(compare_semver(t, b) > i32(0), Option(SemVer).Some(t), Option(SemVer).Some(b))
+        .Some(b) => if(compare_semver(&t, &b) > i32(0), Option(SemVer).Some(t), Option(SemVer).Some(b))
       );
     });
     j = (j + usize(1));
@@ -345,7 +345,7 @@ _parse_comparator :: (fn(imm(raw) : String) -> Result(_Comparator, String))({
           wildcard_at = Option(usize).Some(pi);
         });
       },
-      !is_all_digits(part) => {
+      !is_all_digits(&part) => {
         return(Result(_Comparator, String).Err(`"${s}" is not a version requirement`));
       },
       wildcard_at.is_some() => {
@@ -395,7 +395,7 @@ _parse_comparator :: (fn(imm(raw) : String) -> Result(_Comparator, String))({
     ids := pre.split(".");
     (ii : usize) = usize(0);
     while(ii < ids.len(), {
-      if(!_is_identifier(ids(ii)), {
+      if(!_is_identifier(&ids(ii)), {
         return(Result(_Comparator, String).Err(`"${s}": invalid pre-release "${pre}"`));
       });
       ii = (ii + usize(1));
@@ -443,7 +443,7 @@ parse_version_req :: (fn(imm(text) : String) -> Result(VersionReq, String))({
   (i : usize) = usize(0);
   while(i < parts.len(), {
     match(
-      _parse_comparator(parts(i)),
+      _parse_comparator(&parts(i)),
       .Ok(c) => comparators.push(c),
       .Err(msg) => {
         return(Result(VersionReq, String).Err(msg));
@@ -491,7 +491,7 @@ _comparator_matches :: (fn(imm(c) : _Comparator, imm(v) : SemVer) -> bool)({
       // `1.2.*`: the minor's patch series.
       c.minor.is_some() => match(
         c.minor,
-        .Some(mi) => (_ge(v, base) && _lt(v, _ver(c.major, mi + i32(1), i32(0), String.new()))),
+        .Some(mi) => (_ge(v, &base) && _lt(v, _ver(c.major, mi + i32(1), i32(0), String.new()))),
         .None => __yo_panic("resolver: minor Some held by cond arm")
       ),
       // `*`: everything.
@@ -500,8 +500,8 @@ _comparator_matches :: (fn(imm(c) : _Comparator, imm(v) : SemVer) -> bool)({
       true => (_ge(v, _ver(c.major, i32(0), i32(0), String.new())) && _lt(v, _ver(c.major + i32(1), i32(0), i32(0), String.new())))
     ),
     .Exact => cond(
-      c.patch.is_some() => (compare_semver(v, base) == i32(0)),
-      true => (_ge(v, base) && _lt(v, _next_after_partial(c)))
+      c.patch.is_some() => (compare_semver(v, &base) == i32(0)),
+      true => (_ge(v, &base) && _lt(v, _next_after_partial(c)))
     ),
     .Caret => {
       // The original unwrap chain restructured into guarded binds: major >
@@ -522,7 +522,7 @@ _comparator_matches :: (fn(imm(c) : _Comparator, imm(v) : SemVer) -> bool)({
           )
         )
       );
-      _ge(v, base) && _lt(v, upper)
+      _ge(v, &base) && _lt(v, &upper)
     },
     .Tilde => {
       upper := match(
@@ -530,16 +530,16 @@ _comparator_matches :: (fn(imm(c) : _Comparator, imm(v) : SemVer) -> bool)({
         .Some(m) => _ver(c.major, m + i32(1), i32(0), String.new()),
         .None => _ver(c.major + i32(1), i32(0), i32(0), String.new())
       );
-      _ge(v, base) && _lt(v, upper)
+      _ge(v, &base) && _lt(v, &upper)
     },
-    .GreaterEq => _ge(v, base),
+    .GreaterEq => _ge(v, &base),
     .Greater => cond(
-      c.patch.is_some() => _gt(v, base),
+      c.patch.is_some() => _gt(v, &base),
       true => _ge(v, _next_after_partial(c))
     ),
-    .Less => _lt(v, base),
+    .Less => _lt(v, &base),
     .LessEq => cond(
-      c.patch.is_some() => _le(v, base),
+      c.patch.is_some() => _le(v, &base),
       true => _lt(v, _next_after_partial(c))
     )
   )
@@ -563,7 +563,7 @@ version_req_matches :: (fn(imm(req) : VersionReq, imm(v) : SemVer) -> bool)({
   });
   (j : usize) = usize(0);
   while(j < req.comparators.len(), {
-    if(!_comparator_matches(req.comparators(j), v), return(false));
+    if(!_comparator_matches(&req.comparators(j), v), return(false));
     j = (j + usize(1));
   });
   true
@@ -574,11 +574,11 @@ select_version :: (fn(imm(tags) : ArrayList(SemVer), imm(req) : VersionReq) -> O
   (i : usize) = usize(0);
   while(i < tags.len(), {
     t := tags(i);
-    if(version_req_matches(req, t), {
+    if(version_req_matches(req, &t), {
       best = match(
         best,
         .None => Option(SemVer).Some(t),
-        .Some(b) => if(compare_semver(t, b) > i32(0), Option(SemVer).Some(t), Option(SemVer).Some(b))
+        .Some(b) => if(compare_semver(&t, &b) > i32(0), Option(SemVer).Some(t), Option(SemVer).Some(b))
       );
     });
     i = (i + usize(1));
@@ -666,7 +666,7 @@ resolve_latest_tag :: (
   ) -> Impl(Future(Result(Option(String), String), IoExn))
 )(
   io.async((e : IoExn) => {
-    listed := e.io.await(ls_remote_tags(url.clone(), e.io, e.exn), e);
+    listed := e.io.await(ls_remote_tags(url.clone(), e.io, &e.exn), e);
     text := match(
       listed,
       .Err(msg) => {
@@ -674,7 +674,7 @@ resolve_latest_tag :: (
       },
       .Ok(t) => t
     );
-    latest := latest_release(semver_tags_from_ls_remote(text));
+    latest := latest_release(semver_tags_from_ls_remote(&text));
     if(verbose, {
       match(
         latest,
@@ -744,7 +744,7 @@ _requirements_text :: (fn(imm(reqs) : ArrayList(Requirement)) -> String)({
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     r := reqs(i);
-    out.push_string(`\n  - ${r.requirer} requires ${_requirement_text(r.requirement)}`);
+    out.push_string(`\n  - ${r.requirer} requires ${_requirement_text(&r.requirement)}`);
     i = (i + usize(1));
   });
   out
@@ -758,7 +758,7 @@ _satisfies_all_ranges :: (fn(imm(sv) : SemVer, imm(reqs) : ArrayList(Requirement
       reqs(i).requirement,
       .Version(text) => match(
         parse_version_req(text.clone()),
-        .Ok(req) => if(!version_req_matches(req, sv), {
+        .Ok(req) => if(!version_req_matches(&req, sv), {
           return(Result(bool, String).Ok(false));
         }),
         .Err(msg) => {
@@ -833,7 +833,7 @@ choose_ref :: (
         // A range can only be reconciled with an exact TAG that is a version.
         ok := match(
           chosen,
-          .Tag(sv) => match(_satisfies_all_ranges(sv, reqs), .Ok(b) => b, .Err(msg) => return(Result(ChosenRef, String).Err(msg))),
+          .Tag(sv) => match(_satisfies_all_ranges(&sv, reqs), .Ok(b) => b, .Err(msg) => return(Result(ChosenRef, String).Err(msg))),
           _ => false
         );
         if(!ok, {
@@ -848,12 +848,12 @@ choose_ref :: (
       (ti : usize) = usize(0);
       while(ti < tags.len(), {
         t := tags(ti);
-        fits := match(_satisfies_all_ranges(t, reqs), .Ok(b) => b, .Err(msg) => return(Result(ChosenRef, String).Err(msg)));
+        fits := match(_satisfies_all_ranges(&t, reqs), .Ok(b) => b, .Err(msg) => return(Result(ChosenRef, String).Err(msg)));
         if(fits, {
           best = match(
             best,
             .None => Option(SemVer).Some(t),
-            .Some(b) => if(compare_semver(t, b) > i32(0), Option(SemVer).Some(t), Option(SemVer).Some(b))
+            .Some(b) => if(compare_semver(&t, &b) > i32(0), Option(SemVer).Some(t), Option(SemVer).Some(b))
           );
         });
         ti = (ti + usize(1));
@@ -877,7 +877,7 @@ locked_entry_satisfies :: (fn(imm(entry) : LockEntry, imm(url) : String, imm(req
       reqs(i).requirement,
       .Version(text) => match(
         parse_version_req(text.clone()),
-        .Ok(req) => match(parse_semver(ref.clone()), .Some(sv) => version_req_matches(req, sv), .None => false),
+        .Ok(req) => match(parse_semver(ref.clone()), .Some(sv) => version_req_matches(&req, &sv), .None => false),
         .Err(_) => false
       ),
       .Tag(t) => (t == ref),
@@ -1104,7 +1104,7 @@ _expand_package :: (
       d := dep_manifest.dependencies(i);
       if(!d.dev, {
         pkg.dependencies.push(d.name.clone());
-        _add_requirement(state, pkg.name.clone(), d, dep_manifest.dir.clone(), state.manifest.dir.clone(), exn);
+        _add_requirement(state, pkg.name.clone(), &d, dep_manifest.dir.clone(), state.manifest.dir.clone(), exn);
       });
       i = (i + usize(1));
     });
@@ -1171,7 +1171,7 @@ _resolve_package :: (
       if(pkg.expanded_dir == pkg.dir, {
         return(false);
       });
-      _expand_package(state, pkg, e.exn);
+      _expand_package(state, pkg, &e.exn);
       return(true);
     });
     refresh := _refresh_requested(state, pkg.name.clone());
@@ -1180,7 +1180,7 @@ _resolve_package :: (
     // ONE match on the entry decides everything the awaits below need (the
     // seed compiler redeclares a matched local's C copy per match —
     // issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
-    old_entry := find_lock_entry(state.old_lock, pkg.name.clone());
+    old_entry := find_lock_entry(&state.old_lock, pkg.name.clone());
     (reuse : bool) = false;
     (old_ref : String) = String.new();
     (old_commit : String) = String.new();
@@ -1191,7 +1191,7 @@ _resolve_package :: (
         old_ref = entry.ref();
         old_commit = entry.commit.clone();
         old_integrity = entry.integrity.clone();
-        if(!refresh && locked_entry_satisfies(entry, pkg.url.clone(), pkg.requirements), {
+        if(!refresh && locked_entry_satisfies(&entry, pkg.url.clone(), &pkg.requirements), {
           reuse = true;
         });
       },
@@ -1216,7 +1216,7 @@ _resolve_package :: (
       ri = (ri + usize(1));
     });
     tags_needed := (needs_tags && !reuse);
-    cached_tags := _cached_text(state.tag_urls, state.tag_texts, pkg.url.clone());
+    cached_tags := _cached_text(&state.tag_urls, &state.tag_texts, pkg.url.clone());
     fetch_tags := (tags_needed && cached_tags.is_none());
     // What git is given: a local path made absolute against the root
     // manifest's directory (git resolves paths against the child's cwd).
@@ -1225,7 +1225,7 @@ _resolve_package :: (
     // remote, or nothing; online it is fetched once per run and recorded.
     (indexed : Option(String)) = Option(String).None;
     if(fetch_tags && state.options.offline, {
-      from_index := e.io.await(read_tags_index(state.cache_root.clone(), remote.clone(), e.io, e.exn), e);
+      from_index := e.io.await(read_tags_index(state.cache_root.clone(), remote.clone(), e.io, &e.exn), e);
       indexed = from_index;
     });
     if(fetch_tags && state.options.offline && indexed.is_none(), {
@@ -1241,21 +1241,21 @@ _resolve_package :: (
       if(verbose, {
         println(`  ${pkg.name}: listing the tags of ${pkg.url}...`);
       });
-      listed := e.io.await(ls_remote_tags(remote.clone(), e.io, e.exn), e);
+      listed := e.io.await(ls_remote_tags(remote.clone(), e.io, &e.exn), e);
       text := match(
         listed,
         .Ok(t) => t.clone(),
         .Err(msg) => {
-          e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, msg)));
+          e.exn.throw(dyn(format_coded_error(E_DEP_FETCH_FAILED, &msg)));
           String.new()
         }
       );
-      e.io.await(write_tags_index(state.cache_root.clone(), remote.clone(), text.clone(), e.io, e.exn), e);
+      e.io.await(write_tags_index(state.cache_root.clone(), remote.clone(), text.clone(), e.io, &e.exn), e);
       state.tag_urls.push(pkg.url.clone());
       state.tag_texts.push(text);
     });
-    tags_text := match(_cached_text(state.tag_urls, state.tag_texts, pkg.url.clone()), .Some(t) => t, .None => String.new());
-    tags := semver_tags_from_ls_remote(tags_text);
+    tags_text := match(_cached_text(&state.tag_urls, &state.tag_texts, pkg.url.clone()), .Some(t) => t, .None => String.new());
+    tags := semver_tags_from_ls_remote(&tags_text);
     // A reused lock entry IS the choice (its ref already satisfies every
     // requirement — no tag list was fetched for it); otherwise decide from
     // the tags and the requirements.
@@ -1263,7 +1263,7 @@ _resolve_package :: (
       reuse,
       _locked_choice(old_ref.clone()),
       match(
-        choose_ref(pkg.name.clone(), pkg.url.clone(), tags, pkg.requirements),
+        choose_ref(pkg.name.clone(), pkg.url.clone(), &tags, &pkg.requirements),
         .Ok(c) => c,
         .Err(msg) => {
           // choose_ref reports two families through one String: no tag fits
@@ -1273,7 +1273,7 @@ _resolve_package :: (
           // own sentence (choose_ref's ranges-only miss), not a guess over
           // foreign text.
           if(msg.starts_with(String.from("no tag of ")), {
-            e.exn.throw(dyn(format_coded_error(E_NO_MATCHING_VERSION, msg)));
+            e.exn.throw(dyn(format_coded_error(E_NO_MATCHING_VERSION, &msg)));
           }, {
             e.exn.throw(dyn(`Error: ${msg}`));
           });
@@ -1287,7 +1287,7 @@ _resolve_package :: (
     if(is_default && reuse, {
       ref_text = old_ref.clone();
     });
-    cached_branch := _cached_text(state.branch_urls, state.branch_names, pkg.url.clone());
+    cached_branch := _cached_text(&state.branch_urls, &state.branch_names, pkg.url.clone());
     resolve_branch := (is_default && (ref_text.len() == usize(0)) && cached_branch.is_none());
     if(resolve_branch && state.options.offline, {
       e.exn.throw(
@@ -1295,12 +1295,12 @@ _resolve_package :: (
       );
     });
     if(resolve_branch, {
-      branch := e.io.await(resolve_default_branch(remote.clone(), e.io, e.exn), e);
+      branch := e.io.await(resolve_default_branch(remote.clone(), e.io, &e.exn), e);
       state.branch_urls.push(pkg.url.clone());
       state.branch_names.push(branch);
     });
     if(is_default && (ref_text.len() == usize(0)), {
-      ref_text = match(_cached_text(state.branch_urls, state.branch_names, pkg.url.clone()), .Some(b) => b, .None => String.from("main"));
+      ref_text = match(_cached_text(&state.branch_urls, &state.branch_names, pkg.url.clone()), .Some(b) => b, .None => String.from("main"));
     });
     // Already fetched at this ref in this run? Nothing to do.
     if((pkg.ref_text == ref_text) && (pkg.commit.len() > usize(0)) && (pkg.expanded_dir == pkg.dir), {
@@ -1319,13 +1319,13 @@ _resolve_package :: (
         pkg.name.clone(),
         remote.clone(),
         ref_text.clone(),
-        locked_commit,
-        expected_integrity,
+        &locked_commit,
+        &expected_integrity,
         refresh && chosen.is_branch(),
         state.options.offline,
         verbose,
         e.io,
-        e.exn
+        &e.exn
       ),
       e
     );
@@ -1337,7 +1337,7 @@ _resolve_package :: (
     if(!file_exists_sync(pkg.dir.clone()), {
       e.exn.throw(dyn(`Error: dependency "${pkg.name}": ${pkg.url} @ ${ref_text} has no directory "${pkg.subdir}"`));
     });
-    _expand_package(state, pkg, e.exn);
+    _expand_package(state, pkg, &e.exn);
     true
   })
 );
@@ -1357,7 +1357,7 @@ _resolve_round :: (
     while(i < state.packages.len(), {
       pkg := state.packages(i);
       i = (i + usize(1));
-      step := e.io.await(_resolve_package(state, pkg, e.io, e.exn), e);
+      step := e.io.await(_resolve_package(state, &pkg, e.io, &e.exn), e);
       if(step, {
         changed = true;
       });
@@ -1445,8 +1445,8 @@ resolve_and_fetch :: (
 )(
   io.async((e : IoExn) => {
     root_dir := manifest.dir.clone();
-    cache_root := e.io.await(ensure_cache_layout(e.io, e.exn), e);
-    read := e.io.await(read_lock_file(Path.new(root_dir.clone()), e.io, e.exn), e);
+    cache_root := e.io.await(ensure_cache_layout(e.io, &e.exn), e);
+    read := e.io.await(read_lock_file(Path.new(root_dir.clone()), e.io, &e.exn), e);
     match(
       read.problem,
       .Some(msg) => {
@@ -1476,7 +1476,7 @@ resolve_and_fetch :: (
     // The root's requirements (its dev-dependencies included).
     (di : usize) = usize(0);
     while(di < manifest.dependencies.len(), {
-      _add_requirement(state, String.from("<root>"), manifest.dependencies(di), root_dir.clone(), root_dir.clone(), e.exn);
+      _add_requirement(&state, String.from("<root>"), &manifest.dependencies(di), root_dir.clone(), root_dir.clone(), &e.exn);
       di = (di + usize(1));
     });
     // Rounds until a fixpoint: a later requirer may move an earlier choice,
@@ -1485,27 +1485,27 @@ resolve_and_fetch :: (
     (changed : bool) = true;
     while(changed && (round < usize(64)), {
       round = (round + usize(1));
-      progressed := e.io.await(_resolve_round(state, e.io, e.exn), e);
+      progressed := e.io.await(_resolve_round(&state, e.io, &e.exn), e);
       changed = progressed;
     });
     if(changed, {
       e.exn.throw(dyn(String.from("Error: dependency resolution did not converge after 64 rounds — two dependencies keep moving each other's version; pin one with tag = \"…\".")));
     });
-    new_lock := _build_lock(state);
-    unchanged := lock_files_equal(read.lock, new_lock);
+    new_lock := _build_lock(&state);
+    unchanged := lock_files_equal(&read.lock, &new_lock);
     if(options.locked && !unchanged, {
       e.exn.throw(
         dyn(
           format_coded_error(
             E_LOCK_MISMATCH,
-            `--locked: yo.lock is out of date:${_lock_diff(read.lock, new_lock)}\nRun 'yo install' without --locked to update it.`
+            `--locked: yo.lock is out of date:${_lock_diff(&read.lock, &new_lock)}\nRun 'yo install' without --locked to update it.`
           )
         )
       );
     });
     write_lock := (!unchanged || read.absent);
     if(write_lock, {
-      e.io.await(save_lock_file(Path.new(root_dir.clone()), new_lock, e.io, e.exn), e);
+      e.io.await(save_lock_file(Path.new(root_dir.clone()), &new_lock, e.io, &e.exn), e);
     });
     if(write_lock, {
       println(`Wrote yo.lock (${new_lock.packages.len().to_string()} package(s)).`);
@@ -1514,9 +1514,9 @@ resolve_and_fetch :: (
     });
     // For `yo cache gc`: a project whose lock names store trees is recorded,
     // so gc keeps them; a project of path packages alone references nothing.
-    uses_store := _lock_uses_store(new_lock);
+    uses_store := _lock_uses_store(&new_lock);
     if(uses_store, {
-      e.io.await(record_project(cache_root.clone(), root_dir.clone(), e.io, e.exn), e);
+      e.io.await(record_project(cache_root.clone(), root_dir.clone(), e.io, &e.exn), e);
     });
     new_lock
   })

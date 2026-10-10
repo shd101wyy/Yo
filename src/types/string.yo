@@ -132,11 +132,11 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
         (level == usize(0)) => `Type`,
         true => `Type(${level})`
       ),
-      .Pointer(inner) => `*(${recur(inner, _d + usize(1), visited)})`,
+      .Pointer(inner) => `*(${recur(&inner, _d + usize(1), visited)})`,
       .Str => String.from("str"),
       .Array(inner, n, lv) => cond(
-        (lv.len() > usize(0)) => `Array(${recur(inner, _d + usize(1), visited)}, ${lv})`,
-        true => `Array(${recur(inner, _d + usize(1), visited)}, ${n})`
+        (lv.len() > usize(0)) => `Array(${recur(&inner, _d + usize(1), visited)}, ${lv})`,
+        true => `Array(${recur(&inner, _d + usize(1), visited)}, ${n})`
       ),
       .Tuple(labels, types) => {
         body := String.from("");
@@ -147,7 +147,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
             body = `${body}, `;
           });
           label := match(labels.get(i), .Some(s) => s, .None => `""`);
-          ts := match(types.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          ts := match(types.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           if(label.len() > usize(0), {
             body = `${body}${label} : ${ts}`;
           }, {
@@ -182,7 +182,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
             body = `${body}, `;
           });
           label := match(plabels.get(i), .Some(s) => s, .None => `""`);
-          ts := match(ptypes.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          ts := match(ptypes.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           // The parameter mode is part of the type
           // (plans/reference/TYPE_IDENTITY.md), and this rendering is also
           // the codegen key of a fn type (`type_key`'s fallback), so an
@@ -212,7 +212,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
             ibody = `${ibody}, `;
           });
           ilabel := match(ils.get(ii), .Some(s) => s, .None => `""`);
-          its2 := match(its.get(ii), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          its2 := match(its.get(ii), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           if(ilabel.len() > usize(0), {
             ibody = `${ibody}${ilabel} : ${its2}`;
           }, {
@@ -221,7 +221,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
           ii = (ii + usize(1));
         });
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
-        ret_s := recur(ret, _d + usize(1), visited);
+        ret_s := recur(&ret, _d + usize(1), visited);
         // A control function prints as written: `ctl(...)`, not `fn(...)`.
         `${if(__fm1.*.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${if(__fm1.*.result_is_ref, `mut(${ret_s})`, ret_s)}${using_suffix}`
       },
@@ -248,7 +248,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
               body = `${body}, `;
             });
             fl := match(s_fls.get(i), .Some(s) => s, .None => `""`);
-            ft := match(s_fts.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+            ft := match(s_fts.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
             body = `${body}${fl} : ${ft}`;
             i = (i + usize(1));
           });
@@ -292,7 +292,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
             body = `${body}, `;
           });
           fl := match(fls.get(i), .Some(s) => s, .None => `""`);
-          ft := match(fts.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          ft := match(fts.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${fl} : ${ft}`;
           i = (i + usize(1));
         });
@@ -318,7 +318,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
           if(i > usize(0), {
             body = `${body} + `;
           });
-          rt := match(rts.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          rt := match(rts.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${rt}`;
           i = (i + usize(1));
         });
@@ -327,7 +327,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
           if((body.len() > usize(0)) || (ii > usize(0)), {
             body = `${body} + `;
           });
-          nt := match(nts.get(ii), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          nt := match(nts.get(ii), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}!(${nt})`;
           ii = (ii + usize(1));
         });
@@ -339,7 +339,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
         )
       },
       .ExprT => `Expr`,
-      .ComptimeListT(child) => `ComptimeList(${recur(child, _d + usize(1), visited)})`,
+      .ComptimeListT(child) => `ComptimeList(${recur(&child, _d + usize(1), visited)})`,
       .TypeAppT(constructor, args) => {
         body := String.from("");
         i := usize(0);
@@ -347,13 +347,13 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
           if(i > usize(0), {
             body = `${body}, `;
           });
-          ts := match(args.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          ts := match(args.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
-        `TypeApp(${recur(constructor, _d + usize(1), visited)}, [${body}])`
+        `TypeApp(${recur(&constructor, _d + usize(1), visited)}, [${body}])`
       },
-      .IsoT(child) => `iso(${recur(child, _d + usize(1), visited)})`,
+      .IsoT(child) => `iso(${recur(&child, _d + usize(1), visited)})`,
       .DynT(required_trait_types : rtt, required_trait_levels : _, negative_trait_types : ntt, negative_trait_levels : _) => {
         body := String.from("");
         i := usize(0);
@@ -361,7 +361,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
           if(i > usize(0), {
             body = `${body} + `;
           });
-          ts := match(rtt.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          ts := match(rtt.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
@@ -370,7 +370,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
           if(body.len() > usize(0), {
             body = `${body} + `;
           });
-          ts := match(ntt.get(ii), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          ts := match(ntt.get(ii), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}!(${ts})`;
           ii = (ii + usize(1));
         });
@@ -383,18 +383,18 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
           if(i > usize(0), {
             body = `${body}, `;
           });
-          ts := match(cpts.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          ts := match(cpts.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
-        `${bn}(${body}) -> ${recur(cr, _d + usize(1), visited)}`
+        `${bn}(${body}) -> ${recur(&cr, _d + usize(1), visited)}`
       },
       // As written: `Future(T, E)` — the output, then the effect types.
       .FutureTraitT(base_name : bn, output : out, effect_labels : _, effect_types : ets) => {
-        body := recur(out, _d + usize(1), visited);
+        body := recur(&out, _d + usize(1), visited);
         i := usize(0);
         while(i < ets.len(), {
-          ts := match(ets.get(i), .Some(t2) => recur(t2, _d + usize(1), visited), .None => `?`);
+          ts := match(ets.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
           body = `${body}, ${ts}`;
           i = (i + usize(1));
         });
@@ -411,7 +411,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
           (slen > usize(8)) => tag.push_string(pfid.substring(slen - usize(8), slen)),
           true => tag.push_string(pfid.clone())
         );
-        `refine(${recur(inner, _d + usize(1), visited)}, ${tag})`
+        `refine(${recur(&inner, _d + usize(1), visited)}, ${tag})`
       },
       .ExternOpaqueT(eo_nm, _) => eo_nm.clone()
     )

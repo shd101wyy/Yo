@@ -135,7 +135,7 @@ build_fallback :: (fn(imm(lib) : BuildSystemLibrary) -> PkgConfigResult)({
   });
   if(!lib.fallback_link.is_empty(), {
     // May contain multiple libs separated by spaces
-    link_tokens := _split_whitespace(lib.fallback_link);
+    link_tokens := _split_whitespace(&lib.fallback_link);
     lt_n := link_tokens.len();
     lt_k := usize(0);
     while(lt_k < lt_n, {
@@ -176,12 +176,12 @@ _append_all :: (fn(mut(dst) : ArrayList(String), imm(src) : ArrayList(String)) -
 });
 /// Merge all fields of `src` into `dst` in-place.
 _merge_into :: (fn(imm(dst) : PkgConfigResult, imm(src) : PkgConfigResult) -> unit)({
-  _append_all(dst.c_flags, src.c_flags);
-  _append_all(dst.ld_flags, src.ld_flags);
-  _append_all(dst.include_paths, src.include_paths);
-  _append_all(dst.library_paths, src.library_paths);
-  _append_all(dst.link_libraries, src.link_libraries);
-  _append_all(dst.defines, src.defines);
+  _append_all(&mut dst.c_flags, &src.c_flags);
+  _append_all(&mut dst.ld_flags, &src.ld_flags);
+  _append_all(&mut dst.include_paths, &src.include_paths);
+  _append_all(&mut dst.library_paths, &src.library_paths);
+  _append_all(&mut dst.link_libraries, &src.link_libraries);
+  _append_all(&mut dst.defines, &src.defines);
 });
 /// Check if `pkg-config` is available on this system.
 is_pkg_config_available :: (
@@ -225,8 +225,8 @@ query_pkg_config :: (
     });
     cflags_raw := String.from_bytes(cflags_out.stdout).trim();
     ldflags_raw := String.from_bytes(ldflags_out.stdout).trim();
-    result := parse_cflags(cflags_raw);
-    result_with_ld := parse_ldflags_into(ldflags_raw, result);
+    result := parse_cflags(&cflags_raw);
+    result_with_ld := parse_ldflags_into(&ldflags_raw, &result);
     Option(PkgConfigResult).Some(result_with_ld)
   })
 );
@@ -241,13 +241,13 @@ resolve_system_library :: (
   ) -> Impl(Future(PkgConfigResult, IoExn))
 )(
   io.async((e : IoExn) => {
-    pkg_available := e.io.await(is_pkg_config_available(e.io, e.exn), e);
+    pkg_available := e.io.await(is_pkg_config_available(e.io, &e.exn), e);
     if(pkg_available, {
-      pkg_result := e.io.await(query_pkg_config(lib.name, e.io, e.exn), e);
+      pkg_result := e.io.await(query_pkg_config(&lib.name, e.io, &e.exn), e);
       match(
         pkg_result,
         .Some(r) => {
-          return(apply_system_library_metadata(lib, r));
+          return(apply_system_library_metadata(lib, &r));
         },
         .None => ()
       );
@@ -279,8 +279,8 @@ resolve_all_system_libraries :: (
         },
         .Some(p) => p
       );
-      resolved := e.io.await(resolve_system_library(lib, verbose, e.io, e.exn), e);
-      _merge_into(merged, resolved);
+      resolved := e.io.await(resolve_system_library(&lib, verbose, e.io, &e.exn), e);
+      _merge_into(&merged, &resolved);
       k = (k + usize(1));
     });
     merged

@@ -1511,7 +1511,7 @@ _stable_sort_by :: (
     scratch.push(k);
     k = (k + usize(1));
   });
-  _merge_sort_indices(order, scratch, ptr, n, less);
+  _merge_sort_indices(&mut order, &mut scratch, ptr, n, less);
   // `order(i)` is the SOURCE index of the element that belongs at `i`. The
   // cycle-following swap below consumes DESTINATION indices ("the element
   // at i moves to dest(i)"), so invert first — applying the cycle walk to
@@ -1872,7 +1872,7 @@ impl(
     while((lo < hi) && found.is_none(), {
       mid := (lo + ((hi - lo) / usize(2)));
       match(
-        cmp(self(mid)),
+        cmp(&self(mid)),
         .Less => {
           lo = (mid + usize(1));
         },
@@ -1939,14 +1939,14 @@ impl(
     while(i < n, i = (i + usize(1)), {
       v := self(i);
       cond(
-        pred(v) => {
+        pred(&v) => {
           kept.push(v);
         },
         true => ()
       );
     });
     self.clear();
-    self.extend(kept);
+    self.extend(&kept);
   }),
   /// Append a copy of every element of `other`.
   extend : (fn(mut(self) : Self, imm(other) : ArrayList(T)) -> unit)({

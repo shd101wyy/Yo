@@ -191,7 +191,7 @@ _ptr_hit_is_privilege_token :: (fn(imm(text) : ArrayList(u8), offset : usize) ->
     match(
       lbl,
       .Some(l) => {
-        if((k >= l.len()) && _bytes_end_with(text, k, l), {
+        if((k >= l.len()) && _bytes_end_with(text, k, &l), {
           return(true);
         });
       },
@@ -574,20 +574,20 @@ _extract_top_level_fn_decls :: (fn(imm(src) : ArrayList(u8)) -> ArrayList(_FnDec
 /// `params_start` is captured at extraction time.
 _scan_file :: (fn(imm(file) : String, imm(src_str) : String, mut(findings) : ArrayList(PublicSafeFinding)) -> unit)({
   src := src_str.to_bytes();
-  extern_spans := _find_extern_spans(src);
-  decls := _extract_top_level_fn_decls(src);
+  extern_spans := _find_extern_spans(&src);
+  decls := _extract_top_level_fn_decls(&src);
   (di : usize) = usize(0);
   while(runtime(di < decls.len()), {
     decl := decls(di);
     keep := (!decl.name.starts_with(`_`) && !_name_is_raw_pointer_api(decl.name.clone()));
-    if(keep && !_position_inside_spans(decl.params_start, extern_spans), {
+    if(keep && !_position_inside_spans(decl.params_start, &extern_spans), {
       param_bytes := decl.param_text.to_bytes();
-      param_hits := _find_pointer_types(param_bytes);
+      param_hits := _find_pointer_types(&param_bytes);
       (hi : usize) = usize(0);
       while(runtime(hi < param_hits.len()), {
         hit := param_hits(hi);
-        if(!_ptr_hit_is_privilege_token(param_bytes, hit.offset), {
-          lc := _offset_to_line_col(src, decl.params_start + hit.offset);
+        if(!_ptr_hit_is_privilege_token(&param_bytes, hit.offset), {
+          lc := _offset_to_line_col(&src, decl.params_start + hit.offset);
           findings.push(
             PublicSafeFinding(
               file : file.clone(),
@@ -596,7 +596,7 @@ _scan_file :: (fn(imm(file) : String, imm(src_str) : String, mut(findings) : Arr
               decl_name : decl.name.clone(),
               slot : String.from("parameter"),
               pointer_type : hit.pointer_type.clone(),
-              snippet : _short_snippet(param_bytes, hit.offset)
+              snippet : _short_snippet(&param_bytes, hit.offset)
             )
           );
         });
@@ -604,14 +604,14 @@ _scan_file :: (fn(imm(file) : String, imm(src_str) : String, mut(findings) : Arr
       });
       if(decl.return_text.len() > usize(0), {
         ret_bytes := decl.return_text.to_bytes();
-        ret_hits := _find_pointer_types(ret_bytes);
+        ret_hits := _find_pointer_types(&ret_bytes);
         if(ret_hits.len() > usize(0), {
           // The return text's absolute position is approximated via the
           // first `->` after params_start.
           (arrow : usize) = decl.params_start;
           (found_arrow : bool) = false;
           while(runtime((arrow < src.len()) && !found_arrow), {
-            if(_psr_bytes_at(src, arrow, "->"), {
+            if(_psr_bytes_at(&src, arrow, "->"), {
               found_arrow = true;
             }, {
               arrow = (arrow + usize(1));
@@ -621,7 +621,7 @@ _scan_file :: (fn(imm(file) : String, imm(src_str) : String, mut(findings) : Arr
           (ri : usize) = usize(0);
           while(runtime(ri < ret_hits.len()), {
             hit := ret_hits(ri);
-            lc := _offset_to_line_col(src, ret_start + hit.offset);
+            lc := _offset_to_line_col(&src, ret_start + hit.offset);
             findings.push(
               PublicSafeFinding(
                 file : file.clone(),
@@ -630,7 +630,7 @@ _scan_file :: (fn(imm(file) : String, imm(src_str) : String, mut(findings) : Arr
                 decl_name : decl.name.clone(),
                 slot : String.from("return"),
                 pointer_type : hit.pointer_type.clone(),
-                snippet : _short_snippet(ret_bytes, hit.offset)
+                snippet : _short_snippet(&ret_bytes, hit.offset)
               )
             );
             ri = (ri + usize(1));
@@ -737,7 +737,7 @@ _psr_walk_yo_files :: (fn(imm(root) : String, io : Io, imm(exn) : Exception) -> 
   io.async((e : IoExn) => {
     is_dot := (root == ".");
     walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
-    exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
+    exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), &e.io);
     if(!exists, {
       return(ArrayList(String).new());
     });
@@ -784,7 +784,7 @@ _psr_walk_yo_files :: (fn(imm(root) : String, io : Io, imm(exn) : Exception) -> 
 /// Generate the report.
 generate_public_safe_report :: (fn(imm(root_path) : String, io : Io, imm(exn) : Exception) -> Impl(Future(PublicSafeReport, IoExn)))(
   io.async((e : IoExn) => {
-    files := e.io.await(_psr_walk_yo_files(root_path.clone(), e.io, e.exn), e);
+    files := e.io.await(_psr_walk_yo_files(root_path.clone(), e.io, &e.exn), e);
     findings := ArrayList(PublicSafeFinding).new();
     class1 := ArrayList(Class1Extraction).new();
     (public_decls_scanned : usize) = usize(0);
@@ -804,8 +804,8 @@ generate_public_safe_report :: (fn(imm(root_path) : String, io : Io, imm(exn) : 
           });
           di = (di + usize(1));
         });
-        _scan_file(file.clone(), src, findings);
-        scan_class1_extractions(file.clone(), src, class1);
+        _scan_file(file.clone(), &src, &mut findings);
+        scan_class1_extractions(file.clone(), &src, &mut class1);
       });
       fi = (fi + usize(1));
     });

@@ -46,15 +46,15 @@ _find_enclosing_call :: (
       // a Type, not a fn (this bit the first draft: null inside
       // `add_one(i32(41))`).
       if(!is_infix && (tok.kind == TokenKind.Identifier), {
-        if(_at_or_after(tok, row, col), {
+        if(_at_or_after(&tok, row, col), {
           (active : usize) = usize(0);
           (ai : usize) = usize(0);
           while(ai < args.len(), {
             match(
               args.get(ai),
               .Some(a) => {
-                at := ast_expr_token(a);
-                if(_at_or_after(at, row, col), {
+                at := ast_expr_token(&a);
+                if(_at_or_after(&at, row, col), {
                   active = (ai + usize(1));
                 });
               },
@@ -68,12 +68,12 @@ _find_enclosing_call :: (
           best_col.push(usize(tok.column));
         });
       });
-      recur(func_box, row, col, best_callee, best_active, best_row, best_col);
+      recur(&func_box, row, col, best_callee, best_active, best_row, best_col);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a2) => recur(a2, row, col, best_callee, best_active, best_row, best_col),
+          .Some(a2) => recur(&a2, row, col, best_callee, best_active, best_row, best_col),
           .None => ()
         );
         i = (i + usize(1));
@@ -99,7 +99,7 @@ handle_signature_help :: (
   while(ei < exprs.len(), {
     match(
       exprs.get(ei),
-      .Some(e) => _find_enclosing_call(e, line, character, best_callee, best_active, best_row, best_col),
+      .Some(e) => _find_enclosing_call(&e, line, character, &mut best_callee, &mut best_active, &mut best_row, &mut best_col),
       .None => ()
     );
     ei = (ei + usize(1));
@@ -119,7 +119,7 @@ handle_signature_help :: (
       }
     );
     is_fn := match(
-      expr_info_table_get(info_table, ast_expr_id(cand)),
+      expr_info_table_get(info_table, ast_expr_id(&cand)),
       .Some(cinfo) => match(cinfo.ty, .Func(_, _, _, _, _, _, _) => true, _ => false),
       .None => false
     );
@@ -154,13 +154,13 @@ handle_signature_help :: (
   );
   active := match(best_active.get(chosen_i), .Some(a) => a, .None => usize(0));
   info := match(
-    expr_info_table_get(info_table, ast_expr_id(callee)),
+    expr_info_table_get(info_table, ast_expr_id(&callee)),
     .Some(i) => i,
     .None => {
       return(Option(JsonValue).None);
     }
   );
-  callee_name := ast_expr_token(callee).value;
+  callee_name := ast_expr_token(&callee).value;
   match(
     info.ty,
     .Func(_, param_types, _, _, _, meta, _) => {
@@ -170,11 +170,11 @@ handle_signature_help :: (
         pt := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
         plabel := match(meta.*.param_labels.get(pi), .Some(l) => l, .None => `arg${pi}`);
         params.push(
-          jb().put("label", jstr(`${plabel} : ${type_to_string(pt)}`)).obj()
+          jb().put("label", jstr(`${plabel} : ${type_to_string(&pt)}`)).obj()
         );
         pi = (pi + usize(1));
       });
-      (ty_str : String) = type_to_string(info.ty);
+      (ty_str : String) = type_to_string(&info.ty);
       if(ty_str.starts_with(String.from("fn(")), {
         ty_str = ty_str.substring(usize(2), ty_str.len());
       });

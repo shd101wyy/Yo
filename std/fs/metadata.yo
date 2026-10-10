@@ -211,7 +211,7 @@ _stat_path :: (fn(imm(path) : Path, flags : i32, io : Io) -> Impl(Future(Metadat
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
-    result := e.io.await(IO_file.statx(AT_FDCWD, cstr, flags, STATX_BASIC_STATS, buf), e.io);
+    result := e.io.await(IO_file.statx(AT_FDCWD, cstr, flags, STATX_BASIC_STATS, buf), &e.io);
     cond(
       (result < i32(0)) => {
         free(.Some((*void)(buf)));

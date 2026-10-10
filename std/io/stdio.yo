@@ -86,8 +86,8 @@ impl(
   Reader(
     read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        result := e.io.await(IO_file.read(i32(0), buf, u32(size), self._offset), e.io);
-        n := IoError.check(result, e.exn);
+        result := e.io.await(IO_file.read(i32(0), buf, u32(size), self._offset), &e.io);
+        n := IoError.check(result, &e.exn);
         self._offset = (self._offset + u64(n));
         usize(n)
       })
@@ -99,8 +99,8 @@ impl(
   Writer(
     write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        result := e.io.await(IO_file.write(i32(1), buf, u32(size), self._offset), e.io);
-        n := IoError.check(result, e.exn);
+        result := e.io.await(IO_file.write(i32(1), buf, u32(size), self._offset), &e.io);
+        n := IoError.check(result, &e.exn);
         self._offset = (self._offset + u64(n));
         usize(n)
       })
@@ -115,8 +115,8 @@ impl(
   Writer(
     write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        result := e.io.await(IO_file.write(i32(2), buf, u32(size), self._offset), e.io);
-        n := IoError.check(result, e.exn);
+        result := e.io.await(IO_file.write(i32(2), buf, u32(size), self._offset), &e.io);
+        n := IoError.check(result, &e.exn);
         self._offset = (self._offset + u64(n));
         usize(n)
       })

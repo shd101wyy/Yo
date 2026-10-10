@@ -71,7 +71,7 @@ _create_box_type_via :: (fn(imm(ctor) : String, imm(inner_type) : TypeValue, imm
       vars.get(vi),
       .Some(v) => match(
         v.value.get(usize(0)),
-        .Some(val) => if(is_func_val(val), {
+        .Some(val) => if(is_func_val(&val), {
           box_fv = Option(EvalValue).Some(val);
           box_ft = v.ty;
         }),
@@ -89,8 +89,8 @@ _create_box_type_via :: (fn(imm(ctor) : String, imm(inner_type) : TypeValue, imm
       param0_label := match(box_ft, .Func({ meta : bm }) => match(bm.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("V")), _ => String.from("V"));
       (cenv : Environment) = env;
       _cfr := cenv.push_frame(false);
-      vtok := synthetic_token(param0_label.clone(), cenv.module_path);
-      add_variable_to_env(cenv, param0_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(inner_type)), true, false, false, false, vtok);
+      vtok := synthetic_token(param0_label.clone(), &cenv.module_path);
+      add_variable_to_env(&cenv, param0_label.clone(), t_type(), Option(EvalValue).Some(create_type_value(inner_type)), true, false, false, false, &vtok);
       bargs := ArrayList(ArgEntry).new();
       bargs.push(ArgEntry(value : Option(EvalValue).Some(create_type_value(inner_type)), parameter_type : param0_ty, arg_type : t_type()));
       bav := ArgValues(
@@ -108,11 +108,11 @@ _create_box_type_via :: (fn(imm(ctor) : String, imm(inner_type) : TypeValue, imm
       // failed is_boxed_type and the boxed-dyn path registered the impl
       // against the Box pointer itself (dyn_dispatch_autobox_value printed
       // a blank instead of 'Q').
-      b_callee_tok := synthetic_token(ctor.clone(), cenv.module_path);
+      b_callee_tok := synthetic_token(ctor.clone(), &cenv.module_path);
       b_callee := AstExpr.Atom(alloc_global_expr_id(), b_callee_tok);
-      bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), box_ft, bfv, bav, env, cenv, ctx, exn);
+      bres := evaluate_comptime_fn_call(Option(AstExpr).Some(b_callee), &box_ft, &bfv, &bav, env, &cenv, ctx, exn);
       cenv.pop_frame();
-      match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(bt), Option(TypeValue).Some(bt), Option(TypeValue).None), _ => Option(TypeValue).None)
+      match(bres.value, .TypeVal(bt) => if(is_reference_struct_type(&bt), Option(TypeValue).Some(bt), Option(TypeValue).None), _ => Option(TypeValue).None)
     }
   )
 });
@@ -123,13 +123,13 @@ _create_box_type_via :: (fn(imm(ctor) : String, imm(inner_type) : TypeValue, imm
 _dyn_target_requires_send :: (fn(imm(expected) : Option(ExpectedTypeCtx), imm(value_type) : TypeValue) -> bool)({
   from_expected := match(
     expected,
-    .Some(et) => match(et.ty, .DynT(required_trait_types : ert) => Option(bool).Some(_traits_name_send(ert)), _ => Option(bool).None),
+    .Some(et) => match(et.ty, .DynT(required_trait_types : ert) => Option(bool).Some(_traits_name_send(&ert)), _ => Option(bool).None),
     .None => Option(bool).None
   );
   match(
     from_expected,
     .Some(b) => b,
-    .None => match(value_type, .SomeT({ required_trait_types : vrt }) => _traits_name_send(vrt), _ => false)
+    .None => match(value_type, .SomeT({ required_trait_types : vrt }) => _traits_name_send(&vrt), _ => false)
   )
 });
 _traits_name_send :: (fn(imm(tys) : ArrayList(TypeValue)) -> bool)(!_thread_marker_named_in(tys).is_empty());
@@ -199,7 +199,7 @@ _dyn_bound_check_type :: (fn(imm(t) : TypeValue, imm(env) : Environment) -> Opti
   own_rc := match(t, .SomeT({ resolution : carried }) => carried, _ => Option(TypeValue).None);
   resolved := match(own_rc, .Some(o) => o, .None => get_value_of_some_type_from_env(env, t));
   cond(
-    is_some_type(resolved) => Option(TypeValue).None,
+    is_some_type(&resolved) => Option(TypeValue).None,
     true => Option(TypeValue).Some(resolved)
   )
 });
@@ -263,9 +263,9 @@ _require_dyn_traits_implemented :: (
   // A `Dyn(..., Send)` shares its data object across threads, so the object
   // must be atomically counted: a `rc(...)` payload is not
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
-  if(match(dyn_type, .DynT(required_trait_types : sd_rtt) => _traits_name_send(sd_rtt), _ => false) && is_boxed_type(value_type) && !is_atomic_reference_struct_type(value_type), {
+  if(match(dyn_type, .DynT(required_trait_types : sd_rtt) => _traits_name_send(&sd_rtt), _ => false) && is_boxed_type(value_type) && !is_atomic_reference_struct_type(value_type), {
     sd_msg := `A ${type_to_string(dyn_type.clone())} is shared between threads, so its payload must be atomically reference counted, and ${type_to_string(value_type.clone())} is not: pass the value itself (\`dyn(...)\` boxes it with \`arc\`) or \`arc(v)\`.`;
-    raise_flow_violation(format_error_message(token, sd_msg), ctx, exn);
+    raise_flow_violation(format_error_message(token, &sd_msg), ctx, exn);
   });
   fv_payload := _unwrap_box_for_method_lookup(value_type);
   fv_judged_names := ArrayList(String).new();
@@ -279,14 +279,14 @@ _require_dyn_traits_implemented :: (
           .Some(fv_req) => match(
             fv_req,
             .TraitT(name : fv_rn) => match(
-              call_function_value_marker(fv_payload, Option(EvalValue).None, fv_req.clone(), env, ctx),
+              call_function_value_marker(&fv_payload, Option(EvalValue).None, fv_req.clone(), env, ctx),
               .Some(fvm) => {
                 fv_judged_names.push(fv_rn.clone());
                 match(
                   fvm,
                   .Some(fvm_o) => {
                     fv_msg := `A ${type_to_string(dyn_type.clone())} cannot hold this ${type_to_string(fv_payload.clone())}: ${fvm_o}.`;
-                    raise_flow_violation(format_error_message(token, fv_msg), ctx, exn);
+                    raise_flow_violation(format_error_message(token, &fv_msg), ctx, exn);
                   },
                   .None => ()
                 );
@@ -312,11 +312,11 @@ _require_dyn_traits_implemented :: (
   match(
     extract_fn_trait_from_type(dyn_type),
     .Some(dfn_req) => {
-      dfn_is_fn := is_function_type(fv_payload);
+      dfn_is_fn := is_function_type(&fv_payload);
       dfn_note := cond(
-        (dfn_is_fn && type_implements_trait_bool(fv_payload.clone(), dfn_req, env)) => Option(String).None,
-        dfn_is_fn => match(function_value_slot_mismatch(dyn_type, fv_payload), .Some(dfn_m) => Option(String).Some(dfn_m), .None => Option(String).Some(String.from(""))),
-        true => function_value_slot_mismatch(dyn_type, fv_payload)
+        (dfn_is_fn && type_implements_trait_bool(fv_payload.clone(), &dfn_req, env)) => Option(String).None,
+        dfn_is_fn => match(function_value_slot_mismatch(dyn_type, &fv_payload), .Some(dfn_m) => Option(String).Some(dfn_m), .None => Option(String).Some(String.from(""))),
+        true => function_value_slot_mismatch(dyn_type, &fv_payload)
       );
       match(
         dfn_note,
@@ -352,7 +352,7 @@ _require_dyn_traits_implemented :: (
           }
         );
         req_is_nominal := match(req, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, _ => false);
-        req_judged := match(req, .TraitT(name : rjn) => _name_in(fv_judged_names, rjn), _ => false);
+        req_judged := match(req, .TraitT(name : rjn) => _name_in(&fv_judged_names, &rjn), _ => false);
         if(req_is_nominal && !req_judged && !type_implements_trait_bool(check_ty.clone(), req.clone(), env), {
           // Prefer the trait's declared NAME; an anonymous trait has none, and
           // `type_to_string` renders its field dump instead.
@@ -367,7 +367,7 @@ _require_dyn_traits_implemented :: (
           // the real exn — the def-eval wall otherwise SWALLOWS the throw and
           // the enclosing body silently hollows (same pattern as
           // anonymous_function.yo's return-type rejection).
-          raise_flow_violation(format_error_message(token, msg), ctx, exn);
+          raise_flow_violation(format_error_message(token, &msg), ctx, exn);
         });
         i = (i + usize(1));
       });
@@ -377,9 +377,9 @@ _require_dyn_traits_implemented :: (
       // `Sync` as well (plans/VALUES_BY_DEFAULT.md §3.8).
       match(
         get_trait_type_from_env(env, String.from("Sync")),
-        .Some(sync_tt) => if((_thread_marker_named_in(rtt) == "Send") && !_traits_name(rtt, "Sync") && !_name_in(fv_judged_names, String.from("Send")) && !type_implements_trait_bool(check_ty.clone(), sync_tt, env), {
+        .Some(sync_tt) => if((_thread_marker_named_in(&rtt) == "Send") && !_traits_name(&rtt, "Sync") && !_name_in(&fv_judged_names, String.from("Send")) && !type_implements_trait_bool(check_ty.clone(), &sync_tt, env), {
           sync_msg := `Type ${type_to_string(check_ty.clone())} does not implement Sync, which ${type_to_string(dyn_type.clone())} requires of its payload: every copy of a Dyn shares that payload until Dyn becomes uniquely owned (plans/VALUES_BY_DEFAULT.md decision 7).`;
-          raise_flow_violation(format_error_message(token, sync_msg), ctx, exn);
+          raise_flow_violation(format_error_message(token, &sync_msg), ctx, exn);
         }),
         .None => ()
       );
@@ -418,7 +418,7 @@ _require_send_dyn_methods_reach_no_global :: (
     return(());
   });
   // D1 covers a `Sync` trait object as well as a `Send` one (decision 38 E).
-  thread_marker := match(dyn_type, .DynT(required_trait_types : rtt) => _thread_marker_named_in(rtt), _ => String.new());
+  thread_marker := match(dyn_type, .DynT(required_trait_types : rtt) => _thread_marker_named_in(&rtt), _ => String.new());
   if(thread_marker.is_empty(), {
     return(());
   });
@@ -438,7 +438,7 @@ _require_send_dyn_methods_reach_no_global :: (
                 .Some(fv) => match(
                   fv,
                   .FuncVal(fvd, _) => match({
-                    reach := function_reaches_non_send_global(fvd.*.func_id.clone(), fvd.*.body, ctx.expr_info_table, env);
+                    reach := function_reaches_non_send_global(fvd.*.func_id.clone(), &fvd.*.body, &ctx.expr_info_table, env);
                     // A Send dyn's methods may run on another thread: what
                     // they read is thread-reached, and already-written is a
                     // violation now (the verdict may be a memo from before
@@ -448,7 +448,7 @@ _require_send_dyn_methods_reach_no_global :: (
                   }, .Some(reason) => {
                     mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
                     msg := `A ${type_to_string(dyn_type.clone())} value may be used on another thread (it is ${thread_marker}), but its method '${mname}' ${reason}.`;
-                    raise_flow_violation(format_error_message(token, msg), ctx, exn);
+                    raise_flow_violation(format_error_message(token, &msg), ctx, exn);
                   }, .None => ()),
                   _ => ()
                 ),
@@ -496,7 +496,7 @@ _monomorphize_default_fv :: (
       );
       saved_self_ty := ctx.self_type;
       ctx.self_type = Option(TypeValue).Some(value_type.clone());
-      spec_fv := create_specialized_function_inline(fv, default_ft, spec_argvals, caller_env, caller_env, ctx, exn);
+      spec_fv := create_specialized_function_inline(fv, &default_ft, &spec_argvals, caller_env, caller_env, ctx, exn);
       ctx.self_type = saved_self_ty;
       spec_fv
     },
@@ -537,13 +537,13 @@ _generic_impl_method_for_dyn :: (
     picked,
     .Some(pc) => match(
       pc.method_value,
-      .Some(fv) => if(is_func_val(fv), {
+      .Some(fv) => if(is_func_val(&fv), {
         recv_name := `__yo_dyn_receiver_${fname}`;
         caller_env.push_frame(false);
-        recv_tok := synthetic_token(recv_name.clone(), caller_env.module_path);
+        recv_tok := synthetic_token(recv_name.clone(), &caller_env.module_path);
         _recv_var := add_variable_to_env(caller_env, recv_name.clone(), receiver_type.clone(), Option(EvalValue).Some(create_unknown_val(receiver_type.clone())), false, true, false, false, recv_tok.clone());
         recv_atom := AstExpr.Atom(alloc_global_expr_id(), recv_tok.clone());
-        callee_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(fname.clone(), caller_env.module_path));
+        callee_atom := AstExpr.Atom(alloc_global_expr_id(), synthetic_token(fname.clone(), &caller_env.module_path));
         call_args := ArrayList(AstExpr).new();
         call_args.push(recv_atom);
         call_expr := AstExpr.FnCall(alloc_global_expr_id(), callee_atom, call_args.clone(), false, recv_tok);
@@ -553,7 +553,7 @@ _generic_impl_method_for_dyn :: (
         // must not reach it.
         saved_expected := ctx.expected_type;
         ctx.expected_type = Option(ExpectedTypeCtx).None;
-        res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), pc.method_type, call_expr, callee_atom, call_args, caller_env, ctx, true, false, true, exn);
+        res := try_to_call_function_with_arguments(Option(EvalValue).Some(fv), &pc.method_type, &call_expr, &callee_atom, &call_args, caller_env, ctx, true, false, true, exn);
         ctx.expected_type = saved_expected;
         caller_env.pop_frame();
         res.specialized_function_value
@@ -599,7 +599,7 @@ _resolve_dyn_trait_values :: (fn(imm(dyn_type) : TypeValue, imm(value_type) : Ty
           .Some(tt) => match(
             tt,
             .TraitT(name : tname, field_labels : fl, id : trait_id) => {
-              entries := get_type_trait_methods_for_type(type_id_or_empty(method_lookup_type));
+              entries := get_type_trait_methods_for_type(type_id_or_empty(&method_lookup_type));
               n_fields := fl.len();
               field_names := ArrayList(String).new();
               field_vals := ArrayList(Option(EvalValue)).new();
@@ -653,21 +653,21 @@ _resolve_dyn_trait_values :: (fn(imm(dyn_type) : TypeValue, imm(value_type) : Ty
                 // there) or via the get_trait_default fall-through.
                 default_fid_for_field := match(
                   get_trait_default(trait_id.clone(), fname.clone()),
-                  .Some(dfv) => if(is_func_val(dfv), match(dfv, .FuncVal(__dfvd, _) => __dfvd.*.func_id.clone(), _ => String.new()), String.new()),
+                  .Some(dfv) => if(is_func_val(&dfv), match(dfv, .FuncVal(__dfvd, _) => __dfvd.*.func_id.clone(), _ => String.new()), String.new()),
                   .None => String.new()
                 );
                 resolved_field := match(
                   exact,
-                  .Some(v) => Option(EvalValue).Some(_monomorphize_default_fv(v, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
+                  .Some(v) => Option(EvalValue).Some(_monomorphize_default_fv(&v, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
                   .None => match(
                     by_label,
-                    .Some(bv) => Option(EvalValue).Some(_monomorphize_default_fv(bv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
+                    .Some(bv) => Option(EvalValue).Some(_monomorphize_default_fv(&bv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
                     .None => match(
                       _generic_impl_method_for_dyn(method_lookup_type.clone(), fname.clone(), trait_id.clone(), caller_env, ctx, exn),
                       .Some(gv) => Option(EvalValue).Some(gv),
                       .None => match(
                         get_trait_default(trait_id.clone(), fname.clone()),
-                        .Some(default_fv) => Option(EvalValue).Some(_monomorphize_default_fv(default_fv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
+                        .Some(default_fv) => Option(EvalValue).Some(_monomorphize_default_fv(&default_fv, default_fid_for_field.clone(), value_type.clone(), caller_env, ctx, exn)),
                         .None => Option(EvalValue).None
                       )
                     )
@@ -734,7 +734,7 @@ _dyn_type_from_payload_or_throw :: (
       required_trait_levels : rtl,
       negative_trait_types : ntt,
       negative_trait_levels : ntl
-    ) => t_dyn(rtt, rtl, ntt, ntl),
+    ) => t_dyn(&rtt, &rtl, &ntt, &ntl),
     _ => {
       if(have_payload_ty, {
         exn.throw(
@@ -744,7 +744,7 @@ _dyn_type_from_payload_or_throw :: (
                 expr_tok,
                 match(
                   expected_ty,
-                  .Some(et) => `cannot infer the Dyn type of dyn(...) here: the expected type ${type_to_string(et)} is not a Dyn(...).\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`,
+                  .Some(et) => `cannot infer the Dyn type of dyn(...) here: the expected type ${type_to_string(&et)} is not a Dyn(...).\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`,
                   .None => `cannot infer the Dyn type of dyn(...) here: this position supplies no expected type.\nAnnotate the value or bind it first — e.g. (x : Dyn(Trait)) = dyn(value) — or pass dyn(value) where a Dyn(...) is expected.`
                 )
               ),
@@ -770,7 +770,7 @@ _reject_fnonce_into_dyn_fn :: (fn(imm(target) : Option(ExpectedTypeCtx), imm(val
     target,
     .Some(t) => match(
       t.ty,
-      .DynT(_, _, _, _) => match(extract_fn_trait_from_type(t.ty), .Some(tf) => match(tf, .FnTraitT(base_name : tb) => tb.clone(), _ => String.from("")), .None => String.from("")),
+      .DynT(_, _, _, _) => match(extract_fn_trait_from_type(&t.ty), .Some(tf) => match(tf, .FnTraitT(base_name : tb) => tb.clone(), _ => String.from("")), .None => String.from("")),
       _ => String.from("")
     ),
     .None => String.from("")
@@ -804,7 +804,7 @@ evaluate_dyn_value :: (
       exn.throw(
         dyn(
           format_error_message(
-            expr_tok,
+            &expr_tok,
             String.from("evaluate_dyn_value: expected a FnCall expression")
           )
         )
@@ -819,7 +819,7 @@ evaluate_dyn_value :: (
       exn.throw(
         dyn(
           format_error_message(
-            expr_tok,
+            &expr_tok,
             String.from("'dyn' requires exactly one argument")
           )
         )
@@ -877,10 +877,10 @@ evaluate_dyn_value :: (
             (
               (dbc_args.len() == usize(1)) && match(
                 dbc_args.get(usize(0)),
-                .Some(dbc_a0) => ast_expr_is_fn_call_of(dbc_a0, "=>", Option(usize).None),
+                .Some(dbc_a0) => ast_expr_is_fn_call_of(&dbc_a0, "=>", Option(usize).None),
                 .None => false
               )
-            ) => match(dbc_fn, .Atom(_, dbc_tok) => shared_cell_type_name_of_constructor(dbc_tok.value), _ => Option(String).None),
+            ) => match(dbc_fn, .Atom(_, dbc_tok) => shared_cell_type_name_of_constructor(&dbc_tok.value), _ => Option(String).None),
             true => Option(String).None
           ),
           _ => Option(String).None
@@ -888,7 +888,7 @@ evaluate_dyn_value :: (
         match(
           dyn_cell_closure_type,
           .Some(dbc_cell) => match(
-            _create_box_type_via(dbc_cell, w_ty, env, ctx, exn),
+            _create_box_type_via(&dbc_cell, &w_ty, env, ctx, exn),
             .Some(dbc_bt) => {
               exp_ty = dbc_bt;
             },
@@ -919,20 +919,20 @@ evaluate_dyn_value :: (
   if(ctx.is_validating_function_definition || !ctx.is_executing, {
     saved_et_ne := ctx.expected_type;
     ctx.expected_type = inner_expected;
-    inner_ne := evaluate_expression_raw(value_arg, env, ctx, exn);
+    inner_ne := evaluate_expression_raw(&value_arg, env, ctx, exn);
     ctx.expected_type = saved_et_ne;
     // Even in validating mode, resolve the trait evidence from the registry so
     // C codegen (which reads body ExprInfo produced in THIS mode — fn bodies
     // are evaluated in validating mode) has the vtable FuncVals. The
     // resolution is structural (registry lookup), not execution-dependent.
-    ne_value_type := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)), .Some(ii) => ii.ty, .None => t_unit());
-    _reject_fnonce_into_dyn_fn(ctx.expected_type, ne_value_type, expr_tok, ctx, exn);
+    ne_value_type := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)), .Some(ii) => ii.ty, .None => t_unit());
+    _reject_fnonce_into_dyn_fn(&ctx.expected_type, &ne_value_type, &expr_tok, ctx, exn);
     // Whether the inner expression actually produced an ExprInfo. With none, the
     // `t_unit()` fallback above is a STAND-IN, not the payload's type — checking
     // the trait bound against it would report "unit does not implement …" on top
     // of whatever really failed inside the inner.
-    ne_have_inner_ty := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)), .Some(_) => true, .None => false);
-    _reject_dyn_of_dyn(ne_value_type.clone(), expr_tok, exn);
+    ne_have_inner_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)), .Some(_) => true, .None => false);
+    _reject_dyn_of_dyn(ne_value_type.clone(), &expr_tok, exn);
     // The Dyn to build must be NAMED by something. The expected type supplies
     // it when it is a Dyn; otherwise the payload's own trait bounds do (an
     // `Impl(...)` value carries them — the same fallback the executing path
@@ -958,9 +958,9 @@ evaluate_dyn_value :: (
             negative_trait_types : ntt,
             negative_trait_levels : ntl
           ),
-        _ => _dyn_type_from_payload_or_throw(ne_value_type.clone(), expr_tok, Option(TypeValue).Some(et.ty), ne_have_inner_ty, exn)
+        _ => _dyn_type_from_payload_or_throw(ne_value_type.clone(), &expr_tok, Option(TypeValue).Some(et.ty), ne_have_inner_ty, exn)
       ),
-      .None => _dyn_type_from_payload_or_throw(ne_value_type.clone(), expr_tok, Option(TypeValue).None, ne_have_inner_ty, exn)
+      .None => _dyn_type_from_payload_or_throw(ne_value_type.clone(), &expr_tok, Option(TypeValue).None, ne_have_inner_ty, exn)
     );
     out_info := new_expr_info(env, ret_type.clone());
     // Auto-box a non-object, non-dyn payload (always boxed), evaluating the
@@ -979,7 +979,7 @@ evaluate_dyn_value :: (
     // impl_closure_call_map.
     (ne_box_inner_ty : TypeValue) = ne_value_type;
     match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(inner_ne)),
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&inner_ne)),
       .Some(iiv) => match(
         iiv.value,
         .Some(ival) => match(
@@ -1024,14 +1024,14 @@ evaluate_dyn_value :: (
       .None => ()
     );
     (ne_final_expr : AstExpr) = inner_ne;
-    if(!is_reference_struct_type(ne_value_type) && !is_dyn_type(ne_value_type), {
+    if(!is_reference_struct_type(&ne_value_type) && !is_dyn_type(&ne_value_type), {
       // The same box the executing path below picks: `arc` for a Send Dyn.
-      ne_send := _dyn_target_requires_send(ctx.expected_type, ne_value_type);
+      ne_send := _dyn_target_requires_send(&ctx.expected_type, &ne_value_type);
       ne_cell := shared_cell_canonical_names();
       match(
-        _create_box_type_via(if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), ne_box_inner_ty, env, ctx, exn),
+        _create_box_type_via(if(ne_send, String.from("Arc"), String.from(ne_cell.type_name)), &ne_box_inner_ty, env, ctx, exn),
         .Some(box_ty) => {
-          ne_box_tok := synthetic_token(if(ne_send, String.from("arc"), String.from(ne_cell.constructor)), env.module_path);
+          ne_box_tok := synthetic_token(if(ne_send, String.from("arc"), String.from(ne_cell.constructor)), &env.module_path);
           ne_box_atom := AstExpr.Atom(alloc_global_expr_id(), ne_box_tok);
           ne_box_args := ArrayList(AstExpr).new();
           ne_box_args.push(inner_ne);
@@ -1041,12 +1041,12 @@ evaluate_dyn_value :: (
           // The inner value is evaluated once: as the box call's argument it
           // is pre-evaluated, so a closure's capture moves do not run again
           // (issues/fixed/dyn-of-a-closure-capturing-a-move-only-value-is-a-bogus-e0901.md).
-          mark_node_preevaluated(ast_expr_id(inner_ne));
-          ne_boxed := evaluate_expression_raw(ne_box_call, env, ctx, exn);
-          unmark_node_preevaluated(ast_expr_id(inner_ne));
+          mark_node_preevaluated(ast_expr_id(&inner_ne));
+          ne_boxed := evaluate_expression_raw(&ne_box_call, env, ctx, exn);
+          unmark_node_preevaluated(ast_expr_id(&inner_ne));
           ctx.expected_type = saved_bet;
           match(
-            expr_info_table_get(ctx.expr_info_table, ast_expr_id(ne_boxed)),
+            expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ne_boxed)),
             .Some(_) => {
               ne_final_expr = ne_boxed;
             },
@@ -1063,20 +1063,20 @@ evaluate_dyn_value :: (
     // every `exn.throw(dyn(format_error_message(...)))` (the startup heap
     // corruption; see
     // issues/fixed/yo-self-dyn-throw-double-drop.md; repro /tmp/dd.yo).
-    match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(ne_final_expr)), .Some(sc_ne) => reject_second_class_escape(sc_ne.ty, String.from("made a `Dyn`"), ast_expr_token(ne_final_expr), ctx, exn), .None => ());
-    set_expr_as_needs_to_call_dup(ne_final_expr, ctx, exn, "dyn");
+    match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ne_final_expr)), .Some(sc_ne) => reject_second_class_escape(&sc_ne.ty, String.from("made a `Dyn`"), ast_expr_token(&ne_final_expr), ctx, exn), .None => ());
+    set_expr_as_needs_to_call_dup(&ne_final_expr, ctx, exn, "dyn");
     rt_args_ne := ArrayList(AstExpr).new();
     rt_args_ne.push(ne_final_expr);
     out_info.runtime_arg_exprs_in_order = .Some(rt_args_ne);
     if(is_dyn_type(ret_type.clone()), {
       if(ne_have_inner_ty, {
-        _require_dyn_traits_implemented(ret_type.clone(), ne_value_type.clone(), expr_tok, ctx, env, exn);
+        _require_dyn_traits_implemented(ret_type.clone(), ne_value_type.clone(), &expr_tok, ctx, env, exn);
       });
-      ne_trait_vals := _resolve_dyn_trait_values(ret_type.clone(), ne_value_type, ctx, env, exn);
-      _require_send_dyn_methods_reach_no_global(ret_type, ne_trait_vals, expr_tok, ctx, env, exn);
-      expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(ne_trait_vals));
+      ne_trait_vals := _resolve_dyn_trait_values(ret_type.clone(), &ne_value_type, ctx, env, exn);
+      _require_send_dyn_methods_reach_no_global(&ret_type, &ne_trait_vals, &expr_tok, ctx, env, exn);
+      expr_info_set_dyn_call_trait_values(&out_info, Option(ArrayList(EvalValue)).Some(ne_trait_vals));
     });
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     // Attach the temp variable C codegen reads for the fat-pointer struct.
     attach_temp_variable_to_expr(expr, true, ctx);
     return(expr);
@@ -1085,9 +1085,9 @@ evaluate_dyn_value :: (
   // Evaluate the inner expression (with the inner-expected computed above).
   saved_et_ex := ctx.expected_type;
   ctx.expected_type = inner_expected;
-  eval_inner := evaluate_expression_raw(value_arg, env, ctx, exn);
+  eval_inner := evaluate_expression_raw(&value_arg, env, ctx, exn);
   ctx.expected_type = saved_et_ex;
-  inner_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_inner));
+  inner_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_inner));
   inner_info := match(
     inner_info_opt,
     .Some(i) => i,
@@ -1095,7 +1095,7 @@ evaluate_dyn_value :: (
       exn.throw(
         dyn(
           format_error_message(
-            expr_tok,
+            &expr_tok,
             String.from("evaluate_dyn_value: failed to evaluate inner expression")
           )
         )
@@ -1104,9 +1104,9 @@ evaluate_dyn_value :: (
     }
   );
   (value_type : TypeValue) = inner_info.ty;
-  _reject_dyn_of_dyn(value_type.clone(), expr_tok, exn);
-  _reject_fnonce_into_dyn_fn(ctx.expected_type, value_type, expr_tok, ctx, exn);
-  (cur_env : Environment) = expr_info_adopt_env(inner_info);
+  _reject_dyn_of_dyn(value_type.clone(), &expr_tok, exn);
+  _reject_fnonce_into_dyn_fn(&ctx.expected_type, &value_type, &expr_tok, ctx, exn);
+  (cur_env : Environment) = expr_info_adopt_env(&inner_info);
   (final_value_type : TypeValue) = value_type;
   // Auto-box non-object, non-dyn values. No Future-implementing SomeType
   // special case exists — all non-object, non-dyn values are wrapped in rc().
@@ -1116,9 +1116,9 @@ evaluate_dyn_value :: (
   // atomic. A plain `box` put a non-atomic count on two threads
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md).
   (final_value_expr_ex : AstExpr) = eval_inner;
-  if(!is_reference_struct_type(value_type) && !is_dyn_type(value_type), {
-    box_fn_name := if(_dyn_target_requires_send(ctx.expected_type, value_type), String.from("arc"), String.from(shared_cell_canonical_names().constructor));
-    box_tok := synthetic_token(box_fn_name, cur_env.module_path);
+  if(!is_reference_struct_type(&value_type) && !is_dyn_type(&value_type), {
+    box_fn_name := if(_dyn_target_requires_send(&ctx.expected_type, &value_type), String.from("arc"), String.from(shared_cell_canonical_names().constructor));
+    box_tok := synthetic_token(&box_fn_name, &cur_env.module_path);
     // Fresh node ids, as the non-executing path above mints them: the
     // ExprInfo side table is keyed by id, and id 0 is shared by every other
     // node built with it, so the callee atom could read another node's entry
@@ -1128,10 +1128,10 @@ evaluate_dyn_value :: (
     box_args := ArrayList(AstExpr).new();
     box_args.push(eval_inner);
     box_call := AstExpr.FnCall(alloc_global_expr_id(), box_atom, box_args, false, expr_tok);
-    mark_node_preevaluated(ast_expr_id(eval_inner));
-    boxed_expr := evaluate_expression_raw(box_call, cur_env, ctx, exn);
-    unmark_node_preevaluated(ast_expr_id(eval_inner));
-    boxed_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(boxed_expr));
+    mark_node_preevaluated(ast_expr_id(&eval_inner));
+    boxed_expr := evaluate_expression_raw(&box_call, &cur_env, ctx, exn);
+    unmark_node_preevaluated(ast_expr_id(&eval_inner));
+    boxed_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&boxed_expr));
     match(
       boxed_info_opt,
       .Some(bi) => {
@@ -1139,14 +1139,14 @@ evaluate_dyn_value :: (
         // so that C codegen sees inner rather than the bare inner expression.
         args(usize(0)) = boxed_expr;
         final_value_type = bi.ty;
-        cur_env = expr_info_adopt_env(bi);
+        cur_env = expr_info_adopt_env(&bi);
         final_value_expr_ex = boxed_expr;
       },
       .None => {
         exn.throw(
           dyn(
             format_error_message(
-              expr_tok,
+              &expr_tok,
               String.from("evaluate_dyn_value: failed to auto-box value for 'dyn'")
             )
           )
@@ -1155,8 +1155,8 @@ evaluate_dyn_value :: (
     );
   });
   // Same ownership-transfer consumption as the non-executing path above.
-  match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(final_value_expr_ex)), .Some(sc_fv) => reject_second_class_escape(sc_fv.ty, String.from("made a `Dyn`"), ast_expr_token(final_value_expr_ex), ctx, exn), .None => ());
-  set_expr_as_needs_to_call_dup(final_value_expr_ex, ctx, exn, "dyn");
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&final_value_expr_ex)), .Some(sc_fv) => reject_second_class_escape(&sc_fv.ty, String.from("made a `Dyn`"), ast_expr_token(&final_value_expr_ex), ctx, exn), .None => ());
+  set_expr_as_needs_to_call_dup(&final_value_expr_ex, ctx, exn, "dyn");
   // Determine the expected DynType:
   //   1. From context.expected_type when it is already a DynT.
   //   2. From final_value_type when it is a DynT.
@@ -1207,12 +1207,12 @@ evaluate_dyn_value :: (
         negative_trait_types : ntt,
         negative_trait_levels : ntl
       ) =>
-        t_dyn(rtt, rtl, ntt, ntl),
+        t_dyn(&rtt, &rtl, &ntt, &ntl),
       _ => {
         exn.throw(
           dyn(
             format_error_message(
-              expr_tok,
+              &expr_tok,
               String.from("'dyn' requires a SomeType (Impl), DynType, or an expected Dyn type context. Concrete types without trait fields are not supported in Phase 3.")
             )
           )
@@ -1228,17 +1228,17 @@ evaluate_dyn_value :: (
   );
   // The payload must actually implement what the Dyn requires. Checked on
   // the pre-box concrete type, like the trait values below.
-  _require_dyn_traits_implemented(dyn_type.clone(), value_type.clone(), expr_tok, ctx, cur_env, exn);
+  _require_dyn_traits_implemented(dyn_type.clone(), value_type.clone(), &expr_tok, ctx, &cur_env, exn);
   // Collect a TraitVal for each required trait, resolving the concrete type's
   // registered impl methods through the registry. Resolved on the pre-box
   // concrete type.
-  trait_vals := _resolve_dyn_trait_values(dyn_type.clone(), value_type, ctx, cur_env, exn);
-  _require_send_dyn_methods_reach_no_global(dyn_type.clone(), trait_vals, expr_tok, ctx, cur_env, exn);
+  trait_vals := _resolve_dyn_trait_values(dyn_type.clone(), &value_type, ctx, &cur_env, exn);
+  _require_send_dyn_methods_reach_no_global(dyn_type.clone(), &trait_vals, &expr_tok, ctx, &cur_env, exn);
   // Annotate the outer dyn(...) expression with the resolved DynType and
   // the ordered trait values for C codegen vtable emission.
-  out_info := new_expr_info(cur_env, dyn_type);
-  expr_info_set_dyn_call_trait_values(out_info, Option(ArrayList(EvalValue)).Some(trait_vals));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  out_info := new_expr_info(&cur_env, &dyn_type);
+  expr_info_set_dyn_call_trait_values(&out_info, Option(ArrayList(EvalValue)).Some(trait_vals));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Attach the temp variable C codegen reads for the fat-pointer struct.
   attach_temp_variable_to_expr(expr, true, ctx);
   expr

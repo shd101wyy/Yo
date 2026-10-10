@@ -60,8 +60,8 @@ impl(
   /// already exist (`AddressInUse` otherwise) and is NOT unlinked on close.
   bind : (fn(imm(path) : Path, io : Io) -> Impl(Future(UnixListener, IoExn)))(
     io.async(e => {
-      raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
-      fd := NetError.check(raw_fd, e.exn);
+      raw_fd := e.io.await(IO_unix.socket_stream(), &e.io);
+      fd := NetError.check(raw_fd, &e.exn);
       path_s := path.to_string();
       cstr_bytes := path_s.to_cstr();
       addr := IO_unix.make_sockaddr_un(cstr_bytes.ptr().unwrap());
@@ -69,25 +69,25 @@ impl(
         addr.buf,
         .Some(p) => p,
         .None => {
-          e.io.await(IO_unix.close(fd), e.io);
+          e.io.await(IO_unix.close(fd), &e.io);
           e.exn.throw(dyn(NetError.from_io(IoError.NotSupported)));
           (*u8)("")
         }
       );
-      bind_result := e.io.await(IO_unix.bind(fd, addr_buf, addr.len), e.io);
+      bind_result := e.io.await(IO_unix.bind(fd, addr_buf, addr.len), &e.io);
       IO_unix.free_addr(addr);
       cond(
         (bind_result < i32(0)) => {
-          e.io.await(IO_unix.close(fd), e.io);
-          _throw_io(i32(0) - bind_result, e.exn);
+          e.io.await(IO_unix.close(fd), &e.io);
+          _throw_io(i32(0) - bind_result, &e.exn);
         },
         true => ()
       );
-      listen_result := e.io.await(IO_unix.listen(fd, i32(128)), e.io);
+      listen_result := e.io.await(IO_unix.listen(fd, i32(128)), &e.io);
       cond(
         (listen_result < i32(0)) => {
-          e.io.await(IO_unix.close(fd), e.io);
-          _throw_io(i32(0) - listen_result, e.exn);
+          e.io.await(IO_unix.close(fd), &e.io);
+          _throw_io(i32(0) - listen_result, &e.exn);
         },
         true => ()
       );
@@ -101,18 +101,18 @@ impl(
       addr_buf := (*u8)(malloc(usize(128)).unwrap());
       addr_len := (*u32)(malloc(usize(4)).unwrap());
       addr_len.* = u32(128);
-      client_fd := e.io.await(IO_unix.accept(fd, addr_buf, addr_len), e.io);
+      client_fd := e.io.await(IO_unix.accept(fd, addr_buf, addr_len), &e.io);
       free(.Some((*void)(addr_buf)));
       free(.Some((*void)(addr_len)));
       cond(
-        (client_fd < i32(0)) => _throw_io(i32(0) - client_fd, e.exn),
+        (client_fd < i32(0)) => _throw_io(i32(0) - client_fd, &e.exn),
         true => ()
       );
       own := SockInfo.own_stream_socket(client_fd);
       cond(
         (own < i32(0)) => {
-          e.io.await(IO_unix.close(client_fd), e.io);
-          _throw_io(i32(0) - own, e.exn);
+          e.io.await(IO_unix.close(client_fd), &e.io);
+          _throw_io(i32(0) - own, &e.exn);
         },
         true => ()
       );
@@ -130,11 +130,11 @@ impl(
       cond(
         self._is_closed => (),
         true => {
-          r := e.io.await(IO_unix.close(fd), e.io);
+          r := e.io.await(IO_unix.close(fd), &e.io);
           self._is_closed = true;
           cond(
             (r < i32(0)) => {
-              _throw_io(i32(0) - r, e.exn);
+              _throw_io(i32(0) - r, &e.exn);
             },
             true => ()
           );
@@ -153,13 +153,13 @@ impl(
   /// Connect to a Unix-domain socket at `path`, returning a new stream.
   connect : (fn(imm(path) : Path, io : Io) -> Impl(Future(UnixStream, IoExn)))(
     io.async(e => {
-      raw_fd := e.io.await(IO_unix.socket_stream(), e.io);
-      fd := NetError.check(raw_fd, e.exn);
+      raw_fd := e.io.await(IO_unix.socket_stream(), &e.io);
+      fd := NetError.check(raw_fd, &e.exn);
       own := SockInfo.own_stream_socket(fd);
       cond(
         (own < i32(0)) => {
-          e.io.await(IO_unix.close(fd), e.io);
-          _throw_io(i32(0) - own, e.exn);
+          e.io.await(IO_unix.close(fd), &e.io);
+          _throw_io(i32(0) - own, &e.exn);
         },
         true => ()
       );
@@ -170,17 +170,17 @@ impl(
         addr.buf,
         .Some(p) => p,
         .None => {
-          e.io.await(IO_unix.close(fd), e.io);
+          e.io.await(IO_unix.close(fd), &e.io);
           e.exn.throw(dyn(NetError.from_io(IoError.NotSupported)));
           (*u8)("")
         }
       );
-      conn_result := e.io.await(IO_unix.connect(fd, addr_buf, addr.len), e.io);
+      conn_result := e.io.await(IO_unix.connect(fd, addr_buf, addr.len), &e.io);
       IO_unix.free_addr(addr);
       cond(
         (conn_result < i32(0)) => {
-          e.io.await(IO_unix.close(fd), e.io);
-          _throw_io(i32(0) - conn_result, e.exn);
+          e.io.await(IO_unix.close(fd), &e.io);
+          _throw_io(i32(0) - conn_result, &e.exn);
         },
         true => ()
       );
@@ -197,8 +197,8 @@ impl(
   read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_unix.recv(fd, buf, size, i32(0)), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_unix.recv(fd, buf, size, i32(0)), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Write up to `size` raw bytes from `buf`, resolving to the number the
@@ -209,8 +209,8 @@ impl(
   write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_unix.stream_write(fd, buf, size), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_unix.stream_write(fd, buf, size), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Write a `str` to the stream. Returns the number of bytes written.
@@ -218,24 +218,24 @@ impl(
     fd := self._fd;
     s := String.from(data);
     io.async(e => {
-      r := e.io.await(IO_unix.stream_write(fd, s.ptr().unwrap(), s.len()), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_unix.stream_write(fd, s.ptr().unwrap(), s.len()), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Write a `String` to the stream. Returns the number of bytes written.
   write_string : (fn(imm(self) : Self, imm(data) : String, io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len()), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Write raw bytes from an `ArrayList(u8)`. Returns the count written.
   write_bytes : (fn(imm(self) : Self, imm(data) : ArrayList(u8), io : Io) -> Impl(Future(usize, IoExn)))({
     fd := self._fd;
     io.async(e => {
-      r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len()), e.io);
-      usize(NetError.check(r, e.exn))
+      r := e.io.await(IO_unix.stream_write(fd, data.ptr().unwrap(), data.len()), &e.io);
+      usize(NetError.check(r, &e.exn))
     })
   }),
   /// Close the stream.
@@ -245,11 +245,11 @@ impl(
       cond(
         self._is_closed => (),
         true => {
-          r := e.io.await(IO_unix.close(fd), e.io);
+          r := e.io.await(IO_unix.close(fd), &e.io);
           self._is_closed = true;
           cond(
             (r < i32(0)) => {
-              _throw_io(i32(0) - r, e.exn);
+              _throw_io(i32(0) - r, &e.exn);
             },
             true => ()
           );

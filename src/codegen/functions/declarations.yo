@@ -40,7 +40,7 @@ _join_double_underscore :: (fn(imm(parts) : ArrayList(String)) -> String)({
     if(i > usize(0), {
       out.push_str("__");
     });
-    match(parts.get(i), .Some(p) => out.push_string(p), .None => ());
+    match(parts.get(i), .Some(p) => out.push_string(&p), .None => ());
     i = (i + usize(1));
   });
   out
@@ -66,7 +66,7 @@ collect_evidence_from_record :: (
         field_label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
         field_ty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
         cond(
-          is_function_type(field_ty) => {
+          is_function_type(&field_ty) => {
             // Forall function fields are passed as void* and cast at each call site.
             field_path := path_prefix.clone();
             field_path.push(field_label.clone());
@@ -81,14 +81,14 @@ collect_evidence_from_record :: (
                 field_label : joined,
                 field_path : field_path,
                 field_function_type : field_ty,
-                c_param_name : sanitize_for_c_identifier(c_param, false)
+                c_param_name : sanitize_for_c_identifier(&c_param, false)
               )
             );
           },
-          (is_module_type(field_ty) || is_struct_type(field_ty)) => {
+          (is_module_type(&field_ty) || is_struct_type(&field_ty)) => {
             nested_prefix := path_prefix.clone();
             nested_prefix.push(field_label.clone());
-            recur(implicit_label.clone(), field_ty, nested_prefix, result);
+            recur(implicit_label.clone(), &field_ty, &nested_prefix, result);
           },
           true => ()
         );
@@ -138,7 +138,7 @@ generate_function_prototype :: (
         override_return_type,
         .Some(s) => s,
         .None => {
-          base := get_type_string(result, context);
+          base := get_type_string(&result, context);
           if(result_is_ref, {
             base.push_str("*");
           });
@@ -171,12 +171,12 @@ generate_function_prototype :: (
           }
         );
         cond(
-          is_function_type(pt) => {
+          is_function_type(&pt) => {
             // Function-pointer parameter: <ret> (*paramN)(<paramTypes>).
             callee := String.from("(*");
             callee.push_string(pname.clone());
             callee.push_str(")");
-            params.push_string(recur(pt, callee, context, Option(String).None, false));
+            params.push_string(recur(&pt, &callee, context, Option(String).None, false));
           },
           true => {
             is_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
@@ -186,11 +186,11 @@ generate_function_prototype :: (
             // it as `((void*)0)`
             // (issues/fixed/inout-unit-receiver-void-ref-spill.md).
             pts := if(is_ref, {
-              p0 := get_type_string(pt, context);
+              p0 := get_type_string(&pt, context);
               p0.push_str("*");
               p0
-            }, get_storage_type_string(pt, context));
-            params.push_string(pts);
+            }, get_storage_type_string(&pt, context));
+            params.push_string(&pts);
             params.push_str(" ");
             params.push_string(pname.clone());
           }
@@ -209,7 +209,7 @@ generate_function_prototype :: (
           out.push_str(", ");
         });
       });
-      out.push_string(params);
+      out.push_string(&params);
       out.push_str(")");
       context.current_function_name = prev_cfn;
       out
@@ -233,7 +233,7 @@ _object_decl_has_generic_fields :: (fn(imm(fields) : ArrayList(RuntimeStructFiel
   while((i < n) && !found, {
     match(
       fields.get(i),
-      .Some(field) => if(type_contains_some_type(field.ty), {
+      .Some(field) => if(type_contains_some_type(&field.ty), {
         found = true;
       }),
       .None => ()
@@ -262,14 +262,14 @@ _emit_ref_enum_constructor_decls :: (fn(imm(type) : TypeValue, imm(c_name) : Str
         while(pi < nf, {
           match(
             fields.get(pi),
-            .Some(ft) => if(!is_unit_type(ft), {
+            .Some(ft) => if(!is_unit_type(&ft), {
               if(emitted > usize(0), {
                 params.push_str(", ");
               });
               flabel := match(labels.get(pi), .Some(l) => l, .None => String.from(""));
-              params.push_string(get_type_string(ft, context));
+              params.push_string(get_type_string(&ft, context));
               params.push_str(" ");
-              params.push_string(sanitize_for_c_identifier(flabel, false));
+              params.push_string(sanitize_for_c_identifier(&flabel, false));
               emitted = (emitted + usize(1));
             }),
             .None => ()
@@ -320,7 +320,7 @@ generate_object_constructor_declarations :: (fn(imm(context) : CodeGenContext) -
   // data race ThreadSanitizer reported in tests/thread, thread_pool,
   // cross_thread_wake and spawn_blocking (the value was always the same
   // function, which is not a synchronization).
-  thread_local_kw := if(is_target_windows(context.target_info), String.from("__declspec(thread)"), String.from("_Thread_local"));
+  thread_local_kw := if(is_target_windows(&context.target_info), String.from("__declspec(thread)"), String.from("_Thread_local"));
   em.emit_declaration_string_line(`static ${thread_local_kw} void (*__yo_async_thread_exit_hook)(void); // Frees the exiting thread's async runtime pools; installed by the async runtime, called by __yo_cleanup_thread_gc`);
   em.emit_declaration_line("static void __yo_init_process_cleanup(void); // Initialize process cleanup");
   // Per-object constructor declarations.
@@ -329,9 +329,9 @@ generate_object_constructor_declarations :: (fn(imm(context) : CodeGenContext) -
   while(go, {
     match(
       vals.next(),
-      .Some(entry) => if(is_reference_struct_type(entry.ty), {
-        runtime_fields := get_runtime_struct_fields(entry.ty);
-        if(!_object_decl_has_generic_fields(runtime_fields), {
+      .Some(entry) => if(is_reference_struct_type(&entry.ty), {
+        runtime_fields := get_runtime_struct_fields(&entry.ty);
+        if(!_object_decl_has_generic_fields(&runtime_fields), {
           // Twin of `_generate_one_constructor`'s parameter list: a `unit`
           // field is zero-sized and takes no parameter.
           params := String.from("");
@@ -341,12 +341,12 @@ generate_object_constructor_declarations :: (fn(imm(context) : CodeGenContext) -
           while(pi < nf, {
             match(
               runtime_fields.get(pi),
-              .Some(field) => if(!is_unit_type(field.ty), {
+              .Some(field) => if(!is_unit_type(&field.ty), {
                 if(any_param, {
                   params.push_str(", ");
                 });
                 any_param = true;
-                params.push_string(get_type_string(field.ty, context));
+                params.push_string(get_type_string(&field.ty, context));
                 params.push_str(" ");
                 params.push_string(sanitize_for_c_identifier(field.label.clone(), false));
               }),
@@ -359,9 +359,9 @@ generate_object_constructor_declarations :: (fn(imm(context) : CodeGenContext) -
           line.push_str("* __yo_new_");
           line.push_string(entry.c_name.clone());
           line.push_str("(");
-          line.push_string(params);
+          line.push_string(&params);
           line.push_str("); // Constructor");
-          em.emit_declaration_string_line(line);
+          em.emit_declaration_string_line(&line);
         });
       }),
       .None => {
@@ -376,8 +376,8 @@ generate_object_constructor_declarations :: (fn(imm(context) : CodeGenContext) -
   while(ego, {
     match(
       evals.next(),
-      .Some(entry) => if(is_reference_enum_type(entry.ty) && !type_contains_some_type(entry.ty), {
-        _emit_ref_enum_constructor_decls(entry.ty, entry.c_name.clone(), context);
+      .Some(entry) => if(is_reference_enum_type(&entry.ty) && !type_contains_some_type(&entry.ty), {
+        _emit_ref_enum_constructor_decls(&entry.ty, entry.c_name.clone(), context);
       }),
       .None => {
         ego = false;
@@ -409,7 +409,7 @@ _func_has_expr_param :: (fn(imm(ft) : TypeValue) -> bool)(
       while((i < n) && !found, {
         match(
           param_types.get(i),
-          .Some(pt) => if(is_expr_type(pt), {
+          .Some(pt) => if(is_expr_type(&pt), {
             found = true;
           }),
           .None => ()
@@ -431,14 +431,14 @@ _func_has_generic_params :: (fn(imm(ft) : TypeValue) -> bool)(
       while((i < n) && !found, {
         match(
           param_types.get(i),
-          .Some(pt) => if(type_contains_some_type_for_codegen_param(pt, ArrayList(String).new()), {
+          .Some(pt) => if(type_contains_some_type_for_codegen_param(&pt, ArrayList(String).new()), {
             // A RESOLVABLE top-level wrapper SomeT is NOT generic for
             // codegen: get_type_string lowers it through its own
             // resolution / the id-keyed registry (utils/index.yo:980-990).
             // Skipping such fns dropped
             // `test_unwind(task : Impl(Future(i32, Ctx)), ...)` and the
             // call site degraded to the statement FTT (async_await arm 72).
-            pt_resolvable := some_resolution(pt).is_some();
+            pt_resolvable := some_resolution(&pt).is_some();
             if(!pt_resolvable, {
               found = true;
             });
@@ -466,8 +466,8 @@ _body_is_effectful :: (fn(imm(body) : Option(AstExpr), imm(context) : CodeGenCon
   match(
     body,
     .Some(b) => match(
-      context.get_expr_info(b),
-      .Some(ei) => match(expr_info_effect_analysis(ei), .Some(ea) => ea.has_effects, .None => false),
+      context.get_expr_info(&b),
+      .Some(ei) => match(expr_info_effect_analysis(&ei), .Some(ea) => ea.has_effects, .None => false),
       .None => false
     ),
     .None => false
@@ -503,7 +503,7 @@ should_skip_function_codegen :: (fn(imm(func_id) : String, imm(c_name) : String,
     return(true);
   });
   body := _func_value_body(value);
-  is_effectful := _body_is_effectful(body, context);
+  is_effectful := _body_is_effectful(&body, context);
   is_erm := is_effect_record_member(func_id.clone());
   // The def-era ORIGINAL of a function the evaluator specialized, whose
   // signature still carries a SomeT param (an `Impl(Fn)` closure param):
@@ -514,11 +514,11 @@ should_skip_function_codegen :: (fn(imm(func_id) : String, imm(c_name) : String,
   // it where it can, but a module-namespace / registry path may still have
   // registered it; this gate is the single source of truth. Effect-record
   // members stay type-erased and emitted, as for the hard-generic skip.
-  if(!is_user_main && !is_erm && (fn_has_specializations(func_id.clone()) && func_params_have_raw_some_type(function_type)), {
+  if(!is_user_main && !is_erm && (fn_has_specializations(func_id.clone()) && func_params_have_raw_some_type(&function_type)), {
     return(true);
   });
-  has_evidence := (get_evidence_parameters(function_type).len() > usize(0));
-  ret := _func_result_type(function_type);
+  has_evidence := (get_evidence_parameters(&function_type).len() > usize(0));
+  ret := _func_result_type(&function_type);
   // Effect-record members (`Exception(throw : (err) -> unwind(...))` handlers) MUST
   // be emitted even when hard-generic: their generic params are type-erased to `void*`
   // and their address is stored as a `void*` fn pointer in the effect record
@@ -528,9 +528,9 @@ should_skip_function_codegen :: (fn(imm(func_id) : String, imm(c_name) : String,
   // A MACRO (Expr-typed param) is NEVER emittable — skip it regardless of ERM status.
   // Only the hard-generic skip is ERM-exempt (an effect handler's generic params are
   // type-erased to void*; a macro's Expr param is not a runtime type at all).
-  skip_unemittable := (!is_user_main && ((!is_erm && is_function_type_hard_generic(function_type)) || _func_has_expr_param(function_type)));
-  skip1 := (!is_user_main && (!is_effectful && (!has_evidence && !is_erm)) && (is_function_type_hard_generic(function_type) || _func_result_is_comptime_only(function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some()));
-  has_generic_params := (!is_user_main && (!is_effectful && !is_erm) && _func_has_generic_params(function_type));
+  skip_unemittable := (!is_user_main && ((!is_erm && is_function_type_hard_generic(&function_type)) || _func_has_expr_param(&function_type)));
+  skip1 := (!is_user_main && (!is_effectful && (!has_evidence && !is_erm)) && (is_function_type_hard_generic(&function_type) || _func_result_is_comptime_only(&function_type) || is_function_value_with_only_builtin_yo_inline_function_call(value).is_some()));
+  has_generic_params := (!is_user_main && (!is_effectful && !is_erm) && _func_has_generic_params(&function_type));
   // Array with an UNRESOLVED length variable (`Array(i32, n)`) has no C
   // rendering (`// Unknown type:` ate the prototype line — array.test
   // batch clang errors); treat it as a generic return like a SomeT one.
@@ -539,15 +539,15 @@ should_skip_function_codegen :: (fn(imm(func_id) : String, imm(c_name) : String,
       rl_t,
       .Array(rl_elem, _, rl_var) => cond(
         (rl_var.len() > usize(0)) => true,
-        true => recur(rl_elem)
+        true => recur(&rl_elem)
       ),
-      .Pointer(rl_p) => recur(rl_p),
-      .IsoT(rl_i) => recur(rl_i),
+      .Pointer(rl_p) => recur(&rl_p),
+      .IsoT(rl_i) => recur(&rl_i),
       _ => false
     )
   );
-  has_generic_return := (type_contains_some_type_for_codegen_param(ret, ArrayList(String).new()) || _ret_has_len_var(ret));
-  returns_plain_impl := _returns_plain_impl(ret);
+  has_generic_return := (type_contains_some_type_for_codegen_param(&ret, ArrayList(String).new()) || _ret_has_len_var(&ret));
+  returns_plain_impl := _returns_plain_impl(&ret);
   skip2 := (has_generic_params || (has_generic_return && !returns_plain_impl && !is_erm));
   // A specialization whose RESULT type is a comptime-only type (comptime_int/
   // float/string) is a compile-time function that must NOT be emitted as runtime
@@ -561,7 +561,7 @@ should_skip_function_codegen :: (fn(imm(func_id) : String, imm(c_name) : String,
   // func_id (yo_id_124) is shared across runtime AND comptime specializations
   // (no per-func_id comptime flag distinguishes them), but the per-call resolved
   // RETURN type does. See issues/fixed/yo-self-return-temp-void-someT.md.
-  skip_comptime_result := (!is_user_main && !is_erm && (is_comptime_int_type(ret) || is_comptime_float_type(ret) || is_comptime_string_type(ret)));
+  skip_comptime_result := (!is_user_main && !is_erm && (is_comptime_int_type(&ret) || is_comptime_float_type(&ret) || is_comptime_string_type(&ret)));
   // A closure GENERATION left over from a GENERIC evaluation: its capture
   // struct still mentions an unresolved type variable.
   //
@@ -587,7 +587,7 @@ should_skip_function_codegen :: (fn(imm(func_id) : String, imm(c_name) : String,
   if(!is_user_main && is_closure_fn(func_id.clone()), {
     match(
       get_closure_capture_info(func_id.clone()),
-      .Some(cci) => if(type_contains_some_type_for_codegen_param(cci.capture_type, ArrayList(String).new()), {
+      .Some(cci) => if(type_contains_some_type_for_codegen_param(&cci.capture_type, ArrayList(String).new()), {
         return(true);
       }),
       .None => ()
@@ -615,8 +615,8 @@ _async_override_return_type :: (
   fn(imm(function_type) : TypeValue, imm(body) : Option(AstExpr), imm(context) : CodeGenContext) -> Option(String)
 )({
   ret := _func_result_type(function_type);
-  ret_is_future := type_implements_future(ret);
-  if(!ret_is_future && !is_some_type(ret), {
+  ret_is_future := type_implements_future(&ret);
+  if(!ret_is_future && !is_some_type(&ret), {
     // A registered result that is neither a future nor a SomeT is genuinely
     // not an async fn. A BARE SomeT result must NOT bail: the shared
     // func-type registry's concrete Impl(Future(..)) registration is
@@ -636,8 +636,8 @@ _async_override_return_type :: (
       block_sn := match(
         find_returned_async_block(Option(AstExpr).Some(b)),
         .Some(block) => match(
-          context.get_expr_info(block),
-          .Some(ei) => expr_info_async_state_machine_struct_name(ei),
+          context.get_expr_info(&block),
+          .Some(ei) => expr_info_async_state_machine_struct_name(&ei),
           .None => Option(String).None
         ),
         .None => Option(String).None
@@ -653,21 +653,21 @@ _async_override_return_type :: (
           // the registry entry points callers at the registered async struct).
           // Idempotent; only helps callers whose
           // call-result type shares this type_key.
-          context.register_type(type_key(ret), ret, r.clone(), Option(String).None);
+          context.register_type(type_key(&ret), &ret, r.clone(), Option(String).None);
           Option(String).Some(r)
         },
         .None => match(
-          context.get_expr_info(b),
-          .Some(ei) => if(is_some_type(ei.ty) && type_implements_future(ei.ty), {
+          context.get_expr_info(&b),
+          .Some(ei) => if(is_some_type(&ei.ty) && type_implements_future(&ei.ty), {
             // DELEGATE fallback (fn returns another async fn's future; no own
             // block): the body's future C name resolves through the CALLEE's
             // block_sn registration above. When it resolves concretely, also
             // register THIS fn's return key → the same struct, so a further
             // delegate (a delegate-of-a-delegate) and this fn's own callers
             // resolve too (see _preregister_async_return_overrides).
-            del_s := get_type_string(ei.ty, context);
+            del_s := get_type_string(&ei.ty, context);
             if(!(del_s == "void*"), {
-              context.register_type(type_key(ret), ret, del_s.clone(), Option(String).None);
+              context.register_type(type_key(&ret), &ret, del_s.clone(), Option(String).None);
             });
             Option(String).Some(del_s)
           }, Option(String).None),
@@ -701,7 +701,7 @@ awaited_future_c_type_override :: (
     .None => match(
       future_expr,
       .FnCall(_, af_fx, _, _, _) => match(
-        context.get_expr_info(af_fx),
+        context.get_expr_info(&af_fx),
         .Some(af_fei) => af_fei.value,
         .None => Option(EvalValue).None
       ),
@@ -711,7 +711,7 @@ awaited_future_c_type_override :: (
   match(
     callee_v,
     .Some(.FuncVal(__afd, _)) => _async_override_return_type(
-      get_func_type(__afd.*.func_id),
+      get_func_type(&__afd.*.func_id),
       Option(AstExpr).Some(__afd.*.body),
       context
     ),
@@ -729,26 +729,26 @@ _return_type_override :: (
 )({
   ret := _func_result_type(function_type);
   (override : Option(String)) = Option(String).None;
-  if(type_implements_future(ret), {
+  if(type_implements_future(&ret), {
     override = _async_override_return_type(function_type, body, context);
   }, {
     match(
       body,
-      .Some(b) => if(is_some_type(ret), {
+      .Some(b) => if(is_some_type(&ret), {
         match(
-          context.get_expr_info(b),
+          context.get_expr_info(&b),
           .Some(ei) => {
-            override = Option(String).Some(get_type_string(ei.ty, context));
+            override = Option(String).Some(get_type_string(&ei.ty, context));
           },
           .None => ()
         );
-      }, if(type_contains_some_type(ret), {
+      }, if(type_contains_some_type(&ret), {
         // Specialized body more specific than a SomeType-containing signature.
         match(
-          context.get_expr_info(b),
+          context.get_expr_info(&b),
           .Some(ei) => {
-            sig_s := get_type_string(ret, context);
-            body_s := get_type_string(ei.ty, context);
+            sig_s := get_type_string(&ret, context);
+            body_s := get_type_string(&ei.ty, context);
             if(!(sig_s == body_s), {
               override = Option(String).Some(body_s);
             });
@@ -783,17 +783,17 @@ emitted_return_type_string :: (
     .Some(entry) => {
       ft := get_func_type(func_id.clone());
       cond(
-        !is_function_type(ft) => Option(String).None,
+        !is_function_type(&ft) => Option(String).None,
         true => {
-          body := if(is_effect_record_member(func_id.clone()), Option(AstExpr).None, _func_value_body(entry.value));
+          body := if(is_effect_record_member(func_id.clone()), Option(AstExpr).None, _func_value_body(&entry.value));
           Option(String).Some(
             match(
-              _return_type_override(ft, body, context),
+              _return_type_override(&ft, &body, context),
               .Some(s) => s,
               .None => match(
                 ft,
                 .Func({ result : r, meta : __erm }) => {
-                  base := get_type_string(r, context);
+                  base := get_type_string(&r, context);
                   if(__erm.*.result_is_ref, {
                     base.push_str("*");
                   });
@@ -829,7 +829,7 @@ static_dispatch_callee_return_type :: (
     context.get_expr_info(func_expr),
     .Some(cei) => {
       sd_id := match(
-        resolve_some_type_to_concrete(cei.ty),
+        resolve_some_type_to_concrete(&cei.ty),
         .Struct({ id : i }) => i,
         .SomeT({ id : i }) => i,
         _ => String.from("")
@@ -837,7 +837,7 @@ static_dispatch_callee_return_type :: (
       cond(
         (sd_id.len() == usize(0)) => Option(String).None,
         true => match(
-          context.impl_closure_call_map.get(sd_id),
+          context.impl_closure_call_map.get(&sd_id),
           .Some(sd_mp) => emitted_return_type_string(sd_mp.closure_fid.clone(), context),
           .None => Option(String).None
         )
@@ -852,16 +852,16 @@ static_dispatch_callee_return_type :: (
 /// declaration's linkage matches the definition's.
 generate_function_declaration :: (fn(imm(function_type) : TypeValue, imm(c_function_name) : String, is_extern : bool, is_exported : bool, imm(body) : Option(AstExpr), is_closure : bool, imm(context) : CodeGenContext) -> unit)({
   override := _return_type_override(function_type, body, context);
-  prototype := generate_function_prototype(function_type, c_function_name.clone(), context, override, is_closure);
+  prototype := generate_function_prototype(function_type, c_function_name.clone(), context, &override, is_closure);
   // Three arms, matching generate_function's linkage EXACTLY (see the comment
   // there): extern, exported (no prefix), otherwise `static inline`. The dead
   // `always_inline` RC arm was removed from both sides together — it keyed on a
   // triple-underscore name shape the mangler never produces.
   linkage := if(is_extern, String.from("extern "), if(is_exported, String.from(""), String.from("static inline ")));
   line := linkage;
-  line.push_string(prototype);
+  line.push_string(&prototype);
   line.push_str(";");
-  context.emitter.emit_declaration_string_line(line);
+  context.emitter.emit_declaration_string_line(&line);
 });
 /// Functions that are C preprocessor macros or static runtime-preamble
 /// functions: never emit `extern` declarations for these.
@@ -904,15 +904,15 @@ generate_function_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
       ext_vals.next(),
       .Some(entry) => {
         cn := entry.c_name.clone();
-        tag := _func_extern_tag(entry.ty);
+        tag := _func_extern_tag(&entry.ty);
         cond(
           match(tag, .Some(s) => (s == "yo"), .None => false) => if(!_is_threading_macro_function(cn.clone()), {
-            generate_function_declaration(entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
+            generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
           }),
           (match(tag, .Some(s) => (s == "c"), .None => false) && entry.c_include.is_some()) => (),
           (cn.starts_with("__atomic_") || cn.starts_with("__sync_")) => (),
           true => {
-            generate_function_declaration(entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
+            generate_function_declaration(&entry.ty, cn.clone(), true, false, Option(AstExpr).None, false, context);
           }
         );
       },
@@ -960,10 +960,10 @@ generate_function_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
           context.get_function_entry(aro_fid.clone()),
           .Some(aro_entry) => {
             aro_ft := get_func_type(aro_fid.clone());
-            aro_ret := _func_result_type(aro_ft);
-            if(type_implements_future(aro_ret) && !should_skip_function_codegen(aro_fid.clone(), aro_entry.c_name.clone(), aro_entry.value, context), {
-              aro_body := if(is_effect_record_member(aro_fid.clone()), Option(AstExpr).None, _func_value_body(aro_entry.value));
-              _aro := _async_override_return_type(aro_ft, aro_body, context);
+            aro_ret := _func_result_type(&aro_ft);
+            if(type_implements_future(&aro_ret) && !should_skip_function_codegen(aro_fid.clone(), aro_entry.c_name.clone(), &aro_entry.value, context), {
+              aro_body := if(is_effect_record_member(aro_fid.clone()), Option(AstExpr).None, _func_value_body(&aro_entry.value));
+              _aro := _async_override_return_type(&aro_ft, &aro_body, context);
             });
           },
           .None => ()
@@ -991,12 +991,12 @@ generate_function_declarations :: (fn(imm(context) : CodeGenContext) -> unit)({
           value := entry.value;
           function_type := get_func_type(func_id.clone());
           is_user_main := (c_name == "__yo_user_main");
-          body := _func_value_body(value);
+          body := _func_value_body(&value);
           is_erm := is_effect_record_member(func_id.clone());
-          if(!should_skip_function_codegen(func_id.clone(), c_name.clone(), value, context), {
+          if(!should_skip_function_codegen(func_id.clone(), c_name.clone(), &value, context), {
             is_exported := (is_user_main || context.exported_function_labels.contains_key(func_id.clone()));
             body_for_decl := if(is_erm, Option(AstExpr).None, body);
-            generate_function_declaration(function_type, c_name.clone(), false, is_exported, body_for_decl, is_closure_fn(func_id.clone()), context);
+            generate_function_declaration(&function_type, c_name.clone(), false, is_exported, &body_for_decl, is_closure_fn(func_id.clone()), context);
           });
         },
         .None => ()

@@ -61,7 +61,7 @@ _comptime_expect_error_arg_threw :: (
     )
   );
   clear_cee_observed_error();
-  _r := evaluate_expression_raw(arg_expr, env, ctx, local_exn);
+  _r := evaluate_expression_raw(arg_expr, env, ctx, &local_exn);
   // The non-raw wrapper swallows throws raised beneath it (it has no outer
   // exn); in propagate mode it records them on the observation channel —
   // count that as an observed compile error (see flowability.yo). The caller
@@ -284,7 +284,7 @@ evaluate_comptime_expect_error :: (
           // §0.14). The helper also drops the frame's name index, which is what
           // makes env.yo's g_frame_indexes size bound sound
           // (issues/fixed/yo-self-frame-index-bound-breaks-fixpoint.md).
-          frame_truncate_variables(rfv_f, rfv_saved);
+          frame_truncate_variables(&rfv_f, rfv_saved);
         },
         .None => ()
       );
@@ -301,10 +301,10 @@ evaluate_comptime_expect_error :: (
     match(
       args.get(usize(1)),
       .Some(want_expr) => {
-        want_eval := evaluate_expression_raw(want_expr, env, ctx, exn);
+        want_eval := evaluate_expression_raw(&want_expr, env, ctx, exn);
         want_text := match(
-          expr_info_table_get(ctx.expr_info_table, ast_expr_id(want_eval)),
-          .Some(wi) => match(wi.value, .Some(wv) => match(wv, .StrLit(raw) => str_lit_unquote_bytes(raw), _ => value_to_string(wv)), .None => String.new()),
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&want_eval)),
+          .Some(wi) => match(wi.value, .Some(wv) => match(wv, .StrLit(raw) => str_lit_unquote_bytes(&raw), _ => value_to_string(&wv)), .None => String.new()),
           .None => String.new()
         );
         (matched : bool) = (want_text.len() == usize(0));
@@ -331,23 +331,23 @@ evaluate_comptime_expect_error :: (
     );
     out_unit := new_expr_info(env, t_unit());
     out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_unit);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unit);
     return(expr);
   });
   // No error was thrown — evaluate optional message argument for a better diagnostic.
   match(
     args.get(usize(1)),
     .Some(msg_expr) => {
-      eval_msg := evaluate_expression_raw(msg_expr, env, ctx, exn);
-      msg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_msg));
+      eval_msg := evaluate_expression_raw(&msg_expr, env, ctx, exn);
+      msg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_msg));
       match(
         msg_info_opt,
         .Some(msg_info) => {
           match(
             msg_info.value,
             .Some(v) => {
-              err_msg := match(v, .StrLit(raw) => raw, _ => value_to_string(v));
-              exn.throw(dyn(format_error_message(ast_expr_token(expr), err_msg)));
+              err_msg := match(v, .StrLit(raw) => raw, _ => value_to_string(&v));
+              exn.throw(dyn(format_error_message(ast_expr_token(expr), &err_msg)));
             },
             .None => ()
           );
@@ -362,7 +362,7 @@ evaluate_comptime_expect_error :: (
       format_error_message(
         ast_expr_token(expr),
         String.from("Expected compile error, but the expression was evaluated successfully:\n") +
-          ast_expr_to_string(arg_expr)
+          ast_expr_to_string(&arg_expr)
       )
     )
   );

@@ -183,7 +183,7 @@ strip_doc_block_comment :: (fn(imm(value) : String) -> String)({
       break;
     });
   });
-  `\n`.join(processed)
+  `\n`.join(&processed)
 });
 // Internal alias.
 strip_doc_block_comment_ :: (fn(imm(value) : String) -> String)(
@@ -201,7 +201,7 @@ find_next_declaration_name_ :: (fn(imm(tokens) : ArrayList(Token), start_index :
         break;
       }
     );
-    if(is_whitespace_or_regular_comment_(token) || is_doc_comment_token_(token), {
+    if(is_whitespace_or_regular_comment_(&token) || is_doc_comment_token_(&token), {
       i = (i + usize(1));
     }, {
       if(token.kind == TokenKind.Identifier, {
@@ -245,7 +245,7 @@ extract_doc_comments :: (fn(imm(tokens) : ArrayList(Token)) -> DocExtractionResu
         break;
       }
     );
-    if(is_inner_doc_token_(token), {
+    if(is_inner_doc_token_(&token), {
       // Track position of first inner doc token
       match(
         inner_doc_position,
@@ -256,7 +256,7 @@ extract_doc_comments :: (fn(imm(tokens) : ArrayList(Token)) -> DocExtractionResu
         .Some(_) => ()
       );
       if(token.kind == TokenKind.InnerDocLineComment, {
-        inner_doc_parts.push(strip_doc_line_comment_(token.value));
+        inner_doc_parts.push(strip_doc_line_comment_(&token.value));
         i = (i + usize(1));
         // Skip whitespace between consecutive //! lines
         cont_ws := true;
@@ -308,7 +308,7 @@ extract_doc_comments :: (fn(imm(tokens) : ArrayList(Token)) -> DocExtractionResu
         });
       }, {
         // InnerDocBlockComment
-        inner_doc_parts.push(strip_doc_block_comment_(token.value));
+        inner_doc_parts.push(strip_doc_block_comment_(&token.value));
         i = (i + usize(1));
       });
     }, {
@@ -317,7 +317,7 @@ extract_doc_comments :: (fn(imm(tokens) : ArrayList(Token)) -> DocExtractionResu
         start_row := usize(token.row);
         start_col := usize(token.column);
         start_mod_path := token.module_path;
-        doc_parts.push(strip_doc_line_comment_(token.value));
+        doc_parts.push(strip_doc_line_comment_(&token.value));
         i = (i + usize(1));
         // Merge consecutive /// lines
         cont_merge := true;
@@ -343,7 +343,7 @@ extract_doc_comments :: (fn(imm(tokens) : ArrayList(Token)) -> DocExtractionResu
             tokens.get(j),
             .Some(next_doc) => {
               if(next_doc.kind == TokenKind.DocLineComment, {
-                doc_parts.push(strip_doc_line_comment_(next_doc.value));
+                doc_parts.push(strip_doc_line_comment_(&next_doc.value));
                 i = (j + usize(1));
               }, {
                 cont_merge = false;
@@ -355,7 +355,7 @@ extract_doc_comments :: (fn(imm(tokens) : ArrayList(Token)) -> DocExtractionResu
           );
         });
         doc_comment := DocComment(
-          content : `\n`.join(doc_parts),
+          content : `\n`.join(&doc_parts),
           inner : false,
           row : start_row,
           column : start_col,
@@ -372,7 +372,7 @@ extract_doc_comments :: (fn(imm(tokens) : ArrayList(Token)) -> DocExtractionResu
       }, {
         if(token.kind == TokenKind.DocBlockComment, {
           doc_comment := DocComment(
-            content : strip_doc_block_comment_(token.value),
+            content : strip_doc_block_comment_(&token.value),
             inner : false,
             row : usize(token.row),
             column : usize(token.column),
@@ -400,7 +400,7 @@ extract_doc_comments :: (fn(imm(tokens) : ArrayList(Token)) -> DocExtractionResu
       if(inner_doc_parts.len() > usize(0), {
         module_doc = Option(DocComment).Some(
           DocComment(
-            content : `\n`.join(inner_doc_parts),
+            content : `\n`.join(&inner_doc_parts),
             inner : true,
             row : pos.row,
             column : pos.column,
@@ -424,7 +424,7 @@ find_next_identifier_ :: (fn(imm(tokens) : ArrayList(Token), start_index : usize
         break;
       }
     );
-    if(is_whitespace_or_regular_comment_(token) || is_doc_comment_token_(token), {
+    if(is_whitespace_or_regular_comment_(&token) || is_doc_comment_token_(&token), {
       i = (i + usize(1));
     }, {
       if(token.kind == TokenKind.Identifier, {
@@ -465,7 +465,7 @@ extract_inline_docs :: (fn(imm(tokens) : ArrayList(Token), start_index : usize, 
     );
     if(token.kind == TokenKind.DocLineComment, {
       doc_parts := ArrayList(String).new();
-      doc_parts.push(strip_doc_line_comment_(token.value));
+      doc_parts.push(strip_doc_line_comment_(&token.value));
       i = (i + usize(1));
       // Merge consecutive /// lines
       cont_merge := true;
@@ -490,7 +490,7 @@ extract_inline_docs :: (fn(imm(tokens) : ArrayList(Token), start_index : usize, 
           tokens.get(j),
           .Some(next_doc) => {
             if(next_doc.kind == TokenKind.DocLineComment, {
-              doc_parts.push(strip_doc_line_comment_(next_doc.value));
+              doc_parts.push(strip_doc_line_comment_(&next_doc.value));
               i = (j + usize(1));
             }, {
               cont_merge = false;
@@ -503,11 +503,11 @@ extract_inline_docs :: (fn(imm(tokens) : ArrayList(Token), start_index : usize, 
       });
       name := find_next_identifier_(tokens, i, end);
       if(!(name == ``), {
-        docs.insert(name, `\n`.join(doc_parts));
+        docs.insert(name, `\n`.join(&doc_parts));
       });
     }, {
       if(token.kind == TokenKind.DocBlockComment, {
-        content := strip_doc_block_comment_(token.value);
+        content := strip_doc_block_comment_(&token.value);
         i = (i + usize(1));
         name := find_next_identifier_(tokens, i, end);
         if(!(name == ``), {

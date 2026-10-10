@@ -224,7 +224,7 @@ impl(
       && !self._closed.load(MemoryOrder.Relaxed)
       && !self._recv_dropped.load(MemoryOrder.Relaxed)
     ), {
-      self._not_full.wait_with(self._mutex);
+      self._not_full.wait_with(&self._mutex);
     });
     cond(
       (
@@ -255,7 +255,7 @@ impl(
       (self._len.load(MemoryOrder.Relaxed) == usize(0))
       && !self._closed.load(MemoryOrder.Relaxed)
     ), {
-      self._not_empty.wait_with(self._mutex);
+      self._not_empty.wait_with(&self._mutex);
     });
     cond(
       (self._len.load(MemoryOrder.Relaxed) == usize(0)) => {
@@ -521,7 +521,7 @@ impl(
   /// — `_closed` is one-way — so its sends fail; mint the producers while the
   /// previous ones are still alive.
   sender : (fn(imm(self) : Self) -> Sender(T))(
-    Sender(T)._attach(self._ch)
+    Sender(T)._attach(&self._ch)
   ),
   /// Receive the oldest value, blocking while the channel is empty.
   ///
@@ -637,7 +637,7 @@ impl(
   /// needs to learn that the producers are finished.
   pair : (fn(capacity : usize) -> Tuple(Sender(T), Receiver(T)))({
     ch := Self.new(capacity);
-    (Sender(T)._attach(ch), Receiver(T)._attach(ch))
+    (Sender(T)._attach(&ch), Receiver(T)._attach(&ch))
   })
 );
 export(Channel);
