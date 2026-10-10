@@ -704,11 +704,11 @@ handles := chunks.into_iter().map(c => Thread.spawn({ c }(io : Io) => reduce(c))
 
 | Rust | Yo |
 | --- | --- |
-| `fn f(x: &dyn Trait)` | `f(x : &Dyn(Trait))` — the borrow is the parameter mode |
+| `fn f(x: &dyn Trait)` | `f(x : &Dyn(Trait))` — the borrowed trait object (D44): a second-class fat reference, no allocation, made by lending a concrete value at the typed slot (the one unsizing conversion) or an owned `Dyn`'s payload |
 | `Box<dyn Trait>` (unique) | `Dyn(Trait)` — uniquely owned, uncounted cell (D7); `dyn(v)` moves in |
 | `Rc<dyn Trait>` | `Rc(Dyn(Trait))` |
 | `Arc<dyn Trait + Send + Sync>` | `Arc(Dyn(Trait, Send))` (`dyn(v)` into it checks `Send`) |
-| a stored `&dyn` field | not expressible — one of the rows above |
+| a stored `&dyn` field | `t : &Dyn(Trait)` — a field of a second-class struct (R1), one frame, roots in the parameters; beyond the frame `Rc(Dyn(Trait))` or `Impl(Trait)` |
 
 A `Dyn` copies explicitly through its `clone` vtable slot when the trait or
 payload provides one, and is move-only otherwise.
