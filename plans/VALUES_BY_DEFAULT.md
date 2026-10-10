@@ -2656,6 +2656,61 @@ and in git, not a silent edit.
       3. The consuming bare `for(xs, …)` (consequence 1) rides decision 26's
          consuming-`match` sweep: `for(xs, …)` whose source is used after
          the loop becomes `for(&xs, …)` first.
+    - **As built, Generation B (2026-10-10, branch
+      feat/vbd-decision42-gen-b, stacked on Generation A; it merges once a
+      `SEED_VERSION` carries Generation A, since the seed v0.2.57 cannot
+      parse `&T`; built locally with the Generation A compiler as the seed).**
+      - **The sweep.** `yo fix ./std ./src ./tests --migrate borrow-spelling`
+        rewrote `std/` 3,010, `src/` 10,062 and `tests/` 2,664 borrows (the
+        Generation A counts exactly), then 548 more in `src/` and 44 in
+        `tests/` after the restack onto decision 26's consuming `match`.
+        By hand: the 9 positions the tool lists in `tests/` (`dyn(mut(n) =>
+        …)` became a typed closure parameter, `generic(mut(T) : Type)`
+        became `generic(T : &mut Type)`, the `-> (out : mut(i32))` and
+        `p : mut(i32)` cases of `ref_return_ban` were a duplicate and a
+        concept that no longer exists, so one went and the other became a
+        field `p : &mut i32`), the synthesized `___dispose` signatures in
+        `src/codegen/functions/collection.yo`, 131 comment lines in `src/`
+        and `std/`, `tests/internal` (parser, formatter, types_compound,
+        doc_command, context_index, module_invalidation), `docs/` (en +
+        zh), the instruction file and the cheatsheet. The tests and
+        fixtures that pin the rejection of the old words were restored after
+        the sweep rewrote them.
+      - **The deletion.** The internal form stays the desugar target with
+        the heads `BK_IMM` / `BK_MUT` renamed `__yo_imm` / `__yo_mut`
+        (`src/expr.yo`); `mutation_summary.yo` and the prelude `for` macro
+        read the constants. A source mode word is **E0009** ("deleted
+        spelling", a new syntax-band code with a registry entry, example and
+        `yo explain` text; `own(x)` joined it): `reject_old_mode_spelling`
+        (`src/expr.yo`) is called by every slot that holds a mode — a
+        parameter label at every wrapper level (`fn`, `ctl`, `Fn`,
+        receivers, `comptime(imm(x))`, `generic(mut(T) : Type)`), a result
+        slot (`-> imm(T)` only while no binding named `imm` is visible, since
+        `imm` is an ordinary identifier now), a local borrow and its `::`
+        form, a re-point, an evaluated `mut(x)` / `inout(x)` call, a closure
+        literal's parameters (typed or not) and capture entries (checked
+        before the expected type is asked for), and the `for` macro's handle
+        (a `comptime_assert`, so that one message carries no code). The
+        parser still reads a `{ imm(y) }` pun as a record entry so the
+        evaluator names it. `BK_INOUT`, `modern_borrow_spelling` and the
+        doc builder's mode-word parameter rendering are deleted; the
+        formatter had no old-form acceptance to remove (it renders tokens),
+        and its "mode words kept as written" test went. `mut` stays reserved;
+        `imm` is an ordinary identifier (`tests/parameter_modes.test.yo`).
+      - **The tools.** `yo fix --migrate borrow-spelling` stays: it walks the
+        raw parse and matches the words as text, which the deletion does not
+        touch (`fix-migrate-borrow-spelling` still passes on its old-spelling
+        fixture). `--migrate params` now writes `x : &T` (the edit spans
+        `x : ` and checks it). `--migrate modes` is `own` → `sink` only:
+        `inout(x)` is a borrow word, rewritten by `borrow-spelling`.
+      - **markdown_yo.** The `yo.toml` dependency v0.0.14 spells 26
+        parameters with `imm(`; the branch points at a locally migrated copy
+        through a TEMP path override until markdown_yo v0.0.15 is released.
+      - **Filed:**
+        `issues/a-closure-parameter-written-as-a-call-is-accepted-under-the-expected-label.md`
+        (S3): `foo(n) => …` is bound under the expected label; the mode words
+        are E0009 now, any other head still falls back.
+      - **Measured gates:** GENB_GATES_PLACEHOLDER
 
 43. **`&T` and `&mut T` are types: second-class, with lifetimes elided.**
     Confirmed 2026-10-10 by the maintainer ("I want to make `&T` a real
