@@ -88,7 +88,7 @@ impl(
   /// mutated under the same mutex before signalling. Use `wait_timeout`
   /// when the wait needs a deadline.
   _wait_raw : (fn(imm(self) : Self, handle : *__YO_THREAD_SYNC_TYPE) -> unit)({
-    return(__yo_cond_wait(&self.cv, handle));
+    return(__yo_cond_wait(addr_of(self.cv), handle));
   }),
   /// `wait` spelled against the `Mutex` itself — the PUBLIC form. Call it
   /// from inside `m.with_lock(...)`, whose closure runs holding `m`; the
@@ -148,7 +148,7 @@ impl(
   /// step cannot lengthen or cut short the wait. A negative or zero `timeout`
   /// does not block.
   _wait_timeout_raw : (fn(imm(self) : Self, handle : *__YO_THREAD_SYNC_TYPE, timeout : Duration) -> bool)(
-    __yo_cond_timedwait(&self.cv, handle, timeout.as_nanos())
+    __yo_cond_timedwait(addr_of(self.cv), handle, timeout.as_nanos())
   ),
   /// `wait_timeout` spelled against the `Mutex` itself — the PUBLIC form of
   /// the raw-handle method above, with the same `true` = woken (possibly
@@ -173,7 +173,7 @@ impl(
   /// different predicates on the same condvar — waking the wrong one there
   /// loses the notification for good.
   signal : (fn(imm(self) : Self) -> unit)({
-    return(__yo_cond_signal(&self.cv));
+    return(__yo_cond_signal(addr_of(self.cv)));
   }),
   /// Wake EVERY waiting thread — Rust's `Condvar::notify_all`.
   ///
@@ -183,14 +183,14 @@ impl(
   /// from empty to non-empty for many consumers). The cost is a thundering
   /// herd: N wakes and N re-checks where `signal` would have done one.
   broadcast : (fn(imm(self) : Self) -> unit)({
-    return(__yo_cond_broadcast(&self.cv));
+    return(__yo_cond_broadcast(addr_of(self.cv)));
   })
 );
 impl(
   Cond,
   Dispose(
     dispose : (fn(imm(self) : Self) -> unit)({
-      return(__yo_cond_destroy(&self.cv));
+      return(__yo_cond_destroy(addr_of(self.cv)));
     })
   )
 );

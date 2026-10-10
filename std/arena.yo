@@ -142,13 +142,13 @@ _state_at :: (fn(index : usize) -> *_ArenaState)({
 _ctx_of :: (fn(word : usize) -> ?*void)({
   w := word;
   (p : ?*void) = .None;
-  unsafe(memcpy((*void)(&p), (*void)(&w), size_of(usize)));
+  unsafe(memcpy((*void)(addr_of(p)), (*void)(addr_of(w)), size_of(usize)));
   p
 });
 _word_of :: (fn(ctx : ?*void) -> usize)({
   c := ctx;
   (w : usize) = usize(0);
-  unsafe(memcpy((*void)(&w), (*void)(&c), size_of(usize)));
+  unsafe(memcpy((*void)(addr_of(w)), (*void)(addr_of(c)), size_of(usize)));
   w
 });
 _index_of :: (fn(ctx : ?*void) -> usize)(_word_of(ctx) & _INDEX_MASK);
@@ -158,13 +158,13 @@ _st :: (fn(ctx : ?*void) -> *_ArenaState)(_state_at(_index_of(ctx)));
 _current :: (fn(st : *_ArenaState, gen : usize) -> bool)(unsafe(st.*.gen) == gen);
 _lock :: (fn(st : *_ArenaState) -> unit)({
   // SAFETY: `st` is a live arena state (states are never released).
-  while(runtime(unsafe(atomic_exchange_explicit(&(st.*.lock), true, memory_order_acquire)) == true), {
+  while(runtime(unsafe(atomic_exchange_explicit(addr_of(st.*.lock), true, memory_order_acquire)) == true), {
     ();
   });
 });
 _unlock :: (fn(st : *_ArenaState) -> unit)(
   // SAFETY: as `_lock`.
-  unsafe(atomic_store_explicit(&(st.*.lock), false, memory_order_release))
+  unsafe(atomic_store_explicit(addr_of(st.*.lock), false, memory_order_release))
 );
 // Bump `size` bytes off the region of incarnation `gen`. Caller holds the
 // lock.
@@ -303,14 +303,14 @@ _new_state :: (fn() -> *_ArenaState)({
   _states = index;
   st := _state_at(index);
   // SAFETY: nobody can name `st` before this index is handed out.
-  unsafe(atomic_init(&(st.*.lock), false));
+  unsafe(atomic_init(addr_of(st.*.lock), false));
   unsafe(st.*.index = index);
   unsafe(st.*.gen = usize(0));
   st
 });
 // A recycled state, or a new one.
 _take_state :: (fn() -> *_ArenaState)({
-  unsafe(__yo_mutex_lock(&_pool_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_pool_mutex)));
   st := match(
     _pool,
     // SAFETY: pooled states are live blocks owned by the pool.
@@ -320,14 +320,14 @@ _take_state :: (fn() -> *_ArenaState)({
     },
     .None => _new_state()
   );
-  unsafe(__yo_mutex_unlock(&_pool_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_pool_mutex)));
   st
 });
 _give_state :: (fn(st : *_ArenaState) -> unit)({
-  unsafe(__yo_mutex_lock(&_pool_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_pool_mutex)));
   unsafe(st.*.next = _pool);
   _pool = .Some((*void)(st));
-  unsafe(__yo_mutex_unlock(&_pool_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_pool_mutex)));
 });
 // `st` leaves the `--debug-heap` live list. Caller holds `_pool_mutex`.
 _unlink_live :: (fn(st : *_ArenaState) -> unit)({
@@ -373,18 +373,18 @@ _report_list :: (fn(head : Option(*void), what : str) -> unit)({
 });
 // The `--debug-heap` exit reporter, installed by the first `Arena.new`.
 _report_arenas :: (fn() -> unit)({
-  unsafe(__yo_mutex_lock(&_pool_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_pool_mutex)));
   _report_list(_live, "never deinit");
   _report_list(_abandoned, "abandoned");
-  unsafe(__yo_mutex_unlock(&_pool_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_pool_mutex)));
 });
 _track :: (fn(st : *_ArenaState) -> unit)({
-  unsafe(__yo_mutex_lock(&_pool_mutex));
+  unsafe(__yo_mutex_lock(addr_of(_pool_mutex)));
   unsafe(st.*.next = _live);
   _live = .Some((*void)(st));
   install := !_reporter_installed;
   _reporter_installed = true;
-  unsafe(__yo_mutex_unlock(&_pool_mutex));
+  unsafe(__yo_mutex_unlock(addr_of(_pool_mutex)));
   cond(
     install => {
       unsafe(atexit(_report_arenas));
@@ -433,7 +433,7 @@ impl(
     Allocator(
       // SAFETY: a state's `index` never changes after it is created.
       ctx : _ctx_of((self._gen << _INDEX_BITS) | unsafe(self._state.*.index)),
-      vtable : &_ARENA_VTABLE
+      vtable : addr_of(_ARENA_VTABLE)
     )
   ),
   /// `with_allocator(self.allocator(), f)`: evaluate `f()` with this arena as
@@ -495,9 +495,9 @@ impl(
         GlobalAllocator.aligned_free(.Some((*void)(region.unwrap())));
         cond(
           unsafe(__yo_debug_heap_on()) => {
-            unsafe(__yo_mutex_lock(&_pool_mutex));
+            unsafe(__yo_mutex_lock(addr_of(_pool_mutex)));
             _unlink_live(st);
-            unsafe(__yo_mutex_unlock(&_pool_mutex));
+            unsafe(__yo_mutex_unlock(addr_of(_pool_mutex)));
           },
           true => ()
         );
@@ -521,14 +521,14 @@ impl(
       true => {
         unsafe(st.*.abandoned = true);
         _unlock(st);
-        unsafe(__yo_mutex_lock(&_pool_mutex));
+        unsafe(__yo_mutex_lock(addr_of(_pool_mutex)));
         cond(
           unsafe(__yo_debug_heap_on()) => _unlink_live(st),
           true => ()
         );
         unsafe(st.*.next = _abandoned);
         _abandoned = .Some((*void)(st));
-        unsafe(__yo_mutex_unlock(&_pool_mutex));
+        unsafe(__yo_mutex_unlock(addr_of(_pool_mutex)));
       }
     );
   })

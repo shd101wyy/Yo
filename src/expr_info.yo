@@ -2966,3 +2966,40 @@ record_imm_param_migration :: (fn(imm(label_tok) : Token) -> unit)({
   record_migrate_edit(label_tok, lbl.len(), `imm(${lbl})`, lbl);
 });
 export(MigrateEdit, set_migrate_param_modes, take_migrate_edits, migrate_param_modes_on, record_migrate_edit, record_imm_param_migration);
+/// One `&x` site seen by `yo fix --migrate addr-of` (plans/VALUES_BY_DEFAULT.md
+/// V3b Generation B, step 3): `lent` is a call-site borrow marker that
+/// `apply_call_site_borrow_markers` peeled (it stays `&x`), otherwise the
+/// raw-pointer address-of that `evaluate_address_call` evaluated (it becomes
+/// `addr_of(x)`). `expect` is the printed `&x` expression, which the rewrite
+/// matches against the source text before it edits anything.
+AddrOfSite :: struct(path : String, row : usize, col : usize, expect : String, lent : bool);
+(g_migrate_addr_of : bool) = false;
+(g_addr_of_sites : ArrayList(AddrOfSite)) = ArrayList(AddrOfSite).new();
+(g_addr_of_site_keys : HashSet(String)) = HashSet(String).new();
+set_migrate_addr_of :: (fn(on : bool) -> unit)({
+  g_migrate_addr_of = on;
+});
+/// Whether `yo fix --migrate addr-of` is recording.
+migrate_addr_of_on :: (fn() -> bool)(g_migrate_addr_of);
+/// Record one `&x` site: `amp_tok` is the `&` token. Recorded once per
+/// position and reading; a position recorded both lent and address-of (two
+/// evaluations disagreeing) is a conflict the rewrite reports and skips.
+record_addr_of_site :: (fn(imm(amp_tok) : Token, imm(expect) : String, lent : bool) -> unit)({
+  if(!g_migrate_addr_of || (amp_tok.value != "&"), {
+    return(());
+  });
+  reading := if(lent, String.from("lent"), String.from("addr"));
+  key := `${amp_tok.module_path}:${amp_tok.row.to_string()}:${amp_tok.column.to_string()}:${reading}`;
+  if(g_addr_of_site_keys.contains(key), {
+    return(());
+  });
+  g_addr_of_site_keys.insert(key);
+  g_addr_of_sites.push(AddrOfSite(path : amp_tok.module_path.clone(), row : usize(amp_tok.row), col : usize(amp_tok.column), expect : expect, lent : lent));
+});
+take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
+  out := g_addr_of_sites;
+  g_addr_of_sites = ArrayList(AddrOfSite).new();
+  g_addr_of_site_keys = HashSet(String).new();
+  out
+});
+export(AddrOfSite, set_migrate_addr_of, migrate_addr_of_on, record_addr_of_site, take_addr_of_sites);

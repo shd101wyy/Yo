@@ -527,7 +527,7 @@ is_comptime_numeric_fn_call :: (fn(imm(e) : AstExpr) -> bool)(
 _monotonic_ns :: (fn() -> i64)({
   out_s := i64(0);
   out_ns := i64(0);
-  clock_gettime(CLOCK_MONOTONIC, &out_s, &out_ns);
+  clock_gettime(CLOCK_MONOTONIC, addr_of(out_s), addr_of(out_ns));
   (out_s * i64(1000000000)) + out_ns
 });
 /// Arm the cooperative deadline `budget_ms` from now. `usize(0)` disarms it.

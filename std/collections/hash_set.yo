@@ -415,7 +415,7 @@ impl(
     next : (fn(mut(self) : Self) -> Option(*T))(
       // The entry's KEY is the set's element; take its address rather than
       // assuming `MapEntry`'s field order puts it at offset 0.
-      match(self._inner.next(), .Some(p) => .Some(&(p.*.key)), .None => .None)
+      match(self._inner.next(), .Some(p) => .Some(addr_of(p.*.key)), .None => .None)
     )
   )
 );

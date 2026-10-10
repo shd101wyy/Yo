@@ -222,7 +222,7 @@ impl(
   /// The global allocator as an `Allocator` value. Blocks it returns carry an
   /// owner prefix like any other; the global allocator's own static surface
   /// (`GlobalAllocator`) never does.
-  global : (fn() -> Allocator)(Allocator(ctx : .None, vtable : &_GLOBAL_VTABLE)),
+  global : (fn() -> Allocator)(Allocator(ctx : .None, vtable : addr_of(_GLOBAL_VTABLE))),
   /// Allocate `size` bytes owned by this allocator, 16-aligned. `.None` on
   /// failure (including a size too large to carry the prefix). Release with
   /// `Allocator.free`.

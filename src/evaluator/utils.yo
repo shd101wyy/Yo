@@ -3946,7 +3946,7 @@ export(are_values_equal);
 f64_raw_roundtrip :: (fn(v : f64) -> String)({
   { snprintf } :: import("std/libc/stdio");
   buffer := Array(u8, usize(40)).fill(u8(0));
-  buffer_ptr := &buffer(usize(0));
+  buffer_ptr := addr_of(buffer(usize(0)));
   _n := unsafe(snprintf((*char)(buffer_ptr), usize(40), "%.17g", v));
   String.from_cstr(buffer_ptr).unwrap()
 });

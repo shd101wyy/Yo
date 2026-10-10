@@ -166,7 +166,9 @@ pragma(Pragma.AllowUnsafe);
   some_resolution,
   record_spec_instantiation,
   expr_info_deferred_dup_expressions,
-  mark_by_value_param_share_dup
+  mark_by_value_param_share_dup,
+  record_addr_of_site,
+  migrate_addr_of_on
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -893,6 +895,9 @@ apply_call_site_borrow_markers :: (
       );
     });
     if(peel, {
+      if(is_amp_marker && migrate_addr_of_on(), {
+        match(bare, .FnCall(_, lent_callee, _, _, _) => match(lent_callee, .Atom(_, lent_tok) => record_addr_of_site(lent_tok, ast_expr_to_string(bare), true), _ => ()), _ => ());
+      });
       place := ast_expr_strip_borrow_marker(bare);
       out.push(
         if(

@@ -71,7 +71,7 @@ own_stream_socket :: (fn(sockfd : i32) -> i32)(
   cond(
     (platform == Platform.Macos) => {
       one := i32(1);
-      __yo_sync_setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, (*u8)(&one), u32(4))
+      __yo_sync_setsockopt(sockfd, SOL_SOCKET, SO_NOSIGPIPE, (*u8)(addr_of(one)), u32(4))
     },
     true => i32(0)
   )

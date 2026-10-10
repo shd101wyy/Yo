@@ -893,7 +893,7 @@ Hasher :: trait(
     (
       (self, v) -> {
         b := v;
-        self.write(&b, usize(1));
+        self.write(addr_of(b), usize(1));
       }
     ),
   (write_u16 : (fn(mut(self) : Self, v : u16) -> unit)) ?=
@@ -7166,7 +7166,7 @@ impl(
   Index(usize)(
     Output : T,
     index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)(
-      __yo_array_index(&self, idx)
+      __yo_array_index(addr_of(self), idx)
     )
   )
 );
@@ -9941,7 +9941,7 @@ impl(
   new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
   /// Get a mutable pointer to the underlying value.
   as_ptr : (fn(mut(self) : Self) -> *BaseType)(
-    __yo_maybe_uninit_as_ptr(Self, BaseType, &self)
+    __yo_maybe_uninit_as_ptr(Self, BaseType, addr_of(self))
   ),
   /// Assume the value is initialized and extract it. **Undefined behavior if
   /// not initialized.** The `written` witness is the `as_ptr()` result you

@@ -253,7 +253,7 @@ impl(
     fd := self._fd;
     io.async(e => {
       val := cond(enabled => i32(1), true => i32(0));
-      val_ptr := &val;
+      val_ptr := addr_of(val);
       r := e.io.await(IO_udp.setsockopt(fd, SOL_SOCKET, SO_BROADCAST, (*u8)(val_ptr), u32(4)), e.io);
       cond(
         (r < i32(0)) => {

@@ -43,7 +43,7 @@ impl(
     write : (fn(mut(self) : Self, buf : *u8, size : usize, imm(exn) : Exception) -> usize)({
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
-        ((&self._data(0)).add(self._len + i)).* = (buf.add(i)).*;
+        ((addr_of(self._data(0))).add(self._len + i)).* = (buf.add(i)).*;
       });
       self._len = (self._len + size);
       size
@@ -64,7 +64,7 @@ impl(
       );
       i := usize(0);
       while(i < to_read, i = (i + usize(1)), {
-        (buf.add(i)).* = ((&self._data(0)).add(self._pos + i)).*;
+        (buf.add(i)).* = ((addr_of(self._data(0))).add(self._pos + i)).*;
       });
       self._pos = (self._pos + to_read);
       to_read
@@ -84,6 +84,6 @@ test("Write and read bytes through traits", {
   written := buf.write((*u8)("Hello"), usize(5), exn);
   assert(written == usize(5), "should write 5 bytes");
   read_buf := Array(u8, 16).fill(0);
-  n := buf.read(&read_buf(0), usize(16), exn);
+  n := buf.read(addr_of(read_buf(0)), usize(16), exn);
   assert(n == usize(5), "should read 5 bytes");
 });

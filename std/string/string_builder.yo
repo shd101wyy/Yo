@@ -195,14 +195,14 @@ impl(
   /// Append an unsigned 64-bit integer in lowercase hexadecimal.
   write_hex : (fn(mut(self) : Self, n : u64) -> unit)({
     buf := Array(u8, usize(20)).fill(u8(0));
-    buf_ptr := &buf(usize(0));
+    buf_ptr := addr_of(buf(usize(0)));
     unsafe(snprintf((*char)(buf_ptr), usize(20), "%llx", n));
     self.write_string(String.from_cstr(buf_ptr).unwrap());
   }),
   /// Append `n` with exactly `precision` decimal places.
   write_f64 : (fn(mut(self) : Self, n : f64, precision : i32) -> unit)({
     buf := Array(u8, usize(64)).fill(u8(0));
-    buf_ptr := &buf(usize(0));
+    buf_ptr := addr_of(buf(usize(0)));
     unsafe(snprintf((*char)(buf_ptr), usize(64), "%.*f", precision, n));
     self.write_string(String.from_cstr(buf_ptr).unwrap());
   }),

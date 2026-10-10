@@ -130,7 +130,7 @@ test("Refine(T, p) is the general constructor and composes over a refinement", {
   match(
     check_non_zero(i32(3)),
     .Some(nz3) => {
-      doubly := unchecked(odd_i32, nz3, &nz3);
+      doubly := unchecked(odd_i32, nz3, addr_of(nz3));
       assert(gated(doubly) == i32(3), "the composed refinement carries the value through");
     },
     .None => assert(false, "3 is nonzero")
@@ -140,7 +140,7 @@ test("Refine(T, p) is the general constructor and composes over a refinement", {
 test("unchecked is the trusted cast (no gate, no proof)", {
   non_zero_i32 :: ghost_fn((fn(imm(x) : i32) -> bool)(x != i32(0)));
   v := i32(9);
-  blind := unchecked(non_zero_i32, v, &v);
+  blind := unchecked(non_zero_i32, v, addr_of(v));
   use :: (fn(imm(x) : NonZero(i32)) -> i32)(i32(81) / x);
   assert(use(blind) == i32(9), "9/9 == 1 — the caller vouches for the predicate");
 });

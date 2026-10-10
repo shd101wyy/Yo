@@ -9,7 +9,7 @@ test("Test simple functions", {
     });
     x := 5;
     y := 10;
-    swap(&x, &y);
+    swap(addr_of(x), addr_of(y));
     assert(x == 10);
     assert(y == 5);
   };
@@ -801,11 +801,11 @@ test("Chained unwrap call on Option of function type", {
   });
   (s : MyStruct) = MyStruct(x : i32(10));
   (opt : Option(MyFn)) = .Some(my_fn);
-  result := chained_call(opt, &s, i32(1));
+  result := chained_call(opt, addr_of(s), i32(1));
   assert(result, "chained unwrap()() should return true");
   // Also verify two-step works
   fn_val := opt.unwrap();
-  result2 := fn_val(&s, i32(2));
+  result2 := fn_val(addr_of(s), i32(2));
   assert(result2, "two-step unwrap should return true");
   ();
 });

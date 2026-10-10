@@ -18,7 +18,7 @@ impl(
 );
 test("Test basic pointer arithmetic operations", {
   x := 12;
-  p := &x;
+  p := addr_of(x);
   q := p.add(2); // Test &+
   assert(q > p); // Test &>
   assert(p < q); // Test &<
@@ -62,7 +62,7 @@ test("sizeof of a nullable-pointer Option is the pointer's", {
 // the parameter's runtime address (it was a comptime pointer codegen emitted
 // as `/* skip generating value */`).
 _addr_of_param :: (fn(generic(T : Type), imm(v) : T) -> T)({
-  (p : *T) = &v;
+  (p : *T) = addr_of(v);
   p.*
 });
 test("&param in a generic fn called with a literal", {
