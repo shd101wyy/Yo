@@ -40,7 +40,7 @@ trap 'rm -rf "$WORK"' EXIT
 cat > "$WORK/probe.yo" <<'YO'
 { println } :: import("std/fmt");
 
-bump :: (fn(inout(x) : i64) -> unit)({ x = (x + i64(1)); });
+bump :: (fn(x : &mut i64) -> unit)({ x = (x + i64(1)); });
 
 deep :: (fn(n : i64) -> i64)(
   cond(
@@ -48,7 +48,7 @@ deep :: (fn(n : i64) -> i64)(
     true => {
       local := n;
       r := recur((n - i64(1)));
-      bump(local);
+      bump(&mut local);
       (r + local)
     }
   )
