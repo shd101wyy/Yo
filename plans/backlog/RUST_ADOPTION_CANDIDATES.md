@@ -89,10 +89,11 @@ which every callee must re-derive.
 **Why it fits now.** The reason the view was deleted was the lack of
 consumers under the old model. Under VBD a borrow is a mode, and a view
 that can exist **only in a borrow position** is exactly a borrow: a
-`[T]` type admitted in `imm(xs) : [T]` / `mut(xs) : [T]` parameters and in
-local `imm(y) := …` bindings, never as a field, an element, a generic
-argument or a return (decision 38 A's structural rule, applied to one more
-second-class kind). It is constructed at the call site from an
+`[T]` type that is a second-class reference type like any other (decision
+43): `xs : &[T]` / `xs : &mut [T]` in parameters, locals, fields of
+second-class structs and `Option(&[T])`, never the payload of a cell, and
+returned only under the single-root rule (`NON_ESCAPABLE_TYPES.md` R1,
+R3). It is constructed at the call site from an
 `ArrayList(T)`, an `Array(T, N)`, a `String` (as `[u8]`) or a sub-range
 (`&xs(a..b)`, zero-copy), lowers to the `RawSlice` ptr+len pair, carries
 `len()` and `Index` projections, and can be the source of the borrowed
@@ -392,7 +393,7 @@ change.
 | guard values (`MutexGuard`, `RefMut`, `Ref`) | decision 38 A and 41: closures and projections |
 | `Cell<T>` | a `RefCell(T)` over a `Copy` payload |
 | `Cow<'a, T>` | an explicit enum or ownership (catalog §4.4) |
-| implicit `Deref` coercions | `imm(s) : String` is the one lent form; a view is L1, explicit |
+| implicit `Deref` coercions | `s : &String` is the lent form of a `String`; a view is L1, explicit (decision 43) |
 | editions, `#[deprecated]` | no backward compatibility, single user |
 | `impl Iterator<Item = &T>` returns | decision 39 |
 

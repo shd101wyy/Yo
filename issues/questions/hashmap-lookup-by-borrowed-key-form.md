@@ -11,7 +11,7 @@ lets a `HashMap<String, V>` be probed with a `&str` and a `HashMap<Vec<u8>, V>`
 with a `&[u8]`, with no allocation, because `String: Borrow<str>` promises
 the two hash and compare identically.
 
-std's `get` is `(fn(imm(self) : Self, imm(key) : K) -> Option(V))`
+std's `get` is `(fn(self : &Self, key : &K) -> Option(V))`
 (`std/collections/hash_map.yo`), and the same holds for `contains_key`,
 `remove`, `entry` and the `Index` impl. A `str`-keyed lookup on a
 `String`-keyed map therefore allocates: `map.get(String.from(s))`. The

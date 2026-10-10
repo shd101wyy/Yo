@@ -1,281 +1,187 @@
-# References as second-class types: borrow-mode fields, root-joining containers, and an inferred single-root lifetime dependency
+# References as second-class types: `&T` in fields, root-joining containers, and an inferred single-root lifetime dependency
 
-**Status: BACKLOG — design note, written 2026-10-10 at the maintainer's
-request; not scheduled. Reframed the same day by decision 43: `&T` and
-`&mut T` are types (second-class, lifetimes elided), so R1–R6 below are
-the rules of those types, R7 adds root-joining containers, and every
-"mode" in this note reads as "the `&`/`&mut` type".** This is the design that two parked decisions in
-[`VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md) point to without naming:
-decision 39's "recorded for later, not adopted: borrow-mode struct fields"
-and decision 37's parked stateful call, both "decided together, by the same
-trigger". It generalizes one rule the plan already has — §3.13 A2, which
-lets a *borrowing future* be returned when every place it borrows is
-rooted at the returning function's own parameters — from futures to any
-declared type. It adds no lifetime names. It fires only on the triggers
-in §8.
+**Status: BACKLOG — the design of VALUES_BY_DEFAULT decisions 42 and 43
+(2026-10-10); scheduled as its own phase after decision 42's Generation B
+and V2b, timed by the VBD session.** It records the maintainer's position:
+Yo keeps mutable value semantics for owned values and makes references
+**types, second-class, with lifetimes elided** — the point Swift's `Span`
+and Mojo's `ref` reached, taken without Rust's lifetime names, Mojo's
+origins or Austral's regions. The rules below generalize one rule the plan
+already had, §3.13 A2 (a borrowing future may be returned when every place
+it borrows is rooted at the returning function's own parameters), from
+futures to every type. `FnMut` (decision 37) lands in the same phase.
 
-**The position it records** (the maintainer's question of 2026-10-10,
-"should Yo also have a borrow checker?"): Yo already has one — `imm`/`mut`
-are modes, exclusivity is static for value-rooted places and spelled
-`RefCell(T)` otherwise (decisions 18, 28, 33, 38, 41). What it lacks
-relative to Rust is a borrow *as a type*. Mutable value semantics stays
-the base; this note is the one bounded extension, the one Swift (non-
-escapable types with lifetime dependencies, `Span`) and Mojo (`ref` with
-origins) both added after starting where Yo is now, and it is taken in
-Swift's shape, not Rust's.
+## 0. The gap this closes
 
-## 0. The gap, in the tree's own words
+Before decision 43 only two kinds of value could hold a borrow: a closure's
+capture record (decision 35) and a future's capture slots (§3.13). The
+consequences are catalogued in
+[`RUST_REFERENCE_PATTERNS.md`](RUST_REFERENCE_PATTERNS.md): no stored or
+returned borrowing iterator and no adapter chain over a borrowed container
+(§5.1), no entry API (§4.5), no guard values (§3.2), no zero-copy view so
+every sub-range is a copy (§2.4, and CODEGEN_PERFORMANCE §0.1's kernel), no
+`Cow` (§4.4), no sink held in a struct (§3.5), parsers returning offsets
+rather than remainders. The escape hatches — `Rc`/`RefCell`, indices,
+closures, re-derivation — stay the right defaults; they are no longer the
+whole answer.
 
-- A borrow can never be a field type, an element type, a generic argument
-  of a type constructor, a stored or returned value, or a `Dyn` payload
-  (decision 38 A, "type positions"). Only two kinds of value hold a borrow
-  today: a closure's capture record (decision 35) and a future's capture
-  slots (§3.13).
-- Consequences, each measured or catalogued in
-  [`RUST_REFERENCE_PATTERNS.md`](RUST_REFERENCE_PATTERNS.md): no stored or
-  returned borrowing iterator and no adapter chain over a borrowed
-  container (§5.1, decision 39); no entry API
-  (`issues/questions/hashmap-entry-has-no-sound-post-v2b-shape.md`); no
-  guard values (§3.2); no zero-copy view — every sub-range is a copy
-  (§2.4, and CODEGEN_PERFORMANCE §0.1's kernel); no `Cow` (§4.4); no
-  sink-in-a-struct (§3.5); parsers return offsets, not remainders.
-- The plan's own escape hatches for these are `Rc`/`RefCell` (count
-  traffic and a run-time check), indices (a lookup per access), closures
-  (`with`, `with_lock`: a non-escaping body), and re-derivation. They are
-  right as defaults; they are the whole answer only if the shapes above
-  stay rare.
-
-## 1. What already exists and is reused unchanged
+## 1. What is reused unchanged
 
 | Rule | Where | Used here as |
 | --- | --- | --- |
-| second-classness is structural: anything containing a borrow is second-class; where it may not go (returned, stored, captured by an escaping closure, spawned, by-value parameter) | decision 38 A | the rule set for every non-escapable value |
-| a borrowing future may be returned when every borrowed place is rooted at the callee's own `imm`/`mut` parameters; at the call site the result borrows the argument places | §3.13 A2 (clarified 2026-10-07) | **R3**, generalized from futures to every non-escapable type |
-| transitive freezes: a borrow, or any value built from one, keeps its source frozen until its own last use; borrow sets join over reaching definitions | decision 38 A | a non-escapable value's lifetime |
-| local borrows and their live ranges end at last use; re-pointing a borrow to a place reached from itself | decisions 18, 25 | binding and re-assigning non-escapable locals |
-| the call-site sigils `&x` / `&mut x`; argument overlap rules (E0901/E0911) | decisions 33, 28 | constructing a non-escapable value; exclusivity of its `mut` fields |
-| projections `-> imm(T)` / `-> mut(T)`: one place, never bound | decision 24 | element access on views; the entry API's `or_insert` |
-| borrowed `for` over a container place; the pin on an `Rc`-rooted container | §3.10, decision 39 | iteration over a view; the `Rc` root rule (R5) |
-| a `mut(self)` receiver on a call (the "stateful call") | decision 37, parked | the iterator's `next(mut(self))` |
-
-Nothing below needs a new checker. It needs the existing one to accept a
-third holder of borrows, a declared struct, and to run A2's return rule
-for it.
+| second-classness is structural: anything containing a borrow is second-class; where it may not go | decision 38 A | the rule set for every type containing a `&` |
+| a borrowing future may be returned when every borrowed place is rooted at the callee's own parameters; at the call site the result borrows the argument places | §3.13 A2 | **R3**, generalized to every type |
+| transitive freezes until last use; borrow sets join over reaching definitions | decision 38 A | a reference-holding value's lifetime |
+| local borrows and their live ranges; re-pointing | decisions 18, 25 | binding and re-assigning reference-holding locals |
+| the call-site sigils `&x` / `&mut x`; argument overlap (E0901/E0911) | decisions 33, 28 | constructing values; exclusivity of `&mut` components |
+| projections `-> &T` / `-> &mut T` | decision 24 | element access on views; the entry API's `or_insert` |
+| the borrowed `for`; the pin on an `Rc`-rooted container | §3.10, decision 39 | iteration over a view; the `Rc` root rule (R5) |
+| `Fn`/`FnMut`/`FnOnce` | decision 37 | a borrowing iterator's `next(self : &mut Self)` is an ordinary method; a closure that writes a `&mut` capture is a `FnMut` |
 
 ## 2. The rules
 
-### R1. A struct may declare borrow-mode fields, an enum borrow-mode payloads; the type is then non-escapable. The inline rule covers every other composite
+### R1. Where a reference may live: the inline rule
+
+`&T` and `&mut T` are types (decision 43). A reference, or any type
+containing one, may be a component of anything laid out **inline** and the
+element of a **root-joining buffer container** (R7); it may never be the
+payload of a **cell**. The containing type is then second-class.
+
+| Composite | Payload lives | May carry a `&` | Then |
+| --- | --- | --- | --- |
+| named `struct`, `enum` (payload per variant) | inline | yes: `xs : &ArrayList(T)`, `Borrowed(&String)` | the type is second-class |
+| anonymous record `struct(...)` literal type (decision 35's capture record) | inline | yes | same as a named struct |
+| tuple `(A, B)` | inline | yes: `(&ArrayList(T), usize)`; `(a, n) := t` binds `a` as a reference; a consumed tuple re-borrows its `&` components (nothing moves out of a borrow) | second-class per instantiation |
+| `Array(T, N)` | inline | yes: `Array(&T, N)`; `Index` yields the element reference; all elements share one borrow set, the union of the literal's sources | second-class per instantiation |
+| `Option(T)`, `Result(T, E)`, any user constructor | inline | yes, as an instantiation over a `&`: `Option(&T)`, `Result((View(u8), T), ParseError)` | second-class per instantiation |
+| `ArrayList(T)`, `HashMap(K, V)`, every buffer-owning container | a buffer | yes, as a **root-joining** container (R7) | second-class, borrow set grows |
+| `Box(T)`, `Rc(T)`, `Arc(T)`, `RefCell(T)`, `Dyn(Trait)`, a closure stored in `Impl`/`Dyn` | a cell | **no** — E0909 | — |
 
 ```yo
 View :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(imm(xs) : ArrayList(T), lo : usize, hi : usize)
+  struct(xs : &ArrayList(T), lo : usize, hi : usize)
 );
 Cursor :: (fn(comptime(T) : Type) -> comptime(Type))(
-  struct(imm(xs) : ArrayList(T), i : usize)
+  struct(xs : &ArrayList(T), i : usize)
 );
 Entry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
-  struct(mut(map) : HashMap(K, V), key : K, hash : u64, slot : BucketProbe)
+  struct(map : &mut HashMap(K, V), key : K, hash : u64, slot : BucketProbe)
 );
+StrArg :: enum(Borrowed(&String), Owned(String));
 ```
 
-- `imm(f) : T` and `mut(f) : T` are field declarations in exactly the
-  spelling decision 35 uses for capture-list entries. A type with one is
-  **non-escapable**: second-class by declaration, under every rule of
-  decision 38 A.
-- **Enums.** A variant's positional payload may be declared in a borrow
-  mode, and the enum is non-escapable if **any** variant has one:
+- **The type decides, not the live variant.** A `StrArg` built as `.Owned`
+  still cannot be stored in a cell: decision 38 A's rule is structural
+  over types. A program that wants a storable owned form declares a second
+  enum, or stores the payload.
+- **Reading a `&` component** through a value lent as `&` yields `&T`
+  whatever the field's mode (a `&mut T` reached through a `&` path is
+  read-only, decision 43); through `&mut` or an owned value it yields the
+  field's mode. **Writing** one: `v.xs = &other` re-points it, `v.xs = ys`
+  is a write through it (a type error unless the field is `&mut`) — the
+  sigil on the right decides (decision 42).
+- **`match`** follows decision 26: through a borrowed scrutinee a `&`
+  payload binds as a reference capped by the scrutinee's mode; a by-value
+  scrutinee consumes the enum and a `&` payload bound by value re-borrows
+  with the enum's borrow set. `Option(&T)` is this case: `.Some(&x)` is a
+  legal second-class value, and R3 lets a signature say it is returned.
+- **`Copy`.** A type whose references are all `&` is `Copy` if the rest
+  is, with second-class copies (as `&T` itself is `Copy`); a `&mut`
+  component makes it move-only (a copy would be two exclusive borrows).
+- **Where such a type may stand:** a local, a parameter, a result, a block
+  or arm result, a field of another inline composite, an element of a
+  root-joining container — never a cell payload, a `Dyn` payload, a
+  spawned value, an escaping closure's capture, or a `Send` value.
+- **Passing.** A reference-holding value is passed by value when the slot
+  is a reference type (`f(v)` into `v : View(T)` copies an all-`&` value
+  and moves a `&mut`-holding one; decision 38 A as amended by 43) or by
+  lend (`f(&v)` into `v : &View(T)`); the callee is checked per
+  instantiation and its result inherits the roots (R3).
 
-```yo
-StrArg :: enum(Borrowed(imm(String)), Owned(String));
-Found :: (fn(comptime(T) : Type) -> comptime(Type))(
-  enum(At(usize, imm(T)), Missing)
-);
-```
-
-  - **Construction lends**, as for a field: `.Borrowed(&s)` lends `s` for
-    the value's life; `.Owned(s)` moves. A value built from a non-borrowing
-    variant (`.Missing`, `.Owned(s)`) still has the non-escapable *type*
-    and obeys R1–R3 — the type, not the active variant, decides (38 A's
-    rule is structural over types), so `StrArg` can never be stored even
-    when every live value is `Owned`. A program that wants a storable
-    owned form declares a second enum, or stores the payload.
-  - **`match` follows decision 26.** A borrowed scrutinee (`imm`/`mut`
-    binding, or `match(&e, …)`) binds a borrow-mode payload as a borrow in
-    the payload's mode capped by the scrutinee's; a by-value scrutinee
-    consumes the enum, and a borrow-mode payload bound by value is a
-    *re-borrow* with the enum's borrow set (nothing can be moved out of a
-    borrow: the payload stays second-class in the arm, and the arm's
-    result may not outlive the roots). Guards see the bindings as borrows
-    (decision 26's rule). Exhaustiveness and usefulness are unchanged.
-  - **`Option(imm(T))` is this case.** `Option` is an enum, and
-    `.Some(imm_place)` is the value decision 38 A already calls legal; R3
-    lets a function *say* it returns one. The declared-storage ban still
-    holds for `Option(imm(T))` as a field or element type: the enum
-    becomes non-escapable per instantiation, as closure instantiations
-    already are.
-  - **Enum payloads in borrow mode may not be `mut` on a `Copy` enum**
-    (a copy of a `mut` borrow would be two exclusive borrows); an `imm`
-    payload keeps the enum `Copy` if the rest is, second-class copies as
-    for closures.
-  - GADT-style enums (`docs/en-US/GADTS.md`) take the same rule per
-    variant; nothing in their indexing changes.
-- **The inline rule, for every other composite.** The principle behind
-  the struct and enum cases is §3.11's: *a plain struct, enum, tuple or
-  array allocates nothing; cells and buffers do.* A borrow may live in a
-  composite whose payload is **inline in the value**, never in one whose
-  payload lives in a **cell or a buffer**:
-
-  | Composite | Payload lives | May carry a borrow or a non-escapable value | Then |
-  | --- | --- | --- | --- |
-  | named `struct`, `enum` | inline | yes, by declaring the field/payload mode (above) | the type is non-escapable |
-  | anonymous record `struct(...)` literal type | inline | yes — it is decision 35's capture record with a name left off | same as a named struct |
-  | tuple `(A, B)` | inline | yes: `(imm(ArrayList(T)), usize)`; destructuring `(a, n) := t` binds `a` as a borrow capped by the receiver's mode; a consumed tuple re-borrows its borrow components (nothing moves out of a borrow) | the tuple type is non-escapable per instantiation |
-  | `Array(T, N)` | inline | yes: `Array(imm(T), N)`; `Index` yields the element borrow capped by the receiver's mode; all elements share one borrow set, the union of the literal's sources; fixed `N`, so no growth question | non-escapable per instantiation |
-  | `Option(T)`, `Result(T, E)` and any user enum/struct constructor | inline | yes, as a generic instantiation over a borrow or a non-escapable argument: `Option(imm(T))`, `Result((View(u8), T), ParseError)` | non-escapable per instantiation (the enum rule above) |
-  | `Box(T)`, `Rc(T)`, `Arc(T)`, `RefCell(T)`, `Dyn(Trait)`, closures stored in `Impl`/`Dyn` | a cell | **no** — the cell is declared storage | decision 38 A's error |
-  | `ArrayList(T)`, `HashMap(K, V)`, `String`, every buffer-owning container | a buffer | **no** — a *collection of views* stays banned (§3, "not unlocked") | decision 38 A's error |
-
-  So the whole of R1 is one sentence: **a borrow may be a component of
-  anything that is laid out inline, and the containing type is then
-  non-escapable; it may never be the payload of a cell or an element of a
-  buffer.** Where such a type may *stand* is the same for all of them: a
-  local binding (with or without an annotation), an `imm`/`mut` parameter
-  type, an R3 result type, a block or arm result — never a field of a
-  first-class type, an element, a generic argument of a cell or buffer
-  constructor, or a `Dyn` payload.
-- **This amends decision 38 A's "type positions" bullet, and splits
-  its tests.** Today a second-class type may not be a generic argument of
-  *any* type constructor, and the compiler enforces it:
-  `Option(type_of(f)).Some(f)`, `Rc(type_of(f)).new(f)` and
-  `ArrayList(type_of(f))` are all E0909, pinned by the escape-audit tests
-  in `tests/closure_capture_list.test.yo` (PR #1297); only a composite
-  *value* built without naming the type (`.Some(f)`, `(f, 1)`) is legal
-  and second-class. The inline rule narrows that ban: an instantiation of
-  an **inline** constructor (`Option`, `Result`, tuples, `Array`, a user
-  enum or struct) over a second-class argument becomes legal and is itself
-  second-class, usable wherever a non-escapable type may stand; an
-  instantiation of a **cell or buffer** constructor (`Box`, `Rc`, `Arc`,
-  `RefCell`, `Dyn`, `ArrayList`, `HashMap`, …) stays E0909. When this
-  lands, 38 A's bullet gets the dated amendment and those audit tests
-  split accordingly: the `Option` case flips to "legal, second-class, and
-  still rejected at every storage position", the `Rc` and `ArrayList`
-  cases keep their E0909 expectation. (Recorded 2026-10-10 from the VBD
-  session's review of this rule.)
-- **Passing.** A non-escapable value is passed by lend, `f(&v)` /
-  `f(&mut v)` into `imm(v) : View(T)` / `mut(v) : View(T)`, never by
-  value: decision 38 A bans a second-class value in a by-value parameter
-  (`io.async` excepted, decision 37), and the lend's borrow set is the
-  value's, transitively. Returning it is R3. An `imm`-only non-escapable
-  type is `Copy` (as an `imm`-only closure is), and its copies are
-  second-class; this makes `v2 := v` and a by-value operand in an
-  expression legal while the by-value *parameter* is not — decision 38 A's
-  "`Copy` never implies first-class", unchanged.
-- A non-escapable type may have `imm(self)`, `mut(self)` and `self`
-  methods, `Dispose` (a scope-end drop is an access, decision 38 A, so the
-  drop runs while the borrow is still live), and may implement traits.
-  It may not be `Clone` of its borrows (a copy of an `imm` field is a copy
-  of the borrow; `Copy` is allowed for `imm`-only types, as for closures,
-  and the copy is second-class too).
-- Reading a borrow-mode field yields a place in the field's mode, capped
-  by the receiver's: `v.xs` through `imm(v)` is `imm` even if the field is
-  `mut`. Writing a borrow-mode field re-points it (decision 25's rule: a
-  place reached from the current one, or a fresh lend at the same root).
-- Declared storage of a borrow stays banned everywhere else: `ArrayList(View(T))`,
-  a `View(T)` field in an ordinary struct, `Rc(View(T))`, `Dyn` over a
-  non-escapable type, `Option(imm(T))` as a *declared* field type are all
-  the decision 38 A errors they are today. A non-escapable type is the one
-  way to hold a borrow in a named type, and it holds the second-classness
-  with it.
-
-### R2. Construction lends; the borrow set is the fields' union
+### R2. Construction lends; the borrow set is the components' union
 
 ```yo
 v := View(T)(xs : &xs, lo : lo, hi : hi);        // lends xs for v's life
-e := map.entry(k);                                // lends map (mut) for e's life
+e := map.entry(k);                                // lends map (&mut) for e's life
 ```
 
-- A borrow-mode field is initialized with a sigiled argument (decision 33),
-  or with a place already in the right mode (a parameter, a local borrow,
-  another non-escapable value's field). The value's borrow set is the
-  union of its fields' borrow sets, transitively (38 A), and every source
-  stays frozen until the value's last use (decision 18). A `mut` field
-  conflicts with every other access to its root while the value is live,
-  as a `mut` local borrow does (E0911).
-- The value is a local, an argument, a block or arm result, or an `=`
-  target under the existing "may not outlive any place its value borrows"
-  rule. It is not stored (R1) and not captured by an escaping closure.
+A `&` component is initialized with a sigiled argument (decision 33) or
+with a reference already in hand. The value's borrow set is the union of
+its components' sets, transitively (decision 38 A), and every source stays
+frozen until the value's last use (decision 18). A `&mut` component
+conflicts with every other access to its root while the value is live
+(E0911). Re-assigning the value follows decision 25.
 
-### R3. A function returns a non-escapable value only with a single, inferred root
+### R3. A function returns a reference-holding value only with a single, inferred root
 
-This is A2, verbatim, for every non-escapable type:
+§3.13 A2, verbatim, for every type:
 
-- A function may return a non-escapable value iff every place in its
-  borrow set is rooted at the function's own `imm`/`mut` parameters (or
-  at `self` in those modes). A borrow of a local, a temporary, a
-  module-level root or a by-value parameter in the result is a compile
-  error at the `return`, naming the place.
-- **The dependency is inferred, never named.** With one `imm`/`mut`
-  parameter of non-`Copy` type, the result depends on it. With several,
-  the result depends on **all of them** unless the signature narrows it
-  with a `depends(...)` clause, written like the contract clauses:
+- A function may return a reference-holding value iff every place in its
+  borrow set is rooted at the function's own `&`/`&mut` parameters (or
+  `self` in those modes). A borrow of a local, a temporary, a module-level
+  root or a by-value parameter in the result is a compile error at the
+  `return`, naming the place.
+- **The dependency is inferred, never named.** With one reference
+  parameter, the result depends on it. With several it depends on **all
+  of them** unless a `depends(...)` clause, written like the contract
+  clauses, narrows it:
 
 ```yo
-slice :: (fn(imm(xs) : ArrayList(T), lo : usize, hi : usize) -> View(T))(...);   // depends on xs, inferred
-longest :: (fn(imm(a) : ArrayList(u8), imm(b) : ArrayList(u8)) -> View(u8))(...); // depends on a AND b
-pick :: (fn(imm(a) : ArrayList(u8), imm(b) : ArrayList(u8), depends(a)) -> View(u8))(...); // narrowed; returning a view of b is an error
+slice :: (fn(xs : &ArrayList(T), lo : usize, hi : usize) -> View(T))(...);              // depends on xs, inferred
+longest :: (fn(a : &ArrayList(u8), b : &ArrayList(u8)) -> View(u8))(...);               // depends on a AND b
+pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(a)) -> View(u8))(...);      // narrowed: a view of b is an error
 ```
 
 - At the call site the result borrows the argument places lent to the
-  parameters it depends on, in their modes, and decision 38 A's transitive
-  freeze holds them until the result's last use. This is the caller-side
-  mapping A2 already specifies.
-- The body is checked against the clause: a `return` whose borrow set
-  reaches a parameter not in `depends` is the error above. The clause is
-  part of the type for `Impl`/`Dyn` purposes (a function value returning a
-  non-escapable type carries it).
-- **Result types may be composites over borrows** when the function is an
-  R3 function: `-> Option(imm(T))`, `-> (View(T), usize)`. Decision 38 A
-  already makes `.Some(f)` a legal second-class *value*; this lets the
-  signature say so. The *declared storage* ban of R1 is unchanged — the
-  same `Option(imm(T))` as a field type is still an error. (Decision 39's
-  sentence "`Option(imm(T))` is a borrow in a type-constructor argument"
-  is narrowed to field and element positions by this rule.)
+  parameters it depends on, in their modes, frozen until the result's
+  last use (A2's caller-side mapping). The clause is part of the type for
+  `Impl`/`Dyn` purposes. Result types may be composites over references
+  (`-> Option(&T)`, `-> (View(T), usize)`, `-> Result((View(u8), T), E)`).
 
-### R4. The stateful call, for the one method that needs it
+### R4. Methods and iterators
 
-**Amended 2026-10-10:** for closures the stateful call is `FnMut`
-(decision 37's amendment of the same day, landing with decision 43); for
-a named type it is an ordinary `self : &mut Self` method, as below.
+A reference-holding type has ordinary `&Self`, `&mut Self` and `Self`
+methods, `Dispose` (the scope-end drop is an access, decision 38 A, so a
+guard's `dispose` runs while its borrow is live), and trait impls. A
+borrowing iterator is `iter(self : &Self) -> Cursor(T)` (R3, root `self`)
+with `next(self : &mut Self) -> Option(&T)`; the borrowed `for(&xs, …)`
+dispatches through `impl(&C, IntoIterator(…))`, Rust's shape
+(`issues/questions/borrowed-for-over-user-defined-collections.md`). A
+closure that writes a `&mut` capture is a `FnMut` (decision 37).
 
-A borrowing iterator advances its own index: `next(mut(self)) -> Option(imm(T))`.
-That is the `mut(self)` receiver on a call that decision 37 parked
-("added the way Hylo has it, not as a third trait"), and nothing else
-here needs it. It is one of decision 30's three receiver modes applied to
-a call; its spelling in a *type* (`Impl(Fn(...))` with a `mut` receiver)
-is chosen when decision 37 lands, together with this note.
+### R5. Roots through `Rc`/`Arc`
 
-Without R4, views and the entry API still land (they need only
-projections and `imm(self)`); only the `Iterator`-trait form of borrowing
-iteration waits. The borrowed `for` over a non-escapable collection needs
-no iterator value at all (`issues/questions/borrowed-for-over-user-defined-collections.md`,
-option 2: `len` plus `Index` projections).
+A `&` component whose place crosses an `Rc`/`Arc` deref is allowed only
+through the pin the borrowed `for` uses (§3.10: the cell's guard held for
+the value's life), never `&mut` across a suspension; an `Arc` root follows
+§3.8's `Sync` rules. The default root is a value place. A `RefCell(T)` root
+is a `with`/`with_mut` body, never a component (the dynamic borrow is
+call-scoped, decision 41).
 
-### R7. Root-joining containers — `ArrayList(&T)` and every buffer over a `&` (decision 43)
+### R6. Async and threads
+
+A reference-holding value is not `Send` (decision 38 E) and cannot be
+spawned or captured by an `io.async` body except under A2's own rules. It
+may be held across an `await` only when its roots may be (A2's
+`Rc`-crossing errors apply).
+
+### R7. Root-joining containers — `ArrayList(&T)` and every buffer over a `&`
 
 A buffer container instantiated over a `&` is legal and second-class, and
-unlike a struct (R2) its borrow set is not fixed at construction: it
-**grows**. The conservative rule, needing no names: every `&` lent into a
+unlike a struct (R2) its borrow set **grows**. Every `&` lent into a
 `&mut self` method of the container (`push`, `insert`, `extend`, `set`, an
 `Index` place write) joins the container's roots for the rest of its life;
-a `&self` method joins nothing. A `depends` clause on the method narrows
-it (`push(self : &mut Self, v : &T, depends(self : v))` says only `v`
-flows in; a `&mut self` method with no `&` parameter joins nothing by
-construction). Returning the container is R3 over the joined set:
+a `&self` method joins nothing; a `depends` clause on the method narrows it
+(`push(self : &mut Self, v : &T, depends(self : v))` says only `v` flows
+in). Joined roots keep their mode: a `&mut x` pushed in freezes `x`
+exclusively for the container's live range, so a second `&mut x` or a read
+of `x` while it lives is E0911; a `&x` freezes `x` against writes only.
+Returning the container is R3 over the joined set:
 
 ```yo
-// View(u8) is L1's second-class view into the String's bytes. `str` itself is
-// the first-class Copy view of STATIC bytes and never takes `&`:
-// `(x : str) = "Hi";` and `ArrayList(str)` are ordinary first-class values.
+// View(u8) is the L1 view into the String's bytes. `str` itself is the first-class
+// Copy view of STATIC bytes and never takes `&`: `(x : str) = "Hi";` and
+// `ArrayList(str)` are ordinary first-class values.
 words :: (fn(self : &Doc) -> ArrayList(View(u8)))({
   out := ArrayList(View(u8)).new();
   for(&self.word_ranges(), r => { out.push(self.text.view(r)); });   // every root is self
@@ -284,203 +190,130 @@ words :: (fn(self : &Doc) -> ArrayList(View(u8)))({
 ```
 
 - Growth and reallocation are irrelevant to soundness: the elements are
-  pointers and the roots are frozen (`&`) or exclusively borrowed
-  (`&mut`) for the container's life; a conflicting access to a root is
-  the E0911 any live borrow produces; a container of `&mut T` to one root
-  is rejected at the second push (two exclusive borrows of one place).
-- Elements rooted through an `Rc`/`Arc` deref are rejected in a container
-  (R5's pin is per value, and one pin per element is not taken); a cell
-  never holds such a container (`Rc(ArrayList(&T))` is E0909).
-- A struct holding such a container is non-escapable by the structural
-  rule; `HashMap(&K, V)` follows the same rule with `insert` joining the
-  key's root.
+  pointers and the roots are frozen or exclusively borrowed for the
+  container's life.
+- Elements rooted through an `Rc`/`Arc` deref are rejected (R5's pin is
+  per value); a cell never holds such a container (`Rc(ArrayList(&T))` is
+  E0909). A struct holding one is second-class by the structural rule.
+- **The tracker is new** (the VBD implementer's review): the closures'
+  capture-borrow sets (`g_capture_borrows`, keyed by the capture struct's
+  type id) cannot carry it, since two `ArrayList(&T)` values share one type
+  with different roots. Root-joining is a per-value borrow set on the
+  binding — the single local-borrow root `VariableRare.inout_borrow_root_id`
+  keeps today, extended to a set of `(root, mode)` pairs — joined at each
+  `&mut self` call that receives a `&` argument, unioned over reaching
+  definitions at control-flow joins, read by the freeze and exclusivity
+  checks. Flow-sensitive and intraprocedural.
 - Codegen: a buffer of `const T*` / `T*`, no count traffic, no element
-  drops, `restrict`-eligible on `&mut` elements only when the roots are
-  provably distinct (CP1a's rule).
-
-### R5. Roots through `Rc`/`Arc`
-
-A2's rule carries over: a borrow-mode field whose place crosses an
-`Rc`/`Arc` deref is allowed only through the pin the borrowed `for` uses
-(§3.10: the cell's guard held for the value's life), and never `mut`
-across a suspension; an `Arc` root follows the same `Sync` rules as an
-`imm` lend through it (§3.8). The default root is a value place. A
-`RefCell(T)` root is a `with`/`with_mut` body, never a field (the
-dynamic borrow is call-scoped by decision 41).
-
-### R6. Async and threads
-
-A non-escapable value is not `Send` (a borrow never is, decision 38 E) and
-cannot be spawned or captured by an `io.async` body except under A2's own
-rules (a future holding it is a borrowing future). It may be held across
-an `await` only when its roots may be (A2's `Rc`-crossing errors apply).
-
-### Spelling — decision 42 (2026-10-10)
-
-The maintainer decided, after this note put modes into field and result
-slots, that the mode is written as Rust writes it: `x : &T` / `x : &mut T`
-in every slot, `self : &Self`, `-> &T`, `f : &T`, `Borrowed(&String)`,
-`Option(&T)`, `(&ArrayList(T), usize)`, `Array(&T, N)`, capture lists
-`{ y : &y }`, locals `y := &place`, and `for(&mut xs, x => …)`. The full
-table and the two-generation rollout are
-[`VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md) decision 42. The rules
-R1–R6 above are unchanged by it; read every `imm(f) : T` in them as
-`f : &T` and every `mut(f) : T` as `f : &mut T`. What the spelling does
-NOT change: `&T` is still a slot-attached mode, never a nameable or
-nestable type, never a buffer element or a cell payload (the inline rule);
-decision 24's projection `-> &T` and an R3 result are one mechanism.
-Decision 42's completion bullet (2026-10-10) deletes `imm` and the
-`mut(…)` form outright in Generation B — `mut` survives only inside
-`&mut` and becomes reserved — so nothing in this note ever needs the
-call-like forms; R1's field spelling is `f : &T` from the start.
-
-**Review notes on decision 42 (2026-10-10, the VBD implementer, under the
-maintainer's 2026-10-09 delegation; recorded in full in decision 42):**
-
-1. **A plain `for(xs, x => …)` consumes `xs`.** Once the borrowed walk is
-   `for(&xs, …)` / `for(&mut xs, …)`, a bare source is by value, as a bare
-   argument is (decision 33) and as Rust's `for x in xs` is: the loop takes
-   `xs`, each element moves into `x`, and a use of `xs` after the loop is
-   E0901 naming `for(&xs, …)`; a `Copy` element still copies. That is a
-   semantic change, not a respelling, so it rides decision 26's
-   consuming-`match` work and its scrutinee sweep: Generation A rewrites
-   every existing `for(xs, …)` whose source is used afterwards (or is a
-   module-level or projection place) to `for(&xs, …)` before the bare
-   form starts consuming. For this note: a `for` over a non-escapable
-   value (a view) is `for(&v, …)`; a bare `for(v, …)` consumes the view,
-   which is legal (it is a `Copy` or a move of a second-class value) and
-   leaves the roots frozen until the loop's last use.
-2. **Ordering.** Generation A of the respelling needs V3b step 3 first:
-   until it lands, `y := &place` in a binding is the raw-pointer address-of
-   (`addr_of`'s old spelling), so the local-borrow row cannot take that
-   spelling earlier. The same ordering binds N1 here, whose `View` values
-   are built with `&xs`.
-3. **Writes versus re-points.** With a local borrow `cur`, `cur = v`
-   writes `v` through the borrow into the lent place, and
-   `cur = &mut place` (or `y = &place`) re-points it (decision 25). The
-   sigil on the right decides; a bare right-hand side never re-points.
-   For R1's borrow-mode fields the same rule applies to a field write:
-   `v.xs = &other` re-points the field, `v.xs = ys` is a write through it
-   (and a type error unless the field is `&mut`).
+  drops.
 
 ## 3. What it unlocks, mapped to the catalog
 
-| Catalog gap | With this note | Rust / Swift equivalent |
+| Catalog gap | Now | Rust / Swift equivalent |
 | --- | --- | --- |
-| §2.4 sub-range arguments, `RUST_ADOPTION_CANDIDATES.md` L1 | `View(T)` (or a builtin `[T]` spelled over it): `imm(xs)` + range, zero-copy, `len` + `Index` projections, a `for` source | `&[T]`, Swift `Span` |
-| §2.2 `fn words(&self) -> Vec<&str>` | still a `ArrayList(Range(usize))` — a *list* of views is declared storage (R1) | — (Rust allows it; Yo does not, by design) |
-| §5.1 borrowing iterators, adapter chains over a borrowed container | `iter(imm(self)) -> Cursor(T)` (R3, root `self`), `next(mut(self)) -> Option(imm(T))` (R4), adapters as non-escapable structs holding the cursor by value | `impl Iterator<Item = &T> + 'a` |
-| §4.5 the entry API | `entry(mut(self), k) -> Entry(K, V)` (R3), `or_insert(self, v) -> mut(V)` (decision 24) | `Entry<'a, K, V>` |
-| §3.2 guards | `lock(mut(self)) -> LockGuard(T)` with `Dispose` unlocking; `with_lock` stays the recommended form | `MutexGuard<'a, T>`, `RefMut` (the latter stays closure/projection-shaped, decision 41) |
-| §3.5 sinks | `Serializer :: struct(mut(out) : StringBuilder, depth : usize)` | `Serializer<'a, W>` |
-| §4.4 `Cow` | `StrArg :: enum(Borrowed(imm(String)), Owned(String))` | `Cow<'a, str>` |
+| §2.4 sub-range arguments, `RUST_ADOPTION_CANDIDATES.md` L1 | `View(T)` (or a builtin `[T]` over it): `&xs` + range, zero-copy, `len` + `Index` projections, a `for` source | `&[T]`, Swift `Span` |
+| §2.2 `fn words(&self) -> Vec<&str>` | `words(self : &Doc) -> ArrayList(View(u8))` (R7, root `self`), pass-local | `Vec<&'a str>` |
+| §5.1 borrowing iterators, adapter chains over a borrowed container | `iter(self : &Self) -> Cursor(T)`, `next(self : &mut Self) -> Option(&T)`, adapters as inline structs holding the cursor; `impl(&C, IntoIterator)` for the `for` | `impl Iterator<Item = &T> + 'a` |
+| §4.5 the entry API | `entry(self : &mut Self, k) -> Entry(K, V)` (R3), `or_insert(self, v) -> &mut V` | `Entry<'a, K, V>` |
+| §3.2 guards | `lock(self : &mut Self) -> LockGuard(T)` with `Dispose` unlocking; `with_lock` stays the recommended form | `MutexGuard<'a, T>` |
+| §3.5 sinks | `Serializer :: struct(out : &mut StringBuilder, depth : usize)` | `Serializer<'a, W>` |
+| §4.4 `Cow` | `StrArg :: enum(Borrowed(&String), Owned(String))` | `Cow<'a, str>` |
 | §2.4 parser remainders | `-> (View(u8), T)` (R3) | nom's `IResult<&str, T>` |
-| §3.4 two-phase loans | `begin(mut(self)) -> Txn(S)` holding `mut(store)` | `Loan<'a>` |
+| §3.4 two-phase loans | `begin(self : &mut Self) -> Txn(S)` holding `store : &mut Store` | `Loan<'a>` |
 
-Not unlocked, on purpose: a **collection of views** (R1), a view stored
-in a long-lived struct, a view in a `Dyn`, a view across threads. Those
-are exactly the shapes Rust needs named lifetimes for, and they keep
-their catalog answers (indices, `Rc`, ownership).
+Not unlocked, on purpose: a reference kept beyond its roots' frame with
+more than one independent root, a reference in a cell or a `Dyn`, a
+reference across threads — the shapes Rust needs named lifetimes for; they
+keep their catalog answers (`RUST_REFERENCE_PATTERNS.md` §14).
 
 ## 4. What it costs
 
-- **Evaluator.** A third borrow holder: the struct's borrow set computed
-  at construction (R2), threaded through the existing transitive-freeze
-  and last-use machinery; the R3 return check and the `depends` clause
-  (a signature clause like `ensures`, parsed by the same path); field
-  reads capped by the receiver mode (R1); the declared-storage check
-  extended to "contains a non-escapable type" (it already runs per
-  instantiation for closure types, 38 A).
-- **Codegen.** A non-escapable struct lowers to a plain C struct whose
-  borrow-mode fields are pointers (`const T*` / `T*`), exactly `RawSlice`'s
-  shape; no count traffic, no header. `mut` fields are `restrict`
-  candidates under CODEGEN_PERFORMANCE CP1a.
-- **Verifier.** A view carries `len`; `index-in-bounds` obligations on
-  `v(i)` are the same sited guards as on `xs(i)`; a non-escapable value
-  with `imm` fields only is pure.
-- **Seed gating.** New field syntax the seed never sees in `std` until
-  `SEED_VERSION` carries it: Generation A lands the rules and a user-level
-  test corpus; Generation B converts std's `slice`, `iter`, `entry`.
-- **Docs.** The catalog's §5.1, §4.5, §3.2 and §2.4 are rewritten; the
-  two parked decisions get their dated resolution; decision 38 A's
-  type-position bullet and decision 39's `Option(imm(T))` sentence get
-  their dated amendments (R1's inline rule, R3's result-type rule).
+- **Evaluator.** A `TypeValue` reference variant replacing the slot flags
+  (`param_is_ref`, `call_param_is_ref`/`is_owning` in `FnTraitT`,
+  `FuncParam` modes) through the evaluator, the specializer, the verifier
+  encoding and codegen — the largest refactor in the plan; the per-value
+  borrow-set tracker (R7); the R3 return check and the `depends` clause
+  (parsed with the contract clauses); the inline rule's declared-storage
+  check; `FnMut` (decision 37).
+- **Codegen.** A reference is a `const T*` / `T*`; a reference-holding
+  struct is a plain C struct of pointers, `RawSlice`'s shape; no count
+  traffic, no header. `&mut` components are `restrict` candidates under
+  CODEGEN_PERFORMANCE CP1a.
+- **Verifier.** A `&T` parameter is a lent, unchanged place; a bound `&T`
+  local an alias of its root; a view carries `len` and the same
+  `index-in-bounds` obligations as its container; containers of
+  references are outside the subset until modelled.
+- **Seed gating.** New syntax the seed never sees: Generation A lands the
+  types, the rules and the test corpus in user code; Generation B converts
+  std (`slice`, `iter`, `entry`, the `FnMut` slots) on the next seed.
+- **Docs.** The catalog's §2.2, §2.4, §3.2, §4.5, §5.1 are rewritten with
+  the phase; decision 38 A's type-position bullet, decision 24 and decision
+  39 already carry the final rule.
 
 ## 5. Soundness argument
 
-Every non-escapable value is a closure capture record with a name. The
-borrow set, the freeze until last use, the no-escape positions, the
-overlap rules and the A2 caller-side mapping are all the rules closures
-and futures already obey, applied to one more holder. The three new
-places a borrow could escape, and what stops it:
+Every reference-holding value is a closure capture record with a name. The
+borrow set, the freeze until last use, the no-escape positions, the overlap
+rules and A2's caller-side mapping are the rules closures and futures
+already obey. The places a reference could escape, and what stops it:
 
-1. **Through a return** — R3 refuses any root that is not a parameter;
-   the caller then freezes the argument places (A2's clarified mapping).
-2. **Through a field write** — a borrow-mode field is re-pointed under
-   decision 25, which already forbids pointing at a shorter-lived place.
-3. **Through storage** — R1 keeps the declared-storage ban; a composite
-   *value* over a view is second-class and cannot be stored either.
+1. **Through a return** — R3 refuses any root that is not a parameter; the
+   caller freezes the argument places.
+2. **Through a component write** — a re-point follows decision 25, which
+   forbids pointing at a shorter-lived place.
+3. **Through storage** — the inline rule keeps cells and `Dyn` payloads
+   reference-free; a container's roots grow with what flows in (R7).
+4. **Through a copy** — an all-`&` value's copies carry the same roots; a
+   `&mut`-holding value is move-only.
 
-Negative tests, written before the rules land (the same discipline as
-decision 38's audit): return a view of a local; return a view of the
-wrong parameter under `depends`; store a view in a list; capture a view
-in an escaping closure; spawn one; re-point a field to a temporary; a
-`mut` view and a `push` on its root in one expression; a view through an
-`Rc` without the pin; a `Dyn` over a non-escapable type. For enums: store
-a `StrArg` whose live value is `.Owned` (the type decides); move a
-`.Borrowed` payload out of a consumed scrutinee; return a `.Some(&local)`;
-`derive(Copy)` on an enum with a `mut` payload; an `Option(imm(T))` field.
-For the inline rule: `ArrayList(View(T))`, `Box(View(T))`,
-`Rc((imm(T), usize))`, `Dyn` over a tuple with a borrow — all errors;
-and the positive controls that must compile: a local
-`Array(imm(T), 3)` from three lends, `(a, n) := t` re-borrowing, a
-`-> Result((View(u8), T), E)` result, `f(&v)` into `imm(v) : View(T)`,
-and `f(v)` by value rejected.
+**The negative-test corpus, written before the rules land:** return a view
+of a local; return a view of the wrong parameter under `depends`; store a
+view in a cell (`Rc(View(T))`, `Box(View(T))`); a `Dyn` over a tuple with a
+reference; capture a view in an escaping closure; spawn one; re-point a
+component to a temporary; a `&mut` view and a `push` on its root in one
+expression; a view through an `Rc` without the pin; store a `StrArg` whose
+live value is `.Owned` in a cell; move a `.Borrowed` payload out of a
+consumed scrutinee; return `.Some(&local)`; `derive(Copy)` on an enum with
+a `&mut` payload; `ArrayList(&mut T)` with two pushes of one root (E0911);
+a read of `x` while `ArrayList(&mut T)` holding `&mut x` lives; a return
+of a container with a non-parameter root; an `Rc`-rooted element in a
+container; a `&mut T` through a `&` path written (error). Positive
+controls: a local `Array(&T, 3)` from three lends; `(a, n) := t`
+re-borrowing; `-> Result((View(u8), T), E)`; `f(v)` copying an all-`&`
+view; `words`.
 
 ## 6. Alternatives considered
 
 | Alternative | Why not |
 | --- | --- |
-| Rust's lifetimes (`'a` in types and signatures) | named lifetimes are the annotation burden and the error-at-a-distance this project rejected (ROADMAP non-goals, decision 30); every shape in §3 is covered without a name because the root is a parameter |
-| Mojo's origins (`ref [origin]`, parametric) | origins are named lifetimes with inference; the inferred half is R3, the named half is what §3's "not unlocked" row refuses |
-| first-class `&T` as a type with escape analysis instead of names | an escape analysis across calls is the lifetime system again, implicit; A2's single-root rule is the part that stays intraprocedural |
-| generational references (Vale) or a region system (Cyclone, Austral) | a different memory model; Yo's is settled (unique buffers, `Rc`, the collector) |
-| keep only `Rc`/indices/closures | the measured copies and the catalogued gaps; this note exists because those answers are heavy exactly where std is hot |
-| multiple named roots (`depends(a)` + `depends(b)` as distinct lifetimes) | "depends on all of them" is the conservative order-free rule; distinguishing roots is naming them |
+| Rust's lifetimes (`'a` in types and signatures) | the annotation burden and the error-at-a-distance this project rejected (ROADMAP non-goals); every shape in §3 is covered without a name because the root is a parameter |
+| Mojo's origins (`ref [origin]`, parametric) | named lifetimes with inference; the inferred half is R3, the named half is what §3's "not unlocked" refuses |
+| Austral's regions and linear types | regions are lexical names; linear "use exactly once" is heavier than Yo's affine moves plus `Dispose`, and ATS A2's must-use covers the useful part |
+| references as modes only (the pre-decision-43 design) | correct but confusing (a mode written in a type slot that is not a type) and it blocks `impl(&T, …)` and `FnMut`; the maintainer chose types |
+| keep only `Rc`/indices/closures | the measured copies and the catalogued gaps |
+| multiple named roots | "depends on all of them" is the conservative order-free rule; distinguishing roots is naming them |
 
 ## 7. Open questions, with positions
 
-- **`[T]` as a builtin or `View(T)` in std.** Position: std first
-  (`View(T)` over `ArrayList`/`Array`/`String`), the builtin spelling only
-  if the verifier or codegen needs a primitive. Decided in L1's PR.
+- **`[T]` as a builtin or `View(T)` in std.** Position: std first, the
+  builtin spelling only if the verifier or codegen needs a primitive.
+  Decided in L1's PR. Related: whether `str` becomes the view of an owned
+  `String`'s bytes in borrow position (L1).
 - **`depends` spelling.** Position: a signature clause beside
-  `requires`/`ensures`, since it is a property of the function the caller
-  must know and `yo doc` must print.
-- **Whether `Dispose` on a non-escapable type may observe its borrows.**
-  Position: yes, the scope-end drop is an access (38 A), which is what a
-  guard needs.
-- **Whether a non-escapable value may be a `match` scrutinee by value.**
+  `requires`/`ensures`, since the caller must know it and `yo doc` must
+  print it.
+- **Whether a `&`-holding value may be a `match` scrutinee by value.**
   Position: yes, decision 26's by-value match consumes it; bindings borrow
   through it.
-- **The `Option(imm(T))` result rule's effect on decision 39's wording.**
-  Position: amend decision 39 to "declared storage" when this lands;
-  nothing else there changes.
 
-## 8. Triggers and phases
-
-**Not before:** V3b Generation B (the modes are final) and V2b (the
-collections are values; a view of a counted buffer would need the pin
-everywhere). **Triggers**, any one of which opens the design: decision
-39's (adapter chains over borrowed containers proving common enough that
-`for` bodies and `indices()` are a burden); L1's (the count of
-`slice`/`arr(a..b)` copies that exist only to pass a window);
-the entry-API question resolving toward an `Entry` value.
+## 8. Phases
 
 | Phase | Lands | Gate |
 | --- | --- | --- |
-| N0 | this note promoted to `plans/`, the negative-test corpus written and failing | the tests fail for the right reason |
-| N1 | R1–R3 in the evaluator, codegen of borrow-mode fields, `depends`; `View(T)` in std as the first consumer (Generation A: user code only) | the corpus, the fast suite, fixpoint |
-| N2 | R4 (the stateful call, decision 37) and `iter()` on std's containers; adapter chains | decision 39's test requirement (growth mid-walk is a compile error for value roots, the pin panic for `Rc` roots) |
-| N3 | the entry API, guards, parser remainders in std (Generation B, on the next seed) | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
+| N0 | the negative-test corpus written and failing | the tests fail for the right reason |
+| N1 | the `TypeValue` reference variant, R1–R3, `.*`/auto-deref/auto-borrow, `impl(&T, …)`, `depends`, `FnMut`; `View(T)` in std as the first consumer (Generation A: user code only) | the corpus, the fast suite, fixpoint |
+| N2 | R7's per-value tracker; `iter()` on std's containers; adapter chains; `impl(&C, IntoIterator)` | decision 39's test requirement (growth mid-walk is a compile error for value roots, the pin panic for `Rc` roots) |
+| N3 | the entry API, guards, parser remainders, the `FnMut` slots in std (Generation B, on the next seed) | the catalog's rewritten sections; CP0's rows for `slice` and `sort` |
 
-Each phase is one PR or one stack with one battery, per AGENTS.md.
+After decision 42's Generation B and V2b; each phase is one PR or one
+stack with one battery, per AGENTS.md.

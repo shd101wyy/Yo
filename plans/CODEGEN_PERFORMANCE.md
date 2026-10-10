@@ -168,11 +168,7 @@ the instruction that stopped the vectorizer.
 - **`push` is 1.9× C, and the emitted C says why** (per push, i32 element):
   two `__yo_borrow_assert_unborrowed` loads-and-branches (`push` and the
   `try_push` it calls both assert), a `capacity()` call, the `_ptr` null
-  branch, a dead load of the slot's old value before the store (the
-  assignment's "save old value" pattern on a `Copy` slot; checked
-  2026-10-10: clang -O2 deletes it even under `-fno-strict-aliasing`, so it
-  costs C text, not run time), a checked
-  `_length + 1`, a `Result` tag switch — and then **the Phase-0 contract**:
+  branch, a checked `_length + 1`, a `Result` tag switch — and then **the Phase-0 contract**:
   `ensures(self.len() == old(self.len()) + usize(1))` is lowered to a runtime
   assert in every build, `assumed()` or not, which is two more `len()`
   calls, a checked add and an abort branch. Rust's `push` is a capacity
@@ -379,166 +375,83 @@ second branch per access in every non-hoistable shape — a one-line std
 fix, independent of this phase). Measure a store-heavy workload before
 spending the lowering.
 
-### CP2c. `Rc` write-assert elision by mutation summary
+### CP2c. Which `Rc(T)` writes compile — the static exclusivity verdict
 
-The write-site assert (§3.10's V1 form) is skippable where no conflicting
-mark can be live: a function-local handle with no borrows in scope, and
-Stage-1 summaries (`src/evaluator/effects/mutation_summary.yo`) showing every
-callee between acquisition and write is read-only. The mechanism mirrors the
-summaries' existing mark-skipping; the canaries are V1's own determinism
-tests (a closure and an async body mutating a captured `Rc(ArrayList(T))`
-while a `for` borrows it must keep panicking).
+Per VALUES_BY_DEFAULT.md §3.10 (decisions 41 and 43): at every write through
+a shared handle and every mutating-method entry on a cell, the Stage-1
+mutation summaries (`src/evaluator/effects/mutation_summary.yo`) decide (a)
+proved safe — a plain write with no assert and no mark traffic; (b) proved
+conflict — a compile error; (c) undecidable — a compile error naming the
+repairs (`RefCell(T)`, `Rc.get_mut`). There is no run-time mark on a plain
+`Rc`; the mark exists only inside `RefCell(T)`. So this lever is not an
+elision: the assert on a plain `Rc` is never emitted, and what the
+summaries decide is whether the write compiles. CP0's "asserts executed"
+counter counts `RefCell` `with_mut`/`get_mut` entries, and the ratchet is
+the number of `RefCell` fields in `src/` and `std/` at V4/V5. One negative
+test per outcome (§3.10's list).
 
-**Amended 2026-10-10 (maintainer decision; VALUES_BY_DEFAULT.md §3.10):**
-the static verdict is the default and the run-time mark the fallback for the
-undecidable case only, never a replacement for a static verdict. At every
-write through a shared handle and every mutating-method entry on a cell the
-summaries yield one of three outcomes: (a) proved safe, elide the assert and
-the mark traffic (this lever); (b) proved conflict, a compile error by
-default (today's `StrictBorrow` verdict); (c) undecidable (a `Dyn`, a
-function value, a callee with no summary, an unrelated second handle), keep
-the run-time assert. `StrictBorrow` then rejects (c) too. One negative test
-per outcome; CP0's "asserts executed" counter on `check ./src` must fall
-monotonically as the summaries widen.
-
-**Amended again 2026-10-10 (decision 41, VALUES_BY_DEFAULT.md §3.10):**
-outcome (c) is a compile error as well, `StrictBorrow` is deleted, and the
-run-time mark exists only where a program spells `RefCell(T)`. So this
-lever's scope narrows to (a): the assert and mark traffic on a plain `Rc`
-are not elided, they are never emitted; what the summaries decide is
-whether a write through `Rc(T)` compiles at all. The "asserts executed"
-counter then counts `RefCell` `with_mut`/`get_mut` entries, and the ratchet
-is the number of `RefCell` fields in `src/` and `std/` at V4/V5, not a
-count of asserts the summaries could not remove.
-
-**Phase:** after §3.10's write-site emission lands (VBD lists it under V1
-"Remaining").
+**Phase:** §3.10's rollout — Generation A with V1's write-site work (the
+census, run-time assert kept for (c)); Generation B on the next seed (the
+sweep, then (c) is the error).
 
 Dead `Rc.clone()` elision needs no work here: decision 27 owns it, landing
 with V2b.
 
-### CP2d. Splitting `Rc(T)` into `Rc(RefCell(T))` — declined 2026-10-09, ADOPTED 2026-10-10
+### CP2d. `Rc(T)` versus `Rc(RefCell(T))` — adopted (decision 41, 2026-10-10)
 
-**Reversal (2026-10-10, decision 41 in VALUES_BY_DEFAULT.md).** The split
-is adopted, on a soundness ground rather than the measurement this section
-asked for: once the static exclusivity verdict is the only mode, a program
-needs a spelling for the dynamic check it genuinely wants (`Dyn` dispatch,
-unrelated handles), and putting it in the type rather than at the site is
-what makes the saving below modular — `Rc(T)` costs what Rust's `Rc<T>`
-costs by construction, with no whole-program frozen-cell pass, across static
-libraries. The frozen-cell analysis described below is therefore **not
-built**; the "per-site elision" bullet survives only as the question of
-which `Rc(T)` writes compile (CP2c). The reopen condition at the end is
-moot. The text is kept as the record of why the split was first declined
-and what it costs: the ergonomic objection (every user spells
-`RefCell` where mutation through a handle happens) was accepted by the
-maintainer as Rust's own price, and decision 21's immutable trees mean the
-compiler pays it in few places.
+A plain `Rc(T)` has no borrow flag and pays what Rust's `Rc<T>` pays: no
+header word for marks, no mark set/clear around a lend, no assert at a
+write (a write through it compiles only where CP2c's summaries prove it
+exclusive). `Rc(RefCell(T))` is spelled where mutation through a handle
+happens, and only its cell carries the marks and the `with_mut`/`get_mut`
+assert. The fact is in the type, so it is modular — it holds across static
+libraries and needs no whole-program "frozen cell" analysis — and a struct
+definition shows which fields are dynamically checked. The ergonomic price
+(every user spells `RefCell` where handle mutation happens) is Rust's own,
+and decision 21's immutable trees mean the compiler pays it in few places.
 
-The maintainer asked whether Rust's split — a plain `Rc<T>` with no borrow
-flag and `Rc<RefCell<T>>` only where mutation happens — should replace
-§3.10's one `Rc(T)` with marks in every cell header. Recorded here so the
-question is not re-opened without the measurement.
+**Measured target:** CP0's `Rc`-tree row with the mark/assert counter;
+after this lands the counter reads zero on a program with no `RefCell`.
 
-**What the marks cost today, and what a split would save.** A Yo `Rc(T)`
-costs what Rust's `Rc<RefCell<T>>` costs: the header word for the marks,
-one load-compare-branch at each write through the cell (the §3.10 assert),
-and a mark set/clear around every `imm`/`mut` lend that crosses the cell
-(decision 28's per-call marks). The only thing Rust has that is cheaper is
-`Rc<T>` with a payload nobody can mutate: no flag, no assert, and a read
-through it touches no header. That is the whole saving a split could buy;
-the write path is the same check under either spelling.
+**Phase:** V1 adds `RefCell(T)`; the header word goes with V2b.
 
-**Why not the split.** It is the cost VALUES_BY_DEFAULT chose not to pay:
-decision 4 makes a write through `Rc` a plain write with no annotation,
-§3.10 states "there is no `RefCell`", and the two together are what let the
-compiler's ~3,000 `ref` trees become `Rc(struct(...))` at V4/V5 with
-auto-dereference and no `.borrow()`/`.borrow_mut()` at every use. A split
-puts that spelling on every user, forces a payload type that is mutated in
-one place to be a `RefCell` everywhere, and duplicates the shared-cell
-semantics the plan unified (the peer session carrying the VBD phases holds
-the same position, 2026-10-09).
-
-**The same saving, statically, with no new type.** Yo emits one
-whole-program C translation, so the facts a `RefCell` spelling would carry
-in the type are already visible to codegen:
-
-- **Per-type frozen cells.** If no site in the program writes through an
-  `Rc(T)` deref for a given payload `T` (no field store, no `mut(self)`
-  call, no index place through the cell), then no mark on an `Rc(T)` cell
-  can ever conflict: emit no marks and no assert for that instantiation.
-  That is exactly Rust's `Rc<T>` cost, decided per type at codegen time
-  instead of per declaration by the user. A payload exported from a static
-  library, or reachable from `Dyn`, is conservatively "mutable" unless the
-  consumer's build proves otherwise.
-- **Per-site elision** is CP2c as designed: the write assert and the lend
-  marks go where the mutation summary proves no conflicting borrow is live.
-
-**Sequencing and the reopen condition.** Both levers sit behind V1's
-remaining item (the assert moves to the write site) and CP0's `Rc`-tree
-bench, which must add a mark/assert counter (acquires, releases, asserts
-executed on `check ./src`) so the share of time is a number. Reopen the
-split only if, after CP2c and the frozen-cell rule land, that counter
-shows mark traffic still dominating a hot path, concentrated in payload
-types that are mutated somewhere but read in the hot loop — the one case
-the static levers cannot reach.
-
-### CP2e. Collector tracking only for cells that can form a cycle (2026-10-09)
+### CP2e. Collector tracking only for cells that can form a cycle (decision 41)
 
 The maintainer's constraint: Rust-level performance **with** the cycle
 collector kept for `Rc` graphs that do form cycles. The collector's cost is
 per *tracked* cell (§0, cause 3), so the lever is the tracking predicate,
 not the algorithm.
 
-**Amended 2026-10-10 (decision 41):** with `RefCell(T)` as the only
-dynamic-write spelling, the rule below needs no whole-program write-site
-scan. In safe code a later write through a shared handle exists only inside
-a `RefCell`, `Mutex` or `RwLock`, so the predicate is a type property:
-**track a cell iff its payload reaches a `RefCell`/`Mutex`/`RwLock` that
-reaches an `Rc`.** `Dyn` and closure-capture payloads stay conservative
-(tracked unless `Acyclic` is declared), as below. The rest of this section
-— what stays tracked, the runtime, the canaries — stands; "the CP2d pass"
-in it now means this predicate.
-
 **The rule: construction-time acyclicity.** A cell can only point at values
 that existed before it was built, so a cycle through `Rc(T)` requires a
-*later* write, through a shared handle, into a field of `T`'s payload that
-reaches an `Rc`. If no site in the whole program performs such a write for
-payload type `T` — no field store, no `mut(self)` call, no index place, no
-`take`/`replace`, through an `Rc(T)` deref — then no `Rc(T)` cell is ever
-on a cycle, and it needs no registration, no buffer push on decrement, no
-mark bytes and no scan. That is the same per-type "frozen" fact CP2d
-computes for the borrow marks: one whole-program pass feeds both, and a
-frozen type's cells cost exactly what Rust's `Rc<T>` costs.
+later write, through a shared handle, into a field of `T`'s payload that
+reaches an `Rc`. In safe code such a write exists only inside a `RefCell`,
+`Mutex` or `RwLock`, so the predicate is a type property with no analysis:
+**track a cell iff its payload reaches a `RefCell`/`Mutex`/`RwLock` that
+reaches an `Rc`.** A payload with none needs no registration, no buffer
+push on decrement, no mark bytes and no scan; its cells cost exactly what
+Rust's `Rc<T>` costs.
 
-- **What stays tracked:** payload types with a shared-handle write that
-  reaches an `Rc` (parent pointers, open graphs, mutable registries), plus
-  the conservative cases — a `Dyn` payload, a closure capture record, and
-  any type reachable from them (their field writes are not enumerable per
-  type). The existing `Acyclic` trait (`std/prelude.yo`) remains the user's
-  assertion where the analysis is conservative, as `arc`'s bound today.
+- **What stays tracked:** payloads reaching one of those cells that reaches
+  an `Rc` (parent pointers, open graphs, mutable registries), plus the
+  conservative cases — a `Dyn` payload, a closure capture record, and any
+  type reachable from them (their field writes are not enumerable per
+  type). The `Acyclic` trait (`std/prelude.yo`) remains the user's
+  assertion where the predicate is conservative, as `arc`'s bound today.
 - **What changes in the runtime:** nothing. The Bacon-Rajan buffered
   decrement and the allocation-driven full scan
   (`src/codegen/functions/gc_runtime.yo`) keep their shape for the tracked
-  set; `__yo_gc_register` is simply not emitted for frozen types' cells.
+  set; `__yo_gc_register` is simply not emitted for untracked types' cells.
   `tracked_count()` (`std/gc`) reports the smaller set.
-- **Why it is sound without mutation summaries:** the fact is a syntactic
-  whole-program property of the emitted program (is there any write site
-  of that shape), not a flow property; chunked emission computes it once
-  in the evaluator before splitting, as CP2d does. A static library
-  exporting `Rc(T)` treats `T` as mutable unless the consumer's build
-  proves otherwise.
 - **Canaries:** the move-formed-cycle reproducer recorded in
   `issues/fixed/yo-gc-full-heap-scan-bottleneck.md` and the cycle-collection
   language tests (`tests/cycle_collection*.test.yo`) must keep passing for a
-  tracked type, and a frozen type's
-  cells must show zero registrations in CP0's counter; a type that becomes
-  writable through a handle in one new site must flip back to tracked (a
-  negative test per write shape).
+  tracked type; an untracked type's cells must show zero registrations in
+  CP0's counter; a type that gains a `RefCell` field must flip to tracked.
 
-**Phase:** with CP2d — the same pass — after V1's write-site assert and
-CP0's counters. Expected to be the largest collector-side win for the
-compiler's own trees (V4 makes every tree node an `Rc` cell).
+**Phase:** with CP2d (`RefCell(T)` is the predicate's input), after CP0's
+counters. Expected to be the largest collector-side win for the compiler's
+own trees (V4 makes every tree node an `Rc` cell, almost all immutable).
 
 ### CP2f. A range pass for overflow and index guards, without the solver (2026-10-09)
 
@@ -656,9 +569,9 @@ UBSan language suite. One PR per phase, or a stack with one battery.
 | CP1a (`restrict`) | V3b Generation B flip; UBSan canaries | after V3b |
 | CP2a (5b) | its own backlog designs | as designed |
 | CP2b (`for` lowering) | V2b | after V2b |
-| CP2c (which `Rc(T)` writes compile; marks only inside `RefCell`) | §3.10's V1 write-site work, decision 41 | with V1's remainder |
-| CP2d (`Rc(RefCell(T))` split — adopted 2026-10-10; no frozen-cell pass) | V1 adds `RefCell(T)`; the header word goes with V2b | with V1 / V2b |
-| CP2e (collector tracking by the `RefCell`/`Mutex`/`RwLock`-reach predicate) | CP2d's type; CP0's registration counter | with CP2d |
+| CP2c (which `Rc(T)` writes compile; marks only inside `RefCell`) | §3.10's rollout (Generation A with V1, Generation B on the next seed) | with V1's remainder |
+| CP2d (`Rc(T)` markless, `Rc(RefCell(T))` where handle mutation happens) | V1 adds `RefCell(T)`; the header word goes with V2b | with V1 / V2b |
+| CP2e (collector tracking by the `RefCell`/`Mutex`/`RwLock`-reach predicate) | `RefCell(T)`; CP0's registration counter | with CP2d |
 | CP2f (range pass for overflow/index guards) | CP0's guard counters | **first after CP0** (2026-10-10: the measured 5.7×/7× integer-loop gap); independent of VBD |
 | CP2g (erase proved std contracts in every build) | CP0's assert counter; a §7 ruling on 5b's recommendation 1 | after CP0; independent of VBD |
 | CP2h (std sort in place) | V2b unique buffers | after V2b |

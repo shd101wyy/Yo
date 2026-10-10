@@ -22,10 +22,10 @@ against.
 1. **Only behind `Rc`/`Arc`.** `RefCell(T)` is accepted as the payload of
    a handle (`Rc(RefCell(T))`, `Box(RefCell(T))`) and rejected as a field
    of a value type or a local. `imm` keeps meaning unchanged everywhere;
-   a cache behind `imm(self)` must become `Rc(RefCell(C))`, one more
+   a cache behind `self : &Self` must become `Rc(RefCell(C))`, one more
    allocation and count per such field.
 2. **Anywhere, verifier-excluded.** A `RefCell` may be a field of any
-   type or a local. `imm(x) : T` means "unchanged" only when `T` reaches
+   type or a local. `x : &T` means "unchanged" only when `T` reaches
    no `RefCell`; the verifier treats a `RefCell`-reaching value as outside
    its subset (as it treats `Rc` today), and the mutation summaries record
    a `RefCell` `with_mut`/`get_mut` as a write to that cell (so decision
@@ -40,9 +40,9 @@ against.
 Option 2. It is Rust's rule, it costs the verifier nothing it does not
 already pay for `Rc`, and the summaries already model writes to places —
 a `with_mut` is one more write site. Option 1 forces an allocation for a
-cache behind `imm(self)`, the commonest `RefCell`-in-a-value shape, which
+cache behind `self : &Self`, the commonest `RefCell`-in-a-value shape, which
 is exactly the hidden cost the plan removes elsewhere. The docs must state
 the consequence plainly: `imm` is a promise about the lender's view, and a
 `RefCell` field is where that promise is explicitly waived. Decide with
-V1's `RefCell` PR; the test is an `imm(self)` method that writes a
+V1's `RefCell` PR; the test is an `self : &Self` method that writes a
 `RefCell` field and a verifier case that excludes it.

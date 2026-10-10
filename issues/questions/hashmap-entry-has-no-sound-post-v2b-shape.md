@@ -1,4 +1,4 @@
-# `HashMapEntry` stores a loan of its map and has no sound post-V2b shape (OPEN-DESIGN)
+# `HashMapEntry` stores a loan of its map: its post-V2b shape (OPEN-DESIGN, answered by decision 43)
 
 **Kind:** design question — an open decision, not a defect. Filed 2026-10-10
 from the `plans/backlog/RUST_REFERENCE_PATTERNS.md` audit (§4.5), verdict
@@ -19,9 +19,9 @@ HashMapEntry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 `_map` is a stored loan of the map. It is sound today only because `HashMap`
 is still a counted handle. Under VALUES_BY_DEFAULT:
 
-- decision 38 A forbids a borrow in a field, so `imm(_map)` / `mut(_map)`
+- decision 38 A forbids a borrow in a field, so `_map : &mut HashMap(K, V)`
   cannot be spelled there;
-- decision 24's projections (`-> mut(T)`) may not be bound, stored or
+- decision 24's projections (`-> &mut T`) may not be bound, stored or
   returned, so `entry()` cannot hand back a place either;
 - once the collections are values (V2b) the field is a **copy or a move of
   the map**, not a loan: `counts.entry(w).or_insert(0)` would mutate a copy.
@@ -38,13 +38,13 @@ has the same root (a stored borrow of a container in a returned value).
    `&mut V` result becomes the value out (a copy or a clone) or a `with`-shaped
    body.
 2. **(1) plus a `mut` projection form of `or_insert`.**
-   `get_or_insert_with(k, f) -> mut(V)` (decision 24): usable as a receiver,
+   `get_or_insert_with(k, f) -> &mut V` (decision 24): usable as a receiver,
    an argument or the left of `=`, never bound — Rust's
    `*map.entry(k).or_insert(0) += 1` becomes
    `map.get_or_insert_with(k, () => 0) = (map.get_or_insert_with(k, () => 0) + 1)`
    or, cleaner, `map.update_or_insert(k, 0, n => n + 1)`.
 3. **A second-class record decision**: let a struct declare borrow-mode
-   fields (`struct(mut(_map) : HashMap(K, V), …)`) that make the value
+   fields (`struct(_map : &mut HashMap(K, V), …)`) that make the value
    second-class under 38 A's structural rule, with A2's return exception
    generalized to values rooted at the callee's own parameters. Decision 39
    recorded this as "for later, not adopted", triggered together with
@@ -52,12 +52,15 @@ has the same root (a stored borrow of a container in a returned value).
 
 ## Recommendation
 
-Option 2. It is what the rules already permit, it keeps the single-probe
-cost at the sites that matter (`or_insert_with` resolves the slot once,
-inside the projection), and it adds no mechanism. The `Occupied`/`Vacant`
-split goes away: a caller who needs to branch on presence uses
-`contains_key` or `update_with`'s `bool`. Option 3 is the right answer only
-if adapter chains and entry-like loans both prove common enough to justify
-the escape machinery, and that is decision 39's trigger, not this
-question's. Lands with V2b's collections PR, which is where `_map` stops
-being a handle.
+**Answered by decision 43 (2026-10-10), which is option 3 made general:**
+`&T`/`&mut T` are second-class types, a struct may hold one as a field
+(`NON_ESCAPABLE_TYPES.md` R1), and a function may return such a struct when
+its roots are the function's own parameters (R3). So `HashMapEntry` keeps
+its shape with the field spelled as what it is,
+`struct(_map : &mut HashMap(K, V), _key : K, _hash : u64, _slot : BucketProbe)`,
+`entry(self : &mut Self, k : K) -> HashMapEntry(K, V)` returns it rooted at
+`self`, `or_insert(self, v) -> &mut V` is a projection, and the
+`Occupied`/`Vacant` split stays. The closure-taking methods
+(`get_or_insert_with`, `update_with`) remain the short spellings. Lands
+with the design note's phase N3; until then `entry` is sound only because
+the map is still a counted handle.

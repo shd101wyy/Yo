@@ -6,7 +6,7 @@ from the `plans/backlog/RUST_REFERENCE_PATTERNS.md` audit (§5.3).
 ## The hole
 
 Decision 39 (amended) makes read-only walks over a value container the
-**borrowed `for`** — `for(xs, mut(x) => …)` — "over the container place
+**borrowed `for`** — `for(&mut xs, x => …)` — "over the container place
 (§3.10): the body is a non-escaping closure, each element is re-derived per
 step through the place, and no iterator value exists". The text is written
 for `ArrayList`/`HashMap`/`String`. It does not say whether a user type
@@ -32,7 +32,7 @@ lowering (`CODEGEN_PERFORMANCE.md` CP2b) applies to std only.
 
 1. **std only.** The borrowed `for` is a macro over the std containers;
    user types expose `indices()` + `Index` and `for_each(body)`.
-2. **A `Collection` trait** (Swift's shape): `len(imm(self)) -> usize` and
+2. **A `Collection` trait** (Swift's shape): `len(self : &Self) -> usize` and
    `Index` with `imm`/`mut` projections. The borrowed `for` desugars to a
    cursor loop over `0..c.len()` with `c(i)` re-derived per step, for any
    type implementing it; growth mid-walk is the same out-of-bounds error.
@@ -43,20 +43,10 @@ lowering (`CODEGEN_PERFORMANCE.md` CP2b) applies to std only.
 
 ## Recommendation
 
-**Position taken by decision 43 (2026-10-10, confirmed):** a fourth option
-became available when `&T` became a type — `impl(&C, IntoIterator(…))`
-and `impl(&mut C, IntoIterator(…))`, Rust's exact shape: the borrowed
-`for(&xs, …)` dispatches to the impl on `&C`, and the iterator it returns
-is a second-class value rooted in `xs` (R3). That is the recommendation
-now; option 2 remains the fallback for a container that wants a plain
-index walk. The original text follows.
-
-Option 2, with V2b (the same PR that gives the borrowed `for` its final
-shape over std). It is one trait, no new mechanism, and it is what makes
-"a borrow is a mode, not a type" hold for user containers too: the
-container is the lent place, the index is `Copy`, and `for` is a loop
-the user could have written. `HashMap`'s walk is over its bucket indices
-with a skip for empty slots, which the trait expresses as
-`next_index(i) -> Option(usize)` if a plain `0..len` is not dense enough —
-decide that detail when `HashMap` implements it. Option 3 stays parked on
-decision 39's trigger.
+**Answered by decision 43 (2026-10-10): Rust's exact shape.**
+`impl(&C, IntoIterator(Item := &T, …))` and `impl(&mut C, IntoIterator(…))`
+are legal once `&C` is a type, the borrowed `for(&xs, …)` dispatches to
+them, and the iterator they return is a second-class value rooted in `xs`
+(`NON_ESCAPABLE_TYPES.md` R3, R4). Option 2's `Collection` trait remains
+available as a fallback for a container that only wants a plain index
+walk. Lands with the design note's phase N2.

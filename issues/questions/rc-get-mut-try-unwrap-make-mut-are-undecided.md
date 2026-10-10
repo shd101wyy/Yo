@@ -47,8 +47,7 @@ compiler's own V4/V5 tree rewrites will want (unwrap a uniquely held
 subtree instead of cloning it); `get_mut` is cheap (a count test plus the
 mark acquire) and gives the verifier a place that is provably unshared;
 `make_mut` is the one Rust idiom in this family with no honest substitute,
-and its name is the copy's spelling. `Option(mut(T))` is a borrow inside a
-type constructor and is rejected by decision 38 A, so `get_mut`'s result is
-`mut(T)` with a panic on a shared cell, or the `Option` is replaced by an
-`is_unique` predicate the caller tests first; the second form is
-recommended.
+and its name is the copy's spelling. Since decision 43, `Option(&mut T)` is
+a legal result type (an inline instantiation over a reference, rooted at
+the handle under R3), so `get_mut(h : &mut Rc(T)) -> Option(&mut T)` takes
+Rust's exact signature: `.None` on a shared cell.
