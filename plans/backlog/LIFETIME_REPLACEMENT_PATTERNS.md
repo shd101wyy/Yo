@@ -14,6 +14,46 @@ decision numbers (`D18`, `D43`, …) are `VALUES_BY_DEFAULT.md` §4; bare
 
 ---
 
+## The position
+
+The claim this document supports, stated so it survives a skeptical Rust
+programmer:
+
+> Everything a safe Rust program computes, a safe Yo program can
+> compute, with the same memory safety and no garbage collector.
+> Rust's lifetime-carrying structures become one of a finite, teachable
+> set of patterns — hold the reference within a frame (Group I), or
+> own / share / index / re-derive beyond it (Group II). What differs is
+> not capability but where the checking happens and what the sharing
+> costs: within a frame, identical shapes; beyond a frame, Yo stores a
+> visible address (`Rc`/index/cursor) where Rust stored a borrow, and
+> checks staleness at runtime instead of proving it at compile time.
+
+Three qualifications make it honest, and each is a section here:
+
+1. **Same tasks, not same idioms.** The residue where the Rust *shape*
+   has no Yo counterpart is catalogued
+   (RUST_REFERENCE_PATTERNS §14: scoped threads, stored borrowing
+   iterators, multi-root contexts); every row has a working answer at
+   task level. "Same idioms" would be false; "same tasks" is true, and
+   it is what this toolbox demonstrates.
+2. **The guarantee relocates, it does not vanish.** A lifetime bug is a
+   compile error; a Group II staleness bug is a checked runtime failure
+   — bounds panic, `RefCell` panic, generation mismatch — never UB
+   (SAFE_MODE). Group III states the trade once.
+3. **The compile-time boundary is one shape, and it is recorded.** The
+   only thing Yo declines to even express — proving, at compile time,
+   that a multi-root borrow kept beyond its frame is fresh — is
+   decision 43's parked `generic(r : Region)` path with measurable
+   triggers (§6, item 4).
+
+And the comparison is not one-way: on the index pattern Yo's ceiling is
+*higher* than Rust's — the verifier proves `index-in-bounds` and elides
+the check (CP2b) where Rust has no story at all for id freshness. Same
+tasks, same memory safety, visible cost on one pattern, checked rather
+than proved staleness — and proofs Rust does not have where ids and
+contracts are involved.
+
 ## 0. What a lifetime does — three jobs, one axis
 
 A Rust lifetime serves three jobs at once:

@@ -149,7 +149,10 @@ store-inputs-re-derive-views) — plus a need→pattern selection table and
 the four-item boundary no pattern covers (the untyped arena-outlives-ids
 invariant, slot reuse without generational ids, stored exclusivity, and
 the one multi-root-beyond-frame-compile-time shape that is decision 43's
-recorded `generic(r : Region)` trigger).
+recorded `generic(r : Region)` trigger). It opens with the position
+statement — everything safe Rust computes, safe Yo computes with the
+same memory safety; the differences are where the checking happens and
+what sharing costs, not what is computable.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
