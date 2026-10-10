@@ -3746,8 +3746,8 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
          `comptime_expect_error`, whose error is the program's point. A second
          pass records nothing. Applied: `std/` 7 (`std/cli/arg_parser.yo` 6
          on `ArgKind` fields, `std/regex/compiler.yo` 1 on a `NodeKind`
-         field), `src/` 0, `tests/` (no `internal/`, `cli-cases/`) SWEEP_TESTS,
-         `tests/internal/` SWEEP_INTERNAL, CLI fixtures SWEEP_CLI, docs and
+         field), `src/` 0, `tests/` (no `internal/`, `cli-cases/`) 1 (`tests/match_async_arms.test.yo`, a plain struct captured by an `io.async` body; 52 files do not evaluate under `fix`, and the suite run covered them),
+         `tests/internal/` 0, CLI fixtures 0 (every case passes unchanged but the skill-tree goldens, whose cheatsheet hash moved), docs and
          skills 0 (their blocks match `Copy` or implicitly copyable values).
          The seed reads `match(&x, …)` as today's borrowing match, so the
          swept tree still builds with it.

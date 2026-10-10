@@ -2476,9 +2476,15 @@ peek :: (fn(imm(p) : Two) -> i32)(
 main :: (fn() -> unit)({
   p := Two.Two(a : Fd(n : 3), b : Fd(n : 4));
   n := match(&p, .Two(a, _) => a.n, .Zero => i32(0)); // 借用；p 仍可用
-  r := first(p);                                     // p 移动进 `first`
+  r := first(p); // p 移动进 `first`
   (o : Option(i32)) = .Some(i32(1));
-  match(&mut o, .Some(v) => { v = (v + i32(1)); }, .None => ()); // o 变为 .Some(2)
+  match(
+    &mut o,
+    .Some(v) => {
+      v = (v + i32(1));
+    },
+    .None => ()
+  ); // o 变为 .Some(2)
 });
 ```
 

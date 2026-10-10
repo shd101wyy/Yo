@@ -2571,9 +2571,15 @@ peek :: (fn(imm(p) : Two) -> i32)(
 main :: (fn() -> unit)({
   p := Two.Two(a : Fd(n : 3), b : Fd(n : 4));
   n := match(&p, .Two(a, _) => a.n, .Zero => i32(0)); // borrows; p stays
-  r := first(p);                                     // p moves into `first`
+  r := first(p); // p moves into `first`
   (o : Option(i32)) = .Some(i32(1));
-  match(&mut o, .Some(v) => { v = (v + i32(1)); }, .None => ()); // o is .Some(2)
+  match(
+    &mut o,
+    .Some(v) => {
+      v = (v + i32(1));
+    },
+    .None => ()
+  ); // o is .Some(2)
 });
 ```
 
