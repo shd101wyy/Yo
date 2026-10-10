@@ -137,10 +137,10 @@ checker's job, at a different point on the static/dynamic axis:
 | --- | --- | --- | --- |
 | III1 | **Frame-scoped borrow checking** — freeze until last use, exclusivity (D18, D28; E0901/E0911) | NLL within one function | compile error, names the places |
 | III2 | **The single-root rule** (R3) + caller-side freezing | lifetime unification on returns | compile error at the `return` |
-| III3 | **Mutation summaries** (§3.10 outcomes (a)/(b)/(c)) | proving a shared write exclusive | compile error naming `RefCell`/`get_mut`, or a plain write |
+| III3 | **Mutation summaries** (VALUES_BY_DEFAULT §3.10 outcomes (a)/(b)/(c)) | proving a shared write exclusive | compile error naming `RefCell`/`get_mut`, or a plain write |
 | III4 | **`RefCell(T)` marks** (D41) | `RefCell` in Rust | panic at `with_mut`/`get_mut` entry |
 | III5 | **Bounds checks + generation counters** — the index pattern's net | (Rust has no stored-id checker) | panic on stale/out-of-bounds; generation catches slot reuse |
-| III6 | **The cycle collector** | `Weak<T>` bookkeeping | no failure mode; untracked cycles leak only where the write-site scan says none exist (§3.12) |
+| III6 | **The cycle collector** | `Weak<T>` bookkeeping | no failure mode; untracked cycles leak only where the write-site scan says none exist (VALUES_BY_DEFAULT §3.12) |
 | III7 | **The verifier** — `distinct`, `index-in-bounds` proved once, the check elided (CP2b) | nothing in Rust: a proof Rust never gives ids | proof obligation, `assumed()` if skipped |
 | III8 | **`pragma(AllowUnsafe)`** — raw pointers, `addr_of` | Rust's `unsafe` | the same risks, less tooling |
 
