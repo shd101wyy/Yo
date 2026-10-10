@@ -707,6 +707,27 @@ Each kind of root gets its own check:
   - **Phase:** V1's write-site work adds `RefCell(T)` and turns (c) into
     the error behind the existing `StrictBorrow` machinery; the header word
     and the mark emission on plain `Rc` go with V2b.
+  - **Rollout (added 2026-10-10 by the VBD implementer, review of decision
+    41):** the error cannot turn on before std, `src/` and tests stop
+    relying on the run-time mark, so it follows the Generation A/B rule:
+    - **Generation A** (with V1's write-site work): `RefCell(T)` lands; the
+      compiler classifies every write through an `Rc`/`Arc` handle as
+      (a)/(b)/(c) and reports the census (a `YO_AUDIT_*` knob, like the V3b
+      marker audit) without rejecting (c); the run-time assert stays for
+      (c). `StrictBorrow` modules get the new error first.
+    - **Generation B** (on the seed carrying A): the sweep wraps each (c)
+      site's payload in `RefCell(T)` or restructures it so the summaries
+      prove it; then (c) becomes the error everywhere and `StrictBorrow` is
+      deleted.
+    - **`ref(struct)` handles** are outside this rule until V5: they keep
+      the entry-time assert (`_maybe_emit_method_entry_borrow_assert`), and
+      V4/V5's per-tree classification decides `RefCell` or immutable for
+      each. The census in Generation A counts them separately so V5's size
+      is known.
+    - **The V1 determinism tests** (a closure and an async body mutating a
+      captured `Rc(ArrayList(T))` under a `for`) flip in Generation B from
+      "panics" to "compile error, or a `RefCell` that panics"; until then
+      they keep asserting the panic.
   - **Tests:** (a) the over-elision canary; (b) and (c) compile-error tests
     (c's error must name `RefCell(T)` and `Rc.get_mut`); a `RefCell`
     conflict panics (a closure and an async body calling `with_mut` under a
