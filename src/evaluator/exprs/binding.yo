@@ -23,7 +23,7 @@ import("std/fmt");
   BK_COLON,
   make_err_expr
 } :: import("../../expr.yo");
-{ TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name } :: import("../../token.yo");
+{ TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { ExprInfo, new_expr_info, expr_info_table_get, expr_info_table_set, path_collection_of_name, register_module_level_global } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
@@ -290,7 +290,7 @@ evaluate_binding :: (
     raise_flow_violation(
       format_error_message(
         res_tok,
-        `"${res_tok.value}" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run. Choose a different name.`
+        reserved_builtin_binding_message(res_tok.value.clone())
       ),
       ctx,
       exn

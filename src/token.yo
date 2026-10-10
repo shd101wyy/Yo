@@ -158,6 +158,18 @@ is_reserved_builtin_binding_name :: (fn(imm(name) : String) -> bool)(
                     // `thread_local` is special only in the
                     // `(thread_local(name) : T) = init;` LHS position, so it stays bindable.
                     (name == "begin") || (name == "tuple") || (name == "array")
+                    ||
+                      // `mut` follows `&` in a borrow (`x : &mut T`, `&mut x`,
+                      // plans/VALUES_BY_DEFAULT.md decision 42), as in Rust.
+                      (name == "mut")
+);
+/// The error for a binding named by a reserved builtin word
+/// (`is_reserved_builtin_binding_name`).
+reserved_builtin_binding_message :: (fn(imm(name) : String) -> String)(
+  cond(
+    (name == "mut") => String.from("\"mut\" is reserved: it follows `&` in a borrow (`x : &mut T`, `y := &mut place`, `f(&mut x)`) and cannot name a binding (plans/VALUES_BY_DEFAULT.md decision 42). Choose a different name."),
+    true => `"${name}" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run. Choose a different name.`
+  )
 );
 is_identifier_start :: (fn(c : rune) -> bool)(
   (c.char == u32(95)) || c.is_alphabetic() || (c.char >= u32(0xA0))
@@ -373,6 +385,7 @@ export(
   is_operator_char,
   is_reserved_operator_name,
   is_reserved_builtin_binding_name,
+  reserved_builtin_binding_message,
   is_identifier_start,
   is_identifier_continue,
   string_is_operator,

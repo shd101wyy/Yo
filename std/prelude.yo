@@ -119,7 +119,7 @@ Pragma :: enum(
   /// Formal verification: erase contract clauses entirely (no proof,
   /// no runtime assert). For release/benchmark builds.
   NoContracts,
-  /// Strict borrowed loops: inside `for(coll, mut(x) => …)` bodies of this
+  /// Strict borrowed loops: inside `for(&mut coll, x => …)` bodies of this
   /// file, a call the compiler cannot prove harmless to the borrowed
   /// element — a mutating method on the borrowed collection or an alias of
   /// it, or a callee whose effects are unknown (a closure, a dynamic
@@ -10218,7 +10218,7 @@ __borrow_guard :: (fn(generic(C : Type), imm(c) : C) -> __BorrowGuard(C))({
 ///     iterator; object elements are handles, so mutating `x` in the
 ///     body mutates the element in place.
 ///
-///   `for(coll, mut(x) => body)` — the borrowed form
+///   `for(&mut coll, x => body)` — the borrowed form
 ///     (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7): the collection is
 ///     pinned by a hidden local, its runtime borrow flag is held for the
 ///     whole loop, and each element is bound in place as a `mut` local
@@ -10226,7 +10226,7 @@ __borrow_guard :: (fn(generic(C : Type), imm(c) : C) -> __BorrowGuard(C))({
 ///     elements mutate in place). Any container operation that could
 ///     invalidate an element (growth, shrink, removal) — reached through ANY
 ///     handle — panics deterministically instead of leaving `x` dangling.
-///     Maps take `for(map, (k, mut(v)) => body)`: the key by value, only
+///     Maps take `for(&mut map, (k, v) => body)`: the key by value, only
 ///     the value borrowed, so a body can never rewrite a key in place.
 ///     Value-type collections (`Array(T, N)`) and combinator chains have no
 ///     `iter()`; use the value form.
@@ -10246,7 +10246,7 @@ __borrow_guard :: (fn(generic(C : Type), imm(c) : C) -> __BorrowGuard(C))({
 /// for(list.into_iter(), x => print(x));
 ///
 /// // Borrow struct elements in place (read AND write).
-/// for(enemies, mut(e) => {
+/// for(&mut enemies, e => {
 ///   e.hp = (e.hp - i32(1));
 /// });
 /// ```
@@ -10275,7 +10275,7 @@ for :: (
                 v_callee :: variable.get_callee();
                 comptime_assert(
                   !(v_callee.is_atom() && (v_callee == quote(inout))),
-                  "`for(coll, inout(x) => ...)` is spelled `for(coll, mut(x) => ...)`: the `inout` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b). `yo fix <path> --migrate modes` rewrites it."
+                  "`for(coll, inout(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
                 );
                 v_callee.is_atom() && (v_callee == quote(mut))
               },
@@ -10297,7 +10297,7 @@ for :: (
                             mv_second_callee :: mv_second.get_callee();
                             comptime_assert(
                               !(mv_second_callee.is_atom() && (mv_second_callee == quote(inout))),
-                              "`for(map, (k, inout(v)) => ...)` is spelled `for(map, (k, mut(v)) => ...)`: the `inout` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b). `yo fix <path> --migrate modes` rewrites it."
+                              "`for(map, (k, inout(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
                             );
                             mv_second_callee.is_atom() && (mv_second_callee == quote(mut))
                           },
@@ -10325,7 +10325,7 @@ for :: (
                 // (growth, shrink, removal) reached through ANY handle panics
                 // deterministically instead of leaving `x` dangling.
                 elem_args :: variable.get_args();
-                comptime_assert(elem_args.len() == 1, "'for(coll, mut(x) => ...)' takes exactly one name inside mut(...)");
+                comptime_assert(elem_args.len() == 1, "'for(&mut coll, x => ...)' binds exactly one name");
                 elem :: elem_args.car();
                 coll_var :: gensym("for_coll");
                 guard_var :: gensym("for_guard");
@@ -10359,7 +10359,7 @@ for :: (
                 key_name :: mv_args2.car();
                 val_inout :: mv_args2.cdr().car();
                 val_args :: val_inout.get_args();
-                comptime_assert(val_args.len() == 1, "'for(map, (k, mut(v)) => ...)' takes exactly one name inside mut(...)");
+                comptime_assert(val_args.len() == 1, "'for(&mut map, (k, v) => ...)' binds exactly one value name");
                 val_name :: val_args.car();
                 coll_var :: gensym("for_coll");
                 guard_var :: gensym("for_guard");

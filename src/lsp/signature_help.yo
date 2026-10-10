@@ -12,7 +12,7 @@ import("std/error");
 { AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
 { TypeValue } :: import("../types/definitions.yo");
-{ type_to_string } :: import("../types/string.yo");
+{ type_to_string, format_param_with_mode } :: import("../types/string.yo");
 { JsonValue } :: import("std/encoding/json");
 { jb, jstr, jnum } :: import("./protocol.yo");
 
@@ -169,8 +169,12 @@ handle_signature_help :: (
       while(pi < param_types.len(), {
         pt := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
         plabel := match(meta.*.param_labels.get(pi), .Some(l) => l, .None => `arg${pi}`);
+        // Spelled as the signature label spells it (decision 42), so the
+        // client finds the parameter inside the signature.
+        p_ref := match(meta.*.param_is_ref.get(pi), .Some(b) => b, .None => false);
+        p_own := match(meta.*.param_is_owning.get(pi), .Some(b) => b, .None => false);
         params.push(
-          jb().put("label", jstr(`${plabel} : ${type_to_string(pt)}`)).obj()
+          jb().put("label", jstr(format_param_with_mode(plabel, type_to_string(pt), p_ref, p_own))).obj()
         );
         pi = (pi + usize(1));
       });

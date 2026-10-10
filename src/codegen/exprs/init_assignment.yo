@@ -298,7 +298,7 @@ _generate_inout_local_binding :: (fn(imm(lhs) : AstExpr, imm(rhs) : AstExpr, bin
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
     if(!_is_c_lvalue_chain(place_code), {
-      return(Option(String).Some(codegen_fatal_expr(`mut binding "${var_name}": place lowered to a non-lvalue C expression: ${place_code}`)));
+      return(Option(String).Some(codegen_fatal_expr(`local borrow "${var_name}": place lowered to a non-lvalue C expression: ${place_code}`)));
     });
     addr = String.from("(&(");
     addr.push_string(place_code.clone());

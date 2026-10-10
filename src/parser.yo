@@ -1657,6 +1657,23 @@ impl(
       )
     )
   ),
+  /// `&&T` / `&&x` at `idx`, the operand starting right at `next`: `&&` is
+  /// logical and, and a borrow of a borrow does not exist — a borrow is a
+  /// mode a slot spells (`x : &T`), not a type another `&` could wrap
+  /// (plans/VALUES_BY_DEFAULT.md decision 42, Generation A). The operator-call
+  /// form `&&(a, b)` is not this.
+  reject_double_borrow_sigil : (fn(mut(self) : Self, idx : usize, next : usize, imm(exn) : Exception) -> unit)(
+    match(
+      self.tokens.get(idx),
+      .Some(t) => if((t.kind == TokenKind.Operator) && (t.value == "&&"), {
+        nt_kind := match(self.tokens.get(next), .Some(n) => n.kind, .None => TokenKind.Whitespace);
+        if((nt_kind != TokenKind.Whitespace) && (nt_kind != TokenKind.LParen) && self.token_starts_prefix_operand(next), {
+          exn.throw(dyn(make_parse_error(t, `\`&&\` is logical and, and a borrow of a borrow does not exist: a borrow is a mode a slot spells (\`x : &T\`, \`y := &place\`), not a type another \`&\` could wrap (plans/VALUES_BY_DEFAULT.md decision 42; references become types with decision 43).`)));
+        });
+      }),
+      .None => ()
+    )
+  ),
   /// Parse ONE prefix operand (plans/reference/PREFIX_OPERATOR_OPERAND_RULE.md
   /// Rule 1): a primary plus its TIGHT postfix ends (no-whitespace calls
   /// and immediate dot-chains) — never an infix chain, so `-a.b(c) + d`
@@ -1665,6 +1682,7 @@ impl(
   parse_prefix_operand : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     pr := self.parse_primary(idx, exn);
+    self.reject_double_borrow_sigil(idx, pr.index, exn);
     (cur_expr : AstExpr) = pr.expr;
     (cur_idx : usize) = pr.index;
     started_at_op := match(
@@ -1730,6 +1748,7 @@ impl(
   parse_expression : (fn(mut(self) : Self, index : usize, imm(exn) : Exception) -> ParseResult)({
     idx := self.skip_ws_fwd(index);
     pr := self.parse_primary(idx, exn);
+    self.reject_double_borrow_sigil(idx, pr.index, exn);
     // PREFIX_OPERATOR_OPERAND_RULE.md Rule 1: a BARE prefix-capable
     // operator atom followed by a primary-starter is a prefix CALL —
     // `-1`, `!x`, `?*T`, `3 - -3`. Bare = the primary began at the

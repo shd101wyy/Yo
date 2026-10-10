@@ -897,7 +897,7 @@ _move_only_reason_inner :: (fn(imm(ty_in) : TypeValue, depth : u32) -> Option(St
     return(Option(String).Some(`\`${type_to_string(ty)}\` implements Dispose`));
   });
   if(_capture_struct_declares_mut(ty), {
-    return(Option(String).Some(String.from("the closure has a `mut` capture, and two copies of one exclusive borrow would alias")));
+    return(Option(String).Some(String.from("the closure has a `&mut` capture, and two copies of one exclusive borrow would alias")));
   });
   // The first move-only component, as `<label> : <type>` and its own reason.
   labels := ArrayList(String).new();
@@ -2389,7 +2389,7 @@ fn_type_unrepresentable_impl_message :: (fn(imm(what) : String, imm(fn_ty) : Typ
 );
 fn_type_unrepresentable_impl_help :: (fn() -> String)(
   String.from(
-    "take the function as a generic `Impl(Fn(...) -> ...)` parameter, which is specialized for each argument (`imm(mk) : Impl(Fn(x : i32) -> Impl(Fn() -> i32))`), or make the result `Dyn(Fn(...))`, which is one boxed representation"
+    "take the function as a generic `Impl(Fn(...) -> ...)` parameter, which is specialized for each argument (`mk : &Impl(Fn(x : i32) -> Impl(Fn() -> i32))`), or make the result `Dyn(Fn(...))`, which is one boxed representation"
   )
 );
 // ---------------------------------------------------------------------------

@@ -368,8 +368,8 @@ _check_capture_borrow_write :: (fn(imm(lhs) : AstExpr, imm(tok) : Token, imm(env
           with_code(
             format_error_message_with_help(
               tok,
-              `Cannot write through \`${rv.name}\`: it is an \`imm\` capture, a read-only borrow of the place the closure was given.`,
-              Option(String).Some(`capture it \`mut(${rv.name})\` to write the place (a non-escaping closure only), or write a local copy`)
+              `Cannot write through \`${rv.name}\`: it is a \`&\` capture, a read-only borrow of the place the closure was given.`,
+              Option(String).Some(`capture it \`${rv.name} : &mut ...\` to write the place (a non-escaping closure only), or write a local copy`)
             ),
             E_WRITE_THROUGH_BORROW
           ),
@@ -384,8 +384,8 @@ _check_capture_borrow_write :: (fn(imm(lhs) : AstExpr, imm(tok) : Token, imm(env
 /// The way out E0908 offers for a write into the borrowed binding `bv`.
 _write_through_borrow_fix :: (fn(imm(bv) : Variable) -> String)(
   cond(
-    bv.is_parameter => `take it by value (\`${bv.name} : T\`, without \`imm\`) to own and write it, or as \`mut(${bv.name}) : T\` to write the caller's value, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
-    true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy; to write a \`for\` element in place, loop with \`for(xs, mut(${bv.name}) => ...)\``
+    bv.is_parameter => `take it by value (\`${bv.name} : T\`, without \`&\`) to own and write it, or as \`${bv.name} : &mut T\` to write the caller's value, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
+    true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy; to write a \`for\` element in place, loop with \`for(&mut xs, ${bv.name} => ...)\``
   )
 );
 /// The place as written (`p.s`), not the printer's parenthesized `(p.s)`.
@@ -489,7 +489,7 @@ require_no_inout_write_through_borrow :: (
             lb_label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
             lb_how := cond(
               (lb_label == "self") => `call a method that writes its receiver on \`${_place_source_text(arg)}\``,
-              true => `pass \`${_place_source_text(arg)}\` to the \`mut\` parameter \`${lb_label}\`, which the callee writes`
+              true => `pass \`${_place_source_text(arg)}\` to the \`&mut\` parameter \`${lb_label}\`, which the callee writes`
             );
             pending.push(
               D3PendingInout(
@@ -516,9 +516,9 @@ require_no_inout_write_through_borrow :: (
         match(
           _borrowed_root_walk(arg, env, ctx, _g_audit_inout_borrow),
           .Some(bv) => if(is_judged || !_is_dispose_receiver(bv, ast_expr_token(arg)), {
-            what := cond(bv.is_parameter => "an `imm` parameter", true => "a `match` or `for` binding");
+            what := cond(bv.is_parameter => "a `&T` parameter", true => "a `match` or `for` binding");
             label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
-            target := cond((label == "self") => String.from("the `mut(self)` receiver"), true => `the \`mut\` parameter \`${label}\``);
+            target := cond((label == "self") => String.from("the `self : &mut Self` receiver"), true => `the \`&mut\` parameter \`${label}\``);
             pending.push(
               D3PendingInout(
                 param_index : i,
@@ -1202,7 +1202,7 @@ evaluate_assignment :: (
         // so the walk cannot tell a local from a borrowed binding there.
         .Some(abv) => if(type_contains_rc_type(abv.ty) && !_is_dispose_receiver(abv, ast_expr_token(lhs)), {
           at := ast_expr_token(lhs);
-          anoun := cond(abv.is_parameter => "an `imm` parameter", true => "a `match` or `for` binding");
+          anoun := cond(abv.is_parameter => "a `&T` parameter", true => "a `match` or `for` binding");
           eprintln(`[inout-borrow] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(lhs)} = (${abv.name}: ${anoun}, ${type_to_string(expected_ty)})`);
         }),
         .None => match(
@@ -1219,7 +1219,7 @@ evaluate_assignment :: (
       match(
         borrowed_value_root_of_place(evaluated_lhs, env, ctx),
         .Some(bv) => {
-          what := cond(bv.is_parameter => "an `imm` parameter", true => "a `match` or `for` binding");
+          what := cond(bv.is_parameter => "a `&T` parameter", true => "a `match` or `for` binding");
           place_text := _place_source_text(lhs);
           fix := _write_through_borrow_fix(bv);
           raise_flow_violation(

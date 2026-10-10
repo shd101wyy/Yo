@@ -2326,30 +2326,32 @@ or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 /// named closure). `complete` is false when the per-parameter flags are not
 /// all recorded (a closure type no `Fn(...)` was written for), so nothing
 /// can be said about its modes.
-_SigModes :: struct(labels : ArrayList(String), refs : ArrayList(bool), owns : ArrayList(bool), n : usize, complete : bool);
+_SigModes :: struct(labels : ArrayList(String), types : ArrayList(TypeValue), refs : ArrayList(bool), owns : ArrayList(bool), n : usize, complete : bool);
 _sig_modes_of :: (fn(imm(ty) : TypeValue) -> Option(_SigModes))(
   match(
     ty,
     .Func({ param_types : sm_pts, meta : sm_meta }) => Option(_SigModes).Some(
-      _SigModes(labels : sm_meta.*.param_labels.clone(), refs : sm_meta.*.param_is_ref.clone(), owns : sm_meta.*.param_is_owning.clone(), n : sm_pts.len(), complete : true)
+      _SigModes(labels : sm_meta.*.param_labels.clone(), types : sm_pts.clone(), refs : sm_meta.*.param_is_ref.clone(), owns : sm_meta.*.param_is_owning.clone(), n : sm_pts.len(), complete : true)
     ),
     _ => match(
       extract_fn_trait_from_type(ty),
       .Some(.FnTraitT({ call_param_labels : sm_l, call_param_types : sm_t, call_param_is_ref : sm_r, call_param_is_owning : sm_o })) => Option(_SigModes).Some(
-        _SigModes(labels : sm_l.clone(), refs : sm_r.clone(), owns : sm_o.clone(), n : sm_t.len(), complete : ((sm_r.len() == sm_t.len()) && (sm_o.len() == sm_t.len())))
+        _SigModes(labels : sm_l.clone(), types : sm_t.clone(), refs : sm_r.clone(), owns : sm_o.clone(), n : sm_t.len(), complete : ((sm_r.len() == sm_t.len()) && (sm_o.len() == sm_t.len())))
       ),
       _ => Option(_SigModes).None
     )
   )
 );
-/// `mut(x)`, `imm(x)` or the by-value `x`: how a parameter is written.
-_param_mode_spelling :: (fn(imm(label) : String, is_ref : bool, is_owning : bool) -> String)(
+/// `x : &mut T`, `x : &T` or the by-value `x : T`: how a parameter is
+/// written (decision 42).
+_param_mode_spelling :: (fn(imm(label) : String, imm(ty) : Option(TypeValue), is_ref : bool, is_owning : bool) -> String)({
+  ts := match(ty, .Some(t) => type_to_string(t), .None => String.from("T"));
   cond(
-    is_ref => `mut(${label})`,
-    is_owning => label.clone(),
-    true => `imm(${label})`
+    is_ref => `${label} : &mut ${ts}`,
+    is_owning => `${label} : ${ts}`,
+    true => `${label} : &${ts}`
   )
-);
+});
 /// When a FUNCTION VALUE of type `given` cannot stand in a slot of type
 /// `expected` (a parameter, an `Impl(Fn(...))` parameter), the note naming
 /// why, else `.None`. A parameter's mode is part of the function type
@@ -2389,7 +2391,7 @@ function_value_slot_mismatch :: (fn(imm(expected) : TypeValue, imm(given) : Type
             g_lbl := match(fm_g.labels.get(fm_i), .Some(l) => l, .None => e_lbl.clone());
             return(
               Option(String).Some(
-                `\nParameter ${fm_i + usize(1)} is \`${_param_mode_spelling(e_lbl, e_ref, e_own)}\` in the expected type and \`${_param_mode_spelling(g_lbl, g_ref, g_own)}\` in the given one: a parameter's mode is part of the function type.`
+                `\nParameter ${fm_i + usize(1)} is \`${_param_mode_spelling(e_lbl, fm_e.types.get(fm_i), e_ref, e_own)}\` in the expected type and \`${_param_mode_spelling(g_lbl, fm_g.types.get(fm_i), g_ref, g_own)}\` in the given one: a parameter's mode is part of the function type.`
               )
             );
           });

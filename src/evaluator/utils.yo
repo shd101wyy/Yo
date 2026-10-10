@@ -550,7 +550,7 @@ move_only_help :: (fn(imm(name) : String, imm(ty) : TypeValue) -> Option(String)
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it \`mut\`, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). An \`imm\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
+      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
     ),
     .None => cond(
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
@@ -560,7 +560,7 @@ move_only_help :: (fn(imm(name) : String, imm(ty) : TypeValue) -> Option(String)
         `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
       ),
       type_requires_explicit_copy(ty) => Option(String).Some(
-        `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it \`mut\`. An \`imm\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
+        `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it to a \`&mut T\` parameter. A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
       ),
       true => Option(String).None
     )
@@ -573,7 +573,7 @@ move_only_type_help :: (fn(imm(ty) : TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to an \`imm\` or \`mut\` parameter, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
+      `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a \`&T\` or \`&mut T\` parameter, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
     ),
     .None => cond(
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
@@ -750,7 +750,7 @@ consume_called_fnonce_closure :: (fn(imm(callee) : AstExpr, imm(v) : Variable, i
   holds_owned := (type_contains_rc_type(v.ty) || type_requires_explicit_copy(v.ty));
   what := cond(
     v.is_module_level => Option(String).Some(String.from("it is a module-level binding, which lives for the whole program and is never moved")),
-    v.is_ref => Option(String).Some(String.from("it is a `mut` binding, which names storage the caller owns")),
+    v.is_ref => Option(String).Some(String.from("it is a `&mut` borrow, which names storage the caller owns")),
     (v.is_parameter && !v.is_owning_the_rc_value && owner.is_none()) => Option(String).Some(String.from("it is a borrowed parameter, and a borrow cannot give the closure away: take the parameter by value, `sink(f) : Impl(FnOnce(...))` (only an API the closure escapes into calls it once)")),
     (!v.is_parameter && !v.is_owning_the_rc_value && holds_owned && !is_fn_capture_value_binding(v.id)) => Option(String).Some(String.from("it is borrowed from the value that holds it (a `match`/`for` binding): move the holder, or match a value you own")),
     true => Option(String).None
@@ -859,7 +859,7 @@ move_captured_explicit_copy_variable :: (fn(imm(v) : Variable, imm(tok) : Token,
       // (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
       owner := if(!v.is_owning_the_rc_value && v.is_parameter, _owning_param_binding_for_capture_move(env, v.name.clone()), Option(Variable).None);
       if((!v.is_owning_the_rc_value && owner.is_none()) || (v.is_ref || v.is_module_level), {
-        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` ${_explicit_copy_kind(v.ty)}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, a \`mut\` binding or a module-level binding). Take it \`sink(...)\` to own it.`;
+        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` ${_explicit_copy_kind(v.ty)}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, a \`&mut\` borrow or a module-level binding). Take it \`sink(...)\` to own it.`;
         raise_flow_violation(with_code(format_error_message_with_help(tok, msg, move_only_help(v.name.clone(), v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
       });
       moved := match(
@@ -1061,13 +1061,13 @@ transfer_explicit_copy_value :: (fn(imm(rhs) : AstExpr, imm(ei) : ExprInfo, imm(
           _throw_explicit_copy_violation(rhs, ei.ty, what, ctx, exn);
         });
       },
-      v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to an `imm` parameter (a borrow) instead."), ctx, exn),
-      v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a `mut` binding, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
+      v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a `&T` parameter (a borrow) instead."), ctx, exn),
+      v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, ei.ty, ctx, exn),
       _is_implicit_closure_capture(v, ei.env, ctx) => _throw_implicit_capture_move(rhs, ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
       _move_through_sink_shadow(v, rhs, ei.env) => (),
-      true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (an `imm` parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `imm`) to own it."), ctx, exn)
+      true => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is borrowed (a `&T` parameter or a `match`/`for` binding), and a borrow cannot give the value away. Take the parameter by value (`x : T`, without `&`) to own it."), ctx, exn)
     )
   );
 });
@@ -1100,11 +1100,11 @@ _log_user_move :: (fn(imm(v) : Variable, imm(tok) : Token, imm(env) : Environmen
 // Second-class values and capture-list freezes
 // (plans/VALUES_BY_DEFAULT.md decisions 18, 35 and 38 A/B)
 // ---------------------------------------------------------------------------
-/// How a capture-list borrow reads in a message: "`s.items` (its capture
-/// `imm(items)` at m.yo:3:5)".
+/// How a capture-list borrow reads in a message: "`s.items` (the capture
+/// `items : &s.items` at m.yo:3:5)".
 _capture_borrow_note :: (fn(imm(b) : CaptureBorrow) -> String)({
-  mode := if(b.is_mut, String.from("mut"), String.from("imm"));
-  `\`${capture_borrow_place_string(b)}\` (the capture \`${mode}(${b.label})\` at ${b.site})`
+  sig := if(b.is_mut, String.from("&mut "), String.from("&"));
+  `\`${capture_borrow_place_string(b)}\` (the capture \`${b.label} : ${sig}${capture_borrow_place_string(b)}\` at ${b.site})`
 });
 /// Decision 38 A: a second-class value (one holding a capture-list borrow,
 /// transitively) may not be `how` — returned, stored in a field or a `Dyn`,
@@ -1434,7 +1434,7 @@ require_capture_borrow_exclusivity :: (
                   with_code(
                     format_error_message_with_help(
                       ast_expr_token(arg_i),
-                      `\`${ast_expr_to_string(arg_i)}\` is lent exclusively to this call (it is a \`mut\` argument, or it holds a \`mut\` capture), and it reaches ${pa.text}, which \`${ast_expr_to_string(arg_j)}\` in the same call also reaches (${pb.text}): the callee could reach one place through both.`,
+                      `\`${ast_expr_to_string(arg_i)}\` is lent exclusively to this call (it is a \`&mut\` argument, or it holds a \`&mut\` capture), and it reaches ${pa.text}, which \`${ast_expr_to_string(arg_j)}\` in the same call also reaches (${pb.text}): the callee could reach one place through both.`,
                       Option(String).Some(String.from("split the call, or pass the place through the closure alone (call arguments are exclusive, decisions 28 and 38 B)"))
                     ),
                     E_BORROW_CONFLICT
@@ -4278,14 +4278,14 @@ _lb_live_at :: (fn(imm(info) : LocalBorrowInfo, imm(tok) : Token) -> bool)(
   (tok.module_path == info.decl.module_path) && ((tok.character > info.decl.character) && (tok.character <= info.end.character))
 );
 _lb_place_text :: (fn(imm(p) : LocalBorrowPlace) -> String)(p.text.clone());
-_lb_mode :: (fn(imm(info) : LocalBorrowInfo) -> str)(cond(info.is_mut => "mut", true => "imm"));
+_lb_mode :: (fn(imm(info) : LocalBorrowInfo) -> str)(cond(info.is_mut => "&mut", true => "&"));
 _lb_verb :: (fn(imm(kind) : LocalBorrowAccess) -> str)(
   match(
     kind,
     .Read => "read",
     .Write => "write",
     .Move => "move",
-    .Exclusive => "borrow with `mut`"
+    .Exclusive => "borrow with `&mut`"
   )
 );
 _lb_is_read :: (fn(imm(kind) : LocalBorrowAccess) -> bool)(match(kind, .Read => true, _ => false));
@@ -4367,8 +4367,8 @@ _lb_raise_conflict :: (
 )({
   ftext := _lb_place_text(frozen);
   rule := cond(
-    info.is_mut => `a \`mut\` borrow is exclusive: while it is live, \`${ftext}\`, the places inside it and the places containing it are reached only through \`${info.name}\``,
-    true => `an \`imm\` borrow freezes its place: while it is live, \`${ftext}\`, the places inside it and the places containing it are not written or moved`
+    info.is_mut => `a \`&mut\` borrow is exclusive: while it is live, \`${ftext}\`, the places inside it and the places containing it are reached only through \`${info.name}\``,
+    true => `a \`&\` borrow freezes its place: while it is live, \`${ftext}\`, the places inside it and the places containing it are not written or moved`
   );
   cell_note := cond(frozen.through_cell => " (below a reference cell the cell is the unit, so every place in it overlaps)", true => "");
   entries := ArrayList(TokenAndError).new();
@@ -4390,7 +4390,7 @@ _lb_raise_conflict :: (
   );
   help := cond(
     info.is_mut => `make the access after \`${info.name}\`'s last use, or make it through \`${info.name}\``,
-    true => `make the access after \`${info.name}\`'s last use, or borrow with \`mut(${info.name}) := ...\` to write through the borrow`
+    true => `make the access after \`${info.name}\`'s last use, or borrow with \`${info.name} := &mut ...\` to write through the borrow`
   );
   raise_flow_violation(with_code(format_error_messages_with_help(entries, Option(String).Some(help)), E_LOCAL_BORROW_CONFLICT), ctx, exn);
 });
@@ -4442,13 +4442,13 @@ local_borrow_require_writable :: (fn(imm(place) : LocalBorrowPlace, imm(what) : 
       entries.push(
         TokenAndError(
           token : tok,
-          error_message : `Cannot ${what}: \`${info.name}\` is an \`imm\` borrow, which is read-only.`
+          error_message : `Cannot ${what}: \`${info.name}\` is a \`&\` borrow, which is read-only.`
         )
       );
-      entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` is declared \`imm\` here:`));
+      entries.push(TokenAndError(token : info.decl, error_message : `\`${info.name}\` is declared \`${info.name} := &...\` here:`));
       raise_flow_violation(
         with_code(
-          format_error_messages_with_help(entries, Option(String).Some(`declare it \`mut(${info.name}) := ...\` to write through it, or copy the value into a local (\`v := ${info.name};\`) and write the copy`)),
+          format_error_messages_with_help(entries, Option(String).Some(`declare it \`${info.name} := &mut ...\` to write through it, or copy the value into a local (\`v := ${info.name};\`) and write the copy`)),
           E_WRITE_THROUGH_BORROW
         ),
         ctx,

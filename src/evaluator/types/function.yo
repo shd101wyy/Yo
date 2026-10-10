@@ -85,7 +85,7 @@ import("std/fmt");
 { evaluate_expression, evaluate_expression_raw } :: import("../exprs/expr.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ Token, TokenKind } :: import("../../token.yo");
+{ Token, TokenKind, reserved_builtin_binding_message } :: import("../../token.yo");
 { set_func_contract_hooks, set_refine_annotation_hook, record_owned_func_id } :: import("../values/type_trait_methods.yo");
 // ---------------------------------------------------------------------------
 // Macro side-tables (folded from former
@@ -1345,6 +1345,12 @@ _reject_old_param_mode :: (fn(imm(e) : AstExpr, imm(exn) : Exception) -> unit)(
     .None => ()
   )
 );
+/// A borrow in a result slot: `mut(T)` / `imm(T)`, which `-> &mut T` /
+/// `-> &T` are rewritten to at parse time (decision 42). A function cannot
+/// return a borrow until projections (decision 24) land.
+_is_borrow_result_mode :: (fn(imm(e) : AstExpr) -> bool)(
+  ast_expr_is_inout_mode_call(e, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).None)
+);
 /// Evaluate a single function parameter expression.
 ///
 /// Whether a parameter of type `ty` is `Copy`, asking a generic parameter
@@ -1545,7 +1551,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Cannot combine 'sink' and 'imm' on the same parameter — 'sink' takes ownership and 'imm' borrows.`
+                `Cannot combine \`sink\` with a borrow on the same parameter — \`sink(x) : T\` takes ownership and \`x : &T\` borrows.`
               )
             )
           );
@@ -1557,7 +1563,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Cannot combine 'imm' and 'mut' on the same parameter — a parameter is a read-only borrow or an exclusive one, not both.`
+                `A parameter is a read-only borrow (\`x : &T\`) or an exclusive one (\`x : &mut T\`), not both.`
               )
             )
           );
@@ -1578,7 +1584,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Cannot combine 'sink' and 'mut' on the same parameter — they have opposite calling conventions.`
+                `Cannot combine \`sink\` with \`&mut T\` on the same parameter — they have opposite calling conventions.`
               )
             )
           );
@@ -1592,7 +1598,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `'mut' cannot combine with 'generic'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`
+                `A \`generic\`/\`using\` parameter cannot be \`&mut T\` — it is erased at runtime and has no callee-side binding to mutate.`
               )
             )
           );
@@ -1636,6 +1642,9 @@ evaluate_function_parameter :: (
             )
           )
         );
+      });
+      if(ast_expr_token(lhs_mut).value == "mut", {
+        exn.throw(dyn(format_error_message(ast_expr_token(lhs_mut), reserved_builtin_binding_message(String.from("mut")))));
       });
       label = .Some(ast_expr_token(lhs_mut).value);
       label_expr = .Some(lhs_mut);
@@ -1840,7 +1849,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'mut(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`
+          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'name : &mut T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`
         )
       )
     );
@@ -4033,13 +4042,13 @@ evaluate_function_type :: (
     // `(inout(name) : T)` / `(name : inout(T))` — ref-return forms are
     // BANNED: refs are second-class and may appear only in parameter
     // position and local lvalue borrows.
-    if(ast_expr_is_inout_mode_call(rl_expr, Option(usize).None) ||
-      (ast_expr_is_fn_call(return_type_expr) && ast_expr_is_inout_mode_call(return_type_expr, Option(usize).None)), {
+    if(_is_borrow_result_mode(rl_expr) ||
+      (ast_expr_is_fn_call(return_type_expr) && _is_borrow_result_mode(return_type_expr)), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(rl_expr),
-            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'mut(name) : T'.")
+            String.from("A function cannot return a borrow (`-> &T`, `-> &mut T`): a borrow is second-class and lives only in a parameter, a closure parameter or a local borrow. Return the value instead, or take a callback parameter that receives the borrow (`f : Impl(Fn(x : &mut T) -> R)`).")
           )
         )
       );
@@ -4104,12 +4113,12 @@ evaluate_function_type :: (
     // use `-> (inout(name) : T)` / `-> (comptime(name) : T)` (or unlabeled
     // `-> inout(T)` / `-> comptime(T)`). The `(inout(name) : inout(T))` double-ref
     // case is caught above with a more specific message.
-    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_inout_mode_call(return_type_expr, Option(usize).None), {
+    if(ast_expr_is_fn_call(return_type_expr) && _is_borrow_result_mode(return_type_expr), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (mut(name) : T)' (or unlabeled '-> mut(T)'), not '-> (name : mut(T))'.")
+            String.from("A function cannot return a borrow (`-> &T`, `-> &mut T`): a borrow is second-class and lives only in a parameter, a closure parameter or a local borrow. Return the value instead, or take a callback parameter that receives the borrow (`f : Impl(Fn(x : &mut T) -> R)`).")
           )
         )
       );
@@ -4139,12 +4148,12 @@ evaluate_function_type :: (
     // -> i32 or -> comptime(i32) or -> unquote(Expr)
     // `-> inout(T)` is BANNED: refs are second-class and may appear only
     // in parameter position and local lvalue borrows.
-    if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_inout_mode_call(return_type_expr, Option(usize).None), {
+    if(ast_expr_is_fn_call(return_type_expr) && _is_borrow_result_mode(return_type_expr), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'mut(name) : T'.")
+            String.from("A function cannot return a borrow (`-> &T`, `-> &mut T`): a borrow is second-class and lives only in a parameter, a closure parameter or a local borrow. Return the value instead, or take a callback parameter that receives the borrow (`f : Impl(Fn(x : &mut T) -> R)`).")
           )
         )
       );
@@ -4204,12 +4213,12 @@ evaluate_function_type :: (
   });
   // `-> inout(T)` in the return slot is BANNED: refs are second-class and
   // may appear only in parameter position and local lvalue borrows.
-  if(ast_expr_is_fn_call(return_type_expr) && ast_expr_is_inout_mode_call(return_type_expr, Option(usize).None), {
+  if(ast_expr_is_fn_call(return_type_expr) && _is_borrow_result_mode(return_type_expr), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(return_type_expr),
-          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'mut(name) : T'.")
+          String.from("A function cannot return a borrow (`-> &T`, `-> &mut T`): a borrow is second-class and lives only in a parameter, a closure parameter or a local borrow. Return the value instead, or take a callback parameter that receives the borrow (`f : Impl(Fn(x : &mut T) -> R)`).")
         )
       )
     );

@@ -776,8 +776,20 @@ ast_expr_is_old_mode_spelling :: (fn(imm(e) : AstExpr) -> Option(String))(
 /// The error for a deleted mode spelling (see `ast_expr_is_old_mode_spelling`):
 /// `old` is the word written, `new_word` its replacement.
 old_mode_spelling_message :: (fn(imm(old) : String, imm(new_word) : String) -> String)(
-  `\`${old}(x)\` is spelled \`${new_word}(x)\`: the \`${old}\` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b). \`yo fix <path> --migrate modes\` rewrites it.`
+  cond(
+    (new_word == "mut") => `\`${old}(x)\` was deleted: an exclusive borrow is spelled \`x : &mut T\` (a local one \`y := &mut place\`, the borrowed loop \`for(&mut xs, x => ...)\`) (plans/VALUES_BY_DEFAULT.md decision 42). \`yo fix <path> --migrate borrow-spelling\` rewrites it.`,
+    true => `\`${old}(x)\` is spelled \`${new_word}(x)\`: the \`${old}\` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b). \`yo fix <path> --migrate modes\` rewrites it.`
+  )
 );
+/// The error for a borrow sigil applied to a TYPE outside the slots that
+/// hold one (`T :: &i32`, `ArrayList(&T)`, a field `f : &T`, `&&T`): in
+/// Generation A of decision 42 a borrow is a mode a slot spells, not a type
+/// (decision 43 makes it one). `ty` is the type as written, `is_mut` picks
+/// `&mut`.
+borrow_mode_not_a_type_message :: (fn(imm(ty) : String, is_mut : bool) -> String)({
+  sig := if(is_mut, String.from("&mut "), String.from("&"));
+  `\`${sig}${ty}\` is a borrow mode, not a type: it is written on a parameter (\`x : ${sig}${ty}\`), a closure or \`Fn(...)\` parameter, a receiver (\`self : ${sig}Self\`) or a local borrow (\`(y : ${sig}${ty}) = ${sig}place\`), and cannot name a type, be a type argument or a field's type (plans/VALUES_BY_DEFAULT.md decision 42; references become types with decision 43).`
+});
 /// A capture-list borrow entry's left side, `imm(y)` or `mut(z)`: a prefix
 /// call of the mode word with one identifier (plans/VALUES_BY_DEFAULT.md
 /// decision 35). In a `{ … }` record it is a pun (`imm(y)` is
@@ -803,10 +815,22 @@ ast_expr_is_capture_list_params :: (fn(imm(lhs) : AstExpr) -> bool)(
 );
 
 /// The mode wrapper of a LOCAL borrow binding or re-point (decisions 18 and
-/// 25): `imm(y)` or `mut(y)`, on the left of `:=` or `=`.
-ast_expr_is_local_borrow_mode_call :: (fn(imm(e) : AstExpr, arg_count : Option(usize)) -> bool)(
-  ast_expr_is_inout_mode_call(e, arg_count) || ast_expr_is_fn_call_of(e, BK_IMM, arg_count)
-);
+/// 25): `imm(y)` or `mut(y)`, on the left of `:=` or `=`. `y := &place` and
+/// `y := &mut place` are rewritten to it at parse time (decision 42), and the
+/// annotated `(y : &T) = &place` to `imm(y, T) := place`: so an `arg_count` of
+/// one also accepts that second, annotation argument, and every reader of the
+/// bound name keeps reading argument 0.
+ast_expr_is_local_borrow_mode_call :: (fn(imm(e) : AstExpr, arg_count : Option(usize)) -> bool)({
+  n_ok := match(
+    arg_count,
+    .Some(n) => cond(
+      (n == usize(1)) => (ast_expr_is_fn_call_of(e, BK_MUT, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_MUT, Option(usize).Some(usize(2))) || ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).Some(usize(2)))),
+      true => (ast_expr_is_inout_mode_call(e, arg_count) || ast_expr_is_fn_call_of(e, BK_IMM, arg_count))
+    ),
+    .None => (ast_expr_is_inout_mode_call(e, arg_count) || ast_expr_is_fn_call_of(e, BK_IMM, arg_count))
+  );
+  n_ok
+});
 /// The place under a call-site borrow marker (decision 33): `&mut x` and a
 /// `&x` that lends to a borrowing parameter both name the place `x`. Every
 /// walker that roots an argument's PLACE (the `inout` alias roots, D3, the
@@ -1212,6 +1236,443 @@ _unwrap_if_label :: (fn(imm(arg) : AstExpr, label : str) -> Option(AstExpr))({
 /// actually carry one — a target-free subtree is returned unchanged by the
 /// copy-on-write check below, so parsing a module with neither costs one
 /// read-only walk instead of a full AST reconstruction.
+// ---------------------------------------------------------------------------
+// `&T` / `&mut T` in the declaration slots (plans/VALUES_BY_DEFAULT.md
+// decision 42, Generation A)
+// ---------------------------------------------------------------------------
+// Decision 42 spells a borrow `&T` / `&mut T` in every slot that holds one.
+// Generation A accepts the new spelling as an exact synonym of the mode words
+// by rewriting it, here, into the form every later pass already reads:
+//   `x : &T`             → `imm(x) : T`   (a parameter, a receiver
+//   `x : &mut T`         → `mut(x) : T`    `self : &Self`, a closure
+//                                          parameter, an `Fn(...)` slot;
+//                                          `comptime(x) : &T` →
+//                                          `comptime(imm(x)) : T`)
+//   `-> &T` / `-> &mut T`                → `-> imm(T)` / `-> mut(T)`
+//   `y := &place` / `y := &mut place`    → `imm(y) := place` / `mut(y) := place`
+//   `(y : &T) = &place`                  → `imm(y, T) := place` (the
+//                                          annotation, checked against the
+//                                          place's type by the binding)
+//   `y = &place` / `cur = &mut place`    → `imm(y) = place` / `mut(cur) = place`
+//   `{ y : &y, z : &mut z }(…) =>`       → `{ imm(y) : &y, mut(z) : &mut z }(…) =>`
+//   `{ &y, &mut z }(…) =>` (puns)        → `{ imm(y), mut(z) }(…) =>`
+//   `for(&xs, x => …)`                   → `for(xs, x => …)`
+//   `for(&mut xs, x => …)`               → `for(xs, mut(x) => …)` (and the
+//                                          map form's `(k, v)` → `(k, mut(v))`)
+// A `&T` anywhere else (`T :: &i32`, `ArrayList(&T)`, a field's type) is not
+// rewritten and is rejected by the evaluator as a borrow mode, not a type.
+// The formatter never sees this: it renders the token stream, so a file keeps
+// the spelling it was written in. The synthesized mode tokens sit at the
+// sigil, so a diagnostic about the mode points at the `&`.
+/// A borrow sigil: `&e` or `&mut e`, a one-operand prefix call.
+_BorrowSigil :: struct(is_mut : bool, inner : AstExpr, tok : Token);
+_borrow_sigil_of :: (fn(imm(e) : AstExpr) -> Option(_BorrowSigil))(
+  match(
+    e,
+    .FnCall(_, sf, sargs, s_infix, _) => cond(
+      (s_infix || (sargs.len() != usize(1))) => Option(_BorrowSigil).None,
+      true => match(
+        sf,
+        .Atom(_, sft) => cond(
+          ((sft.value == BK_BORROW_MUT) || (sft.value == BF_ADDRESS_OF)) => Option(_BorrowSigil).Some(
+            _BorrowSigil(is_mut : (sft.value == BK_BORROW_MUT), inner : match(sargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), tok : sft)
+          ),
+          true => Option(_BorrowSigil).None
+        ),
+        .FnCall(_, _, _, _, _) => Option(_BorrowSigil).None
+      )
+    ),
+    .Atom(_, _) => Option(_BorrowSigil).None
+  )
+);
+/// `imm(args...)` / `mut(args...)`, its head synthesized at the sigil `at`.
+_borrow_mode_call :: (fn(is_mut : bool, imm(args) : ArrayList(AstExpr), imm(at) : Token) -> AstExpr)({
+  mtok := _synth_desugar_tok(TokenKind.Identifier, cond(is_mut => BK_MUT, true => BK_IMM), at);
+  AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), mtok), args, false, mtok)
+});
+_borrow_mode_call1 :: (fn(is_mut : bool, imm(arg) : AstExpr, imm(at) : Token) -> AstExpr)({
+  one := ArrayList(AstExpr).new();
+  one.push(arg);
+  _borrow_mode_call(is_mut, one, at)
+});
+/// The two operands of an infix call `a op b`, when `e` is one.
+_BsPair :: struct(lhs : AstExpr, rhs : AstExpr);
+_bs_infix_pair :: (fn(imm(e) : AstExpr, op : str) -> Option(_BsPair))(
+  match(
+    e,
+    .FnCall(_, pf, pargs, p_infix, _) => cond(
+      (p_infix && (pargs.len() == usize(2)) && ast_expr_is_atom_of(pf, op)) => Option(_BsPair).Some(
+        _BsPair(lhs : match(pargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), rhs : match(pargs.get(usize(1)), .Some(a) => a, .None => make_err_expr()))
+      ),
+      true => Option(_BsPair).None
+    ),
+    .Atom(_, _) => Option(_BsPair).None
+  )
+);
+/// Rebuild the infix node `e` (same id, head and token) with new operands.
+_bs_with_operands :: (fn(imm(e) : AstExpr, imm(lhs) : AstExpr, imm(rhs) : AstExpr) -> AstExpr)(
+  match(
+    e,
+    .FnCall(wid, wf, _, w_infix, wtok) => {
+      ops := ArrayList(AstExpr).new();
+      ops.push(lhs);
+      ops.push(rhs);
+      AstExpr.FnCall(wid, wf, ops, w_infix, wtok)
+    },
+    .Atom(_, _) => e
+  )
+);
+/// Rebuild the prefix call `e` (same id, head and token) with new arguments.
+_bs_with_args :: (fn(imm(e) : AstExpr, imm(args) : ArrayList(AstExpr)) -> AstExpr)(
+  match(
+    e,
+    .FnCall(wid, wf, _, w_infix, wtok) => AstExpr.FnCall(wid, wf, args, w_infix, wtok),
+    .Atom(_, _) => e
+  )
+);
+_bs_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
+  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+);
+/// An identifier atom: the only name a local borrow or a capture pun binds.
+_bs_is_name :: (fn(imm(e) : AstExpr) -> bool)(
+  match(e, .Atom(_, t) => (t.kind == TokenKind.Identifier), .FnCall(_, _, _, _, _) => false)
+);
+/// The heads whose arguments are parameter declarations.
+_bs_is_param_list_head :: (fn(imm(e) : AstExpr) -> bool)(
+  match(
+    e,
+    .FnCall(_, hf, _, h_infix, _) => (!h_infix && (ast_expr_is_atom_of(hf, BK_FN) || ast_expr_is_atom_of(hf, BK_CTL) || ast_expr_is_atom_of(hf, BK_FN_TRAIT) || ast_expr_is_atom_of(hf, BK_FN_ONCE_TRAIT))),
+    .Atom(_, _) => false
+  )
+);
+/// The label `L` of a slot `L : &T` in its mode: `x` → `imm(x)`,
+/// `comptime(x)` → `comptime(imm(x))`, `sink(x)` → `sink(imm(x))` (which the
+/// evaluator rejects as the combination it is).
+_bs_wrap_label :: (fn(imm(label) : AstExpr, imm(s) : _BorrowSigil) -> AstExpr)(
+  cond(
+    (ast_expr_is_fn_call_of(label, BK_COMPTIME, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(label, "sink", Option(usize).Some(usize(1)))) => {
+      inner := ArrayList(AstExpr).new();
+      inner.push(_borrow_mode_call1(s.is_mut, match(_bs_args(label).get(usize(0)), .Some(a) => a, .None => make_err_expr()), s.tok));
+      _bs_with_args(label, inner)
+    },
+    true => _borrow_mode_call1(s.is_mut, label, s.tok)
+  )
+);
+/// A declared parameter `L : &T` / `L : &mut T`, through a `?= default` or
+/// an `= value`: `.Some(rewritten)`, else `.None`.
+_bs_param :: (fn(imm(p) : AstExpr) -> Option(AstExpr))(
+  match(
+    _bs_infix_pair(p, BK_COLON),
+    .Some(pr) => match(
+      _borrow_sigil_of(pr.rhs),
+      .Some(s) => Option(AstExpr).Some(_bs_with_operands(p, _bs_wrap_label(pr.lhs, s), s.inner)),
+      .None => Option(AstExpr).None
+    ),
+    .None => match(
+      match(_bs_infix_pair(p, "?="), .Some(d) => Option(_BsPair).Some(d), .None => _bs_infix_pair(p, BK_ASSIGN)),
+      .Some(dp) => match(
+        recur(dp.lhs),
+        .Some(new_lhs) => Option(AstExpr).Some(_bs_with_operands(p, new_lhs, dp.rhs)),
+        .None => Option(AstExpr).None
+      ),
+      .None => Option(AstExpr).None
+    )
+  )
+);
+/// Every argument of `args` through `_bs_param`; `.None` when none changed.
+_bs_params :: (fn(imm(args) : ArrayList(AstExpr)) -> Option(ArrayList(AstExpr)))({
+  if(!_bs_any_param_is_target(args), {
+    return(Option(ArrayList(AstExpr)).None);
+  });
+  out := ArrayList(AstExpr).new();
+  (changed : bool) = false;
+  (i : usize) = usize(0);
+  while(i < args.len(), i = (i + usize(1)), {
+    a := match(args.get(i), .Some(x) => x, .None => make_err_expr());
+    match(
+      _bs_param(a),
+      .Some(na) => {
+        out.push(na);
+        changed = true;
+      },
+      .None => out.push(a)
+    );
+  });
+  cond(changed => Option(ArrayList(AstExpr)).Some(out), true => Option(ArrayList(AstExpr)).None)
+});
+/// One capture-list entry (decision 35): `y : &p` → `imm(y) : &p`,
+/// `z : &mut p` → `mut(z) : &mut p`, the puns `&y` → `imm(y)` and
+/// `&mut z` → `mut(z)`.
+_bs_capture_entry :: (fn(imm(c) : AstExpr) -> Option(AstExpr))(
+  match(
+    _bs_infix_pair(c, BK_COLON),
+    .Some(pr) => cond(
+      _bs_is_name(pr.lhs) => match(
+        _borrow_sigil_of(pr.rhs),
+        .Some(s) => Option(AstExpr).Some(_bs_with_operands(c, _borrow_mode_call1(s.is_mut, pr.lhs, s.tok), pr.rhs)),
+        .None => Option(AstExpr).None
+      ),
+      true => Option(AstExpr).None
+    ),
+    .None => match(
+      _borrow_sigil_of(c),
+      .Some(s) => cond(
+        _bs_is_name(s.inner) => Option(AstExpr).Some(_borrow_mode_call1(s.is_mut, s.inner, s.tok)),
+        true => Option(AstExpr).None
+      ),
+      .None => Option(AstExpr).None
+    )
+  )
+);
+/// The left side of a closure literal's `=>`: one parameter `x : &T`, a
+/// parameter list `(a : &T, b : U)`, or a capture list with parameters
+/// `{ … }(params)`. `.Some(rewritten)` when something changed.
+_bs_closure_lhs :: (fn(imm(lhs) : AstExpr) -> Option(AstExpr))(
+  cond(
+    ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None) => match(
+      _bs_params(_bs_args(lhs)),
+      .Some(np) => Option(AstExpr).Some(_bs_with_args(lhs, np)),
+      .None => Option(AstExpr).None
+    ),
+    ast_expr_is_capture_list_params(lhs) => match(
+      lhs,
+      .FnCall(lid, cl_callee, cl_params, cl_infix, ltok) => {
+        (changed : bool) = false;
+        entries := _bs_args(cl_callee);
+        new_entries := ArrayList(AstExpr).new();
+        (ei : usize) = usize(0);
+        while(ei < entries.len(), ei = (ei + usize(1)), {
+          en := match(entries.get(ei), .Some(x) => x, .None => make_err_expr());
+          match(
+            _bs_capture_entry(en),
+            .Some(ne) => {
+              new_entries.push(ne);
+              changed = true;
+            },
+            .None => new_entries.push(en)
+          );
+        });
+        new_params := match(
+          _bs_params(cl_params),
+          .Some(np) => {
+            changed = true;
+            np
+          },
+          .None => cl_params
+        );
+        cond(
+          changed => Option(AstExpr).Some(AstExpr.FnCall(lid, _bs_with_args(cl_callee, new_entries), new_params, cl_infix, ltok)),
+          true => Option(AstExpr).None
+        )
+      },
+      .Atom(_, _) => Option(AstExpr).None
+    ),
+    true => _bs_param(lhs)
+  )
+);
+/// `for(&mut xs, h)`'s handle: `x => body` → `mut(x) => body`, `(k, v) =>
+/// body` → `(k, mut(v)) => body`. A handle already spelling `mut` is kept.
+_bs_mut_for_handle :: (fn(imm(h) : AstExpr, imm(at) : Token) -> AstExpr)(
+  match(
+    _bs_infix_pair(h, "=>"),
+    .Some(hp) => cond(
+      _bs_is_name(hp.lhs) => _bs_with_operands(h, _borrow_mode_call1(true, hp.lhs, at), hp.rhs),
+      (ast_expr_is_fn_call_of(hp.lhs, BK_TUPLE, Option(usize).Some(usize(2))) && _bs_is_name(match(_bs_args(hp.lhs).get(usize(1)), .Some(v) => v, .None => make_err_expr()))) => {
+        kv := _bs_args(hp.lhs);
+        nkv := ArrayList(AstExpr).new();
+        nkv.push(match(kv.get(usize(0)), .Some(k) => k, .None => make_err_expr()));
+        nkv.push(_borrow_mode_call1(true, match(kv.get(usize(1)), .Some(v) => v, .None => make_err_expr()), at));
+        _bs_with_operands(h, _bs_with_args(hp.lhs, nkv), hp.rhs)
+      },
+      true => h
+    ),
+    .None => h
+  )
+);
+/// `e` is a borrow sigil `&x` / `&mut x` (allocation-free).
+_bs_is_sigil :: (fn(imm(e) : AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, BF_ADDRESS_OF, Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1)))
+);
+_bs_arg :: (fn(imm(e) : AstExpr, i : usize) -> AstExpr)(
+  match(e, .FnCall(_, _, a, _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
+);
+_bs_is_infix_of :: (fn(imm(e) : AstExpr, op : str) -> bool)(
+  match(e, .FnCall(_, f, a, infix, _) => (infix && (a.len() == usize(2)) && ast_expr_is_atom_of(f, op)), .Atom(_, _) => false)
+);
+/// `L : &T`, through a `?=` default or an `= value` (allocation-free).
+_bs_param_is_target :: (fn(imm(p) : AstExpr) -> bool)(
+  cond(
+    _bs_is_infix_of(p, BK_COLON) => _bs_is_sigil(_bs_arg(p, usize(1))),
+    (_bs_is_infix_of(p, "?=") || _bs_is_infix_of(p, BK_ASSIGN)) => recur(_bs_arg(p, usize(0))),
+    true => false
+  )
+);
+_bs_any_param_is_target :: (fn(imm(args) : ArrayList(AstExpr)) -> bool)({
+  (i : usize) = usize(0);
+  while(i < args.len(), i = (i + usize(1)), {
+    if(match(args.get(i), .Some(a) => _bs_param_is_target(a), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// The pre-scan for `_borrow_spelling_rewrite` (allocation-free): does `e`
+/// itself spell a borrow in a declaration slot?
+_is_borrow_spelling_target :: (fn(imm(e) : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, _, args, _, _) => cond(
+      _bs_is_param_list_head(e) => _bs_any_param_is_target(args),
+      _bs_is_infix_of(e, "->") => (_bs_is_param_list_head(_bs_arg(e, usize(0))) && (_bs_is_sigil(_bs_arg(e, usize(1))) || _bs_param_is_target(_bs_arg(e, usize(1))))),
+      _bs_is_infix_of(e, "=>") => {
+        lhs := _bs_arg(e, usize(0));
+        cond(
+          ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None) => _bs_any_param_is_target(_bs_args(lhs)),
+          ast_expr_is_capture_list_params(lhs) => {
+            entries := match(lhs, .FnCall(_, cc, _, _, _) => _bs_args(cc), .Atom(_, _) => ArrayList(AstExpr).new());
+            (hit : bool) = _bs_any_param_is_target(_bs_args(lhs));
+            (ci : usize) = usize(0);
+            while(!hit && (ci < entries.len()), ci = (ci + usize(1)), {
+              en := match(entries.get(ci), .Some(x) => x, .None => make_err_expr());
+              hit = cond(
+                _bs_is_infix_of(en, BK_COLON) => (_bs_is_name(_bs_arg(en, usize(0))) && _bs_is_sigil(_bs_arg(en, usize(1)))),
+                true => (_bs_is_sigil(en) && _bs_is_name(_bs_arg(en, usize(0))))
+              );
+            });
+            hit
+          },
+          true => _bs_param_is_target(lhs)
+        )
+      },
+      _bs_is_infix_of(e, BK_INIT_ASSIGN) => (_bs_is_name(_bs_arg(e, usize(0))) && _bs_is_sigil(_bs_arg(e, usize(1)))),
+      _bs_is_infix_of(e, BK_ASSIGN) => (
+        _bs_is_sigil(_bs_arg(e, usize(1))) && (_bs_is_name(_bs_arg(e, usize(0))) || (_bs_is_infix_of(_bs_arg(e, usize(0)), BK_COLON) && _bs_is_name(_bs_arg(_bs_arg(e, usize(0)), usize(0))) && _bs_is_sigil(_bs_arg(_bs_arg(e, usize(0)), usize(1)))))
+      ),
+      ast_expr_is_fn_call_of(e, "for", Option(usize).Some(usize(2))) => _bs_is_sigil(_bs_arg(e, usize(0))),
+      true => false
+    )
+  )
+);
+/// One node's decision 42 rewrite, or `.None` when `e` spells no borrow in
+/// a declaration slot. Only `e` itself is rewritten; `desugar_if_calls`
+/// recurses into the result.
+_borrow_spelling_rewrite :: (fn(imm(e) : AstExpr) -> Option(AstExpr))({
+  // `fn(x : &T)`, `ctl(…)`, `Fn(…)`, `FnOnce(…)`: the parameters.
+  if(_bs_is_param_list_head(e), {
+    return(
+      match(
+        _bs_params(_bs_args(e)),
+        .Some(np) => Option(AstExpr).Some(_bs_with_args(e, np)),
+        .None => Option(AstExpr).None
+      )
+    );
+  });
+  // `(fn(…) -> &T)`, `-> (name : &mut T)`: the result slot.
+  match(
+    _bs_infix_pair(e, "->"),
+    .Some(rp) => if(_bs_is_param_list_head(rp.lhs), {
+      match(
+        _borrow_sigil_of(rp.rhs),
+        .Some(s) => return(Option(AstExpr).Some(_bs_with_operands(e, rp.lhs, _borrow_mode_call1(s.is_mut, s.inner, s.tok)))),
+        .None => ()
+      );
+      match(
+        _bs_param(rp.rhs),
+        .Some(nr) => return(Option(AstExpr).Some(_bs_with_operands(e, rp.lhs, nr))),
+        .None => ()
+      );
+      return(Option(AstExpr).None);
+    }),
+    .None => ()
+  );
+  // A closure literal's parameters and capture list.
+  match(
+    _bs_infix_pair(e, "=>"),
+    .Some(ap) => return(
+      match(
+        _bs_closure_lhs(ap.lhs),
+        .Some(nl) => Option(AstExpr).Some(_bs_with_operands(e, nl, ap.rhs)),
+        .None => Option(AstExpr).None
+      )
+    ),
+    .None => ()
+  );
+  // `y := &place` / `y := &mut place`: a local borrow (decision 18).
+  match(
+    _bs_infix_pair(e, BK_INIT_ASSIGN),
+    .Some(ip) => return(
+      cond(
+        _bs_is_name(ip.lhs) => match(
+          _borrow_sigil_of(ip.rhs),
+          .Some(s) => Option(AstExpr).Some(_bs_with_operands(e, _borrow_mode_call1(s.is_mut, ip.lhs, s.tok), s.inner)),
+          .None => Option(AstExpr).None
+        ),
+        true => Option(AstExpr).None
+      )
+    ),
+    .None => ()
+  );
+  // `y = &place` / `cur = &mut place`: a re-point (decision 25); and the
+  // annotated local borrow `(y : &T) = &place`.
+  match(
+    _bs_infix_pair(e, BK_ASSIGN),
+    .Some(sp) => {
+      rs := _borrow_sigil_of(sp.rhs);
+      if(_bs_is_name(sp.lhs), {
+        return(
+          match(
+            rs,
+            .Some(s) => Option(AstExpr).Some(_bs_with_operands(e, _borrow_mode_call1(s.is_mut, sp.lhs, s.tok), s.inner)),
+            .None => Option(AstExpr).None
+          )
+        );
+      });
+      match(
+        _bs_infix_pair(sp.lhs, BK_COLON),
+        .Some(ap) => if(_bs_is_name(ap.lhs), {
+          match(
+            _borrow_sigil_of(ap.rhs),
+            .Some(ts) => match(
+              rs,
+              .Some(s) => if(s.is_mut == ts.is_mut, {
+                ann := ArrayList(AstExpr).new();
+                ann.push(ap.lhs);
+                ann.push(ts.inner);
+                bind_tok := _synth_desugar_tok(TokenKind.Operator, BK_INIT_ASSIGN, ast_expr_token(e));
+                ops := ArrayList(AstExpr).new();
+                ops.push(_borrow_mode_call(ts.is_mut, ann, ts.tok));
+                ops.push(s.inner);
+                return(Option(AstExpr).Some(AstExpr.FnCall(ast_expr_id(e), AstExpr.Atom(alloc_global_expr_id(), bind_tok), ops, true, bind_tok)));
+              }),
+              .None => ()
+            ),
+            .None => ()
+          );
+        }),
+        .None => ()
+      );
+      return(Option(AstExpr).None);
+    },
+    .None => ()
+  );
+  // `for(&xs, …)` / `for(&mut xs, …)`: the borrowed `for`.
+  if(ast_expr_is_fn_call_of(e, "for", Option(usize).Some(usize(2))), {
+    fa := _bs_args(e);
+    match(
+      _borrow_sigil_of(match(fa.get(usize(0)), .Some(c) => c, .None => make_err_expr())),
+      .Some(s) => {
+        h := match(fa.get(usize(1)), .Some(x) => x, .None => make_err_expr());
+        nfa := ArrayList(AstExpr).new();
+        nfa.push(s.inner);
+        nfa.push(cond(s.is_mut => _bs_mut_for_handle(h, s.tok), true => h));
+        return(Option(AstExpr).Some(_bs_with_args(e, nfa)));
+      },
+      .None => ()
+    );
+  });
+  Option(AstExpr).None
+});
 /// `match(&x, …)` or `match(&mut x, …)`: a scrutinee marked as a borrow
 /// (decision 33), peeled by `desugar_if_calls`.
 _is_borrowed_match_scrutinee :: (fn(imm(e) : AstExpr) -> bool)(
@@ -1244,6 +1705,9 @@ _contains_desugar_target :: (fn(imm(e) : AstExpr) -> bool)(
         return(true);
       });
       if(_is_borrowed_match_scrutinee(e), {
+        return(true);
+      });
+      if(_is_borrow_spelling_target(e), {
         return(true);
       });
       if(recur(func_box), {
@@ -1343,6 +1807,15 @@ desugar_if_calls :: (fn(imm(e) : AstExpr) -> AstExpr)(
       // (issues/desugar-token-clones-evaluator-regression.md).
       if(!_contains_desugar_target(e), {
         return(e);
+      });
+      // `&T` / `&mut T` in a declaration slot (decision 42, Generation A):
+      // rewritten into the mode-word form, then desugared as usual.
+      if(_is_borrow_spelling_target(e), {
+        match(
+          _borrow_spelling_rewrite(e),
+          .Some(bs) => return(recur(bs)),
+          .None => ()
+        );
       });
       n_args := args.len();
       if(ast_expr_is_fn_call_of(e, "if", .None) && ((n_args == usize(2)) || (n_args == usize(3))), {
@@ -1516,7 +1989,7 @@ desugar_program_if_calls :: (fn(imm(program) : ArrayList(AstExpr)) -> ArrayList(
 export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
 export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
 export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_is_old_mode_spelling, old_mode_spelling_message, ast_place_text, ast_expr_strip_borrow_marker, ast_expr_is_capture_mode_entry, ast_expr_is_capture_list_params, ast_expr_is_local_borrow_mode_call);
-export(desugar_if_calls, desugar_program_if_calls);
+export(desugar_if_calls, desugar_program_if_calls, borrow_mode_not_a_type_message);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);
 export(is_function_boundary_arrow);

@@ -724,7 +724,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                             ctx,
                             exn,
                             ci.token,
-                            `Cannot capture the borrow '${k}' in a closure implicitly: '${k}' is an \`imm\`/\`mut\` binding, a second-class borrow of another place, and an implicit capture would copy the borrow into a closure that may outlive it. Name it in a capture list (\`{ imm(${k}) }(...) => ...\` or \`{ mut(${k}) }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
+                            `Cannot capture the borrow '${k}' in a closure implicitly: '${k}' is a local borrow (\`${k} := &place\`, \`${k} := &mut place\`), a second-class borrow of another place, and an implicit capture would copy the borrow into a closure that may outlive it. Name it in a capture list (\`{ &${k} }(...) => ...\` or \`{ &mut ${k} }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
                           );
                         });
                         if(!v.is_compile_time_only && type_is_control_bound(v.ty), {
@@ -881,7 +881,7 @@ _evaluate_capture_list :: (
         init_e = match(raw, .FnCall(_, _, la, _, _) => match(la.get(usize(1)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => raw);
       },
       true => {
-        _cap_list_error(ctx, exn, raw_tok, `A closure's capture list holds entries \`x\`, \`x : e\`, \`imm(y) : &p\` or \`mut(z) : &mut p\`; got \`${ast_expr_to_string(raw)}\`.`);
+        _cap_list_error(ctx, exn, raw_tok, `A closure's capture list holds entries \`x\`, \`x : e\`, \`y : &p\` or \`z : &mut p\` (and the puns \`&y\`, \`&mut z\`); got \`${ast_expr_to_string(raw)}\`.`);
       }
     );
     is_mode := ast_expr_is_capture_mode_entry(label_e);
@@ -889,7 +889,7 @@ _evaluate_capture_list :: (
     is_mut := (is_mode && ast_expr_is_fn_call_of(label_e, BK_MUT, .None));
     name_e := if(is_mode, _only_arg(label_e), label_e);
     if(!ast_expr_is_atom(name_e) || !is_valid_variable_name(name_e), {
-      _cap_list_error(ctx, exn, ast_expr_token(label_e), `A capture-list entry is named by an identifier (\`x\`, \`imm(y)\`, \`mut(z)\`); got \`${ast_expr_to_string(label_e)}\`.`);
+      _cap_list_error(ctx, exn, ast_expr_token(label_e), `A capture-list entry is named by an identifier (\`x\`, \`y : &p\`, \`&mut z\`); got \`${ast_expr_to_string(label_e)}\`.`);
     });
     name_tok := ast_expr_token(name_e);
     label := name_tok.value.clone();
@@ -903,20 +903,13 @@ _evaluate_capture_list :: (
     // A borrow spells its mode on the left (the field) and its sigil on the
     // right (the initializer), as decision 33 splits a parameter from its
     // argument.
-    cond(
-      is_borrow => {
-        if(!is_pun && !_is_borrow_sigil(init_e, is_mut), {
-          want := if(is_mut, String.from("&mut "), String.from("&"));
-          mode := if(is_mut, String.from("mut"), String.from("imm"));
-          _cap_list_error(ctx, exn, ast_expr_token(init_e), `\`${mode}(${label})\` borrows a place, so its initializer is \`${want}place\` (\`${mode}(${label}) : ${want}${label}\`, or the pun \`${mode}(${label})\`); got \`${ast_expr_to_string(init_e)}\`.`);
-        });
-      },
-      (_is_borrow_sigil(init_e, false) || _is_borrow_sigil(init_e, true)) => {
-        mode2 := if(_is_borrow_sigil(init_e, true), String.from("mut"), String.from("imm"));
-        _cap_list_error(ctx, exn, ast_expr_token(init_e), `A borrow capture spells its mode on the left: \`${mode2}(${label}) : ${ast_expr_to_string(init_e)}\`. A plain \`${label} : e\` entry captures a value.`);
-      },
-      true => ()
-    );
+    // `y : &p` / `z : &mut p` reach here as `imm(y) : &p` / `mut(z) : &mut
+    // p` (the parse-time rewrite of decision 42), so the sigil decides the
+    // mode; an old-spelling `imm(y) : e` without one is an error.
+    if(is_borrow && !is_pun && !_is_borrow_sigil(init_e, is_mut), {
+      want := if(is_mut, String.from("&mut "), String.from("&"));
+      _cap_list_error(ctx, exn, ast_expr_token(init_e), `A borrow capture's initializer is a place under its sigil (\`${label} : ${want}place\`, or the pun \`${want}${label}\`); got \`${ast_expr_to_string(init_e)}\`.`);
+    });
     if(is_borrow, {
       place_e := if(is_pun, init_e, _only_arg(init_e));
       fields := ArrayList(String).new();
@@ -958,7 +951,7 @@ _evaluate_capture_list :: (
           ctx,
           exn,
           ast_expr_token(place_e),
-          `A borrow capture cannot reach through an \`Rc\`/\`Arc\` (or any \`ref\` object or pointer dereference): \`${ast_expr_to_string(place_e)}\` lives in a shared cell, and a closure, which may be copied, cannot hold the cell's run-time borrow mark (decision 38 D). Capture the handle and re-derive the place on each call: \`{ imm(${root_tok.value}) }(...) => ${ast_expr_to_string(place_e)}...\`.`
+          `A borrow capture cannot reach through an \`Rc\`/\`Arc\` (or any \`ref\` object or pointer dereference): \`${ast_expr_to_string(place_e)}\` lives in a shared cell, and a closure, which may be copied, cannot hold the cell's run-time borrow mark (decision 38 D). Capture the handle and re-derive the place on each call: \`{ &${root_tok.value} }(...) => ${ast_expr_to_string(place_e)}...\`.`
         );
       });
       if(is_mut, {
@@ -968,7 +961,7 @@ _evaluate_capture_list :: (
         // reassignable; a by-value parameter, a `match`/`for` binding and an
         // `imm` capture are not. (A cell is never crossed, checked above.)
         if(!root_var.is_reassignable, {
-          _cap_list_error(ctx, exn, ast_expr_token(place_e), `A \`mut\` capture needs a writable place, and \`${ast_expr_to_string(place_e)}\` is not: \`${root_tok.value}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or an \`imm\` borrow). Borrow it with \`imm(${label})\`, or take the parameter \`mut(${root_tok.value})\`.`);
+          _cap_list_error(ctx, exn, ast_expr_token(place_e), `A \`&mut\` capture needs a writable place, and \`${ast_expr_to_string(place_e)}\` is not: \`${root_tok.value}\` is a read-only binding (a by-value parameter, a \`match\`/\`for\` binding or a \`&\` borrow). Borrow it read-only with \`${label} : &${ast_expr_to_string(place_e)}\`, or take the parameter \`${root_tok.value} : &mut T\`.`);
         });
       });
       out.push(
@@ -2580,7 +2573,7 @@ Result type: ${type_to_string(decl_result_ty)}`
                     ctx,
                     exn,
                     ex_ci.token,
-                    `The closure's capture list does not name \`${ex_name}\`, and the list is exhaustive: the body may read only the listed captures and module-level items. Add \`${ex_name}\` to the list (\`{ ${ex_name} }\` copies or moves it, \`{ imm(${ex_name}) }\` borrows it).`
+                    `The closure's capture list does not name \`${ex_name}\`, and the list is exhaustive: the body may read only the listed captures and module-level items. Add \`${ex_name}\` to the list (\`{ ${ex_name} }\` copies or moves it, \`{ &${ex_name} }\` borrows it).`
                   );
                 }),
                 .None => ()

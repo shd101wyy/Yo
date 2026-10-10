@@ -223,7 +223,8 @@ import("std/fmt");
   BF_COMPTIME_STRING_INDEX_RANGE,
   BF_COMPTIME_STRING_INDEX_RANGE_INCLUSIVE,
   BF_COMPTIME_ARRAY_INDEX,
-  ast_expr_is_local_borrow_mode_call
+  ast_expr_is_local_borrow_mode_call,
+  borrow_mode_not_a_type_message
 } :: import("../../expr.yo");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
@@ -296,7 +297,7 @@ _punned_field_name :: (fn(imm(expr) : AstExpr) -> String)(
     _ => String.new()
   )
 );
-{ is_unknown_val } :: import("../../value.yo");
+{ is_unknown_val, is_type_value } :: import("../../value.yo");
 { evaluate_extern } :: import("./extern.yo");
 { evaluate_c_include } :: import("./c_include.yo");
 { evaluate_test } :: import("./test.yo");
@@ -635,6 +636,14 @@ _evaluate_exists_or_call :: (
     true => evaluate_function_call(expr, env, t_unit(), Option(EvalValue).None, ctx, exn)
   )
 );
+/// `&T` / `&mut T` whose operand is a TYPE: decision 42's "a borrow mode,
+/// not a type" (Generation A). The operand is trial-evaluated; the caller
+/// throws either way.
+_borrow_operand_is_type :: (fn(imm(operand) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext) -> bool)({
+  trial_exn := Exception(throw : (_err -> unwind(false)));
+  ev := _evaluate_expression(operand, env, ctx, trial_exn);
+  match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev)), .Some(ti) => is_type_value(ti.value), .None => false)
+});
 _evaluate_expression :: (
   fn(
     imm(expr) : AstExpr,
@@ -1098,11 +1107,14 @@ _evaluate_expression :: (
           migrate_addr_of_on() => evaluate_address_call(expr, env, ctx, exn),
           true => {
             amp_place := ast_place_text(ast_expr_strip_borrow_marker(expr));
+            if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
+              exn.throw(dyn(format_error_message(ast_expr_token(expr), borrow_mode_not_a_type_message(amp_place, false))));
+            });
             exn.throw(
               dyn(
                 format_error_message(
                   ast_expr_token(expr),
-                  `\`&${amp_place}\` lends a borrow: it is written as a call argument to an \`imm\` parameter or as a \`match\` scrutinee, and is not an expression of its own. Take a raw pointer with \`addr_of(${amp_place})\`; a method receiver is written bare (\`${amp_place}.m()\`).`
+                  `\`&${amp_place}\` lends a borrow: it is written as a call argument to a \`&T\` parameter, as a \`match\` scrutinee, or as a local borrow (\`y := &${amp_place}\`), and is not an expression of its own. Take a raw pointer with \`addr_of(${amp_place})\`; a method receiver is written bare (\`${amp_place}.m()\`).`
                 )
               )
             );
@@ -1123,11 +1135,14 @@ _evaluate_expression :: (
         // argument bound to a `mut`/`inout` parameter, a `match` scrutinee).
         // Anywhere else it is not an expression.
         ((__dk_len == usize(4)) && ast_expr_is_fn_call_of(expr, BK_BORROW_MUT, .None)) => {
+          if(_borrow_operand_is_type(ast_expr_strip_borrow_marker(expr), env, ctx), {
+            exn.throw(dyn(format_error_message(ast_expr_token(expr), borrow_mode_not_a_type_message(ast_place_text(ast_expr_strip_borrow_marker(expr)), true))));
+          });
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `\`&mut x\` lends a place to a \`mut\` parameter: it is written as a call argument or a \`match\` scrutinee, and is not an expression of its own. Pass the place itself, or take a raw pointer with \`addr_of(x)\`.`
+                `\`&mut x\` lends a place to a \`&mut T\` parameter: it is written as a call argument, a \`match\` scrutinee or a local borrow (\`y := &mut x\`), and is not an expression of its own. Pass the place itself, or take a raw pointer with \`addr_of(x)\`.`
               )
             )
           );
