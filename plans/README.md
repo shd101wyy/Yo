@@ -138,8 +138,8 @@ lifetime names, no stored views. It unlocks zero-copy views, borrowing
 iterators, the entry API, guards, `Cow` and parser remainders, and records
 the maintainer's position that mutable value semantics stays the base
 (Swift's and Mojo's path, not Rust's). Decision 42 (2026-10-10) fixed the
-spelling, `x : &T` / `x : &mut T`; decision 43 (same day, draft pending the
-VBD implementer's review) made `&T` a real type — second-class, lifetimes
+spelling, `x : &T` / `x : &mut T`; decision 43 (same day, confirmed with the
+VBD implementer's review amendments) made `&T` a real type — second-class, lifetimes
 elided, `impl(&T, …)` allowed, `.*` for whole-value access with auto-deref
 on `.` — and added root-joining containers (R7: `ArrayList(&T)` is legal,
 second-class, its roots grow with every `&` pushed in).

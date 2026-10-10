@@ -2688,10 +2688,11 @@ and in git, not a silent edit.
 
 43. **`&T` and `&mut T` are types: second-class types with elided
     lifetimes. A buffer container over a `&` is a root-joining second-class
-    container.** DRAFT, written 2026-10-10 at the maintainer's direction
-    ("I want to make `&T` a real type because I also want to support
-    `impl(&T, …)`"; `ArrayList(&T)` by the root-joining option), pending the
-    VBD implementer's checker-side review. It supersedes the "modes, not
+    container.** Confirmed 2026-10-10 by the maintainer ("I want to make
+    `&T` a real type because I also want to support `impl(&T, …)`";
+    `ArrayList(&T)` by the root-joining option), drafted the same day and
+    confirmed with the VBD implementer's checker-side review amendments
+    (below) accepted as written. It supersedes the "modes, not
     types" half of decision 42; decision 42's spelling, rollout and
     deletion list stand. Yo moves from Hylo's "no first-class references"
     to **references as second-class types with elided lifetimes**, the
@@ -2764,8 +2765,8 @@ and in git, not a silent edit.
       types, `.*`, auto-deref and auto-borrow, `impl(&T, …)`, root-joining
       and the tests in user code; Generation B lets std adopt (`iter`,
       `slice`, `entry`, the borrowed `for` by trait). Timing is the VBD
-      session's, after the V3b generations; the checker-side review comes
-      first and may amend this draft.
+      session's, after the V3b generations, as its own phase after
+      decision 42's Generation B and V2b (the review's cost note).
     - **Tests.** `impl(&T, M)` versus `impl(T, M)` dispatch; `&&T` reached
       through a generic; reborrow versus move of a `&mut T`; the `.*`
       swap; auto-deref on a field and a method; root-joining: two roots
@@ -2773,8 +2774,9 @@ and in git, not a silent edit.
       root (error), a `depends` narrowing; an `Rc`-rooted element in a
       container (rejected); the cell cases (E0909); `words` returning a
       list of views; the borrowed `for` by `impl(&C, IntoIterator)`.
-    - **Checker-side review (2026-10-10, the VBD implementer; amends this
-      draft, decided under the maintainer's 2026-10-09 delegation):**
+    - **Checker-side review (2026-10-10, the VBD implementer, under the
+      maintainer's 2026-10-09 delegation; accepted by the maintainer the
+      same day — these amendments are part of the decision):**
       - **Root-joining needs a new tracker.** The closures' capture-borrow
         sets cannot carry it: they are keyed by the capture struct's type
         id (`g_capture_borrows`), which works because every closure literal

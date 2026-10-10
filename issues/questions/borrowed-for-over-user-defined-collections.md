@@ -43,7 +43,7 @@ lowering (`CODEGEN_PERFORMANCE.md` CP2b) applies to std only.
 
 ## Recommendation
 
-**Position taken by decision 43 (2026-10-10, draft):** a fourth option
+**Position taken by decision 43 (2026-10-10, confirmed):** a fourth option
 became available when `&T` became a type — `impl(&C, IntoIterator(…))`
 and `impl(&mut C, IntoIterator(…))`, Rust's exact shape: the borrowed
 `for(&xs, …)` dispatches to the impl on `&C`, and the iterator it returns
