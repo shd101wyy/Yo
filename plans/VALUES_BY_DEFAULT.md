@@ -2585,7 +2585,7 @@ and in git, not a silent edit.
       | local borrow | `imm(y) := place` / `mut(cur) = place` | `y := &place` / `cur = &mut place`; `(y : &T) = &place` with an annotation |
       | capture list (decision 35) | `{ imm(y) : &y, mut(z) : &mut z }` | `{ y : &y, z : &mut z }` — the sigil carries the mode |
       | borrowed `for` | `for(xs, inout(x) => …)` | `for(&mut xs, x => …)` / `for(&xs, x => …)` — the sigil on the source, the element mode follows |
-      | by value, `sink`, extern `own(...)` | unchanged | unchanged |
+      | by value, `sink` | unchanged | unchanged |
     - **Why.** The call site already writes `f(&x)` / `f(&mut x)` (decision
       33); the slot that receives it should say the same thing. It is the
       spelling every reader and every model knows, and it removes a
@@ -2662,9 +2662,13 @@ and in git, not a silent edit.
       | `inout(x) : T` | the pre-`mut` spelling still in the tree under the seed | deleted with the rest |
       | `BK_IMM`, `BK_MUT`, `BK_INOUT` (`src/expr.yo:360`–`365`) and their parser, evaluator, formatter, LSP and `yo fix` branches | the compiler | deleted; `&`/`&mut` in a type slot is parsed by the sigil path decision 33 already has for call sites |
       - **What is NOT deleted:** `sink(x) : T` (consume, decision 30),
-        `own(…)` in extern declarations, `comptime(…)` and `generic(…)`
+        `comptime(…)` and `generic(…)`
         (they are not borrow modes); `&x` / `&mut x` at call sites
         (decision 33) — they are the spelling that replaces the forms.
+        (`own(x)` is not in this list: there is no extern `own(...)` form in
+        the tree, and `own` was swept to `sink` in #1296 and is deleted by
+        V3b step 3, ahead of this decision — corrected 2026-10-10 by the VBD
+        implementer.)
       - **`mut` becomes a reserved word**, as in Rust: it may not name a
         binding, and it appears only after `&`. `imm` stops being reserved
         and becomes an ordinary identifier (nothing in std uses it as one;
