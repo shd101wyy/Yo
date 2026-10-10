@@ -169,7 +169,9 @@ the instruction that stopped the vectorizer.
   two `__yo_borrow_assert_unborrowed` loads-and-branches (`push` and the
   `try_push` it calls both assert), a `capacity()` call, the `_ptr` null
   branch, a dead load of the slot's old value before the store (the
-  assignment's "save old value" pattern on a `Copy` slot), a checked
+  assignment's "save old value" pattern on a `Copy` slot; checked
+  2026-10-10: clang -O2 deletes it even under `-fno-strict-aliasing`, so it
+  costs C text, not run time), a checked
   `_length + 1`, a `Result` tag switch — and then **the Phase-0 contract**:
   `ensures(self.len() == old(self.len()) + usize(1))` is lowered to a runtime
   assert in every build, `assumed()` or not, which is two more `len()`
