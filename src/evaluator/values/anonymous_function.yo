@@ -724,7 +724,7 @@ outcome after the guarded call instead (e.g. a result the handler unwinds past).
                             ctx,
                             exn,
                             ci.token,
-                            `Cannot capture inout binding '${k}' in a closure. \`inout(${k}) : T\` is a second-class reference to the caller's storage; a closure that captures it could outlive the call frame. Pass the value through (e.g. read it into a local first, or restructure to take the closure as a callback parameter).`
+                            `Cannot capture the borrow '${k}' in a closure implicitly: '${k}' is an \`imm\`/\`mut\` binding, a second-class borrow of another place, and an implicit capture would copy the borrow into a closure that may outlive it. Name it in a capture list (\`{ imm(${k}) }(...) => ...\` or \`{ mut(${k}) }(...) => ...\`), which keeps the closure second-class, or read the value into a local first.`
                           );
                         });
                         if(!v.is_compile_time_only && type_is_control_bound(v.ty), {

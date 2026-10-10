@@ -2126,6 +2126,34 @@ and in git, not a silent edit.
         receives it by value, a `&T` copied and a `&mut T` moved, with
         the callee checked per instantiation and its result inheriting the
         roots (decision 43).
+    - **Escape-route audit (2026-10-10, under the maintainer's 2026-10-09
+      delegation).** Every route above was probed with the V3b stack
+      compiler, and each is pinned by a test in
+      `tests/closure_capture_list.test.yo` ("escape: …"): `return(f)`, a
+      tuple, array, listed or implicit capturing closure, or `Dyn` as the
+      result; a named type over `type_of(f)` (a field, `Option`, `Rc`, an
+      outer value's field); a plain, `sink` or generic by-value parameter,
+      including a tuple or array holding `f`; an implicit capture by an
+      escaping closure; every coercion to `Dyn` (argument, binding then
+      argument, `=` into an outer `Dyn`); a callee passing on, returning or
+      capturing its `imm(f)` argument (checked per instantiation); an
+      `io.async` body; a thread body (rejected by `Send`, since a borrow is
+      a raw pointer); moving a captured place while the closure lives. Two
+      findings:
+      - **A hole:** a function whose `Impl(Fn)` result is a `cond` or
+        `match` tail adopted the abstract `Impl` type, which hid the arms'
+        borrows (and miscompiled to `void*` for any closure). Filed and
+        fixed separately
+        (`issues/fixed/cond-match-tail-adopts-the-abstract-impl-result-type.md`,
+        #1293).
+      - **A requirement for decision 22's implicit borrows:** today a
+        closure literal WITHOUT a capture list copies or shares its
+        captures even when it is passed to an `imm(f)` parameter, so a
+        callee may return or store it (measured: the emitted closure holds
+        the values, not their addresses). When decision 22 makes such a
+        literal borrow, it must carry the second-class bit like a listed
+        `imm` capture, and the callee-returns and callee-stores-into-a-`mut`
+        -slot shapes become E0909.
     - **Results and assignments.** A block, arm or `cond` result, or an `=`
       target, may not outlive any place its value borrows. Re-assigning a
       second-class local follows decision 25's rule.
