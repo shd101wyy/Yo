@@ -68,7 +68,7 @@ pragma(Pragma.AllowUnsafe);
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_capture_list_params, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
+{ AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, BF_ADDRESS_OF, BK_BORROW_MUT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_capture_list_params, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new, print_spec_report_if_requested } :: import("./expr_info.yo");
 { Token, TokenKind } :: import("./token.yo");
 { parse, Parser } :: import("./parser.yo");
@@ -139,7 +139,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_match_scrutinee } :: import("./expr_info.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -1810,9 +1810,15 @@ _is_word_rune :: (fn(r : rune) -> bool)(
 /// the line where the brackets balance is parsed, and the first whose AST
 /// prints as `expect` wins (`&a` and `&a.b` print differently, so the
 /// shortest match is the expression itself).
-_addr_of_span_end :: (fn(imm(runes) : ArrayList(rune), col : usize, imm(expect) : String, imm(file) : String) -> Option(usize))({
+_addr_of_span_end :: (fn(imm(runes) : ArrayList(rune), col : usize, imm(expect) : String, imm(file) : String) -> Option(usize))(
+  _expr_span_end(runes, col, col + usize(1), expect, file)
+);
+/// The end of the rune span starting at `col` whose text parses to one
+/// expression printing as `expect`; `scan_from` is the first rune that can
+/// end it (past a leading `&`). See `_addr_of_span_end`.
+_expr_span_end :: (fn(imm(runes) : ArrayList(rune), col : usize, scan_from : usize, imm(expect) : String, imm(file) : String) -> Option(usize))({
   (depth : i64) = i64(0);
-  (e : usize) = (col + usize(1));
+  (e : usize) = scan_from;
   while(e < runes.len(), {
     r := runes(e);
     cond(
@@ -2023,6 +2029,156 @@ _run_migrate_addr_of :: (
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated \`&x\` sites were not migrated`));
   });
 });
+/// `yo fix <path> --migrate markers` — decision 33's call-site markers
+/// (plans/VALUES_BY_DEFAULT.md V3b Generation B). Semantic: only the
+/// evaluator knows a parameter's mode and whether an argument is a place.
+/// Every file is evaluated with the recorder on (`record_marker_site`):
+/// `check_call_site_borrow_marker` records each bare named place passed to an
+/// `imm` parameter (`&` goes before it) or a `mut` parameter (`&mut `),
+/// with exactly the exemptions of the error it stands in for (receivers,
+/// temporaries, operator operands, borrow bindings passed whole, by-value,
+/// compile-time, `Type`-valued and raw-pointer parameters, variadic
+/// positions). A site is inserted only when its source text, from the
+/// place's leftmost token, still parses to the evaluated place on one line
+/// and parses with the marker to a borrow of exactly that place; a site
+/// recorded with both markers, and one that fails the check (a synthetic
+/// token, a multi-line place), is listed and left as written. Code that
+/// evaluation never reaches is not seen.
+_run_migrate_markers :: (
+  fn(imm(files) : ArrayList(String), imm(std_path) : String, dry_run : bool, io : Io, imm(exn) : Exception) -> unit
+)({
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    if(!outcome.ok, {
+      _drop := _take_load_error();
+      _drop_diags := take_error_diagnostics();
+      failed = (failed + usize(1));
+      println(`fix: ${file} does not evaluate; its arguments are migrated only as far as evaluation reached`);
+    });
+  });
+  set_migrate_markers(false);
+  sites := take_marker_sites();
+  site_paths := ArrayList(String).new();
+  (spi : usize) = usize(0);
+  while(spi < sites.len(), spi = (spi + usize(1)), {
+    site_paths.push(canonical_module_path(sites(spi).path.clone()));
+  });
+  (n_imm : usize) = usize(0);
+  (n_mut : usize) = usize(0);
+  (n_skipped : usize) = usize(0);
+  (ti : usize) = usize(0);
+  while(ti < files.len(), ti = (ti + usize(1)), {
+    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    canon := canonical_module_path(file.clone());
+    // One position can be recorded under both spellings of its module path
+    // and by several evaluations: keep one per position, and a position
+    // recorded with both markers is a conflict.
+    mine := ArrayList(MarkerSite).new();
+    pos_marker := HashMap(String, String).new();
+    conflicts := HashSet(String).new();
+    (si : usize) = usize(0);
+    while(si < sites.len(), si = (si + usize(1)), {
+      if(site_paths(si) == canon, {
+        st := sites(si);
+        key := `${st.row.to_string()}:${st.col.to_string()}`;
+        match(
+          pos_marker.get(key.clone()),
+          .Some(m) => if(m != st.marker, {
+            conflicts.insert(key);
+          }),
+          .None => {
+            pos_marker.insert(key, st.marker.clone());
+            mine.push(st);
+          }
+        );
+      });
+    });
+    if(mine.len() == usize(0), {
+      continue;
+    });
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    lines := src.split(String.from("\n"));
+    checked := ArrayList(_PendingFix).new();
+    (mi : usize) = usize(0);
+    while(mi < mine.len(), mi = (mi + usize(1)), {
+      st := mine(mi);
+      at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      if(conflicts.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is passed to an \`imm\` parameter in one evaluation and a \`mut\` one in another; left as written`);
+        continue;
+      });
+      line := match(lines.get(st.row), .Some(l) => l, .None => String.new());
+      runes := ArrayList(rune).new();
+      lit := line.chars();
+      (lgo : bool) = true;
+      while(lgo, {
+        match(
+          lit.next(),
+          .Some(r) => runes.push(r),
+          .None => {
+            lgo = false;
+          }
+        );
+      });
+      span_end := if(st.col < runes.len(), _expr_span_end(runes, st.col, st.col, st.expect, file), Option(usize).None);
+      match(
+        span_end,
+        .None => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: the source text does not print as \`${st.expect}\` on one line; left as written`);
+        },
+        .Some(end) => {
+          // With the marker, the text must be a borrow of exactly the place:
+          // `&` binds looser than the place's own field and call steps.
+          with_marker := st.marker.clone();
+          (k : usize) = st.col;
+          while(k < end, k = (k + usize(1)), {
+            with_marker.push_rune(runes(k));
+          });
+          (marked_ok : bool) = match(
+            _parse_or_none(with_marker, file.clone()),
+            .Some(asts) => (
+              (asts.len() == usize(1)) && match(
+                asts(usize(0)),
+                .FnCall(_, _, m_args, _, _) => (ast_expr_is_fn_call_of(asts(usize(0)), if(st.marker == "&", BF_ADDRESS_OF, BK_BORROW_MUT), .Some(usize(1))) && match(m_args.get(usize(0)), .Some(m_place) => (ast_expr_to_string(m_place) == st.expect), .None => false)),
+                .Atom(_, _) => false
+              )
+            ),
+            .None => false
+          );
+          if(marked_ok, {
+            if(st.marker == "&", {
+              n_imm = (n_imm + usize(1));
+            }, {
+              n_mut = (n_mut + usize(1));
+            });
+            checked.push(_PendingFix(row : st.row, col : st.col, len : usize(0), replacement : st.marker.clone(), description : at));
+          }, {
+            n_skipped = (n_skipped + usize(1));
+            println(`fix: ${at}: \`${st.marker}\` before the source text does not borrow exactly \`${st.expect}\`; left as written`);
+          });
+        }
+      );
+    });
+    if(!dry_run && (checked.len() > usize(0)), {
+      _apply_fixes_to_file(file.clone(), checked, io, exn);
+      fmt_argv := ArrayList(String).new();
+      fmt_argv.push(String.from("yo"));
+      fmt_argv.push(String.from("fmt"));
+      fmt_argv.push(file.clone());
+      run_fmt(fmt_argv, io, exn);
+    });
+  });
+  verb := if(dry_run, String.from("would insert"), String.from("inserted"));
+  println(`fix: ${verb} ${n_imm.to_string()} \`&\` and ${n_mut.to_string()} \`&mut\` call-site marker(s); ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated arguments were not migrated`));
+  });
+});
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
 /// already computed (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 ///
@@ -2040,7 +2196,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers]`));
   });
   (target_path : String) = String.new();
   (dry_run : bool) = false;
@@ -2056,8 +2212,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee or borrow-spelling`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling or markers`));
         });
         migrate = argv(next_m);
         ai = (ai + usize(2));
@@ -2072,7 +2228,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers]`));
       },
       true => {
         target_path = a.clone();
@@ -2113,6 +2269,9 @@ run_fix :: (
   if(migrate == "params", {
     set_migrate_param_modes(true);
   });
+  if(migrate == "markers", {
+    set_migrate_markers(true);
+  });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
   // env: the reload then failed before reaching the target file, so the only
@@ -2132,6 +2291,10 @@ run_fix :: (
   });
   if(migrate == "params", {
     _run_migrate_params(files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "markers", {
+    _run_migrate_markers(files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -9979,7 +10142,9 @@ Options:
                             borrow-spelling (imm(x) : T -> x : &T,
                             mut(y) := p -> y := &mut p, ...), modes
                             (own -> sink), addr-of (an address-of &x ->
-                            addr_of(x)) or params
+                            addr_of(x)), params, or markers (&x / &mut x
+                            on a named place passed to a &T / &mut T
+                            parameter)
   --std-path <dir>          Override the std library directory
 
 Examples:
@@ -9998,7 +10163,9 @@ Examples:
   --migrate <name>          运行迁移而不是修复：borrow-spelling
                             （imm(x) : T -> x : &T、mut(y) := p ->
                             y := &mut p 等）、modes（own -> sink）、
-                            addr-of（取址的 &x -> addr_of(x)）或 params
+                            addr-of（取址的 &x -> addr_of(x)）、params，
+                            或 markers（传给 &T / &mut T 形参的具名位置
+                            加上 &x / &mut x）
   --std-path <dir>          覆盖 std 库目录
 
 示例：

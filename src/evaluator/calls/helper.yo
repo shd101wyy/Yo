@@ -170,7 +170,10 @@ pragma(Pragma.AllowUnsafe);
   expr_info_deferred_dup_expressions,
   mark_by_value_param_share_dup,
   record_addr_of_site,
-  migrate_addr_of_on
+  migrate_addr_of_on,
+  migrate_markers_on,
+  record_marker_site,
+  expr_info_index_trait_ptr_type
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 {
@@ -210,7 +213,7 @@ pragma(Pragma.AllowUnsafe);
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
 { is_std_module_path } :: import("../memory_safety.yo");
-{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_MOVES_CAPTURE } :: import("../../diagnostics.yo");
+{ E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_MOVES_CAPTURE, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, flow_violation_error, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
   mark_as_control_fn,
@@ -737,67 +740,133 @@ strip_argument_label :: (fn(imm(arg) : AstExpr, imm(param_label) : String, imm(e
   match(cl_args.get(usize(1)), .Some(a) => a, .None => arg)
 });
 // ---------------------------------------------------------------------------
-// YO_AUDIT_BORROW_MARKERS (plans/VALUES_BY_DEFAULT.md V3b, decision 33)
+// Decision 33's mismatch error for a BARE argument (E0914)
 // ---------------------------------------------------------------------------
-/// Sizes Generation B's marker sweep: every argument that will carry a
-/// call-site marker once a bare argument means by value. One stderr line per
-/// distinct site, `file:line:col [borrow-marker] <&|&mut> <type> \`<arg>\``:
-///
-/// - `&mut` for a named place passed to a `mut`/`inout` parameter;
-/// - `&` for a named place passed to a borrowing (plain or `imm`) parameter
-///   whose argument type is not implicitly copyable (`type_contains_rc_type`:
-///   it owns a counted value or is move-only). A plain parameter of an
-///   implicitly copyable type stays plain in the sweep and takes no marker.
-///
-/// A named place is a variable or a field path rooted at one (`x`, `s.items`);
-/// temporaries, literals, closures and method-call receivers are exempt, and
-/// so are compile-time and `sink` parameters. Markers are peeled before the
-/// argument rules run, so an argument written with one is listed too (it
-/// already has the spelling Generation B wants). Inert unless the knob is set.
-(g_audit_borrow_markers : bool) = debug_knob(`YO_AUDIT_BORROW_MARKERS`).is_some();
-(g_borrow_marker_printed : HashSet(String)) = HashSet(String).new();
-_arg_is_named_place :: (fn(imm(e) : AstExpr) -> bool)(
-  cond(
-    ast_expr_is_atom(e) => (ast_expr_token(e).kind == TokenKind.Identifier),
-    ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) => match(
-      e,
-      .FnCall(_, _, np_args, _, _) => match(
-        np_args.get(usize(1)),
-        .Some(np_field) => (ast_expr_is_atom(np_field) && match(np_args.get(usize(0)), .Some(np_base) => _arg_is_named_place(np_base), .None => false)),
-        .None => false
-      ),
-      .Atom(_, _) => false
+/// What a bare argument is for the call-site marker rule.
+_MarkerPlace :: enum(
+  /// Not a place: a temporary, a literal, a closure, a `::` constant or
+  /// function name, a module or type member. It passes bare (decision 33).
+  NotAPlace,
+  /// A named place that owns its storage: it takes `&` / `&mut`.
+  Place,
+  /// The whole name of a borrow binding (an `imm`/`mut` parameter or local
+  /// binding): it already holds a borrow and passes bare, as Rust passes a
+  /// `&T` binding bare (the 2026-10-09 delegated decisions).
+  Borrow
+);
+/// Classify `e` (an argument with its label and any marker removed, already
+/// evaluated in `env`): a runtime variable, a field or dereference step on a
+/// place (`s.items`, `p.*`), or an element of one (`xs(i)`, an `Index` or
+/// array access, decision 20) is a place.
+_marker_place_of :: (fn(imm(e) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext) -> _MarkerPlace)(
+  match(
+    e,
+    .Atom(_, tok) => cond(
+      (tok.kind != TokenKind.Identifier) => _MarkerPlace.NotAPlace,
+      true => match(
+        get_variables_from_env(env, tok.value).last(),
+        .Some(v) => cond(
+          v.is_compile_time_only => _MarkerPlace.NotAPlace,
+          (v.is_ref || v.is_imm_borrow) => _MarkerPlace.Borrow,
+          true => _MarkerPlace.Place
+        ),
+        .None => _MarkerPlace.NotAPlace
+      )
     ),
-    true => false
+    .FnCall(_, mp_callee, mp_args, mp_infix, _) => cond(
+      ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) => match(
+        mp_args.get(usize(1)),
+        .Some(.Atom(_, _)) => match(
+          recur(match(mp_args.get(usize(0)), .Some(b) => b, .None => make_err_expr()), env, ctx),
+          .NotAPlace => _MarkerPlace.NotAPlace,
+          _ => _MarkerPlace.Place
+        ),
+        _ => _MarkerPlace.NotAPlace
+      ),
+      // An element access is recorded by the `Index` dispatch on the call
+      // node itself (`expr_info_index_trait_ptr_type`).
+      (!mp_infix && match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(e)), .Some(ei) => expr_info_index_trait_ptr_type(ei).is_some(), .None => false)) => match(
+        recur(mp_callee, env, ctx),
+        .NotAPlace => _MarkerPlace.NotAPlace,
+        _ => _MarkerPlace.Place
+      ),
+      true => _MarkerPlace.NotAPlace
+    )
   )
 );
-/// Report one argument for YO_AUDIT_BORROW_MARKERS (see above). `raw_arg` is
-/// the argument with its label stripped.
-audit_borrow_marker_site :: (
-  fn(imm(raw_arg) : AstExpr, imm(arg_ty) : TypeValue, param_is_ref : bool, param_is_owning : bool, param_is_ct : bool, imm(ctx) : EvalContext) -> unit
+/// The leftmost token of a place: where its marker is inserted.
+_place_leftmost_token :: (fn(imm(e) : AstExpr) -> Token)(
+  match(
+    e,
+    .Atom(_, tok) => tok,
+    .FnCall(_, lt_callee, lt_args, _, _) => cond(
+      ast_expr_is_fn_call_of(e, ".", .Some(usize(2))) => recur(match(lt_args.get(usize(0)), .Some(b) => b, .None => make_err_expr())),
+      true => recur(lt_callee)
+    )
+  )
+);
+/// Decision 33's mismatch error for a BARE argument (E0914): a named place
+/// passed bare to an `imm` parameter must be written `&x`, and to a `mut`
+/// parameter `&mut x`; a bare argument passes by value. `written_arg` is the
+/// argument as written (label stripped, marker not yet peeled), `place_arg`
+/// the same after `apply_call_site_borrow_markers`, evaluated in `env`.
+///
+/// Exempt (decision 33): an argument that already carries a marker (its
+/// mismatches are `apply_call_site_borrow_markers`'), a temporary, a literal,
+/// a closure, a borrow binding passed whole, a method receiver and an
+/// operator operand (the callers skip those two), a by-value or compile-time
+/// parameter, a `Type`-valued one, and a raw-pointer one (its argument is a
+/// pointer value, and `&x` there is the `addr_of(x)` error).
+///
+/// Under `yo fix --migrate markers` the site is recorded instead
+/// (`record_marker_site`), and the migration inserts the marker.
+check_call_site_borrow_marker :: (
+  fn(
+    imm(written_arg) : AstExpr,
+    imm(place_arg) : AstExpr,
+    imm(param_label) : String,
+    imm(param_ty) : TypeValue,
+    param_is_ref : bool,
+    param_is_owning : bool,
+    param_is_ct : bool,
+    imm(env) : Environment,
+    imm(ctx) : EvalContext,
+    imm(exn) : Exception
+  ) -> unit
 )({
-  if(!g_audit_borrow_markers || param_is_owning || param_is_ct || ctx.is_in_function_call_checking_phase, {
+  if(param_is_owning || param_is_ct || ctx.is_in_function_call_checking_phase, {
     return(());
   });
-  if(!_arg_is_named_place(raw_arg), {
+  if(is_type_hierarchy_type(param_ty) || is_pointer_type(param_ty), {
     return(());
   });
-  (marker : String) = String.new();
-  if(param_is_ref, {
-    marker = String.from("&mut");
-  }, {
-    if(type_contains_rc_type(arg_ty), {
-      marker = String.from("&");
-    });
-  });
-  if(marker.len() == usize(0), {
+  if(ast_expr_is_fn_call_of(written_arg, BK_BORROW_MUT, .Some(usize(1))) || ast_expr_is_fn_call_of(written_arg, BF_ADDRESS_OF, .Some(usize(1))), {
     return(());
   });
-  at := ast_expr_token(raw_arg);
-  line := `${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} [borrow-marker] ${marker} ${type_to_string(arg_ty)} \`${ast_expr_to_string(raw_arg)}\``;
-  if(g_borrow_marker_printed.insert(line.clone()), {
-    eprintln(line);
+  match(
+    _marker_place_of(place_arg, env, ctx),
+    .Place => (),
+    _ => return(())
+  );
+  marker := if(param_is_ref, String.from("&mut "), String.from("&"));
+  if(migrate_markers_on(), {
+    record_marker_site(_place_leftmost_token(place_arg), ast_expr_to_string(place_arg), marker);
+    return(());
   });
+  place_text := ast_place_text(place_arg);
+  mode := if(param_is_ref, String.from("mut"), String.from("imm"));
+  keeps := if(param_is_ref, String.from("lends it exclusively, and the callee may write it"), String.from("lends it read-only, and the caller keeps it"));
+  exn.throw(
+    dyn(
+      with_code(
+        format_error_message(
+          ast_expr_token(place_arg),
+          `Parameter "${param_label}" is \`${mode}\`: lend \`${place_text}\` with \`${marker}${place_text}\`. The call-site marker says what the call does to its argument: a bare \`${place_text}\` would pass it by value, and \`${marker}${place_text}\` ${keeps}. \`yo fix <path> --migrate markers\` inserts the markers.`
+        ),
+        E_BORROW_MARKER_MISMATCH
+      )
+    )
+  );
 });
 /// Call-site borrow markers (plans/VALUES_BY_DEFAULT.md decision 33, V3b
 /// Generation A). In argument position the parameter's mode selects what a
@@ -4562,6 +4631,11 @@ create_specialized_function_inline :: (
                                       _cwp,
                                       .Some(cwp_var) => {
                                         cwp_var.is_parameter = true;
+                                        // An `imm` parameter: a borrow
+                                        // decision 33's markers pass bare.
+                                        if(!match(match(cw_cur, .Func({ meta : cw_fmr }) => cw_fmr.*.param_is_ref.get(cw_pvi), _ => Option(bool).None), .Some(b) => b, .None => false) && !match(match(cw_cur, .Func({ meta : cw_fmo }) => cw_fmo.*.param_is_owning.get(cw_pvi), _ => Option(bool).None), .Some(b) => b, .None => false), {
+                                          cwp_var.is_imm_borrow = true;
+                                        });
                                       },
                                       .None => ()
                                     );
@@ -6566,7 +6640,12 @@ try_to_call_function_with_arguments :: (
       });
       // Call-site borrow markers (`&x`, `&mut x`, decision 33): peeled once,
       // here, so every later step reads the place.
+      // The arguments as written, for decision 33's bare-argument rule
+      // (`check_call_site_borrow_marker`), which must tell `&x` from `x`.
+      written_args := adjusted_args;
       adjusted_args = apply_call_site_borrow_markers(adjusted_args, pt, pref, pio, pl, is_method_call, exn);
+      // An operator's operands take no marker (decision 34).
+      call_is_operator := match(expr, .FnCall(_, op_f, _, op_infix, _) => (op_infix || match(op_f, .Atom(_, op_t) => (op_t.kind == TokenKind.Operator), _ => false)), .Atom(_, _) => false);
       // ----------------------------------------------------------------
       // Step 3: Argument count check.
       //
@@ -7770,7 +7849,20 @@ try_to_call_function_with_arguments :: (
           p_sink
         );
         if(!(is_method_call && (pi == usize(0))), {
-          audit_borrow_marker_site(_unlabeled_argument(parg), pr.arg_type, match(pref.get(pi), .Some(b) => b, .None => false), p_owning, match(call_param_comptime.get(pi), .Some(f) => f, .None => false), ctx);
+          if(!call_is_operator, {
+            check_call_site_borrow_marker(
+              _unlabeled_argument(match(written_args.get(pi), .Some(w) => w, .None => parg)),
+              _unlabeled_argument(parg),
+              plabel,
+              ptype,
+              match(pref.get(pi), .Some(b) => b, .None => false),
+              p_owning,
+              match(call_param_comptime.get(pi), .Some(f) => f, .None => false),
+              caller_env_m,
+              ctx,
+              exn
+            );
+          });
           // YO_AUDIT_COPY_TRAIT: a plain-data argument to a by-value
           // parameter (decision 30) is a copy when the source lives on.
           if(audit_copy_trait_enabled() && !ctx.is_in_function_call_checking_phase && !match(pref.get(pi), .Some(b) => b, .None => false) && !match(call_param_comptime.get(pi), .Some(f) => f, .None => false), {
@@ -9010,7 +9102,7 @@ try_to_call_function_with_arguments :: (
 export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(imm(env) : Environment, imm(label) : String) -> Option(TypeValue))(_forall_binding_now(env, label));
-export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, audit_borrow_marker_site, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
+export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);

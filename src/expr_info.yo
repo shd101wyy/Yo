@@ -3013,3 +3013,35 @@ take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
   out
 });
 export(AddrOfSite, set_migrate_addr_of, migrate_addr_of_on, record_addr_of_site, take_addr_of_sites);
+/// One call-site borrow marker `yo fix --migrate markers` inserts
+/// (plans/VALUES_BY_DEFAULT.md decision 33, V3b Generation B): a bare named
+/// place passed to an `imm` parameter takes `&`, one passed to a `mut`
+/// parameter `&mut `. `row`/`col` are the place's leftmost token, where the
+/// marker goes; `expect` is the printed place, which the rewrite matches
+/// against the source text before it edits anything.
+MarkerSite :: struct(path : String, row : usize, col : usize, expect : String, marker : String);
+(g_migrate_markers : bool) = false;
+(g_marker_sites : ArrayList(MarkerSite)) = ArrayList(MarkerSite).new();
+(g_marker_site_keys : HashSet(String)) = HashSet(String).new();
+set_migrate_markers :: (fn(on : bool) -> unit)({
+  g_migrate_markers = on;
+});
+/// Whether `yo fix --migrate markers` is recording (decision 33's bare
+/// argument error records the site instead of rejecting it).
+migrate_markers_on :: (fn() -> bool)(g_migrate_markers);
+/// Record one site: `tok` is the place's leftmost token. Recorded once per
+/// position and marker.
+record_marker_site :: (fn(imm(tok) : Token, imm(expect) : String, imm(marker) : String) -> unit)({
+  key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}:${marker}`;
+  if(!g_marker_site_keys.insert(key), {
+    return(());
+  });
+  g_marker_sites.push(MarkerSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone(), marker : marker.clone()));
+});
+take_marker_sites :: (fn() -> ArrayList(MarkerSite))({
+  out := g_marker_sites;
+  g_marker_sites = ArrayList(MarkerSite).new();
+  g_marker_site_keys = HashSet(String).new();
+  out
+});
+export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, take_marker_sites);

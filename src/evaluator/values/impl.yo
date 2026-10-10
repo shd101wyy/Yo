@@ -5556,6 +5556,11 @@ evaluate_module_value :: (
                                   d_pvar.is_ref = true;
                                   d_pvar.is_reassignable = true;
                                 });
+                                // An `imm` parameter: a borrow decision 33's
+                                // markers pass bare.
+                                if(!match(d_p_is_ref.get(d_pi), .Some(b) => b, .None => false) && !match(match(d_sub_ty, .Func({ meta : d_fmo }) => d_fmo.*.param_is_owning.get(d_pi), _ => Option(bool).None), .Some(b) => b, .None => false), {
+                                  d_pvar.is_imm_borrow = true;
+                                });
                               },
                               .None => ()
                             );
