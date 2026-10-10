@@ -23,7 +23,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_union_member_read_capable, union_member_read_error_message } :: import("../memory_safety.yo");
 { Environment, Variable, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
-{ Token, is_reserved_builtin_binding_name } :: import("../../token.yo");
+{ Token, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { EvalContext, record_module_member_read, sns_module_of } :: import("../context.yo");
 { EvalValue } :: import("../../value.yo");
@@ -151,7 +151,7 @@ _reject_shadowing :: (fn(imm(env) : Environment, imm(var_name) : String, imm(at)
     raise_flow_violation(
       format_error_message(
         at,
-        `"${var_name}" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run. Choose a different name.`
+        reserved_builtin_binding_message(var_name.clone())
       ),
       ctx,
       exn

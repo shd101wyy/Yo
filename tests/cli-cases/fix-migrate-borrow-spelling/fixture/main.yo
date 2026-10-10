@@ -1,0 +1,60 @@
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+Counter :: struct(n : i32);
+impl(
+  Counter,
+  bump : (fn(mut(self) : Self) -> unit)({
+    self.n = (self.n + i32(1));
+  }),
+  get : (fn(imm(self) : Self) -> i32)(self.n)
+);
+Node :: struct(value : i32, next : Option(Rc(Self)));
+len_of :: (fn(imm(s) : String) -> usize)(s.len());
+twice :: (fn(comptime(imm(k)) : i32) -> i32)(k + k);
+apply :: (fn(imm(f) : Impl(Fn(imm(v) : String) -> usize), imm(s) : String) -> usize)(f(&s));
+sum_from :: (fn(imm(head) : Option(Rc(Node))) -> i32)({
+  (total : i32) = i32(0);
+  imm(cur) := head;
+  while(cur.is_some(), {
+    match(
+      cur,
+      .Some(n) => {
+        total = (total + n.value);
+        imm(cur) = n.next;
+      },
+      .None => ()
+    );
+  });
+  total
+});
+main :: (fn() -> unit)({
+  s := String.from("ab");
+  imm(y) := s;
+  _a := len_of(&y);
+  x := i32(1);
+  mut(z) := x;
+  z = i32(2);
+  _n := apply((imm(v) : String) => v.len(), &s);
+  w := i32(3);
+  q := i32(0);
+  {
+    (f : Impl(Fn() -> i32)) = ({ imm(w), mut(x), mut(t) : &mut q }() => (w + x));
+    _r := f();
+  };
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  for(xs, mut(e) => {
+    e = (e + i32(1));
+  });
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(10));
+  for(m, (k, mut(v)) => {
+    v = (v + k);
+  });
+  c := Counter(n : twice(i32(1)));
+  c.bump();
+  _g := c.get();
+  _s := sum_from(.None);
+});
+export(main);

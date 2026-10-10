@@ -250,7 +250,7 @@ During CTFE, Yo sets a special context flag (`forceCompileTimeBindings`) that:
    variable is mutable, so a `::` accumulator is reassigned in a loop like any
    other (`result = (result * i)`). The compile-time forms are `x :: v`,
    `(comptime(x) : T) = v`, `comptime(x) := v` and `comptime(x) : T`. The
-   runtime forms (`x := v`, `(x : T) = v`, `x : T`, `mut(y) := x`) are
+   runtime forms (`x := v`, `(x : T) = v`, `x : T`, `y := &mut x`) are
    error E1104 in the body of a function declared to return a compile-time
    value; `yo explain E1104` has the details and `yo fix` rewrites `:=` to
    `::` and `x` to `comptime(x)`. A runtime function literal nested in such a

@@ -239,7 +239,7 @@ Yo 的 CTFE 在多个方面比 Rust 的 `const fn` 更灵活：
    `::` 累加器可以像其他变量一样在循环中重新赋值（`result = (result * i)`）。
    编译期形式有 `x :: v`、`(comptime(x) : T) = v`、`comptime(x) := v` 与
    `comptime(x) : T`。运行时形式（`x := v`、`(x : T) = v`、`x : T`、
-   `mut(y) := x`）出现在声明为返回编译期值的函数体中时是错误 E1104；
+   `y := &mut x`）出现在声明为返回编译期值的函数体中时是错误 E1104；
    详见 `yo explain E1104`，`yo fix` 会把 `:=` 改写为 `::`、把 `x` 改写为
    `comptime(x)`。嵌套在这种函数体内的运行时函数字面量可以保留运行时局部变量，
    在编译期求值的运行时函数（`comptime_fn(f)`）也一样

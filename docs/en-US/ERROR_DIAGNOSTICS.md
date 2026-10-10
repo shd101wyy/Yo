@@ -97,23 +97,37 @@ The repairs the compiler computes today:
 | E0007 `{ f(x) }` — one expression between braces, no `;` | insert `;` before the `}` (two or more comma-separated items give the message only) |
 
 `yo fix <path> --migrate <name>` runs a migration rather than a repair, for
-the parameter-convention change (VALUES_BY_DEFAULT V3b):
+the parameter-convention change (VALUES_BY_DEFAULT V3b) and the borrow
+spelling (decision 42):
 
+- `--migrate borrow-spelling` rewrites every borrow spelled with a mode word
+  to the sigil spelling: `imm(x) : T` becomes `x : &T` and `mut(x) : T`
+  becomes `x : &mut T` (parameters, receivers, closure parameters, `Fn(...)`
+  slots), `comptime(imm(x)) : T` becomes `comptime(x) : &T`, a local borrow
+  `mut(y) := place` becomes `y := &mut place`, a re-point `mut(cur) = place`
+  becomes `cur = &mut place`, the capture puns `{ imm(y), mut(z) }` become
+  `{ &y, &mut z }`, and `for(xs, mut(x) => …)` becomes `for(&mut xs, x => …)`.
+  Each rewrite is an exact synonym. It only parses each file, so it reaches
+  macro arguments, `quote(...)` templates and generic bodies too; a mode word
+  in a position no rule covers is listed with its position and left as
+  written.
 - `--migrate modes` rewrites the deleted spellings: `inout(x)` becomes
-  `mut(x)` and an `own(x)` parameter becomes `sink(x)`. It only parses each
+  `mut(x)` (the old spelling of `x : &mut T`; run `--migrate borrow-spelling`
+  after it) and an `own(x)` parameter becomes `sink(x)`. It only parses each
   file, so it also reaches code evaluation never sees (macro arguments,
   `quote(...)` templates, test bodies). Run it first on old code: the
   compiler rejects both spellings.
 - `--migrate addr-of` rewrites each `&x` that was the raw-pointer address-of
   to `addr_of(x)`. It evaluates every file, because only the evaluator knows
-  which `&x` is a borrow (`show(&s)` to an `imm` parameter stays) and which is
+  which `&x` is a borrow (`show(&s)` to a `&T` parameter stays) and which is
   the address-of (a binding, a raw-pointer, by-value or variadic argument, a
   receiver). A site evaluation never reaches, or whose text no longer matches,
   is listed with its position and left as written.
 - `--migrate params` runs on files that already evaluate: a plain parameter
-  whose type is not `Copy` becomes `imm(x)`, which is what a plain parameter
-  meant before the flip. A generic parameter becomes `imm(x)` unless its
-  `where` bounds make it `Copy`.
+  whose type is not `Copy` becomes a `&T` borrow, which is what a plain
+  parameter meant before the flip. A generic parameter becomes a `&T` borrow
+  unless its `where` bounds make it `Copy`. It writes the old `imm(x)`
+  spelling; `--migrate borrow-spelling` then turns it into `x : &T`.
 
 None of them changes what a program does. A file that does not evaluate keeps
 what evaluation never reached, and `fix` exits non-zero naming it.

@@ -68,10 +68,10 @@ pragma(Pragma.AllowUnsafe);
 { malloc : valve_malloc, free : valve_free } :: GlobalAllocator;
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
+{ AstExpr, BK_IMPORT, BK_TEST, BK_CONST, BK_EXPORT, ast_expr_is_fn_call_of, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_capture_list_params, ast_expr_token, ast_expr_to_string, make_err_expr } :: import("./expr.yo");
 { ExprInfoTable, expr_info_table_new, print_spec_report_if_requested } :: import("./expr_info.yo");
-{ TokenKind } :: import("./token.yo");
-{ parse } :: import("./parser.yo");
+{ Token, TokenKind } :: import("./token.yo");
+{ parse, Parser } :: import("./parser.yo");
 { InitOptions, init_project, install_agent_files } :: import("./init.yo");
 { get_global_cache_dir, get_git_mirrors_dir, get_index_dir, store_lock_path, projects_registry_path } :: import("./cache.yo");
 { AddOptions, run_add, run_remove, InstallOptions, run_install } :: import("./install_command.yo");
@@ -1303,6 +1303,503 @@ _run_migrate_modes :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : I
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
   });
 });
+/// `yo fix <path> --migrate borrow-spelling` — decision 42
+/// (plans/VALUES_BY_DEFAULT.md): every borrow spelled with a mode word is
+/// rewritten to the sigil spelling. Each rewrite is an exact synonym (the
+/// parser reads the new spelling back into the old form), so the sweep is
+/// syntactic: each file is parsed WITHOUT the desugar, never evaluated, which
+/// also reaches macro arguments, `quote(...)` templates and generic bodies no
+/// instantiation reaches. The rows:
+///   - a parameter, a receiver, an `Fn(...)`/`FnOnce(...)` slot, a closure
+///     parameter and a labeled result: `imm(x) : T` → `x : &T`, `mut(x) : T`
+///     and `inout(x) : T` → `x : &mut T`, `comptime(imm(x)) : T` →
+///     `comptime(x) : &T`;
+///   - a result: `-> imm(T)` → `-> &T`, `-> mut(T)` → `-> &mut T`;
+///   - a local borrow `imm(y) := place` → `y := &place` (`mut` → `&mut`) and
+///     a re-point `mut(cur) = place` → `cur = &mut place`;
+///   - a capture list: `imm(y) : &p` → `y : &p`, the puns `imm(y)` → `&y`,
+///     `mut(z)` → `&mut z`;
+///   - the borrowed `for`: `for(xs, mut(x) => …)` → `for(&mut xs, x => …)`,
+///     `for(m, (k, mut(v)) => …)` → `for(&mut m, (k, v) => …)`.
+/// A mode word in any other position (`generic(mut(T) : Type)`, a word under
+/// an `unquote(...)` the rows cannot see through) is listed with its position
+/// and left as written. Each edit checks the text it replaces.
+_BsmCounts :: struct(
+  params : usize,
+  receivers : usize,
+  fn_slots : usize,
+  closure_params : usize,
+  results : usize,
+  locals : usize,
+  repoints : usize,
+  captures : usize,
+  fors : usize
+);
+_bsm_new_counts :: (fn() -> _BsmCounts)(
+  _BsmCounts(params : usize(0), receivers : usize(0), fn_slots : usize(0), closure_params : usize(0), results : usize(0), locals : usize(0), repoints : usize(0), captures : usize(0), fors : usize(0))
+);
+/// The sigil a mode call `imm(x)` / `mut(x)` / `inout(x)` (one argument)
+/// becomes, else `.None`.
+_bsm_mode_sig :: (fn(imm(e) : AstExpr) -> Option(String))(
+  cond(
+    ast_expr_is_fn_call_of(e, "imm", Option(usize).Some(usize(1))) => Option(String).Some(String.from("&")),
+    (ast_expr_is_fn_call_of(e, "mut", Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(e, "inout", Option(usize).Some(usize(1)))) => Option(String).Some(String.from("&mut ")),
+    true => Option(String).None
+  )
+);
+_bsm_arg :: (fn(imm(e) : AstExpr, i : usize) -> AstExpr)(
+  match(e, .FnCall(_, _, a, _, _) => match(a.get(i), .Some(x) => x, .None => make_err_expr()), .Atom(_, _) => make_err_expr())
+);
+_bsm_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
+  match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
+);
+_bsm_callee :: (fn(imm(e) : AstExpr) -> AstExpr)(
+  match(e, .FnCall(_, f, _, _, _) => f, .Atom(_, _) => e)
+);
+_bsm_is_infix_of :: (fn(imm(e) : AstExpr, op : str) -> bool)(
+  match(e, .FnCall(_, f, a, infix, _) => (infix && (a.len() == usize(2)) && ast_expr_is_atom_of(f, op)), .Atom(_, _) => false)
+);
+_bsm_key :: (fn(imm(t) : Token) -> String)(`${t.row.to_string()}:${t.column.to_string()}`);
+_bsm_rune_len :: (fn(imm(s) : String) -> usize)(s.chars().count());
+/// The rune at `(row, col)` of `lines`, or `.None` past a line's end.
+_bsm_rune_at :: (fn(imm(lines) : ArrayList(String), row : usize, col : usize) -> Option(rune))(
+  match(
+    lines.get(row),
+    .Some(l) => {
+      it := l.chars();
+      (i : usize) = usize(0);
+      (out : Option(rune)) = Option(rune).None;
+      (go : bool) = true;
+      while(go, {
+        match(
+          it.next(),
+          .Some(r) => {
+            if(i == col, {
+              out = Option(rune).Some(r);
+              go = false;
+            });
+            i = (i + usize(1));
+          },
+          .None => {
+            go = false;
+          }
+        );
+      });
+      out
+    },
+    .None => Option(rune).None
+  )
+);
+_BsmPos :: struct(row : usize, col : usize);
+/// Scan from `(row, col)` (inclusive) over `lines` with a bracket depth that
+/// starts at `depth0`, and stop at the first rune `stop` met at depth zero
+/// (`)` closing the opener, or the `,` ending an argument). Brackets inside
+/// a `"…"` string literal are skipped.
+_bsm_scan_to :: (fn(imm(lines) : ArrayList(String), row : usize, col : usize, depth0 : i64, stop : u32) -> Option(_BsmPos))({
+  (r : usize) = row;
+  (c : usize) = col;
+  (depth : i64) = depth0;
+  (in_str : bool) = false;
+  (prev_bs : bool) = false;
+  while(r < lines.len(), {
+    match(
+      _bsm_rune_at(lines, r, c),
+      .Some(ch) => {
+        cp := ch.char;
+        cond(
+          in_str => {
+            if(!prev_bs && (cp == u32(0x22)), {
+              in_str = false;
+            });
+            prev_bs = (!prev_bs && (cp == u32(0x5C)));
+          },
+          (cp == u32(0x22)) => {
+            in_str = true;
+          },
+          ((depth == i64(0)) && (cp == stop)) => {
+            return(Option(_BsmPos).Some(_BsmPos(row : r, col : c)));
+          },
+          ((cp == u32(0x28)) || (cp == u32(0x5B)) || (cp == u32(0x7B))) => {
+            depth = (depth + i64(1));
+          },
+          ((cp == u32(0x29)) || (cp == u32(0x5D)) || (cp == u32(0x7D))) => {
+            depth = (depth - i64(1));
+            if(depth < i64(0), {
+              return(Option(_BsmPos).None);
+            });
+          },
+          true => ()
+        );
+        c = (c + usize(1));
+      },
+      .None => {
+        r = (r + usize(1));
+        c = usize(0);
+      }
+    );
+  });
+  Option(_BsmPos).None
+});
+/// The first non-whitespace position at or after `(row, col)`.
+_bsm_skip_ws :: (fn(imm(lines) : ArrayList(String), row : usize, col : usize) -> Option(_BsmPos))({
+  (r : usize) = row;
+  (c : usize) = col;
+  while(r < lines.len(), {
+    match(
+      _bsm_rune_at(lines, r, c),
+      .Some(ch) => {
+        if(!ch.is_whitespace(), {
+          return(Option(_BsmPos).Some(_BsmPos(row : r, col : c)));
+        });
+        c = (c + usize(1));
+      },
+      .None => {
+        r = (r + usize(1));
+        c = usize(0);
+      }
+    );
+  });
+  Option(_BsmPos).None
+});
+_bsm_edit :: (fn(row : usize, col : usize, imm(old) : String, imm(new) : String) -> _PendingFix)(
+  _PendingFix(row : row, col : col, len : _bsm_rune_len(old), replacement : new, description : old)
+);
+/// Unwrap the mode call `m` (`imm(x)`, `mut(x)`, `inout(x)`): its head
+/// `word(` becomes `head_repl` and its closing `)` goes. The callee token is
+/// claimed. `false` when the closing paren cannot be found.
+_bsm_unwrap :: (
+  fn(imm(m) : AstExpr, imm(head_repl) : String, imm(lines) : ArrayList(String), mut(out) : ArrayList(_PendingFix), mut(claimed) : HashSet(String)) -> bool
+)({
+  ct := ast_expr_token(_bsm_callee(m));
+  w := _bsm_rune_len(ct.value);
+  close := _bsm_scan_to(lines, usize(ct.row), usize(ct.column) + w + usize(1), i64(0), u32(0x29));
+  match(
+    close,
+    .Some(cp) => {
+      out.push(_bsm_edit(usize(ct.row), usize(ct.column), `${ct.value}(`, head_repl));
+      out.push(_bsm_edit(cp.row, cp.col, String.from(")"), String.new()));
+      claimed.insert(_bsm_key(ct));
+      true
+    },
+    .None => false
+  )
+});
+/// `L : T` where `L` is a mode call, or `comptime(m)` / `sink(m)` around one:
+/// the mode is unwrapped and its sigil written after the `:`.
+_bsm_param :: (
+  fn(imm(p) : AstExpr, imm(lines) : ArrayList(String), mut(out) : ArrayList(_PendingFix), mut(claimed) : HashSet(String)) -> Option(String)
+)({
+  (core : AstExpr) = p;
+  if(_bsm_is_infix_of(core, "?=") || _bsm_is_infix_of(core, "="), {
+    core = _bsm_arg(core, usize(0));
+  });
+  if(!_bsm_is_infix_of(core, ":"), {
+    return(Option(String).None);
+  });
+  label := _bsm_arg(core, usize(0));
+  (m : AstExpr) = label;
+  if(ast_expr_is_fn_call_of(label, "comptime", Option(usize).Some(usize(1))) || ast_expr_is_fn_call_of(label, "sink", Option(usize).Some(usize(1))), {
+    m = _bsm_arg(label, usize(0));
+  });
+  sig := match(_bsm_mode_sig(m), .Some(s) => s, .None => return(Option(String).None));
+  colon := ast_expr_token(core);
+  line := match(lines.get(usize(colon.row)), .Some(l) => l, .None => String.new());
+  if(_rune_slice(line, usize(colon.column), usize(2)) != ": ", {
+    return(Option(String).None);
+  });
+  if(!_bsm_unwrap(m, String.new(), lines, out, claimed), {
+    return(Option(String).None);
+  });
+  out.push(_bsm_edit(usize(colon.row), usize(colon.column), String.from(": "), `: ${sig}`));
+  Option(String).Some(ast_expr_token(_bsm_arg(m, usize(0))).value.clone())
+});
+/// The parameters of a declaration head (`fn`, `ctl`, `Fn`, `FnOnce`) or a
+/// closure parameter list; `fn_slot` counts them as `Fn(...)` slots.
+_bsm_param_list :: (
+  fn(imm(args) : ArrayList(AstExpr), kind : usize, imm(lines) : ArrayList(String), mut(out) : ArrayList(_PendingFix), mut(claimed) : HashSet(String), mut(counts) : _BsmCounts) -> unit
+)({
+  (i : usize) = usize(0);
+  while(i < args.len(), i = (i + usize(1)), {
+    match(
+      _bsm_param(match(args.get(i), .Some(a) => a, .None => make_err_expr()), lines, out, claimed),
+      .Some(name) => cond(
+        (kind == usize(1)) => {
+          counts.fn_slots = (counts.fn_slots + usize(1));
+        },
+        (kind == usize(2)) => {
+          counts.closure_params = (counts.closure_params + usize(1));
+        },
+        (name == "self") => {
+          counts.receivers = (counts.receivers + usize(1));
+        },
+        true => {
+          counts.params = (counts.params + usize(1));
+        }
+      ),
+      .None => ()
+    );
+  });
+});
+/// A `for` source is written after the sigil as is when it is a postfix
+/// chain (a name, a field path, a call or index on one); anything else is
+/// parenthesized.
+_bsm_is_postfix_chain :: (fn(imm(e) : AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, t) => (t.kind == TokenKind.Identifier),
+    .FnCall(_, f, a, infix, _) => cond(
+      infix => (ast_expr_is_atom_of(f, ".") && (a.len() == usize(2)) && recur(match(a.get(usize(0)), .Some(x) => x, .None => make_err_expr()))),
+      true => recur(f)
+    )
+  )
+);
+_bsm_walk :: (
+  fn(imm(e) : AstExpr, in_asm : bool, imm(lines) : ArrayList(String), mut(out) : ArrayList(_PendingFix), mut(claimed) : HashSet(String), mut(counts) : _BsmCounts) -> unit
+)(
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, callee, args, is_infix, _) => {
+      word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
+      child_asm := (in_asm || (word == "asm"));
+      if(!in_asm, {
+        cond(
+          // Declaration heads.
+          (!is_infix && ((word == "fn") || (word == "ctl"))) => _bsm_param_list(args, usize(0), lines, out, claimed, counts),
+          (!is_infix && ((word == "Fn") || (word == "FnOnce"))) => _bsm_param_list(args, usize(1), lines, out, claimed, counts),
+          // The result slot.
+          _bsm_is_infix_of(e, "->") => {
+            lhs_w := match(_bsm_callee(_bsm_arg(e, usize(0))), .Atom(_, lt) => lt.value.clone(), _ => String.new());
+            if((lhs_w == "fn") || (lhs_w == "ctl") || (lhs_w == "Fn") || (lhs_w == "FnOnce"), {
+              rt := _bsm_arg(e, usize(1));
+              match(
+                _bsm_mode_sig(rt),
+                .Some(rsig) => if(_bsm_unwrap(rt, rsig, lines, out, claimed), {
+                  counts.results = (counts.results + usize(1));
+                }),
+                .None => match(
+                  _bsm_param(rt, lines, out, claimed),
+                  .Some(_) => {
+                    counts.results = (counts.results + usize(1));
+                  },
+                  .None => ()
+                )
+              );
+            });
+          },
+          // A closure literal's parameters and capture list.
+          _bsm_is_infix_of(e, "=>") => {
+            lhs := _bsm_arg(e, usize(0));
+            cond(
+              ast_expr_is_fn_call_of(lhs, "tuple", Option(usize).None) => _bsm_param_list(_bsm_args(lhs), usize(2), lines, out, claimed, counts),
+              ast_expr_is_capture_list_params(lhs) => {
+                entries := _bsm_args(_bsm_callee(lhs));
+                (ei : usize) = usize(0);
+                while(ei < entries.len(), ei = (ei + usize(1)), {
+                  en := match(entries.get(ei), .Some(x) => x, .None => make_err_expr());
+                  cond(
+                    _bsm_is_infix_of(en, ":") => {
+                      cl := _bsm_arg(en, usize(0));
+                      if(_bsm_mode_sig(cl).is_some() && _bsm_unwrap(cl, String.new(), lines, out, claimed), {
+                        counts.captures = (counts.captures + usize(1));
+                      });
+                    },
+                    true => match(
+                      _bsm_mode_sig(en),
+                      .Some(psig) => if(ast_expr_is_atom(_bsm_arg(en, usize(0))) && _bsm_unwrap(en, psig, lines, out, claimed), {
+                        counts.captures = (counts.captures + usize(1));
+                      }),
+                      .None => ()
+                    )
+                  );
+                });
+                _bsm_param_list(_bsm_args(lhs), usize(2), lines, out, claimed, counts);
+              },
+              true => {
+                one := ArrayList(AstExpr).new();
+                one.push(lhs);
+                _bsm_param_list(one, usize(2), lines, out, claimed, counts);
+              }
+            );
+          },
+          // A local borrow and a re-point.
+          (_bsm_is_infix_of(e, ":=") || _bsm_is_infix_of(e, "=")) => {
+            lb := _bsm_arg(e, usize(0));
+            match(
+              _bsm_mode_sig(lb),
+              .Some(lsig) => {
+                op := ast_expr_token(e);
+                op_text := `${op.value} `;
+                line := match(lines.get(usize(op.row)), .Some(l) => l, .None => String.new());
+                if((_rune_slice(line, usize(op.column), _bsm_rune_len(op_text)) == op_text) && _bsm_unwrap(lb, String.new(), lines, out, claimed), {
+                  out.push(_bsm_edit(usize(op.row), usize(op.column), op_text.clone(), `${op_text}${lsig}`));
+                  if(word == ":=", {
+                    counts.locals = (counts.locals + usize(1));
+                  }, {
+                    counts.repoints = (counts.repoints + usize(1));
+                  });
+                });
+              },
+              .None => ()
+            );
+          },
+          // The borrowed `for`.
+          (!is_infix && (word == "for") && (args.len() == usize(2))) => {
+            h := _bsm_arg(e, usize(1));
+            if(_bsm_is_infix_of(h, "=>"), {
+              hv := _bsm_arg(h, usize(0));
+              (hm : Option(AstExpr)) = Option(AstExpr).None;
+              if(_bsm_mode_sig(hv).is_some() && ast_expr_is_atom(_bsm_arg(hv, usize(0))) && !ast_expr_is_fn_call_of(hv, "imm", Option(usize).None), {
+                hm = Option(AstExpr).Some(hv);
+              });
+              if(ast_expr_is_fn_call_of(hv, "tuple", Option(usize).Some(usize(2))), {
+                v2 := _bsm_arg(hv, usize(1));
+                if(_bsm_mode_sig(v2).is_some() && ast_expr_is_atom(_bsm_arg(v2, usize(0))) && !ast_expr_is_fn_call_of(v2, "imm", Option(usize).None), {
+                  hm = Option(AstExpr).Some(v2);
+                });
+              });
+              match(
+                hm,
+                .Some(mode_e) => {
+                  ft := ast_expr_token(callee);
+                  src_e := _bsm_arg(e, usize(0));
+                  match(
+                    _bsm_skip_ws(lines, usize(ft.row), usize(ft.column) + usize(4)),
+                    .Some(sp) => {
+                      first_s := String.new();
+                      match(_bsm_rune_at(lines, sp.row, sp.col), .Some(r) => first_s.push_rune(r), .None => ());
+                      if(_bsm_is_postfix_chain(src_e), {
+                        if(_bsm_unwrap(mode_e, String.new(), lines, out, claimed), {
+                          out.push(_bsm_edit(sp.row, sp.col, first_s.clone(), `&mut ${first_s}`));
+                          counts.fors = (counts.fors + usize(1));
+                        });
+                      }, {
+                        match(
+                          _bsm_scan_to(lines, sp.row, sp.col, i64(0), u32(0x2C)),
+                          .Some(comma) => if(_bsm_unwrap(mode_e, String.new(), lines, out, claimed), {
+                            out.push(_bsm_edit(sp.row, sp.col, first_s.clone(), `&mut (${first_s}`));
+                            out.push(_bsm_edit(comma.row, comma.col, String.from(","), String.from("),")));
+                            counts.fors = (counts.fors + usize(1));
+                          }),
+                          .None => ()
+                        );
+                      });
+                    },
+                    .None => ()
+                  );
+                },
+                .None => ()
+              );
+            });
+          },
+          true => ()
+        );
+      });
+      recur(callee, child_asm, lines, out, claimed, counts);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(args.get(i), .Some(a) => recur(a, child_asm, lines, out, claimed, counts), .None => ());
+      });
+    }
+  )
+);
+/// The mode calls no row claimed (`generic(mut(T) : Type)`, a word under an
+/// `unquote(...)`), as `row:col word` for the report.
+_bsm_unclaimed :: (fn(imm(e) : AstExpr, in_asm : bool, imm(claimed) : HashSet(String), mut(out) : ArrayList(String)) -> unit)(
+  match(
+    e,
+    .Atom(_, _) => (),
+    .FnCall(_, callee, args, _, _) => {
+      word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
+      child_asm := (in_asm || (word == "asm"));
+      if(!in_asm && _bsm_mode_sig(e).is_some(), {
+        ct := ast_expr_token(callee);
+        if(!claimed.contains(_bsm_key(ct)), {
+          out.push(`${(usize(ct.row) + usize(1)).to_string()}:${(usize(ct.column) + usize(1)).to_string()} ${ast_expr_to_string(e)}`);
+        });
+      });
+      recur(callee, child_asm, claimed, out);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(args.get(i), .Some(a) => recur(a, child_asm, claimed, out), .None => ());
+      });
+    }
+  )
+);
+/// The raw parse (no desugar), or `.None` when the file does not parse.
+_raw_parse_or_none :: (fn(imm(src) : String, imm(file) : String) -> Option(ArrayList(AstExpr)))({
+  local_exn := Exception(throw : (_err -> unwind(Option(ArrayList(AstExpr)).None)));
+  p := Parser.new(src, file, local_exn);
+  Option(ArrayList(AstExpr)).Some(p.get_program(local_exn))
+});
+_run_migrate_borrow_spelling :: (fn(imm(files) : ArrayList(String), dry_run : bool, io : Io, imm(exn) : Exception) -> unit)({
+  counts := _bsm_new_counts();
+  (n_stale : usize) = usize(0);
+  (n_left : usize) = usize(0);
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    match(
+      _raw_parse_or_none(src, file.clone()),
+      .None => {
+        failed = (failed + usize(1));
+        println(`fix: ${file} does not parse; skipped`);
+      },
+      .Some(asts) => {
+        lines := src.split(String.from("\n"));
+        pending := ArrayList(_PendingFix).new();
+        claimed := HashSet(String).new();
+        (ai : usize) = usize(0);
+        while(ai < asts.len(), ai = (ai + usize(1)), {
+          match(asts.get(ai), .Some(a) => _bsm_walk(a, false, lines, &mut pending, &mut claimed, &mut counts), .None => ());
+        });
+        left := ArrayList(String).new();
+        (li : usize) = usize(0);
+        while(li < asts.len(), li = (li + usize(1)), {
+          match(asts.get(li), .Some(a) => _bsm_unclaimed(a, false, claimed, &mut left), .None => ());
+        });
+        (lj : usize) = usize(0);
+        while(lj < left.len(), lj = (lj + usize(1)), {
+          println(`fix: ${file}:${left(lj)} left as written (no borrow-spelling row covers this position)`);
+        });
+        n_left = (n_left + left.len());
+        checked := ArrayList(_PendingFix).new();
+        seen := HashSet(String).new();
+        (pi : usize) = usize(0);
+        while(pi < pending.len(), pi = (pi + usize(1)), {
+          p := match(pending.get(pi), .Some(x) => x, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
+          key := `${p.row.to_string()}:${p.col.to_string()}`;
+          if(seen.contains(key), {
+            continue;
+          });
+          seen.insert(key);
+          line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+          if(_rune_slice(line, p.col, p.len) != p.description, {
+            n_stale = (n_stale + usize(1));
+            continue;
+          });
+          checked.push(p);
+        });
+        if(!dry_run && (checked.len() > usize(0)), {
+          _apply_fixes_to_file(file.clone(), checked, io, exn);
+          fmt_argv := ArrayList(String).new();
+          fmt_argv.push(String.from("yo"));
+          fmt_argv.push(String.from("fmt"));
+          fmt_argv.push(file.clone());
+          run_fmt(fmt_argv, io, exn);
+        });
+      }
+    );
+  });
+  verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
+  total := (counts.params + counts.receivers + counts.fn_slots + counts.closure_params + counts.results + counts.locals + counts.repoints + counts.captures + counts.fors);
+  println(`fix: ${verb} ${total.to_string()} borrow(s) to the sigil spelling: ${counts.params.to_string()} parameter(s), ${counts.receivers.to_string()} receiver(s), ${counts.fn_slots.to_string()} Fn slot(s), ${counts.closure_params.to_string()} closure parameter(s), ${counts.results.to_string()} result(s), ${counts.locals.to_string()} local borrow(s), ${counts.repoints.to_string()} re-point(s), ${counts.captures.to_string()} capture(s), ${counts.fors.to_string()} borrowed for loop(s); ${n_left.to_string()} mode word(s) left as written; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
+  });
+});
 /// An identifier rune: a letter, a digit or `_` (ASCII; a non-ASCII rune
 /// counts too, as the lexer reads it as part of a word).
 _is_word_rune :: (fn(r : rune) -> bool)(
@@ -1543,7 +2040,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of|match-scrutinee]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling]`));
   });
   (target_path : String) = String.new();
   (dry_run : bool) = false;
@@ -1559,8 +2056,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of or match-scrutinee`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee or borrow-spelling`));
         });
         migrate = argv(next_m);
         ai = (ai + usize(2));
@@ -1575,7 +2072,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of|match-scrutinee]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling]`));
       },
       true => {
         target_path = a.clone();
@@ -1598,6 +2095,10 @@ run_fix :: (
   // The spelling sweep is syntactic: nothing is evaluated.
   if(migrate == "modes", {
     _run_migrate_modes(files, dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "borrow-spelling", {
+    _run_migrate_borrow_spelling(files, dry_run, io, exn);
     return(());
   });
   // A migration records from the first evaluated parameter on, the
@@ -9475,8 +9976,10 @@ Options:
   --exclude <path>          Exclude a directory/file (repeatable)
   --dry-run                 Print the repairs without writing
   --migrate <name>          Run a migration instead of the repairs:
-                            modes (inout -> mut, own -> sink), addr-of
-                            (an address-of &x -> addr_of(x)) or params
+                            borrow-spelling (imm(x) : T -> x : &T,
+                            mut(y) := p -> y := &mut p, ...), modes
+                            (own -> sink), addr-of (an address-of &x ->
+                            addr_of(x)) or params
   --std-path <dir>          Override the std library directory
 
 Examples:
@@ -9492,9 +9995,10 @@ Examples:
 选项：
   --exclude <path>          排除目录/文件（可重复）
   --dry-run                 只打印修复，不写入
-  --migrate <name>          运行迁移而不是修复：modes（inout -> mut、
-                            own -> sink）、addr-of（取址的 &x -> addr_of(x)）
-                            或 params
+  --migrate <name>          运行迁移而不是修复：borrow-spelling
+                            （imm(x) : T -> x : &T、mut(y) := p ->
+                            y := &mut p 等）、modes（own -> sink）、
+                            addr-of（取址的 &x -> addr_of(x)）或 params
   --std-path <dir>          覆盖 std 库目录
 
 示例：

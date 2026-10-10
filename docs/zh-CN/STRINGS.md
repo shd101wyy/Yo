@@ -144,7 +144,7 @@ s(usize(1) .. usize(3)); // "é" —— 一个新的 String
 
 每个修改方法（`push_str`、`push_string`、`push_byte`、`push_rune`、`reserve`、
 `clear`、`truncate`、`insert_str`、`insert`、`remove`、`pop`）都接受
-`mut(self)` 并就地写入。`clone()` 复制字节（O(n)）；无论是否为空，克隆都独立于
+`self : &mut Self` 并就地写入。`clone()` 复制字节（O(n)）；无论是否为空，克隆都独立于
 原值。普通的复制（`t := s`）目前仍共享非空的缓冲区，直到
 `plans/VALUES_BY_DEFAULT.md` 的 V2b 让 `String` 成为唯一所有的值（届时 `t := s`
 是移动，或报错并提示 `s.clone()`），所以只通过克隆写入。通过借用的副本（按值参数、

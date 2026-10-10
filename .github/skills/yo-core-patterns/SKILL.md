@@ -33,7 +33,7 @@ Use this skill when you need to:
 
 - `"` creates `str` in runtime code; template strings create `String`. In `comptime` functions, `"hello"` is `comptime_str` (distinct from `str`).
 - Prefer template strings for constant `String` values.
-- `String`: `clone()` is the independent copy (a plain `t := s` still shares a non-empty buffer until VALUES_BY_DEFAULT V2b), and writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `mut(s) : String` or return the new string. Read bytes with `byte_at(i)` / `get_byte(i)`; there is no runtime `s(i)`.
+- `String`: `clone()` is the independent copy (a plain `t := s` still shares a non-empty buffer until VALUES_BY_DEFAULT V2b), and writing a by-value `String` parameter or a `for`/`match` binding is E0908 — take `s : &mut String` or return the new string. Read bytes with `byte_at(i)` / `get_byte(i)`; there is no runtime `s(i)`.
 - Prefer `print`/`println` from `std/fmt` over `printf`.
 - `Option(T)` and `Result(T, E)` are the default nullable/error carriers.
 - Use `rune` for Unicode code points, not `Char`.
@@ -43,7 +43,7 @@ Use this skill when you need to:
 - Use `derive(Type, Eq(Type), Ord(Type), Hash, Clone, ToString, Default)` to auto-generate common trait impls. `Eq`/`Ord` take the self type as a trait argument (bare `Eq` is rejected: "Argument count mismatch: expected 1, got 0"); `Ord` additionally requires `Eq` in the same call. `ToString`/`Debug` need `std/fmt` imported so their derive rules are registered. `Default` is structs-only (an enum has no canonical default variant).
 - Custom error types implement `ToString` + `Error`; `derive(MyError, Error(...))` needs BOTH `{ Exception } :: import("std/error")` (the rule) and `{ ToString } :: import("std/fmt")` (its dependency) in scope first. Wrap with `dyn(...)` into `AnyError`.
 - Use `(params) => expr` for closures. Two closure TYPES, and they differ at runtime: `Impl(Fn(...) -> T)` is monomorphized — capture struct passed by value, direct call, no allocation or refcount — while `Dyn(Fn(...) -> T)` is type-erased — capture heap-boxed behind a refcount header, called through a `{data, vtable}` fat pointer, and wrapped at the value with `dyn(...)`. `Impl(Fn(...))` is REJECTED as a struct/enum/union field type (its size is capture-dependent); use `Dyn(Fn(...))` there, or make the containing type generic over the closure type.
-- Use `for(collection, (item) => { ... })` for iteration (value form), or `for(collection, mut(item) => { ... })` to mutate elements in place. `collection.iter()` yields raw pointers and is rejected in safe code.
+- Use `for(collection, (item) => { ... })` for iteration (value form), or `for(&mut collection, item => { ... })` to mutate elements in place. `collection.iter()` yields raw pointers and is rejected in safe code.
 - Indexed modules import cleanly as `std/url`, `std/regex`, `std/http`, `std/log`, and `std/glob`; multi-module families use explicit submodules.
 
 ## Resource

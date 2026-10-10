@@ -1,0 +1,310 @@
+// `&T` / `&mut T`: the one spelling of a borrow in every slot
+// (plans/VALUES_BY_DEFAULT.md decision 42, Generation A). Each form is an
+// exact synonym of the mode words it replaces: a parameter or receiver
+// `x : &T` is `imm(x) : T` and `x : &mut T` is `mut(x) : T`, a local borrow
+// `y := &place` is `imm(y) := place`, a re-point `cur = &mut place` is
+// `mut(cur) = place`, a capture `{ y : &y, z : &mut z }` is
+// `{ imm(y) : &y, mut(z) : &mut z }`, and the borrowed loop
+// `for(&mut xs, x => …)` is `for(xs, mut(x) => …)`. The function-type
+// identities below pin "exact": a function declared in one spelling fills a
+// slot typed in the other. A `&T` anywhere else is a borrow mode, not a type
+// (references become types with decision 43).
+//
+// `&&T` is a parse error, so it is pinned by tests/internal/parser.test.yo.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+Point :: struct(x : i32, y : i32);
+derive(Point, Copy, Clone);
+Counter :: struct(n : i32);
+impl(
+  Counter,
+  bump : (fn(self : &mut Self, by : i32) -> unit)({
+    self.n = (self.n + by);
+  }),
+  get : (fn(self : &Self) -> i32)(self.n)
+);
+// A move-only value with a Dispose counter: a borrow neither copies nor
+// drops what it lends.
+(g_bs_disposed : i32) = i32(0);
+Tracked :: struct(n : i32);
+impl(
+  Tracked,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g_bs_disposed = (g_bs_disposed + i32(1));
+    })
+  )
+);
+len_of :: (fn(s : &String) -> usize)(s.len());
+bump :: (fn(n : &mut i32) -> unit)({
+  n = (n + i32(1));
+});
+tracked_n :: (fn(t : &Tracked) -> i32)(t.n);
+tracked_set :: (fn(t : &mut Tracked, v : i32) -> unit)({
+  t.n = v;
+});
+twice :: (fn(comptime(k) : &i32) -> i32)(k + k);
+apply :: (fn(f : &Impl(Fn(v : &String) -> usize), s : &String) -> usize)(f(&s));
+apply_mut :: (fn(f : &Impl(Fn(v : &mut i32) -> unit), n : &mut i32) -> unit)(f(&mut n));
+old_len_of :: (fn(imm(s) : String) -> usize)(s.len());
+old_bump :: (fn(mut(n) : i32) -> unit)({
+  n = (n + i32(1));
+});
+Node :: struct(value : i32, next : Option(Rc(Self)));
+List :: struct(head : Option(Rc(Node)));
+append :: (fn(list : &mut List, v : i32) -> unit)({
+  cur := &mut list.head;
+  while(cur.is_some(), {
+    match(
+      cur,
+      .Some(n) => {
+        cur = &mut n.next;
+      },
+      .None => ()
+    );
+  });
+  cur = .Some(rc(Node(value : v, next : .None)));
+});
+sum_list :: (fn(list : &List) -> i32)({
+  (total : i32) = i32(0);
+  cur := &list.head;
+  while(cur.is_some(), {
+    match(
+      cur,
+      .Some(n) => {
+        total = (total + n.value);
+        cur = &n.next;
+      },
+      .None => ()
+    );
+  });
+  total
+});
+
+// --- Parameters and receivers -------------------------------------------------
+test("a `&T` parameter borrows: the argument stays usable", {
+  s := String.from("abc");
+  assert(len_of(&s) == usize(3), "read through the borrow");
+  assert(s.len() == usize(3), "s was lent, not moved");
+});
+test("a `&mut T` parameter writes the caller's place", {
+  (k : i32) = i32(1);
+  bump(&mut k);
+  bump(&mut k);
+  assert(k == i32(3), "both writes landed");
+});
+test("receivers `self : &Self` and `self : &mut Self`", {
+  c := Counter(n : i32(1));
+  c.bump(i32(4));
+  assert(c.get() == i32(5), "the &mut receiver wrote, the & receiver read");
+});
+test("a `comptime(x) : &T` parameter", {
+  assert(twice(i32(21)) == i32(42), "comptime(imm(k)) : i32 under the new spelling");
+});
+test("each spelling fills a slot typed in the other: one function type", {
+  (f1 : (fn(imm(s) : String) -> usize)) = len_of;
+  (f2 : (fn(s : &String) -> usize)) = old_len_of;
+  (g1 : (fn(mut(n) : i32) -> unit)) = bump;
+  (g2 : (fn(n : &mut i32) -> unit)) = old_bump;
+  s := String.from("ab");
+  (k : i32) = i32(0);
+  g1(&mut k);
+  g2(&mut k);
+  assert(((f1(&s) + f2(&s)) == usize(4)) && (k == i32(2)), "all four calls borrowed");
+});
+test("a borrowed move-only value is neither moved nor dropped by the call", {
+  before := g_bs_disposed;
+  {
+    t := Tracked(n : i32(7));
+    assert(tracked_n(&t) == i32(7), "read through &Tracked");
+    tracked_set(&mut t, i32(9));
+    assert(tracked_n(&t) == i32(9), "written through &mut Tracked");
+    assert(g_bs_disposed == before, "no call dropped the lent value");
+  };
+  assert(g_bs_disposed == (before + i32(1)), "the owner dropped it once, at its scope end");
+});
+
+// --- Fn slots and closure parameters ------------------------------------------
+test("`Fn(v : &T)` slots and `(v : &T) => …` closure parameters", {
+  s := String.from("hello");
+  assert(apply((v : &String) => v.len(), &s) == usize(5), "a closure parameter borrows");
+  (k : i32) = i32(1);
+  apply_mut((v : &mut i32) => {
+    v = (v * i32(10));
+  }, &mut k);
+  assert(k == i32(10), "a &mut closure parameter wrote the caller's place");
+  assert(s.len() == usize(5), "s is still usable");
+});
+
+// --- Local borrows and re-points ------------------------------------------------
+test("`y := &place` reads through and `y := &mut place` writes through", {
+  s := String.from("abc");
+  y := &s;
+  assert(y.len() == usize(3), "read through the borrow");
+  x := i32(1);
+  z := &mut x;
+  z = i32(5);
+  assert(x == i32(5), "the write through z landed in x");
+  p := Point(x : i32(1), y : i32(2));
+  px := &mut p.x;
+  px = i32(8);
+  assert(p.x == i32(8), "a field borrow wrote the field");
+});
+test("the annotated local borrow `(y : &T) = &place`", {
+  s := String.from("xy");
+  (y : &String) = &s;
+  assert(y.len() == usize(2), "read through the annotated borrow");
+  (n : i32) = i32(3);
+  (m : &mut i32) = &mut n;
+  m = i32(4);
+  assert(n == i32(4), "written through the annotated &mut borrow");
+});
+test("a local borrow of a move-only value drops nothing", {
+  before := g_bs_disposed;
+  {
+    t := Tracked(n : i32(2));
+    {
+      r := &t;
+      assert(r.n == i32(2), "read through r");
+      w := &mut t;
+      w.n = i32(6);
+    };
+    assert(g_bs_disposed == before, "the borrows' scope end dropped nothing");
+    assert(t.n == i32(6), "the write through w landed");
+  };
+  assert(g_bs_disposed == (before + i32(1)), "t was dropped once");
+});
+test("the cursor walk re-points with `cur = &mut n.next` (decision 25)", {
+  l := List(head : .None);
+  append(&mut l, i32(1));
+  append(&mut l, i32(2));
+  append(&mut l, i32(3));
+  assert(sum_list(&l) == i32(6), "three nodes, in order, walked with `cur = &n.next`");
+});
+
+// --- Capture lists ------------------------------------------------------------
+test("capture list `{ y : &y, z : &mut z }` and the puns `{ &y, &mut z }`", {
+  y := i32(10);
+  z := i32(1);
+  {
+    (h : Impl(Fn(m : i32) -> i32)) = ({ y : &y, z : &mut z }(m : i32) => {
+      z = (z + (y + m));
+      z
+    });
+    assert(h(i32(1)) == i32(12), "read y, wrote z");
+  };
+  assert(z == i32(12), "the &mut capture wrote the caller's z");
+  {
+    (g : Impl(Fn() -> i32)) = ({ &y, &mut z }() => {
+      z = (z + y);
+      z
+    });
+    assert(g() == i32(22), "the puns borrow the same places");
+  };
+  assert(z == i32(22), "the &mut pun wrote z");
+});
+
+// --- The borrowed `for` ---------------------------------------------------------
+test("`for(&xs, x => …)` reads and `for(&mut xs, x => …)` writes in place", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  xs.push(i32(3));
+  (sum : i32) = i32(0);
+  for(&xs, x => {
+    sum = (sum + x);
+  });
+  assert(sum == i32(6), "the read loop saw every element");
+  for(&mut xs, x => {
+    x = (x * i32(10));
+  });
+  assert((xs(usize(0)) == i32(10)) && (xs(usize(2)) == i32(30)), "the &mut loop wrote each element in place");
+  ps := ArrayList(Point).new();
+  ps.push(Point(x : i32(1), y : i32(1)));
+  for(&mut ps, p => {
+    p.x = i32(5);
+  });
+  assert(ps(usize(0)).x == i32(5), "a struct element was written in place");
+});
+test("the map form `for(&mut m, (k, v) => …)` borrows the value only", {
+  m := HashMap(i32, i32).new();
+  m.insert(i32(1), i32(10));
+  m.insert(i32(2), i32(20));
+  for(&mut m, (k, v) => {
+    v = (v + k);
+  });
+  assert((m.get(i32(1)) == .Some(i32(11))) && (m.get(i32(2)) == .Some(i32(22))), "each value was written in place");
+});
+
+// --- A borrow is a mode, not a type ---------------------------------------------
+comptime_expect_error(
+  bs_type_alias :: (fn() -> unit)({
+    T :: &i32;
+  }),
+  "is a borrow mode, not a type"
+);
+comptime_expect_error(
+  bs_type_argument :: (fn() -> unit)({
+    _xs := ArrayList(&i32).new();
+  }),
+  "is a borrow mode, not a type"
+);
+comptime_expect_error(
+  bs_mut_type_argument :: (fn() -> unit)({
+    _o := Option(&mut i32).None;
+  }),
+  "is a borrow mode, not a type"
+);
+comptime_expect_error(
+  bs_field_type :: (fn() -> unit)({
+    S :: struct(f : &i32);
+  }),
+  "is a borrow mode, not a type"
+);
+comptime_expect_error(
+  bs_result :: (fn(s : &String) -> &String)(s),
+  "A function cannot return a borrow"
+);
+comptime_expect_error(
+  bs_mut_result :: (fn(s : &mut String) -> &mut String)(s),
+  "A function cannot return a borrow"
+);
+comptime_expect_error(
+  bs_annotation_mismatch :: (fn() -> unit)({
+    n := i32(1);
+    (_y : &String) = &n;
+  }),
+  "lends the place itself, so its type is the annotation's exactly"
+);
+comptime_expect_error(
+  bs_read_only_local :: (fn() -> unit)({
+    x := i32(1);
+    y := &x;
+    y = i32(2);
+  }),
+  "is a `&` borrow, which is read-only"
+);
+comptime_expect_error(
+  bs_repoint_not_a_borrow :: (fn() -> unit)({
+    x := i32(1);
+    w := i32(2);
+    w = &x;
+  }),
+  "re-points a local borrow, and `w` is not one"
+);
+comptime_expect_error(
+  bs_binding_named_mut :: (fn() -> unit)({
+    mut := i32(1);
+  }),
+  "\"mut\" is reserved"
+);
+comptime_expect_error(
+  bs_parameter_named_mut :: (fn(mut : i32) -> i32)(mut),
+  "\"mut\" is reserved"
+);
+comptime_expect_error(
+  bs_unlabeled_fn_slot :: (fn(f : &Impl(Fn(&i32) -> i32)) -> i32)(i32(0)),
+  "Expected a label for function parameter"
+);

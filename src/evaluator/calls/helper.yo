@@ -36,7 +36,8 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_strip_borrow_marker,
   ast_place_text,
   BF_ADDRESS_OF,
-  BK_BORROW_MUT
+  BK_BORROW_MUT,
+  borrow_mode_not_a_type_message
 } :: import("../../expr.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 {
@@ -866,6 +867,11 @@ apply_call_site_borrow_markers :: (
       p_ty := match(param_types.get(ai), .Some(t) => t, .None => t_unit());
       place_text := ast_place_text(ast_expr_strip_borrow_marker(bare));
       cond(
+        // A `Type` parameter (`ArrayList(&T)`, `Option(&mut T)`): a borrow
+        // is a mode, not a type (decision 42 Generation A).
+        is_type_hierarchy_type(p_ty) => {
+          exn.throw(dyn(format_error_message(ast_expr_token(bare), borrow_mode_not_a_type_message(place_text, is_mut_marker))));
+        },
         (is_mut_marker && p_is_ref) => {
           peel = true;
         },
@@ -875,13 +881,13 @@ apply_call_site_borrow_markers :: (
           mut_fix := cond(
             is_pointer_type(p_ty) => `it is a raw pointer (\`${type_to_string(p_ty)}\`): take the address with \`addr_of(${place_text})\``,
             p_is_owning => `it takes its argument by value: pass \`${place_text}\`, or \`${place_text}.clone()\` to keep \`${place_text}\``,
-            true => `it is \`imm\`: lend it read-only with \`&${place_text}\``
+            true => `it is \`&T\`: lend it read-only with \`&${place_text}\``
           );
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(bare),
-                `\`&mut ${place_text}\` lends an exclusive borrow, but parameter "${p_label}" is not \`mut\`: ${mut_fix}.`
+                `\`&mut ${place_text}\` lends an exclusive borrow, but parameter "${p_label}" is not \`&mut T\`: ${mut_fix}.`
               )
             )
           );
@@ -891,7 +897,7 @@ apply_call_site_borrow_markers :: (
             dyn(
               format_error_message(
                 ast_expr_token(bare),
-                `Parameter "${p_label}" is \`mut\`: lend the place with \`&mut ${place_text}\`, not \`&${place_text}\`.`
+                `Parameter "${p_label}" is \`&mut T\`: lend the place with \`&mut ${place_text}\`, not \`&${place_text}\`.`
               )
             )
           );
@@ -906,7 +912,7 @@ apply_call_site_borrow_markers :: (
             dyn(
               format_error_message(
                 ast_expr_token(bare),
-                `Parameter "${p_label}" is a raw pointer (\`${type_to_string(p_ty)}\`): take the address with \`addr_of(${place_text})\`. \`&${place_text}\` lends a borrow to an \`imm\` parameter and never makes a pointer.`
+                `Parameter "${p_label}" is a raw pointer (\`${type_to_string(p_ty)}\`): take the address with \`addr_of(${place_text})\`. \`&${place_text}\` lends a borrow to a \`&T\` parameter and never makes a pointer.`
               )
             )
           );

@@ -6,44 +6,44 @@ language has no way to form a pointer into reallocatable storage, so
 the classic invalidation footguns (grow a list, dangle a borrow) are
 not rejected by a clever analysis — they are _inexpressible_.
 
-## Where a `mut` can exist
+## Where a borrow can exist
 
-`mut` is Yo's second-class reference, and it exists in exactly TWO
+A borrow (`&T` or `&mut T`) is Yo's second-class reference, and it exists in exactly TWO
 places: **parameter position** and **local binding position**.
-`mut(name) : T` receives a caller lvalue (write-back, and no copy for big
+`name : &mut T` receives a caller lvalue (write-back, and no copy for big
 structs); callback parameters that receive refs
-(`body : Impl(Fn(mut(v) : T) -> R)`, as in `Mutex.with_lock`) are the
+(`body : Impl(Fn(v : &mut T) -> R)`, as in `Mutex.with_lock`) are the
 same thing one level down. A local borrow binds `name` to the storage
-`place` denotes: `mut(name) := place;` borrows it exclusively, `imm(name) := place;` read-only
+`place` denotes: `name := &mut place;` borrows it exclusively, `name := &place;` read-only
 (`plans/VALUES_BY_DEFAULT.md` decision 18):
 
 ```yo
 x := i32(1);
-mut(y) := x; // y names x's slot
+y := &mut x; // y names x's slot
 y = i32(2); // writes x
 z := x; // fine: y's last use is above, so x is free again
-imm(r) := p.x; // a read-only borrow of a value-struct field
+r := &p.x; // a read-only borrow of a value-struct field
 v := r; // reads through r; `r = v` would be E0908
-mut(n) := h.n; // a field of an RC object: h's object is pinned for the scope
-copy := n; // copies the pointee — there is no "mut type" to store
+n := &mut h.n; // a field of an RC object: h's object is pinned for the scope
+copy := n; // copies the pointee — `&mut` is a mode, not a type to store
 ```
 
 **A borrow is live from its binding to its last use**, and for that range
 it freezes its place:
 
-- while an `imm` borrow is live, its place, the places inside it and the
+- while a `&` borrow is live, its place, the places inside it and the
   places containing it are not written or moved;
-- while a `mut` borrow is live, they are not accessed at all except through
+- while a `&mut` borrow is live, they are not accessed at all except through
   the borrow;
-- **sibling fields stay free**: `mut(a) := p.x; mut(b) := p.y;` is accepted;
+- **sibling fields stay free**: `a := &mut p.x; b := &mut p.y;` is accepted;
 - below a reference cell (`Rc`, `Arc`, a `ref` object) **the cell is
-  the unit**, because other handles reach it: `mut(a) := h.n; mut(b) := h.s;`
+  the unit**, because other handles reach it: `a := &mut h.n; b := &mut h.s;`
   is rejected;
 - a loop that uses the borrow keeps it live for the whole loop (the next
   iteration uses it again);
 - a borrow of a borrow keeps its source live as long as itself.
 
-A conflicting access is E0911, and a write through an `imm` borrow is E0908.
+A conflicting access is E0911, and a write through a `&` borrow is E0908.
 Two more rules cover the places the compiler cannot see every alias of: a
 borrow of a **module-level** place may not be live across a call (a callee
 can reach the place by name), and a borrow whose place passes through a
@@ -61,18 +61,20 @@ values: the task keeps the binding, its pin and the place's root in its own
 memory.
 
 **Re-pointing a borrow** walks a linked structure (decision 25):
-`mut(cur) = place` / `imm(cur) = place` moves `cur` to a place reached from
+`cur = &mut place` / `cur = &place` moves `cur` to a place reached from
 it — a field of `cur`'s target, or a field of a `match` binding over `cur`
-that enters a reference cell:
+that enters a reference cell. The sigil on the right decides: a bare
+`cur = v` writes `v` through the borrow into the lent place, as the last
+line below does:
 
 ```yo
-append :: (fn(mut(list) : List, v : i32) -> unit)({
-  mut(cur) := list.head; // Option(Rc(Node))
+append :: (fn(list : &mut List, v : i32) -> unit)({
+  cur := &mut list.head; // Option(Rc(Node))
   while(cur.is_some(), {
     match(
       cur,
       .Some(n) => {
-        mut(cur) = n.next;
+        cur = &mut n.next;
       },
       .None => ()
     );
@@ -87,8 +89,9 @@ re-point is E0911 while a borrow derived from `cur`'s current target is
 live. Each step into a cell pins it and releases the cell the previous step
 pinned, so the walk is memory-safe even when another handle drops a node.
 
-**Functions cannot return `mut`**, and refs cannot be stored in fields,
-captured by closures, or placed inside generic types. A `mut` is born
+**Functions cannot return a borrow** (there is no `-> &T` / `-> &mut T`
+result yet), and refs cannot be stored in fields, captured by closures, or
+placed inside generic types. A borrow is born
 at a call boundary or a binding and dies with the enclosing scope — it can
 never outlive the storage it points into.
 
@@ -99,11 +102,11 @@ reached from it, including a nested block the body's result ends in) are
 implicitly copyable type produces a copy today, the spelling names the
 borrow itself, not the value it reads through. Read the value out into an
 owned local first (`v := y;` … `v`); a call or an operation on the borrow
-(`y.len()`, `y + i32(0)`) already produces a value and is fine. An
-`mut` **parameter** is a different mechanism: returning it still
+(`y.len()`, `y + i32(0)`) already produces a value and is fine. A
+`&mut T` **parameter** is a different mechanism: returning it still
 returns the pointee copy.
 
-The argument passed to a `mut` parameter is a simple lvalue **place**:
+The argument passed to a `&mut T` parameter is a simple lvalue **place**:
 
 - a whole variable (any scope — a variable's slot is stable storage);
 - `var.field` (or a struct-field path) rooted at a **local or
@@ -117,7 +120,7 @@ The argument passed to a `mut` parameter is a simple lvalue **place**:
 - an **indexed element** (`xs(i)`) or a chain through an **intermediate
   object** (including an `Rc` deref `b.*`, since `Rc` is an ordinary
   object and `*` is just a field) is a pointer into a heap object's
-  storage; it may be a `mut` argument only when the callee cannot reach
+  storage; it may be a `&mut` argument only when the callee cannot reach
   that object — passing the container/cell (or an alias), indexing a
   module-level container, or passing **any other object/closure
   argument** that could hold a handle to it, is rejected (growth or
@@ -155,23 +158,23 @@ Elements can also be **borrowed**, in exactly one place: the borrowed
 `for`.
 
 ```yo
-for(enemies, mut(e) => {
+for(&mut enemies, e => {
   e.hp = (e.hp - i32(1));
 }); // struct elements, in place
-for(names, mut(s) => {
+for(&mut names, s => {
   s.push_str("!");
 }); // RC elements, no dup per element
-for(counts, mut(c) => {
+for(&mut counts, c => {
   bump(c);
-}); // hand the element to a mut param
-for(scores, (k, mut(v)) => {
+}); // hand the element to a &mut param
+for(&mut scores, (k, v) => {
   v = (v + i32(10));
 }); // maps: key by value, value borrowed
 ```
 
 The macro binds the collection to a hidden local (it cannot be freed while
 the loop runs), holds the collection's **runtime borrow flag** for the whole
-loop, and binds each element as a `mut` local into the collection's own
+loop, and binds each element as a `&mut` local into the collection's own
 storage through the pointer iterator `iter()` — which is why `iter()` exists
 and why it yields `*(T)`: it is the protocol `for` consumes, not an API for
 user code. `break`, `continue`, `return` and effect `unwind` all release the
@@ -182,8 +185,8 @@ reference … borrows from it`) instead of leaving the element reference
 dangling. This is the one place where Yo's safety guarantee is a runtime
 check rather than a compile-time rejection (Swift's model for shared
 storage); the compiler emits the assert at the entry of every method of an RC object
-whose body may mutate the object (decided from the body, since Yo has no
-`mut`), so any collection — std or third-party — is covered without
+whose body may mutate the object (decided from the body, not from the
+receiver's mode), so any collection — std or third-party — is covered without
 annotations. The decision is per parameter and tracks where each mutated
 value's storage lives: a method that mutates only storage it allocated itself
 (`clone` pushing into its result, `collect`), or walks the collection with
@@ -191,8 +194,8 @@ value's storage lives: a method that mutates only storage it allocated itself
 then mutates it does. Read-only methods (`len`, `get`, `contains`,
 `index_of`, `==`, `clone`, iteration) cost nothing; a mutating method pays one
 load-compare at entry (~7–9 % on a nanosecond-scale `push`/`pop`
-microbenchmark, unmeasurable elsewhere). Plain
-`mut(e)` over a map yields the whole entry; prefer `(k, mut(v))`, which
+microbenchmark, unmeasurable elsewhere). A plain
+`e` in `for(&mut m, e => …)` yields the whole entry; prefer `(k, v)`, which
 keeps keys immutable. `Array(T, N)` has no `iter()` and takes the value form
 or an index loop. The borrowed `for` works inside an `io.async` body, with
 awaits in the loop body.
@@ -221,14 +224,14 @@ never affects the result.
 
 ## One call-site rule
 
-**A single call may not receive the same object as both a `mut`-rooted
+**A single call may not receive the same object as both a `&mut`-rooted
 argument and a `sink` argument** (`use_and_sink(h.s, h)` with
 `sink(victim)` is rejected) — `sink` moves the caller's count into a
 callee that could release it while the borrow is still in use. Distinct
-objects are fine. A by-value argument that overlaps a `mut` one is
-kept alive for the call: the callee can replace the `mut` variable's
+objects are fine. A by-value argument that overlaps a `&mut` one is
+kept alive for the call: the callee can replace the `&mut` variable's
 value, which would release the value the by-value argument borrows
-(`clobber(x, x)` with `fn(mut(a) : S, b : S)`), so that argument gets a
+(`clobber(x, x)` with `fn(a : &mut S, b : S)`), so that argument gets a
 caller-owned `+1` until the call returns, like an overlapping field
 projection. A borrowed handle itself never releases the caller's count
 (forwarding it to a `sink` position dups first).

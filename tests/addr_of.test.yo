@@ -72,8 +72,10 @@ test("&x to a by-value parameter is an error naming x and x.clone()", {
 
 test("&x outside an argument is an error naming addr_of(x)", {
   (n : i32) = i32(1);
+  // `p := &n` is a local borrow since decision 42; a pointer-typed
+  // binding is not a slot that holds a borrow.
   comptime_expect_error({
-    p := &n;
+    (p : *i32) = &n;
   }, "Take a raw pointer with `addr_of(n)`");
   b := _AoBox(n : i32(4));
   comptime_expect_error((&b).get(), "a method receiver is written bare");

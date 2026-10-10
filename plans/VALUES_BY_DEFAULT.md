@@ -2557,6 +2557,105 @@ and in git, not a silent edit.
       rejected; the borrowed `for` with the sigil on the source and the
       consuming bare form; a capture list in the new form; `yo fix`'s
       rewrite on each row of the table.
+    - **As built, Generation A (2026-10-10, branch
+      feat/vbd-decision42-gen-a, stacked on V3b step 3).**
+      - **The mechanism is a parse-time rewrite.** `desugar_if_calls`
+        (`src/expr.yo`, beside the `if` → `cond` and `match(&x, …)` peels)
+        rewrites each slot written in the new spelling into the mode-word
+        form every later pass already reads, so the two spellings are exact
+        synonyms by construction (one AST, one evaluator path, one codegen
+        path) and nothing downstream changed: `x : &T` → `imm(x) : T`,
+        `x : &mut T` → `mut(x) : T`, `comptime(x) : &T` →
+        `comptime(imm(x)) : T`, in the arguments of `fn`/`ctl`/`Fn`/`FnOnce`
+        heads (receivers, trait members, `Impl(Fn(…))`/`Dyn(Fn(…))` slots)
+        and a closure's parameter list (one parameter, a tuple of them, or
+        a capture list's parameters); `-> &T` / `-> &mut T` → `-> imm(T)` /
+        `-> mut(T)` (and the labeled `-> (name : &mut T)`); `y := &place` /
+        `y := &mut place` → `imm(y) := place` / `mut(y) := place`;
+        `y = &place` / `cur = &mut place` → the re-point; the capture entries
+        `y : &p` / `z : &mut p` and the puns `&y` / `&mut z` →
+        `imm(y) : &p` / `mut(z) : &mut p` / `imm(y)` / `mut(z)`; and
+        `for(&xs, h)` → `for(xs, h)`, `for(&mut xs, x => …)` →
+        `for(xs, mut(x) => …)` (the map form's `(k, v)` → `(k, mut(v))`).
+        The synthesized mode token sits at the sigil. The formatter renders
+        the token stream, so a file keeps the spelling it is written in, and
+        `yo fmt --check` over `std/` and `src/` (still in the mode words,
+        which the seed parses) is unchanged. A plain `for(xs, …)` keeps its
+        meaning.
+      - **The annotated local borrow** `(y : &T) = &place` is rewritten to
+        `imm(y, T) := place`: the annotation rides as a second argument of
+        the mode call, every reader of the bound name keeps reading argument
+        0 (`ast_expr_is_local_borrow_mode_call` accepts the second argument
+        when asked for one), and the binding checks it against the place's
+        type exactly (a borrow converts nothing). A sigil mismatch between
+        the annotation and the initializer is not rewritten, and the `&T`
+        in the annotation is then the "not a type" error.
+      - **Not a type.** A `&T` outside the slots is rejected as a borrow
+        mode: `T :: &i32` and a field `f : &i32` (the `&`/`&mut` evaluation
+        arms trial-evaluate the operand and name the slots), `ArrayList(&T)`
+        and `Option(&mut T)` (a marker lent to a `Type` parameter, which the
+        step 3 marker path used to peel silently,
+        `issues/fixed/a-borrow-marker-on-a-type-argument-is-silently-peeled.md`),
+        and `&&T` (a parse error: `&&` is logical and, and a borrow of a borrow
+        does not exist). `-> &T` / `-> &mut T` are the ban on returning a
+        borrow until projections (decision 24) land; the ban now also covers
+        `-> imm(T)`, which used to fail as an unknown variable `imm`. An
+        unlabeled `Fn(&T)` is not a slot: an `Fn` parameter needs a label to
+        carry a mode (`Expected a label for function parameter`).
+      - **`mut` is reserved** for bindings and parameters, with a message
+        naming `&mut`; `imm` is no longer offered by LSP completion.
+      - **Everything printed uses the new spelling:** the type printer
+        (`fn(s : &String, n : &mut i32) -> unit`, shared with LSP signature
+        help through `format_param_with_mode`), the mode-mismatch note, the
+        local-borrow, capture-list, re-point, marker, E0901/E0908 notes and
+        the registry texts and examples, and `yo doc` / the context index,
+        whose signatures are source text: `modern_borrow_spelling`
+        (`src/doc/builder.yo`) renders a std signature's mode words in the
+        sigil spelling, and a doc parameter carries its sigil on the type.
+        The context pack, `docs/` (en + zh), the instruction files and the
+        skills switched; the old-spelling errors for `inout` name `x : &mut T`
+        and `--migrate borrow-spelling`.
+      - **`yo fix <path> --migrate borrow-spelling`** (`src/main.yo`) is
+        syntactic: it walks the RAW parse (no desugar, so a `quote(...)`
+        template and a macro argument are reached), rewrites each row of
+        the table with text edits checked against the source (`imm(` / `)`
+        deleted, `: ` → `: &`, `:= ` → `:= &mut `, the `for` source gains
+        `&mut `, parenthesized unless it is a postfix chain), formats the
+        file, and lists every mode word no row covers (an `unquote(...)`
+        name it cannot see, `generic(mut(T) : Type)`) with its position.
+        Counts on the tree at this branch (`--dry-run` with the
+        branch-built compiler, 2026-10-10): `std/` 3,010 (1,440 parameters,
+        1,496 receivers, 72 `Fn` slots, 2 local borrows), `src/` 10,062
+        (9,901 parameters, 142 receivers, 19 `Fn` slots), `tests/` 2,664
+        (1,771 parameters, 609 receivers, 35 `Fn` slots, 1 closure
+        parameter, 3 results, 120 local borrows, 11 re-points, 64 captures,
+        50 borrowed `for` loops). Nothing is skipped in `std/` or `src/`.
+        In `tests/` 9 mode words are left as written for hand edits:
+        `ref_return_ban` 4 (`-> mut(i32)` in a rejected position),
+        `closure_capture_list`, `comptime_ref`, `dyn` 2, and
+        `ref_local_binding` 1 each. 4 CLI-case fixtures do not parse by
+        design. Applying the rewrite to a copy and building it is
+        Generation B's first gate.
+      - **Measured gates:** `yo build --std-path ./std`, `check ./src` and `check ./std` green (seed v0.2.57); fmt gate clean; CLI corpus 385 PASS, 0 golden diffs; `gates_fast.sh` 0 failures; `fixpoint_only.sh` FIXPOINT_HOLDS (stage 3 rc 0); the language suite 5,076/5,076; `yo test ./std` 7/7; `move_only` 38 and `parameter_modes` 28 after the rebase onto develop (2026-10-10, Mac Mini M4)
+    - **Generation B, on the seed that carries Generation A:**
+      1. `yo fix ./std ./src ./tests --migrate borrow-spelling` (the counts
+         above), plus by hand: the mode words in `src/` and `std/` comments
+         and doc comments (59 lines), the code strings the compiler
+         synthesizes (`src/codegen/functions/collection.yo`'s
+         `(fn(imm(self) : Self) -> unit)`), and the prelude `for` macro's
+         own templates if `mut(x)` stops being an internal spelling.
+      2. Delete the old spelling: a source-level `imm(` / `mut(` / `inout(`
+         in a slot becomes an error naming the sigil and the tool. The
+         internal form can stay as the desugar target with the heads made
+         unspellable (`BK_IMM`/`BK_MUT` become `__yo_imm`/`__yo_mut`; the
+         two literal `"mut"`/`"imm"` comparisons in
+         `src/evaluator/effects/mutation_summary.yo` and the prelude `for`
+         macro's `quote(mut)` follow), or decision 43's `TypeValue`
+         reference variant replaces it; `modern_borrow_spelling` and the
+         formatter's acceptance of the old forms go with it.
+      3. The consuming bare `for(xs, …)` (consequence 1) rides decision 26's
+         consuming-`match` sweep: `for(xs, …)` whose source is used after
+         the loop becomes `for(&xs, …)` first.
 
 43. **`&T` and `&mut T` are types: second-class, with lifetimes elided.**
     Confirmed 2026-10-10 by the maintainer ("I want to make `&T` a real

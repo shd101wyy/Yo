@@ -324,7 +324,7 @@ test("move-only: a borrow cannot be copied or moved out", {
     }),
     "it is borrowed"
   );
-  comptime_expect_error((fn(mut(f) : _MoFd) -> i32)(_mo_take(f)), "it is a `mut` binding");
+  comptime_expect_error((fn(mut(f) : _MoFd) -> i32)(_mo_take(f)), "it is a `&mut` borrow");
   comptime_expect_error(
     (fn(imm(f) : _MoFd) -> i32)({
       (k : Impl(Fn() -> i32)) = (() => f.n);
@@ -373,7 +373,7 @@ test("move-only: the E0901 note names why the type is move-only", {
   comptime_expect_error(t.id, "neither `Copy` nor `Clone`");
   // Since the flip a by-value parameter owns its argument; the note names the
   // borrowing mode.
-  comptime_expect_error(h.tag, "An `imm` parameter borrows it without a copy (the call lends it with `&h`)");
+  comptime_expect_error(h.tag, "A `&T` parameter borrows it without a copy (the call lends it with `&h`)");
   assert((g.tag + u.id) == i32(5), "moved values");
 });
 test("move-only: `sink` and plain spell one function type, and `sink` moves", {
@@ -633,7 +633,7 @@ test("consuming match: `match(&x, …)` borrows and keeps `x`", {
         },
         .None => i32(0)
       ),
-      "borrows `o` with `imm` and is still live"
+      "borrows `o` with `&` and is still live"
     );
   };
   assert(g_mo_disposed == (before + i32(1)), "o is dropped once at its scope end");

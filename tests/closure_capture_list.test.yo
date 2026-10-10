@@ -152,9 +152,9 @@ test("capture list: the list is exhaustive", {
 });
 test("capture list: entry shapes are checked", {
   y := i32(1);
-  comptime_expect_error(_cl_call0({ y : &y }() => y), "spells its mode on the left");
-  comptime_expect_error(_cl_call0({ imm(y) : y }() => y), "its initializer is `&place`");
-  comptime_expect_error(_cl_call0({ mut(y) : &y }() => y), "its initializer is `&mut place`");
+  assert(_cl_call0({ y : &y }() => y) == i32(1), "`y : &y` borrows since decision 42");
+  comptime_expect_error(_cl_call0({ imm(y) : y }() => y), "a place under its sigil (`y : &place`");
+  comptime_expect_error(_cl_call0({ mut(y) : &y }() => y), "(`y : &mut place`");
   comptime_expect_error(_cl_call0({ y, y }() => y), "names `y` twice");
   comptime_expect_error(_cl_call0({ imm(t) : &_cl_call0({}() => i32(1)) }() => t), "is not one");
   comptime_expect_error(_cl_call0({ y }() -> y), "takes no capture list");

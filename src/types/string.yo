@@ -192,12 +192,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
           if(label.len() > usize(0), {
             // After the flip (decision 30) a plain parameter is by value:
             // the by-value mode prints bare, the borrows print their words.
-            moded := cond(
-              p_is_ref => `mut(${label})`,
-              p_is_own => label,
-              true => `imm(${label})`
-            );
-            body = `${body}${moded} : ${ts}`;
+            body = `${body}${format_param_with_mode(label, ts, p_is_ref, p_is_own)}`;
           }, {
             body = `${body}${ts}`;
           });
@@ -223,7 +218,7 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
         ret_s := recur(ret, _d + usize(1), visited);
         // A control function prints as written: `ctl(...)`, not `fn(...)`.
-        `${if(__fm1.*.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${if(__fm1.*.result_is_ref, `mut(${ret_s})`, ret_s)}${using_suffix}`
+        `${if(__fm1.*.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${if(__fm1.*.result_is_ref, `&mut ${ret_s}`, ret_s)}${using_suffix}`
       },
       .Struct({ id, name, field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns }) => cond(
         // Source-namespace structs (anonymous modules / imports) keep the
@@ -417,6 +412,19 @@ _tts :: (fn(imm(t) : TypeValue, _d : usize, mut(visited) : ArrayList(String)) ->
     )
   )
 );
+/// A parameter as decision 42 spells it: `x : T` by value, `x : &T` and
+/// `x : &mut T` borrowed (a function type after the sigil is parenthesized).
+/// `ts` is the parameter's type, already rendered.
+format_param_with_mode :: (fn(imm(label) : String, imm(ts) : String, is_ref : bool, is_owning : bool) -> String)({
+  sig_ts := if(ts.starts_with("fn(") || ts.starts_with("ctl("), `(${ts})`, ts.clone());
+  // A `Type`-valued parameter (`ArrayList`'s `T`) has no mode to speak of.
+  is_type_param := ((ts == "Type") || ts.starts_with("Type("));
+  cond(
+    is_ref => `${label} : &mut ${sig_ts}`,
+    (is_owning || is_type_param) => `${label} : ${ts}`,
+    true => `${label} : &${sig_ts}`
+  )
+});
 /// Render a TypeValue as a string. Recursive over
 /// Pointer/Array/Tuple/Func/Struct/EnumT/Union, with a depth cap (see
 /// `_tts`) so cyclic / very deep types can't overflow the stack.
@@ -433,5 +441,5 @@ type_to_string :: (fn(imm(t) : TypeValue) -> String)(
 type_to_string_key :: (fn(imm(t) : TypeValue) -> String)(
   _tts(t, usize(36), ArrayList(String).new())
 );
-export(type_to_string, type_to_string_key);
+export(type_to_string, type_to_string_key, format_param_with_mode);
 export(register_type_display_name, type_display_name, clear_type_display_names);

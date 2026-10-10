@@ -214,7 +214,7 @@ comptime_expect_error(
     imm(y) := x;
     y = i32(2);
   }),
-  "is an `imm` borrow, which is read-only"
+  "is a `&` borrow, which is read-only"
 );
 comptime_expect_error(
   imm_field_write_rejected :: (fn() -> unit)({
@@ -222,7 +222,7 @@ comptime_expect_error(
     imm(y) := p;
     y.x = i32(2);
   }),
-  "is an `imm` borrow, which is read-only"
+  "is a `&` borrow, which is read-only"
 );
 comptime_expect_error(
   imm_mutating_method_rejected :: (fn() -> unit)({
@@ -230,7 +230,7 @@ comptime_expect_error(
     imm(y) := s;
     y.push_str("!");
   }),
-  "is an `imm` borrow, which is read-only"
+  "is a `&` borrow, which is read-only"
 );
 comptime_expect_error(
   imm_to_mut_parameter_rejected :: (fn() -> unit)({
@@ -238,7 +238,7 @@ comptime_expect_error(
     imm(y) := x;
     bump(&mut y);
   }),
-  "is an `imm` borrow, which is read-only"
+  "is a `&` borrow, which is read-only"
 );
 comptime_expect_error(
   mut_borrow_through_imm_rejected :: (fn() -> unit)({
@@ -247,7 +247,7 @@ comptime_expect_error(
     mut(z) := y.x;
     z = i32(3);
   }),
-  "is an `imm` borrow, which is read-only"
+  "is a `&` borrow, which is read-only"
 );
 
 // --- Rejected: accesses that conflict with a live borrow (E0911) --------------
@@ -323,7 +323,7 @@ comptime_expect_error(
     b = i32(2);
     _v := a;
   }),
-  "Cannot borrow with `mut` `x` here"
+  "Cannot borrow with `&mut` `x` here"
 );
 comptime_expect_error(
   two_fields_of_one_cell_overlap :: (fn() -> unit)({

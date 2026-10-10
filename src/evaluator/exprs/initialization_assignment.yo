@@ -66,7 +66,7 @@
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, type_value_tag, register_type_binding_name } :: import("../../types/creators.yo");
 { TypeTag } :: import("../../types/tags.yo");
-{ are_types_compatible } :: import("../../types/compatibility.yo");
+{ are_types_compatible, are_types_compatible_exact } :: import("../../types/compatibility.yo");
 {
   prohibit_void_type,
   type_requires_comptime_modifier,
@@ -82,7 +82,7 @@
 { check_comptime_int_value_fits } :: import("../values/integer.yo");
 { format_error_message, format_error_message_with_help, format_error_message_with_repair, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
-{ Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name } :: import("../../token.yo");
+{ Token, TokenKind, is_reserved_operator_name, is_reserved_builtin_binding_name, reserved_builtin_binding_message } :: import("../../token.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
@@ -196,13 +196,15 @@ _evaluate_inout_local_binding :: (
   // `imm(y) :=` binds a read-only borrow; `mut(y) :=` an exclusive one
   // (plans/VALUES_BY_DEFAULT.md decision 18).
   is_mut := ast_expr_is_inout_mode_call(lhs, .None);
-  mw := match(lhs, .FnCall(_, lf, _, _, _) => match(lf, .Atom(_, lft) => lft.value.clone(), .FnCall(_, _, _, _, _) => String.from("mut")), .Atom(_, _) => String.from("mut"));
+  // The borrow's sigil as decision 42 spells it (`y := &place`,
+  // `y := &mut place`), for the diagnostics.
+  sig := if(is_mut, String.from("&mut "), String.from("&"));
   if(is_compile_time_only, {
     exn.throw(
       dyn(
         format_error_message(
           lhs_tok,
-          `'${mw}(name) :: ...' is not allowed: a '${mw}' binding aliases runtime storage. Use ':=' for the binding, or '::' for a compile-time value.`
+          `A local borrow (\`y := ${sig}place\`) aliases runtime storage, so it cannot be a compile-time binding: declare it with \`:=\`, or bind a compile-time value with \`::\`.`
         )
       )
     );
@@ -217,32 +219,35 @@ _evaluate_inout_local_binding :: (
         dyn(
           format_error_message(
             lhs_tok,
-            `'${mw}(name) := ...' bindings are local: declare the binding inside a function body.`
+            `A local borrow (\`y := ${sig}place\`) is local: declare it inside a function body.`
           )
         )
       );
     },
     .Some(_) => ()
   );
-  // The LHS: `inout(name)`, one identifier.
+  // The LHS: `mut(name)`, one identifier, and the annotation `T` of
+  // `(name : &T) = &place`, which the parse-time rewrite (decision 42) passes
+  // as a second argument.
   lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
-  if(lhs_args.len() != usize(1), {
+  if((lhs_args.len() != usize(1)) && (lhs_args.len() != usize(2)), {
     exn.throw(
       dyn(
         format_error_message(
           lhs_tok,
-          `Expected one name in "${mw}(name) := ...", got ${lhs_args.len().to_string()} arguments.`
+          `A local borrow binds one name (\`y := ${sig}place\`), got ${lhs_args.len().to_string()} arguments.`
         )
       )
     );
   });
+  annotation_e := lhs_args.get(usize(1));
   name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   if(!ast_expr_is_atom(name_expr) || !is_valid_variable_name(name_expr), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(name_expr),
-          `Expected an identifier in "${mw}(name) := ...", got ${ast_expr_to_string(name_expr)}.`
+          `A local borrow binds a name (\`y := ${sig}place\`), got ${ast_expr_to_string(name_expr)}.`
         )
       )
     );
@@ -274,7 +279,7 @@ _evaluate_inout_local_binding :: (
   });
   // The RHS must be a PLACE: an atom, or a `.` chain rooted at one. Checked
   // on the AST before evaluation so the message names the shape, not a type.
-  place_recipe := `An '${mw}' binding needs a place: a variable, or a field path rooted at one ('x', 'h.n', 'a.b.c'). To borrow an ELEMENT of a collection, iterate it with 'for(coll, mut(x) => ...)'; to hold a computed value, bind it with ':='.`;
+  place_recipe := `A local borrow (\`y := ${sig}place\`) needs a place: a variable, or a field path rooted at one (\`x\`, \`h.n\`, \`a.b.c\`). To borrow an ELEMENT of a collection, iterate it with \`for(&mut coll, x => ...)\`; to hold a computed value, bind it with \`:=\` and no sigil.`;
   hops := ArrayList(_InoutPlaceHop).new();
   root_atom := match(
     _inout_place_chain(rhs, hops),
@@ -307,7 +312,7 @@ _evaluate_inout_local_binding :: (
           dyn(
             format_error_message(
               ast_expr_token(hop.field),
-              `An '${mw}' binding cannot borrow through a pointer dereference ('p.*'): the storage has no owner the binding could keep alive. Iterate the collection with 'for(coll, mut(x) => ...)' to borrow an element, or copy the value out.`
+              `A local borrow cannot reach through a pointer dereference (\`p.*\`): the storage has no owner the borrow could keep alive. Iterate the collection with \`for(&mut coll, x => ...)\` to borrow an element, or copy the value out.`
             )
           )
         );
@@ -327,7 +332,7 @@ _evaluate_inout_local_binding :: (
       dyn(
         format_error_message(
           root_tok,
-          `Cannot bind '${mw}' to "${root_tok.value}": it is a compile-time value with no runtime storage to alias.`
+          `Cannot borrow "${root_tok.value}" (\`${sig}${root_tok.value}\`): it is a compile-time value with no runtime storage to alias.`
         )
       )
     );
@@ -365,14 +370,45 @@ _evaluate_inout_local_binding :: (
   // A `unit` local has no C storage (its declaration emits nothing), so there
   // is no address to alias; reject instead of lowering `&()`.
   if(is_unit_type(place_type), {
-    exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Cannot bind '${mw}' to a unit-typed place: it has no runtime storage to alias.`)));
+    exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Cannot borrow a unit-typed place (\`${sig}...\`): it has no runtime storage to alias.`)));
   });
+  // `(y : &T) = &place`: the annotation names the place's type exactly (a
+  // borrow converts nothing).
+  match(
+    annotation_e,
+    .Some(ann) => {
+      saved_ann_exp := ctx.expected_type;
+      ctx.expected_type = Option(ExpectedTypeCtx).None;
+      ev_ann := evaluate_expression_raw(ann, env, ctx, exn);
+      ctx.expected_type = saved_ann_exp;
+      ann_val := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(ev_ann)), .Some(ai) => ai.value, .None => Option(EvalValue).None);
+      ann_ty := match(
+        ann_val,
+        .Some(.TypeVal(at)) => at,
+        _ => {
+          exn.throw(dyn(format_error_message(ast_expr_token(ann), `A local borrow's annotation is a type (\`(y : ${sig}T) = ${sig}place\`), got ${ast_expr_to_string(ann)}.`)));
+          t_unit()
+        }
+      );
+      if(!are_types_compatible_exact(place_type, ann_ty), {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(rhs),
+              `Incompatible types:\n- Expected: ${type_to_string(ann_ty)}\n- Given   : ${type_to_string(place_type)}\nA local borrow \`(y : ${sig}T) = ${sig}place\` lends the place itself, so its type is the annotation's exactly.`
+            )
+          )
+        );
+      });
+    },
+    .None => ()
+  );
   if(type_requires_comptime_modifier(place_type), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(rhs),
-          `Cannot bind '${mw}' to a value of compile-time-only type "${type_to_string(place_type)}": it has no runtime storage to alias.`
+          `Cannot borrow a value of compile-time-only type "${type_to_string(place_type)}" (\`${sig}...\`): it has no runtime storage to alias.`
         )
       )
     );
@@ -420,7 +456,7 @@ _evaluate_inout_local_binding :: (
     match(
       lb_place,
       .Some(lp) => {
-        local_borrow_require_writable(lp, `borrow \`${local_borrow_place_text(rhs)}\` with \`${mw}\``, ast_expr_token(rhs), ctx, exn);
+        local_borrow_require_writable(lp, `borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\``, ast_expr_token(rhs), ctx, exn);
         local_borrow_access(lp, LocalBorrowAccess.Exclusive, ast_expr_token(rhs), ctx, exn);
       },
       .None => ()
@@ -524,11 +560,11 @@ evaluate_local_borrow_repoint :: (fn(imm(expr) : AstExpr, imm(env_in) : Environm
   rhs := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   lhs_tok := ast_expr_token(lhs);
   is_mut := ast_expr_is_inout_mode_call(lhs, .None);
-  mw := match(lhs, .FnCall(_, lf, _, _, _) => match(lf, .Atom(_, lft) => lft.value.clone(), .FnCall(_, _, _, _, _) => String.from("mut")), .Atom(_, _) => String.from("mut"));
+  sig := if(is_mut, String.from("&mut "), String.from("&"));
   lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   name_expr := match(lhs_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   if((lhs_args.len() != usize(1)) || !ast_expr_is_atom(name_expr), {
-    exn.throw(dyn(format_error_message(lhs_tok, `Expected one name in "${mw}(name) = place", the local borrow to re-point.`)));
+    exn.throw(dyn(format_error_message(lhs_tok, `A re-point names the local borrow it moves (\`cur = ${sig}place\`).`)));
   });
   name_tok := ast_expr_token(name_expr);
   name := name_tok.value.clone();
@@ -548,8 +584,8 @@ evaluate_local_borrow_repoint :: (fn(imm(expr) : AstExpr, imm(env_in) : Environm
         dyn(
           format_error_message_with_help(
             name_tok,
-            `\`${mw}(${name}) = place\` re-points a local borrow, and \`${name}\` is not one.`,
-            Option(String).Some(`declare it with \`${mw}(${name}) := place\` first; to write the value \`${name}\` holds, write \`${name} = value\``)
+            `\`${name} = ${sig}place\` re-points a local borrow, and \`${name}\` is not one.`,
+            Option(String).Some(`declare it with \`${name} := ${sig}place\` first; to write the value \`${name}\` holds, write \`${name} = value\` without the sigil`)
           )
         )
       );
@@ -557,13 +593,14 @@ evaluate_local_borrow_repoint :: (fn(imm(expr) : AstExpr, imm(env_in) : Environm
     }
   );
   if(info.is_mut != is_mut, {
-    decl_mode := cond(info.is_mut => "mut", true => "imm");
+    decl_mode := cond(info.is_mut => "&mut", true => "&");
+    decl_sig := cond(info.is_mut => "&mut ", true => "&");
     exn.throw(
       dyn(
         format_error_message_with_help(
           lhs_tok,
           `\`${name}\` is a \`${decl_mode}\` borrow, so a re-point keeps that mode.`,
-          Option(String).Some(`write \`${decl_mode}(${name}) = place\``)
+          Option(String).Some(`write \`${name} = ${decl_sig}place\``)
         )
       )
     );
@@ -572,7 +609,7 @@ evaluate_local_borrow_repoint :: (fn(imm(expr) : AstExpr, imm(env_in) : Environm
   // pointer from it).
   _evaluated_name := evaluate_expression_raw(name_expr, env, ctx, exn);
   // The new target: a field chain rooted at a variable.
-  not_reached := `A re-point must name a place reached from \`${name}\`: a field of \`${name}\`'s target (\`${mw}(${name}) = ${name}.next\`), or a field of a \`match\` binding over \`${name}\` that enters a reference cell (\`match(${name}, .Some(n) => { ${mw}(${name}) = n.next; }, .None => ())\`).`;
+  not_reached := `A re-point must name a place reached from \`${name}\`: a field of \`${name}\`'s target (\`${name} = ${sig}${name}.next\`), or a field of a \`match\` binding over \`${name}\` that enters a reference cell (\`match(${name}, .Some(n) => { ${name} = ${sig}n.next; }, .None => ())\`).`;
   hops := ArrayList(_InoutPlaceHop).new();
   root_atom := match(
     _inout_place_chain(rhs, hops),
@@ -671,7 +708,7 @@ evaluate_local_borrow_repoint :: (fn(imm(expr) : AstExpr, imm(env_in) : Environm
         format_error_message_with_help(
           ast_expr_token(rhs),
           `Cannot re-point \`${name}\` to \`${local_borrow_place_text(rhs)}\`: \`${root_var.name}\` is a \`match\` binding over \`${name}\`, and a \`match\` binding holds a copy of the matched value, so this place would die with the arm. Only a reference cell the binding points to is shared with \`${name}\`'s target.`,
-          Option(String).Some(`re-point through a cell (\`${root_var.name}.next\` where \`${root_var.name}\` is an \`Rc\` or \`ref\` object), or through \`${name}\` itself (\`${mw}(${name}) = ${name}.next\`). Binding the matched place itself comes with \`mut\` scrutinees (decision 26).`)
+          Option(String).Some(`re-point through a cell (\`${root_var.name}.next\` where \`${root_var.name}\` is an \`Rc\` or \`ref\` object), or through \`${name}\` itself (\`${name} = ${sig}${name}.next\`). Binding the matched place itself comes with \`&mut\` scrutinees (decision 26).`)
         )
       )
     );
@@ -823,7 +860,7 @@ evaluate_initialization_assignment :: (
           with_code(
             format_error_message(
               ast_expr_token(expr),
-              String.from("`mut(name) := ...` binds a reference to runtime storage, but this is the body of a function that returns a compile-time value, which has none; read and assign the compile-time variable directly.")
+              String.from("A local borrow (`y := &place`, `y := &mut place`) binds a reference to runtime storage, but this is the body of a function that returns a compile-time value, which has none; read and assign the compile-time variable directly.")
             ),
             E_COMPTIME_RUNTIME_BINDING
           )
@@ -1112,7 +1149,7 @@ Bound type: ${type_to_string(rhs_info.ty)}`
       raise_flow_violation(
         format_error_message(
           res_tok,
-          `"${res_tok.value}" names a builtin: every call with this name dispatches to the builtin, so a user binding could never run. Choose a different name.`
+          reserved_builtin_binding_message(res_tok.value.clone())
         ),
         ctx,
         exn

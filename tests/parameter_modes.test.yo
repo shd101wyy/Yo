@@ -221,15 +221,17 @@ test("&x and &mut x scrutinees match the place", {
 test("a marker that does not fit the parameter is an error", {
   s := String.from("x");
   (c : i32) = i32(0);
-  comptime_expect_error(_pm_len(&mut s), "is not `mut`");
+  comptime_expect_error(_pm_len(&mut s), "is not `&mut T`");
   comptime_expect_error(_pm_inc(&c), "lend the place with `&mut c`");
+  // `p := &mut c` is a local borrow since decision 42; outside a slot the
+  // marker is still not an expression.
   comptime_expect_error({
-    p := &mut c;
+    _q := (&mut c, i32(1));
   }, "is not an expression of its own");
   comptime_expect_error({
     imm(y) := c;
     y = i32(1);
-  }, "is an `imm` borrow, which is read-only");
+  }, "is a `&` borrow, which is read-only");
   comptime_expect_error(addr_of(c), "not available in safe code");
 });
 
@@ -266,14 +268,14 @@ impl(_PmLens, by_value : (fn(s : String) -> usize)(s.len()), lent : (fn(imm(s) :
 test("a function argument's modes must be its function-typed parameter's", {
   s := String.from("abc");
   (n : i32) = i32(1);
-  comptime_expect_error(_pm_call_hook(_pm_take, s), "`imm(s)` in the expected type and `s` in the given one");
+  comptime_expect_error(_pm_call_hook(_pm_take, s), "`s : &String` in the expected type and `s : String` in the given one");
   (g : _PmByValHook) = _pm_take;
   comptime_expect_error(_pm_call_hook(g, s), "a parameter's mode is part of the function type");
   comptime_expect_error(_pm_call_hook(_PmLens.by_value, s), "a parameter's mode is part of the function type");
   comptime_expect_error(_pm_call_hook(_pm_sink_len, s), "a parameter's mode is part of the function type");
-  comptime_expect_error(_pm_call_byval_hook(_pm_len, s), "`s` in the expected type and `imm(s)` in the given one");
-  comptime_expect_error(_pm_call_mut_hook(_pm_plain_bump, n), "`mut(n)` in the expected type and `n` in the given one");
-  comptime_expect_error(_pm_call_mut_hook(_pm_imm_bump, n), "`mut(n)` in the expected type and `imm(n)` in the given one");
+  comptime_expect_error(_pm_call_byval_hook(_pm_len, s), "`s : String` in the expected type and `s : &String` in the given one");
+  comptime_expect_error(_pm_call_mut_hook(_pm_plain_bump, n), "`n : &mut i32` in the expected type and `n : i32` in the given one");
+  comptime_expect_error(_pm_call_mut_hook(_pm_imm_bump, n), "`n : &mut i32` in the expected type and `n : &i32` in the given one");
   comptime_expect_error(_pm_apply_imm(_pm_take, s), "a parameter's mode is part of the function type");
   comptime_expect_error(_pm_apply_mut(_pm_plain_bump, n), "a parameter's mode is part of the function type");
   (c : Impl(Fn(t : String) -> usize)) = (t => t.len());
@@ -317,21 +319,21 @@ test("the deleted spellings inout and own are errors naming mut and sink", {
     (fn(inout(n) : i32) -> unit)({
       n = i32(1);
     }),
-    "`inout(x)` is spelled `mut(x)`"
+    "`inout(x)` was deleted"
   );
   comptime_expect_error((fn(own(s) : String) -> usize)(s.len()), "`own(x)` is spelled `sink(x)`");
-  comptime_expect_error((fn(comptime(inout(n)) : i32) -> unit)(()), "`inout(x)` is spelled `mut(x)`");
+  comptime_expect_error((fn(comptime(inout(n)) : i32) -> unit)(()), "`inout(x)` was deleted");
   (_c : i32) = i32(0);
   comptime_expect_error({
     inout(y) := _c;
-  }, "`inout(x)` is spelled `mut(x)`");
+  }, "`inout(x)` was deleted");
   xs := ArrayList(i32).new();
   xs.push(i32(1));
   comptime_expect_error(
     for(xs, inout(x) => {
       x = i32(2);
     }),
-    "is spelled `for(coll, mut(x) => ...)`"
+    "the borrowed loop is spelled `for(&mut coll, x => ...)`"
   );
   assert(xs(usize(0)) == i32(1), "nothing was written");
 });
@@ -414,12 +416,12 @@ test("the scrutinee is reached only through a live mut place", {
       },
       .None => i32(0)
     ),
-    "borrows `o` with `mut` and is still live"
+    "borrows `o` with `&mut` and is still live"
   );
   (h : Option(i32)) = .Some(i32(1));
   comptime_expect_error(
     (fn(imm(x) : Option(i32)) -> i32)(match(&mut x, .Some(n) => n, .None => i32(0))),
-    "is an `imm` borrow"
+    "is a `&` borrow"
   );
   comptime_expect_error(match(&mut Option(i32).Some(i32(1)), .Some(n) => n, .None => i32(0)), "is a temporary");
   assert(match(&h, .Some(n) => n, .None => i32(0)) == i32(1), "h untouched");

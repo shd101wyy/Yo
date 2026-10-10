@@ -21,14 +21,14 @@ v := list(usize(0)); // 42
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(mut(self) : Self, idx : Idx) -> *Self.Output)
+    index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)
   )
 );
 ```
 
 - **`Idx`**：索引类型（例如 `usize`，或自定义的键类型）。
 - **`Output`**：关联类型，指定返回的元素类型。
-- **`index`**：方法以 `mut` 形式接收 `self`（这样它能返回指向调用者存储空间内部的指针）和索引，返回指向元素的**指针**。
+- **`index`**：方法以 `&mut Self` 形式接收 `self`（这样它能返回指向调用者存储空间内部的指针）和索引，返回指向元素的**指针**。
 
 `index` 方法返回 `*(Output)`（指针），在值上下文中会自动解引用。这种设计使得读写操作都可以通过同一个特征实现：
 
@@ -52,7 +52,7 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
       cond(
         (idx == usize(0)) => addr_of(self.data0),
         (idx == usize(1)) => addr_of(self.data1),
@@ -79,7 +79,7 @@ impl(
   ArrayList(T),
   Index(usize)(
     Output : T,
-    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)({
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)({
       assert(idx < self._length, "ArrayList: index out of bounds");
       match(
         self._ptr,

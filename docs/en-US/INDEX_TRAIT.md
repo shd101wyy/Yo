@@ -21,14 +21,14 @@ The `Index` trait is defined in the prelude and is available to all Yo programs:
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(mut(self) : Self, idx : Idx) -> *Self.Output)
+    index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)
   )
 );
 ```
 
 - **`Idx`**: The index type (e.g., `usize`, or a custom key type).
 - **`Output`**: An associated type specifying the element type returned.
-- **`index`**: A method that takes `self` by `mut` (so it can return a pointer into the caller's storage) and an index, returning a **pointer** to the element.
+- **`index`**: A method that takes `self` as `&mut Self` (so it can return a pointer into the caller's storage) and an index, returning a **pointer** to the element.
 
 The `index` method returns `*(Output)` (a pointer), which is automatically dereferenced when used in value context. This design enables both reading and writing through the same trait:
 
@@ -52,7 +52,7 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
       cond(
         (idx == usize(0)) => addr_of(self.data0),
         (idx == usize(1)) => addr_of(self.data1),
@@ -79,7 +79,7 @@ impl(
   ArrayList(T),
   Index(usize)(
     Output : T,
-    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)({
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)({
       assert(idx < self._length, "ArrayList: index out of bounds");
       match(
         self._ptr,

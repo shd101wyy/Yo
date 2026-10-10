@@ -9,13 +9,13 @@
 >     those dups.
 >   - The `___dup` that `sink()` inserts for a borrowed argument, and `sink`
 >     itself. Parameters become by value by default: a copy for plain data,
->     a move for owning values. Borrows are spelled `imm(x)` (read-only)
->     and `mut(x)` (exclusive, today's `mut`), as decided in decision 30.
+>     a move for owning values. Borrows are spelled `x : &T` (read-only)
+>     and `x : &mut T` (exclusive), as decided in decisions 30 and 42.
 >   - A `String`, a collection, `Box` and `Dyn` will move at their last use
 >     and otherwise need `.clone()`. Copying an `Rc`/`Arc` handle will need
 >     `.clone()` too.
-> - **What stays:** borrowing, now spelled `imm`/`mut`, scope-end drops and
->   use-after-move. E0908 stays as "an `imm` borrow is read-only" (§3.14).
+> - **What stays:** borrowing, now spelled `&T`/`&mut T`, scope-end drops and
+>   use-after-move. E0908 stays as "a `&` borrow is read-only" (§3.14).
 > - **What changes for aliasing:**
 >   - Stage 0's +1 is replaced by a shared borrow mark on the `Rc` cells an
 >     argument is reached through (decision 28).
@@ -96,10 +96,10 @@ A by-value parameter borrows its value: its storage is a copy of the caller's, a
 write changes only that copy. A field whose old value holds RC data (a `String`, a
 collection, an `Rc`, …) cannot be written through it, because the write would release data
 the caller still holds (E0908). The same holds for a `match` or `for` binding, and for
-passing such a place to a `mut` parameter the callee may write, including calling an
-`mut(self)` method such as `push_str` on it: the write would land in the borrowed copy
-alone. Read-only `mut(self)` methods (`clone`, `to_string`) and indexing stay allowed.
-Take the parameter as `sink(p) : T` or `mut(p) : T`, or copy it into a local first:
+passing such a place to a `&mut` parameter the callee may write, including calling a
+`&mut self` method such as `push_str` on it: the write would land in the borrowed copy
+alone. Read-only `&mut self` methods (`clone`, `to_string`) and indexing stay allowed.
+Take the parameter as `sink(p) : T` or `p : &mut T`, or copy it into a local first:
 
 ```yo
 Named :: struct(s : String, n : i32);
@@ -276,7 +276,7 @@ printf("%d\n", x.*); // Always works: x owns a valid reference
 
   - **Stage 0** — an RC-typed field **projection** passed to a **borrowing**
     parameter gets a caller-owned `+1` for the call. Plain locals stay `+0` (the
-    caller's binding keeps them alive), as do owned temps, `mut` parameters, and
+    caller's binding keeps them alive), as do owned temps, `&mut` parameters, and
     extern/builtin callees (no Yo code runs inside them).
   - **Stage 1** — per-callee **mutation summaries** (`src/evaluator/effects/mutation_summary.yo`)
     ask "may this call transitively mutate RC container storage?"; the read-only

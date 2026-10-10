@@ -59,7 +59,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Nullable Pointers](#nullable-pointers)
   - [`Option` of a handle is one pointer](#option-of-a-handle-is-one-pointer)
   - [Memory Safety](#memory-safety)
-  - [`mut` Parameters](#inout-parameters)
+  - [`&mut` Parameters](#mut-parameters)
   - [RAII (Resource Acquisition Is Initialization)](#raii-resource-acquisition-is-initialization)
 - [Tuple](#tuple)
 - [Array & Ranges](#array--ranges)
@@ -106,7 +106,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
     - [Template string interpolation with `${}` syntax:](#template-string-interpolation-with--syntax)
       - [Format specifications — `${value:spec}`](#format-specifications--valuespec)
 - [Collections](#collections)
-  - [Mutating a collection: mutators take `mut(self)`](#mutating-a-collection-mutators-take-inoutself)
+  - [Mutating a collection: mutators take `&mut self`](#mutating-a-collection-mutators-take-mut-self)
   - [ArrayList](#arraylist)
   - [HashMap](#hashmap)
   - [HashSet](#hashset)
@@ -542,7 +542,7 @@ z := 16;
 
 All variables are mutable by default.
 
-> Yo used to have a `mut` keyword to denote mutable variables, but it was removed for simplicity.
+> `mut` is a reserved word that appears only after `&` (`&mut T` in a slot, `&mut x` at a call site); a binding or parameter named `mut` is an error. `imm` is no longer a keyword.
 
 #### No variable shadowing
 
@@ -680,21 +680,25 @@ p2 := BoolPoint(x : true, y : false);
 
 ### Parameter modes are part of the function type
 
-`fn(mut(x) : i32) -> unit`, `fn(imm(x) : String) -> usize` and `fn(x : String) -> usize` are three different types: a `mut` parameter is an exclusive borrow of the caller's place, an `imm` parameter is a read-only borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy, and one of an explicit-copy type (a move-only value, or plain data without `Copy`) consumes its argument: the caller's binding ends at the call. A kind that is still implicitly copyable (`String`, the collections, `Rc`, a `ref` handle) is passed the way `t := s` binds it, as a share, and the caller keeps its value; it moves with `t := s` when its phase of the values-by-default plan makes it explicit-copy. Until then the share is an alias, as `t := s` is: a callee that writes a by-value `String` or collection writes the caller's too, so write a `.clone()` instead. A `sink(x)` parameter, and a closure or function argument, always move. The mode is part of the type for every parameter type, `Copy` or not, so `fn(imm(x) : i32)` and `fn(x : i32)` differ too. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters), however it gets there: bound to a typed name, passed as an argument (to a `fn(...)` or an `Impl(Fn(...))` parameter), stored in a field, returned, or wrapped by `dyn(...)` into a `Dyn(Fn(...))`. A closure literal takes the modes of the slot it is written for:
+`fn(x : &mut i32) -> unit`, `fn(x : &String) -> usize` and `fn(x : String) -> usize` are three different types: a `&mut T` parameter is an exclusive borrow of the caller's place, a `&T` parameter is a read-only (shared) borrow, and a plain parameter is **by value**. A by-value parameter of a `Copy` type receives a copy, and one of an explicit-copy type (a move-only value, or plain data without `Copy`) consumes its argument: the caller's binding ends at the call. A kind that is still implicitly copyable (`String`, the collections, `Rc`, a `ref` handle) is passed the way `t := s` binds it, as a share, and the caller keeps its value; it moves with `t := s` when its phase of the values-by-default plan makes it explicit-copy. Until then the share is an alias, as `t := s` is: a callee that writes a by-value `String` or collection writes the caller's too, so write a `.clone()` instead. A `sink(x)` parameter, and a closure or function argument, always move. The mode is part of the type for every parameter type, `Copy` or not, so `fn(x : &i32)` and `fn(x : i32)` differ too. A function value only fits a slot whose parameters have the same modes (and the same implicit `using(...)` parameters), however it gets there: bound to a typed name, passed as an argument (to a `fn(...)` or an `Impl(Fn(...))` parameter), stored in a field, returned, or wrapped by `dyn(...)` into a `Dyn(Fn(...))`. A closure literal takes the modes of the slot it is written for:
 
 ```yo
-bump :: (fn(mut(x) : i32) -> unit)({
+bump :: (fn(x : &mut i32) -> unit)({
   x = (x + i32(1));
 });
-(f : (fn(mut(x) : i32) -> unit)) = bump; // OK
+(f : (fn(x : &mut i32) -> unit)) = bump; // OK
 (g : (fn(x : i32) -> unit)) = bump; // Error: Incompatible types
 ```
 
-The one exception is the receiver of an `impl` member: a trait method declared with `mut(self) : Self` may be implemented with `self : Self`, because each call site adapts to the impl's own signature.
+The one exception is the receiver of an `impl` member: a trait method declared with `self : &mut Self` may be implemented with `self : Self`, because each call site adapts to the impl's own signature.
+
+`&T` and `&mut T` are borrow **modes** a slot spells, not types, in this generation: they prefix the type of a parameter, a receiver (`self : &Self`, `self : &mut Self`), a closure parameter (`(v : &T) => ...`) or a labeled `Fn` slot (`Fn(v : &T) -> R`; an unlabeled `Fn(&T)` is not accepted). Anywhere a type stands on its own (`T :: &i32`, `ArrayList(&T)`, `Option(&T)`, a struct field `f : &T`, `&&T`) the sigil is an error, "a borrow mode, not a type". A function cannot return a borrow either (`-> &T` needs projections, which are not implemented).
+
+The older word spelling (`imm(x) : T`, `mut(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) still parses as an exact synonym until Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): the standard library and the compiler keep it until the next seed. `yo fix <path> --migrate borrow-spelling` rewrites a tree to the sigil spelling.
 
 ### Call-site borrow markers
 
-A borrowed argument is marked at the call too, so `show(&s)` (a borrow) and `take(s)` (a move) read differently: `&x` lends `x` to an `imm` parameter and `&mut x` lends the place `x` to a `mut` one. A method receiver is written bare (`s.len()`), and so is an `imm`/`mut` binding passed on (it already holds a borrow).
+A borrowed argument is marked at the call too, so `show(&s)` (a borrow) and `take(s)` (a move) read differently: `&x` lends `x` to a `&T` parameter and `&mut x` lends the place `x` to a `&mut T` one. A method receiver is written bare (`s.len()`), and so is a borrowed parameter or local borrow passed on (it already holds a borrow).
 
 ```yo
 swap(&mut x, &mut y);
@@ -702,7 +706,7 @@ show(&s); // s stays usable
 take(s); // moved
 ```
 
-`&x` is only this marker. Passed to a by-value parameter it is an error naming `x` and `x.clone()`; passed to a raw-pointer parameter, or written anywhere else (a binding, a field store, a receiver `(&x).m()`, a variadic C argument), it is an error naming `addr_of(x)`, the raw-pointer address-of of unsafe code. A bare argument to an `imm` parameter is still accepted for now. `yo fix <path> --migrate addr-of` rewrites old code whose `&x` was the address-of.
+`&x` is only this marker. Passed to a by-value parameter it is an error naming `x` and `x.clone()`; passed to a raw-pointer parameter, or written anywhere else (a field store, a receiver `(&x).m()`, a variadic C argument), it is an error naming `addr_of(x)`, the raw-pointer address-of of unsafe code. The other places a sigil stands are a local borrow binding (`y := &place`, `y := &mut place`, see [FLOWABILITY.md](./FLOWABILITY.md)), a capture-list entry and the borrowed `for` source (`for(&mut xs, x => ...)`). A bare argument to a `&T` parameter is still accepted for now. `yo fix <path> --migrate addr-of` rewrites old code whose `&x` was the address-of.
 
 ### Named arguments
 
@@ -961,7 +965,7 @@ impl(
       )
     )
   ),
-  move_by : (fn(mut(self) : Self, dx : i32, dy : i32) -> unit)({
+  move_by : (fn(self : &mut Self, dx : i32, dy : i32) -> unit)({
     self.x = (self.x + dx);
     self.y = (self.y + dy);
   })
@@ -970,19 +974,19 @@ impl(
 p := Point(x : 3, y : 4);
 d := p.distance_from_origin(); // Type method call - OK
 p2 := Point(x : 0, y : 0);
-p2.move_by(5, 10); // `mut(self)` lowers to `Self*` — the receiver's address is taken automatically
+p2.move_by(5, 10); // `self : &mut Self` lowers to `Self*` — the receiver's address is taken automatically
 // p2 is now Point(5, 10)
 ```
 
-**Automatic pointer conversion for `mut`:**
+**Automatic pointer conversion for `&mut`:**
 
-`mut(name) : T` parameters lower to `T*` in C. The compiler passes the address of the lent place itself, so a receiver is written bare and an argument is lent with `&mut x`:
+`name : &mut T` parameters lower to `T*` in C. The compiler passes the address of the lent place itself, so a receiver is written bare and an argument is lent with `&mut x`:
 
 ```yo
 Point :: struct(x : i32, y : i32);
 impl(
   Point,
-  set_x : (fn(mut(self) : Self, new_x : i32) -> unit)({
+  set_x : (fn(self : &mut Self, new_x : i32) -> unit)({
     self.x = new_x;
   })
 );
@@ -1199,7 +1203,7 @@ export(main);
 
 The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Dispose` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. When it is `Copy`, `x.clone()` is the copy, so `f.clone()` on a `fn` pointer works; `clone()` on a record or closure that is `Clone` but not `Copy` is not available yet. `Rc`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field whose name the pointer also owns as a method (`clone`, `add`, `sub`, `offset_from`), `p.m(...)` is an error that names `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`.
 
-`Copy` is the rule ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 36). A plain-data type that is not `Copy` is copied only explicitly: `q := p` moves a `Point` without `Copy`, and a later use of `p` is E0901, whose note names `derive(Point, Copy, Clone)` and `p.clone()`. An `imm` parameter or a `match` binding of one borrows it, so storing or returning it there is E0901 too; take the parameter by value (`p : Point`, without `imm`) to own it. Compile-time-only types, control-bound records such as `Exception`, unions, C opaque types and refinements of a `Copy` type keep copying implicitly.
+`Copy` is the rule ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 36). A plain-data type that is not `Copy` is copied only explicitly: `q := p` moves a `Point` without `Copy`, and a later use of `p` is E0901, whose note names `derive(Point, Copy, Clone)` and `p.clone()`. A `&T` parameter or a `match` binding of one borrows it, so storing or returning it there is E0901 too; take the parameter by value (`p : Point`, without `&`) to own it. Compile-time-only types, control-bound records such as `Exception`, unions, C opaque types and refinements of a `Copy` type keep copying implicitly.
 
 #### Move-only values
 
@@ -1215,7 +1219,7 @@ impl(
   )
 );
 
-peek :: (fn(imm(f) : Fd) -> i32)(f.n); // an imm parameter borrows: no copy
+peek :: (fn(f : &Fd) -> i32)(f.n); // a `&T` parameter borrows: no copy
 keep :: (fn(f : Fd) -> unit)(()); // a by-value parameter moves the value in
 
 main :: (fn() -> unit)({
@@ -1228,7 +1232,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: an `imm` parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. A value moved in some arms of a `cond`/`match` is dropped at the end of each arm that keeps it, so where the arms meet it is gone on every path and a later use is E0901 (the static form of Rust's drop flag: the arms are structured, so no runtime flag is needed). Where the ways out of a loop meet, a value is still moved on all of them or on none (E0907). An assignment statement (`x = y;`, `h.f = y;`, `xs(i) = y;`) drops the old value right after the store, as Rust does; `old := (x = y)` keeps it in `old` instead. Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
+Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: a `&T` parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. A value moved in some arms of a `cond`/`match` is dropped at the end of each arm that keeps it, so where the arms meet it is gone on every path and a later use is E0901 (the static form of Rust's drop flag: the arms are structured, so no runtime flag is needed). Where the ways out of a loop meet, a value is still moved on all of them or on none (E0907). An assignment statement (`x = y;`, `h.f = y;`, `xs(i) = y;`) drops the old value right after the store, as Rust does; `old := (x = y)` keeps it in `old` instead. Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
 
 A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. `std/` does not use move-only types yet: its resources are still reference types, and they become move-only values in a later step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md).
 
@@ -1253,7 +1257,7 @@ swap(addr_of(x), addr_of(y)); // Pass pointers to x and y
 // Now x == 2, y == 1
 ```
 
-For day-to-day in-place mutation, prefer the `mut(name) : T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller writes plain value-call syntax (`swap(x, y)`). Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
+For day-to-day in-place mutation, prefer the `name : &mut T` parameter form (see [Type Methods](#type-methods)) — it lowers to the same `T*` ABI but stays safe and the caller lends the places with `&mut` (`swap(&mut x, &mut y)`) instead of taking raw addresses. Raw `*(T)` is reserved for FFI and the low-level cases this section covers.
 
 ### Pointer Operations
 
@@ -1363,7 +1367,7 @@ sz_tree :: size_of(Tree); // == size_of(*u8)   — NULL is Empty
 
 ### Memory Safety
 
-For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `mut(name)` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, the `unwrap` ban, and the integer arithmetic rules (overflow, division by zero and out-of-range shifts abort).
+For the user-facing guide, see [MEMORY_SAFETY.md](MEMORY_SAFETY.md) — covers the safe-by-default contract, `&mut T` parameters, the `pragma(Pragma.AllowUnsafe);` opt-in, `unsafe(...)` per-op wraps, `// SAFETY:` comment convention, `yo unsafe-report`, the `unwrap` ban, and the integer arithmetic rules (overflow, division by zero and out-of-range shifts abort).
 
 Yo's safety model is layered (the design plan is [plans/reference/MEMORY_SAFETY.md](../../plans/reference/MEMORY_SAFETY.md)):
 
@@ -1420,18 +1424,18 @@ main :: (fn() -> unit)({
 });
 ```
 
-### `mut` Parameters
+### `&mut` Parameters
 
-For in-place mutation without raw pointers, use the `mut(name) : T` parameter modifier. The modifier wraps the parameter name (parallel to `sink(name)`), and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `mut(name) : T` lowers to `T*` in C; the caller passes `&(arg)` automatically.
+For in-place mutation without raw pointers, use a `name : &mut T` parameter. The `&mut` prefixes the parameter's type, and the parameter behaves like a binding to the caller's variable — reads access the current value, writes update the caller's storage. At codegen time `name : &mut T` lowers to `T*` in C; the caller lends the place with `&mut x` and the compiler passes its address.
 
 ```yo
-swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({
+swap :: (fn(a : &mut i32, b : &mut i32) -> unit)({
   tmp := a;
   a = b;
   b = tmp;
 });
 
-increment :: (fn(mut(n) : i32) -> unit)({
+increment :: (fn(n : &mut i32) -> unit)({
   n = (n + i32(1));
 });
 
@@ -1443,21 +1447,21 @@ main :: (fn() -> unit)({
   assert(y == i32(1), "swapped");
 
   counter := i32(0);
-  increment(counter);
-  increment(counter);
+  increment(&mut counter);
+  increment(&mut counter);
   assert(counter == i32(2), "incremented");
 });
 ```
 
-`mut(...)` cannot be combined with `sink(...)` (opposite calling conventions) or with `comptime`/`generic` (`mut` is runtime-only). For chained calls, passing a `mut`-param through to another function's `mut`-param works as expected:
+A `&mut T` parameter cannot be combined with `sink(...)` (opposite calling conventions) or with `generic(...)`; a compile-time parameter carries the mode on its type (`comptime(x) : &mut T`). For chained calls, passing a `&mut T` parameter through to another function's `&mut T` parameter works as expected (the parameter already holds a borrow, so it is passed bare):
 
 ```yo
-double :: (fn(mut(n) : i32) -> unit)({
+double :: (fn(n : &mut i32) -> unit)({
   n = (n + n);
 });
 
-double_both :: (fn(mut(x) : i32, mut(y) : i32) -> unit)({
-  double(x); // passes &x through to double's inout-param
+double_both :: (fn(x : &mut i32, y : &mut i32) -> unit)({
+  double(x); // passes the borrow through to double's `&mut` parameter
   double(y);
 });
 ```
@@ -1750,7 +1754,7 @@ The `Iterator` trait defines a sequence of values. It has an associated type `It
 ```yo
 Iterator :: trait(
   Item : Type,
-  next : (fn(mut(self) : Self) -> Option(Self.Item))
+  next : (fn(self : &mut Self) -> Option(Self.Item))
 );
 ```
 
@@ -1797,7 +1801,7 @@ for(iter_expr, variable => {
 });
 ```
 
-The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For reference-semantics element types (`ref(struct(...))`), `x` is a handle to the element, so mutating `x` in the body mutates the element in place. A value element is borrowed: writing its reference-counted data through `x` (a `String` element, a struct element's `String` field) is E0908. In-place mutation of value elements uses the borrow form `for(coll, mut(x) => body)` below, or an index loop with index writes:
+The `for` macro iterates **by value** — `for(coll, (x) => body)` lowers to `coll.into_iter()` followed by a standard `next()`-loop. For reference-semantics element types (`ref(struct(...))`), `x` is a handle to the element, so mutating `x` in the body mutates the element in place. A value element is borrowed: writing its reference-counted data through `x` (a `String` element, a struct element's `String` field) is E0908. In-place mutation of value elements uses the borrow form `for(&mut coll, x => body)` below, or an index loop with index writes:
 
 ```yo
 // Value form — each `x` is yielded by value.
@@ -1828,12 +1832,12 @@ while(i < usize(3), {
 
 Combinator chains (`coll.into_iter().map(f)`, `.filter(p)`, `.fold(init, f)`, etc.) keep the value-yielding `Iterator` shape; a blanket `into_iter` impl `generic(I), where(I <: Iterator), I, into_iter : (fn(self) -> Self)` (identity) lets `for(combinator_chain, (x) => body)` work uniformly.
 
-The borrow form `for(coll, mut(x) => body)` hands the body each element in place: assigning to `x` writes the element. The loop pins the collection and holds its runtime borrow flag, so the body cannot grow or shrink it while an element is borrowed (see [FLOWABILITY.md](./FLOWABILITY.md)).
+The borrow form `for(&mut coll, x => body)` hands the body each element in place: assigning to `x` writes the element. The sigil goes on the source and the element mode follows it; `for(&coll, x => body)` borrows each element read-only. For a map, `for(&mut m, (k, v) => body)` lends each value. The loop pins the collection and holds its runtime borrow flag, so the body cannot grow or shrink it while an element is borrowed (see [FLOWABILITY.md](./FLOWABILITY.md)).
 
 ```yo
 xs := ArrayList(i32).new();
 xs.push(i32(1));
-for(xs, mut(x) => {
+for(&mut xs, x => {
   x = (x + i32(10));
 });
 // xs(usize(0)) is now 11.
@@ -2255,11 +2259,11 @@ A trait is defined as a function that returns a `Trait` type containing field de
 ```yo
 // Define a trait (like a trait in Rust)
 Summary :: trait(
-  summarize : (fn(mut(self) : Self) -> String)
+  summarize : (fn(self : &mut Self) -> String)
 );
 
 Display :: trait(
-  display : (fn(mut(self) : Self) -> String),
+  display : (fn(self : &mut Self) -> String),
   where(Self <: Summary) // Constraint
 );
 
@@ -2293,12 +2297,12 @@ impl(
 );
 
 // Pass in function
-notify :: (fn(mut(item) : NewsArticle) -> unit)({
+notify :: (fn(item : &mut NewsArticle) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
 });
 
 // Generic function with trait constraint
-notify2 :: (fn(generic(T : Type), mut(item) : T, where(T <: Display)) -> unit)({
+notify2 :: (fn(generic(T : Type), item : &mut T, where(T <: Display)) -> unit)({
   println(`Breaking news! ${item.summarize()}`);
   println(`Breaking news! ${item.display()}`);
 });
@@ -2336,7 +2340,7 @@ export(main);
 A trait declares an associated type before the members that name it (`Item : Type` first, then `next : (fn(...) -> Option(Self.Item))`). Its `where` clause may use its own projections to constrain a DIFFERENT type, as `IntoIterator` does with `where(Self.IntoIter <: Iterator(Item := Self.Item))`. It may not bind an associated type of `Self` itself to one of `Self`'s own projections:
 
 ```yo
-Source :: trait(Item : Type, pull : (fn(mut(self) : Self) -> Option(Self.Item)));
+Source :: trait(Item : Type, pull : (fn(self : &mut Self) -> Option(Self.Item)));
 
 // error: Expected type for associated type constraint "Item", got: (Self.Item)
 Peekable :: trait(
@@ -2349,11 +2353,11 @@ Peekable :: trait(
 Both of these are accepted:
 
 ```yo
-Source :: trait(Item : Type, pull : (fn(mut(self) : Self) -> Option(Self.Item)));
+Source :: trait(Item : Type, pull : (fn(self : &mut Self) -> Option(Self.Item)));
 
 // Constrain `Self` without binding its associated type...
 Rewindable :: trait(
-  rewind : (fn(mut(self) : Self) -> unit),
+  rewind : (fn(self : &mut Self) -> unit),
   where(Self <: Source)
 );
 
@@ -2622,7 +2626,7 @@ s3 := (*u8)("Hi"); // Or use a pointer cast to get a C string pointer.
 Heap-allocated, growable UTF-8 string — the same shape as Rust's `String`. It is
 NOT immutable: `push_str`, `push_string`, `push_byte`, `push_rune`, `reserve`,
 `clear`, `truncate`, `insert_str`, `insert`, `remove` and `pop` take
-`mut(self)` and mutate in place. Operators like `+` still produce a new string.
+`self : &mut Self` and mutate in place. Operators like `+` still produce a new string.
 
 For a mutable builder that several owners share, use `StringBuilder`, a
 reference-semantics type.
@@ -2637,7 +2641,7 @@ s3 := (s + s2); // Create a new string.
 
 `clone()` is the independent copy. It copies the bytes (O(n)), so nothing
 done to the clone is visible through the original, and the reverse, whether or
-not the original was empty. Every mutator takes `mut(self)` and writes in
+not the original was empty. Every mutator takes `self : &mut Self` and writes in
 place, and an empty `String` allocates nothing until its first write.
 
 A plain copy (`t := s`, a struct copy, a value read out of a collection) still
@@ -2654,29 +2658,29 @@ through a plain copy.
 
 A write lands where it is written:
 
-- **An `imm` parameter** `fn(imm(out) : String)` borrows the caller's value.
-  Writing it (`out.push_str("!")`, or passing it to a `mut` parameter) is
-  E0908. To change the caller's string, take `mut(out) : String`; to produce a
+- **A `&T` parameter** `fn(out : &String)` borrows the caller's value.
+  Writing it (`out.push_str("!")`, or passing it to a `&mut T` parameter) is
+  E0908. To change the caller's string, take `out : &mut String`; to produce a
   new one, take `out` by value (a plain `out : String` owns its argument and
   may write it) and return it.
 - **A `for` or `match` binding** borrows too: `for(xs, s => s.push_str("!"))`
-  is E0908. `for(xs, mut(s) => s.push_str("!"))` writes each element in
+  is E0908. `for(&mut xs, s => s.push_str("!"))` writes each element in
   place, and so does `xs(i).push_str("!")`.
-- **A struct field** is written through its place: `p.name.push_str("!")` on an
-  `mut(p)` parameter or a local.
+- **A struct field** is written through its place: `p.name.push_str("!")` on a
+  `p : &mut T` parameter or a local.
 
 ```yo
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 
-// `mut` passes the caller's variable itself.
-append_mut :: (fn(mut(out) : String) -> unit)({
+// A `&mut T` parameter passes the caller's variable itself.
+append_mut :: (fn(out : &mut String) -> unit)({
   out.push_str("!");
 });
 
-// An `imm` parameter is borrowed: write a local clone and return it.
-with_bang :: (fn(imm(s) : String) -> String)({
+// A `&T` parameter is borrowed: write a local clone and return it.
+with_bang :: (fn(s : &String) -> String)({
   t := s.clone();
   t.push_str("!");
   t
@@ -2694,14 +2698,14 @@ main :: (fn() -> unit)({
   println(`"${e}" "${f}"`); // "" "x"
 
   c := String.new();
-  append_mut(c);
-  d := with_bang(a);
+  append_mut(&mut c);
+  d := with_bang(&a);
   println(`"${c}" "${a}" "${d}"`); // "!" "hi" "hi!"
 
   names := ArrayList(String).new();
   names.push(String.new());
   names.push(String.from("n"));
-  for(names, mut(s) => {
+  for(&mut names, s => {
     s.push_str("!"); // writes the element in place
   });
   println(`"${names(usize(0))}" "${names(usize(1))}"`); // "!" "n!"
@@ -2781,9 +2785,9 @@ Please check [std/collections](../std/collections) for the full list of collecti
 
 Yo provides efficient, reference-counted collection types in the standard library.
 
-### Mutating a collection: mutators take `mut(self)`
+### Mutating a collection: mutators take `&mut self`
 
-Every method that changes a collection takes `mut(self) : Self`: the
+Every method that changes a collection takes `self : &mut Self`: the
 mutators of `ArrayList`, `HashMap`, `HashSet`, `Deque`, `BTreeMap`,
 `LinkedList`, `PriorityQueue`, `OrderedMap`, `HeaderMap` and `StringBuilder`
 (`push`, `pop`, `insert`, `remove`, `clear`, `sort`, `retain`, `write_str`, …,
@@ -2795,11 +2799,11 @@ reaches the original. That changes when they become uniquely owned values
 (`plans/VALUES_BY_DEFAULT.md` §6 V2b): a copy is then an explicit
 `.clone()`, and a write through it lands in the copy alone. Write the code so it is correct under both rules:
 
-- **A helper that fills a list takes it `mut`:** `fill :: (fn(mut(out) :
-  ArrayList(i32)) -> unit)(...)`. A plain `out : ArrayList(i32)` parameter is
+- **A helper that fills a list takes it `&mut`:** `fill :: (fn(out :
+  &mut ArrayList(i32)) -> unit)(...)`. A plain `out : ArrayList(i32)` parameter is
   the callee's copy.
 - **An element of a collection is written through its place:**
-  `rows(i).push(x)`, `m(k).push(x)`, or `for(xs, mut(x) => x.push(...))`. A
+  `rows(i).push(x)`, `m(k).push(x)`, or `for(&mut xs, x => x.push(...))`. A
   `match` binding (`.Some(l) => l.push(x)`) or a value `for` binding is a copy.
 - **A list stored in a map or an `Option` field is taken out, changed and stored
   back:** `l := match(m.remove(k), .Some(v) => v, .None => ArrayList(T).new());
@@ -2811,7 +2815,7 @@ reaches the original. That changes when they become uniquely owned values
 
 `YO_AUDIT_INOUT_BORROW=1 yo check <path>` lists every write the flip would
 change instead of reporting it: `[inout-borrow]` for a write through a by-value
-parameter or a `match`/`for` binding (a `mut` argument or receiver, or an
+parameter or a `match`/`for` binding (a `&mut` argument or receiver, or an
 assignment into the place), `[inout-borrow-unresolved]` when the callee's
 mutation summary could not be resolved and the write is assumed, and
 `[inout-borrow-capture]` for a write to a variable a closure captured.
@@ -3171,45 +3175,45 @@ A closure may list its captures in a record literal before its parameters
 k := i32(3);
 w := i32(10);
 z := i32(0);
-(h : Impl(Fn(m : i32) -> i32)) = ({ k, imm(w), mut(z) }(m : i32) => {
+(h : Impl(Fn(m : i32) -> i32)) = ({ k, &w, &mut z }(m : i32) => {
   z = (z + m); // writes the caller's `z` through the borrow
   k + w + z
 });
-(g : Impl(Fn() -> usize)) = ({ n : s.len(), imm(name) : &s }() => (n + name.len()));
+(g : Impl(Fn() -> usize)) = ({ n : s.len(), name : &s }() => (n + name.len()));
 count := i32(0);
-(i32(1) .. i32(4)).for_each({ mut(count) }(x : i32) => {
+(i32(1) .. i32(4)).for_each({ &mut count }(x : i32) => {
   count = (count + x);
 });
 ```
 
 - **Entries.** `x` (or `x : e`) is a by-value field: plain data copies, a
-  value that is not implicitly copyable moves. `imm(y) : &p` and
-  `mut(z) : &mut p` borrow the place `p`; `imm(y)` and `mut(z)` are the puns of
-  `imm(y) : &y` and `mut(z) : &mut z`. The left of an entry takes the mode
-  word, the right takes the sigil.
+  value that is not implicitly copyable moves. `y : &p` and
+  `z : &mut p` borrow the place `p`; `&y` and `&mut z` are the puns of
+  `y : &y` and `z : &mut z`. The left of an entry names the field, and the
+  sigil on the right carries the mode.
 - **The list is exhaustive.** With a list the body may read only the listed
   captures and module-level items; `{}()` captures nothing. Without a list,
   capture stays implicit.
 - **What a borrow may name.** A place rooted at a named local binding: not a
   temporary, not a module-level binding, and not through an `Rc`/`Arc` (or any
   `ref` object or pointer dereference) — capture the handle instead,
-  `{ imm(r) }() => r.*.items.len()`. A `mut` place must be writable. An `imm`
+  `{ &r }() => r.*.items.len()`. A `&mut` place must be writable. A `&`
   capture is read-only in the body.
 - **A borrowing closure is second-class**, and so is anything built from it (a
   copy, a tuple or record holding it, a closure capturing it). It may be bound
   to a local, called, and passed to a parameter, but never returned, stored in
   a field or a `Dyn`, moved into a `sink` parameter, captured by an `io.async`
   body or used as a type argument (`ArrayList(type_of(f))`), and it may not
-  outlive what it borrows (E0909). A `mut` capture also makes the closure
+  outlive what it borrows (E0909). A `&mut` capture also makes the closure
   move-only (E0901 on a copy).
 - **Borrowed places are frozen while the closure lives**: no access to a
-  `mut`-captured place, no write or move of an `imm`-captured one (E0910). In
+  `&mut`-captured place, no write or move of a `&`-captured one (E0910). In
   this release a closure lives until the end of its binding's scope, so put
   the closure and its calls in a block when the place is needed afterwards.
-- **Call arguments are exclusive.** A closure that holds a `mut` capture is
+- **Call arguments are exclusive.** A closure that holds a `&mut` capture is
   lent exclusively, so a call may not also pass anything that reaches the
   borrowed place, the receiver and a called closure included (E0910):
-  `bump({ imm(z) }() => z, &mut z)` is rejected.
+  `bump({ &z }() => z, &mut z)` is rejected.
 - A capture list on a `->` function literal or an `io.async` body is an
   error, and `{ x }(y) => …` is not a `match` arm pattern (a record pattern is
   `{ x, y } => …`).
@@ -3243,16 +3247,16 @@ run_once(add); // an `Fn` serves for one call
 - **Only an API the closure escapes into can call it once.** Take it by value,
   `sink(f) : Impl(FnOnce(...))`; calling an `FnOnce` closure through a
   borrowed parameter is E0901. A non-escaping callback keeps
-  `imm(f) : Impl(Fn(...))`. Like every owned value, a `sink` closure called on
+  `f : &Impl(Fn(...))`. Like every owned value, a `sink` closure called on
   some arms of a `cond`/`match` is dropped, uncalled, at the end of the others.
 - **Moving a capture out needs `FnOnce` and a capture list.** Against
   `Fn(...)`, whose call borrows the captures so the closure can run again, a
   move out is E0913 at the moving line. In this release an implicit capture
   cannot be moved out either (E0913 names the capture-list spelling).
 - `Dyn(FnOnce(...) -> R)` holds any call-once closure; its call consumes it too.
-- There is no `FnMut`. State that changes across calls lives where a `mut`
+- There is no `FnMut`. State that changes across calls lives where a `&mut`
   capture points, in an `Rc` cell the closure holds, or in a named struct with
-  a `mut(self)` method.
+  a `&mut self` method.
 
 ### Closure Type Restrictions
 
@@ -3428,10 +3432,10 @@ assert(pp.y == 2); // nested wrappers: pp.*.*.y
   them has needs no choice, and `p.*` is always the payload itself. A call
   inside a generic body, `x.clone()` under `where(T <: Clone)`, is the
   bound's method even when `T` is an `Rc`.
-- **Places.** A forwarded field is a place: `p.x = v` and an `mut(self)`
+- **Places.** A forwarded field is a place: `p.x = v` and a `&mut self`
   call such as `p.items.push(v)` write the payload. In a file without
   `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is still rejected
-  (`a.n = v`, `a.bump()` with `mut(self)`): mutate an `Arc`'s payload
+  (`a.n = v`, `a.bump()` with `self : &mut Self`): mutate an `Arc`'s payload
   through a `Mutex` or an atomic.
 - **Only `Rc` and `Arc` implement `Deref`.** `impl(MyWrapper, Deref(...))`
   is a compile error: a user wrapper exposes its payload through its own
@@ -3537,7 +3541,7 @@ result := use_id(42); // Prints "i32: 42", returns 42
 
 ```yo
 RetI32 :: trait(
-  return_i32 : (fn(mut(self) : Self) -> i32)
+  return_i32 : (fn(self : &mut Self) -> i32)
 );
 
 // `Impl(Trait)` is STATIC dispatch: every path must return the SAME concrete
@@ -3713,9 +3717,9 @@ use_mk :: (fn(mk : (fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)())
 
 // OK: a generic `Impl(Fn(...))` parameter is specialized per argument, so the
 // inner `Impl` is that argument's own result type (a named function or a closure).
-use_mk :: (fn(imm(mk) : Impl(Fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)());
+use_mk :: (fn(mk : &Impl(Fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)(mk(v)());
 // OK, the Rust spelling `F: Fn(i32) -> G, G: Fn() -> i32`:
-use_mk :: (fn(generic(G : Type), imm(mk) : Impl(Fn(x : i32) -> G), v : i32, where(G <: (Fn() -> i32))) -> i32)(mk(v)());
+use_mk :: (fn(generic(G : Type), mk : &Impl(Fn(x : i32) -> G), v : i32, where(G <: (Fn() -> i32))) -> i32)(mk(v)());
 ```
 
 To store functions with different closure results in one slot, return
@@ -4628,7 +4632,7 @@ For more examples, see [comptime.test.yo](../tests/comptime.test.yo).
 
 Yo provides `asm()` and `global_asm()` builtins for embedding inline assembly, inspired by Rust's `asm!` macro. Features include:
 
-- **Operand types**: `in`, `out`, `mut`, `lateout`, `inlateout`, `const_val`, `sym`
+- **Operand types**: `in`, `out`, `inout`, `lateout`, `inlateout`, `const_val`, `sym`
 - **Register constraints**: `reg`, `imm`, `mem`, explicit register names (e.g., `"rax"`)
 - **Named operands**: `out("result", reg, i32)` with template references `{result}`
 - **Variable-target outputs**: `out(reg, x)` writes directly to a variable, including uninitialized ones

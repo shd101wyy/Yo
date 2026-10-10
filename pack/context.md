@@ -255,18 +255,20 @@ read :: (fn(p : Path, io : Io) -> String)({
   (`String`, a collection, `Rc`, a `ref` handle) is shared, so both handles
   stay valid. A `sink(x)` parameter always moves. `.clone()` when you need
   an independent copy.
-- `imm(x) : T` borrows read-only and `mut(x) : T` exclusively; the call
-  lends with a marker: `show(&s)`, `swap(&mut a, &mut b)`. `&x` is ONLY
-  that marker: a raw pointer is `addr_of(x)` (unsafe files), and `&x` to a
-  by-value parameter is an error naming `x` / `x.clone()`.
-- NO lifetimes/borrow types. Shared mutation goes through `mut` parameters
+- `x : &T` borrows read-only and `x : &mut T` exclusively; the call
+  lends with a marker: `show(&s)`, `swap(&mut a, &mut b)`. A local borrow
+  is `y := &place` / `y := &mut place`. `&T` is a mode a slot spells, not
+  a type: `ArrayList(&T)`, `T :: &i32` and a field `f : &T` are errors. A
+  raw pointer is `addr_of(x)` (unsafe files), and `&x` to a by-value
+  parameter is an error naming `x` / `x.clone()`.
+- NO lifetimes/borrow types. Shared mutation goes through `&mut` parameters
   or `ref` semantics types; a runtime exclusivity backstop guards
   violations.
 - `_` is the discard pattern; `___` is a named discard usable once per
   scope. A name starting with `_` is MODULE-PRIVATE (compiler-enforced,
   E0405).
-- Methods take the receiver explicitly: `imm(self) : Self` to read,
-  `mut(self) : Self` for mutation, `self : Self` to consume.
+- Methods take the receiver explicitly: `self : &Self` to read,
+  `self : &mut Self` for mutation, `self : Self` to consume.
 - Allocation is placement, RC is lifetime: `with_allocator(a, () => ...)`
   (`std/allocator`) places every RC object and container buffer created
   inside in `a`; a block is always released to the allocator that made it.
@@ -357,8 +359,8 @@ reach for it to parallelize I/O; that's the event loop's job.
   `Result` — make a statement arm a block ending in `;`, and every arm the
   same type.
 - Loops over a collection: `for(xs, (x) => { ... })` by value;
-  `for(xs, mut(x) => { ... })` borrows each element in place (growing or
-  shrinking `xs` inside the body panics); maps: `for(m, (k, mut(v)) => ...)`.
+  `for(&mut xs, x => { ... })` borrows each element in place (growing or
+  shrinking `xs` inside the body panics); maps: `for(&mut m, (k, v) => ...)`.
 - Only a `=>` closure captures enclosing locals: `(x) => (x + base)`. A
   `(fn(...) -> T)(body)` literal and a named fn capture nothing.
 - Recursive enums + `derive(Eq/Clone)` + `ArrayList` fields can form a

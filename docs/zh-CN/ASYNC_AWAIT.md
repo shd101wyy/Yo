@@ -1138,8 +1138,8 @@ for_await(names, io, n => {
 
 ### 如何实现一个流
 
-`next` 的接收者是 `self : Self`，而不是 `Iterator` 用的 `mut(self)`：它返回的
-future 的生命周期超出这次调用，而 `mut` 借用无法跨越挂起点。因此流的源头都是
+`next` 的接收者是 `self : Self`，而不是 `Iterator` 用的 `self : &mut Self`：它返回的
+future 的生命周期超出这次调用，而 `&mut` 借用无法跨越挂起点。因此流的源头都是
 引用语义类型（`ref(struct(...))`），字段写入通过句柄传播：
 
 ```yo
