@@ -793,6 +793,43 @@ ast_expr_strip_borrow_marker :: (fn(imm(e) : AstExpr) -> AstExpr)(
     true => e
   )
 );
+/// A place as the user writes it, for diagnostics: `x`, `self.*.buf`,
+/// `xs(i).name`. `ast_expr_to_string` parenthesizes every operator node
+/// (`((self.(*)).buf)`), which reads badly in a message that tells the user
+/// what to type. Anything that is not a name, a field or dereference step or
+/// a call falls back to `ast_expr_to_string`.
+ast_place_text :: (fn(imm(e) : AstExpr) -> String)(
+  match(
+    e,
+    .Atom(_, tok) => tok.value,
+    .FnCall(_, pf, pargs, _, _) => cond(
+      ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) => {
+        base := recur(match(pargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()));
+        field := match(
+          pargs.get(usize(1)),
+          .Some(.Atom(_, ft)) => ft.value,
+          .Some(f) => recur(f),
+          .None => String.new()
+        );
+        `${base}.${field}`
+      },
+      (ast_expr_is_fn_call(e) && match(pf, .Atom(_, pft) => ((pft.kind != TokenKind.Operator) && (pft.kind != TokenKind.Dot)), .FnCall(_, _, _, _, _) => true)) => {
+        out := recur(pf);
+        out.push_str("(");
+        (pi : usize) = usize(0);
+        while(pi < pargs.len(), pi = (pi + usize(1)), {
+          if(pi > usize(0), {
+            out.push_str(", ");
+          });
+          out.push_string(ast_expr_to_string(match(pargs.get(pi), .Some(a) => a, .None => make_err_expr())));
+        });
+        out.push_str(")");
+        out
+      },
+      true => ast_expr_to_string(e)
+    )
+  )
+);
 /// True if `e` is a FnCall whose func is an Atom found in `func_names`,
 /// and whose argument count equals `arg_count` (if `.Some`).
 ast_expr_is_fn_call_of_any :: (fn(imm(e) : AstExpr, imm(func_names) : ArrayList(str), arg_count : Option(usize)) -> bool)(
@@ -1446,7 +1483,7 @@ desugar_program_if_calls :: (fn(imm(program) : ArrayList(AstExpr)) -> ArrayList(
 });
 export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
 export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
-export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_is_old_mode_spelling, old_mode_spelling_message, ast_expr_strip_borrow_marker, ast_expr_is_capture_mode_entry, ast_expr_is_capture_list_params, ast_expr_is_local_borrow_mode_call);
+export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_is_old_mode_spelling, old_mode_spelling_message, ast_place_text, ast_expr_strip_borrow_marker, ast_expr_is_capture_mode_entry, ast_expr_is_capture_list_params, ast_expr_is_local_borrow_mode_call);
 export(desugar_if_calls, desugar_program_if_calls);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);

@@ -21,14 +21,14 @@ v := list(usize(0)); // 42
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(inout(self) : Self, idx : Idx) -> *Self.Output)
+    index : (fn(mut(self) : Self, idx : Idx) -> *Self.Output)
   )
 );
 ```
 
 - **`Idx`**：索引类型（例如 `usize`，或自定义的键类型）。
 - **`Output`**：关联类型，指定返回的元素类型。
-- **`index`**：方法以 `inout` 形式接收 `self`（这样它能返回指向调用者存储空间内部的指针）和索引，返回指向元素的**指针**。
+- **`index`**：方法以 `mut` 形式接收 `self`（这样它能返回指向调用者存储空间内部的指针）和索引，返回指向元素的**指针**。
 
 `index` 方法返回 `*(Output)`（指针），在值上下文中会自动解引用。这种设计使得读写操作都可以通过同一个特征实现：
 
@@ -38,7 +38,7 @@ v := collection(idx); // 调用 index(collection, idx).*
 // 写入：使用调用语法赋值（推荐）
 collection(idx) = val; // 调用 index(collection, idx)，通过指针写入
 // 取地址：直接返回指针
-p := &collection(idx); // 调用 index(collection, idx)，不解引用
+p := addr_of(collection(idx)); // 调用 index(collection, idx)，不解引用
 ```
 
 ## 实现 Index
@@ -52,11 +52,11 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)(
+    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)(
       cond(
-        (idx == usize(0)) => &self.data0,
-        (idx == usize(1)) => &self.data1,
-        (idx == usize(2)) => &self.data2,
+        (idx == usize(0)) => addr_of(self.data0),
+        (idx == usize(1)) => addr_of(self.data1),
+        (idx == usize(2)) => addr_of(self.data2),
         true => panic("MyArray: index out of bounds")
       )
     )
@@ -79,7 +79,7 @@ impl(
   ArrayList(T),
   Index(usize)(
     Output : T,
-    index : (fn(inout(self) : Self, idx : usize) -> *Self.Output)({
+    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)({
       assert(idx < self._length, "ArrayList: index out of bounds");
       match(
         self._ptr,
@@ -93,7 +93,7 @@ impl(
 
 ## 取地址优化
 
-当你写 `&(collection(idx))` 时，编译器检测到这个模式并跳过解引用步骤。不会生成：
+当你写 `addr_of(collection(idx))` 时，编译器检测到这个模式并跳过解引用步骤。不会生成：
 
 ```c
 // 未优化（假设）：
@@ -192,7 +192,7 @@ assert(sum == i32(30), "与 + 配合使用");
 (list : ArrayList(i32)) = ArrayList(i32).new();
 list.push(i32(42));
 v := list(usize(0)); // 42
-&(list(usize(0))).* = i32(99); // 原地修改
+addr_of(list(usize(0))).* = i32(99); // 原地修改
 ```
 
 ### HashMap(K, V) — `Index(K)`
@@ -201,7 +201,7 @@ v := list(usize(0)); // 42
 (map : HashMap(i32, i32)) = HashMap(i32, i32).new();
 map.insert(i32(1), i32(100));
 v := map(i32(1)); // 100
-&(map(i32(1))).* = i32(999); // 原地修改
+addr_of(map(i32(1))).* = i32(999); // 原地修改
 // map(i32(99))                 // panic：键不存在
 ```
 
@@ -213,7 +213,7 @@ v := map(i32(1)); // 100
 (map : BTreeMap(i32, i32)) = BTreeMap(i32, i32).new();
 map.insert(i32(5), i32(500));
 v := map(i32(5)); // 500
-&(map(i32(5))).* = i32(77); // 原地修改
+addr_of(map(i32(5))).* = i32(77); // 原地修改
 // map(i32(99))                 // panic：键不存在
 ```
 
@@ -226,7 +226,7 @@ v := map(i32(5)); // 500
 d.push_back(i32(10));
 d.push_back(i32(20));
 v := d(usize(0)); // 10
-&(d(usize(0))).* = i32(555); // 原地修改
+addr_of(d(usize(0))).* = i32(555); // 原地修改
 ```
 
 O(1) 随机访问，正确处理环形缓冲区回绕。

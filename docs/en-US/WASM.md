@@ -381,7 +381,7 @@ main :: (fn() -> unit)({
   input := "hello wasm";
   (out_len : usize) = usize(0);
   match(
-    transform(input.ptr(), input.len(), i32(3), &out_len),
+    transform(input.ptr(), input.len(), i32(3), addr_of(out_len)),
     .Some(p) => {
       println(str.from_raw_parts(p, out_len));
       wasm_free(.Some(p));

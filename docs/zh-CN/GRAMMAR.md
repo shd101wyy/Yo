@@ -247,25 +247,40 @@ ArgumentList ::= [Expression (',' Expression)*]
 ```abnf
 Parameter ::= ParameterLabel ':' Type
 ParameterLabel ::=
-  | Identifier                  ;; 按值（引用语义类型：共享句柄）
-  | 'inout' '(' Identifier ')'  ;; 指向调用方左值的二等引用（绑定写回）
-  | 'own' '(' Identifier ')'    ;; 消费调用方的句柄（移动）
+  | Identifier                  ;; 按值：复制（Copy）、移动，或共享句柄（引用类）
+  | 'imm' '(' Identifier ')'    ;; 对调用方值的只读借用
+  | 'mut' '(' Identifier ')'    ;; 对调用方位置的独占借用（写入落在那里）
+  | 'sink' '(' Identifier ')'   ;; 按值，并且总是移动（即使是共享类）
   | 'comptime' '(' Identifier ')' ;; 仅限编译期的参数
   | 'quote' '(' Identifier ')'  ;; 宏参数（接收 AST）
 ```
 
 ```yo
-swap :: (fn(inout(a) : i32, inout(b) : i32) -> unit)({ ... });
-sink :: (fn(own(victim) : Holder) -> unit)({ ... });
+swap :: (fn(mut(a) : i32, mut(b) : i32) -> unit)({ ... });
+sink :: (fn(sink(victim) : Holder) -> unit)({ ... });
 ```
 
-`inout` 的位置规则：
+`imm` 与 `mut` 的位置规则：
 
-- 参数位置（`inout(name) : T`）是 `inout` 唯一可以出现的位置。
-- `inout` 在**返回类型位置被拒绝**（`-> inout(T)`、`-> (inout(name) : T)`）、
-  作为局部绑定被拒绝（`inout(r) := lvalue;`），以及在任何其他类型表达式
-  中被拒绝（`Option(inout(T))`、结构体字段、泛型参数）。
+- 它们出现在参数标签上（`mut(name) : T`）和局部借用绑定上
+  （`mut(r) := place;`、`imm(r) := place;`）。
+- 它们在**返回类型位置被拒绝**（`-> mut(T)`、`-> (mut(name) : T)`），
+  在任何其他类型表达式中也被拒绝（`Option(mut(T))`、结构体字段、泛型参数）。
+- `inout(x)` 和 `own(x)` 是 `mut(x)` 与 `sink(x)` 的旧写法，现在会报错并给出
+  新写法；`yo fix <path> --migrate modes` 会改写它们。
 - 语义见 [FLOWABILITY.md](./FLOWABILITY.md)。
+
+在调用处，被借出的实参带有与参数匹配的标记：
+
+```abnf
+BorrowArgument ::=
+  | '&' Expression              ;; 借给 'imm' 参数：show(&s)
+  | '&mut' Expression           ;; 借给 'mut' 参数：swap(&mut x, &mut y)
+```
+
+`&x` 只有这一种含义。裸指针写作 `addr_of(x)`（不安全代码）；`&x` 出现在
+其他位置，或传给按值参数、裸指针参数，都是错误，并给出 `addr_of(x)`
+（按值参数还会给出 `x` / `x.clone()`）。
 
 ## 注释与空白
 

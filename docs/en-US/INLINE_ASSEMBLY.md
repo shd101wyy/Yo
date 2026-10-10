@@ -470,7 +470,7 @@ Special clobber values:
 asm(
   "lock; xadd {old}, ({ptr})",
   out("old", reg, i32),
-  in("ptr", reg, &counter),
+  in("ptr", reg, addr_of(counter)),
   clobber("memory", "cc")
 );
 ```

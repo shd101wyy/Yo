@@ -279,8 +279,8 @@ io.await(conns.for_each(c => serve(c), io), io);
 - The future's effect bundle is **`Io`, not `IoExn`** — a stream never throws.
   A fallible stream carries the failure in the ITEM (`Item = Result(T, E)`,
   e.g. `incoming`'s `Result(TcpStream, NetError)`).
-- `next` takes `self : Self` (not `inout(self)`), so every source is a
-  `ref(struct(...))` — a future cannot hold an `inout` borrow across a
+- `next` takes `self : Self` (not `mut(self)`), so every source is a
+  `ref(struct(...))` — a future cannot hold a `mut` borrow across a
   suspension.
 - Implementors: `TcpListener.incoming()`, `Watcher`, `Channel(T)`.
   Combinators: `map`, `filter`, `filter_map`, `take`, `skip`; consumers:

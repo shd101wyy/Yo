@@ -154,7 +154,7 @@ s(usize(1) .. usize(3)); // "é" — a new String
 
 Every mutator (`push_str`, `push_string`, `push_byte`, `push_rune`,
 `reserve`, `clear`, `truncate`, `insert_str`, `insert`, `remove`, `pop`)
-takes `inout(self)` and writes in place. `clone()` copies the bytes (O(n));
+takes `mut(self)` and writes in place. `clone()` copies the bytes (O(n));
 the clone is independent of the original, empty or not. A plain copy
 (`t := s`) still shares a non-empty buffer until `plans/VALUES_BY_DEFAULT.md`
 V2b makes `String` uniquely owned (then `t := s` is a move, or an error naming
@@ -169,8 +169,8 @@ moved, never lent:
 | --- | --- |
 | `to_bytes()` | a new, independent `ArrayList(u8)`, O(n) |
 | `into_bytes()` | consumes the string and moves its buffer out; copies only when another copy shares it |
-| `String.from_bytes(own(bytes))` | takes the list over, unchecked |
-| `String.from_utf8(own(bytes))` | takes the list over after validating it; `Err(.InvalidUtf8(...))` otherwise |
+| `String.from_bytes(sink(bytes))` | takes the list over, unchecked |
+| `String.from_utf8(sink(bytes))` | takes the list over after validating it; `Err(.InvalidUtf8(...))` otherwise |
 
 To read bytes, use `len()`, `byte_at(i)`, `get_byte(i)` or the `bytes()`
 iterator, which copy nothing.

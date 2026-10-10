@@ -24,7 +24,7 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Ty
   )
 );
 
-arc :: (fn(generic(V : Type), own(value) : V, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(
+arc :: (fn(generic(V : Type), sink(value) : V, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(
   Arc(V)(value)
 );
 ```
