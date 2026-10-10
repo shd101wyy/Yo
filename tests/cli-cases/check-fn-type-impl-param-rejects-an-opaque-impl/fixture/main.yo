@@ -1,0 +1,18 @@
+{ println } :: import("std/fmt");
+
+// A function taking `Impl(Fn() -> i32)` is specialized per closure, so a
+// bare `fn(...)` type with such a parameter names no single function
+// pointer: passing `apply` here emitted C calling an undeclared symbol —
+// issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-
+// is-called-through-void-pointer.md.
+apply :: (fn(imm(f) : Impl(Fn() -> i32)) -> i32)(f());
+
+run :: (fn(p : (fn(imm(f) : Impl(Fn() -> i32)) -> i32), k : i32) -> i32)({
+  (c : Impl(Fn() -> i32)) = ({ k }() => (k + i32(1)));
+  p(c)
+});
+
+main :: (fn() -> unit)({
+  println(`${run(apply, i32(41))}`);
+});
+export(main);

@@ -86,7 +86,7 @@ int32_t _r = closure_yo_id_…(&(__yo_v_g));
 | an `Rc` (`String`) capture, the closure copied | rc 138 | `5 5` |
 | `Impl(Future(i32, Io))` result (`io.async` body) | `42` | `42` |
 | borrowing capture `{ imm(x) }` | E0909 | E0909 (decision 38 A) |
-| passed to a `fn(...) -> Impl(Fn)` parameter | rc 138 | rc 138, independent: `issues/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md` |
+| passed to a `fn(...) -> Impl(Fn)` parameter | rc 138 | rc 138, independent: `issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md` (now a check error) |
 | a generic local fn (`mk := (fn(generic(T : Type), ...) ...)`) | C error | C error, independent of `Impl`: `issues/a-generic-function-bound-with-colon-equals-is-called-through-an-undeclared-symbol.md` |
 
 ## Tests
