@@ -847,6 +847,25 @@ ast_expr_strip_borrow_marker :: (fn(imm(e) : AstExpr) -> AstExpr)(
     true => e
   )
 );
+/// A call's arguments with each call-site borrow marker read through
+/// (`ast_expr_strip_borrow_marker`). The evaluator peels a lending marker
+/// from its own argument list and annotates the place, so a reader of the raw
+/// call (the io builtins' codegen and await analysis) must read through it
+/// too, or it finds an un-annotated `&x` node.
+ast_call_args_unmarked :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
+  match(
+    e,
+    .FnCall(_, _, ua_args, _, _) => {
+      out := ArrayList(AstExpr).new();
+      (ui : usize) = usize(0);
+      while(ui < ua_args.len(), ui = (ui + usize(1)), {
+        out.push(ast_expr_strip_borrow_marker(ua_args(ui)));
+      });
+      out
+    },
+    .Atom(_, _) => ArrayList(AstExpr).new()
+  )
+);
 /// A place as the user writes it, for diagnostics: `x`, `self.*.buf`,
 /// `xs(i).name`. `ast_expr_to_string` parenthesizes every operator node
 /// (`((self.(*)).buf)`), which reads badly in a message that tells the user
@@ -1994,7 +2013,7 @@ desugar_program_if_calls :: (fn(imm(program) : ArrayList(AstExpr)) -> ArrayList(
 });
 export(ast_expr_is_atom_of, ast_expr_is_atom_of_any);
 export(ast_expr_is_fn_call_of, ast_expr_is_fn_call_of_any);
-export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_is_old_mode_spelling, old_mode_spelling_message, ast_place_text, ast_expr_strip_borrow_marker, ast_expr_is_capture_mode_entry, ast_expr_is_capture_list_params, ast_expr_is_local_borrow_mode_call);
+export(ast_expr_is_size_of_call, ast_expr_is_align_of_call, ast_expr_is_type_of_call, ast_expr_is_type_id_call, ast_expr_is_address_of_call, ast_expr_is_inout_mode_call, ast_expr_is_old_mode_spelling, old_mode_spelling_message, ast_place_text, ast_expr_strip_borrow_marker, ast_call_args_unmarked, ast_expr_is_capture_mode_entry, ast_expr_is_capture_list_params, ast_expr_is_local_borrow_mode_call);
 export(desugar_if_calls, desugar_program_if_calls, borrow_mode_not_a_type_message);
 export(exprs_are_equal);
 export(expect_expr_to_be_fn_call_of, expect_expr_to_be_fn_call_of_any);

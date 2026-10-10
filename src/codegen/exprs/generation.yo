@@ -94,7 +94,8 @@
   ExprId,
   ast_expr_id,
   ast_expr_is_atom,
-  ast_expr_is_local_borrow_mode_call
+  ast_expr_is_local_borrow_mode_call,
+  ast_call_args_unmarked
 } :: import("../../expr.yo");
 { has_any_control_flow, ExprInfo, lookup_macro_expansion, expr_info_deferred_dup_expressions, expr_info_index_method_type, expr_info_index_method_value, expr_info_index_trait_ptr_type, expr_info_is_index_trait_address_of, expr_info_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
@@ -366,7 +367,7 @@ _anon_fn_value :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
 /// `io.spawn(future)` — start a cold Future and return a JoinHandle (non-owning
 /// view).
 _generate_io_spawn :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
+  args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("spawn requires a Future argument"))));
   em := context.base.emitter;
   future_code := _call_generate_expr(future_arg, indent.clone(), context);

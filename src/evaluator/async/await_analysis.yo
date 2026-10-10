@@ -29,7 +29,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
-{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BK_BEGIN, BK_INOUT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BK_BEGIN, BK_INOUT, ast_call_args_unmarked } :: import("../../expr.yo");
 { ExprInfo, lookup_io_builtin_call, lookup_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { codegen_tables_enabled } :: import("../../utils.yo");
@@ -294,8 +294,10 @@ detect_await_expr_ :: (
     expr,
     .Atom(_, _) => (),
     // unreachable: is_io_await_call already confirmed FnCall
-    .FnCall(_, _, args, _, tok) => {
-      // Get the first argument (the future being awaited)
+    .FnCall(_, _, _, _, tok) => {
+      // Get the first argument (the future being awaited), through its
+      // call-site marker (`io.await(&w, io)`; decision 33).
+      args := ast_call_args_unmarked(expr_for_sp);
       await_arg := match(
         args.get(usize(0)),
         .None => {

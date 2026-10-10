@@ -15,7 +15,7 @@
 { SuspensionCapturedVariable } :: import("../../evaluator/shared/suspension_analysis_types.yo");
 { is_io_future_type, collect_branch_await_exprs, emit_future_store_into_slot } :: import("./state_code_gen.yo");
 { is_io_async_call, is_io_await_call } :: import("../../evaluator/async/await_analysis.yo");
-{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_is_address_of_call, ast_expr_is_local_borrow_mode_call, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_atom_of, ast_expr_is_fn_call, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_is_address_of_call, ast_expr_is_local_borrow_mode_call, ast_call_args_unmarked, BK_COND, BK_MATCH, BK_WHILE, BK_BEGIN } :: import("../../expr.yo");
 { _call_generate_expr } :: import("../exprs/_expr.yo");
 { generate_step_expression } :: import("../exprs/while_loop.yo");
 { _c_string_literal } :: import("../exprs/comptime_value.yo");
@@ -1300,7 +1300,7 @@ emit_effect_injection_for_sm :: (
   fn(imm(await_expr) : AstExpr, imm(future_access) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
-  args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  args := ast_call_args_unmarked(await_expr);
   match(
     args.get(usize(0)),
     .Some(fut_arg) => match(
@@ -1633,7 +1633,7 @@ emit_inline_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   low.emitted.insert(eid);
   // An await of a fusable wrapper call runs the wrapper here instead.
   match(_call_emit_fused_await(expr, indent.clone(), context), .Some(fused_code) => return(fused_code), .None => ());
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  args := ast_call_args_unmarked(expr);
   future_arg := match(
     args.get(usize(0)),
     .Some(a) => a,
