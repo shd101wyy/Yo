@@ -4,7 +4,7 @@
 design conversation with the maintainer ("what other language features would
 you suggest?", then SoA), the same session as
 [`RUST_REFERENCE_PATTERNS.md`](RUST_REFERENCE_PATTERNS.md) and
-[`CODEGEN_PERFORMANCE.md`](CODEGEN_PERFORMANCE.md). Every candidate was
+[`CODEGEN_PERFORMANCE.md`](../CODEGEN_PERFORMANCE.md). Every candidate was
 checked against what exists in `std/`/`src/`, what is already designed in a
 plan, and what the maintainer has ruled out; the checks are cited per item.
 Nothing here drives a phase. A candidate leaves this file only by becoming

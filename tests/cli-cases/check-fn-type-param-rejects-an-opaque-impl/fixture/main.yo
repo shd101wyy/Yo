@@ -1,0 +1,21 @@
+{ println } :: import("std/fmt");
+
+// A bare `fn(...)` type is ONE function pointer, but every function returning
+// `Impl(Fn() -> i32)` returns its own closure struct by value. A parameter of
+// this type accepted `mk`, lowered to `void* (*)(int32_t)`, and the call
+// crashed (SIGBUS) — issues/fixed/a-function-returning-impl-passed-to-a-
+// function-typed-parameter-is-called-through-void-pointer.md.
+use_mk :: (fn(mk : (fn(x : i32) -> Impl(Fn() -> i32)), v : i32) -> i32)({
+  g := mk(v);
+  g()
+});
+
+mk :: (fn(x : i32) -> Impl(Fn() -> i32))({
+  (f : Impl(Fn() -> i32)) = ({ x }() => (x * i32(2)));
+  f
+});
+
+main :: (fn() -> unit)({
+  println(`${use_mk(mk, i32(21))}`);
+});
+export(main);

@@ -94,7 +94,9 @@ pragma(Pragma.AllowUnsafe);
   mark_generic_independent,
   type_requires_explicit_copy,
   type_is_bitwise_copy,
-  type_contains_rc_type
+  type_contains_rc_type,
+  type_has_no_open_some,
+  resolve_cell_chain
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -6306,6 +6308,39 @@ _check_forall_bindings_after_arg :: (
     });
   });
 });
+/// The result of a call through an `Impl(Fn(...) -> R)` callee whose declared
+/// `R` is still open (an inner `Impl(Fn() -> i32)`, a `generic` `G`): the
+/// result of the CONCRETE function the callee resolves to, when its
+/// resolution chain reaches one and that result is closed. A specialization's
+/// `mk : Impl(Fn(x : i32) -> Impl(Fn() -> i32))` parameter resolves to the
+/// argument's function type (a named function's carries its `Impl` result's
+/// resolution, calls/function_type.yo); a closure local resolves to its
+/// capture struct, whose closure's registered type carries its body's result.
+/// Typing the call from the declared `R` lowered `g := mk(v)` to `void*`
+/// while `mk` returned its closure struct by value — invalid C
+/// (issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md).
+/// Otherwise `declared`.
+_impl_fn_callee_result :: (fn(imm(callee_ty) : TypeValue, imm(declared) : TypeValue) -> TypeValue)({
+  if(type_has_no_open_some(declared), {
+    return(declared);
+  });
+  icr_term := resolve_cell_chain(callee_ty);
+  icr_concrete := match(
+    icr_term,
+    .Func({ result : icr_r }) => Option(TypeValue).Some(icr_r),
+    .Struct({ id : icr_sid }) => match(
+      find_closure_fid_by_capture_struct_id(icr_sid),
+      .Some(icr_fid) => match(get_func_type(icr_fid), .Func({ result : icr_r2 }) => Option(TypeValue).Some(icr_r2), _ => Option(TypeValue).None),
+      .None => Option(TypeValue).None
+    ),
+    _ => Option(TypeValue).None
+  );
+  match(
+    icr_concrete,
+    .Some(icr_c) => if(type_has_no_open_some(icr_c), icr_c, declared),
+    .None => declared
+  )
+});
 try_to_call_function_with_arguments :: (
   fn(
     imm(func_val) : Option(EvalValue),
@@ -6343,7 +6378,7 @@ try_to_call_function_with_arguments :: (
           cpt,
           ArrayList(TypeValue).new(),
           ArrayList(TypeValue).new(),
-          cr_box,
+          _impl_fn_callee_result(func_type, cr_box),
           rc(
             FuncMeta(
               forall_labels : ArrayList(String).new(),

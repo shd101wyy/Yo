@@ -1,0 +1,19 @@
+{ println } :: import("std/fmt");
+
+// A struct field of a bare `fn(...)` type returning `Impl(Fn(...))` has no
+// single representation; it used to compile and crash (SIGBUS) at the call —
+// issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-
+// is-called-through-void-pointer.md.
+Holder :: struct(mk : (fn(x : i32) -> Impl(Fn() -> i32)));
+
+mk :: (fn(x : i32) -> Impl(Fn() -> i32))({
+  (f : Impl(Fn() -> i32)) = ({ x }() => (x * i32(2)));
+  f
+});
+
+main :: (fn() -> unit)({
+  hd := Holder(mk : mk);
+  g := hd.mk(i32(21));
+  println(`${g()}`);
+});
+export(main);
