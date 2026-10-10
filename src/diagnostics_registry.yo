@@ -252,8 +252,8 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "这种写法已被删除：借用使用与调用处相同的符号书写。",
       "A borrow is spelled `x : &T` (read-only) or `x : &mut T` (exclusive) in every slot that holds one: a parameter, a receiver (`self : &Self`), a closure parameter, an `Fn(...)` slot, a local borrow (`y := &place`, `y := &mut place`), a capture list (`{ &y, z : &mut p }`) and the borrowed loop (`for(&mut xs, x => ...)`). The mode words `imm(x)`, `mut(x)` and the older `inout(x)` were deleted (plans/VALUES_BY_DEFAULT.md decision 42), as was `own(x)`, now `sink(x)`. `yo fix <path> --migrate borrow-spelling` rewrites the borrow words in a whole tree, and `yo fix <path> --migrate modes` rewrites `own`.",
       "借用在每个容纳它的位置都写作 `x : &T`（只读）或 `x : &mut T`（独占）：参数、接收者（`self : &Self`）、闭包参数、`Fn(...)` 位置、局部借用（`y := &place`、`y := &mut place`）、捕获列表（`{ &y, z : &mut p }`）以及借用循环（`for(&mut xs, x => ...)`）。模式关键字 `imm(x)`、`mut(x)` 以及更早的 `inout(x)` 已被删除（plans/VALUES_BY_DEFAULT.md 决策 42），`own(x)` 也已删除，现写作 `sink(x)`。`yo fix <path> --migrate borrow-spelling` 会改写整棵树中的借用关键字，`yo fix <path> --migrate modes` 会改写 `own`。",
-      "len_of :: (fn(imm(s) : String) -> usize)(s.len());\nexport(len_of);\n",
-      "len_of :: (fn(s : &String) -> usize)(s.len());\nexport(len_of);\n",
+      "{ String } :: import(\"std/string\");\nlen_of :: (fn(imm(s) : String) -> usize)(s.len());\nexport(len_of);\n",
+      "{ String } :: import(\"std/string\");\nlen_of :: (fn(s : &String) -> usize)(s.len());\nexport(len_of);\n",
       "`imm(s) : String` is the deleted mode-word spelling of the read-only borrow `s : &String`.",
       "`imm(s) : String` 是只读借用 `s : &String` 已删除的模式关键字写法。"
     )
