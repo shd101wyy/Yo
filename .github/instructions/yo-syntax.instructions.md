@@ -867,7 +867,7 @@ Rules:
 | `for(&xs, x => …)`, `for(&mut xs, x => …)` | the borrowed loop | the sigil goes on the source; the element mode follows |
 | `f(&mut x)`, `f(&mut s.items)` | lends the place to a `&mut T` param | `&mut` is ONE prefix token; to any other param it is an error |
 | `f(&x)` | lends `x` to a `&T` param, a generic one included | to a by-value (plain or `sink`) param: an error naming `x` / `x.clone()`; to a `*(T)` param: an error naming `addr_of(x)`; to a `&mut T` param: an error naming `&mut x` |
-| `match(&x, …)`, `match(&mut x, …)` | (decision 26) a borrowing / `mut`-place match | the desugar peels the marker and records it (`borrowed_match_scrutinee_kind`); a bare scrutinee is taken BY VALUE (see "How a `match` takes its scrutinee" below) |
+| `match(&x, …)`, `match(&mut x, …)` | (decision 26) a borrowing / `&mut`-place match | the desugar peels the marker and records it (`borrowed_match_scrutinee_kind`); a bare scrutinee is taken BY VALUE (see "How a `match` takes its scrutinee" below) |
 | `addr_of(x)` | the raw-pointer address-of → `*(T)` | unsafe-capable files only. `&x` anywhere that is not a lending argument, scrutinee, local borrow or capture entry (a field store, a receiver `(&x).m()`, a variadic C argument) is an error naming `addr_of(x)` |
 | `inout(x)`, `own(x)` | (deleted) | an error naming `x : &mut T` / `sink(x)`; `yo fix <path> --migrate modes` rewrites old code, and `yo fix <path> --migrate addr-of` rewrites an old address-of `&x` (it evaluates the code, so a lending `&x` stays) |
 | `size_of`, `align_of`, `type_of`, `type_id` | (deleted in Generation B) `sizeof`, `alignof`, `typeof`, `typeid` | the only spellings; `std/term.yo`'s `size_of` became `term_size` |
