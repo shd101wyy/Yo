@@ -61,7 +61,7 @@ for it.
 
 ## 2. The rules
 
-### R1. A struct may declare borrow-mode fields; the type is then non-escapable
+### R1. A struct may declare borrow-mode fields, an enum borrow-mode payloads; the type is then non-escapable
 
 ```yo
 View :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -78,7 +78,44 @@ Entry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
 - `imm(f) : T` and `mut(f) : T` are field declarations in exactly the
   spelling decision 35 uses for capture-list entries. A type with one is
   **non-escapable**: second-class by declaration, under every rule of
-  decision 38 A. Enums may carry such a payload (`StrArg :: enum(Borrowed(imm(String)), Owned(String))`).
+  decision 38 A.
+- **Enums.** A variant's positional payload may be declared in a borrow
+  mode, and the enum is non-escapable if **any** variant has one:
+
+```yo
+StrArg :: enum(Borrowed(imm(String)), Owned(String));
+Found :: (fn(comptime(T) : Type) -> comptime(Type))(
+  enum(At(usize, imm(T)), Missing)
+);
+```
+
+  - **Construction lends**, as for a field: `.Borrowed(&s)` lends `s` for
+    the value's life; `.Owned(s)` moves. A value built from a non-borrowing
+    variant (`.Missing`, `.Owned(s)`) still has the non-escapable *type*
+    and obeys R1–R3 — the type, not the active variant, decides (38 A's
+    rule is structural over types), so `StrArg` can never be stored even
+    when every live value is `Owned`. A program that wants a storable
+    owned form declares a second enum, or stores the payload.
+  - **`match` follows decision 26.** A borrowed scrutinee (`imm`/`mut`
+    binding, or `match(&e, …)`) binds a borrow-mode payload as a borrow in
+    the payload's mode capped by the scrutinee's; a by-value scrutinee
+    consumes the enum, and a borrow-mode payload bound by value is a
+    *re-borrow* with the enum's borrow set (nothing can be moved out of a
+    borrow: the payload stays second-class in the arm, and the arm's
+    result may not outlive the roots). Guards see the bindings as borrows
+    (decision 26's rule). Exhaustiveness and usefulness are unchanged.
+  - **`Option(imm(T))` is this case.** `Option` is an enum, and
+    `.Some(imm_place)` is the value decision 38 A already calls legal; R3
+    lets a function *say* it returns one. The declared-storage ban still
+    holds for `Option(imm(T))` as a field or element type: the enum
+    becomes non-escapable per instantiation, as closure instantiations
+    already are.
+  - **Enum payloads in borrow mode may not be `mut` on a `Copy` enum**
+    (a copy of a `mut` borrow would be two exclusive borrows); an `imm`
+    payload keeps the enum `Copy` if the rest is, second-class copies as
+    for closures.
+  - GADT-style enums (`docs/en-US/GADTS.md`) take the same rule per
+    variant; nothing in their indexing changes.
 - A non-escapable type may have `imm(self)`, `mut(self)` and `self`
   methods, `Dispose` (a scope-end drop is an access, decision 38 A, so the
   drop runs while the borrow is still live), and may implement traits.
@@ -243,7 +280,10 @@ decision 38's audit): return a view of a local; return a view of the
 wrong parameter under `depends`; store a view in a list; capture a view
 in an escaping closure; spawn one; re-point a field to a temporary; a
 `mut` view and a `push` on its root in one expression; a view through an
-`Rc` without the pin; a `Dyn` over a non-escapable type.
+`Rc` without the pin; a `Dyn` over a non-escapable type. For enums: store
+a `StrArg` whose live value is `.Owned` (the type decides); move a
+`.Borrowed` payload out of a consumed scrutinee; return a `.Some(&local)`;
+`derive(Copy)` on an enum with a `mut` payload; an `Option(imm(T))` field.
 
 ## 6. Alternatives considered
 

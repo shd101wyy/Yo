@@ -127,8 +127,9 @@ first-class `u7`, `@fieldParentPtr`, `undefined`).
 [`NON_ESCAPABLE_TYPES`](backlog/NON_ESCAPABLE_TYPES.md) is the 2026-10-10
 design note the two parked VALUES_BY_DEFAULT triggers point to (decision
 39's borrow-mode struct fields, decision 37's stateful call): a struct may
-declare `imm(f)`/`mut(f)` fields and is then second-class under decision
-38 A; it may be returned only when every borrow is rooted at the callee's
+declare `imm(f)`/`mut(f)` fields and an enum borrow-mode variant payloads
+(`Option(imm(T))` is this case), and the type is then second-class under
+decision 38 A; it may be returned only when every borrow is rooted at the callee's
 own parameters, with the dependency inferred (a `depends(...)` clause
 narrows it) — §3.13 A2's rule for borrowing futures, generalized; no
 lifetime names, no stored views. It unlocks zero-copy views, borrowing
