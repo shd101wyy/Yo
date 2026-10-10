@@ -497,6 +497,8 @@ cannot be copied.
     them.
   - Sharing a trait object is `Rc(Dyn(Trait))` or
     `Arc(Dyn(Trait, Send))`.
+  - A borrowed trait object is `&Dyn(Trait)` / `&mut Dyn(Trait)`, with no
+    allocation, from decision 43's phase; `Dyn` is not a DST (decision 44).
   - Each impl method is reached through a wrapper defined with the vtable
     slot's signature: `void* self_ptr` plus the trait's parameter types
     (`_wrapper_params` and `generate_dyn_wrapper_functions` in
@@ -2674,6 +2676,48 @@ and in git, not a silent edit.
       `depends` narrowing; an `Rc`-rooted element in a container
       (rejected); the cell cases (E0909); `words` returning a list of
       views; the borrowed `for` by `impl(&C, IntoIterator)`.
+
+44. **`Dyn(Trait)` stays the owned, boxed trait object; the borrowed form
+    is `&Dyn(Trait)`; there is no DST.** Confirmed 2026-10-10 by the
+    maintainer (asked whether `Dyn` should become a dynamically sized type
+    like Rust's `dyn Trait`; the VBD implementer's recommendation accepted).
+    - **Today.** `dyn(v)` moves `v` into a heap cell, and a `Dyn(Trait)`
+      value is the fat pair (data pointer, vtable pointer). The cell carries
+      a count, so copies share the payload (`__yo_dyn_retain` /
+      `__yo_dyn_release`). Yo's `Dyn(Trait)` is therefore Rust's
+      `Box<dyn Trait>` already, sharing aside.
+    - **Owned form, unchanged in shape.** `Dyn(Trait)` remains the owned,
+      boxed form and becomes uniquely owned at V2b (decision 7): no count,
+      explicit-copy through a `clone` vtable slot (`Dyn(Trait, Clone)`),
+      move-only otherwise; sharing is `Rc(Dyn(Trait))` /
+      `Arc(Dyn(Trait, Send))`.
+    - **Borrowed form, with decision 43.** `&Dyn(Trait)` / `&mut Dyn(Trait)`
+      are borrowed trait objects, Rust's `&dyn Trait`: a second-class fat
+      reference (data pointer, vtable), with no allocation. It is made by
+      lending a concrete value to a slot typed `&Dyn(Trait)` (the one
+      unsizing conversion, at a typed slot only) or by lending an owned
+      `Dyn`'s payload. It follows every rule decision 43 gives a reference
+      (second-class, roots, exclusivity, no cell payload).
+    - **No DST.** No unsized types and no `?Sized` bound: a `Dyn` only ever
+      appears inside its own fat forms (`Dyn(...)`, `&Dyn(...)`,
+      `&mut Dyn(...)`, and through `Rc`/`Arc`), so generics need no new
+      bound kind. Rust's DSTs buy two things; Yo gets both without them:
+      the non-allocating borrowed object above, and the single allocation
+      below.
+    - **`Rc(Dyn(Trait))` / `Arc(Dyn(...))` in one allocation** (a later
+      codegen optimization, CODEGEN_PERFORMANCE.md): today the `Rc` cell
+      holds the `Dyn`'s fat value and the payload is a second heap box;
+      `rc(...)` over a `Dyn` builds the payload in place in the `Rc` cell
+      and keeps the vtable in the handle, as Rust's `Rc<dyn T>` does. No
+      semantic change.
+    - **Phase.** The owned-form change with V2b; `&Dyn(Trait)` with decision
+      43's phase; the single allocation whenever its CP lever lands.
+    - **Tests.** `&Dyn(Trait)` over a stack value calls through the vtable
+      with no allocation (an allocation counter); `&Dyn(Trait)` from an
+      owned `Dyn`; a `&Dyn` that escapes is E0909; `&mut Dyn(Trait)` is
+      exclusive (E0911); `Dyn(Trait)` without `Clone` is move-only
+      (E0901 on a second use); `Rc(Dyn(Trait))` counts one allocation once
+      the optimization lands.
 
 ## 5. Prerequisites, gates and the seed
 
