@@ -1109,6 +1109,7 @@ _run_migrate_params :: (
   fn(imm(files) : ArrayList(String), imm(std_path) : String, dry_run : bool, io : Io, imm(exn) : Exception, (match_scrutinee : bool) ?= false) -> unit
 )({
   if(match_scrutinee, set_migrate_match_scrutinee(true), set_migrate_param_modes(true));
+  what_migrates := if(match_scrutinee, String.from("match scrutinees"), String.from("parameters"));
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
@@ -1118,7 +1119,7 @@ _run_migrate_params :: (
       _drop := _take_load_error();
       _drop_diags := take_error_diagnostics();
       failed = (failed + usize(1));
-      println(`fix: ${file} does not evaluate; its parameters are migrated only as far as evaluation reached`);
+      println(`fix: ${file} does not evaluate; its ${what_migrates} are migrated only as far as evaluation reached`);
     });
   });
   set_migrate_param_modes(false);
@@ -1190,7 +1191,7 @@ _run_migrate_params :: (
     println(`fix: ${verb} ${n_imm.to_string()} parameter(s) to imm(...); ${n_stale.to_string()} recorded edit(s) skipped (span text changed); ${failed.to_string()} file(s) did not evaluate`);
   });
   if(failed > usize(0), {
-    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated parameters were not migrated`));
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated ${what_migrates} were not migrated`));
   });
 });
 /// `yo fix <path> --migrate modes` — the spelling half of V3b step 3
