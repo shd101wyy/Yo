@@ -13,7 +13,8 @@
   ast_expr_token,
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
-  BK_BEGIN
+  BK_BEGIN,
+  ast_call_args_unmarked
 } :: import("../../expr.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { stable_position_id, stable_label_id, debug_knob, is_temp_variable_name, is_any_temp_variable_name } :: import("../../utils.yo");
@@ -803,7 +804,7 @@ _build_deferred_deps :: (
           await_expr := ap.base.expr;
           is_fn_call := match(await_expr, .FnCall(_, _, _, _, _) => true, _ => false);
           if(is_fn_call, {
-            args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+            args := ast_call_args_unmarked(await_expr);
             match(
               args.get(usize(0)),
               .Some(future_expr) => match(
@@ -1629,7 +1630,7 @@ fused_await_site :: (fn(imm(await_expr) : AstExpr, report : bool, imm(context) :
   if(!_async_fusion_enabled(), {
     return(Option(FusedAwaitSite).None);
   });
-  await_args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => return(Option(FusedAwaitSite).None));
+  await_args := match(await_expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(await_expr), _ => return(Option(FusedAwaitSite).None));
   future_arg := match(await_args.get(usize(0)), .Some(f) => f, .None => return(Option(FusedAwaitSite).None));
   cand := match(await_fusion_candidate(future_arg), .Some(c) => c, .None => return(Option(FusedAwaitSite).None));
   if(cand.verdict.len() > usize(0), {
@@ -2055,7 +2056,7 @@ emit_fused_await :: (fn(imm(await_expr) : AstExpr, imm(indent) : String, imm(con
   site := match(fused_await_site(await_expr, true, context), .Some(s) => s, .None => return(Option(String).None));
   low := match(context.sm_inline_lowering, .Some(l) => l, .None => return(Option(String).None));
   em := context.base.emitter;
-  await_args := match(await_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  await_args := match(await_expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(await_expr), _ => ArrayList(AstExpr).new());
   effects_arg := match(await_args.get(usize(1)), .Some(ea) => ea, .None => return(Option(String).None));
   if(debug_knob(String.from("YO_DEBUG_FUSION")).is_some(), {
     tok := ast_expr_token(await_expr);
