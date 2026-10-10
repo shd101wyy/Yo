@@ -458,7 +458,7 @@ Add :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     /// The output type of the addition.
     Output : Type,
-    (+) : (fn(lhs : &Self, rhs : &Rhs) -> Self.Output)
+    (+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Add);
@@ -466,7 +466,7 @@ export(Add);
 ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (+) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(Self.Output)),
+    (+) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -475,14 +475,14 @@ export(ComptimeAdd);
 Sub :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (-) : (fn(lhs : &Self, rhs : &Rhs) -> Self.Output)
+    (-) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Sub);
 ComptimeSub :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (-) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(Self.Output)),
+    (-) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -491,14 +491,14 @@ export(ComptimeSub);
 Mul :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (*) : (fn(lhs : &Self, rhs : &Rhs) -> Self.Output)
+    (*) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Mul);
 ComptimeMul :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (*) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(Self.Output)),
+    (*) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -507,14 +507,14 @@ export(ComptimeMul);
 Div :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (/) : (fn(lhs : &Self, rhs : &Rhs) -> Self.Output)
+    (/) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Div);
 ComptimeDiv :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (/) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(Self.Output)),
+    (/) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -523,14 +523,14 @@ export(ComptimeDiv);
 Mod :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (%) : (fn(lhs : &Self, rhs : &Rhs) -> Self.Output)
+    (%) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Mod);
 ComptimeMod :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (%) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(Self.Output)),
+    (%) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -539,14 +539,14 @@ export(ComptimeMod);
 BitLeftShift :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (<<) : (fn(lhs : &Self, rhs : &Rhs) -> Self.Output)
+    (<<) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(BitLeftShift);
 ComptimeBitLeftShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (<<) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(Self.Output)),
+    (<<) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -555,14 +555,14 @@ export(ComptimeBitLeftShift);
 BitRightShift :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (>>) : (fn(lhs : &Self, rhs : &Rhs) -> Self.Output)
+    (>>) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(BitRightShift);
 ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (>>) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(Self.Output)),
+    (>>) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -574,32 +574,32 @@ export(ComptimeBitRightShift);
 /// Negate trait — enables unary `-value` operator.
 Negate :: trait(
   Output : Type,
-  neg : (fn(self : &Self) -> Self.Output)
+  neg : (fn(self : Self) -> Self.Output)
 );
 export(Negate);
 ComptimeNegate :: trait(
   Output : Type,
-  neg : (fn(comptime(self) : &Self) -> comptime(Self.Output)),
+  neg : (fn(comptime(self) : Self) -> comptime(Self.Output)),
   where(Self <: Comptime, Self.Output <: Comptime)
 );
 export(ComptimeNegate);
 /// LogicalNot trait — enables `!value` boolean negation.
-LogicalNot :: trait((!) : (fn(self : &Self) -> bool));
+LogicalNot :: trait((!) : (fn(self : Self) -> bool));
 export(LogicalNot);
 ComptimeLogicalNot :: trait(
-  (!) : (fn(comptime(self) : &Self) -> comptime(bool)),
+  (!) : (fn(comptime(self) : Self) -> comptime(bool)),
   where(Self <: Comptime)
 );
 export(ComptimeLogicalNot);
 /// BitNot trait — enables `~value` bitwise complement.
 BitNot :: trait(
   Output : Type,
-  (~) : (fn(self : &Self) -> Self.Output)
+  (~) : (fn(self : Self) -> Self.Output)
 );
 export(BitNot);
 ComptimeBitNot :: trait(
   Output : Type,
-  (~) : (fn(comptime(self) : &Self) -> comptime(Self.Output)),
+  (~) : (fn(comptime(self) : Self) -> comptime(Self.Output)),
   where(Self <: Comptime, Self.Output <: Comptime)
 );
 export(ComptimeBitNot);
@@ -607,14 +607,14 @@ export(ComptimeBitNot);
 BitAnd :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (&) : (fn(lhs : &Self, rhs : &Rhs) -> Self.Output)
+    (&) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(BitAnd);
 ComptimeBitAnd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (&) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(Self.Output)),
+    (&) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -623,14 +623,14 @@ export(ComptimeBitAnd);
 BitOr :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (|) : (fn(lhs : &Self, rhs : &Rhs) -> Self.Output)
+    (|) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(BitOr);
 ComptimeBitOr :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (|) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(Self.Output)),
+    (|) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -639,14 +639,14 @@ export(ComptimeBitOr);
 BitXor :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (^) : (fn(lhs : &Self, rhs : &Rhs) -> Self.Output)
+    (^) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(BitXor);
 ComptimeBitXor :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (^) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(Self.Output)),
+    (^) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -655,7 +655,7 @@ export(ComptimeBitXor);
   not :: (
     fn(
       generic(_Self : Type),
-      self : &_Self,
+      self : _Self,
       where(_Self <: LogicalNot)
     ) -> bool
   )(self.(!)());
@@ -675,7 +675,7 @@ export(not, !);
   bit_not :: (
     fn(
       generic(_Self : Type),
-      self : &_Self,
+      self : _Self,
       where(_Self <: BitNot)
     ) -> _Self
   )(self.(~)());
@@ -694,7 +694,7 @@ export(~);
   neg :: (
     fn(
       generic(_Self : Type),
-      self : &_Self,
+      self : _Self,
       where(_Self <: Negate)
     ) -> _Self
   )({

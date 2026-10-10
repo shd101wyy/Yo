@@ -30,13 +30,13 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, generate_some_type_id, t_dyn } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type, shared_cell_type_name_of_constructor, shared_cell_canonical_names } :: import("../../types/guards.yo");
-{ type_contains_some_type_deep } :: import("../../types/utils.yo");
+{ type_contains_some_type_deep, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type, function_value_slot_mismatch } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { format_error_message, with_code } :: import("../../error.yo");
-{ E_TYPE_MISMATCH, E_CLOSURE_MOVES_CAPTURE } :: import("../../diagnostics.yo");
+{ E_TYPE_MISMATCH, E_CLOSURE_MOVES_CAPTURE, E_DYN_UNCALLABLE } :: import("../../diagnostics.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
@@ -383,9 +383,57 @@ _require_dyn_traits_implemented :: (
         }),
         .None => ()
       );
+      // A vtable slot that takes `self` BY VALUE (`LogicalNot`'s `(!)`,
+      // decision 34 as amended 2026-10-11) hands the impl its own copy of the
+      // payload, since the Dyn keeps owning the original. A move-only payload
+      // has no copy to hand over: the call would move the value out of the box
+      // the Dyn still owns and drops
+      // (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md).
+      if(type_is_move_only(check_ty), {
+        match(
+          _by_value_self_slot(rtt),
+          .Some(bv) => {
+            mo_why := match(move_only_reason(check_ty), .Some(r) => `: ${r}`, .None => String.new());
+            bv_msg := `A ${type_to_string(dyn_type.clone())} cannot hold the move-only ${type_to_string(check_ty.clone())}${mo_why}. Its method ${bv} takes \`self\` by value, so a call through the Dyn would move the payload out of the box the Dyn still owns. Box a copyable value, or declare the method with \`self : &Self\`.`;
+            raise_flow_violation(with_code(format_error_message(token, bv_msg), E_DYN_UNCALLABLE), ctx, exn);
+          },
+          .None => ()
+        );
+      });
     },
     _ => ()
   );
+});
+/// The first vtable slot of the traits `tys` whose receiver is taken by value,
+/// rendered `Trait.member`; `.None` when every slot borrows its receiver.
+_by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
+  (ti : usize) = usize(0);
+  while(ti < tys.len(), {
+    match(
+      tys.get(ti),
+      .Some(t) => match(
+        t,
+        .TraitT({ name : tn, field_labels : fls, field_types : fts }) => {
+          (j : usize) = usize(0);
+          while(j < fts.len(), {
+            ft := match(fts.get(j), .Some(f) => f, .None => TypeValue.Unit);
+            if(dyn_member_is_method(ft) && dyn_member_unsafe_reason(ft).is_none(), {
+              owned := match(ft, .Func({ meta : m }) => match(m.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => false), _ => false);
+              if(owned, {
+                label := match(fls.get(j), .Some(l) => l, .None => String.from("?"));
+                return(Option(String).Some(`${tn}.${label}`));
+              });
+            });
+            j = (j + usize(1));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    ti = (ti + usize(1));
+  });
+  Option(String).None
 });
 /// True when the trait list names the trait `name`.
 _traits_name :: (fn(tys : &ArrayList(TypeValue), name : str) -> bool)({

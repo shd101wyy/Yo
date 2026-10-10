@@ -6,10 +6,12 @@ This spelling was deleted: a borrow is written with the sigil of the call site.
 A borrow is spelled `x : &T` (read-only) or `x : &mut T` (exclusive) in every slot that holds one: a parameter, a receiver (`self : &Self`), a closure parameter, an `Fn(...)` slot, a local borrow (`y := &place`, `y := &mut place`), a capture list (`{ &y, z : &mut p }`) and the borrowed loop (`for(&mut xs, x => ...)`). The mode words `imm(x)`, `mut(x)` and the older `inout(x)` were deleted (plans/VALUES_BY_DEFAULT.md decision 42), as was `own(x)`, now `sink(x)`. `yo fix <path> --migrate borrow-spelling` rewrites the borrow words in a whole tree, and `yo fix <path> --migrate modes` rewrites `own`.
 
 Example — this fails:
+  { String } :: import("std/string");
   len_of :: (fn(imm(s) : String) -> usize)(s.len());
   export(len_of);
   
 Example — write this instead:
+  { String } :: import("std/string");
   len_of :: (fn(s : &String) -> usize)(s.len());
   export(len_of);
   
@@ -18,9 +20,9 @@ Run 'yo explain --list' for all codes.
 rc=0
 $ yo check main.yo
 error[E0009]: `imm(x)` was deleted: a read-only borrow is spelled `x : &T` (a receiver `self : &Self`, a local one `y := &place`, the borrowed loop `for(&xs, x => ...)`) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it.
-  --> main.yo:1:15
+  --> main.yo:2:15
   |
-1 | len_of :: (fn(imm(s) : String) -> usize)(s.len());
+2 | len_of :: (fn(imm(s) : String) -> usize)(s.len());
   |               ^^^
 help: run `yo explain E0009` for more information
 yo: error: check: 1 file(s) failed evaluator coverage
@@ -29,6 +31,6 @@ check: parsed <PRELUDE_EXPRS> top-level exprs
 check: invoking evaluate_anonymous_module_begin_exprs (prelude)
 check: <REPO>/std/prelude.yo — evaluator OK
 check: parsing main.yo
-check: parsed 3 top-level exprs
+check: parsed 4 top-level exprs
 check: invoking evaluate_anonymous_module_begin_exprs
 rc=1

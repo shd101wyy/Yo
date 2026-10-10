@@ -20,7 +20,7 @@
 { is_boxed_type, is_fn_trait_type, is_function_type, is_void_type, is_pointer_type, is_some_type, is_atomic_reference_struct_type, is_atomic_reference_enum_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { type_key, get_type_string, dyn_slot_param_type_string, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
-{ get_drop_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
+{ get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
 { type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
 _func_val_id :: (fn(v : &EvalValue) -> String)(
@@ -357,6 +357,8 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
   em.emit_declaration_line("");
   keys := _dyn_impl_keys(context);
   nk := keys.len();
+  // The `__yo_dyn_self_copy_<impl>` helpers already emitted (one per impl).
+  self_copies := HashSet(String).new();
   (ki : usize) = usize(0);
   while(ki < nk, {
     impl_key := match(keys.get(ki), .Some(k) => k, .None => String.from(""));
@@ -581,8 +583,38 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                     ac_j = (ac_j + usize(1));
                                   });
                                   ret_cast := if(slot_ret == return_str, String.new(), slot_ret.clone());
-                                  em.emit_declaration_string_line(`static ${slot_ret} ${wrapper}(${params}) {`);
                                   pbp := (match(param_types.get(usize(0)), .Some(p0) => is_pointer_type(p0), .None => false) || match(param_is_ref.get(usize(0)), .Some(r) => r, .None => false));
+                                  // A by-value `self` (`LogicalNot`'s `(!)`, decision 34
+                                  // as amended 2026-10-11) is OWNED by the impl, which
+                                  // drops it at its end, while the Dyn keeps owning its
+                                  // payload: hand the impl a copy, its RC fields
+                                  // incremented, or the call frees what the Dyn still
+                                  // holds (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md).
+                                  // A move-only payload never reaches here: the
+                                  // evaluator rejects boxing it behind a by-value slot.
+                                  // Emitted before the wrapper, whose body follows in
+                                  // the declarations buffer.
+                                  self_owned := match(__fm1.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => false);
+                                  self_concrete := resolve_some_type_to_concrete(impl_entry.concrete_type.clone());
+                                  (self_copy_fn : Option(String)) = Option(String).None;
+                                  if(!pbp && self_owned && type_contains_rc_cell_or_move_only(self_concrete), {
+                                    copy_fn := `__yo_dyn_self_copy_${impl_key}`;
+                                    if(!self_copies.contains(copy_fn.clone()), {
+                                      self_copies.insert(copy_fn.clone());
+                                      self_c := get_type_string(self_concrete.clone(), context.base);
+                                      em.emit_declaration_string_line(`static ${self_c} ${copy_fn}(${self_c} v);`);
+                                      // The dup lowering may emit statements (a value
+                                      // struct's per-field dups) through the CODE
+                                      // buffer, so the helper is defined there.
+                                      em.emit_string_line(`static ${self_c} ${copy_fn}(${self_c} v) {`);
+                                      copy_code := generate_dup_code_for_value(String.from("v"), self_concrete.clone(), context);
+                                      em.emit_string_line(`  return ${copy_code};`);
+                                      em.emit_line("}");
+                                      em.emit_line("");
+                                    });
+                                    self_copy_fn = Option(String).Some(copy_fn);
+                                  });
+                                  em.emit_declaration_string_line(`static ${slot_ret} ${wrapper}(${params}) {`);
                                   (first_arg : String) = String.from("");
                                   if(is_boxed, {
                                     boxed_cname := _boxed_c_name(data_type.clone(), context);
@@ -594,6 +626,13 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                     em.emit_declaration_string_line(`  ${concrete_str} concrete_value = (${concrete_str})self_ptr;`);
                                     first_arg = if(pbp, String.from("&concrete_value"), String.from("concrete_value"));
                                   });
+                                  match(
+                                    self_copy_fn,
+                                    .Some(cf) => {
+                                      first_arg = `${cf}(${first_arg})`;
+                                    },
+                                    .None => ()
+                                  );
                                   // A method whose DEFINITION the generic/comptime skip drops
                                   // (a degraded registered type — the identity family) must not
                                   // be CALLED from the wrapper: the C would reference an

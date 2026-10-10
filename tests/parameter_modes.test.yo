@@ -135,6 +135,40 @@ test("an operator impl writes the trait's imm operands, Copy or not", {
   comptime_expect_error(impl(_PmV, Ord(_PmV)((<) : (fn(lhs : Self, rhs : Self) -> bool)(true), (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(true), (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(true), (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(true))), "as written");
 });
 
+// Decision 34 as amended 2026-10-11 (maintainer directive): the arithmetic,
+// bitwise and unary operator traits take their operands BY VALUE, as Rust's
+// `Add::add(self, rhs)` does; `Eq` and `Ord` keep borrowing. An impl writes
+// the trait's modes, so a borrowing `Add` impl is rejected as written.
+_PmMoney :: struct(c : i32);
+derive(_PmMoney, Copy, Clone);
+impl(_PmMoney, Add(_PmMoney)(Output : _PmMoney, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(_PmMoney(c : (lhs.c + rhs.c)))));
+impl(_PmMoney, Negate(Output : _PmMoney, neg : (fn(self : Self) -> Self.Output)(_PmMoney(c : (i32(0) - self.c)))));
+_PmTag :: struct(s : String);
+impl(_PmTag, Add(_PmTag)(Output : _PmTag, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(_PmTag(s : lhs.s.concat(rhs.s)))));
+test("arithmetic and unary operator impls take their operands by value", {
+  a := _PmMoney(c : i32(2));
+  b := _PmMoney(c : i32(3));
+  sum := (a + b);
+  assert(sum.c == i32(5), "a by-value Add impl is accepted and called");
+  assert(a.c == i32(2), "a Copy operand is copied: a stays usable");
+  neg := -a;
+  assert(neg.c == i32(-2), "a by-value Negate impl is accepted and called");
+  comptime_expect_error(impl(_PmV, Add(_PmV)(Output : _PmV, (+) : (fn(lhs : &Self, rhs : &Self) -> Self.Output)(_PmV(n : (lhs.n + rhs.n))))), "as written");
+  comptime_expect_error(impl(_PmMoney, Eq(_PmMoney)((==) : (fn(lhs : Self, rhs : Self) -> bool)(lhs.c == rhs.c))), "as written");
+});
+
+test("a by-value operator copies a counted operand", {
+  x := _PmTag(s : String.from("ab"));
+  y := _PmTag(s : String.from("cd"));
+  z := (x + y);
+  assert(z.s == "abcd", "the impl owned both operands");
+  assert((x.s == "ab") && (y.s == "cd"), "the operands' strings were shared, not freed");
+  s := String.from("he");
+  t := (s + String.from("llo"));
+  assert(t == "hello", "String's by-value (+)");
+  assert(s == "he", "s survives as the left operand");
+});
+
 test("imm parameters borrow", {
   s := String.from("hello");
   assert(_pm_len(s) == usize(5), "a bare argument to an imm parameter is a borrow");
@@ -235,8 +269,9 @@ test("a marker that does not fit the parameter is an error", {
   comptime_expect_error(addr_of(c), "not available in safe code");
 });
 
-// Decision 34's Dyn test: `LogicalNot`'s `(!)` takes `self` and returns
-// `bool`, so it has a vtable slot; a by-value impl is reached through it
+// Decision 34's Dyn test: `LogicalNot`'s `(!)` takes `self` by value (as
+// amended 2026-10-11) and returns `bool`, so it has a vtable slot; a by-value
+// impl is reached through it
 // (issues/fixed/a-dyn-over-an-operator-trait-emits-an-invalid-c-wrapper-name.md).
 _PmFlag :: struct(on : bool);
 derive(_PmFlag, Copy, Clone);
@@ -246,6 +281,33 @@ test("Dyn(LogicalNot) over a by-value operator impl", {
   assert(!!d, "!d negates through the Dyn");
   (e : Dyn(LogicalNot)) = dyn(_PmFlag(on : false));
   assert(!e, "!e negates through the Dyn");
+});
+
+// The vtable wrapper hands a by-value `self` a copy of the payload, its
+// counted fields incremented: the impl drops its copy and the Dyn keeps the
+// original. A move-only payload has no copy, so it cannot be boxed behind a
+// by-value slot at all
+// (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md).
+_PmNamed :: struct(name : String);
+impl(_PmNamed, LogicalNot((!) : (fn(self : Self) -> bool)(self.name.len() == usize(0))));
+_PmHeld :: struct(n : i32);
+impl(
+  _PmHeld,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g_pm_disposed = (g_pm_disposed + i32(1));
+    })
+  )
+);
+impl(_PmHeld, LogicalNot((!) : (fn(self : Self) -> bool)(self.n == i32(0))));
+test("a by-value self called through a Dyn gets a copy of the payload", {
+  (e : Dyn(LogicalNot)) = dyn(_PmNamed(name : String.from("abc")));
+  assert(!!e, "first call: the name is non-empty");
+  assert(!!e, "second call reads the payload the first call did not free");
+  assert(!!e, "third call");
+  comptime_expect_error({
+    (_h : Dyn(LogicalNot)) = dyn(_PmHeld(n : i32(1)));
+  }, "cannot hold the move-only");
 });
 
 // Passing a function value checks its type against a function-typed
