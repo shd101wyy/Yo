@@ -136,6 +136,23 @@ with auto-deref on `.`, `FnMut`. It unlocks zero-copy views, borrowing
 iterators, the entry API, guards, `Cow` and parser remainders, keeps
 mutable value semantics for owned values, and rejects named regions and
 origins. Its own phase after decision 42's Generation B and V2b.
+[`LIFETIME_REPLACEMENT_PATTERNS`](backlog/LIFETIME_REPLACEMENT_PATTERNS.md)
+is the toolbox companion to the catalog (2026-10-10): the complete
+inventory of mechanisms that cover a lifetime's three jobs — express
+within a frame (the reference machinery R1–R7), store beyond it
+(own/share/index/cursor/Cow/frozen/runtime-handle/move, with the
+"indices for storage, borrows for access" maxim), verify (freeze and
+exclusivity, summaries, `RefCell` marks, bounds + generations, the
+collector, verifier proofs), and six structural rewrites (split by root,
+build-then-freeze, arena-per-phase, collect-then-apply, own-the-sink,
+store-inputs-re-derive-views) — plus a need→pattern selection table and
+the four-item boundary no pattern covers (the untyped arena-outlives-ids
+invariant, slot reuse without generational ids, stored exclusivity, and
+the one multi-root-beyond-frame-compile-time shape that is decision 43's
+recorded `generic(r : Region)` trigger). It opens with the position
+statement — everything safe Rust computes, safe Yo computes with the
+same memory safety; the differences are where the checking happens and
+what sharing costs, not what is computable.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
