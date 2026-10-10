@@ -1219,7 +1219,7 @@ _msp_place_base_atom :: (fn(e : &AstExpr) -> Option(AstExpr))({
 /// purpose: `_MsP.classify` answers NONE for an inert (value-typed) parameter
 /// because the aliasing analysis only cares about RC storage, but rule D3
 /// (plans/reference/PARALLELISM_RULES.md) asks "may the callee WRITE through
-/// this parameter at all", and a value-field store through `inout(self) :
+/// this parameter at all", and a value-field store through `self : &mut
 /// Counter` is exactly the plain-memory race it exists to catch. A local that
 /// shadows a parameter's name over-approximates (an extra shallow hit), which
 /// is the safe direction.
@@ -2224,7 +2224,7 @@ impl(
       },
       _ => ()
     );
-    // Declarations: `name := rhs`, `inout(name) := place`, `(a, b) := rhs`.
+    // Declarations: `name := rhs`, `name := &mut place`, `(a, b) := rhs`.
     if(((head == ":=") || (head == "::")) && (args.len() == usize(2)), {
       lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
       rhs := match(args.get(usize(1)), .Some(r) => r, .None => e);
@@ -2259,7 +2259,7 @@ impl(
       lhs := match(args.get(usize(0)), .Some(l) => l, .None => e);
       rhs := match(args.get(usize(1)), .Some(r) => r, .None => e);
       _MsP.collect(rhs, ctx);
-      // A local borrow re-point `mut(cur) = place` (decision 25): `cur`
+      // A local borrow re-point `cur = &mut place` (decision 25): `cur`
       // aliases the new place too (the join keeps every target it had).
       match(
         lhs,

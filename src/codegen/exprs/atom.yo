@@ -9,7 +9,7 @@
 //!     `sm->__capture` block, and the async-completion `return`) — Phase 5;
 //!     gated by `in_async_state_machine` (false for the corpus) and replaced
 //!     with a phase-marker panic.
-//!   * `inout(name) : T` params and `inout(name) := place` locals read as
+//!   * `name : &mut T` params and `name := &mut place` locals read as
 //!     `(*name)` (`_var_read_code`, keyed on `Variable.is_ref`).
 //!   * The `value.type.isClosure` fallback closure-detection (Gap 2: FuncVal
 //!     carries no TypeValue) is omitted.
@@ -495,7 +495,7 @@ _scope_var_is_ref :: (fn(key : ExprId, name : &String, env_opt : &Option(Environ
   )
 );
 /// Resolve a plain identifier read to its C code: the variable's C name, wrapped
-/// in `(*name)` when the binding is a by-`ref` borrow (`inout(name) : T` param — at
+/// in `(*name)` when the binding is a by-`ref` borrow (`name : &mut T` param — at
 /// the C level `name` is `T*`, so a read dereferences). The deref here means a by-ref RECEIVER passed/used as a value
 /// (e.g. `String.from(self)` in str.to_string) reads `(*self)`, not the raw pointer.
 _var_read_code :: (fn(key : ExprId, tv : &String, env_opt : &Option(Environment)) -> String)({
@@ -662,7 +662,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
       _generate_sm_atom(expr, tv.clone(), context),
       .Some(sm_out) => {
         code := _sm_consuming_read(expr, tv.clone(), sm_out, context);
-        // A by-ref binding (`inout(y) := x`) in a slot holds the pointer; a
+        // A by-ref binding (`y := &mut x`) in a slot holds the pointer; a
         // read or a write through it dereferences it, as `_var_read_code`
         // does for a C local.
         // A `mut` match's place binding (decision 26) is a shadowed C local
@@ -781,8 +781,8 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
     .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
   )
 });
-/// Whether `name` read at `expr` is a by-ref binding (`inout(name) := x`,
-/// or an `inout(name) : T` parameter): its C value is a pointer.
+/// Whether `name` read at `expr` is a by-ref binding (`name := &mut x`,
+/// or a `name : &mut T` parameter): its C value is a pointer.
 _is_ref_binding :: (fn(expr : &AstExpr, name : &String, context : &FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(expr),

@@ -3443,7 +3443,7 @@ _materialize_default_body :: (
 /// Reads and advances the impl env through `st.env`.
 /// `actual` with its receiver's mode taken from `expected`. An impl may spell
 /// a trait method's receiver in any of the forms `docs/en-US/DYN_DESIGN.md`
-/// lists (`self : Self`, `inout(self) : Self`, ...): the call site adapts to
+/// lists (`self : Self`, `self : &mut Self`, ...): the call site adapts to
 /// the impl's own signature, and a Dyn vtable slot goes through a wrapper.
 /// Every OTHER parameter's mode is part of the member's type
 /// (plans/reference/TYPE_IDENTITY.md), so conformance compares those.
@@ -3491,7 +3491,7 @@ _plain_param_label_atom :: (fn(p : &AstExpr) -> Option(AstExpr))({
     return(Option(AstExpr).None);
   });
   (lbl : AstExpr) = match(_fn_args_of(cur).get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  // `comptime(lhs) : T` becomes `comptime(imm(lhs)) : T`: the mode sits
+  // `comptime(lhs) : T` becomes `comptime(lhs) : &T`: the mode sits
   // inside the binding time.
   if(ast_expr_is_fn_call_of(lbl, BK_COMPTIME, Option(usize).Some(usize(1))), {
     lbl = match(_fn_args_of(lbl).get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -5525,7 +5525,7 @@ evaluate_module_value :: (
                           // body's `p` vs `(*p)` from `Variable.is_ref` on the
                           // binding the body's atoms record. Binding the
                           // params here with `is_ref` unset made every
-                          // `inout(self)` default body read `self.field` on a
+                          // `self : &mut Self` default body read `self.field` on a
                           // pointer and pass `&(self)` — a `T**` — to sibling
                           // methods (issues/fixed/trait-default-inout-self-bound-by-value.md).
                           d_p_is_ref := match(

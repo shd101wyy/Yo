@@ -176,8 +176,8 @@ E_BORROW_ESCAPES :: "E0909";
 /// (decisions 18, 28, 38 B).
 E_BORROW_CONFLICT :: "E0910";
 
-/// An access that conflicts with a live local borrow (`imm(y) := place`,
-/// `mut(y) := place`): the borrowed place, a place containing it or a place it
+/// An access that conflicts with a live local borrow (`y := &place`,
+/// `y := &mut place`): the borrowed place, a place containing it or a place it
 /// contains is written or moved while an `imm` borrow is live, or accessed at
 /// all while a `mut` borrow is live; a borrow of a module-level place whose
 /// live range contains a call; a borrow through a reference cell or a
@@ -190,7 +190,7 @@ E_BORROW_CONFLICT :: "E0910";
 /// 38 A/B); the local-borrow rules take E0911/E0912, so both branches merge
 /// without a collision.
 E_LOCAL_BORROW_CONFLICT :: "E0911";
-/// A local borrow (`imm(y) := place`, `mut(y) := place`) crosses the function
+/// A local borrow (`y := &place`, `y := &mut place`) crosses the function
 /// boundary as the function's result: `return(y)` names the borrow, or the
 /// body's result chain ends in it (a block tail that yields one). A borrow is
 /// second-class — no return, store, escaping capture or spawn (decision 18

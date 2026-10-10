@@ -775,12 +775,12 @@ _compat_impl :: (
           return(false);
         });
         // Parameter modes and implicit parameters are part of a fn type
-        // (plans/reference/TYPE_IDENTITY.md): `fn(inout(x) : i32)` takes an
+        // (plans/reference/TYPE_IDENTITY.md): `fn(x : &mut i32)` takes an
         // `int32_t*` and `fn(x : i32)` an `int32_t`, `own(x)` moves where a
         // plain parameter borrows, and a `using(...)` parameter is one more C
         // argument. Treating them as one type let a by-reference function
         // stand where a by-value one was expected, and let the CTFE memo hand
-        // `Wrap(fn(inout(x) : i32) -> unit)` the by-value instance (a SIGSEGV,
+        // `Wrap(fn(x : &mut i32) -> unit)` the by-value instance (a SIGSEGV,
         // issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
         if(ameta.*.result_is_ref != emeta.*.result_is_ref, {
           return(false);
@@ -1539,7 +1539,7 @@ _compat_impl :: (
         // Parameter modes are part of the call signature, as they are of a
         // `fn(...)` type (the `.Func` arm above): a closure typed
         // `Fn(s : String)` owns and drops its argument, so it cannot stand
-        // where `Fn(imm(s) : String)` lends one. Judged when both carriers
+        // where `Fn(s : &String)` lends one. Judged when both carriers
         // record every flag (a closure type no `Fn(...)` was written for
         // records none).
         if((arefs.len() == apts.len()) && (erefs.len() == epts.len()) && (aowns.len() == apts.len()) && (eowns.len() == epts.len()), {

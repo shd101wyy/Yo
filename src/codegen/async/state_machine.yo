@@ -290,7 +290,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
             .Some(v) => _lv_declare(_lv_id(v, w), name.clone(), _lv_span_end(rhs.clone(), w), block_end, w),
             .None => ()
           );
-          // `inout(name) := place`: `name` points into the place's root, so the
+          // `name := &mut place`: `name` points into the place's root, so the
           // root keeps its storage to the end of its scope, and so does the
           // hidden local that pins the place's object.
           if(ast_expr_is_local_borrow_mode_call(lhs.clone(), Option(usize).Some(usize(1))), {
@@ -400,7 +400,7 @@ _lv_walk :: (fn(e : &AstExpr, stmt_end : u64, block_end : u64, w : &_LiveWalk, c
             );
           });
         },
-        // `&x` / `inout(y) := x`: a pointer to the local can outlive any use
+        // `&x` / `y := &mut x`: a pointer to the local can outlive any use
         // of its name, so it lives to the end of its scope.
         ast_expr_is_address_of_call(e.clone(), Option(usize).Some(usize(1))) => {
           match(

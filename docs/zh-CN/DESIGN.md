@@ -679,7 +679,7 @@ bump :: (fn(x : &mut i32) -> unit)({
 
 在这一代中，`&T` 与 `&mut T` 是位置所写的借用**模式**，而不是类型：它们加在参数、接收者（`self : &Self`、`self : &mut Self`）、闭包参数（`(v : &T) => ...`）或带标签的 `Fn` 位置（`Fn(v : &T) -> R`；不接受无标签的 `Fn(&T)`）的类型之前。在类型单独出现的任何地方（`T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T`、`&&T`），借用符号都是错误，"a borrow mode, not a type"。函数也不能返回借用（`-> &T` 需要投影，而投影尚未实现）。
 
-旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 之前仍可解析，与新写法完全同义（决定 42）：标准库和编译器在下一个 seed 之前继续使用它。`yo fix <path> --migrate borrow-spelling` 会把整棵树改写为借用符号写法。
+旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；`yo fix <path> --migrate borrow-spelling` 会把整棵树改写为借用符号写法。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
 
 ### 调用处的借用标记
 

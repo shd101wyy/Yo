@@ -1132,7 +1132,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
               src_self := is_self_named_atom(expr, src_vn.clone());
               src_c_name := get_variable_name_for_codegen_at(ast_expr_id(expr), src_vn.clone(), Option(Environment).Some(ei.env));
               src_deref_read := `(*${src_c_name})`;
-              // A by-`ref` binding (`inout(name) : T`) READS as `(*name)` while
+              // A by-`ref` binding (`name : &mut T`) READS as `(*name)` while
               // its recorded `variable_name` is the bare `name`. The
               // spellings-differ test below then declared `T name = (*name);`,
               // which shadows the C PARAMETER in its own scope — clang rejects

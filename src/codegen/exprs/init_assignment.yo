@@ -199,7 +199,7 @@ _emit_destructurings :: (fn(destructurings : &ArrayList(RuntimeDestructuring), r
   });
 });
 /// Initialization assignment.
-/// `inout(name) := place;` → `T* name = &(place);` (+ the owner pin).
+/// `name := &mut place;` → `T* name = &(place);` (+ the owner pin).
 /// Evaluator twin: `_evaluate_inout_local_binding`
 /// (evaluator/exprs/initialization_assignment.yo) — it has already rejected
 /// every shape this cannot lower (rvalues, index/deref places, module level,
@@ -359,7 +359,7 @@ _is_c_lvalue_chain :: (fn(code : &String) -> bool)({
   });
   depth == i32(0)
 });
-/// `imm(cur) = place` / `mut(cur) = place` → `cur = &(place);`, after the
+/// `cur = &place` / `cur = &mut place` → `cur = &(place);`, after the
 /// step through a reference cell when there is one (plans/VALUES_BY_DEFAULT.md
 /// decision 25): `T* tmp = <dup(cell)>; <drop(step_pin)>; step_pin = tmp;`. The
 /// new cell is taken before the old one is released, since the old cell may
@@ -514,8 +514,8 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
               rhs_expr_code := _call_generate_expr(rhs, indent.clone(), context);
               // The spill below exists for an Rc/temp RHS that has to be
               // materialized before the array copy. A PLAIN read of an existing
-              // variable needs none — and a by-`ref` binding (`inout(self) :
-              // Self` on a value-typed receiver) reads as `(*self)` while its
+              // variable needs none — and a by-`ref` binding (`self : &mut Self`
+              // on a value-typed receiver) reads as `(*self)` while its
               // recorded `variable_name` is the bare `self`, so the
               // spellings-differ test fired and declared a second local carrying
               // the C PARAMETER's own name: `Array_int32_t_3 self = (*self);`,

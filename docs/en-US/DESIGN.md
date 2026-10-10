@@ -694,7 +694,7 @@ The one exception is the receiver of an `impl` member: a trait method declared w
 
 `&T` and `&mut T` are borrow **modes** a slot spells, not types, in this generation: they prefix the type of a parameter, a receiver (`self : &Self`, `self : &mut Self`), a closure parameter (`(v : &T) => ...`) or a labeled `Fn` slot (`Fn(v : &T) -> R`; an unlabeled `Fn(&T)` is not accepted). Anywhere a type stands on its own (`T :: &i32`, `ArrayList(&T)`, `Option(&T)`, a struct field `f : &T`, `&&T`) the sigil is an error, "a borrow mode, not a type". A function cannot return a borrow either (`-> &T` needs projections, which are not implemented).
 
-The older word spelling (`imm(x) : T`, `mut(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) still parses as an exact synonym until Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): the standard library and the compiler keep it until the next seed. `yo fix <path> --migrate borrow-spelling` rewrites a tree to the sigil spelling.
+The older word spelling (`imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `mut(self) : Self`, `imm(y) := place`, `for(xs, mut(x) => ...)`) was deleted in Generation B of the [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md) (decision 42): it is error E0009, which names the sigil spelling, and `yo fix <path> --migrate borrow-spelling` rewrites a tree to it. `imm` is an ordinary identifier; `mut` stays reserved and appears only after `&`.
 
 ### Call-site borrow markers
 

@@ -852,7 +852,7 @@ Rules:
 
 `plans/VALUES_BY_DEFAULT.md` V3b (decisions 30 and 33) and decision 42 (the sigil spelling). The flip has landed (a plain parameter is by value), and Generation B step 3 deleted `inout`, `own` and `&x` as the address-of. `sink` stays until each kind's values-by-default phase makes plain move it.
 
-**Old spelling.** Decision 42 Generation A spells every borrow with the sigils of the call site. The old mode words (`imm(x) : T`, `mut(x) : T`, `imm(self) : Self`, `mut(y) := place`, `{ imm(y) }` captures, `for(xs, mut(x) => …)`) still parse, only because `std/` and `src/` keep them until Generation B (on the next seed); write the new spelling in new code. `yo fix <path> --migrate borrow-spelling` rewrites a tree. `mut` is a reserved word (a binding or parameter named `mut` is an error); `imm` is no longer a keyword.
+**Old spelling.** Decision 42 spells every borrow with the sigils of the call site, and Generation B deleted the mode words: `imm(x) : T`, `mut(x) : T`, `inout(x) : T`, `imm(self) : Self`, `-> imm(T)`, `mut(y) := place`, `{ imm(y) }` captures and `for(xs, mut(x) => …)` are error E0009, which names the sigil spelling. `yo fix <path> --migrate borrow-spelling` rewrites a tree. `mut` is a reserved word (a binding or parameter named `mut` is an error); `imm` is an ordinary identifier.
 
 | Spelling | Means | Notes |
 | --- | --- | --- |
@@ -869,7 +869,7 @@ Rules:
 | `f(&x)` | lends `x` to a `&T` param, a generic one included | to a by-value (plain or `sink`) param: an error naming `x` / `x.clone()`; to a `*(T)` param: an error naming `addr_of(x)`; to a `&mut T` param: an error naming `&mut x` |
 | `match(&x, …)`, `match(&mut x, …)` | (decision 26) a borrowing / `&mut`-place match | the desugar peels the marker and records it (`borrowed_match_scrutinee_kind`); a bare scrutinee is taken BY VALUE (see "How a `match` takes its scrutinee" below) |
 | `addr_of(x)` | the raw-pointer address-of → `*(T)` | unsafe-capable files only. `&x` anywhere that is not a lending argument, scrutinee, local borrow or capture entry (a field store, a receiver `(&x).m()`, a variadic C argument) is an error naming `addr_of(x)` |
-| `inout(x)`, `own(x)` | (deleted) | an error naming `x : &mut T` / `sink(x)`; `yo fix <path> --migrate modes` rewrites old code, and `yo fix <path> --migrate addr-of` rewrites an old address-of `&x` (it evaluates the code, so a lending `&x` stays) |
+| `imm(x)`, `mut(x)`, `inout(x)`, `own(x)` | (deleted) | E0009 naming `x : &T` / `x : &mut T` / `sink(x)`; `yo fix <path> --migrate borrow-spelling` (the borrow words) and `--migrate modes` (`own`) rewrite old code, and `yo fix <path> --migrate addr-of` rewrites an old address-of `&x` (it evaluates the code, so a lending `&x` stays) |
 | `size_of`, `align_of`, `type_of`, `type_id` | (deleted in Generation B) `sizeof`, `alignof`, `typeof`, `typeid` | the only spellings; `std/term.yo`'s `size_of` became `term_size` |
 
 There is no mismatch error for a BARE argument yet (`show(s)` to a `&T` parameter stays legal); a later step turns decision 33's error on. An unannotated lambda param (`(lhs, rhs) => …`) takes its mode from the expected `Fn` type; an annotated one spells it (`(v : &mut i32) => …`). Not yet: a borrow result `-> &T` / `-> &mut T` (rejected: projections, decision 24, are not implemented), and unlabeled fn-type params: `fn` and `Fn` parameters always need labels (`Fn(s : &String) -> usize`, never `Fn(&String)`), so the mode prefixes the labelled parameter's type.

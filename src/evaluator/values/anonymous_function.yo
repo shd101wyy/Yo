@@ -905,7 +905,7 @@ _evaluate_capture_list :: (
     // argument.
     // `y : &p` / `z : &mut p` reach here as `imm(y) : &p` / `mut(z) : &mut
     // p` (the parse-time rewrite of decision 42), so the sigil decides the
-    // mode; an old-spelling `imm(y) : e` without one is an error.
+    // mode; an old-spelling `y : &e` without one is an error.
     if(is_borrow && !is_pun && !_is_borrow_sigil(init_e, is_mut), {
       want := if(is_mut, String.from("&mut "), String.from("&"));
       _cap_list_error(ctx, exn, ast_expr_token(init_e), `A borrow capture's initializer is a place under its sigil (\`${label} : ${want}place\`, or the pun \`${want}${label}\`); got \`${ast_expr_to_string(init_e)}\`.`);
@@ -1236,8 +1236,8 @@ evaluate_anonymous_function_implementation :: (
     .Func({ param_types : pt }) => pt,
     _ => ArrayList(TypeValue).new()
   );
-  // The expected type's per-param ref-ness. A `inout(self) : Self` trait-method
-  // param (e.g. Clone's `clone : fn(inout(self) : Self) -> Self`) makes `self` a
+  // The expected type's per-param ref-ness. A `self : &mut Self` trait-method
+  // param (e.g. Clone's `clone : fn(self : &mut Self) -> Self`) makes `self` a
   // C pointer; the body's `self.field` read must dereference it (`(*self).field`,
   // emitted by generate_atom on an is_ref binding). add_variable_to_env can't set
   // is_ref, so we stamp it onto the bound variable below — matching the
@@ -2482,7 +2482,7 @@ Result type: ${type_to_string(decl_result_ty)}`
                 //
                 // REBUILD from `corrected_func_type`'s meta, do NOT use
                 // t_func_simple — its default meta drops `param_is_ref`, and a
-                // closure typed against `Impl(Fn(inout(v) : T) -> R)` then
+                // closure typed against `Impl(Fn(v : &mut T) -> R)` then
                 // re-registered with the flags erased binds `v` BY VALUE in
                 // the specialized body eval (the sync/mutex with_lock
                 // write-through arm: `v = i32(99)` FTT'd and `return v`

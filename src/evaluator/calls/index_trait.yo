@@ -468,7 +468,7 @@ _find_index_method :: (
                       ret_ty := result_box;
                       // self must be a pointer type OR a `ref` parameter —
                       // both `(self : *(Self), ...)` and the modern
-                      // `(inout(self) : Self, ...)` shape are accepted.
+                      // `(self : &mut Self, ...)` shape are accepted.
                       p0_is_ptr := is_pointer_type(p0);
                       p0_is_ref := match(
                         param_is_ref.get(usize(0)),
@@ -1001,7 +1001,7 @@ _specialize_index_method :: (
 // _find_comptime_index_method
 // ---------------------------------------------------------------------------
 /// Find a ComptimeIndex `index` method for a type. Same signature shape as
-/// `_find_index_method` — `(self : *(Self) | inout(self) : Self, idx : ArgType)
+/// `_find_index_method` — `(self : *(Self) | self : &mut Self, idx : ArgType)
 /// -> *(Output)` — but BOTH parameters must carry the `comptime(...)` modifier.
 ///
 /// `TypeValue.Func` / `FuncMeta` carry NO per-parameter comptime bit (only

@@ -439,4 +439,44 @@ test("a mut place's writing method writes the scrutinee's part", {
     .None => ()
   );
   assert(match(&ol, .Some(xs) => xs.len(), .None => usize(0)) == usize(2), "pushed in place, twice");
+
+test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
+  comptime_expect_error((fn(imm(s) : String) -> usize)(s.len()), "`imm(x)` was deleted: a read-only borrow is spelled `x : &T`");
+  comptime_expect_error(
+    (fn(mut(n) : i32) -> unit)({
+      n = i32(1);
+    }),
+    "`mut(x)` was deleted: an exclusive borrow is spelled `x : &mut T`"
+  );
+  comptime_expect_error((fn(comptime(imm(n)) : i32) -> i32)(n), "`imm(x)` was deleted");
+  comptime_expect_error((fn(f : Impl(Fn(imm(v) : String) -> usize)) -> unit)(()), "`imm(x)` was deleted");
+  comptime_expect_error(((imm(v) : String) => v.len()), "`imm(x)` was deleted");
+  comptime_expect_error((fn(s : String) -> imm(String))(s), "`imm(x)` was deleted");
+  (_c : i32) = i32(0);
+  comptime_expect_error({
+    imm(y) := _c;
+  }, "`imm(x)` was deleted");
+  comptime_expect_error({
+    mut(y) := _c;
+  }, "`mut(x)` was deleted");
+  comptime_expect_error({
+    y := &mut _c;
+    mut(y) = _c;
+  }, "`mut(x)` was deleted");
+  comptime_expect_error(({ imm(_c) }() => i32(1)), "`imm(x)` was deleted");
+  comptime_expect_error(({ mut(z) : &mut _c }() => i32(1)), "`mut(x)` was deleted");
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  comptime_expect_error(
+    for(xs, mut(x) => {
+      x = i32(2);
+    }),
+    "`for(coll, mut(x) => ...)` was deleted"
+  );
+  assert(xs(usize(0)) == i32(1), "nothing was written");
+});
+
+test("imm is an ordinary identifier", {
+  (imm : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + i32(1)));
+  assert(imm(i32(1)) == i32(2), "a closure named imm is called");
 });

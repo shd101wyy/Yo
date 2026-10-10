@@ -40,7 +40,7 @@ FuncMeta :: struct(
   /// CTFE; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
   /// `should_cache` use it to route type-constructor calls through memoization.
   result_is_comptime_only : bool,
-  /// Per-parameter `ref` flags (parallel to param labels/types). `inout(name):T`
+  /// Per-parameter `ref` flags (parallel to param labels/types). `name : &mut T`
   /// = by-reference borrow. Used by
   /// `is_flowable_expr` (the `inout(T)`-flow soundness check).
   param_is_ref : ArrayList(bool),
@@ -48,7 +48,7 @@ FuncMeta :: struct(
   /// Rc value. Used by
   /// `require_ref_own_argument_exclusivity`.
   param_is_owning : ArrayList(bool),
-  /// True when the return was declared `-> inout(T)`.
+  /// True when the return was declared `-> &mut T`.
   /// `is_flowable_expr` requires a flowable return.
   result_is_ref : bool,
   /// True when the param list ends with a `...` variadic marker (C-style
@@ -355,11 +355,11 @@ TypeValue :: ref(
       /// Per-call-param `inout` flags, parallel to `call_param_labels`. The
       /// call signature is FLATTENED into the variant, and dropping this
       /// flag made a closure typed against
-      /// `Impl(Fn(inout(v) : T) -> R)` bind `v` BY VALUE (the sync/mutex
+      /// `Impl(Fn(v : &mut T) -> R)` bind `v` BY VALUE (the sync/mutex
       /// `with_lock` write-through failure). Empty = all by-value.
       call_param_is_ref : ArrayList(bool),
       /// Per-call-param BY-VALUE flags (V3b's flip, decision 30): a plain
-      /// `Fn(x : T)` parameter is by value, `Fn(imm(x) : T)` borrows, like a
+      /// `Fn(x : T)` parameter is by value, `Fn(x : &T)` borrows, like a
       /// `fn` type's `param_is_owning`. Empty = none by value (a closure type
       /// synthesized without a written `Fn(...)`).
       call_param_is_owning : ArrayList(bool)

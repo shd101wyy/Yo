@@ -304,7 +304,7 @@ _require_dyn_traits_implemented :: (
   );
   // A FUNCTION payload is called through the `Dyn(Fn(...))`'s call
   // signature, so its own must be that one, modes included: a by-value
-  // `fn(s : String)` behind a `Dyn(Fn(imm(s) : String) -> usize)` would drop
+  // `fn(s : String)` behind a `Dyn(Fn(s : &String) -> usize)` would drop
   // what every caller only lends. A `fn(...)` value is judged on its whole
   // signature (the `Fn`-trait satisfaction rule); a closure, whose literal
   // adopts the Dyn's signature, on its modes
@@ -468,7 +468,7 @@ _require_send_dyn_methods_reach_no_global :: (
 });
 /// Monomorphize a trait `?=`-default method FuncVal to a concrete receiver.
 /// The registered default is GENERIC over `Self` (e.g. `Error.source ?= (self)
-/// -> .None`, typed `fn(inout(self):Self) -> Option(Dyn(SelfTrait))`); codegen
+/// -> .None`, typed `fn(self : &mut Self) -> Option(Dyn(SelfTrait))`); codegen
 /// skips its generic body (→ undeclared dyn wrapper `fn_..._source`, the stage-2
 /// Error.source cluster). Route it through `create_specialized_function_inline`
 /// with `ctx.self_type = value_type` so `Self` in the body/return resolves to the

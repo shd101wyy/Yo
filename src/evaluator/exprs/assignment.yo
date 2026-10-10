@@ -446,7 +446,7 @@ _is_v2_value_collection_type :: (fn(t : &TypeValue) -> bool)(
     _ => false
   )
 );
-/// E0908 for the `inout` arguments of one call, the `inout(self)` receiver of
+/// E0908 for the `inout` arguments of one call, the `self : &mut Self` receiver of
 /// a method call included: the callee writes the place, so a place rooted in
 /// a borrowed binding (a by-value parameter, a `match`/`for` binding) is the
 /// same write-through-borrow as an assignment into it. A write there lands in
@@ -753,13 +753,13 @@ d3_record_inout_place :: (
 });
 /// D3 (`plans/reference/PARALLELISM_RULES.md`): an `inout` binding rooted in an
 /// atomic object is a data race iff the callee may WRITE through that
-/// parameter. `inout(self)` is also Yo's plain by-reference receiver
+/// parameter. `self : &mut Self` is also Yo's plain by-reference receiver
 /// (`ToString`, `Hash`, `Sender.clone`, ...), so "every inout is a write" would
 /// reject printing an `Arc`'s value; the per-parameter mutation mask of
 /// `effects/mutation_summary.yo` (a MAY-analysis: a field/index store, an RC
 /// decrement, a mutating callee, or anything unresolvable) is what decides.
 /// A callee defined in a pragma'd file is the audited base
-/// (`std/sync`'s `inout(self)` methods write only through atomics or locks)
+/// (`std/sync`'s `self : &mut Self` methods write only through atomics or locks)
 /// and is trusted. The summary target is the specialization when one exists.
 d3_check_pending :: (
   fn(pending : &ArrayList(D3PendingInout), callee_fid : &String, callee_body : &AstExpr, ctx : &EvalContext, exn : &Exception) -> unit
@@ -870,7 +870,7 @@ d3_check_pending :: (
 /// D3 (`plans/reference/PARALLELISM_RULES.md`): a place rooted in an atomic
 /// object may not be WRITTEN in a file without `pragma(Pragma.AllowUnsafe)` —
 /// as the target of `=` (field or index), as an `inout` argument, or as the
-/// receiver of an `inout(self)` method. `how` names the write for the message
+/// receiver of a `self : &mut Self` method. `how` names the write for the message
 /// ("write to field of", "pass an inout argument rooted in", ...). The
 /// assignment arm below and the two argument-binding sites in `calls/`
 /// (helper.yo, function.yo) all go through here so the three spellings of one
@@ -1798,7 +1798,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     if(!is_flowable_expr(rhs_evaled, ctx, assign_flow_opts), {
       viol_msg := `Assigning to '${variable_name}' (type '${type_to_string(variable.ty)}') a value that carries a raw pointer in its representation; the value must be rooted in storage that outlives '${variable_name}'. The assigned expression is not flowable:\n  ${ast_expr_to_string(rhs)}`;
       // Flag the violation so a def-time trial-eval swallow re-raises it via the
-      // real `exn` (function_type.yo), mirroring the `inout(name) :=` binding-site.
+      // real `exn` (function_type.yo), mirroring the `name := &mut place` binding-site.
       viol_err := format_error_message(ast_expr_token(rhs), viol_msg);
       flag_flow_violation(viol_err);
       exn.throw(dyn(viol_err));
@@ -1928,7 +1928,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // A closure bound to an `Impl(Fn(...))` slot keeps its own call
   // signature, so its modes must be the slot's: a closure typed
   // `Fn(t : String)` owns and drops its argument, and a call through
-  // `Impl(Fn(imm(t) : String) -> usize)` only lends one
+  // `Impl(Fn(t : &String) -> usize)` only lends one
   // (`function_value_slot_mismatch`, the rule a call argument meets).
   match(
     function_value_slot_mismatch(variable.ty, rhs_type),

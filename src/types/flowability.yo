@@ -50,7 +50,7 @@
 :: import("./utils.yo");
 /// A 1-element mutable box holding the error thrown during a swallowed
 /// def-time body eval when it is a deliberate REJECTION (a flow-soundness
-/// `inout(name) := …` non-flowable RHS, an argument that does not fit its
+/// `name := &mut …` non-flowable RHS, an argument that does not fit its
 /// parameter, …), not an unported-feature eval error.
 /// `_trial_eval_fn_body`'s handler cannot capture the real outer `exn` (effect
 /// handlers are capture-free `->` functions), so instead: the raise site flags
@@ -634,7 +634,7 @@ _place_root_atom :: (fn(expr_in : &AstExpr) -> Option(AstExpr))({
 /// Call-site ref/own exclusivity (v4, plans/archive/BORROW_EXCLUSIVITY.md):
 /// within ONE call, an argument bound to an `own(...)` parameter must
 /// not be (or alias) the root of another argument bound to a `inout(...)`
-/// parameter. `f(h.s, h)` with `f :: fn(inout(x) : String, own(victim) :
+/// parameter. `f(h.s, h)` with `f :: fn(x : &mut String, own(victim) :
 /// Holder)` moves the caller's count into the callee, which can release
 /// it while `x` still points into the object — a use-after-free no
 /// same-scope gate can see. A by-value argument overlapping an `inout` one is

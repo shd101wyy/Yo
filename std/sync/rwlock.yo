@@ -12,7 +12,7 @@
 //!   rule. Do NOT assign to the parameter: that currently degenerates in the
 //!   evaluator (see
 //!   issues/assign-to-by-value-closure-param-under-generic-result-types-unit.md).
-//! - `with_write(body)` binds `mut(v) : T`, so writes land in the protected
+//! - `with_write(body)` binds `v : &mut T`, so writes land in the protected
 //!   cell.
 //!
 //! The private `__RwLockReadUnlocker` / `__RwLockWriteUnlocker` objects
@@ -160,7 +160,7 @@ impl(
     body(self._value)
   }),
   /// Run `body` under an EXCLUSIVE acquisition. No other reader or writer can
-  /// be inside the lock. `body` receives `mut(v) : T`, so its writes land in
+  /// be inside the lock. `body` receives `v : &mut T`, so its writes land in
   /// the protected cell.
   with_write : (
     fn(

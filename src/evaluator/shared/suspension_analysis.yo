@@ -331,7 +331,7 @@ _capture_env_variable :: (
                 .Some(t) => t,
                 .None => variable.ty.clone()
               );
-              // A by-ref binding (`inout(y) := x`) holds a pointer to its
+              // A by-ref binding (`y := &mut x`) holds a pointer to its
               // place: that is what its slot stores, and a raw pointer is
               // never dropped.
               cap_ty := if(variable.is_ref, t_ptr(value_ty), value_ty);
@@ -514,7 +514,7 @@ walk_expr_ :: (
                 .None => ()
               );
             }),
-            // `inout(name) := place`: the reference `name`, and the hidden
+            // `name := &mut place`: the reference `name`, and the hidden
             // owning local that pins the place's object when there is one
             // (the `inout(name)` node's `source_variable`). No atom of the
             // body names the pin, so it is captured here or not at all.
