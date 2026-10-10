@@ -2653,9 +2653,23 @@ and in git, not a silent edit.
       `RUST_REFERENCE_PATTERNS.md`.
     - **Rejected.** Named regions or origins (a comptime
       `generic(r : Region)` stays the growth path only if the residue in
-      `RUST_REFERENCE_PATTERNS.md` §14 bites); `&String → &str` and every
+      `RUST_REFERENCE_PATTERNS.md` §14 bites — and "bites" is measurable,
+      below); `&String → &str` and every
       other deref coercion; Austral's linear types; a cell holding a
       reference.
+      - **What "bites" means** (recorded 2026-10-10 with the maintainer's
+        no-for-now verdict): one of three counted triggers —
+        (1) a porting-audit count of algorithms RESTRUCTURED, not
+        respelled, because a multi-root borrow forced an `Rc`/index
+        rewrite with a measured cost; (2) a real
+        structured-concurrency pull (§7.4's scoped-threads row: lending
+        stack state to joined tasks); (3) the compiler's own V4/V5
+        rewrites fighting the single-root rule. A row that bites is
+        answered by the smallest construct first — indices/arenas, then
+        a scoped lending block (decision 37's parked non-escaping
+        consuming mode) — and any region proposal must keep every check
+        readable in one function or one signature: cross-frame
+        constraint solving to typecheck is Rust's answer, not Yo's.
     - **Cost and phase.** A `TypeValue` reference variant replaces the slot
       flags (`param_is_ref`, `call_param_is_ref`/`is_owning` in
       `FnTraitT`, `FuncParam` modes) through the evaluator, the
