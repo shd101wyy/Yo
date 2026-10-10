@@ -9,7 +9,7 @@
 
 ## Reproducer
 
-```rust
+```yo
 { ArrayList } :: import("std/collections/array_list");
 is_one :: (fn(imm(v) : i32) -> bool)(v == i32(1));
 first_is_one :: (fn(imm(xs) : ArrayList(i32), comptime(k) : i32) -> bool)(is_one(&xs(usize(0))));
@@ -35,7 +35,7 @@ element).
 diagnostics (`ast_place_text`, `src/expr.yo`) for every marker argument. For a
 call-shaped place it did
 
-```rust
+```yo
 out := recur(pf);      // a name: the callee token's own `value`
 out.push_str("(");
 ```

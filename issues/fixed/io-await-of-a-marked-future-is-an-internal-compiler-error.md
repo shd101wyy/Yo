@@ -9,7 +9,7 @@
 
 ## Reproducer
 
-```rust
+```yo
 { yield } :: import("std/async");
 answer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {

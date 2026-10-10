@@ -12,7 +12,7 @@
 
 ## Reproducer
 
-```rust
+```yo
 { String } :: import("std/string");
 { DefaultHasher } :: import("std/hash");
 Table :: struct(n : u64);
