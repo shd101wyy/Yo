@@ -2529,6 +2529,16 @@ and in git, not a silent edit.
         decision 43's sweep inserts the `.*` at every whole-value read and
         write through a reference — the V3b tooling knows every borrow
         site.)
+        **Sizing the sweep (2026-10-10, the VBD implementer):** decision
+        43's Generation A ships the prelude's blanket operator impls over
+        references, Rust's shape (`impl(generic(T), &T, Eq)` delegating to
+        `T`'s, likewise `Ord`, `Hash`, `ToString`, and the arithmetic traits
+        for `Copy` `T`), so `a == b`, `a < b` and `n + 1` on references
+        compile by dispatch — no auto-deref, no `.*` — and a census knob
+        counts what is left. The `.*` sweep then touches only bare
+        whole-value writes (`cur.* = v`, the bulk: every assignment to a
+        `mut` parameter today) and whole-value copies out of a reference
+        (`y := r.*`), both of which the evaluator reports exactly.
     - **Rollout, two generations (the seed gate, nothing else).**
       Generation A: parser, formatter, LSP and diagnostics accept and emit
       `&T` / `&mut T`; tests, docs and cheatsheets use it; the old forms
