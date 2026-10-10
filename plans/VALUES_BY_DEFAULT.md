@@ -2589,7 +2589,9 @@ and in git, not a silent edit.
       receiver (`xs.len()` and `s.left` are unchanged); a method declared
       `self : Self` still consumes its receiver and resolution never
       auto-moves; receivers stay exempt from call-site markers (decision
-      33). Nothing else coerces: no `&String → &str`. Resolution probes
+      33). Nothing else coerces: no `&String → &str` — the one lend that
+      changes shape is decision 44's typed-slot unsizing into
+      `&Dyn(Trait)`. Resolution probes
       the exact receiver type, then `&`/`&mut` of it, then each deref, so
       `impl(&T, M)` wins over `impl(T, M)` for a `&T` receiver. A `&mut T`
       reached through a `&` path (an element of `&ArrayList(&mut T)`, a
@@ -2701,7 +2703,12 @@ and in git, not a silent edit.
     - **No DST.** No unsized types and no `?Sized` bound: a `Dyn` only ever
       appears inside its own fat forms (`Dyn(...)`, `&Dyn(...)`,
       `&mut Dyn(...)`, and through `Rc`/`Arc`), so generics need no new
-      bound kind. Rust's DSTs buy two things; Yo gets both without them:
+      bound kind. The slice side is the same rule: `str` stays the
+      first-class `Copy` fat value of static bytes (decision 36) and
+      `View(u8)` / `[T]` (L1) the second-class fat view — a view is a
+      sized value, never an unsized pointee, so no unsizing coercion
+      exists for slices either (`&String → &str` stays refused, decision
+      43). Rust's DSTs buy two things; Yo gets both without them:
       the non-allocating borrowed object above, and the single allocation
       below.
     - **`Rc(Dyn(Trait))` / `Arc(Dyn(...))` in one allocation** (a later
