@@ -4017,6 +4017,116 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
        a machine with that clone: the local gates ran with `yo.toml`
        pointing at the clone by path, which is not committed.
      - **`sink` stays** (decided 2026-10-09) until V2b/V2c/V5.
+  4. **The markers: decision 33's bare-argument error and its sweep.**
+
+     **As built, part 1: the tool and the prerequisites (2026-10-10, branch
+     feat/vbd-v3b-marker-sweep, stacked on step 3).** The sweep itself cannot
+     land on the stand-in seed: the seed compiles `src/` and `std/`, and three
+     compiler bugs that only markers reach (below) made the swept trees fail
+     under it. They are fixed here, so the next release is the seed the
+     sweep needs; the sweep and the error follow on it (part 2).
+     - **`yo fix <path> --migrate markers`** is semantic, like `addr-of`: only
+       the evaluator knows a parameter's mode and whether an argument is a
+       place. With the recorder on (`record_marker_site`, `src/expr_info.yo`),
+       `check_call_site_borrow_marker` (`src/evaluator/calls/helper.yo`, on
+       both call paths beside the peel) records every bare named place passed
+       to an `imm` parameter (`&` goes before it) or a `mut` parameter
+       (`&mut `). The marker is inserted at the place's leftmost token, only
+       when the text from there parses on one line to the evaluated place AND,
+       with the marker, to a borrow of exactly that place (so `&` cannot bind a
+       prefix of `(a).b`); a site recorded with both markers, or one failing
+       the check, is listed and left as written. The tool reports `inserted N
+       & and M &mut call-site marker(s)`.
+     - **A named place** is a runtime variable (local, parameter,
+       module-level `(g : T) = v`), a field or dereference step on a place
+       (`p.name`, `p.*`), or an element of one (`xs(i)`, recognised by the
+       `Index` dispatch's record on the call node). `::` constants and
+       function names are not places: like Rust's `const` and fn items they
+       are values, so they pass bare (and `&C` is the allowed `&temp`).
+     - **Exempt**, exactly decision 33's list: method receivers, temporaries,
+       literals and closures, operator operands (an infix or prefix operator
+       call, decision 34), a borrow binding passed whole, by-value (plain and
+       `sink`) and compile-time parameters, a `Type`-valued parameter, a
+       raw-pointer parameter (its argument is a pointer value, and `&x` there is
+       the `addr_of(x)` error), and variadic positions.
+     - **A borrow binding** is an `imm`/`mut` parameter (a `fn`'s, a
+       receiver's, a closure's, a trait default body's) or an `imm`/`mut` local
+       binding. `Variable.is_imm_borrow` (new, beside `is_ref`) marks the
+       `imm` parameters at every binder (`bind_parameter`, the closure binder,
+       the closure re-evaluation, trait default bodies). Only the WHOLE name is
+       exempt: `p.items` through an `imm(p)` is a place that takes `&`
+       (Rust: `&p.items`).
+     - **E0914** (`E_BORROW_MARKER_MISMATCH`) is decision 33's one code for a
+       marker that does not match the parameter's mode: the bare-argument
+       error (``Parameter "s" is `imm`: lend `s` with `&s`. The call-site marker
+       says what the call does to its argument: a bare `s` would pass it by
+       value; `&s` lends it read-only and the caller keeps it. `yo fix <path>
+       --migrate markers` inserts the markers.``, and for a `mut` parameter
+       `&mut xs` ... "lends it exclusively and the callee may write it"), and
+       step 3's four `&x`/`&mut x` mismatches, which now carry the code too.
+       Registry entry with the `show(s)` → `show(&s)` pair. **Until part 2
+       the bare-argument half is on only under `YO_STRICT_MARKERS=1`, for
+       code outside std** (std is swept in the release that turns it on for
+       everyone); `diagnostics_registry_examples` exempts its `bad` half until
+       then, and the `bare-argument-to-a-borrowing-parameter-is-e0914`
+       cli-case runs it.
+     - **Decided by the implementer** (the 2026-10-09 delegation, "strict,
+       explicit and sound; match Rust"):
+       - **Markers apply to `Copy` arguments of `imm` parameters too**
+         (`u64(0).wrapping_sub(&x)`, `m.get(&k)` with `K = i32`), as decided
+         for every type: the std methods whose `imm` operand is a `Copy`
+         scalar keep their mode; changing them to by-value is a separate API
+         decision, not the sweep's.
+       - **`::` constants and function names pass bare** (Rust value
+         expressions); module-level runtime variables are places (Rust
+         statics).
+       - **Dependencies are checked too**: the strict knob covers every
+         non-std module, so a dependency (`markdown_yo`) is swept like the
+         project.
+       - **One code for every marker mismatch** (E0914), the peel-time ones
+         included, so `yo explain` covers the rule once.
+     - **Found by the sweep and fixed here** (each with a red-first test):
+       - `ast_place_text` appended to the callee token's shared `value`
+         buffer, renaming `xs` to `xs(i)` for a body's next evaluation
+         (`issues/fixed/ast-place-text-renames-the-callee-of-an-element-place.md`);
+       - the parameter mutation summary read `&x`/`&mut x` as a call to an
+         unknown function, so a callee lending through a marker "may write
+         everything" and an `imm` binding handed to its never-written `mut`
+         parameter was E0908 (`HashMap.get` after `_hash`'s
+         `key.hash(&mut h)`;
+         `issues/fixed/the-mutation-summary-reads-a-call-site-marker-as-an-unknown-call.md`);
+       - codegen and the await analysis lowered `io.await`/`io.spawn` from the
+         raw call and hit the un-annotated `&f` node, an internal compiler
+         error (`ast_call_args_unmarked`;
+         `issues/fixed/io-await-of-a-marked-future-is-an-internal-compiler-error.md`).
+     - **Measured (dry runs with the tree compiler):**
+
+       | Tree | `&` | `&mut` | not evaluated |
+       | --- | ---: | ---: | ---: |
+       | `std/` | 727 | 147 | 0 |
+       | `src/` | 20,670 | 588 | 0 |
+       | `tests/` (no `internal/`, `cli-cases/`) | 3,047 | 178 | 50 files |
+       | `tests/internal/` | 2,468 | 12 | 0 |
+       | `markdown_yo` `src/` | 25 | 0 | 0 |
+
+       Far below the 2026-10-05 audit (36,677 in `src/`), which counted
+       arguments that are `imm` parameters themselves; those pass bare now.
+       A trial sweep of std, `src/` and `markdown_yo` checks clean under
+       `YO_STRICT_MARKERS=1` (278/278, 171/171, 54/54), and `check ./src`
+       stays flat: 175.4 s / 1,019 MB footprint unswept, 172.1 s / 990 MB
+       swept, the same binary. The swept compiler, built by the tree
+       compiler, reaches the fixpoint (`fixpoint_only.sh`: stage 2 hollow 0,
+       `FIXPOINT_HOLDS`). That trial is pushed as
+       `feat/vbd-v3b-marker-sweep-trial` (not for merging: it needs the seed);
+       `markdown_yo`'s 25 sites are a local commit on v0.0.14 that has to be
+       released before part 2.
+
+     **Part 2, after a release carries part 1:** re-run the tool over std,
+     `src/`, `tests/` (the 50 files `check` cannot evaluate by hand or through
+     `yo test`), `tests/internal/`, `tests/codegen-bootstrap/`, the CLI
+     fixtures, `markdown_yo` (a release), docs and skills; delete
+     `YO_STRICT_MARKERS` so E0914's bare half is on everywhere; drop the
+     registry-examples exemption.
 - **Callbacks:** std's `for_each`, `map`, `filter` and `with_lock` take
   `imm(f)`.
 - **Diagnostics:** E0901 at a caller names `imm(x)` in the callee before
