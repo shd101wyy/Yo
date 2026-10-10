@@ -2774,7 +2774,19 @@ and in git, not a silent edit.
         `issues/a-closure-parameter-written-as-a-call-is-accepted-under-the-expected-label.md`
         (S3): `foo(n) => …` is bound under the expected label; the mode words
         are E0009 now, any other head still falls back.
-      - **Measured gates:** GENB_GATES_PLACEHOLDER
+        `issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md`
+        (S1, fixed here): the vtable wrapper handed an owning `self` the
+        payload the `Dyn` still owned; surfaced by the decision 34
+        amendment's by-value `(!)`.
+      - **Measured gates** (2026-10-11, macOS arm64, tree-built binary):
+        `check ./std` 171/171 and `check ./src` 278/278; `fmt --check` over
+        std/tests/src/docs/.github/README rc 0; CLI corpus green after
+        re-recording 8 goldens (cheatsheet hash, prelude operator
+        signatures); `gates_fast.sh` failures=0; `fixpoint_only.sh` holds
+        (stage 2 hollow=0); `yo test ./tests` 5081/5081; `yo test ./std`
+        7/7; the touched `tests/internal` files (diagnostics_registry_examples,
+        diagnostics_registry, parser, formatter, types_compound, doc_command,
+        context_index, module_invalidation) pass one at a time.
 
 43. **`&T` and `&mut T` are types: second-class, with lifetimes elided.**
     Confirmed 2026-10-10 by the maintainer ("I want to make `&T` a real
