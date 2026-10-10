@@ -2616,6 +2616,28 @@ and in git, not a silent edit.
       and the `imm(` / `mut(` / `inout(` parsing is deleted — no
       compatibility window. Timing is the VBD session's call: after the
       remaining V3b generations settle, not during them.
+    - **Review notes (2026-10-10, the VBD implementer; decided under the
+      maintainer's 2026-10-09 delegation, Rust-like):**
+      - **A plain `for(xs, x => …)` consumes `xs`.** Once the borrowed form
+        is `for(&xs, …)` / `for(&mut xs, …)`, a bare source means by value,
+        as a bare argument does (decision 33) and as Rust's `for x in xs`
+        does: the loop takes `xs`, each element is moved into `x`, and a use
+        of `xs` after the loop is E0901 naming `for(&xs, …)`. A `Copy`
+        element type still copies. This is a semantic change, not a
+        respelling, so it rides decision 26's consuming-`match` work and its
+        scrutinee sweep tooling: Generation A's sweep rewrites every
+        existing `for(xs, …)` whose source is used afterwards (or is a
+        module-level or projection place) to `for(&xs, …)`, before the
+        bare form starts consuming.
+      - **Ordering.** Generation A needs V3b step 3 first: until it lands,
+        `y := &place` in a binding is the raw-pointer address-of
+        (`addr_of`'s old spelling), so the local-borrow row cannot take that
+        spelling earlier.
+      - **Writes versus re-points.** With a local borrow `cur`, `cur = v`
+        writes `v` through the borrow into the lent place, and
+        `cur = &mut place` (or `y = &place`) re-points it (decision 25).
+        The sigil on the right decides; a bare right-hand side never
+        re-points.
     - **Docs.** Plan documents keep their historical spelling and are read
       through AGENTS.md's translation list (one line added 2026-10-10); the
       user docs and cheatsheets change in Generation A.
