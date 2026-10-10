@@ -36,8 +36,8 @@ test("t_func_simple: one param", {
   assert(is_function_type(f), "should be function type");
   s := type_to_string(f);
   // `t_func_simple` records no by-value flags, so its parameters borrow:
-  // since V3b's flip they print `imm(x)`.
-  check_str(s, `fn(imm(x) : i32) -> bool`, "t_func_simple: one param");
+  // since decision 42 Generation A they print `x : &T`.
+  check_str(s, `fn(x : &i32) -> bool`, "t_func_simple: one param");
 });
 test("t_func_simple: two params", {
   labels := ArrayList(String).new();
@@ -48,7 +48,7 @@ test("t_func_simple: two params", {
   types.push(t_bool());
   f := t_func_simple(labels, types, t_unit());
   s := type_to_string(f);
-  check_str(s, `fn(imm(a) : i32, imm(b) : bool) -> unit`, "t_func_simple: two params");
+  check_str(s, `fn(a : &i32, b : &bool) -> unit`, "t_func_simple: two params");
 });
 test("t_func_simple: unlabeled params", {
   labels := ArrayList(String).new();
