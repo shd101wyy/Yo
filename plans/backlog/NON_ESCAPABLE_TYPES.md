@@ -285,6 +285,35 @@ NOT change: `&T` is still a slot-attached mode, never a nameable or
 nestable type, never a buffer element or a cell payload (the inline rule);
 decision 24's projection `-> &T` and an R3 result are one mechanism.
 
+**Review notes on decision 42 (2026-10-10, the VBD implementer, under the
+maintainer's 2026-10-09 delegation; recorded in full in decision 42):**
+
+1. **A plain `for(xs, x => …)` consumes `xs`.** Once the borrowed walk is
+   `for(&xs, …)` / `for(&mut xs, …)`, a bare source is by value, as a bare
+   argument is (decision 33) and as Rust's `for x in xs` is: the loop takes
+   `xs`, each element moves into `x`, and a use of `xs` after the loop is
+   E0901 naming `for(&xs, …)`; a `Copy` element still copies. That is a
+   semantic change, not a respelling, so it rides decision 26's
+   consuming-`match` work and its scrutinee sweep: Generation A rewrites
+   every existing `for(xs, …)` whose source is used afterwards (or is a
+   module-level or projection place) to `for(&xs, …)` before the bare
+   form starts consuming. For this note: a `for` over a non-escapable
+   value (a view) is `for(&v, …)`; a bare `for(v, …)` consumes the view,
+   which is legal (it is a `Copy` or a move of a second-class value) and
+   leaves the roots frozen until the loop's last use.
+2. **Ordering.** Generation A of the respelling needs V3b step 3 first:
+   until it lands, `y := &place` in a binding is the raw-pointer address-of
+   (`addr_of`'s old spelling), so the local-borrow row cannot take that
+   spelling earlier. The same ordering binds N1 here, whose `View` values
+   are built with `&xs`.
+3. **Writes versus re-points.** With a local borrow `cur`, `cur = v`
+   writes `v` through the borrow into the lent place, and
+   `cur = &mut place` (or `y = &place`) re-points it (decision 25). The
+   sigil on the right decides; a bare right-hand side never re-points.
+   For R1's borrow-mode fields the same rule applies to a field write:
+   `v.xs = &other` re-points the field, `v.xs = ys` is a write through it
+   (and a type error unless the field is `&mut`).
+
 ## 3. What it unlocks, mapped to the catalog
 
 | Catalog gap | With this note | Rust / Swift equivalent |

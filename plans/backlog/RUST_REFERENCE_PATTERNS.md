@@ -810,6 +810,34 @@ it has, or needs, a Yo spelling:
 | `Cow<'a, T>` | §4.4 |
 | `Option<&T>` / `as_ref`/`as_mut`/`as_deref` | §3.6: the borrowing `match` |
 
+## 14. What Yo does not cover, and what each costs instead
+
+Written 2026-10-10 after the non-escapable-types design
+([`NON_ESCAPABLE_TYPES.md`](NON_ESCAPABLE_TYPES.md)) and decision 42, so
+this is the residue *after* that design lands, not today's. Everything
+in §1–§13 has an answer; the shapes here either have an answer that pays
+something Rust does not, or no answer in safe code by design. This is
+the honest list, kept here so the porting guide at V5 states it up front.
+
+| Rust shape | Why Yo does not express it | What you write instead | What it costs |
+| --- | --- | --- | --- |
+| a borrow kept beyond one call frame with more than one root — `struct Parser<'src, 'arena>`, `Ctx<'a, 'b>` with fields lent from different callers at different times | R3 infers one dependency per function (all borrowed parameters, or a `depends` narrowing); distinguishing two roots across frames is naming lifetimes, which decision 30 and the roadmap rule out | split the struct by root, or hold the longer-lived part as `Rc`/`Rc(RefCell)`, or index into an owner | one count, or one lookup per access |
+| a borrow stored in a long-lived structure — a registry of `&'a Listener`, a cache of `&'a Entry`, a `Vec<&'a str>` of sub-strings | the inline rule: a buffer element or a cell payload is never a borrow (R1), so a *collection of views* does not exist | `ArrayList(Range(usize))` + re-derivation (§2.2), `ArrayList(Rc(T))`, `ArrayList(usize)` ids, or own the values | a bounds check per re-derivation, or a count, or a copy |
+| lending stack data to other threads — `thread::scope`, rayon `par_iter` over a local `Vec` | a borrow is never `Send` (decision 38 E, R6); a borrowing scoped spawn would need the non-escaping consuming mode decision 37 parked | `Arc(ArrayList(T))` read sharing, owned chunks moved in and joined, `^v` for a whole `Rc` graph (§7.4) | one `Arc` allocation and count traffic, or the chunking copy |
+| a `mut` borrow through a shared handle held across an `await`, shared by several tasks | §3.13 A2: an exclusive lend across a suspension through an `Rc`/`Arc` would race the other task's write (§7.3) | own the state in the task, `Arc(Mutex(S))`, or a channel | a lock, or a message |
+| lazy adapter chains that *store* their closure and are themselves stored — a `Peekable<Map<Filter<…>>>` field, a generator held in a struct | the chain is a non-escapable value (it holds the cursor's borrow) and so cannot be a field; the stateful call (R4) gives `next`, not storage | compute eagerly into an owned list, or keep the cursor (`Range(usize)`) and re-run the chain per use | a copy, or recomputation |
+| self-referential values and `Pin` — a parser holding `&self.buf`, an intrusive list node pointing at its siblings | decision 40: a value cannot reference itself or a sibling in safe code; heap storage never relocates so `Pin` has nothing to police | offsets into the owned buffer (§2.3), an arena of indices (§4.1), or `pragma(Pragma.AllowUnsafe)` for the intrusive case (§11) | a bounds check, or unsafe |
+| `unsafe` systems idioms as idioms — `UnsafeCell`, `MaybeUninit` arrays, `ptr::read`/`write`, `transmute`, `#[repr]` layouts | the pragma exists and std uses it, but it is a per-file gate with no language-level vocabulary for layouts or uninitialized memory beyond `spare_capacity`/`assume_init` (ATS A4's init token is the planned safe form) | the pragma, raw pointers, `c_include` for C-side layout | the same risks as Rust's unsafe, with less tooling around them |
+| zero-cost as a guarantee | the cycle collector tracks `Rc` payloads that reach a `RefCell`/`Mutex`/`RwLock` (decision 41's predicate), safe mode traps on integer overflow at every `-O` (SAFE_MODE D1), and `push` runs its contract as an assert until CP2g | `Acyclic` where the analysis is conservative, `wrapping_*` at a measured hot site, the CODEGEN_PERFORMANCE levers in order | measured in `CODEGEN_PERFORMANCE.md` §0.1: parity on float and index loops, 5–7× on trapping integer loops until CP2f, 1.9× on `push` until CP2g |
+| the trait-object and lifetime-polymorphic API surface — `impl Iterator<Item = &T> + 'a` in a *trait* signature, `dyn Trait + 'a`, HRTB callbacks returning borrows | a `Dyn` payload is first-class only; a trait method may return a non-escapable value under R3, but a `Dyn` over a non-escapable type is rejected (R1) | `Impl(Trait)` (monomorphized) where the borrow must flow; `Dyn` where ownership can | monomorphization, or an owned result |
+| the ecosystem — crates, `cargo` registries, `serde`, `tokio`, `rayon`, `nom` | not a language gap | git dependencies in `yo.toml`, std's `json`/`toml`/`http`/`regex`, the async runtime, derive rules over AST reflection for `serde`-shaped code | writing it |
+
+Two things that are *not* on this list because the non-escapable design
+covers them, recorded so nobody assumes otherwise: a single-root borrow
+returned from a function (views, iterators, the entry API, guards,
+parser remainders — §3 of the design note), and interior mutability
+(`RefCell(T)`, decision 41).
+
 ---
 
 ## Maintenance
