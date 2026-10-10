@@ -624,6 +624,17 @@ test("consuming match: `match(&x, …)` borrows and keeps `x`", {
       "it is borrowed"
     );
     assert(g_mo_disposed == before, "nothing moved");
+    comptime_expect_error(
+      match(
+        &o,
+        .Some(f) => {
+          o = .None;
+          f.n
+        },
+        .None => i32(0)
+      ),
+      "borrows `o` with `imm` and is still live"
+    );
   };
   assert(g_mo_disposed == (before + i32(1)), "o is dropped once at its scope end");
 });
@@ -745,4 +756,22 @@ test("consuming match: inside an io.async body, across an await in the arm", {
   assert(result.* == i32(6), "4 moved across the await, then a.n = 2");
   assert(g_mo_disposed == (before + i32(3)), "f by the callee, b at the arm's entry, a at the arm's end");
   assert(g_mo_sum == (before_sum + i32(9)), "4 + 3 + 2, each once");
+});
+test("consuming match: an io.async arm keeps a looked-through cell across an await", {
+  before := g_mo_disposed;
+  result := Rc(i32)(0);
+  task := io.async((io : Io) => {
+    c := _MoCell.Cell(fd : _MoFd(n : i32(1)), shared : rc(_MoFd(n : i32(2))));
+    result.* = match(
+      c,
+      .Cell(f, _MoFd(n : k)) => {
+        io.await(yield(io), io);
+        _mo_take(f) + k
+      },
+      .Empty => i32(0)
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(3), "f moved after the await, k read through the kept cell");
+  assert(g_mo_disposed == (before + i32(2)), "f by the callee, the cell at the arm's end");
 });

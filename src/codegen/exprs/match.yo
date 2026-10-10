@@ -922,6 +922,12 @@ _shadow_slot_set :: (fn(imm(context) : FunctionGenerationContext, imm(name) : St
   slots.insert(name, field);
   context.shadow_slots = Option(HashMap(String, String)).Some(slots);
 });
+/// Record that the shadowed name `name` is a `mut` place binding.
+_place_add :: (fn(imm(context) : FunctionGenerationContext, imm(name) : String) -> unit)({
+  places := match(context.place_bindings.take(), .Some(s) => s, .None => HashSet(String).new());
+  places.insert(name);
+  context.place_bindings = Option(HashSet(String)).Some(places);
+});
 _shadow_add :: (fn(imm(context) : FunctionGenerationContext, imm(name) : String) -> unit)({
   shadowed := match(context.local_shadowed_variables.take(), .Some(s) => s, .None => HashSet(String).new());
   shadowed.insert(name);
@@ -936,6 +942,15 @@ _shadow_remove :: (fn(imm(context) : FunctionGenerationContext, imm(name) : Stri
       slots := m;
       _rs := slots.remove(name.clone());
       context.shadow_slots = Option(HashMap(String, String)).Some(slots);
+    },
+    .None => ()
+  );
+  match(
+    context.place_bindings.take(),
+    .Some(ps) => {
+      places := ps;
+      _rp := places.remove(name.clone());
+      context.place_bindings = Option(HashSet(String)).Some(places);
     },
     .None => ()
   );
@@ -1991,6 +2006,7 @@ _emit_pattern_chain :: (
           true => _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone())
         );
         _bind_pattern_name(context, indent.clone(), cname.clone(), btok, path.clone());
+        if(as_place, _place_add(context, cname.clone()));
         shadows.push(cname);
       });
     },
@@ -2155,6 +2171,7 @@ _emit_pattern_chain :: (
           true => _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone())
         );
         _bind_pattern_name(context, indent.clone(), cname.clone(), atok, path.clone());
+        if(as_place, _place_add(context, cname.clone()));
         shadows.push(cname);
       });
       recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell);

@@ -424,3 +424,17 @@ test("the scrutinee is reached only through a live mut place", {
   comptime_expect_error(match(&mut Option(i32).Some(i32(1)), .Some(n) => n, .None => i32(0)), "is a temporary");
   assert(match(&h, .Some(n) => n, .None => i32(0)) == i32(1), "h untouched");
 });
+test("a mut place's writing method writes the scrutinee's part", {
+  (ol : Option(ArrayList(i32))) = .Some(ArrayList(i32).new());
+  match(
+    &mut ol,
+    .Some(xs) => xs.push(i32(4)),
+    .None => ()
+  );
+  match(
+    &mut ol,
+    .Some(xs) => xs.push(i32(5)),
+    .None => ()
+  );
+  assert(match(&ol, .Some(xs) => xs.len(), .None => usize(0)) == usize(2), "pushed in place, twice");
+});

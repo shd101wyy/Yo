@@ -89,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
   YoError,
   with_code
 } :: import("../error.yo");
-{ raise_flow_violation } :: import("../types/flowability.yo");
+{ raise_flow_violation, propagate_def_time_errors } :: import("../types/flowability.yo");
 { suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
@@ -628,7 +628,8 @@ moved_value_help :: (fn(imm(name) : String, imm(ty) : TypeValue, imm(moved_tok) 
 /// of being rejected (true when recorded).
 migrate_borrowed_match_at :: (fn(imm(moved_tok) : Token) -> bool)(
   cond(
-    (migrate_match_scrutinee_on() && consuming_match_scrutinee_at(moved_tok)) => {
+    // An error a `comptime_expect_error` expects is the program's point.
+    (migrate_match_scrutinee_on() && !propagate_def_time_errors() && consuming_match_scrutinee_at(moved_tok)) => {
       record_migrate_edit(moved_tok, moved_tok.value.len(), `&${moved_tok.value}`, moved_tok.value.clone());
       true
     },
@@ -4903,10 +4904,14 @@ match_scrutinee_is_capture :: (fn(imm(v) : Variable, imm(env) : Environment, imm
 /// as an exclusive local borrow of the scrutinee's place, live from the
 /// binding to its last mention in the arm `body` (decision 18's rule): the
 /// arm cannot read, write or move the scrutinee while the place is live.
-local_borrow_register_match_place :: (fn(imm(name) : String, imm(decl) : Token, imm(place) : LocalBorrowPlace, imm(body) : AstExpr) -> unit)({
+///
+/// `is_mut` false: a binding of `match(&x, …)`, which borrows the
+/// scrutinee read-only, so the arm cannot write or move it while the binding
+/// is live (Rust's shared borrow of a `ref` binding).
+local_borrow_register_match_place :: (fn(imm(name) : String, imm(decl) : Token, imm(place) : LocalBorrowPlace, imm(body) : AstExpr, (is_mut : bool) ?= true) -> unit)({
   last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => decl);
   end := cond(_lb_mentions(body, name.clone()) => _lb_region_end(body, name.clone(), decl), true => decl);
-  _info := local_borrow_register(name, decl, true, place, LocalBorrowRange(last_use : last, end : end, has_repoint : false), Option(Variable).None);
+  _info := local_borrow_register(name, decl, is_mut, place, LocalBorrowRange(last_use : last, end : end, has_repoint : false), Option(Variable).None);
 });
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at);
 export(

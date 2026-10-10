@@ -80,7 +80,7 @@ pragma(Pragma.AllowUnsafe);
   is_never_type
 } :: import("../../types/guards.yo");
 { type_contains_some_type, type_mentions_impl_fn_or_future, mark_generic_independent, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, type_is_bitwise_copy } :: import("../../types/utils.yo");
-{ raise_flow_violation } :: import("../../types/flowability.yo");
+{ raise_flow_violation, propagate_def_time_errors } :: import("../../types/flowability.yo");
 { E_USE_OF_MOVED_VALUE, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { with_code } :: import("../../error.yo");
 { generate_new_temp_variable_name, is_temp_variable_name } :: import("../../utils.yo");
@@ -387,7 +387,7 @@ _variable_is_imm_borrow :: (fn(imm(v) : Variable) -> bool)(
 /// says what owns it, and the help names the borrow that matches it in place.
 _throw_unmovable_scrutinee :: (fn(imm(scr) : AstExpr, imm(ty) : TypeValue, imm(why) : String, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
   // `yo fix --migrate match-scrutinee` writes the borrow instead.
-  if(migrate_match_scrutinee_on(), {
+  if(migrate_match_scrutinee_on() && !propagate_def_time_errors(), {
     lt := _leftmost_token(scr);
     record_migrate_edit(lt, lt.value.len(), `&${lt.value}`, lt.value.clone());
     return(());
@@ -1074,6 +1074,12 @@ evaluate_match :: (
   // scrutinee's place, which must be writable.
   (mut_place : Option(LocalBorrowPlace)) = Option(LocalBorrowPlace).None;
   (mut_root : Option(Variable)) = Option(Variable).None;
+  // `match(&x, …)` on a place: its bindings freeze `x` while they are live,
+  // as an `imm(y) := x` borrow does (E0911 on a write or a move of `x`).
+  (imm_place : Option(LocalBorrowPlace)) = cond(
+    (borrowed_match_scrutinee_kind(ast_expr_token(expr)) == u8(1)) => local_borrow_place_of(scrutinee_expr, env, ctx),
+    true => Option(LocalBorrowPlace).None
+  );
   if(mut_places, {
     mut_root = _scrutinee_root_variable(scrutinee_expr, env);
     mut_place = local_borrow_place_of(scrutinee_expr, env, ctx);
@@ -1232,6 +1238,11 @@ evaluate_match :: (
           if(audit_pending_copies_enabled(), {
             match(_added, .Some(added_var) => audit_note_match_binding(added_var, scr_info), .None => ());
           });
+          match(
+            imm_place,
+            .Some(ip) => local_borrow_register_match_place(b.name.clone(), ast_expr_token(b.atom), ip, body_ast, false),
+            .None => ()
+          );
           // Below a cell a binding borrows whatever the mode (decision 26).
           if((consuming || mut_places) && !_names_contain(own.borrowed, b.name.clone()), {
             match(
@@ -1483,7 +1494,14 @@ evaluate_match :: (
                 },
                 .None => ()
               );
-              match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), pv.token, lp, body_ast), .None => ());
+              // A scrutinee reached from a local borrow (decision 25's
+              // cursor, `match(cur, .Some(n) => { mut(cur) = n.next; })`):
+              // its bindings are already tracked as places a re-point goes
+              // through (`local_borrow_note_pattern_binding`), and the
+              // re-point must not read as an access of `cur` while `n` lives.
+              if(lb_scr_source.is_none(), {
+                match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), pv.token, lp, body_ast), .None => ());
+              });
             },
             .None => ()
           );

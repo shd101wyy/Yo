@@ -2528,12 +2528,78 @@ or-pattern does (`(1 | 1)`), or when no value of the scrutinee's type matches
 it (the empty range `(5..5)`, a GADT variant the type excludes). An arm that
 the earlier arms match only together, such as `.Some(_)` after `.Some(true)`
 and `.Some(false)`, is a warning. A trailing `_` or binding arm is always
-accepted. Bindings borrow the matched value for the arm.
+accepted. How the bindings hold the matched value is the next section's.
 
 Inside an `io.async` arm that awaits, every pattern form works: the arm's
 tests and bindings run on the state machine's initial pass and the body keeps
 the ordinary suspension/resume machinery (`plans/reference/MATCH_PATTERN_MATCHING.md`
 §4.9).
+
+### How a `match` takes its scrutinee
+
+A `match` takes its scrutinee the way a parameter takes its argument
+(`plans/VALUES_BY_DEFAULT.md` decision 26, Rust's default binding modes):
+
+| Scrutinee | The arms' bindings |
+| --- | --- |
+| an owned local, a by-value parameter or a temporary, of a type that is not implicitly copyable | the scrutinee is moved into the `match`: the selected arm's bindings own their parts |
+| an `imm` binding (an `imm` parameter, `imm(y) := …`, a binding of a borrowing `match`) | read-only borrows |
+| a `mut` binding (a `mut` parameter, `mut(y) := …`) | `mut` places: writing a binding writes the scrutinee |
+| `match(&x, …)` | read-only borrows; `x` stays usable |
+| `match(&mut x, …)` | `mut` places; `x` stays usable |
+| a `Copy` value, or a kind that is still implicitly copyable (`String`, a collection, `Rc`, a `ref` handle) | copies or shares, as a by-value parameter does |
+
+```yo
+Fd :: struct(n : i32);
+impl(Fd, Dispose(dispose : (fn(imm(self) : Self) -> unit)(())));
+Two :: enum(Two(a : Fd, b : Fd), Zero);
+
+take :: (fn(f : Fd) -> i32)(f.n);
+
+first :: (fn(p : Two) -> i32)(
+  match(
+    p,
+    .Two(a, _) => take(a), // `b` is dropped when the arm is entered; `a` moves on
+    .Zero => i32(0)
+  )
+);
+
+peek :: (fn(imm(p) : Two) -> i32)(
+  match(p, .Two(a, _) => a.n, .Zero => i32(0)) // borrows: nothing moves
+);
+
+main :: (fn() -> unit)({
+  p := Two.Two(a : Fd(n : 3), b : Fd(n : 4));
+  n := match(&p, .Two(a, _) => a.n, .Zero => i32(0)); // borrows; p stays
+  r := first(p);                                     // p moves into `first`
+  (o : Option(i32)) = .Some(i32(1));
+  match(&mut o, .Some(v) => { v = (v + i32(1)); }, .None => ()); // o is .Some(2)
+});
+```
+
+The rules of a consuming `match`:
+
+- Guards see the bindings as borrows; the move happens when an arm is
+  selected, so a guard that fails leaves the payload for the next arm.
+- The parts an arm does not bind (`_`, a field it does not list) are dropped
+  when the arm is entered. A binding the arm still owns at its end is dropped
+  there; one it moves is gone.
+- Below a reference cell (an `Rc` payload the pattern looks through, a `ref`
+  value) the bindings borrow, and the handle lives until the arm ends.
+- A use of the scrutinee after a consuming `match` is E0901, whose help names
+  `match(&x, …)`. Matching a module-level binding, a field (`x.f`), an element
+  (`xs(i)`) or a dereference (`p.*`) by value is E0901 too (Yo has no partial
+  moves): write `match(&x.f, …)`.
+- `(name := p)` takes the whole value, so a binding inside `p` must be `Copy`.
+  An or-pattern may not leave a part with a drop unbound (its alternatives
+  would drop different parts): split the arm or bind the part.
+
+A `mut` place is exclusive while it is live: the arm reads, writes or moves the
+scrutinee only through it (E0911), and `&mut` needs a writable place (an `imm`
+binding is E0908, a temporary is an error). A place cannot live across an
+`await` yet (`issues/a-mut-match-place-binding-cannot-live-across-an-await.md`).
+`yo fix <path> --migrate match-scrutinee` writes `&` where an existing program
+needs the borrow.
 
 ## String
 
