@@ -387,6 +387,18 @@ summaries' existing mark-skipping; the canaries are V1's own determinism
 tests (a closure and an async body mutating a captured `Rc(ArrayList(T))`
 while a `for` borrows it must keep panicking).
 
+**Amended 2026-10-10 (maintainer decision; VALUES_BY_DEFAULT.md §3.10):**
+the static verdict is the default and the run-time mark the fallback for the
+undecidable case only, never a replacement for a static verdict. At every
+write through a shared handle and every mutating-method entry on a cell the
+summaries yield one of three outcomes: (a) proved safe, elide the assert and
+the mark traffic (this lever); (b) proved conflict, a compile error by
+default (today's `StrictBorrow` verdict); (c) undecidable (a `Dyn`, a
+function value, a callee with no summary, an unrelated second handle), keep
+the run-time assert. `StrictBorrow` then rejects (c) too. One negative test
+per outcome; CP0's "asserts executed" counter on `check ./src` must fall
+monotonically as the summaries widen.
+
 **Phase:** after §3.10's write-site emission lands (VBD lists it under V1
 "Remaining").
 

@@ -626,6 +626,35 @@ Each kind of root gets its own check:
 - **At V5** `require_valid_ref_argument_places` keeps only its `Rc`/`Arc`
   and module-level arms.
 
+- **Amended 2026-10-10 (maintainer decision, relayed by a peer session):
+  the static verdict is the default, the run-time mark the fallback.**
+  Run-time marks move `RefCell`-class failures from compile time to run
+  time; Rust's `RefCell` is opt-in and visible, while here every `Rc` write
+  is a candidate, so the static verdict is the default and the panic the
+  exception. At every write through a shared handle and every
+  mutating-method entry on a cell, the compiler consults the Stage-1
+  mutation summaries (`src/evaluator/effects/mutation_summary.yo`) and takes
+  one of three outcomes:
+  - **(a) Proved safe:** no conflicting borrow can be live between the
+    mark's acquisition and this write. No assert and no mark traffic is
+    emitted (CODEGEN_PERFORMANCE.md CP2c's elision).
+  - **(b) Proved conflict:** a borrow of the same place is live and a
+    callee's summary writes it (the canonical case: a borrowed `for` whose
+    body reaches `push` on its own container). A compile error: the
+    verdict `pragma(Pragma.StrictBorrow)` gives today, now by default.
+  - **(c) Undecidable:** the body passes through a `Dyn`, a function value,
+    a callee with no summary, or a second handle the summary cannot relate.
+    Today's run-time assert stays.
+  - `pragma(Pragma.StrictBorrow)` then means "reject (c) too": no run-time
+    mark in that module.
+  - **Tests:** one negative test per outcome. For (a), an over-elision
+    canary (V1's determinism tests: a closure and an async body mutating a
+    captured `Rc(ArrayList(T))` under a `for` must keep panicking or become
+    compile errors, never pass silently); for (b), a compile-error test; for
+    (c), a still-panics test.
+  - **Ratchet:** CODEGEN_PERFORMANCE.md CP0's "asserts executed" counter on
+    `check ./src` goes down monotonically as the summaries widen.
+
 **There is no `RefCell`.**
 
 ### 3.11 Explicit allocators
