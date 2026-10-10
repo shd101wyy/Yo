@@ -3566,3 +3566,25 @@ _evaluate_begin_expression_impl :: (
 export(DupCallsResult, is_unit_value_expression);
 export(collect_dup_calls_conservatively);
 export(evaluate_begin_expression);
+/// A binding a consuming `match` arm owns (plans/VALUES_BY_DEFAULT.md
+/// decision 26) that the arm's body moved: a `return`, `unwind` or effect
+/// escape before the move still drops it, as the M3 driver above does for a
+/// block's own consumed locals. The binding lives in the arm's frame, not in
+/// the body block's, so the block's driver never sees it.
+attach_consumed_binding_exit_drops :: (fn(imm(body) : AstExpr, imm(v) : Variable, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+  if(v.consumed_at_token.is_none() || v.initialized_at_token.is_none() || !_variable_can_need_drop_ignoring_consumed(v), {
+    return(());
+  });
+  evaluated := evaluate_expression_raw(generate_expr_from_code(`___drop(${v.name})`, exn), env, ctx, exn);
+  _attach_early_return_only_drop_to_returns(body, v, evaluated, ctx);
+  match(
+    expr_info_table_get(ctx.expr_info_table, ast_expr_id(body)),
+    .Some(bi) => {
+      escape_drops := match(expr_info_consumed_variable_drop_expressions(bi), .Some(l) => l, .None => ArrayList(AstExpr).new());
+      escape_drops.push(evaluated);
+      expr_info_set_consumed_variable_drop_expressions(bi, Option(ArrayList(AstExpr)).Some(escape_drops));
+    },
+    .None => ()
+  );
+});
+export(attach_consumed_binding_exit_drops);

@@ -89,7 +89,7 @@ pragma(Pragma.AllowUnsafe);
   YoError,
   with_code
 } :: import("../error.yo");
-{ raise_flow_violation } :: import("../types/flowability.yo");
+{ raise_flow_violation, propagate_def_time_errors } :: import("../types/flowability.yo");
 { suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
@@ -102,7 +102,7 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain } :: import("../types/utils.yo");
-{ expr_info_table_set } :: import("../expr_info.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -137,6 +137,9 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // attach_temp_variable_to_expr
 // ---------------------------------------------------------------------------
+/// The scrutinee tokens of the consuming `match`es (see
+/// `note_consuming_match_scrutinee`).
+(g_consuming_match_scrutinees : HashSet(String)) = HashSet(String).new();
 /// Attach a generated temp variable to `expr`'s ExprInfo for RC drop-tracking.
 ///
 /// Steps:
@@ -480,7 +483,7 @@ require_expr_not_consumed :: (
             && (consumed_tok.*.column == ast_expr_token(rhs).column)
             && (consumed_tok.*.module_path == ast_expr_token(rhs).module_path)
           );
-          if(same_site, {
+          if(same_site || migrate_borrowed_match_at(consumed_tok.*), {
             return(());
           });
           exn.throw(dyn(use_of_moved_value_error(var_name, v.ty, ast_expr_token(rhs), variable_move_note(v, consumed_tok.*))));
@@ -586,14 +589,53 @@ move_only_type_help :: (fn(imm(ty) : TypeValue) -> Option(String))(
     )
   )
 );
+/// The scrutinee tokens of the consuming `match`es (decision 26), so that a
+/// use after one names `match(&x, …)`. Keyed by token position.
+_consuming_match_key :: (fn(imm(tok) : Token) -> String)(`${tok.module_path}:${tok.byte_offset}`);
+note_consuming_match_scrutinee :: (fn(imm(tok) : Token) -> unit)({
+  g_consuming_match_scrutinees.insert(_consuming_match_key(tok));
+});
+consuming_match_scrutinee_at :: (fn(imm(tok) : Token) -> bool)(
+  (g_consuming_match_scrutinees.len() > usize(0)) && g_consuming_match_scrutinees.contains(_consuming_match_key(tok))
+);
 /// A use of moved value `name` at `use_tok` (moved at `moved_tok`), as E0901,
 /// with the move-only note when `ty` is move-only.
 use_of_moved_value_error :: (fn(imm(name) : String, imm(ty) : TypeValue, imm(use_tok) : Token, imm(moved_tok) : Token) -> YoError)({
   entries := ArrayList(TokenAndError).new();
   entries.push(TokenAndError(token : use_tok, error_message : `use of moved value: \`${name}\``));
-  entries.push(TokenAndError(token : moved_tok, error_message : String.from("value moved here")));
-  with_code(format_error_messages_with_help(entries, move_only_help(name, ty)), E_USE_OF_MOVED_VALUE)
+  by_match := consuming_match_scrutinee_at(moved_tok);
+  entries.push(
+    TokenAndError(
+      token : moved_tok,
+      error_message : cond(by_match => String.from("value moved here: a `match` takes its scrutinee by value"), true => String.from("value moved here"))
+    )
+  );
+  with_code(format_error_messages_with_help(entries, moved_value_help(name, ty, moved_tok)), E_USE_OF_MOVED_VALUE)
 });
+/// The E0901 note for a use of `name` after a move at `moved_tok`: a
+/// consuming `match` names the borrow that keeps the value, any other move
+/// the type's note (`move_only_help`).
+moved_value_help :: (fn(imm(name) : String, imm(ty) : TypeValue, imm(moved_tok) : Token) -> Option(String))(
+  cond(
+    consuming_match_scrutinee_at(moved_tok) => Option(String).Some(
+      `a \`match\` consumes an owned scrutinee (plans/VALUES_BY_DEFAULT.md decision 26): match through a borrow to keep using \`${name}\`, \`match(&${name}, …)\`, or \`match(&mut ${name}, …)\` to write through the bindings`
+    ),
+    true => move_only_help(name, ty)
+  )
+);
+/// `yo fix --migrate match-scrutinee`: a use after the consuming `match`
+/// whose scrutinee is `moved_tok` records `&` before that scrutinee instead
+/// of being rejected (true when recorded).
+migrate_borrowed_match_at :: (fn(imm(moved_tok) : Token) -> bool)(
+  cond(
+    // An error a `comptime_expect_error` expects is the program's point.
+    (migrate_match_scrutinee_on() && !propagate_def_time_errors() && consuming_match_scrutinee_at(moved_tok)) => {
+      record_migrate_edit(moved_tok, moved_tok.value.len(), `&${moved_tok.value}`, moved_tok.value.clone());
+      true
+    },
+    true => false
+  )
+);
 /// A short rendering of the place `e` names, for a message: a field chain
 /// reads as written (`sh.origin.y`, not the general printer's
 /// `(sh.origin).y` — its parenthesized dot call leaves one pair behind), a
@@ -1521,6 +1563,7 @@ set_expr_as_consumed :: (
                 v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(expr)));
               },
               // Step 4: throw `use of moved value`.
+              migrate_borrowed_match_at(consumed_tok.*) => (),
               true => {
                 exn.throw(dyn(use_of_moved_value_error(name, v.ty, ast_expr_token(expr), variable_move_note(v, consumed_tok.*))));
               }
@@ -2742,7 +2785,7 @@ check_loop_flow :: (
             );
             ci = (ci + usize(1));
           });
-          if(pre.is_none() && (back_moved.len() > usize(0)), {
+          if(pre.is_none() && (back_moved.len() > usize(0)) && !migrate_borrowed_match_at(match(back_moved.get(usize(0)), .Some(t) => t, .None => v.token)), {
             mv_tok := match(back_moved.get(usize(0)), .Some(t) => t, .None => v.token);
             entries := ArrayList(TokenAndError).new();
             entries.push(
@@ -2752,7 +2795,7 @@ check_loop_flow :: (
               )
             );
             entries.push(TokenAndError(token : v.token, error_message : String.from("declared outside the loop here")));
-            exn.throw(dyn(with_code(format_error_messages_with_help(entries, move_only_help(v.name, v.ty)), E_USE_OF_MOVED_VALUE)));
+            exn.throw(dyn(with_code(format_error_messages_with_help(entries, moved_value_help(v.name, v.ty, mv_tok)), E_USE_OF_MOVED_VALUE)));
           });
           // Ways out.
           exit_moved := ArrayList(Token).new();
@@ -2779,7 +2822,7 @@ check_loop_flow :: (
           // Only a value with a drop is at stake: without drop flags its drop
           // after the loop cannot be decided. A value with nothing to drop is
           // simply moved after the loop (a later use is E0901).
-          if((exit_moved.len() > usize(0)) && (exit_live.len() > usize(0)) && type_contains_rc_type(v.ty), {
+          if((exit_moved.len() > usize(0)) && (exit_live.len() > usize(0)) && type_contains_rc_type(v.ty) && !migrate_borrowed_match_at(match(exit_moved.get(usize(0)), .Some(t) => t, .None => v.token)), {
             entries2 := ArrayList(TokenAndError).new();
             entries2.push(
               TokenAndError(
@@ -4835,6 +4878,42 @@ local_borrow_note_runtime_call :: (fn(is_await : bool, imm(tok) : Token, imm(cal
 local_borrow_is_scalar_type :: (fn(imm(t) : TypeValue) -> bool)(
   is_primitive_type(t) || (is_bool_type(t) || is_pointer_type(t))
 );
+// ---------------------------------------------------------------------------
+// The consuming and `mut` match (plans/VALUES_BY_DEFAULT.md decision 26)
+// ---------------------------------------------------------------------------
+/// A binding a consuming `match` arm owns, still unmoved after the arm's
+/// body: it is dropped at the arm's end and at each `return` inside the arm,
+/// as a value kept by one arm of a branch is (`_drop_in_arms_that_keep`).
+drop_owned_match_binding_at_arm_end :: (fn(imm(v) : Variable, imm(body) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+  if(v.consumed_at_token.is_some(), {
+    return(());
+  });
+  bodies := ArrayList(AstExpr).new();
+  bodies.push(body);
+  toks := ArrayList(Option(Token)).new();
+  toks.push(Option(Token).None);
+  _kept := _drop_in_arms_that_keep(v, bodies, toks, env, ctx, exn);
+});
+/// Is the variable `v` a closure's capture (a by-value capture field, or an
+/// implicit capture of the enclosing function's local)? A `match` cannot
+/// move it out of the closure.
+match_scrutinee_is_capture :: (fn(imm(v) : Variable, imm(env) : Environment, imm(ctx) : EvalContext) -> bool)(
+  is_fn_capture_value_binding(v.id) || _is_implicit_closure_capture(v, env, ctx)
+);
+/// Register the `mut` place a `match` arm binds (`name`, declared at `decl`)
+/// as an exclusive local borrow of the scrutinee's place, live from the
+/// binding to its last mention in the arm `body` (decision 18's rule): the
+/// arm cannot read, write or move the scrutinee while the place is live.
+///
+/// `is_mut` false: a binding of `match(&x, …)`, which borrows the
+/// scrutinee read-only, so the arm cannot write or move it while the binding
+/// is live (Rust's shared borrow of a `ref` binding).
+local_borrow_register_match_place :: (fn(imm(name) : String, imm(decl) : Token, imm(place) : LocalBorrowPlace, imm(body) : AstExpr, (is_mut : bool) ?= true) -> unit)({
+  last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => decl);
+  end := cond(_lb_mentions(body, name.clone()) => _lb_region_end(body, name.clone(), decl), true => decl);
+  _info := local_borrow_register(name, decl, is_mut, place, LocalBorrowRange(last_use : last, end : end, has_repoint : false), Option(Variable).None);
+});
+export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at);
 export(
   LocalBorrowPlace,
   LocalBorrowInfo,

@@ -155,6 +155,11 @@ FunctionGenerationContext :: ref(
     /// or as the C local when it has none; never through the env, whose
     /// same-named variables are not the binding.
     shadow_slots : Option(HashMap(String, String)),
+    /// The shadowed names that are a `mut` match's place bindings
+    /// (plans/VALUES_BY_DEFAULT.md decision 26): their C local is a pointer
+    /// to the part, so a read or a write goes through it. Keyed by the
+    /// SANITIZED C name, like `local_shadowed_variables`.
+    place_bindings : Option(HashSet(String)),
     /// Temp variable names already declared in the C output (avoid duplicates).
     declared_temp_vars : Option(HashSet(String)),
     /// Var names whose drops were already emitted inside short-circuit branches.
@@ -277,6 +282,7 @@ impl(
       consumed_var_pending_drops : Option(ArrayList(AstExpr)).None,
       local_shadowed_variables : Option(HashSet(String)).None,
       shadow_slots : Option(HashMap(String, String)).None,
+      place_bindings : Option(HashSet(String)).None,
       declared_temp_vars : Option(HashSet(String)).None,
       short_circuit_handled_drop_var_names : Option(HashSet(String)).None,
       short_circuit_emitted_drop_targets : Option(HashSet(String)).None,

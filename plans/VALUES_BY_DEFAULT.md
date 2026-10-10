@@ -1267,6 +1267,8 @@ and in git, not a silent edit.
     - **Phase.** V3 for move-only payloads, then V3b, which makes plain
       scrutinees by value together with plain parameters, and V2b for the
       explicit-copy kind. Until V3b, a plain scrutinee borrows, as today.
+      *As built 2026-10-10* (V3b, feat/vbd-consuming-match): see V3b
+      Generation B step 2, "the by-value scrutinee".
 
 27. **The compiler may elide a `.clone()` whose source is dead, as an
     optimization, never as semantics.**
@@ -3686,6 +3688,104 @@ is `Arc(Mutex(T))`, `clone()` or `mut`, and the error says which.
        - **`(name := p)` with sub-bindings** in a consuming `match` is
          allowed only when the sub-bindings are `Copy` (Rust's bindings after
          `@` in a by-move pattern); otherwise E0901.
+     - **As built, the by-value scrutinee (2026-10-10, branch
+       feat/vbd-consuming-match, stacked on feat/vbd-v3b-markers-a).**
+       Decision 26's table, with the delegated rules above:
+       - **The marker survives the desugar.** `match(&x, …)` /
+         `match(&mut x, …)` is still peeled to `match(x, …)`, so every
+         consumer of the tree reads a plain scrutinee, but the marker is
+         recorded in `g_borrowed_match_sites` (`src/expr.yo`), keyed by the
+         `match` call's token position, which `clone_expr_fresh_ids` keeps
+         (an id key would lose it in every generic specialization).
+         `borrowed_match_scrutinee_kind` reads it, and `ast_expr_to_string`
+         prints it back (the test runner rebuilds test bodies from the tree).
+       - **The decision** (`_decide_match_mode`, `src/evaluator/exprs/match.yo`):
+         `&mut x` → `MATCH_MODE_MUT`; `&x` → `MATCH_MODE_BORROW`; a bare
+         `mut` binding → MUT, a bare `imm` binding → BORROW; a value that is
+         `Copy` or still implicitly copyable → BORROW (the old lowering,
+         observably the copy or share a by-value parameter makes); anything
+         else → `MATCH_MODE_CONSUME`, which moves the scrutinee before any arm
+         is evaluated: an owned local or by-value parameter through
+         `set_expr_as_consumed` (the flow log sees the move), an owned
+         temporary by consuming its temp. The mode is registered for codegen
+         beside the arms (`register_match_mode`, `src/pattern.yo`).
+       - **Consuming arms.** The guard sees the bindings as borrows; after
+         it, the bindings take ownership. For a type with drops
+         (`type_contains_rc_cell_or_move_only`), `_augment_arm_pattern` gives
+         every part the pattern leaves unbound (`_`, an unlisted field, a
+         string constant) a hidden binding whose `___drop` runs when the arm
+         is entered (`register_arm_entry_drops`), and every reference cell
+         the pattern looks through (`ThroughBox`, a `ref` struct or enum
+         position) a hidden binding that keeps the handle to the arm's end;
+         the user's bindings below a cell are borrows. A binding still owned
+         after the body is dropped at the arm's end and at its exits
+         (`_drop_in_arms_that_keep`'s mechanism); one the body moved is
+         dropped at the exits before the move (`attach_consumed_binding_exit_drops`,
+         the M3 driver's rule for a block's own locals). Such a match takes
+         the general lowering, whose per-arm binding blocks express it; the
+         checks keep reading the user's patterns, codegen reads the
+         augmented ones.
+       - **`mut` places.** A binding not below a cell is an `is_ref`
+         variable, declared `T* v = &(path)` (`_emit_place_binding_decl`,
+         `src/codegen/exprs/match.yo`) and read through `(*v)`; it is
+         registered as an exclusive local borrow of the scrutinee's place
+         live to its last mention in the arm (E0911), linked to its root as
+         an inout borrower. A `mut` match that binds no place is lowered as a
+         borrow. A `match(&x, …)` binding is registered as an `imm` local
+         borrow of `x` (a write or a move of `x` while it is live is E0911).
+       - **E0901 after a consuming match** names `match(&x, …)`
+         (`moved_value_help`, from the scrutinee tokens
+         `note_consuming_match_scrutinee` records); a module-level binding, a
+         closure capture or a projection of a non-implicitly-copyable type
+         is E0901 at the scrutinee (`_throw_unmovable_scrutinee`).
+       - **The sweep** is `yo fix <path> --migrate match-scrutinee`
+         (`src/main.yo`): the evaluator runs with the new semantics, and each
+         use after a consuming match (the read, re-move, loop back-edge and
+         loop-exit sites), and each unmovable scrutinee, records `&` before
+         the scrutinee instead of raising — except inside
+         `comptime_expect_error`, whose error is the program's point. A second
+         pass records nothing. Applied: `std/` 7 (`std/cli/arg_parser.yo` 6
+         on `ArgKind` fields, `std/regex/compiler.yo` 1 on a `NodeKind`
+         field), `src/` 0, `tests/` (no `internal/`, `cli-cases/`) 1 (`tests/match_async_arms.test.yo`, a plain struct captured by an `io.async` body; 52 files do not evaluate under `fix`, and the suite run covered them),
+         `tests/internal/` 0, CLI fixtures 0 (every case passes unchanged but the skill-tree goldens, whose cheatsheet hash moved), docs and
+         skills 0 (their blocks match `Copy` or implicitly copyable values).
+         The seed reads `match(&x, …)` as today's borrowing match, so the
+         swept tree still builds with it.
+       - **Decided by the implementer, 2026-10-10** (the maintainer's
+         delegation: strict, explicit, sound, Rust's default binding modes):
+         - **Only a non-implicitly-copyable scrutinee is consumed.** A
+           `String`, a collection, an `Rc` or a `ref` handle is shared, as a
+           by-value parameter shares it (the old borrowing lowering is
+           observably that share), until V2b/V2c/V5 makes its kind
+           explicit-copy; V2b already lists "decision 26 for this kind", so
+           its sweep adds the `&` those kinds need. A `Copy` value is copied.
+         - **A projection never takes its root's mode.** `match(p.f, …)`
+           with `p` an `imm` or `mut` binding is E0901 naming `&p.f` /
+           `&mut p.f` for a non-implicitly-copyable field (Rust: "cannot
+           move out of `p.f`, which is behind a reference"); only a bare
+           binding is matched through its borrow.
+         - **The scrutinee is consumed before the arms,** so neither a guard
+           nor an arm may name it (E0901); a guard cannot move a binding (it
+           borrows).
+         - **Unbound parts are dropped on arm entry** (the plan's rule, not
+           Rust's drop at the owner's scope end).
+         - **An or-pattern of a consuming match may not leave a part with a
+           drop unbound**: its alternatives would drop different parts. The
+           error asks to split the arm or bind the part. Alternatives that
+           bind every such part are fine.
+         - **In a `mut` match,** bindings below a cell or a raw pointer are
+           copies, `(name := p)` with sub-bindings is an error (two places
+           would alias), `&mut` of a module-level binding is allowed (it is
+           a writable place), and an arm that binds a place and awaits is
+           rejected until a place can live in a task slot
+           (`issues/a-mut-match-place-binding-cannot-live-across-an-await.md`).
+       - **Found and fixed on the way:** a value moved before a `continue` or
+         `break` inside an `if` was dropped again at the loop exit
+         (pre-existing, S1;
+         `issues/fixed/a-value-moved-before-a-continue-or-break-is-dropped-again-at-the-exit.md`),
+         and a `match` arm block's value was read after the arm's drops
+         (`generate_case_body` now takes it first; inside an `io.async` body
+         the emptied slot read 0).
      - **Order, by the seed.** The marker semantics (`&x` to an `imm`/`mut`
        parameter is always a borrow, a generic one included; operator
        operands exempt; closure callees through the same path) and the

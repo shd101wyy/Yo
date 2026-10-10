@@ -118,6 +118,15 @@ the parameter-convention change (VALUES_BY_DEFAULT V3b):
 None of them changes what a program does. A file that does not evaluate keeps
 what evaluation never reached, and `fix` exits non-zero naming it.
 
+`yo fix <path> --migrate match-scrutinee` is the migration for decision 26,
+under which a `match` takes an owned scrutinee by value. It evaluates each file
+with the new rule and writes `&` before a scrutinee wherever the move would be
+an error: an owned local used after the `match` (`match(x, …)` →
+`match(&x, …)`), a module-level binding, a closure capture, and a field, element
+or dereference (`match(x.f, …)` → `match(&x.f, …)`). It leaves the argument of a
+`comptime_expect_error` alone, since that error is the point. A second run
+records nothing.
+
 ## Warnings
 
 `check`, `compile` and `build` also carry warning-severity diagnostics for

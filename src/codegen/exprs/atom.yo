@@ -32,7 +32,7 @@
 { deferred_drop_target_variable, _codegen_name_of_variables } :: import("../utils/index.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { sm_local_field_name, sm_storage_id, sm_slot_of, sm_slot_of_variable, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
-{ Environment, get_variables_from_env, Variable } :: import("../../env.yo");
+{ Environment, get_variables_from_env, Variable, variable_moved_at_cleanup_point } :: import("../../env.yo");
 { is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, scope_variables, scope_release_mode, scope_release_note_mismatch } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
@@ -51,6 +51,16 @@ _shadowed_name_code :: (fn(imm(var_name) : String, imm(context) : FunctionGenera
     .None => cname
   )
 });
+/// A `mut` match's place binding (decision 26): a shadowed C local that holds
+/// a pointer to the part. Read from the arm's emission state, not the env: a
+/// single-expression arm body records the env without the arm's frame.
+_is_place_binding :: (fn(imm(var_name) : String, imm(context) : FunctionGenerationContext) -> bool)(
+  match(context.place_bindings, .Some(s) => s.contains(sanitize_for_c_identifier(var_name, false)), .None => false)
+);
+/// A match-arm binding the arm's C block declared under its source name.
+_is_shadowed_name :: (fn(imm(var_name) : String, imm(context) : FunctionGenerationContext) -> bool)(
+  match(context.local_shadowed_variables, .Some(s) => s.contains(sanitize_for_c_identifier(var_name, false)), .None => false)
+);
 /// Async/effect state-machine variable resolution — the `sm->var_<id>` /
 /// `sm->__capture.<name>` mapping. Returns `.None` when the atom is not an
 /// SM-resolvable variable (the caller falls through to the regular path).
@@ -387,7 +397,23 @@ _emit_loop_body_drops_before_exit :: (fn(imm(context) : FunctionGenerationContex
                     .None => false
                   );
                   (sk : bool) = false;
-                  if(!in_slot && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
+                  // A value moved on the path to this exit is gone here: its
+                  // move is the variable's last one (`consumed_at_token`), or
+                  // a move the flow log undid for the paths after an arm that
+                  // this exit lies inside (`keep.push(f); continue;` in an
+                  // `if`), which return points already consult
+                  // (issues/fixed/a-value-moved-before-a-continue-or-break-is-dropped-again-at-the-exit.md).
+                  exit_tok := ast_expr_token(exit_expr);
+                  moved_here := match(
+                    match(exit_vars, .Some(xv) => xv.last(), .None => Option(Variable).None),
+                    .Some(mv) => (
+                      match(mv.consumed_at_token, .Some(ct) => ((ct.*.module_path == exit_tok.module_path) && (ct.*.character <= exit_tok.character)), .None => false) || variable_moved_at_cleanup_point(mv, exit_tok)
+                    ),
+                    .None => false
+                  );
+                  if(moved_here, {
+                    sk = true;
+                  }, if(!in_slot && !scope_stack_contains(context.base.declared_scopes.*, c_name), {
                     sk = true;
                   }, {
                     // env-liveness: skip drops for variables not yet in
@@ -404,7 +430,7 @@ _emit_loop_body_drops_before_exit :: (fn(imm(context) : FunctionGenerationContex
                       },
                       .None => false
                     );
-                  });
+                  }));
                   sk
                 },
                 .None => false
@@ -639,7 +665,9 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
         // A by-ref binding (`inout(y) := x`) in a slot holds the pointer; a
         // read or a write through it dereferences it, as `_var_read_code`
         // does for a C local.
-        return(if(code.starts_with("sm->") && _is_ref_binding(expr, tv.clone(), context), `(*${code})`, code));
+        // A `mut` match's place binding (decision 26) is a shadowed C local
+        // holding the pointer too.
+        return(if((code.starts_with("sm->") && _is_ref_binding(expr, tv.clone(), context)) || _is_place_binding(tv.clone(), context), `(*${code})`, code));
       },
       .None => ()
     );
@@ -654,14 +682,15 @@ generate_atom :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationConte
       // not the evaluator's temp `variable_name` (the destructure bind declares `<T> v = ...`
       // and the body must reference `v`, not the temp). Keyed by the source
       // TOKEN; the matching declaration uses the same sanitized source name.
-      if(match(context.local_shadowed_variables, .Some(s) => s.contains(sanitize_for_c_identifier(tv.clone(), false)), .None => false), {
-        return(
-          match(
-            match(context.shadow_slots, .Some(m) => m.get(sanitize_for_c_identifier(tv.clone(), false)), .None => Option(String).None),
-            .Some(field) => `sm->${field}`,
-            .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
-          )
+      if(_is_shadowed_name(tv.clone(), context), {
+        shadowed_code := match(
+          match(context.shadow_slots, .Some(m) => m.get(sanitize_for_c_identifier(tv.clone(), false)), .None => Option(String).None),
+          .Some(field) => `sm->${field}`,
+          .None => get_variable_name_for_codegen(tv.clone(), Option(Environment).None)
         );
+        // A `mut` match's place binding (decision 26) holds a pointer to the
+        // part: a read or a write goes through it.
+        return(if(_is_place_binding(tv.clone(), context), `(*${shadowed_code})`, shadowed_code));
       });
       // variableName path: comptime-only constant inline, else the name.
       match(

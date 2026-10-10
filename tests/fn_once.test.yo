@@ -253,10 +253,18 @@ comptime_expect_error(
     t := _OnceTok(n : i32(5));
     (f : Impl(FnOnce() -> i32)) = ({ t }() => t.n);
     o := Option(type_of(f)).Some(f);
-    match(o, .Some(g) => g(), .None => i32(0));
+    match(&o, .Some(g) => g(), .None => i32(0));
   }),
   "it is borrowed from the value that holds it"
 );
+// A consuming match moves the call-once closure out of its holder
+// (plans/VALUES_BY_DEFAULT.md decision 26): the arm owns it and may call it.
+_fnonce_match_moves_out :: (fn() -> i32)({
+  t := _OnceTok(n : i32(6));
+  (f : Impl(FnOnce() -> i32)) = ({ t }() => t.n);
+  o := Option(type_of(f)).Some(f);
+  match(o, .Some(g) => g(), .None => i32(0))
+});
 comptime_expect_error(
   _nested_borrowed_param_is_not_an_outer_sink_rejected :: (fn(sink(x) : _OnceTok) -> i32)({
     inner :: (fn(comptime(T) : Type, imm(x) : T) -> i32)(_once_take(x));
@@ -350,4 +358,9 @@ test("FnOnce: an Fn closure relayed by an FnOnce capture list releases its captu
     assert(_relay_fn_once(() => t.n) == i32(8), "the relay called it");
   };
   assert(g_once_disposed == (before + i32(1)), "released exactly once, by the relay's call");
+});
+test("FnOnce: a consuming match moves the closure out of its holder and calls it once", {
+  before := g_once_disposed;
+  assert(_fnonce_match_moves_out() == i32(6), "the arm called the moved-out closure");
+  assert(g_once_disposed == (before + i32(1)), "its capture was released exactly once");
 });

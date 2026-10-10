@@ -27,7 +27,7 @@
   expr_info_deferred_dup_expressions,
   scope_variables
 } :: import("../../expr_info.yo");
-{ is_unit_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { note_state_machine_binding_id, FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -38,9 +38,9 @@
 { _looks_like_minted_temp } :: import("./begin.yo");
 { sm_local_field_name } :: import("../async/state_machine_naming.yo");
 { declare_c_var_name, get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
-{ resolve_enum_shell } :: import("../../types/creators.yo");
+{ resolve_enum_shell, t_ptr } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ Pattern, Arm, lookup_match_arms, pattern_bindings } :: import("../../pattern.yo");
+{ Pattern, Arm, lookup_match_arms, pattern_bindings, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT } :: import("../../pattern.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
@@ -97,6 +97,79 @@ _emit_pattern_binding_decl :: (
     l.push_str(";");
     em.emit_string_line(l);
   })
+});
+/// Emit `<T>* bind = &(path);` — a `mut` match's place binding
+/// (plans/VALUES_BY_DEFAULT.md decision 26): the binding points at the part,
+/// so the arm reads and writes the scrutinee's storage through it. The
+/// self-referential initializer is hoisted as `_emit_pattern_binding_decl`
+/// does.
+_emit_place_binding_decl :: (fn(imm(context) : FunctionGenerationContext, imm(indent) : String, imm(bind) : String, imm(ty) : TypeValue, imm(path) : String) -> unit)({
+  em := context.base.emitter;
+  pstr := get_type_string(t_ptr(ty), context.base);
+  addr := `&(${path})`;
+  if(addr.contains(bind.clone()), {
+    tmp := `__yo_pat_${bind}`;
+    em.emit_string_line(`${indent}${pstr.clone()} ${tmp.clone()} = ${addr};`);
+    em.emit_string_line(`${indent}${pstr} ${bind} = ${tmp};`);
+  }, {
+    em.emit_string_line(`${indent}${pstr} ${bind} = ${addr};`);
+  });
+});
+/// The names `p` binds as `mut` places at a position of type `ty`: every
+/// binding not below a reference cell or a raw pointer (those stay copies).
+_collect_place_names :: (fn(imm(p) : Pattern, imm(ty) : TypeValue, in_cell : bool, mut(out) : ArrayList(String)) -> unit)(
+  match(
+    p,
+    .Bind(name, _, _) => if(!in_cell, out.push(name.clone())),
+    .At(name, _, _, sub) => {
+      if(!in_cell, out.push(name.clone()));
+      recur(sub, ty, in_cell, out);
+    },
+    .Variant(_, vidx, field_idx, subs, enum_ty, through_ptr, _) => {
+      cell := (in_cell || through_ptr || pattern_position_is_cell(ty));
+      ftys := match(resolve_enum_shell(enum_ty), .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
+        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        match(subs.get(i), .Some(sub) => recur(sub, fty, cell, out), .None => ());
+        i = (i + usize(1));
+      });
+    },
+    .Or(alts) => match(alts.get(usize(0)), .Some(a0) => recur(a0, ty, in_cell, out), .None => ()),
+    .ThroughBox(_, inner_ty, sub) => recur(sub, inner_ty, true, out),
+    .Tuple(subs, elem_tys) => {
+      cell := (in_cell || is_pointer_type(ty));
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        ety := match(elem_tys.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        match(subs.get(i), .Some(sub) => recur(sub, ety, cell, out), .None => ());
+        i = (i + usize(1));
+      });
+    },
+    .Struct(struct_ty, field_idx, subs, _) => {
+      cell := (in_cell || pattern_position_is_cell(ty));
+      ftys := _struct_pattern_field_tys(struct_ty);
+      (i : usize) = usize(0);
+      while(i < subs.len(), {
+        fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
+        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        match(subs.get(i), .Some(sub) => recur(sub, fty, cell, out), .None => ());
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  )
+);
+_list_has :: (fn(imm(xs) : ArrayList(String), imm(x) : String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < xs.len(), {
+    if(match(xs.get(i), .Some(y) => (y == x), .None => false), {
+      return(true);
+    });
+    i = (i + usize(1));
+  });
+  false
 });
 /// True when position `idx` lies INSIDE a double-quoted C string literal in
 /// `s` (parity walk with `\\`-escape skipping): the word
@@ -352,7 +425,25 @@ generate_case_body :: (fn(imm(body_expr) : AstExpr, imm(indent) : String, imm(co
         .None => ()
       );
     });
-    final_code := if(n > usize(0), match(begin_args.get(n - usize(1)), .Some(final_expr) => match(arm_value_with_dups(final_expr, indent.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(final_expr, indent.clone(), context)), .None => String.from("")), String.from(""));
+    final_code0 := if(n > usize(0), match(begin_args.get(n - usize(1)), .Some(final_expr) => match(arm_value_with_dups(final_expr, indent.clone(), context), .Some(fc) => fc, .None => _call_generate_expr(final_expr, indent.clone(), context)), .None => String.from("")), String.from(""));
+    // The block's drops run after its value is taken: a value read from a
+    // local the block drops (`{ …; a.n }` with `a` dropped at the end, a
+    // consuming `match` arm's binding) is materialized first, as the bare
+    // path below does, or it would be read after the drop (an emptied task
+    // slot inside an `io.async` body read 0).
+    final_code := if(
+      (final_code0.len() > usize(0)) && !_is_control_flow_code(final_code0) && has_pending_emittable_drop(body_expr, context),
+      match(
+        match(context.base.get_expr_info(body_expr), .Some(bei) => Option(TypeValue).Some(bei.ty), .None => Option(TypeValue).None),
+        .Some(bt) => if(is_unit_type(bt) || is_never_type(bt), final_code0, {
+          av := fresh_local_name(String.from("__yo_arm_"), context.base.current_function_name);
+          em.emit_string_line(`${indent.clone()}${get_type_string(bt, context.base)} ${av.clone()} = ${final_code0};`);
+          av
+        }),
+        .None => final_code0
+      ),
+      final_code0
+    );
     generate_deferred_drop_expressions(body_expr, indent.clone(), context);
     context.pending_deferred_drops = prev_pending;
     context.consumed_var_pending_drops = prev_consumed;
@@ -772,7 +863,9 @@ _inline_binding_sm_field :: (fn(imm(tok) : Token, imm(context) : FunctionGenerat
           },
           .Some(k) => match(
             smv.get(k.clone()),
-            .Some(cv) => if(match(cv.kind, .Local => true, .Outer => false) && (cv.base.decl_site == site), {
+            // A consuming arm's hidden bindings share the arm's token, so the
+            // name tells them apart (decision 26).
+            .Some(cv) => if(match(cv.kind, .Local => true, .Outer => false) && ((cv.base.decl_site == site) && (cv.base.name == tok.value)), {
               note_state_machine_binding_id(context, k.clone());
               return(
                 Option(String).Some(
@@ -829,6 +922,12 @@ _shadow_slot_set :: (fn(imm(context) : FunctionGenerationContext, imm(name) : St
   slots.insert(name, field);
   context.shadow_slots = Option(HashMap(String, String)).Some(slots);
 });
+/// Record that the shadowed name `name` is a `mut` place binding.
+_place_add :: (fn(imm(context) : FunctionGenerationContext, imm(name) : String) -> unit)({
+  places := match(context.place_bindings.take(), .Some(s) => s, .None => HashSet(String).new());
+  places.insert(name);
+  context.place_bindings = Option(HashSet(String)).Some(places);
+});
 _shadow_add :: (fn(imm(context) : FunctionGenerationContext, imm(name) : String) -> unit)({
   shadowed := match(context.local_shadowed_variables.take(), .Some(s) => s, .None => HashSet(String).new());
   shadowed.insert(name);
@@ -843,6 +942,15 @@ _shadow_remove :: (fn(imm(context) : FunctionGenerationContext, imm(name) : Stri
       slots := m;
       _rs := slots.remove(name.clone());
       context.shadow_slots = Option(HashMap(String, String)).Some(slots);
+    },
+    .None => ()
+  );
+  match(
+    context.place_bindings.take(),
+    .Some(ps) => {
+      places := ps;
+      _rp := places.remove(name.clone());
+      context.place_bindings = Option(HashSet(String)).Some(places);
     },
     .None => ()
   );
@@ -1869,27 +1977,36 @@ _emit_pattern_chain :: (
     imm(indent) : String,
     imm(labels) : _MatchLabels,
     mut(shadows) : ArrayList(String),
-    imm(context) : FunctionGenerationContext
+    imm(context) : FunctionGenerationContext,
+    /// A `mut` match (decision 26): bindings are C pointers to their parts,
+    /// except below a reference cell or a raw pointer (`in_cell`).
+    places : bool,
+    in_cell : bool
   ) -> unit
 )({
   em := context.base.emitter;
+  as_place := (places && !in_cell);
   match(
     p,
     .Wildcard => (),
     .Bind(name, btok, _) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
-        if(assign_binds, {
-          line := indent.clone();
-          line.push_string(cname.clone());
-          line.push_str(" = ");
-          line.push_string(path.clone());
-          line.push_str(";");
-          em.emit_string_line(line);
-        }, {
-          _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
-        });
+        cond(
+          (assign_binds && as_place) => em.emit_string_line(`${indent}${cname.clone()} = &(${path.clone()});`),
+          assign_binds => {
+            line := indent.clone();
+            line.push_string(cname.clone());
+            line.push_str(" = ");
+            line.push_string(path.clone());
+            line.push_str(";");
+            em.emit_string_line(line);
+          },
+          as_place => _emit_place_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone()),
+          true => _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone())
+        );
         _bind_pattern_name(context, indent.clone(), cname.clone(), btok, path.clone());
+        if(as_place, _place_add(context, cname.clone()));
         shadows.push(cname);
       });
     },
@@ -1940,6 +2057,7 @@ _emit_pattern_chain :: (
       });
       labels_v := match(enum_ty, .EnumT({ variant_field_labels : vfls }) => match(vfls.get(vidx), .Some(l) => l, .None => ArrayList(String).new()), _ => ArrayList(String).new());
       ftys := match(enum_ty, .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      v_cell := (in_cell || pattern_position_is_cell(ty));
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -1949,7 +2067,7 @@ _emit_pattern_chain :: (
         match(
           subs.get(i),
           .Some(sub) => {
-            recur(sub, fcode, fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context);
+            recur(sub, fcode, fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context, places, v_cell);
           },
           .None => ()
         );
@@ -1969,13 +2087,17 @@ _emit_pattern_chain :: (
           },
           .None => ()
         );
+        place_names := ArrayList(String).new();
+        if(places, {
+          match(alts.get(usize(0)), .Some(a0) => _collect_place_names(a0, ty, in_cell, place_names), .None => ());
+        });
         (ni : usize) = usize(0);
         while(ni < names.len(), {
           nm := match(names.get(ni), .Some(n) => n, .None => String.from(""));
           nt := match(types.get(ni), .Some(t) => t, .None => TypeValue.Unit);
           if(!is_unit_type(nt), {
             decl := indent.clone();
-            decl.push_string(get_type_string(nt, context.base));
+            decl.push_string(get_type_string(cond(_list_has(place_names, nm.clone()) => t_ptr(nt), true => nt), context.base));
             decl.push_str(" ");
             decl.push_string(sanitize_for_c_identifier(nm.clone(), false));
             decl.push_str(";");
@@ -2000,7 +2122,7 @@ _emit_pattern_chain :: (
         match(
           alts.get(ai),
           .Some(alt) => {
-            recur(alt, path.clone(), ty, alt_fail.clone(), true, !alt_is_final, inner_indent.clone(), labels, shadows, context);
+            recur(alt, path.clone(), ty, alt_fail.clone(), true, !alt_is_final, inner_indent.clone(), labels, shadows, context, places, in_cell);
           },
           .None => ()
         );
@@ -2035,20 +2157,24 @@ _emit_pattern_chain :: (
     .At(name, atok, _, sub) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
-        if(assign_binds, {
-          line := indent.clone();
-          line.push_string(cname.clone());
-          line.push_str(" = ");
-          line.push_string(path.clone());
-          line.push_str(";");
-          em.emit_string_line(line);
-        }, {
-          _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone());
-        });
+        cond(
+          (assign_binds && as_place) => em.emit_string_line(`${indent}${cname.clone()} = &(${path.clone()});`),
+          assign_binds => {
+            line := indent.clone();
+            line.push_string(cname.clone());
+            line.push_str(" = ");
+            line.push_string(path.clone());
+            line.push_str(";");
+            em.emit_string_line(line);
+          },
+          as_place => _emit_place_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone()),
+          true => _emit_pattern_binding_decl(context, indent.clone(), cname.clone(), ty, path.clone())
+        );
         _bind_pattern_name(context, indent.clone(), cname.clone(), atok, path.clone());
+        if(as_place, _place_add(context, cname.clone()));
         shadows.push(cname);
       });
-      recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
+      recur(sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell);
     },
     .ThroughBox(box_ty, inner_ty, sub) => {
       // An Rc value in C is a pointer to a reference-semantics struct whose
@@ -2063,7 +2189,7 @@ _emit_pattern_chain :: (
       fcode := path.clone();
       fcode.push_str("->");
       fcode.push_string(label);
-      recur(sub, fcode, inner_ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
+      recur(sub, fcode, inner_ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, true);
     },
     .Tuple(subs, elem_tys) => {
       // A tuple is a value struct in C; elements are `._N`. A pointer to a
@@ -2084,7 +2210,7 @@ _emit_pattern_chain :: (
         match(
           subs.get(i),
           .Some(sub) => {
-            recur(sub, fcode, ety, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
+            recur(sub, fcode, ety, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || is_pointer_type(ty));
           },
           .None => ()
         );
@@ -2108,7 +2234,7 @@ _emit_pattern_chain :: (
         match(
           subs.get(i),
           .Some(sub) => {
-            recur(sub, fcode, fty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context);
+            recur(sub, fcode, fty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || ptrish);
           },
           .None => ()
         );
@@ -2139,6 +2265,7 @@ _gen_general_match :: (fn(imm(expr) : AstExpr, imm(arms) : ArrayList(Arm), imm(i
   labels := _MatchLabels(prefix : prefix.clone(), next : usize(0));
   end_label := prefix.clone();
   end_label.push_str("_end");
+  places := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
   n := arms.len();
   (k : usize) = usize(0);
   while(k < n, {
@@ -2156,7 +2283,7 @@ _gen_general_match :: (fn(imm(expr) : AstExpr, imm(arms) : ArrayList(Arm), imm(i
           shadows := ArrayList(String).new();
           // The last unguarded arm of an exhaustive match needs no tests.
           is_last := ((k + usize(1)) == n);
-          _emit_pattern_chain(arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), labels, shadows, context);
+          _emit_pattern_chain(arm.pattern, matched_value_code.clone(), match_value_type, fail_label.clone(), false, !(is_last && arm.guard.is_none()), body_indent.clone(), labels, shadows, context, places, false);
           match(
             arm.guard,
             .Some(g) => {
@@ -2178,6 +2305,29 @@ _gen_general_match :: (fn(imm(expr) : AstExpr, imm(arms) : ArrayList(Arm), imm(i
               gt.push_string(fail_label.clone());
               gt.push_str(";");
               em.emit_string_line(gt);
+            },
+            .None => ()
+          );
+          // The arm is selected: a consuming match drops the parts this arm
+          // leaves unbound (plans/VALUES_BY_DEFAULT.md decision 26).
+          match(
+            lookup_arm_entry_drops(ast_expr_id(arm.arm_expr)),
+            .Some(eds) => {
+              (edi : usize) = usize(0);
+              while(edi < eds.len(), {
+                match(
+                  eds.get(edi),
+                  .Some(ed) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(ed)), {
+                    context.emitted_deferred_drop_ids.insert(ast_expr_id(ed));
+                    ed_code := _call_generate_expr(ed, body_indent.clone(), context);
+                    if(ed_code.len() > usize(0), {
+                      em.emit_string_line(`${body_indent.clone()}${ed_code};`);
+                    });
+                  }),
+                  .None => ()
+                );
+                edi = (edi + usize(1));
+              });
             },
             .None => ()
           );

@@ -863,7 +863,7 @@ Rules:
 | `Fn(imm(s) : String) -> usize`, `fn(mut(n) : i32) -> unit` | function types carry the modes | fn-type params still need labels |
 | `f(&mut x)`, `f(&mut s.items)` | lends the place to a `mut` param | `&mut` is ONE prefix token; to any other param it is an error |
 | `f(&x)` | lends `x` to an `imm` param, a generic one included | to a by-value (plain or `sink`) param: an error naming `x` / `x.clone()`; to a `*(T)` param: an error naming `addr_of(x)`; to a `mut` param: an error naming `&mut x` |
-| `match(&x, …)`, `match(&mut x, …)` | `match(x, …)` | peeled at parse time |
+| `match(&x, …)`, `match(&mut x, …)` | (decision 26) a borrowing / `mut`-place match | the desugar peels the marker and records it (`borrowed_match_scrutinee_kind`); a bare scrutinee is taken BY VALUE (see "How a `match` takes its scrutinee" below) |
 | `addr_of(x)` | the raw-pointer address-of → `*(T)` | unsafe-capable files only. `&x` anywhere that is not a lending argument or scrutinee (a binding, a field store, a receiver `(&x).m()`, a variadic C argument) is an error naming `addr_of(x)` |
 | `inout(x)`, `own(x)` | (deleted) | an error naming `mut(x)` / `sink(x)`; `yo fix <path> --migrate modes` rewrites old code, and `yo fix <path> --migrate addr-of` rewrites an old address-of `&x` (it evaluates the code, so a lending `&x` stays) |
 | `size_of`, `align_of`, `type_of`, `type_id` | (deleted in Generation B) `sizeof`, `alignof`, `typeof`, `typeid` | the only spellings; `std/term.yo`'s `size_of` became `term_size` |
@@ -966,6 +966,18 @@ raw_bytes : (fn(self : Self) -> RawSlice(u8))(
   )
 )
 ```
+
+## How a `match` takes its scrutinee (decision 26, 2026-10-10)
+
+A `match` takes its scrutinee the way a parameter takes its argument (Rust's default binding modes):
+
+- **By value** — an owned local, a by-value parameter or a temporary whose type is NOT implicitly copyable (a move-only value, plain data without `Copy`): the scrutinee is MOVED into the match. The selected arm's bindings own their parts (move them, return them, or they are dropped at the arm's end); the parts an arm does not bind (`_`, unlisted fields) are dropped when the arm is ENTERED; guards see the bindings as borrows and the move happens on selection; below a reference cell (an `Rc` payload the pattern looks through, a `ref` value) bindings borrow and the handle lives to the arm's end. A later use of the scrutinee is E0901 naming `match(&x, …)` (the guards and arms cannot name it either).
+- **`match(&x, …)`** — read-only borrows, `x` stays usable; the bindings freeze `x` while live (a write or move of `x` in the arm is E0911). `&temp` borrows the temporary for the match.
+- **`match(&mut x, …)`** or a bare `mut` binding (a `mut` param, `mut(y) := …`) — `mut` PLACES: `v = …` in the arm writes the scrutinee's part (the old value is dropped), a writing method writes in place; `x` is reached only through the places while one is live (E0911). `&mut` of an `imm` binding is E0908, of a temporary an error. Bindings below a cell stay copies. An arm that binds a place and awaits is rejected for now (`issues/a-mut-match-place-binding-cannot-live-across-an-await.md`).
+- **A bare `imm` binding** (an `imm` param, `imm(y) := …`, a borrowing match's binding) — borrows.
+- **A `Copy` value or a still implicitly copyable kind** (`String`, collections, `Rc`, `ref` handles: V2b/V2c/V5 flip them) — copies/shares, i.e. the old borrowing lowering, observably the same.
+- **Errors (E0901 naming the borrow):** a by-value match of a module-level binding, a closure capture, a field `x.f`, an element `xs(i)` or a dereference `p.*` of a non-implicitly-copyable type — write `match(&x.f, …)`; a projection never takes its root's mode. `(name := p)` in a consuming match needs `Copy` sub-bindings (in a `mut` match none); an or-pattern of a consuming match may not leave a part with a drop unbound (split the arm).
+- `yo fix <path> --migrate match-scrutinee` writes the `&` an existing program needs (a use after the match, a module-level/projection scrutinee); it skips `comptime_expect_error` arguments. The seed still reads `match(&x, …)` as a plain borrowing match, so the sweep is seed-safe.
 
 ## Pattern forms in `match` (real pattern matching, 2026-09-19)
 

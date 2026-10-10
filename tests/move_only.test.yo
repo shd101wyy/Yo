@@ -9,6 +9,7 @@
 // `_MoLate`, and `g_mo_sum` adds up the disposed `_MoFd`s' `n`.
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
+{ yield } :: import("std/async");
 (g_mo_disposed : i32) = i32(0);
 (g_mo_sum : i32) = i32(0);
 _MoFd :: struct(n : i32);
@@ -332,7 +333,7 @@ test("move-only: a borrow cannot be copied or moved out", {
     "the closure captures `f`"
   );
   o := Option(_MoFd).Some(_MoFd(n : i32(2)));
-  comptime_expect_error(match(o, .Some(f) => _mo_take(f), .None => i32(0)), "it is borrowed");
+  comptime_expect_error(match(&o, .Some(f) => _mo_take(f), .None => i32(0)), "it is borrowed");
   assert(_mo_peek(a) == i32(1), "a is untouched");
 });
 test("move-only: no partial moves out of a field", {
@@ -386,4 +387,391 @@ test("move-only: `sink` and plain spell one function type, and `sink` moves", {
     comptime_expect_error(a.n, "use of moved value");
   };
   assert(g_mo_disposed == (before + i32(1)), "disposed once, by the callee");
+});
+// ---------------------------------------------------------------------------
+// The consuming match (plans/VALUES_BY_DEFAULT.md decision 26): a `match`
+// takes an owned scrutinee by value. The selected arm's bindings own their
+// parts, the parts it leaves unbound are dropped when the arm is entered,
+// guards see the bindings as borrows, and below a reference cell the
+// bindings borrow while the handle lives to the arm's end. `match(&x, …)`
+// borrows and keeps `x`.
+// ---------------------------------------------------------------------------
+_MoTwo :: enum(Two(a : _MoFd, b : _MoFd), One(a : _MoFd), Zero);
+_mo_two :: (fn(k : i32) -> _MoTwo)(
+  cond(
+    (k == i32(0)) => _MoTwo.Zero,
+    (k == i32(1)) => _MoTwo.One(a : _MoFd(n : i32(1))),
+    true => _MoTwo.Two(a : _MoFd(n : i32(2)), b : _MoFd(n : i32(3)))
+  )
+);
+_mo_some :: (fn(n : i32) -> Option(_MoFd))(.Some(_MoFd(n : n)));
+_mo_peek_opt :: (fn(imm(o) : Option(_MoFd)) -> i32)(
+  match(
+    o,
+    .Some(f) => f.n,
+    .None => i32(-1)
+  )
+);
+// An owned binding the arm returns before it moves it is dropped at the
+// `return`, once.
+_mo_match_early :: (fn(c : bool) -> i32)({
+  o := _mo_some(i32(11));
+  match(
+    o,
+    .Some(f) => {
+      if(c, {
+        return(i32(-11));
+      });
+      _mo_take(f)
+    },
+    .None => i32(0)
+  )
+});
+// A consuming match in a loop body: an arm moves its binding and continues,
+// returns it to the keeper, or breaks while still owning it.
+_mo_match_in_loop :: (fn(mut(keep) : ArrayList(_MoFd)) -> i32)({
+  (i : i32) = i32(0);
+  (total : i32) = i32(0);
+  while(i < i32(5), {
+    o := _mo_some(i);
+    match(
+      o,
+      .Some(f) => {
+        if(f.n == i32(1), {
+          keep.push(f);
+          i = (i + i32(1));
+          continue;
+        });
+        if(f.n == i32(3), {
+          break;
+        });
+        total = (total + f.n);
+      },
+      .None => ()
+    );
+    i = (i + i32(1));
+  });
+  total
+});
+// The same loop over a plain local: the value moved before `continue` is the
+// keeper's (issues/fixed/a-value-moved-before-a-continue-or-break-is-dropped-again-at-the-exit.md).
+_mo_local_in_loop :: (fn(mut(keep) : ArrayList(_MoFd)) -> i32)({
+  (i : i32) = i32(0);
+  (total : i32) = i32(0);
+  while(i < i32(5), {
+    f := _MoFd(n : i);
+    if(f.n == i32(1), {
+      keep.push(f);
+      i = (i + i32(1));
+      continue;
+    });
+    if(f.n == i32(3), {
+      break;
+    });
+    total = (total + f.n);
+    i = (i + i32(1));
+  });
+  total
+});
+_MoCell :: enum(Cell(fd : _MoFd, shared : Rc(_MoFd)), Empty);
+test("consuming match: an owned local's payload moves into the arm", {
+  before := g_mo_disposed;
+  {
+    o := _mo_some(i32(5));
+    r := match(
+      o,
+      .Some(f) => _mo_take(f),
+      .None => i32(0)
+    );
+    assert(r == i32(5), "the arm moved the payload out");
+    assert(g_mo_disposed == (before + i32(1)), "disposed once, by the callee");
+    comptime_expect_error(o, "match(&o, …)");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "the consumed local is not dropped again at its scope end");
+});
+test("consuming match: the parts an arm does not bind are dropped when it is entered", {
+  before := g_mo_disposed;
+  before_sum := g_mo_sum;
+  keep := ArrayList(_MoFd).new();
+  {
+    p := _mo_two(i32(2));
+    match(
+      p,
+      .Two(a, _) => {
+        assert(g_mo_disposed == (before + i32(1)), "b was dropped when the arm was entered");
+        assert(g_mo_sum == (before_sum + i32(3)), "the dropped part is b");
+        keep.push(a);
+      },
+      .One(a) => keep.push(a),
+      .Zero => ()
+    );
+  };
+  assert(g_mo_disposed == (before + i32(1)), "a lives on in the keeper, b was dropped once");
+  assert(keep.len() == usize(1), "a was moved into the keeper");
+  keep.clear();
+  assert(g_mo_disposed == (before + i32(2)), "a is disposed once, by its new owner");
+  assert(g_mo_sum == (before_sum + i32(5)), "2 + 3, each once");
+});
+test("consuming match: a wildcard arm drops the whole scrutinee once", {
+  before := g_mo_disposed;
+  {
+    p := _mo_two(i32(2));
+    r := match(
+      p,
+      .Zero => i32(0),
+      _ => {
+        assert(g_mo_disposed == (before + i32(2)), "both parts dropped when the arm was entered");
+        i32(1)
+      }
+    );
+    assert(r == i32(1), "the wildcard arm ran");
+  };
+  assert(g_mo_disposed == (before + i32(2)), "nothing dropped twice");
+});
+test("consuming match: a binding the arm still owns is dropped at the arm's end", {
+  before := g_mo_disposed;
+  {
+    o := _mo_some(i32(7));
+    match(
+      o,
+      .Some(f) => {
+        assert(f.n == i32(7), "read");
+        assert(g_mo_disposed == before, "still owned inside the arm");
+      },
+      .None => ()
+    );
+    assert(g_mo_disposed == (before + i32(1)), "dropped at the arm's end");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "once");
+});
+test("consuming match: a temporary scrutinee is consumed", {
+  before := g_mo_disposed;
+  {
+    f := match(
+      _mo_some(i32(9)),
+      .Some(x) => x,
+      .None => _MoFd(n : i32(0))
+    );
+    assert(f.n == i32(9), "the arm's binding moved out as the result");
+    assert(g_mo_disposed == before, "not dropped by the match");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "disposed once, by the local that owns it");
+});
+test("consuming match: a `return` inside an arm drops the owned binding once", {
+  before := g_mo_disposed;
+  assert(_mo_match_early(true) == i32(-11), "returned early");
+  assert(g_mo_disposed == (before + i32(1)), "the binding was dropped at the return");
+  assert(_mo_match_early(false) == i32(11), "moved");
+  assert(g_mo_disposed == (before + i32(2)), "the callee dropped it");
+});
+test("move-only: a value moved before a `continue` is not dropped again at the exit", {
+  before := g_mo_disposed;
+  keep := ArrayList(_MoFd).new();
+  assert(_mo_local_in_loop(keep) == i32(2), "0 + 2 before the break at 3");
+  assert(g_mo_disposed == (before + i32(3)), "0 and 2 at the iteration's end, 3 at the break; 1 is the keeper's");
+  keep.clear();
+  assert(g_mo_disposed == (before + i32(4)), "1 by the keeper");
+});
+test("consuming match: in a loop, `continue` after a move and `break` while owning drop each value once", {
+  before := g_mo_disposed;
+  keep := ArrayList(_MoFd).new();
+  assert(_mo_match_in_loop(keep) == i32(2), "0 + 2 added before the break at 3");
+  assert(keep.len() == usize(1), "1 was moved into the keeper");
+  assert(g_mo_disposed == (before + i32(3)), "0 and 2 at the arm's end, 3 at the break");
+  keep.clear();
+  assert(g_mo_disposed == (before + i32(4)), "1 by the keeper");
+});
+test("consuming match: a guard sees the bindings as borrows; the move happens on selection", {
+  before := g_mo_disposed;
+  {
+    o := _mo_some(i32(3));
+    r := match(
+      o,
+      (.Some(f) && (f.n > i32(5))) => (_mo_take(f) + i32(100)),
+      .Some(f) => _mo_take(f),
+      .None => i32(0)
+    );
+    assert(r == i32(3), "the guard failed and the next arm took the payload");
+    assert(g_mo_disposed == (before + i32(1)), "disposed once");
+  };
+  o2 := _mo_some(i32(4));
+  comptime_expect_error(
+    match(
+      o2,
+      (.Some(f) && (_mo_take(f) > i32(0))) => i32(1),
+      _ => i32(0)
+    ),
+    "it is borrowed"
+  );
+});
+test("consuming match: `match(&x, …)` borrows and keeps `x`", {
+  before := g_mo_disposed;
+  {
+    o := _mo_some(i32(6));
+    r := match(
+      &o,
+      .Some(f) => f.n,
+      .None => i32(0)
+    );
+    assert(r == i32(6), "read through the borrow");
+    assert(_mo_peek_opt(o) == i32(6), "o is still usable");
+    comptime_expect_error(
+      match(
+        &o,
+        .Some(f) => _mo_take(f),
+        .None => i32(0)
+      ),
+      "it is borrowed"
+    );
+    assert(g_mo_disposed == before, "nothing moved");
+    comptime_expect_error(
+      match(
+        &o,
+        .Some(f) => {
+          o = .None;
+          f.n
+        },
+        .None => i32(0)
+      ),
+      "borrows `o` with `imm` and is still live"
+    );
+  };
+  assert(g_mo_disposed == (before + i32(1)), "o is dropped once at its scope end");
+});
+test("consuming match: an `imm` binding scrutinee is matched through its borrow", {
+  before := g_mo_disposed;
+  {
+    o := _mo_some(i32(8));
+    assert(_mo_peek_opt(o) == i32(8), "an imm parameter's match borrows");
+    assert(_mo_peek_opt(o) == i32(8), "twice");
+  };
+  assert(g_mo_disposed == (before + i32(1)), "once");
+});
+test("consuming match: what a match cannot move is E0901 naming the borrow", {
+  h := _MoHolder(fd : _MoFd(n : i32(1)), tag : i32(2));
+  comptime_expect_error(
+    match(
+      h.fd,
+      _ => i32(0)
+    ),
+    "match(&h.fd, …)"
+  );
+  o := _mo_some(i32(2));
+  comptime_expect_error(
+    match(
+      o,
+      (w := .Some(f)) => i32(0),
+      .None => i32(1)
+    ),
+    "is not `Copy`"
+  );
+  p := _mo_two(i32(1));
+  comptime_expect_error(
+    match(
+      p,
+      (.Two(a, _) | .One(a)) => _mo_take(a),
+      .Zero => i32(0)
+    ),
+    "leaves a part with a drop unbound"
+  );
+  assert(
+    match(
+      &h.fd,
+      f => f.n
+    ) == i32(1),
+    "a projection is matched through a borrow"
+  );
+});
+test("consuming match: a match on an outer local inside a loop is a move per iteration", {
+  o := _mo_some(i32(1));
+  comptime_expect_error({
+    i := i32(0);
+    while(i < i32(2), {
+      match(
+        o,
+        .Some(f) => _mo_peek(f),
+        .None => i32(0)
+      );
+      i = (i + i32(1));
+    });
+  }, "match(&o, …)");
+  o2 := _mo_some(i32(2));
+  {
+    i := i32(0);
+    while(i < i32(2), {
+      match(
+        &o2,
+        .Some(f) => _mo_peek(f),
+        .None => i32(0)
+      );
+      i = (i + i32(1));
+    });
+  };
+  assert(_mo_peek_opt(o2) == i32(2), "a borrowing match in the loop keeps o2");
+});
+test("consuming match: below a reference cell the bindings borrow and the handle lives to the arm's end", {
+  before := g_mo_disposed;
+  {
+    c := _MoCell.Cell(fd : _MoFd(n : i32(1)), shared : rc(_MoFd(n : i32(2))));
+    r := match(
+      c,
+      .Cell(f, _MoFd(n : k)) => {
+        assert(g_mo_disposed == before, "the cell's payload is alive inside the arm");
+        _mo_take(f) + k
+      },
+      .Empty => i32(0)
+    );
+    assert(r == i32(3), "f moved, k read through the cell");
+    assert(g_mo_disposed == (before + i32(2)), "f by the callee, the cell when the arm ended");
+  };
+  assert(g_mo_disposed == (before + i32(2)), "nothing dropped twice");
+});
+test("consuming match: inside an io.async body, across an await in the arm", {
+  before := g_mo_disposed;
+  before_sum := g_mo_sum;
+  result := Rc(i32)(0);
+  task := io.async((io : Io) => {
+    o := _mo_some(i32(4));
+    first := match(
+      o,
+      .Some(f) => {
+        io.await(yield(io), io);
+        _mo_take(f)
+      },
+      .None => i32(0)
+    );
+    p := _mo_two(i32(2));
+    second := match(
+      p,
+      .Two(a, _) => {
+        io.await(yield(io), io);
+        a.n
+      },
+      .One(a) => a.n,
+      .Zero => i32(0)
+    );
+    result.* = (first + second);
+  });
+  io.await(task, io);
+  assert(result.* == i32(6), "4 moved across the await, then a.n = 2");
+  assert(g_mo_disposed == (before + i32(3)), "f by the callee, b at the arm's entry, a at the arm's end");
+  assert(g_mo_sum == (before_sum + i32(9)), "4 + 3 + 2, each once");
+});
+test("consuming match: an io.async arm keeps a looked-through cell across an await", {
+  before := g_mo_disposed;
+  result := Rc(i32)(0);
+  task := io.async((io : Io) => {
+    c := _MoCell.Cell(fd : _MoFd(n : i32(1)), shared : rc(_MoFd(n : i32(2))));
+    result.* = match(
+      c,
+      .Cell(f, _MoFd(n : k)) => {
+        io.await(yield(io), io);
+        _mo_take(f) + k
+      },
+      .Empty => i32(0)
+    );
+  });
+  io.await(task, io);
+  assert(result.* == i32(3), "f moved after the await, k read through the kept cell");
+  assert(g_mo_disposed == (before + i32(2)), "f by the callee, the cell at the arm's end");
 });

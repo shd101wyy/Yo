@@ -2959,6 +2959,16 @@ record_migrate_edit :: (fn(imm(tok) : Token, len : usize, imm(replacement) : Str
 });
 /// Whether `yo fix --migrate params` is recording.
 migrate_param_modes_on :: (fn() -> bool)(g_migrate_param_modes);
+/// `yo fix --migrate match-scrutinee` (plans/VALUES_BY_DEFAULT.md decision
+/// 26): a use after a consuming `match`, and a module-level or projection
+/// scrutinee a `match` cannot move, record `&` before the scrutinee instead
+/// of being rejected.
+(g_migrate_match_scrutinee : bool) = false;
+set_migrate_match_scrutinee :: (fn(on : bool) -> unit)({
+  g_migrate_match_scrutinee = on;
+});
+migrate_match_scrutinee_on :: (fn() -> bool)(g_migrate_match_scrutinee);
+export(set_migrate_match_scrutinee, migrate_match_scrutinee_on);
 /// Record `imm(label)` for a parameter label token (the trait-conformance
 /// half of the sweep, `src/evaluator/values/impl.yo`).
 record_imm_param_migration :: (fn(imm(label_tok) : Token) -> unit)({
