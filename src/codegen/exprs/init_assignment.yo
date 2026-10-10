@@ -248,7 +248,7 @@ _generate_inout_local_binding :: (fn(imm(lhs) : AstExpr, imm(rhs) : AstExpr, bin
   name_ei := match(
     context.base.get_expr_info(name_expr),
     .Some(e) => e,
-    .None => return(Option(String).Some(`// Error: No type information for inout binding ${ast_expr_token(name_expr).value}`))
+    .None => return(Option(String).Some(`// Error: No type information for mut binding ${ast_expr_token(name_expr).value}`))
   );
   var_name := ast_expr_token(name_expr).value;
   place_type := resolve_some_type_to_concrete(name_ei.ty);
@@ -298,7 +298,7 @@ _generate_inout_local_binding :: (fn(imm(lhs) : AstExpr, imm(rhs) : AstExpr, bin
     addr = place_code.substring(usize(2), place_code.len() - usize(1));
   }, {
     if(!_is_c_lvalue_chain(place_code), {
-      return(Option(String).Some(codegen_fatal_expr(`inout binding "${var_name}": place lowered to a non-lvalue C expression: ${place_code}`)));
+      return(Option(String).Some(codegen_fatal_expr(`mut binding "${var_name}": place lowered to a non-lvalue C expression: ${place_code}`)));
     });
     addr = String.from("(&(");
     addr.push_string(place_code.clone());

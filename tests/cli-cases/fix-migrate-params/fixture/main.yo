@@ -1,12 +1,12 @@
 { String } :: import("std/string");
 // `yo fix --migrate params` (V3b Generation B step 1): `s` and `q` are not
 // Copy, so they become `imm(...)`; `a` and `p` are Copy and stay plain;
-// `inout(c)` becomes `mut(c)`; the explicit `imm(r)` and `sink(o)` stay; the
+// `mut(c)`, the explicit `imm(r)` and `sink(o)` stay; the
 // unbounded generic `t` becomes `imm(t)`, the `where(U <: Copy)` one stays.
 _P :: struct(x : i32, y : i32);
 derive(_P, Copy, Clone);
 _S :: struct(name : String);
-_n :: (fn(a : i32, s : String, p : _P, q : _S, inout(c) : i32) -> i32)({
+_n :: (fn(a : i32, s : String, p : _P, q : _S, mut(c) : i32) -> i32)({
   c = (c + a);
   i32(s.len()) + p.x + i32(q.name.len())
 });

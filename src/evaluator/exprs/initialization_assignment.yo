@@ -21,6 +21,8 @@
   BK_INIT_ASSIGN,
   BK_GIVEN,
   BK_COMPTIME,
+  BK_INOUT,
+  old_mode_spelling_message,
   ast_expr_is_inout_mode_call,
   ast_expr_is_local_borrow_mode_call,
   BK_THREAD_LOCAL,
@@ -191,10 +193,10 @@ _evaluate_inout_local_binding :: (
   ) -> AstExpr
 )({
   lhs_tok := ast_expr_token(lhs);
-  // `imm(y) :=` binds a read-only borrow; `mut(y) :=` and its synonym
-  // `inout(y) :=` an exclusive one (plans/VALUES_BY_DEFAULT.md decision 18).
+  // `imm(y) :=` binds a read-only borrow; `mut(y) :=` an exclusive one
+  // (plans/VALUES_BY_DEFAULT.md decision 18).
   is_mut := ast_expr_is_inout_mode_call(lhs, .None);
-  mw := match(lhs, .FnCall(_, lf, _, _, _) => match(lf, .Atom(_, lft) => lft.value.clone(), .FnCall(_, _, _, _, _) => String.from("inout")), .Atom(_, _) => String.from("inout"));
+  mw := match(lhs, .FnCall(_, lf, _, _, _) => match(lf, .Atom(_, lft) => lft.value.clone(), .FnCall(_, _, _, _, _) => String.from("mut")), .Atom(_, _) => String.from("mut"));
   if(is_compile_time_only, {
     exn.throw(
       dyn(
@@ -272,7 +274,7 @@ _evaluate_inout_local_binding :: (
   });
   // The RHS must be a PLACE: an atom, or a `.` chain rooted at one. Checked
   // on the AST before evaluation so the message names the shape, not a type.
-  place_recipe := `An '${mw}' binding needs a place: a variable, or a field path rooted at one ('x', 'h.n', 'a.b.c'). To borrow an ELEMENT of a collection, iterate it with 'for(coll, inout(x) => ...)'; to hold a computed value, bind it with ':='.`;
+  place_recipe := `An '${mw}' binding needs a place: a variable, or a field path rooted at one ('x', 'h.n', 'a.b.c'). To borrow an ELEMENT of a collection, iterate it with 'for(coll, mut(x) => ...)'; to hold a computed value, bind it with ':='.`;
   hops := ArrayList(_InoutPlaceHop).new();
   root_atom := match(
     _inout_place_chain(rhs, hops),
@@ -305,7 +307,7 @@ _evaluate_inout_local_binding :: (
           dyn(
             format_error_message(
               ast_expr_token(hop.field),
-              `An '${mw}' binding cannot borrow through a pointer dereference ('p.*'): the storage has no owner the binding could keep alive. Iterate the collection with 'for(coll, inout(x) => ...)' to borrow an element, or copy the value out.`
+              `An '${mw}' binding cannot borrow through a pointer dereference ('p.*'): the storage has no owner the binding could keep alive. Iterate the collection with 'for(coll, mut(x) => ...)' to borrow an element, or copy the value out.`
             )
           )
         );
@@ -800,7 +802,7 @@ evaluate_initialization_assignment :: (
     .FnCall(_, _, args, _, _) => match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr()),
     .Atom(_, _) => make_err_expr()
   );
-  // `name := rhs` and `inout(name) := place` declare RUNTIME storage, so
+  // `name := rhs` and `mut(name) := place` declare RUNTIME storage, so
   // neither can appear in a compile-time context: the body of a function
   // declared to return a compile-time value (E1104,
   // issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md).
@@ -808,6 +810,11 @@ evaluate_initialization_assignment :: (
   // and stay legal. Checked before `force_compile_time_bindings` is consulted:
   // that flag is set for every compile-time body evaluation and used to turn
   // the `:=` into a `::` silently.
+  // `inout(name) := place`, the deleted spelling of `mut(name) := place`
+  // (V3b Generation B step 3).
+  if(ast_expr_is_fn_call_of(lhs, BK_INOUT, .Some(usize(1))), {
+    exn.throw(dyn(format_error_message(ast_expr_token(lhs), old_mode_spelling_message(String.from("inout"), String.from("mut")))));
+  });
   is_comptime_wrapped := ast_expr_is_fn_call_of(lhs, BK_COMPTIME, .Some(usize(1)));
   if(is_init_assign && !(is_comptime_wrapped || ast_expr_is_fn_call_of(lhs, BK_GIVEN, .None)) && in_compile_time_fn_body(ctx), {
     if(ast_expr_is_local_borrow_mode_call(lhs, .None), {
@@ -816,7 +823,7 @@ evaluate_initialization_assignment :: (
           with_code(
             format_error_message(
               ast_expr_token(expr),
-              String.from("`inout(name) := ...` binds a reference to runtime storage, but this is the body of a function that returns a compile-time value, which has none; read and assign the compile-time variable directly.")
+              String.from("`mut(name) := ...` binds a reference to runtime storage, but this is the body of a function that returns a compile-time value, which has none; read and assign the compile-time variable directly.")
             ),
             E_COMPTIME_RUNTIME_BINDING
           )
@@ -862,11 +869,9 @@ evaluate_initialization_assignment :: (
       .Atom(_, _) => make_err_expr()
     );
   });
-  // `inout(name) := place` — a LOCAL second-class reference binding
+  // `mut(name) := place` — a LOCAL second-class reference binding
   // (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7–§8, Phase B). Variables and
   // field places only; element borrows go through the `for` macro.
-  // `mut(name) := place` is its exact synonym (plans/VALUES_BY_DEFAULT.md
-  // V3b Generation A).
   // `imm(name) := place` is the read-only local borrow (decision 18).
   if(ast_expr_is_fn_call(lhs) && ast_expr_is_local_borrow_mode_call(lhs, .None), {
     return(_evaluate_inout_local_binding(expr, lhs, rhs, is_compile_time_only, env, ctx, exn));

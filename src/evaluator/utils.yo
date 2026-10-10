@@ -547,7 +547,7 @@ move_only_help :: (fn(imm(name) : String, imm(ty) : TypeValue) -> Option(String)
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), pass it \`inout\`, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
+      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it \`mut\`, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A by-value parameter borrows it without a copy.`
     ),
     .None => cond(
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
@@ -557,7 +557,7 @@ move_only_help :: (fn(imm(name) : String, imm(ty) : TypeValue) -> Option(String)
         `\`${name}\` has type \`${type_to_string(ty)}\`, which is not \`Copy\` (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, write \`${name}.clone()\` for a copy, or move it (\`sink(${name})\`).`
       ),
       type_requires_explicit_copy(ty) => Option(String).Some(
-        `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or pass it \`inout\`. A by-value parameter borrows it without a copy.`
+        `\`${name}\` is copied explicitly: write \`${name}.clone()\` for a copy, move it (\`sink(${name})\`), or lend it \`mut\`. A by-value parameter borrows it without a copy.`
       ),
       true => Option(String).None
     )
@@ -570,7 +570,7 @@ move_only_type_help :: (fn(imm(ty) : TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a by-value parameter, pass it \`inout\`, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
+      `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to an \`imm\` or \`mut\` parameter, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
     ),
     .None => cond(
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
@@ -708,7 +708,7 @@ consume_called_fnonce_closure :: (fn(imm(callee) : AstExpr, imm(v) : Variable, i
   holds_owned := (type_contains_rc_type(v.ty) || type_requires_explicit_copy(v.ty));
   what := cond(
     v.is_module_level => Option(String).Some(String.from("it is a module-level binding, which lives for the whole program and is never moved")),
-    v.is_ref => Option(String).Some(String.from("it is an `inout` binding, which names storage the caller owns")),
+    v.is_ref => Option(String).Some(String.from("it is a `mut` binding, which names storage the caller owns")),
     (v.is_parameter && !v.is_owning_the_rc_value && owner.is_none()) => Option(String).Some(String.from("it is a borrowed parameter, and a borrow cannot give the closure away: take the parameter by value, `sink(f) : Impl(FnOnce(...))` (only an API the closure escapes into calls it once)")),
     (!v.is_parameter && !v.is_owning_the_rc_value && holds_owned && !is_fn_capture_value_binding(v.id)) => Option(String).Some(String.from("it is borrowed from the value that holds it (a `match`/`for` binding): move the holder, or match a value you own")),
     true => Option(String).None
@@ -817,7 +817,7 @@ move_captured_explicit_copy_variable :: (fn(imm(v) : Variable, imm(tok) : Token,
       // (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
       owner := if(!v.is_owning_the_rc_value && v.is_parameter, _owning_param_binding_for_capture_move(env, v.name.clone()), Option(Variable).None);
       if((!v.is_owning_the_rc_value && owner.is_none()) || (v.is_ref || v.is_module_level), {
-        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` ${_explicit_copy_kind(v.ty)}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, an \`inout\` binding or a module-level binding). Take it \`sink(...)\` to own it.`;
+        msg := `use of moved value: the closure captures \`${v.name}\`, whose type \`${type_to_string(v.ty)}\` ${_explicit_copy_kind(v.ty)}, so the capture moves it, and \`${v.name}\` cannot be moved: it is borrowed (a by-value parameter, a \`match\`/\`for\` binding, a \`mut\` binding or a module-level binding). Take it \`sink(...)\` to own it.`;
         raise_flow_violation(with_code(format_error_message_with_help(tok, msg, move_only_help(v.name.clone(), v.ty)), E_USE_OF_MOVED_VALUE), ctx, exn);
       });
       moved := match(
@@ -1020,7 +1020,7 @@ transfer_explicit_copy_value :: (fn(imm(rhs) : AstExpr, imm(ei) : ExprInfo, imm(
         });
       },
       v.is_module_level => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to an `imm` parameter (a borrow) instead."), ctx, exn),
-      v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is an `inout` binding, which names storage the caller owns. Pass it on `inout`, or move the caller's value."), ctx, exn),
+      v.is_ref => _throw_explicit_copy_violation(rhs, ei.ty, String.from("it is a `mut` binding, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, ei.ty, ctx, exn),
       _is_implicit_closure_capture(v, ei.env, ctx) => _throw_implicit_capture_move(rhs, ei.ty, ctx, exn),
       v.is_owning_the_rc_value => set_expr_as_consumed(rhs, ei.env, false, ctx, exn),
@@ -1492,7 +1492,7 @@ set_expr_as_consumed :: (
             b_entries.push(
               TokenAndError(
                 token : ast_expr_token(expr),
-                error_message : `Cannot move "${name}" while the 'inout' binding "${b.name}" borrows it: the binding would keep a reference to storage whose value was moved out. Copy the value out, or end the binding's scope before moving.`
+                error_message : `Cannot move "${name}" while the 'mut' binding "${b.name}" borrows it: the binding would keep a reference to storage whose value was moved out. Copy the value out, or end the binding's scope before moving.`
               )
             );
             b_entries.push(

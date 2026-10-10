@@ -385,7 +385,7 @@ _check_capture_borrow_write :: (fn(imm(lhs) : AstExpr, imm(tok) : Token, imm(env
 _write_through_borrow_fix :: (fn(imm(bv) : Variable) -> String)(
   cond(
     bv.is_parameter => `take it by value (\`${bv.name} : T\`, without \`imm\`) to own and write it, or as \`mut(${bv.name}) : T\` to write the caller's value, or copy it into a local first (\`q := ${bv.name};\`) and write the copy`,
-    true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy; to write a \`for\` element in place, loop with \`for(xs, inout(${bv.name}) => ...)\``
+    true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy; to write a \`for\` element in place, loop with \`for(xs, mut(${bv.name}) => ...)\``
   )
 );
 /// The place as written (`p.s`), not the printer's parenthesized `(p.s)`.
@@ -712,7 +712,7 @@ d3_record_inout_place :: (
     return(());
   });
   root_expr := get_root_expr_of_place(place);
-  how := if(param_label == "self", String.from("call an inout(self) method on"), String.from("pass an inout argument rooted in"));
+  how := if(param_label == "self", String.from("call a mut(self) method on"), String.from("pass a mut argument rooted in"));
   match(
     get_atomic_object_root_type(root_expr, env),
     .Some(root_ty) => {
@@ -852,7 +852,7 @@ d3_check_pending :: (
               dyn(
                 format_error_message(
                   ast_expr_token(entry.place),
-                  `Cannot ${entry.how} ${entry.noun} '${entry.root_text}' (type ${entry.root_type}) in safe code: the callee may write through that inout parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
+                  `Cannot ${entry.how} ${entry.noun} '${entry.root_text}' (type ${entry.root_type}) in safe code: the callee may write through that mut parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
                 )
               )
             );

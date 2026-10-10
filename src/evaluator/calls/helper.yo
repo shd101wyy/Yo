@@ -804,14 +804,17 @@ audit_borrow_marker_site :: (
 /// - `&mut x` to a `mut` parameter lends the place `x` exclusively;
 /// - `&x` to an `imm` parameter lends `x` read-only, a generic or `Impl(...)`
 ///   one included (V3b Generation B), unless the parameter is a raw pointer:
-///   there `&x` can only be the address-of;
-/// - `&x` to a by-value parameter (plain or `sink`) is still the raw-pointer
-///   address-of, until `&x` loses that meaning to `addr_of(x)` (decision 33);
-///   a pointer or generic by-value parameter infers `*(T)` from it.
+///   that is an error naming `addr_of(x)`;
+/// - `&x` to a by-value parameter (plain or `sink`) is decision 33's mismatch
+///   error, naming `x` and `x.clone()`: `&x` is only a borrow marker, and the
+///   raw-pointer address-of is spelled `addr_of(x)` (V3b Generation B step 3).
 ///
-/// A `&mut x` to any other parameter, and a `&x` to a `mut`/`inout` one, is an
-/// error (neither has ever compiled: the address-of is not a place). There is
-/// no mismatch error for a BARE argument yet: Generation B turns it on.
+/// A `&mut x` to any other parameter, and a `&x` to a `mut` one, is an error
+/// too. A `&x` this function leaves in place (a receiver, a variadic
+/// position) reaches the evaluator, which rejects it naming `addr_of(x)`.
+/// There is no mismatch error for a BARE argument yet: a later step turns it
+/// on. Under `yo fix --migrate addr-of` a by-value or raw-pointer `&x` keeps
+/// its old address-of reading, so the recorder can rewrite it.
 ///
 /// `first_is_receiver`: argument 0 is a method-form call's receiver, which
 /// is exempt.
@@ -835,7 +838,7 @@ apply_call_site_borrow_markers :: (
 )({
   (any_marker : bool) = false;
   // A method-form call's receiver (`xs.len()`) is exempt (decision 33): it
-  // is never peeled, so `(&x).m()` keeps today's address-of.
+  // is never peeled, so `(&x).m()` reaches the evaluator's `&x` error.
   (mi : usize) = if(first_is_receiver, usize(1), usize(0));
   while(mi < args.len(), {
     m_bare := _unlabeled_argument(match(args.get(mi), .Some(a) => a, .None => make_err_expr()));
@@ -870,7 +873,7 @@ apply_call_site_borrow_markers :: (
             dyn(
               format_error_message(
                 ast_expr_token(bare),
-                `\`&mut ${place_text}\` lends an exclusive borrow, but parameter "${p_label}" is not \`mut\` (\`inout\`): pass \`${place_text}\`.`
+                `\`&mut ${place_text}\` lends an exclusive borrow, but parameter "${p_label}" is not \`mut\`: pass \`${place_text}\`.`
               )
             )
           );
@@ -880,15 +883,38 @@ apply_call_site_borrow_markers :: (
             dyn(
               format_error_message(
                 ast_expr_token(bare),
-                `Parameter "${p_label}" is \`mut\` (\`inout\`): lend the place with \`&mut ${place_text}\`, not \`&${place_text}\`.`
+                `Parameter "${p_label}" is \`mut\`: lend the place with \`&mut ${place_text}\`, not \`&${place_text}\`.`
               )
             )
           );
         },
-        // A raw-pointer parameter can only receive an address, whatever its
-        // mode; a by-value one keeps today's address-of (a pointer or generic
-        // parameter infers `*(T)` from it) until `&x` loses that meaning.
-        (p_is_owning || is_pointer_type(p_ty)) => (),
+        // `yo fix --migrate addr-of` evaluates old code: there a `&x` that
+        // does not lend keeps the address-of reading it had before decision
+        // 33 took it away, so the recorder sees it.
+        ((p_is_owning || is_pointer_type(p_ty)) && migrate_addr_of_on()) => (),
+        // A raw-pointer parameter receives an address, whatever its mode.
+        is_pointer_type(p_ty) => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(bare),
+                `Parameter "${p_label}" is a raw pointer (\`${type_to_string(p_ty)}\`): take the address with \`addr_of(${place_text})\`. \`&${place_text}\` lends a borrow to an \`imm\` parameter and never makes a pointer.`
+              )
+            )
+          );
+        },
+        // Decision 33's mismatch rule for `&x`: the marker always tells the
+        // truth, so a by-value parameter (plain or `sink`) is given the value.
+        p_is_owning => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(bare),
+                `\`&${place_text}\` lends a borrow, but parameter "${p_label}" takes its argument by value: pass \`${place_text}\` (it moves, or is copied when it is \`Copy\`), or \`${place_text}.clone()\` to keep \`${place_text}\`. A raw pointer is \`addr_of(${place_text})\`.`
+              )
+            )
+          );
+        },
         true => {
           peel = true;
         }

@@ -2234,7 +2234,7 @@ impl(
         lhs,
         .Atom(_, lt) => _MsP.define_from(ctx, lt.value.clone(), r, rhs),
         .FnCall(_, lf, largs, _, _) => {
-          is_inout := match(lf, .Atom(_, lft) => ((lft.value == "inout") || ((lft.value == "mut") || (lft.value == "imm"))), _ => false);
+          is_inout := match(lf, .Atom(_, lft) => ((lft.value == "mut") || (lft.value == "imm")), _ => false);
           if(is_inout, {
             match(
               largs.get(usize(0)),
@@ -2263,7 +2263,7 @@ impl(
       // aliases the new place too (the join keeps every target it had).
       match(
         lhs,
-        .FnCall(_, rlf, rlargs, _, _) => if(match(rlf, .Atom(_, rlft) => ((rlft.value == "inout") || ((rlft.value == "mut") || (rlft.value == "imm"))), _ => false), {
+        .FnCall(_, rlf, rlargs, _, _) => if(match(rlf, .Atom(_, rlft) => ((rlft.value == "mut") || (rlft.value == "imm")), _ => false), {
           match(
             rlargs.get(usize(0)),
             .Some(rla) => match(rla, .Atom(_, rlat) => _msp_def(ctx, rlat.value.clone(), _MsP.classify(rhs, ctx)), _ => ()),
