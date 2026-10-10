@@ -137,7 +137,9 @@ narrows it) — §3.13 A2's rule for borrowing futures, generalized; no
 lifetime names, no stored views. It unlocks zero-copy views, borrowing
 iterators, the entry API, guards, `Cow` and parser remainders, and records
 the maintainer's position that mutable value semantics stays the base
-(Swift's and Mojo's path, not Rust's).
+(Swift's and Mojo's path, not Rust's). Its spelling section records
+decision 42 (2026-10-10): modes are written `x : &T` / `x : &mut T` in every
+slot, Rust's spelling with the mode semantics unchanged.
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and

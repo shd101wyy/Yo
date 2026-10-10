@@ -270,6 +270,21 @@ cannot be spawned or captured by an `io.async` body except under A2's own
 rules (a future holding it is a borrowing future). It may be held across
 an `await` only when its roots may be (A2's `Rc`-crossing errors apply).
 
+### Spelling — decision 42 (2026-10-10)
+
+The maintainer decided, after this note put modes into field and result
+slots, that the mode is written as Rust writes it: `x : &T` / `x : &mut T`
+in every slot, `self : &Self`, `-> &T`, `f : &T`, `Borrowed(&String)`,
+`Option(&T)`, `(&ArrayList(T), usize)`, `Array(&T, N)`, capture lists
+`{ y : &y }`, locals `y := &place`, and `for(&mut xs, x => …)`. The full
+table and the two-generation rollout are
+[`VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md) decision 42. The rules
+R1–R6 above are unchanged by it; read every `imm(f) : T` in them as
+`f : &T` and every `mut(f) : T` as `f : &mut T`. What the spelling does
+NOT change: `&T` is still a slot-attached mode, never a nameable or
+nestable type, never a buffer element or a cell payload (the inline rule);
+decision 24's projection `-> &T` and an R3 result are one mechanism.
+
 ## 3. What it unlocks, mapped to the catalog
 
 | Catalog gap | With this note | Rust / Swift equivalent |

@@ -2568,6 +2568,61 @@ and in git, not a silent edit.
       dispatch and unrelated-handle aliasing are real and Rust needs
       `RefCell` for exactly them.
 
+42. **Borrow modes are spelled `&T` / `&mut T` in type slots; they stay
+    modes, not types.** Confirmed 2026-10-10 by the maintainer ("it makes
+    more sense to just have `x : &T` instead of `imm(x) : T`"), after the
+    non-escapable-types design put modes into field, payload and result
+    slots. Rust's spelling, Hylo's semantics: nothing in decisions 18, 24,
+    25, 26, 28, 30, 33, 35 or 38 changes except how the mode is written.
+    - **The spelling, per slot:**
+      | Slot | Was | Now |
+      | --- | --- | --- |
+      | parameter | `imm(x) : T` / `mut(x) : T` | `x : &T` / `x : &mut T` |
+      | receiver | `imm(self) : Self` / `mut(self) : Self` | `self : &Self` / `self : &mut Self` |
+      | result (projection, decision 24; unified with non-escapable results by `NON_ESCAPABLE_TYPES.md` R3) | `-> imm(T)` / `-> mut(T)` | `-> &T` / `-> &mut T` |
+      | closure parameter | `Fn(imm(v) : T) -> R` | `Fn(v : &T) -> R` |
+      | field, payload, component, inline instantiation (`NON_ESCAPABLE_TYPES.md` R1) | `imm(f) : T`, `Borrowed(imm(String))`, `Option(imm(T))` | `f : &T`, `Borrowed(&String)`, `(&ArrayList(T), usize)`, `Option(&T)` |
+      | local borrow | `imm(y) := place` / `mut(cur) = place` | `y := &place` / `cur = &mut place`; `(y : &T) = &place` with an annotation |
+      | capture list (decision 35) | `{ imm(y) : &y, mut(z) : &mut z }` | `{ y : &y, z : &mut z }` — the sigil carries the mode |
+      | borrowed `for` | `for(xs, inout(x) => …)` | `for(&mut xs, x => …)` / `for(&xs, x => …)` — the sigil on the source, the element mode follows |
+      | by value, `sink`, extern `own(...)` | unchanged | unchanged |
+    - **Why.** The call site already writes `f(&x)` / `f(&mut x)` (decision
+      33); the slot that receives it should say the same thing. It is the
+      spelling every reader and every model knows, and it removes a
+      cheatsheet rule ("`imm` is what `&` lends to"). The checker is
+      unchanged: a mode is attached to a slot, and the type of the place in
+      the body is `T`, so there is no deref, no auto-ref, no reborrow
+      coercion, no `impl Trait for &T`, and reflection (`TypeInfo`) keeps
+      describing `T` with the mode as a slot flag.
+    - **Still not a type.** `T :: &i32` is an error; `&&T` is an error;
+      `ArrayList(&T)`, `Rc(&T)`, `Box(&T)`, `RefCell(&T)` and a `Dyn`
+      payload are the E0909 they are today (the inline rule,
+      `NON_ESCAPABLE_TYPES.md` R1); a `generic(T)` is never instantiated
+      with `&U` on its own — only an inline constructor may be instantiated
+      over a borrow (decision 38 A as amended there). `mut` is a contextual
+      word after `&`, as it already is at call sites; raw pointers stay
+      `*T` / `*(T)`.
+    - **Diagnostics.** E0901/E0909/E0911 and the escape errors say "a `&T`
+      in Yo is a lend, not a value" and point at
+      `plans/backlog/RUST_REFERENCE_PATTERNS.md`; `yo fix` carries the
+      respelling as a repair. Once the surface looks like Rust, models will
+      try Rust's stored references; those are already errors, and the text
+      must say why.
+    - **Rollout, two generations (the seed gate, nothing else).**
+      Generation A: parser, formatter, LSP and diagnostics accept and emit
+      `&T` / `&mut T`; tests, docs and cheatsheets use it; the old forms
+      keep parsing so std/src build under the seed. Generation B, on the
+      seed that carries A: the V3b sweep tooling rewrites `std/` and `src/`
+      and the `imm(` / `mut(` / `inout(` parsing is deleted — no
+      compatibility window. Timing is the VBD session's call: after the
+      remaining V3b generations settle, not during them.
+    - **Docs.** Plan documents keep their historical spelling and are read
+      through AGENTS.md's translation list (one line added 2026-10-10); the
+      user docs and cheatsheets change in Generation A.
+    - **Tests.** fmt round-trip on every slot kind; the "not a type"
+      rejections above; the borrowed `for` with the sigil on the source; a
+      capture list in the new form; the E09xx message text.
+
 ## 5. Prerequisites, gates and the seed
 
 - **`STRING_VALUE_SEMANTICS`.** S1 (E0908 on `mut` writes through a

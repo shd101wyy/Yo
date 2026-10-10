@@ -22,6 +22,11 @@ those phases. At V5 this document is the seed of the
 user-facing porting guide (`docs/en-US/` + `docs/zh-CN/`, linked from the
 plan's V5 docs list).
 
+**Spelling note (decision 42, 2026-10-10):** the examples below predate
+the respelling and write modes as `imm(x) : T` / `mut(x) : T`; read them as
+`x : &T` / `x : &mut T` (`VALUES_BY_DEFAULT.md` decision 42). They are
+rewritten when the catalog graduates into `docs/` at V5.
+
 **Audit 2026-10-10** (against the 2026-10-10 tree, fact-checked with the
 session carrying the V3b stack): nine Rust shapes the rules already answer
 were missing and are added below (§2.4, §3.5–§3.7, §4.5–§4.6, §7.4, the
