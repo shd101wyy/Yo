@@ -2289,7 +2289,7 @@ and in git, not a silent edit.
         E0908.
       - A borrow entry's place is rooted at a named binding and crosses no
         temporary.
-      - A stateful (`mut(self)`) closure, if added, is never `Copy`.
+      - A `FnMut` closure (one holding a `&mut` capture) is never `Copy`.
 
     **Sound as stated.** The audit also confirmed these:
     - sibling `mut` captures;
@@ -2330,80 +2330,54 @@ and in git, not a silent edit.
   decision 22), which the callee's signature spells. The explicit form is
   the capture list (decision 35).
 
-39. **Post-V2b iterators are index-based; pointer iterators are
-    unsafe-gated.** Confirmed 2026-10-07 by the maintainer, from audit
-    #1251 finding 2. This decides the shape V2b leaves `iter()` in, before
-    the V3b sweep can walk it into a broken spelling.
+39. **Iteration: the borrowed `for` and index cursors at V2b; borrowing
+    iterators from decision 43's phase; pointer iterators unsafe-gated.**
+    Confirmed 2026-10-07 by the maintainer (audit #1251 finding 2, amended
+    by audit #1264 finding 4) and completed by decision 43 (2026-10-10).
     - **The gap.** Today `ArrayList.iter()` takes `self` by value, stores
       the receiver in the iterator, and yields `*(T)` into the list's own
       buffer (`std/collections/array_list.yo`); it is sound only because
       the stored handle is an RC dup keeping the buffer alive, and growth
       mid-walk is UB by discipline. After V2b the buffer is uniquely owned
-      and uncounted: a by-value `iter()` consumes the list at every
-      read-only walk, and an `imm(self)` spelling cannot exist — a
-      pointer-yielding iterator is a stored, returned, first-class value,
-      and borrows are second-class (decision 38 A). The old text said only
-      "V2b needs an `iter_mut(mut(self))` split", which addresses mutation
-      through the iterator, not the iterator's own validity.
-    - **The decision.** `iter()` — and every read-only iterator reachable
-      from safe code — becomes INDEX-BASED: the iterator holds a handle to
-      the container plus an index, re-derives `xs(i)` at each `next`, and
-      growth mid-walk is an out-of-bounds error, not UB. A consuming
-      `into_iter()` keeps yielding values. Pointer-yielding iterators
-      stay only beside `ptr()` inside `pragma(Pragma.AllowUnsafe)` std
-      files (the `HashMapIterPtr` shape); they are not part of the
-      ordinary iteration story and are not touched by the rename.
-    - **The V3b sweep is told:** iterator-returning methods are exempt
-      from the mechanical `imm(x)` conversion (§7's table carries the
-      row); their signatures are re-derived from this decision when V2b
-      lands.
-    - **Perf note.** Index re-derivation costs one bounds check per step;
-      hot loops that need the raw pointer keep using `ptr()` under the
-      pragma. V2b's PR measures the iterator-heavy std tests before and
-      after.
-    - **Amended 2026-10-07 by the maintainer (second audit #1264, finding 4):
-      the iterator holds NO handle. "Index-based" means an index cursor,
-      and the borrowed `for` is the ordinary walk.** The first text's
-      "handle to the container plus an index" has no spelling in this
-      design: under decision 38 A a borrow cannot be a struct field and a
-      second-class value cannot be returned; only a closure's capture
-      record and a future's capture slots hold borrows, a closure cannot
-      advance its own index (decision 37, no stateful call), and A2's
-      return exception is for futures alone. So `iter(imm(self))`
-      returning a borrowing iterator is rejected by the very rules that
-      made the pointer iterator unsound, and the `Iterator` trait's
-      `next -> Option(Self.Item)` cannot yield a borrow either
-      (`Option(&T)` as declared storage in a first-class type is rejected;
-      as a result type it is legal since decision 43).
+      and uncounted, so that iterator cannot exist.
+    - **At V2b (before references are types):**
       - **Read-only walks over a value container** are the borrowed `for`
         over the container place (§3.10): the body is a non-escaping
         closure, each element is re-derived per step through the place,
         and no iterator value exists.
-      - **Index cursors.** `xs.indices()` returns a `Range(usize)`, which
-        is `Copy` and first-class, and `xs(i)` is re-derived by the user or
-        by a non-escaping closure: `xs.indices().map(i => xs(i).len())`.
-        This is Swift's index model, and it is what "re-derive `xs(i)` at
-        each step" meant.
+      - **Index cursors.** `xs.indices()` returns a `Range(usize)`, `Copy`
+        and first-class, and `xs(i)` is re-derived by the user or by a
+        non-escaping closure: `xs.indices().map(i => xs(i).len())` —
+        Swift's index model. Growth mid-walk is an out-of-bounds error, not
+        UB (the test `issues/collection-iterators-have-no-sound-post-v2b-shape.md`
+        requires).
       - **`into_iter()` consumes**, and `iter()` on an `Rc(C)` iterates a
         shared container through a first-class handle with decision 38 D's
-        per-call marks.
-      - **`iter()` on a value container leaves the safe surface.** A
-        stored, read-only, borrowing iterator (`it := xs.iter(); …
-        it.next()` with `xs` a local value) and lazy adapter chains over a
-        borrowed container are not expressible; a chain that must own its
-        source writes `xs.clone().into_iter()`, an explicit copy.
-      - **Growth mid-walk** is an out-of-bounds error in both the borrowed
-        `for` and an `indices()` walk, which is the test
-        `issues/collection-iterators-have-no-sound-post-v2b-shape.md`
-        requires.
-      - **Borrowing iterators are expressible since decision 43.** A struct
-        may hold `xs : &ArrayList(T)` (`NON_ESCAPABLE_TYPES.md` R1),
-        `iter(self : &Self) -> Cursor(T)` returns it under the single-root
-        rule (R3), `next(self : &mut Self) -> Option(&T)` is an ordinary
-        method, and the borrowed `for(&xs, …)` dispatches through
-        `impl(&C, IntoIterator(…))`. Rejected outright:
-        `rc(xs.clone()).iter()` as the read-only walk, a clone per walk
-        being the hidden copy this plan removes.
+        per-call marks. A chain that must own its source writes
+        `xs.clone().into_iter()`, an explicit copy.
+      - **The V3b sweep** leaves iterator-returning methods out of the
+        mechanical conversion (§7's table); their signatures come from this
+        decision.
+    - **From decision 43's phase (`NON_ESCAPABLE_TYPES.md` N2):** a struct
+      may hold `xs : &ArrayList(T)` (R1), so `iter(self : &Self) -> Cursor(T)`
+      returns a borrowing iterator under the single-root rule (R3),
+      `next(self : &mut Self) -> Option(&T)` is an ordinary method, lazy
+      adapter chains over a borrowed container are inline structs holding
+      the cursor, and the borrowed `for(&xs, …)` dispatches through
+      `impl(&C, IntoIterator(…))`. Growth mid-walk is then E0911 for a
+      value root (the cursor holds `&xs`) and the pin panic for an `Rc`
+      root (R5). `indices()` remains for a cursor that must survive a
+      mutation of its container.
+    - **Pointer-yielding iterators** stay only beside `ptr()` inside
+      `pragma(Pragma.AllowUnsafe)` std files (the `HashMapIterPtr` shape);
+      they are not part of the ordinary iteration story.
+    - **Perf note.** Index re-derivation and `next` cost one bounds check
+      per step where the verifier cannot elide it (CODEGEN_PERFORMANCE
+      CP2b); hot loops that need the raw pointer keep `ptr()` under the
+      pragma. V2b's PR measures the iterator-heavy std tests before and
+      after.
+    - **Rejected outright:** `rc(xs.clone()).iter()` as the read-only walk,
+      a clone per walk being the hidden copy this plan removes.
 
 40. **No `Pin`: live values never relocate, and borrows stay
     second-class.** Confirmed 2026-10-07 by the maintainer, from the
@@ -4100,9 +4074,6 @@ inside a settled design:
 - **§3.13 A1:** whether std adds a shared-future adapter (one task joins,
   the others wait on the result), now that `Rc(JoinHandle(T))` is known
   not to work. Decided in V3's async work.
-- **Decision 39:** borrow-mode struct fields as the path to a true
-  borrowing iterator, decided together with decision 37's stateful call,
-  by the same trigger.
 - **§3.11:** whether the containers' `new_in`/`with_capacity_in` move to
   the constructors' `alloc` parameter. Decided after V2b.
 - *(Decided as decision 35, 2026-10-05: the capture list.)*
