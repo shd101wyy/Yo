@@ -139,7 +139,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites } :: import("./expr_info.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_match_scrutinee } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -1099,10 +1099,16 @@ _rune_slice :: (fn(imm(line) : String, col : usize, len : usize) -> String)({
 /// `inout` → `mut` half is `--migrate modes` now that `inout` is deleted, and
 /// such a file must go through that first). An edit whose span no longer holds the text it
 /// was recorded for (a synthetic token, a template) is skipped and counted.
+///
+/// `yo fix <path> --migrate match-scrutinee` (decision 26) runs the same
+/// driver with the scrutinee recorder on instead (`match_scrutinee`): each
+/// use after a consuming `match`, and each module-level or projection
+/// scrutinee a `match` cannot move, records `&` before the scrutinee. Read
+/// with today's borrowing `match`, the edit changes nothing.
 _run_migrate_params :: (
-  fn(imm(files) : ArrayList(String), imm(std_path) : String, dry_run : bool, io : Io, imm(exn) : Exception) -> unit
+  fn(imm(files) : ArrayList(String), imm(std_path) : String, dry_run : bool, io : Io, imm(exn) : Exception, (match_scrutinee : bool) ?= false) -> unit
 )({
-  set_migrate_param_modes(true);
+  if(match_scrutinee, set_migrate_match_scrutinee(true), set_migrate_param_modes(true));
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
@@ -1116,6 +1122,7 @@ _run_migrate_params :: (
     });
   });
   set_migrate_param_modes(false);
+  set_migrate_match_scrutinee(false);
   edits := take_migrate_edits();
   edit_paths := ArrayList(String).new();
   (epi : usize) = usize(0);
@@ -1177,7 +1184,11 @@ _run_migrate_params :: (
     });
   });
   verb := if(dry_run, String.from("would migrate"), String.from("migrated"));
-  println(`fix: ${verb} ${n_imm.to_string()} parameter(s) to imm(...); ${n_stale.to_string()} recorded edit(s) skipped (span text changed); ${failed.to_string()} file(s) did not evaluate`);
+  if(match_scrutinee, {
+    println(`fix: ${verb} ${n_imm.to_string()} match scrutinee(s) to match(&x, …); ${n_stale.to_string()} recorded edit(s) skipped (span text changed); ${failed.to_string()} file(s) did not evaluate`);
+  }, {
+    println(`fix: ${verb} ${n_imm.to_string()} parameter(s) to imm(...); ${n_stale.to_string()} recorded edit(s) skipped (span text changed); ${failed.to_string()} file(s) did not evaluate`);
+  });
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated parameters were not migrated`));
   });
@@ -1531,7 +1542,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of|match-scrutinee]`));
   });
   (target_path : String) = String.new();
   (dry_run : bool) = false;
@@ -1547,8 +1558,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes or addr-of`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of or match-scrutinee`));
         });
         migrate = argv(next_m);
         ai = (ai + usize(2));
@@ -1563,7 +1574,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--migrate params|modes|addr-of|match-scrutinee]`));
       },
       true => {
         target_path = a.clone();
@@ -1594,6 +1605,9 @@ run_fix :: (
   if(migrate == "addr-of", {
     set_migrate_addr_of(true);
   });
+  if(migrate == "match-scrutinee", {
+    set_migrate_match_scrutinee(true);
+  });
   if(migrate == "params", {
     set_migrate_param_modes(true);
   });
@@ -1608,6 +1622,10 @@ run_fix :: (
   _index_std_exports(std_path.clone(), io, exn);
   if(migrate == "addr-of", {
     _run_migrate_addr_of(files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "match-scrutinee", {
+    _run_migrate_params(files, std_path.clone(), dry_run, io, exn, true);
     return(());
   });
   if(migrate == "params", {

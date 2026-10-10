@@ -5,6 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String, StringBuilder } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
 { TokenKind, Token, intern_token_str } :: import("./token.yo");
 { format_error_message } :: import("./error.yo");
 { Exception } :: import("std/error");
@@ -1182,6 +1183,24 @@ _unwrap_if_label :: (fn(imm(arg) : AstExpr, label : str) -> Option(AstExpr))({
 /// actually carry one — a target-free subtree is returned unchanged by the
 /// copy-on-write check below, so parsing a module with neither costs one
 /// read-only walk instead of a full AST reconstruction.
+/// The borrow marker each `match(&x, …)` / `match(&mut x, …)` was written
+/// with (plans/VALUES_BY_DEFAULT.md decisions 26 and 33): 1 for `&`, 2 for
+/// `&mut`. The desugar peels the marker so every consumer of the tree reads a
+/// plain scrutinee; the evaluator asks this table how the match takes it.
+/// Keyed by the `match` call's token position, which a rebuilt or cloned node
+/// keeps (`clone_expr_fresh_ids` mints new ids, so an id key would lose the
+/// marker in every generic specialization).
+(g_borrowed_match_sites : HashMap(String, u8)) = HashMap(String, u8).new();
+_borrowed_match_site_key :: (fn(imm(tok) : Token) -> String)(`${tok.module_path}:${tok.byte_offset}`);
+/// 0 when the `match` at `tok` was written with a plain scrutinee, 1 for
+/// `match(&x, …)`, 2 for `match(&mut x, …)`.
+borrowed_match_scrutinee_kind :: (fn(imm(tok) : Token) -> u8)(
+  cond(
+    (g_borrowed_match_sites.len() == usize(0)) => u8(0),
+    true => match(g_borrowed_match_sites.get(_borrowed_match_site_key(tok)), .Some(k) => k, .None => u8(0))
+  )
+);
+export(borrowed_match_scrutinee_kind);
 /// `match(&x, …)` or `match(&mut x, …)`: a scrutinee marked as a borrow
 /// (decision 33), peeled by `desugar_if_calls`.
 _is_borrowed_match_scrutinee :: (fn(imm(e) : AstExpr) -> bool)(
@@ -1416,14 +1435,16 @@ desugar_if_calls :: (fn(imm(e) : AstExpr) -> AstExpr)(
           )
         );
       });
-      // `match(&x, …)` / `match(&mut x, …)` → `match(x, …)`
-      // (plans/VALUES_BY_DEFAULT.md decisions 26 and 33, V3b Generation A).
-      // A plain scrutinee already borrows and its arm bindings are read-only
-      // copies, so in Generation A both markers mean exactly today's plain
-      // scrutinee; Generation B makes a plain scrutinee consume and gives
-      // the markers their own meaning. No program matched on a raw pointer
-      // `&x` (the tree has none), so peeling is unambiguous.
+      // `match(&x, …)` / `match(&mut x, …)` → `match(x, …)`, with the marker
+      // recorded in `g_borrowed_match_sites` (plans/VALUES_BY_DEFAULT.md
+      // decisions 26 and 33): a plain scrutinee is taken by value, `&x`
+      // matches through an `imm` borrow and `&mut x` binds `mut` places, and
+      // the evaluator reads which one from the table. No program matches on
+      // a raw pointer `&x` (the address-of is `addr_of(x)`), so peeling is
+      // unambiguous.
       if(_is_borrowed_match_scrutinee(e), {
+        bm_kind := match(args.get(usize(0)), .Some(s0) => if(ast_expr_is_fn_call_of(s0, BK_BORROW_MUT, Option(usize).Some(usize(1))), u8(2), u8(1)), .None => u8(1));
+        _bm_old := g_borrowed_match_sites.insert(_borrowed_match_site_key(tok), bm_kind);
         bm_args := ArrayList(AstExpr).new();
         (bm_i : usize) = usize(0);
         while(bm_i < n_args, {

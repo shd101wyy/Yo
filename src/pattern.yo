@@ -20,7 +20,7 @@
 { Token } :: import("./token.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { EvalValue, value_to_string } :: import("./value.yo");
-{ is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_struct_type, is_tuple_type } :: import("./types/guards.yo");
+{ is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type } :: import("./types/guards.yo");
 { resolve_enum_shell } :: import("./types/creators.yo");
 { are_types_compatible } :: import("./types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
@@ -113,6 +113,11 @@ Arm :: ref(
 // that never generates code records nothing (`codegen_tables_enabled`, §0.21).
 // ---------------------------------------------------------------------------
 (g_match_arms : HashMap(usize, ArrayList(Arm))) = HashMap(usize, ArrayList(Arm)).new();
+/// How each match takes its scrutinee (`register_match_mode`).
+(g_match_modes : HashMap(usize, u8)) = HashMap(usize, u8).new();
+/// The `___drop` of each part a consuming arm does not bind, keyed by the
+/// arm's `=>` node: codegen runs them once the arm is selected.
+(g_arm_entry_drops : HashMap(usize, ArrayList(AstExpr))) = HashMap(usize, ArrayList(AstExpr)).new();
 register_match_arms :: (fn(match_id : usize, imm(arms) : ArrayList(Arm)) -> unit)({
   if(!codegen_tables_enabled(), {
     return(());
@@ -130,12 +135,54 @@ purge_match_arms :: (fn(imm(ids) : ArrayList(usize)) -> unit)({
       ids.get(i),
       .Some(id) => {
         _r := g_match_arms.remove(id);
+        _rm := g_match_modes.remove(id);
+        _rd := g_arm_entry_drops.remove(id);
       },
       .None => ()
     );
     i = (i + usize(1));
   });
 });
+// ---------------------------------------------------------------------------
+// How a `match` takes its scrutinee (plans/VALUES_BY_DEFAULT.md decision 26),
+// keyed like the arms: the evaluator decides it, codegen reads it.
+// ---------------------------------------------------------------------------
+/// The arms bind read-only copies of the scrutinee's parts and nothing is
+/// moved: an `imm` scrutinee (`&x`, an `imm` binding), and a value that is
+/// copied or shared (`Copy`, or a kind still implicitly copyable).
+MATCH_MODE_BORROW :: u8(0);
+/// The scrutinee is consumed: the selected arm's bindings own their parts,
+/// and the parts it does not bind are dropped when the arm is entered.
+MATCH_MODE_CONSUME :: u8(1);
+/// The arms bind `mut` places into the scrutinee (`&mut x`, a `mut`
+/// binding): C pointers to the parts, written through.
+MATCH_MODE_MUT :: u8(2);
+register_match_mode :: (fn(match_id : usize, mode : u8) -> unit)({
+  if(!codegen_tables_enabled(), {
+    return(());
+  });
+  if(mode == MATCH_MODE_BORROW, {
+    _r := g_match_modes.remove(match_id);
+    return(());
+  });
+  _old := g_match_modes.insert(match_id, mode);
+  record_owned_expr_id(match_id);
+});
+lookup_match_mode :: (fn(match_id : usize) -> u8)(match(g_match_modes.get(match_id), .Some(m) => m, .None => MATCH_MODE_BORROW));
+register_arm_entry_drops :: (fn(arm_id : usize, imm(drops) : ArrayList(AstExpr)) -> unit)({
+  if(!codegen_tables_enabled(), {
+    return(());
+  });
+  _old := g_arm_entry_drops.insert(arm_id, drops);
+  record_owned_expr_id(arm_id);
+});
+lookup_arm_entry_drops :: (fn(arm_id : usize) -> Option(ArrayList(AstExpr)))(g_arm_entry_drops.get(arm_id));
+/// A position whose parts are reached through a reference cell or a raw
+/// pointer: a consuming or `mut` match does not take them (other handles
+/// may share the cell), so its bindings below borrow.
+pattern_position_is_cell :: (fn(imm(t) : TypeValue) -> bool)(
+  is_pointer_type(t) || is_reference_enum_type(t) || is_reference_struct_type(t)
+);
 /// Registered match nodes (the B2 plateau test's probe).
 match_arms_entry_count :: (fn() -> usize)(g_match_arms.len());
 // ---------------------------------------------------------------------------
@@ -1990,6 +2037,7 @@ pattern_test_exprs :: (fn(imm(p) : Pattern, mut(out) : ArrayList(AstExpr)) -> un
   );
 });
 export(Pattern, Arm, register_match_arms, lookup_match_arms, purge_match_arms, match_arms_entry_count);
+export(MATCH_MODE_BORROW, MATCH_MODE_CONSUME, MATCH_MODE_MUT, register_match_mode, lookup_match_mode, register_arm_entry_drops, lookup_arm_entry_drops, pattern_position_is_cell);
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
 export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs, variant_group_covers);
 export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, variant_field_types);
