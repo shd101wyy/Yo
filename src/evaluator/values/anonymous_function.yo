@@ -283,6 +283,31 @@ _get_arg :: (fn(expr : &AstExpr, i : usize) -> AstExpr)(
 /// Helper: get the actual parameter name from a parameter expression.
 /// Handles bare atoms (`x`) and colon-annotated (`x : T`).
 /// Falls back to `fallback` if neither pattern matches.
+/// E0009 for a closure parameter written with a deleted mode word: the
+/// parameter itself (`mut(n)`) or the label of `name : T` (`imm(v) : T`), in
+/// one parameter or a tuple of them.
+_reject_old_closure_param :: (fn(p : &AstExpr, exn : &Exception) -> unit)({
+  reject_old_mode_spelling(p, exn);
+  if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), {
+    reject_old_mode_spelling(match(p, .FnCall(_, _, pa, _, _) => match(pa.get(usize(0)), .Some(l) => l, .None => p), .Atom(_, _) => p), exn);
+  });
+});
+_reject_old_closure_param_list :: (fn(ps : &ArrayList(AstExpr), exn : &Exception) -> unit)({
+  (i : usize) = usize(0);
+  while(i < ps.len(), i = (i + usize(1)), {
+    match(ps.get(i), .Some(p) => _reject_old_closure_param(p, exn), .None => ());
+  });
+});
+_reject_old_closure_params :: (fn(decl : &AstExpr, exn : &Exception) -> unit)(
+  cond(
+    ast_expr_is_fn_call_of(decl, BK_TUPLE, Option(usize).None) => match(
+      decl,
+      .FnCall(_, _, ps, _, _) => _reject_old_closure_param_list(ps, exn),
+      .Atom(_, _) => ()
+    ),
+    true => _reject_old_closure_param(decl, exn)
+  )
+);
 _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> String)(
   match(
     param_expr,
@@ -1106,6 +1131,10 @@ evaluate_anonymous_function_implementation :: (
       .Atom(_, _) => ()
     );
   });
+  // `mut(n) => …`, `(imm(v) : String) => …`: the deleted mode-word spelling
+  // of a closure parameter (decision 42 Generation B), E0009, named before
+  // anything else is asked of the literal.
+  if(ast_expr_is_capture_list_params(param_decl), _reject_old_closure_param_list(cap_list_params, exn), _reject_old_closure_params(param_decl, exn));
   // -------------------------------------------------------------------------
   // Resolve the expected type from context.
   // -------------------------------------------------------------------------

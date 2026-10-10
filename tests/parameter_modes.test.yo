@@ -452,6 +452,13 @@ test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
   comptime_expect_error((fn(comptime(imm(n)) : i32) -> i32)(n), "`imm(x)` was deleted");
   comptime_expect_error((fn(f : Impl(Fn(imm(v) : String) -> usize)) -> unit)(()), "`imm(x)` was deleted");
   comptime_expect_error((imm(v) : String) => v.len(), "`imm(x)` was deleted");
+  (_v : i32) = i32(0);
+  comptime_expect_error(
+    _pm_apply_mut(mut(n) => {
+      n = i32(1);
+    }, _v),
+    "`mut(x)` was deleted"
+  );
   comptime_expect_error((fn(s : String) -> imm(String))(s), "`imm(x)` was deleted");
   (_c : i32) = i32(0);
   comptime_expect_error({
