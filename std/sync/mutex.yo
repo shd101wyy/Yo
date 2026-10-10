@@ -2,7 +2,7 @@
 //!
 //! Phase D (THREAD_SAFETY): Mutex parameterized over the protected data.
 //! Access is granted via `with_lock(closure)` — the closure receives a
-//! `inout(v): T` that is second-class (cannot escape the closure scope).
+//! `mut(v): T` that is second-class (cannot escape the closure scope).
 //! The private `__MutexUnlocker` handles unlock on both normal return
 //! and unwind via its `Dispose` impl.
 //!
@@ -54,7 +54,7 @@ impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 /// `Mutex<T>`, minus the guard.
 ///
 /// Access is granted only inside a closure: `with_lock` hands `body` an
-/// `inout(v) : T` that is second-class and cannot escape the closure, so
+/// `mut(v) : T` that is second-class and cannot escape the closure, so
 /// there is no way to hold a reference to the protected value after the
 /// lock is released. That is the deliberate divergence from Rust, which
 /// returns a `MutexGuard` and relies on its lifetime; Yo has no lifetimes
@@ -66,7 +66,7 @@ impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 /// `Mutex(T)` nest inside another sync container.
 ///
 /// A `Mutex(T)` value is a SHARED HANDLE, which is why every method takes
-/// `self : Self` rather than `inout(self)`: copying the handle (into a
+/// `self : Self` rather than `mut(self)`: copying the handle (into a
 /// thread closure, say) bumps the atomic reference count and both copies
 /// name the same lock. The OS primitive is destroyed by the `Dispose` impl
 /// when the last handle goes away, so a mutex cannot outlive its own
@@ -209,7 +209,7 @@ impl(
   /// scope, in one call.
   ///
   /// **This blocks** until the lock is available, parking the thread rather
-  /// than spinning. `body` receives an `inout(v) : T`, so it may mutate the
+  /// than spinning. `body` receives an `mut(v) : T`, so it may mutate the
   /// protected value in place; the mutation is visible to the next holder.
   ///
   /// Release is structural, not by falling off the end: a private

@@ -3,7 +3,7 @@
 //!
 //! `String` owns heap bytes and is MUTABLE — `push_str` / `push_string` /
 //! `push_byte` / `push_rune` / `insert` / `insert_str` / `remove` / `pop` /
-//! `truncate` / `reserve` / `clear` take `inout(self)` and change the value in
+//! `truncate` / `reserve` / `clear` take `mut(self)` and change the value in
 //! place. Everything else (the operators, `trim*`, `to_*case`, `replace*`,
 //! `substring`, …) returns a new string. For a mutable text buffer that
 //! several owners share, use `StringBuilder` (a reference-semantics type).
@@ -77,13 +77,13 @@ StringError :: enum(
 );
 derive(StringError, Copy, Clone);
 // Takes an owned list and lets it drop: the move that keeps every arm of
-// `String.from_utf8` consuming its `own(bytes)` (E0907).
+// `String.from_utf8` consuming its `sink(bytes)` (E0907).
 _release_bytes :: (fn(sink(_b) : ArrayList(u8)) -> unit)(());
 /// Growable UTF-8 encoded string — the same shape as Rust's `String`.
 ///
 /// NOT immutable: every mutator (`push_str`, `push_string`, `push_byte`,
 /// `push_rune`, `reserve`, `clear`, `truncate`, `insert_str`, `insert`,
-/// `remove`, `pop`) takes `inout(self)` and writes in place. `clone()` copies
+/// `remove`, `pop`) takes `mut(self)` and writes in place. `clone()` copies
 /// the bytes (O(n)): the clone is independent of the original. A plain copy
 /// (`t := s`) still shares a non-empty buffer; VALUES_BY_DEFAULT V2b makes it
 /// a move or an error naming `clone()` (plans/STRING_VALUE_SEMANTICS.md §0).
@@ -435,7 +435,7 @@ impl(
     )
   ),
   // (Inherent `clone` removed; the Clone trait impl below provides
-  // the same semantics via inout(self) : Self after the Phase D
+  // the same semantics via mut(self) : Self after the Phase D
   // migration. Calling `s.clone()` resolves to the trait method.)
   /// Get the byte at the given index. Panics if the index is out of
   /// bounds (mirrors `str`'s byte indexing). Use `len()` for the

@@ -28,6 +28,8 @@ import("std/fmt");
   BK_IMM,
   BK_INOUT,
   ast_expr_is_inout_mode_call,
+  ast_expr_is_old_mode_spelling,
+  old_mode_spelling_message,
   BK_COLON,
   BK_FN,
   BK_UNSAFE_FN,
@@ -1327,6 +1329,19 @@ _param_default_not_comptime_error :: (fn(imm(label) : Option(String), imm(param_
 // ---------------------------------------------------------------------------
 // evaluate_function_parameter
 // ---------------------------------------------------------------------------
+/// `inout(x)` / `own(x)` on a parameter label: the deleted spellings of
+/// `mut(x)` / `sink(x)` (V3b Generation B step 3), an error naming the new
+/// word.
+_reject_old_param_mode :: (fn(imm(e) : AstExpr, imm(exn) : Exception) -> unit)(
+  match(
+    ast_expr_is_old_mode_spelling(e),
+    .Some(new_word) => {
+      old := if(new_word == "mut", String.from(BK_INOUT), String.from("own"));
+      exn.throw(dyn(format_error_message(ast_expr_token(e), old_mode_spelling_message(old, new_word))));
+    },
+    .None => ()
+  )
+);
 /// Evaluate a single function parameter expression.
 ///
 /// Whether a parameter of type `ty` is `Copy`, asking a generic parameter
@@ -1341,18 +1356,14 @@ _param_type_is_copy :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> bool)
     .None => !type_mentions_some_type(ty)
   )
 );
-/// The parameter half of the V3b sweep: `inout(x)` is spelled `mut(x)`, and a
-/// plain runtime parameter whose type is not `Copy` becomes `imm(x)`, which is
-/// what it means today; the flip then makes a plain parameter by value. A
+/// The parameter half of the V3b sweep: a plain runtime parameter whose type
+/// is not `Copy` becomes `imm(x)`, which is what it meant before the flip
+/// made a plain parameter by value (the `inout` → `mut` half is
+/// `--migrate modes` since `inout` was deleted). A
 /// generic parameter is `imm` unless its bounds make it `Copy`. Recorded once
 /// per source position: a parameter evaluated in several instantiations is
 /// `imm` when any of them is not `Copy`.
-_record_param_mode_migration :: (fn(imm(label_tok) : Token, imm(inout_word) : Option(Token), is_plain : bool, imm(ty) : TypeValue, imm(env) : Environment) -> unit)({
-  match(
-    inout_word,
-    .Some(w) => record_migrate_edit(w, usize(5), String.from("mut"), String.from("inout")),
-    .None => ()
-  );
+_record_param_mode_migration :: (fn(imm(label_tok) : Token, is_plain : bool, imm(ty) : TypeValue, imm(env) : Environment) -> unit)({
   if(!is_plain, {
     return(());
   });
@@ -1379,7 +1390,6 @@ evaluate_function_parameter :: (
   (is_param_ref : bool) = false;
   // `yo fix --migrate params`: an explicit `imm(...)` and the `inout` word.
   (has_imm_wrapper : bool) = false;
-  (inout_word : Option(Token)) = Option(Token).None;
   (lhs_expr : Option(AstExpr)) = Option(AstExpr).None;
   (type_expr : Option(AstExpr)) = Option(AstExpr).None;
   (label_expr : Option(AstExpr)) = Option(AstExpr).None;
@@ -1491,14 +1501,14 @@ evaluate_function_parameter :: (
         });
         lhs_mut = match(c_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
-      // sink modifier — processed BEFORE inout, so
-      // `sink(inout(x))` reaches the inout branch with the sink flag set and
-      // gets the targeted combination error below, while `inout(sink(x))`
+      // sink modifier — processed BEFORE mut, so
+      // `sink(mut(x))` reaches the mut branch with the sink flag set and
+      // gets the targeted combination error below, while `mut(sink(x))`
       // falls through to the trailing "Expected identifier" rejection.
-      // `own(x)` is the old spelling of `sink(x)`, accepted until the sweep
-      // that follows the next seed (plans/VALUES_BY_DEFAULT.md decision 15):
-      // both set the same flag, so the two spell one function type.
-      if(ast_expr_is_fn_call_of(lhs_mut, "sink", Option(usize).None) || ast_expr_is_fn_call_of(lhs_mut, "own", Option(usize).None), {
+      // `own(x)` and `inout(x)`, the deleted spellings of `sink(x)` and
+      // `mut(x)`, are rejected naming the new word at every wrapper level.
+      _reject_old_param_mode(lhs_mut, exn);
+      if(ast_expr_is_fn_call_of(lhs_mut, "sink", Option(usize).None), {
         is_owning_rc_value = true;
         is_sink_param = true;
         o_args := _fn_call_args(lhs_mut);
@@ -1514,6 +1524,7 @@ evaluate_function_parameter :: (
         });
         lhs_mut = match(o_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
+      _reject_old_param_mode(lhs_mut, exn);
       // `imm(x)` (plans/VALUES_BY_DEFAULT.md decision 30, V3b Generation A):
       // a read-only borrow, which is exactly what a plain parameter means
       // today, so the wrapper is stripped and sets no flag. `fn(imm(x) : T)`
@@ -1549,15 +1560,14 @@ evaluate_function_parameter :: (
           );
         });
       });
-      // ref modifier — strip the wrapper and record the `ref` flag (consumed
+      _reject_old_param_mode(lhs_mut, exn);
+      // `mut(x)` — strip the wrapper and record the `ref` flag (consumed
       // into the Func type's `param_is_ref` for the flow-soundness check).
-      // `mut(x)` is its exact synonym (V3b Generation A; Generation B deletes
-      // `inout`).
       if(ast_expr_is_inout_mode_call(lhs_mut, Option(usize).None), {
         r_args := _fn_call_args(lhs_mut);
         if(!(r_args.len() == usize(1)), {
           exn.throw(
-            dyn(format_error_message(ast_expr_token(lhs_mut), `Expected one argument for "inout", got ${r_args.len()}`))
+            dyn(format_error_message(ast_expr_token(lhs_mut), `Expected one argument for "mut", got ${r_args.len()}`))
           );
         });
         if(is_owning_rc_value, {
@@ -1565,7 +1575,7 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `Cannot combine 'sink' and 'inout' on the same parameter — they have opposite calling conventions.`
+                `Cannot combine 'sink' and 'mut' on the same parameter — they have opposite calling conventions.`
               )
             )
           );
@@ -1579,15 +1589,12 @@ evaluate_function_parameter :: (
             dyn(
               format_error_message(
                 ast_expr_token(lhs_mut),
-                `'inout' cannot combine with 'generic'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`
+                `'mut' cannot combine with 'generic'/'using' parameters — they are erased at runtime and have no callee-side binding to mutate.`
               )
             )
           );
         });
         is_param_ref = true;
-        if(ast_expr_is_fn_call_of(lhs_mut, BK_INOUT, Option(usize).None), {
-          inout_word = match(lhs_mut, .FnCall(_, iw_callee, _, _, _) => Option(Token).Some(ast_expr_token(iw_callee)), .Atom(_, _) => Option(Token).None);
-        });
         lhs_mut = match(r_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
       });
       // quote modifier
@@ -1830,7 +1837,7 @@ evaluate_function_parameter :: (
       dyn(
         format_error_message(
           ast_expr_token(expr),
-          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'inout(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`
+          `Raw-pointer-carrying types ('${type_to_string(final_param_type)}') are not available in safe code.\n\nUse owned collections (ArrayList/String), 'mut(name) : T' parameters for in-place mutation, or 'str' for static string views. If this file genuinely needs the raw view, add 'pragma(Pragma.AllowUnsafe);' at the top.`
         )
       )
     );
@@ -1925,7 +1932,7 @@ use_id :: (fn(generic(T : Type),
   label_str := match(label, .Some(l) => l, .None => String.from("?"));
   lbl_tok := match(label_expr, .Some(e) => ast_expr_token(e), .None => ast_expr_token(expr));
   if(migrate_param_modes_on() && !is_compile_time_only && !is_quote && label_expr.is_some(), {
-    _record_param_mode_migration(lbl_tok, inout_word, !is_param_ref && !is_owning_rc_value && !has_imm_wrapper, final_param_type, env_mut);
+    _record_param_mode_migration(lbl_tok, !is_param_ref && !is_owning_rc_value && !has_imm_wrapper, final_param_type, env_mut);
   });
   // The flip (plans/VALUES_BY_DEFAULT.md decision 30, V3b Generation B step
   // 2): a plain runtime parameter is BY VALUE, owned by the callee exactly as
@@ -4006,7 +4013,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(rl_expr),
-            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'.")
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'mut(name) : T'.")
           )
         )
       );
@@ -4076,7 +4083,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (inout(name) : T)' (or unlabeled '-> inout(T)'), not '-> (name : inout(T))'.")
+            String.from("In a labeled return slot, 'ref' goes on the label, not the type. Use '-> (mut(name) : T)' (or unlabeled '-> mut(T)'), not '-> (name : mut(T))'.")
           )
         )
       );
@@ -4111,7 +4118,7 @@ evaluate_function_type :: (
         dyn(
           format_error_message(
             ast_expr_token(return_type_expr),
-            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'.")
+            String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'mut(name) : T'.")
           )
         )
       );
@@ -4176,7 +4183,7 @@ evaluate_function_type :: (
       dyn(
         format_error_message(
           ast_expr_token(return_type_expr),
-          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'inout(name) : T'.")
+          String.from("Functions cannot return 'ref' — return the value instead (object values are handles that mutate in place; struct values copy), or take a callback parameter that receives 'mut(name) : T'.")
         )
       )
     );

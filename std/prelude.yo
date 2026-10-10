@@ -119,7 +119,7 @@ Pragma :: enum(
   /// Formal verification: erase contract clauses entirely (no proof,
   /// no runtime assert). For release/benchmark builds.
   NoContracts,
-  /// Strict borrowed loops: inside `for(coll, inout(x) => …)` bodies of this
+  /// Strict borrowed loops: inside `for(coll, mut(x) => …)` bodies of this
   /// file, a call the compiler cannot prove harmless to the borrowed
   /// element — a mutating method on the borrowed collection or an alias of
   /// it, or a callee whose effects are unknown (a closure, a dynamic
@@ -7157,7 +7157,7 @@ impl(
 );
 /// Array Index impls
 /// Bodies take `&(self)` so the `*(Array(T, N))`-expecting builtin
-/// receives the right C-ABI shape — `inout(self) : Self` gives the body
+/// receives the right C-ABI shape — `mut(self) : Self` gives the body
 /// a value-typed view of `self` even though the runtime passes a
 /// pointer. See plans/archive/ITERATOR_REDESIGN.md.
 impl(
@@ -10218,15 +10218,15 @@ __borrow_guard :: (fn(generic(C : Type), imm(c) : C) -> __BorrowGuard(C))({
 ///     iterator; object elements are handles, so mutating `x` in the
 ///     body mutates the element in place.
 ///
-///   `for(coll, inout(x) => body)` — the borrowed form
+///   `for(coll, mut(x) => body)` — the borrowed form
 ///     (plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md §7): the collection is
 ///     pinned by a hidden local, its runtime borrow flag is held for the
-///     whole loop, and each element is bound in place as an `inout` local
+///     whole loop, and each element is bound in place as a `mut` local
 ///     through the pointer iterator `iter()` (no per-element dup; struct
 ///     elements mutate in place). Any container operation that could
 ///     invalidate an element (growth, shrink, removal) — reached through ANY
 ///     handle — panics deterministically instead of leaving `x` dangling.
-///     Maps take `for(map, (k, inout(v)) => body)`: the key by value, only
+///     Maps take `for(map, (k, mut(v)) => body)`: the key by value, only
 ///     the value borrowed, so a body can never rewrite a key in place.
 ///     Value-type collections (`Array(T, N)`) and combinator chains have no
 ///     `iter()`; use the value form.
@@ -10246,7 +10246,7 @@ __borrow_guard :: (fn(generic(C : Type), imm(c) : C) -> __BorrowGuard(C))({
 /// for(list.into_iter(), x => print(x));
 ///
 /// // Borrow struct elements in place (read AND write).
-/// for(enemies, inout(e) => {
+/// for(enemies, mut(e) => {
 ///   e.hp = (e.hp - i32(1));
 /// });
 /// ```
@@ -10267,16 +10267,21 @@ for :: (
             comptime_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
             variable :: args.car();
             body :: args.cdr().car();
-            // Detect `mut(name) => body` (or its old spelling `inout(name)`) — borrow form. Otherwise
-            // it's the value form `(name) => body`.
+            // Detect `mut(name) => body` — borrow form. Otherwise it's the
+            // value form `(name) => body`. `inout(name)`, the deleted spelling
+            // of `mut(name)` (V3b), is rejected naming the new word.
             is_ref_form :: cond(
               variable.is_fn_call() => {
                 v_callee :: variable.get_callee();
-                v_callee.is_atom() && ((v_callee == quote(mut)) || (v_callee == quote(inout)))
+                comptime_assert(
+                  !(v_callee.is_atom() && (v_callee == quote(inout))),
+                  "`for(coll, inout(x) => ...)` is spelled `for(coll, mut(x) => ...)`: the `inout` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b). `yo fix <path> --migrate modes` rewrites it."
+                );
+                v_callee.is_atom() && (v_callee == quote(mut))
               },
               true => false
             );
-            // Map form `(k, inout(v)) => body`: the key by value, the value
+            // Map form `(k, mut(v)) => body`: the key by value, the value
             // borrowed — so a loop body can never rewrite a key in place.
             is_map_ref_form :: cond(
               variable.is_fn_call() => {
@@ -10290,7 +10295,11 @@ for :: (
                         cond(
                           mv_second.is_fn_call() => {
                             mv_second_callee :: mv_second.get_callee();
-                            mv_second_callee.is_atom() && ((mv_second_callee == quote(mut)) || (mv_second_callee == quote(inout)))
+                            comptime_assert(
+                              !(mv_second_callee.is_atom() && (mv_second_callee == quote(inout))),
+                              "`for(map, (k, inout(v)) => ...)` is spelled `for(map, (k, mut(v)) => ...)`: the `inout` spelling was deleted (plans/VALUES_BY_DEFAULT.md V3b). `yo fix <path> --migrate modes` rewrites it."
+                            );
+                            mv_second_callee.is_atom() && (mv_second_callee == quote(mut))
                           },
                           true => false
                         )
@@ -10311,12 +10320,12 @@ for :: (
                 // borrow flag is held for the whole loop by a guard whose
                 // Dispose releases it on every exit (fall-through, `break`,
                 // `return`, effect `unwind`), and each element is bound as an
-                // `inout` local through the pointer iterator `iter()`. A
+                // `mut` local through the pointer iterator `iter()`. A
                 // container operation that could invalidate the element
                 // (growth, shrink, removal) reached through ANY handle panics
                 // deterministically instead of leaving `x` dangling.
                 elem_args :: variable.get_args();
-                comptime_assert(elem_args.len() == 1, "'for(coll, inout(x) => ...)' takes exactly one name inside inout(...)");
+                comptime_assert(elem_args.len() == 1, "'for(coll, mut(x) => ...)' takes exactly one name inside mut(...)");
                 elem :: elem_args.car();
                 coll_var :: gensym("for_coll");
                 guard_var :: gensym("for_guard");
@@ -10350,7 +10359,7 @@ for :: (
                 key_name :: mv_args2.car();
                 val_inout :: mv_args2.cdr().car();
                 val_args :: val_inout.get_args();
-                comptime_assert(val_args.len() == 1, "'for(map, (k, inout(v)) => ...)' takes exactly one name inside inout(...)");
+                comptime_assert(val_args.len() == 1, "'for(map, (k, mut(v)) => ...)' takes exactly one name inside mut(...)");
                 val_name :: val_args.car();
                 coll_var :: gensym("for_coll");
                 guard_var :: gensym("for_guard");

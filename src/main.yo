@@ -1094,9 +1094,10 @@ _rune_slice :: (fn(imm(line) : String, col : usize, len : usize) -> String)({
 /// `yo fix <path> --migrate params` (plans/VALUES_BY_DEFAULT.md V3b
 /// Generation B, step 1): evaluate every file with the parameter recorder on
 /// (`_record_param_mode_migration`, evaluator/types/function.yo), then apply
-/// its edits to the files under `<path>`: `inout(x)` becomes `mut(x)`, and a
-/// plain parameter whose type is not `Copy` becomes `imm(x)`. Neither changes
-/// what a program means today. An edit whose span no longer holds the text it
+/// its edits to the files under `<path>`: a plain parameter whose type is not
+/// `Copy` becomes `imm(x)`, which is what it meant before the flip (the old
+/// `inout` → `mut` half is `--migrate modes` now that `inout` is deleted, and
+/// such a file must go through that first). An edit whose span no longer holds the text it
 /// was recorded for (a synthetic token, a template) is skipped and counted.
 _run_migrate_params :: (
   fn(imm(files) : ArrayList(String), imm(std_path) : String, dry_run : bool, io : Io, imm(exn) : Exception) -> unit
@@ -1131,7 +1132,6 @@ _run_migrate_params :: (
     targets.push(t);
   });
   (n_imm : usize) = usize(0);
-  (n_mut : usize) = usize(0);
   (n_stale : usize) = usize(0);
   (ci : usize) = usize(0);
   while(ci < canon_targets.len(), ci = (ci + usize(1)), {
@@ -1164,11 +1164,7 @@ _run_migrate_params :: (
         n_stale = (n_stale + usize(1));
         continue;
       });
-      if(p.description == "inout", {
-        n_mut = (n_mut + usize(1));
-      }, {
-        n_imm = (n_imm + usize(1));
-      });
+      n_imm = (n_imm + usize(1));
       checked.push(p);
     });
     if(!dry_run && (checked.len() > usize(0)), {
@@ -1181,15 +1177,16 @@ _run_migrate_params :: (
     });
   });
   verb := if(dry_run, String.from("would migrate"), String.from("migrated"));
-  println(`fix: ${verb} ${n_imm.to_string()} parameter(s) to imm(...) and ${n_mut.to_string()} inout to mut; ${n_stale.to_string()} recorded edit(s) skipped (span text changed); ${failed.to_string()} file(s) did not evaluate`);
+  println(`fix: ${verb} ${n_imm.to_string()} parameter(s) to imm(...); ${n_stale.to_string()} recorded edit(s) skipped (span text changed); ${failed.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated parameters were not migrated`));
   });
 });
 /// `yo fix <path> --migrate modes` — the spelling half of V3b step 3
 /// (plans/VALUES_BY_DEFAULT.md): every `inout(x)` becomes `mut(x)` and every
-/// `own(x)` parameter becomes `sink(x)`. Both are synonyms of the new word, so
-/// the sweep is syntactic: each file is parsed, never evaluated, which also
+/// `own(x)` parameter becomes `sink(x)`. The compiler rejects both old
+/// spellings, and each meant exactly the new word, so the sweep is syntactic:
+/// each file is parsed, never evaluated, which also
 /// reaches what evaluation never sees (a macro's arguments such as `for`'s
 /// `inout(x) =>` handle, `quote(...)` templates, test bodies, generic bodies
 /// no instantiation reaches). An `asm(...)` operand's `inout(reg, v)` is a
