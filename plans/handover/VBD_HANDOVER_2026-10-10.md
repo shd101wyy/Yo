@@ -22,7 +22,6 @@ The goal is unchanged: finish every phase in `plans/VALUES_BY_DEFAULT.md`. Rules
 - **After Generation B, rewrite `plans/VALUES_BY_DEFAULT.md`, and the plans it links, in the final spelling only.** Drop every `imm`/`mut`/`inout`/`own` mention and the transitional "as built, Generation A" layers, and keep only the latest information. The maintainer finds the mixed spellings confusing.
 - **Design calls are delegated.** Decide VBD questions yourself: strict, explicit and sound, as Rust would. Record each one in the plan as a numbered decision and prove it with tests. Ask only when a choice changes the user-visible language in a way the plan does not already imply.
 - **Admin merges are allowed once the local gates pass** (maintainer directive for this campaign; it overrides AGENTS.md's "never `--admin`"). Develop's own battery must be green on the exact tip before a release is cut. Raise a red ratchet baseline (such as `scripts/bootstrap/memory-ratchet.tsv`) with a dated comment rather than disabling the gate. The compile-memory baseline was raised this cycle to `3317216` kB because the VBD migration is still under way.
-- **At most 4 subagents at a time.** No Workflow-tool orchestration unless the maintainer asks for it.
 - **Cut a patch release whenever a seed is needed.** Curate `## Changes` right after publishing (AGENTS.md's release-notes section). Never cancel a `Release` run.
 - **No backward compatibility.** The seed gate (`SEED_VERSION`) is the only constraint.
 
