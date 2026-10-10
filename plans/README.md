@@ -100,6 +100,7 @@ str-prefix patterns whose tail bindings borrow, pulling FV Phase V6
 `Soa(T)` columnar container (rows are sibling places under one root; the
 wrapper maintains the cross-column length invariant and the verifier can
 prove it) — plus the standing rejections table so nothing is re-proposed.
+
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and
 [`SELF_HOSTING_COMPLETION`](archive/SELF_HOSTING_COMPLETION.md) (self-hosting,
