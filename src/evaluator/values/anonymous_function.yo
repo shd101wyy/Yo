@@ -1731,6 +1731,17 @@ evaluate_anonymous_function_implementation :: (
         .None => ()
       );
     });
+    // A parameter that neither owns nor is `mut` borrows read-only (`imm`):
+    // decision 33's call-site markers pass it bare (`is_imm_borrow`).
+    if(!match(param_is_owning.get(rp_i), .Some(b) => b, .None => false) && !match(param_is_ref.get(rp_i), .Some(b) => b, .None => false), {
+      match(
+        rp_v_opt,
+        .Some(rp_v_imm) => {
+          rp_v_imm.is_imm_borrow = true;
+        },
+        .None => ()
+      );
+    });
     // Stamp is_ref from the expected type so a `inout(...)` param's body reads
     // dereference the C pointer (see param_is_ref note above).
     if(match(param_is_ref.get(rp_i), .Some(b) => b, .None => false), {

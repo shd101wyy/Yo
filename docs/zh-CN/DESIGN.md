@@ -691,7 +691,7 @@ show(&s); // s 仍可使用
 take(s); // 被移动
 ```
 
-`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。借用符号可以出现的其他位置是局部借用绑定（`y := &place`、`y := &mut place`，见 [FLOWABILITY.md](./FLOWABILITY.md)）、捕获列表条目，以及借用式 `for` 的来源（`for(&mut xs, x => ...)`）。目前传给 `&T` 参数的裸实参仍被接受。`yo fix <path> --migrate addr-of` 会改写旧代码中作为取址的 `&x`。
+`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。借用符号可以出现的其他位置是局部借用绑定（`y := &place`、`y := &mut place`，见 [FLOWABILITY.md](./FLOWABILITY.md)）、捕获列表条目，以及借用式 `for` 的来源（`for(&mut xs, x => ...)`）。裸的具名位置传给 `&T` 或 `&mut T` 参数是 E0914，并给出 `&x` 或 `&mut x`（在 std 与编译器完成迁移之前，它在 `YO_STRICT_MARKERS=1` 下对 std 以外的代码生效）；临时值、字面量、闭包和运算符操作数不需要标记。`yo fix <path> --migrate markers` 会插入缺少的标记，`yo fix <path> --migrate addr-of` 会改写旧代码中作为取址的 `&x`。
 
 ### 命名参数
 

@@ -11,6 +11,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
+{ DefaultHasher } :: import("std/hash");
 
 _pm_len :: (fn(imm(s) : String) -> usize)(s.len());
 _pm_plain_len :: (fn(imm(s) : String) -> usize)(s.len());
@@ -218,6 +219,38 @@ test("&x and &mut x scrutinees match the place", {
   assert((k == usize(4)) && (s.len() == usize(4)), "s stays usable after a borrowed scrutinee");
 });
 
+// `&xs(i)` in a body evaluated more than once (a comptime-specialized or a
+// closure-taking function): the marker's diagnostic text used to append to
+// the callee token's own buffer, renaming `xs` to `xs(i)` for the next
+// evaluation (issues/fixed/ast-place-text-renames-the-callee-of-an-element-place.md).
+_pm_is_one :: (fn(imm(v) : i32) -> bool)(v == i32(1));
+_pm_first_is_one :: (fn(imm(xs) : ArrayList(i32), comptime(k) : i32) -> bool)(_pm_is_one(&xs(usize(0))));
+_pm_first_by :: (fn(imm(xs) : ArrayList(i32), imm(cmp) : Impl(Fn(imm(v) : i32) -> bool)) -> bool)(cmp(&xs(usize(0))));
+test("&xs(i) lends an element from a body evaluated per specialization", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  assert(_pm_first_is_one(&xs, i32(3)), "comptime-specialized body");
+  assert(_pm_first_by(&xs, v => (v == i32(1))), "closure-taking body");
+});
+// A callee whose body lends through markers (`&key`, `&mut h`) still reads
+// as not writing its `&mut T` parameter, so a `&T` binding may be handed to it
+// as before (the mutation summary saw a marker as an unknown call;
+// issues/fixed/the-mutation-summary-reads-a-call-site-marker-as-an-unknown-call.md).
+_PmTable :: struct(n : u64);
+impl(
+  _PmTable,
+  _digest : (fn(imm(self) : Self, mut(key) : String) -> u64)({
+    h := DefaultHasher.new();
+    key.hash(&mut h);
+    h.finish() % self.n
+  }),
+  lookup : (fn(imm(self) : Self, imm(key) : String) -> u64)(self._digest(key))
+);
+test("a callee lending through markers does not write its &mut T parameter", {
+  t := _PmTable(n : u64(7));
+  s := String.from("abc");
+  assert(t.lookup(&s) < u64(7), "a &T binding handed to a &mut T parameter nothing writes");
+});
 test("a marker that does not fit the parameter is an error", {
   s := String.from("x");
   (c : i32) = i32(0);

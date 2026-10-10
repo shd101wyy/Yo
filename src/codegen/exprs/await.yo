@@ -15,7 +15,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id, ast_call_args_unmarked } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 {
@@ -255,7 +255,7 @@ emit_effect_record_injection :: (fn(imm(source_namespace_type) : TypeValue, imm(
 /// Inject the effect bundle from `io.spawn(future, bundle)` into the future's SM
 /// through its vtable's bundle slot (`__yo_future_set_bundle`).
 emit_io_spawn_effect_injection :: (fn(imm(expr) : AstExpr, imm(future_var) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return());
+  args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return());
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return());
   future_arg_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return());
   ft := match(extract_future_trait_from_type(future_arg_type), .Some(t) => t, .None => return());
@@ -296,7 +296,7 @@ emit_io_spawn_effect_injection :: (fn(imm(expr) : AstExpr, imm(future_var) : Str
 /// Early-returns when the future has
 /// no effect (the BASELINE no-effect case).
 emit_effect_injection_for_await :: (fn(imm(expr) : AstExpr, imm(future_var) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return());
+  args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return());
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return());
   future_arg_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return());
   ft := match(extract_future_trait_from_type(future_arg_type), .Some(t) => t, .None => return());
@@ -353,7 +353,7 @@ emit_effect_injection_for_await :: (fn(imm(expr) : AstExpr, imm(future_var) : St
 /// FSM resume generator handles the suspension). For `io.await` outside a state
 /// machine, emits a synchronous blocking wait (cold-start, poll, extract).
 generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
+  args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("await requires exactly 1 argument"))));
   future_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("await argument must be a Future type"))));
   if(!type_implements_future(future_type), {
@@ -563,7 +563,7 @@ generate_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : 
 /// is submitted when it is created, so its pending state 0 reads as Running,
 /// never Cold (plans/ASYNC_IO_API_AUDIT.md F4).
 generate_state :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
-  args := match(expr, .FnCall(_, _, a, _, _) => a, _ => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
+  args := match(expr, .FnCall(_, _, _, _, _) => ast_call_args_unmarked(expr), _ => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_arg := match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("io.state requires exactly 1 argument"))));
   future_type := match(context.base.get_expr_info(future_arg), .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("io.state argument must be a Future type"))));
   if(!type_implements_future(future_type), {
@@ -616,7 +616,7 @@ generate_join_handle_await :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm
     fargs := match(func_expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
     match(fargs.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   }, {
-    args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+    args := ast_call_args_unmarked(expr);
     match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   });
   handle_code := _call_generate_expr(handle_arg, indent.clone(), context);

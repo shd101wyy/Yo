@@ -706,7 +706,7 @@ show(&s); // s stays usable
 take(s); // moved
 ```
 
-`&x` is only this marker. Passed to a by-value parameter it is an error naming `x` and `x.clone()`; passed to a raw-pointer parameter, or written anywhere else (a field store, a receiver `(&x).m()`, a variadic C argument), it is an error naming `addr_of(x)`, the raw-pointer address-of of unsafe code. The other places a sigil stands are a local borrow binding (`y := &place`, `y := &mut place`, see [FLOWABILITY.md](./FLOWABILITY.md)), a capture-list entry and the borrowed `for` source (`for(&mut xs, x => ...)`). A bare argument to a `&T` parameter is still accepted for now. `yo fix <path> --migrate addr-of` rewrites old code whose `&x` was the address-of.
+`&x` is only this marker. Passed to a by-value parameter it is an error naming `x` and `x.clone()`; passed to a raw-pointer parameter, or written anywhere else (a field store, a receiver `(&x).m()`, a variadic C argument), it is an error naming `addr_of(x)`, the raw-pointer address-of of unsafe code. The other places a sigil stands are a local borrow binding (`y := &place`, `y := &mut place`, see [FLOWABILITY.md](./FLOWABILITY.md)), a capture-list entry and the borrowed `for` source (`for(&mut xs, x => ...)`). A bare named place passed to a `&T` or `&mut T` parameter is E0914 naming `&x` or `&mut x` (on under `YO_STRICT_MARKERS=1` for code outside std until std and the compiler are migrated); temporaries, literals, closures and operator operands need no marker. `yo fix <path> --migrate markers` inserts the missing markers, and `yo fix <path> --migrate addr-of` rewrites old code whose `&x` was the address-of.
 
 ### Named arguments
 
