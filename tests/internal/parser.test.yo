@@ -866,7 +866,7 @@ test("Reject adjacent different operators without parentheses", {
 // spellings are exact synonyms; a `&` anywhere else is left for the
 // evaluator's "a borrow mode, not a type" error, and a call-site marker (a
 // named argument `f(s : &x)`) is never touched.
-_d42 :: (fn(src : str) -> String)({
+_d42 :: (fn(src : &String) -> String)({
   exn := Exception(
     throw : (
       err -> {
@@ -875,7 +875,7 @@ _d42 :: (fn(src : str) -> String)({
       }
     )
   );
-  ast_expr_to_string(only_expr(parse(String.from(src), `test.yo`, exn)))
+  ast_expr_to_string(only_expr(parse(src, `test.yo`, exn)))
 });
 test("decision 42: parameters, receivers and comptime parameters", {
   assert_str_eq(_d42(`(fn(x : &String, y : &mut i32, comptime(k) : &i32, self : &Self, z : i32) -> unit)`), _d42(`(fn(imm(x) : String, mut(y) : i32, comptime(imm(k)) : i32, imm(self) : Self, z : i32) -> unit)`), "each parameter reads as its mode-word form");

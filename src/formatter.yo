@@ -160,6 +160,10 @@ prefix_operator_needs_leading_space :: (
     .None => false,
     .Some(p) => cond(
       (p.kind == TokenKind.Comma) => true,
+      // `{ &y, &mut z }` (a capture list's puns, decision 42): an opening
+      // brace keeps its space before a prefix operator on the same row, as
+      // it does before a name (`{ y }`).
+      ((p.kind == TokenKind.LCurlyBracket) && (p.row == token.row)) => true,
       ((p.kind == TokenKind.Operator) && (p.value != ".")) => {
         prev_is_prefix_capable := (
           (p.value == "-") || (p.value == "!") || (p.value == "~") || (p.value == "&") || (p.value == "*") || (p.value == "?") || (p.value == "^") || (p.value == "&mut")
