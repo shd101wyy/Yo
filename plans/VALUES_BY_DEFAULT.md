@@ -2773,6 +2773,54 @@ and in git, not a silent edit.
       root (error), a `depends` narrowing; an `Rc`-rooted element in a
       container (rejected); the cell cases (E0909); `words` returning a
       list of views; the borrowed `for` by `impl(&C, IntoIterator)`.
+    - **Checker-side review (2026-10-10, the VBD implementer; amends this
+      draft, decided under the maintainer's 2026-10-09 delegation):**
+      - **Root-joining needs a new tracker.** The closures' capture-borrow
+        sets cannot carry it: they are keyed by the capture struct's type
+        id (`g_capture_borrows`), which works because every closure literal
+        has its own type, whereas two `ArrayList(&T)` values share one type
+        and hold different roots. Root-joining is a per-VALUE borrow set on
+        the binding: it extends the local-borrow root that
+        `VariableRare.inout_borrow_root_id` keeps today from one root to a
+        set of `(root, mode)` pairs, joined at each `&mut self` call that
+        receives a `&` argument, unioned over reaching definitions at
+        control-flow joins (decision 38 A's "borrow sets join"), and read
+        by the freeze and exclusivity checks (decisions 18 and 28). It is
+        flow-sensitive and intraprocedural like everything else here.
+      - **Joined roots keep their mode.** A `&mut x` moved into a container
+        freezes `x` exclusively for the container's live range, so a second
+        `&mut x` (or any read of `x`) while the container lives is E0911;
+        a `&x` freezes `x` against writes only. This is what stops a
+        container from holding two `&mut` to one place.
+      - **A `&mut T` read through a `&` path is read-only.** An element
+        reached through `&ArrayList(&mut T)` (or a `&mut T` field reached
+        through `&S`) yields `&T`, never `&mut T`, as in Rust; otherwise a
+        shared view of the container would hand out aliasing mutable
+        references.
+      - **Decision 38 A's by-value bullet is amended for reference TYPES.**
+        "A second-class value may not be passed to a by-value parameter"
+        stays for closures and borrowing futures. A parameter whose type IS
+        a reference (`x : &T`, or a generic `T` instantiated with `&U`)
+        receives it by value, as in Rust: a `&T` is copied, a `&mut T`
+        moved; the callee's body is checked per instantiation (as `Impl`
+        bodies already are) and its result inherits the roots by R3.
+      - **Reborrow.** A `&mut T` value passed to a slot declared `&mut T`
+        is reborrowed: the source is frozen for the call (decision 28's
+        call exclusivity) and usable after it. Passed to a generic `T` slot
+        it moves, as Rust's does; `&mut *r`'s spelling is `&mut r.*`.
+      - **Auto-borrow and V3b.** Auto-borrow applies only to a method whose
+        receiver is `self : &Self` / `&mut Self`; a method declared
+        `self : Self` still consumes its receiver (V3b's by-value default),
+        and method resolution never auto-moves. Receivers stay exempt from
+        call-site markers (decision 33).
+      - **Cost and phase.** Making the mode a type means a `TypeValue`
+        reference variant replacing the slot flags (`param_is_ref`,
+        `call_param_is_ref`/`is_owning` in `FnTraitT`, `FuncParam` modes)
+        through the evaluator, the specializer, the verifier encoding and
+        codegen: the largest refactor in this plan. It is scheduled as its
+        own phase after decision 42's Generation B and after V2b (root-
+        joining containers are only meaningful once collections are
+        uniquely owned values), not folded into 42's respelling.
 
 ## 5. Prerequisites, gates and the seed
 
