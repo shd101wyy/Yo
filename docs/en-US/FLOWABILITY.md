@@ -222,7 +222,7 @@ never affects the result.
 ## One call-site rule
 
 **A single call may not receive the same object as both a `mut`-rooted
-argument and an `sink` argument** (`use_and_sink(h.s, h)` with
+argument and a `sink` argument** (`use_and_sink(h.s, h)` with
 `sink(victim)` is rejected) — `sink` moves the caller's count into a
 callee that could release it while the borrow is still in use. Distinct
 objects are fine. A by-value argument that overlaps a `mut` one is
@@ -231,7 +231,7 @@ value, which would release the value the by-value argument borrows
 (`clobber(x, x)` with `fn(mut(a) : S, b : S)`), so that argument gets a
 caller-owned `+1` until the call returns, like an overlapping field
 projection. A borrowed handle itself never releases the caller's count
-(forwarding it to an `sink` position dups first).
+(forwarding it to a `sink` position dups first).
 
 With no local bindings there is nothing left to "invalidate": the old
 borrow-invalidation gates were deleted along with the binding form.
