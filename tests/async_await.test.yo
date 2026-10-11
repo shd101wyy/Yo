@@ -45,6 +45,32 @@ future_with_returned_state :: (fn(value : i32, io : Io) -> Impl(Future(i32, Io))
     return(local.* + i32(1));
   })
 });
+/// A future for the call-site marker test below.
+marker_answer :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    return(i32(41));
+  })
+);
+// `io.await` and `io.spawn` borrow their future (`fut : &Impl(Future(T, E))`), so a named
+// future is lent with `&f` (decision 33). Codegen and the await analysis read
+// the raw call, and used to find the un-annotated `&f` node: an internal
+// compiler error, "await argument must be a Future type"
+// (issues/fixed/io-await-of-a-marked-future-is-an-internal-compiler-error.md).
+test("io.await and io.spawn take a named future through its call-site marker", {
+  f := marker_answer(io);
+  v := io.await(&f, io);
+  g := marker_answer(io);
+  h := io.spawn(&g, io);
+  w := h.await(io).unwrap_or(i32(0));
+  assert(((v + w) == i32(82)), "sync awaits through markers");
+  task := io.async((io : Io) => {
+    k := marker_answer(io);
+    r := io.await(&k, io);
+    return(r + i32(1));
+  });
+  assert((io.await(task, io) == i32(42)), "an await through a marker in an async body");
+});
 // A synchronous await from a test body recycles one continuation node through
 // the runtime's thread-local pool. The pool used to outlive the thread, and
 // LeakSanitizer reported it for every such test
