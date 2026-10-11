@@ -172,7 +172,7 @@ ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
 pool := ThreadPool.new(usize(4));
 
 // Simple tasks on the pool
-spawn(pool, (io : Io) => {
+spawn(&pool, (io : Io) => {
   do_work();
 });
 

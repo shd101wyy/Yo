@@ -11,7 +11,7 @@ These patterns are aimed at everyday Yo application and library code.
 (name : str) = "yo";
 greeting := `Hello ${name}`;
 
-println(greeting);
+println(&greeting);
 println("plain str is also fine");
 ```
 

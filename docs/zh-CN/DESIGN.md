@@ -1202,7 +1202,7 @@ keep :: (fn(f : Fd) -> unit)(()); // 按值参数把值移动进来
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));
-  n := peek(a); // 借用；`a` 仍可使用
+  n := peek(&a); // 借用；`a` 仍可使用
   b := a; // 把 `a` 移动到 `b`
   // a.n           // E0901：使用了被移动的值：`a`
   keep(b); // 移动 `b`；`keep` 返回时把它 dispose
@@ -3786,8 +3786,8 @@ main :: (fn(io : Io) -> unit)({
     io.await(yield(io), io);
     return(i32(2));
   });
-  handle1 := io.spawn(task1, io); // 启动 task1，返回 JoinHandle(i32)
-  handle2 := io.spawn(task2, io); // 启动 task2，返回 JoinHandle(i32)
+  handle1 := io.spawn(&task1, &io); // 启动 task1，返回 JoinHandle(i32)
+  handle2 := io.spawn(&task2, &io); // 启动 task2，返回 JoinHandle(i32)
   r1 := handle1.await(io); // 等待 → Option(i32)
   r2 := handle2.await(io);
 });

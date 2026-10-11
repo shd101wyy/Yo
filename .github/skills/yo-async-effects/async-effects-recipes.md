@@ -39,7 +39,7 @@ main :: (fn(io : Io) -> unit)({
     i32(1)
   });
 
-  result := io.await(task, io);
+  result := io.await(&task, &io);
   assert(result == i32(1), "unexpected result");
 });
 
@@ -61,8 +61,8 @@ main :: (fn(io : Io) -> unit)({
     i32(2)
   });
 
-  handle1 := io.spawn(task1, io);
-  handle2 := io.spawn(task2, io);
+  handle1 := io.spawn(&task1, &io);
+  handle2 := io.spawn(&task2, &io);
 
   result1 := handle1.await(io);
   result2 := handle2.await(io);
@@ -98,7 +98,7 @@ resume_example :: (fn() -> i32)({
   // Use plain `fn(...) -> i32` if you want to forbid unwind altogether at this site.
   (raise : Raise) = (
     msg -> {
-      println(msg);
+      println(&msg);
       return(i32(0));
     }
   );
@@ -109,7 +109,7 @@ resume_example :: (fn() -> i32)({
 unwind_example :: (fn() -> i32)({
   (raise : Raise) = (
     msg -> {
-      println(msg);
+      println(&msg);
       unwind(i32(-1));
     }
   );

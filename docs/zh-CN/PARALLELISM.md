@@ -161,7 +161,7 @@ ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
 pool := ThreadPool.new(usize(4));
 
 // 在线程池上运行简单任务
-spawn(pool, (io : Io) => {
+spawn(&pool, (io : Io) => {
   do_work();
 });
 

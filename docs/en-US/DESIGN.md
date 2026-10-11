@@ -1233,7 +1233,7 @@ keep :: (fn(f : Fd) -> unit)(()); // a by-value parameter moves the value in
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));
-  n := peek(a); // borrowed; `a` is still usable
+  n := peek(&a); // borrowed; `a` is still usable
   b := a; // moves `a` into `b`
   // a.n           // E0901: use of moved value: `a`
   keep(b); // moves `b`; `keep` disposes it when it returns
@@ -3961,8 +3961,8 @@ main :: (fn(io : Io) -> unit)({
     io.await(yield(io), io);
     return(i32(2));
   });
-  handle1 := io.spawn(task1, io); // start task1, returns JoinHandle(i32)
-  handle2 := io.spawn(task2, io); // start task2, returns JoinHandle(i32)
+  handle1 := io.spawn(&task1, &io); // start task1, returns JoinHandle(i32)
+  handle2 := io.spawn(&task2, &io); // start task2, returns JoinHandle(i32)
   r1 := handle1.await(io); // wait → Option(i32)
   r2 := handle2.await(io);
 });

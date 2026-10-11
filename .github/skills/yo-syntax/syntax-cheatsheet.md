@@ -20,7 +20,7 @@ app_name :: "yo-demo";
 main :: (fn() -> unit)({
   value := i32(1);
   (message : str) = "hello";
-  println(message);
+  println(&message);
 });
 
 export(main);
