@@ -107,16 +107,15 @@ spelling (decision 42):
   `mut(y) := place` becomes `y := &mut place`, a re-point `mut(cur) = place`
   becomes `cur = &mut place`, the capture puns `{ imm(y), mut(z) }` become
   `{ &y, &mut z }`, and `for(xs, mut(x) => …)` becomes `for(&mut xs, x => …)`.
-  Each rewrite is an exact synonym. It only parses each file, so it reaches
-  macro arguments, `quote(...)` templates and generic bodies too; a mode word
-  in a position no rule covers is listed with its position and left as
-  written.
-- `--migrate modes` rewrites the deleted spellings: `inout(x)` becomes
-  `mut(x)` (the old spelling of `x : &mut T`; run `--migrate borrow-spelling`
-  after it) and an `own(x)` parameter becomes `sink(x)`. It only parses each
-  file, so it also reaches code evaluation never sees (macro arguments,
-  `quote(...)` templates, test bodies). Run it first on old code: the
-  compiler rejects both spellings.
+  The compiler rejects the mode words (E0009), and each meant exactly the
+  sigil spelling. It only parses each file, so it reaches macro arguments,
+  `quote(...)` templates and generic bodies too; a mode word in a position no
+  rule covers is listed with its position and left as written. `inout(x) : T`,
+  the spelling before `mut`, becomes `x : &mut T` as well.
+- `--migrate modes` rewrites the deleted `own(x)` parameter to `sink(x)`
+  (E0009 rejects `own`). It only parses each file, so it also reaches code
+  evaluation never sees (macro arguments, `quote(...)` templates, test
+  bodies).
 - `--migrate addr-of` rewrites each `&x` that was the raw-pointer address-of
   to `addr_of(x)`. It evaluates every file, because only the evaluator knows
   which `&x` is a borrow (`show(&s)` to a `&T` parameter stays) and which is
@@ -126,8 +125,7 @@ spelling (decision 42):
 - `--migrate params` runs on files that already evaluate: a plain parameter
   whose type is not `Copy` becomes a `&T` borrow, which is what a plain
   parameter meant before the flip. A generic parameter becomes a `&T` borrow
-  unless its `where` bounds make it `Copy`. It writes the old `imm(x)`
-  spelling; `--migrate borrow-spelling` then turns it into `x : &T`.
+  unless its `where` bounds make it `Copy`. It writes `x : &T`.
 
 None of them changes what a program does. A file that does not evaluate keeps
 what evaluation never reached, and `fix` exits non-zero naming it.

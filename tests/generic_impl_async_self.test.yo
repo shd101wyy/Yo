@@ -9,14 +9,14 @@
 { assert } :: import("std/assert");
 { IoExn, Exception } :: import("std/error");
 AR :: trait(
-  read : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn))),
-  twice : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))
+  read : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn))),
+  twice : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))
 );
 // Trait with a `?=` default of the same awaiting shape (the C16 fix covers the
 // default materialization; this file covers it on a GENERIC implementor).
 ARD :: trait(
-  read_d : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn))),
-  (twice_d : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))) ?=
+  read_d : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn))),
+  (twice_d : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))) ?=
     (
       (self, io) ->
         io.async(e => {
@@ -34,8 +34,8 @@ impl(
   generic(T : Type),
   Wrap(T),
   AR(
-    read : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => usize(5))),
-    twice : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => usize(5))),
+    twice : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         a := e.io.await(Self.read(self, io), e);
         b := e.io.await(Self.read(self, io), e);
@@ -49,7 +49,7 @@ impl(
   generic(T : Type),
   Wrap(T),
   ARD(
-    read_d : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => usize(9)))
+    read_d : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => usize(9)))
   )
 );
 // Non-generic implementor of the same trait — the control that always worked.
@@ -76,8 +76,8 @@ impl(
   generic(A : Type, B : Type),
   Pair2(A, B),
   AR(
-    read : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => usize(21))),
-    twice : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(io.async(e => usize(21))),
+    twice : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         a := e.io.await(Self.read(self, io), e);
         b := e.io.await(Self.read(self, io), e);

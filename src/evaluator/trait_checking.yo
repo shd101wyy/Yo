@@ -134,7 +134,7 @@ pragma(Pragma.AllowUnsafe);
 /// scope yet (rare — e.g. a struct defined before the marker trait), skip
 /// silently.
 /// Called during struct/enum/union construction by `evaluator/types/utils.yo`.
-register_type_trait :: (fn(imm(type_id) : String, trait_name : str, imm(env) : Environment) -> unit)({
+register_type_trait :: (fn(type_id : &String, trait_name : str, env : &Environment) -> unit)({
   match(
     get_trait_type_from_env(env, String.from(trait_name)),
     .Some(trait_ty) => {
@@ -148,7 +148,7 @@ register_type_trait :: (fn(imm(type_id) : String, trait_name : str, imm(env) : E
 /// by impl.yo when a concrete `impl(T, SomeTrait(...))` is registered, so
 /// `Type.impls(T, SomeTrait)` resolves by id at step 4 — the base trait id
 /// `trait_ty` carries matches the id the query evaluates `SomeTrait` to.
-register_type_trait_value :: (fn(imm(type_id) : String, imm(trait_ty) : TypeValue) -> unit)({
+register_type_trait_value :: (fn(type_id : &String, trait_ty : &TypeValue) -> unit)({
   // Taken out of the registry and stored back: a `get` copy is not the stored
   // list once collections are values (plans/VALUES_BY_DEFAULT.md §6 V2a).
   list := match(g_type_trait_registry.remove(type_id.clone()), .Some(l) => l, .None => ArrayList(TypeValue).new());
@@ -158,7 +158,7 @@ register_type_trait_value :: (fn(imm(type_id) : String, imm(trait_ty) : TypeValu
 });
 /// Extract a trait's stable identity string: the `id` field for `TraitT`, the
 /// `base_name` for Fn/Future traits.
-_trait_type_id :: (fn(imm(ty) : TypeValue) -> String)(
+_trait_type_id :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
@@ -176,7 +176,7 @@ _trait_type_id :: (fn(imm(ty) : TypeValue) -> String)(
 /// `are_types_compatible`: `TraitT` compatibility is name-based and
 /// every marker is nameless (empty name), so it would treat EVERY marker as
 /// mutually compatible — wrongly reporting e.g. a plain object as `Send`.
-is_type_registered_as_trait :: (fn(imm(type_id) : String, imm(query_trait) : TypeValue, imm(env) : Environment) -> bool)(
+is_type_registered_as_trait :: (fn(type_id : &String, query_trait : &TypeValue, env : &Environment) -> bool)(
   match(
     g_type_trait_registry.get(type_id),
     .None => false,
@@ -231,7 +231,7 @@ AssocTypeCheckResult :: struct(
 /// the marker name, or "" if it isn't one. Used by the step-4b on-demand
 /// re-derivation, which selects per-marker field rules. (The registry lookup
 /// itself matches by trait VALUE, not name — see `is_type_registered_as_trait`.)
-_marker_name_of :: (fn(imm(trait_type) : TypeValue, imm(env) : Environment) -> String)({
+_marker_name_of :: (fn(trait_type : &TypeValue, env : &Environment) -> String)({
   tid := _trait_type_id(trait_type);
   if(tid.is_empty(), {
     return(String.from(""));
@@ -260,14 +260,14 @@ _marker_name_of :: (fn(imm(trait_type) : TypeValue, imm(env) : Environment) -> S
 /// True when `trait_type` is one of the two thread markers, `Send` (may be
 /// moved to another thread) or `Sync` (copies may be read from several
 /// threads), plans/VALUES_BY_DEFAULT.md §3.8.
-_is_thread_marker :: (fn(imm(trait_type) : TypeValue, imm(env) : Environment) -> bool)({
+_is_thread_marker :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)({
   mn := _marker_name_of(trait_type, env);
   (mn == "Send") || (mn == "Sync")
 });
 /// True if the on-demand re-derivation guard currently holds `key`
 /// (`${type_id}:${trait_id}`). Used by step 4b to break cycles on
 /// self-referential types.
-_ondemand_guard_contains :: (fn(imm(key) : String) -> bool)({
+_ondemand_guard_contains :: (fn(key : &String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i < g_ondemand_marker_guard.len()) && !found, {
@@ -286,7 +286,7 @@ _ondemand_guard_contains :: (fn(imm(key) : String) -> bool)({
 /// Returns "" for non-nominal types.
 ///
 /// Distinct from `_trait_type_id` which extracts IDs from trait types.
-_type_id_for_trait_check :: (fn(imm(ty) : TypeValue) -> String)(
+_type_id_for_trait_check :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
     // `type_id_or_empty` has no Union arm — keep the name-keyed special case.
@@ -323,7 +323,7 @@ _type_id_for_trait_check :: (fn(imm(ty) : TypeValue) -> String)(
 ///   * `Some(true)`  — type definitely implements Comptime
 ///   * `Some(false)` — type definitely does NOT implement Comptime
 ///   * `.None`       — undecided (caller must check the `Comptime` trait in env)
-type_implements_comptime_builtin :: (fn(imm(ty) : TypeValue) -> Option(bool))(
+type_implements_comptime_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
   match(
     ty,
     // Source-namespace structs (modules) — always comptime. Object types
@@ -396,7 +396,7 @@ type_implements_comptime_builtin :: (fn(imm(ty) : TypeValue) -> Option(bool))(
 /// (those have only `impl(_, Acyclic())`, no Send), NOT other C scalar types,
 /// NOT type-level values — none of which the prelude marks Send. `.None` =
 /// defer to the registry / generic impls (nominal types, `*(T)`, etc.).
-type_implements_send_builtin :: (fn(imm(ty) : TypeValue) -> Option(bool))(
+type_implements_send_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
   match(
     ty,
     .Unit => Option(bool).Some(true),
@@ -418,7 +418,7 @@ type_implements_send_builtin :: (fn(imm(ty) : TypeValue) -> Option(bool))(
 /// comptime_float, comptime_str, Expr` (comptime data + Expr are acyclic but
 /// NOT Send). NOT other C scalar types, NOT type-level values. Same rationale as
 /// the Send builtin (encodes the prelude's primitive Acyclic impls).
-type_implements_acyclic_builtin :: (fn(imm(ty) : TypeValue) -> Option(bool))(
+type_implements_acyclic_builtin :: (fn(ty : &TypeValue) -> Option(bool))(
   match(
     ty,
     .Unit => Option(bool).Some(true),
@@ -441,7 +441,7 @@ type_implements_acyclic_builtin :: (fn(imm(ty) : TypeValue) -> Option(bool))(
 // Phase 3 stubs
 // ---------------------------------------------------------------------------
 /// Checks if any registered generic impl matches the (target, trait_ty) pair.
-_find_matching_generic_impl :: (fn(imm(target) : TypeValue, imm(trait_ty) : TypeValue, imm(env) : Environment) -> bool)(
+_find_matching_generic_impl :: (fn(target : &TypeValue, trait_ty : &TypeValue, env : &Environment) -> bool)(
   find_matching_generic_impl(target, trait_ty, env)
 );
 /// Returns true if (type_id, trait_id) is currently being registered.
@@ -449,7 +449,7 @@ _find_matching_generic_impl :: (fn(imm(target) : TypeValue, imm(trait_ty) : Type
 /// Used to handle recursive
 /// types — e.g. `impl(TreeNode, Clone(...))` whose function bodies
 /// validate `TreeNode <: Clone` before the impl is formally registered.
-_is_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id) : String) -> bool)(
+_is_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> bool)(
   is_concrete_impl_being_registered(type_id, trait_id)
 );
 // ---------------------------------------------------------------------------
@@ -461,9 +461,9 @@ _is_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id) :
 /// a no-binding situation, not an error).
 _assoc_synth_env :: (
   fn(
-    imm(constraint_ty) : TypeValue,
-    imm(resolved_ty) : TypeValue,
-    imm(env) : Environment
+    constraint_ty : &TypeValue,
+    resolved_ty : &TypeValue,
+    env : &Environment
   ) -> Option(Environment)
 )({
   exn_s := Exception(
@@ -494,7 +494,7 @@ _assoc_synth_env :: (
 /// frame that pops before the argument loop, so the caller re-binds the
 /// constraint target durably in the callee env.
 resolve_assoc_type_for_target :: (
-  fn(imm(target_type) : TypeValue, imm(label) : String, imm(env) : Environment) -> Option(TypeValue)
+  fn(target_type : &TypeValue, label : &String, env : &Environment) -> Option(TypeValue)
 )({
   (resolved_opt : Option(TypeValue)) = Option(TypeValue).None;
   {
@@ -536,9 +536,9 @@ resolve_assoc_type_for_target :: (
 /// where every std iterator/collection impl registers.
 _check_associated_type_constraints :: (
   fn(
-    imm(target_type) : TypeValue,
-    imm(trait_type) : TypeValue,
-    imm(env) : Environment
+    target_type : &TypeValue,
+    trait_type : &TypeValue,
+    env : &Environment
   ) -> AssocTypeCheckResult
 )({
   atc_labels := match(
@@ -635,14 +635,14 @@ _check_associated_type_constraints :: (
 /// True for the prelude `Copy` trait. The name test is cheap (a `::`-bound
 /// trait is stamped with its binding name), so the identity lookup runs only
 /// for a trait that could be it.
-is_copy_trait :: (fn(imm(trait_type) : TypeValue, imm(env) : Environment) -> bool)(
+is_copy_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(
   match(trait_type, .TraitT({ name : ct_name }) => (ct_name == "Copy"), _ => false) && _is_prelude_trait_named(trait_type, "Copy", env)
 );
 /// An anonymous record: a value struct with no name, no binding, no
 /// constructor and no namespace role (`_(a : i32(1))`, or an inline
 /// `struct(...)` written as a field type). It has no declaration an impl
 /// could name.
-_is_anonymous_record_type :: (fn(imm(ty) : TypeValue) -> bool)(
+_is_anonymous_record_type :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
     .Struct({ id : ar_id, name : ar_name, is_reference_semantics : ar_ref, is_newtype : ar_new, constructor_func_id : ar_cfid, is_source_namespace : ar_sns }) => (
@@ -657,7 +657,7 @@ _is_anonymous_record_type :: (fn(imm(ty) : TypeValue) -> bool)(
 /// elements, an array's element, a closure's capture record, an anonymous
 /// record's fields, and none for a `fn` pointer (a code address). `.None`
 /// for every other type, which answers `Copy` through an impl.
-copy_structural_parts :: (fn(imm(ty_in) : TypeValue) -> Option(ArrayList(TypeValue)))({
+copy_structural_parts :: (fn(ty_in : &TypeValue) -> Option(ArrayList(TypeValue)))({
   ty := resolve_enum_shell(ty_in);
   if(is_bound_closure_identity(ty), {
     return(
@@ -686,13 +686,13 @@ copy_structural_parts :: (fn(imm(ty_in) : TypeValue) -> Option(ArrayList(TypeVal
 });
 /// True for the prelude `Clone` trait, by the same cheap name test first as
 /// `is_copy_trait`.
-_is_clone_trait :: (fn(imm(trait_type) : TypeValue, imm(env) : Environment) -> bool)(
+_is_clone_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> bool)(
   match(trait_type, .TraitT({ name : cl_name }) => (cl_name == "Clone"), _ => false) && _is_prelude_trait_named(trait_type, "Clone", env)
 );
 /// The first part of the value nominal type `target` that is not `Copy`,
 /// as "its field `x` has type `T`" ("its variant `V`" for an enum
 /// payload), or `.None` when every part is.
-_first_non_copy_part :: (fn(imm(target) : TypeValue, imm(copy_tt) : TypeValue, imm(env) : Environment) -> Option(String))({
+_first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &Environment) -> Option(String))({
   labels := ArrayList(String).new();
   parts := ArrayList(TypeValue).new();
   match(
@@ -760,7 +760,7 @@ _first_non_copy_part :: (fn(imm(target) : TypeValue, imm(copy_tt) : TypeValue, i
 ///   must be `Copy`. The first one that is not is named.
 /// - Every type that may be `Copy` must also be `Clone`
 ///   (`_copy_without_clone_msg`).
-_copy_impl_violation_msg :: (fn(imm(target_type) : TypeValue, imm(target) : TypeValue, imm(copy_tt) : TypeValue, imm(env) : Environment) -> Option(String))({
+_copy_impl_violation_msg :: (fn(target_type : &TypeValue, target : &TypeValue, copy_tt : &TypeValue, env : &Environment) -> Option(String))({
   shown := type_to_string(target_type);
   if(is_reference_struct_type(target) || is_reference_enum_type(target), {
     return(Option(String).Some(`Type "${shown}" cannot implement "Copy": it is a reference type, so its copies share one cell. Copy is a bitwise copy of a value that owns nothing; a shared cell is copied with .clone().`));
@@ -804,7 +804,7 @@ _copy_impl_violation_msg :: (fn(imm(target_type) : TypeValue, imm(target) : Type
 /// the same instantiations, which `T <: Copy` implying `T <: Clone` decides.
 /// The compiler never writes the `Clone` impl, so the message names the
 /// spelling that does.
-_copy_without_clone_msg :: (fn(imm(target_type) : TypeValue, imm(env) : Environment) -> Option(String))(
+_copy_without_clone_msg :: (fn(target_type : &TypeValue, env : &Environment) -> Option(String))(
   match(
     get_trait_type_from_env(env, String.from("Clone")),
     .Some(clone_tt) => {
@@ -873,12 +873,12 @@ _copy_without_clone_msg :: (fn(imm(target_type) : TypeValue, imm(env) : Environm
 /// The environment the flip's `Copy` question is asked in: the cached prelude
 /// environment (set by `module_manager.yo` once the prelude is loaded). `Copy`
 /// and its impls are global; the environment only resolves the trait name.
-set_flip_prelude_env :: (fn(imm(env) : Environment) -> unit)({
+set_flip_prelude_env :: (fn(env : &Environment) -> unit)({
   g_flip_env = Option(Environment).Some(env);
 });
 /// Mark `ty` as the target of a `derive` that includes `Copy` (see
 /// `g_copy_pending_keys`).
-push_copy_pending :: (fn(imm(ty) : TypeValue) -> unit)({
+push_copy_pending :: (fn(ty : &TypeValue) -> unit)({
   g_copy_pending_keys.push(type_key(ty));
 });
 /// Forget every pending `Copy` derive target. Derives do not nest, so a
@@ -890,7 +890,7 @@ clear_copy_pending :: (fn() -> unit)({
 /// Whether `ty` has no `Clone` impl, asked in the flip's environment: a
 /// plain-data type with neither `Copy` nor `Clone` is move-only, and the E0901
 /// wording says so instead of offering a `.clone()` that does not exist.
-_type_lacks_clone_for_diagnostics :: (fn(imm(ty) : TypeValue) -> bool)(
+_type_lacks_clone_for_diagnostics :: (fn(ty : &TypeValue) -> bool)(
   match(
     g_flip_env,
     .Some(env) => match(
@@ -908,7 +908,7 @@ _type_lacks_clone_for_diagnostics :: (fn(imm(ty) : TypeValue) -> bool)(
 /// unions and C opaque types answer false and keep copying implicitly. The caller
 /// (`type_requires_explicit_copy`) has already excluded owned buffers and
 /// counted cells.
-type_lacks_copy_for_flip :: (fn(imm(ty_in) : TypeValue) -> bool)({
+type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // A refinement `refine(T, p)` copies as its `T` (the erasure rule).
   (ty : TypeValue) = ty_in;
   while(match(ty, .RefineT(_, _) => true, _ => false), {
@@ -983,7 +983,7 @@ type_lacks_copy_for_flip :: (fn(imm(ty_in) : TypeValue) -> bool)({
 });
 /// Empty when `ty` is `Copy`, and for a compile-time-only type: its copies
 /// never reach run time.
-copy_trait_blockers :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> ArrayList(String))({
+copy_trait_blockers :: (fn(ty : &TypeValue, env : &Environment) -> ArrayList(String))({
   out := ArrayList(String).new();
   if(type_is_comptime_only_full(ty, env), {
     return(out);
@@ -995,7 +995,7 @@ copy_trait_blockers :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> Array
   );
   out
 });
-_copy_blockers_into :: (fn(imm(ty_in) : TypeValue, imm(copy_tt) : TypeValue, imm(env) : Environment, depth : u32, mut(out) : ArrayList(String)) -> unit)({
+_copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Environment, depth : u32, out : &mut ArrayList(String)) -> unit)({
   ty := resolve_enum_shell(ty_in);
   if((depth > u32(6)) || is_some_type(ty) || type_implements_trait(ty, copy_tt, env).implemented, {
     return(());
@@ -1054,7 +1054,7 @@ _copy_blockers_into :: (fn(imm(ty_in) : TypeValue, imm(copy_tt) : TypeValue, imm
 /// `bound` implements every supertrait, as in Rust: `where(T <: Copy)` gives
 /// `T <: Clone` (plans/VALUES_BY_DEFAULT.md decision 36). The depth guard
 /// stops a cyclic `where(Self <: …)` chain.
-_trait_or_supertrait_is :: (fn(imm(bound) : TypeValue, imm(wanted) : TypeValue, depth : u32) -> bool)({
+_trait_or_supertrait_is :: (fn(bound : &TypeValue, wanted : &TypeValue, depth : u32) -> bool)({
   if(_trait_type_id(bound) == _trait_type_id(wanted), {
     return(true);
   });
@@ -1090,9 +1090,9 @@ _trait_or_supertrait_is :: (fn(imm(bound) : TypeValue, imm(wanted) : TypeValue, 
 ///
 type_implements_trait :: (
   fn(
-    imm(target_type) : TypeValue,
-    imm(trait_type) : TypeValue,
-    imm(env) : Environment
+    target_type : &TypeValue,
+    trait_type : &TypeValue,
+    env : &Environment
   ) -> TraitCheckResult
 )({
   (target : TypeValue) = target_type;
@@ -1734,9 +1734,9 @@ type_implements_trait :: (
 /// Boolean wrapper around `type_implements_trait`.
 type_implements_trait_bool :: (
   fn(
-    imm(target_type) : TypeValue,
-    imm(trait_type) : TypeValue,
-    imm(env) : Environment
+    target_type : &TypeValue,
+    trait_type : &TypeValue,
+    env : &Environment
   ) -> bool
 )(
   type_implements_trait(target_type, trait_type, env).implemented
@@ -1746,7 +1746,7 @@ type_implements_trait_bool :: (
 // ---------------------------------------------------------------------------
 /// True if `trait_type` is the prelude trait named `name` (by trait identity,
 /// the same comparison `type_implements_trait` makes).
-_is_prelude_trait_named :: (fn(imm(trait_type) : TypeValue, name : str, imm(env) : Environment) -> bool)(
+_is_prelude_trait_named :: (fn(trait_type : &TypeValue, name : str, env : &Environment) -> bool)(
   match(
     get_trait_type_from_env(env, String.from(name)),
     .Some(t) => (_trait_type_id(t) == _trait_type_id(trait_type)),
@@ -1777,9 +1777,9 @@ _is_prelude_trait_named :: (fn(imm(trait_type) : TypeValue, name : str, imm(env)
 /// (issues/fixed/generic-dispose-impl-on-a-value-type-is-accepted-and-never-runs.md).
 receiver_kind_trait_violation_msg :: (
   fn(
-    imm(target_type) : TypeValue,
-    imm(trait_type) : TypeValue,
-    imm(env) : Environment
+    target_type : &TypeValue,
+    trait_type : &TypeValue,
+    env : &Environment
   ) -> Option(String)
 )({
   trait_name := cond(
@@ -1833,9 +1833,9 @@ receiver_kind_trait_violation_msg :: (
 /// `RegisterTraitValueFn`.
 check_self_constraints_violation_msg :: (
   fn(
-    imm(target_type) : TypeValue,
-    imm(trait_type) : TypeValue,
-    imm(env) : Environment
+    target_type : &TypeValue,
+    trait_type : &TypeValue,
+    env : &Environment
   ) -> Option(String)
 )({
   match(
@@ -1908,11 +1908,11 @@ check_self_constraints_violation_msg :: (
 /// trait. Throws if any constraint is not satisfied.
 check_type_implements_self_constraints :: (
   fn(
-    imm(target_type) : TypeValue,
-    imm(trait_type) : TypeValue,
-    imm(env) : Environment,
-    imm(error_token) : Token,
-    imm(exn) : Exception
+    target_type : &TypeValue,
+    trait_type : &TypeValue,
+    env : &Environment,
+    error_token : &Token,
+    exn : &Exception
   ) -> unit
 )(
   match(
@@ -1927,7 +1927,7 @@ check_type_implements_self_constraints :: (
 /// Check if a type implements the Comptime trait.
 ///
 ///
-type_implements_comptime :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> bool)({
+type_implements_comptime :: (fn(ty : &TypeValue, env : &Environment) -> bool)({
   match(
     type_implements_comptime_builtin(ty),
     .Some(b) => {
@@ -1947,7 +1947,7 @@ type_implements_comptime :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> 
 /// Check if a type implements the Runtime trait (full env-aware version).
 ///
 ///
-type_implements_runtime_full :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> bool)({
+type_implements_runtime_full :: (fn(ty : &TypeValue, env : &Environment) -> bool)({
   match(
     type_implements_runtime_builtin(ty),
     .Some(b) => {
@@ -1967,13 +1967,13 @@ type_implements_runtime_full :: (fn(imm(ty) : TypeValue, imm(env) : Environment)
 /// Mark a type as currently undergoing Send auto-derivation.
 ///
 ///
-begin_send_derivation :: (fn(imm(type_id) : String) -> unit)({
+begin_send_derivation :: (fn(type_id : &String) -> unit)({
   g_send_derivation_in_progress.push(type_id);
 });
 /// Remove a type from the Send auto-derivation in-progress set.
 ///
 ///
-end_send_derivation :: (fn(imm(type_id) : String) -> unit)({
+end_send_derivation :: (fn(type_id : &String) -> unit)({
   n := g_send_derivation_in_progress.len();
   (i : usize) = usize(0);
   (found_idx : Option(usize)) = Option(usize).None;
@@ -2005,10 +2005,10 @@ end_send_derivation :: (fn(imm(type_id) : String) -> unit)({
 /// Check if a type implements the Send trait.
 ///
 ///
-type_implements_send :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> bool)(_type_implements_thread_marker(ty, "Send", env));
+type_implements_send :: (fn(ty : &TypeValue, env : &Environment) -> bool)(_type_implements_thread_marker(ty, "Send", env));
 /// Check if a type implements the Sync trait.
-type_implements_sync :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> bool)(_type_implements_thread_marker(ty, "Sync", env));
-_type_implements_thread_marker :: (fn(imm(ty) : TypeValue, marker : str, imm(env) : Environment) -> bool)({
+type_implements_sync :: (fn(ty : &TypeValue, env : &Environment) -> bool)(_type_implements_thread_marker(ty, "Sync", env));
+_type_implements_thread_marker :: (fn(ty : &TypeValue, marker : str, env : &Environment) -> bool)({
   // Cycle break: if this type is currently being checked for marker derivation,
   // optimistically assume it implements the marker.
   ty_id := _type_id_for_trait_check(ty);
@@ -2044,7 +2044,7 @@ _type_implements_thread_marker :: (fn(imm(ty) : TypeValue, marker : str, imm(env
 /// Check if a type implements the Dispose trait.
 ///
 ///
-type_implements_dispose :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> bool)(
+type_implements_dispose :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   match(
     get_trait_type_from_env(env, String.from("Dispose")),
     .None => false,
@@ -2057,7 +2057,7 @@ type_implements_dispose :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> b
 /// Check if a type implements the Acyclic trait.
 ///
 ///
-type_implements_acyclic :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> bool)(
+type_implements_acyclic :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   match(
     get_trait_type_from_env(env, String.from("Acyclic")),
     .None => false,
@@ -2073,7 +2073,7 @@ type_implements_acyclic :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> b
 /// wrapper — a SomeT, pointer, Dyn or type value never auto-dereferences —
 /// and `Deref` is implementable only in the prelude (impl.yo), so a hit is
 /// always one of the known cells.
-deref_target_type :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> Option(TypeValue))({
+deref_target_type :: (fn(ty : &TypeValue, env : &Environment) -> Option(TypeValue))({
   if(!is_struct_type(ty), {
     return(Option(TypeValue).None);
   });
@@ -2092,7 +2092,7 @@ deref_target_type :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> Option(
 /// Check if a type implements Fn (is a function-like type).
 ///
 /// Note: SomeT has no `resolved_concrete` chain to walk yet (Phase 3).
-type_implements_fn :: (fn(imm(ty) : TypeValue) -> bool)(
+type_implements_fn :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
     .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
@@ -2144,7 +2144,7 @@ type_implements_fn :: (fn(imm(ty) : TypeValue) -> bool)(
 ///      `required_trait_types` (they live directly on SomeT).
 ///
 /// Note: SomeT has no `resolved_concrete` chain to walk yet (Phase 3).
-extract_fn_trait_from_type :: (fn(imm(ty) : TypeValue) -> Option(TypeValue))(
+extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
     .FnTraitT(base_name : _) => Option(TypeValue).Some(ty),
@@ -2271,7 +2271,7 @@ extract_fn_trait_from_type :: (fn(imm(ty) : TypeValue) -> Option(TypeValue))(
 ///
 /// Everything else — integers, `bool`, `str`, pointers, arrays, tuples, enums,
 /// unions and ordinary structs — is provably not callable.
-type_is_callable_shaped :: (fn(imm(ty) : TypeValue) -> bool)({
+type_is_callable_shaped :: (fn(ty : &TypeValue) -> bool)({
   if(is_function_type(ty) || is_some_type(ty), {
     return(true);
   });
@@ -2299,7 +2299,7 @@ type_is_callable_shaped :: (fn(imm(ty) : TypeValue) -> bool)({
 /// whether the argument satisfies it: the argument's type was synthesized INTO
 /// the type variable and the (now trivially satisfied) compatibility check
 /// passed. See `issues/fixed/impl-fn-parameter-accepts-a-non-callable-argument.md`.
-fn_constrained_param_requires_callable :: (fn(imm(param_type) : TypeValue) -> bool)(
+fn_constrained_param_requires_callable :: (fn(param_type : &TypeValue) -> bool)(
   is_some_type(param_type) && type_implements_fn(param_type)
 );
 /// The shared diagnostic text for a non-callable argument in an
@@ -2308,7 +2308,7 @@ fn_constrained_param_requires_callable :: (fn(imm(param_type) : TypeValue) -> bo
 /// in `calls/helper.yo`) emit it verbatim, so the wording — and the E0606
 /// classification keyed on "is not callable" — has one spelling.
 fn_argument_not_callable_message :: (
-  fn(imm(param_label) : String, imm(param_type) : TypeValue, imm(arg_type) : TypeValue) -> String
+  fn(param_label : &String, param_type : &TypeValue, arg_type : &TypeValue) -> String
 )(
   `Argument for parameter "${param_label}" is not callable:
 - Parameter: ${type_to_string(param_type)}
@@ -2327,7 +2327,7 @@ or another Impl(Fn(...)) / Dyn(Fn(...)) value.`
 /// all recorded (a closure type no `Fn(...)` was written for), so nothing
 /// can be said about its modes.
 _SigModes :: struct(labels : ArrayList(String), types : ArrayList(TypeValue), refs : ArrayList(bool), owns : ArrayList(bool), n : usize, complete : bool);
-_sig_modes_of :: (fn(imm(ty) : TypeValue) -> Option(_SigModes))(
+_sig_modes_of :: (fn(ty : &TypeValue) -> Option(_SigModes))(
   match(
     ty,
     .Func({ param_types : sm_pts, meta : sm_meta }) => Option(_SigModes).Some(
@@ -2344,7 +2344,7 @@ _sig_modes_of :: (fn(imm(ty) : TypeValue) -> Option(_SigModes))(
 );
 /// `x : &mut T`, `x : &T` or the by-value `x : T`: how a parameter is
 /// written (decision 42).
-_param_mode_spelling :: (fn(imm(label) : String, imm(ty) : Option(TypeValue), is_ref : bool, is_owning : bool) -> String)({
+_param_mode_spelling :: (fn(label : &String, ty : &Option(TypeValue), is_ref : bool, is_owning : bool) -> String)({
   ts := match(ty, .Some(t) => type_to_string(t), .None => String.from("T"));
   cond(
     is_ref => `${label} : &mut ${ts}`,
@@ -2371,7 +2371,7 @@ _param_mode_spelling :: (fn(imm(label) : String, imm(ty) : Option(TypeValue), is
 ///     type says otherwise. Generic slots bind by synthesis and are left to it.
 /// A closure LITERAL adopts the slot's modes when it is typed against it, so
 /// it always agrees.
-function_value_slot_mismatch :: (fn(imm(expected) : TypeValue, imm(given) : TypeValue) -> Option(String))({
+function_value_slot_mismatch :: (fn(expected : &TypeValue, given : &TypeValue) -> Option(String))({
   match(
     _sig_modes_of(expected),
     .Some(fm_e) => match(
@@ -2424,7 +2424,7 @@ function_value_slot_mismatch :: (fn(imm(expected) : TypeValue, imm(given) : Type
 /// `Acyclic`) from the argument's VALUE (`call_function_value_marker`) — a
 /// function value holds them by what it captures and what its code reaches,
 /// which its type cannot say — so they are skipped here.
-impl_param_unmet_trait :: (fn(imm(param_type) : TypeValue, imm(arg_type) : TypeValue, imm(env) : Environment, markers_judged : bool) -> Option(TypeValue))(
+impl_param_unmet_trait :: (fn(param_type : &TypeValue, arg_type : &TypeValue, env : &Environment, markers_judged : bool) -> Option(TypeValue))(
   match(
     param_type,
     .SomeT({ name : ip_nm, required_trait_types : ip_req }) => cond(
@@ -2455,7 +2455,7 @@ impl_param_unmet_trait :: (fn(imm(param_type) : TypeValue, imm(arg_type) : TypeV
 /// same for a function's `Impl(...)` RESULT and its body's value.
 FunctionArgMarkers :: struct(judged : bool, offense : Option(String));
 judge_function_argument_markers :: (
-  fn(imm(param_type) : TypeValue, imm(arg_type) : TypeValue, imm(arg_value) : Option(EvalValue), imm(env) : Environment, imm(ctx) : EvalContext) -> FunctionArgMarkers
+  fn(param_type : &TypeValue, arg_type : &TypeValue, arg_value : &Option(EvalValue), env : &Environment, ctx : &EvalContext) -> FunctionArgMarkers
 )({
   (judged : bool) = false;
   match(
@@ -2491,7 +2491,7 @@ judge_function_argument_markers :: (
 /// The shared E0602 text for an argument that misses a trait of its
 /// `Impl(...)` parameter (both call paths emit it verbatim).
 impl_argument_unmet_trait_message :: (
-  fn(imm(param_label) : String, imm(param_type) : TypeValue, imm(arg_type) : TypeValue, imm(trait_ty) : TypeValue) -> String
+  fn(param_label : &String, param_type : &TypeValue, arg_type : &TypeValue, trait_ty : &TypeValue) -> String
 )(
   `Argument for parameter "${param_label}" does not implement required trait ${type_to_string(trait_ty)}:
 - Parameter: ${type_to_string(param_type)}
@@ -2503,7 +2503,7 @@ impl_argument_unmet_trait_message :: (
 /// Check if a type implements Future (is a future-like type).
 ///
 ///
-type_implements_future :: (fn(imm(ty) : TypeValue) -> bool)(
+type_implements_future :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
     .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
@@ -2562,7 +2562,7 @@ type_implements_future :: (fn(imm(ty) : TypeValue) -> bool)(
 /// let `should_skip_function_codegen` drop functions with a resolved-SomeT
 /// return). An extern opaque type is an `ExternOpaqueT`, not a SomeType.
 type_contains_some_type_for_codegen_param :: (
-  fn(imm(ty) : TypeValue, mut(checked_ids) : ArrayList(String)) -> bool
+  fn(ty : &TypeValue, checked_ids : &mut ArrayList(String)) -> bool
 )({
   // Cycle guard on nominal type id.
   nominal_id := match(
@@ -2748,7 +2748,7 @@ type_contains_some_type_for_codegen_param :: (
 /// Extract FutureTraitT from a type.
 ///
 ///
-extract_future_trait_from_type :: (fn(imm(ty) : TypeValue) -> Option(TypeValue))(
+extract_future_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty.clone(),
     .FutureTraitT(base_name : _) => Option(TypeValue).Some(ty),
@@ -2807,13 +2807,13 @@ extract_future_trait_from_type :: (fn(imm(ty) : TypeValue) -> Option(TypeValue))
 /// Check if a type is comptime-only (comptime && !runtime).
 ///
 ///
-type_is_comptime_only_full :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> bool)(
+type_is_comptime_only_full :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   type_implements_comptime(ty, env) && !type_implements_runtime_full(ty, env)
 );
 /// Check if a type is runtime-only (!comptime && runtime).
 ///
 ///
-type_is_runtime_only :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> bool)(
+type_is_runtime_only :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   !type_implements_comptime(ty, env) && type_implements_runtime_full(ty, env)
 );
 // ---------------------------------------------------------------------------
@@ -2826,10 +2826,10 @@ type_is_runtime_only :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> bool
 ///
 validate_type_availability :: (
   fn(
-    imm(ty) : TypeValue,
-    imm(env) : Environment,
-    imm(token) : Token,
-    imm(exn) : Exception
+    ty : &TypeValue,
+    env : &Environment,
+    token : &Token,
+    exn : &Exception
   ) -> unit
 )({
   if(type_contains_some_type(ty), {
@@ -2848,8 +2848,8 @@ validate_type_availability :: (
 /// concretely comptime or concretely not comptime.
 find_some_type_missing_comptime_constraint :: (
   fn(
-    imm(ty) : TypeValue,
-    imm(env) : Environment
+    ty : &TypeValue,
+    env : &Environment
   ) -> Option(TypeValue)
 )({
   // Fast path: builtin comptime check.
@@ -2954,10 +2954,10 @@ find_some_type_missing_comptime_constraint :: (
 // owns the underlying HashMap). Defined that way so the impl
 // evaluator — which already imports impl.yo — can call them without
 // a circular dependency through trait_checking.yo.
-mark_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id) : String) -> unit)(
+mark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> unit)(
   impl_mark_concrete_impl_being_registered(type_id, trait_id)
 );
-unmark_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id) : String) -> unit)(
+unmark_concrete_impl_being_registered :: (fn(type_id : &String, trait_id : &String) -> unit)(
   impl_unmark_concrete_impl_being_registered(type_id, trait_id)
 );
 // Install type_implements_trait_bool as the function pointer used by
@@ -2969,7 +2969,7 @@ unmark_concrete_impl_being_registered :: (fn(imm(type_id) : String, imm(trait_id
 /// registry-backed lookups (type-trait-methods / generic impls) are global
 /// side-tables and still answer; env-scoped cases degrade to "not implemented"
 /// (fall through to the old strict behavior — never a new false-positive).
-_compat_implements_adapter :: (fn(imm(t) : TypeValue, imm(trait_type) : TypeValue) -> bool)(
+_compat_implements_adapter :: (fn(t : &TypeValue, trait_type : &TypeValue) -> bool)(
   type_implements_trait_bool(t, trait_type, Environment.new(String.from("")))
 );
 /// Adapter for impl.yo's env-threading hook: `TraitCheckResult` cannot be
@@ -2983,9 +2983,9 @@ _compat_implements_adapter :: (fn(imm(t) : TypeValue, imm(trait_type) : TypeValu
 /// self-emit.
 _type_implements_trait_full_adapter :: (
   fn(
-    imm(t) : TypeValue,
-    imm(trait_type) : TypeValue,
-    imm(env) : Environment
+    t : &TypeValue,
+    trait_type : &TypeValue,
+    env : &Environment
   ) -> bool
 )({
   r := type_implements_trait(t, trait_type, env);

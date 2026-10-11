@@ -9,7 +9,7 @@
 // Without the fix, each recursive `recur(...)` call leaks one String per
 // call because String.concat would inline the recur result without a drop.
 Token :: ref(struct(name : String));
-to_str :: (fn(imm(toks) : ArrayList(Token), i : usize) -> String)({
+to_str :: (fn(toks : &ArrayList(Token), i : usize) -> String)({
   n := toks.len();
   cond(
     (i >= n) => `done`,
@@ -75,7 +75,7 @@ Node :: enum(
   One(leaf : Leaf),
   Many(items : ArrayList(Self))
 );
-count_leaves :: (fn(imm(n) : Node, mut(acc) : ArrayList(usize)) -> unit)({
+count_leaves :: (fn(n : &Node, acc : &mut ArrayList(usize)) -> unit)({
   match(
     n,
     .One(_) => {

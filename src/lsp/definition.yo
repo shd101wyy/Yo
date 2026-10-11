@@ -56,7 +56,7 @@
 /// read — the caller then emits the rune columns unconverted (exact for
 /// every BMP-only line, the only thing knowable without the text).
 _target_lines :: (
-  fn(imm(def_tok) : Token, imm(doc_abs) : String, imm(doc_lines) : ArrayList(String)) -> Option(ArrayList(String))
+  fn(def_tok : &Token, doc_abs : &String, doc_lines : &ArrayList(String)) -> Option(ArrayList(String))
 )({
   target_fs := uri_to_fs_path(def_tok.module_path.clone());
   if(target_fs == uri_to_fs_path(doc_abs.clone()), {
@@ -71,7 +71,7 @@ _target_lines :: (
 
 /// An LSP Location for declaration token `def_tok`.
 _location_of :: (
-  fn(imm(def_tok) : Token, imm(doc_abs) : String, imm(lines) : ArrayList(String)) -> JsonValue
+  fn(def_tok : &Token, doc_abs : &String, lines : &ArrayList(String)) -> JsonValue
 )({
   // RUNE column + RUNE width (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S11),
   // converted to the wire encoding against the TARGET file's lines.
@@ -89,7 +89,7 @@ _location_of :: (
 /// else a fresh parse of the module's current source. Empty when the source
 /// is unreadable or does not parse.
 _module_exprs :: (
-  fn(imm(module_path) : String, imm(doc_abs) : String, imm(doc_exprs) : ArrayList(AstExpr)) -> ArrayList(AstExpr)
+  fn(module_path : &String, doc_abs : &String, doc_exprs : &ArrayList(AstExpr)) -> ArrayList(AstExpr)
 )({
   target_fs := uri_to_fs_path(module_path.clone());
   if(target_fs == uri_to_fs_path(doc_abs.clone()), {
@@ -106,7 +106,7 @@ _module_exprs :: (
 });
 /// Parse `src` as `module_path`; an empty program when it does not parse
 /// (own frame so the swallowing handler's `unwind` value matches).
-_parse_quietly :: (fn(imm(src) : String, imm(module_path) : String) -> ArrayList(AstExpr))({
+_parse_quietly :: (fn(src : &String, module_path : &String) -> ArrayList(AstExpr))({
   parse_exn := Exception(
     throw : (
       _err -> unwind(ArrayList(AstExpr).new())
@@ -117,12 +117,12 @@ _parse_quietly :: (fn(imm(src) : String, imm(module_path) : String) -> ArrayList
 
 /// True iff `e` is an Atom spelled `name` (a `String`-argument twin of
 /// `ast_expr_is_atom_of`, whose parameter is a `str` literal).
-_atom_is :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+_atom_is :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(e, .Atom(_, t) => (t.value == name), .FnCall(_, _, _, _, _) => false)
 );
 /// The `name :: value` top-level binding named `head` in `exprs`: its VALUE
 /// expression, or `.None`.
-_binding_value :: (fn(imm(exprs) : ArrayList(AstExpr), imm(head) : String) -> Option(AstExpr))({
+_binding_value :: (fn(exprs : &ArrayList(AstExpr), head : &String) -> Option(AstExpr))({
   (i : usize) = usize(0);
   while(i < exprs.len(), {
     match(
@@ -148,7 +148,7 @@ _binding_value :: (fn(imm(exprs) : ArrayList(AstExpr), imm(head) : String) -> Op
   Option(AstExpr).None
 });
 /// The `name :: value` top-level binding named `head`: the NAME atom's token.
-_binding_name_token :: (fn(imm(exprs) : ArrayList(AstExpr), imm(head) : String) -> Option(Token))({
+_binding_name_token :: (fn(exprs : &ArrayList(AstExpr), head : &String) -> Option(Token))({
   (i : usize) = usize(0);
   while(i < exprs.len(), {
     match(
@@ -178,7 +178,7 @@ _binding_name_token :: (fn(imm(exprs) : ArrayList(AstExpr), imm(head) : String) 
 /// Within `e`, the label atom of the `member : T` pair declared by a
 /// `struct(...)` / `union(...)` / `newtype(...)` call (the first match in
 /// evaluation order).
-_find_field_label :: (fn(imm(e) : AstExpr, imm(member) : String, mut(out) : ArrayList(Token)) -> unit)({
+_find_field_label :: (fn(e : &AstExpr, member : &String, out : &mut ArrayList(Token)) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
@@ -227,7 +227,7 @@ _find_field_label :: (fn(imm(e) : AstExpr, imm(member) : String, mut(out) : Arra
 });
 /// Within `e`, the variant named `variant` declared by an `enum(...)` call —
 /// a bare atom (`Red`) or the callee of a payload variant (`Blue(v : i32)`).
-_find_variant_decl :: (fn(imm(e) : AstExpr, imm(variant) : String, mut(out) : ArrayList(Token)) -> unit)({
+_find_variant_decl :: (fn(e : &AstExpr, variant : &String, out : &mut ArrayList(Token)) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
@@ -262,7 +262,7 @@ _find_variant_decl :: (fn(imm(e) : AstExpr, imm(variant) : String, mut(out) : Ar
   );
 });
 /// True iff `e`'s subtree holds a token at (row, column) of `at`.
-_subtree_has_position :: (fn(imm(e) : AstExpr, imm(at) : Token) -> bool)({
+_subtree_has_position :: (fn(e : &AstExpr, at : &Token) -> bool)({
   t := ast_expr_token(e);
   if((t.row == at.row) && (t.column == at.column), {
     return(true);
@@ -293,7 +293,7 @@ _subtree_has_position :: (fn(imm(e) : AstExpr, imm(at) : Token) -> bool)({
 /// holds `body_at` — the `impl(...)` pair that declares a method whose body
 /// starts there.
 _find_method_label :: (
-  fn(imm(e) : AstExpr, imm(member) : String, imm(body_at) : Token, mut(out) : ArrayList(Token)) -> unit
+  fn(e : &AstExpr, member : &String, body_at : &Token, out : &mut ArrayList(Token)) -> unit
 )({
   match(
     e,
@@ -329,7 +329,7 @@ _find_method_label :: (
 /// The written head name of a type: its `name`, else the head of its
 /// `Ctor(...)` display name (`ArrayList(i32)` → `ArrayList`); "" when the
 /// type has neither.
-_type_head_name :: (fn(imm(ty) : TypeValue) -> String)({
+_type_head_name :: (fn(ty : &TypeValue) -> String)({
   (nm : String) = String.new();
   (id : String) = String.new();
   match(
@@ -363,7 +363,7 @@ _type_head_name :: (fn(imm(ty) : TypeValue) -> String)({
 /// Where the type named `head` is declared, seen from `env`: the token of the
 /// binding that introduced it (a `Point :: struct(...)` name atom, or the
 /// generic constructor `ArrayList :: (fn(...) -> Type)(...)`).
-_type_decl_token :: (fn(imm(env) : Environment, imm(head) : String) -> Option(Token))({
+_type_decl_token :: (fn(env : &Environment, head : &String) -> Option(Token))({
   vars := get_variables_from_env(env, head.clone());
   (i : usize) = usize(0);
   while(i < vars.len(), {
@@ -386,11 +386,11 @@ _type_decl_token :: (fn(imm(env) : Environment, imm(head) : String) -> Option(To
 /// head name to its declaring binding, then search that binding's value.
 _owner_member_decl :: (
   fn(
-    imm(owner) : TypeValue,
-    imm(member) : String,
-    imm(env) : Environment,
-    imm(doc_abs) : String,
-    imm(doc_exprs) : ArrayList(AstExpr)
+    owner : &TypeValue,
+    member : &String,
+    env : &Environment,
+    doc_abs : &String,
+    doc_exprs : &ArrayList(AstExpr)
   ) -> Option(Token)
 )({
   head := _type_head_name(owner);
@@ -425,12 +425,12 @@ _owner_member_decl :: (
 /// the pair.
 _method_decl :: (
   fn(
-    imm(owner) : TypeValue,
-    imm(deref) : TypeValue,
-    imm(member) : String,
-    imm(env) : Environment,
-    imm(doc_abs) : String,
-    imm(doc_exprs) : ArrayList(AstExpr)
+    owner : &TypeValue,
+    deref : &TypeValue,
+    member : &String,
+    env : &Environment,
+    doc_abs : &String,
+    doc_exprs : &ArrayList(AstExpr)
   ) -> Option(Token)
 )({
   (value : Option(EvalValue)) = Option(EvalValue).None;
@@ -485,7 +485,7 @@ _method_decl :: (
   )
 });
 /// The `import("…")` path of the top-level binding `name :: import("…")`.
-_import_path_of_binding :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : String) -> Option(String))({
+_import_path_of_binding :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> Option(String))({
   value := match(
     _binding_value(exprs, name),
     .Some(v) => v,
@@ -517,11 +517,11 @@ _import_path_of_binding :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : Stri
 /// binding in that module.
 _module_member_decl :: (
   fn(
-    imm(receiver_name) : String,
-    imm(member) : String,
-    imm(doc_abs) : String,
-    imm(doc_exprs) : ArrayList(AstExpr),
-    imm(std_path) : String
+    receiver_name : &String,
+    member : &String,
+    doc_abs : &String,
+    doc_exprs : &ArrayList(AstExpr),
+    std_path : &String
   ) -> Option(Token)
 )({
   import_path := match(
@@ -554,7 +554,7 @@ _module_member_decl :: (
 
 /// The label call enclosing a LABEL atom (`Point(x : 1)` for the `x`): the
 /// call whose direct argument is the `:` pair with that atom on the left.
-_find_label_call :: (fn(imm(e) : AstExpr, imm(target) : Token, mut(out) : ArrayList(AstExpr)) -> unit)({
+_find_label_call :: (fn(e : &AstExpr, target : &Token, out : &mut ArrayList(AstExpr)) -> unit)({
   match(
     e,
     .Atom(_, _) => (),
@@ -594,11 +594,11 @@ _find_label_call :: (fn(imm(e) : AstExpr, imm(target) : Token, mut(out) : ArrayL
 /// Definition of the member or label under `target` (see the module header).
 _member_definition :: (
   fn(
-    imm(target) : Token,
-    imm(exprs) : ArrayList(AstExpr),
-    imm(info_table) : ExprInfoTable,
-    imm(doc_abs) : String,
-    imm(std_path) : String
+    target : &Token,
+    exprs : &ArrayList(AstExpr),
+    info_table : &ExprInfoTable,
+    doc_abs : &String,
+    std_path : &String
   ) -> Option(Token)
 )({
   // 1. Member of a `.` access.
@@ -762,12 +762,12 @@ _member_definition :: (
 /// `line`/`character` are RUNE positions.
 handle_definition :: (
   fn(
-    imm(text) : String,
-    imm(doc_abs) : String,
-    imm(lines) : ArrayList(String),
-    imm(std_path) : String,
-    imm(exprs) : ArrayList(AstExpr),
-    imm(info_table) : ExprInfoTable,
+    text : &String,
+    doc_abs : &String,
+    lines : &ArrayList(String),
+    std_path : &String,
+    exprs : &ArrayList(AstExpr),
+    info_table : &ExprInfoTable,
     line : usize,
     character : usize
   ) -> Option(JsonValue)
@@ -850,11 +850,11 @@ handle_definition :: (
 /// declaration site to jump to.
 handle_type_definition :: (
   fn(
-    imm(text) : String,
-    imm(doc_abs) : String,
-    imm(lines) : ArrayList(String),
-    imm(exprs) : ArrayList(AstExpr),
-    imm(info_table) : ExprInfoTable,
+    text : &String,
+    doc_abs : &String,
+    lines : &ArrayList(String),
+    exprs : &ArrayList(AstExpr),
+    info_table : &ExprInfoTable,
     line : usize,
     character : usize
   ) -> Option(JsonValue)
@@ -973,7 +973,7 @@ export(handle_definition, handle_type_definition, handle_document_links);
 /// name (resolved through the nearest manifest by the loader) carries no
 /// link: the manifest lookup is the loader's, not the LSP's.
 handle_document_links :: (
-  fn(imm(text) : String, imm(doc_abs) : String, imm(lines) : ArrayList(String), imm(std_path) : String) -> JsonValue
+  fn(text : &String, doc_abs : &String, lines : &ArrayList(String), std_path : &String) -> JsonValue
 )({
   out := ArrayList(JsonValue).new();
   lex_exn := Exception(
@@ -1037,7 +1037,7 @@ handle_document_links :: (
 
 /// The directory of `/a/b/c.yo` — `/a/b` (no trailing slash; a path with
 /// no slash comes back as `.`).
-_dir_of :: (fn(imm(path) : String) -> String)(
+_dir_of :: (fn(path : &String) -> String)(
   match(
     path.last_index_of(String.from("/")),
     .Some(slash) => cond(
@@ -1057,7 +1057,7 @@ _TokAt :: struct(
   tok : Token,
   idx : usize
 );
-_tok_before :: (fn(imm(tokens) : ArrayList(Token), i : usize) -> _TokAt)({
+_tok_before :: (fn(tokens : &ArrayList(Token), i : usize) -> _TokAt)({
   (j : usize) = i;
   while(j > usize(0), {
     j = (j - usize(1));
@@ -1075,7 +1075,7 @@ _tok_before :: (fn(imm(tokens) : ArrayList(Token), i : usize) -> _TokAt)({
 });
 /// The nearest non-whitespace token at/after index `i` (past the end is
 /// the same synthetic End marker).
-_tok_after :: (fn(imm(tokens) : ArrayList(Token), i : usize) -> _TokAt)({
+_tok_after :: (fn(tokens : &ArrayList(Token), i : usize) -> _TokAt)({
   (j : usize) = (i + usize(1));
   while(j < tokens.len(), {
     match(

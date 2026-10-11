@@ -30,11 +30,11 @@ Tagged :: enum(Empty, One(a : Node));
 
 // Borrowed param: the callee reads `f` and returns; the caller still owns the
 // argument it passed and must drop it.
-readx :: (fn(imm(f) : Node) -> i32)(f.x);
+readx :: (fn(f : &Node) -> i32)(f.x);
 
 // Borrowed param whose callee keeps a ref (dups into Holder, dropped at scope
 // end); the caller must still drop the argument it passed.
-keep :: (fn(imm(f) : Node) -> i32)({
+keep :: (fn(f : &Node) -> i32)({
   b := Holder(n : f);
   b.n.x
 });

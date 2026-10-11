@@ -6,7 +6,7 @@
 //! generation (no branch). Arms that are `begin` blocks are inlined so the
 //! block's final expression assigns to the cond temp. Control-flow arm values
 //! (continue/break/goto/return) are emitted as statements instead of assigned.
-//! For `-> inout(T)` enclosing functions whose cond temp is a `T*`, non-pointer
+//! For `-> &mut T` enclosing functions whose cond temp is a `T*`, non-pointer
 //! arm values are address-of wrapped (`&(...)`) — sound because flowability
 //! already verified the arm roots back to a ref-bound parameter.
 //!
@@ -37,7 +37,7 @@ _is_word_byte :: (fn(b : u8) -> bool)(
 /// "...before early return") is NOT a return statement — treating it as one
 /// skipped the arm's result-temp assignment and left the temp uninitialized
 /// (SIGBUS; issues/fixed/cond-arm-return-inside-string-literal.md).
-_inside_c_string_literal :: (fn(imm(s) : String, idx : usize) -> bool)({
+_inside_c_string_literal :: (fn(s : &String, idx : usize) -> bool)({
   (in_str : bool) = false;
   (i : usize) = usize(0);
   while(i < idx, {
@@ -61,7 +61,7 @@ _inside_c_string_literal :: (fn(imm(s) : String, idx : usize) -> bool)({
 /// returns RUNE indices, which cannot feed the byte_at reads below when the
 /// scanned C code contains multibyte string literals (see other_fn_call.yo's
 /// splitter fix).
-_byte_index_of :: (fn(imm(s) : String, imm(word) : String, from : usize) -> Option(usize))({
+_byte_index_of :: (fn(s : &String, word : &String, from : usize) -> Option(usize))({
   sb := s;
   wb := word;
   n := sb.len();
@@ -90,7 +90,7 @@ _byte_index_of :: (fn(imm(s) : String, imm(word) : String, from : usize) -> Opti
 });
 /// Whether `s` contains "return" as a whole word (like a `\breturn\b`
 /// regex — avoids matching identifiers like `return_flag`).
-_contains_word_return :: (fn(imm(s) : String) -> bool)({
+_contains_word_return :: (fn(s : &String) -> bool)({
   word := String.from("return");
   wlen := usize(6);
   // BYTE length + byte-based find — see _byte_index_of.
@@ -117,20 +117,20 @@ _contains_word_return :: (fn(imm(s) : String) -> bool)({
   false
 });
 /// Args of a FnCall (empty for an Atom).
-_arg_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
+_arg_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(e, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new())
 );
 /// The compile-time boolean value of `e`, if it has one.
-_cond_bool :: (fn(imm(e) : AstExpr, imm(context) : FunctionGenerationContext) -> Option(bool))(
+_cond_bool :: (fn(e : &AstExpr, context : &FunctionGenerationContext) -> Option(bool))(
   match(
     context.base.get_expr_info(e),
     .Some(ei) => match(ei.value, .Some(v) => match(v, .BoolVal(b) => Option(bool).Some(b), _ => Option(bool).None), .None => Option(bool).None),
     .None => Option(bool).None
   )
 );
-/// Wrap `code` in `&(...)` when the enclosing function returns `-> inout(T)` and
+/// Wrap `code` in `&(...)` when the enclosing function returns `-> &mut T` and
 /// this arm value is not already a pointer.
-_maybe_address_of :: (fn(imm(value_expr) : AstExpr, imm(code) : String, cond_outer_is_ptr : bool, imm(context) : FunctionGenerationContext) -> String)(
+_maybe_address_of :: (fn(value_expr : &AstExpr, code : &String, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> String)(
   if(!cond_outer_is_ptr, code, {
     arm_is_ptr := match(context.base.get_expr_info(value_expr), .Some(ei) => is_pointer_type(ei.ty), .None => true);
     if(arm_is_ptr, code, {
@@ -143,11 +143,11 @@ _maybe_address_of :: (fn(imm(value_expr) : AstExpr, imm(code) : String, cond_out
 );
 /// Whether the generated arm code is a control-flow statement (continue/break/
 /// goto/return) and should be emitted directly rather than assigned.
-_is_cf_code :: (fn(imm(value_expr) : AstExpr, imm(code) : String, imm(context) : FunctionGenerationContext) -> bool)(
+_is_cf_code :: (fn(value_expr : &AstExpr, code : &String, context : &FunctionGenerationContext) -> bool)(
   (code == "continue") || (code == "break") || code.starts_with("goto") || ast_expr_is_fn_call_of(value_expr, BK_RETURN, Option(usize).None) || _contains_word_return(code)
 );
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
-_concat_drops :: (fn(imm(current) : Option(ArrayList(AstExpr)), imm(prev) : Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
+_concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   match(
     current,
@@ -194,7 +194,7 @@ _concat_drops :: (fn(imm(current) : Option(ArrayList(AstExpr)), imm(prev) : Opti
 /// lost HashMap._resize's old-slot releases, so every RC key/value leaked one
 /// reference per rehash (issues/fixed/cond-unit-arm-statement-is-dropped.md).
 /// match.yo's `_emit_case_body_no_break` already does this.
-_emit_unassigned_arm_code :: (fn(imm(value) : AstExpr, imm(value_code) : String, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
+_emit_unassigned_arm_code :: (fn(value : &AstExpr, value_code : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
   // Only a UNIT value is a statement: a non-unit arm in unassigned position
   // renders a pure placeholder (a panicking arm's `(*((void*)NULL))` after
   // its `abort()`), and a bare temp name is a value the arm's own statements
@@ -215,7 +215,7 @@ _emit_unassigned_arm_code :: (fn(imm(value) : AstExpr, imm(value_code) : String,
 /// Emit a non-begin arm value: control-flow statements emit directly, a value
 /// is assigned to the cond temp, and an unassigned (unit) arm's rendered
 /// statement is emitted as a statement.
-_emit_value_arm :: (fn(imm(value) : AstExpr, imm(value_indent) : String, imm(temp_var_opt) : Option(String), is_unit : bool, cond_outer_is_ptr : bool, imm(context) : FunctionGenerationContext) -> unit)({
+_emit_value_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : &Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> unit)({
   // The bare arm's scope-end drops ride the value node's list; feed them
   // into the pending path for the arm's generation, as `_emit_begin_arm`
   // does for a block arm, so a short-circuit operand inside the value
@@ -243,7 +243,7 @@ _emit_value_arm :: (fn(imm(value) : AstExpr, imm(value_indent) : String, imm(tem
   context.pending_deferred_drops = prev_pending;
   context.consumed_var_pending_drops = prev_consumed;
 });
-_emit_value_arm_body :: (fn(imm(value) : AstExpr, imm(value_indent) : String, imm(temp_var_opt) : Option(String), is_unit : bool, cond_outer_is_ptr : bool, imm(context) : FunctionGenerationContext) -> unit)({
+_emit_value_arm_body :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : &Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Arm value carrying deferred `___dup`s (returning a borrowed/shared local
   // out of the arm — e.g. `true => methods`). Declare
@@ -410,7 +410,7 @@ _emit_value_arm_body :: (fn(imm(value) : AstExpr, imm(value_indent) : String, im
 /// then assign the final expression to the cond temp (or emit it if it is a
 /// control-flow statement). Concatenates the block's deferred drops onto the
 /// pending set (for early-return handling) and restores on exit.
-_emit_begin_arm :: (fn(imm(value) : AstExpr, imm(value_indent) : String, imm(temp_var_opt) : Option(String), is_unit : bool, cond_outer_is_ptr : bool, imm(context) : FunctionGenerationContext) -> unit)({
+_emit_begin_arm :: (fn(value : &AstExpr, value_indent : &String, temp_var_opt : &Option(String), is_unit : bool, cond_outer_is_ptr : bool, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   begin_args := _arg_args(value);
   vei_opt := context.base.get_expr_info(value);
@@ -606,7 +606,7 @@ _emit_begin_arm :: (fn(imm(value) : AstExpr, imm(value_indent) : String, imm(tem
 /// condition renders, materialize the condition into a bool, flush the
 /// condition's drops, then branch on the bool
 /// (issues/fixed/cond-condition-operand-call-temp-is-never-released.md).
-_emit_cond_if_head :: (fn(imm(condition) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> unit)({
+_emit_cond_if_head :: (fn(condition : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   cnd_drops := match(context.base.get_expr_info(condition), .Some(cnd_ei) => cnd_ei.deferred_drop_expressions, .None => Option(ArrayList(AstExpr)).None);
   cnd_prev := context.pending_deferred_drops;
@@ -627,7 +627,7 @@ _emit_cond_if_head :: (fn(imm(condition) : AstExpr, imm(indent) : String, imm(co
   });
 });
 /// Generate a conditional (`cond`) expression.
-generate_cond_expression :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+generate_cond_expression :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* \"cond\" expression is not evaluated */")));
   value_type := ei.ty;
   is_unit := is_unit_type(value_type);

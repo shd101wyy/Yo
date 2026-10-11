@@ -59,7 +59,7 @@ FetchedPackage :: ref(
 // Utilities
 // ---------------------------------------------------------------------------
 /// Selection-sort a list of DirEntry values by name (ascending ASCII order).
-sort_dir_entries :: (fn(imm(entries) : ArrayList(DirEntry)) -> ArrayList(DirEntry))({
+sort_dir_entries :: (fn(entries : &ArrayList(DirEntry)) -> ArrayList(DirEntry))({
   n := entries.len();
   result := ArrayList(DirEntry).with_capacity(n);
   // Track which entries have been moved to result
@@ -111,7 +111,7 @@ sort_dir_entries :: (fn(imm(entries) : ArrayList(DirEntry)) -> ArrayList(DirEntr
   result
 });
 /// Strip `\r` from `\r\n` sequences — ensures cross-platform hash stability.
-normalize_line_endings :: (fn(imm(bytes) : ArrayList(u8)) -> ArrayList(u8))({
+normalize_line_endings :: (fn(bytes : &ArrayList(u8)) -> ArrayList(u8))({
   // Quick path: no CR in input
   has_cr := false;
   i := usize(0);
@@ -150,7 +150,7 @@ normalize_line_endings :: (fn(imm(bytes) : ArrayList(u8)) -> ArrayList(u8))({
   })
 });
 /// Push a str literal as bytes into an ArrayList(u8).
-_push_str_bytes :: (fn(mut(buf) : ArrayList(u8), s : str) -> unit)({
+_push_str_bytes :: (fn(buf : &mut ArrayList(u8), s : str) -> unit)({
   p := s.ptr();
   n := s.len();
   k := usize(0);
@@ -162,7 +162,7 @@ _push_str_bytes :: (fn(mut(buf) : ArrayList(u8), s : str) -> unit)({
   });
 });
 /// Push a String's bytes into an ArrayList(u8).
-_push_string_bytes :: (fn(mut(buf) : ArrayList(u8), imm(s) : String) -> unit)({
+_push_string_bytes :: (fn(buf : &mut ArrayList(u8), s : &String) -> unit)({
   bytes := s;
   n := bytes.len();
   k := usize(0);
@@ -189,9 +189,9 @@ _HashWorkItem :: ref(
 /// Returns `"sha256-<hex>"`.
 compute_content_hash :: (
   fn(
-    imm(dir_path) : String,
+    dir_path : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -341,7 +341,7 @@ git_command :: (fn() -> Command)({
 /// must never reach `yo.lock`. Git only emits the peeled line when a pattern
 /// matches it, which is why the query below asks for `<ref>^{}` as well.
 /// A lightweight tag, a branch and `HEAD` answer on one unpeeled line.
-commit_from_ls_remote :: (fn(imm(text) : String) -> Option(String))({
+commit_from_ls_remote :: (fn(text : &String) -> Option(String))({
   lines := text.split("\n");
   (first : Option(String)) = Option(String).None;
   (peeled : Option(String)) = Option(String).None;
@@ -378,10 +378,10 @@ commit_from_ls_remote :: (fn(imm(text) : String) -> Option(String))({
 /// Resolve a git ref to a commit SHA using `git ls-remote`.
 resolve_git_ref :: (
   fn(
-    imm(url) : String,
-    imm(ref) : String,
+    url : &String,
+    ref : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -420,9 +420,9 @@ StoreLock :: ref(struct(file : File));
 /// length of one fetch). The lock file is created on first use.
 acquire_store_lock :: (
   fn(
-    imm(cache_root) : String,
+    cache_root : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(StoreLock, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -438,9 +438,9 @@ acquire_store_lock :: (
 /// Release the store lock and close its file.
 release_store_lock :: (
   fn(
-    imm(lock) : StoreLock,
+    lock : &StoreLock,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -461,12 +461,12 @@ _random_suffix :: (fn() -> String)({
 /// mirror is an error.
 ensure_mirror :: (
   fn(
-    imm(cache_root) : String,
-    imm(url) : String,
+    cache_root : &String,
+    url : &String,
     offline : bool,
     verbose : bool,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -502,10 +502,10 @@ ensure_mirror :: (
 /// "which commit is v1.2.0".
 mirror_rev_parse :: (
   fn(
-    imm(mirror) : String,
-    imm(ref) : String,
+    mirror : &String,
+    ref : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -524,10 +524,10 @@ mirror_rev_parse :: (
 /// Does the mirror hold `commit`?
 _mirror_has_commit :: (
   fn(
-    imm(mirror) : String,
-    imm(commit) : String,
+    mirror : &String,
+    commit : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(bool, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -548,10 +548,10 @@ _mirror_has_commit :: (
 /// status is not an error by itself (the commit check afterwards decides).
 _mirror_fetch :: (
   fn(
-    imm(mirror) : String,
-    imm(what) : Option(String),
+    mirror : &String,
+    what : &Option(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -577,13 +577,13 @@ _mirror_fetch :: (
 /// error.
 ensure_commit :: (
   fn(
-    imm(mirror) : String,
-    imm(url) : String,
-    imm(commit) : String,
+    mirror : &String,
+    url : &String,
+    commit : &String,
     offline : bool,
     verbose : bool,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -620,11 +620,11 @@ ensure_commit :: (
 /// index, so the bare mirror stays untouched. `.git` never enters the store.
 _extract_tree :: (
   fn(
-    imm(mirror) : String,
-    imm(commit) : String,
-    imm(dest) : String,
+    mirror : &String,
+    commit : &String,
+    dest : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -657,10 +657,10 @@ _extract_tree :: (
 /// The last `git ls-remote --tags` answer recorded for `url`, or `.None`.
 read_tags_index :: (
   fn(
-    imm(cache_root) : String,
-    imm(url) : String,
+    cache_root : &String,
+    url : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -675,11 +675,11 @@ read_tags_index :: (
 /// Record `url`'s `git ls-remote --tags` answer for `--offline` runs.
 write_tags_index :: (
   fn(
-    imm(cache_root) : String,
-    imm(url) : String,
-    imm(text) : String,
+    cache_root : &String,
+    url : &String,
+    text : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -693,9 +693,9 @@ write_tags_index :: (
 /// The recorded project directories (one per line; blank lines dropped).
 _read_projects :: (
   fn(
-    imm(cache_root) : String,
+    cache_root : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -720,10 +720,10 @@ _read_projects :: (
 );
 _write_projects :: (
   fn(
-    imm(cache_root) : String,
-    imm(projects) : ArrayList(String),
+    cache_root : &String,
+    projects : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -737,7 +737,7 @@ _write_projects :: (
     e.io.await(write_string(Path.new(projects_registry_path(cache_root)), text, e.io), e);
   })
 );
-_contains_string :: (fn(imm(list) : ArrayList(String), imm(item) : String) -> bool)({
+_contains_string :: (fn(list : &ArrayList(String), item : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < list.len(), {
     if(list(i) == item, {
@@ -751,10 +751,10 @@ _contains_string :: (fn(imm(list) : ArrayList(String), imm(item) : String) -> bo
 /// so `yo cache gc` keeps what its lock references.
 record_project :: (
   fn(
-    imm(cache_root) : String,
-    imm(project_dir) : String,
+    cache_root : &String,
+    project_dir : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -770,7 +770,7 @@ record_project :: (
 // Fetching one package
 // ---------------------------------------------------------------------------
 /// The `git+<url>#<ref>` source's URL, as the manifest wrote it.
-_source_url :: (fn(imm(source) : String) -> Option(String))({
+_source_url :: (fn(source : &String) -> Option(String))({
   prefix := String.from("git+");
   if(!source.starts_with(prefix.clone()), {
     return(Option(String).None);
@@ -785,12 +785,12 @@ _source_url :: (fn(imm(source) : String) -> Option(String))({
 /// A manifest `git` value that is a local path (`./x.git`, `../x`, `/abs`) —
 /// git resolves those against the CURRENT DIRECTORY of the child, so the
 /// resolver hands the fetcher an absolute path instead.
-is_local_git_path :: (fn(imm(url) : String) -> bool)(
+is_local_git_path :: (fn(url : &String) -> bool)(
   url.starts_with(String.from("./")) || url.starts_with(String.from("../")) || url.starts_with(String.from("/"))
 );
 /// The URL git is given for a manifest `git` value: a local path is made
 /// absolute against the manifest's directory, anything else is as written.
-git_remote_url :: (fn(imm(project_dir) : String, imm(url) : String) -> String)(
+git_remote_url :: (fn(project_dir : &String, url : &String) -> String)(
   if(is_local_git_path(url.clone()), abs_under(project_dir, url), url)
 );
 /// Fetch ONE git package into the store
@@ -808,17 +808,17 @@ git_remote_url :: (fn(imm(project_dir) : String, imm(url) : String) -> String)(
 /// body.
 fetch_package :: (
   fn(
-    imm(cache_root) : String,
-    imm(name) : String,
-    imm(url) : String,
-    imm(ref) : String,
-    imm(locked_commit) : Option(String),
-    imm(expected_integrity) : Option(String),
+    cache_root : &String,
+    name : &String,
+    url : &String,
+    ref : &String,
+    locked_commit : &Option(String),
+    expected_integrity : &Option(String),
     refresh : bool,
     offline : bool,
     verbose : bool,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(FetchedPackage, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -950,7 +950,7 @@ GcReport :: ref(
   )
 );
 /// The store names (hex) and remote keys one project's lock references.
-_lock_references :: (fn(imm(lock) : LockFile, imm(project_dir) : String, mut(tree_names) : ArrayList(String), mut(remote_keys) : ArrayList(String)) -> unit)({
+_lock_references :: (fn(lock : &LockFile, project_dir : &String, tree_names : &mut ArrayList(String), remote_keys : &mut ArrayList(String)) -> unit)({
   prefix := String.from("sha256-");
   (i : usize) = usize(0);
   while(i < lock.packages.len(), {
@@ -974,12 +974,12 @@ _lock_references :: (fn(imm(lock) : LockFile, imm(project_dir) : String, mut(tre
 /// beside a tree is a companion, not an item), else the files (tag lists).
 _sweep_dir :: (
   fn(
-    imm(dir) : String,
-    imm(strip) : String,
-    imm(keep) : ArrayList(String),
+    dir : &String,
+    strip : &String,
+    keep : &ArrayList(String),
     count_dirs : bool,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(usize, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -1013,10 +1013,10 @@ _sweep_dir :: (
 /// Count the entries of `dir` whose name is in `keep`.
 _count_kept :: (
   fn(
-    imm(dir) : String,
-    imm(keep) : ArrayList(String),
+    dir : &String,
+    keep : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(usize, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -1048,10 +1048,10 @@ _count_kept :: (
 /// holding, and the live std index a query was about to read.
 gc_store :: (
   fn(
-    imm(cache_root) : String,
-    imm(context_keep) : ArrayList(String),
+    cache_root : &String,
+    context_keep : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(GcReport, IoExn))
 )(
   io.async((e : IoExn) => {

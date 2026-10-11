@@ -18,8 +18,8 @@ Holder :: (fn(comptime(T) : Type) -> comptime(Type))(
 impl(
   generic(T : Type),
   Holder(T),
-  new : (fn(imm(value) : T) -> Self)(Self(_value : value)),
-  apply_async_r : (fn(generic(R : Type), imm(self) : Self, imm(body) : Impl(Fn(mut(v) : T) -> R), io : Io) -> Impl(Future(R)))(
+  new : (fn(value : &T) -> Self)(Self(_value : value)),
+  apply_async_r : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &mut T) -> R), io : Io) -> Impl(Future(R)))(
     io.async((io : Io) => {
       r := body(self._value);
       return(r);

@@ -48,7 +48,7 @@
 /// `comptime_expect_error` needs (there is no try/catch + continue in one
 /// frame, hence the bool-returning helper).
 _comptime_expect_error_arg_threw :: (
-  fn(imm(arg_expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext) -> bool
+  fn(arg_expr : &AstExpr, env : &Environment, ctx : &EvalContext) -> bool
 )({
   local_exn := Exception(
     throw : (
@@ -70,10 +70,10 @@ _comptime_expect_error_arg_threw :: (
 });
 evaluate_comptime_expect_error :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(

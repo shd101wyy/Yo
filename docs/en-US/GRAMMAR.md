@@ -318,22 +318,23 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
 
 Placement rules for `&` and `&mut`:
 
-- They are a **mode**, not a type, in this generation: they prefix a
-  parameter's type and a local borrow's place. `T :: &i32`, `ArrayList(&T)`,
-  `Option(&T)`, a struct field `f : &T` and `&&T` are errors ("a borrow mode,
-  not a type"); references become types with decision 43.
+- They are a **mode**, not a type: they prefix a parameter's type and a local
+  borrow's place. `T :: &i32`, `ArrayList(&T)`, `Option(&T)`, a struct field
+  `f : &T` and `&&T` are errors ("a borrow mode, not a type"). Decision 43
+  (confirmed 2026-10-10) makes `&T`/`&mut T` second-class types, which lifts
+  these errors and the return-type ban; until its phase lands, they are a mode.
 - They are **rejected in return-type position** (`-> &T`, `-> &mut T`,
-  `-> (name : &mut T)`): a function cannot return a borrow (projections,
-  decision 24, are not implemented).
+  `-> (name : &mut T)`): a function cannot return a borrow until decision 43's
+  phase lands (projections, decision 24, are not implemented either).
 - `mut` is a reserved word: a binding or parameter named `mut` is an error.
-- Accepted until Generation B: the mode-word spellings `imm(x) : T`,
-  `mut(x) : T`, `comptime(imm(x)) : T`, `imm(y) := place`, `mut(cur) = place`,
-  the capture entries `imm(y)` / `mut(z) : &mut w` and `for(xs, mut(x) => ...)`,
-  kept only so `std/` and `src/` build under the seed;
-  `yo fix <path> --migrate borrow-spelling` rewrites them.
-- `inout(x)` and `own(x)`, the older spellings of `x : &mut T` and `sink(x)`,
-  are errors naming the new spelling; `yo fix <path> --migrate modes` rewrites
-  them.
+- The deleted mode-word spellings `imm(x) : T`, `mut(x) : T`, `inout(x) : T`,
+  `comptime(imm(x)) : T`, `-> imm(T)`, `imm(y) := place`, `mut(cur) = place`,
+  the capture entries `imm(y)` / `mut(z) : &mut w` and `for(xs, mut(x) => ...)`
+  are error E0009 naming the sigil spelling;
+  `yo fix <path> --migrate borrow-spelling` rewrites them. `imm` is an
+  ordinary identifier.
+- `own(x)`, the older spelling of `sink(x)`, is error E0009 as well;
+  `yo fix <path> --migrate modes` rewrites it.
 - See [FLOWABILITY.md](./FLOWABILITY.md) for the semantics.
 
 At a call, a borrowed argument carries a marker that matches the parameter:

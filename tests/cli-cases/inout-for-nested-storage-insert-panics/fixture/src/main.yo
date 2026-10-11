@@ -5,7 +5,7 @@ main :: (fn() -> unit)({
   scores := OrderedMap(String, i32).new();
   scores.insert(String.from("a"), i32(1));
   scores.insert(String.from("b"), i32(2));
-  for(scores, (k, mut(v)) => {
+  for(&mut scores, (k, v) => {
     scores.insert(String.from("c"), i32(3)); // panics: mutates the inner map while `v` borrows an entry
     v = (v + i32(1));
   });

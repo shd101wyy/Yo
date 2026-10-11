@@ -40,12 +40,12 @@
 /// in a separate table rather than inline on the AST node).
 set_variable_as_consumed :: (
   fn(
-    imm(variable_name) : String,
-    imm(token) : Token,
-    imm(env) : Environment,
+    variable_name : &String,
+    token : &Token,
+    env : &Environment,
     allow_consume_again : bool,
     is_type_val : bool,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   // Don't consume type values — they should be reusable.
@@ -109,10 +109,10 @@ set_variable_as_consumed :: (
 });
 evaluate_consume :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(

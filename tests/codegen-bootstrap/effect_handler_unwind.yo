@@ -1,6 +1,6 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
-Raise :: (ctl(imm(msg) : String) -> i32);
+Raise :: (ctl(msg : &String) -> i32);
 safe :: (fn(x : i32, raise : Raise) -> i32)(
   cond(
     (x == 0) => raise(String.from("zero")),
@@ -8,7 +8,7 @@ safe :: (fn(x : i32, raise : Raise) -> i32)(
   )
 );
 run :: (fn() -> i32)({
-  (raise : Raise) = (ctl(imm(msg) : String) -> i32)({
+  (raise : Raise) = (ctl(msg : &String) -> i32)({
     println(msg);
     unwind(i32(42));
   });

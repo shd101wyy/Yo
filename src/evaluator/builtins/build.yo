@@ -241,7 +241,7 @@ impl(
       manifest_fields : HashMap(String, String).new()
     )
   ),
-  register_executable : (fn(mut(self) : Self, imm(artifact) : BuildArtifact, imm(exn) : Exception) -> unit)({
+  register_executable : (fn(self : &mut Self, artifact : &BuildArtifact, exn : &Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
@@ -271,7 +271,7 @@ impl(
       )
     );
   }),
-  register_static_library : (fn(mut(self) : Self, imm(artifact) : BuildArtifact, imm(exn) : Exception) -> unit)({
+  register_static_library : (fn(self : &mut Self, artifact : &BuildArtifact, exn : &Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
@@ -301,7 +301,7 @@ impl(
       )
     );
   }),
-  register_shared_library : (fn(mut(self) : Self, imm(artifact) : BuildArtifact, imm(exn) : Exception) -> unit)({
+  register_shared_library : (fn(self : &mut Self, artifact : &BuildArtifact, exn : &Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
@@ -331,11 +331,11 @@ impl(
       )
     );
   }),
-  register_test : (fn(mut(self) : Self, imm(suite) : BuildTestSuite, imm(exn) : Exception) -> unit)({
+  register_test : (fn(self : &mut Self, suite : &BuildTestSuite, exn : &Exception) -> unit)({
     Self._check_name_taken(self, suite.name.clone(), "a test suite", exn);
     self.test_suites.push(suite);
   }),
-  register_run : (fn(mut(self) : Self, imm(artifact_name) : String, imm(args) : ArrayList(String)) -> unit)({
+  register_run : (fn(self : &mut Self, artifact_name : &String, args : &ArrayList(String)) -> unit)({
     synth_name := `run:${artifact_name}`;
     // The name is derived from the artifact, so `build.run(exe)` twice names
     // ONE node; the later call's arguments win.
@@ -352,7 +352,7 @@ impl(
   }),
   /// Drop the run step named `name`, if any. `register_run` replaces rather
   /// than duplicating: the name is derived from the artifact.
-  remove_run_step : (fn(mut(self) : Self, imm(name) : String) -> unit)({
+  remove_run_step : (fn(self : &mut Self, name : &String) -> unit)({
     kept := ArrayList(BuildRunStep).new();
     (i : usize) = usize(0);
     while(i < self.run_steps.len(), {
@@ -364,7 +364,7 @@ impl(
     });
     self.run_steps = kept;
   }),
-  register_step : (fn(mut(self) : Self, imm(name) : String, imm(description) : String, imm(exn) : Exception) -> unit)({
+  register_step : (fn(self : &mut Self, name : &String, description : &String, exn : &Exception) -> unit)({
     Self._check_name_taken(self, name.clone(), "a step", exn);
     self.steps.push(
       BuildStep(
@@ -374,7 +374,7 @@ impl(
       )
     );
   }),
-  add_step_dependency : (fn(mut(self) : Self, imm(step_name) : String, imm(dep_name) : String) -> unit)({
+  add_step_dependency : (fn(self : &mut Self, step_name : &String, dep_name : &String) -> unit)({
     new_steps := ArrayList(BuildStep).new();
     i := usize(0);
     n := self.steps.len();
@@ -402,7 +402,7 @@ impl(
     });
     self.steps = new_steps;
   }),
-  reference_dependency : (fn(mut(self) : Self, imm(name) : String) -> unit)({
+  reference_dependency : (fn(self : &mut Self, name : &String) -> unit)({
     i := usize(0);
     n := self.referenced_dependencies.len();
     while(i < n, {
@@ -412,10 +412,10 @@ impl(
     self.referenced_dependencies.push(name);
     ()
   }),
-  register_system_library : (fn(mut(self) : Self, imm(lib) : BuildSystemLibrary) -> unit)({
+  register_system_library : (fn(self : &mut Self, lib : &BuildSystemLibrary) -> unit)({
     self.system_libraries.push(lib);
   }),
-  register_dependency_artifact : (fn(mut(self) : Self, imm(ref) : DependencyArtifactRef) -> unit)({
+  register_dependency_artifact : (fn(self : &mut Self, ref : &DependencyArtifactRef) -> unit)({
     already := false;
     i := usize(0);
     n := self.dependency_artifacts.len();
@@ -433,7 +433,7 @@ impl(
       }
     );
   }),
-  register_module : (fn(mut(self) : Self, imm(entry) : BuildModuleEntry) -> unit)({
+  register_module : (fn(self : &mut Self, entry : &BuildModuleEntry) -> unit)({
     i := usize(0);
     n := self.modules.len();
     while(i < n, {
@@ -443,7 +443,7 @@ impl(
     self.modules.push(entry);
     ()
   }),
-  register_link : (fn(mut(self) : Self, imm(artifact_name) : String, imm(library_name) : String) -> unit)({
+  register_link : (fn(self : &mut Self, artifact_name : &String, library_name : &String) -> unit)({
     new_artifacts := ArrayList(BuildArtifact).new();
     i := usize(0);
     n := self.artifacts.len();
@@ -471,17 +471,17 @@ impl(
     });
     self.artifacts = new_artifacts;
   }),
-  register_doc : (fn(mut(self) : Self, imm(config) : BuildDocConfig, imm(exn) : Exception) -> unit)({
+  register_doc : (fn(self : &mut Self, config : &BuildDocConfig, exn : &Exception) -> unit)({
     Self._check_name_taken(self, config.name.clone(), "a documentation step", exn);
     self.doc_configs.push(config);
   }),
-  register_verify : (fn(mut(self) : Self, imm(config) : BuildVerifyConfig, imm(exn) : Exception) -> unit)({
+  register_verify : (fn(self : &mut Self, config : &BuildVerifyConfig, exn : &Exception) -> unit)({
     Self._check_name_taken(self, config.name.clone(), "a verify step", exn);
     self.verify_configs.push(config);
   }),
   /// Attach a system library to a registered module. No-op when the module is
   /// unknown or the library is already attached.
-  register_module_link : (fn(mut(self) : Self, imm(module_name) : String, imm(system_library_name) : String) -> unit)({
+  register_module_link : (fn(self : &mut Self, module_name : &String, system_library_name : &String) -> unit)({
     i := usize(0);
     n := self.modules.len();
     while(i < n, {
@@ -508,7 +508,7 @@ impl(
     });
     ()
   }),
-  find_artifact : (fn(mut(self) : Self, imm(name) : String) -> Option(BuildArtifact))({
+  find_artifact : (fn(self : &mut Self, name : &String) -> Option(BuildArtifact))({
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {
@@ -518,7 +518,7 @@ impl(
     });
     Option(BuildArtifact).None
   }),
-  find_test : (fn(mut(self) : Self, imm(name) : String) -> Option(BuildTestSuite))({
+  find_test : (fn(self : &mut Self, name : &String) -> Option(BuildTestSuite))({
     i := usize(0);
     n := self.test_suites.len();
     while(i < n, {
@@ -528,7 +528,7 @@ impl(
     });
     Option(BuildTestSuite).None
   }),
-  find_run_step : (fn(mut(self) : Self, imm(name) : String) -> Option(BuildRunStep))({
+  find_run_step : (fn(self : &mut Self, name : &String) -> Option(BuildRunStep))({
     i := usize(0);
     n := self.run_steps.len();
     while(i < n, {
@@ -538,7 +538,7 @@ impl(
     });
     Option(BuildRunStep).None
   }),
-  find_step : (fn(mut(self) : Self, imm(name) : String) -> Option(BuildStep))({
+  find_step : (fn(self : &mut Self, name : &String) -> Option(BuildStep))({
     i := usize(0);
     n := self.steps.len();
     while(i < n, {
@@ -548,7 +548,7 @@ impl(
     });
     Option(BuildStep).None
   }),
-  find_documentation : (fn(mut(self) : Self, imm(name) : String) -> Option(BuildDocConfig))({
+  find_documentation : (fn(self : &mut Self, name : &String) -> Option(BuildDocConfig))({
     i := usize(0);
     n := self.doc_configs.len();
     while(i < n, {
@@ -558,7 +558,7 @@ impl(
     });
     Option(BuildDocConfig).None
   }),
-  find_verify : (fn(mut(self) : Self, imm(name) : String) -> Option(BuildVerifyConfig))({
+  find_verify : (fn(self : &mut Self, name : &String) -> Option(BuildVerifyConfig))({
     i := usize(0);
     n := self.verify_configs.len();
     while(i < n, {
@@ -568,7 +568,7 @@ impl(
     });
     Option(BuildVerifyConfig).None
   }),
-  find_module : (fn(mut(self) : Self, imm(name) : String) -> Option(BuildModuleEntry))({
+  find_module : (fn(self : &mut Self, name : &String) -> Option(BuildModuleEntry))({
     i := usize(0);
     n := self.modules.len();
     while(i < n, {
@@ -578,7 +578,7 @@ impl(
     });
     Option(BuildModuleEntry).None
   }),
-  find_system_library : (fn(mut(self) : Self, imm(name) : String) -> Option(BuildSystemLibrary))({
+  find_system_library : (fn(self : &mut Self, name : &String) -> Option(BuildSystemLibrary))({
     i := usize(0);
     n := self.system_libraries.len();
     while(i < n, {
@@ -588,7 +588,7 @@ impl(
     });
     Option(BuildSystemLibrary).None
   }),
-  get_step_names : (fn(mut(self) : Self) -> ArrayList(String))({
+  get_step_names : (fn(self : &mut Self) -> ArrayList(String))({
     names := ArrayList(String).new();
     i := usize(0);
     n := self.steps.len();
@@ -598,7 +598,7 @@ impl(
     });
     names
   }),
-  resolve_dependency : (fn(mut(self) : Self, imm(name) : String) -> Option(ResolvedDep))({
+  resolve_dependency : (fn(self : &mut Self, name : &String) -> Option(ResolvedDep))({
     match(
       self.find_artifact(name),
       .Some(a) => {
@@ -643,7 +643,7 @@ impl(
     );
     Option(ResolvedDep).None
   }),
-  clear : (fn(mut(self) : Self) -> unit)({
+  clear : (fn(self : &mut Self) -> unit)({
     self.artifacts = ArrayList(BuildArtifact).new();
     self.test_suites = ArrayList(BuildTestSuite).new();
     self.run_steps = ArrayList(BuildRunStep).new();
@@ -662,7 +662,7 @@ impl(
   /// two entities sharing a name make one of them unreachable — `depend_on`
   /// silently built the wrong thing (the plan's B11). Only artifacts were
   /// checked, and only against other artifacts.
-  _check_name_taken : (fn(mut(self) : Self, imm(name) : String, registering : str, imm(exn) : Exception) -> unit)({
+  _check_name_taken : (fn(self : &mut Self, name : &String, registering : str, exn : &Exception) -> unit)({
     taken := cond(
       self.find_artifact(name.clone()).is_some() => "an artifact",
       self.find_test(name.clone()).is_some() => "a test suite",
@@ -680,7 +680,7 @@ impl(
       );
     });
   }),
-  _check_duplicate_artifact_name : (fn(mut(self) : Self, imm(name) : String, imm(exn) : Exception) -> unit)({
+  _check_duplicate_artifact_name : (fn(self : &mut Self, name : &String, exn : &Exception) -> unit)({
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {
@@ -730,7 +730,7 @@ clear_build_registry :: (fn() -> unit)({
 /// Install `new_registry` as the global one and return the previous —
 /// the build runner uses it to evaluate a DEPENDENCY's
 /// `build.yo` into a scratch registry without clobbering the project's.
-swap_build_registry :: (fn(imm(new_registry) : Option(BuildRegistry)) -> Option(BuildRegistry))({
+swap_build_registry :: (fn(new_registry : &Option(BuildRegistry)) -> Option(BuildRegistry))({
   prev := g_build_registry;
   g_build_registry = new_registry;
   prev
@@ -741,7 +741,7 @@ swap_build_registry :: (fn(imm(new_registry) : Option(BuildRegistry)) -> Option(
 /// Read arg `idx`'s resolved comptime value from the expr-info table.
 /// Args are pre-evaluated by the `_expr.yo` dispatch before this runs.
 _build_arg_value :: (
-  fn(imm(args) : ArrayList(AstExpr), idx : usize, imm(ctx) : EvalContext) -> Option(EvalValue)
+  fn(args : &ArrayList(AstExpr), idx : usize, ctx : &EvalContext) -> Option(EvalValue)
 )(
   match(
     args.get(idx),
@@ -758,7 +758,7 @@ _build_arg_value :: (
 /// call with concrete comptime args. During `check`, build calls inside
 /// function bodies are always trial (their comptime params are `UnknownVal`).
 _build_is_trial :: (
-  fn(imm(args) : ArrayList(AstExpr), imm(ctx) : EvalContext) -> bool
+  fn(args : &ArrayList(AstExpr), ctx : &EvalContext) -> bool
 )({
   (i : usize) = usize(0);
   (trial : bool) = false;
@@ -779,7 +779,7 @@ _build_is_trial :: (
 });
 /// Set the expr's result to `unit`.
 _build_unit_result :: (
-  fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext) -> AstExpr
 )({
   info := new_expr_info(env, t_unit());
   info.value = Option(EvalValue).Some(EvalValue.UnitVal);
@@ -791,7 +791,7 @@ _build_unit_result :: (
 /// form (see `builtins/process.yo`), so `value` is wrapped in quotes.
 /// A comptime BOOL result, the `_build_string_result` counterpart.
 _build_bool_result :: (
-  fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, value : bool) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, value : bool) -> AstExpr
 )({
   // `bool` IS the comptime bool type — there is no separate `comptime_bool`
   // (`creators.yo` has `t_bool` and no comptime variant), and a `BoolVal` in
@@ -806,7 +806,7 @@ _build_bool_result :: (
 /// CREATES one on demand, so it cannot answer this; the raw slot can.
 _under_build :: (fn() -> bool)(match(g_build_registry, .Some(_r) => true, .None => false));
 _build_string_result :: (
-  fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(value) : String) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, value : &String) -> AstExpr
 )({
   raw := (String.from("\"") + value + String.from("\""));
   info := new_expr_info(env, t_comptime_string());
@@ -818,12 +818,12 @@ _build_string_result :: (
 /// the build-function arg-type error otherwise.
 _build_extract_string :: (
   fn(
-    imm(args) : ArrayList(AstExpr),
+    args : &ArrayList(AstExpr),
     idx : usize,
     param : str,
-    imm(expr) : AstExpr,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> String
 )(
   match(
@@ -862,7 +862,7 @@ _build_extract_string :: (
 /// Read arg `idx` as a boolean: only a missing value and `BoolVal(false)`
 /// are falsy; every other `EvalValue` shape counts as true.
 _build_extract_bool :: (
-  fn(imm(args) : ArrayList(AstExpr), idx : usize, imm(ctx) : EvalContext) -> bool
+  fn(args : &ArrayList(AstExpr), idx : usize, ctx : &EvalContext) -> bool
 )(
   match(
     _build_arg_value(args, idx, ctx),
@@ -874,7 +874,7 @@ _build_extract_bool :: (
 /// `fallback`. Mirrors `_build_extract_bool`'s shape; used for
 /// `Executable.emit_chunks`, whose comptime_int arrives as `IntLit(raw)`.
 _build_extract_usize_or :: (
-  fn(imm(args) : ArrayList(AstExpr), idx : usize, fallback : usize, imm(ctx) : EvalContext) -> usize
+  fn(args : &ArrayList(AstExpr), idx : usize, fallback : usize, ctx : &EvalContext) -> usize
 )(
   match(
     _build_arg_value(args, idx, ctx),
@@ -896,7 +896,7 @@ _build_extract_usize_or :: (
 /// instead of `run:<artifact>`. The run node then vanished from the DAG and
 /// `yo build run` built the program, reported "run ok", and never executed it.
 _build_extract_variant :: (
-  fn(imm(args) : ArrayList(AstExpr), idx : usize, imm(ctx) : EvalContext) -> Option(String)
+  fn(args : &ArrayList(AstExpr), idx : usize, ctx : &EvalContext) -> Option(String)
 )(
   match(
     _build_arg_value(args, idx, ctx),
@@ -908,7 +908,7 @@ _build_extract_variant :: (
   )
 );
 /// Split `s` on runs of whitespace, dropping empty pieces.
-_build_split_ws :: (fn(imm(s) : String) -> ArrayList(String))({
+_build_split_ws :: (fn(s : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
   cur := String.new();
   bytes := s;
@@ -937,13 +937,13 @@ _build_split_ws :: (fn(imm(s) : String) -> ArrayList(String))({
 /// Optional string arg: arg `idx` when present, else `fallback`.
 _build_extract_string_or :: (
   fn(
-    imm(args) : ArrayList(AstExpr),
+    args : &ArrayList(AstExpr),
     idx : usize,
     param : str,
-    imm(fallback) : String,
-    imm(expr) : AstExpr,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    fallback : &String,
+    expr : &AstExpr,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> String
 )(
   cond(
@@ -954,11 +954,11 @@ _build_extract_string_or :: (
 /// Throw the standard "expects N arguments" build-function diagnostic.
 _build_require_args :: (
   fn(
-    imm(args) : ArrayList(AstExpr),
+    args : &ArrayList(AstExpr),
     least : usize,
-    imm(message) : String,
-    imm(expr) : AstExpr,
-    imm(exn) : Exception
+    message : &String,
+    expr : &AstExpr,
+    exn : &Exception
   ) -> unit
 )({
   if(args.len() < least, {
@@ -977,14 +977,14 @@ _build_require_args :: (
 /// start from. `kind` is set by the registry method.
 _build_new_artifact :: (
   fn(
-    imm(name) : String,
-    imm(root) : String,
-    imm(target) : String,
-    imm(optimize) : String,
-    imm(allocator) : String,
+    name : &String,
+    root : &String,
+    target : &String,
+    optimize : &String,
+    allocator : &String,
     heap_size : usize,
-    imm(sanitize) : String,
-    imm(emit_c_to) : String,
+    sanitize : &String,
+    emit_c_to : &String,
     emit_chunks : usize
   ) -> BuildArtifact
 )(
@@ -1017,7 +1017,7 @@ _build_new_artifact :: (
 /// artifact exists and does not already link it. Shared by `__yo_build_link`
 /// (system-library branch) and `__yo_build_link_system_library`.
 _build_attach_system_library :: (
-  fn(imm(reg) : BuildRegistry, imm(artifact_name) : String, imm(library_name) : String) -> unit
+  fn(reg : &BuildRegistry, artifact_name : &String, library_name : &String) -> unit
 )({
   match(
     reg.find_artifact(artifact_name),
@@ -1048,10 +1048,10 @@ _build_attach_system_library :: (
 /// registry stays empty and `yo build` builds an empty DAG and exits 0.
 evaluate_yo_build_functions :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(

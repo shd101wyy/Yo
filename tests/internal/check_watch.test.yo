@@ -36,7 +36,7 @@ p0 :: (fn() -> RevalPlan)(
 );
 /// One watch round with `lib.yo` as the changed file. Returns failed count.
 _round :: (
-  fn(imm(lib_path) : String, imm(files) : ArrayList(String), imm(std_path) : String, io : Io, imm(exn) : Exception) -> usize
+  fn(lib_path : &String, files : &ArrayList(String), std_path : &String, io : Io, exn : &Exception) -> usize
 )({
   changed := ArrayList(String).new();
   changed.push(lib_path.clone());
@@ -482,7 +482,7 @@ _RB_READER_ORDERED :: "{ helper } :: import(\"./lib.yo\");\n{ println } :: impor
 
 /// The comptime value of `name` in `module_key`'s finished walk, rendered —
 /// the freshness oracle: a stale re-bind leaves the OLD number here.
-_def_int_value :: (fn(imm(module_key) : String, imm(name) : String) -> String)(
+_def_int_value :: (fn(module_key : &String, name : &String) -> String)(
   match(
     finished_walk_for(module_key),
     .Some(w) => {

@@ -74,7 +74,7 @@
 (_g_type_c_name_intern_r : HashMap(String, String)) = HashMap(String, String).new();
 /// Mint the short name for a not-yet-interned key (Phase 2): the hash of the
 /// type's CONTENT with an ordinal fallback on collision.
-_intern_type_c_name_fresh :: (fn(imm(key) : String) -> String)({
+_intern_type_c_name_fresh :: (fn(key : &String) -> String)({
   base := `__yo_t_${fnv1a64(key).to_string()}`;
   id := base.clone();
   (ord : usize) = usize(0);
@@ -100,7 +100,7 @@ _intern_type_c_name_fresh :: (fn(imm(key) : String) -> String)({
   });
   id
 });
-_intern_type_c_name :: (fn(imm(key) : String) -> String)(
+_intern_type_c_name :: (fn(key : &String) -> String)(
   match(
     _g_type_c_name_intern.get(key),
     .Some(existing) => existing,
@@ -111,7 +111,7 @@ _intern_type_c_name :: (fn(imm(key) : String) -> String)(
 /// still registerable as a concrete C type — the fn-ptr fields get type-erased
 /// at the C ABI.
 _struct_some_type_is_only_in_function_fields :: (
-  fn(imm(type) : TypeValue, mut(visited) : HashSet(String)) -> bool
+  fn(type : &TypeValue, visited : &mut HashSet(String)) -> bool
 )(
   match(
     type,
@@ -145,7 +145,7 @@ _struct_some_type_is_only_in_function_fields :: (
 /// Check if an enum's SomeType content is only in function-typed variant
 /// fields.
 _enum_some_type_is_only_in_function_fields :: (
-  fn(imm(type) : TypeValue, mut(visited) : HashSet(String)) -> bool
+  fn(type : &TypeValue, visited : &mut HashSet(String)) -> bool
 )(
   match(
     type,
@@ -191,7 +191,7 @@ _enum_some_type_is_only_in_function_fields :: (
 // across two C types (passing/initializing mismatches). The stable render
 // never changes, so a second arrival is detected and ALIASED instead.
 (g_stable_to_key : HashMap(String, String)) = HashMap(String, String).new();
-collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> unit)({
+collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // Resolve a leaked recursive-enum SELF-SHELL to its final BEFORE collecting, so
   // recursion descends into the FINAL's variant fields (the shell has none) and
   // the empty shell type is never registered/emitted — regardless of whether the
@@ -424,7 +424,7 @@ collect_type :: (fn(imm(type_in) : TypeValue, imm(context) : CodeGenContext) -> 
 /// deep enum recursion) — sufficient for `data : ?(*(MapEntry))` / `?(*(T))` and
 /// guaranteed terminating; `collect_type`'s already-collected guard handles the
 /// rest. (Defined before collect_pointer_pointees — Yo has no forward refs.)
-_collect_field_pointees :: (fn(imm(ft) : TypeValue, imm(context) : CodeGenContext) -> unit)(
+_collect_field_pointees :: (fn(ft : &TypeValue, context : &CodeGenContext) -> unit)(
   match(
     ft,
     .Pointer(p) => collect_type(p, context),
@@ -464,7 +464,7 @@ _collect_field_pointees :: (fn(imm(ft) : TypeValue, imm(context) : CodeGenContex
 /// order-sensitive lazy array-struct registration. Fixpoint loop handles
 /// transitive container nesting. See
 /// issues/fixed/yo-self-p1-uncollected-pointee.md.
-collect_pointer_pointees :: (fn(imm(context) : CodeGenContext) -> unit)({
+collect_pointer_pointees :: (fn(context : &CodeGenContext) -> unit)({
   (changed : bool) = true;
   while(changed, {
     changed = false;
@@ -513,7 +513,7 @@ collect_pointer_pointees :: (fn(imm(context) : CodeGenContext) -> unit)({
 });
 /// Collect types from a function type signature (parameters, generic params,
 /// return).
-collect_types_from_function_type :: (fn(imm(function_type) : TypeValue, imm(context) : CodeGenContext) -> unit)(
+collect_types_from_function_type :: (fn(function_type : &TypeValue, context : &CodeGenContext) -> unit)(
   match(
     function_type,
     .Func({ param_types, forall_types, result }) => {
@@ -535,11 +535,11 @@ collect_types_from_function_type :: (fn(imm(function_type) : TypeValue, imm(cont
   )
 );
 /// func_id of a FuncVal EvalValue, or "".
-_fv_id :: (fn(imm(v) : EvalValue) -> String)(
+_fv_id :: (fn(v : &EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
 );
 /// body AstExpr of a FuncVal EvalValue, or an error placeholder.
-_fv_body :: (fn(imm(v) : EvalValue) -> AstExpr)(
+_fv_body :: (fn(v : &EvalValue) -> AstExpr)(
   match(v, .FuncVal(__fvd2, _) => __fvd2.*.body, _ => make_err_expr())
 );
 /// Collect types referenced by an expression (its evaluated type, any function
@@ -550,7 +550,7 @@ _fv_body :: (fn(imm(v) : EvalValue) -> AstExpr)(
 /// no Func type; signature types are picked up by walking the body. The
 /// SomeType-Future-resolved-concrete skip and the captureType.trait
 /// function-collection are also omitted (corpus-safe).
-collect_types_from_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenContext, imm(info) : ExprInfoTable) -> unit)({
+collect_types_from_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
   ei_opt := expr_info_table_get(info, ast_expr_id(expr));
   match(
     ei_opt,
@@ -649,7 +649,7 @@ collect_types_from_expr :: (fn(imm(expr) : AstExpr, imm(context) : CodeGenContex
 /// Collect all user-defined types reachable from a module value: from each
 /// exported function's body, from module-level non-function fields, and then
 /// (fixpoint) from every function discovered along the way.
-collect_required_types :: (fn(imm(module_value) : EvalValue, imm(context) : CodeGenContext, imm(info) : ExprInfoTable) -> unit)({
+collect_required_types :: (fn(module_value : &EvalValue, context : &CodeGenContext, info : &ExprInfoTable) -> unit)({
   match(
     module_value,
     .StructVal(_, _, field_values) => {

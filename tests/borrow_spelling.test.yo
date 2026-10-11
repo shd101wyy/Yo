@@ -48,8 +48,8 @@ tracked_set :: (fn(t : &mut Tracked, v : i32) -> unit)({
 twice :: (fn(comptime(k) : &i32) -> i32)(k + k);
 apply :: (fn(f : &Impl(Fn(v : &String) -> usize), s : &String) -> usize)(f(&s));
 apply_mut :: (fn(f : &Impl(Fn(v : &mut i32) -> unit), n : &mut i32) -> unit)(f(&mut n));
-old_len_of :: (fn(imm(s) : String) -> usize)(s.len());
-old_bump :: (fn(mut(n) : i32) -> unit)({
+old_len_of :: (fn(s : &String) -> usize)(s.len());
+old_bump :: (fn(n : &mut i32) -> unit)({
   n = (n + i32(1));
 });
 Node :: struct(value : i32, next : Option(Rc(Self)));
@@ -104,9 +104,9 @@ test("a `comptime(x) : &T` parameter", {
   assert(twice(i32(21)) == i32(42), "comptime(imm(k)) : i32 under the new spelling");
 });
 test("each spelling fills a slot typed in the other: one function type", {
-  (f1 : (fn(imm(s) : String) -> usize)) = len_of;
+  (f1 : (fn(s : &String) -> usize)) = len_of;
   (f2 : (fn(s : &String) -> usize)) = old_len_of;
-  (g1 : (fn(mut(n) : i32) -> unit)) = bump;
+  (g1 : (fn(n : &mut i32) -> unit)) = bump;
   (g2 : (fn(n : &mut i32) -> unit)) = old_bump;
   s := String.from("ab");
   (k : i32) = i32(0);

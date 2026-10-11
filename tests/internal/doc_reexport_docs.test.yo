@@ -25,7 +25,7 @@
 { DocItemKind } :: import("../../src/doc/model.yo");
 { build_cross_references } :: import("../../src/doc/builder.yo");
 /// A method entry, documented or bare.
-_method :: (fn(imm(name) : String, imm(doc) : Option(String)) -> DocFunction)(
+_method :: (fn(name : &String, doc : &Option(String)) -> DocFunction)(
   DocFunction(
     name : name,
     doc : doc,
@@ -45,7 +45,7 @@ _method :: (fn(imm(name) : String, imm(doc) : Option(String)) -> DocFunction)(
 );
 /// A `Point` entry. `documented` decides whether this is the declaring
 /// module's copy or the bare re-export.
-_point :: (fn(documented : bool, imm(signature) : String) -> DocType)({
+_point :: (fn(documented : bool, signature : &String) -> DocType)({
   fields := ArrayList(DocField).new();
   fields.push(
     DocField(
@@ -74,7 +74,7 @@ _point :: (fn(documented : bool, imm(signature) : String) -> DocType)({
     examples : Option(String).None
   )
 });
-_module_with :: (fn(imm(name) : String, imm(t) : DocType) -> DocModule)({
+_module_with :: (fn(name : &String, t : &DocType) -> DocModule)({
   types := ArrayList(DocType).new();
   types.push(t);
   DocModule(

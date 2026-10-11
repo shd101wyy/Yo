@@ -56,7 +56,7 @@ pragma(Pragma.AllowUnsafe);
 ///
 ///
 /// Note: returns `.None` for `ComptimeInt` (unbounded) — callers skip bounds checking.
-get_numeric_bounds :: (fn(imm(type_val) : TypeValue) -> Option(IntRange))(
+get_numeric_bounds :: (fn(type_val : &TypeValue) -> Option(IntRange))(
   get_integer_type_range(type_val)
 );
 /// Return `true` if `type_val` supports the `type(value)` numeric-cast syntax.
@@ -64,7 +64,7 @@ get_numeric_bounds :: (fn(imm(type_val) : TypeValue) -> Option(IntRange))(
 ///
 /// Covers: all integer types (Int, Usize, Isize, ComptimeInt), Float, ComptimeFloat,
 /// and all C-compatible types.
-is_convertible_numeric_type :: (fn(imm(type_val) : TypeValue) -> bool)(
+is_convertible_numeric_type :: (fn(type_val : &TypeValue) -> bool)(
   cond(
     is_numeric_type(type_val) => true,
     is_c_compatible_type(type_val) => true,
@@ -86,9 +86,9 @@ is_convertible_numeric_type :: (fn(imm(type_val) : TypeValue) -> bool)(
 ///
 _get_enum_discriminant :: (
   fn(
-    imm(variant) : String,
-    imm(variant_names) : ArrayList(String),
-    imm(discs) : ArrayList(i64)
+    variant : &String,
+    variant_names : &ArrayList(String),
+    discs : &ArrayList(i64)
   ) -> Option(i64)
 )({
   // Strip leading '.' from variant name (e.g. ".Some" → "Some")
@@ -124,11 +124,11 @@ _get_enum_discriminant :: (
 ///
 _make_comptime_info :: (
   fn(
-    imm(raw) : String,
-    imm(target_type) : TypeValue,
-    imm(env) : Environment,
-    imm(expr_tok) : Token,
-    imm(exn) : Exception
+    raw : &String,
+    target_type : &TypeValue,
+    env : &Environment,
+    expr_tok : &Token,
+    exn : &Exception
   ) -> ExprInfo
 )({
   // No range gate here: a `comptime_int` source is range-checked by the
@@ -147,7 +147,7 @@ _make_comptime_info :: (
 /// toward zero. A value the C conversion cannot represent — NaN, an infinity,
 /// or outside the target's range, all undefined behaviour in C — is an error
 /// (the range check is `check_comptime_int_value_fits`'s E1102).
-_float_raw_to_int_raw :: (fn(imm(raw) : String, imm(target_type) : TypeValue, imm(tok) : Token, imm(exn) : Exception) -> String)({
+_float_raw_to_int_raw :: (fn(raw : &String, target_type : &TypeValue, tok : &Token, exn : &Exception) -> String)({
   v := match(
     parse_raw_float(raw.clone()),
     .Some(x) => x,
@@ -173,9 +173,9 @@ _float_raw_to_int_raw :: (fn(imm(raw) : String, imm(target_type) : TypeValue, im
 _make_yo_as_node :: (
   fn(
     orig_id : ExprId,
-    imm(orig_tok) : Token,
-    imm(evaluated) : AstExpr,
-    imm(type_expr) : AstExpr
+    orig_tok : &Token,
+    evaluated : &AstExpr,
+    type_expr : &AstExpr
   ) -> AstExpr
 )({
   func_atom := AstExpr.Atom(
@@ -203,12 +203,12 @@ _make_yo_as_node :: (
 ///
 try_to_convert_to_numeric_type :: (
   fn(
-    imm(target_type) : TypeValue,
-    imm(arg_expr) : AstExpr,
-    imm(expr) : AstExpr,
-    imm(caller_env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    target_type : &TypeValue,
+    arg_expr : &AstExpr,
+    expr : &AstExpr,
+    caller_env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> Option(AstExpr)
 )({
   if(!is_convertible_numeric_type(target_type), {

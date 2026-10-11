@@ -52,7 +52,7 @@ _have_z3 :: (fn() -> bool)(
 /// Run the verify pass over one fixture IN-PROCESS. Returns the reports
 /// (empty when the solver is unavailable — callers gate on _have_z3 for
 /// refutation assertions).
-_verify_fixture :: (fn(imm(rel_path) : String, io : Io) -> ArrayList(VerifyFnReport))({
+_verify_fixture :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))({
   exn := Exception(
     throw : (
       err -> {
@@ -99,7 +99,7 @@ _verify_fixture :: (fn(imm(rel_path) : String, io : Io) -> ArrayList(VerifyFnRep
   verify_registered_functions(cfg, binary)
 });
 /// The number of reports whose outcome equals `want`.
-_count_outcome :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(want) : String) -> usize)({
+_count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String) -> usize)({
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < reports.len(), {
@@ -115,7 +115,7 @@ _count_outcome :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(want) : Stri
   n
 });
 /// The first report whose outcome equals `want` (asserts existence).
-_first_outcome :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(want) : String, imm(what) : String) -> VerifyFnReport)({
+_first_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String, what : &String) -> VerifyFnReport)({
   (found : Option(VerifyFnReport)) = Option(VerifyFnReport).None;
   (i : usize) = usize(0);
   while(i < reports.len(), {
@@ -151,7 +151,7 @@ _first_outcome :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(want) : Stri
 });
 /// Whether any obligation of `rp` has name starting with `prefix` and a
 /// Refuted verdict whose joined counter-example mentions `needle`.
-_refuted_with :: (fn(imm(rp) : VerifyFnReport, imm(name_prefix) : String, imm(needle) : String) -> bool)({
+_refuted_with :: (fn(rp : &VerifyFnReport, name_prefix : &String, needle : &String) -> bool)({
   (hit : bool) = false;
   (i : usize) = usize(0);
   while(i < rp.obligations.len(), {
@@ -176,7 +176,7 @@ _refuted_with :: (fn(imm(rp) : VerifyFnReport, imm(name_prefix) : String, imm(ne
   });
   hit
 });
-_join :: (fn(imm(ss) : ArrayList(String), imm(sep) : String) -> String)({
+_join :: (fn(ss : &ArrayList(String), sep : &String) -> String)({
   sb := StringBuilder.new();
   (i : usize) = usize(0);
   while(i < ss.len(), {
@@ -286,7 +286,7 @@ test("positive battery: every function in verify_straight_line proves", {
 // carries the site of its runtime guard. Before this, both divisions in
 // `two_divs` were named `…/divisor-nonzero`, and both calls in `two_calls`
 // `…/requires#0`. Obligation generation needs no solver.
-_fn_report_named :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(fn_suffix) : String) -> Option(VerifyFnReport))({
+_fn_report_named :: (fn(reports : &ArrayList(VerifyFnReport), fn_suffix : &String) -> Option(VerifyFnReport))({
   (i : usize) = usize(0);
   while(i < reports.len(), {
     rp := reports(i);
@@ -297,7 +297,7 @@ _fn_report_named :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(fn_suffix)
   });
   Option(VerifyFnReport).None
 });
-_names_unique :: (fn(imm(rp) : VerifyFnReport) -> bool)({
+_names_unique :: (fn(rp : &VerifyFnReport) -> bool)({
   (i : usize) = usize(0);
   while(i < rp.obligations.len(), {
     (j : usize) = (i + usize(1));

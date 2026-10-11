@@ -36,7 +36,7 @@ test("Option of Option", {
   assert(g(Option(Option(i32)).None) == i32(-2));
 });
 test("three levels deep, with a literal at the bottom", {
-  h :: (fn(imm(d) : Deep) -> i32)(
+  h :: (fn(d : &Deep) -> i32)(
     match(
       d,
       .Wrap(.Ok(.A(0))) => i32(100),
@@ -96,7 +96,7 @@ test("compile-time scrutinee: the nested arm is selected at compile time", {
 });
 Pair :: enum(Two(a : Option(String), b : i32), Zero);
 test("reference-semantics payloads bound through a nested pattern", {
-  total :: (fn(imm(p) : Pair) -> usize)(
+  total :: (fn(p : &Pair) -> usize)(
     match(
       p,
       .Two(.Some(s), n) => (s.len() + usize(n)),
@@ -110,7 +110,7 @@ test("reference-semantics payloads bound through a nested pattern", {
 });
 List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
 test("a nested variant pattern through an Rc payload", {
-  f :: (fn(imm(l) : List) -> i32)(
+  f :: (fn(l : &List) -> i32)(
     match(
       l,
       .Cons(1, .Cons(n, _)) => n,
@@ -123,14 +123,14 @@ test("a nested variant pattern through an Rc payload", {
   assert(f(List.Nil) == i32(0));
 });
 test("two levels through Rc payloads", {
-  sum_boxed :: (fn(imm(b) : Rc(List)) -> i32)(
+  sum_boxed :: (fn(b : &Rc(List)) -> i32)(
     match(
       b,
       .Cons(h, _) => h,
       .Nil => i32(-2)
     )
   );
-  g :: (fn(imm(l) : List) -> i32)(
+  g :: (fn(l : &List) -> i32)(
     match(
       l,
       .Cons(1, .Cons(2, .Cons(n, _))) => n,
@@ -144,7 +144,7 @@ test("two levels through Rc payloads", {
 });
 test("a literal sub-pattern through an Rc payload", {
   Cell :: enum(Value(v : Rc(i32)), Empty);
-  h :: (fn(imm(c) : Cell) -> i32)(
+  h :: (fn(c : &Cell) -> i32)(
     match(
       c,
       .Value(42) => i32(1),
@@ -157,7 +157,7 @@ test("a literal sub-pattern through an Rc payload", {
   assert(h(Cell.Empty) == i32(0));
 });
 test("an or-pattern through an Rc payload", {
-  k :: (fn(imm(l) : List) -> i32)(
+  k :: (fn(l : &List) -> i32)(
     match(
       l,
       (.Nil | .Cons(0, .Nil)) => i32(0),
@@ -170,14 +170,14 @@ test("an or-pattern through an Rc payload", {
   assert(k(List.Cons(5, rc(List.Nil))) == i32(5));
 });
 test("whole-value binding of the Rc position still binds the Rc", {
-  inner_kind :: (fn(imm(b) : Rc(List)) -> i32)(
+  inner_kind :: (fn(b : &Rc(List)) -> i32)(
     match(
       b.*,
       (rest := .Nil) => i32(100),
       _ => i32(101)
     )
   );
-  m :: (fn(imm(l) : List) -> i32)(
+  m :: (fn(l : &List) -> i32)(
     match(
       l,
       .Cons(_, t) => inner_kind(t),
@@ -189,7 +189,7 @@ test("whole-value binding of the Rc position still binds the Rc", {
   assert(m(List.Nil) == i32(0));
 });
 test("an Rc scrutinee takes nested patterns directly", {
-  n :: (fn(imm(b) : Rc(List)) -> i32)(
+  n :: (fn(b : &Rc(List)) -> i32)(
     match(
       b,
       .Cons(h, _) => h,

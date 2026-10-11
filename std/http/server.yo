@@ -57,11 +57,11 @@ impl(
     })
   ),
   /// The address the server is listening on.
-  local_addr : (fn(imm(self) : Self) -> SocketAddr)(
+  local_addr : (fn(self : &Self) -> SocketAddr)(
     self.listener.local_addr()
   ),
   /// Set the request-size ceiling (builder pattern; 0 = unlimited).
-  with_max_request_bytes : (fn(imm(self) : Self, n : usize) -> Self)({
+  with_max_request_bytes : (fn(self : &Self, n : usize) -> Self)({
     self.max_request_bytes = n;
     self
   }),
@@ -73,7 +73,7 @@ impl(
   /// thrown out of the server
   /// (issues/fixed/one-malformed-request-killed-http-server-serve.md).
   serve_once : (
-    fn(imm(self) : Self, imm(handler) : Impl(Fn(imm(req) : HttpRequest) -> HttpResponse), io : Io) ->
+    fn(self : &Self, handler : &Impl(Fn(req : &HttpRequest) -> HttpResponse), io : Io) ->
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
@@ -106,7 +106,7 @@ impl(
   /// Serve connections one after another until `stop()` has been called
   /// (checked after each connection completes).
   serve : (
-    fn(imm(self) : Self, imm(handler) : Impl(Fn(imm(req) : HttpRequest) -> HttpResponse), io : Io) ->
+    fn(self : &Self, handler : &Impl(Fn(req : &HttpRequest) -> HttpResponse), io : Io) ->
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
@@ -117,11 +117,11 @@ impl(
     })
   ),
   /// Ask `serve` to return after the connection it is currently handling.
-  stop : (fn(imm(self) : Self) -> unit)({
+  stop : (fn(self : &Self) -> unit)({
     self.stopped = true;
   }),
   /// Close the listening socket.
-  close : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     self.listener.close(io)
   )
 );

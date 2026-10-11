@@ -5,21 +5,21 @@
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-ins_same :: (fn(imm(xs) : ArrayList(i32), v : i32, ensures(xs.len() == old(xs.len()))) -> unit)({
+ins_same :: (fn(xs : &ArrayList(i32), v : i32, ensures(xs.len() == old(xs.len()))) -> unit)({
   xs.insert(usize(0), v);
 });
 
-rem_same :: (fn(imm(xs) : ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == old(xs.len()))) -> (r : i32))(
+rem_same :: (fn(xs : &ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == old(xs.len()))) -> (r : i32))(
   xs.remove(usize(0))
 );
 
 srem_same :: (
-  fn(imm(xs) : ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == old(xs.len()))) -> (r : i32)
+  fn(xs : &ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == old(xs.len()))) -> (r : i32)
 )(xs.swap_remove(usize(0)));
 
 // swap keeps the length but not the contents: the element at 0 may change.
 sw_same :: (
-  fn(imm(xs) : ArrayList(i32), requires(xs.len() >= usize(2)), ensures(r && (xs.len() == old(xs.len())))) -> (r : bool)
+  fn(xs : &ArrayList(i32), requires(xs.len() >= usize(2)), ensures(r && (xs.len() == old(xs.len())))) -> (r : bool)
 )({
   a := xs(usize(0));
   xs.swap(usize(0), usize(1));

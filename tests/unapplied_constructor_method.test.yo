@@ -17,12 +17,12 @@ derive(generic(A : Type, B : Type), where(A <: Copy, B <: Copy), _Pair(A, B), Co
 impl(
   generic(A : Type, B : Type),
   _Pair(A, B),
-  first : (fn(imm(self) : Self) -> A)(self.a),
-  second : (fn(imm(self) : Self) -> B)(self.b),
-  set_first : (fn(mut(self) : Self, imm(a) : A) -> unit)({
+  first : (fn(self : &Self) -> A)(self.a),
+  second : (fn(self : &Self) -> B)(self.b),
+  set_first : (fn(self : &mut Self, a : &A) -> unit)({
     self.a = a;
   }),
-  make : (fn(imm(a) : A, imm(b) : B) -> Self)(Self(a : a, b : b)),
+  make : (fn(a : &A, b : &B) -> Self)(Self(a : a, b : b)),
   first_type : (fn(comptime(self) : Self) -> comptime(Type))(A)
 );
 _Tagged :: (fn(comptime(T) : Type) -> comptime(Type))(
@@ -36,7 +36,7 @@ derive(generic(T : Type), where(T <: Copy), _Tagged(T), Copy);
 impl(
   generic(T : Type),
   _Tagged(T),
-  value_or : (fn(imm(self) : Self, imm(d) : T) -> T)(
+  value_or : (fn(self : &Self, d : &T) -> T)(
     match(
       self,
       .Some(v) => v,
@@ -50,17 +50,17 @@ impl(
   generic(T : Type),
   where(T <: (Send, Acyclic)),
   Arc(T),
-  _handle : (fn(imm(self) : Self) -> Self)(self)
+  _handle : (fn(self : &Self) -> Self)(self)
 );
 /// One generic body, two specializations: `Rc.clone(x)` infers `T` from each.
-_clone_rc :: (fn(generic(T : Type), imm(x) : Rc(T), where(T <: Clone)) -> Rc(T))(Rc.clone(x));
+_clone_rc :: (fn(generic(T : Type), x : &Rc(T), where(T <: Clone)) -> Rc(T))(Rc.clone(x));
 /// A module-qualified constructor in a generic body. Before the fix the
 /// definition-time trial rewrote the receiver `mv.Cell` into an atom named
 /// `.`, so every specialization failed "Evaluating the expression (token: .)
 /// is not implemented".
-_cell_get :: (fn(generic(T : Type), imm(c) : Cell(T)) -> T)(mv.Cell.get(c));
+_cell_get :: (fn(generic(T : Type), c : &Cell(T)) -> T)(mv.Cell.get(c));
 /// A receiver typed by a bare type parameter: `T` is inferred per instantiation.
-_clone_any :: (fn(generic(T : Type), imm(x) : T, where(T <: Clone)) -> T)(Rc.clone(x));
+_clone_any :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(Rc.clone(x));
 _Alias :: (fn(comptime(B) : Type) -> comptime(Type))(_Pair(i32, B));
 _Partial :: _Pair(i32, _);
 test("Rc.clone(b) infers T from the receiver", {

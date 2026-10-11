@@ -24,7 +24,7 @@ fs_file :: import("std/fs/file");
 //       c.txt
 //       deep/
 //         d.txt
-_setup_walk_tree :: (fn(imm(root) : String, io : Io, imm(exn) : Exception) -> unit)({
+_setup_walk_tree :: (fn(root : &String, io : Io, exn : &Exception) -> unit)({
   io.await(fs_dir.create_dir_all(Path.new(root), io), IoExn(io : io, exn : exn));
   sub := path_join(root, `sub`);
   io.await(fs_dir.create_dir_all(Path.new(sub), io), IoExn(io : io, exn : exn));
@@ -35,7 +35,7 @@ _setup_walk_tree :: (fn(imm(root) : String, io : Io, imm(exn) : Exception) -> un
   io.await(fs_file.write_string(Path.new(path_join(sub, `c.txt`)), String.from("c"), io), IoExn(io : io, exn : exn));
   io.await(fs_file.write_string(Path.new(path_join(deep, `d.txt`)), String.from("d"), io), IoExn(io : io, exn : exn));
 });
-_cleanup_walk_tree :: (fn(imm(root) : String, io : Io, imm(exn) : Exception) -> unit)({
+_cleanup_walk_tree :: (fn(root : &String, io : Io, exn : &Exception) -> unit)({
   sub := path_join(root, `sub`);
   deep := path_join(sub, `deep`);
   io.await(fs_dir.remove_file(Path.new(path_join(deep, `d.txt`)), io), IoExn(io : io, exn : exn));

@@ -62,7 +62,7 @@ emit_parallelism_runtime :: (fn() -> String)({
 });
 /// index_of that panics when the marker is missing (so a template rename fails
 /// loudly instead of slicing from index 0).
-must_find :: (fn(imm(hay) : String, needle : str, from : usize) -> usize)(
+must_find :: (fn(hay : &String, needle : str, from : usize) -> usize)(
   match(
     hay.index_of(needle, from),
     .Some(i) => i,
@@ -114,7 +114,7 @@ test("__yo_worker_pool_init is guarded (idempotent)", {
 });
 /// The C text of one emitted runtime function: from its definition line to
 /// the first line that is exactly `}`.
-fn_body :: (fn(imm(c) : String, signature : str) -> String)({
+fn_body :: (fn(c : &String, signature : str) -> String)({
   start := must_find(c, signature, usize(0));
   close := must_find(c, "\n}", start);
   c.substring(start, close)
@@ -126,14 +126,14 @@ fn_body :: (fn(imm(c) : String, signature : str) -> String)({
 // Code that can see either layout must read through __yo_rc_prefix_t, and
 // may cast to the full header only after the TRACKED test.
 /// Pin: `sig`'s body reads the header only through `__yo_rc_prefix_t`.
-assert_prefix_only :: (fn(imm(c) : String, sig : str) -> unit)({
+assert_prefix_only :: (fn(c : &String, sig : str) -> unit)({
   body := fn_body(c, sig);
   assert(!body.contains("(__yo_ref_header_t*)"), `${sig} reads through the full header`);
   assert(body.contains("(__yo_rc_prefix_t*)"), `${sig} reads through the prefix`);
 });
 /// Pin: `sig`'s body tests TRACKED through the prefix before its first
 /// full-header cast.
-assert_tracked_first :: (fn(imm(c) : String, sig : str) -> unit)({
+assert_tracked_first :: (fn(c : &String, sig : str) -> unit)({
   body := fn_body(c, sig);
   test_at := must_find(body, "((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED", usize(0));
   cast_at := must_find(body, "(__yo_ref_header_t*)ptr", usize(0));

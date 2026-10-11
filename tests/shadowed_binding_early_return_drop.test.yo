@@ -17,7 +17,7 @@ import("std/fmt");
 Holder :: ref(struct(v : String));
 
 // Early return inside a match arm whose binding shadows a later local.
-take_early :: (fn(imm(o) : Option(Holder), flag : bool) -> i32)({
+take_early :: (fn(o : &Option(Holder), flag : bool) -> i32)({
   r := match(
     o,
     .Some(h) => {
@@ -66,7 +66,7 @@ test("normal path through the shadowing arm is balanced", {
 // Two nested match arms, both shadowing later locals: the early return
 // crosses two arm scopes and must skip BOTH outer pending drops.
 take_nested :: (
-  fn(imm(o) : Option(Holder), imm(o2) : Option(Holder), flag : bool) -> i32
+  fn(o : &Option(Holder), o2 : &Option(Holder), flag : bool) -> i32
 )({
   r := match(
     o,

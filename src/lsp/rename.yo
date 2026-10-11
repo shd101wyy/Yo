@@ -37,7 +37,7 @@
 /// (`keyword_names`). Own frame: the swallowing handler's `unwind` exits
 /// this bool-typed frame, and an effect handler cannot capture outer
 /// runtime variables.
-_parses_as_binding :: (fn(imm(new_name) : String) -> bool)({
+_parses_as_binding :: (fn(new_name : &String) -> bool)({
   parse_exn := Exception(
     throw : (
       _err -> unwind(false)
@@ -77,7 +77,7 @@ _parses_as_binding :: (fn(imm(new_name) : String) -> bool)({
 /// rename refuses to CREATE one even though the parser would accept the
 /// binding: every mainstream server rejects keyword renames, and a variable
 /// spelled `while` or `fn` breaks the code's readability and tooling.
-_is_keyword_name :: (fn(imm(new_name) : String) -> bool)({
+_is_keyword_name :: (fn(new_name : &String) -> bool)({
   kws := keyword_names();
   (i : usize) = usize(0);
   while(i < kws.len(), {
@@ -99,7 +99,7 @@ _is_keyword_name :: (fn(imm(new_name) : String) -> bool)({
 /// error carrying the reason, so the client shows it in the rename input
 /// box instead of applying a broken edit
 /// (issues/fixed/lsp-rename-accepts-any-new-name.md).
-rename_rejection :: (fn(imm(new_name) : String) -> Option(String))({
+rename_rejection :: (fn(new_name : &String) -> Option(String))({
   if(!_parses_as_binding(new_name.clone()), {
     return(
       Option(String).Some(`"${new_name}" is not a legal identifier (operators, literals and spaces cannot be bound)`)
@@ -126,11 +126,11 @@ rename_rejection :: (fn(imm(new_name) : String) -> Option(String))({
 /// positions in, wire-encoded range out.
 handle_prepare_rename :: (
   fn(
-    imm(text) : String,
-    imm(doc_abs) : String,
-    imm(lines) : ArrayList(String),
-    imm(exprs) : ArrayList(AstExpr),
-    imm(info_table) : ExprInfoTable,
+    text : &String,
+    doc_abs : &String,
+    lines : &ArrayList(String),
+    exprs : &ArrayList(AstExpr),
+    info_table : &ExprInfoTable,
     line : usize,
     character : usize
   ) -> Option(JsonValue)
@@ -167,15 +167,15 @@ handle_prepare_rename :: (
 /// in, wire-encoded ranges out.
 handle_rename :: (
   fn(
-    imm(text) : String,
-    imm(doc_abs) : String,
-    imm(lines) : ArrayList(String),
-    imm(uri) : String,
-    imm(exprs) : ArrayList(AstExpr),
-    imm(info_table) : ExprInfoTable,
+    text : &String,
+    doc_abs : &String,
+    lines : &ArrayList(String),
+    uri : &String,
+    exprs : &ArrayList(AstExpr),
+    info_table : &ExprInfoTable,
     line : usize,
     character : usize,
-    imm(new_name) : String
+    new_name : &String
   ) -> Option(JsonValue)
 )({
   lex_exn := Exception(

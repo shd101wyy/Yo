@@ -11,17 +11,17 @@ Reader :: trait(
   /// Returns the number of bytes actually read (0 at end-of-stream).
   read :
     (
-      fn(mut(self) : Self, buf : *u8, size : usize, imm(exn) : Exception) -> usize
+      fn(self : &mut Self, buf : *u8, size : usize, exn : &Exception) -> usize
     )
 );
 Writer :: trait(
   /// Write bytes from buffer. Returns number of bytes written.
   write :
-    (fn(mut(self) : Self, buf : *u8, size : usize, imm(exn) : Exception) -> usize),
+    (fn(self : &mut Self, buf : *u8, size : usize, exn : &Exception) -> usize),
   /// Flush any buffered data to the underlying destination.
   flush :
     (
-      fn(mut(self) : Self, imm(exn) : Exception) -> unit
+      fn(self : &mut Self, exn : &Exception) -> unit
     )
 );
 // Simple fixed-size byte buffer for testing Reader and Writer traits
@@ -40,7 +40,7 @@ impl(
 impl(
   TestBuf,
   Writer(
-    write : (fn(mut(self) : Self, buf : *u8, size : usize, imm(exn) : Exception) -> usize)({
+    write : (fn(self : &mut Self, buf : *u8, size : usize, exn : &Exception) -> usize)({
       i := usize(0);
       while(i < size, i = (i + usize(1)), {
         ((addr_of(self._data(0))).add(self._len + i)).* = (buf.add(i)).*;
@@ -48,7 +48,7 @@ impl(
       self._len = (self._len + size);
       size
     }),
-    flush : (fn(mut(self) : Self, imm(exn) : Exception) -> unit)(
+    flush : (fn(self : &mut Self, exn : &Exception) -> unit)(
       ()
     )
   )
@@ -56,7 +56,7 @@ impl(
 impl(
   TestBuf,
   Reader(
-    read : (fn(mut(self) : Self, buf : *u8, size : usize, imm(exn) : Exception) -> usize)({
+    read : (fn(self : &mut Self, buf : *u8, size : usize, exn : &Exception) -> usize)({
       available := (self._len - self._pos);
       to_read := cond(
         (size < available) => size,

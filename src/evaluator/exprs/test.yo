@@ -90,11 +90,11 @@ set_strict_test_bodies :: (fn(on : bool) -> unit)({
 strict_test_bodies :: (fn() -> bool)(g_strict_test_bodies);
 _trial_eval_test_body :: (
   fn(
-    imm(body) : AstExpr,
-    imm(original_body) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(outer_exn) : Exception
+    body : &AstExpr,
+    original_body : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    outer_exn : &Exception
   ) -> unit
 )({
   // Strict mode hands the trial the CALLER's exception, so a real error
@@ -132,10 +132,10 @@ _trial_eval_test_body :: (
 /// evaluated at compile time only to catch errors early.
 evaluate_test :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env_in) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

@@ -1,9 +1,10 @@
 $ yo check main.yo
-error: `inout(x)` was deleted: an exclusive borrow is spelled `x : &mut T` (a local one `y := &mut place`, the borrowed loop `for(&mut xs, x => ...)`) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it.
+error[E0009]: `inout(x)` was deleted: an exclusive borrow is spelled `x : &mut T` (a receiver `self : &mut Self`, a local one `y := &mut place`, the borrowed loop `for(&mut xs, x => ...)`) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it.
   --> main.yo:1:13
   |
 1 | bump :: (fn(inout(n) : i32) -> unit)({
   |             ^^^^^
+help: run `yo explain E0009` for more information
 yo: error: check: 1 file(s) failed evaluator coverage
 check: parsing <REPO>/std/prelude.yo
 check: parsed <PRELUDE_EXPRS> top-level exprs

@@ -22,7 +22,7 @@ make_node :: (fn(v : i32) -> Node)(
 // Throws before producing a value — the caller's reassignment never
 // completes, so the old value must be dropped exactly once (the local's
 // scope drop), not also via the save temp.
-replace_or_throw :: (fn(imm(old) : Node, imm(exn) : Exception) -> Node)({
+replace_or_throw :: (fn(old : &Node, exn : &Exception) -> Node)({
   exn.throw(dyn(String.from("no replacement available")));
   old
 });

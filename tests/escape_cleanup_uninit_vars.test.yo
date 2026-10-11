@@ -28,7 +28,7 @@ get_opt_token :: (fn(present : bool) -> Option(Token))(
   cond(present => .Some(Token(name : `tok`)), true => .None)
 );
 // Pattern 1 — unwind inside (var : T) = match(...) initializer.
-parse_one :: (fn(present : bool, imm(exn) : Exception) -> ParseResult)({
+parse_one :: (fn(present : bool, exn : &Exception) -> ParseResult)({
   (tok : Token) = match(
     get_opt_token(present),
     .None => exn.throw(dyn(ParseError(message : `eof`))),
@@ -38,7 +38,7 @@ parse_one :: (fn(present : bool, imm(exn) : Exception) -> ParseResult)({
 });
 // Pattern 2 — break inside a match arm in `while runtime(true)`,
 // with an RC-typed binding declared after the break.
-collect_one :: (fn(present : bool, imm(exn) : Exception) -> ParseResult)({
+collect_one :: (fn(present : bool, exn : &Exception) -> ParseResult)({
   (final_label : String) = `default`;
   while(runtime(true), {
     match(

@@ -35,7 +35,7 @@
 (g_enum_sig_keys : HashMap(String, String)) = HashMap(String, String).new();
 /// Look up the canonical key for a structural signature; register `full_key` as
 /// the canonical for `sig` on first sight.
-_lookup_or_register_enum_sig :: (fn(imm(sig) : String, imm(full_key) : String) -> String)(
+_lookup_or_register_enum_sig :: (fn(sig : &String, full_key : &String) -> String)(
   match(
     g_enum_sig_keys.get(sig),
     // CLONE the stored canonical: a returned String shares the map value's
@@ -73,7 +73,7 @@ _lookup_or_register_enum_sig :: (fn(imm(sig) : String, imm(full_key) : String) -
 /// SAME capture struct. Scoped to argument slots only: a top-level SomeT
 /// (dyn/box closure wrappers) keys by its own id — hopping there over-merged
 /// the wrapper's fat call/data struct with the capture struct.
-_tk_resolve_arg_slot :: (fn(imm(t_in) : TypeValue) -> TypeValue)({
+_tk_resolve_arg_slot :: (fn(t_in : &TypeValue) -> TypeValue)({
   (cur : TypeValue) = t_in;
   (seen : ArrayList(String)) = ArrayList(String).new();
   (walk : bool) = true;
@@ -131,7 +131,7 @@ _tk_resolve_arg_slot :: (fn(imm(t_in) : TypeValue) -> TypeValue)({
   if(is_some_type(cur), t_in, cur)
 });
 /// True when `somes` holds a SomeT whose id is `id`.
-_tk_somes_have_id :: (fn(imm(somes) : ArrayList(TypeValue), imm(id) : String) -> bool)({
+_tk_somes_have_id :: (fn(somes : &ArrayList(TypeValue), id : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   while((i < somes.len()) && !found, {
@@ -140,7 +140,7 @@ _tk_somes_have_id :: (fn(imm(somes) : ArrayList(TypeValue), imm(id) : String) ->
   });
   found
 });
-_tk_seen :: (fn(imm(id) : String) -> bool)({
+_tk_seen :: (fn(id : &String) -> bool)({
   n := g_tk_visited.len();
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -160,8 +160,8 @@ _tk_seen :: (fn(imm(id) : String) -> bool)({
 /// its type arguments (`_tk_arg_id`). A true self-reference (a recursive
 /// struct's `Option(Self)` field) repeats both; two instantiations sharing a
 /// def-era id do not.
-_tk_node_id :: (fn(imm(sid) : String, imm(tas) : ArrayList(TypeValue)) -> String)(_tk_args_sig(sid, tas, usize(0)));
-_tk_args_sig :: (fn(imm(head) : String, imm(tas) : ArrayList(TypeValue), depth : usize) -> String)({
+_tk_node_id :: (fn(sid : &String, tas : &ArrayList(TypeValue)) -> String)(_tk_args_sig(sid, tas, usize(0)));
+_tk_args_sig :: (fn(head : &String, tas : &ArrayList(TypeValue), depth : usize) -> String)({
   node := head.clone();
   (i : usize) = usize(0);
   while(i < tas.len(), {
@@ -183,7 +183,7 @@ _tk_args_sig :: (fn(imm(head) : String, imm(tas) : ArrayList(TypeValue), depth :
 /// id alone reads the chain as a cycle); a SomeT by its id and its
 /// resolution's end; anything else by its spelling. Nested arguments stop at a
 /// fixed depth, which only a cycle through type arguments reaches.
-_tk_arg_id :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
+_tk_arg_id :: (fn(t : &TypeValue, depth : usize) -> String)(
   match(
     t,
     .Struct({ id : sh_sid, type_arguments : sh_tas }) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, sh_tas, depth + usize(1)), `s:${sh_sid}`),
@@ -195,7 +195,7 @@ _tk_arg_id :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
     _ => type_to_string(t)
   )
 );
-_type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
+_type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
   match(
     t,
     .Struct({ id, constructor_func_id : cfid, type_arguments : tas, field_types : fts, is_reference_semantics : t_is_ref }) => {
@@ -672,7 +672,7 @@ _type_key_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)(
     _ => type_to_string(t)
   )
 );
-type_key :: (fn(imm(t) : TypeValue) -> String)({
+type_key :: (fn(t : &TypeValue) -> String)({
   // Fresh expansion-path set per top-level key build (see g_tk_visited).
   g_tk_visited = ArrayList(String).new();
   _type_key_at(t, usize(0))
@@ -690,7 +690,7 @@ type_key :: (fn(imm(t) : TypeValue) -> String)({
 // render distinctly here (by their own sid), which only means a missed
 // alias — never a wrong merge, since equal renders imply equal structure.
 (g_sti_visited : ArrayList(String)) = ArrayList(String).new();
-_sti_seen :: (fn(imm(id) : String) -> bool)({
+_sti_seen :: (fn(id : &String) -> bool)({
   n := g_sti_visited.len();
   (i : usize) = usize(0);
   (found : bool) = false;
@@ -706,7 +706,7 @@ _sti_seen :: (fn(imm(id) : String) -> bool)({
   });
   found
 });
-_stable_identity_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)({
+_stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
   // DEPTH CAP: the id-based cycle guard below cuts CYCLES, but a memoized
   // instantiation CHAIN (Option(RBNode(Option(RBNode(…)))) where every level
   // is a DISTINCT instance with a fresh id) is an infinite NON-cyclic graph —
@@ -868,7 +868,7 @@ _stable_identity_at :: (fn(imm(t) : TypeValue, depth : usize) -> String)({
     _ => type_to_string(t)
   )
 });
-stable_type_identity :: (fn(imm(t) : TypeValue) -> String)({
+stable_type_identity :: (fn(t : &TypeValue) -> String)({
   g_sti_visited = ArrayList(String).new();
   _stable_identity_at(t, usize(0))
 });
@@ -878,7 +878,7 @@ stable_type_identity :: (fn(imm(t) : TypeValue) -> String)({
 /// so `Option(Option(i32))` from `wrap(wrap(x))` nests two `Option` instances
 /// under one id; a guard keyed by the id alone reads that nesting as a cycle.
 /// The id alone for a non-generic enum, "" for any other type.
-enum_instance_node_id :: (fn(imm(t) : TypeValue) -> String)(
+enum_instance_node_id :: (fn(t : &TypeValue) -> String)(
   match(
     t,
     .EnumT({ id : ein_id, type_arguments : ein_tas }) => _tk_node_id(ein_id, ein_tas),

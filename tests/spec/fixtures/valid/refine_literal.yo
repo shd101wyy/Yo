@@ -2,7 +2,7 @@ pragma(Pragma.Verify);
 
 non_zero :: ghost_fn((fn(x : i32) -> bool)(x != i32(0)));
 
-takes_nz :: (fn(imm(d) : refine(i32, non_zero)) -> i32)(d + i32(1));
+takes_nz :: (fn(d : &refine(i32, non_zero)) -> i32)(d + i32(1));
 
 // Literal arguments: the refine#1 obligation (5 != 0 / 0 != 0) is
 // CONSTANT-FOLDED in _emit — proved and refuted WITHOUT an SMT call

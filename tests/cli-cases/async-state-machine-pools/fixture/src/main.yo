@@ -9,7 +9,7 @@ Thing :: ref(struct(n : i32));
 impl(
   Thing,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_disposed = (g_disposed + i32(1));
     })
   )
@@ -17,7 +17,7 @@ impl(
 
 // One machine type, created and released 1000 times: from the second task
 // on, each takes the memory the previous one gave back.
-_child :: (fn(imm(s) : String, i : i32, io : Io) -> Impl(Future(i32, Io)))(
+_child :: (fn(s : &String, i : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     t := Thing(n : i);
     e.await(yield(e), e);

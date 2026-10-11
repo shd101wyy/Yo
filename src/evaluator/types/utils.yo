@@ -42,7 +42,7 @@
 // ---------------------------------------------------------------------------
 // Helpers: check all field types for a trait
 // ---------------------------------------------------------------------------
-_all_fields_implement_send :: (fn(imm(field_types) : ArrayList(TypeValue), imm(env) : Environment) -> bool)({
+_all_fields_implement_send :: (fn(field_types : &ArrayList(TypeValue), env : &Environment) -> bool)({
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
@@ -55,7 +55,7 @@ _all_fields_implement_send :: (fn(imm(field_types) : ArrayList(TypeValue), imm(e
   });
   all_ok
 });
-_all_fields_implement_sync :: (fn(imm(field_types) : ArrayList(TypeValue), imm(env) : Environment) -> bool)({
+_all_fields_implement_sync :: (fn(field_types : &ArrayList(TypeValue), env : &Environment) -> bool)({
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
@@ -68,7 +68,7 @@ _all_fields_implement_sync :: (fn(imm(field_types) : ArrayList(TypeValue), imm(e
   });
   all_ok
 });
-_all_fields_implement_acyclic :: (fn(imm(field_types) : ArrayList(TypeValue), imm(env) : Environment) -> bool)({
+_all_fields_implement_acyclic :: (fn(field_types : &ArrayList(TypeValue), env : &Environment) -> bool)({
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
@@ -86,7 +86,7 @@ _all_fields_implement_acyclic :: (fn(imm(field_types) : ArrayList(TypeValue), im
 /// the buffer, and this derive can run before a self-referential element's own
 /// cycle status is known, so `ArrayList(Node)` is correctly withheld from Acyclic
 /// while `ArrayList(i32)` stays Acyclic).
-_all_buffer_elements_acyclic :: (fn(imm(field_types) : ArrayList(TypeValue), imm(env) : Environment) -> bool)({
+_all_buffer_elements_acyclic :: (fn(field_types : &ArrayList(TypeValue), env : &Environment) -> bool)({
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
@@ -103,7 +103,7 @@ _all_buffer_elements_acyclic :: (fn(imm(field_types) : ArrayList(TypeValue), imm
   });
   all_ok
 });
-_all_fields_implement_comptime :: (fn(imm(field_types) : ArrayList(TypeValue), imm(env) : Environment) -> bool)({
+_all_fields_implement_comptime :: (fn(field_types : &ArrayList(TypeValue), env : &Environment) -> bool)({
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
@@ -116,7 +116,7 @@ _all_fields_implement_comptime :: (fn(imm(field_types) : ArrayList(TypeValue), i
   });
   all_ok
 });
-_all_fields_implement_runtime :: (fn(imm(field_types) : ArrayList(TypeValue), imm(env) : Environment) -> bool)({
+_all_fields_implement_runtime :: (fn(field_types : &ArrayList(TypeValue), env : &Environment) -> bool)({
   n := field_types.len();
   (i : usize) = usize(0);
   (all_ok : bool) = true;
@@ -141,12 +141,12 @@ _all_fields_implement_runtime :: (fn(imm(field_types) : ArrayList(TypeValue), im
 /// `self_type` is the final struct TypeValue — used for `can_type_form_rc_cycle`.
 auto_derive_traits_for_struct_type :: (
   fn(
-    imm(struct_id) : String,
-    imm(field_types) : ArrayList(TypeValue),
+    struct_id : &String,
+    field_types : &ArrayList(TypeValue),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
-    imm(env) : Environment,
-    imm(self_type) : TypeValue
+    env : &Environment,
+    self_type : &TypeValue
   ) -> unit
 )({
   // Begin Send/Sync derivation cycle guard.
@@ -196,7 +196,7 @@ auto_derive_traits_for_struct_type :: (
 // auto_derive_traits_for_enum_type
 // ---------------------------------------------------------------------------
 /// Collect all variant field types from a nested ArrayList(ArrayList(TypeValue)).
-_flatten_variant_fields :: (fn(imm(variant_fields) : ArrayList(ArrayList(TypeValue))) -> ArrayList(TypeValue))({
+_flatten_variant_fields :: (fn(variant_fields : &ArrayList(ArrayList(TypeValue))) -> ArrayList(TypeValue))({
   result := ArrayList(TypeValue).new();
   n := variant_fields.len();
   (i : usize) = usize(0);
@@ -226,12 +226,12 @@ _flatten_variant_fields :: (fn(imm(variant_fields) : ArrayList(ArrayList(TypeVal
 /// `self_type` is the final EnumT — used for `can_type_form_rc_cycle`.
 auto_derive_traits_for_enum_type :: (
   fn(
-    imm(enum_id) : String,
-    imm(variant_fields) : ArrayList(ArrayList(TypeValue)),
+    enum_id : &String,
+    variant_fields : &ArrayList(ArrayList(TypeValue)),
     is_reference_semantics : bool,
     is_atomic_rc : bool,
-    imm(env) : Environment,
-    imm(self_type) : TypeValue
+    env : &Environment,
+    self_type : &TypeValue
   ) -> unit
 )(
   auto_derive_traits_for_struct_type(
@@ -254,9 +254,9 @@ auto_derive_traits_for_enum_type :: (
 /// Traits derived from all field types.
 auto_derive_traits_for_union_type :: (
   fn(
-    imm(union_id) : String,
-    imm(field_types) : ArrayList(TypeValue),
-    imm(env) : Environment
+    union_id : &String,
+    field_types : &ArrayList(TypeValue),
+    env : &Environment
   ) -> unit
 )({
   // Send: all fields Send. Sync: all fields Sync.
@@ -304,12 +304,12 @@ auto_derive_traits_for_union_type :: (
 /// begin/end_send_derivation bracket.
 enforce_atomic_object_send :: (
   fn(
-    imm(struct_ty) : TypeValue,
-    imm(field_labels) : ArrayList(String),
-    imm(field_types) : ArrayList(TypeValue),
-    imm(env) : Environment,
-    imm(error_token) : Token,
-    imm(exn) : Exception
+    struct_ty : &TypeValue,
+    field_labels : &ArrayList(String),
+    field_types : &ArrayList(TypeValue),
+    env : &Environment,
+    error_token : &Token,
+    exn : &Exception
   ) -> unit
 )({
   if(is_implicitly_unsafe_capable_file(Option(String).Some(error_token.module_path.clone())), {

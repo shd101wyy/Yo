@@ -137,83 +137,83 @@ pragma(Pragma.AllowUnsafe);
 // === Builtin Yo functions ===
 extern(
   "Yo",
-  __yo_return_self : (fn(generic(T : Type), imm(self) : T) -> T),
+  __yo_return_self : (fn(generic(T : Type), self : &T) -> T),
   __yo_noop : (fn(generic(T : Type)) -> T),
-  __yo_borrow_assert_unborrowed : (fn(generic(T : Type), imm(obj) : T) -> unit),
-  __yo_borrow_acquire : (fn(generic(T : Type), imm(obj) : T) -> unit),
-  __yo_borrow_release : (fn(generic(T : Type), imm(obj) : T) -> unit),
-  __yo_as : (fn(generic(_Self : Type), imm(self) : _Self, comptime(Target) : Type) -> Target),
+  __yo_borrow_assert_unborrowed : (fn(generic(T : Type), obj : &T) -> unit),
+  __yo_borrow_acquire : (fn(generic(T : Type), obj : &T) -> unit),
+  __yo_borrow_release : (fn(generic(T : Type), obj : &T) -> unit),
+  __yo_as : (fn(generic(_Self : Type), self : &_Self, comptime(Target) : Type) -> Target),
   // Arithmetic Operators
   /// +
-  __yo_op_add : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_add : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// -
-  __yo_op_sub : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_sub : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// *
-  __yo_op_mul : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_mul : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// /
-  __yo_op_div : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_div : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// %
-  __yo_op_mod : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_mod : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// -
-  __yo_op_neg : (fn(generic(T : Type), imm(x) : T) -> T),
+  __yo_op_neg : (fn(generic(T : Type), x : &T) -> T),
   // Wrapping arithmetic (safe mode Phase 3a-i): two's-complement wrap for
   // signed (defined by -fwrapv), modular for unsigned. The escape hatch the
   // + - * overflow traps are built on — for arithmetic that wraps BY DESIGN
   // (hash mixing, counters, checksums).
   /// wrapping add
-  __yo_op_add_wrap : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_add_wrap : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// wrapping sub
-  __yo_op_sub_wrap : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_sub_wrap : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// wrapping mul
-  __yo_op_mul_wrap : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_mul_wrap : (fn(generic(T : Type), x : &T, y : &T) -> T),
   // Relational Operators
   /// ==
-  __yo_op_eq : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> bool),
+  __yo_op_eq : (fn(generic(T : Type), x : &T, y : &T) -> bool),
   /// !=
-  __yo_op_neq : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> bool),
+  __yo_op_neq : (fn(generic(T : Type), x : &T, y : &T) -> bool),
   /// <
-  __yo_op_lt : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> bool),
+  __yo_op_lt : (fn(generic(T : Type), x : &T, y : &T) -> bool),
   /// <=
-  __yo_op_lte : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> bool),
+  __yo_op_lte : (fn(generic(T : Type), x : &T, y : &T) -> bool),
   /// >
-  __yo_op_gt : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> bool),
+  __yo_op_gt : (fn(generic(T : Type), x : &T, y : &T) -> bool),
   /// >=
-  __yo_op_gte : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> bool),
+  __yo_op_gte : (fn(generic(T : Type), x : &T, y : &T) -> bool),
   // Logical Operators
   /// !
-  __yo_op_not : (fn(generic(T : Type), imm(x) : T) -> bool),
+  __yo_op_not : (fn(generic(T : Type), x : &T) -> bool),
   // Bitwise Operators
   /// &
-  __yo_op_bit_and : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_bit_and : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// |
-  __yo_op_bit_or : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_bit_or : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// ^
-  __yo_op_bit_xor : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_bit_xor : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// ~
-  __yo_op_bit_complement : (fn(generic(T : Type), imm(x) : T) -> T),
+  __yo_op_bit_complement : (fn(generic(T : Type), x : &T) -> T),
   /// <<
-  __yo_op_bit_left_shift : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_bit_left_shift : (fn(generic(T : Type), x : &T, y : &T) -> T),
   /// >>
-  __yo_op_bit_right_shift : (fn(generic(T : Type), imm(x) : T, imm(y) : T) -> T),
+  __yo_op_bit_right_shift : (fn(generic(T : Type), x : &T, y : &T) -> T),
   // Ptr related functions
   __yo_ptr_add :
-    (fn(generic(T : Type), imm(ptr) : T, offset : usize) -> T),
+    (fn(generic(T : Type), ptr : &T, offset : usize) -> T),
   __yo_ptr_sub :
-    (fn(generic(T : Type), imm(ptr) : T, offset : usize) -> T),
+    (fn(generic(T : Type), ptr : &T, offset : usize) -> T),
   __yo_ptr_diff :
-    (fn(generic(T : Type), imm(ptr1) : T, imm(ptr2) : T) -> isize),
+    (fn(generic(T : Type), ptr1 : &T, ptr2 : &T) -> isize),
   __yo_ptr_eq :
-    (fn(generic(T : Type), imm(ptr1) : T, imm(ptr2) : T) -> bool),
+    (fn(generic(T : Type), ptr1 : &T, ptr2 : &T) -> bool),
   __yo_ptr_neq :
-    (fn(generic(T : Type), imm(ptr1) : T, imm(ptr2) : T) -> bool),
+    (fn(generic(T : Type), ptr1 : &T, ptr2 : &T) -> bool),
   __yo_ptr_lt :
-    (fn(generic(T : Type), imm(ptr1) : T, imm(ptr2) : T) -> bool),
+    (fn(generic(T : Type), ptr1 : &T, ptr2 : &T) -> bool),
   __yo_ptr_lte :
-    (fn(generic(T : Type), imm(ptr1) : T, imm(ptr2) : T) -> bool),
+    (fn(generic(T : Type), ptr1 : &T, ptr2 : &T) -> bool),
   __yo_ptr_gt :
-    (fn(generic(T : Type), imm(ptr1) : T, imm(ptr2) : T) -> bool),
+    (fn(generic(T : Type), ptr1 : &T, ptr2 : &T) -> bool),
   __yo_ptr_gte :
-    (fn(generic(T : Type), imm(ptr1) : T, imm(ptr2) : T) -> bool),
+    (fn(generic(T : Type), ptr1 : &T, ptr2 : &T) -> bool),
   // str (builtin static string view) intrinsics
   __yo_str_from_raw_parts :
     (fn(ptr : *u8, length : usize) -> str),
@@ -225,7 +225,7 @@ extern(
     (fn(s : str, idx : usize) -> u8),
   // array indexing builtin (used by Index trait impls)
   __yo_array_index :
-    (fn(generic(T : Type, N : usize), imm(self) : *Array(T, N), idx : usize) -> *T),
+    (fn(generic(T : Type, N : usize), self : &*Array(T, N), idx : usize) -> *T),
   // Process related functions
   __yo_process_platform : (fn() -> comptime(comptime_str)),
   __yo_process_arch : (fn() -> comptime(comptime_str))
@@ -295,7 +295,7 @@ Dispose :: trait(
   /// It must be safe to run exactly once, and a type that also exposes an
   /// explicit `close`/`release` is responsible for making the second call a
   /// no-op.
-  dispose : (fn(imm(self) : Self) -> unit)
+  dispose : (fn(self : &Self) -> unit)
 );
 export(Dispose);
 /// === Cycle-GC tracing ===
@@ -308,7 +308,7 @@ export(GcTracer);
 extern(
   "Yo",
   /// Per-slot edge tracer (compiler intrinsic). Internal — call `tracer.visit`.
-  __yo_gc_trace_child : (fn(generic(T : Type), tracer : GcTracer, imm(slot) : *T) -> unit)
+  __yo_gc_trace_child : (fn(generic(T : Type), tracer : GcTracer, slot : &*T) -> unit)
 );
 impl(
   GcTracer,
@@ -318,7 +318,7 @@ impl(
   /// Passing the slot pointer (not the element by value) keeps tracing RC-neutral: a
   /// by-value managed handle would be dup'd then dropped, freeing a live element
   /// mid-collection.
-  visit : (fn(generic(T : Type), self : Self, imm(slot) : *T) -> unit)(
+  visit : (fn(generic(T : Type), self : Self, slot : &*T) -> unit)(
     __yo_gc_trace_child(self, slot)
   )
 );
@@ -331,7 +331,7 @@ impl(
 /// `impl`).
 Trace :: trait(
   id := "Trace",
-  trace : (fn(imm(self) : Self, tracer : GcTracer) -> unit)
+  trace : (fn(self : &Self, tracer : GcTracer) -> unit)
 );
 export(Trace);
 // === Explicit allocators ===
@@ -378,7 +378,7 @@ export(AllocatorVTable, Allocator);
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(mut(self) : Self, imm(idx) : Idx) -> *Self.Output)
+    index : (fn(self : &mut Self, idx : &Idx) -> *Self.Output)
   )
 );
 export(Index);
@@ -391,14 +391,14 @@ export(Index);
 /// behavior.
 IndexUnchecked :: trait(
   Output : Type,
-  index_unchecked : (fn(mut(self) : Self, idx : usize) -> *Self.Output)
+  index_unchecked : (fn(self : &mut Self, idx : usize) -> *Self.Output)
 );
 export(IndexUnchecked);
 /// ComptimeIndex — compile-time indexing trait for constant expressions.
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(comptime(mut(self)) : Self, comptime(idx) : Idx) -> comptime(*Self.Output)),
+    index : (fn(comptime(self) : &mut Self, comptime(idx) : Idx) -> comptime(*Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -415,12 +415,12 @@ RangeInclusive :: (fn(comptime(T) : Type) -> comptime(Type))(
 export(RangeInclusive);
 /// RangeOp trait — enables `start..end` operator syntax.
 RangeOp :: trait(
-  (..) : (fn(imm(start) : Self, imm(end) : Self) -> Range(Self))
+  (..) : (fn(start : &Self, end : &Self) -> Range(Self))
 );
 export(RangeOp);
 /// RangeInclusiveOp trait — enables `start..=end` operator syntax.
 RangeInclusiveOp :: trait(
-  (..=) : (fn(imm(start) : Self, imm(end) : Self) -> RangeInclusive(Self))
+  (..=) : (fn(start : &Self, end : &Self) -> RangeInclusive(Self))
 );
 export(RangeInclusiveOp);
 // comptime array/slice/string indexing builtins (used by ComptimeIndex trait impls).
@@ -458,7 +458,7 @@ Add :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     /// The output type of the addition.
     Output : Type,
-    (+) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Self.Output)
+    (+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Add);
@@ -466,7 +466,7 @@ export(Add);
 ComptimeAdd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (+) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(Self.Output)),
+    (+) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -475,14 +475,14 @@ export(ComptimeAdd);
 Sub :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (-) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Self.Output)
+    (-) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Sub);
 ComptimeSub :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (-) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(Self.Output)),
+    (-) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -491,14 +491,14 @@ export(ComptimeSub);
 Mul :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (*) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Self.Output)
+    (*) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Mul);
 ComptimeMul :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (*) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(Self.Output)),
+    (*) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -507,14 +507,14 @@ export(ComptimeMul);
 Div :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (/) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Self.Output)
+    (/) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Div);
 ComptimeDiv :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (/) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(Self.Output)),
+    (/) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -523,14 +523,14 @@ export(ComptimeDiv);
 Mod :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (%) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Self.Output)
+    (%) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(Mod);
 ComptimeMod :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (%) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(Self.Output)),
+    (%) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -539,14 +539,14 @@ export(ComptimeMod);
 BitLeftShift :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (<<) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Self.Output)
+    (<<) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(BitLeftShift);
 ComptimeBitLeftShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (<<) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(Self.Output)),
+    (<<) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -555,14 +555,14 @@ export(ComptimeBitLeftShift);
 BitRightShift :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (>>) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Self.Output)
+    (>>) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(BitRightShift);
 ComptimeBitRightShift :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (>>) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(Self.Output)),
+    (>>) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -574,32 +574,32 @@ export(ComptimeBitRightShift);
 /// Negate trait — enables unary `-value` operator.
 Negate :: trait(
   Output : Type,
-  neg : (fn(imm(self) : Self) -> Self.Output)
+  neg : (fn(self : Self) -> Self.Output)
 );
 export(Negate);
 ComptimeNegate :: trait(
   Output : Type,
-  neg : (fn(comptime(imm(self)) : Self) -> comptime(Self.Output)),
+  neg : (fn(comptime(self) : Self) -> comptime(Self.Output)),
   where(Self <: Comptime, Self.Output <: Comptime)
 );
 export(ComptimeNegate);
 /// LogicalNot trait — enables `!value` boolean negation.
-LogicalNot :: trait((!) : (fn(imm(self) : Self) -> bool));
+LogicalNot :: trait((!) : (fn(self : Self) -> bool));
 export(LogicalNot);
 ComptimeLogicalNot :: trait(
-  (!) : (fn(comptime(imm(self)) : Self) -> comptime(bool)),
+  (!) : (fn(comptime(self) : Self) -> comptime(bool)),
   where(Self <: Comptime)
 );
 export(ComptimeLogicalNot);
 /// BitNot trait — enables `~value` bitwise complement.
 BitNot :: trait(
   Output : Type,
-  (~) : (fn(imm(self) : Self) -> Self.Output)
+  (~) : (fn(self : Self) -> Self.Output)
 );
 export(BitNot);
 ComptimeBitNot :: trait(
   Output : Type,
-  (~) : (fn(comptime(imm(self)) : Self) -> comptime(Self.Output)),
+  (~) : (fn(comptime(self) : Self) -> comptime(Self.Output)),
   where(Self <: Comptime, Self.Output <: Comptime)
 );
 export(ComptimeBitNot);
@@ -607,14 +607,14 @@ export(ComptimeBitNot);
 BitAnd :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (&) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Self.Output)
+    (&) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(BitAnd);
 ComptimeBitAnd :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (&) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(Self.Output)),
+    (&) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -623,14 +623,14 @@ export(ComptimeBitAnd);
 BitOr :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (|) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Self.Output)
+    (|) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(BitOr);
 ComptimeBitOr :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (|) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(Self.Output)),
+    (|) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -639,14 +639,14 @@ export(ComptimeBitOr);
 BitXor :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    (^) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Self.Output)
+    (^) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)
   )
 );
 export(BitXor);
 ComptimeBitXor :: (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
   trait(
     Output : Type,
-    (^) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(Self.Output)),
+    (^) : (fn(comptime(lhs) : Self, comptime(rhs) : Rhs) -> comptime(Self.Output)),
     where(Self <: Comptime, Self.Output <: Comptime)
   )
 );
@@ -655,7 +655,7 @@ export(ComptimeBitXor);
   not :: (
     fn(
       generic(_Self : Type),
-      imm(self) : _Self,
+      self : _Self,
       where(_Self <: LogicalNot)
     ) -> bool
   )(self.(!)());
@@ -675,7 +675,7 @@ export(not, !);
   bit_not :: (
     fn(
       generic(_Self : Type),
-      imm(self) : _Self,
+      self : _Self,
       where(_Self <: BitNot)
     ) -> _Self
   )(self.(~)());
@@ -694,7 +694,7 @@ export(~);
   neg :: (
     fn(
       generic(_Self : Type),
-      imm(self) : _Self,
+      self : _Self,
       where(_Self <: Negate)
     ) -> _Self
   )({
@@ -742,8 +742,8 @@ impl(
 Eq ::
   (fn(comptime(Rhs) : Type) -> comptime(Trait))(
     trait(
-      (==) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool),
-      ((!=) : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool)) ?=
+      (==) : (fn(lhs : &Self, rhs : &Rhs) -> bool),
+      ((!=) : (fn(lhs : &Self, rhs : &Rhs) -> bool)) ?=
         (
           (lhs, rhs) ->
             not(Self.(==)(lhs, rhs))
@@ -754,8 +754,8 @@ export(Eq);
 ComptimeEq ::
   (fn(comptime(Rhs) : Type, where(Rhs <: Comptime)) -> comptime(Trait))(
     trait(
-      (==) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(bool)),
-      ((!=) : (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(bool))) ?=
+      (==) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(bool)),
+      ((!=) : (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(bool))) ?=
         (
           (lhs, rhs) ->
             not(Self.(==)(lhs, rhs))
@@ -789,14 +789,14 @@ Ord :: (
 )(
   trait(
     (<) :
-      (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool),
+      (fn(lhs : &Self, rhs : &Rhs) -> bool),
     (<=) :
-      (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool),
+      (fn(lhs : &Self, rhs : &Rhs) -> bool),
     (>) :
-      (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool),
+      (fn(lhs : &Self, rhs : &Rhs) -> bool),
     (>=) :
-      (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> bool),
-    (cmp : (fn(imm(lhs) : Self, imm(rhs) : Rhs) -> Ordering)) ?=
+      (fn(lhs : &Self, rhs : &Rhs) -> bool),
+    (cmp : (fn(lhs : &Self, rhs : &Rhs) -> Ordering)) ?=
       (
         (lhs, rhs) ->
           cond(
@@ -836,7 +836,7 @@ impl(
   where(T <: Eq(T)),
   Reverse(T),
   Eq(Reverse(T))(
-    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(lhs.value == rhs.value)
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.value == rhs.value)
   )
 );
 impl(
@@ -845,10 +845,10 @@ impl(
   Reverse(T),
   Ord(Reverse(T))(
     // Every operator swaps its operands — that IS the inversion.
-    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(rhs.value < lhs.value),
-    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(rhs.value <= lhs.value),
-    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(rhs.value > lhs.value),
-    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(rhs.value >= lhs.value)
+    (<) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs.value < lhs.value),
+    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs.value <= lhs.value),
+    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs.value > lhs.value),
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs.value >= lhs.value)
   )
 );
 export(Reverse);
@@ -860,13 +860,13 @@ ComptimeOrd :: (
 )(
   trait(
     (<) :
-      (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(bool)),
+      (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(bool)),
     (<=) :
-      (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(bool)),
+      (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(bool)),
     (>) :
-      (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(bool)),
+      (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(bool)),
     (>=) :
-      (fn(comptime(imm(lhs)) : Self, comptime(imm(rhs)) : Rhs) -> comptime(bool)),
+      (fn(comptime(lhs) : &Self, comptime(rhs) : &Rhs) -> comptime(bool)),
     where(Self <: (Comptime, ComptimeEq(Rhs)))
   )
 );
@@ -886,43 +886,43 @@ export(ComptimeOrd);
 */
 Hasher :: trait(
   /// Feed `size` bytes starting at `buf`.
-  write : (fn(mut(self) : Self, buf : *u8, size : usize) -> unit),
+  write : (fn(self : &mut Self, buf : *u8, size : usize) -> unit),
   /// The hash of everything written so far.
-  finish : (fn(mut(self) : Self) -> u64),
-  (write_u8 : (fn(mut(self) : Self, v : u8) -> unit)) ?=
+  finish : (fn(self : &mut Self) -> u64),
+  (write_u8 : (fn(self : &mut Self, v : u8) -> unit)) ?=
     (
       (self, v) -> {
         b := v;
         self.write(addr_of(b), usize(1));
       }
     ),
-  (write_u16 : (fn(mut(self) : Self, v : u16) -> unit)) ?=
+  (write_u16 : (fn(self : &mut Self, v : u16) -> unit)) ?=
     (
       (self, v) -> {
         b := v;
         self.write(unsafe.cast(addr_of(b), *u8), usize(2));
       }
     ),
-  (write_u32 : (fn(mut(self) : Self, v : u32) -> unit)) ?=
+  (write_u32 : (fn(self : &mut Self, v : u32) -> unit)) ?=
     (
       (self, v) -> {
         b := v;
         self.write(unsafe.cast(addr_of(b), *u8), usize(4));
       }
     ),
-  (write_u64 : (fn(mut(self) : Self, v : u64) -> unit)) ?=
+  (write_u64 : (fn(self : &mut Self, v : u64) -> unit)) ?=
     (
       (self, v) -> {
         b := v;
         self.write(unsafe.cast(addr_of(b), *u8), usize(8));
       }
     ),
-  (write_usize : (fn(mut(self) : Self, v : usize) -> unit)) ?= ((self, v) -> self.write_u64(u64(v))),
-  (write_i8 : (fn(mut(self) : Self, v : i8) -> unit)) ?= ((self, v) -> self.write_u8(u8(v))),
-  (write_i16 : (fn(mut(self) : Self, v : i16) -> unit)) ?= ((self, v) -> self.write_u16(u16(v))),
-  (write_i32 : (fn(mut(self) : Self, v : i32) -> unit)) ?= ((self, v) -> self.write_u32(u32(v))),
-  (write_i64 : (fn(mut(self) : Self, v : i64) -> unit)) ?= ((self, v) -> self.write_u64(u64(v))),
-  (write_isize : (fn(mut(self) : Self, v : isize) -> unit)) ?= ((self, v) -> self.write_u64(u64(v)))
+  (write_usize : (fn(self : &mut Self, v : usize) -> unit)) ?= ((self, v) -> self.write_u64(u64(v))),
+  (write_i8 : (fn(self : &mut Self, v : i8) -> unit)) ?= ((self, v) -> self.write_u8(u8(v))),
+  (write_i16 : (fn(self : &mut Self, v : i16) -> unit)) ?= ((self, v) -> self.write_u16(u16(v))),
+  (write_i32 : (fn(self : &mut Self, v : i32) -> unit)) ?= ((self, v) -> self.write_u32(u32(v))),
+  (write_i64 : (fn(self : &mut Self, v : i64) -> unit)) ?= ((self, v) -> self.write_u64(u64(v))),
+  (write_isize : (fn(self : &mut Self, v : isize) -> unit)) ?= ((self, v) -> self.write_u64(u64(v)))
 );
 export(Hasher);
 /**
@@ -944,7 +944,7 @@ export(Hasher);
 */
 Hash :: trait(
   /// Feed this value's identity into `hasher`.
-  hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)
+  hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)
 );
 export(Hash);
 /// Clone trait — deep-copy a value.
@@ -952,7 +952,7 @@ Clone :: trait(
   /// Create an independent clone of `self`.
   clone :
     (
-      fn(mut(self) : Self) -> Self
+      fn(self : &mut Self) -> Self
     )
 );
 export(Clone);
@@ -1016,7 +1016,7 @@ impl(f32, Default(default : (fn() -> Self)(f32(0.0))));
 impl(f64, Default(default : (fn() -> Self)(f64(0.0))));
 /// Isolation trait — runtime check whether a value can be safely transferred.
 Isolation :: trait(
-  can_isolate : (fn(imm(self) : Self) -> bool)
+  can_isolate : (fn(self : &Self) -> bool)
 );
 export(Isolation);
 /// ComptimeToString trait — compile-time string conversion.
@@ -1046,27 +1046,27 @@ impl(unit, Sync());
 impl(
   unit,
   Eq(unit)(
-    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(true),
-    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(false)
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(true),
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(false)
   )
 );
 impl(
   unit,
   Ord(unit)(
-    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(false),
-    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(true),
-    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(false),
-    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(true),
-    cmp : (fn(imm(lhs) : Self, imm(rhs) : Self) -> Ordering)(Ordering.Equal)
+    (<) : (fn(lhs : &Self, rhs : &Self) -> bool)(false),
+    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(true),
+    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(false),
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(true),
+    cmp : (fn(lhs : &Self, rhs : &Self) -> Ordering)(Ordering.Equal)
   )
 );
 impl(
   unit,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(())
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(())
   )
 );
-impl(unit, Clone(clone : (fn(imm(self) : Self) -> Self)(())));
+impl(unit, Clone(clone : (fn(self : &Self) -> Self)(())));
 impl(unit, Copy());
 impl(unit, Default(default : (fn() -> Self)(())));
 /// void
@@ -1390,7 +1390,7 @@ impl(bool, Copy());
 impl(
   bool,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u8(cond(self => u8(1), true => u8(0))))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u8(cond(self => u8(1), true => u8(0))))
   )
 );
 impl(
@@ -1538,7 +1538,7 @@ impl(
 impl(
   i8,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i8(self))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i8(self))
   )
 );
 impl(
@@ -1834,7 +1834,7 @@ impl(
 impl(
   i16,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i16(self))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i16(self))
   )
 );
 impl(
@@ -2190,7 +2190,7 @@ impl(
 impl(
   i32,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i32(self))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(self))
   )
 );
 impl(
@@ -2429,7 +2429,7 @@ impl(
 impl(
   i64,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(self))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(self))
   )
 );
 impl(
@@ -2718,7 +2718,7 @@ impl(
 impl(
   u8,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u8(self))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u8(self))
   )
 );
 impl(
@@ -2997,7 +2997,7 @@ impl(
 impl(
   u16,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u16(self))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u16(self))
   )
 );
 impl(
@@ -3276,7 +3276,7 @@ impl(
 impl(
   u32,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u32(self))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(self))
   )
 );
 impl(
@@ -3555,7 +3555,7 @@ impl(
 impl(
   u64,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u64(self))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(self))
   )
 );
 impl(
@@ -4222,7 +4222,7 @@ impl(
 impl(
   isize,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_isize(self))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_isize(self))
   )
 );
 impl(
@@ -4510,7 +4510,7 @@ impl(
 impl(
   usize,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_usize(self))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_usize(self))
   )
 );
 impl(
@@ -4850,11 +4850,11 @@ impl(
   where(T <: Integer),
   T,
   /// `self + rhs` with two's-complement wrap on overflow.
-  wrapping_add : (fn(imm(self) : T, imm(rhs) : T) -> T)(__yo_op_add_wrap(self, rhs)),
+  wrapping_add : (fn(self : &T, rhs : &T) -> T)(__yo_op_add_wrap(self, rhs)),
   /// `self - rhs` with two's-complement wrap on overflow.
-  wrapping_sub : (fn(imm(self) : T, imm(rhs) : T) -> T)(__yo_op_sub_wrap(self, rhs)),
+  wrapping_sub : (fn(self : &T, rhs : &T) -> T)(__yo_op_sub_wrap(self, rhs)),
   /// `self * rhs` with two's-complement wrap on overflow.
-  wrapping_mul : (fn(imm(self) : T, imm(rhs) : T) -> T)(__yo_op_mul_wrap(self, rhs))
+  wrapping_mul : (fn(self : &T, rhs : &T) -> T)(__yo_op_mul_wrap(self, rhs))
 );
 /**
 * Overflow-aware integer arithmetic, Rust's shapes: `checked_*` reports
@@ -4872,7 +4872,7 @@ impl(
   where(T <: Integer),
   T,
   /// `self + rhs`, or `.None` if it would overflow.
-  checked_add : (fn(imm(self) : T, imm(rhs) : T) -> Option(T))(
+  checked_add : (fn(self : &T, rhs : &T) -> Option(T))(
     cond(
       ((rhs > T(0)) && (self > (T.MAX - rhs))) => Option(T).None,
       ((rhs < T(0)) && (self < (T.MIN - rhs))) => Option(T).None,
@@ -4880,7 +4880,7 @@ impl(
     )
   ),
   /// `self - rhs`, or `.None` if it would overflow.
-  checked_sub : (fn(imm(self) : T, imm(rhs) : T) -> Option(T))(
+  checked_sub : (fn(self : &T, rhs : &T) -> Option(T))(
     cond(
       ((rhs < T(0)) && (self > (T.MAX + rhs))) => Option(T).None,
       ((rhs > T(0)) && (self < (T.MIN + rhs))) => Option(T).None,
@@ -4888,7 +4888,7 @@ impl(
     )
   ),
   /// `self * rhs`, or `.None` if it would overflow.
-  checked_mul : (fn(imm(self) : T, imm(rhs) : T) -> Option(T))(
+  checked_mul : (fn(self : &T, rhs : &T) -> Option(T))(
     cond(
       ((self == T(0)) || (rhs == T(0))) => Option(T).Some(T(0)),
       ((self > T(0)) && (rhs > T(0))) =>
@@ -4906,7 +4906,7 @@ impl(
   /// `-1` is spelled `T(0) - rhs == T(1)` rather than `T(-1)`: a negative
   /// literal does not type-check at the unsigned specializations, and the
   /// `rhs < T(0)` guard short-circuits before the subtraction there.
-  checked_div : (fn(imm(self) : T, imm(rhs) : T) -> Option(T))(
+  checked_div : (fn(self : &T, rhs : &T) -> Option(T))(
     cond(
       (rhs == T(0)) => Option(T).None,
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
@@ -4914,7 +4914,7 @@ impl(
     )
   ),
   /// `self % rhs`, or `.None` on divide-by-zero and on `MIN % -1`.
-  checked_rem : (fn(imm(self) : T, imm(rhs) : T) -> Option(T))(
+  checked_rem : (fn(self : &T, rhs : &T) -> Option(T))(
     cond(
       (rhs == T(0)) => Option(T).None,
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
@@ -4922,7 +4922,7 @@ impl(
     )
   ),
   /// `self + rhs`, clamped to the type's bounds instead of overflowing.
-  saturating_add : (fn(imm(self) : T, imm(rhs) : T) -> T)(
+  saturating_add : (fn(self : &T, rhs : &T) -> T)(
     match(
       self.checked_add(rhs),
       .Some(v) => v,
@@ -4930,7 +4930,7 @@ impl(
     )
   ),
   /// `self - rhs`, clamped to the type's bounds instead of overflowing.
-  saturating_sub : (fn(imm(self) : T, imm(rhs) : T) -> T)(
+  saturating_sub : (fn(self : &T, rhs : &T) -> T)(
     match(
       self.checked_sub(rhs),
       .Some(v) => v,
@@ -4938,17 +4938,17 @@ impl(
     )
   ),
   /// `(wrapped sum, did it overflow)` — Rust's `overflowing_add`.
-  overflowing_add : (fn(imm(self) : T, imm(rhs) : T) -> Tuple(T, bool))(
+  overflowing_add : (fn(self : &T, rhs : &T) -> Tuple(T, bool))(
     match(self.checked_add(rhs), .Some(v) => (v, false), .None => (self.wrapping_add(rhs), true))
   ),
   /// `(wrapped difference, did it overflow)` — Rust's `overflowing_sub`.
-  overflowing_sub : (fn(imm(self) : T, imm(rhs) : T) -> Tuple(T, bool))(
+  overflowing_sub : (fn(self : &T, rhs : &T) -> Tuple(T, bool))(
     match(self.checked_sub(rhs), .Some(v) => (v, false), .None => (self.wrapping_sub(rhs), true))
   ),
   /// `|self|`, or `.None` for `MIN` — which has no positive counterpart in a
   /// two's-complement range. On the unsigned types the `T.MIN < T(0)` guard is
   /// false, so this is the identity.
-  checked_abs : (fn(imm(self) : T) -> Option(T))(
+  checked_abs : (fn(self : &T) -> Option(T))(
     cond(
       ((self == T.MIN) && (T.MIN < T(0))) => Option(T).None,
       (self < T(0)) => Option(T).Some(T(0) - self),
@@ -4956,11 +4956,11 @@ impl(
     )
   ),
   /// `|self|`, clamped to `MAX` where `checked_abs` would report overflow.
-  saturating_abs : (fn(imm(self) : T) -> T)(
+  saturating_abs : (fn(self : &T) -> T)(
     match(self.checked_abs(), .Some(v) => v, .None => T.MAX)
   ),
   /// `self` raised to `exp`, or `.None` if any step would overflow.
-  checked_pow : (fn(imm(self) : T, exp : u32) -> Option(T))({
+  checked_pow : (fn(self : &T, exp : u32) -> Option(T))({
     (acc : T) = T(1);
     (i : u32) = u32(0);
     (overflowed : bool) = false;
@@ -4979,11 +4979,11 @@ impl(
     cond(overflowed => Option(T).None, true => Option(T).Some(acc))
   }),
   /// `self` clamped into `[lo, hi]`.
-  clamp : (fn(imm(self) : T, imm(lo) : T, imm(hi) : T) -> T)(
+  clamp : (fn(self : &T, lo : &T, hi : &T) -> T)(
     cond((self < lo) => lo, (self > hi) => hi, true => self)
   ),
   /// `self * rhs`, clamped to the type's bounds instead of overflowing.
-  saturating_mul : (fn(imm(self) : T, imm(rhs) : T) -> T)(
+  saturating_mul : (fn(self : &T, rhs : &T) -> T)(
     match(
       self.checked_mul(rhs),
       .Some(v) => v,
@@ -4996,7 +4996,7 @@ impl(
   ),
   /// `-self`, or `.None` when it does not fit — `-T.MIN` for a signed type,
   /// and any non-zero value for an unsigned one.
-  checked_neg : (fn(imm(self) : T) -> Option(T))(
+  checked_neg : (fn(self : &T) -> Option(T))(
     cond(
       (self == T(0)) => Option(T).Some(T(0)),
       (T.MIN == T(0)) => Option(T).None,
@@ -5005,13 +5005,13 @@ impl(
     )
   ),
   /// `(wrapped product, did it overflow)` — Rust's `overflowing_mul`.
-  overflowing_mul : (fn(imm(self) : T, imm(rhs) : T) -> Tuple(T, bool))(
+  overflowing_mul : (fn(self : &T, rhs : &T) -> Tuple(T, bool))(
     match(self.checked_mul(rhs), .Some(v) => (v, false), .None => (self.wrapping_mul(rhs), true))
   ),
   /// `self` raised to `exp`. PANICS on overflow rather than wrapping — a
   /// silently wrapped power is a wrong answer that propagates, and
   /// `checked_pow` is right there for a caller who wants to handle it.
-  pow : (fn(imm(self) : T, exp : u32) -> T)(
+  pow : (fn(self : &T, exp : u32) -> T)(
     match(
       self.checked_pow(exp),
       .Some(v) => v,
@@ -5020,7 +5020,7 @@ impl(
   ),
   /// `self` raised to `exp`, clamped to the type's bounds instead of
   /// overflowing.
-  saturating_pow : (fn(imm(self) : T, exp : u32) -> T)(
+  saturating_pow : (fn(self : &T, exp : u32) -> T)(
     match(
       self.checked_pow(exp),
       .Some(v) => v,
@@ -5037,7 +5037,7 @@ impl(
   /// the paired remainder is never negative. C's `/` truncates toward zero,
   /// which makes `(-7) / 2` equal `-3` and leaves `rem_euclid` no way to stay
   /// non-negative; Rust separates the two for exactly this reason.
-  div_euclid : (fn(imm(self) : T, imm(rhs) : T) -> T)({
+  div_euclid : (fn(self : &T, rhs : &T) -> T)({
     q := (self / rhs);
     cond(
       ((self % rhs) < T(0)) => cond((rhs > T(0)) => (q - T(1)), true => (q + T(1))),
@@ -5046,7 +5046,7 @@ impl(
   }),
   /// `self` modulo `rhs`, ALWAYS non-negative — Rust's `rem_euclid`. C's `%`
   /// keeps the sign of the dividend, so `(-7) % 2` is `-1`; this is `1`.
-  rem_euclid : (fn(imm(self) : T, imm(rhs) : T) -> T)({
+  rem_euclid : (fn(self : &T, rhs : &T) -> T)({
     r := (self % rhs);
     cond(
       (r < T(0)) => cond((rhs < T(0)) => (r - rhs), true => (r + rhs)),
@@ -5063,7 +5063,7 @@ impl(
   /// bits and the XOR the differing ones, whose half is exactly the rest of
   /// the average. `>>` on a signed type is arithmetic in Yo, so the rounding
   /// is toward NEGATIVE infinity — `i64.MIN.midpoint(i64.MAX)` is `-1`.
-  midpoint : (fn(imm(self) : T, imm(rhs) : T) -> T)(
+  midpoint : (fn(self : &T, rhs : &T) -> T)(
     (self & rhs) + ((self ^ rhs) >> T(1))
   ),
   /// The integer square root — the greatest `r` with `r * r <= self`. PANICS
@@ -5078,7 +5078,7 @@ impl(
   ///
   /// Every step divides rather than multiplying (`self / r`, never `r * r`),
   /// so no intermediate product can overflow either.
-  isqrt : (fn(imm(self) : T) -> T)(
+  isqrt : (fn(self : &T) -> T)(
     cond(
       (self < T(0)) => __yo_panic("isqrt: the receiver is negative"),
       (self < T(2)) => self,
@@ -5098,7 +5098,7 @@ impl(
   /// Exponentiation by squaring, every step through `wrapping_mul`, so no
   /// intermediate can leave the type (signed overflow is undefined behaviour
   /// in C, so the product must never be formed unchecked).
-  wrapping_pow : (fn(imm(self) : T, exp : u32) -> T)({
+  wrapping_pow : (fn(self : &T, exp : u32) -> T)({
     (acc : T) = T(1);
     (base : T) = self;
     (e : u32) = exp;
@@ -5122,7 +5122,7 @@ impl(
   /// `(self.wrapping_pow(exp), overflowed)` — Rust's `overflowing_pow`.
   /// `overflowed` is decided by `checked_pow`, so the flag is the same
   /// question `checked_pow` already answers rather than a second derivation.
-  overflowing_pow : (fn(imm(self) : T, exp : u32) -> Tuple(T, bool))(
+  overflowing_pow : (fn(self : &T, exp : u32) -> Tuple(T, bool))(
     match(
       self.checked_pow(exp),
       .Some(v) => (v, false),
@@ -5137,7 +5137,7 @@ impl(
   /// on an unsigned instantiation `T(0) - T(1)` is a comptime overflow and a
   /// HARD ERROR, while `rhs < T(0)` short-circuits before the subtraction is
   /// ever evaluated. `checked_div` above already uses that idiom.
-  wrapping_div : (fn(imm(self) : T, imm(rhs) : T) -> T)(
+  wrapping_div : (fn(self : &T, rhs : &T) -> T)(
     cond(
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T.MIN,
       true => (self / rhs)
@@ -5146,7 +5146,7 @@ impl(
   /// `self % rhs` wrapped to the type's range — Rust's `wrapping_rem`. As
   /// with `wrapping_div`, only `T.MIN % -1` differs from `%`, and its
   /// mathematical remainder is `0`.
-  wrapping_rem : (fn(imm(self) : T, imm(rhs) : T) -> T)(
+  wrapping_rem : (fn(self : &T, rhs : &T) -> T)(
     cond(
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T(0),
       true => (self % rhs)
@@ -5154,7 +5154,7 @@ impl(
   ),
   /// `self / rhs`, clamped to the type's bound — Rust's `saturating_div`.
   /// `T.MIN / -1` saturates to `T.MAX`; every other quotient already fits.
-  saturating_div : (fn(imm(self) : T, imm(rhs) : T) -> T)(
+  saturating_div : (fn(self : &T, rhs : &T) -> T)(
     cond(
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T.MAX,
       true => (self / rhs)
@@ -5164,12 +5164,12 @@ impl(
   /// `checked_neg`'s companion `overflowing_neg`. `T.MIN` negates to itself
   /// with the flag set; on an unsigned type every nonzero value overflows,
   /// which is Rust's behaviour too.
-  overflowing_neg : (fn(imm(self) : T) -> Tuple(T, bool))(
+  overflowing_neg : (fn(self : &T) -> Tuple(T, bool))(
     match(self.checked_neg(), .Some(v) => (v, false), .None => (T.MIN, true))
   ),
   /// Euclidean division, or `.None` when it does not fit — Rust's
   /// `checked_div_euclid`. `.None` for a zero divisor and for `T.MIN / -1`.
-  checked_div_euclid : (fn(imm(self) : T, imm(rhs) : T) -> Option(T))(
+  checked_div_euclid : (fn(self : &T, rhs : &T) -> Option(T))(
     cond(
       (rhs == T(0)) => Option(T).None,
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
@@ -5179,7 +5179,7 @@ impl(
   /// Euclidean remainder, or `.None` when it does not fit — Rust's
   /// `checked_rem_euclid`. Same two rejected inputs as
   /// `checked_div_euclid`: the pair is computed together.
-  checked_rem_euclid : (fn(imm(self) : T, imm(rhs) : T) -> Option(T))(
+  checked_rem_euclid : (fn(self : &T, rhs : &T) -> Option(T))(
     cond(
       (rhs == T(0)) => Option(T).None,
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
@@ -5194,7 +5194,7 @@ impl(
   /// Written as a halving loop rather than `BITS - 1 - leading_zeros()`
   /// because the latter needs the receiver widened to `u64` through its own
   /// unsigned type, which a `where(T <: Integer)` body cannot spell.
-  ilog2 : (fn(imm(self) : T) -> u32)(
+  ilog2 : (fn(self : &T) -> u32)(
     cond(
       (self <= T(0)) => __yo_panic("ilog2: the receiver must be positive"),
       true => {
@@ -5209,7 +5209,7 @@ impl(
     )
   ),
   /// `floor(log10(self))`. PANICS for a receiver at or below zero.
-  ilog10 : (fn(imm(self) : T) -> u32)(
+  ilog10 : (fn(self : &T) -> u32)(
     cond(
       (self <= T(0)) => __yo_panic("ilog10: the receiver must be positive"),
       true => {
@@ -5226,7 +5226,7 @@ impl(
   /// `floor(log(self) / log(base))`. PANICS for a receiver at or below zero
   /// and for a base below 2 — Rust panics on both, and a base of 1 has no
   /// terminating loop at all.
-  ilog : (fn(imm(self) : T, imm(base) : T) -> u32)(
+  ilog : (fn(self : &T, base : &T) -> u32)(
     cond(
       (self <= T(0)) => __yo_panic("ilog: the receiver must be positive"),
       (base < T(2)) => __yo_panic("ilog: the base must be at least 2"),
@@ -5247,7 +5247,7 @@ impl(
   ///
   /// This and the five below are what `BITS` is for: a width-dependent
   /// operation written ONCE over `T` instead of ten times per method.
-  checked_shl : (fn(imm(self) : T, n : u32) -> Option(T))(
+  checked_shl : (fn(self : &T, n : u32) -> Option(T))(
     cond(
       (n >= T.BITS) => Option(T).None,
       true => Option(T).Some(self << T(n))
@@ -5256,7 +5256,7 @@ impl(
   /// `self >> n`, or `.None` when `n` is at or above the type's width.
   /// Arithmetic on a signed type, logical on an unsigned one — Yo's `>>`
   /// already follows the receiver's signedness.
-  checked_shr : (fn(imm(self) : T, n : u32) -> Option(T))(
+  checked_shr : (fn(self : &T, n : u32) -> Option(T))(
     cond(
       (n >= T.BITS) => Option(T).None,
       true => Option(T).Some(self >> T(n))
@@ -5264,21 +5264,21 @@ impl(
   ),
   /// `self << (n % BITS)` — Rust's `wrapping_shl`. The shift COUNT wraps, not
   /// the value; bits shifted out are still discarded.
-  wrapping_shl : (fn(imm(self) : T, n : u32) -> T)(
+  wrapping_shl : (fn(self : &T, n : u32) -> T)(
     self << T(n % T.BITS)
   ),
   /// `self >> (n % BITS)` — Rust's `wrapping_shr`.
-  wrapping_shr : (fn(imm(self) : T, n : u32) -> T)(
+  wrapping_shr : (fn(self : &T, n : u32) -> T)(
     self >> T(n % T.BITS)
   ),
   /// `(self.wrapping_shl(n), n >= BITS)` — Rust's `overflowing_shl`. The flag
   /// reports that the COUNT was reduced, not that any bit was lost: a shift
   /// that discards set bits is not an overflow here, exactly as in Rust.
-  overflowing_shl : (fn(imm(self) : T, n : u32) -> Tuple(T, bool))(
+  overflowing_shl : (fn(self : &T, n : u32) -> Tuple(T, bool))(
     (self.wrapping_shl(n), n >= T.BITS)
   ),
   /// `(self.wrapping_shr(n), n >= BITS)` — Rust's `overflowing_shr`.
-  overflowing_shr : (fn(imm(self) : T, n : u32) -> Tuple(T, bool))(
+  overflowing_shr : (fn(self : &T, n : u32) -> Tuple(T, bool))(
     (self.wrapping_shr(n), n >= T.BITS)
   )
 );
@@ -5304,7 +5304,7 @@ impl(
   /// Rust's debug build does the same, and `checked_abs` is the form that
   /// reports it. Wrapping to `T.MIN` silently, as Rust's release build does,
   /// would return a NEGATIVE absolute value.
-  abs : (fn(imm(self) : T) -> T)(
+  abs : (fn(self : &T) -> T)(
     cond(
       (self == T.MIN) => __yo_panic("abs: the absolute value of MIN does not fit"),
       (self < T(0)) => (T(0) - self),
@@ -5312,15 +5312,15 @@ impl(
     )
   ),
   /// `-1`, `0` or `1` according to the sign.
-  signum : (fn(imm(self) : T) -> T)(
+  signum : (fn(self : &T) -> T)(
     cond((self > T(0)) => T(1), (self < T(0)) => (T(0) - T(1)), true => T(0))
   ),
   /// `-self` modulo the type's range: `T.MIN` negates to itself.
-  wrapping_neg : (fn(imm(self) : T) -> T)(
+  wrapping_neg : (fn(self : &T) -> T)(
     cond((self == T.MIN) => T.MIN, true => (T(0) - self))
   ),
   /// The absolute value modulo the type's range: `T.MIN` maps to itself.
-  wrapping_abs : (fn(imm(self) : T) -> T)(
+  wrapping_abs : (fn(self : &T) -> T)(
     cond((self == T.MIN) => T.MIN, (self < T(0)) => (T(0) - self), true => self)
   )
 );
@@ -5352,7 +5352,7 @@ impl(
   ///
   /// The body is `wrapping_abs` reinterpreted: at `MIN` that is `MIN` itself,
   /// whose two's-complement bit pattern IS the unsigned magnitude.
-  unsigned_abs : (fn(imm(self) : T) -> T.Unsigned)(T.Unsigned(self.wrapping_abs()))
+  unsigned_abs : (fn(self : &T) -> T.Unsigned)(T.Unsigned(self.wrapping_abs()))
 );
 /**
 * Bit-level integer batteries, Rust's shapes — ONE blanket impl over all ten
@@ -5515,39 +5515,39 @@ impl(
   /// Counted over the receiver's OWN two's-complement pattern, which is what
   /// the trip through `T.Unsigned` buys: `i8(-1).count_ones()` is `8`, not
   /// `64`.
-  count_ones : (fn(imm(self) : T) -> u32)(_popcount_u64(u64(T.Unsigned(self)))),
+  count_ones : (fn(self : &T) -> u32)(_popcount_u64(u64(T.Unsigned(self)))),
   /// The number of zero bits.
-  count_zeros : (fn(imm(self) : T) -> u32)(T.BITS - _popcount_u64(u64(T.Unsigned(self)))),
+  count_zeros : (fn(self : &T) -> u32)(T.BITS - _popcount_u64(u64(T.Unsigned(self)))),
   /// The number of leading zero bits, the full width for zero — and always
   /// `0` for a negative receiver, whose sign bit is set.
-  leading_zeros : (fn(imm(self) : T) -> u32)(
+  leading_zeros : (fn(self : &T) -> u32)(
     _leading_zeros_u64(u64(T.Unsigned(self))) - (u32(64) - T.BITS)
   ),
   /// The number of trailing zero bits, the full width for zero.
-  trailing_zeros : (fn(imm(self) : T) -> u32)(
+  trailing_zeros : (fn(self : &T) -> u32)(
     cond((self == T(0)) => T.BITS, true => _trailing_zeros_u64(u64(T.Unsigned(self))))
   ),
   /// The number of leading one bits.
-  leading_ones : (fn(imm(self) : T) -> u32)(
+  leading_ones : (fn(self : &T) -> u32)(
     _leading_zeros_u64(u64(T.Unsigned(~self))) - (u32(64) - T.BITS)
   ),
   /// The number of trailing one bits.
-  trailing_ones : (fn(imm(self) : T) -> u32)({
+  trailing_ones : (fn(self : &T) -> u32)({
     c := u64(T.Unsigned(~self));
     cond((c == u64(0)) => T.BITS, true => _trailing_zeros_u64(c))
   }),
   /// `self` rotated left by `n` bits, wrapping the bits that fall off the top
   /// back in at the bottom. NOT a shift: no bit is lost, and `n` is taken
   /// modulo the width, so a full turn is the identity.
-  rotate_left : (fn(imm(self) : T, n : u32) -> T)(
+  rotate_left : (fn(self : &T, n : u32) -> T)(
     T(T.Unsigned(_rotate_left_u64(u64(T.Unsigned(self)), n, T.BITS)))
   ),
   /// `self` rotated right by `n` bits.
-  rotate_right : (fn(imm(self) : T, n : u32) -> T)(
+  rotate_right : (fn(self : &T, n : u32) -> T)(
     T(T.Unsigned(_rotate_right_u64(u64(T.Unsigned(self)), n, T.BITS)))
   ),
   /// `self` with its bit order reversed.
-  reverse_bits : (fn(imm(self) : T) -> T)(
+  reverse_bits : (fn(self : &T) -> T)(
     T(
       T.Unsigned(
         _reverse_bits_u64(u64(T.Unsigned(self))) >> (u64(64) - u64(T.BITS))
@@ -5555,7 +5555,7 @@ impl(
     )
   ),
   /// `self` with its byte order reversed — the host-endianness swap.
-  swap_bytes : (fn(imm(self) : T) -> T)(
+  swap_bytes : (fn(self : &T) -> T)(
     T(
       T.Unsigned(
         _swap_bytes_u64(u64(T.Unsigned(self))) >> (u64(64) - u64(T.BITS))
@@ -5579,7 +5579,7 @@ impl(
   where(T <: (Integer, ByteWidth)),
   T,
   /// The big-endian byte representation — most significant byte first.
-  to_be_bytes : (fn(imm(self) : T) -> Array(u8, T.BYTES))({
+  to_be_bytes : (fn(self : &T) -> Array(u8, T.BYTES))({
     (out : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
     u := T.Unsigned(self);
     (i : usize) = usize(0);
@@ -5590,7 +5590,7 @@ impl(
     out
   }),
   /// The little-endian byte representation — least significant byte first.
-  to_le_bytes : (fn(imm(self) : T) -> Array(u8, T.BYTES))({
+  to_le_bytes : (fn(self : &T) -> Array(u8, T.BYTES))({
     (out : Array(u8, T.BYTES)) = Array(u8, T.BYTES).fill(u8(0));
     u := T.Unsigned(self);
     (i : usize) = usize(0);
@@ -5646,12 +5646,12 @@ impl(
   where(T <: (Integer, UnsignedInteger, UnsignedCounterpart)),
   T,
   /// True when exactly one bit is set. `0` is NOT a power of two.
-  is_power_of_two : (fn(imm(self) : T) -> bool)(
+  is_power_of_two : (fn(self : &T) -> bool)(
     (self != T(0)) && ((self & (self - T(1))) == T(0))
   ),
   /// The smallest power of two at or above `self`, or `.None` when that does
   /// not fit. `0` and `1` both give `1`.
-  checked_next_power_of_two : (fn(imm(self) : T) -> Option(T))(
+  checked_next_power_of_two : (fn(self : &T) -> Option(T))(
     cond(
       (self <= T(1)) => Option(T).Some(T(1)),
       (self > ((T.MAX >> T(1)) + T(1))) => Option(T).None,
@@ -5664,7 +5664,7 @@ impl(
   /// The smallest power of two at or above `self`. PANICS when that does not
   /// fit, rather than wrapping to `0` the way Rust's release build does — a
   /// silent `0` here is a buffer of size zero somewhere downstream.
-  next_power_of_two : (fn(imm(self) : T) -> T)(
+  next_power_of_two : (fn(self : &T) -> T)(
     match(
       self.checked_next_power_of_two(),
       .Some(v) => v,
@@ -5919,7 +5919,7 @@ impl(
 impl(
   char,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
   )
 );
 impl(
@@ -6031,7 +6031,7 @@ impl(
 impl(
   int,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i32(i32(self)))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(i32(self)))
   )
 );
 impl(
@@ -6143,7 +6143,7 @@ impl(
 impl(
   uint,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
   )
 );
 impl(
@@ -6255,7 +6255,7 @@ impl(
 impl(
   short,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i16(i16(self)))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i16(i16(self)))
   )
 );
 impl(
@@ -6367,7 +6367,7 @@ impl(
 impl(
   ushort,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u16(u16(self)))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u16(u16(self)))
   )
 );
 impl(
@@ -6479,7 +6479,7 @@ impl(
 impl(
   long,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
@@ -6591,7 +6591,7 @@ impl(
 impl(
   ulong,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
   )
 );
 impl(
@@ -6703,7 +6703,7 @@ impl(
 impl(
   longlong,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
@@ -6815,7 +6815,7 @@ impl(
 impl(
   ulonglong,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
   )
 );
 impl(
@@ -6927,7 +6927,7 @@ impl(
 impl(
   longdouble,
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
@@ -6984,16 +6984,16 @@ impl(
   generic(T : Type),
   *T,
   /// Offset forward by `count` elements (formerly `p &+ count`).
-  add : (fn(imm(self) : Self, count : usize) -> Self)(
+  add : (fn(self : &Self, count : usize) -> Self)(
     __yo_ptr_add(self, count)
   ),
   /// Offset backward by `count` elements (formerly `p &- count`).
-  sub : (fn(imm(self) : Self, count : usize) -> Self)(
+  sub : (fn(self : &Self, count : usize) -> Self)(
     __yo_ptr_sub(self, count)
   ),
   /// Signed element distance from `origin` to `self` (formerly `self &/ origin`).
   /// Both pointers must point into the same allocation.
-  offset_from : (fn(imm(self) : Self, imm(origin) : Self) -> isize)(
+  offset_from : (fn(self : &Self, origin : &Self) -> isize)(
     __yo_ptr_diff(self, origin)
   )
 );
@@ -7005,10 +7005,10 @@ impl(
   generic(T : Type),
   *T,
   Eq(*T)(
-    (==) : (fn(imm(lhs) : Self, imm(rhs) : *T) -> bool)(
+    (==) : (fn(lhs : &Self, rhs : &*T) -> bool)(
       __yo_ptr_eq(lhs, rhs)
     ),
-    (!=) : (fn(imm(lhs) : Self, imm(rhs) : *T) -> bool)(
+    (!=) : (fn(lhs : &Self, rhs : &*T) -> bool)(
       __yo_ptr_neq(lhs, rhs)
     )
   )
@@ -7017,16 +7017,16 @@ impl(
   generic(T : Type),
   *T,
   Ord(*T)(
-    (<) : (fn(imm(lhs) : Self, imm(rhs) : *T) -> bool)(
+    (<) : (fn(lhs : &Self, rhs : &*T) -> bool)(
       __yo_ptr_lt(lhs, rhs)
     ),
-    (<=) : (fn(imm(lhs) : Self, imm(rhs) : *T) -> bool)(
+    (<=) : (fn(lhs : &Self, rhs : &*T) -> bool)(
       __yo_ptr_lte(lhs, rhs)
     ),
-    (>) : (fn(imm(lhs) : Self, imm(rhs) : *T) -> bool)(
+    (>) : (fn(lhs : &Self, rhs : &*T) -> bool)(
       __yo_ptr_gt(lhs, rhs)
     ),
-    (>=) : (fn(imm(lhs) : Self, imm(rhs) : *T) -> bool)(
+    (>=) : (fn(lhs : &Self, rhs : &*T) -> bool)(
       __yo_ptr_gte(lhs, rhs)
     )
   )
@@ -7077,7 +7077,7 @@ impl(
 impl(
   generic(T : Type, U : usize),
   Array(T, U),
-  len : (fn(mut(self) : Self) -> usize)({
+  len : (fn(self : &mut Self) -> usize)({
     return(U);
   })
   /*
@@ -7143,7 +7143,7 @@ impl(
   // put N handles on ONE refcount. Without this the RC case compiled rc=0 and
   // died with SIGTRAP before printing anything, where the comptime-only `fill`
   // it replaces had refused the same program at COMPILE time.
-  fill : (fn(imm(val) : T, where(T <: Comptime)) -> Self)({
+  fill : (fn(val : &T, where(T <: Comptime)) -> Self)({
     mu := MaybeUninit(Self).new();
     raw := mu.as_ptr();
     p := (*T)(raw);
@@ -7157,7 +7157,7 @@ impl(
 );
 /// Array Index impls
 /// Bodies take `&(self)` so the `*(Array(T, N))`-expecting builtin
-/// receives the right C-ABI shape — `mut(self) : Self` gives the body
+/// receives the right C-ABI shape — `self : &mut Self` gives the body
 /// a value-typed view of `self` even though the runtime passes a
 /// pointer. See plans/archive/ITERATOR_REDESIGN.md.
 impl(
@@ -7165,7 +7165,7 @@ impl(
   Array(T, N),
   Index(usize)(
     Output : T,
-    index : (fn(mut(self) : Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
       __yo_array_index(addr_of(self), idx)
     )
   )
@@ -7184,7 +7184,7 @@ impl(
   where(T <: Eq(T)),
   Array(T, U),
   Eq(Self)(
-    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       i := usize(0);
       while(runtime(i < U), {
         cond(
@@ -7206,7 +7206,7 @@ impl(
   where(T <: (Eq(T), Ord(T))),
   Array(T, U),
   Ord(Self)(
-    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (<) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       i := usize(0);
       while(runtime(i < U), {
         cond(
@@ -7219,7 +7219,7 @@ impl(
       });
       return(false);
     }),
-    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       i := usize(0);
       while(runtime(i < U), {
         cond(
@@ -7232,7 +7232,7 @@ impl(
       });
       return(true);
     }),
-    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       i := usize(0);
       while(runtime(i < U), {
         cond(
@@ -7245,7 +7245,7 @@ impl(
       });
       return(false);
     }),
-    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       i := usize(0);
       while(runtime(i < U), {
         cond(
@@ -7269,7 +7269,7 @@ impl(
   where(T <: Clone),
   Array(T, U),
   Clone(
-    clone : (fn(mut(self) : Self) -> Self)({
+    clone : (fn(self : &mut Self) -> Self)({
       out := self;
       i := usize(0);
       while(runtime(i < U), {
@@ -7386,7 +7386,7 @@ impl(
   where(T <: Hash),
   Array(T, U),
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)({
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
       i := usize(0);
       while(runtime(i < U), {
         self(i).hash(hasher);
@@ -7415,7 +7415,7 @@ impl(
   Array(T, N),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(mut(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
+    index : (fn(comptime(self) : &mut Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       __yo_comptime_array_index(self, idx)
     )
   )
@@ -7467,16 +7467,16 @@ impl(
     __yo_str_from_raw_parts(ptr, length)
   ),
   /// Return the length in bytes.
-  len : (fn(imm(self) : Self) -> usize)(
+  len : (fn(self : &Self) -> usize)(
     __yo_str_len(self)
   ),
-  ptr : (fn(imm(self) : Self) -> *u8)(
+  ptr : (fn(self : &Self) -> *u8)(
     __yo_str_ptr(self)
   ),
   /// Return the byte at `idx`. Panics with an index-out-of-bounds diagnostic
   /// when `idx >= len()` (safe mode: every subscript is checked; there is no
   /// unchecked byte accessor).
-  bytes : (fn(imm(self) : Self, idx : usize) -> u8)(
+  bytes : (fn(self : &Self, idx : usize) -> u8)(
     __yo_str_byte(self, idx)
   )
 );
@@ -7484,12 +7484,12 @@ impl(
 /// bytes is still static (byte indices). `s(a..b)` lowers to this.
 impl(
   str,
-  slice_copy : (fn(imm(self) : Self, imm(r) : Range(usize)) -> Self)({
+  slice_copy : (fn(self : &Self, r : &Range(usize)) -> Self)({
     e := cond((r.end > __yo_str_len(self)) => __yo_str_len(self), true => r.end);
     st := cond((r.start > e) => e, true => r.start);
     __yo_str_from_raw_parts(__yo_str_ptr(self).add(st), e - st)
   }),
-  slice_copy_inclusive : (fn(imm(self) : Self, imm(r) : RangeInclusive(usize)) -> Self)({
+  slice_copy_inclusive : (fn(self : &Self, r : &RangeInclusive(usize)) -> Self)({
     e := cond(((r.end + usize(1)) > __yo_str_len(self)) => __yo_str_len(self), true => (r.end + usize(1)));
     st := cond((r.start > e) => e, true => r.start);
     __yo_str_from_raw_parts(__yo_str_ptr(self).add(st), e - st)
@@ -7508,7 +7508,7 @@ impl(str, Copy());
 impl(
   str,
   Eq(str)(
-    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       lhs_len := lhs.len();
       cond(
         (lhs_len != rhs.len()) => {
@@ -7527,7 +7527,7 @@ impl(
       });
       true
     }),
-    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       return(!Self.(==)(lhs, rhs));
     })
   )
@@ -7535,7 +7535,7 @@ impl(
 impl(
   str,
   Ord(str)(
-    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (<) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       lhs_len := lhs.len();
       rhs_len := rhs.len();
       min_len := cond((lhs_len < rhs_len) => lhs_len, true => rhs_len);
@@ -7553,13 +7553,13 @@ impl(
       });
       lhs_len < rhs_len
     }),
-    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       return(!(rhs < lhs));
     }),
-    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       return(rhs < lhs);
     }),
-    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)({
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)({
       return(!(lhs < rhs));
     })
   )
@@ -7599,7 +7599,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(usize)(
     Output : T,
-    index : (fn(comptime(mut(self)) : Self, comptime(idx) : usize) -> comptime(*Self.Output))(
+    index : (fn(comptime(self) : &mut Self, comptime(idx) : usize) -> comptime(*Self.Output))(
       __yo_comptime_list_index(self, idx)
     )
   )
@@ -7610,7 +7610,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(Range(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(mut(self)) : Self, comptime(idx) : Range(usize)) -> comptime(*Self.Output))(
+    index : (fn(comptime(self) : &mut Self, comptime(idx) : Range(usize)) -> comptime(*Self.Output))(
       __yo_comptime_list_index_range(self, idx)
     )
   )
@@ -7621,7 +7621,7 @@ impl(
   ComptimeList(T),
   ComptimeIndex(RangeInclusive(usize))(
     Output : ComptimeList(T),
-    index : (fn(comptime(mut(self)) : Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*Self.Output))(
+    index : (fn(comptime(self) : &mut Self, comptime(idx) : RangeInclusive(usize)) -> comptime(*Self.Output))(
       __yo_comptime_list_index_range_inclusive(self, idx)
     )
   )
@@ -7735,7 +7735,7 @@ impl(Expr, Acyclic());
 impl(
   Expr,
   ComptimeEq(Expr)(
-    (==) : (fn(comptime(imm(lhs)) : Expr, comptime(imm(rhs)) : Expr) -> comptime(bool))(
+    (==) : (fn(comptime(lhs) : &Expr, comptime(rhs) : &Expr) -> comptime(bool))(
       __yo_expr_eq(lhs, rhs)
     )
   )
@@ -8227,7 +8227,7 @@ impl(
   generic(T : Type),
   Option(T),
   /// Extract the contained value, panicking with a message if `None`.
-  unwrap : (fn(imm(self) : Self) -> T)(
+  unwrap : (fn(self : &Self) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8235,7 +8235,7 @@ impl(
     )
   ),
   /// Extract the contained value, or return `or_value` if `None`.
-  unwrap_or : (fn(imm(self) : Self, imm(or_value) : T) -> T)(
+  unwrap_or : (fn(self : &Self, or_value : &T) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8243,7 +8243,7 @@ impl(
     )
   ),
   /// Return `true` if the option contains a value.
-  is_some : (fn(imm(self) : Self) -> bool)(
+  is_some : (fn(self : &Self) -> bool)(
     match(
       self,
       .Some(_) => true,
@@ -8251,7 +8251,7 @@ impl(
     )
   ),
   /// Return `true` if the option is `None`.
-  is_none : (fn(imm(self) : Self) -> bool)(
+  is_none : (fn(self : &Self) -> bool)(
     match(
       self,
       .None => true,
@@ -8264,7 +8264,7 @@ impl(
   generic(T : Type),
   Option(T),
   /// Apply `f` to the contained value (if `Some`), or return `None`.
-  map : (fn(generic(B : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> B)) -> Option(B))(
+  map : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &T) -> B)) -> Option(B))(
     match(
       self,
       .Some(value) => Option(B).Some(f(value)),
@@ -8272,7 +8272,7 @@ impl(
     )
   ),
   /// Apply `f` to the contained value (if `Some`) and flatten the result.
-  and_then : (fn(generic(B : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> Option(B))) -> Option(B))(
+  and_then : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &T) -> Option(B))) -> Option(B))(
     match(
       self,
       .Some(value) => f(value),
@@ -8280,7 +8280,7 @@ impl(
     )
   ),
   /// Return `Some(value)` if the predicate returns `true`, otherwise `None`.
-  filter : (fn(imm(self) : Self, imm(predicate) : Impl(Fn(imm(a) : T) -> bool)) -> Option(T))(
+  filter : (fn(self : &Self, predicate : &Impl(Fn(a : &T) -> bool)) -> Option(T))(
     match(
       self,
       .Some(value) => cond(
@@ -8291,7 +8291,7 @@ impl(
     )
   ),
   /// Return this option if `Some`, otherwise call `f` and return its result.
-  or_else : (fn(imm(self) : Self, imm(f) : Impl(Fn() -> Option(T))) -> Option(T))(
+  or_else : (fn(self : &Self, f : &Impl(Fn() -> Option(T))) -> Option(T))(
     match(
       self,
       .Some(value) => Option(T).Some(value),
@@ -8299,7 +8299,7 @@ impl(
     )
   ),
   /// Apply `f` if `Some`, otherwise return `default_val`.
-  map_or : (fn(generic(B : Type), imm(self) : Self, imm(default_val) : B, imm(f) : Impl(Fn(imm(a) : T) -> B)) -> B)(
+  map_or : (fn(generic(B : Type), self : &Self, default_val : &B, f : &Impl(Fn(a : &T) -> B)) -> B)(
     match(
       self,
       .Some(value) => f(value),
@@ -8307,7 +8307,7 @@ impl(
     )
   ),
   /// Apply `f` if `Some`, otherwise call `default_fn`.
-  map_or_else : (fn(generic(B : Type), imm(self) : Self, imm(default_fn) : Impl(Fn() -> B), imm(f) : Impl(Fn(imm(a) : T) -> B)) -> B)(
+  map_or_else : (fn(generic(B : Type), self : &Self, default_fn : &Impl(Fn() -> B), f : &Impl(Fn(a : &T) -> B)) -> B)(
     match(
       self,
       .Some(value) => f(value),
@@ -8315,7 +8315,7 @@ impl(
     )
   ),
   /// Return `optb` if `self` is `Some`, otherwise `None`.
-  and : (fn(generic(B : Type), imm(self) : Self, imm(optb) : Option(B)) -> Option(B))(
+  and : (fn(generic(B : Type), self : &Self, optb : &Option(B)) -> Option(B))(
     match(
       self,
       .Some(_) => optb,
@@ -8323,7 +8323,7 @@ impl(
     )
   ),
   /// Return `self` if `Some`, otherwise return `optb`.
-  or : (fn(imm(self) : Self, imm(optb) : Option(T)) -> Option(T))(
+  or : (fn(self : &Self, optb : &Option(T)) -> Option(T))(
     match(
       self,
       .Some(value) => Option(T).Some(value),
@@ -8331,7 +8331,7 @@ impl(
     )
   ),
   /// Extract the contained value, or call `f` to produce a default.
-  unwrap_or_else : (fn(imm(self) : Self, imm(f) : Impl(Fn() -> T)) -> T)(
+  unwrap_or_else : (fn(self : &Self, f : &Impl(Fn() -> T)) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8339,7 +8339,7 @@ impl(
     )
   ),
   /// Extract the contained value, panicking with `msg` if `None`.
-  expect : (fn(imm(self) : Self, msg : str) -> T)(
+  expect : (fn(self : &Self, msg : str) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8347,7 +8347,7 @@ impl(
     )
   ),
   /// Return `true` if `Some` and the predicate holds for the value.
-  is_some_and : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> bool)) -> bool)(
+  is_some_and : (fn(self : &Self, f : &Impl(Fn(a : &T) -> bool)) -> bool)(
     match(
       self,
       .Some(value) => f(value),
@@ -8355,7 +8355,7 @@ impl(
     )
   ),
   /// Call `f` with the contained value (if `Some`), then return the option.
-  inspect : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : T) -> unit)) -> Option(T))(
+  inspect : (fn(self : &Self, f : &Impl(Fn(a : &T) -> unit)) -> Option(T))(
     match(
       self,
       .Some(value) => {
@@ -8371,13 +8371,13 @@ impl(
   generic(T : Type),
   Option(T),
   /// Take the value out of the option, leaving `None` in its place.
-  take : (fn(mut(self) : Self) -> Option(T))({
+  take : (fn(self : &mut Self) -> Option(T))({
     old := self;
     self = Option(T).None;
     old
   }),
   /// Replace the contained value with `Some(value)`, returning the old option.
-  replace : (fn(mut(self) : Self, value : T) -> Option(T))({
+  replace : (fn(self : &mut Self, value : T) -> Option(T))({
     old := self;
     self = Option(T).Some(value);
     old
@@ -8388,7 +8388,7 @@ impl(
   generic(T : Type),
   Option(Option(T)),
   /// Collapse one level of nesting.
-  flatten : (fn(imm(self) : Self) -> Option(T))(
+  flatten : (fn(self : &Self) -> Option(T))(
     match(
       self,
       .Some(inner) => inner,
@@ -8410,7 +8410,7 @@ impl(
   where(T <: Default),
   Option(T),
   /// Extract the contained value, or `T`'s default when `None`.
-  unwrap_or_default : (fn(imm(self) : Self) -> T)(
+  unwrap_or_default : (fn(self : &Self) -> T)(
     match(
       self,
       .Some(value) => value,
@@ -8847,7 +8847,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
   ctx.make_impl(
     quote(
       Hash(
-        hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(unquote(body.to_expr()))
+        hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(unquote(body.to_expr()))
       )
     )
   )
@@ -9106,7 +9106,7 @@ impl(
   generic(OkType : Type, ErrorType : Type),
   Result(OkType, ErrorType),
   /// Extract the `Ok` value, panicking if `Err`.
-  unwrap : (fn(imm(self) : Self) -> OkType)(
+  unwrap : (fn(self : &Self) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9114,7 +9114,7 @@ impl(
     )
   ),
   /// Extract the `Err` value, panicking if `Ok`.
-  unwrap_err : (fn(imm(self) : Self) -> ErrorType)(
+  unwrap_err : (fn(self : &Self) -> ErrorType)(
     match(
       self,
       .Err(error) => error,
@@ -9122,7 +9122,7 @@ impl(
     )
   ),
   /// Return `true` if the result is `Ok`.
-  is_ok : (fn(imm(self) : Self) -> bool)(
+  is_ok : (fn(self : &Self) -> bool)(
     match(
       self,
       .Ok(_) => true,
@@ -9130,7 +9130,7 @@ impl(
     )
   ),
   /// Return `true` if the result is `Err`.
-  is_err : (fn(imm(self) : Self) -> bool)(
+  is_err : (fn(self : &Self) -> bool)(
     match(
       self,
       .Err(_) => true,
@@ -9143,7 +9143,7 @@ impl(
   generic(OkType : Type, ErrorType : Type),
   Result(OkType, ErrorType),
   /// Map the `Ok` value with `f`, leaving `Err` untouched.
-  map : (fn(generic(B : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : OkType) -> B)) -> Result(B, ErrorType))(
+  map : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &OkType) -> B)) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(value) => Result(B, ErrorType).Ok(f(value)),
@@ -9151,7 +9151,7 @@ impl(
     )
   ),
   /// Map the `Err` value with `f`, leaving `Ok` untouched.
-  map_err : (fn(generic(F : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : ErrorType) -> F)) -> Result(OkType, F))(
+  map_err : (fn(generic(F : Type), self : &Self, f : &Impl(Fn(a : &ErrorType) -> F)) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -9159,7 +9159,7 @@ impl(
     )
   ),
   /// Chain a computation that may fail on the `Ok` value.
-  and_then : (fn(generic(B : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
+  and_then : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(value) => f(value),
@@ -9167,7 +9167,7 @@ impl(
     )
   ),
   /// Chain a recovery computation on the `Err` value.
-  or_else : (fn(generic(F : Type), imm(self) : Self, imm(f) : Impl(Fn(imm(a) : ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
+  or_else : (fn(generic(F : Type), self : &Self, f : &Impl(Fn(a : &ErrorType) -> Result(OkType, F))) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -9175,7 +9175,7 @@ impl(
     )
   ),
   /// Return `res` if `Ok`, otherwise propagate `Err`.
-  and : (fn(generic(B : Type), imm(self) : Self, imm(res) : Result(B, ErrorType)) -> Result(B, ErrorType))(
+  and : (fn(generic(B : Type), self : &Self, res : &Result(B, ErrorType)) -> Result(B, ErrorType))(
     match(
       self,
       .Ok(_) => res,
@@ -9183,7 +9183,7 @@ impl(
     )
   ),
   /// Return `self` if `Ok`, otherwise return `res`.
-  or : (fn(generic(F : Type), imm(self) : Self, imm(res) : Result(OkType, F)) -> Result(OkType, F))(
+  or : (fn(generic(F : Type), self : &Self, res : &Result(OkType, F)) -> Result(OkType, F))(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
@@ -9191,7 +9191,7 @@ impl(
     )
   ),
   /// Convert to `Option(OkType)`, discarding the error.
-  ok : (fn(imm(self) : Self) -> Option(OkType))(
+  ok : (fn(self : &Self) -> Option(OkType))(
     match(
       self,
       .Ok(value) => Option(OkType).Some(value),
@@ -9199,7 +9199,7 @@ impl(
     )
   ),
   /// Convert to `Option(ErrorType)`, discarding the success value.
-  err : (fn(imm(self) : Self) -> Option(ErrorType))(
+  err : (fn(self : &Self) -> Option(ErrorType))(
     match(
       self,
       .Ok(_) => Option(ErrorType).None,
@@ -9207,7 +9207,7 @@ impl(
     )
   ),
   /// Apply `f` if `Ok`, otherwise return `default_val`.
-  map_or : (fn(generic(B : Type), imm(self) : Self, imm(default_val) : B, imm(f) : Impl(Fn(imm(a) : OkType) -> B)) -> B)(
+  map_or : (fn(generic(B : Type), self : &Self, default_val : &B, f : &Impl(Fn(a : &OkType) -> B)) -> B)(
     match(
       self,
       .Ok(value) => f(value),
@@ -9215,7 +9215,7 @@ impl(
     )
   ),
   /// Apply `f` if `Ok`, otherwise call `default_fn` with the error.
-  map_or_else : (fn(generic(B : Type), imm(self) : Self, imm(default_fn) : Impl(Fn(imm(a) : ErrorType) -> B), imm(f) : Impl(Fn(imm(a) : OkType) -> B)) -> B)(
+  map_or_else : (fn(generic(B : Type), self : &Self, default_fn : &Impl(Fn(a : &ErrorType) -> B), f : &Impl(Fn(a : &OkType) -> B)) -> B)(
     match(
       self,
       .Ok(value) => f(value),
@@ -9223,7 +9223,7 @@ impl(
     )
   ),
   /// Extract the `Ok` value, or call `f` with the error to produce a fallback.
-  unwrap_or_else : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : ErrorType) -> OkType)) -> OkType)(
+  unwrap_or_else : (fn(self : &Self, f : &Impl(Fn(a : &ErrorType) -> OkType)) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9231,7 +9231,7 @@ impl(
     )
   ),
   /// Extract the `Ok` value, or return `or_value` if `Err`.
-  unwrap_or : (fn(imm(self) : Self, imm(or_value) : OkType) -> OkType)(
+  unwrap_or : (fn(self : &Self, or_value : &OkType) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9239,7 +9239,7 @@ impl(
     )
   ),
   /// Extract the `Ok` value, panicking with `msg` if `Err`.
-  expect : (fn(imm(self) : Self, msg : str) -> OkType)(
+  expect : (fn(self : &Self, msg : str) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9247,7 +9247,7 @@ impl(
     )
   ),
   /// Extract the `Err` value, panicking with `msg` if `Ok`.
-  expect_err : (fn(imm(self) : Self, msg : str) -> ErrorType)(
+  expect_err : (fn(self : &Self, msg : str) -> ErrorType)(
     match(
       self,
       .Err(error) => error,
@@ -9255,7 +9255,7 @@ impl(
     )
   ),
   /// Call `f` with the `Ok` value (if any), then return the result.
-  inspect : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : OkType) -> unit)) -> Result(OkType, ErrorType))(
+  inspect : (fn(self : &Self, f : &Impl(Fn(a : &OkType) -> unit)) -> Result(OkType, ErrorType))(
     match(
       self,
       .Ok(value) => {
@@ -9266,7 +9266,7 @@ impl(
     )
   ),
   /// Call `f` with the `Err` value (if any), then return the result.
-  inspect_err : (fn(imm(self) : Self, imm(f) : Impl(Fn(imm(a) : ErrorType) -> unit)) -> Result(OkType, ErrorType))(
+  inspect_err : (fn(self : &Self, f : &Impl(Fn(a : &ErrorType) -> unit)) -> Result(OkType, ErrorType))(
     match(
       self,
       .Ok(value) => Result(OkType, ErrorType).Ok(value),
@@ -9283,7 +9283,7 @@ impl(
   generic(OkType : Type, ErrorType : Type),
   where(OkType <: Default),
   Result(OkType, ErrorType),
-  unwrap_or_default : (fn(imm(self) : Self) -> OkType)(
+  unwrap_or_default : (fn(self : &Self) -> OkType)(
     match(
       self,
       .Ok(value) => value,
@@ -9296,7 +9296,7 @@ impl(
   generic(T : Type, E : Type),
   Result(Result(T, E), E),
   /// Collapse one level of nesting.
-  flatten : (fn(imm(self) : Self) -> Result(T, E))(
+  flatten : (fn(self : &Self) -> Result(T, E))(
     match(
       self,
       .Ok(inner) => inner,
@@ -9310,7 +9310,7 @@ impl(
   Result(Option(T), E),
   /// `Ok(Some(v))` becomes `Some(Ok(v))`, `Ok(None)` becomes `None`,
   /// `Err(e)` becomes `Some(Err(e))`.
-  transpose : (fn(imm(self) : Self) -> Option(Result(T, E)))(
+  transpose : (fn(self : &Self) -> Option(Result(T, E)))(
     match(
       self,
       .Ok(opt) => match(
@@ -9328,7 +9328,7 @@ impl(
   Option(Result(T, E)),
   /// `Some(Ok(v))` becomes `Ok(Some(v))`, `None` becomes `Ok(None)`,
   /// `Some(Err(e))` becomes `Err(e)`.
-  transpose : (fn(imm(self) : Self) -> Result(Option(T), E))(
+  transpose : (fn(self : &Self) -> Result(Option(T), E))(
     match(
       self,
       .Some(r) => match(
@@ -9345,7 +9345,7 @@ impl(
   generic(T : Type),
   Option(T),
   /// Convert `Some(value)` to `Ok(value)`, or return `Err(err)` if `None`.
-  ok_or : (fn(generic(E : Type), imm(self) : Self, imm(err) : E) -> Result(T, E))(
+  ok_or : (fn(generic(E : Type), self : &Self, err : &E) -> Result(T, E))(
     match(
       self,
       .Some(value) => Result(T, E).Ok(value),
@@ -9353,7 +9353,7 @@ impl(
     )
   ),
   /// Convert `Some(value)` to `Ok(value)`, or call `err_fn` to produce `Err` if `None`.
-  ok_or_else : (fn(generic(E : Type), imm(self) : Self, imm(err_fn) : Impl(Fn() -> E)) -> Result(T, E))(
+  ok_or_else : (fn(generic(E : Type), self : &Self, err_fn : &Impl(Fn() -> E)) -> Result(T, E))(
     match(
       self,
       .Some(value) => Result(T, E).Ok(value),
@@ -9500,7 +9500,7 @@ impl(
   where(T <: Hash),
   Option(T),
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)({
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
       match(
         self,
         .None => hasher.write_u64(u64(0)),
@@ -9648,7 +9648,7 @@ impl(
   where(T <: Hash, E <: Hash),
   Result(T, E),
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)({
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
       match(
         self,
         .Ok(v) => {
@@ -9712,7 +9712,7 @@ impl(
   where(T <: Hash),
   Rc(T),
   Hash(
-    hash : (fn(generic(H : Type), mut(self) : Self, mut(hasher) : H, where(H <: Hasher)) -> unit)(self.*.hash(hasher))
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(self.*.hash(hasher))
   )
 );
 impl(
@@ -9772,7 +9772,7 @@ impl(
   /// Take the isolated value out. The first `extract` on an `Iso` (any copy of
   /// the handle) returns it; every later one panics — the atomic one-shot flag
   /// is what makes the value have exactly one owner after a hand-off.
-  extract : (fn(imm(self) : Self) -> T)(
+  extract : (fn(self : &Self) -> T)(
     __yo_iso_extract(self)
   )
 );
@@ -9898,13 +9898,13 @@ extern(
   __yo_maybe_uninit_new :
     (fn(comptime(_Self) : Type) -> _Self),
   __yo_maybe_uninit_as_ptr :
-    (fn(comptime(_Self) : Type, comptime(BaseType) : Type, imm(self) : *_Self) -> *BaseType),
+    (fn(comptime(_Self) : Type, comptime(BaseType) : Type, self : &*_Self) -> *BaseType),
   /// The `witness` parameter is the safe-mode privilege token
   /// (`MaybeUninit.assume_init` passes its `written` argument through); the
   /// inline alias that lowers this builtin ignores it, and no runtime symbol
   /// exists — the call is always inlined.
   __yo_maybe_uninit_assume_init :
-    (fn(comptime(_Self) : Type, comptime(BaseType) : Type, imm(self) : _Self, imm(witness) : *BaseType) -> BaseType)
+    (fn(comptime(_Self) : Type, comptime(BaseType) : Type, self : &_Self, witness : &*BaseType) -> BaseType)
 );
 /// MaybeUninit — a wrapper that allows holding an uninitialized value.
 ///
@@ -9940,14 +9940,14 @@ impl(
   /// Create a new uninitialized value.
   new : (fn() -> Self)(__yo_maybe_uninit_new(Self)),
   /// Get a mutable pointer to the underlying value.
-  as_ptr : (fn(mut(self) : Self) -> *BaseType)(
+  as_ptr : (fn(self : &mut Self) -> *BaseType)(
     __yo_maybe_uninit_as_ptr(Self, BaseType, addr_of(self))
   ),
   /// Assume the value is initialized and extract it. **Undefined behavior if
   /// not initialized.** The `written` witness is the `as_ptr()` result you
   /// initialized through: a raw pointer only unsafe-capable code can hold, so
   /// safe code cannot reach the uninitialized read. It is not inspected.
-  assume_init : (fn(sink(self) : Self, imm(written) : *BaseType) -> BaseType)(
+  assume_init : (fn(sink(self) : Self, written : &*BaseType) -> BaseType)(
     __yo_maybe_uninit_assume_init(Self, BaseType, self, written)
   ),
   /// Test-support probe for the member-visibility rule (E0405): a `_`-prefixed
@@ -9956,7 +9956,7 @@ impl(
   /// (issues/fixed/prelude-methods-have-no-visibility-owner.md). It has no
   /// caller inside std/ — it exists so `tests/member_visibility.test.yo` can
   /// assert from a foreign directory that the compiler rejects the call.
-  _probe : (fn(imm(self) : Self) -> i32)(i32(7))
+  _probe : (fn(self : &Self) -> i32)(i32(7))
 );
 export(MaybeUninit);
 /// Iterator trait — lazy, pull-based sequence traversal.
@@ -9966,7 +9966,7 @@ Iterator :: trait(
   /// Advance the iterator and return the next value, or `None` when exhausted.
   next :
     (
-      fn(mut(self) : Self) -> Option(Self.Item)
+      fn(self : &mut Self) -> Option(Self.Item)
     )
 );
 export(Iterator);
@@ -9992,7 +9992,7 @@ DoubleEndedIterator :: trait(
   /// `None` when the two ends have met.
   next_back :
     (
-      fn(mut(self) : Self) -> Option(Self.Item)
+      fn(self : &mut Self) -> Option(Self.Item)
     )
 );
 export(DoubleEndedIterator);
@@ -10001,7 +10001,7 @@ IntoIterator :: trait(
   Item : Type,
   IntoIter : Type,
   into_iter :
-    (fn(imm(self) : Self) -> Self.IntoIter),
+    (fn(self : &Self) -> Self.IntoIter),
   where(Self.IntoIter <: Iterator(Item := Self.Item))
 );
 export(IntoIterator);
@@ -10029,7 +10029,7 @@ FromIterator :: trait(
   /// The empty collection `collect` starts from.
   from_iter_new : (fn() -> Self),
   /// Add one element to a partially-built collection and return it.
-  from_iter_add : (fn(sink(acc) : Self, imm(item) : Self.Elem) -> Self)
+  from_iter_add : (fn(sink(acc) : Self, item : &Self.Elem) -> Self)
 );
 export(FromIterator);
 /// === Array Iterator ===
@@ -10061,7 +10061,7 @@ impl(
   _ArrayIter(T, N),
   Iterator(
     Item : T,
-    next : (fn(mut(self) : Self) -> Option(T))(
+    next : (fn(self : &mut Self) -> Option(T))(
       cond(
         ((self._index + self._back_taken) >= N) => .None,
         true => {
@@ -10078,7 +10078,7 @@ impl(
   _ArrayIter(T, N),
   DoubleEndedIterator(
     Item : T,
-    next_back : (fn(mut(self) : Self) -> Option(T))(
+    next_back : (fn(self : &mut Self) -> Option(T))(
       cond(
         ((self._index + self._back_taken) >= N) => .None,
         true => {
@@ -10095,7 +10095,7 @@ impl(
   IntoIterator(
     Item : T,
     IntoIter : _ArrayIter(T, N),
-    into_iter : (fn(imm(self) : Self) -> _ArrayIter(T, N))(
+    into_iter : (fn(self : &Self) -> _ArrayIter(T, N))(
       _ArrayIter(T, N)(_arr : self, _index : usize(0), _back_taken : usize(0))
     )
   )
@@ -10107,7 +10107,7 @@ From :: (fn(comptime(Source) : Type) -> comptime(Trait))(
   trait(
     /// Convert `value` into `Self`.
     from :
-      (fn(imm(value) : Source) -> Self)
+      (fn(value : &Source) -> Self)
   )
 );
 export(From);
@@ -10118,7 +10118,7 @@ Into :: (fn(comptime(To) : Type) -> comptime(Trait))(
   trait(
     /// Convert `self` into the target type.
     into :
-      (fn(imm(self) : Self, (comptime(_To) : Type) = To) -> To)
+      (fn(self : &Self, (comptime(_To) : Type) = To) -> To)
   )
 );
 export(Into);
@@ -10156,7 +10156,7 @@ TryFrom :: (fn(comptime(Source) : Type) -> comptime(Trait))(
     Error : Type,
     /// Attempt to convert `value` into `Self`.
     try_from :
-      (fn(imm(value) : Source) -> Result(Self, Self.Error))
+      (fn(value : &Source) -> Result(Self, Self.Error))
   )
 );
 export(TryFrom);
@@ -10167,7 +10167,7 @@ TryInto :: (fn(comptime(To) : Type) -> comptime(Trait))(
     Error : Type,
     /// Attempt to convert `self` into the target type.
     try_into :
-      (fn(imm(self) : Self, (comptime(_To) : Type) = To) -> Result(To, Self.Error))
+      (fn(self : &Self, (comptime(_To) : Type) = To) -> Result(To, Self.Error))
   )
 );
 export(TryInto);
@@ -10202,12 +10202,12 @@ impl(
   generic(C : Type),
   __BorrowGuard(C),
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       __yo_borrow_release(self._c);
     })
   )
 );
-__borrow_guard :: (fn(generic(C : Type), imm(c) : C) -> __BorrowGuard(C))({
+__borrow_guard :: (fn(generic(C : Type), c : &C) -> __BorrowGuard(C))({
   __yo_borrow_acquire(c);
   __BorrowGuard(C)(_c : c)
 });
@@ -10267,21 +10267,24 @@ for :: (
             comptime_assert(args.len() == 2, "'for' macro requires 2 arguments in the function handle");
             variable :: args.car();
             body :: args.cdr().car();
-            // Detect `mut(name) => body` — borrow form. Otherwise it's the
-            // value form `(name) => body`. `inout(name)`, the deleted spelling
-            // of `mut(name)` (V3b), is rejected naming the new word.
+            // Detect the borrow form: `for(&mut coll, name => body)` reaches
+            // the macro as `for(coll, __yo_mut(name) => body)` (the parse-time
+            // rewrite of decision 42). Otherwise it's the value form
+            // `(name) => body`. The deleted mode words `mut(name)` /
+            // `inout(name)` / `imm(name)` are rejected naming the sigil.
             is_ref_form :: cond(
               variable.is_fn_call() => {
                 v_callee :: variable.get_callee();
                 comptime_assert(
-                  !(v_callee.is_atom() && (v_callee == quote(inout))),
-                  "`for(coll, inout(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
+                  !(v_callee.is_atom() && ((v_callee == quote(mut)) || (v_callee == quote(inout)) || (v_callee == quote(imm)))),
+                  "`for(coll, mut(x) => ...)` was deleted: the borrowed loop is spelled `for(&mut coll, x => ...)` (`for(&coll, x => ...)` to read) (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
                 );
-                v_callee.is_atom() && (v_callee == quote(mut))
+                v_callee.is_atom() && (v_callee == quote(__yo_mut))
               },
               true => false
             );
-            // Map form `(k, mut(v)) => body`: the key by value, the value
+            // Map form `for(&mut map, (k, v) => body)`, here
+            // `(k, __yo_mut(v)) => body`: the key by value, the value
             // borrowed — so a loop body can never rewrite a key in place.
             is_map_ref_form :: cond(
               variable.is_fn_call() => {
@@ -10296,10 +10299,10 @@ for :: (
                           mv_second.is_fn_call() => {
                             mv_second_callee :: mv_second.get_callee();
                             comptime_assert(
-                              !(mv_second_callee.is_atom() && (mv_second_callee == quote(inout))),
-                              "`for(map, (k, inout(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
+                              !(mv_second_callee.is_atom() && ((mv_second_callee == quote(mut)) || (mv_second_callee == quote(inout)) || (mv_second_callee == quote(imm)))),
+                              "`for(map, (k, mut(v)) => ...)` was deleted: the borrowed loop is spelled `for(&mut map, (k, v) => ...)` (plans/VALUES_BY_DEFAULT.md decision 42). `yo fix <path> --migrate borrow-spelling` rewrites it."
                             );
-                            mv_second_callee.is_atom() && (mv_second_callee == quote(mut))
+                            mv_second_callee.is_atom() && (mv_second_callee == quote(__yo_mut))
                           },
                           true => false
                         )
@@ -10343,7 +10346,7 @@ for :: (
                       match(
                         unquote(temp_var),
                         .Some(unquote(ptr_var)) => {
-                          mut(unquote(elem)) := unquote(ptr_var).*;
+                          unquote(elem) := &mut unquote(ptr_var).*;
                           unquote(body)
                         },
                         .None => {
@@ -10378,7 +10381,7 @@ for :: (
                         unquote(temp_var),
                         .Some(unquote(ptr_var)) => {
                           unquote(key_name) := (unquote(ptr_var).*).key;
-                          mut(unquote(val_name)) := (unquote(ptr_var).*).value;
+                          unquote(val_name) := &mut (unquote(ptr_var).*).value;
                           unquote(body)
                         },
                         .None => {
@@ -10491,7 +10494,7 @@ impl(
   generic(T : Type),
   Option(T),
   /// `Some(a).zip(Some(b))` is `Some(IterPair(a, b))`; anything else is `None`.
-  zip : (fn(generic(B : Type), imm(self) : Self, imm(other) : Option(B)) -> Option(IterPair(T, B)))(
+  zip : (fn(generic(B : Type), self : &Self, other : &Option(B)) -> Option(IterPair(T, B)))(
     match(
       self,
       .Some(a) => match(
@@ -10518,11 +10521,11 @@ derive(generic(I : Type, B : Type, F : Type), where(I <: Clone, F <: Clone), Ite
 derive(generic(I : Type, B : Type, F : Type), where(I <: Copy, F <: Copy), IterMap(I, B, F), Copy);
 impl(
   generic(I : Type, A : Type, B : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> B)),
+  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> B)),
   IterMap(I, B, F),
   Iterator(
     Item : B,
-    next : (fn(mut(self) : Self) -> Option(B))(
+    next : (fn(self : &mut Self) -> Option(B))(
       match(
         self._inner.next(),
         .None => .None,
@@ -10548,11 +10551,11 @@ derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterFilter(I,
 derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterFilter(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> bool)),
+  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> bool)),
   IterFilter(I, F),
   Iterator(
     Item : A,
-    next : (fn(mut(self) : Self) -> Option(A))({
+    next : (fn(self : &mut Self) -> Option(A))({
       (loop_result : Option(A)) = .None;
       while(runtime(true), {
         candidate := self._inner.next();
@@ -10594,7 +10597,7 @@ impl(
   IterTake(I),
   Iterator(
     Item : A,
-    next : (fn(mut(self) : Self) -> Option(A))(
+    next : (fn(self : &mut Self) -> Option(A))(
       cond(
         (self._remaining == usize(0)) => .None,
         true => {
@@ -10624,7 +10627,7 @@ impl(
   IterSkip(I),
   Iterator(
     Item : A,
-    next : (fn(mut(self) : Self) -> Option(A))({
+    next : (fn(self : &mut Self) -> Option(A))({
       while(self._to_skip > usize(0), {
         result := self._inner.next();
         match(
@@ -10662,7 +10665,7 @@ impl(
   IterEnumerate(I),
   Iterator(
     Item : IterPair(usize, A),
-    next : (fn(mut(self) : Self) -> Option(IterPair(usize, A)))(
+    next : (fn(self : &mut Self) -> Option(IterPair(usize, A)))(
       match(
         self._inner.next(),
         .None => .None,
@@ -10695,7 +10698,7 @@ impl(
   IterZip(I, J),
   Iterator(
     Item : IterPair(A, B),
-    next : (fn(mut(self) : Self) -> Option(IterPair(A, B)))(
+    next : (fn(self : &mut Self) -> Option(IterPair(A, B)))(
       match(
         self._left.next(),
         .None => .None,
@@ -10727,7 +10730,7 @@ impl(
   IterChain(I, J),
   Iterator(
     Item : A,
-    next : (fn(mut(self) : Self) -> Option(A))({
+    next : (fn(self : &mut Self) -> Option(A))({
       (result : Option(A)) = .None;
       cond(
         !self._first_done => {
@@ -10767,11 +10770,11 @@ derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterTakeWhile
 derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterTakeWhile(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> bool)),
+  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> bool)),
   IterTakeWhile(I, F),
   Iterator(
     Item : A,
-    next : (fn(mut(self) : Self) -> Option(A))({
+    next : (fn(self : &mut Self) -> Option(A))({
       (result : Option(A)) = .None;
       cond(
         self._done => (),
@@ -10812,11 +10815,11 @@ derive(generic(I : Type, F : Type), where(I <: Clone, F <: Clone), IterSkipWhile
 derive(generic(I : Type, F : Type), where(I <: Copy, F <: Copy), IterSkipWhile(I, F), Copy);
 impl(
   generic(I : Type, A : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> bool)),
+  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> bool)),
   IterSkipWhile(I, F),
   Iterator(
     Item : A,
-    next : (fn(mut(self) : Self) -> Option(A))({
+    next : (fn(self : &mut Self) -> Option(A))({
       (result : Option(A)) = .None;
       while(runtime(true), {
         match(
@@ -10855,11 +10858,11 @@ derive(generic(I : Type, B : Type, F : Type), where(I <: Clone, F <: Clone), Ite
 derive(generic(I : Type, B : Type, F : Type), where(I <: Copy, F <: Copy), IterFilterMap(I, B, F), Copy);
 impl(
   generic(I : Type, A : Type, B : Type, F : Type),
-  where(I <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> Option(B))),
+  where(I <: Iterator(Item := A), F <: (Fn(item : &A) -> Option(B))),
   IterFilterMap(I, B, F),
   Iterator(
     Item : B,
-    next : (fn(mut(self) : Self) -> Option(B))({
+    next : (fn(self : &mut Self) -> Option(B))({
       (result : Option(B)) = .None;
       while(runtime(true), {
         match(
@@ -10899,7 +10902,7 @@ impl(
   IterPeekable(I, A),
   /// Return the next element without consuming it. Repeated calls return
   /// the same element until `next()` is called.
-  peek : (fn(mut(self) : Self) -> Option(A))({
+  peek : (fn(self : &mut Self) -> Option(A))({
     cond(
       self._peeked.is_none() => {
         self._peeked = self._inner.next();
@@ -10915,7 +10918,7 @@ impl(
   IterPeekable(I, A),
   Iterator(
     Item : A,
-    next : (fn(mut(self) : Self) -> Option(A))(
+    next : (fn(self : &mut Self) -> Option(A))(
       match(
         self._peeked.take(),
         .Some(item) => .Some(item),
@@ -10943,7 +10946,7 @@ impl(
   IterRev(I),
   Iterator(
     Item : A,
-    next : (fn(mut(self) : Self) -> Option(A))(
+    next : (fn(self : &mut Self) -> Option(A))(
       self._inner.next_back()
     )
   )
@@ -10956,7 +10959,7 @@ impl(
   IterRev(I),
   DoubleEndedIterator(
     Item : A,
-    next_back : (fn(mut(self) : Self) -> Option(A))(
+    next_back : (fn(self : &mut Self) -> Option(A))(
       self._inner.next()
     )
   )
@@ -10974,7 +10977,7 @@ impl(
   Range(i8),
   Iterator(
     Item : i8,
-    next : (fn(mut(self) : Self) -> Option(i8))(
+    next : (fn(self : &mut Self) -> Option(i8))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -10994,7 +10997,7 @@ impl(
   RangeInclusive(i8),
   Iterator(
     Item : i8,
-    next : (fn(mut(self) : Self) -> Option(i8))(
+    next : (fn(self : &mut Self) -> Option(i8))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11019,7 +11022,7 @@ impl(
   Range(i16),
   Iterator(
     Item : i16,
-    next : (fn(mut(self) : Self) -> Option(i16))(
+    next : (fn(self : &mut Self) -> Option(i16))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11039,7 +11042,7 @@ impl(
   RangeInclusive(i16),
   Iterator(
     Item : i16,
-    next : (fn(mut(self) : Self) -> Option(i16))(
+    next : (fn(self : &mut Self) -> Option(i16))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11064,7 +11067,7 @@ impl(
   Range(i32),
   Iterator(
     Item : i32,
-    next : (fn(mut(self) : Self) -> Option(i32))(
+    next : (fn(self : &mut Self) -> Option(i32))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11084,7 +11087,7 @@ impl(
   RangeInclusive(i32),
   Iterator(
     Item : i32,
-    next : (fn(mut(self) : Self) -> Option(i32))(
+    next : (fn(self : &mut Self) -> Option(i32))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11109,7 +11112,7 @@ impl(
   Range(i64),
   Iterator(
     Item : i64,
-    next : (fn(mut(self) : Self) -> Option(i64))(
+    next : (fn(self : &mut Self) -> Option(i64))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11129,7 +11132,7 @@ impl(
   RangeInclusive(i64),
   Iterator(
     Item : i64,
-    next : (fn(mut(self) : Self) -> Option(i64))(
+    next : (fn(self : &mut Self) -> Option(i64))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11154,7 +11157,7 @@ impl(
   Range(isize),
   Iterator(
     Item : isize,
-    next : (fn(mut(self) : Self) -> Option(isize))(
+    next : (fn(self : &mut Self) -> Option(isize))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11174,7 +11177,7 @@ impl(
   RangeInclusive(isize),
   Iterator(
     Item : isize,
-    next : (fn(mut(self) : Self) -> Option(isize))(
+    next : (fn(self : &mut Self) -> Option(isize))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11199,7 +11202,7 @@ impl(
   Range(u8),
   Iterator(
     Item : u8,
-    next : (fn(mut(self) : Self) -> Option(u8))(
+    next : (fn(self : &mut Self) -> Option(u8))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11219,7 +11222,7 @@ impl(
   RangeInclusive(u8),
   Iterator(
     Item : u8,
-    next : (fn(mut(self) : Self) -> Option(u8))(
+    next : (fn(self : &mut Self) -> Option(u8))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11244,7 +11247,7 @@ impl(
   Range(u16),
   Iterator(
     Item : u16,
-    next : (fn(mut(self) : Self) -> Option(u16))(
+    next : (fn(self : &mut Self) -> Option(u16))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11264,7 +11267,7 @@ impl(
   RangeInclusive(u16),
   Iterator(
     Item : u16,
-    next : (fn(mut(self) : Self) -> Option(u16))(
+    next : (fn(self : &mut Self) -> Option(u16))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11289,7 +11292,7 @@ impl(
   Range(u32),
   Iterator(
     Item : u32,
-    next : (fn(mut(self) : Self) -> Option(u32))(
+    next : (fn(self : &mut Self) -> Option(u32))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11309,7 +11312,7 @@ impl(
   RangeInclusive(u32),
   Iterator(
     Item : u32,
-    next : (fn(mut(self) : Self) -> Option(u32))(
+    next : (fn(self : &mut Self) -> Option(u32))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11334,7 +11337,7 @@ impl(
   Range(u64),
   Iterator(
     Item : u64,
-    next : (fn(mut(self) : Self) -> Option(u64))(
+    next : (fn(self : &mut Self) -> Option(u64))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11354,7 +11357,7 @@ impl(
   RangeInclusive(u64),
   Iterator(
     Item : u64,
-    next : (fn(mut(self) : Self) -> Option(u64))(
+    next : (fn(self : &mut Self) -> Option(u64))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11379,7 +11382,7 @@ impl(
   Range(usize),
   Iterator(
     Item : usize,
-    next : (fn(mut(self) : Self) -> Option(usize))(
+    next : (fn(self : &mut Self) -> Option(usize))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11399,7 +11402,7 @@ impl(
   RangeInclusive(usize),
   Iterator(
     Item : usize,
-    next : (fn(mut(self) : Self) -> Option(usize))(
+    next : (fn(self : &mut Self) -> Option(usize))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11432,7 +11435,7 @@ impl(
   Range(i8),
   DoubleEndedIterator(
     Item : i8,
-    next_back : (fn(mut(self) : Self) -> Option(i8))(
+    next_back : (fn(self : &mut Self) -> Option(i8))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11453,7 +11456,7 @@ impl(
   RangeInclusive(i8),
   DoubleEndedIterator(
     Item : i8,
-    next_back : (fn(mut(self) : Self) -> Option(i8))(
+    next_back : (fn(self : &mut Self) -> Option(i8))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11480,7 +11483,7 @@ impl(
   Range(i16),
   DoubleEndedIterator(
     Item : i16,
-    next_back : (fn(mut(self) : Self) -> Option(i16))(
+    next_back : (fn(self : &mut Self) -> Option(i16))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11501,7 +11504,7 @@ impl(
   RangeInclusive(i16),
   DoubleEndedIterator(
     Item : i16,
-    next_back : (fn(mut(self) : Self) -> Option(i16))(
+    next_back : (fn(self : &mut Self) -> Option(i16))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11528,7 +11531,7 @@ impl(
   Range(i32),
   DoubleEndedIterator(
     Item : i32,
-    next_back : (fn(mut(self) : Self) -> Option(i32))(
+    next_back : (fn(self : &mut Self) -> Option(i32))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11549,7 +11552,7 @@ impl(
   RangeInclusive(i32),
   DoubleEndedIterator(
     Item : i32,
-    next_back : (fn(mut(self) : Self) -> Option(i32))(
+    next_back : (fn(self : &mut Self) -> Option(i32))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11576,7 +11579,7 @@ impl(
   Range(i64),
   DoubleEndedIterator(
     Item : i64,
-    next_back : (fn(mut(self) : Self) -> Option(i64))(
+    next_back : (fn(self : &mut Self) -> Option(i64))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11597,7 +11600,7 @@ impl(
   RangeInclusive(i64),
   DoubleEndedIterator(
     Item : i64,
-    next_back : (fn(mut(self) : Self) -> Option(i64))(
+    next_back : (fn(self : &mut Self) -> Option(i64))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11624,7 +11627,7 @@ impl(
   Range(isize),
   DoubleEndedIterator(
     Item : isize,
-    next_back : (fn(mut(self) : Self) -> Option(isize))(
+    next_back : (fn(self : &mut Self) -> Option(isize))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11645,7 +11648,7 @@ impl(
   RangeInclusive(isize),
   DoubleEndedIterator(
     Item : isize,
-    next_back : (fn(mut(self) : Self) -> Option(isize))(
+    next_back : (fn(self : &mut Self) -> Option(isize))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11672,7 +11675,7 @@ impl(
   Range(u8),
   DoubleEndedIterator(
     Item : u8,
-    next_back : (fn(mut(self) : Self) -> Option(u8))(
+    next_back : (fn(self : &mut Self) -> Option(u8))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11693,7 +11696,7 @@ impl(
   RangeInclusive(u8),
   DoubleEndedIterator(
     Item : u8,
-    next_back : (fn(mut(self) : Self) -> Option(u8))(
+    next_back : (fn(self : &mut Self) -> Option(u8))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11720,7 +11723,7 @@ impl(
   Range(u16),
   DoubleEndedIterator(
     Item : u16,
-    next_back : (fn(mut(self) : Self) -> Option(u16))(
+    next_back : (fn(self : &mut Self) -> Option(u16))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11741,7 +11744,7 @@ impl(
   RangeInclusive(u16),
   DoubleEndedIterator(
     Item : u16,
-    next_back : (fn(mut(self) : Self) -> Option(u16))(
+    next_back : (fn(self : &mut Self) -> Option(u16))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11768,7 +11771,7 @@ impl(
   Range(u32),
   DoubleEndedIterator(
     Item : u32,
-    next_back : (fn(mut(self) : Self) -> Option(u32))(
+    next_back : (fn(self : &mut Self) -> Option(u32))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11789,7 +11792,7 @@ impl(
   RangeInclusive(u32),
   DoubleEndedIterator(
     Item : u32,
-    next_back : (fn(mut(self) : Self) -> Option(u32))(
+    next_back : (fn(self : &mut Self) -> Option(u32))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11816,7 +11819,7 @@ impl(
   Range(u64),
   DoubleEndedIterator(
     Item : u64,
-    next_back : (fn(mut(self) : Self) -> Option(u64))(
+    next_back : (fn(self : &mut Self) -> Option(u64))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11837,7 +11840,7 @@ impl(
   RangeInclusive(u64),
   DoubleEndedIterator(
     Item : u64,
-    next_back : (fn(mut(self) : Self) -> Option(u64))(
+    next_back : (fn(self : &mut Self) -> Option(u64))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11864,7 +11867,7 @@ impl(
   Range(usize),
   DoubleEndedIterator(
     Item : usize,
-    next_back : (fn(mut(self) : Self) -> Option(usize))(
+    next_back : (fn(self : &mut Self) -> Option(usize))(
       cond(
         (self.start >= self.end) => .None,
         true => {
@@ -11885,7 +11888,7 @@ impl(
   RangeInclusive(usize),
   DoubleEndedIterator(
     Item : usize,
-    next_back : (fn(mut(self) : Self) -> Option(usize))(
+    next_back : (fn(self : &mut Self) -> Option(usize))(
       cond(
         (self.start > self.end) => .None,
         true => {
@@ -11930,7 +11933,7 @@ impl(
       generic(A : Type, B : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> B))
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> B))
     ) -> IterMap(Self, B, F)
   )(
     IterMap(Self, B, F)(_inner : self, _f : f)
@@ -11943,7 +11946,7 @@ impl(
       generic(A : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> bool))
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> IterFilter(Self, F)
   )(
     IterFilter(Self, F)(_inner : self, _f : f)
@@ -11996,9 +11999,9 @@ impl(
     fn(
       generic(A : Type, Acc : Type, F : Type),
       sink(self) : Self,
-      imm(init) : Acc,
-      imm(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(acc) : Acc, imm(item) : A) -> Acc))
+      init : &Acc,
+      f : &F,
+      where(Self <: Iterator(Item := A), F <: (Fn(acc : &Acc, item : &A) -> Acc))
     ) -> Acc
   )({
     acc := init;
@@ -12021,8 +12024,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      imm(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> unit))
+      f : &F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> unit))
     ) -> unit
   )({
     iter := self;
@@ -12066,8 +12069,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      imm(pred) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> bool))
+      pred : &F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> bool
   )({
     result := false;
@@ -12096,8 +12099,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      imm(pred) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> bool))
+      pred : &F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> bool
   )({
     result := true;
@@ -12126,8 +12129,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      imm(pred) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> bool))
+      pred : &F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> Option(A)
   )({
     (found : Option(A)) = .None;
@@ -12156,8 +12159,8 @@ impl(
     fn(
       generic(A : Type, F : Type),
       sink(self) : Self,
-      imm(pred) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> bool))
+      pred : &F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> Option(usize)
   )({
     (found : Option(usize)) = .None;
@@ -12340,7 +12343,7 @@ impl(
       generic(A : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> bool))
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> IterTakeWhile(Self, F)
   )(
     IterTakeWhile(Self, F)(_inner : self, _f : f, _done : false)
@@ -12351,7 +12354,7 @@ impl(
       generic(A : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> bool))
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> bool))
     ) -> IterSkipWhile(Self, F)
   )(
     IterSkipWhile(Self, F)(_inner : self, _f : f, _skipping : true)
@@ -12362,7 +12365,7 @@ impl(
       generic(A : Type, B : Type, F : Type),
       sink(self) : Self,
       sink(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> Option(B)))
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> Option(B)))
     ) -> IterFilterMap(Self, B, F)
   )(
     IterFilterMap(Self, B, F)(_inner : self, _f : f)
@@ -12498,13 +12501,13 @@ export(JoinHandle);
 /// Automatically injected into `main` when declared with `io : Io`.
 Io :: struct(
   /// Create a new `Future` from an async closure.
-  async : (fn(generic(T : Type, E : Type.Struct), imm(action) : Impl(Fn(imm(e) : E) -> T)) -> Impl(Future(T, E))),
+  async : (fn(generic(T : Type, E : Type.Struct), action : &Impl(Fn(e : &E) -> T)) -> Impl(Future(T, E))),
   /// Await a `Future`, suspending until its result is ready.
-  await : (fn(generic(T : Type, E : Type.Struct), imm(fut) : Impl(Future(T, E)), imm(e) : E) -> T),
+  await : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : &E) -> T),
   /// Inspect the current state of a `Future` without blocking.
-  state : (fn(generic(T : Type, E : Type.Struct), imm(fut) : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
-  spawn : (fn(generic(T : Type, E : Type.Struct), imm(fut) : Impl(Future(T, E)), imm(e) : E) -> JoinHandle(T))
+  spawn : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : &E) -> JoinHandle(T))
 );
 // Phase L (THREAD_SAFETY): Io is NOT Send — the async runtime it represents
 // is per-thread (per AGENTS.md). Sending Io across a thread boundary would
@@ -12519,10 +12522,10 @@ impl(Io, !Sync());
 export(Io);
 extern(
   "Yo",
-  __yo_io_async : (fn(generic(T : Type, E : Type.Struct), imm(action) : Impl(Fn(imm(e) : E) -> T)) -> Impl(Future(T, E))),
-  __yo_io_await : (fn(generic(T : Type, E : Type.Struct), imm(fut) : Impl(Future(T, E)), imm(e) : E) -> T),
-  __yo_io_state : (fn(generic(T : Type, E : Type.Struct), imm(fut) : Impl(Future(T, E))) -> FutureState),
-  __yo_io_spawn : (fn(generic(T : Type, E : Type.Struct), imm(fut) : Impl(Future(T, E)), imm(e) : E) -> JoinHandle(T))
+  __yo_io_async : (fn(generic(T : Type, E : Type.Struct), action : &Impl(Fn(e : &E) -> T)) -> Impl(Future(T, E))),
+  __yo_io_await : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : &E) -> T),
+  __yo_io_state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
+  __yo_io_spawn : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : &E) -> JoinHandle(T))
 );
 /// Built-in Io module instance. Automatically injected for `main` functions
 /// with `io : Io`.
@@ -12536,7 +12539,7 @@ export(__yo_builtin_io);
 /// JoinHandle methods — defined after Io so `io : Io` resolves.
 extern(
   "Yo",
-  __yo_join_handle_await : (fn(generic(T : Type), imm(self) : JoinHandle(T), io : Io) -> Option(T))
+  __yo_join_handle_await : (fn(generic(T : Type), self : &JoinHandle(T), io : Io) -> Option(T))
 );
 impl(
   generic(T : Type),
@@ -12558,7 +12561,7 @@ impl(
   JoinHandle(T),
   /// Dropping the last copy of the handle releases the task's future.
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)(
+    dispose : (fn(self : &Self) -> unit)(
       __yo_join_handle_release_raw((*void)(self.__future))
     )
   )
@@ -12568,16 +12571,16 @@ impl(
   JoinHandle(T),
   /// The task's current `FutureState`, read without blocking or driving the
   /// event loop (unlike `await`, which polls the loop to completion).
-  state : (fn(imm(self) : JoinHandle(T)) -> FutureState)(
+  state : (fn(self : &JoinHandle(T)) -> FutureState)(
     __yo_join_handle_state_raw((*void)(self.__future))
   ),
   /// The task's future as an untyped pointer, for the runtime externs that
   /// take a task (`std/async`'s join waits, `__yo_join_wait_add`). The
   /// handle keeps owning its reference; the pointer is valid while some copy
   /// of the handle is alive. Reading through it is unsafe.
-  as_ptr : (fn(imm(self) : JoinHandle(T)) -> *void)((*void)(self.__future)),
+  as_ptr : (fn(self : &JoinHandle(T)) -> *void)((*void)(self.__future)),
   /// True once the task is terminal — `Completed` or `Aborted`.
-  is_finished : (fn(imm(self) : JoinHandle(T)) -> bool)({
+  is_finished : (fn(self : &JoinHandle(T)) -> bool)({
     s := __yo_join_handle_state_raw((*void)(self.__future));
     (s == FutureState.Completed) || (s == FutureState.Aborted)
   }),
@@ -12597,7 +12600,7 @@ impl(
   /// `io.await(child(io), io)`, or a named future this await cold-started); a
   /// named future someone else started may be shared and keeps running. A raw
   /// `IoFuture` spawned directly is cancelled the same way.
-  abort : (fn(imm(self) : JoinHandle(T)) -> unit)(
+  abort : (fn(self : &JoinHandle(T)) -> unit)(
     __yo_join_handle_abort_raw((*void)(self.__future))
   )
 );

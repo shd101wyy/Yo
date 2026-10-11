@@ -120,7 +120,7 @@ _ssl_err_string :: (fn() -> String)({
   unsafe(__yo_tls_err_string((*char)(buf.ptr().unwrap()), usize(256)));
   String.from_cstr(buf.ptr().unwrap()).unwrap_or(`unknown TLS error`.to_string())
 });
-_throw_tls :: (fn(imm(err) : TlsError, imm(exn) : Exception) -> unit)(
+_throw_tls :: (fn(err : &TlsError, exn : &Exception) -> unit)(
   exn.throw(dyn(err))
 );
 /// A connected TLS client stream.
@@ -136,7 +136,7 @@ TlsStream :: ref(
   )
 );
 /// Drain the write BIO (ciphertext OpenSSL produced) into the socket.
-_flush_wbio :: (fn(imm(s) : TlsStream, io : Io) -> Impl(Future(unit, IoExn)))({
+_flush_wbio :: (fn(s : &TlsStream, io : Io) -> Impl(Future(unit, IoExn)))({
   tcp := s._tcp;
   wbio := s._wbio;
   io.async(e => {
@@ -163,7 +163,7 @@ _flush_wbio :: (fn(imm(s) : TlsStream, io : Io) -> Impl(Future(unit, IoExn)))({
   })
 });
 /// Feed one socket read into the read BIO. Returns the byte count (0 = EOF).
-_feed_rbio :: (fn(imm(s) : TlsStream, io : Io) -> Impl(Future(usize, IoExn)))({
+_feed_rbio :: (fn(s : &TlsStream, io : Io) -> Impl(Future(usize, IoExn)))({
   tcp := s._tcp;
   rbio := s._rbio;
   io.async(e => {
@@ -184,7 +184,7 @@ impl(
   /// Connect to `host:port` and complete a TLS handshake. Certificate
   /// verification and hostname checking are ON (the system trust store via
   /// `SSL_CTX_set_default_verify_paths`); SNI is sent.
-  connect : (fn(imm(host) : String, port : u16, io : Io) -> Impl(Future(TlsStream, IoExn)))(
+  connect : (fn(host : &String, port : u16, io : Io) -> Impl(Future(TlsStream, IoExn)))(
     io.async(e => {
       // 1. TCP.
       addrs := e.io.await(lookup_host(host, e.io), e);
@@ -251,7 +251,7 @@ impl(
     })
   ),
   /// Read decrypted bytes into `buf`. 0 = the peer closed the session.
-  read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     ssl := self._ssl;
     io.async(e => {
       (out : usize) = usize(0);
@@ -308,7 +308,7 @@ impl(
   }),
   /// Write plaintext; returns the byte count accepted (all of `size` on
   /// success — SSL_write is all-or-nothing by default).
-  write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
+  write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))({
     ssl := self._ssl;
     io.async(e => {
       (out : usize) = usize(0);
@@ -351,7 +351,7 @@ impl(
     })
   }),
   /// Write a `str`; returns the byte count written.
-  write_str : (fn(imm(self) : Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
+  write_str : (fn(self : &Self, data : str, io : Io) -> Impl(Future(usize, IoExn)))({
     s := String.from(data);
     io.async(e => {
       n := e.io.await(self.write(s.ptr().unwrap(), s.len(), e.io), e);
@@ -359,7 +359,7 @@ impl(
     })
   }),
   /// Write a `String` (matches TcpStream.write_string); byte count written.
-  write_string : (fn(imm(self) : Self, imm(data) : String, io : Io) -> Impl(Future(usize, IoExn)))(
+  write_string : (fn(self : &Self, data : &String, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
       n := e.io.await(self.write(data.ptr().unwrap(), data.len(), e.io), e);
       return(n);
@@ -367,7 +367,7 @@ impl(
   ),
   /// Close: best-effort close_notify, then the socket. Frees the OpenSSL
   /// objects — the stream must not be used afterwards.
-  close : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+  close : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
     io.async(e => {
       cond(
         self._closed => (),
@@ -397,7 +397,7 @@ impl(
     /// unwind, or the last RC release). `close(io)` is the graceful form and
     /// makes `dispose` a no-op afterwards; a peer that only sees the TCP FIN
     /// is what every language's TLS drop does.
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       cond(
         !self._closed => {
           self._closed = true;
@@ -416,7 +416,7 @@ export(TlsStream);
 impl(
   TlsStream,
   IoTraits.Reader(
-    read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.read(buf, size, io)
     )
   )
@@ -424,10 +424,10 @@ impl(
 impl(
   TlsStream,
   IoTraits.Writer(
-    write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       self.write(buf, size, io)
     ),
-    flush : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
       _flush_wbio(self, io)
     )
   )

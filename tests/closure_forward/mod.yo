@@ -2,7 +2,7 @@
 // an `Impl(Fn)` parameter into one shared function, from another module.
 { String } :: import("std/string");
 Lv :: enum(A, B, C);
-on :: (fn(imm(lv) : Lv) -> bool)(
+on :: (fn(lv : &Lv) -> bool)(
   match(
     lv,
     .A => false,
@@ -11,13 +11,13 @@ on :: (fn(imm(lv) : Lv) -> bool)(
 );
 // Returns the message when the level is on, empty otherwise — so a test can
 // see WHICH closure ran.
-inner :: (fn(imm(lv) : Lv, imm(make) : Impl(Fn() -> String)) -> String)(
+inner :: (fn(lv : &Lv, make : &Impl(Fn() -> String)) -> String)(
   cond(
     on(lv) => make(),
     true => String.new()
   )
 );
-outer_a :: (fn(imm(make) : Impl(Fn() -> String)) -> String)(inner(Lv.A, make));
-outer_b :: (fn(imm(make) : Impl(Fn() -> String)) -> String)(inner(Lv.B, make));
-outer_c :: (fn(imm(make) : Impl(Fn() -> String)) -> String)(inner(Lv.C, make));
+outer_a :: (fn(make : &Impl(Fn() -> String)) -> String)(inner(Lv.A, make));
+outer_b :: (fn(make : &Impl(Fn() -> String)) -> String)(inner(Lv.B, make));
+outer_c :: (fn(make : &Impl(Fn() -> String)) -> String)(inner(Lv.C, make));
 export(Lv, inner, outer_a, outer_b, outer_c);

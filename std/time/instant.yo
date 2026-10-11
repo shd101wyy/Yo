@@ -92,7 +92,7 @@ impl(
   /// a reversed pair of arguments reads as "no time passed" instead of
   /// failing. A monotonic clock cannot itself run backwards, so a zero here
   /// means the arguments were the wrong way round.
-  duration_since : (fn(mut(self) : Self, earlier : Instant) -> Duration)({
+  duration_since : (fn(self : &mut Self, earlier : Instant) -> Duration)({
     self_ns := ((self.secs * i64(1000000000)) + self.nanos);
     earlier_ns := ((earlier.secs * i64(1000000000)) + earlier.nanos);
     cond(
@@ -103,7 +103,7 @@ impl(
   /// How long ago this reading was taken —
   /// `Instant.now().duration_since(self)`, and the method to reach for when
   /// timing a section of code.
-  elapsed : (fn(mut(self) : Self) -> Duration)({
+  elapsed : (fn(self : &mut Self) -> Duration)({
     current := Instant.now();
     current.duration_since(self)
   })
@@ -115,7 +115,7 @@ impl(
 impl(
   Instant,
   /// This instant shifted forward by `d`.
-  add : (fn(mut(self) : Self, d : Duration) -> Self)({
+  add : (fn(self : &mut Self, d : Duration) -> Self)({
     total := (self.nanos + (d.as_nanos() % i64(1000000000)));
     carry := (total / i64(1000000000));
     Self(
@@ -125,7 +125,7 @@ impl(
   }),
   /// This instant shifted backward by `d` (clamps at the clock's zero, the
   /// same non-negative stance as `duration_since`).
-  sub : (fn(mut(self) : Self, d : Duration) -> Self)({
+  sub : (fn(self : &mut Self, d : Duration) -> Self)({
     self_ns := ((self.secs * i64(1000000000)) + self.nanos);
     d_ns := d.as_nanos();
     cond(
@@ -140,10 +140,10 @@ impl(
 impl(
   Instant,
   Eq(Instant)(
-    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
     ),
-    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       !(lhs == rhs)
     )
   )
@@ -151,19 +151,19 @@ impl(
 impl(
   Instant,
   Ord(Instant)(
-    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (<) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       cond(
         (lhs.secs != rhs.secs) => (lhs.secs < rhs.secs),
         true => (lhs.nanos < rhs.nanos)
       )
     ),
-    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       !(rhs < lhs)
     ),
-    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       rhs < lhs
     ),
-    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       !(lhs < rhs)
     )
   )
@@ -271,12 +271,12 @@ impl(
     _st_normalize(secs, nanos)
   ),
   /// Whole seconds since the epoch, truncating the sub-second part.
-  as_unix_secs : (fn(mut(self) : Self) -> i64)(
+  as_unix_secs : (fn(self : &mut Self) -> i64)(
     self.secs
   ),
   /// How much later `self` is than `earlier`, or `.Err` when it is EARLIER —
   /// which means the clock was adjusted between the two readings.
-  duration_since : (fn(mut(self) : Self, earlier : SystemTime) -> Result(Duration, SystemTimeError))(
+  duration_since : (fn(self : &mut Self, earlier : SystemTime) -> Result(Duration, SystemTimeError))(
     cond(
       _st_at_or_after(self, earlier) =>
         Result(Duration, SystemTimeError).Ok(_st_diff_ge(self, earlier)),
@@ -287,25 +287,25 @@ impl(
     )
   ),
   /// How long ago `self` was, or `.Err` if it is in the future.
-  elapsed : (fn(mut(self) : Self) -> Result(Duration, SystemTimeError))(
+  elapsed : (fn(self : &mut Self) -> Result(Duration, SystemTimeError))(
     SystemTime.now().duration_since(self)
   ),
   /// `self` moved forward by `d`.
-  add : (fn(mut(self) : Self, d : Duration) -> Self)(
+  add : (fn(self : &mut Self, d : Duration) -> Self)(
     _st_normalize(self.secs + d.secs, self.nanos + d.nanos)
   ),
   /// `self` moved backward by `d`.
-  sub : (fn(mut(self) : Self, d : Duration) -> Self)(
+  sub : (fn(self : &mut Self, d : Duration) -> Self)(
     _st_normalize(self.secs - d.secs, self.nanos - d.nanos)
   )
 );
 impl(
   SystemTime,
   Eq(SystemTime)(
-    (==) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       (lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos)
     ),
-    (!=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       !((lhs.secs == rhs.secs) && (lhs.nanos == rhs.nanos))
     )
   )
@@ -313,14 +313,14 @@ impl(
 impl(
   SystemTime,
   Ord(SystemTime)(
-    (<) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(
+    (<) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       cond(
         (lhs.secs != rhs.secs) => (lhs.secs < rhs.secs),
         true => (lhs.nanos < rhs.nanos)
       )
     ),
-    (<=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(!(rhs < lhs)),
-    (>) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(rhs < lhs),
-    (>=) : (fn(imm(lhs) : Self, imm(rhs) : Self) -> bool)(!(lhs < rhs))
+    (<=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(rhs < lhs)),
+    (>) : (fn(lhs : &Self, rhs : &Self) -> bool)(rhs < lhs),
+    (>=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs < rhs))
   )
 );

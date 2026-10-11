@@ -29,7 +29,7 @@ test("Test mutex excludes across awaits", {
   m := Mutex(i64).new(i64(0));
   in_section := Rc(bool)(false);
   overlaps := Rc(i64)(0);
-  worker :: (fn(imm(m2) : Mutex(i64), imm(ins) : Rc(bool), imm(ovl) : Rc(i64), io : Io) -> Impl(Future(unit, Io)))(
+  worker :: (fn(m2 : &Mutex(i64), ins : &Rc(bool), ovl : &Rc(i64), io : Io) -> Impl(Future(unit, Io)))(
     io.async((io : Io) => {
       io.await(m2.lock(io), io);
       cond(
@@ -91,7 +91,7 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
   order := Rc(ArrayList(i64))(ArrayList(i64).new());
   // Main takes the lock first, so every worker below MUST queue.
   assert(m.try_lock(), "main holds the lock while the workers queue");
-  worker :: (fn(imm(m2) : Mutex(i64), imm(ord) : Rc(ArrayList(i64)), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
+  worker :: (fn(m2 : &Mutex(i64), ord : &Rc(ArrayList(i64)), tag : i64, io : Io) -> Impl(Future(unit, Io)))(
     io.async((io : Io) => {
       io.await(m2.lock(io), io);
       ord.*.push(tag);

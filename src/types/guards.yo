@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 // builtins) has no private members.
 // ---------------------------------------------------------------------------
 (g_type_decl_modules : HashMap(String, String)) = HashMap(String, String).new();
-register_type_decl_module :: (fn(imm(type_id) : String, imm(module_path) : String) -> unit)({
+register_type_decl_module :: (fn(type_id : &String, module_path : &String) -> unit)({
   if((type_id.len() > usize(0)) && (module_path.len() > usize(0)), {
     g_type_decl_modules.insert(type_id, module_path);
   });
@@ -27,14 +27,14 @@ register_type_decl_module :: (fn(imm(type_id) : String, imm(module_path) : Strin
 });
 /// The module that declared the type with id `type_id`, if recorded (a clone —
 /// never the registry's own String).
-type_decl_module :: (fn(imm(type_id) : String) -> Option(String))(
+type_decl_module :: (fn(type_id : &String) -> Option(String))(
   match(g_type_decl_modules.get(type_id), .Some(m) => Option(String).Some(m.clone()), .None => Option(String).None)
 );
 /// Whether `t` is the prelude's `Io` struct: the effect bundle whose fields are
 /// the compiler's async builtins, never called through at run time. A future
 /// whose bundle is `Io` behaves the same whether or not the bundle was
 /// injected, which is what lets it be viewed as a bundle-less `Future(T)`.
-is_prelude_io_struct :: (fn(imm(t) : TypeValue) -> bool)(
+is_prelude_io_struct :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .Struct({ id : sid, name : sname }) => (
@@ -67,7 +67,7 @@ is_prelude_io_struct :: (fn(imm(t) : TypeValue) -> bool)(
 AdoptedExternCType :: ref(struct(c_name : String, c_header : String));
 (g_adopted_extern_c_types : HashMap(String, AdoptedExternCType)) = HashMap(String, AdoptedExternCType).new();
 register_adopted_extern_c_type :: (
-  fn(imm(decl_id) : String, imm(c_name) : String, imm(header) : String) -> unit
+  fn(decl_id : &String, c_name : &String, header : &String) -> unit
 )({
   if((decl_id.len() > usize(0)) && (c_name.len() > usize(0)), {
     g_adopted_extern_c_types.insert(decl_id, AdoptedExternCType(c_name : c_name, c_header : header));
@@ -76,7 +76,7 @@ register_adopted_extern_c_type :: (
 });
 /// The declaration id a `c_include` adoption is keyed by, for the type kinds
 /// that HAVE one. A `union(...)` carries no id and cannot be adopted.
-type_decl_id :: (fn(imm(t) : TypeValue) -> Option(String))(
+type_decl_id :: (fn(t : &TypeValue) -> Option(String))(
   match(
     t,
     .Struct({ id : sid }) => if(sid.len() > usize(0), Option(String).Some(sid.clone()), Option(String).None),
@@ -85,7 +85,7 @@ type_decl_id :: (fn(imm(t) : TypeValue) -> Option(String))(
   )
 );
 /// The C name + header this type was adopted under by a `c_include`, if any.
-get_adopted_extern_c_type :: (fn(imm(t) : TypeValue) -> Option(AdoptedExternCType))(
+get_adopted_extern_c_type :: (fn(t : &TypeValue) -> Option(AdoptedExternCType))(
   match(
     type_decl_id(t),
     .Some(did) => g_adopted_extern_c_types.get(did),
@@ -98,13 +98,13 @@ get_adopted_extern_c_type :: (fn(imm(t) : TypeValue) -> Option(AdoptedExternCTyp
 // `match` on the TypeValue variant, used pervasively by callers that want a
 // boolean test rather than a tag enum comparison.
 // ---------------------------------------------------------------------------
-is_int_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_int_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Int(_, _) => true, _ => false)
 );
-is_float_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_float_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Float(_) => true, _ => false)
 );
-is_signed_int_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_signed_int_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
     .Int(_, signed) => signed,
@@ -112,7 +112,7 @@ is_signed_int_type :: (fn(imm(t) : TypeValue) -> bool)(
     _ => false
   )
 );
-is_numeric_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_numeric_type :: (fn(t : &TypeValue) -> bool)(
   cond(
     is_int_type(t) => true,
     is_float_type(t) => true,
@@ -126,19 +126,19 @@ is_numeric_type :: (fn(imm(t) : TypeValue) -> bool)(
     )
   )
 );
-is_pointer_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_pointer_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Pointer(_) => true, _ => false)
 );
-is_array_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_array_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Array(_, _, _) => true, _ => false)
 );
-is_function_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_function_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Func({ result : _ }) => true, _ => false)
 );
-is_some_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_some_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .SomeT(name : _) => true, _ => false)
 );
-is_trait_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_trait_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
     .TraitT(name : _) => true,
@@ -150,27 +150,27 @@ is_trait_type :: (fn(imm(t) : TypeValue) -> bool)(
 /// True for source-namespace structs (anonymous modules / imports).
 /// There is no separate module type; the legacy name is kept for the
 /// existing call sites.
-is_module_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_module_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Struct({ is_source_namespace : sns }) => sns, _ => false)
 );
 /// True for structs EXCLUDING source-namespace
 /// structs.
-is_struct_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_struct_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Struct({ is_source_namespace : sns }) => !sns, _ => false)
 );
-is_enum_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_enum_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .EnumT(_, _, _, _, _, _, _, _, _, _) => true, _ => false)
 );
-is_unit_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_unit_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Unit => true, _ => false)
 );
-is_bool_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_bool_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .BoolT => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Basic primitive guards
 // ---------------------------------------------------------------------------
-is_primitive_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_primitive_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
     .Unit => true,
@@ -192,82 +192,82 @@ is_primitive_type :: (fn(imm(t) : TypeValue) -> bool)(
     _ => false
   )
 );
-is_comptime_int_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_comptime_int_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .ComptimeInt => true, _ => false)
 );
-is_comptime_float_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_comptime_float_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .ComptimeFloat => true, _ => false)
 );
-is_comptime_string_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_comptime_string_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .ComptimeString => true, _ => false)
 );
-is_comptime_list_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_comptime_list_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .ComptimeListT(_) => true, _ => false)
 );
-is_expr_list_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_expr_list_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .ComptimeListT(child) => match(child, .ExprT => true, _ => false),
     _ => false
   )
 );
-is_usize_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_usize_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Usize => true, _ => false)
 );
-is_isize_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_isize_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Isize => true, _ => false)
 );
-is_u8_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_u8_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(8)) && !signed), _ => false)
 );
-is_i8_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_i8_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(8)) && signed), _ => false)
 );
-is_u16_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_u16_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(16)) && !signed), _ => false)
 );
-is_i16_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_i16_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(16)) && signed), _ => false)
 );
-is_u32_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_u32_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(32)) && !signed), _ => false)
 );
-is_i32_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_i32_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(32)) && signed), _ => false)
 );
-is_u64_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_u64_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(64)) && !signed), _ => false)
 );
-is_i64_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_i64_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(64)) && signed), _ => false)
 );
-is_f32_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_f32_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Float(bits) => (bits == u8(32)), _ => false)
 );
-is_f64_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_f64_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Float(bits) => (bits == u8(64)), _ => false)
 );
-is_expr_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_expr_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .ExprT => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Compound type guards
 // ---------------------------------------------------------------------------
-is_tuple_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_tuple_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Tuple(_, _) => true, _ => false)
 );
-is_union_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_union_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Union(_, _, _) => true, _ => false)
 );
 /// Reference-semantics struct: `ref(struct(...))`.
-is_reference_struct_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_reference_struct_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Struct({ is_reference_semantics : is_ref }) => is_ref, _ => false)
 );
 // Atomic reference-semantics struct: `atomic(ref(struct(...)))`, which
 // requires BOTH `is_reference_semantics` AND `is_atomic_rc`. A
 // value-semantics struct with `is_atomic_rc = true` is malformed but should
 // not pass.
-is_atomic_reference_struct_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_atomic_reference_struct_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .Struct({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) =>
@@ -276,11 +276,11 @@ is_atomic_reference_struct_type :: (fn(imm(t) : TypeValue) -> bool)(
   )
 );
 /// Reference-semantics enum: `ref(enum(...))`.
-is_reference_enum_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_reference_enum_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .EnumT({ is_reference_semantics : is_ref }) => is_ref, _ => false)
 );
 /// Atomic reference-semantics enum: `atomic(ref(enum(...)))`.
-is_atomic_reference_enum_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_atomic_reference_enum_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .EnumT({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) =>
@@ -289,13 +289,13 @@ is_atomic_reference_enum_type :: (fn(imm(t) : TypeValue) -> bool)(
   )
 );
 // Phase 2b : Type.Struct needs `isNewtype` flag.
-is_newtype_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_newtype_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Struct({ is_newtype : is_nt }) => is_nt, _ => false)
 );
 /// True if `t` is the builtin `str` static string view (TypeValue.Str).
 /// Used by `panic` / `fprintf` codegen to choose between `%s` and `%.*s`
 /// format specifiers.
-is_str_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_str_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Str => true, _ => false)
 );
 // ---------------------------------------------------------------------------
@@ -331,7 +331,7 @@ shared_cell_names_at :: (fn(i : usize) -> Option(SharedCellNames))(
   )
 );
 /// True if `name` is a type constructor name of the shared cell (`Rc`).
-is_shared_cell_type_name :: (fn(imm(name) : String) -> bool)({
+is_shared_cell_type_name :: (fn(name : &String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
   while(!found, {
@@ -350,7 +350,7 @@ is_shared_cell_type_name :: (fn(imm(name) : String) -> bool)({
 });
 /// The type constructor name a shared-cell VALUE constructor builds (`rc` →
 /// `Rc`); `.None` for any other name.
-shared_cell_type_name_of_constructor :: (fn(imm(fn_name) : String) -> Option(String))({
+shared_cell_type_name_of_constructor :: (fn(fn_name : &String) -> Option(String))({
   (i : usize) = usize(0);
   (out : Option(String)) = .None;
   while(out.is_none(), {
@@ -371,7 +371,7 @@ shared_cell_type_name_of_constructor :: (fn(imm(fn_name) : String) -> Option(Str
 });
 /// True if `name` is a STAMPED shared-cell instance name: a type constructor
 /// name from the list followed by `(` (`Rc(i32)`, `Rc(Self)`).
-_is_shared_cell_instance_name :: (fn(imm(name) : String) -> bool)({
+_is_shared_cell_instance_name :: (fn(name : &String) -> bool)({
   (i : usize) = usize(0);
   (found : bool) = false;
   while(!found, {
@@ -395,7 +395,7 @@ _is_shared_cell_instance_name :: (fn(imm(name) : String) -> bool)({
 /// stamped name is a shared-cell instance name and whose only field is
 /// labeled `*`. Used by RC and downcast codegen, and by the pattern compiler,
 /// to look through the cell.
-is_box_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_box_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .Struct({ name, field_labels, is_reference_semantics : is_ref }) => cond(
@@ -411,10 +411,10 @@ is_box_type :: (fn(imm(t) : TypeValue) -> bool)(
     _ => false
   )
 );
-is_fn_trait_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_fn_trait_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .FnTraitT(base_name : _) => true, _ => false)
 );
-is_function_type_and_is_type_function :: (fn(imm(t) : TypeValue) -> bool)(
+is_function_type_and_is_type_function :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .Func({ result : r }) => match(r, .TypeUni(_) => true, _ => false),
@@ -422,13 +422,13 @@ is_function_type_and_is_type_function :: (fn(imm(t) : TypeValue) -> bool)(
   )
 );
 // Phase 2b: Func return type needs `isUnquote` flag.
-is_function_type_and_is_macro_function :: (fn(imm(t) : TypeValue) -> bool)(false);
+is_function_type_and_is_macro_function :: (fn(t : &TypeValue) -> bool)(false);
 /// Check if a TypeValue is comptime-only (never a runtime type).
 ///
 /// The tag-level subset that returns definitively
 /// `true` for comptime-only types. Primitives like `i32`, `bool`, and `unit` are
 /// NOT comptime-only because they also implement runtime.
-is_comptime_only_type_simple :: (fn(imm(t) : TypeValue) -> bool)(
+is_comptime_only_type_simple :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .ComptimeInt => true,
@@ -449,7 +449,7 @@ is_comptime_only_type_simple :: (fn(imm(t) : TypeValue) -> bool)(
 /// True if `t` is a function type whose return type is comptime-only.
 ///
 ///
-is_function_type_and_returns_comptime_value :: (fn(imm(t) : TypeValue) -> bool)(
+is_function_type_and_returns_comptime_value :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     // Reads the RETURN SPEC FLAG (`FuncMeta.result_is_comptime_only`),
@@ -465,16 +465,16 @@ is_function_type_and_returns_comptime_value :: (fn(imm(t) : TypeValue) -> bool)(
 // Type universe guards
 // ---------------------------------------------------------------------------
 /// The `Type`, `Type(1)`, … universe.
-is_type_hierarchy_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_type_hierarchy_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .TypeUni(_) => true, _ => false)
 );
-is_type_0 :: (fn(imm(t) : TypeValue) -> bool)(
+is_type_0 :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .TypeUni(level) => (level == usize(0)), _ => false)
 );
 // ---------------------------------------------------------------------------
 // Pointer / reference / dyn guards
 // ---------------------------------------------------------------------------
-is_iso_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_iso_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .IsoT(_) => true, _ => false)
 );
 /// True for an RC handle whose reference count other threads update
@@ -483,13 +483,13 @@ is_iso_type :: (fn(imm(t) : TypeValue) -> bool)(
 /// `__yo_incr_rc_atomic` / `__yo_decr_rc_atomic`. Every READ of that count
 /// (`ref_count(x)`) must be an atomic load too, or it races the atomic RC ops
 /// (issues/fixed/rc-of-an-iso-or-atomic-enum-handle-is-a-plain-load.md).
-is_atomically_counted_rc_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_atomically_counted_rc_type :: (fn(t : &TypeValue) -> bool)(
   is_atomic_reference_struct_type(t) || is_atomic_reference_enum_type(t) || is_iso_type(t)
 );
-is_dyn_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_dyn_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .DynT(required_trait_types : _) => true, _ => false)
 );
-is_type_application_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_type_application_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .TypeAppT(constructor : _) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
@@ -499,7 +499,7 @@ is_type_application_type :: (fn(imm(t) : TypeValue) -> bool)(
 ///
 /// This is intentionally broader than `is_int_type` in type.yo, which only
 /// checks the fixed-width `Int(bits, signed)` variant.
-is_integer_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_integer_type :: (fn(t : &TypeValue) -> bool)(
   cond(
     is_int_type(t) => true,
     true => match(
@@ -510,7 +510,7 @@ is_integer_type :: (fn(imm(t) : TypeValue) -> bool)(
     )
   )
 );
-is_unsigned_integer_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_unsigned_integer_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .Int(_, signed) => !signed,
@@ -521,51 +521,51 @@ is_unsigned_integer_type :: (fn(imm(t) : TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 // C-compatible type guards
 // ---------------------------------------------------------------------------
-is_char_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_char_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .CChar => true, _ => false)
 );
-is_short_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_short_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .CShort => true, _ => false)
 );
-is_u_short_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_u_short_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .CUShort => true, _ => false)
 );
-is_c_int_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_c_int_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .CInt => true, _ => false)
 );
-is_c_uint_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_c_uint_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .CUInt => true, _ => false)
 );
-is_long_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_long_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .CLong => true, _ => false)
 );
-is_u_long_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_u_long_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .CULong => true, _ => false)
 );
-is_long_long_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_long_long_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .CLongLong => true, _ => false)
 );
-is_u_long_long_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_u_long_long_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .CULongLong => true, _ => false)
 );
-is_long_double_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_long_double_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .CLongDouble => true, _ => false)
 );
-is_void_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_void_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Void => true, _ => false)
 );
 /// The bottom type `never` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.6).
-is_never_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_never_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .Never => true, _ => false)
 );
-is_future_trait_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_future_trait_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .FutureTraitT(base_name : _) => true, _ => false)
 );
 /// `true` when `t` is a `Concrete(T)` trait type (its `is_concrete` marker is
 /// `.Some`). The `TraitT` variant carries `is_concrete :
 /// Option(Rc(Self))`; this was a `=> false` stub until the async-Future type
 /// plumbing (Phase 5) needed it (`is_io_future_type`).
-is_concrete_trait_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_concrete_trait_type :: (fn(t : &TypeValue) -> bool)(
   match(t_refine_inner(t), .TraitT({ is_concrete }) => is_concrete.is_some(), _ => false)
 );
 /// Return `true` if `t` itself is an RC-managed type (not recursively).
@@ -578,7 +578,7 @@ is_concrete_trait_type :: (fn(imm(t) : TypeValue) -> bool)(
 ///   - A `SomeT` that has a Future trait constraint (Futures are always RC)
 ///
 ///
-is_rc_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_rc_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     // Resolve a leaked recursive SELF-SHELL before reading the flag: shells
@@ -624,7 +624,7 @@ is_rc_type :: (fn(imm(t) : TypeValue) -> bool)(
     _ => false
   )
 );
-is_c_compatible_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_c_compatible_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .CChar => true,
@@ -654,7 +654,7 @@ is_c_compatible_type :: (fn(imm(t) : TypeValue) -> bool)(
 /// generic future-trait struct pointer, and the call site casts the concrete
 /// state-machine future to it. Kept local so this foundational module does not
 /// import the evaluator's trait_checking.
-_some_type_implements_future :: (fn(imm(t) : TypeValue) -> bool)(
+_some_type_implements_future :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .SomeT({ required_trait_types : sf_rtts }) => {
@@ -675,7 +675,7 @@ _some_type_implements_future :: (fn(imm(t) : TypeValue) -> bool)(
     _ => false
   )
 );
-is_function_type_generic :: (fn(imm(t) : TypeValue) -> bool)(
+is_function_type_generic :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .Func({ param_types : pts, meta : __fm1 }) =>
@@ -714,7 +714,7 @@ is_function_type_generic :: (fn(imm(t) : TypeValue) -> bool)(
 /// Check if a function type has "hard" generic parameters that make the
 /// unspecialized form invalid for C codegen: generic parameters and SomeType
 /// parameters without a resolved concrete type.
-is_function_type_hard_generic :: (fn(imm(t) : TypeValue) -> bool)(
+is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .Func({ param_types : pts, meta : __fm2 }) =>
@@ -776,7 +776,7 @@ is_function_type_hard_generic :: (fn(imm(t) : TypeValue) -> bool)(
   )
 );
 // Phase 2b: requires FunctionValue with `specializedFunctionCaches` field.
-is_function_specializable :: (fn(imm(t) : TypeValue) -> bool)(false);
+is_function_specializable :: (fn(t : &TypeValue) -> bool)(false);
 // ---------------------------------------------------------------------------
 // Rc / effects-row guards
 // ---------------------------------------------------------------------------
@@ -784,7 +784,7 @@ is_function_specializable :: (fn(imm(t) : TypeValue) -> bool)(false);
 // struct with exactly one field labeled `*` whose typeName is a shared-cell
 // instance name (`Rc(T)`: `shared_cell_names_at`), or an `Arc` of a
 // non-object.
-is_boxed_type :: (fn(imm(t) : TypeValue) -> bool)(
+is_boxed_type :: (fn(t : &TypeValue) -> bool)(
   if(
     !is_reference_struct_type(t),
     false,
@@ -825,7 +825,7 @@ is_boxed_type :: (fn(imm(t) : TypeValue) -> bool)(
 /// A field type whose C value is a pointer that is never NULL: a raw pointer
 /// or a non-atomic reference handle. Atomic handles (`atomic(ref(...))`) and
 /// `Iso` keep the tagged layout.
-_is_nullable_payload_type :: (fn(imm(t) : TypeValue) -> bool)(
+_is_nullable_payload_type :: (fn(t : &TypeValue) -> bool)(
   cond(
     is_pointer_type(t) => true,
     is_atomic_reference_struct_type(t) => false,
@@ -835,7 +835,7 @@ _is_nullable_payload_type :: (fn(imm(t) : TypeValue) -> bool)(
     true => false
   )
 );
-can_optimize_as_nullable_pointer :: (fn(imm(t) : TypeValue) -> Option(TypeValue))(
+can_optimize_as_nullable_pointer :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
     .EnumT({ variant_fields, is_reference_semantics }) => {

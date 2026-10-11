@@ -43,7 +43,7 @@ sm_capture_free :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(
   })
 );
 // A reference-typed capture: the nested closure owns its copy.
-sm_captures_string :: (fn(io : Io, imm(name) : String) -> Impl(Future(usize)))(
+sm_captures_string :: (fn(io : Io, name : &String) -> Impl(Future(usize)))(
   io.async((e : Io) => {
     r := e.await(leaf(e, i32(1)), e);
     (f : Impl(Fn(k : usize) -> usize)) = (k => (k + name.len()));
@@ -52,7 +52,7 @@ sm_captures_string :: (fn(io : Io, imm(name) : String) -> Impl(Future(usize)))(
 );
 // Outside io.async: a closure built inside a closure's body captures a name
 // the enclosing closure captured.
-apply :: (fn(x : i32, imm(cb) : Impl(Fn(v : i32) -> i32)) -> i32)(cb(x));
+apply :: (fn(x : i32, cb : &Impl(Fn(v : i32) -> i32)) -> i32)(cb(x));
 nested_in_closure :: (fn(n : i32) -> i32)(
   apply(n, x => {
     (f : Impl(Fn(v : i32) -> i32)) = (v => (v + n));
@@ -65,11 +65,11 @@ nested_in_closure :: (fn(n : i32) -> i32)(
 // (issues/fixed/impl-fn-param-captured-by-an-async-block-is-not-in-the-capture-struct.md):
 // the block reads `cb` only through the inner closure, so it never captured it
 // and the inner capture struct was built from a bare `cb`.
-run_it :: (fn(imm(f) : Impl(Fn() -> unit, Send)) -> unit)(f());
+run_it :: (fn(f : &Impl(Fn() -> unit, Send)) -> unit)(f());
 relay :: (
   fn(
     generic(T : Type),
-    imm(cb) : Impl(Fn() -> T, Send),
+    cb : &Impl(Fn() -> T, Send),
     io : Io,
     where(T <: (Send, Acyclic))
   ) -> Impl(Future(T, Io))

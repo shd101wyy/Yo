@@ -190,7 +190,7 @@ _failed_outcome :: (fn() -> ModuleLoadOutcome)(
 /// and the `--std-path` a `test`/`build` parent forwards to its child
 /// `compile` processes — agrees with it.
 (g_std_path_override : Option(String)) = Option(String).None;
-set_std_path_override :: (fn(imm(path) : String) -> unit)({
+set_std_path_override :: (fn(path : &String) -> unit)({
   g_std_path_override = Option(String).Some(path);
 });
 /// The stashed `--std-path` override, if any. `build_runner.yo` forwards it
@@ -214,7 +214,7 @@ get_std_path_override :: (fn() -> Option(String))({
 /// (issues/fixed/fixpoint-gate-std-path-spelling-changes-type-keys.md). Lexical
 /// only — no symlink resolution: this is sync and runs inside the module
 /// loader. Falls back to the raw spelling when the cwd is unobtainable.
-_std_canonicalize :: (fn(imm(p) : String) -> String)({
+_std_canonicalize :: (fn(p : &String) -> String)({
   path := Path.new(p.clone());
   if(!path.is_absolute(), {
     match(
@@ -294,7 +294,7 @@ resolve_std_path :: (fn() -> String)({
 /// reads exactly `<std>/prelude.yo`), so its presence is the test for "this
 /// directory IS somebody's std" — as opposed to a project that merely uses
 /// one.
-_dir_holds_prelude :: (fn(imm(dir) : String) -> bool)(
+_dir_holds_prelude :: (fn(dir : &String) -> bool)(
   file_exists_sync(
     Path.new(dir.clone()).join(Path.new(String.from("prelude.yo"))).to_string()
   )
@@ -304,7 +304,7 @@ _dir_holds_prelude :: (fn(imm(dir) : String) -> bool)(
 /// hands the resolver the root directly — that holds a `prelude.yo`.
 /// Nearest-first, so a std tree nested inside another resolves to its own
 /// root.
-_entry_std_root :: (fn(imm(entry) : String) -> Option(String))({
+_entry_std_root :: (fn(entry : &String) -> Option(String))({
   ancestors := Path.new(_std_canonicalize(entry.clone())).ancestors();
   (ai : usize) = usize(0);
   while(ai < ancestors.len(), {
@@ -347,7 +347,7 @@ _entry_std_root :: (fn(imm(entry) : String) -> Option(String))({
 /// fix / verify / effects / doc dispatch in `main.yo` / `doc_command.yo`,
 /// each with the command's ENTRY paths, before the run's first
 /// `resolve_std_path()`.
-prefer_entry_std_root :: (fn(imm(entries) : ArrayList(String)) -> unit)({
+prefer_entry_std_root :: (fn(entries : &ArrayList(String)) -> unit)({
   match(
     g_std_path_override,
     .Some(_) => {
@@ -419,7 +419,7 @@ prefer_entry_std_root :: (fn(imm(entries) : ArrayList(String)) -> unit)({
 // State accessors (main.yo's compile path drives these directly)
 // ---------------------------------------------------------------------------
 /// Stash the std-path the demand loader will use for nested imports.
-mm_set_loader_context :: (fn(imm(std_path) : String) -> unit)({
+mm_set_loader_context :: (fn(std_path : &String) -> unit)({
   g_loader_std_path = Option(String).Some(std_path);
 });
 mm_prelude_env :: (fn() -> Option(Environment))(g_cached_prelude_env);
@@ -432,7 +432,7 @@ mm_clear_prelude_env :: (fn() -> unit)({
 });
 /// Publish the shared codegen ExprInfoTable. Every module loaded from here on
 /// routes its per-expression metadata into `t`.
-mm_set_shared_expr_info_table :: (fn(imm(t) : ExprInfoTable) -> unit)({
+mm_set_shared_expr_info_table :: (fn(t : &ExprInfoTable) -> unit)({
   g_shared_expr_info_table = Option(ExprInfoTable).Some(t);
   set_name_path_sharing(true);
   scope_release_set_table(Option(ExprInfoTable).Some(t));
@@ -442,7 +442,7 @@ mm_shared_expr_info_table :: (fn() -> Option(ExprInfoTable))(
 );
 /// Clone the cached prelude env, or start a fresh one keyed on `module_path`
 /// when no prelude has been loaded yet.
-mm_fresh_module_env :: (fn(imm(module_path) : String) -> Environment)({
+mm_fresh_module_env :: (fn(module_path : &String) -> Environment)({
   match(
     g_cached_prelude_env,
     .Some(pe) => if(pe.frames.len() != g_cached_prelude_frame_count, {
@@ -461,7 +461,7 @@ mm_fresh_module_env :: (fn(imm(module_path) : String) -> Environment)({
 /// Resolve `input_path` (as written on the command line) to the `file://`
 /// absolute path `evaluate_import` would compute for the same module, so cache
 /// keys agree.
-mm_resolve_entry_abs :: (fn(imm(input_path) : String, imm(std_path) : String) -> String)(
+mm_resolve_entry_abs :: (fn(input_path : &String, std_path : &String) -> String)(
   match(
     // `false`: the entry is a FILE PATH, so the manifest's import-root names
     // must not rewrite it (issues/fixed/entry-path-shadowed-by-an-import-root-name.md).
@@ -476,7 +476,7 @@ mm_resolve_entry_abs :: (fn(imm(input_path) : String, imm(std_path) : String) ->
 /// to `base_dir` (the importing document's directory) — the LSP's
 /// documentLink target computation. Same fallbacks as
 /// `mm_resolve_entry_abs`: unresolvable input comes back verbatim.
-mm_resolve_import_abs :: (fn(imm(input_path) : String, imm(base_dir) : String, imm(std_path) : String) -> String)(
+mm_resolve_import_abs :: (fn(input_path : &String, base_dir : &String, std_path : &String) -> String)(
   match(
     resolve_module_path_ex(input_path.clone(), base_dir.clone(), std_path, false),
     .Found(p) => p,
@@ -491,7 +491,7 @@ mm_resolve_import_abs :: (fn(imm(input_path) : String, imm(base_dir) : String, i
 // of an imported file, saved or not. Parallel arrays, keyed by FS path.
 (g_open_doc_paths : ArrayList(String)) = ArrayList(String).new();
 (g_open_doc_texts : ArrayList(String)) = ArrayList(String).new();
-_open_doc_index :: (fn(imm(fs_path) : String) -> Option(usize))({
+_open_doc_index :: (fn(fs_path : &String) -> Option(usize))({
   (i : usize) = usize(0);
   n := g_open_doc_paths.len();
   while(i < n, {
@@ -507,7 +507,7 @@ _open_doc_index :: (fn(imm(fs_path) : String) -> Option(usize))({
   Option(usize).None
 });
 /// Record (or replace) the open-buffer text for `fs_path`.
-mm_set_open_document :: (fn(imm(fs_path) : String, imm(text) : String) -> unit)({
+mm_set_open_document :: (fn(fs_path : &String, text : &String) -> unit)({
   // An open document is the only kind of module an editor revalidates in
   // place, so only its walks keep their evaluation context.
   set_walk_context_retained(fs_path.clone(), true);
@@ -523,7 +523,7 @@ mm_set_open_document :: (fn(imm(fs_path) : String, imm(text) : String) -> unit)(
   );
 });
 /// Drop the overlay for `fs_path` (didClose — disk becomes the truth again).
-mm_forget_open_document :: (fn(imm(fs_path) : String) -> unit)({
+mm_forget_open_document :: (fn(fs_path : &String) -> unit)({
   set_walk_context_retained(fs_path.clone(), false);
   match(
     _open_doc_index(fs_path.clone()),
@@ -534,7 +534,7 @@ mm_forget_open_document :: (fn(imm(fs_path) : String) -> unit)({
     .None => ()
   );
 });
-_open_doc_text :: (fn(imm(fs_path) : String) -> Option(String))(
+_open_doc_text :: (fn(fs_path : &String) -> Option(String))(
   match(
     _open_doc_index(fs_path.clone()),
     .Some(i) => g_open_doc_texts.get(i),
@@ -546,7 +546,7 @@ _open_doc_text :: (fn(imm(fs_path) : String) -> Option(String))(
 /// `.None` when neither exists. The LSP reads a definition target's text
 /// through this to convert its columns to the wire encoding — the target is
 /// usually an IMPORTED file the server has no `DocState` for.
-mm_module_source :: (fn(imm(fs_path) : String) -> Option(String))({
+mm_module_source :: (fn(fs_path : &String) -> Option(String))({
   match(
     _open_doc_text(fs_path.clone()),
     .Some(t) => {
@@ -584,7 +584,7 @@ DefDiff :: ref(
     fresh_exprs : ArrayList(AstExpr)
   )
 );
-mm_changed_definitions :: (fn(imm(fs_path) : String) -> Option(DefDiff))({
+mm_changed_definitions :: (fn(fs_path : &String) -> Option(DefDiff))({
   // The stored hashes are keyed by the WALK's module path. Demand loads walk
   // under the `file://` cache key; entry modules under the path as typed —
   // try both before concluding the module was never walked here.
@@ -717,7 +717,7 @@ mm_changed_definitions :: (fn(imm(fs_path) : String) -> Option(DefDiff))({
 /// no-op fast path. `.Some(false)`: comment/whitespace-only edit — nothing
 /// needs invalidating at any granularity. `.Some(true)`: file-level. `.None`:
 /// never walked here — treat as changed.
-mm_definitions_changed :: (fn(imm(fs_path) : String) -> Option(bool))(
+mm_definitions_changed :: (fn(fs_path : &String) -> Option(bool))(
   match(
     mm_changed_definitions(fs_path),
     .None => Option(bool).None,
@@ -730,7 +730,7 @@ mm_definitions_changed :: (fn(imm(fs_path) : String) -> Option(bool))(
 /// stale part of its import closure. Returns the removed `file://` paths
 /// (Phase B2's registry purge consumes this). The cached prelude env is NOT
 /// touched — editing std/prelude.yo still needs a server restart.
-mm_invalidate_document :: (fn(imm(fs_path) : String) -> ArrayList(String))({
+mm_invalidate_document :: (fn(fs_path : &String) -> ArrayList(String))({
   removed := invalidate_module(`file://${fs_path}`);
   // Phase B2: each removed module's registry entries go with it — its
   // re-evaluation re-registers them (under fresh type ids). Without this,
@@ -798,7 +798,7 @@ mm_invalidate_document :: (fn(imm(fs_path) : String) -> ArrayList(String))({
 // ---------------------------------------------------------------------------
 /// The RHS of a `::` definition's statement (`const(lhs, rhs)`), or `.None`
 /// for another shape.
-_def_rhs :: (fn(imm(def) : PendingDef) -> Option(AstExpr))(
+_def_rhs :: (fn(def : &PendingDef) -> Option(AstExpr))(
   match(
     def.expr,
     .FnCall(_, _, cargs, _, _) => cargs.get(usize(1)),
@@ -807,7 +807,7 @@ _def_rhs :: (fn(imm(def) : PendingDef) -> Option(AstExpr))(
 );
 /// The `(fn(...) -> T)` HEAD of a fn-literal definition RHS — the callee of
 /// the `(fn T)(body)` call — or `.None` for any other shape.
-_def_fn_head :: (fn(imm(rhs) : AstExpr) -> Option(AstExpr))(
+_def_fn_head :: (fn(rhs : &AstExpr) -> Option(AstExpr))(
   match(
     rhs,
     .FnCall(_, callee, cargs, _, _) => {
@@ -838,7 +838,7 @@ _def_fn_head :: (fn(imm(rhs) : AstExpr) -> Option(AstExpr))(
 ///     either mints a type identity whose registrations the per-def path
 ///     cannot retire, or is a comptime VALUE that dependents inline at
 ///     def-time — the slot patch updates later readers, not folded copies.
-_def_is_per_def_able :: (fn(imm(old) : PendingDef, imm(fresh) : PendingDef) -> bool)({
+_def_is_per_def_able :: (fn(old : &PendingDef, fresh : &PendingDef) -> bool)({
   old_head := match(
     _def_rhs(old),
     .Some(r) => _def_fn_head(r),
@@ -863,7 +863,7 @@ _def_is_per_def_able :: (fn(imm(old) : PendingDef, imm(fresh) : PendingDef) -> b
 /// syntactic over-approximation (string-literal contents, field labels and
 /// locals of the same spelling all count) — false positives only ever cost
 /// the file-level fallback.
-_expr_mentions :: (fn(imm(e) : AstExpr, imm(names) : ArrayList(String)) -> bool)(
+_expr_mentions :: (fn(e : &AstExpr, names : &ArrayList(String)) -> bool)(
   match(
     e,
     .Atom(
@@ -896,7 +896,7 @@ _expr_mentions :: (fn(imm(e) : AstExpr, imm(names) : ArrayList(String)) -> bool)
 /// True when one of a module's ORDERED statements (everything except
 /// definitions and `export(...)` — an export's product is the StructVal slot,
 /// which the in-place patch refreshes) reads any of `names`.
-_ordered_stmts_mention :: (fn(imm(exprs) : ArrayList(AstExpr), imm(names) : ArrayList(String)) -> bool)({
+_ordered_stmts_mention :: (fn(exprs : &ArrayList(AstExpr), names : &ArrayList(String)) -> bool)({
   (hit : bool) = false;
   (i : usize) = usize(0);
   while((i < exprs.len()) && !hit, {
@@ -916,7 +916,7 @@ _ordered_stmts_mention :: (fn(imm(exprs) : ArrayList(AstExpr), imm(names) : Arra
 });
 /// True when the statements export `name` under a DIFFERENT label
 /// (`export(Foo : name)`) — the slot is then not addressable by `name`.
-_export_aliases_name :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : String) -> bool)({
+_export_aliases_name :: (fn(exprs : &ArrayList(AstExpr), name : &String) -> bool)({
   (hit : bool) = false;
   (i : usize) = usize(0);
   while((i < exprs.len()) && !hit, {
@@ -958,7 +958,7 @@ _export_aliases_name :: (fn(imm(exprs) : ArrayList(AstExpr), imm(name) : String)
   hit
 });
 /// Linear membership on a (short) string list.
-_list_contains :: (fn(imm(list) : ArrayList(String), imm(item) : String) -> bool)({
+_list_contains :: (fn(list : &ArrayList(String), item : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   while((i < list.len()) && !found, {
@@ -974,7 +974,7 @@ _list_contains :: (fn(imm(list) : ArrayList(String), imm(item) : String) -> bool
   found
 });
 /// Add `index` to `module`'s list in the apply-side grouping map.
-_rev_add_index :: (fn(mut(indexes_by_module) : HashMap(String, ArrayList(usize)), imm(module) : String, index : usize) -> unit)({
+_rev_add_index :: (fn(indexes_by_module : &mut HashMap(String, ArrayList(usize)), module : &String, index : usize) -> unit)({
   list := match(
     indexes_by_module.get(module.clone()),
     .Some(existing) => existing,
@@ -986,7 +986,7 @@ _rev_add_index :: (fn(mut(indexes_by_module) : HashMap(String, ArrayList(usize))
 /// Append `module` to the ordered module list unless excluded, already
 /// present, or a demand-loaded module whose cache entry is already gone (a
 /// cascade-dropped module — its reload owns it now).
-_rev_add_module :: (fn(mut(modules) : ArrayList(String), imm(excluded) : HashSet(String), imm(module) : String) -> unit)({
+_rev_add_module :: (fn(modules : &mut ArrayList(String), excluded : &HashSet(String), module : &String) -> unit)({
   (skip : bool) = excluded.contains(module.clone());
   if(!skip, {
     (mi : usize) = usize(0);
@@ -1041,7 +1041,7 @@ RevalPlan :: ref(
   )
 );
 /// True when `module` is already among the importers being re-bound.
-_rebinds_contain :: (fn(imm(rebinds) : ArrayList(RebindEntry), imm(module) : String) -> bool)({
+_rebinds_contain :: (fn(rebinds : &ArrayList(RebindEntry), module : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < rebinds.len(), {
     match(
@@ -1063,10 +1063,10 @@ _rebinds_contain :: (fn(imm(rebinds) : ArrayList(RebindEntry), imm(module) : Str
 /// file-level fallbacks, which is what the caller does with `false`.
 _admit_closure_key :: (
   fn(
-    imm(key) : String,
-    mut(closure_keys) : ArrayList(String),
-    mut(fallbacks) : ArrayList(String),
-    mut(names_by_module) : HashMap(String, ArrayList(String))
+    key : &String,
+    closure_keys : &mut ArrayList(String),
+    fallbacks : &mut ArrayList(String),
+    names_by_module : &mut HashMap(String, ArrayList(String))
   ) -> bool
 )({
   module := def_key_module(key.clone());
@@ -1118,7 +1118,7 @@ _admit_closure_key :: (
 /// its presence sends the importer back to the file-level path. The `import`
 /// mention is what distinguishes the destructure statement itself, which is
 /// exactly the statement the re-bind replaces.
-_reader_rebindable :: (fn(imm(reader_module) : String, imm(names) : ArrayList(String)) -> bool)({
+_reader_rebindable :: (fn(reader_module : &String, names : &ArrayList(String)) -> bool)({
   rw := match(
     finished_walk_for(reader_module),
     .Some(w) => w,
@@ -1153,7 +1153,7 @@ _reader_rebindable :: (fn(imm(reader_module) : String, imm(names) : ArrayList(St
 /// mention is the only record that a sibling depends on a definition. Erring
 /// toward mentioning (a shadowed local of the same name, say) only
 /// re-evaluates one extra definition.
-_defs_mentioning :: (fn(imm(module) : String, imm(names) : ArrayList(String)) -> ArrayList(String))({
+_defs_mentioning :: (fn(module : &String, names : &ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
   match(
     finished_walk_for(module.clone()),
@@ -1184,7 +1184,7 @@ _defs_mentioning :: (fn(imm(module) : String, imm(names) : ArrayList(String)) ->
 /// check, D1 reach or StrictBorrow mask depends on it, so a watch round would
 /// accept what a cold `check` rejects
 /// (issues/fixed/watch-per-def-round-skips-same-module-callers.md).
-_revalidation_closure :: (fn(imm(seeds) : ArrayList(String)) -> ArrayList(String))({
+_revalidation_closure :: (fn(seeds : &ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
   seen := HashSet(String).new();
   first := def_dependents_closure(seeds);
@@ -1290,7 +1290,7 @@ _revalidation_closure :: (fn(imm(seeds) : ArrayList(String)) -> ArrayList(String
 /// impl/extern/type-producer changed, or the changed module's own ordered
 /// statements read a changed name) — the caller takes the file-level path for
 /// the changed file itself.
-mm_revalidate_plan :: (fn(imm(fs_path) : String) -> Option(RevalPlan))({
+mm_revalidate_plan :: (fn(fs_path : &String) -> Option(RevalPlan))({
   diff := match(
     mm_changed_definitions(fs_path),
     .Some(d) => d,
@@ -1618,7 +1618,7 @@ RevalOutcome :: ref(
 /// drop at file level — plus every module the drops cascaded over is caught
 /// by the cache-presence check below — so their defs are left to the reload.
 mm_revalidate_apply :: (
-  fn(imm(plan) : RevalPlan, imm(excluded) : HashSet(String)) -> RevalOutcome
+  fn(plan : &RevalPlan, excluded : &HashSet(String)) -> RevalOutcome
 )({
   failures := ArrayList(String).new();
   fallbacks := ArrayList(String).new();
@@ -2001,7 +2001,7 @@ mm_reset :: (fn() -> unit)({
 /// configuration — `mm_reset` leaves it alone.
 (g_imports_file_override : Option(String)) = Option(String).None;
 (g_imports_file_loaded : bool) = false;
-set_imports_file_override :: (fn(imm(path) : String) -> unit)({
+set_imports_file_override :: (fn(path : &String) -> unit)({
   g_imports_file_override = Option(String).Some(path);
   g_imports_file_loaded = false;
 });
@@ -2010,7 +2010,7 @@ get_imports_file_override :: (fn() -> Option(String))(g_imports_file_override.cl
 /// the process cwd (the runner writes absolute paths; the flag is usable by
 /// hand too). Malformed lines (no `=`, empty name or root) are errors — the
 /// file is machine-written, so a bad line means a bug, not a typo.
-_load_imports_file :: (fn(imm(exn) : Exception) -> unit)({
+_load_imports_file :: (fn(exn : &Exception) -> unit)({
   if(g_imports_file_loaded, {
     return(());
   });
@@ -2065,7 +2065,7 @@ _load_imports_file :: (fn(imm(exn) : Exception) -> unit)({
 /// `--imports` file is the explicit, complete mapping for an artifact; when
 /// it is set, discovery is skipped. A malformed manifest is an error here —
 /// it is a compile error of the entry, reported once by the owning edge.
-_register_manifest_import_roots :: (fn(imm(fs_path) : String, imm(exn) : Exception) -> unit)({
+_register_manifest_import_roots :: (fn(fs_path : &String, exn : &Exception) -> unit)({
   if(g_imports_file_override.is_some(), {
     return(());
   });
@@ -2127,7 +2127,7 @@ _register_manifest_import_roots :: (fn(imm(fs_path) : String, imm(exn) : Excepti
 // ---------------------------------------------------------------------------
 // The demand loader
 // ---------------------------------------------------------------------------
-_stash_load_error :: (fn(imm(msg) : String) -> unit)({
+_stash_load_error :: (fn(msg : &String) -> unit)({
   g_load_module_error = Option(String).Some(msg);
 });
 _take_load_error :: (fn() -> Option(String))({
@@ -2146,11 +2146,11 @@ _take_load_error :: (fn() -> Option(String))({
 /// re-throwing the stash, the LSP by parsing it into diagnostics.
 _eval_module_exprs_capturing_error :: (
   fn(
-    imm(mod_exprs) : ArrayList(AstExpr),
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    mut(out) : ArrayList(EvalValue),
-    mut(out_tys) : ArrayList(TypeValue)
+    mod_exprs : &ArrayList(AstExpr),
+    env : &Environment,
+    ctx : &EvalContext,
+    out : &mut ArrayList(EvalValue),
+    out_tys : &mut ArrayList(TypeValue)
   ) -> bool
 )({
   local_exn := Exception(
@@ -2172,7 +2172,7 @@ _eval_module_exprs_capturing_error :: (
 /// keep the driver's `Exception` in a module global for this, and a stored
 /// handler can outlive the frame that installed it
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 5.5).
-_read_source_capturing_error :: (fn(imm(fs_path) : String, mut(out) : ArrayList(ArrayList(u8))) -> bool)({
+_read_source_capturing_error :: (fn(fs_path : &String, out : &mut ArrayList(ArrayList(u8))) -> bool)({
   local_exn := Exception(
     throw : (
       err -> {
@@ -2187,7 +2187,7 @@ _read_source_capturing_error :: (fn(imm(fs_path) : String, mut(out) : ArrayList(
 });
 /// Parse `src` as the module `module_path`, capturing a parse error the same
 /// way.
-_parse_capturing_error :: (fn(imm(src) : String, imm(module_path) : String, mut(out) : ArrayList(ArrayList(AstExpr))) -> bool)({
+_parse_capturing_error :: (fn(src : &String, module_path : &String, out : &mut ArrayList(ArrayList(AstExpr))) -> bool)({
   local_exn := Exception(
     throw : (
       err -> {
@@ -2230,7 +2230,7 @@ export(_eval_module_exprs_capturing_error, _take_load_error);
 /// `demand_load_module`; unresolvable literals are the evaluator's error to
 /// report, not this scan's.
 _record_static_import_edges :: (
-  fn(imm(importer) : String, imm(exprs) : ArrayList(AstExpr), imm(std_path) : String) -> unit
+  fn(importer : &String, exprs : &ArrayList(AstExpr), std_path : &String) -> unit
 )({
   current_file := importer.replace(String.from("file://"), String.new());
   current_dir := match(
@@ -2249,7 +2249,7 @@ _record_static_import_edges :: (
   });
 });
 _scan_import_literals :: (
-  fn(imm(e) : AstExpr, imm(importer) : String, imm(current_dir) : String, imm(std_path) : String) -> unit
+  fn(e : &AstExpr, importer : &String, current_dir : &String, std_path : &String) -> unit
 )({
   match(
     e,
@@ -2290,7 +2290,7 @@ _scan_import_literals :: (
     }
   );
 });
-_load_module_at_abs :: (fn(imm(abs) : String) -> Option(String))({
+_load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   if(abs.ends_with(String.from("prelude.yo")), {
     return(Option(String).None);
   });
@@ -2355,7 +2355,7 @@ _load_module_at_abs :: (fn(imm(abs) : String) -> Option(String))({
   env := mm_fresh_module_env(abs.clone());
   ctx := eval_context_new(std_path.clone(), abs.clone());
   ctx.is_executing = true;
-  ctx.load_module = Option((fn(imm(path) : String) -> LoadModuleResult)).Some(demand_load_module);
+  ctx.load_module = Option((fn(path : &String) -> LoadModuleResult)).Some(demand_load_module);
   // Codegen: route this module's per-expression metadata into the shared table
   // (see g_shared_expr_info_table). No-op during check/test.
   match(
@@ -2415,7 +2415,7 @@ _load_module_at_abs :: (fn(imm(abs) : String) -> Option(String))({
 /// the specializations it minted — summarized against that table. A generic
 /// definition is skipped: its body is evaluated per specialization, and those
 /// are in `minted` (or in the minting module's own load).
-_summarize_module_bodies :: (fn(imm(abs) : String, imm(minted) : ArrayList(EvalValue), imm(env) : Environment, imm(table) : ExprInfoTable) -> unit)({
+_summarize_module_bodies :: (fn(abs : &String, minted : &ArrayList(EvalValue), env : &Environment, table : &ExprInfoTable) -> unit)({
   values := ArrayList(EvalValue).new();
   _push_non_generic_fn_values(type_trait_method_values_owned_by(abs.clone()), values);
   match(
@@ -2431,7 +2431,7 @@ _summarize_module_bodies :: (fn(imm(abs) : String, imm(minted) : ArrayList(EvalV
   summarize_function_bodies(values, table, env);
 });
 /// The values the definitions `defs` bound (each def's own Variable).
-_walk_def_values :: (fn(imm(defs) : ArrayList(PendingDef)) -> ArrayList(EvalValue))({
+_walk_def_values :: (fn(defs : &ArrayList(PendingDef)) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
   (di : usize) = usize(0);
   while(di < defs.len(), {
@@ -2448,7 +2448,7 @@ _walk_def_values :: (fn(imm(defs) : ArrayList(PendingDef)) -> ArrayList(EvalValu
   });
   out
 });
-_push_non_generic_fn_values :: (fn(imm(src) : ArrayList(EvalValue), mut(dst) : ArrayList(EvalValue)) -> unit)({
+_push_non_generic_fn_values :: (fn(src : &ArrayList(EvalValue), dst : &mut ArrayList(EvalValue)) -> unit)({
   (i : usize) = usize(0);
   while(i < src.len(), {
     match(
@@ -2468,7 +2468,7 @@ _push_non_generic_fn_values :: (fn(imm(src) : ArrayList(EvalValue), mut(dst) : A
 /// Demand-driven `ctx.load_module`. `path` is the resolved `file://` abs path
 /// computed by `evaluate_import`. Cache hit -> cached exports; currently-loading
 /// (cycle) -> partial exports from the module's live env; else load on demand.
-demand_load_module :: (fn(imm(path) : String) -> LoadModuleResult)({
+demand_load_module :: (fn(path : &String) -> LoadModuleResult)({
   // Import-graph edge: whoever is mid-evaluation (loading-stack top) depends
   // on `path`. Recorded on EVERY request — a cache hit is still a dependency
   // — so `invalidate_module` can walk dependents. Phase B1,
@@ -2513,8 +2513,8 @@ demand_load_module :: (fn(imm(path) : String) -> LoadModuleResult)({
 /// `demand_load_module` on purpose: forcing the loader from higher up would
 /// trial-evaluate the helpers it calls before the runtime globals they read
 /// (`g_open_doc_paths`, …) are bound — the E0906 ordered-statement rule.
-mm_demand_loader :: (fn() -> Option((fn(imm(path) : String) -> LoadModuleResult)))(
-  Option((fn(imm(path) : String) -> LoadModuleResult)).Some(demand_load_module)
+mm_demand_loader :: (fn() -> Option((fn(path : &String) -> LoadModuleResult)))(
+  Option((fn(path : &String) -> LoadModuleResult)).Some(demand_load_module)
 );
 // ---------------------------------------------------------------------------
 // Loading a file
@@ -2531,10 +2531,10 @@ mm_demand_loader :: (fn() -> Option((fn(imm(path) : String) -> LoadModuleResult)
 /// String does not implement required trait ...").
 mm_load_prelude_file :: (
   fn(
-    imm(input_path) : String,
-    imm(std_path) : String,
-    imm(exprs) : ArrayList(AstExpr),
-    imm(local_exn) : Exception
+    input_path : &String,
+    std_path : &String,
+    exprs : &ArrayList(AstExpr),
+    local_exn : &Exception
   ) -> bool
 )({
   prelude_env := Environment.new(input_path.clone());
@@ -2664,7 +2664,7 @@ mm_load_prelude_file :: (
 /// other. The span is the body's own token — a real position in the right
 /// file. Only the ENTRY module is inspected: a library module that happens to
 /// export a function named `main` is not an entry point.
-_reject_non_unit_main :: (fn(imm(module_value) : EvalValue, imm(exn) : Exception) -> unit)({
+_reject_non_unit_main :: (fn(module_value : &EvalValue, exn : &Exception) -> unit)({
   match(
     module_value,
     .StructVal(_, labels, values) => {
@@ -2744,10 +2744,10 @@ _reject_non_unit_main :: (fn(imm(module_value) : EvalValue, imm(exn) : Exception
 });
 mm_eval_entry_exprs :: (
   fn(
-    imm(entry_abs) : String,
-    imm(std_path) : String,
-    imm(exprs) : ArrayList(AstExpr),
-    imm(exn) : Exception
+    entry_abs : &String,
+    std_path : &String,
+    exprs : &ArrayList(AstExpr),
+    exn : &Exception
   ) -> ModuleLoadOutcome
 )({
   mm_set_loader_context(std_path.clone());
@@ -2756,7 +2756,7 @@ mm_eval_entry_exprs :: (
   env := mm_fresh_module_env(entry_abs.clone());
   ctx := eval_context_new(std_path.clone(), entry_abs.clone());
   ctx.is_executing = true;
-  ctx.load_module = Option((fn(imm(path) : String) -> LoadModuleResult)).Some(demand_load_module);
+  ctx.load_module = Option((fn(path : &String) -> LoadModuleResult)).Some(demand_load_module);
   match(
     g_shared_expr_info_table,
     .Some(t) => {
@@ -2844,7 +2844,7 @@ mm_eval_entry_exprs :: (
 /// (issues/fixed/yo-doc-renders-std-prelude-as-an-empty-module.md). The env
 /// reconstruction stays as the fallback for a cache that predates the
 /// recorded pair.
-_prelude_load_outcome :: (fn(imm(input_path) : String, imm(std_path) : String) -> ModuleLoadOutcome)({
+_prelude_load_outcome :: (fn(input_path : &String, std_path : &String) -> ModuleLoadOutcome)({
   prelude_env := match(
     g_cached_prelude_env,
     .Some(pe) => pe,
@@ -2876,11 +2876,11 @@ _prelude_load_outcome :: (fn(imm(input_path) : String, imm(std_path) : String) -
 /// every file.
 mm_load_file :: (
   fn(
-    imm(input_path) : String,
-    imm(std_path) : String,
+    input_path : &String,
+    std_path : &String,
     verbose : bool,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> ModuleLoadOutcome
 )({
   // Local exception handler escapes the function body with a failed outcome.
@@ -3007,10 +3007,10 @@ mm_load_file :: (
 /// would take the language server down with it.
 mm_preload_prelude :: (
   fn(
-    imm(std_path) : String,
+    std_path : &String,
     verbose : bool,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> bool
 )({
   (ok : bool) = true;
@@ -3051,9 +3051,9 @@ mm_preload_prelude :: (
 /// Resolves the std path itself, so callers do not each re-derive it.
 mm_load_yo_file :: (
   fn(
-    imm(input_path) : String,
+    input_path : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> ModuleLoadOutcome
 )({
   std_path := resolve_std_path();

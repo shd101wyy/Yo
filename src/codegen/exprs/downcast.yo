@@ -30,7 +30,7 @@
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 /// Generate code for `downcast(dyn_value, T)`.
-generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: downcast not evaluated */")));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: downcast requires 2 arguments */")));
@@ -261,7 +261,7 @@ generate_downcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context)
   )
 });
 /// Is `s` one plain C identifier (a local, a temp) — safe to name twice?
-_is_plain_c_identifier :: (fn(imm(s) : String) -> bool)({
+_is_plain_c_identifier :: (fn(s : &String) -> bool)({
   if(s.len() == usize(0), {
     return(false);
   });
@@ -282,7 +282,7 @@ _is_plain_c_identifier :: (fn(imm(s) : String) -> bool)({
 /// through the source vtable's RC slot (the result is owned, like a
 /// downcast's), behind the payload's vtable for the target, which the source
 /// vtable carries as `__yo_up_<Tgt>`.
-generate_upcast :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+generate_upcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(String.from("/* ERROR: upcast not evaluated */")));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   dyn_arg := match(args.get(usize(0)), .Some(x) => x, .None => return(String.from("/* ERROR: upcast requires 2 arguments */")));

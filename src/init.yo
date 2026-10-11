@@ -46,7 +46,7 @@ _is_valid_name_byte :: (fn(b : u8) -> bool)(
   || (b == u8(45)) // -
 );
 /// Replace characters that are not `[a-zA-Z0-9_-]` with `-`.
-sanitize_project_name :: (fn(imm(raw) : String) -> String)({
+sanitize_project_name :: (fn(raw : &String) -> String)({
   result := String.new();
   bytes := raw;
   i := usize(0);
@@ -72,7 +72,7 @@ sanitize_project_name :: (fn(imm(raw) : String) -> String)({
 // Template generators (pure functions)
 // ---------------------------------------------------------------------------
 /// Generate the content of `build.yo`.
-generate_build_yo :: (fn(imm(name) : String) -> String)(
+generate_build_yo :: (fn(name : &String) -> String)(
   `build :: import("std/build");
 { assert, panic } :: import("std/assert");
 
@@ -104,7 +104,7 @@ doc_step.depend_on(docs);
 /// (plans/archive/BUILD_AND_DEPENDENCY_SYSTEM_REDESIGN.md §4.1). `[modules] default`
 /// is what `import("<name>")` resolves to, in this project and in every
 /// project that depends on it; `yo add` writes `[dependencies]`.
-generate_yo_toml :: (fn(imm(name) : String) -> String)(
+generate_yo_toml :: (fn(name : &String) -> String)(
   `[package]
 name = "${name}"
 version = "0.1.0"
@@ -134,7 +134,7 @@ generate_test_file :: (fn() -> str)(
 /// through the `[modules] default` entry in `yo.toml`, so the scaffold
 /// exercises the manifest rather than reaching across the tree with a relative
 /// path.
-generate_lib_test_file :: (fn(imm(name) : String) -> String)(
+generate_lib_test_file :: (fn(name : &String) -> String)(
   `{ add } :: import("${name}");
 `
   + String.from("{ assert } :: import(\"std/assert\");\n\ntest(\"add sums two integers\", {\n  assert(add(2, 3) == 5, \"add(2, 3) should be 5\");\n});\n")
@@ -146,7 +146,7 @@ generate_gitignore :: (fn() -> str)(
 /// Generate the content of `README.md`. Everything below the title is a
 /// plain `str` rather than a template literal: the body is full of markdown
 /// code fences and inline code, and a backtick would close the template.
-generate_readme :: (fn(imm(name) : String) -> String)(
+generate_readme :: (fn(name : &String) -> String)(
   `# ${name}
 
 A project written in Yo programming language.
@@ -205,7 +205,7 @@ doubled_nonneg :: law(
 /// location sentence; an empty `skills` list renders the section as "not
 /// installed yet" (callers normally skip the file in that case).
 generate_agents_md :: (
-  fn(imm(skills) : ArrayList(SkillEntry), imm(targets) : ArrayList(String)) -> String
+  fn(skills : &ArrayList(SkillEntry), targets : &ArrayList(String)) -> String
 )({
   (locations : String) = String.from("");
   (l : usize) = usize(0);
@@ -272,9 +272,9 @@ No Yo skill files are installed in this project yet. Run: yo skills install
 /// `run_init` after init_project's future has resolved.
 install_agent_files :: (
   fn(
-    imm(project_dir) : Path,
+    project_dir : &Path,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   res_opt := install_skills_into(project_dir, io, exn);
@@ -318,9 +318,9 @@ install_agent_files :: (
 /// scaffolding against it.
 init_project :: (
   fn(
-    imm(options) : InitOptions,
+    options : &InitOptions,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(Path, IoExn))
 )(
   io.async(e => {

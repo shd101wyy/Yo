@@ -47,7 +47,7 @@ import("std/fmt");
 /// Returns the canonical id of a trait type for duplicate detection.
 /// Uses the `id` field on `TraitT` when populated; falls back to the
 /// pretty-printed type as an identity proxy.
-trait_id_for_dedup :: (fn(imm(t) : TypeValue) -> String)(
+trait_id_for_dedup :: (fn(t : &TypeValue) -> String)(
   match(
     t,
     .TraitT(_, _, _, _, id, _, _, _, _, _) => {
@@ -62,7 +62,7 @@ trait_id_for_dedup :: (fn(imm(t) : TypeValue) -> String)(
 /// The vtable slot names one trait gives a `Dyn`: `call` for an `Fn` trait,
 /// else every member a `Dyn` can call (`dyn_member_is_method` and no
 /// `dyn_member_unsafe_reason`) — exactly the members codegen gives a slot.
-_dyn_trait_slot_names :: (fn(imm(t) : TypeValue) -> ArrayList(String))({
+_dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
   out := ArrayList(String).new();
   match(
     t,
@@ -82,7 +82,7 @@ _dyn_trait_slot_names :: (fn(imm(t) : TypeValue) -> ArrayList(String))({
   out
 });
 /// E0616 when two traits of one `Dyn` give it a vtable slot of the same name.
-_reject_dyn_slot_name_clash :: (fn(imm(traits) : ArrayList(TypeValue), imm(tok) : Token, imm(exn) : Exception) -> unit)({
+_reject_dyn_slot_name_clash :: (fn(traits : &ArrayList(TypeValue), tok : &Token, exn : &Exception) -> unit)({
   seen_names := ArrayList(String).new();
   seen_owner := ArrayList(String).new();
   (ti : usize) = usize(0);
@@ -119,10 +119,10 @@ _reject_dyn_slot_name_clash :: (fn(imm(traits) : ArrayList(TypeValue), imm(tok) 
 });
 evaluate_dyn_type :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   if(!ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None), {

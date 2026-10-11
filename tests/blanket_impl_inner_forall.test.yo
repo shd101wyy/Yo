@@ -23,25 +23,25 @@ derive(generic(I : Type, B : Type), where(I <: Copy, B <: Copy), Wrap(I, B), Cop
 impl(
   generic(I : Type, B : Type),
   Wrap(I, B),
-  get_tag : (fn(imm(self) : Self) -> B)(self._tag)
+  get_tag : (fn(self : &Self) -> B)(self._tag)
 );
 // Trait with a method that has inner generic params.
 Wrappable :: trait(
-  wrap_with : (fn(generic(B : Type), imm(self) : Self, imm(tag) : B) -> Wrap(Self, B))
+  wrap_with : (fn(generic(B : Type), self : &Self, tag : &B) -> Wrap(Self, B))
 );
 // Blanket impl on any i32-like type. Inner generic (B) is method-level only.
 impl(
   generic(I : Type),
   where(I <: Wrappable),
   I,
-  double_wrap : (fn(generic(B : Type), imm(self) : Self, imm(tag) : B) -> Wrap(Wrap(Self, B), B))(
+  double_wrap : (fn(generic(B : Type), self : &Self, tag : &B) -> Wrap(Wrap(Self, B), B))(
     Wrap(Wrap(Self, B), B)(_inner : Wrap(Self, B)(_inner : self, _tag : tag), _tag : tag)
   )
 );
 impl(
   i32,
   Wrappable(
-    wrap_with : (fn(generic(B : Type), self : Self, imm(tag) : B) -> Wrap(Self, B))(
+    wrap_with : (fn(generic(B : Type), self : Self, tag : &B) -> Wrap(Self, B))(
       Wrap(Self, B)(_inner : self, _tag : tag)
     )
   )

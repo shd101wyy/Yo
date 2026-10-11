@@ -30,13 +30,13 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, generate_some_type_id, t_dyn } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type, shared_cell_type_name_of_constructor, shared_cell_canonical_names } :: import("../../types/guards.yo");
-{ type_contains_some_type_deep } :: import("../../types/utils.yo");
+{ type_contains_some_type_deep, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type, function_value_slot_mismatch } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
 { format_error_message, with_code } :: import("../../error.yo");
-{ E_TYPE_MISMATCH, E_CLOSURE_MOVES_CAPTURE } :: import("../../diagnostics.yo");
+{ E_TYPE_MISMATCH, E_CLOSURE_MOVES_CAPTURE, E_DYN_UNCALLABLE } :: import("../../diagnostics.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
@@ -60,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
 /// stands for: the prelude comptime type-constructor is called with `V`
 /// pre-bound to inner_type in the callee env (evaluate_comptime_fn_call evals
 /// the body in the passed callee_env and does NOT bind params).
-_create_box_type_via :: (fn(imm(ctor) : String, imm(inner_type) : TypeValue, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> Option(TypeValue))({
+_create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Environment, ctx : &EvalContext, exn : &Exception) -> Option(TypeValue))({
   vars := get_variables_from_env(env, ctor.clone());
   (box_fv : Option(EvalValue)) = Option(EvalValue).None;
   (box_ft : TypeValue) = t_unit();
@@ -120,7 +120,7 @@ _create_box_type_via :: (fn(imm(ctor) : String, imm(inner_type) : TypeValue, imm
 /// expected Dyn type, or from the value's own `Impl(..., Send)` wrapper when
 /// nothing is expected. Either one crosses threads, so its payload is boxed
 /// atomically.
-_dyn_target_requires_send :: (fn(imm(expected) : Option(ExpectedTypeCtx), imm(value_type) : TypeValue) -> bool)({
+_dyn_target_requires_send :: (fn(expected : &Option(ExpectedTypeCtx), value_type : &TypeValue) -> bool)({
   from_expected := match(
     expected,
     .Some(et) => match(et.ty, .DynT(required_trait_types : ert) => Option(bool).Some(_traits_name_send(ert)), _ => Option(bool).None),
@@ -132,12 +132,12 @@ _dyn_target_requires_send :: (fn(imm(expected) : Option(ExpectedTypeCtx), imm(va
     .None => match(value_type, .SomeT({ required_trait_types : vrt }) => _traits_name_send(vrt), _ => false)
   )
 });
-_traits_name_send :: (fn(imm(tys) : ArrayList(TypeValue)) -> bool)(!_thread_marker_named_in(tys).is_empty());
+_traits_name_send :: (fn(tys : &ArrayList(TypeValue)) -> bool)(!_thread_marker_named_in(tys).is_empty());
 /// The thread marker a trait list names: "Send" when it lists `Send`, else
 /// "Sync" when it lists `Sync`, else "". A `Dyn(Trait)` is `Send`/`Sync`
 /// only through such an explicit bound (plans/VALUES_BY_DEFAULT.md decision
 /// 38 E).
-_thread_marker_named_in :: (fn(imm(tys) : ArrayList(TypeValue)) -> String)({
+_thread_marker_named_in :: (fn(tys : &ArrayList(TypeValue)) -> String)({
   (found : String) = String.new();
   (tsi : usize) = usize(0);
   while(tsi < tys.len(), {
@@ -156,7 +156,7 @@ _thread_marker_named_in :: (fn(imm(tys) : ArrayList(TypeValue)) -> String)({
   });
   found
 });
-_unwrap_box_for_method_lookup :: (fn(imm(t) : TypeValue) -> TypeValue)({
+_unwrap_box_for_method_lookup :: (fn(t : &TypeValue) -> TypeValue)({
   (result : TypeValue) = t;
   if(is_boxed_type(t), {
     match(
@@ -185,7 +185,7 @@ _unwrap_box_for_method_lookup :: (fn(imm(t) : TypeValue) -> TypeValue)({
 /// enforced instead. Same conservative scoping as
 /// `validate_where_constraints_for_call`'s no-SomeT guard
 /// (issues/fixed/yo-self-where-clause-full-enforcement.md).
-_dyn_bound_check_type :: (fn(imm(t) : TypeValue, imm(env) : Environment) -> Option(TypeValue))({
+_dyn_bound_check_type :: (fn(t : &TypeValue, env : &Environment) -> Option(TypeValue))({
   if(type_contains_some_type_deep(t), {
     return(Option(TypeValue).None);
   });
@@ -230,7 +230,7 @@ _dyn_bound_check_type :: (fn(imm(t) : TypeValue, imm(env) : Environment) -> Opti
 /// a dyn'd CLOSURE, which IS its own implementation — there is no registry impl
 /// to find (the same arm `_resolve_dyn_trait_values` special-cases below), and
 /// every other required-type shape is not a nominal trait at all.
-_name_in :: (fn(imm(names) : ArrayList(String), imm(n) : String) -> bool)({
+_name_in :: (fn(names : &ArrayList(String), n : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < names.len(), {
     if(match(names.get(i), .Some(x) => (x == n), .None => false), {
@@ -242,12 +242,12 @@ _name_in :: (fn(imm(names) : ArrayList(String), imm(n) : String) -> bool)({
 });
 _require_dyn_traits_implemented :: (
   fn(
-    imm(dyn_type) : TypeValue,
-    imm(value_type) : TypeValue,
-    imm(token) : Token,
-    imm(ctx) : EvalContext,
-    imm(env) : Environment,
-    imm(exn) : Exception
+    dyn_type : &TypeValue,
+    value_type : &TypeValue,
+    token : &Token,
+    ctx : &EvalContext,
+    env : &Environment,
+    exn : &Exception
   ) -> unit
 )({
   // Decide the bound on the UNDERLYING type when the payload is an Rc: both
@@ -304,7 +304,7 @@ _require_dyn_traits_implemented :: (
   );
   // A FUNCTION payload is called through the `Dyn(Fn(...))`'s call
   // signature, so its own must be that one, modes included: a by-value
-  // `fn(s : String)` behind a `Dyn(Fn(imm(s) : String) -> usize)` would drop
+  // `fn(s : String)` behind a `Dyn(Fn(s : &String) -> usize)` would drop
   // what every caller only lends. A `fn(...)` value is judged on its whole
   // signature (the `Fn`-trait satisfaction rule); a closure, whose literal
   // adopts the Dyn's signature, on its modes
@@ -383,12 +383,60 @@ _require_dyn_traits_implemented :: (
         }),
         .None => ()
       );
+      // A vtable slot that takes `self` BY VALUE (`LogicalNot`'s `(!)`,
+      // decision 34 as amended 2026-10-11) hands the impl its own copy of the
+      // payload, since the Dyn keeps owning the original. A move-only payload
+      // has no copy to hand over: the call would move the value out of the box
+      // the Dyn still owns and drops
+      // (issues/fixed/a-by-value-self-called-through-a-dyn-frees-the-payload.md).
+      if(type_is_move_only(check_ty), {
+        match(
+          _by_value_self_slot(rtt),
+          .Some(bv) => {
+            mo_why := match(move_only_reason(check_ty), .Some(r) => `: ${r}`, .None => String.new());
+            bv_msg := `A ${type_to_string(dyn_type.clone())} cannot hold the move-only ${type_to_string(check_ty.clone())}${mo_why}. Its method ${bv} takes \`self\` by value, so a call through the Dyn would move the payload out of the box the Dyn still owns. Box a copyable value, or declare the method with \`self : &Self\`.`;
+            raise_flow_violation(with_code(format_error_message(token, bv_msg), E_DYN_UNCALLABLE), ctx, exn);
+          },
+          .None => ()
+        );
+      });
     },
     _ => ()
   );
 });
+/// The first vtable slot of the traits `tys` whose receiver is taken by value,
+/// rendered `Trait.member`; `.None` when every slot borrows its receiver.
+_by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
+  (ti : usize) = usize(0);
+  while(ti < tys.len(), {
+    match(
+      tys.get(ti),
+      .Some(t) => match(
+        t,
+        .TraitT({ name : tn, field_labels : fls, field_types : fts }) => {
+          (j : usize) = usize(0);
+          while(j < fts.len(), {
+            ft := match(fts.get(j), .Some(f) => f, .None => TypeValue.Unit);
+            if(dyn_member_is_method(ft) && dyn_member_unsafe_reason(ft).is_none(), {
+              owned := match(ft, .Func({ meta : m }) => match(m.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => false), _ => false);
+              if(owned, {
+                label := match(fls.get(j), .Some(l) => l, .None => String.from("?"));
+                return(Option(String).Some(`${tn}.${label}`));
+              });
+            });
+            j = (j + usize(1));
+          });
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    ti = (ti + usize(1));
+  });
+  Option(String).None
+});
 /// True when the trait list names the trait `name`.
-_traits_name :: (fn(imm(tys) : ArrayList(TypeValue), name : str) -> bool)({
+_traits_name :: (fn(tys : &ArrayList(TypeValue), name : str) -> bool)({
   (ti : usize) = usize(0);
   while(ti < tys.len(), {
     if(match(tys.get(ti), .Some(t) => match(t, .TraitT(name : tn) => (tn == name), _ => false), .None => false), {
@@ -406,12 +454,12 @@ _traits_name :: (fn(imm(tys) : ArrayList(TypeValue), name : str) -> bool)({
 /// (issues/fixed/d1-reach-walk-does-not-follow-closure-values-or-dyn-calls.md).
 _require_send_dyn_methods_reach_no_global :: (
   fn(
-    imm(dyn_type) : TypeValue,
-    imm(trait_vals) : ArrayList(EvalValue),
-    imm(token) : Token,
-    imm(ctx) : EvalContext,
-    imm(env) : Environment,
-    imm(exn) : Exception
+    dyn_type : &TypeValue,
+    trait_vals : &ArrayList(EvalValue),
+    token : &Token,
+    ctx : &EvalContext,
+    env : &Environment,
+    exn : &Exception
   ) -> unit
 )({
   if(is_implicitly_unsafe_capable_file(Option(String).Some(token.module_path.clone())), {
@@ -468,7 +516,7 @@ _require_send_dyn_methods_reach_no_global :: (
 });
 /// Monomorphize a trait `?=`-default method FuncVal to a concrete receiver.
 /// The registered default is GENERIC over `Self` (e.g. `Error.source ?= (self)
-/// -> .None`, typed `fn(inout(self):Self) -> Option(Dyn(SelfTrait))`); codegen
+/// -> .None`, typed `fn(self : &mut Self) -> Option(Dyn(SelfTrait))`); codegen
 /// skips its generic body (→ undeclared dyn wrapper `fn_..._source`, the stage-2
 /// Error.source cluster). Route it through `create_specialized_function_inline`
 /// with `ctx.self_type = value_type` so `Self` in the body/return resolves to the
@@ -479,7 +527,7 @@ _require_send_dyn_methods_reach_no_global :: (
 /// via the get_trait_default fall-through. Returns `fv` unchanged when it is not
 /// a FuncVal or not the default.
 _monomorphize_default_fv :: (
-  fn(imm(fv) : EvalValue, imm(default_fid) : String, imm(value_type) : TypeValue, imm(caller_env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> EvalValue
+  fn(fv : &EvalValue, default_fid : &String, value_type : &TypeValue, caller_env : &Environment, ctx : &EvalContext, exn : &Exception) -> EvalValue
 )(
   cond(
     !is_func_val(fv) => fv,
@@ -513,7 +561,7 @@ _monomorphize_default_fv :: (
 /// (issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md).
 /// A candidate from the Dyn's own trait is preferred.
 _generic_impl_method_for_dyn :: (
-  fn(imm(receiver_type) : TypeValue, imm(fname) : String, imm(trait_id) : String, imm(caller_env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> Option(EvalValue)
+  fn(receiver_type : &TypeValue, fname : &String, trait_id : &String, caller_env : &Environment, ctx : &EvalContext, exn : &Exception) -> Option(EvalValue)
 )({
   cands := find_methods_from_generic_impls(receiver_type, fname, caller_env);
   (picked : Option(MethodCandidate)) = Option(MethodCandidate).None;
@@ -569,7 +617,7 @@ _generic_impl_method_for_dyn :: (
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8); before this the evaluator
 /// accepted it and codegen wrote its refusal into the C as a comment
 /// (issues/fixed/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md).
-_reject_dyn_of_dyn :: (fn(imm(ty) : TypeValue, imm(tok) : Token, imm(exn) : Exception) -> unit)({
+_reject_dyn_of_dyn :: (fn(ty : &TypeValue, tok : &Token, exn : &Exception) -> unit)({
   if(is_dyn_type(ty), {
     exn.throw(
       dyn(
@@ -584,7 +632,7 @@ _reject_dyn_of_dyn :: (fn(imm(ty) : TypeValue, imm(tok) : Token, imm(exn) : Exce
     );
   });
 });
-_resolve_dyn_trait_values :: (fn(imm(dyn_type) : TypeValue, imm(value_type) : TypeValue, imm(ctx) : EvalContext, imm(caller_env) : Environment, imm(exn) : Exception) -> ArrayList(EvalValue))({
+_resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue, ctx : &EvalContext, caller_env : &Environment, exn : &Exception) -> ArrayList(EvalValue))({
   trait_vals := ArrayList(EvalValue).new();
   // Resolve trait methods on the UNDERLYING type when the payload is an Rc.
   method_lookup_type := _unwrap_box_for_method_lookup(value_type);
@@ -720,11 +768,11 @@ _resolve_dyn_trait_values :: (fn(imm(dyn_type) : TypeValue, imm(value_type) : Ty
 /// piling a second, misleading error on top of it.
 _dyn_type_from_payload_or_throw :: (
   fn(
-    imm(payload_type) : TypeValue,
-    imm(expr_tok) : Token,
-    imm(expected_ty) : Option(TypeValue),
+    payload_type : &TypeValue,
+    expr_tok : &Token,
+    expected_ty : &Option(TypeValue),
     have_payload_ty : bool,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> TypeValue
 )(
   match(
@@ -765,7 +813,7 @@ _dyn_type_from_payload_or_throw :: (
 /// Decision 37: `Fn` implies `FnOnce`, never the reverse. A closure typed
 /// `FnOnce(...)` boxed as a `Dyn(Fn(...))` could be called again through the
 /// `Fn` slot, re-running a body that already gave its captures away (E0913).
-_reject_fnonce_into_dyn_fn :: (fn(imm(target) : Option(ExpectedTypeCtx), imm(value_ty) : TypeValue, imm(tok) : Token, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_reject_fnonce_into_dyn_fn :: (fn(target : &Option(ExpectedTypeCtx), value_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
   target_base := match(
     target,
     .Some(t) => match(
@@ -789,10 +837,10 @@ _reject_fnonce_into_dyn_fn :: (fn(imm(target) : Option(ExpectedTypeCtx), imm(val
 });
 evaluate_dyn_value :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   expr_tok := ast_expr_token(expr);

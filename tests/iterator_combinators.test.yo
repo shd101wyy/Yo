@@ -12,7 +12,7 @@ impl(
   MyRange,
   Iterator(
     Item : i32,
-    next : (fn(mut(self) : Self) -> Option(i32))(
+    next : (fn(self : &mut Self) -> Option(i32))(
       cond(
         (self._cur >= self._end) => .None,
         true => {
@@ -160,12 +160,12 @@ test("iter.zip stops at shorter iterator", {
 });
 // --- fold ------------------------------------------------------------------
 test("iter.fold sums values", {
-  add :: (fn(imm(acc) : i32, imm(x) : i32) -> i32)(acc + x);
+  add :: (fn(acc : &i32, x : &i32) -> i32)(acc + x);
   total := my_range(i32(1), i32(6)).fold(i32(0), add);
   assert(total == i32(15), "1+2+3+4+5=15");
 });
 test("iter.fold with single accumulation", {
-  mul :: (fn(imm(acc) : i32, imm(x) : i32) -> i32)(acc * x);
+  mul :: (fn(acc : &i32, x : &i32) -> i32)(acc * x);
   prod := my_range(i32(1), i32(5)).fold(i32(1), mul);
   assert(prod == i32(24), "1*2*3*4=24");
 });
@@ -224,8 +224,8 @@ test("iter.skip then take then count", {
   assert(n == usize(15), "15");
 });
 test("iter.filter then map then count", {
-  square :: (fn(imm(x) : i32) -> i32)(x * x);
-  is_even :: (fn(imm(x) : i32) -> bool)((x % i32(2)) == i32(0));
+  square :: (fn(x : &i32) -> i32)(x * x);
+  is_even :: (fn(x : &i32) -> bool)((x % i32(2)) == i32(0));
   n := my_range(i32(0), i32(10)).filter(is_even).map(square).count();
   assert(n == usize(5), "5 evens");
 });
@@ -244,7 +244,7 @@ test("ArrayList.into_iter combinators", {
   assert(even_sum == i32(6), "2+4=6");
   even_count := make_list().into_iter().filter(p => ((p % i32(2)) == i32(0))).count();
   assert(even_count == usize(2), "2 evens");
-  double :: (fn(imm(x) : i32) -> i32)(x * i32(2));
+  double :: (fn(x : &i32) -> i32)(x * i32(2));
   doubled_count := make_list().into_iter().map(double).count();
   assert(doubled_count == usize(5), "5 mapped");
 });
@@ -382,7 +382,7 @@ test("every integer type forms and iterates a range", {
 // under-resolution bug (LinkedList-then-BTreeMap is the minimal trigger):
 // issues/fixed/where-bound-intoiterator-gc-trace-abstract-key.md.
 __ii_sum :: (
-  fn(generic(C : Type), imm(c) : C, where(C <: IntoIterator(Item := i32))) -> i32
+  fn(generic(C : Type), c : &C, where(C <: IntoIterator(Item := i32))) -> i32
 )(
   c.into_iter().fold(i32(0), (acc, x) => (acc + x))
 );
@@ -523,11 +523,11 @@ _UserFlatMap :: (fn(comptime(I) : Type, comptime(J) : Type, comptime(F) : Type) 
 );
 impl(
   generic(I : Type, A : Type, J : Type, B : Type, F : Type),
-  where(I <: Iterator(Item := A), J <: Iterator(Item := B), F <: (Fn(imm(item) : A) -> J)),
+  where(I <: Iterator(Item := A), J <: Iterator(Item := B), F <: (Fn(item : &A) -> J)),
   _UserFlatMap(I, J, F),
   Iterator(
     Item : B,
-    next : (fn(mut(self) : Self) -> Option(B))({
+    next : (fn(self : &mut Self) -> Option(B))({
       (res : Option(B)) = .None;
       (going : bool) = true;
       while(going, {
@@ -569,9 +569,9 @@ impl(
   _user_flat_map : (
     fn(
       generic(A : Type, J : Type, F : Type),
-      imm(self) : Self,
-      imm(f) : F,
-      where(Self <: Iterator(Item := A), F <: (Fn(imm(item) : A) -> J))
+      self : &Self,
+      f : &F,
+      where(Self <: Iterator(Item := A), F <: (Fn(item : &A) -> J))
     ) -> _UserFlatMap(Self, J, F)
   )(_UserFlatMap(Self, J, F)(_outer : self, _f : f, _cur : .None))
 );

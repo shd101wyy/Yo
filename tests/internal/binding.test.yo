@@ -60,7 +60,7 @@ mk_binding_expr :: (fn(call_id : usize, name_id : usize, name : str, type_id : u
   AstExpr.FnCall(call_id, callee, args, true, mk_token(TokenKind.Operator, BK_COLON))
 });
 /// Build `comptime(inner)` FnCall.
-mk_comptime_wrap :: (fn(call_id : usize, imm(inner) : AstExpr) -> AstExpr)({
+mk_comptime_wrap :: (fn(call_id : usize, inner : &AstExpr) -> AstExpr)({
   callee := AstExpr.Atom(call_id + usize(20000), mk_token(TokenKind.Identifier, BK_COMPTIME));
   args := ArrayList(AstExpr).new();
   args.push(inner);
@@ -79,9 +79,9 @@ mk_comptime_binding :: (fn(call_id : usize, name_id : usize, name : str, type_id
 /// Stub evaluator: maps type-name identifiers to TypeVal.
 stub_evaluate_type :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext
   ) -> AstExpr
 )({
   (ty : TypeValue) = match(
@@ -102,7 +102,7 @@ stub_evaluate_type :: (
 });
 /// The raw evaluator twin of `stub_evaluate_type` (the handler is unused): the code under
 /// test evaluates sub-expressions through `evaluate_expression_raw` too.
-stub_evaluate_type_raw :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(stub_evaluate_type(expr, env, ctx));
+stub_evaluate_type_raw :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(stub_evaluate_type(expr, env, ctx));
 // ---------------------------------------------------------------------------
 // is_valid_variable_name
 // ---------------------------------------------------------------------------

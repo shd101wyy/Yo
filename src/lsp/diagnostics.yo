@@ -85,7 +85,7 @@ derive(RelatedInfo, Clone);
 impl(
   LspDiag,
   Clone(
-    clone : (fn(mut(self) : Self) -> Self)(
+    clone : (fn(self : &mut Self) -> Self)(
       LspDiag(
         row : self.row,
         col : self.col,
@@ -115,7 +115,7 @@ export(LspDiag, RelatedInfo);
 /// variables, so the analyzer's local exception handler records the thrown
 /// error here (the same pattern as module_manager's load-error stash).
 (g_parse_error : Option(String)) = Option(String).None;
-_stash_parse_error :: (fn(imm(msg) : String) -> unit)({
+_stash_parse_error :: (fn(msg : &String) -> unit)({
   if(g_parse_error.is_none(), {
     g_parse_error = Option(String).Some(msg);
   });
@@ -133,7 +133,7 @@ _is_digit_byte :: (fn(b : u8) -> bool)(
 
 /// The number of `^` bytes in `s` — the underline length the renderer drew
 /// (the caret is ASCII, so bytes == runes).
-_count_carets :: (fn(imm(s) : String) -> usize)({
+_count_carets :: (fn(s : &String) -> usize)({
   bytes := s;
   (n : usize) = usize(0);
   (i : usize) = usize(0);
@@ -154,7 +154,7 @@ _count_carets :: (fn(imm(s) : String) -> usize)({
 
 /// True iff `l` is the renderer's row line (`NN | source`, `NN` optionally
 /// space-padded to the group's gutter width).
-_is_row_line :: (fn(imm(l) : String) -> bool)({
+_is_row_line :: (fn(l : &String) -> bool)({
   t := l.trim();
   bytes := t;
   (i : usize) = usize(0);
@@ -198,7 +198,7 @@ SevPrefix :: struct(
 );
 /// `<word>` optionally followed by `[CODE]`, then `: ` — strip through the
 /// colon; .None when the message does not start with that shape.
-_strip_sev_word :: (fn(imm(message) : String, word : str, severity : usize) -> Option(SevPrefix))({
+_strip_sev_word :: (fn(message : &String, word : str, severity : usize) -> Option(SevPrefix))({
   w := String.from(word);
   rest := String.new();
   (code : Option(String)) = Option(String).None;
@@ -231,7 +231,7 @@ _strip_sev_word :: (fn(imm(message) : String, word : str, severity : usize) -> O
 /// bare form (`error: `) and the coded form (`error[E0401]: `), which is
 /// what the renderer emits for classified diagnostics (P2). A message with
 /// no header is an error with no code.
-_strip_severity_prefix :: (fn(imm(message) : String) -> SevPrefix)({
+_strip_severity_prefix :: (fn(message : &String) -> SevPrefix)({
   match(
     _strip_sev_word(message.clone(), "error", usize(1)),
     .Some(p) => {
@@ -272,7 +272,7 @@ _strip_severity_prefix :: (fn(imm(message) : String) -> SevPrefix)({
 /// ranges; entries in OTHER files (a broken import) surface at 0:0 with the
 /// full message so the user still sees them.
 parse_error_text :: (
-  fn(imm(err_text) : String, imm(doc_abs) : String, imm(doc_text) : String) -> ArrayList(LspDiag)
+  fn(err_text : &String, doc_abs : &String, doc_text : &String) -> ArrayList(LspDiag)
 )({
   out := ArrayList(LspDiag).new();
   lines := err_text.split(String.from("\n"));
@@ -438,7 +438,7 @@ export(parse_error_text);
 /// codegen-level error `check` cannot see (the handler transpiles hollow;
 /// plans/archive/P4_LSP.md slice 0 notes — this bit this very file's first draft,
 /// caught by the stage-2 hollow count).
-_ensure_prelude :: (fn(imm(std_path) : String, io : Io) -> unit)({
+_ensure_prelude :: (fn(std_path : &String, io : Io) -> unit)({
   if(mm_has_prelude_env(), {
     return(());
   });
@@ -481,7 +481,7 @@ export(AnalyzeOutcome);
 /// Exception was bound in). A separate frame from `_analyze_eval` so a
 /// failed EVALUATION cannot discard the successfully parsed program.
 _parse_document :: (
-  fn(imm(entry_abs) : String, imm(text) : String) -> Option(ArrayList(AstExpr))
+  fn(entry_abs : &String, text : &String) -> Option(ArrayList(AstExpr))
 )({
   local_exn := Exception(
     throw : (
@@ -512,7 +512,7 @@ _failed_eval :: (fn() -> EvalOutcome)(
 /// (an import whose file fails to read or parse) reaches the local handler,
 /// which unwinds with an empty table.
 _analyze_eval :: (
-  fn(imm(entry_abs) : String, imm(exprs) : ArrayList(AstExpr), imm(std_path) : String, io : Io) -> EvalOutcome
+  fn(entry_abs : &String, exprs : &ArrayList(AstExpr), std_path : &String, io : Io) -> EvalOutcome
 )({
   local_exn := Exception(
     throw : (
@@ -532,7 +532,7 @@ _analyze_eval :: (
 /// precise ranges; foreign-file entries (a broken import's leaf) surface at
 /// 0:0 with the location in the message, mirroring the text parser.
 _typed_to_lsp :: (
-  fn(imm(diags) : ArrayList(Diagnostic), imm(doc_abs) : String) -> ArrayList(LspDiag)
+  fn(diags : &ArrayList(Diagnostic), doc_abs : &String) -> ArrayList(LspDiag)
 )({
   out := ArrayList(LspDiag).new();
   // The index of the last pushed Error/Warning entry — note/help entries
@@ -627,11 +627,11 @@ _typed_to_lsp :: (
 /// Empty result = clean file.
 analyze_document :: (
   fn(
-    imm(doc_fs_path) : String,
-    imm(text) : String,
-    imm(std_path) : String,
+    doc_fs_path : &String,
+    text : &String,
+    std_path : &String,
     io : Io,
-    mut(out_state) : ArrayList(AnalyzeOutcome)
+    out_state : &mut ArrayList(AnalyzeOutcome)
   ) -> ArrayList(LspDiag)
 )({
   _ensure_prelude(std_path.clone(), io);

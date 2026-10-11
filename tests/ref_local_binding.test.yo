@@ -27,7 +27,7 @@ g_count := i32(0);
 // --- P1: whole variables -------------------------------------------------
 test("inout binding to a scalar local: write-through and read-through", {
   x := i32(1);
-  mut(y) := x;
+  y := &mut x;
   y = i32(2);
   assert(y == i32(2), "read through y");
   copy := y;
@@ -37,7 +37,7 @@ test("inout binding to a scalar local: write-through and read-through", {
 });
 test("inout binding to an RC local: mutate in place, reassign either side, counts balance", {
   s := String.from("a");
-  mut(r) := s;
+  r := &mut s;
   r.push_str("b");
   assert(r == "ab", "method call through the binding mutates the object");
   assert(ref_count(r) == 1, "the binding holds no count of its own");
@@ -45,23 +45,23 @@ test("inout binding to an RC local: mutate in place, reassign either side, count
   assert(s == "q", "assigning through the binding replaced the root's value");
   assert(ref_count(s) == 1, "old value dropped, new value owned once");
   s = String.from("z");
-  mut(r2) := s;
+  r2 := &mut s;
   assert(r2 == "z", "a fresh binding after the root's reassignment names the new value");
 });
 test("inout binding to a module-level variable", {
-  mut(c) := g_count;
+  c := &mut g_count;
   c = (c + i32(7));
   assert(g_count == i32(7), "write through a global's binding");
   g_count = i32(0);
 });
 test("inout binding chains: to an inout local and to an inout parameter", {
-  bump_via_alias :: (fn(mut(p) : i32) -> unit)({
-    mut(q) := p;
+  bump_via_alias :: (fn(p : &mut i32) -> unit)({
+    q := &mut p;
     q = (q + i32(1));
   });
   x := i32(10);
-  mut(y) := x;
-  mut(z) := y;
+  y := &mut x;
+  z := &mut y;
   z = (z + i32(1));
   assert(y == i32(11), "z aliases y");
   bump_via_alias(y);
@@ -78,7 +78,7 @@ test("inout binding created per loop iteration", {
   i := usize(0);
   while(i < xs.len(), {
     v := xs(i);
-    mut(acc) := total;
+    acc := &mut total;
     acc = (acc + v);
     i = (i + usize(1));
   });
@@ -88,13 +88,13 @@ test("inout binding created per loop iteration", {
 // --- P3: fields of value structs ------------------------------------------
 test("inout binding to a field of a value-struct local", {
   p := Point(x : i32(1), y : i32(2));
-  mut(px) := p.x;
+  px := &mut p.x;
   px = i32(10);
   assert(p.y == i32(2), "a sibling field stays readable");
   assert(px == i32(10), "read through the field binding");
   assert(p.x == i32(10), "the write landed in p.x");
   sh := Shape(origin : Point(x : i32(0), y : i32(0)), name : String.from("sq"));
-  mut(oy) := sh.origin.y;
+  oy := &mut sh.origin.y;
   oy = i32(3);
   assert(sh.origin.y == i32(3), "nested value-struct field chain");
 });
@@ -105,7 +105,7 @@ test("inout binding to an object field: write-through, and the pin outlives a ha
   h2 := h;
   assert(ref_count(h2) == 2, "two handles");
   {
-    mut(n) := h.n;
+    n := &mut h.n;
     assert(ref_count(h2) == 3, "h, h2 and the binding's pin");
     n = (n + i32(1));
     assert(h2.n == i32(2), "write through the field binding, read through an alias the static check cannot see");
@@ -121,7 +121,7 @@ test("inout binding to an object field: write-through, and the pin outlives a ha
 comptime_expect_error(
   reassign_the_borrowed_handle :: (fn() -> unit)({
     h := Holder(s : String.from("one"), n : i32(1));
-    mut(n) := h.n;
+    n := &mut h.n;
     h = Holder(s : String.from("other"), n : i32(100));
     n = i32(42);
   }),
@@ -131,7 +131,7 @@ test("inout binding through an intermediate object hop pins the innermost object
   o := Outer(inner : Holder(s : String.from("in"), n : i32(5)), tag : i32(0));
   keep := o.inner;
   {
-    mut(n) := o.inner.n;
+    n := &mut o.inner.n;
     assert(ref_count(keep) == 3, "o.inner, keep, pin");
     n = i32(77);
   };
@@ -143,21 +143,21 @@ test("inout binding through an intermediate object hop pins the innermost object
 comptime_expect_error(
   overwrite_the_borrowed_slot :: (fn() -> unit)({
     o := Outer(inner : Holder(s : String.from("in"), n : i32(5)), tag : i32(0));
-    mut(n) := o.inner.n;
+    n := &mut o.inner.n;
     o.inner = Holder(s : String.from("replaced"), n : i32(0));
     n = i32(77);
   }),
   "Cannot write `o.inner` here"
 );
 test("inout binding to a field of a module-level object", {
-  mut(n) := g_holder.n;
+  n := &mut g_holder.n;
   n = (n + i32(3));
   assert(g_holder.n == i32(3), "write through a global object's field");
   g_holder.n = i32(0);
 });
 test("RC-typed object field through a binding: dup/drop balance", {
   h := Holder(s : String.from("s0"), n : i32(0));
-  mut(fs) := h.s;
+  fs := &mut h.s;
   fs.push_str("!");
   assert(fs == "s0!", "mutate the field's object in place");
   fs = String.from("new");
@@ -169,7 +169,7 @@ test("pin is released on break and on early return", {
   h2 := h;
   i := i32(0);
   while(runtime(true), {
-    mut(n) := h.n;
+    n := &mut h.n;
     n = (n + i32(1));
     i = (i + i32(1));
     if(i >= i32(3), {
@@ -179,8 +179,8 @@ test("pin is released on break and on early return", {
   assert(h2.n == i32(3), "three writes");
   // `h2 := h` with `h` never reassigned shares ONE count (alias elision).
   assert(ref_count(h2) == 1, "no pin leaked across break / iterations");
-  early :: (fn(imm(target) : Holder) -> i32)({
-    mut(n) := target.n;
+  early :: (fn(target : &Holder) -> i32)({
+    n := &mut target.n;
     if(n > i32(0), {
       v := n;
       return(v);
@@ -196,13 +196,13 @@ test("pin is released when an effect unwinds through the binding's scope", {
   Raise :: (ctl() -> unit);
   h := Holder(s : String.from("u"), n : i32(0));
   h2 := h;
-  run_and_unwind :: (fn(imm(target) : Holder) -> unit)({
+  run_and_unwind :: (fn(target : &Holder) -> unit)({
     (raise : Raise) = (
       () -> {
         unwind(());
       }
     );
-    mut(n) := target.n;
+    n := &mut target.n;
     n = i32(9);
     raise();
     n = i32(-9); // unreachable
@@ -217,14 +217,14 @@ sink :: (fn(sink(victim) : String) -> usize)(victim.len());
 comptime_expect_error(
   move_while_borrowed :: (fn() -> unit)({
     s := String.from("moved");
-    mut(r) := s;
+    r := &mut s;
     sink(s);
     r = String.from("dangling");
   })
 );
 test("passing the binding itself to an own parameter copies; the root survives and the binding stays usable", {
   s := String.from("abc");
-  mut(r) := s;
+  r := &mut s;
   n := sink(r);
   assert(n == usize(3), "callee saw the value");
   r.push_str("!");
@@ -234,7 +234,7 @@ test("passing the binding itself to an own parameter copies; the root survives a
 test("moving the root after the binding's scope ended is fine", {
   s := String.from("ok");
   {
-    mut(r) := s;
+    r := &mut s;
     r.push_str("!");
   };
   n := sink(s);
@@ -242,7 +242,7 @@ test("moving the root after the binding's scope ended is fine", {
 });
 test("a struct literal reading a borrowed root after the binding's last use copies", {
   s := String.from("a");
-  mut(r) := s;
+  r := &mut s;
   r = String.from("b");
   h := Holder(s : s, n : i32(1));
   s = String.from("c");
@@ -254,7 +254,7 @@ test("a struct literal reading a borrowed root after the binding's last use copi
 comptime_expect_error(
   literal_reads_a_live_borrowed_root :: (fn() -> unit)({
     s := String.from("a");
-    mut(r) := s;
+    r := &mut s;
     _h := Holder(s : s, n : i32(1));
     r = String.from("b");
   }),
@@ -266,27 +266,27 @@ comptime_expect_error(
   index_place_rejected :: (fn() -> unit)({
     xs := ArrayList(i32).new();
     xs.push(i32(1));
-    mut(e) := xs(usize(0));
+    e := &mut xs(usize(0));
     e = i32(2);
   })
 );
 comptime_expect_error(
   rvalue_rejected :: (fn() -> unit)({
     make :: (fn() -> i32)(i32(1));
-    mut(r) := make();
+    r := &mut make();
     r = i32(2);
   })
 );
 comptime_expect_error(
   literal_rejected :: (fn() -> unit)({
-    mut(r) := i32(1);
+    r := &mut i32(1);
     r = i32(2);
   })
 );
 comptime_expect_error(
   comptime_form_rejected :: (fn() -> unit)({
     x := i32(1);
-    mut(r) :: x;
+    r :: &mut x;
     consume(r);
   })
 );
@@ -294,14 +294,14 @@ comptime_expect_error(
 comptime_expect_error(
   unit_root_rejected :: (fn() -> unit)({
     u := ();
-    mut(r) := u;
+    r := &mut u;
     r = ();
   })
 );
 comptime_expect_error(
   comptime_root_rejected :: (fn() -> unit)({
     k :: i32(1);
-    mut(r) := k;
+    r := &mut k;
     r = i32(2);
   })
 );
@@ -316,7 +316,7 @@ comptime_expect_error(
     match(
       it.next(),
       .Some(p) => {
-        mut(r) := p.*;
+        r := &mut p.*;
         r = i32(2);
       },
       .None => ()
@@ -339,15 +339,15 @@ comptime_expect_error(
   shadowing_rejected :: (fn() -> unit)({
     x := i32(1);
     y := i32(2);
-    mut(y) := x;
+    y := &mut x;
     y = i32(3);
   })
 );
 comptime_expect_error(
   closure_capture_rejected :: (fn() -> unit)({
-    run :: (fn(imm(f) : Impl(Fn() -> unit)) -> unit)(f());
+    run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
     x := i32(1);
-    mut(y) := x;
+    y := &mut x;
     run(() => {
       y = i32(2);
     });
@@ -361,7 +361,7 @@ Color :: enum(Red, Green);
 derive(Color, Copy, Clone);
 comptime_expect_error(
   type_member_rejected :: (fn() -> unit)({
-    mut(r) := Color.Red;
+    r := &mut Color.Red;
     consume(r);
   })
 );
@@ -383,7 +383,7 @@ comptime_expect_error(
 comptime_expect_error(
   returning_a_scalar_binding_rejected :: (fn() -> i32)({
     x := i32(1);
-    mut(y) := x;
+    y := &mut x;
     y = i32(2);
     return(y);
   }),
@@ -392,7 +392,7 @@ comptime_expect_error(
 comptime_expect_error(
   returning_a_struct_field_binding_rejected :: (fn() -> i32)({
     p := Point(x : i32(1), y : i32(2));
-    mut(px) := p.x;
+    px := &mut p.x;
     px = i32(10);
     return(px);
   }),
@@ -401,7 +401,7 @@ comptime_expect_error(
 comptime_expect_error(
   returning_an_rc_binding_rejected :: (fn() -> String)({
     s := String.from("target");
-    mut(r) := s;
+    r := &mut s;
     r.push_str("!");
     return(r);
   }),
@@ -409,21 +409,21 @@ comptime_expect_error(
 );
 ret_scalar :: (fn() -> i32)({
   x := i32(1);
-  mut(y) := x;
+  y := &mut x;
   y = i32(2);
   v := y;
   v
 });
 ret_struct :: (fn() -> i32)({
   p := Point(x : i32(1), y : i32(2));
-  mut(px) := p.x;
+  px := &mut p.x;
   px = i32(10);
   v := px;
   v
 });
 ret_rc :: (fn() -> String)({
   s := String.from("target");
-  mut(r) := s;
+  r := &mut s;
   r.push_str("!");
   v := r;
   v

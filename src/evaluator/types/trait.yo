@@ -82,7 +82,7 @@ _TraitFieldResult :: struct(
 // ---------------------------------------------------------------------------
 // Local helper: extract fn call args
 // ---------------------------------------------------------------------------
-_fn_call_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
+_fn_call_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
   match(
     e,
     .FnCall(_, _, args, _, _) => args,
@@ -101,11 +101,11 @@ _fn_call_args :: (fn(imm(e) : AstExpr) -> ArrayList(AstExpr))(
 /// - Otherwise evaluates lhsExpr and extracts the SomeType from the result.
 _get_or_create_some_ty_for_trait :: (
   fn(
-    imm(lhs_expr) : AstExpr,
-    imm(self_type) : TypeValue,
-    imm(env_mut) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    lhs_expr : &AstExpr,
+    self_type : &TypeValue,
+    env_mut : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> _SomeTyResolvedResult
 )({
   // "Self" case
@@ -246,7 +246,7 @@ _get_or_create_some_ty_for_trait :: (
 /// for retry. A syntactic check rather than catching the throw, because
 /// the eval path goes through the panic-wrapper.
 _lhs_should_defer_for_pending :: (
-  fn(imm(lhs_expr) : AstExpr) -> bool
+  fn(lhs_expr : &AstExpr) -> bool
 )({
   // Only non-atom LHS can refer to an as-yet-unbound trait field.
   if(ast_expr_is_atom(lhs_expr), {
@@ -262,13 +262,13 @@ _lhs_should_defer_for_pending :: (
 /// Returns true on success, false if evaluation failed (enabling caller to skip).
 _apply_single_constraint_for_trait :: (
   fn(
-    imm(lhs_expr) : AstExpr,
-    imm(trait_expr) : AstExpr,
-    imm(self_type) : TypeValue,
-    imm(trait_ty) : TypeValue,
-    imm(env_mut) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    lhs_expr : &AstExpr,
+    trait_expr : &AstExpr,
+    self_type : &TypeValue,
+    trait_ty : &TypeValue,
+    env_mut : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> bool
 )({
   // Check if negated
@@ -353,13 +353,13 @@ _apply_single_constraint_for_trait :: (
 /// If `collect_pending` is true, failed evaluations are collected for retry.
 _parse_trait_where_clauses :: (
   fn(
-    imm(constraint_exprs) : ArrayList(AstExpr),
-    imm(self_type) : TypeValue,
-    imm(trait_ty) : TypeValue,
+    constraint_exprs : &ArrayList(AstExpr),
+    self_type : &TypeValue,
+    trait_ty : &TypeValue,
     collect_pending : bool,
-    imm(env_mut) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    env_mut : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> ArrayList(_PendingTraitConstraint)
 )({
   pending_traits := ArrayList(_PendingTraitConstraint).new();
@@ -537,11 +537,11 @@ _parse_trait_where_clauses :: (
 /// state untouched.
 _drop_where_constraint_failures :: (
   fn(
-    imm(retry_list) : ArrayList(AstExpr),
-    imm(self_type) : TypeValue,
-    imm(trait_ty) : TypeValue,
-    imm(env_mut) : Environment,
-    imm(ctx) : EvalContext
+    retry_list : &ArrayList(AstExpr),
+    self_type : &TypeValue,
+    trait_ty : &TypeValue,
+    env_mut : &Environment,
+    ctx : &EvalContext
   ) -> unit
 )({
   retry_exn := Exception(
@@ -566,15 +566,15 @@ _drop_where_constraint_failures :: (
 /// values, sets expr info entries, and detects associated types.
 _evaluate_trait_field :: (
   fn(
-    imm(expr) : AstExpr,
+    expr : &AstExpr,
     trait_field_index : usize,
-    imm(self_type) : TypeValue,
-    imm(trait_ty) : TypeValue,
-    imm(expected_trait_type_opt) : Option(TypeValue),
-    imm(env_mut) : Environment,
-    imm(ctx) : EvalContext,
+    self_type : &TypeValue,
+    trait_ty : &TypeValue,
+    expected_trait_type_opt : &Option(TypeValue),
+    env_mut : &Environment,
+    ctx : &EvalContext,
     is_for_evaluating_trait_ty : bool,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> _TraitFieldResult
 )({
   // Phase 1: detect `?=` outer wrapper
@@ -728,9 +728,9 @@ _evaluate_trait_field :: (
       ctx.self_trait_type = .Some(trait_ty);
       // RAW (propagating) eval, like the sibling field-type paths at 313/458:
       // a trait method's function TYPE can throw a compile error (e.g. the
-      // `-> inout(T)` inout-return ban in evaluate_function_type). The
+      // `-> &mut T` inout-return ban in evaluate_function_type). The
       // swallowing non-raw form ate that throw, so `comptime_expect_error` on a
-      // `trait(... m : (fn(...) -> inout(T)))` saw success (tests/ref_return_ban).
+      // `trait(... m : (fn(...) -> &mut T))` saw success (tests/ref_return_ban).
       evaluated_te := evaluate_expression_raw(type_expr, env_mut, ctx, exn);
       ctx.expected_type = old_expected_type;
       ctx.self_type = old_self_type;
@@ -1047,10 +1047,10 @@ _evaluate_trait_field :: (
 /// Evaluate a `trait(...)` expression.
 evaluate_trait_type :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   if(!ast_expr_is_fn_call_of(expr, BK_TRAIT, .None), {

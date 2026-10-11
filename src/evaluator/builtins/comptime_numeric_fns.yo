@@ -43,13 +43,13 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // str_lit_quote: wrap an unquoted string with double-quote chars.
 // ---------------------------------------------------------------------------
-str_lit_quote :: (fn(imm(s) : String) -> String)(
+str_lit_quote :: (fn(s : &String) -> String)(
   String.from("\"") + s + String.from("\"")
 );
 // ---------------------------------------------------------------------------
 // apply_bounds: clamp i64 to the representable range of type `ty`.
 // ---------------------------------------------------------------------------
-apply_bounds :: (fn(n : i64, imm(ty) : TypeValue) -> i64)(
+apply_bounds :: (fn(n : i64, ty : &TypeValue) -> i64)(
   // Two's-complement WRAP to the type's width — the run-time semantics of
   // every operation that can leave the range without trapping (a left shift
   // drops the bits it shifts out). It used to CLAMP signed values and take
@@ -72,7 +72,7 @@ apply_bounds :: (fn(n : i64, imm(ty) : TypeValue) -> i64)(
 /// The bit width of a fixed-width integer type at the target (usize/isize
 /// follow the target's pointer width); `.None` for `comptime_int` and
 /// non-integers.
-comptime_int_width :: (fn(imm(ty) : TypeValue) -> Option(u32))(
+comptime_int_width :: (fn(ty : &TypeValue) -> Option(u32))(
   match(
     ty,
     .Int(bits, _) => Option(u32).Some(u32(bits)),
@@ -84,7 +84,7 @@ comptime_int_width :: (fn(imm(ty) : TypeValue) -> Option(u32))(
 /// `MIN / -1` and `MIN % -1` trap at run time (the quotient does not fit),
 /// so on constants they are compile errors; the fold used to clamp the
 /// quotient (or trap inside the compiler for i64::MIN).
-_reject_min_by_minus_one :: (fn(a : i64, b : i64, imm(ty) : TypeValue, unsigned_64 : bool, imm(tok) : Token, imm(exn) : Exception) -> unit)({
+_reject_min_by_minus_one :: (fn(a : i64, b : i64, ty : &TypeValue, unsigned_64 : bool, tok : &Token, exn : &Exception) -> unit)({
   mn := match(
     target_integer_type_range(ty),
     .Some(r) => if(r.min < i64(0), Option(i64).Some(r.min), Option(i64).None),
@@ -112,7 +112,7 @@ _reject_min_by_minus_one :: (fn(a : i64, b : i64, imm(ty) : TypeValue, unsigned_
 // the negation wrap (n = i64.MIN is a live u64 bit pattern), so both legs
 // go through the wrapping_* generic instead of raw `0 - n - 1`.
 // ---------------------------------------------------------------------------
-bit_not_int :: (fn(n : i64, imm(ty) : TypeValue) -> i64)(
+bit_not_int :: (fn(n : i64, ty : &TypeValue) -> i64)(
   match(
     ty,
     .ComptimeInt => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
@@ -155,7 +155,7 @@ bit_not_int :: (fn(n : i64, imm(ty) : TypeValue) -> i64)(
 // make_int_val: create IntLit after applying bounds, or UnknownVal for
 // C-compatible types.
 // ---------------------------------------------------------------------------
-make_int_val :: (fn(n : i64, imm(ty) : TypeValue) -> EvalValue)(
+make_int_val :: (fn(n : i64, ty : &TypeValue) -> EvalValue)(
   if(
     is_c_compatible_type(ty),
     create_unknown_val(ty),
@@ -170,7 +170,7 @@ make_int_val :: (fn(n : i64, imm(ty) : TypeValue) -> EvalValue)(
 // i64(250000000000)` (exact result 2.5e23) folds to a wrapped in-range value
 // and the overflow goes unreported.
 // ---------------------------------------------------------------------------
-_i64_op_wrapped :: (fn(a : i64, b : i64, imm(op_s) : String) -> bool)(
+_i64_op_wrapped :: (fn(a : i64, b : i64, op_s : &String) -> bool)(
   cond(
     (op_s == "add") => cond(
       (b > i64(0)) => (a > (i64.MAX - b)),
@@ -209,12 +209,12 @@ _i64_op_wrapped :: (fn(a : i64, b : i64, imm(op_s) : String) -> bool)(
 check_int_overflow :: (
   fn(
     value : i64,
-    imm(ty) : TypeValue,
-    imm(op_s) : String,
+    ty : &TypeValue,
+    op_s : &String,
     a : i64,
     b : i64,
-    imm(token) : Token,
-    imm(exn) : Exception
+    token : &Token,
+    exn : &Exception
   ) -> unit
 )({
   rng := match(
@@ -286,7 +286,7 @@ check_int_overflow :: (
 // ---------------------------------------------------------------------------
 // make_float_val: create FloatLit, or UnknownVal for C-compatible types.
 // ---------------------------------------------------------------------------
-make_float_val :: (fn(v : f64, imm(ty) : TypeValue) -> EvalValue)(
+make_float_val :: (fn(v : f64, ty : &TypeValue) -> EvalValue)(
   if(
     is_c_compatible_type(ty),
     create_unknown_val(ty),
@@ -300,10 +300,10 @@ make_float_val :: (fn(v : f64, imm(ty) : TypeValue) -> EvalValue)(
 // ---------------------------------------------------------------------------
 eval_numeric_arg :: (
   fn(
-    imm(arg) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    arg : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> ExprInfo
 )({
   evaluated := evaluate_expression_raw(arg, env, ctx, exn);
@@ -328,10 +328,10 @@ eval_numeric_arg :: (
 // ---------------------------------------------------------------------------
 evaluate_yo_comptime_numeric_functions :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   // ---- 1. Extract the function name. -------------------------------------

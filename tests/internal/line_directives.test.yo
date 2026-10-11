@@ -18,7 +18,7 @@ import("std/fmt");
 { ChunkRange } :: import("../../src/codegen/utils/index.yo");
 /// Split `text` into physical lines (a text ending in "\n" yields exactly its
 /// lines, no trailing-empty artifact).
-_lines_of :: (fn(imm(text) : String) -> ArrayList(String))({
+_lines_of :: (fn(text : &String) -> ArrayList(String))({
   out := ArrayList(String).new();
   (start : usize) = usize(0);
   n := text.len();
@@ -38,7 +38,7 @@ _lines_of :: (fn(imm(text) : String) -> ArrayList(String))({
   out
 });
 /// The number in a `#line <n> …` line (0 when it does not start as one).
-_line_directive_number :: (fn(imm(line) : String) -> usize)({
+_line_directive_number :: (fn(line : &String) -> usize)({
   if(!line.starts_with("#line "), {
     return(usize(0));
   });

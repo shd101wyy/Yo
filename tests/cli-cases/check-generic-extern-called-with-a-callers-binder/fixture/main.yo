@@ -3,11 +3,11 @@
 //! definition-time trial (issues/fixed/a-generic-extern-called-from-a-generic-impl-member-fails-its-trial.md).
 pragma(Pragma.AllowUnsafe);
 Tr :: newtype(_cb : *u8);
-extern("Yo", __yo_take_same : (fn(generic(T : Type), imm(tracer) : Tr, imm(slot) : *T) -> unit));
-extern("Yo", __yo_take_other : (fn(generic(U : Type), imm(slot) : *U) -> *U));
+extern("Yo", __yo_take_same : (fn(generic(T : Type), tracer : &Tr, slot : &*T) -> unit));
+extern("Yo", __yo_take_other : (fn(generic(U : Type), slot : &*U) -> *U));
 // The prelude's `GcTracer.visit` shape: a generic impl member.
-impl(Tr, visit : (fn(generic(T : Type), imm(self) : Self, imm(slot) : *T) -> unit)(__yo_take_same(self, slot)));
+impl(Tr, visit : (fn(generic(T : Type), self : &Self, slot : &*T) -> unit)(__yo_take_same(self, slot)));
 // A generic free fn whose binder is named differently from the extern's; the
 // extern's `*(U)` result must come back as the caller's `*(T)`.
-pass_through :: (fn(generic(T : Type), imm(slot) : *T) -> *T)(__yo_take_other(slot));
+pass_through :: (fn(generic(T : Type), slot : &*T) -> *T)(__yo_take_other(slot));
 export(Tr, pass_through);

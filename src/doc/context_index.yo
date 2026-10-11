@@ -84,17 +84,17 @@ ContextIndexModule :: struct(
 );
 /// `<cache>/context` — the sibling of `store/`, `git/` and `index/`; the
 /// layout lives in `src/cache.yo` so `yo cache gc` and the builder share it.
-context_dir :: (fn(imm(cache_root) : String) -> String)(
+context_dir :: (fn(cache_root : &String) -> String)(
   get_context_dir(cache_root)
 );
 /// `<cache>/context/<key>` — one built index.
-context_index_dir :: (fn(imm(cache_root) : String, imm(key) : String) -> String)(
+context_index_dir :: (fn(cache_root : &String, key : &String) -> String)(
   Path.new(context_dir(cache_root)).join(Path.new(key)).to_string()
 );
 /// The cache root for the context index: `$YO_CONTEXT_CACHE` when set (the
 /// test/CI pin, mirroring `YO_STD`/`YO_SKILLS`), else the global cache root.
 context_cache_root :: (
-  fn(io : Io, imm(exn) : Exception) -> String
+  fn(io : Io, exn : &Exception) -> String
 )(
   match(
     env.get(String.from("YO_CONTEXT_CACHE")),
@@ -107,11 +107,11 @@ context_cache_root :: (
 /// harness inputs, never API surface).
 _collect_index_files :: (
   fn(
-    imm(dir) : String,
-    imm(root) : String,
-    imm(files) : ArrayList(String),
+    dir : &String,
+    root : &String,
+    files : &ArrayList(String),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
@@ -154,7 +154,7 @@ _collect_index_files :: (
 /// root's own directory name (`std/...` for the bundled std). `index.yo`
 /// collapses to its directory (barrels are imported by their package
 /// path, `std/string`).
-context_module_name :: (fn(imm(file_path) : String, imm(root) : String, imm(prefix) : String) -> String)({
+context_module_name :: (fn(file_path : &String, root : &String, prefix : &String) -> String)({
   rel := Path.new(file_path).relative_to(Path.new(root)).to_string();
   if(rel.ends_with(String.from(".yo")), {
     rel = rel.substring(usize(0), rel.len() - usize(3));
@@ -166,7 +166,7 @@ context_module_name :: (fn(imm(file_path) : String, imm(root) : String, imm(pref
 });
 /// The first component every module of a corpus is named with: `prefix`
 /// when given (a dependency's import name), else the root's directory name.
-context_corpus_name :: (fn(imm(root) : String, imm(prefix) : String) -> String)(
+context_corpus_name :: (fn(root : &String, prefix : &String) -> String)(
   cond(
     (prefix.len() > usize(0)) => prefix,
     true => match(
@@ -185,7 +185,7 @@ context_corpus_name :: (fn(imm(root) : String, imm(prefix) : String) -> String)(
 /// same tree as dependency `utils`) used to share ONE index, named after
 /// whichever was built first.
 context_tree_key :: (
-  fn(imm(root) : String, imm(prefix) : String, io : Io, imm(exn) : Exception) -> String
+  fn(root : &String, prefix : &String, io : Io, exn : &Exception) -> String
 )({
   files := ArrayList(String).new();
   _collect_index_files(root.clone(), root.clone(), files, io, exn);
@@ -208,7 +208,7 @@ context_tree_key :: (
 });
 /// Collapse runs of whitespace to single spaces and trim — the TSV fields
 /// are single-line by construction.
-_collapse_ws :: (fn(imm(s) : String) -> String)({
+_collapse_ws :: (fn(s : &String) -> String)({
   joined := String.new();
   (pending_space : bool) = false;
   (i : usize) = usize(0);
@@ -230,7 +230,7 @@ _collapse_ws :: (fn(imm(s) : String) -> String)({
 });
 /// First non-empty line of a doc comment, whitespace-collapsed; `""` for
 /// `.None` or an all-blank comment.
-_doc_first_line :: (fn(imm(doc) : Option(String)) -> String)(
+_doc_first_line :: (fn(doc : &Option(String)) -> String)(
   match(
     doc,
     .None => String.new(),
@@ -259,7 +259,7 @@ _doc_first_line :: (fn(imm(doc) : Option(String)) -> String)(
 /// across `context_index_ensure` AND the loads that follow, and `yo cache gc`
 /// holds it while it sweeps `context/`, so no reader ever sees a directory
 /// that is half built or half deleted.
-context_lock :: (fn(imm(cache_root) : String, io : Io, imm(exn) : Exception) -> File)({
+context_lock :: (fn(cache_root : &String, io : Io, exn : &Exception) -> File)({
   io.await(create_dir_all(Path.new(context_dir(cache_root.clone())), io), IoExn(io : io, exn : exn));
   lock_path := Path.new(context_dir(cache_root)).join(Path.new(String.from("context.lock"))).to_string();
   lock_file := io.await(File.open(Path.new(lock_path.clone()), OpenMode.Append, io), IoExn(io : io, exn : exn));
@@ -270,7 +270,7 @@ context_lock :: (fn(imm(cache_root) : String, io : Io, imm(exn) : Exception) -> 
   lock_file
 });
 /// Release a lock `context_lock` took.
-context_unlock :: (fn(imm(lock_file) : File) -> unit)({
+context_unlock :: (fn(lock_file : &File) -> unit)({
   flock(lock_file.fd(), LOCK_UN);
 });
 /// Build (or reuse) the index for `root`; returns the key. The CALLER holds
@@ -285,12 +285,12 @@ context_unlock :: (fn(imm(lock_file) : File) -> unit)({
 /// half-rewritten files.
 context_index_ensure :: (
   fn(
-    imm(root) : String,
-    imm(cache_root) : String,
+    root : &String,
+    cache_root : &String,
     refresh : bool,
-    imm(prefix) : String,
+    prefix : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> String
 )({
   key := context_tree_key(root.clone(), prefix.clone(), io, exn);
@@ -379,7 +379,7 @@ context_index_ensure :: (
 /// DocModule's own order (functions, types + their methods, traits,
 /// constants); the query side sorts.
 _module_entries :: (
-  fn(imm(module) : String, imm(doc_module) : DocModule) -> ArrayList(ContextIndexEntry)
+  fn(module : &String, doc_module : &DocModule) -> ArrayList(ContextIndexEntry)
 )({
   entries := ArrayList(ContextIndexEntry).new();
   (fi : usize) = usize(0);
@@ -488,14 +488,14 @@ _module_entries :: (
   entries
 });
 /// The TSV line for one entry (no trailing newline).
-_entry_line :: (fn(imm(e) : ContextIndexEntry) -> String)({
+_entry_line :: (fn(e : &ContextIndexEntry) -> String)({
   base := `${e.module}\t${e.name}\t${e.kind}\t${e.signature}\t${e.doc}`;
   if(e.origin.len() > usize(0), `${base}\torigin=${e.origin}`, base)
 });
 /// The directory of a module's rendered markdown: `modules/` plus every
 /// module-path segment but the last (`std/collections/array_list` ->
 /// `<idx>/modules/std/collections`).
-module_md_dir :: (fn(imm(idx_dir) : String, imm(module) : String) -> String)({
+module_md_dir :: (fn(idx_dir : &String, module : &String) -> String)({
   segs := module.split(String.from("/"));
   dir := Path.new(idx_dir).join(Path.new(String.from("modules"))).to_string();
   (i : usize) = usize(0);
@@ -512,13 +512,13 @@ module_md_dir :: (fn(imm(idx_dir) : String, imm(module) : String) -> String)({
   dir
 });
 /// The last segment of a module path.
-module_leaf :: (fn(imm(module) : String) -> String)({
+module_leaf :: (fn(module : &String) -> String)({
   segs := module.split(String.from("/"));
   segs.last().unwrap_or(module)
 });
 /// The kind letter for one exported label's type, as the query surface
 /// spells it.
-_export_kind :: (fn(imm(tv) : TypeValue) -> String)(
+_export_kind :: (fn(tv : &TypeValue) -> String)(
   cond(
     is_function_type(tv) => `fn`,
     is_trait_type(tv) => `trait`,
@@ -534,10 +534,10 @@ _export_kind :: (fn(imm(tv) : TypeValue) -> String)(
 /// comment lives at the defining module, which `origin=` resolution names).
 _export_label_entries :: (
   fn(
-    imm(module) : String,
-    mut(entries) : ArrayList(ContextIndexEntry),
-    imm(labels) : ArrayList(String),
-    imm(types) : ArrayList(TypeValue)
+    module : &String,
+    entries : &mut ArrayList(ContextIndexEntry),
+    labels : &ArrayList(String),
+    types : &ArrayList(TypeValue)
   ) -> unit
 )({
   (li : usize) = usize(0);
@@ -593,7 +593,7 @@ Pair :: struct(
 );
 /// The significant tokens of a source (whitespace and comments dropped) —
 /// adjacency reasoning needs a filtered stream.
-_significant_tokens :: (fn(imm(source) : String) -> ArrayList(Token))({
+_significant_tokens :: (fn(source : &String) -> ArrayList(Token))({
   exn := Exception(
     throw : (
       _err -> {
@@ -632,7 +632,7 @@ _significant_tokens :: (fn(imm(source) : String) -> ArrayList(Token))({
 /// bindings paired with the `export(...(_src))` spreads that publish them —
 /// the house barrel shape (`std/string/index.yo` et al). Returns the spread
 /// source binding name -> its import path, in export order.
-_barrel_spreads :: (fn(imm(source) : String) -> ArrayList(Pair))({
+_barrel_spreads :: (fn(source : &String) -> ArrayList(Pair))({
   tokens := _significant_tokens(source);
   imports := ArrayList(Pair).new();
   (i : usize) = usize(0);
@@ -721,7 +721,7 @@ _barrel_spreads :: (fn(imm(source) : String) -> ArrayList(Pair))({
   spreads
 });
 /// Strip the quotes a StringLit token keeps.
-_unquote :: (fn(imm(raw) : String) -> String)({
+_unquote :: (fn(raw : &String) -> String)({
   n := raw.len();
   if((n >= usize(2)) && raw.starts_with(String.from("\"")) && raw.ends_with(String.from("\"")), raw.substring(usize(1), n - usize(1)), raw)
 });
@@ -733,13 +733,13 @@ _unquote :: (fn(imm(raw) : String) -> String)({
 /// re-exported type value reads `Type`, so only non-type kinds classify).
 _mark_barrel_origins :: (
   fn(
-    imm(module) : String,
-    imm(file_path) : String,
-    imm(root) : String,
-    imm(prefix) : String,
-    mut(entries) : ArrayList(ContextIndexEntry),
+    module : &String,
+    file_path : &String,
+    root : &String,
+    prefix : &String,
+    entries : &mut ArrayList(ContextIndexEntry),
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> unit
 )({
   bytes := io.await(read(Path.new(file_path.clone()), io), IoExn(io : io, exn : exn));
@@ -812,10 +812,10 @@ _mark_barrel_origins :: (
 /// Load the index entries from a built cache.
 context_index_load :: (
   fn(
-    imm(cache_root) : String,
-    imm(key) : String,
+    cache_root : &String,
+    key : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> ArrayList(ContextIndexEntry)
 )({
   idx_dir := context_index_dir(cache_root.clone(), key.clone());
@@ -840,7 +840,7 @@ context_index_load :: (
   entries
 });
 /// Parse one TSV line (the format `_entry_line` wrote).
-_parse_entry :: (fn(imm(line) : String) -> ContextIndexEntry)({
+_parse_entry :: (fn(line : &String) -> ContextIndexEntry)({
   fields := line.split(String.from("\t"));
   origin := String.new();
   if(fields.len() > usize(5), {
@@ -861,10 +861,10 @@ _parse_entry :: (fn(imm(line) : String) -> ContextIndexEntry)({
 /// Load the module rows from a built cache.
 context_index_load_modules :: (
   fn(
-    imm(cache_root) : String,
-    imm(key) : String,
+    cache_root : &String,
+    key : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> ArrayList(ContextIndexModule)
 )({
   idx_dir := context_index_dir(cache_root.clone(), key.clone());

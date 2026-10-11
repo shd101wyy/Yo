@@ -86,7 +86,7 @@ test("String elements mutate in place through the inout binding", {
   names := ArrayList(String).new();
   names.push(String.from("a"));
   names.push(String.from("b"));
-  for(names, mut(s) => {
+  for(&mut names, s => {
     s.push_str("!");
   });
   assert(match(names.get(usize(0)), .Some(s) => (s == "a!"), .None => false), "first mutated in place");
@@ -169,7 +169,7 @@ comptime_expect_error(
   borrow_form_is_removed :: (fn() -> unit)({
     arr := [i32(1), i32(2)];
     total := i32(0);
-    for(arr, mut(x) => {
+    for(&mut arr, x => {
       total = (total + x);
     });
     consume(total);
@@ -178,7 +178,7 @@ comptime_expect_error(
 
 // --- Borrowed form -------------------------------------------------------------
 Enemy :: struct(hp : i32, name : String);
-bump_i32 :: (fn(mut(v) : i32) -> unit)({
+bump_i32 :: (fn(v : &mut i32) -> unit)({
   v = (v + i32(1));
 });
 test("for(list, inout(x) => body) mutates ArrayList elements in place", {
@@ -186,7 +186,7 @@ test("for(list, inout(x) => body) mutates ArrayList elements in place", {
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  for(list, mut(x) => {
+  for(&mut list, x => {
     x = (x * i32(10));
   });
   assert(list(usize(0)) == i32(10), "0 -> 10");
@@ -198,7 +198,7 @@ test("borrowed for over struct elements: field writes land in the buffer", {
   enemies := ArrayList(Enemy).new();
   enemies.push(Enemy(hp : i32(3), name : String.from("a")));
   enemies.push(Enemy(hp : i32(1), name : String.from("b")));
-  for(enemies, mut(e) => {
+  for(&mut enemies, e => {
     e.hp = (e.hp - i32(1));
   });
   assert(enemies(usize(0)).hp == i32(2), "a: 3 -> 2");
@@ -210,7 +210,7 @@ test("borrowed for over RC elements: no per-element dup, mutate through the refe
   names.push(String.from("y"));
   first := names(usize(0));
   before := ref_count(first);
-  for(names, mut(s) => {
+  for(&mut names, s => {
     s.push_str("!");
     assert(ref_count(first) == before, "the element is borrowed, not dup'd");
   });
@@ -225,7 +225,7 @@ test("borrowed for: element handed to an inout parameter, break and continue", {
     list.push(i);
     i = (i + i32(1));
   });
-  for(list, mut(x) => {
+  for(&mut list, x => {
     if(x == i32(1), {
       continue;
     });
@@ -245,8 +245,8 @@ test("borrowed for: element handed to an inout parameter, break and continue", {
 });
 test("borrowed for: return from the body and unwind through the body release the guard", {
   Raise :: (ctl() -> unit);
-  find_first_even :: (fn(imm(xs) : ArrayList(i32)) -> i32)({
-    for(xs, mut(x) => {
+  find_first_even :: (fn(xs : &ArrayList(i32)) -> i32)({
+    for(&mut xs, x => {
       if((x % i32(2)) == i32(0), {
         return(x);
       });
@@ -260,13 +260,13 @@ test("borrowed for: return from the body and unwind through the body release the
   assert(find_first_even(list) == i32(4), "returned from inside the borrowed loop");
   list.push(i32(6)); // must not panic: the return path released the flag
   assert(list.len() == usize(4), "push after the early return");
-  unwind_out :: (fn(imm(xs) : ArrayList(i32)) -> unit)({
+  unwind_out :: (fn(xs : &ArrayList(i32)) -> unit)({
     (raise : Raise) = (
       () -> {
         unwind(());
       }
     );
-    for(xs, mut(x) => {
+    for(&mut xs, x => {
       x = i32(0);
       raise();
     });
@@ -284,15 +284,15 @@ test("nested borrowed loops over two collections and over the same collection", 
   b := ArrayList(i32).new();
   b.push(i32(10));
   b.push(i32(20));
-  for(a, mut(x) => {
-    for(b, mut(y) => {
+  for(&mut a, x => {
+    for(&mut b, y => {
       y = (y + x);
     });
   });
   assert((b(usize(0)) == i32(13)) && (b(usize(1)) == i32(23)), "inner loop saw both outer elements");
   total := i32(0);
-  for(a, mut(x) => {
-    for(a, mut(y) => {
+  for(&mut a, x => {
+    for(&mut a, y => {
       total = (total + (x * y));
     });
   });
@@ -307,7 +307,7 @@ test("borrowed for over a rvalue collection", {
     xs
   });
   sum := i32(0);
-  for(make(), mut(x) => {
+  for(&mut make(), x => {
     x = (x + i32(1));
     sum = (sum + x);
   });
@@ -318,7 +318,7 @@ test("for(map, (k, inout(v)) => body): key by value, value borrowed", {
   scores.insert(String.from("a"), i32(1));
   scores.insert(String.from("b"), i32(2));
   keys := ArrayList(String).new();
-  for(scores, (k, mut(v)) => {
+  for(&mut scores, (k, v) => {
     v = (v + i32(10));
     keys.push(k);
   });
@@ -332,27 +332,27 @@ test("borrowed for over Deque, LinkedList, BTreeMap and OrderedMap", {
   dq := Deque(i32).new();
   dq.push_back(i32(1));
   dq.push_back(i32(2));
-  for(dq, mut(x) => {
+  for(&mut dq, x => {
     x = (x + i32(100));
   });
   assert(dq.pop_front() == Option(i32).Some(i32(101)), "deque element mutated in place");
   ll := LinkedList(i32).new();
   ll.push_back(i32(1));
   ll.push_back(i32(2));
-  for(ll, mut(x) => {
+  for(&mut ll, x => {
     x = (x * i32(3));
   });
   assert(ll.pop_front() == Option(i32).Some(i32(3)), "linked-list node value mutated in place");
   bt := BTreeMap(i32, i32).new();
   bt.insert(i32(1), i32(10));
   bt.insert(i32(2), i32(20));
-  for(bt, (k, mut(v)) => {
+  for(&mut bt, (k, v) => {
     v = (v + k);
   });
   assert(bt.get(i32(2)) == Option(i32).Some(i32(22)), "btree value mutated in place");
   om := OrderedMap(i32, i32).new();
   om.insert(i32(7), i32(1));
-  for(om, (k, mut(v)) => {
+  for(&mut om, (k, v) => {
     v = (v + k);
   });
   assert(om.get(i32(7)) == Option(i32).Some(i32(8)), "ordered-map value mutated in place");
@@ -361,10 +361,10 @@ test("borrowed for over Deque, LinkedList, BTreeMap and OrderedMap", {
 // closure (the existing second-class-reference gate).
 comptime_expect_error(
   borrowed_element_captured :: (fn() -> unit)({
-    run :: (fn(imm(f) : Impl(Fn() -> unit)) -> unit)(f());
+    run :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
     xs := ArrayList(i32).new();
     xs.push(i32(1));
-    for(xs, mut(x) => {
+    for(&mut xs, x => {
       run(() => {
         x = i32(2);
       });
@@ -377,7 +377,7 @@ comptime_expect_error(
   borrowed_form_over_a_chain :: (fn() -> unit)({
     xs := ArrayList(i32).new();
     xs.push(i32(1));
-    for(xs.into_iter().map(v => (v + i32(1))), mut(x) => {
+    for(&mut xs.into_iter().map(v => (v + i32(1))), x => {
       x = i32(0);
     });
   })
@@ -390,7 +390,7 @@ test("borrowed for: read-only methods on the iterated collection do not trip the
   xs.push(i32(1));
   xs.push(i32(2));
   total := i32(0);
-  for(xs, mut(x) => {
+  for(&mut xs, x => {
     total = (total + (x * i32(xs.len())));
     assert(xs.contains(x), "contains reads");
     match(
@@ -413,11 +413,11 @@ test("borrowed for: read-only methods on the iterated collection do not trip the
 Bag :: ref(struct(items : ArrayList(i32), version : i32));
 impl(
   Bag,
-  iter : (fn(imm(self) : Self) -> ArrayListIterPtr(i32))(self.items.iter()),
-  bump_version : (fn(mut(self) : Self) -> unit)({
+  iter : (fn(self : &Self) -> ArrayListIterPtr(i32))(self.items.iter()),
+  bump_version : (fn(self : &mut Self) -> unit)({
     self.version = (self.version + i32(1));
   }),
-  reset : (fn(mut(self) : Self) -> unit)({
+  reset : (fn(self : &mut Self) -> unit)({
     self = Bag(items : ArrayList(i32).new(), version : i32(0));
   })
 );
@@ -428,7 +428,7 @@ test("borrowed for over a user collection; inout(self) methods assert on the obj
   bag.bump_version();
   assert(bag.version == i32(1), "field store through inout(self) outside any borrow");
   total := i32(0);
-  for(bag, mut(x) => {
+  for(&mut bag, x => {
     total = (total + x);
     x = (x * i32(10));
   });
@@ -449,7 +449,7 @@ test("borrowed for over a user collection; inout(self) methods assert on the obj
 // issues/fixed/borrow-assert-index-trait-call-opaque-false-positive.md).
 impl(
   Bag,
-  first_over : (fn(imm(self) : Self, limit : i32) -> Option(i32))({
+  first_over : (fn(self : &Self, limit : i32) -> Option(i32))({
     (found : Option(i32)) = .None;
     i := usize(0);
     while((i < self.items.len()) && found.is_none(), {
@@ -467,7 +467,7 @@ test("borrowed for: read-only methods with typed local declarations do not trip 
   xs.push(i32(5));
   xs.push(i32(7));
   hits := i32(0);
-  for(xs, mut(x) => {
+  for(&mut xs, x => {
     match(
       xs.index_of(x),
       .Some(_) => {
@@ -480,7 +480,7 @@ test("borrowed for: read-only methods with typed local declarations do not trip 
   assert(hits == i32(2), "index_of inside the borrowed body");
   bag := Bag(items : xs, version : i32(0));
   seen := i32(0);
-  for(bag, mut(x) => {
+  for(&mut bag, x => {
     match(
       bag.first_over(i32(6)),
       .Some(v) => {
@@ -500,21 +500,21 @@ test("borrowed for: read-only methods with typed local declarations do not trip 
 // tests/cli-cases/inout-for-store-fresh-into-self-panics.
 impl(
   Bag,
-  sum_by_value_for : (fn(imm(self) : Self) -> i32)({
+  sum_by_value_for : (fn(self : &Self) -> i32)({
     total := i32(0);
     for(self.items, x => {
       total = (total + x);
     });
     total
   }),
-  sum_by_borrowed_for : (fn(imm(self) : Self) -> i32)({
+  sum_by_borrowed_for : (fn(self : &Self) -> i32)({
     total := i32(0);
-    for(self, mut(x) => {
+    for(&mut self, x => {
       total = (total + x);
     });
     total
   }),
-  doubled_copy : (fn(imm(self) : Self) -> ArrayList(i32))({
+  doubled_copy : (fn(self : &Self) -> ArrayList(i32))({
     copy := self.items.clone();
     i := usize(0);
     while(i < copy.len(), {
@@ -533,7 +533,7 @@ test("borrowed for: methods mutating only fresh storage, or iterating the collec
   names.push(String.from("a"));
   names.push(String.from("bb"));
   total := i32(0);
-  for(xs, mut(x) => {
+  for(&mut xs, x => {
     snapshot := xs.clone();
     snapshot.push(i32(100));
     total = (total + i32(snapshot.len()));
@@ -544,7 +544,7 @@ test("borrowed for: methods mutating only fresh storage, or iterating the collec
   });
   assert(total == i32(12), "clone and collect inside the borrowed body: fresh results, mutated freely");
   assert((xs(usize(0)) == i32(2)) && (xs(usize(1)) == i32(3)), "the elements were written through");
-  for(names, mut(n) => {
+  for(&mut names, n => {
     copy := names.clone();
     copy.push(String.from("c"));
     n.push_str("!");
@@ -552,7 +552,7 @@ test("borrowed for: methods mutating only fresh storage, or iterating the collec
   assert((names(usize(0)) == "a!") && (names.len() == usize(2)), "cloning a collection of RC elements inside the borrowed body");
   bag := Bag(items : xs, version : i32(0));
   seen := i32(0);
-  for(bag, mut(x) => {
+  for(&mut bag, x => {
     seen = (seen + bag.sum_by_value_for() + bag.sum_by_borrowed_for());
     d := bag.doubled_copy();
     seen = (seen + i32(d.len()));

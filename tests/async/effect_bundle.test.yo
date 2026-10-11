@@ -44,7 +44,7 @@ tells :: (fn(io : Io) -> Impl(Future(i32, TellCtx)))(
   io.async((ctx : TellCtx) => ctx.tell(i32(3)))
 );
 /// A view that names no bundle.
-await_view :: (fn(imm(f) : Impl(Future(i32)), io : Io) -> i32)(io.await(f, io));
+await_view :: (fn(f : &Impl(Future(i32)), io : Io) -> i32)(io.await(f, io));
 /// An `Io`-only future viewed as `Future(i32)`: still legal.
 io_only :: (fn(io : Io) -> Impl(Future(i32)))(io.async((io : Io) => i32(4)));
 test("a handler-bundled future cannot be viewed as Future(T)", {

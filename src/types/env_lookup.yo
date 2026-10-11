@@ -31,15 +31,15 @@ pragma(Pragma.AllowUnsafe);
 // Internal helpers
 // ---------------------------------------------------------------------------
 /// True if `val` is a `TypeVal` variant (i.e. a first-class type value).
-_is_type_eval_value :: (fn(imm(val) : EvalValue) -> bool)(
+_is_type_eval_value :: (fn(val : &EvalValue) -> bool)(
   match(val, .TypeVal(_) => true, _ => false)
 );
 /// Extract the `TypeValue` from a `TypeVal`; returns Unit type on mismatch.
-_unwrap_type_eval_value :: (fn(imm(val) : EvalValue) -> TypeValue)(
+_unwrap_type_eval_value :: (fn(val : &EvalValue) -> TypeValue)(
   match(val, .TypeVal(boxed_ty) => boxed_ty, _ => TypeValue.Unit)
 );
 /// True if `ty` is a `SomeT` whose `id` equals `id_to_compare`.
-_same_some_id :: (fn(imm(ty) : TypeValue, imm(id_to_compare) : String) -> bool)(
+_same_some_id :: (fn(ty : &TypeValue, id_to_compare : &String) -> bool)(
   match(
     ty,
     .SomeT(
@@ -56,7 +56,7 @@ _same_some_id :: (fn(imm(ty) : TypeValue, imm(id_to_compare) : String) -> bool)(
   )
 );
 /// Extract the `id` field from a `SomeT`; returns empty string on mismatch.
-_some_id :: (fn(imm(ty) : TypeValue) -> String)(
+_some_id :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
     .SomeT(
@@ -72,7 +72,7 @@ _some_id :: (fn(imm(ty) : TypeValue) -> String)(
   )
 );
 /// Extract the `name` field from a `SomeT`; returns empty string on mismatch.
-_some_name :: (fn(imm(ty) : TypeValue) -> String)(
+_some_name :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
     .SomeT(
@@ -88,7 +88,7 @@ _some_name :: (fn(imm(ty) : TypeValue) -> String)(
   )
 );
 /// Extract the `frame_level` field from a `SomeT`; `.None` on mismatch.
-_some_frame_level :: (fn(imm(ty) : TypeValue) -> Option(usize))(
+_some_frame_level :: (fn(ty : &TypeValue) -> Option(usize))(
   match(
     ty,
     .SomeT(
@@ -104,7 +104,7 @@ _some_frame_level :: (fn(imm(ty) : TypeValue) -> Option(usize))(
   )
 );
 /// True if `id` already appears in `visited_ids`.
-_id_visited :: (fn(imm(visited_ids) : ArrayList(String), imm(id) : String) -> bool)({
+_id_visited :: (fn(visited_ids : &ArrayList(String), id : &String) -> bool)({
   (found : bool) = false;
   n := visited_ids.len();
   (i : usize) = usize(0);
@@ -130,13 +130,13 @@ _id_visited :: (fn(imm(visited_ids) : ArrayList(String), imm(id) : String) -> bo
 /// SomeT only. A name and a frame level do not identify a binder — the
 /// caller's `T` and `io.async`'s `T` share both
 /// (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
-_binding_may_be_for :: (fn(imm(var) : Variable, imm(some_id) : String) -> bool)({
+_binding_may_be_for :: (fn(var : &Variable, some_id : &String) -> bool)({
   bound := variable_bound_some_id(var);
   (bound.len() == usize(0)) || (bound == some_id)
 });
 /// The bindings in `variables` that may be for the SomeT `some_id`
 /// (`_binding_may_be_for`), in their original order.
-_bindings_that_may_be_for :: (fn(imm(variables) : ArrayList(Variable), imm(some_id) : String) -> ArrayList(Variable))({
+_bindings_that_may_be_for :: (fn(variables : &ArrayList(Variable), some_id : &String) -> ArrayList(Variable))({
   out := ArrayList(Variable).new();
   (i : usize) = usize(0);
   while(i < variables.len(), {
@@ -154,7 +154,7 @@ _bindings_that_may_be_for :: (fn(imm(variables) : ArrayList(Variable), imm(some_
 /// Look up a variable by (frame_level, name) and return its TypeValue if it
 /// holds a TypeVal and may be a binding for the SomeT `some_id`. Returns None
 /// otherwise.
-_lookup_by_frame :: (fn(imm(env) : Environment, fl : usize, imm(name) : String, imm(some_id) : String) -> Option(TypeValue))({
+_lookup_by_frame :: (fn(env : &Environment, fl : usize, name : &String, some_id : &String) -> Option(TypeValue))({
   n_frames := env.frames.len();
   cond(
     (fl >= n_frames) => Option(TypeValue).None,
@@ -206,7 +206,7 @@ _lookup_by_frame :: (fn(imm(env) : Environment, fl : usize, imm(name) : String, 
 /// object identity to compare; the value-type stand-in is rendered-type
 /// equality.
 _def_frame_confirms_binding :: (
-  fn(imm(env) : Environment, imm(some_ty) : TypeValue, imm(resolved_tv) : TypeValue) -> bool
+  fn(env : &Environment, some_ty : &TypeValue, resolved_tv : &TypeValue) -> bool
 )({
   fl := match(
     _some_frame_level(some_ty),
@@ -230,7 +230,7 @@ _def_frame_confirms_binding :: (
 /// Search the env for a variable of `name` that was ever bound to a TypeVal
 /// whose `id` matches `id_to_find`.  Used to distinguish unbound type variables
 /// from ones that were concretised by `synthesizeTypes`.
-_was_self_bound :: (fn(imm(env) : Environment, imm(name) : String, imm(id_to_find) : String) -> bool)({
+_was_self_bound :: (fn(env : &Environment, name : &String, id_to_find : &String) -> bool)({
   // Only variables named `name` can match, so ask the env for exactly those
   // (`get_variables_from_env` takes the per-frame name index for big frames)
   // instead of scanning every variable of every frame. The previous full
@@ -268,7 +268,7 @@ _was_self_bound :: (fn(imm(env) : Environment, imm(name) : String, imm(id_to_fin
 /// Returns `None` if not found or if the variable holds a non-trait value.
 ///
 ///
-get_trait_type_from_env :: (fn(imm(env) : Environment, imm(trait_name) : String) -> Option(TypeValue))({
+get_trait_type_from_env :: (fn(env : &Environment, trait_name : &String) -> Option(TypeValue))({
   variables := get_variables_from_env(env, trait_name);
   n := variables.len();
   cond(
@@ -300,7 +300,7 @@ get_trait_type_from_env :: (fn(imm(env) : Environment, imm(trait_name) : String)
   )
 });
 /// The main iterative chain-resolution loop.
-_do_chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(visited_ids) : ArrayList(String)) -> TypeValue)({
+_do_chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &mut ArrayList(String)) -> TypeValue)({
   (current : TypeValue) = start;
   (done : bool) = false;
   (result : TypeValue) = start;
@@ -428,7 +428,7 @@ _do_chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(vis
 /// variable named `name`, or .None. "Last binding wins" is the semantic the
 /// full `_do_chain_resolve` applies — the fast path uses this to verify a
 /// def-frame concrete binding is still the LIVE one.
-_last_type_binding_frame :: (fn(imm(env) : Environment, imm(name) : String) -> Option(usize))({
+_last_type_binding_frame :: (fn(env : &Environment, name : &String) -> Option(usize))({
   n_frames := env.frames.len();
   (fi : usize) = n_frames;
   while(fi > usize(0), {
@@ -459,7 +459,7 @@ _last_type_binding_frame :: (fn(imm(env) : Environment, imm(name) : String) -> O
   });
   Option(usize).None
 });
-_is_type_eval_value_or_empty :: (fn(imm(var) : Variable) -> bool)(
+_is_type_eval_value_or_empty :: (fn(var : &Variable) -> bool)(
   match(
     var.value.get(usize(0)),
     .Some(val) => _is_type_eval_value(val),
@@ -468,7 +468,7 @@ _is_type_eval_value_or_empty :: (fn(imm(var) : Variable) -> bool)(
 );
 /// Fast-path chain resolution: tries the definitionFrameLevel first, then
 /// falls back to the full iterative loop in `_do_chain_resolve`.
-_chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(visited_ids) : ArrayList(String)) -> TypeValue)({
+_chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &mut ArrayList(String)) -> TypeValue)({
   // --- Fast-path: try definitionFrameLevel lookup first ---
   // Only when the level is known and >= 0.
   fast_result := match(
@@ -538,7 +538,7 @@ _chain_resolve :: (fn(imm(env) : Environment, imm(start) : TypeValue, mut(visite
 /// ID-based visited set.
 ///
 ///
-get_value_of_some_type_from_env :: (fn(imm(env) : Environment, imm(some_type) : TypeValue) -> TypeValue)(
+get_value_of_some_type_from_env :: (fn(env : &Environment, some_type : &TypeValue) -> TypeValue)(
   cond(
     !is_some_type(some_type) => some_type,
     true => {
@@ -556,7 +556,7 @@ get_value_of_some_type_from_env :: (fn(imm(env) : Environment, imm(some_type) : 
 /// Moved here from `types/utils.yo` so the `env.yo` ↔ `types/utils.yo`
 /// import cycle no longer exists; `types/env_lookup.yo` is the
 /// designated location for env-dependent type lookups.
-create_str_type :: (fn(imm(env) : Environment) -> TypeValue)({
+create_str_type :: (fn(env : &Environment) -> TypeValue)({
   // str is now the builtin static string view; no prelude lookup needed.
   // (env parameter kept for signature stability with callers.)
   env;
@@ -566,7 +566,7 @@ create_str_type :: (fn(imm(env) : Environment) -> TypeValue)({
 /// True iff `ty` is `*(u8)` or `*(char)` — the two byte-pointer
 /// shapes that can hold a comptime-string literal. Helper for
 /// `convert_comptime_type_to_runtime_type_with_expected`.
-_pointer_target_is_byte :: (fn(imm(ty) : TypeValue) -> bool)(
+_pointer_target_is_byte :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
     .Pointer(pointee) => (is_u8_type(pointee) || is_char_type(pointee)),
@@ -581,7 +581,7 @@ _pointer_target_is_byte :: (fn(imm(ty) : TypeValue) -> bool)(
 /// table update will assign through `ExprInfo.converted_runtime_type`
 /// directly.
 convert_comptime_type_to_runtime_type_with_expected :: (
-  fn(imm(ty) : TypeValue, imm(expected) : Option(TypeValue), imm(env) : Environment) -> TypeValue
+  fn(ty : &TypeValue, expected : &Option(TypeValue), env : &Environment) -> TypeValue
 )(
   cond(
     is_comptime_int_type(ty) => t_i32(),
@@ -603,7 +603,7 @@ convert_comptime_type_to_runtime_type_with_expected :: (
     true => ty
   )
 );
-convert_comptime_type_to_runtime_type :: (fn(imm(ty) : TypeValue, imm(env) : Environment) -> TypeValue)(
+convert_comptime_type_to_runtime_type :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue)(
   convert_comptime_type_to_runtime_type_with_expected(ty, Option(TypeValue).None, env)
 );
 export(

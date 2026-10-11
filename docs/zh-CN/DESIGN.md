@@ -679,7 +679,16 @@ bump :: (fn(x : &mut i32) -> unit)({
 
 在这一代中，`&T` 与 `&mut T` 是位置所写的借用**模式**，而不是类型：它们加在参数、接收者（`self : &Self`、`self : &mut Self`）、闭包参数（`(v : &T) => ...`）或带标签的 `Fn` 位置（`Fn(v : &T) -> R`；不接受无标签的 `Fn(&T)`）的类型之前。在类型单独出现的任何地方（`T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T`、`&&T`），借用符号都是错误，"a borrow mode, not a type"。函数也不能返回借用（`-> &T` 需要投影，而投影尚未实现）。
 
-旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 之前仍可解析，与新写法完全同义（决定 42）：标准库和编译器在下一个 seed 之前继续使用它。`yo fix <path> --migrate borrow-spelling` 会把整棵树改写为借用符号写法。
+旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；`yo fix <path> --migrate borrow-spelling` 会把整棵树改写为借用符号写法。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
+
+运算符 trait 也以同样方式写出操作数的模式，每个 impl 都必须完全照写这些模式（决定 34）。比较 trait `Eq` 与 `Ord` 借用操作数，即 `(==) : (fn(lhs : &Self, rhs : &Rhs) -> bool)`，因此 `a == b` 之后两个操作数都仍可使用。算术、位运算与一元 trait（`Add` 到 `BitRightShift`、`Negate`、`LogicalNot`、`BitNot` 及其 `Comptime*` 对应版本）与 Rust 一样按值接收操作数：`(+) : (fn(lhs : Self, rhs : Rhs) -> Self.Output)`。按值操作数遵循上面的参数规则：`Copy` 操作数被复制，`String` 被共享，仅可移动的操作数被移动进运算符。trait 按值接收而 impl 借用的操作数（反之亦然）会以 "as written" 被拒绝。`Dyn(LogicalNot)` 把载荷的副本交给其 impl，因此仅可移动的载荷不能装箱到其中（E0614）。
+
+```yo
+Money :: struct(cents : i64);
+derive(Money, Copy, Clone);
+impl(Money, Add(Money)(Output : Money, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(Money(cents : (lhs.cents + rhs.cents)))));
+impl(Money, Eq(Money)((==) : (fn(lhs : &Self, rhs : &Self) -> bool)(lhs.cents == rhs.cents)));
+```
 
 ### 调用处的借用标记
 

@@ -63,28 +63,28 @@ stderr :: (fn() -> Stderr)(Stderr(_offset : u64(0)));
 impl(
   Stdin,
   /// fd 0, for interop with fd-based APIs (e.g. `BufReader.new`).
-  fd : (fn(imm(self) : Self) -> i32)(
+  fd : (fn(self : &Self) -> i32)(
     i32(0)
   )
 );
 impl(
   Stdout,
   /// fd 1, for interop with fd-based APIs (e.g. `BufWriter.new`).
-  fd : (fn(imm(self) : Self) -> i32)(
+  fd : (fn(self : &Self) -> i32)(
     i32(1)
   )
 );
 impl(
   Stderr,
   /// fd 2, for interop with fd-based APIs.
-  fd : (fn(imm(self) : Self) -> i32)(
+  fd : (fn(self : &Self) -> i32)(
     i32(2)
   )
 );
 impl(
   Stdin,
   Reader(
-    read : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         result := e.io.await(IO_file.read(i32(0), buf, u32(size), self._offset), e.io);
         n := IoError.check(result, e.exn);
@@ -97,7 +97,7 @@ impl(
 impl(
   Stdout,
   Writer(
-    write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         result := e.io.await(IO_file.write(i32(1), buf, u32(size), self._offset), e.io);
         n := IoError.check(result, e.exn);
@@ -105,7 +105,7 @@ impl(
         usize(n)
       })
     ),
-    flush : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
       io.async(e => ())
     )
   )
@@ -113,7 +113,7 @@ impl(
 impl(
   Stderr,
   Writer(
-    write : (fn(imm(self) : Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
+    write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         result := e.io.await(IO_file.write(i32(2), buf, u32(size), self._offset), e.io);
         n := IoError.check(result, e.exn);
@@ -121,7 +121,7 @@ impl(
         usize(n)
       })
     ),
-    flush : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit, IoExn)))(
+    flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
       io.async(e => ())
     )
   )

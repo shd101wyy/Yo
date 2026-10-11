@@ -61,7 +61,7 @@ _sync_registration_owner :: (fn() -> unit)({
   set_registration_owner(owner);
 });
 /// Register `path` as currently-loading with its live evaluation `env`.
-register_loading :: (fn(imm(path) : String, imm(env) : Environment) -> unit)({
+register_loading :: (fn(path : &String, env : &Environment) -> unit)({
   if(!g_import_closure_installed, {
     set_import_closure_fn(import_closure_of);
     g_import_closure_installed = true;
@@ -74,11 +74,11 @@ register_loading :: (fn(imm(path) : String, imm(env) : Environment) -> unit)({
 /// The loading key (`file://<abs>`, or the entry path as typed) under which
 /// `module` was registered — the spelling the registries' owner tags use.
 /// `.None` for a module never loaded through this loader.
-loading_key_for_module :: (fn(imm(module) : String) -> Option(String))(
+loading_key_for_module :: (fn(module : &String) -> Option(String))(
   g_loading_key_by_canonical.get(_canonical(module))
 );
 /// Remove the most-recent loading entry for `path` (LIFO — nested loads).
-unregister_loading :: (fn(imm(path) : String) -> unit)({
+unregister_loading :: (fn(path : &String) -> unit)({
   (i : usize) = g_loading_keys.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -104,7 +104,7 @@ current_loading_module :: (fn() -> Option(String))(
   )
 );
 /// The live env of a currently-loading module, or `.None`.
-loading_env :: (fn(imm(path) : String) -> Option(Environment))({
+loading_env :: (fn(path : &String) -> Option(Environment))({
   (i : usize) = g_loading_keys.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -134,7 +134,7 @@ loading_env :: (fn(imm(path) : String) -> Option(Environment))({
 // installs the closure provider that reads them.)
 /// Canonical spelling of a module key, memoized (the closure walk below
 /// touches every edge endpoint).
-_canonical :: (fn(imm(p) : String) -> String)(
+_canonical :: (fn(p : &String) -> String)(
   match(
     _canonical_memo.get(p.clone()),
     .Some(c) => c,
@@ -156,14 +156,14 @@ _clear_import_closure_memo :: (fn() -> unit)({
 /// it: the prelude, whose impls carry `${std_path}/prelude.yo` as their owner
 /// (stamped by mm_load_prelude_file, which also calls this so every prelude
 /// load path gets both) but which is implicitly in scope everywhere.
-mark_owner_always_visible :: (fn(imm(module) : String) -> unit)({
+mark_owner_always_visible :: (fn(module : &String) -> unit)({
   g_always_visible_owners.push(_canonical(module));
   _clear_import_closure_memo();
 });
 /// Every module reachable from `module` through import edges, `module`
 /// included, in canonical spelling, plus the always-visible owners. The
 /// provider behind `owner_visible_from_current` (type_trait_methods.yo).
-import_closure_of :: (fn(imm(module) : String) -> HashSet(String))({
+import_closure_of :: (fn(module : &String) -> HashSet(String))({
   start := _canonical(module);
   match(
     g_import_closure_memo.get(start.clone()),
@@ -213,7 +213,7 @@ import_closure_of :: (fn(imm(module) : String) -> HashSet(String))({
 });
 /// Record that `importer` imports `imported`. Exact-pair duplicates are
 /// dropped (a module importing the same dep from several sites is one edge).
-record_import_edge :: (fn(imm(importer) : String, imm(imported) : String) -> unit)({
+record_import_edge :: (fn(importer : &String, imported : &String) -> unit)({
   (i : usize) = usize(0);
   n := g_import_edge_importers.len();
   while(i < n, {
@@ -232,7 +232,7 @@ record_import_edge :: (fn(imm(importer) : String, imm(imported) : String) -> uni
 });
 /// Drop every outgoing edge of `importer`. Called when a module is
 /// invalidated: its re-evaluation re-records its (possibly changed) edges.
-_drop_edges_from :: (fn(imm(importer) : String) -> unit)({
+_drop_edges_from :: (fn(importer : &String) -> unit)({
   _clear_import_closure_memo();
   (i : usize) = g_import_edge_importers.len();
   while(i > usize(0), {
@@ -258,7 +258,7 @@ clear_module_cache :: (fn() -> unit)({
   ()
 });
 /// Find the cache index for `path`, or `.None`.
-_module_cache_index :: (fn(imm(path) : String) -> Option(usize))({
+_module_cache_index :: (fn(path : &String) -> Option(usize))({
   (idx : Option(usize)) = Option(usize).None;
   (i : usize) = usize(0);
   n := g_module_cache_keys.len();
@@ -275,7 +275,7 @@ _module_cache_index :: (fn(imm(path) : String) -> Option(usize))({
   idx
 });
 /// True iff a module value has already been registered for `path`.
-module_cache_has :: (fn(imm(path) : String) -> bool)(
+module_cache_has :: (fn(path : &String) -> bool)(
   _module_cache_index(path).is_some()
 );
 /// Register the evaluated `module_value` for `path`. First registration
@@ -284,7 +284,7 @@ module_cache_has :: (fn(imm(path) : String) -> bool)(
 /// `_module_cache_index` returns the first match).
 { eprintln } :: import("std/fmt");
 { debug_knob } :: import("../utils.yo");
-register_module :: (fn(imm(path) : String, imm(module_value) : EvalValue, imm(module_type) : TypeValue) -> unit)({
+register_module :: (fn(path : &String, module_value : &EvalValue, module_type : &TypeValue) -> unit)({
   if(debug_knob(`YO_DEBUG_WARM`).is_some(), {
     eprintln(`[warmcache] register ${path.clone()}`);
   });
@@ -297,7 +297,7 @@ register_module :: (fn(imm(path) : String, imm(module_value) : EvalValue, imm(mo
 /// Pure lookup used as `ctx.load_module`. On a hit, returns the cached
 /// module value; on a miss, returns a `LoadModuleResult` carrying an
 /// error message so `evaluate_import` can surface it.
-load_module_from_cache :: (fn(imm(path) : String) -> LoadModuleResult)(
+load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
   match(
     _module_cache_index(path.clone()),
     .Some(i) => LoadModuleResult(
@@ -330,7 +330,7 @@ load_module_from_cache :: (fn(imm(path) : String) -> LoadModuleResult)(
 /// (fine, nothing to patch) or it is exported under a DIFFERENT label
 /// (`export(Foo : bar)`), which the caller must treat as unpatchable and fall
 /// back to file-level invalidation.
-update_module_cache_slot :: (fn(imm(path) : String, imm(name) : String, imm(var) : Variable) -> Option(bool))(
+update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable) -> Option(bool))(
   match(
     _module_cache_index(path.clone()),
     .None => Option(bool).None,
@@ -395,7 +395,7 @@ update_module_cache_slot :: (fn(imm(path) : String, imm(name) : String, imm(var)
 /// Drop one module's cache entry (no-op when absent). Its dependencies
 /// stay cached; its own outgoing import edges are dropped so the
 /// re-evaluation records them fresh.
-remove_module :: (fn(imm(path) : String) -> unit)({
+remove_module :: (fn(path : &String) -> unit)({
   match(
     _module_cache_index(path.clone()),
     .Some(i) => {
@@ -412,7 +412,7 @@ remove_module :: (fn(imm(path) : String) -> unit)({
 /// against the old version. Dependencies of the removed set stay cached —
 /// they are unchanged. Returns the removed abs paths (the Phase B2 registry
 /// purge consumes this). plans/reference/INCREMENTAL_COMPILATION.md Phase B1.
-invalidate_module :: (fn(imm(path) : String) -> ArrayList(String))({
+invalidate_module :: (fn(path : &String) -> ArrayList(String))({
   removed := ArrayList(String).new();
   worklist := ArrayList(String).new();
   worklist.push(path);

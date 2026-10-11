@@ -40,10 +40,10 @@ import("std/fmt");
 /// Returns `expr` unchanged.
 evaluate_runtime :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   // Validate shape: `runtime` with exactly 1 argument.
@@ -122,10 +122,10 @@ evaluate_runtime :: (
 /// of the variable it copies). plans/archive/INOUT_LOCAL_BINDINGS_AUDIT.md Phase D.
 evaluate_borrow_check :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   if(!ast_expr_is_fn_call_of(expr, BF_YO_BORROW_CHECK, .Some(usize(2))), {

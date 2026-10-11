@@ -5,8 +5,8 @@
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-get :: (fn(imm(xs) : ArrayList(i32), i : usize, requires(i < xs.len())) -> (r : i32))(xs(i));
+get :: (fn(xs : &ArrayList(i32), i : usize, requires(i < xs.len())) -> (r : i32))(xs(i));
 
-bad :: (fn(imm(xs) : ArrayList(i32)) -> (r : i32))(get(xs, usize(3)));
+bad :: (fn(xs : &ArrayList(i32)) -> (r : i32))(get(xs, usize(3)));
 
-bad_sum :: (fn(imm(xs) : ArrayList(i32), requires(xs.len() >= usize(1))) -> (r : i32))(xs(usize(0)) + xs(usize(1)));
+bad_sum :: (fn(xs : &ArrayList(i32), requires(xs.len() >= usize(1))) -> (r : i32))(xs(usize(0)) + xs(usize(1)));

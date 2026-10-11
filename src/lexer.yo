@@ -33,19 +33,19 @@
 /// table — the last writers were migrated to `.add`/`.sub` 2026-08-21, so
 /// `p &+ n` now lexes as `p`,`&`,`+`,`n` and fails loudly at parse
 /// (mixed adjacent operators need parens).
-_is_two_char_operator :: (fn(imm(s) : String) -> bool)(
+_is_two_char_operator :: (fn(s : &String) -> bool)(
   (s == "!=") || (s == "&&") || (s == "->") || (s == "::") || (s == ":=") || (s == "<:") || (s == "<<") || (s == "<=") || (s == "==") || (s == "=>") || (s == ">=") || (s == ">>") || (s == "?=") || (s == "||")
 );
 /// `==>` — ghost implication (V5, plans/backlog/FORMAL_VERIFICATION.md §6)
 /// — is the ONLY three-char operator, matched before the greedy two-char
 /// split so `a ==> b` is one token, not `==` + `>`.
-_is_three_char_operator :: (fn(imm(s) : String) -> bool)(s == "==>");
+_is_three_char_operator :: (fn(s : &String) -> bool)(s == "==>");
 // The quote layer has one spelling per operation: `unquote(x)` and
 // `unquote_splicing(xs)`. Their operator spellings `#(x)` and `...#(xs)` were
 // deleted 2026-10-10; these name the replacement where they are written.
 _REMOVED_UNQUOTE_OPERATOR_MESSAGE :: "`#` is not an operator: write `unquote(x)` instead of `#(x)` inside a `quote(...)` (the `#` spelling was removed)";
 _REMOVED_SPLICE_OPERATOR_MESSAGE :: "`...#` is not an operator: write `unquote_splicing(xs)` instead of `...#(xs)` inside a `quote(...)` (the `...#` spelling was removed)";
-_is_one_char_operator :: (fn(imm(s) : String) -> bool)(
+_is_one_char_operator :: (fn(s : &String) -> bool)(
   (s == "!") || (s == "%") || (s == "&") || (s == "*") || (s == "+") || (s == "-") || (s == "/") || (s == ":") || (s == "<") || (s == "=") || (s == ">") || (s == "?") || (s == "^") || (s == "|") || (s == "~")
 );
 /// An error produced by the lexer during tokenization. Deleted in P1 of
@@ -62,9 +62,9 @@ _is_one_char_operator :: (fn(imm(s) : String) -> bool)(
 /// on invalid input.
 tokenize :: (
   fn(
-    imm(input) : String,
-    imm(module_path) : String,
-    imm(exn) : Exception
+    input : &String,
+    module_path : &String,
+    exn : &Exception
   ) -> ArrayList(Token)
 )(tokenize_span(input, module_path, usize(0), input.len(), usize(0), usize(0), usize(0), exn));
 /// Tokenizes the byte range `[start_byte, end_byte)` of `input` as if it sat
@@ -79,14 +79,14 @@ tokenize :: (
 /// (issues/fixed/template-interpolation-body-is-not-scanned-as-code.md).
 tokenize_span :: (
   fn(
-    imm(input) : String,
-    imm(module_path) : String,
+    input : &String,
+    module_path : &String,
     start_byte : usize,
     end_byte : usize,
     base_row : usize,
     base_col : usize,
     base_char : usize,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> ArrayList(Token)
 )({
   tokens := ArrayList(Token).new();

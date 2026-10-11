@@ -12,7 +12,7 @@
 // See issues/fixed/unit-typed-params-and-fields-emit-c-void.md and
 // issues/fixed/unit-should-be-a-true-zero-sized-type-like-rust.md.
 _takes_unit :: (fn(x : unit) -> i32)(i32(7));
-_generic_id :: (fn(generic(T : Type), imm(x) : T) -> i32)(i32(9));
+_generic_id :: (fn(generic(T : Type), x : &T) -> i32)(i32(9));
 _UnitField :: struct(a : i32, b : unit);
 derive(_UnitField, Copy, Clone);
 test("unit as a by-value parameter", {
@@ -248,7 +248,7 @@ test("HashMap(K, unit) does not overflow its bucket array", {
 // would have failed on: glibc and the Windows CRT free `p` and return NULL, so
 // the SECOND growth (element 5) reported "allocation failed".
 _Counter :: ref(struct(n : i32));
-_bump :: (fn(imm(c) : _Counter) -> unit)({
+_bump :: (fn(c : &_Counter) -> unit)({
   c.n = (c.n + i32(1));
 });
 _RefWithUnit :: ref(struct(a : i32, u : unit, s : String));
@@ -342,9 +342,9 @@ test("a unit-typed constructor argument still runs for its side effects", {
 _Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(x : T, n : i32));
 derive(generic(T : Type), where(T <: Clone), _Pair(T), Clone);
 derive(generic(T : Type), where(T <: Copy), _Pair(T), Copy);
-_pair_x :: (fn(generic(T : Type), imm(p) : _Pair(T)) -> T)(p.x);
-_pair_n :: (fn(generic(T : Type), imm(p) : _Pair(T)) -> i32)(p.n);
-_mk_pair :: (fn(generic(T : Type), imm(v) : T, n : i32) -> _Pair(T))(_Pair(T)(x : v, n : n));
+_pair_x :: (fn(generic(T : Type), p : &_Pair(T)) -> T)(p.x);
+_pair_n :: (fn(generic(T : Type), p : &_Pair(T)) -> i32)(p.n);
+_mk_pair :: (fn(generic(T : Type), v : &T, n : i32) -> _Pair(T))(_Pair(T)(x : v, n : n));
 _SZ_PAIR_UNIT :: size_of(_Pair(unit));
 _SZ_PAIR_I32 :: size_of(_Pair(i32));
 test("a generic struct at T = unit erases the field; Array(unit, N) constructs, fills and indexes", {

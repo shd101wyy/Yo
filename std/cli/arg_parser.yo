@@ -124,9 +124,9 @@ impl(
     )
   ),
   /// Returns the name of the chosen subcommand, if any.
-  get_subcommand : (fn(imm(self) : Self) -> Option(String))(self._subcommand),
+  get_subcommand : (fn(self : &Self) -> Option(String))(self._subcommand),
   /// Returns the parsed arguments of the chosen subcommand, if any.
-  get_subcommand_args : (fn(imm(self) : Self) -> Option(Self))(self._subcommand_args),
+  get_subcommand_args : (fn(self : &Self) -> Option(Self))(self._subcommand_args),
   /// Whether the flag registered under `name` appeared on the command
   /// line.
   ///
@@ -140,10 +140,10 @@ impl(
   /// separates those with `ArgMatches::try_get_one`, which errors on an
   /// unknown id; this returns a bare `bool`, so a typo'd name reads as
   /// "the user did not pass it".
-  get_flag : (fn(imm(self) : Self, imm(name) : String) -> bool)(
+  get_flag : (fn(self : &Self, name : &String) -> bool)(
     self._set_flags.contains(name)
   ),
-  _lookup : (fn(imm(self) : Self, imm(names) : ArrayList(String), imm(values) : ArrayList(String), imm(name) : String) -> Option(String))({
+  _lookup : (fn(self : &Self, names : &ArrayList(String), values : &ArrayList(String), name : &String) -> Option(String))({
     i := usize(0);
     len := names.len();
     (result : Option(String)) = .None;
@@ -175,7 +175,7 @@ impl(
   /// EMPTY default and not passed, or the name is misspelled. O(n) in
   /// the number of options seen; this is a linear scan of two parallel
   /// lists, not a map.
-  get_option : (fn(imm(self) : Self, imm(name) : String) -> Option(String))(
+  get_option : (fn(self : &Self, name : &String) -> Option(String))(
     self._lookup(self._option_names, self._option_values, name)
   ),
   /// The positional argument registered under `name` (bare, no dashes —
@@ -187,7 +187,7 @@ impl(
   /// second, and so on. Tokens beyond the number registered are still
   /// collected but get no name, so they are reachable only through
   /// `get_positional_at`. O(n) in the positionals seen.
-  get_positional : (fn(imm(self) : Self, imm(name) : String) -> Option(String))(
+  get_positional : (fn(self : &Self, name : &String) -> Option(String))(
     self._lookup(self._positional_names, self._positionals, name)
   ),
   /// The `index`-th positional argument in command-line order, 0-based,
@@ -197,7 +197,7 @@ impl(
   /// ones `get_positional` cannot name — it is the way to read a
   /// variadic tail. Subcommand names are NOT in this list; they and
   /// everything after them belong to `get_subcommand_args`.
-  get_positional_at : (fn(imm(self) : Self, index : usize) -> Option(String))(
+  get_positional_at : (fn(self : &Self, index : usize) -> Option(String))(
     self._positionals.get(index)
   )
 );
@@ -210,7 +210,7 @@ impl(
   /// become the `Usage:` line and the paragraph under it. Neither is
   /// matched against anything, so `name` need not be argv[0]; it is only
   /// the name shown to the user.
-  new : (fn(imm(name) : String, imm(description) : String) -> Self)(
+  new : (fn(name : &String, description : &String) -> Self)(
     Self(
       _name : name,
       _description : description,
@@ -223,7 +223,7 @@ impl(
   /// Registers a subcommand with the given name and description.
   /// Returns the new sub-parser, which can be configured with its own
   /// flags, options, positionals, and nested subcommands.
-  add_subcommand : (fn(imm(self) : Self, imm(name) : String, imm(description) : String) -> Self)({
+  add_subcommand : (fn(self : &Self, name : &String, description : &String) -> Self)({
     sub := Self.new(name, description);
     self._subcommand_names.push(name);
     self._subcommand_descriptions.push(description);
@@ -231,7 +231,7 @@ impl(
     return(sub);
   }),
   /// Looks up a subcommand parser by name.
-  _find_subcommand : (fn(imm(self) : Self, imm(name) : String) -> Option(usize))({
+  _find_subcommand : (fn(self : &Self, name : &String) -> Option(usize))({
     i := usize(0);
     len := self._subcommand_names.len();
     (result : Option(usize)) = .None;
@@ -264,7 +264,7 @@ impl(
   /// `ref` struct), so the `add_*` calls are statements rather than a
   /// chain — deliberately unlike `clap`'s `Command::arg`, which returns
   /// `Self`.
-  add_flag : (fn(imm(self) : Self, imm(long_name) : String, imm(short_name) : String, imm(description) : String) -> unit)({
+  add_flag : (fn(self : &Self, long_name : &String, short_name : &String, description : &String) -> unit)({
     self._args.push(
       ArgDef(
         _long_name : long_name,
@@ -291,7 +291,7 @@ impl(
   /// either way. An EMPTY `default_value` means "no default" — it is
   /// never recorded, so an option defaulted to the empty string is
   /// indistinguishable from one with no default at all.
-  add_option : (fn(imm(self) : Self, imm(long_name) : String, imm(short_name) : String, imm(description) : String, imm(default_value) : String) -> unit)({
+  add_option : (fn(self : &Self, long_name : &String, short_name : &String, description : &String, default_value : &String) -> unit)({
     self._args.push(
       ArgDef(
         _long_name : long_name,
@@ -314,7 +314,7 @@ impl(
   /// internal `_required` flag: nothing reads that flag, and `parse`
   /// succeeds with the slot empty. Check for the `.None` from
   /// `get_positional` yourself.
-  add_positional : (fn(imm(self) : Self, imm(name) : String, imm(description) : String) -> unit)({
+  add_positional : (fn(self : &Self, name : &String, description : &String) -> unit)({
     self._args.push(
       ArgDef(
         _long_name : name,
@@ -326,7 +326,7 @@ impl(
       )
     );
   }),
-  _find_arg_index : (fn(imm(self) : Self, imm(name) : String) -> Option(usize))({
+  _find_arg_index : (fn(self : &Self, name : &String) -> Option(usize))({
     i := usize(0);
     len := self._args.len();
     (result : Option(usize)) = .None;
@@ -360,7 +360,7 @@ impl(
   /// argument, because `parse` handles it itself. The `Usage:` line
   /// carries the program name only — it does not synthesize a synopsis
   /// of the positionals the way `clap` does.
-  help_text : (fn(imm(self) : Self) -> String)({
+  help_text : (fn(self : &Self) -> String)({
     text := `Usage: ${self._name}\n${self._description}\n\n`;
     has_positionals := false;
     has_flags_or_options := false;
@@ -534,7 +534,7 @@ impl(
   ///
   /// Option defaults are applied last, after the scan succeeds, and the
   /// parent's defaults are applied even when a subcommand ran.
-  parse : (fn(imm(self) : Self, imm(args) : ArrayList(String)) -> Result(ParsedArgs, String))({
+  parse : (fn(self : &Self, args : &ArrayList(String)) -> Result(ParsedArgs, String))({
     parsed := ParsedArgs.new();
     arg_defs_len := self._args.len();
     idx := usize(1);

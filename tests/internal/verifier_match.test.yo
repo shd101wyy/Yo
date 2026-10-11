@@ -42,7 +42,7 @@ _have_z3 :: (fn() -> bool)(
 );
 /// Load one fixture with targets armed; returns its reports (the task
 /// list is drained into the run inside `_run_reports`).
-_load_reports :: (fn(imm(rel_path) : String, io : Io) -> ArrayList(VerifyFnReport))({
+_load_reports :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))({
   exn := Exception(
     throw : (
       err -> {
@@ -78,7 +78,7 @@ _load_reports :: (fn(imm(rel_path) : String, io : Io) -> ArrayList(VerifyFnRepor
   verify_and_strip_tasks(cfg, binary, take_verify_tasks())
 });
 /// The reports' ids/outcomes rendered for assert messages.
-_reports_dump :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> String)({
+_reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < reports.len(), {

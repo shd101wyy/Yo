@@ -70,7 +70,7 @@ __SemaphoreReleaser :: ref(
 impl(
   __SemaphoreReleaser,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       self._sem.release();
     })
   )
@@ -90,7 +90,7 @@ impl(
     )
   ),
   /// Take one permit, blocking until one is available.
-  acquire : (fn(imm(self) : Self) -> unit)({
+  acquire : (fn(self : &Self) -> unit)({
     self._mutex._raw_lock();
     while(runtime(self._permits <= i32(0)), {
       self._cv.wait_with(self._mutex);
@@ -100,7 +100,7 @@ impl(
   }),
   /// Take one permit if one is available right now. Never blocks.
   /// Returns `true` when a permit was taken.
-  try_acquire : (fn(imm(self) : Self) -> bool)({
+  try_acquire : (fn(self : &Self) -> bool)({
     self._mutex._raw_lock();
     taken := false;
     cond(
@@ -120,7 +120,7 @@ impl(
   /// the race to a thread that never blocked is harmless — the loser re-tests
   /// `_permits` in its `while` loop and parks again, and the permit it lost
   /// was consumed by the winner, so no release goes unmatched.
-  release : (fn(imm(self) : Self) -> unit)({
+  release : (fn(self : &Self) -> unit)({
     self._mutex._raw_lock();
     self._permits = (self._permits + i32(1));
     self._cv.signal();
@@ -148,8 +148,8 @@ impl(
   with_permit : (
     fn(
       generic(R : Type),
-      imm(self) : Self,
-      imm(body) : Impl(Fn() -> R)
+      self : &Self,
+      body : &Impl(Fn() -> R)
     ) -> R
   )({
     self.acquire();
@@ -158,7 +158,7 @@ impl(
   }),
   /// The permits available at the instant of the call. Informational only —
   /// by the time the caller looks at it another thread may have taken one.
-  available_permits : (fn(imm(self) : Self) -> i32)({
+  available_permits : (fn(self : &Self) -> i32)({
     self._mutex._raw_lock();
     n := self._permits;
     self._mutex._raw_unlock();

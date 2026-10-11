@@ -48,7 +48,7 @@ impl(
   /// Assemble a match. Called only by the engine (`Regex.find` and the
   /// iterators) after the VM reports success — every argument is a slot the
   /// VM already computed, so nothing here validates or re-derives anything.
-  new : (fn(imm(value) : String, index : usize, end : usize, imm(input) : String, imm(groups) : ArrayList(Option(String)), imm(group_spans) : ArrayList(Option(Range(usize))), imm(group_names) : ArrayList(GroupNameEntry)) -> Self)(
+  new : (fn(value : &String, index : usize, end : usize, input : &String, groups : &ArrayList(Option(String)), group_spans : &ArrayList(Option(Range(usize))), group_names : &ArrayList(GroupNameEntry)) -> Self)(
     Self(
       _value : value,
       _index : index,
@@ -61,7 +61,7 @@ impl(
   ),
   /// The matched text itself — the same bytes as
   /// `input().substring(index(), end())`, captured at match time.
-  value : (fn(imm(self) : Self) -> String)(
+  value : (fn(self : &Self) -> String)(
     self._value
   ),
   /// Start position of the match as a **byte** offset into the input.
@@ -73,24 +73,24 @@ impl(
   /// it can be fed directly to `String.substring` / `index_of` on the
   /// input. Use `input().substring(usize(0), m.index()).chars().count()` if
   /// a rune count is really needed.
-  index : (fn(imm(self) : Self) -> usize)(
+  index : (fn(self : &Self) -> usize)(
     self._index
   ),
   /// End position of the match as a **byte** offset into the input
   /// (exclusive — the offset of the first byte AFTER the match). Always
   /// on a UTF-8 character boundary, for the same reason as `index()`.
   /// `span()` is `index() .. end()`.
-  end : (fn(imm(self) : Self) -> usize)(
+  end : (fn(self : &Self) -> usize)(
     self._end
   ),
   /// The whole match as a byte range `index() .. end()` into the input.
-  span : (fn(imm(self) : Self) -> Range(usize))(
+  span : (fn(self : &Self) -> Range(usize))(
     self._index .. self._end
   ),
   /// The whole string the match was found in, not just the matched part. The
   /// match holds a reference to it, so the offsets `index()` / `end()` /
   /// `span()` / `group_span()` stay meaningful for as long as the match does.
-  input : (fn(imm(self) : Self) -> String)(
+  input : (fn(self : &Self) -> String)(
     self._input
   ),
   /// The text of capture group `idx`, 1-based, with `0` meaning the whole
@@ -100,7 +100,7 @@ impl(
   /// unmatched `(x)?`, or an alternative that was not taken) OR that `idx` is
   /// past `group_count()`. The two are not distinguishable here; compare `idx`
   /// against `group_count()` first if that matters.
-  group : (fn(imm(self) : Self, idx : usize) -> Option(String))(
+  group : (fn(self : &Self, idx : usize) -> Option(String))(
     cond(
       (idx == usize(0)) => .Some(self._value),
       true => {
@@ -117,7 +117,7 @@ impl(
   /// the group did not participate in the match or the index is out of
   /// range. A participating group's range satisfies
   /// `input().substring(r.start, r.end) == group(idx).unwrap()`.
-  group_span : (fn(imm(self) : Self, idx : usize) -> Option(Range(usize)))(
+  group_span : (fn(self : &Self, idx : usize) -> Option(Range(usize)))(
     cond(
       (idx == usize(0)) => .Some(self.span()),
       true => {
@@ -136,7 +136,7 @@ impl(
   /// O(number of named groups): the name table is scanned linearly on every
   /// call, so a loop over many names over a long input is quadratic. Names are
   /// compared for exact equality, case-sensitively.
-  named_group : (fn(imm(self) : Self, imm(name) : String) -> Option(String))({
+  named_group : (fn(self : &Self, name : &String) -> Option(String))({
     i := usize(0);
     while(i < self._group_names.len(), i = (i + usize(1)), {
       entry := self._group_names(i);
@@ -153,7 +153,7 @@ impl(
   /// not counting how many actually participated. So a non-participating group
   /// is still counted, and `group(i)` is a legal call for every
   /// `1 <= i <= group_count()`.
-  group_count : (fn(imm(self) : Self) -> usize)(
+  group_count : (fn(self : &Self) -> usize)(
     self._groups.len()
   )
 );

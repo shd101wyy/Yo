@@ -33,7 +33,7 @@
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-make_fields :: (fn(imm(vs) : ArrayList(EvalValue)) -> ArrayList(EvalValue))(vs);
+make_fields :: (fn(vs : &ArrayList(EvalValue)) -> ArrayList(EvalValue))(vs);
 make_empty_list :: (fn() -> ArrayList(EvalValue))(
   ArrayList(EvalValue).new()
 );
@@ -136,7 +136,7 @@ test("ArrayVal: value_to_string singleton (trailing comma)", {
 // and, only if that element is an `ArrayVal`, indexes into it with
 // `target_index`. These tests predate the cell and were passing a bare value, so
 // the file failed to compile and all five reported as failures.
-_ptr_cell :: (fn(imm(target) : EvalValue) -> ArrayList(EvalValue))({
+_ptr_cell :: (fn(target : &EvalValue) -> ArrayList(EvalValue))({
   cell := ArrayList(EvalValue).new();
   cell.push(target);
   cell

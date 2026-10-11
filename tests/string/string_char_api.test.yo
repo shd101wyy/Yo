@@ -322,7 +322,7 @@ test("String try_substring composes with floor/ceil to make any range safe", {
 // rune `n` starts at, `.None` means "at most n runes" — pinned to the exact
 // values the deleted methods returned.
 // ===========================================================================
-_rune_slice :: (fn(imm(s) : String, start : usize, end : usize) -> String)({
+_rune_slice :: (fn(s : &String, start : usize, end : usize) -> String)({
   start_b := match(s.char_indices().nth(start), .Some(p) => p._0, .None => s.len());
   end_b := match(s.char_indices().nth(end), .Some(p) => p._0, .None => s.len());
   if(start_b >= end_b, {
@@ -330,7 +330,7 @@ _rune_slice :: (fn(imm(s) : String, start : usize, end : usize) -> String)({
   });
   s.substring(start_b, end_b)
 });
-_truncate_runes :: (fn(imm(s) : String, max_runes : usize) -> String)(
+_truncate_runes :: (fn(s : &String, max_runes : usize) -> String)(
   match(
     s.char_indices().nth(max_runes),
     .Some(p) => s.substring(usize(0), p._0),

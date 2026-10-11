@@ -42,9 +42,9 @@ mk_runtime_call :: (fn(arg_id : usize, arg_value : str, call_id : usize) -> AstE
 // the expression should be retyped to i32.
 stub_evaluate_comptime_int :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_comptime_int());
@@ -54,10 +54,10 @@ stub_evaluate_comptime_int :: (
 /// Raw-seam variant of the stub: same behavior, ignores the custom handler.
 stub_evaluate_comptime_int_raw :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )(
   stub_evaluate_comptime_int(expr, env, ctx)

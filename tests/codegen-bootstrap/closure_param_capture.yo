@@ -8,12 +8,12 @@
 
 Detector :: struct(detect : Dyn(Fn(x : i32) -> unit));
 
-run_detector :: (fn(imm(d) : Detector, x : i32) -> unit)({
+run_detector :: (fn(d : &Detector, x : i32) -> unit)({
   (d.detect)(x);
 });
 
 analyze :: (
-  fn(imm(get_info) : Impl(Fn(e : i32) -> i32)) -> unit
+  fn(get_info : &Impl(Fn(e : i32) -> i32)) -> unit
 )({
   extras := HashMap(String, i32).new();
   d := Detector(

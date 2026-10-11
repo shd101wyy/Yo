@@ -16,7 +16,7 @@ _OnceTok :: struct(n : i32);
 impl(
   _OnceTok,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_once_disposed = (g_once_disposed + i32(1));
     })
   )
@@ -26,7 +26,7 @@ _once_take_string :: (fn(sink(s) : String) -> usize)(s.len());
 _run_once :: (fn(sink(f) : Impl(FnOnce() -> i32)) -> i32)(f());
 _ignore_once :: (fn(sink(f) : Impl(FnOnce() -> i32)) -> i32)(i32(0));
 _maybe_once :: (fn(sink(f) : Impl(FnOnce() -> i32), go : bool) -> i32)(cond(go => f(), true => _ignore_once(f)));
-_call_twice :: (fn(imm(f) : Impl(Fn() -> i32)) -> i32)(f() + f());
+_call_twice :: (fn(f : &Impl(Fn() -> i32)) -> i32)(f() + f());
 
 // --- the consuming call -------------------------------------------------------
 test("FnOnce: the body moves a captured move-only value out, with no copy", {
@@ -138,7 +138,7 @@ comptime_expect_error(
   "it is captured implicitly"
 );
 comptime_expect_error(
-  _borrowed_fnonce_param_call_rejected :: (fn(imm(f) : Impl(FnOnce() -> i32)) -> i32)(f()),
+  _borrowed_fnonce_param_call_rejected :: (fn(f : &Impl(FnOnce() -> i32)) -> i32)(f()),
   "cannot call `f`"
 );
 
@@ -171,7 +171,7 @@ _OnceRes :: struct(a : ArrayList(i64));
 impl(
   _OnceRes,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_once_disposed = (g_once_disposed + i32(1));
     })
   )
@@ -267,7 +267,7 @@ _fnonce_match_moves_out :: (fn() -> i32)({
 });
 comptime_expect_error(
   _nested_borrowed_param_is_not_an_outer_sink_rejected :: (fn(sink(x) : _OnceTok) -> i32)({
-    inner :: (fn(comptime(T) : Type, imm(x) : T) -> i32)(_once_take(x));
+    inner :: (fn(comptime(T) : Type, x : &T) -> i32)(_once_take(x));
     y := _OnceTok(n : i32(2));
     inner(_OnceTok, y)
   }),

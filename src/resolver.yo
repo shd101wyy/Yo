@@ -66,13 +66,13 @@ SemVer :: ref(
 impl(
   SemVer,
   /// `1.2.3` / `1.2.3-rc.1` — the version without a `v` prefix or build metadata.
-  version_text : (fn(imm(self) : Self) -> String)({
+  version_text : (fn(self : &Self) -> String)({
     core := `${self.major.to_string()}.${self.minor.to_string()}.${self.patch.to_string()}`;
     if(self.pre.len() > usize(0), `${core}-${self.pre}`, core)
   })
 );
 /// Return `true` if every character in `s` is an ASCII digit.
-is_all_digits :: (fn(imm(s) : String) -> bool)({
+is_all_digits :: (fn(s : &String) -> bool)({
   n := s.len();
   if(n == usize(0), return(false));
   i := usize(0);
@@ -92,7 +92,7 @@ is_all_digits :: (fn(imm(s) : String) -> bool)({
   ok
 });
 /// A pre-release identifier is `[0-9A-Za-z-]+`.
-_is_identifier :: (fn(imm(s) : String) -> bool)({
+_is_identifier :: (fn(s : &String) -> bool)({
   n := s.len();
   if(n == usize(0), return(false));
   (i : usize) = usize(0);
@@ -108,7 +108,7 @@ _is_identifier :: (fn(imm(s) : String) -> bool)({
 });
 /// Parse `X.Y.Z[-pre][+build]` with an optional leading `v`/`V`. `.None` when
 /// the string is not a version.
-parse_semver :: (fn(imm(tag) : String) -> Option(SemVer))({
+parse_semver :: (fn(tag : &String) -> Option(SemVer))({
   n := tag.len();
   if(n == usize(0), return(Option(SemVer).None));
   first_char := match(
@@ -165,7 +165,7 @@ parse_semver :: (fn(imm(tag) : String) -> Option(SemVer))({
 /// semver §11: identifiers of digits compare numerically, others
 /// lexically; numeric < alphanumeric; a shorter list is smaller when the
 /// shared prefix is equal.
-_compare_pre :: (fn(imm(a) : String, imm(b) : String) -> i32)({
+_compare_pre :: (fn(a : &String, b : &String) -> i32)({
   if((a.len() == usize(0)) && (b.len() == usize(0)), return(i32(0)));
   // A release is HIGHER than any pre-release of the same version.
   if(a.len() == usize(0), return(i32(1)));
@@ -199,7 +199,7 @@ _compare_pre :: (fn(imm(a) : String, imm(b) : String) -> i32)({
   )
 });
 /// Compare two versions. Positive if `a > b`, negative if `a < b`, 0 if equal.
-compare_semver :: (fn(imm(a) : SemVer, imm(b) : SemVer) -> i32)(
+compare_semver :: (fn(a : &SemVer, b : &SemVer) -> i32)(
   cond(
     (a.major != b.major) => if(a.major > b.major, i32(1), i32(-1)),
     (a.minor != b.minor) => if(a.minor > b.minor, i32(1), i32(-1)),
@@ -209,7 +209,7 @@ compare_semver :: (fn(imm(a) : SemVer, imm(b) : SemVer) -> i32)(
 );
 /// Every semver tag in `git ls-remote --tags` output (`<sha>\trefs/tags/<tag>`
 /// lines; `^{}` peeled entries and non-semver tags are skipped).
-semver_tags_from_ls_remote :: (fn(imm(text) : String) -> ArrayList(SemVer))({
+semver_tags_from_ls_remote :: (fn(text : &String) -> ArrayList(SemVer))({
   lines := text.split("\n");
   tags := ArrayList(SemVer).new();
   n := lines.len();
@@ -240,7 +240,7 @@ semver_tags_from_ls_remote :: (fn(imm(text) : String) -> ArrayList(SemVer))({
 });
 /// The highest RELEASE among `tags` (pre-releases are never chosen as a
 /// default), or `.None`.
-latest_release :: (fn(imm(tags) : ArrayList(SemVer)) -> Option(SemVer))({
+latest_release :: (fn(tags : &ArrayList(SemVer)) -> Option(SemVer))({
   (best : Option(SemVer)) = Option(SemVer).None;
   (j : usize) = usize(0);
   while(j < tags.len(), {
@@ -283,7 +283,7 @@ VersionReq :: ref(
 _wildcard_all :: (fn() -> _Comparator)(
   _Comparator(op : _CmpOp.Wildcard, major : i32(-1), minor : Option(i32).None, patch : Option(i32).None, pre : String.new())
 );
-_parse_comparator :: (fn(imm(raw) : String) -> Result(_Comparator, String))({
+_parse_comparator :: (fn(raw : &String) -> Result(_Comparator, String))({
   s := raw.trim();
   if(s.len() == usize(0), {
     return(Result(_Comparator, String).Err(`empty comparator in "${raw}"`));
@@ -433,7 +433,7 @@ _parse_comparator :: (fn(imm(raw) : String) -> Result(_Comparator, String))({
   Result(_Comparator, String).Ok(_Comparator(op : op, major : major, minor : minor, patch : patch, pre : pre))
 });
 /// Parse a requirement string. Errors describe the offending comparator.
-parse_version_req :: (fn(imm(text) : String) -> Result(VersionReq, String))({
+parse_version_req :: (fn(text : &String) -> Result(VersionReq, String))({
   trimmed := text.trim();
   if(trimmed.len() == usize(0), {
     return(Result(VersionReq, String).Err(String.from("empty version requirement")));
@@ -453,16 +453,16 @@ parse_version_req :: (fn(imm(text) : String) -> Result(VersionReq, String))({
   });
   Result(VersionReq, String).Ok(VersionReq(text : trimmed, comparators : comparators))
 });
-_ver :: (fn(major : i32, minor : i32, patch : i32, imm(pre) : String) -> SemVer)(
+_ver :: (fn(major : i32, minor : i32, patch : i32, pre : &String) -> SemVer)(
   SemVer(tag : String.new(), major : major, minor : minor, patch : patch, pre : pre)
 );
 /// The comparator's version with missing components as 0.
-_comparator_base :: (fn(imm(c) : _Comparator) -> SemVer)(
+_comparator_base :: (fn(c : &_Comparator) -> SemVer)(
   _ver(c.major, match(c.minor, .Some(m) => m, .None => i32(0)), match(c.patch, .Some(p) => p, .None => i32(0)), c.pre.clone())
 );
 /// The first version ABOVE the range a partial comparator names: `1.2` →
 /// `1.3.0`, `1` → `2.0.0`, `1.2.3` → `1.2.4`.
-_next_after_partial :: (fn(imm(c) : _Comparator) -> SemVer)(
+_next_after_partial :: (fn(c : &_Comparator) -> SemVer)(
   match(
     c.patch,
     // patch Some implies minor Some — the parser only sets patch at a full
@@ -479,11 +479,11 @@ _next_after_partial :: (fn(imm(c) : _Comparator) -> SemVer)(
     )
   )
 );
-_ge :: (fn(imm(v) : SemVer, imm(b) : SemVer) -> bool)(compare_semver(v, b) >= i32(0));
-_gt :: (fn(imm(v) : SemVer, imm(b) : SemVer) -> bool)(compare_semver(v, b) > i32(0));
-_lt :: (fn(imm(v) : SemVer, imm(b) : SemVer) -> bool)(compare_semver(v, b) < i32(0));
-_le :: (fn(imm(v) : SemVer, imm(b) : SemVer) -> bool)(compare_semver(v, b) <= i32(0));
-_comparator_matches :: (fn(imm(c) : _Comparator, imm(v) : SemVer) -> bool)({
+_ge :: (fn(v : &SemVer, b : &SemVer) -> bool)(compare_semver(v, b) >= i32(0));
+_gt :: (fn(v : &SemVer, b : &SemVer) -> bool)(compare_semver(v, b) > i32(0));
+_lt :: (fn(v : &SemVer, b : &SemVer) -> bool)(compare_semver(v, b) < i32(0));
+_le :: (fn(v : &SemVer, b : &SemVer) -> bool)(compare_semver(v, b) <= i32(0));
+_comparator_matches :: (fn(c : &_Comparator, v : &SemVer) -> bool)({
   base := _comparator_base(c);
   match(
     c.op,
@@ -547,7 +547,7 @@ _comparator_matches :: (fn(imm(c) : _Comparator, imm(v) : SemVer) -> bool)({
 /// Does `v` satisfy `req`? Every comparator must hold, and a pre-release
 /// version matches only when some comparator names a pre-release of the same
 /// `major.minor.patch` (Cargo's rule).
-version_req_matches :: (fn(imm(req) : VersionReq, imm(v) : SemVer) -> bool)({
+version_req_matches :: (fn(req : &VersionReq, v : &SemVer) -> bool)({
   if(v.pre.len() > usize(0), {
     (allowed : bool) = false;
     (i : usize) = usize(0);
@@ -569,7 +569,7 @@ version_req_matches :: (fn(imm(req) : VersionReq, imm(v) : SemVer) -> bool)({
   true
 });
 /// The highest tag in `tags` that satisfies `req`, or `.None`.
-select_version :: (fn(imm(tags) : ArrayList(SemVer), imm(req) : VersionReq) -> Option(SemVer))({
+select_version :: (fn(tags : &ArrayList(SemVer), req : &VersionReq) -> Option(SemVer))({
   (best : Option(SemVer)) = Option(SemVer).None;
   (i : usize) = usize(0);
   while(i < tags.len(), {
@@ -592,9 +592,9 @@ select_version :: (fn(imm(tags) : ArrayList(SemVer), imm(req) : VersionReq) -> O
 /// reached.
 ls_remote_tags :: (
   fn(
-    imm(url) : String,
+    url : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(Result(String, String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -616,9 +616,9 @@ ls_remote_tags :: (
 /// "main" when the remote does not say.
 resolve_default_branch :: (
   fn(
-    imm(url) : String,
+    url : &String,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -659,10 +659,10 @@ resolve_default_branch :: (
 /// or `.Err` when the remote cannot be reached.
 resolve_latest_tag :: (
   fn(
-    imm(url) : String,
+    url : &String,
     verbose : bool,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(Result(Option(String), String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -710,7 +710,7 @@ ChosenRef :: enum(
 impl(
   ChosenRef,
   /// The ref text `git` is asked for.
-  ref_text : (fn(imm(self) : Self) -> String)(
+  ref_text : (fn(self : &Self) -> String)(
     match(
       self,
       .Tag(sv) => sv.tag.clone(),
@@ -720,16 +720,16 @@ impl(
     )
   ),
   /// The version recorded in the lock ("" unless a semver tag).
-  version_text : (fn(imm(self) : Self) -> String)(
+  version_text : (fn(self : &Self) -> String)(
     match(self, .Tag(sv) => sv.version_text(), _ => String.new())
   ),
   /// True when the ref names a branch (its commit moves; `yo update`
   /// re-resolves it).
-  is_branch : (fn(imm(self) : Self) -> bool)(
+  is_branch : (fn(self : &Self) -> bool)(
     match(self, .Branch(_) => true, .DefaultBranch => true, _ => false)
   )
 );
-_requirement_text :: (fn(imm(r) : GitRequirement) -> String)(
+_requirement_text :: (fn(r : &GitRequirement) -> String)(
   match(
     r,
     .DefaultBranch => String.from("the default branch"),
@@ -739,7 +739,7 @@ _requirement_text :: (fn(imm(r) : GitRequirement) -> String)(
     .Rev(sha) => `rev "${sha}"`
   )
 );
-_requirements_text :: (fn(imm(reqs) : ArrayList(Requirement)) -> String)({
+_requirements_text :: (fn(reqs : &ArrayList(Requirement)) -> String)({
   out := String.new();
   (i : usize) = usize(0);
   while(i < reqs.len(), {
@@ -751,7 +751,7 @@ _requirements_text :: (fn(imm(reqs) : ArrayList(Requirement)) -> String)({
 });
 /// True when `sv` satisfies every `version` requirement in `reqs` (the
 /// non-version ones are ignored here).
-_satisfies_all_ranges :: (fn(imm(sv) : SemVer, imm(reqs) : ArrayList(Requirement)) -> Result(bool, String))({
+_satisfies_all_ranges :: (fn(sv : &SemVer, reqs : &ArrayList(Requirement)) -> Result(bool, String))({
   (i : usize) = usize(0);
   while(i < reqs.len(), {
     match(
@@ -778,10 +778,10 @@ _satisfies_all_ranges :: (fn(imm(sv) : SemVer, imm(reqs) : ArrayList(Requirement
 /// is an error naming each requirer and what it asked for.
 choose_ref :: (
   fn(
-    imm(name) : String,
-    imm(url) : String,
-    imm(tags) : ArrayList(SemVer),
-    imm(reqs) : ArrayList(Requirement)
+    name : &String,
+    url : &String,
+    tags : &ArrayList(SemVer),
+    reqs : &ArrayList(Requirement)
   ) -> Result(ChosenRef, String)
 )({
   if(reqs.len() == usize(0), {
@@ -868,7 +868,7 @@ choose_ref :: (
 });
 /// Does the lock's `entry` (a `git+url#ref` record) still satisfy `reqs`? A
 /// version tag must fit every range; an exact pin must be the recorded ref.
-locked_entry_satisfies :: (fn(imm(entry) : LockEntry, imm(url) : String, imm(reqs) : ArrayList(Requirement)) -> bool)({
+locked_entry_satisfies :: (fn(entry : &LockEntry, url : &String, reqs : &ArrayList(Requirement)) -> bool)({
   if(!entry.is_git() || (entry.url() != url), return(false));
   ref := entry.ref();
   (i : usize) = usize(0);
@@ -960,7 +960,7 @@ _State :: ref(
     branch_names : ArrayList(String)
   )
 );
-_find_package :: (fn(imm(state) : _State, imm(name) : String) -> Option(_Package))({
+_find_package :: (fn(state : &_State, name : &String) -> Option(_Package))({
   (i : usize) = usize(0);
   while(i < state.packages.len(), {
     p := state.packages(i);
@@ -971,7 +971,7 @@ _find_package :: (fn(imm(state) : _State, imm(name) : String) -> Option(_Package
   });
   Option(_Package).None
 });
-_source_text :: (fn(imm(dep) : ManifestDependency) -> String)(
+_source_text :: (fn(dep : &ManifestDependency) -> String)(
   match(
     dep.source,
     .Git(url, _, subdir) => if(subdir.len() > usize(0), `${url} (path ${subdir})`, url),
@@ -984,12 +984,12 @@ _source_text :: (fn(imm(dep) : ManifestDependency) -> String)(
 /// path is made relative to.
 _add_requirement :: (
   fn(
-    imm(state) : _State,
-    imm(requirer) : String,
-    imm(dep) : ManifestDependency,
-    imm(declaring_dir) : String,
-    imm(root_dir) : String,
-    imm(exn) : Exception
+    state : &_State,
+    requirer : &String,
+    dep : &ManifestDependency,
+    declaring_dir : &String,
+    root_dir : &String,
+    exn : &Exception
   ) -> unit
 )({
   (is_path : bool) = false;
@@ -1061,7 +1061,7 @@ _add_requirement :: (
   );
 });
 /// Drop every requirement `requirer` contributed (before it is re-expanded).
-_drop_requirements_of :: (fn(imm(state) : _State, imm(requirer) : String) -> unit)({
+_drop_requirements_of :: (fn(state : &_State, requirer : &String) -> unit)({
   (pi : usize) = usize(0);
   while(pi < state.packages.len(), {
     p := state.packages(pi);
@@ -1082,9 +1082,9 @@ _drop_requirements_of :: (fn(imm(state) : _State, imm(requirer) : String) -> uni
 /// names are recorded for the lock.
 _expand_package :: (
   fn(
-    imm(state) : _State,
-    imm(pkg) : _Package,
-    imm(exn) : Exception
+    state : &_State,
+    pkg : &_Package,
+    exn : &Exception
   ) -> unit
 )({
   _drop_requirements_of(state, pkg.name.clone());
@@ -1115,11 +1115,11 @@ _expand_package :: (
 /// it parses as one (so the lock keeps its `version`), else as an exact ref
 /// (a tag that is not a version, a commit, or a branch name whose commit the
 /// lock pins).
-_locked_choice :: (fn(imm(ref) : String) -> ChosenRef)(
+_locked_choice :: (fn(ref : &String) -> ChosenRef)(
   match(parse_semver(ref.clone()), .Some(sv) => ChosenRef.Tag(sv), .None => ChosenRef.Exact(ref))
 );
 /// Is `name` one `yo update` re-resolves?
-_refresh_requested :: (fn(imm(state) : _State, imm(name) : String) -> bool)(
+_refresh_requested :: (fn(state : &_State, name : &String) -> bool)(
   match(
     state.options.mode,
     .Install => false,
@@ -1137,7 +1137,7 @@ _refresh_requested :: (fn(imm(state) : _State, imm(name) : String) -> bool)(
     }
   )
 );
-_cached_text :: (fn(imm(keys) : ArrayList(String), imm(values) : ArrayList(String), imm(key) : String) -> Option(String))({
+_cached_text :: (fn(keys : &ArrayList(String), values : &ArrayList(String), key : &String) -> Option(String))({
   (i : usize) = usize(0);
   while(i < keys.len(), {
     if(keys(i) == key, {
@@ -1153,10 +1153,10 @@ _cached_text :: (fn(imm(keys) : ArrayList(String), imm(values) : ArrayList(Strin
 /// statement.
 _resolve_package :: (
   fn(
-    imm(state) : _State,
-    imm(pkg) : _Package,
+    state : &_State,
+    pkg : &_Package,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(bool, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -1344,9 +1344,9 @@ _resolve_package :: (
 /// One round over every package (its own async body: one loop with awaits).
 _resolve_round :: (
   fn(
-    imm(state) : _State,
+    state : &_State,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(bool, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -1367,7 +1367,7 @@ _resolve_round :: (
 );
 /// The lock the resolved graph corresponds to: one entry per package that
 /// still has a requirer, sorted by the writer.
-_build_lock :: (fn(imm(state) : _State) -> LockFile)({
+_build_lock :: (fn(state : &_State) -> LockFile)({
   entries := ArrayList(LockEntry).new();
   (i : usize) = usize(0);
   while(i < state.packages.len(), {
@@ -1397,7 +1397,7 @@ _build_lock :: (fn(imm(state) : _State) -> LockFile)({
 });
 /// Does the lock name at least one store tree (a git package with an
 /// integrity hash)?
-_lock_uses_store :: (fn(imm(lock) : LockFile) -> bool)({
+_lock_uses_store :: (fn(lock : &LockFile) -> bool)({
   (i : usize) = usize(0);
   while(i < lock.packages.len(), {
     if(lock.packages(i).integrity.len() > usize(0), {
@@ -1408,7 +1408,7 @@ _lock_uses_store :: (fn(imm(lock) : LockFile) -> bool)({
   false
 });
 /// Names whose entries differ between `old` and `new` — the `--locked` report.
-_lock_diff :: (fn(imm(old) : LockFile, imm(new) : LockFile) -> String)({
+_lock_diff :: (fn(old : &LockFile, new : &LockFile) -> String)({
   out := String.new();
   (i : usize) = usize(0);
   while(i < new.packages.len(), {
@@ -1437,10 +1437,10 @@ _lock_diff :: (fn(imm(old) : LockFile, imm(new) : LockFile) -> String)({
 /// the change). Returns the lock. Prints one line per package.
 resolve_and_fetch :: (
   fn(
-    imm(manifest) : Manifest,
-    imm(options) : ResolveOptions,
+    manifest : &Manifest,
+    options : &ResolveOptions,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(LockFile, IoExn))
 )(
   io.async((e : IoExn) => {

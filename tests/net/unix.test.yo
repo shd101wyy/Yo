@@ -69,8 +69,8 @@ test("bind, connect, accept, echo round-trip", {
   io.await(remove_file(path, io), e);
 });
 test("UnixStream satisfies the Reader/Writer bounds (D5)", {
-  taker_r :: (fn(generic(R : Type), imm(r) : R, where(R <: Reader)) -> bool)(true);
-  taker_w :: (fn(generic(W : Type), imm(w) : W, where(W <: Writer)) -> bool)(true);
+  taker_r :: (fn(generic(R : Type), r : &R, where(R <: Reader)) -> bool)(true);
+  taker_w :: (fn(generic(W : Type), w : &W, where(W <: Writer)) -> bool)(true);
   fake :: (fn() -> Option(UnixStream))(Option(UnixStream).None);
   match(
     fake(),
@@ -127,14 +127,14 @@ test("dup.sock cleanup", {
   io.await(remove_file(_sock("dup.sock"), io), e);
   assert(true, "cleaned");
 });
-_remove_stale :: (fn(imm(path) : Path, io : Io) -> unit)({
+_remove_stale :: (fn(path : &Path, io : Io) -> unit)({
   quiet := Exception(throw : (_err -> unwind(())));
   io.await(remove_file(path, io), IoExn(io : io, exn : quiet));
 });
 // A write to a peer that has closed must THROW (EPIPE), not raise SIGPIPE,
 // whose default action killed the whole process
 // (issues/fixed/a-std-net-stream-write-to-a-closed-peer-kills-the-process-with-sigpipe.md).
-_unix_write_until_error :: (fn(imm(s) : UnixStream, io : Io) -> bool)({
+_unix_write_until_error :: (fn(s : &UnixStream, io : Io) -> bool)({
   exn := Exception(
     throw : (
       err -> {

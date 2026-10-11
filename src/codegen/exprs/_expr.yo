@@ -16,7 +16,7 @@
 { panic, assert } :: import("std/assert");
 /// The expression-emitter dispatch signature: emit C for `expr` at `indent`,
 /// returning the C expression/statement text.
-GenerateExprFn :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String);
+GenerateExprFn :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String);
 /// Module-global dispatch pointer — set once at codegen init.
 (g_generate_expr : Option(GenerateExprFn)) = Option(GenerateExprFn).None;
 /// Register the expression-emitter dispatch. Call once during codegen init.
@@ -26,7 +26,7 @@ set_generate_expr_fn :: (fn(f : GenerateExprFn) -> unit)({
 });
 /// Dispatch an expression through the registered emitter (panics if
 /// unregistered). Per-node emitters call this for sub-expression recursion.
-_call_generate_expr :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)(
+_call_generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
     g_generate_expr,
     .Some(f) => f(expr, indent, context),

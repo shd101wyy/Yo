@@ -12,7 +12,7 @@ toml :: import("std/encoding/toml");
 { TomlValue, TomlDateTimeKind } :: import("std/encoding/toml");
 import("std/math");
 /// Parse, failing the test on an error.
-_doc :: (fn(imm(text) : String) -> TomlValue)(
+_doc :: (fn(text : &String) -> TomlValue)(
   match(
     toml.parse(text),
     .Ok(v) => v,
@@ -23,14 +23,14 @@ _doc :: (fn(imm(text) : String) -> TomlValue)(
   )
 );
 /// The byte offset an input fails at — `usize.MAX` when it wrongly parsed.
-_epos :: (fn(imm(text) : String) -> usize)(
+_epos :: (fn(text : &String) -> usize)(
   match(toml.parse(text), .Err(e) => e.pos(), .Ok(_) => usize.MAX)
 );
-_rejected :: (fn(imm(text) : String) -> bool)(
+_rejected :: (fn(text : &String) -> bool)(
   toml.parse(text).is_err()
 );
 /// The string at a top-level key.
-_str_at :: (fn(imm(text) : String, imm(key) : String) -> String)({
+_str_at :: (fn(text : &String, key : &String) -> String)({
   d := _doc(text);
   match(
     d.get(key),
@@ -39,7 +39,7 @@ _str_at :: (fn(imm(text) : String, imm(key) : String) -> String)({
   )
 });
 /// parse → stringify → parse → equal.
-_round_trips :: (fn(imm(text) : String) -> bool)({
+_round_trips :: (fn(text : &String) -> bool)({
   a := match(
     toml.parse(text),
     .Ok(v) => v,

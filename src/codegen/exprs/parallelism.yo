@@ -43,7 +43,7 @@
 /// c_name if present, else `async_capture_<id>`. (Same lookup as async.yo's
 /// `_find_capture_type_c_name`; duplicated to avoid importing the heavy async
 /// module.)
-_capture_type_c_name :: (fn(imm(capture_type) : TypeValue, imm(context) : FunctionGenerationContext) -> String)({
+_capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> String)({
   target_key := type_key(capture_type);
   vals := context.base.types.values();
   (go : bool) = true;
@@ -72,7 +72,7 @@ _capture_type_c_name :: (fn(imm(capture_type) : TypeValue, imm(context) : Functi
   )
 });
 /// The cb closure's C function name (its FuncVal func_id → registered entry).
-_closure_fn_c_name :: (fn(imm(cb_ei_value) : Option(EvalValue), imm(cb_closure_fn_val) : Option(EvalValue), imm(context) : FunctionGenerationContext) -> Option(String))({
+_closure_fn_c_name :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : &Option(EvalValue), context : &FunctionGenerationContext) -> Option(String))({
   fv_opt := match(
     cb_closure_fn_val,
     .Some(fv) => Option(EvalValue).Some(fv),
@@ -85,7 +85,7 @@ _closure_fn_c_name :: (fn(imm(cb_ei_value) : Option(EvalValue), imm(cb_closure_f
   )
 });
 /// The cb closure's func_id, for its runtime-param types.
-_closure_fid :: (fn(imm(cb_ei_value) : Option(EvalValue), imm(cb_closure_fn_val) : Option(EvalValue)) -> String)({
+_closure_fid :: (fn(cb_ei_value : &Option(EvalValue), cb_closure_fn_val : &Option(EvalValue)) -> String)({
   fv_opt := match(
     cb_closure_fn_val,
     .Some(fv) => Option(EvalValue).Some(fv),
@@ -97,7 +97,7 @@ _closure_fid :: (fn(imm(cb_ei_value) : Option(EvalValue), imm(cb_closure_fn_val)
 /// `io : Io` of a `Thread.spawn` callback), as the spawn wrapper builds them.
 /// Func param_types already exclude comptime
 /// params, so every entry is a runtime param.
-_closure_runtime_arg_zeroinits :: (fn(imm(closure_fid) : String, imm(context) : FunctionGenerationContext) -> String)({
+_closure_runtime_arg_zeroinits :: (fn(closure_fid : &String, context : &FunctionGenerationContext) -> String)({
   out := String.from("");
   match(
     get_func_type(closure_fid),
@@ -142,7 +142,7 @@ _closure_runtime_arg_zeroinits :: (fn(imm(closure_fid) : String, imm(context) : 
 /// previously never ran on the thread
 /// (issues/fixed/a-move-only-value-cannot-be-moved-into-thread-spawn.md).
 _emit_capture_dispose_lines :: (
-  fn(imm(ref_code) : String, imm(ty) : TypeValue, imm(context) : FunctionGenerationContext, depth : u32) -> unit
+  fn(ref_code : &String, ty : &TypeValue, context : &FunctionGenerationContext, depth : u32) -> unit
 )({
   if(depth > u32(6), {
     return();
@@ -346,7 +346,7 @@ _emit_capture_dispose_lines :: (
 /// `___dup`/`___drop` pair DOES resolve, the existing paths handle both sides
 /// and this helper is not reached.)
 _emit_capture_drop_lines :: (
-  fn(imm(target) : String, imm(capture_type) : TypeValue, imm(context) : FunctionGenerationContext) -> unit
+  fn(target : &String, capture_type : &TypeValue, context : &FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
   before := em.code.len();
@@ -423,7 +423,7 @@ _emit_capture_drop_lines :: (
 });
 /// Emit a spawn-wrapper function (RC cleanup for the heap-copied capture struct)
 /// to the declaration section and return its C name.
-_generate_spawn_wrapper :: (fn(imm(closure_fn_c_name) : String, imm(capture_struct_c_name) : String, imm(capture_type) : TypeValue, imm(runtime_args) : String, closure_owns_captures : bool, imm(context) : FunctionGenerationContext) -> String)({
+_generate_spawn_wrapper :: (fn(closure_fn_c_name : &String, capture_struct_c_name : &String, capture_type : &TypeValue, runtime_args : &String, closure_owns_captures : bool, context : &FunctionGenerationContext) -> String)({
   // Phase 2: the wrapper is a file-scope fn — its name embeds the CLOSURE's
   // C name (unique per closure) plus a per-closure occurrence digit, so the
   // same closure spawned twice still gets distinct wrappers without the
@@ -484,7 +484,7 @@ _generate_spawn_wrapper :: (fn(imm(closure_fn_c_name) : String, imm(capture_stru
 /// Shared body of generate_thread_spawn_call / generate_worker_spawn_call. Emits
 /// the heap-copy + wrapper, then the spawn primitive call. `is_worker`
 /// selects the primitive + (unit) return convention.
-_generate_spawn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext, is_worker : bool) -> Option(String))({
+_generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext, is_worker : bool) -> Option(String))({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(Option(String).None));
   cb := match(
     ei.runtime_arg_exprs_in_order,
@@ -594,12 +594,12 @@ _generate_spawn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(conte
   })
 });
 /// `__yo_thread_spawn(cb)` — spawn a dedicated OS thread.
-generate_thread_spawn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> Option(String))(
+generate_thread_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
   _generate_spawn_call(expr, indent, context, false)
 );
 
 /// `__yo_worker_spawn(cb)` — spawn a task on the worker pool.
-generate_worker_spawn_call :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> Option(String))(
+generate_worker_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> Option(String))(
   _generate_spawn_call(expr, indent, context, true)
 );
 export(generate_thread_spawn_call, generate_worker_spawn_call);

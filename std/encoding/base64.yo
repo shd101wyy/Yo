@@ -49,7 +49,7 @@ _PAD :: u8(61); // '='
 // ============================================================================
 // Encoding
 // ============================================================================
-_encode_with :: (fn(imm(data) : ArrayList(u8), alpha : str, pad : bool) -> String)({
+_encode_with :: (fn(data : &ArrayList(u8), alpha : str, pad : bool) -> String)({
   n := data.len();
   out := ArrayList(u8).with_capacity(((n + usize(2)) / usize(3)) * usize(4));
   i := usize(0);
@@ -81,11 +81,11 @@ _encode_with :: (fn(imm(data) : ArrayList(u8), alpha : str, pad : bool) -> Strin
   String.from_bytes(out)
 });
 /// Encode bytes as standard base64 with padding.
-encode :: (fn(imm(data) : ArrayList(u8)) -> String)(
+encode :: (fn(data : &ArrayList(u8)) -> String)(
   _encode_with(data, _STD_ALPHA, true)
 );
 /// Encode bytes as URL-safe base64 without padding.
-encode_url :: (fn(imm(data) : ArrayList(u8)) -> String)(
+encode_url :: (fn(data : &ArrayList(u8)) -> String)(
   _encode_with(data, _URL_ALPHA, false)
 );
 export(encode, encode_url);
@@ -104,7 +104,7 @@ _decode_char_res :: (fn(c : u8, alpha : str, pos : usize) -> Result(u8, Encoding
   });
   .Err(EncodingError.InvalidChar(ch : c, pos : pos))
 });
-_decode_with_res :: (fn(imm(s) : String, alpha : str) -> Result(ArrayList(u8), EncodingError))({
+_decode_with_res :: (fn(s : &String, alpha : str) -> Result(ArrayList(u8), EncodingError))({
   // Strip trailing padding
   len := s.len();
   while((len > usize(0)) && (s.byte_at(len - usize(1)) == _PAD), len = (len - usize(1)), ());
@@ -190,20 +190,20 @@ _decode_with_res :: (fn(imm(s) : String, alpha : str) -> Result(ArrayList(u8), E
 /// length of 1 mod 4 (`InvalidLength`), or a final symbol with non-zero
 /// unused bits (`InvalidLastSymbol`). Padding is optional and, when present,
 /// trailing.
-decode :: (fn(imm(s) : String) -> Result(ArrayList(u8), EncodingError))(
+decode :: (fn(s : &String) -> Result(ArrayList(u8), EncodingError))(
   _decode_with_res(s, _STD_ALPHA)
 );
 /// Decode a URL-safe base64 string to bytes.
-decode_url :: (fn(imm(s) : String) -> Result(ArrayList(u8), EncodingError))(
+decode_url :: (fn(s : &String) -> Result(ArrayList(u8), EncodingError))(
   _decode_with_res(s, _URL_ALPHA)
 );
 /// `decode` as an effect: throws the `EncodingError` through `exn`
 /// instead of returning it. Kept for callers already inside an effect scope.
-decode_exn :: (fn(imm(s) : String, imm(exn) : Exception) -> ArrayList(u8))(
+decode_exn :: (fn(s : &String, exn : &Exception) -> ArrayList(u8))(
   match(decode(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 /// `decode_url` as an effect.
-decode_url_exn :: (fn(imm(s) : String, imm(exn) : Exception) -> ArrayList(u8))(
+decode_url_exn :: (fn(s : &String, exn : &Exception) -> ArrayList(u8))(
   match(decode_url(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 export(decode, decode_url, decode_exn, decode_url_exn);
@@ -215,17 +215,17 @@ export(decode, decode_url, decode_exn, decode_url_exn);
 // the pre-rename spellings compiling for one release, the way
 // `json_parse_result` and `derive(ToString)` were kept in v0.2.28.
 /// DEPRECATED, removed in v0.2.32: call `base64.encode`.
-base64_encode :: (fn(imm(data) : ArrayList(u8)) -> String)(encode(data));
+base64_encode :: (fn(data : &ArrayList(u8)) -> String)(encode(data));
 /// DEPRECATED, removed in v0.2.32: call `base64.encode_url`.
-base64_encode_url :: (fn(imm(data) : ArrayList(u8)) -> String)(encode_url(data));
+base64_encode_url :: (fn(data : &ArrayList(u8)) -> String)(encode_url(data));
 /// DEPRECATED, removed in v0.2.32: call `base64.decode`.
-base64_decode :: (fn(imm(s) : String) -> Result(ArrayList(u8), EncodingError))(decode(s));
+base64_decode :: (fn(s : &String) -> Result(ArrayList(u8), EncodingError))(decode(s));
 /// DEPRECATED, removed in v0.2.32: call `base64.decode_url`.
-base64_decode_url :: (fn(imm(s) : String) -> Result(ArrayList(u8), EncodingError))(decode_url(s));
+base64_decode_url :: (fn(s : &String) -> Result(ArrayList(u8), EncodingError))(decode_url(s));
 /// DEPRECATED, removed in v0.2.32: call `base64.decode_exn`.
-base64_decode_exn :: (fn(imm(s) : String, imm(exn) : Exception) -> ArrayList(u8))(decode_exn(s, exn));
+base64_decode_exn :: (fn(s : &String, exn : &Exception) -> ArrayList(u8))(decode_exn(s, exn));
 /// DEPRECATED, removed in v0.2.32: call `base64.decode_url_exn`.
-base64_decode_url_exn :: (fn(imm(s) : String, imm(exn) : Exception) -> ArrayList(u8))(decode_url_exn(s, exn));
+base64_decode_url_exn :: (fn(s : &String, exn : &Exception) -> ArrayList(u8))(decode_url_exn(s, exn));
 export(
   base64_encode,
   base64_encode_url,

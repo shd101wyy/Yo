@@ -99,7 +99,7 @@ max_comptime_loop_iterations :: (fn() -> usize)(
 /// The caller (`evaluate_while`) throws from its own frame instead.
 /// Does NOT descend into nested `while(...)` bodies — those are checked by
 /// their own `_enforce_loop_invariant_placement` call.
-_find_misplaced_invariant :: (fn(imm(expr) : AstExpr) -> Option(AstExpr))({
+_find_misplaced_invariant :: (fn(expr : &AstExpr) -> Option(AstExpr))({
   args := match(
     expr,
     .FnCall(_, _, a, _, _) => a,
@@ -130,7 +130,7 @@ _find_misplaced_invariant :: (fn(imm(expr) : AstExpr) -> Option(AstExpr))({
 /// direct statement (true) or nested in a branch/block (false); the caller
 /// throws (see _find_misplaced_invariant on why no throw happens here).
 InvariantViolation :: struct(node : AstExpr, non_first_stmt : bool);
-_enforce_loop_invariant_placement :: (fn(imm(body_expr) : AstExpr) -> Option(InvariantViolation))({
+_enforce_loop_invariant_placement :: (fn(body_expr : &AstExpr) -> Option(InvariantViolation))({
   stmts := cond(
     ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None) => match(
       body_expr,
@@ -185,7 +185,7 @@ _body_has_any_terminator_guaranteed :: (
 /// any loop-terminator atom/call reachable through a conditional branch).
 _body_has_any_terminator_possible :: (
   fn(
-    imm(body_expr) : AstExpr,
+    body_expr : &AstExpr,
     body_info_cf : Option(ControlFlowFlags)
   ) -> bool
 )(
@@ -201,10 +201,10 @@ _body_has_any_terminator_possible :: (
 ///
 _throw_max_iterations_error :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(body_expr) : AstExpr,
+    expr : &AstExpr,
+    body_expr : &AstExpr,
     body_info_cf : Option(ControlFlowFlags),
-    imm(exn) : Exception
+    exn : &Exception
   ) -> AstExpr
 )({
   possible := _body_has_any_terminator_possible(body_expr, body_info_cf);
@@ -236,11 +236,11 @@ _throw_max_iterations_error :: (
 ///
 evaluate_while :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env_in) : Environment,
-    imm(ctx) : EvalContext,
+    expr : &AstExpr,
+    env_in : &Environment,
+    ctx : &EvalContext,
     comptime_iteration_count : usize,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

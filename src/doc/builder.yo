@@ -70,7 +70,7 @@ TraitBodyExtraction :: struct(
 // ---------------------------------------------------------------------------
 /// Extract deprecated/examples sections from a doc comment string.
 /// `.None` doc → both `.None`.
-extract_doc_sections :: (fn(imm(doc) : Option(String)) -> DocSections)(
+extract_doc_sections :: (fn(doc : &Option(String)) -> DocSections)(
   match(
     doc,
     .None => DocSections(deprecated : Option(String).None, examples : Option(String).None),
@@ -93,7 +93,7 @@ extract_doc_sections :: (fn(imm(doc) : Option(String)) -> DocSections)(
 /// `"stability"` key, the HTML badge and the Markdown note alike, with no
 /// warning. Blank lines are dropped and the remaining lines are joined with a
 /// single space, which is exactly the paragraph the author wrote.
-module_stability :: (fn(imm(doc) : Option(String)) -> Option(String))(
+module_stability :: (fn(doc : &Option(String)) -> Option(String))(
   match(
     doc,
     .None => Option(String).None,
@@ -126,7 +126,7 @@ module_stability :: (fn(imm(doc) : Option(String)) -> Option(String))(
   )
 );
 /// Build a lookup map from declaration name → doc comment content.
-build_doc_lookup :: (fn(imm(extraction) : DocExtractionResult) -> HashMap(String, String))({
+build_doc_lookup :: (fn(extraction : &DocExtractionResult) -> HashMap(String, String))({
   lookup := HashMap(String, String).new();
   (i : usize) = usize(0);
   n := extraction.declarations.len();
@@ -145,7 +145,7 @@ build_doc_lookup :: (fn(imm(extraction) : DocExtractionResult) -> HashMap(String
 /// The receiver-qualified doc key for an impl member: `Receiver.member`.
 /// Identifiers never contain `.`, so these keys cannot collide with the
 /// bare-name entries `build_doc_lookup` records.
-_member_doc_key :: (fn(imm(receiver) : String, imm(member) : String) -> String)(`${receiver}.${member}`);
+_member_doc_key :: (fn(receiver : &String, member : &String) -> String)(`${receiver}.${member}`);
 /// A method's doc comment: the receiver-qualified entry the impl scan
 /// recorded for THIS type's member, else the bare member name (a method whose
 /// impl the token scan cannot key — one living in another module, say).
@@ -154,7 +154,7 @@ _member_doc_key :: (fn(imm(receiver) : String, imm(member) : String) -> String)(
 /// on both `Vs` and `Rs` in one file rendered the later impl's prose on BOTH
 /// methods (issues/fixed/stddoc-core-doc-comment-attached-by-bare-member-name.md).
 _method_doc :: (
-  fn(imm(doc_lookup) : HashMap(String, String), imm(receiver) : String, imm(member) : String) -> Option(String)
+  fn(doc_lookup : &HashMap(String, String), receiver : &String, member : &String) -> Option(String)
 )(
   match(
     doc_lookup.get(_member_doc_key(receiver, member)),
@@ -168,7 +168,7 @@ _method_doc :: (
 /// Merge two method lists — secondary entries whose name a
 /// primary entry already has are dropped.
 merge_methods :: (
-  fn(imm(primary) : ArrayList(DocFunction), imm(secondary) : ArrayList(DocFunction)) -> ArrayList(DocFunction)
+  fn(primary : &ArrayList(DocFunction), secondary : &ArrayList(DocFunction)) -> ArrayList(DocFunction)
 )({
   seen := ArrayList(String).new();
   merged := ArrayList(DocFunction).new();
@@ -200,7 +200,7 @@ merge_methods :: (
 });
 /// Merge two trait-impl name lists — dedup preserving first-occurrence order.
 merge_trait_impl_names :: (
-  fn(imm(primary) : ArrayList(String), imm(secondary) : ArrayList(String)) -> ArrayList(String)
+  fn(primary : &ArrayList(String), secondary : &ArrayList(String)) -> ArrayList(String)
 )({
   merged := ArrayList(String).new();
   (i : usize) = usize(0);
@@ -230,11 +230,11 @@ merge_trait_impl_names :: (
 // ---------------------------------------------------------------------------
 // Token-scanning primitives
 // ---------------------------------------------------------------------------
-_is_trivia_token :: (fn(imm(token) : Token) -> bool)(
+_is_trivia_token :: (fn(token : &Token) -> bool)(
   (token.kind == TokenKind.Whitespace) || (token.kind == TokenKind.SingleLineComment) || (token.kind == TokenKind.MultiLineComment) || (token.kind == TokenKind.DocLineComment) || (token.kind == TokenKind.InnerDocLineComment) || (token.kind == TokenKind.DocBlockComment) || (token.kind == TokenKind.InnerDocBlockComment)
 );
 /// Skip past balanced parentheses starting at `(`. Returns index after `)`.
-_skip_balanced_parens :: (fn(imm(toks) : ArrayList(Token), start : usize) -> usize)({
+_skip_balanced_parens :: (fn(toks : &ArrayList(Token), start : usize) -> usize)({
   at_lparen := match(
     toks.get(start),
     .Some(t) => (t.kind == TokenKind.LParen),
@@ -263,102 +263,9 @@ _skip_balanced_parens :: (fn(imm(toks) : ArrayList(Token), start : usize) -> usi
   });
   j
 });
-/// An identifier byte: an ASCII letter, digit or `_`, or any byte of a
-/// non-ASCII rune.
-_mbs_ident_byte :: (fn(c : u8) -> bool)(
-  ((c >= u8(0x61)) && (c <= u8(0x7A))) || ((c >= u8(0x41)) && (c <= u8(0x5A))) || ((c >= u8(0x30)) && (c <= u8(0x39))) || (c == u8(0x5F)) || (c >= u8(0x80))
-);
-_mbs_skip_spaces :: (fn(imm(s) : String, from : usize) -> usize)({
-  (k : usize) = from;
-  while((k < s.len()) && (s.byte_at(k) == u8(0x20)), k = (k + usize(1)), ());
-  k
-});
-/// Source text in decision 42's spelling (plans/VALUES_BY_DEFAULT.md):
-/// `imm(x) : T` → `x : &T`, `mut(x) : T` (and the deleted `inout(x) : T`) →
-/// `x : &mut T`, `comptime(imm(x)) : T` → `comptime(x) : &T`, and the local
-/// borrow `imm(y) := place` → `y := &place` (`=` likewise). `yo doc` and
-/// the context index render signatures from the declaration's source text,
-/// and std keeps the mode words until decision 42's Generation B sweeps it,
-/// while everything the compiler prints uses the new spelling.
-modern_borrow_spelling :: (fn(imm(s) : String) -> String)({
-  out := String.new();
-  n := s.len();
-  (i : usize) = usize(0);
-  while(i < n, {
-    (done : bool) = false;
-    if((i == usize(0)) || !_mbs_ident_byte(s.byte_at(i - usize(1))), {
-      (j : usize) = i;
-      (in_comptime : bool) = false;
-      if(s.starts_with("comptime(", j), {
-        in_comptime = true;
-        j = (j + usize(9));
-      });
-      (sig : String) = String.new();
-      cond(
-        s.starts_with("imm(", j) => {
-          sig = String.from("&");
-          j = (j + usize(4));
-        },
-        s.starts_with("mut(", j) => {
-          sig = String.from("&mut ");
-          j = (j + usize(4));
-        },
-        s.starts_with("inout(", j) => {
-          sig = String.from("&mut ");
-          j = (j + usize(6));
-        },
-        true => ()
-      );
-      if(sig.len() > usize(0), {
-        name_start := j;
-        while((j < n) && _mbs_ident_byte(s.byte_at(j)), j = (j + usize(1)), ());
-        name_end := j;
-        closes_ok := cond(in_comptime => s.starts_with("))", j), true => s.starts_with(")", j));
-        if((name_end > name_start) && closes_ok, {
-          j = (j + cond(in_comptime => usize(2), true => usize(1)));
-          k := _mbs_skip_spaces(s, j);
-          name := s.substring(name_start, name_end);
-          (op : String) = String.new();
-          cond(
-            s.starts_with(":=", k) => {
-              op = String.from(":=");
-            },
-            (s.starts_with(":", k) && !s.starts_with("::", k)) => {
-              op = String.from(":");
-            },
-            (s.starts_with("=", k) && !s.starts_with("==", k) && !s.starts_with("=>", k)) => {
-              op = String.from("=");
-            },
-            true => ()
-          );
-          if((op.len() > usize(0)) && (!in_comptime || (op == ":")), {
-            if(in_comptime, {
-              out.push_str("comptime(");
-              out.push_string(name);
-              out.push_str(")");
-            }, {
-              out.push_string(name);
-            });
-            out.push_str(" ");
-            out.push_string(op);
-            out.push_str(" ");
-            out.push_string(sig);
-            i = _mbs_skip_spaces(s, k + op.len());
-            done = true;
-          });
-        });
-      });
-    });
-    if(!done, {
-      out.push_byte(s.byte_at(i));
-      i = (i + usize(1));
-    });
-  });
-  out
-});
 /// The source text spanned by tokens [start_index, end_index], trimmed.
 _slice_token_text :: (
-  fn(imm(toks) : ArrayList(Token), start_index : usize, end_index : usize) -> String
+  fn(toks : &ArrayList(Token), start_index : usize, end_index : usize) -> String
 )({
   if((start_index > end_index) || (end_index >= toks.len()), {
     return(String.new());
@@ -386,11 +293,11 @@ _slice_token_text :: (
   // (plans/archive/STD_API_AUDIT_D4_PLAN.md §5.2 S8).
   start := usize(start_tok.byte_offset);
   end := (usize(end_tok.byte_offset) + end_tok.value.len());
-  modern_borrow_spelling(end_tok.input.substring(start, end).trim())
+  end_tok.input.substring(start, end).trim()
 });
 /// Skip one comma-delimited argument at any nesting depth. Returns the index
 /// of the delimiter that ended it.
-_skip_delimited_argument :: (fn(imm(toks) : ArrayList(Token), start : usize) -> usize)({
+_skip_delimited_argument :: (fn(toks : &ArrayList(Token), start : usize) -> usize)({
   (paren_depth : usize) = usize(0);
   (bracket_depth : usize) = usize(0);
   (brace_depth : usize) = usize(0);
@@ -441,7 +348,7 @@ _skip_delimited_argument :: (fn(imm(toks) : ArrayList(Token), start : usize) -> 
 });
 /// First identifier token's text in [start, end], or "".
 _extract_receiver_type_name :: (
-  fn(imm(toks) : ArrayList(Token), start : usize, end : usize) -> String
+  fn(toks : &ArrayList(Token), start : usize, end : usize) -> String
 )({
   (i : usize) = start;
   while(i <= end, {
@@ -458,7 +365,7 @@ _extract_receiver_type_name :: (
 });
 /// The return-type text after the LAST `->` of a signature, with unbalanced
 /// trailing `)` stripped.
-_extract_return_type_from_signature :: (fn(imm(signature) : String) -> String)({
+_extract_return_type_from_signature :: (fn(signature : &String) -> String)({
   arrow_index := match(
     signature.last_index_of(`->`),
     .Some(i) => i,
@@ -511,7 +418,7 @@ SourceSignatureInfo :: struct(
 /// before `)` / `,` / `;`. Collapses multi-line declarations onto one line
 /// and drops comments interleaved in the span.
 _render_token_span :: (
-  fn(imm(toks) : ArrayList(Token), start : usize, end_index : usize) -> String
+  fn(toks : &ArrayList(Token), start : usize, end_index : usize) -> String
 )({
   (out : String) = String.new();
   (k : usize) = start;
@@ -537,15 +444,15 @@ _render_token_span :: (
     out = `${out}${t.value}`;
     k = (k + usize(1));
   });
-  modern_borrow_spelling(out)
+  out
 });
 /// Parse one value parameter from tokens [start, end_index] (one
 /// comma-delimited argument of a fn type's parameter list). Handles
 /// `name : Type`, `(name : Type) ?= default`, and wrapper forms like
-/// `comptime(name) : Type` / `mut(name) : Type`. `.None` for anything
+/// `comptime(name) : Type`. `.None` for anything
 /// else.
 _parse_source_param :: (
-  fn(imm(toks) : ArrayList(Token), start : usize, end_index : usize) -> Option(DocParam)
+  fn(toks : &ArrayList(Token), start : usize, end_index : usize) -> Option(DocParam)
 )({
   if(start > end_index, {
     return(Option(DocParam).None);
@@ -605,7 +512,7 @@ _parse_source_param :: (
     return(Option(DocParam).None);
   });
   // The name: either a bare identifier, or a wrapper like `comptime(x)` /
-  // `inout(x)` whose first inner identifier is the name.
+  // `sink(x)` whose first inner identifier is the name.
   head := match(
     toks.get(core_start),
     .Some(t) => t,
@@ -624,22 +531,10 @@ _parse_source_param :: (
     .Some(t) => (((core_start + usize(1)) <= core_end) && (t.kind == TokenKind.LParen)),
     .None => false
   );
-  // A borrow mode word (`imm(x)`, `mut(x)`, `inout(x)`, also under
-  // `comptime(...)`) is shown as decision 42 spells it: on the type.
-  (mode_sig : String) = String.new();
   if(wrapper_paren, {
     wrap_end := _skip_balanced_parens(toks, core_start + usize(1));
+    name = _extract_receiver_type_name(toks, core_start + usize(2), wrap_end - usize(2));
     is_comptime = (head.value == `comptime`);
-    (mode_tok_i : usize) = core_start;
-    if(is_comptime, {
-      mode_tok_i = (core_start + usize(2));
-    });
-    mode_word := match(toks.get(mode_tok_i), .Some(mt) => mt.value.clone(), .None => String.new());
-    mode_sig = cond((mode_word == `imm`) => String.from("&"), ((mode_word == `mut`) || (mode_word == `inout`)) => String.from("&mut "), true => String.new());
-    name = cond(
-      (is_comptime && (mode_sig.len() > usize(0))) => match(toks.get(core_start + usize(4)), .Some(nt) => nt.value.clone(), .None => String.new()),
-      true => _extract_receiver_type_name(toks, core_start + usize(2), wrap_end - usize(2))
-    );
     after_name = wrap_end;
   }, {
     name = head.value.clone();
@@ -662,7 +557,7 @@ _parse_source_param :: (
   Option(DocParam).Some(
     DocParam(
       name : name,
-      type_ : `${mode_sig}${_render_token_span(toks, after_name + usize(1), core_end)}`,
+      type_ : _render_token_span(toks, after_name + usize(1), core_end),
       is_comptime : is_comptime,
       is_implicit : false,
       default_value : default_value,
@@ -679,7 +574,7 @@ _parse_source_param :: (
 /// parameter, and duplicating the constraint into the tables would desync
 /// them from the evaluator-derived tables used everywhere else.
 _parse_source_fn_signature :: (
-  fn(imm(toks) : ArrayList(Token), type_start : usize) -> Option(SourceSignatureInfo)
+  fn(toks : &ArrayList(Token), type_start : usize) -> Option(SourceSignatureInfo)
 )({
   fn_paren_end := _skip_balanced_parens(toks, type_start);
   // Needs at least `(`, `fn`, `(`, `)`, `)`.
@@ -831,7 +726,7 @@ _parse_source_fn_signature :: (
 /// Nested declarations always live inside parens, so skipping every balanced
 /// paren group keeps the scan at the top level.
 _extract_top_level_fn_signatures :: (
-  fn(imm(tokens) : ArrayList(Token)) -> HashMap(String, SourceSignatureInfo)
+  fn(tokens : &ArrayList(Token)) -> HashMap(String, SourceSignatureInfo)
 )({
   result := HashMap(String, SourceSignatureInfo).new();
   // Filter to non-trivia tokens for easier scanning.
@@ -903,7 +798,7 @@ _extract_top_level_fn_signatures :: (
 });
 /// Clone `params` with each entry's `doc` filled from `doc_lookup`.
 _with_param_docs :: (
-  fn(imm(params) : ArrayList(DocParam), imm(doc_lookup) : Option(HashMap(String, String))) -> ArrayList(DocParam)
+  fn(params : &ArrayList(DocParam), doc_lookup : &Option(HashMap(String, String))) -> ArrayList(DocParam)
 )({
   out := ArrayList(DocParam).new();
   (i : usize) = usize(0);
@@ -941,7 +836,7 @@ _with_param_docs :: (
 /// True when the parenthesized region starting at `l_paren_index` contains a
 /// top-or-nested `name :` pair — i.e. it is an impl BODY, not a type-args
 /// list.
-_paren_contains_trait_body :: (fn(imm(toks) : ArrayList(Token), l_paren_index : usize) -> bool)({
+_paren_contains_trait_body :: (fn(toks : &ArrayList(Token), l_paren_index : usize) -> bool)({
   end := _skip_balanced_parens(toks, l_paren_index);
   (i : usize) = (l_paren_index + usize(1));
   while((i + usize(1)) < (end - usize(1)), {
@@ -966,7 +861,7 @@ _paren_contains_trait_body :: (fn(imm(toks) : ArrayList(Token), l_paren_index : 
   false
 });
 /// Strip a doc-line comment's `/// ` (or `///`) prefix.
-_strip_doc_line_prefix :: (fn(imm(text) : String) -> String)(
+_strip_doc_line_prefix :: (fn(text : &String) -> String)(
   cond(
     text.starts_with(`/// `) => text.substring(usize(4), text.len()),
     text.starts_with(String.from("///")) => {
@@ -983,7 +878,7 @@ _strip_doc_line_prefix :: (fn(imm(text) : String) -> String)(
 );
 /// Strip a `/** ... */` block comment to its content, removing per-line
 /// leading ` * ` gutters.
-_strip_doc_block_comment :: (fn(imm(text) : String) -> String)({
+_strip_doc_block_comment :: (fn(text : &String) -> String)({
   (t : String) = text.clone();
   if(t.starts_with(String.from("/**")), {
     t = t.substring(usize(3), t.len()).trim_start();
@@ -1021,7 +916,7 @@ _strip_doc_block_comment :: (fn(imm(text) : String) -> String)({
 /// Collect `///` / `/** */` doc comment lines immediately preceding the token
 /// at (row, character) in the FULL (trivia-included) token array.
 _collect_doc_comment_before :: (
-  fn(imm(full_tokens) : ArrayList(Token), row : usize, character : usize) -> Option(String)
+  fn(full_tokens : &ArrayList(Token), row : usize, character : usize) -> Option(String)
 )({
   (idx : isize) = (isize(0) - isize(1));
   (i : usize) = usize(0);
@@ -1088,7 +983,7 @@ _collect_doc_comment_before :: (
 /// `Eq` is an implemented `Eq`. Only the NAME scanner learns this — the
 /// impl-INFO scanner below reads method bodies, and a derive call has none.
 extract_trait_impls_from_tokens :: (
-  fn(imm(tokens) : ArrayList(Token)) -> HashMap(String, ArrayList(String))
+  fn(tokens : &ArrayList(Token)) -> HashMap(String, ArrayList(String))
 )({
   result := HashMap(String, ArrayList(String)).new();
   // Filter to non-trivia tokens for easier scanning.
@@ -1229,9 +1124,9 @@ extract_trait_impls_from_tokens :: (
 /// an empty list to skip doc extraction.
 _extract_trait_body_members :: (
   fn(
-    imm(toks) : ArrayList(Token),
+    toks : &ArrayList(Token),
     l_paren_index : usize,
-    imm(full_tokens) : ArrayList(Token)
+    full_tokens : &ArrayList(Token)
   ) -> TraitBodyExtraction
 )({
   end := _skip_balanced_parens(toks, l_paren_index);
@@ -1415,8 +1310,8 @@ _extract_trait_body_members :: (
 /// token stream.
 extract_impl_info_from_tokens :: (
   fn(
-    imm(tokens) : ArrayList(Token),
-    mut(doc_lookup) : HashMap(String, String)
+    tokens : &ArrayList(Token),
+    doc_lookup : &mut HashMap(String, String)
   ) -> HashMap(String, TokenImplInfo)
 )({
   result := HashMap(String, TokenImplInfo).new();
@@ -1797,7 +1692,7 @@ TokenDeclStructure :: struct(
 /// trait declaration. `trait` members are covered by the trait body
 /// extraction (`_extract_trait_body_members`), so the map records them only
 /// to keep them OUT of the top-level emission.
-_token_member_head :: (fn(imm(head) : String) -> Option(String))(
+_token_member_head :: (fn(head : &String) -> Option(String))(
   cond(
     ((head == `struct`) || (head == `union`)) => Option(String).Some(`struct`),
     (head == `enum`) => Option(String).Some(`enum`),
@@ -1808,7 +1703,7 @@ _token_member_head :: (fn(imm(head) : String) -> Option(String))(
 /// Walk the token stream once and record which identifiers name top-level
 /// bindings, which name members of a type/trait declaration (and of which
 /// owner), and which names the module exports. See `TokenDeclStructure`.
-_classify_token_declarations :: (fn(imm(tokens) : ArrayList(Token)) -> TokenDeclStructure)({
+_classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStructure)({
   toks := ArrayList(Token).new();
   (fi : usize) = usize(0);
   while(fi < tokens.len(), {
@@ -2006,7 +1901,7 @@ _classify_token_declarations :: (fn(imm(tokens) : ArrayList(Token)) -> TokenDecl
 });
 /// Append `field` to `types(idx)`'s field list, creating the list on first
 /// use (the write-back pattern `build_cross_references` uses for traits).
-_attach_token_field :: (fn(imm(types) : ArrayList(DocType), idx : usize, imm(field) : DocField) -> unit)({
+_attach_token_field :: (fn(types : &ArrayList(DocType), idx : usize, field : &DocField) -> unit)({
   t := match(
     types.get(idx),
     .Some(x) => x,
@@ -2037,7 +1932,7 @@ _attach_token_field :: (fn(imm(types) : ArrayList(DocType), idx : usize, imm(fie
 });
 /// Append `variant` to `types(idx)`'s variant list, creating the list on
 /// first use.
-_attach_token_variant :: (fn(imm(types) : ArrayList(DocType), idx : usize, imm(variant) : DocVariant) -> unit)({
+_attach_token_variant :: (fn(types : &ArrayList(DocType), idx : usize, variant : &DocVariant) -> unit)({
   t := match(
     types.get(idx),
     .Some(x) => x,
@@ -2075,10 +1970,10 @@ _attach_token_variant :: (fn(imm(types) : ArrayList(DocType), idx : usize, imm(v
 /// with it (issues/fixed/yo-doc-renders-the-prelude-empty.md, root cause 3).
 build_doc_module_from_tokens :: (
   fn(
-    imm(name) : String,
-    imm(path) : String,
-    imm(extraction) : DocExtractionResult,
-    imm(tokens) : ArrayList(Token)
+    name : &String,
+    path : &String,
+    extraction : &DocExtractionResult,
+    tokens : &ArrayList(Token)
   ) -> DocModule
 )({
   doc_lookup := build_doc_lookup(extraction);
@@ -2380,7 +2275,7 @@ build_doc_module_from_tokens :: (
 });
 /// Fill in `trait.implementors` across all modules from `type.trait_impls`.
 /// — mutates in place.
-build_cross_references :: (fn(imm(modules) : ArrayList(DocModule)) -> unit)({
+build_cross_references :: (fn(modules : &ArrayList(DocModule)) -> unit)({
   // Collect all trait → implementor relationships (insertion-ordered,
   // deduplicated).
   trait_names := ArrayList(String).new();
@@ -2522,7 +2417,7 @@ build_cross_references :: (fn(imm(modules) : ArrayList(DocModule)) -> unit)({
 /// because `DocType` and `DocFunction` are value structs: mutating a `.get()`
 /// result changes a copy and is silently lost. Same reason the trait-inheritance
 /// pass above rebuilds each entry.
-_fill_re_exported_docs :: (fn(imm(modules) : ArrayList(DocModule)) -> unit)({
+_fill_re_exported_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
   // Donors: every type that HAS documentation to give, keyed by name+signature.
   d_keys := ArrayList(String).new();
   d_types := ArrayList(DocType).new();
@@ -2630,7 +2525,7 @@ _fill_re_exported_docs :: (fn(imm(modules) : ArrayList(DocModule)) -> unit)({
 /// How many documented items this type carries — its own doc, plus every
 /// method, field and variant that has one. Used to pick the richest donor for a
 /// given name+signature; `0` means it has nothing to give.
-_doc_type_doc_count :: (fn(imm(t) : DocType) -> usize)({
+_doc_type_doc_count :: (fn(t : &DocType) -> usize)({
   (n : usize) = usize(0);
   if(t.doc.is_some(), {
     n = (n + usize(1));
@@ -2683,7 +2578,7 @@ _doc_type_doc_count :: (fn(imm(t) : DocType) -> usize)({
   n
 });
 /// Per-name method doc fill-in, carrying the trait attribution with the text.
-_fill_doc_methods_from :: (fn(mut(dst) : DocType, imm(src) : DocType) -> unit)({
+_fill_doc_methods_from :: (fn(dst : &mut DocType, src : &DocType) -> unit)({
   (i : usize) = usize(0);
   while(i < dst.methods.len(), {
     match(
@@ -2729,7 +2624,7 @@ _fill_doc_methods_from :: (fn(mut(dst) : DocType, imm(src) : DocType) -> unit)({
   });
 });
 /// Per-name field doc fill-in (structs).
-_fill_doc_fields_from :: (fn(imm(dst) : DocType, imm(src) : DocType) -> unit)({
+_fill_doc_fields_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
   dfs := match(dst.fields, .Some(x) => x, .None => return(()));
   sfs := match(src.fields, .Some(x) => x, .None => return(()));
   (i : usize) = usize(0);
@@ -2756,7 +2651,7 @@ _fill_doc_fields_from :: (fn(imm(dst) : DocType, imm(src) : DocType) -> unit)({
   });
 });
 /// Per-name variant doc fill-in (enums).
-_fill_doc_variants_from :: (fn(imm(dst) : DocType, imm(src) : DocType) -> unit)({
+_fill_doc_variants_from :: (fn(dst : &DocType, src : &DocType) -> unit)({
   dvs := match(dst.variants, .Some(x) => x, .None => return(()));
   svs := match(src.variants, .Some(x) => x, .None => return(()));
   (i : usize) = usize(0);
@@ -2808,7 +2703,7 @@ _fill_doc_variants_from :: (fn(imm(dst) : DocType, imm(src) : DocType) -> unit)(
 /// Runs after implementors are filled in, over ALL modules, because a trait and
 /// its implementors are almost never in the same file: `ToString` lives in
 /// `std/fmt/to_string` and is implemented across the whole library.
-_inherit_trait_method_docs :: (fn(imm(modules) : ArrayList(DocModule)) -> unit)({
+_inherit_trait_method_docs :: (fn(modules : &ArrayList(DocModule)) -> unit)({
   // trait name -> (method name -> doc). Parallel arrays rather than a map of
   // maps: the trait count is small and this keeps the lookup allocation-free.
   t_names := ArrayList(String).new();
@@ -2965,7 +2860,7 @@ GenericImplInfo :: struct(
 /// type-constructor Func and its VALUE is a FuncVal whose registered type has
 /// a non-Type return, that return IS the inner struct/enum/trait; a generic
 /// constructor (return still Type) keeps the wrapper Func type.
-_resolve_inner_type :: (fn(imm(field_type) : TypeValue, imm(value) : EvalValue) -> TypeValue)({
+_resolve_inner_type :: (fn(field_type : &TypeValue, value : &EvalValue) -> TypeValue)({
   if(is_function_type(field_type) && is_function_type_and_is_type_function(field_type), {
     match(
       value,
@@ -2993,7 +2888,7 @@ _resolve_inner_type :: (fn(imm(field_type) : TypeValue, imm(value) : EvalValue) 
 /// keyed by `meta.origin_id`; the default VALUE is side-tabled, so
 /// `value_to_string` stands in.
 _function_params_to_doc_params :: (
-  fn(imm(func_type) : TypeValue, imm(doc_lookup) : Option(HashMap(String, String))) -> ArrayList(DocParam)
+  fn(func_type : &TypeValue, doc_lookup : &Option(HashMap(String, String))) -> ArrayList(DocParam)
 )({
   out := ArrayList(DocParam).new();
   match(
@@ -3052,7 +2947,7 @@ _function_params_to_doc_params :: (
 /// Convert a Func type's generic (forall) parameters to DocParams — always
 /// comptime, no defaults.
 _forall_params_to_doc_params :: (
-  fn(imm(func_type) : TypeValue, imm(doc_lookup) : Option(HashMap(String, String))) -> ArrayList(DocParam)
+  fn(func_type : &TypeValue, doc_lookup : &Option(HashMap(String, String))) -> ArrayList(DocParam)
 )({
   out := ArrayList(DocParam).new();
   match(
@@ -3098,23 +2993,23 @@ _forall_params_to_doc_params :: (
 /// Build a DocFunction from a Func TypeValue.
 build_doc_function :: (
   fn(
-    imm(name) : String,
-    imm(func_type) : TypeValue,
-    imm(doc) : Option(String),
+    name : &String,
+    func_type : &TypeValue,
+    doc : &Option(String),
     is_method : bool,
-    imm(self_type) : Option(String),
-    imm(doc_lookup) : Option(HashMap(String, String)),
+    self_type : &Option(String),
+    doc_lookup : &Option(HashMap(String, String)),
     /// Prepended as `(Receiver) fn(...)` in the signature: Func has no
     /// self-type field, so the registry-method path passes the receiver name
     /// here; "" = no prefix (trait/module/token/generic-impl methods render
     /// unprefixed).
-    imm(signature_prefix) : String,
+    signature_prefix : &String,
     /// A source-derived signature (top-level `name :: (fn ...)(...)`
     /// declarations only) is the canonical form: it preserves
     /// where-constraints and `?=` defaults exactly as written and never
     /// leaks internal wrappers like `comptime(T)` the way type_to_string
     /// does. See issues/fixed/doc-builder-generic-signature-divergence.md.
-    imm(source_info) : Option(SourceSignatureInfo)
+    source_info : &Option(SourceSignatureInfo)
   ) -> DocFunction
 )({
   base_signature := match(
@@ -3182,7 +3077,7 @@ build_doc_function :: (
   )
 });
 /// The nominal name of a named type, "" otherwise.
-_doc_type_name :: (fn(imm(t) : TypeValue) -> String)(
+_doc_type_name :: (fn(t : &TypeValue) -> String)(
   match(
     t,
     .Struct({ name }) => name.clone(),
@@ -3196,7 +3091,7 @@ _doc_type_name :: (fn(imm(t) : TypeValue) -> String)(
 /// they live in the type_trait_methods registry keyed by the
 /// type's id. `___`-prefixed (compiler-generated) members are skipped.
 _extract_methods :: (
-  fn(imm(type_id) : String, imm(type_name) : String, imm(doc_lookup) : HashMap(String, String)) -> ArrayList(DocFunction)
+  fn(type_id : &String, type_name : &String, doc_lookup : &HashMap(String, String)) -> ArrayList(DocFunction)
 )({
   methods := ArrayList(DocFunction).new();
   if(type_id.len() == usize(0), {
@@ -3248,10 +3143,10 @@ _extract_methods :: (
 /// `methods` array.
 _extract_generic_impl_info :: (
   fn(
-    imm(concrete_type) : TypeValue,
-    imm(type_name) : String,
-    imm(doc_lookup) : HashMap(String, String),
-    imm(env) : Environment
+    concrete_type : &TypeValue,
+    type_name : &String,
+    doc_lookup : &HashMap(String, String),
+    env : &Environment
   ) -> GenericImplInfo
 )({
   entries := get_generic_impl_doc_entries(concrete_type, env, type_name.clone());
@@ -3316,7 +3211,7 @@ _extract_generic_impl_info :: (
   });
   GenericImplInfo(methods : methods, impls : impls, trait_impls : trait_impls)
 });
-_get_type_kind :: (fn(imm(t) : TypeValue) -> DocItemKind)({
+_get_type_kind :: (fn(t : &TypeValue) -> DocItemKind)({
   if(is_struct_type(t), {
     return(
       match(
@@ -3344,9 +3239,9 @@ _get_type_kind :: (fn(imm(t) : TypeValue) -> DocItemKind)({
 /// tables that do not apply to type fields), so `default_value` is `.None`.
 _type_fields_to_doc_fields :: (
   fn(
-    imm(field_labels) : ArrayList(String),
-    imm(field_types) : ArrayList(TypeValue),
-    imm(doc_lookup) : HashMap(String, String)
+    field_labels : &ArrayList(String),
+    field_types : &ArrayList(TypeValue),
+    doc_lookup : &HashMap(String, String)
   ) -> ArrayList(DocField)
 )({
   out := ArrayList(DocField).new();
@@ -3378,7 +3273,7 @@ _type_fields_to_doc_fields :: (
 /// always-populated `variant_discriminants` matches. A payload-free variant
 /// (empty field list) gets `.None` fields.
 _enum_variants_to_doc_variants :: (
-  fn(imm(enum_type) : TypeValue, imm(doc_lookup) : HashMap(String, String)) -> ArrayList(DocVariant)
+  fn(enum_type : &TypeValue, doc_lookup : &HashMap(String, String)) -> ArrayList(DocVariant)
 )({
   out := ArrayList(DocVariant).new();
   match(
@@ -3418,7 +3313,7 @@ _enum_variants_to_doc_variants :: (
 });
 /// Extract the generic params of a type-constructor field, from forall
 /// params or comptime value params.
-_get_type_constructor_params :: (fn(imm(field_type) : TypeValue) -> Option(ArrayList(DocParam)))({
+_get_type_constructor_params :: (fn(field_type : &TypeValue) -> Option(ArrayList(DocParam)))({
   if(!(is_function_type(field_type) && is_function_type_and_is_type_function(field_type)), {
     return(Option(ArrayList(DocParam)).None);
   });
@@ -3450,7 +3345,7 @@ _get_type_constructor_params :: (fn(imm(field_type) : TypeValue) -> Option(Array
   Option(ArrayList(DocParam)).None
 });
 /// The nominal id of a named type, "" otherwise (for the method registry).
-_doc_type_id :: (fn(imm(t) : TypeValue) -> String)(
+_doc_type_id :: (fn(t : &TypeValue) -> String)(
   match(
     t,
     .Struct({ id }) => id.clone(),
@@ -3481,18 +3376,18 @@ _doc_type_id :: (fn(imm(t) : TypeValue) -> String)(
 /// module and miss every other, which is why this defers to the canonical
 /// `is_any_temp_variable_name`. The LSP's completion list had the same bug
 /// and the same fix (issues/fixed/lsp-completion-lists-compiler-temporaries.md).
-is_compiler_internal_field_name :: (fn(imm(field_name) : String) -> bool)(
+is_compiler_internal_field_name :: (fn(field_name : &String) -> bool)(
   (field_name.len() == usize(0)) || field_name.starts_with(String.from("___")) || field_name.starts_with(String.from("__yo_")) || is_any_temp_variable_name(field_name)
 );
 build_doc_module :: (
   fn(
-    imm(name) : String,
-    imm(path) : String,
-    imm(module_value) : EvalValue,
-    imm(module_type) : TypeValue,
-    imm(extraction) : DocExtractionResult,
-    imm(tokens) : ArrayList(Token),
-    imm(env) : Environment
+    name : &String,
+    path : &String,
+    module_value : &EvalValue,
+    module_type : &TypeValue,
+    extraction : &DocExtractionResult,
+    tokens : &ArrayList(Token),
+    env : &Environment
   ) -> DocModule
 )({
   doc_lookup := build_doc_lookup(extraction);

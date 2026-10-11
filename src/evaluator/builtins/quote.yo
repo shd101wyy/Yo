@@ -47,19 +47,19 @@ pragma(Pragma.AllowUnsafe);
 BK_UNQUOTE :: "unquote";
 BK_UNQUOTE_SPLICING :: "unquote_splicing";
 /// Returns true if `expr` is an `unquote` call with exactly 1 argument.
-_is_unquote :: (fn(imm(e) : AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BK_UNQUOTE, Option(usize).Some(usize(1))));
+_is_unquote :: (fn(e : &AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BK_UNQUOTE, Option(usize).Some(usize(1))));
 /// Returns true if `expr` is an `unquote_splicing` call with exactly 1 argument.
-_is_unquote_splicing :: (fn(imm(e) : AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BK_UNQUOTE_SPLICING, Option(usize).Some(usize(1))));
+_is_unquote_splicing :: (fn(e : &AstExpr) -> bool)(ast_expr_is_fn_call_of(e, BK_UNQUOTE_SPLICING, Option(usize).Some(usize(1))));
 /// Recursively walk `expr`, evaluating any embedded `unquote`/`unquote_splicing`
 /// sub-expressions and constructing a new (possibly modified) AST node.
 ///
 ///
 process_unquotes_in_expr :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   // Atom nodes pass through unchanged.
@@ -232,10 +232,10 @@ process_unquotes_in_expr :: (
 });
 evaluate_quote :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(

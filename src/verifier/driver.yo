@@ -49,7 +49,7 @@ VerifyMode :: enum(
 );
 derive(VerifyMode, Copy, Clone);
 /// Parse a `--verify-mode` spelling (`runtime` / `verify` / `verify+`).
-verify_mode_of_string :: (fn(imm(s) : String) -> Option(VerifyMode))(
+verify_mode_of_string :: (fn(s : &String) -> Option(VerifyMode))(
   cond(
     (s == "runtime") => Option(VerifyMode).Some(VerifyMode.Runtime),
     (s == "verify") => Option(VerifyMode).Some(VerifyMode.Verify),
@@ -103,7 +103,7 @@ VerifyResult :: ref(
 // JSON helpers
 // ============================================================================
 /// A two-key JSON object.
-_json_obj2 :: (fn(imm(k1) : String, imm(v1) : JsonValue, imm(k2) : String, imm(v2) : JsonValue) -> JsonValue)({
+_json_obj2 :: (fn(k1 : &String, v1 : &JsonValue, k2 : &String, v2 : &JsonValue) -> JsonValue)({
   ks := ArrayList(String).new();
   ks.push(k1);
   ks.push(k2);
@@ -113,7 +113,7 @@ _json_obj2 :: (fn(imm(k1) : String, imm(v1) : JsonValue, imm(k2) : String, imm(v
   JsonValue.Object(keys : ks, values : vs)
 });
 /// A JSON array of strings.
-_strs_to_json :: (fn(imm(ss) : ArrayList(String)) -> JsonValue)({
+_strs_to_json :: (fn(ss : &ArrayList(String)) -> JsonValue)({
   items := ArrayList(JsonValue).new();
   (i : usize) = usize(0);
   while(i < ss.len(), {
@@ -130,7 +130,7 @@ _strs_to_json :: (fn(imm(ss) : ArrayList(String)) -> JsonValue)({
 });
 /// A `ArrayList(String)` out of a JSON array of strings (mismatched items
 /// are skipped).
-_strs_of_json :: (fn(imm(j) : JsonValue) -> ArrayList(String))({
+_strs_of_json :: (fn(j : &JsonValue) -> ArrayList(String))({
   out := ArrayList(String).new();
   match(
     j.as_array(),
@@ -159,7 +159,7 @@ _strs_of_json :: (fn(imm(j) : JsonValue) -> ArrayList(String))({
   out
 });
 /// Serialize a verdict to the cache-file JSON shape.
-_verdict_to_json :: (fn(imm(v) : VerifyVerdict) -> JsonValue)(
+_verdict_to_json :: (fn(v : &VerifyVerdict) -> JsonValue)(
   match(
     v,
     .Proved(core) => _json_obj2(
@@ -190,7 +190,7 @@ _verdict_to_json :: (fn(imm(v) : VerifyVerdict) -> JsonValue)(
 );
 /// Parse a cached verdict back. Returns `.None` on any shape mismatch —
 /// a corrupt cache entry is a miss, not an error.
-_verdict_of_json :: (fn(imm(v) : JsonValue) -> Option(VerifyVerdict))({
+_verdict_of_json :: (fn(v : &JsonValue) -> Option(VerifyVerdict))({
   // Nested patterns (`.Some(.Str(s))`) do not parse — match twice, and arm
   // bodies nest their match DIRECTLY (a `{ match(...); }` block would make
   // the arm's value unit).
@@ -258,7 +258,7 @@ verify_cache_dir :: (fn() -> String)({
 /// target, guard obligations carry their site in the query name, and stores
 /// key by the run's own budget.
 VERIFIER_CACHE_EPOCH :: "2";
-verify_cache_key :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig) -> String)({
+verify_cache_key :: (fn(q : &VcQuery, cfg : &VerifyRunConfig) -> String)({
   material := StringBuilder.new();
   material.write_string(`epoch=${VERIFIER_CACHE_EPOCH}\n`);
   material.write_string(`z3=${Z3_VERSION}\n`);
@@ -273,7 +273,7 @@ verify_cache_key :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig) -> String)
 // ============================================================================
 /// Interpret a raw solver response stream into a verdict (pure — the
 /// unit-testable seam between the harness and the protocol).
-verdict_of_response :: (fn(imm(response) : String) -> VerifyVerdict)({
+verdict_of_response :: (fn(response : &String) -> VerifyVerdict)({
   forms := parse_z3_sexprs(response);
   // A script z3 rejected before answering is a solver error whatever the
   // verdict token after the errors says (the `sat` of an empty assertion
@@ -297,7 +297,7 @@ verdict_of_response :: (fn(imm(response) : String) -> VerifyVerdict)({
 });
 /// Cache lookup for one obligation: `.Some(result)` on a hit, `.None` on
 /// miss/no-cache/corrupt entry. Synchronous (see the z3.yo header note).
-_cache_lookup :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig) -> Option(VerifyResult))({
+_cache_lookup :: (fn(q : &VcQuery, cfg : &VerifyRunConfig) -> Option(VerifyResult))({
   if(cfg.no_cache, {
     return(Option(VerifyResult).None);
   });
@@ -329,7 +329,7 @@ _cache_lookup :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig) -> Option(Ver
 /// Keyed by the run's own `cfg`, the same key `_cache_lookup` reads. Keying
 /// by the default config stored a `--rlimit N` verdict where a later
 /// default-budget run would reuse a verdict it could not reproduce itself.
-_cache_store :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig, imm(verdict) : VerifyVerdict) -> unit)({
+_cache_store :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, verdict : &VerifyVerdict) -> unit)({
   _z3_ensure_dir_sync(verify_cache_dir());
   key := verify_cache_key(q, cfg);
   cache_path := `${verify_cache_dir()}/${key}.json`;
@@ -352,7 +352,7 @@ _cache_store :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig, imm(verdict) :
 /// stay cheap; measured: the insertion sort's outer iterate needs
 /// ~10⁸ rlimit / ~80 s and proves, while every small goal finishes far
 /// under the first stage). Terminal verdicts from either stage cache.
-run_vc_query :: (fn(imm(q) : VcQuery, imm(cfg) : VerifyRunConfig, imm(binary) : String) -> VerifyResult)({
+run_vc_query :: (fn(q : &VcQuery, cfg : &VerifyRunConfig, binary : &String) -> VerifyResult)({
   cached_opt := _cache_lookup(q, cfg);
   match(
     cached_opt,
@@ -408,7 +408,7 @@ SolverResolution :: enum(
 );
 /// Sync solver resolution: an explicit `--solver-path` is validated;
 /// otherwise discovery. No event-loop interaction.
-resolve_solver_sync :: (fn(imm(cfg) : VerifyRunConfig) -> SolverResolution)(
+resolve_solver_sync :: (fn(cfg : &VerifyRunConfig) -> SolverResolution)(
   match(
     cfg.solver_path,
     .Some(p) => if(
@@ -445,7 +445,7 @@ _self_test_sum_assumption :: (fn() -> VcTerm)({
   VcTerm.App(VcOp.EqOp, eq_args)
 });
 /// Build one self-test obligation: `x := 1+1 ⊢ x == goal_val`.
-_self_test_query :: (fn(imm(name) : String, goal_val : u64) -> VcQuery)({
+_self_test_query :: (fn(name : &String, goal_val : u64) -> VcQuery)({
   q := new_vc_query(name);
   q.declare(String.from("x"), VcSort.BvS(width : usize(32)));
   q.assume(_self_test_sum_assumption());
@@ -459,7 +459,7 @@ _self_test_query :: (fn(imm(name) : String, goal_val : u64) -> VcQuery)({
 /// (unsat) and `1+1==3` must refute with a concrete counter-example (sat +
 /// model). They exercise the full encode → spawn → parse → cache pipeline
 /// with zero language surface.
-verifier_harness_self_test :: (fn(imm(cfg) : VerifyRunConfig, imm(binary) : String) -> ArrayList(VerifyResult))({
+verifier_harness_self_test :: (fn(cfg : &VerifyRunConfig, binary : &String) -> ArrayList(VerifyResult))({
   results := ArrayList(VerifyResult).new();
   q1 := _self_test_query(String.from("self-test: one_plus_one_eq_2"), u64(2));
   results.push(run_vc_query(q1, cfg, binary.clone()));
@@ -516,12 +516,12 @@ VerifyFnReport :: ref(
 /// (plans/SELF_VERIFICATION.md) counts only functions that discharged
 /// something. See
 /// `issues/fixed/verify-ok-with-zero-obligations-is-indistinguishable-from-a-proof.md`.
-verify_report_is_vacuous :: (fn(imm(rp) : VerifyFnReport) -> bool)(
+verify_report_is_vacuous :: (fn(rp : &VerifyFnReport) -> bool)(
   (rp.outcome == "ok") && (verify_correctness_obligation_count(rp) == usize(0))
 );
 /// The obligations that count toward the outcome: every one but the 5b
 /// elision-only ones, which decide a guard and nothing else.
-verify_correctness_obligation_count :: (fn(imm(rp) : VerifyFnReport) -> usize)({
+verify_correctness_obligation_count :: (fn(rp : &VerifyFnReport) -> usize)({
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < rp.obligations.len(), {
@@ -547,10 +547,10 @@ verify_outcome_names :: (fn() -> ArrayList(String))({
   out
 });
 /// True when `name` is one of the outcomes above.
-is_verify_outcome_name :: (fn(imm(name) : String) -> bool)(
+is_verify_outcome_name :: (fn(name : &String) -> bool)(
   _str_list_contains(verify_outcome_names(), name)
 );
-_str_list_contains :: (fn(imm(xs) : ArrayList(String), imm(needle) : String) -> bool)({
+_str_list_contains :: (fn(xs : &ArrayList(String), needle : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < xs.len(), {
     match(
@@ -569,7 +569,7 @@ _str_list_contains :: (fn(imm(xs) : ArrayList(String), imm(needle) : String) -> 
 /// The outcomes that pass WITHOUT being denied: a proof, contracts the author
 /// declared `assumed()`, and a contract-less body the walk could not enter
 /// (infrastructure — nothing was promised). Everything else is a finding.
-_verify_outcome_passes_by_default :: (fn(imm(outcome) : String) -> bool)(
+_verify_outcome_passes_by_default :: (fn(outcome : &String) -> bool)(
   (outcome == "ok") || (outcome == "assumed") || (outcome == "outside-subset")
 );
 /// Does this report FAIL the run, given the `--deny` set?
@@ -581,7 +581,7 @@ _verify_outcome_passes_by_default :: (fn(imm(outcome) : String) -> bool)(
 /// is the point of a laws gate: a run must not go green because every contract
 /// was `assumed()` away
 /// (plans/backlog/BEND_LAWS_AND_AGENT_LOOP_LESSONS.md §A1/B0).
-verify_report_is_failure :: (fn(imm(rp) : VerifyFnReport, imm(denied) : ArrayList(String)) -> bool)({
+verify_report_is_failure :: (fn(rp : &VerifyFnReport, denied : &ArrayList(String)) -> bool)({
   if(_str_list_contains(denied, rp.outcome.clone()), {
     return(true);
   });
@@ -592,7 +592,7 @@ verify_report_is_failure :: (fn(imm(rp) : VerifyFnReport, imm(denied) : ArrayLis
 });
 /// True when the report is a finding that `verify+` degraded to a runtime
 /// assert rather than a failure — the case that prints the fallback note.
-verify_report_is_degraded :: (fn(imm(rp) : VerifyFnReport, imm(denied) : ArrayList(String)) -> bool)(
+verify_report_is_degraded :: (fn(rp : &VerifyFnReport, denied : &ArrayList(String)) -> bool)(
   !verify_report_is_failure(rp, denied) && !_verify_outcome_passes_by_default(rp.outcome.clone())
 );
 /// Per-outcome counts over a report list, in `verify_outcome_names()` order,
@@ -617,7 +617,7 @@ VerifySummary :: ref(
     folded : usize
   )
 );
-summarize_verify_reports :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> VerifySummary)({
+summarize_verify_reports :: (fn(reports : &ArrayList(VerifyFnReport)) -> VerifySummary)({
   names := verify_outcome_names();
   counts := ArrayList(usize).new();
   (ni : usize) = usize(0);
@@ -683,7 +683,7 @@ summarize_verify_reports :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> Ver
   )
 });
 /// The count recorded for `outcome` in a summary ("" / unknown name -> 0).
-verify_summary_count :: (fn(imm(sum) : VerifySummary, imm(outcome) : String) -> usize)({
+verify_summary_count :: (fn(sum : &VerifySummary, outcome : &String) -> usize)({
   names := verify_outcome_names();
   (i : usize) = usize(0);
   while(i < names.len(), {
@@ -705,13 +705,13 @@ verify_summary_count :: (fn(imm(sum) : VerifySummary, imm(outcome) : String) -> 
 /// obligation runs through the same cache → encode → spawn → parse
 /// pipeline as the self-test. Subset errors abort that function's
 /// obligations list (there is nothing sound to check).
-verify_registered_functions :: (fn(imm(cfg) : VerifyRunConfig, imm(binary) : String) -> ArrayList(VerifyFnReport))(
+verify_registered_functions :: (fn(cfg : &VerifyRunConfig, binary : &String) -> ArrayList(VerifyFnReport))(
   verify_and_strip_tasks(cfg, binary, take_verify_tasks())
 );
 /// The per-ensures-index PROVED table for the strip pass, parsed from the
 /// obligation names (`<fn_id>/ensures#N`). Indices beyond the parsed max
 /// default to NOT proved (conservative: keep the assert).
-_proved_ensures :: (fn(imm(obligations) : ArrayList(VerifyFnObligation)) -> ArrayList(bool))({
+_proved_ensures :: (fn(obligations : &ArrayList(VerifyFnObligation)) -> ArrayList(bool))({
   marks := ArrayList(bool).new();
   (i : usize) = usize(0);
   while(i < obligations.len(), {
@@ -746,7 +746,7 @@ _proved_ensures :: (fn(imm(obligations) : ArrayList(VerifyFnObligation)) -> Arra
 });
 /// Parse the `N` of an obligation name ending in `/ensures#N` (`.None` for
 /// every other obligation kind — caller-side requires, AoRTE, asserts).
-_ens_obligation_index :: (fn(imm(name) : String) -> Option(usize))({
+_ens_obligation_index :: (fn(name : &String) -> Option(usize))({
   marker := String.from("/ensures#");
   match(
     name.index_of(marker.clone()),
@@ -773,7 +773,7 @@ _ens_obligation_index :: (fn(imm(name) : String) -> Option(usize))({
 /// unenforced assumption on its path (rule 3); and the target's pointer width
 /// is 64 (rule 4, conservative until the wasm32 twin case is validated).
 /// Returns how many sites were recorded.
-record_elidable_guard_sites :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> usize)({
+record_elidable_guard_sites :: (fn(reports : &ArrayList(VerifyFnReport)) -> usize)({
   if(get_current_target().pointer_size_bits != u32(64), {
     return(usize(0));
   });
@@ -802,7 +802,7 @@ record_elidable_guard_sites :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> 
   n
 });
 verify_and_strip_tasks :: (
-  fn(imm(cfg) : VerifyRunConfig, imm(binary) : String, imm(tasks) : ArrayList(VerifyTask)) -> ArrayList(VerifyFnReport)
+  fn(cfg : &VerifyRunConfig, binary : &String, tasks : &ArrayList(VerifyTask)) -> ArrayList(VerifyFnReport)
 )({
   reports := ArrayList(VerifyFnReport).new();
   // V6 task 4: compute the batch's mutual-recursion cliques BEFORE the
@@ -1028,7 +1028,7 @@ verify_and_strip_tasks :: (
 /// display: `__yo_v<fn>_<name>` → `<name>` when the prefix matches this
 /// function, else the raw mangled form (a cross-function name is still
 /// informative).
-unmangle_for_display :: (fn(imm(fn_id) : String, imm(mangled) : String) -> String)({
+unmangle_for_display :: (fn(fn_id : &String, mangled : &String) -> String)({
   prefix := `__yo_v${_sanitize_for_display(fn_id.clone())}_`;
   if(mangled.starts_with(prefix.clone()), {
     return(mangled.substring(prefix.len(), mangled.len()));
@@ -1039,7 +1039,7 @@ unmangle_for_display :: (fn(imm(fn_id) : String, imm(mangled) : String) -> Strin
 /// is private to the encoder; this reproduces its exact rules —
 /// [A-Za-z0-9_] kept, every other RUNE one underscore — for the
 /// display-side prefix strip).
-_sanitize_for_display :: (fn(imm(s) : String) -> String)({
+_sanitize_for_display :: (fn(s : &String) -> String)({
   sb := StringBuilder.new();
   {
     it := s.chars();
@@ -1059,7 +1059,7 @@ _sanitize_for_display :: (fn(imm(s) : String) -> String)({
 });
 /// Un-mangle counter-example pair strings (`mangled = value`) toward the
 /// source spelling; unmatched shapes pass through untouched.
-_unmangle_pairs :: (fn(imm(fn_id) : String, imm(ce) : ArrayList(String)) -> ArrayList(String))({
+_unmangle_pairs :: (fn(fn_id : &String, ce : &ArrayList(String)) -> ArrayList(String))({
   out := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < ce.len(), {

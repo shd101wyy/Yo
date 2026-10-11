@@ -104,7 +104,7 @@ _EVAL_ERR :: "add_one :: (fn(x : i32) -> i32)((x + i32(1)));\nmain :: (fn() -> u
 _PARSE_ERR :: "add_one :: (fn(x : i32) -> i32)((x + i32(1)));\nmain :: (fn() -> unit)({\n  y := add_one(\n});\n";
 
 /// Analyze `text` as `doc_path`; the outcome the server would retain.
-_analyze :: (fn(imm(doc_path) : String, imm(text) : String, imm(std_path) : String, io : Io) -> Option(AnalyzeOutcome))({
+_analyze :: (fn(doc_path : &String, text : &String, std_path : &String, io : Io) -> Option(AnalyzeOutcome))({
   out := ArrayList(AnalyzeOutcome).new();
   _diags := analyze_document(doc_path.clone(), text, std_path, io, out);
   out.get(usize(0))
@@ -174,7 +174,7 @@ _CONTRACT_DOC :: "pragma(Pragma.Verify);\n\nnon_zero :: ghost_fn((fn(x : i32) ->
 /// The markdown `value` string out of a hover response
 /// ({contents: {kind, value}, range}). Matched one enum level at a time —
 /// nested patterns like `.Some(.Object(...))` do not parse.
-_hover_text :: (fn(imm(h) : Option(JsonValue)) -> String)({
+_hover_text :: (fn(h : &Option(JsonValue)) -> String)({
   (out : String) = String.new();
   root := match(
     h,

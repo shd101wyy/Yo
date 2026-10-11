@@ -24,7 +24,7 @@
 /// `n` (two chars) instead of a single newline — which breaks `to_expr()` /
 /// `generate_expr_from_code` on derive-generated source and every downstream
 /// length/prefix test.
-decode_str_lit_escapes :: (fn(imm(raw) : String) -> String)({
+decode_str_lit_escapes :: (fn(raw : &String) -> String)({
   chars := ArrayList(rune).new();
   {
     it := raw.chars();
@@ -160,10 +160,10 @@ decode_str_lit_escapes :: (fn(imm(raw) : String) -> String)({
 });
 evaluate_string_literal :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);

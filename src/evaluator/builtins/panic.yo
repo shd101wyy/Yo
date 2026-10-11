@@ -30,7 +30,7 @@ pragma(Pragma.AllowUnsafe);
 { panic, assert } :: import("std/assert");
 /// A `StrLit`'s raw text keeps its source delimiters; strip one matching
 /// pair for the diagnostic.
-_unquote_str_lit :: (fn(imm(raw) : String) -> String)({
+_unquote_str_lit :: (fn(raw : &String) -> String)({
   n := raw.len();
   if(n >= usize(2), {
     first := raw.byte_at(usize(0));
@@ -43,10 +43,10 @@ _unquote_str_lit :: (fn(imm(raw) : String) -> String)({
 });
 evaluate_panic :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   // panic() is only valid inside a function body or test block.

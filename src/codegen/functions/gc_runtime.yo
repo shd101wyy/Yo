@@ -28,7 +28,7 @@
 /// Recursively collect the C type strings of every non-unit `unwind(value)`
 /// argument reachable from `expr`.
 /// Returns a flat list (deduped by the caller into a HashSet).
-_collect_unwind_value_ctypes_from_expr :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> ArrayList(String))({
+_collect_unwind_value_ctypes_from_expr :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> ArrayList(String))({
   out := ArrayList(String).new();
   if(ast_expr_is_fn_call_of(expr, BF_UNWIND, Option(usize).None), {
     match(
@@ -96,7 +96,7 @@ _collect_unwind_value_ctypes_from_expr :: (fn(imm(expr) : AstExpr, imm(context) 
 });
 /// Populate `context.unwind_value_c_types` from every function body in the
 /// program. MUST run before the unwind-value buffer is declared.
-collect_unwind_value_ctypes :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
+collect_unwind_value_ctypes :: (fn(context : &FunctionGenerationContext) -> unit)({
   into := HashSet(String).new();
   vals := context.base.functions.values();
   (go : bool) = true;
@@ -135,7 +135,7 @@ collect_unwind_value_ctypes :: (fn(imm(context) : FunctionGenerationContext) -> 
 /// Emit the thread-local `__yo_unwind_value` buffer declaration. With one or
 /// more non-unit unwound values it is a union sized to the largest (plus a
 /// 64-byte floor); with none it is a plain 64-byte buffer.
-emit_unwind_value_buffer :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
+emit_unwind_value_buffer :: (fn(context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   empty := match(
     context.unwind_value_c_types,
@@ -215,7 +215,7 @@ emit_unwind_value_buffer :: (fn(imm(context) : FunctionGenerationContext) -> uni
 /// (issues/fixed/an-awaited-task-abort-is-reported-as-unhandled.md).
 /// Entries are always live state machines: the dispose removes a task before
 /// it is freed, so a reused address can never match a stale entry.
-emit_task_abort_registry :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
+emit_task_abort_registry :: (fn(context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Each entry also carries the unwind that aborted the task: its target (the
   // handler whose `unwind` it was, `__yo_unwind_target`) and a copy of the
@@ -322,7 +322,7 @@ static void __yo_task_abort_report_unobserved(void) {
 // ---------------------------------------------------------------------------
 /// Emit the Law-of-Exclusivity borrow primitives. Emitted unconditionally
 /// regardless of GC path.
-generate_borrow_runtime_primitives :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
+generate_borrow_runtime_primitives :: (fn(context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   em.emit_string_line(
     `
@@ -388,7 +388,7 @@ static inline void __yo_borrow_assert_unborrowed_atomic(void* ptr) {
 // ---------------------------------------------------------------------------
 /// Emit lightweight RC functions when no type can form reference cycles.
 /// `__yo_decr_rc` has no GC checks and the GC functions are no-ops.
-generate_lightweight_rc_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
+generate_lightweight_rc_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   // Forward-declare the dispose dispatch function (defined after all dispose functions).
   em.emit_declaration_line("static int __yo_dispose_dispatch(void* ptr); // Type-tag based dispose dispatch; 1 = it kept the memory");
@@ -509,7 +509,7 @@ static void __yo_init_process_cleanup(void) {}`
 /// INSTEAD of generate_lightweight_rc_functions; per-platform branches select on
 /// is_target_windows.
 /// (GC_DEBUG is macro-defined to nothing in non-debug builds — see types/generation.yo.)
-generate_full_gc_runtime_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
+generate_full_gc_runtime_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   ti := context.base.target_info;
   // `__yo_decr_rc`'s tracked tail is emitted AFTER it (and, under
@@ -1300,7 +1300,7 @@ static void __yo_init_process_cleanup(void) {
 // ---------------------------------------------------------------------------
 /// Emit the borrow primitives + the RC runtime. Dispatches to the FULL cyclic-GC
 /// runtime when needs_cycle_gc, else the lightweight (type-tag) path.
-generate_atomic_gc_runtime_functions :: (fn(imm(context) : FunctionGenerationContext) -> unit)({
+generate_atomic_gc_runtime_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
   // Chunked emission: the borrow primitives are the per-container-access hot
   // path, have no prototypes anywhere, and are called from every chunk —
   // route them into the shared header (per-TU `static inline` copies).

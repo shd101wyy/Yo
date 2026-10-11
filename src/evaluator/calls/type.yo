@@ -51,7 +51,7 @@ pragma(Pragma.AllowUnsafe);
 /// Approximation for `isComptimeOnlyType` (Phase 2 — full version deferred).
 /// Returns true for types whose values only exist at compile time:
 /// TypeUni (the `Type` kind), ComptimeInt, ComptimeFloat, ComptimeString.
-_is_comptime_only_type_approx :: (fn(imm(t) : TypeValue) -> bool)(
+_is_comptime_only_type_approx :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
     .TypeUni(_) => true,
@@ -69,13 +69,13 @@ _is_comptime_only_type_approx :: (fn(imm(t) : TypeValue) -> bool)(
 ///
 try_to_call_type_with_arguments :: (
   fn(
-    imm(type_fields) : ArrayList(TypeField),
-    imm(function_callee_expr) : AstExpr,
-    imm(arg_exprs) : ArrayList(AstExpr),
-    imm(caller_env) : Environment,
-    imm(ctx) : EvalContext,
+    type_fields : &ArrayList(TypeField),
+    function_callee_expr : &AstExpr,
+    arg_exprs : &ArrayList(AstExpr),
+    caller_env : &Environment,
+    ctx : &EvalContext,
     is_union_type : bool,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> TypeCallResult
 )({
   n_fields := type_fields.len();

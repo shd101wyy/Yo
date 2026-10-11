@@ -24,7 +24,7 @@ current_yo_version :: (fn() -> str)(CURRENT_YO_VERSION);
 // Semver validation helpers
 // ---------------------------------------------------------------------------
 /// True if every byte of `s` in the range [start, end_pos) is an ASCII digit.
-_all_digits :: (fn(imm(s) : String, start : usize, end_pos : usize) -> bool)({
+_all_digits :: (fn(s : &String, start : usize, end_pos : usize) -> bool)({
   ok := true;
   i := start;
   while(i < end_pos, {
@@ -54,7 +54,7 @@ _all_digits :: (fn(imm(s) : String, start : usize, end_pos : usize) -> bool)({
 ///   (optional pre-release `-…` / build metadata `+…` suffixes are allowed)
 ///
 /// Returns `Ok(normalised_version)` on success, `Err(message)` on failure.
-parse_yo_version :: (fn(imm(content) : String) -> Result(String, String))({
+parse_yo_version :: (fn(content : &String) -> Result(String, String))({
   version := content.trim();
   if(version.len() == usize(0), {
     return(.Err(`Empty .yo-version file. Specify a version number (e.g., ${CURRENT_YO_VERSION}).`));
@@ -122,7 +122,7 @@ parse_yo_version :: (fn(imm(content) : String) -> Result(String, String))({
 /// `.None` if no such file exists up to the filesystem root.
 find_yo_version_file :: (
   fn(
-    imm(start_dir) : Path,
+    start_dir : &Path,
     io : Io
   ) -> Impl(Future(Option(Path), Io))
 )(
@@ -160,9 +160,9 @@ find_yo_version_file :: (
 /// is invalid.
 read_yo_version :: (
   fn(
-    imm(start_dir) : Path,
+    start_dir : &Path,
     io : Io,
-    imm(exn) : Exception
+    exn : &Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -182,7 +182,7 @@ read_yo_version :: (
   })
 );
 /// Check whether the pinned version matches the currently running version.
-is_pinned_version_current :: (fn(imm(pinned) : String, imm(current) : String) -> bool)(
+is_pinned_version_current :: (fn(pinned : &String, current : &String) -> bool)(
   pinned == current
 );
 export(

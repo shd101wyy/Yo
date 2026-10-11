@@ -5,19 +5,19 @@
 pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
-ins :: (fn(imm(xs) : ArrayList(i32), v : i32, ensures(xs.len() == (old(xs.len()) + usize(1)))) -> unit)({
+ins :: (fn(xs : &ArrayList(i32), v : i32, ensures(xs.len() == (old(xs.len()) + usize(1)))) -> unit)({
   xs.insert(usize(0), v);
 });
 
 rem :: (
-  fn(imm(xs) : ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == (old(xs.len()) - usize(1)))) -> (r : i32)
+  fn(xs : &ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == (old(xs.len()) - usize(1)))) -> (r : i32)
 )(xs.remove(usize(0)));
 
 srem :: (
-  fn(imm(xs) : ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == (old(xs.len()) - usize(1)))) -> (r : i32)
+  fn(xs : &ArrayList(i32), requires(xs.len() >= usize(1)), ensures(xs.len() == (old(xs.len()) - usize(1)))) -> (r : i32)
 )(xs.swap_remove(usize(0)));
 
-sw :: (fn(imm(xs) : ArrayList(i32), requires(xs.len() >= usize(2)), ensures(xs.len() == old(xs.len()))) -> unit)({
+sw :: (fn(xs : &ArrayList(i32), requires(xs.len() >= usize(2)), ensures(xs.len() == old(xs.len()))) -> unit)({
   xs.swap(usize(0), usize(1));
 });
 
@@ -25,7 +25,7 @@ sw :: (fn(imm(xs) : ArrayList(i32), requires(xs.len() >= usize(2)), ensures(xs.l
 // the length contracts are bit-vector arithmetic, and at len = 2^64 - 1 the
 // insert's old + 1 wraps to 0 (no real list gets there).
 round_trip :: (
-  fn(imm(xs) : ArrayList(i32), v : i32, requires(xs.len() < usize(1024)), ensures(xs.len() == old(xs.len()))) -> (r : i32)
+  fn(xs : &ArrayList(i32), v : i32, requires(xs.len() < usize(1024)), ensures(xs.len() == old(xs.len()))) -> (r : i32)
 )({
   xs.insert(usize(0), v);
   xs.remove(usize(0))

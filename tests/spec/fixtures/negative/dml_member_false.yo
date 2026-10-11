@@ -3,7 +3,7 @@ pragma(Pragma.Verify);
 { ArrayList } :: import("std/collections/array_list");
 
 member :: ghost_fn(
-  (fn(imm(xs) : ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
+  (fn(xs : &ArrayList(i32), n : usize, v : i32, requires(n <= xs.len()), decreases(n)) -> bool)(
     cond(
       (n == usize(0)) => false,
       true => (member(xs, n - usize(1), v) || (xs(n - usize(1)) == v))
@@ -12,7 +12,7 @@ member :: ghost_fn(
 );
 
 // REFUTED: the loop stops one element early.
-contains_short :: (fn(imm(xs) : ArrayList(i32), v : i32, ensures(r == member(xs, xs.len(), v))) -> (r : bool))({
+contains_short :: (fn(xs : &ArrayList(i32), v : i32, ensures(r == member(xs, xs.len(), v))) -> (r : bool))({
   (i : usize) = usize(0);
   (found : bool) = false;
   while((i + usize(1)) < xs.len(), {

@@ -14,7 +14,7 @@
 /// stripped — `.StrLit` values keep their quotes and they leaked into the
 /// printed message (the `"\"ArrayList: index out of bounds\""` artifact,
 /// P3.6 / D13).
-_strip_panic_quotes :: (fn(imm(raw) : String) -> String)({
+_strip_panic_quotes :: (fn(raw : &String) -> String)({
   if((raw.len() >= usize(2)) && (raw.byte_at(usize(0)) == u8(34)) && (raw.byte_at(raw.len() - usize(1)) == u8(34)), {
     return(raw.substring(usize(1), raw.len() - usize(1)));
   });
@@ -23,7 +23,7 @@ _strip_panic_quotes :: (fn(imm(raw) : String) -> String)({
 /// `panic(...)`: emit a stderr message (if any) + abort(), then return an
 /// unreachable type-correct dummy value (`*(T*)NULL`) so the C compiles
 /// (panic never returns).
-generate_panic :: (fn(imm(expr) : AstExpr, imm(indent) : String, imm(context) : FunctionGenerationContext) -> String)({
+generate_panic :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei_opt := context.base.get_expr_info(expr);
   return_type := match(ei_opt, .Some(ei) => ei.ty, .None => return(codegen_fatal_expr(String.from("panic() missing type information"))));
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());

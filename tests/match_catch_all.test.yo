@@ -85,7 +85,7 @@ test("catch-all on a compile-time scrutinee", {
 // `.Some(c) => c.v, _ => fallback` always took the fallback.
 Crate :: ref(struct(v : i32));
 test("a wildcard after .Some on a nullable-pointer Option only covers .None", {
-  pick :: (fn(imm(o) : Option(Crate)) -> i32)(match(o, .Some(c) => c.v, _ => i32(-1)));
+  pick :: (fn(o : &Option(Crate)) -> i32)(match(o, .Some(c) => c.v, _ => i32(-1)));
   assert(pick(Option(Crate).Some(Crate(v : i32(7)))) == i32(7), ".Some takes its own arm");
   assert(pick(Option(Crate).None) == i32(-1), ".None takes the wildcard");
 });
@@ -99,7 +99,7 @@ Tracked :: ref(struct(v : i32));
 impl(
   Tracked,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_tracked_disposed = (g_tracked_disposed + i32(1));
     })
   )
@@ -142,8 +142,8 @@ test("a match on an owned nullable-pointer Option releases its scrutinee", {
 // uninitialized (issues/fixed/a-literal-sub-pattern-in-a-variant-arm-skips-the-wildcard-arm.md).
 TagLit :: enum(Leaf(n : i32), Node(k : i32, flag : bool));
 test("a literal sub-pattern miss takes the wildcard arm", {
-  pick :: (fn(imm(e) : TagLit) -> i32)(match(e, .Node(k, true) => k, _ => i32(-1)));
-  picki :: (fn(imm(e) : TagLit) -> i32)(match(e, .Node(7, f) => i32(70), _ => i32(-1)));
+  pick :: (fn(e : &TagLit) -> i32)(match(e, .Node(k, true) => k, _ => i32(-1)));
+  picki :: (fn(e : &TagLit) -> i32)(match(e, .Node(7, f) => i32(70), _ => i32(-1)));
   assert(pick(TagLit.Node(i32(5), true)) == i32(5), "the guarded arm runs when its literal holds");
   assert(pick(TagLit.Node(i32(6), false)) == i32(-1), "a bool literal miss reaches the wildcard");
   assert(pick(TagLit.Leaf(i32(1))) == i32(-1), "another tag reaches the wildcard");
@@ -151,7 +151,7 @@ test("a literal sub-pattern miss takes the wildcard arm", {
   assert(picki(TagLit.Node(i32(8), false)) == i32(-1), "an int literal miss reaches the wildcard");
 });
 test("literal arms that jointly cover their variant still split by payload", {
-  both :: (fn(imm(e) : TagLit) -> i32)(
+  both :: (fn(e : &TagLit) -> i32)(
     match(
       e,
       .Node(k, true) => k,

@@ -39,7 +39,7 @@ _have_z3 :: (fn() -> bool)(
   )
 );
 _load_reports :: (
-  fn(imm(rel_path) : String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
+  fn(rel_path : &String, io : Io, expect_ok : bool) -> ArrayList(VerifyFnReport)
 )({
   exn := Exception(
     throw : (
@@ -78,7 +78,7 @@ _load_reports :: (
   );
   verify_and_strip_tasks(cfg, binary, take_verify_tasks())
 });
-_reports_dump :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> String)({
+_reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < reports.len(), {
@@ -105,7 +105,7 @@ _reports_dump :: (fn(imm(reports) : ArrayList(VerifyFnReport)) -> String)({
 /// Count of reports with this outcome. A contracted generic definition is
 /// verified abstractly (R1 task 4) and reports beside its callers, so tests
 /// count outcomes instead of reading positions.
-_count_outcome :: (fn(imm(reports) : ArrayList(VerifyFnReport), imm(outcome) : String) -> usize)({
+_count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), outcome : &String) -> usize)({
   (n : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < reports.len(), {

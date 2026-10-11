@@ -72,7 +72,7 @@ derive(TokenAndWarning, Clone);
 /// The `Span` of a token: its module path, 0-based row/rune column, and the
 /// token's rune length as the underline (D5 — the caret used to sit at the
 /// token's MIDDLE; it now underlines the whole token from its start).
-_span_of_token :: (fn(imm(token) : Token) -> Span)(
+_span_of_token :: (fn(token : &Token) -> Span)(
   Span(
     path : token.module_path,
     row : usize(token.row),
@@ -85,7 +85,7 @@ _span_of_token :: (fn(imm(token) : Token) -> Span)(
 /// diagnostic builds one, including the many a trial evaluation swallows, and
 /// a split of the 10k-line prelude per message was 12% of a derive-heavy check
 /// (issues/derive-clone-costs-17-ms-per-type.md).
-_source_line_of_token :: (fn(imm(token) : Token) -> String)({
+_source_line_of_token :: (fn(token : &Token) -> String)({
   input := token.input;
   n := input.len();
   (target : usize) = usize(token.row);
@@ -118,7 +118,7 @@ _coded :: (fn(c : str) -> Option(String))(Option(String).Some(String.from(c)));
 /// central on purpose: one table to test, no per-site sweep, and messages
 /// carry their family's distinctive vocabulary verbatim (checked by
 /// tests/internal/error.test.yo). Specific rules come BEFORE generic ones.
-_classify_message :: (fn(imm(error_message) : String) -> Option(String))({
+_classify_message :: (fn(error_message : &String) -> Option(String))({
   msg := error_message.trim();
   // ── Syntax (E00xx–E02xx) ────────────────────────────────────────────────
   if(msg.starts_with(String.from("unexpected token")), {
@@ -272,7 +272,7 @@ _classify_message :: (fn(imm(error_message) : String) -> Option(String))({
 });
 /// One diagnostic entry from a token + verbatim message.
 _diagnostic_of_token :: (
-  fn(imm(token) : Token, severity : Severity, imm(error_message) : String) -> Diagnostic
+  fn(token : &Token, severity : Severity, error_message : &String) -> Diagnostic
 )(
   Diagnostic(
     code : _classify_message(error_message),
@@ -293,7 +293,7 @@ YoError :: ref(
 impl(
   YoError,
   ToString(
-    to_string : (fn(mut(self) : Self) -> String)(
+    to_string : (fn(self : &mut Self) -> String)(
       // MODE-AWARE, not human-only: `--error-format json` worked for parse
       // and lexer errors but not evaluator ones, because every path that
       // stringifies a YoError through `to_string()` landed here and rendered
@@ -322,18 +322,18 @@ ExitWith :: ref(
 impl(
   ExitWith,
   ToString(
-    to_string : (fn(mut(self) : Self) -> String)(self.message.clone())
+    to_string : (fn(self : &mut Self) -> String)(self.message.clone())
   )
 );
 impl(ExitWith, Error());
 /// Wrap one diagnostic as a single-entry `YoError`.
-_yo_error_of :: (fn(imm(entry) : Diagnostic) -> YoError)({
+_yo_error_of :: (fn(entry : &Diagnostic) -> YoError)({
   entries := ArrayList(Diagnostic).new();
   entries.push(entry);
   YoError(diagnostics : entries)
 });
 /// Create a `YoError` from a single token and error message.
-format_error_message :: (fn(imm(token) : Token, imm(error_message) : String) -> YoError)(
+format_error_message :: (fn(token : &Token, error_message : &String) -> YoError)(
   _yo_error_of(_diagnostic_of_token(token, Severity.Error, error_message))
 );
 /// Create a `YoError` from a token, a message, and a P3 repair hint —
@@ -346,11 +346,11 @@ format_error_message :: (fn(imm(token) : Token, imm(error_message) : String) -> 
 /// (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 format_error_message_with_repair :: (
   fn(
-    imm(token) : Token,
-    imm(error_message) : String,
-    imm(help) : Option(String),
-    imm(replacement) : String,
-    imm(repair_description) : String
+    token : &Token,
+    error_message : &String,
+    help : &Option(String),
+    replacement : &String,
+    repair_description : &String
   ) -> YoError
 )({
   d := _diagnostic_of_token(token, Severity.Error, error_message);
@@ -368,12 +368,12 @@ format_error_message_with_repair :: (
 /// brace, the E0401 import line at the top of the file.
 format_error_message_with_repair_at :: (
   fn(
-    imm(token) : Token,
-    imm(error_message) : String,
-    imm(help) : Option(String),
-    imm(span) : Span,
-    imm(replacement) : String,
-    imm(repair_description) : String
+    token : &Token,
+    error_message : &String,
+    help : &Option(String),
+    span : &Span,
+    replacement : &String,
+    repair_description : &String
   ) -> YoError
 )({
   d := _diagnostic_of_token(token, Severity.Error, error_message);
@@ -386,7 +386,7 @@ format_error_message_with_repair_at :: (
   _yo_error_of(d)
 });
 format_error_message_with_help :: (
-  fn(imm(token) : Token, imm(error_message) : String, imm(help) : Option(String)) -> YoError
+  fn(token : &Token, error_message : &String, help : &Option(String)) -> YoError
 )({
   d := _diagnostic_of_token(token, Severity.Error, error_message);
   if(help.is_some(), {
@@ -401,7 +401,7 @@ format_error_message_with_help :: (
 });
 /// Create a `YoError` with a path anchor but no snippet — end-of-input and
 /// other position-less parser errors.
-format_raw_error :: (fn(imm(module_path) : String, imm(error_message) : String) -> YoError)(
+format_raw_error :: (fn(module_path : &String, error_message : &String) -> YoError)(
   _yo_error_of(
     Diagnostic(
       code : _classify_message(error_message),
@@ -419,7 +419,7 @@ format_raw_error :: (fn(imm(module_path) : String, imm(error_message) : String) 
 /// span of user code (issues/fixed/explain-registry-e13xx-e15xx-bands-unallocated.md).
 /// The rendered block is `error[EXXXX]: message` plus the `yo explain` tail —
 /// no `-->` anchor — and `--error-format json`/`sarif` carry the code.
-format_coded_error :: (fn(code : str, imm(message) : String) -> YoError)(
+format_coded_error :: (fn(code : str, message : &String) -> YoError)(
   _yo_error_of(
     Diagnostic(
       code : _coded(code),
@@ -432,7 +432,7 @@ format_coded_error :: (fn(code : str, imm(message) : String) -> YoError)(
 );
 /// Create a `YoError` from a list of token + error message pairs: the first
 /// entry is the primary error, every later entry renders as a note.
-format_error_messages :: (fn(imm(token_and_error_list) : ArrayList(TokenAndError)) -> YoError)({
+format_error_messages :: (fn(token_and_error_list : &ArrayList(TokenAndError)) -> YoError)({
   assert(token_and_error_list.len() > usize(0), "token_and_error_list must not be empty");
   entries := ArrayList(Diagnostic).new();
   (i : usize) = usize(0);
@@ -455,7 +455,7 @@ format_error_messages :: (fn(imm(token_and_error_list) : ArrayList(TokenAndError
 /// The batch builder with a repair hint attached to the PRIMARY entry
 /// (the P3 did-you-mean channel for the ownership-flow family's raises).
 format_error_messages_with_help :: (
-  fn(imm(token_and_error_list) : ArrayList(TokenAndError), imm(help) : Option(String)) -> YoError
+  fn(token_and_error_list : &ArrayList(TokenAndError), help : &Option(String)) -> YoError
 )({
   err := format_error_messages(token_and_error_list);
   match(
@@ -478,11 +478,11 @@ format_error_messages_with_help :: (
 /// row/rune column.
 format_lexer_error :: (
   fn(
-    imm(module_path) : String,
-    imm(input) : String,
+    module_path : &String,
+    input : &String,
     row : usize,
     column : usize,
-    imm(message) : String
+    message : &String
   ) -> YoError
 )({
   lines := input.split(String.from("\n"));
@@ -505,7 +505,7 @@ format_lexer_error :: (
 /// structured `YoError` renders per `--error-format`; everything else keeps
 /// its own `to_string`. This is what every printing edge goes through —
 /// handlers stash THIS text, so the format choice is global.
-render_any_error :: (fn(imm(err) : AnyError) -> String)(
+render_any_error :: (fn(err : &AnyError) -> String)(
   match(
     downcast(err, YoError),
     .Some(ye) => render_diagnostics_for_mode(ye.diagnostics),
@@ -553,7 +553,7 @@ note_eval_attempt :: (fn() -> unit)({
 /// `to_string` renders: an excerpt quotes the source line, and when an error is
 /// anchored on a `comptime_expect_error(..., "text")` line the excerpt would
 /// contain the expected text itself.
-error_message_text :: (fn(imm(err) : AnyError) -> String)(
+error_message_text :: (fn(err : &AnyError) -> String)(
   match(
     downcast(err, YoError),
     .Some(ye) => {
@@ -576,7 +576,7 @@ error_message_text :: (fn(imm(err) : AnyError) -> String)(
   )
 );
 export(error_message_text);
-note_swallowed_error :: (fn(imm(err) : AnyError) -> unit)({
+note_swallowed_error :: (fn(err : &AnyError) -> unit)({
   match(
     downcast(err, YoError),
     .Some(ye) => {
@@ -601,7 +601,7 @@ _take_fresh_swallowed :: (fn() -> Option(ArrayList(Diagnostic)))({
 /// exn-less evaluation that just failed recorded one. Identical to
 /// `format_error_message` when there is no recorded cause, so a site that
 /// switches to it loses nothing.
-format_eval_failure :: (fn(imm(token) : Token, imm(error_message) : String) -> YoError)({
+format_eval_failure :: (fn(token : &Token, error_message : &String) -> YoError)({
   generic := _diagnostic_of_token(token, Severity.Error, error_message);
   match(
     _take_fresh_swallowed(),
@@ -626,7 +626,7 @@ format_eval_failure :: (fn(imm(token) : Token, imm(error_message) : String) -> Y
     .None => _yo_error_of(generic)
   )
 });
-stash_error_diagnostics :: (fn(imm(err) : AnyError) -> unit)({
+stash_error_diagnostics :: (fn(err : &AnyError) -> unit)({
   match(
     downcast(err, YoError),
     .Some(ye) => {
@@ -651,7 +651,7 @@ stash_error_diagnostics :: (fn(imm(err) : AnyError) -> unit)({
 /// diagnostic lose its code, span and repair on the way to the typed stash
 /// (issues/fixed/evaluator-diagnostics-are-flattened-to-strings-before-the-typed-stash.md);
 /// this is the typed path back.
-yo_error_from_diagnostics :: (fn(imm(entries) : ArrayList(Diagnostic)) -> YoError)(
+yo_error_from_diagnostics :: (fn(entries : &ArrayList(Diagnostic)) -> YoError)(
   YoError(diagnostics : entries)
 );
 take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
@@ -666,15 +666,15 @@ take_error_diagnostics :: (fn() -> Option(ArrayList(Diagnostic)))({
 /// inferred from the message text: the code belongs to the mistake, and a
 /// reworded message must not move it
 /// (issues/fixed/diagnostic-codes-are-assigned-by-substring-matching-the-message-text.md).
-with_code :: (fn(imm(err) : YoError, code : str) -> YoError)(_with_primary_code(err, _coded(code)));
+with_code :: (fn(err : &YoError, code : str) -> YoError)(_with_primary_code(err, _coded(code)));
 /// `err` with `code` on its primary diagnostic. A re-raise that rebuilds an
 /// error from another one's rendered text (a swallowed trial, a derive's
 /// generated body) carries that error's code over with this; `.None` leaves
 /// `err` as it is.
-with_code_carried :: (fn(imm(err) : YoError, imm(code) : Option(String)) -> YoError)(
+with_code_carried :: (fn(err : &YoError, code : &Option(String)) -> YoError)(
   match(code, .Some(_) => _with_primary_code(err, code), .None => err)
 );
-_with_primary_code :: (fn(imm(err) : YoError, imm(code) : Option(String)) -> YoError)({
+_with_primary_code :: (fn(err : &YoError, code : &Option(String)) -> YoError)({
   entries := ArrayList(Diagnostic).new();
   (wi : usize) = usize(0);
   while(wi < err.diagnostics.len(), {
@@ -709,7 +709,7 @@ _with_primary_code :: (fn(imm(err) : YoError, imm(code) : Option(String)) -> YoE
 });
 /// The code of `err`'s primary diagnostic (`None` for a non-`YoError` or an
 /// uncoded one).
-primary_diagnostic_code :: (fn(imm(err) : AnyError) -> Option(String))(
+primary_diagnostic_code :: (fn(err : &AnyError) -> Option(String))(
   match(
     downcast(err, YoError),
     .Some(ye) => match(
@@ -721,7 +721,7 @@ primary_diagnostic_code :: (fn(imm(err) : AnyError) -> Option(String))(
   )
 );
 /// The file of `err`'s primary diagnostic (`None` for a non-`YoError`).
-primary_diagnostic_path :: (fn(imm(err) : AnyError) -> Option(String))(
+primary_diagnostic_path :: (fn(err : &AnyError) -> Option(String))(
   match(
     downcast(err, YoError),
     .Some(ye) => match(
@@ -738,7 +738,7 @@ primary_diagnostic_path :: (fn(imm(err) : AnyError) -> Option(String))(
 /// rewrites the old location's text. Used to report an error raised inside
 /// the standard library at the user's call that led there
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 4.4).
-reanchor_primary_at :: (fn(imm(err) : YoError, imm(tok) : Token, imm(note) : String) -> YoError)({
+reanchor_primary_at :: (fn(err : &YoError, tok : &Token, note : &String) -> YoError)({
   entries := ArrayList(Diagnostic).new();
   (ri : usize) = usize(0);
   while(ri < err.diagnostics.len(), {
@@ -779,19 +779,19 @@ reanchor_primary_at :: (fn(imm(err) : YoError, imm(tok) : Token, imm(note) : Str
 /// A Warning-severity diagnostic anchored at a token, with an optional help
 /// line, for `emit_warning`. Warnings carry no code: the classifier's codes
 /// name errors.
-warning_diagnostic_of_token :: (fn(imm(token) : Token, imm(message) : String, imm(help) : Option(String)) -> Diagnostic)({
+warning_diagnostic_of_token :: (fn(token : &Token, message : &String, help : &Option(String)) -> Diagnostic)({
   d := _diagnostic_of_token(token, Severity.Warning, message);
   d.code = Option(String).None;
   d.help = help;
   d
 });
 /// A Note-severity diagnostic anchored at a token (the import-chain note).
-note_diagnostic_of_token :: (fn(imm(token) : Token, imm(message) : String) -> Diagnostic)(
+note_diagnostic_of_token :: (fn(token : &Token, message : &String) -> Diagnostic)(
   _diagnostic_of_token(token, Severity.Note, message)
 );
 /// Get the source line at the token's position with a caret indicator
 /// (the legacy pre-P1 block, still used by the warnings path).
-get_line_at_token :: (fn(imm(token) : Token) -> String)({
+get_line_at_token :: (fn(token : &Token) -> String)({
   lines := token.input.split(String.from("\n"));
   row_line := match(
     lines.get(usize(token.row)),
@@ -811,7 +811,7 @@ get_line_at_token :: (fn(imm(token) : Token) -> String)({
 /// Get the source line at a given position with a caret indicator
 /// (the legacy pre-P1 block).
 get_line_at_position :: (
-  fn(imm(module_path) : String, imm(input_string) : String, row : usize, column : usize) -> String
+  fn(module_path : &String, input_string : &String, row : usize, column : usize) -> String
 )({
   lines := input_string.split(String.from("\n"));
   row_line := match(
@@ -827,7 +827,7 @@ get_line_at_position :: (
 /// Format warning messages into a single string (legacy pre-P1 block; the
 /// warnings channel itself is P4, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §7).
 format_warning_messages :: (
-  fn(imm(warning_message) : Option(String), imm(token_and_warning_list) : ArrayList(TokenAndWarning)) -> String
+  fn(warning_message : &Option(String), token_and_warning_list : &ArrayList(TokenAndWarning)) -> String
 )({
   parts := ArrayList(String).new();
   n := token_and_warning_list.len();

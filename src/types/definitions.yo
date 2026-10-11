@@ -40,7 +40,7 @@ FuncMeta :: struct(
   /// CTFE; the FuncVal-call delegation + `evaluate_comptime_fn_call`'s
   /// `should_cache` use it to route type-constructor calls through memoization.
   result_is_comptime_only : bool,
-  /// Per-parameter `ref` flags (parallel to param labels/types). `inout(name):T`
+  /// Per-parameter `ref` flags (parallel to param labels/types). `name : &mut T`
   /// = by-reference borrow. Used by
   /// `is_flowable_expr` (the `inout(T)`-flow soundness check).
   param_is_ref : ArrayList(bool),
@@ -48,7 +48,7 @@ FuncMeta :: struct(
   /// Rc value. Used by
   /// `require_ref_own_argument_exclusivity`.
   param_is_owning : ArrayList(bool),
-  /// True when the return was declared `-> inout(T)`.
+  /// True when the return was declared `-> &mut T`.
   /// `is_flowable_expr` requires a flowable return.
   result_is_ref : bool,
   /// True when the param list ends with a `...` variadic marker (C-style
@@ -355,11 +355,11 @@ TypeValue :: ref(
       /// Per-call-param `inout` flags, parallel to `call_param_labels`. The
       /// call signature is FLATTENED into the variant, and dropping this
       /// flag made a closure typed against
-      /// `Impl(Fn(inout(v) : T) -> R)` bind `v` BY VALUE (the sync/mutex
+      /// `Impl(Fn(v : &mut T) -> R)` bind `v` BY VALUE (the sync/mutex
       /// `with_lock` write-through failure). Empty = all by-value.
       call_param_is_ref : ArrayList(bool),
       /// Per-call-param BY-VALUE flags (V3b's flip, decision 30): a plain
-      /// `Fn(x : T)` parameter is by value, `Fn(imm(x) : T)` borrows, like a
+      /// `Fn(x : T)` parameter is by value, `Fn(x : &T)` borrows, like a
       /// `fn` type's `param_is_owning`. Empty = none by value (a closure type
       /// synthesized without a written `Fn(...)`).
       call_param_is_owning : ArrayList(bool)
@@ -411,7 +411,7 @@ TypeValue :: ref(
 /// reverse. Not recursive by itself; a guard on a nested
 /// `refine(refine(i32, p), q)` unwraps one level per match, which is
 /// enough for every integer/bool surface.
-t_refine_inner :: (fn(imm(t) : TypeValue) -> TypeValue)(
+t_refine_inner :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
     .RefineT(inner, _) => inner,
@@ -471,7 +471,7 @@ impl(
     // values) and it equally breaks the infinite-recursion problem the manual
     // clone existed to solve (returning a handle never re-enters clone). Verified
     // corpus-neutral (96/96). See plans/backlog/TYPEVALUE_HASH_CONSING.md §5.
-    clone : (fn(mut(self) : Self) -> Self)(self)
+    clone : (fn(self : &mut Self) -> Self)(self)
   )
 );
 // ---------------------------------------------------------------------------
@@ -488,7 +488,7 @@ impl(
   HashMap(String, ArrayList(bool)).new();
 /// Register the per-field compile-time-only flags for a struct id.
 register_struct_field_comptime_flags :: (
-  fn(imm(struct_id) : String, imm(flags) : ArrayList(bool)) -> unit
+  fn(struct_id : &String, flags : &ArrayList(bool)) -> unit
 )({
   g_struct_field_comptime_flags.insert(struct_id.clone(), flags);
   ()
@@ -496,7 +496,7 @@ register_struct_field_comptime_flags :: (
 /// Get the per-field compile-time-only flags for a struct id (`.None` if the
 /// struct was not registered — treat as all-runtime).
 get_struct_field_comptime_flags :: (
-  fn(imm(struct_id) : String) -> Option(ArrayList(bool))
+  fn(struct_id : &String) -> Option(ArrayList(bool))
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );

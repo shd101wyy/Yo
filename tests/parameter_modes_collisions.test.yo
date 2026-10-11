@@ -10,8 +10,8 @@ pragma(Pragma.AllowUnsafe);
 { arch, Arch } :: import("std/process");
 imm :: import("std/collections/hash_map");
 
-_pmc_size :: (fn(imm(m) : imm.HashMap(i32, i32)) -> usize)(m.len());
-_pmc_grow :: (fn(mut(m) : imm.HashMap(i32, i32), k : i32) -> unit)({
+_pmc_size :: (fn(m : &imm.HashMap(i32, i32)) -> usize)(m.len());
+_pmc_grow :: (fn(m : &mut imm.HashMap(i32, i32), k : i32) -> unit)({
   m.insert(k, k * i32(10));
 });
 
@@ -46,7 +46,7 @@ test("asm's imm register class", {
   );
 });
 
-_pmc_asm_bump :: (fn(mut(n) : i64) -> unit)({
+_pmc_asm_bump :: (fn(n : &mut i64) -> unit)({
   cond(
     (arch == Arch.Aarch64) => {
       (v : i64) = n;

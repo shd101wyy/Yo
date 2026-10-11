@@ -5,12 +5,12 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { AnyError, Error, Exception, IoExn } :: import("std/error");
 TestDyn :: trait(
-  print : (fn(imm(self) : *Self) -> unit),
-  return_i32 : (fn(imm(self) : *Self) -> i32)
+  print : (fn(self : &*Self) -> unit),
+  return_i32 : (fn(self : &*Self) -> i32)
 );
 use_test_dyn :: (
   fn(
-    imm(value) : Dyn(TestDyn)
+    value : &Dyn(TestDyn)
   ) -> i32
 )({
   value.print();
@@ -24,7 +24,7 @@ MyBox :: ref(
 impl(
   MyBox,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       unsafe(printf("Disposing Boxed i32 with value: %d\n", self.x));
     })
   )
@@ -104,10 +104,10 @@ test("Test simple dynamic dispatch with automatic `box` call on value types", {
 });
 test("Test Dyn with multiple traits", {
   Speak :: trait(
-    speak : (fn(imm(self) : Self) -> i32)
+    speak : (fn(self : &Self) -> i32)
   );
   Run :: trait(
-    run : (fn(imm(self) : Self) -> i32)
+    run : (fn(self : &Self) -> i32)
   );
   Dog :: ref(struct());
   DogSpeak :: impl(
@@ -132,7 +132,7 @@ test("Test Dyn with multiple traits", {
       )
     )
   );
-  act :: (fn(imm(s) : Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
+  act :: (fn(s : &Dyn(Speak, Run)) -> i32)(s.speak() + s.run());
   dog := Dog();
   result := act(dyn(dog));
   assert(result == 3, "Expected result to be 3");
@@ -267,12 +267,12 @@ test("Test downcast with multiple concrete types", {
 // type minted the Future struct on demand INSIDE the open vtable typedef, and
 // clang rejected the program ("field has incomplete type", "unknown type
 // name"). The vtable now collects its member lines before opening the typedef.
-AsyncRead :: trait(read : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn))));
+AsyncRead :: trait(read : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn))));
 FixedSrc :: ref(struct(n : usize));
 impl(
   FixedSrc,
   AsyncRead(
-    read : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+    read : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
         return(self.n);
       })
@@ -282,7 +282,7 @@ impl(
 DynReader :: ref(struct(inner : Dyn(AsyncRead)));
 impl(
   DynReader,
-  read_twice : (fn(imm(self) : Self, io : Io) -> Impl(Future(usize, IoExn)))(
+  read_twice : (fn(self : &Self, io : Io) -> Impl(Future(usize, IoExn)))(
     io.async(e => {
       a := e.io.await(self.inner.read(e.io), e);
       b := e.io.await(self.inner.read(e.io), e);
@@ -317,7 +317,7 @@ DynPayloadRes :: ref(struct(tag : i32));
 impl(
   DynPayloadRes,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       g_dyn_payload_disposed = (g_dyn_payload_disposed + i32(1));
     })
   )
@@ -466,7 +466,7 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   impl(
     RefErr,
     ToString(
-      to_string : (fn(mut(self) : Self) -> String)({
+      to_string : (fn(self : &mut Self) -> String)({
         return(self.msg.clone());
       })
     )
@@ -479,7 +479,7 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   impl(
     ValErr,
     ToString(
-      to_string : (fn(mut(self) : Self) -> String)(
+      to_string : (fn(self : &mut Self) -> String)(
         match(self, .Boom => `boom`, .Bust => `bust`)
       )
     )
@@ -492,8 +492,8 @@ test("Test Dyn(Error) over a trait default the implementor omits", {
   assert(`${ve}` == `bust`, "Dyn(Error) from a value enum (auto-box)");
   match(ve.source(), .Some(_) => assert(false, "default source must be None (enum)"), .None => ());
 });
-_use_to_string_dyn :: (fn(imm(v) : Dyn(ToString)) -> String)(v.to_string());
-_generic_show :: (fn(generic(T : Type), imm(v) : T, where(T <: ToString)) -> String)(
+_use_to_string_dyn :: (fn(v : &Dyn(ToString)) -> String)(v.to_string());
+_generic_show :: (fn(generic(T : Type), v : &T, where(T <: ToString)) -> String)(
   _use_to_string_dyn(dyn(v))
 );
 test("Test dyn inside a generic body whose concrete is still a type variable", {
@@ -541,11 +541,11 @@ test("Test an Option of a pointer-to-trait-object keeps its payload type", {
 // (issues/fixed/dyn-object-safety-is-not-enforced-before-codegen.md). The
 // trait's other methods stay callable through the same Dyn.
 // ---------------------------------------------------------------------------
-_OsSp :: trait(speak : (fn(imm(self) : Self) -> i32), me : (fn(mut(self) : Self) -> Self), same : (fn(imm(self) : Self, imm(other) : Self) -> bool));
-_OsGen :: trait(conv : (fn(generic(B : Type), mut(self) : Self, imm(b) : B) -> i32));
+_OsSp :: trait(speak : (fn(self : &Self) -> i32), me : (fn(self : &mut Self) -> Self), same : (fn(self : &Self, other : &Self) -> bool));
+_OsGen :: trait(conv : (fn(generic(B : Type), self : &mut Self, b : &B) -> i32));
 _OsCat :: ref(struct(n : i32));
 impl(_OsCat, _OsSp(speak : (self -> self.n), me : (self -> self), same : ((self, other) -> (self.n == other.n))));
-impl(_OsCat, _OsGen(conv : (fn(generic(B : Type), mut(self) : Self, imm(b) : B) -> i32)(self.n)));
+impl(_OsCat, _OsGen(conv : (fn(generic(B : Type), self : &mut Self, b : &B) -> i32)(self.n)));
 test("Dyn: a method a Dyn cannot call is E0614, the rest stay callable", {
   (d : Dyn(_OsSp)) = dyn(_OsCat(n : i32(3)));
   assert(d.speak() == i32(3), "a Self-only-as-receiver method dispatches");
@@ -557,12 +557,12 @@ test("Dyn: a method a Dyn cannot call is E0614, the rest stay callable", {
 // A blanket INHERENT method over a trait bound resolves for a Dyn receiver; it
 // is not a trait member and has no vtable slot, so it is an ordinary call
 // (issues/fixed/blanket-inherent-method-on-a-dyn-receiver-dispatches-through-the-vtable.md).
-_OsNamed :: trait(name : (fn(imm(self) : Self) -> String));
+_OsNamed :: trait(name : (fn(self : &Self) -> String));
 impl(
   generic(E : Type),
   where(E <: _OsNamed),
   E,
-  _os_shout : (fn(imm(self) : Self) -> String)(self.name().concat(String.from("!")))
+  _os_shout : (fn(self : &Self) -> String)(self.name().concat(String.from("!")))
 );
 impl(_OsCat, _OsNamed(name : (self -> String.from("cat"))));
 test("Dyn: a blanket inherent method on a Dyn receiver is a direct call", {
@@ -572,7 +572,7 @@ test("Dyn: a blanket inherent method on a Dyn receiver is a direct call", {
 // A trait implemented through a GENERIC impl can be put behind a Dyn: the
 // vtable gets the generic impl's methods specialized for the concrete type
 // (issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md).
-_os_show :: (fn(imm(v) : Dyn(ToString)) -> String)(v.to_string());
+_os_show :: (fn(v : &Dyn(ToString)) -> String)(v.to_string());
 test("Dyn: a trait from a generic impl builds its vtable", {
   xs := ArrayList(i32).new();
   xs.push(i32(1));
@@ -582,9 +582,9 @@ test("Dyn: a trait from a generic impl builds its vtable", {
 });
 // No upcasting: a Dyn with more traits is not a Dyn with fewer
 // (docs/en-US/DYN_DESIGN.md, Phase 2.7 decision).
-_OsOt :: trait(other_n : (fn(imm(self) : Self) -> i32));
+_OsOt :: trait(other_n : (fn(self : &Self) -> i32));
 impl(_OsCat, _OsOt(other_n : (self -> i32(1))));
-_os_takes_sp :: (fn(imm(s) : Dyn(_OsSp)) -> i32)(s.speak());
+_os_takes_sp :: (fn(s : &Dyn(_OsSp)) -> i32)(s.speak());
 test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
   (both : Dyn(_OsSp, _OsOt)) = dyn(_OsCat(n : i32(3)));
   comptime_expect_error(_os_takes_sp(both), "write upcast(value, Dyn(...))");
@@ -634,8 +634,8 @@ test("Dyn: an upcast cannot add a trait, and dyn() of a Dyn is rejected", {
   assert(one.speak() == i32(3), "the value itself is fine");
 });
 // issues/fixed/two-traits-sharing-a-method-name-in-one-dyn-emit-a-duplicate-c-wrapper.md
-_ClA :: trait(get : (fn(imm(self) : Self) -> i32));
-_ClB :: trait(get : (fn(imm(self) : Self) -> i32));
+_ClA :: trait(get : (fn(self : &Self) -> i32));
+_ClB :: trait(get : (fn(self : &Self) -> i32));
 test("Dyn: two traits with a same-named method cannot share one Dyn (E0616)", {
   comptime_expect_error(Dyn(_ClA, _ClB), "cannot hold two methods named");
   assert(true, "rejected");
@@ -655,12 +655,12 @@ test("Test an ArrayList of trait objects reads its elements back", {
 // issues/fixed/dyn-trait-order-is-part-of-its-c-type.md: a Dyn's trait list
 // is a set, so `Dyn(A, B)` flows into a `Dyn(B, A)` parameter and both
 // spellings are one C type with one vtable layout.
-_OrdA :: trait(a : (fn(imm(self) : Self) -> i32));
-_OrdB :: trait(b : (fn(imm(self) : Self) -> i32));
+_OrdA :: trait(a : (fn(self : &Self) -> i32));
+_OrdB :: trait(b : (fn(self : &Self) -> i32));
 _OrdC :: ref(struct(n : i32));
 impl(_OrdC, _OrdA(a : (self -> self.n)));
 impl(_OrdC, _OrdB(b : (self -> (self.n + i32(100)))));
-_ord_take :: (fn(imm(d) : Dyn(_OrdB, _OrdA)) -> i32)(d.a() + (d.b() * i32(1000)));
+_ord_take :: (fn(d : &Dyn(_OrdB, _OrdA)) -> i32)(d.a() + (d.b() * i32(1000)));
 test("Dyn: the trait order is not part of the type", {
   (x : Dyn(_OrdA, _OrdB)) = dyn(_OrdC(n : i32(1)));
   assert(_ord_take(x) == i32(101001), "both slots dispatch to their own impl");
@@ -682,21 +682,21 @@ test("an unqualified call two trait impls supply is ambiguous (E0616)", {
 // parameter of a Dyn vtable slot is `T*` in the slot, the wrapper and every
 // call site, as it is for a plain fn or an `Impl(Fn)` (the slot and wrapper
 // spelled it `T`, the closure and the call site `T*`: a clang error).
-_DioHolder :: struct(cb : Dyn(Fn(mut(n) : i32) -> unit));
-_DioPusher :: struct(push : Dyn(Fn(mut(xs) : ArrayList(i32)) -> unit));
-_dio_bump_twice :: (fn(mut(y) : i32, imm(h) : _DioHolder) -> unit)({
+_DioHolder :: struct(cb : Dyn(Fn(n : &mut i32) -> unit));
+_DioPusher :: struct(push : Dyn(Fn(xs : &mut ArrayList(i32)) -> unit));
+_dio_bump_twice :: (fn(y : &mut i32, h : &_DioHolder) -> unit)({
   h.cb(y);
   h.cb(y);
 });
-_dio_push_through :: (fn(mut(xs) : ArrayList(i32), imm(p) : _DioPusher) -> unit)({
+_dio_push_through :: (fn(xs : &mut ArrayList(i32), p : &_DioPusher) -> unit)({
   p.push(xs);
 });
-_dio_call_param :: (fn(mut(y) : i32, imm(cb) : Dyn(Fn(mut(n) : i32) -> unit)) -> unit)({
+_dio_call_param :: (fn(y : &mut i32, cb : &Dyn(Fn(n : &mut i32) -> unit)) -> unit)({
   cb(y);
 });
 test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
   h := _DioHolder(
-    cb : dyn(mut(n) => {
+    cb : dyn((n : &mut i32) => {
       n = (n + i32(1));
     })
   );
@@ -708,7 +708,7 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
   _dio_call_param(x, h.cb);
   assert(x == i32(45), "a Dyn(Fn) parameter called with an inout parameter");
   p := _DioPusher(
-    push : dyn(mut(xs) => {
+    push : dyn((xs : &mut ArrayList(i32)) => {
       xs.push(i32(7));
     })
   );
@@ -718,17 +718,17 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
   assert(ys.len() == usize(2), "a local ArrayList is pushed through the callback, directly and forwarded");
   assert(match(ys.get(usize(1)), .Some(v) => (v == i32(7)), .None => false), "the pushed element reads back");
 });
-_DioBump :: trait(bump : (fn(imm(self) : Self, mut(n) : i32) -> unit));
+_DioBump :: trait(bump : (fn(self : &Self, n : &mut i32) -> unit));
 _DioStep :: struct(k : i32);
 impl(
   _DioStep,
   _DioBump(
-    bump : (fn(imm(self) : Self, mut(n) : i32) -> unit)({
+    bump : (fn(self : &Self, n : &mut i32) -> unit)({
       n = (n + self.k);
     })
   )
 );
-_dio_trait_bump :: (fn(mut(y) : i32, imm(d) : Dyn(_DioBump)) -> unit)({
+_dio_trait_bump :: (fn(y : &mut i32, d : &Dyn(_DioBump)) -> unit)({
   d.bump(y);
 });
 test("Dyn(trait) method with an inout parameter writes through to the caller's place", {
@@ -747,18 +747,18 @@ test("Dyn(trait) method with an inout parameter writes through to the caller's p
 // runtime canary here: `dyn(f)` of a named function emits invalid C
 // (issues/dyn-of-a-named-function-value-emits-invalid-c.md).
 _dfs_by_value :: (fn(s : String) -> usize)(s.len());
-_dfs_call :: (fn(imm(f) : Dyn(Fn(imm(s) : String) -> usize), imm(s) : String) -> usize)(f(s));
+_dfs_call :: (fn(f : &Dyn(Fn(s : &String) -> usize), s : &String) -> usize)(f(s));
 test("dyn of a function value checks its signature against the Dyn's `Fn`", {
   s := String.from("four");
   comptime_expect_error({
-    (h : Dyn(Fn(imm(s) : String) -> usize)) = dyn(_dfs_by_value);
+    (h : Dyn(Fn(s : &String) -> usize)) = dyn(_dfs_by_value);
   }, "a parameter's mode is part of the function type");
   comptime_expect_error({
     (h : Dyn(Fn(x : i32) -> i32)) = dyn(_dfs_by_value);
   }, "Incompatible types");
   (by_value : Dyn(Fn(t : String) -> usize)) = dyn(t => t.len());
   comptime_expect_error(_dfs_call(by_value, s), "a parameter's mode is part of the function type");
-  (c : Dyn(Fn(imm(t) : String) -> usize)) = dyn(t => t.len());
+  (c : Dyn(Fn(t : &String) -> usize)) = dyn(t => t.len());
   assert(_dfs_call(c, s) == usize(4), "a closure literal adopts the Dyn's modes");
   assert(s.len() == usize(4), "s was only ever lent");
 });

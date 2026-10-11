@@ -109,7 +109,7 @@ impl(
   /// Absorb `data` and return the same hasher, so calls chain. O(len).
   /// Buffers a partial 64-byte block, so how the input is split cannot
   /// change the digest.
-  update : (fn(imm(self) : Self, imm(data) : ArrayList(u8)) -> Self)({
+  update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)({
     i := usize(0);
     while(i < data.len(), i = (i + usize(1)), {
       self._buf(self._buflen) = data(i);
@@ -133,7 +133,7 @@ impl(
   /// **Single use** — the padding is written into the hasher's own buffer,
   /// so a second `finish` digests the padded state rather than the
   /// message.
-  finish : (fn(imm(self) : Self) -> Array(u8, usize(20)))({
+  finish : (fn(self : &Self) -> Array(u8, usize(20)))({
     bit_len := (self._total * u64(8));
     self._buf(self._buflen) = u8(0x80);
     self._buflen = (self._buflen + usize(1));
@@ -181,10 +181,10 @@ impl(
   Sha1,
   Digest(
     new : (fn() -> Self)(Self.new()),
-    update : (fn(imm(self) : Self, imm(data) : ArrayList(u8)) -> Self)(self.update(data)),
+    update : (fn(self : &Self, data : &ArrayList(u8)) -> Self)(self.update(data)),
     digest_size : (fn() -> usize)(usize(20)),
     block_size : (fn() -> usize)(usize(64)),
-    finish_bytes : (fn(imm(self) : Self) -> ArrayList(u8))({
+    finish_bytes : (fn(self : &Self) -> ArrayList(u8))({
       d := self.finish();
       out := ArrayList(u8).with_capacity(usize(20));
       (fbi : usize) = usize(0);
@@ -206,12 +206,12 @@ impl(
 /// content an attacker can influence. `sha256` is the replacement. This is
 /// here for protocols that specify SHA-1 — git object ids, HMAC-SHA1 in
 /// OAuth 1 and TOTP.
-sha1 :: (fn(imm(data) : ArrayList(u8)) -> Array(u8, usize(20)))(
+sha1 :: (fn(data : &ArrayList(u8)) -> Array(u8, usize(20)))(
   Sha1.new().update(data).finish()
 );
 /// SHA-1 of `data` as 40 lowercase hex characters — git's object-id
 /// spelling. Same collision caveat as `sha1`.
-sha1_hex :: (fn(imm(data) : ArrayList(u8)) -> String)({
+sha1_hex :: (fn(data : &ArrayList(u8)) -> String)({
   digest := sha1(data);
   bytes := ArrayList(u8).with_capacity(usize(20));
   i := usize(0);

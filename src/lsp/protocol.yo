@@ -31,12 +31,12 @@ JsonObjBuilder :: ref(
 );
 impl(
   JsonObjBuilder,
-  put : (fn(imm(self) : Self, key : str, imm(v) : JsonValue) -> Self)({
+  put : (fn(self : &Self, key : str, v : &JsonValue) -> Self)({
     self.keys.push(String.from(key));
     self.values.push(v);
     return(self);
   }),
-  obj : (fn(imm(self) : Self) -> JsonValue)(
+  obj : (fn(self : &Self) -> JsonValue)(
     JsonValue.Object(keys : self.keys, values : self.values)
   )
 );
@@ -48,7 +48,7 @@ jb :: (fn() -> JsonObjBuilder)(
   )
 );
 /// JSON string value.
-jstr :: (fn(imm(s) : String) -> JsonValue)(JsonValue.Str(value : s));
+jstr :: (fn(s : &String) -> JsonValue)(JsonValue.Str(value : s));
 /// JSON number value from a usize.
 jnum :: (fn(n : usize) -> JsonValue)(JsonValue.Number(value : f64(n)));
 /// LSP Position (0-based line/character). `character` is already in the
@@ -95,7 +95,7 @@ _utf16_units :: (fn(c : rune) -> usize)(
 
 /// UTF-16 column of RUNE column `col` within `line`. A `col` at or past the
 /// line's rune count clamps to the line's total unit count.
-rune_col_to_utf16_col :: (fn(imm(line) : String, col : usize) -> usize)({
+rune_col_to_utf16_col :: (fn(line : &String, col : usize) -> usize)({
   (seen : usize) = usize(0);
   (units : usize) = usize(0);
   it := line.chars();
@@ -117,7 +117,7 @@ rune_col_to_utf16_col :: (fn(imm(line) : String, col : usize) -> usize)({
 /// `line` — the inverse of `rune_col_to_utf16_col`. A `col` that lands on the
 /// low half of a surrogate pair belongs to that rune; a `col` past the end
 /// clamps to the line's rune count.
-utf16_col_to_rune_col :: (fn(imm(line) : String, col : usize) -> usize)({
+utf16_col_to_rune_col :: (fn(line : &String, col : usize) -> usize)({
   (units : usize) = usize(0);
   (runes : usize) = usize(0);
   it := line.chars();
@@ -138,7 +138,7 @@ utf16_col_to_rune_col :: (fn(imm(line) : String, col : usize) -> usize)({
 
 /// UTF-8 column (BYTE offset) of RUNE column `col` within `line`. A `col` at
 /// or past the line's rune count clamps to the line's byte length.
-rune_col_to_utf8_col :: (fn(imm(line) : String, col : usize) -> usize)({
+rune_col_to_utf8_col :: (fn(line : &String, col : usize) -> usize)({
   (seen : usize) = usize(0);
   (bi : usize) = usize(0);
   n := line.len();
@@ -161,7 +161,7 @@ rune_col_to_utf8_col :: (fn(imm(line) : String, col : usize) -> usize)({
 /// offset) `col` of `line` — the inverse of `rune_col_to_utf8_col`. A `col`
 /// that lands mid-rune belongs to that rune; a `col` past the end clamps to
 /// the line's rune count.
-utf8_col_to_rune_col :: (fn(imm(line) : String, col : usize) -> usize)({
+utf8_col_to_rune_col :: (fn(line : &String, col : usize) -> usize)({
   (runes : usize) = usize(0);
   (bi : usize) = usize(0);
   n := line.len();
@@ -179,7 +179,7 @@ utf8_col_to_rune_col :: (fn(imm(line) : String, col : usize) -> usize)({
 });
 /// A `position.character` from the client → RUNE column, per the negotiated
 /// encoding.
-client_col_to_rune :: (fn(imm(line) : String, col : usize) -> usize)(
+client_col_to_rune :: (fn(line : &String, col : usize) -> usize)(
   cond(
     (g_position_encoding == usize(0)) => utf16_col_to_rune_col(line, col),
     (g_position_encoding == usize(2)) => utf8_col_to_rune_col(line, col),
@@ -187,7 +187,7 @@ client_col_to_rune :: (fn(imm(line) : String, col : usize) -> usize)(
   )
 );
 /// A RUNE column → the client's `character`, per the negotiated encoding.
-rune_col_to_client :: (fn(imm(line) : String, col : usize) -> usize)(
+rune_col_to_client :: (fn(line : &String, col : usize) -> usize)(
   cond(
     (g_position_encoding == usize(0)) => rune_col_to_utf16_col(line, col),
     (g_position_encoding == usize(2)) => rune_col_to_utf8_col(line, col),
@@ -197,14 +197,14 @@ rune_col_to_client :: (fn(imm(line) : String, col : usize) -> usize)(
 /// The `row`-th line of a document split on `\n` ("" past the end). A
 /// trailing `\r` (CRLF documents) stays on the line — it sits after every
 /// column, so conversions are unaffected.
-line_at :: (fn(imm(lines) : ArrayList(String), row : usize) -> String)(
+line_at :: (fn(lines : &ArrayList(String), row : usize) -> String)(
   match(lines.get(row), .Some(l) => l, .None => String.new())
 );
 /// LSP Range from RUNE columns, converted to the wire encoding against the
 /// document's lines (`text.split("\n")`).
 j_range_in :: (
   fn(
-    imm(lines) : ArrayList(String),
+    lines : &ArrayList(String),
     start_line : usize,
     start_col : usize,
     end_line : usize,
@@ -224,11 +224,11 @@ j_range_in :: (
 /// the registry code (`E0401`) when the diagnostic carries one.
 j_diagnostic :: (
   fn(
-    imm(range) : JsonValue,
+    range : &JsonValue,
     severity : usize,
-    imm(code) : Option(String),
-    imm(message) : String,
-    (imm(related) : JsonValue) ?= JsonValue.Null
+    code : &Option(String),
+    message : &String,
+    (related : &JsonValue) ?= JsonValue.Null
   ) -> JsonValue
 )({
   b := jb().put("range", range).put("severity", jnum(severity));
@@ -251,11 +251,11 @@ j_diagnostic :: (
   b.put("source", jstr(String.from("yo"))).put("message", jstr(message)).obj()
 });
 /// A JSON-RPC response carrying `result` for request `id`.
-j_response :: (fn(imm(id) : JsonValue, imm(result) : JsonValue) -> JsonValue)(
+j_response :: (fn(id : &JsonValue, result : &JsonValue) -> JsonValue)(
   jb().put("jsonrpc", jstr(String.from("2.0"))).put("id", id).put("result", result).obj()
 );
 /// A JSON-RPC error response for request `id`.
-j_error_response :: (fn(imm(id) : JsonValue, code : i64, imm(message) : String) -> JsonValue)(
+j_error_response :: (fn(id : &JsonValue, code : i64, message : &String) -> JsonValue)(
   jb().put("jsonrpc", jstr(String.from("2.0"))).put("id", id).put(
     "error",
     jb().put("code", JsonValue.Number(value : f64(code))).put("message", jstr(message)).obj()
@@ -270,7 +270,7 @@ j_error_response :: (fn(imm(id) : JsonValue, code : i64, imm(message) : String) 
 ///
 /// `col` at or past the line's rune count clamps to the line's byte length,
 /// which is a boundary.
-rune_col_to_byte_offset :: (fn(imm(line) : String, col : usize) -> usize)({
+rune_col_to_byte_offset :: (fn(line : &String, col : usize) -> usize)({
   (seen : usize) = usize(0);
   it := line.char_indices();
   while(true, {
@@ -294,7 +294,7 @@ rune_col_to_byte_offset :: (fn(imm(line) : String, col : usize) -> usize)({
 /// is a rune boundary.
 ///
 /// An offset past the end clamps to the line's rune count.
-byte_offset_to_rune_col :: (fn(imm(line) : String, off : usize) -> usize)({
+byte_offset_to_rune_col :: (fn(line : &String, off : usize) -> usize)({
   (col : usize) = usize(0);
   it := line.char_indices();
   while(true, {
@@ -314,7 +314,7 @@ byte_offset_to_rune_col :: (fn(imm(line) : String, off : usize) -> usize)({
   col
 });
 /// A JSON-RPC notification.
-j_notification :: (fn(method : str, imm(params) : JsonValue) -> JsonValue)(
+j_notification :: (fn(method : str, params : &JsonValue) -> JsonValue)(
   jb().put("jsonrpc", jstr(String.from("2.0"))).put("method", jstr(String.from(method))).put("params", params).obj()
 );
 
@@ -326,7 +326,7 @@ _is_ascii_alpha :: (fn(b : u8) -> bool)(
 );
 /// `/X:` or `/X|` at the start of `p` — the path part of a Windows
 /// `file:///C:/…` URI (`|` is the legacy drive spelling).
-_has_leading_drive :: (fn(imm(p) : String) -> bool)({
+_has_leading_drive :: (fn(p : &String) -> bool)({
   bytes := p;
   if(bytes.len() < usize(3), {
     return(false);
@@ -347,7 +347,7 @@ _has_leading_drive :: (fn(imm(p) : String) -> bool)({
 ///
 /// A malformed escape (`%zz`) makes the URI invalid; the bytes are then kept
 /// literally, so the caller still gets a stable key for that document.
-uri_to_fs_path :: (fn(imm(uri) : String) -> String)({
+uri_to_fs_path :: (fn(uri : &String) -> String)({
   (s : String) = uri.clone();
   if(s.starts_with(String.from("file://")), {
     s = s.substring(usize(7), s.len());
@@ -370,7 +370,7 @@ uri_to_fs_path :: (fn(imm(uri) : String) -> String)({
 /// the spelling VS Code itself emits. Backslash separators are normalized to
 /// `/` first
 /// (issues/fixed/lsp-definition-uri-is-built-without-percent-encoding.md).
-fs_path_to_uri :: (fn(imm(path) : String) -> String)({
+fs_path_to_uri :: (fn(path : &String) -> String)({
   p := path.replace(String.from("\\"), String.from("/"));
   segs := p.split(String.from("/"));
   encoded := ArrayList(String).new();
@@ -394,7 +394,7 @@ fs_path_to_uri :: (fn(imm(path) : String) -> String)({
 /// A token's `module_path` as an LSP `file:` URI. Module paths arrive either
 /// as `file:///abs` (import-resolved) or plain `/abs`; both are treated as a
 /// filesystem path and encoded by `fs_path_to_uri`.
-module_path_to_uri :: (fn(imm(mp) : String) -> String)(
+module_path_to_uri :: (fn(mp : &String) -> String)(
   cond(
     mp.starts_with(String.from("file://")) => fs_path_to_uri(mp.substring(usize(7), mp.len())),
     true => fs_path_to_uri(mp)

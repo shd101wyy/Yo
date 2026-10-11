@@ -65,7 +65,7 @@ impl(
   /// waking rather than trusting the wake, because `unlock` hands over the
   /// RIGHT to try, not the lock itself: a `try_lock` from a third task can
   /// still win in between, and the loop would otherwise have two holders.
-  lock : (fn(imm(self) : Self, io : Io) -> Impl(Future(unit)))(
+  lock : (fn(self : &Self, io : Io) -> Impl(Future(unit)))(
     io.async((io : Io) => {
       (waiting : bool) = true;
       while(waiting, {
@@ -93,7 +93,7 @@ impl(
   /// forall `R` and rendered through the global last-writer registry; the
   /// stamp now resolves through the enclosing specialization's env
   /// (issues/fixed/future-wrapper-return-shared-across-specializations.md, C54).
-  with_lock : (fn(generic(R : Type), imm(self) : Self, imm(body) : Impl(Fn(mut(v) : T) -> R), io : Io) -> Impl(Future(R)))(
+  with_lock : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &mut T) -> R), io : Io) -> Impl(Future(R)))(
     io.async((io : Io) => {
       io.await(self.lock(io), io);
       r := body(self._value);
@@ -102,7 +102,7 @@ impl(
     })
   ),
   /// Acquire the lock without suspending: true on success.
-  try_lock : (fn(imm(self) : Self) -> bool)(
+  try_lock : (fn(self : &Self) -> bool)(
     cond(
       self._locked => false,
       true => {
@@ -118,7 +118,7 @@ impl(
   /// it, and it re-checks. That is deliberate: handing over the lock itself
   /// would make `try_lock` from a third task able to observe an unlocked mutex
   /// that is already spoken for.
-  unlock : (fn(imm(self) : Self) -> unit)({
+  unlock : (fn(self : &Self) -> unit)({
     assert(self._locked, "Mutex.unlock: not locked");
     self._locked = false;
     // A waiter whose task was cancelled refuses the wake (its park was taken
@@ -132,21 +132,21 @@ impl(
     });
   }),
   /// True while some task holds the lock.
-  is_locked : (fn(imm(self) : Self) -> bool)(
+  is_locked : (fn(self : &Self) -> bool)(
     self._locked
   ),
   /// How many tasks are suspended waiting for this lock. Diagnostics only.
-  waiter_count : (fn(imm(self) : Self) -> usize)(
+  waiter_count : (fn(self : &Self) -> usize)(
     self._waiters.len()
   ),
   /// Read the protected value. Meaningful only while YOU hold the lock —
   /// single-threaded cooperation makes an unlocked read a logic bug, not a
   /// data race, so it is not prevented.
-  get : (fn(imm(self) : Self) -> T)(
+  get : (fn(self : &Self) -> T)(
     self._value
   ),
   /// Replace the protected value (same locking contract as `get`).
-  set : (fn(imm(self) : Self, value : T) -> unit)({
+  set : (fn(self : &Self, value : T) -> unit)({
     self._value = value;
   })
 );

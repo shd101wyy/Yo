@@ -21,7 +21,7 @@
 // Internal helpers
 // ---------------------------------------------------------------------------
 /// Strip leading underscore bytes (`_`) from a string.
-_strip_leading_underscores :: (fn(imm(name) : String) -> String)({
+_strip_leading_underscores :: (fn(name : &String) -> String)({
   bytes := name;
   n := bytes.len();
   (i : usize) = usize(0);
@@ -52,7 +52,7 @@ _strip_leading_underscores :: (fn(imm(name) : String) -> String)({
   String.from_bytes(out)
 });
 /// Strip trailing underscore bytes (`_`) from a string.
-_strip_trailing_underscores :: (fn(imm(name) : String) -> String)({
+_strip_trailing_underscores :: (fn(name : &String) -> String)({
   bytes := name;
   n := bytes.len();
   if(n == usize(0), {
@@ -84,7 +84,7 @@ _strip_trailing_underscores :: (fn(imm(name) : String) -> String)({
   });
   String.from_bytes(out)
 });
-_trim_underscores :: (fn(imm(name) : String) -> String)(
+_trim_underscores :: (fn(name : &String) -> String)(
   _strip_trailing_underscores(_strip_leading_underscores(name))
 );
 /// True iff byte is in `A`..=`Z`.
@@ -101,7 +101,7 @@ _is_lower_byte :: (fn(b : u8) -> bool)(
 /// Check if the name is in `UpperCamelCase` (PascalCase).
 ///
 /// Throws when passed an empty string.
-is_upper_camel_case :: (fn(imm(name) : String, imm(exn) : Exception) -> bool)({
+is_upper_camel_case :: (fn(name : &String, exn : &Exception) -> bool)({
   if(name.len() == usize(0), {
     exn.throw(dyn(String.from("Name cannot be empty")));
   });
@@ -115,7 +115,7 @@ is_upper_camel_case :: (fn(imm(name) : String, imm(exn) : Exception) -> bool)({
 /// Check if the name is in `lowerCamelCase`.
 ///
 /// Throws when passed an empty string.
-is_lower_camel_case :: (fn(imm(name) : String, imm(exn) : Exception) -> bool)({
+is_lower_camel_case :: (fn(name : &String, exn : &Exception) -> bool)({
   if(name.len() == usize(0), {
     exn.throw(dyn(String.from("Name cannot be empty")));
   });
@@ -129,7 +129,7 @@ is_lower_camel_case :: (fn(imm(name) : String, imm(exn) : Exception) -> bool)({
 /// Check if the name is in `snake_case` (contains no uppercase letters).
 ///
 /// Scans byte-by-byte for uppercase ASCII letters.
-is_snake_case :: (fn(imm(name) : String) -> bool)({
+is_snake_case :: (fn(name : &String) -> bool)({
   bytes := name;
   n := bytes.len();
   (i : usize) = usize(0);
@@ -145,7 +145,7 @@ is_snake_case :: (fn(imm(name) : String) -> bool)({
 });
 /// Check if the name is in `SCREAMING_SNAKE_CASE` — true iff
 /// `name == name.toUpperCase()`.
-is_screaming_snake_case :: (fn(imm(name) : String) -> bool)(
+is_screaming_snake_case :: (fn(name : &String) -> bool)(
   name == name.to_uppercase()
 );
 export(is_upper_camel_case, is_lower_camel_case, is_snake_case, is_screaming_snake_case);

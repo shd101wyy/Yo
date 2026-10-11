@@ -52,7 +52,7 @@ Format :: trait(
   /// Render `self` under `spec`. An unrecognised spec degrades to the plain
   /// `to_string()` rendering rather than failing. The default applies width,
   /// fill, alignment and truncation to `to_string()`.
-  (format : (fn(mut(self) : Self, spec : str) -> String)) ?=
+  (format : (fn(self : &mut Self, spec : str) -> String)) ?=
     (
       (self, spec) -> {
         s := FormatSpec.parse(spec);
@@ -115,7 +115,7 @@ _f64_fixed :: (fn(v : f64, p : usize) -> String)({
 });
 /// Shared body for every integer impl: `neg` and `mag` are the sign-magnitude
 /// split the caller computed in its own width.
-_format_int :: (fn(neg : bool, mag : u64, imm(decimal) : String, spec : str) -> String)({
+_format_int :: (fn(neg : bool, mag : u64, decimal : &String, spec : str) -> String)({
   s := FormatSpec.parse(spec);
   radix := _radix_of(s.kind);
   digits := if(radix == u64(10), decimal, _to_radix(mag, radix, s.kind.char == u32(0x58)));
@@ -129,7 +129,7 @@ _format_int :: (fn(neg : bool, mag : u64, imm(decimal) : String, spec : str) -> 
 impl(
   i8,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)({
+    format : (fn(self : &mut Self, spec : str) -> String)({
       neg := (self < i8(0));
       mag := if(neg, ~u64(self) + u64(1), u64(self));
       dec := if(neg, i8(0).to_string(), self.to_string());
@@ -140,7 +140,7 @@ impl(
 impl(
   i16,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)({
+    format : (fn(self : &mut Self, spec : str) -> String)({
       neg := (self < i16(0));
       mag := if(neg, ~u64(self) + u64(1), u64(self));
       dec := if(neg, i16(0).to_string(), self.to_string());
@@ -151,7 +151,7 @@ impl(
 impl(
   i32,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)({
+    format : (fn(self : &mut Self, spec : str) -> String)({
       neg := (self < i32(0));
       mag := if(neg, ~u64(self) + u64(1), u64(self));
       dec := if(neg, i32(0).to_string(), self.to_string());
@@ -162,7 +162,7 @@ impl(
 impl(
   i64,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)({
+    format : (fn(self : &mut Self, spec : str) -> String)({
       neg := (self < i64(0));
       mag := if(neg, ~u64(self) + u64(1), u64(self));
       dec := if(neg, i64(0).to_string(), self.to_string());
@@ -173,7 +173,7 @@ impl(
 impl(
   isize,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)({
+    format : (fn(self : &mut Self, spec : str) -> String)({
       neg := (self < isize(0));
       mag := if(neg, ~u64(self) + u64(1), u64(self));
       dec := if(neg, isize(0).to_string(), self.to_string());
@@ -184,7 +184,7 @@ impl(
 impl(
   u8,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)(
+    format : (fn(self : &mut Self, spec : str) -> String)(
       _format_int(false, u64(self), self.to_string(), spec)
     )
   )
@@ -192,7 +192,7 @@ impl(
 impl(
   u16,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)(
+    format : (fn(self : &mut Self, spec : str) -> String)(
       _format_int(false, u64(self), self.to_string(), spec)
     )
   )
@@ -200,7 +200,7 @@ impl(
 impl(
   u32,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)(
+    format : (fn(self : &mut Self, spec : str) -> String)(
       _format_int(false, u64(self), self.to_string(), spec)
     )
   )
@@ -208,7 +208,7 @@ impl(
 impl(
   u64,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)(
+    format : (fn(self : &mut Self, spec : str) -> String)(
       _format_int(false, u64(self), self.to_string(), spec)
     )
   )
@@ -216,7 +216,7 @@ impl(
 impl(
   usize,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)(
+    format : (fn(self : &mut Self, spec : str) -> String)(
       _format_int(false, u64(self), self.to_string(), spec)
     )
   )
@@ -224,7 +224,7 @@ impl(
 impl(
   f64,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)({
+    format : (fn(self : &mut Self, spec : str) -> String)({
       s := FormatSpec.parse(spec);
       neg := (self < f64(0.0));
       body := match(
@@ -244,7 +244,7 @@ impl(
 impl(
   f32,
   Format(
-    format : (fn(mut(self) : Self, spec : str) -> String)(
+    format : (fn(self : &mut Self, spec : str) -> String)(
       f64(self).format(spec)
     )
   )

@@ -38,7 +38,7 @@
 /// Absolutize against `base` (when relative) and fold `.`/`..` LEXICALLY.
 /// Lexical on purpose: the boundary check below compares prefixes, and a
 /// symlink resolved after the check could still point outside.
-_abs_norm :: (fn(imm(base) : String, imm(p) : String) -> String)({
+_abs_norm :: (fn(base : &String, p : &String) -> String)({
   path := Path.new(p.clone());
   if(!path.is_absolute(), {
     path = Path.new(base.clone()).join(path);
@@ -49,7 +49,7 @@ _abs_norm :: (fn(imm(base) : String, imm(p) : String) -> String)({
 /// nearest `yo.toml` at or above it, else the nearest directory holding a
 /// `build.yo`, else the file's own directory (a loose `.yo` file is its own
 /// package — it can read its siblings and nothing above them).
-_package_root_for :: (fn(imm(file_dir) : String) -> String)(
+_package_root_for :: (fn(file_dir : &String) -> String)(
   match(
     find_manifest(file_dir.clone()),
     .Some(manifest_path) => match(
@@ -83,7 +83,7 @@ _package_root_for :: (fn(imm(file_dir) : String) -> String)(
 /// except a UNC one — whose root IS `\\server\share` and which renders `\`
 /// throughout — so a `/`-only check would reject every legitimate read under a
 /// UNC root, on Windows only.
-_is_inside :: (fn(imm(root) : String, imm(child) : String) -> bool)({
+_is_inside :: (fn(root : &String, child : &String) -> bool)({
   if(child == root, {
     return(true);
   });
@@ -93,7 +93,7 @@ _is_inside :: (fn(imm(root) : String, imm(child) : String) -> bool)({
   child.starts_with(`${root}/`) || child.starts_with(`${root}\\`)
 });
 evaluate_comptime_read_file :: (
-  fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr
 )({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(args.len() != usize(1), {

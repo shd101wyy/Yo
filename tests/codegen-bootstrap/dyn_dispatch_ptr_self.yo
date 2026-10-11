@@ -6,7 +6,7 @@
 pragma(Pragma.AllowUnsafe);
 { putchar } :: import("std/libc/stdio");
 Shape :: trait(
-  area : (fn(imm(self) : *Self) -> i32)
+  area : (fn(self : &*Self) -> i32)
 );
 Sq :: ref(struct(s : i32));
 SqShape :: impl(
@@ -15,7 +15,7 @@ SqShape :: impl(
     area : (fn(self : *Self) -> i32)(self.s * self.s)
   )
 );
-use_shape :: (fn(imm(sh) : Dyn(Shape)) -> i32)(sh.area());
+use_shape :: (fn(sh : &Dyn(Shape)) -> i32)(sh.area());
 main :: (fn() -> unit)({
   unsafe(_a := putchar(int(use_shape(dyn(Sq(9)))))); // 9*9 = 81 = 'Q'
 });

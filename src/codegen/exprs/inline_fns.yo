@@ -71,11 +71,11 @@
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { get_type_string, can_optimize_as_simple_enum, _checked_index_expr, _checked_fixed_array_subscript, _idx_c_string_literal, _is_decimal_literal, _parse_decimal } :: import("../utils/index.yo");
 /// Argument code at index `i` (empty if absent).
-_a :: (fn(imm(args) : ArrayList(String), i : usize) -> String)(
+_a :: (fn(args : &ArrayList(String), i : usize) -> String)(
   match(args.get(i), .Some(s) => s, .None => String.from(""))
 );
 /// `((a) <op> (b))`.
-_binop :: (fn(imm(args) : ArrayList(String), op : str) -> String)({
+_binop :: (fn(args : &ArrayList(String), op : str) -> String)({
   // DEGRADED render when an operand failed to transpile (empty or an FTT
   // comment — its ExprInfo was dropped by an eval throw inside a discarded
   // definition, e.g. a dyn'd closure body over an unresolved capture).
@@ -96,7 +96,7 @@ _binop :: (fn(imm(args) : ArrayList(String), op : str) -> String)({
   out
 });
 /// `<fn>((a), (b))` — a two-argument C call, with `_binop`'s degraded render.
-_callop2 :: (fn(imm(args) : ArrayList(String), fname : str) -> String)({
+_callop2 :: (fn(args : &ArrayList(String), fname : str) -> String)({
   lhs := _a(args, usize(0));
   rhs := _a(args, usize(1));
   if((lhs.len() == usize(0)) || (rhs.len() == usize(0)) || lhs.starts_with("// Failed to transpile") || rhs.starts_with("// Failed to transpile"), {
@@ -117,7 +117,7 @@ _callop2 :: (fn(imm(args) : ArrayList(String), fname : str) -> String)({
 /// MIN/-1 (both C UB, both SIGFPE on x86); unsigned guards divisor-zero.
 /// The MIN constant is spelled per width — `(-2147483647 - 1)`-style, never
 /// `1 << 63` — and isize follows the target (32-bit on wasm32).
-_div_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext, op : str) -> String)({
+_div_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, op : str) -> String)({
   ty := ei_ty(expr, context);
   a := _a(args, usize(0));
   b := _a(args, usize(1));
@@ -164,7 +164,7 @@ _div_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm
 /// operands. The bare `(a + b)` this replaced was never narrowed, so under C's
 /// integer promotion `u8(250).wrapping_add(u8(10))` compared as 260
 /// (issues/fixed/wrapping-methods-shadowed-by-a-loop-based-duplicate.md).
-_wrap_binop :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext, op : str) -> String)({
+_wrap_binop :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, op : str) -> String)({
   raw := _binop(args, op);
   if(raw.starts_with("// Failed to transpile"), {
     return(raw);
@@ -176,7 +176,7 @@ _wrap_binop :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(conte
   ct := get_type_string(ty, context.base);
   `((${ct})((unsigned long long)(${_a(args, usize(0))}) ${op} (unsigned long long)(${_a(args, usize(1))})))`
 });
-_arith_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext, op : str) -> String)({
+_arith_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, op : str) -> String)({
   ty := ei_ty(expr, context);
   a := _a(args, usize(0));
   b := _a(args, usize(1));
@@ -235,7 +235,7 @@ _arith_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, i
 });
 /// Safe mode Phase 3a: negation traps on MIN (signed); unsigned and float
 /// keep the plain narrowing neg.
-_neg_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> String)({
+_neg_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext) -> String)({
   ty := ei_ty(expr, context);
   a := _a(args, usize(0));
   if((a.len() == usize(0)) || a.starts_with("// Failed to transpile"), {
@@ -267,7 +267,7 @@ _neg_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm
 /// Safe mode Phase 3b (§6): a shift count >= the operand's bit width is C UB.
 /// The count is guarded per the type's width (target-aware for isize/usize);
 /// a bare-decimal count in range folds to the plain shift.
-_shift_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext, op : str) -> String)({
+_shift_checked_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, op : str) -> String)({
   ty := ei_ty(expr, context);
   a := _a(args, usize(0));
   b := _a(args, usize(1));
@@ -296,7 +296,7 @@ _shift_checked_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, i
 /// Safe mode Phase 3c (§6, ruling D2): float→int casts SATURATE (out-of-range
 /// → the target's MIN/MAX, NaN → 0) instead of C UB. Returns `.None` for any
 /// non float→int cast, which keeps the existing `((T)(a))` emission.
-_as_saturating_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> Option(String))({
+_as_saturating_expr :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))({
   sty := match(
     expr,
     .FnCall(_, _, ua, _, _) => match(
@@ -360,7 +360,7 @@ _as_saturating_expr :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, i
 /// claimed `%` meant for floats. `<math.h>` is added unconditionally by
 /// `codegen_c.yo`, so the declaration is always in scope — no `add_c_include`
 /// from here, which would be a silent no-op this late in emission anyway.
-_mod_op :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> String)({
+_mod_op :: (fn(args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext) -> String)({
   ty := ei_ty(expr, context);
   cond(
     is_f32_type(ty) => _callop2(args, "fmodf"),
@@ -369,7 +369,7 @@ _mod_op :: (fn(imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) 
   )
 });
 /// `(<op>(a))` — prefix unary.
-_unop :: (fn(imm(args) : ArrayList(String), op : str) -> String)({
+_unop :: (fn(args : &ArrayList(String), op : str) -> String)({
   out := String.from("(");
   out.push_str(op);
   out.push_str("(");
@@ -380,7 +380,7 @@ _unop :: (fn(imm(args) : ArrayList(String), op : str) -> String)({
 /// The C type of a one-argument call's OPERAND, when it is a nameable
 /// primitive. Used to narrow a prefix arithmetic operator's result — see
 /// `_unop_narrowed`.
-_unary_operand_c_type :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> Option(String))(
+_unary_operand_c_type :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(String))(
   match(
     expr,
     .FnCall(_, _, ua, _, _) => match(
@@ -417,7 +417,7 @@ _unary_operand_c_type :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerat
 ///
 /// `!` does NOT come through here: its result is `bool`, which has no narrower
 /// representation to be promoted out of.
-_unop_narrowed :: (fn(imm(args) : ArrayList(String), op : str, imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> String)({
+_unop_narrowed :: (fn(args : &ArrayList(String), op : str, expr : &AstExpr, context : &FunctionGenerationContext) -> String)({
   inner := _a(args, usize(0));
   // Same degraded-render guard as `_binop`: `(~())` is invalid C and would
   // break the whole batch rather than this one expression.
@@ -435,7 +435,7 @@ _unop_narrowed :: (fn(imm(args) : ArrayList(String), op : str, imm(expr) : AstEx
   )
 });
 /// `(a <op> b)` — pointer-style binary (no inner parens).
-_ptr_binop :: (fn(imm(args) : ArrayList(String), op : str) -> String)({
+_ptr_binop :: (fn(args : &ArrayList(String), op : str) -> String)({
   out := String.from("(");
   out.push_string(_a(args, usize(0)));
   out.push_str(" ");
@@ -447,15 +447,15 @@ _ptr_binop :: (fn(imm(args) : ArrayList(String), op : str) -> String)({
 });
 /// The expr's result type (Unit if it has no ExprInfo — the metadata-aware
 /// builtins need the guard).
-ei_ty :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> TypeValue)(
+ei_ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue)(
   match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => TypeValue.Unit)
 );
 /// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
-_as_source_is_tagged_enum :: (fn(imm(expr) : AstExpr, imm(context) : FunctionGenerationContext) -> bool)(
+_as_source_is_tagged_enum :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(a0), .Some(aei) => (is_enum_type(aei.ty) && !can_optimize_as_simple_enum(aei.ty)), .None => false), .None => false), .Atom(_, _) => false)
 );
 /// Generate a Yo operator / inline-builtin function call.
-generate_yo_inline_function_call :: (fn(imm(function_name) : String, imm(args) : ArrayList(String), imm(expr) : AstExpr, imm(context) : FunctionGenerationContext, imm(indent) : String) -> String)(
+generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, indent : &String) -> String)(
   cond(
     (function_name == BF_YO_OP_ADD) => _arith_checked_expr(args, expr, context, "+"),
     (function_name == BF_YO_OP_SUB) => _arith_checked_expr(args, expr, context, "-"),

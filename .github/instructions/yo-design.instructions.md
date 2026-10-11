@@ -536,7 +536,7 @@ Use separate `impl` blocks with `where(Self <: Comptime)` constraints for compti
 
 All operator traits (Add, Sub, Mul, Div, Mod, BitAnd, BitOr, BitXor, BitLeftShift, BitRightShift, Exponentiation, Negate, BitNot) use `Output` as an **associated type** in the trait body — the same pattern as the `Index` trait. The `Output` is NOT a function parameter.
 
-Binary operator traits take `Rhs` as a type parameter:
+Binary operator traits take `Rhs` as a type parameter. Their operands are BY VALUE, as in Rust's `Add::add(self, rhs)` (decision 34 as amended 2026-10-11); only `Eq`, `Ord`, `ComptimeEq` and `ComptimeOrd` borrow (`lhs : &Self, rhs : &Rhs`). An impl writes exactly the trait's modes:
 
 ```yo
 Add :: (fn(comptime(Rhs) : Type) -> comptime(Trait))(

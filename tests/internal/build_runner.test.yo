@@ -17,7 +17,7 @@ import("std/fmt");
 { create_dir_all } :: import("std/fs/dir");
 { write_string } :: import("std/fs/file");
 { BuildRegistry, BuildArtifact, ArtifactKind, BuildVerifyConfig, ResolvedDep } :: import("../../src/evaluator/builtins/build.yo");
-_mk_artifact :: (fn(kind : ArtifactKind, imm(name) : String, imm(root) : String) -> BuildArtifact)(
+_mk_artifact :: (fn(kind : ArtifactKind, name : &String, root : &String) -> BuildArtifact)(
   BuildArtifact(
     kind : kind,
     name : name,
@@ -43,7 +43,7 @@ _mk_artifact :: (fn(kind : ArtifactKind, imm(name) : String, imm(root) : String)
     package_name : String.from("")
   )
 );
-_dag_find :: (fn(imm(dag) : ArrayList(DAGNode), imm(name) : String) -> Option(DAGNode))({
+_dag_find :: (fn(dag : &ArrayList(DAGNode), name : &String) -> Option(DAGNode))({
   (i : usize) = usize(0);
   while(i < dag.len(), {
     node := dag(i);
@@ -54,7 +54,7 @@ _dag_find :: (fn(imm(dag) : ArrayList(DAGNode), imm(name) : String) -> Option(DA
   });
   Option(DAGNode).None
 });
-_deps_contain :: (fn(imm(node) : DAGNode, imm(dep) : String) -> bool)({
+_deps_contain :: (fn(node : &DAGNode, dep : &String) -> bool)({
   (i : usize) = usize(0);
   while(i < node.depends_on.len(), {
     if(node.depends_on(i) == dep, {
@@ -64,10 +64,10 @@ _deps_contain :: (fn(imm(node) : DAGNode, imm(dep) : String) -> bool)({
   });
   false
 });
-_mk_node :: (fn(imm(name) : String, imm(deps) : ArrayList(String)) -> DAGNode)(
+_mk_node :: (fn(name : &String, deps : &ArrayList(String)) -> DAGNode)(
   DAGNode(name : name, kind : DAGNodeKind.Artifact, depends_on : deps)
 );
-_deps1 :: (fn(imm(a) : String) -> ArrayList(String))({
+_deps1 :: (fn(a : &String) -> ArrayList(String))({
   l := ArrayList(String).new();
   l.push(a);
   l
@@ -248,7 +248,7 @@ test("build_dag: a verify step is a leaf Verify node a step can depend on", {
 });
 /// Returns true iff registering a verify step named `name` on `reg` throws
 /// (handlers are capture-free, so the outcome rides on `unwind`).
-_register_verify_throws :: (fn(imm(reg) : BuildRegistry, imm(name) : String) -> bool)({
+_register_verify_throws :: (fn(reg : &BuildRegistry, name : &String) -> bool)({
   exn := Exception(
     throw : (
       _err -> {

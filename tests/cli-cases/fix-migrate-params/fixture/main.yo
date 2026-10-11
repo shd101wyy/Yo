@@ -6,13 +6,13 @@
 _P :: struct(x : i32, y : i32);
 derive(_P, Copy, Clone);
 _S :: struct(name : String);
-_n :: (fn(a : i32, s : String, p : _P, q : _S, mut(c) : i32) -> i32)({
+_n :: (fn(a : i32, s : String, p : _P, q : _S, c : &mut i32) -> i32)({
   c = (c + a);
   i32(s.len()) + p.x + i32(q.name.len())
 });
 _h :: (fn(generic(T : Type), t : T) -> T)(t);
 _g :: (fn(generic(U : Type), u : U, where(U <: Copy)) -> U)(u);
-_k :: (fn(imm(r) : String, sink(o) : String) -> usize)(r.len() + o.len());
+_k :: (fn(r : &String, sink(o) : String) -> usize)(r.len() + o.len());
 main :: (fn() -> unit)({
   (c : i32) = i32(0);
   _r := _n(i32(1), `ab`, _P(x : i32(1), y : i32(2)), _S(name : `x`), c);

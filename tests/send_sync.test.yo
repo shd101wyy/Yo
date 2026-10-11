@@ -22,7 +22,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 SsPoint :: struct(x : i32, y : i32);
 derive(SsPoint, Copy, Clone);
 SsCell :: ref(struct(v : i32));
-SsSpeak :: trait(speak : (fn(imm(self) : Self) -> i32));
+SsSpeak :: trait(speak : (fn(self : &Self) -> i32));
 SsDog :: struct(n : i32);
 derive(SsDog, Copy, Clone);
 impl(SsDog, SsSpeak(speak : (self -> self.n)));
@@ -127,7 +127,7 @@ comptime_expect_error({
 // A closure is Sync iff its captured state is. A closure literal passed to an
 // `imm(f)` parameter captures by borrow, and an `imm` capture of an Rc is not
 // Sync.
-_run_sync :: (fn(imm(f) : Impl(Fn() -> i32, Sync)) -> i32)(f());
+_run_sync :: (fn(f : &Impl(Fn() -> i32, Sync)) -> i32)(f());
 comptime_expect_error({
   _imm_capture_of_rc :: (fn() -> i32)({
     r := rc(i32(1));
@@ -156,13 +156,13 @@ _SsFd :: struct(fd : i32);
 impl(
   _SsFd,
   Dispose(
-    dispose : (fn(imm(self) : Self) -> unit)({
+    dispose : (fn(self : &Self) -> unit)({
       _n := _ss_dispose_count.fetch_add(i32(1), MemoryOrder.AcqRel);
       ()
     })
   )
 );
-_ss_run_send :: (fn(imm(f) : Impl(Fn() -> unit, Send)) -> unit)(f());
+_ss_run_send :: (fn(f : &Impl(Fn() -> unit, Send)) -> unit)(f());
 comptime_expect_error({
   _borrowed_capture_never_send :: (fn() -> unit)({
     f := _SsFd(fd : i32(3));

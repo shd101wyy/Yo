@@ -65,17 +65,17 @@ mk_op_atom :: (fn(id : usize, op : str) -> AstExpr)(
   AstExpr.Atom(id, mk_token(TokenKind.Operator, op))
 );
 /// Build `op(args…)` FnCall — callee is Atom with an Operator token.
-mk_op_call :: (fn(id : usize, op : str, imm(args) : ArrayList(AstExpr)) -> AstExpr)({
+mk_op_call :: (fn(id : usize, op : str, args : &ArrayList(AstExpr)) -> AstExpr)({
   callee := mk_op_atom(id + usize(10000), op);
   AstExpr.FnCall(id, callee, args, true, mk_token(TokenKind.Operator, op))
 });
 /// Build `name(args…)` FnCall — callee is Atom with an Identifier token.
-mk_ident_call :: (fn(id : usize, name : str, imm(args) : ArrayList(AstExpr)) -> AstExpr)({
+mk_ident_call :: (fn(id : usize, name : str, args : &ArrayList(AstExpr)) -> AstExpr)({
   callee := mk_ident(id + usize(10000), name);
   AstExpr.FnCall(id, callee, args, false, mk_token(TokenKind.Identifier, name))
 });
 /// Build `lhs = rhs` expression.
-mk_assign :: (fn(id : usize, imm(lhs) : AstExpr, imm(rhs) : AstExpr) -> AstExpr)({
+mk_assign :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
@@ -84,9 +84,9 @@ mk_assign :: (fn(id : usize, imm(lhs) : AstExpr, imm(rhs) : AstExpr) -> AstExpr)
 /// Stub evaluator: stores t_bool() + BoolVal(true) ExprInfo for any expr.
 stub_eval_bool :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_bool());
@@ -97,9 +97,9 @@ stub_eval_bool :: (
 /// Stub evaluator: stores t_i32() + IntLit("42") ExprInfo for any expr.
 stub_eval_i32 :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_i32());
@@ -112,10 +112,10 @@ stub_eval_i32 :: (
 /// register the raw hook too.
 stub_eval_bool_raw :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   exn;
@@ -126,10 +126,10 @@ stub_eval_bool_raw :: (
 });
 stub_eval_i32_raw :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   exn;
@@ -143,7 +143,7 @@ stub_eval_i32_raw :: (
 // ---------------------------------------------------------------------------
 /// Returns true iff calling `throw_rhs_contains_control_flow_expression_error`
 /// with the given expression throws.
-cf_error_throws :: (fn(imm(rhs) : AstExpr) -> bool)({
+cf_error_throws :: (fn(rhs : &AstExpr) -> bool)({
   exn := Exception(
     throw : (
       err -> {

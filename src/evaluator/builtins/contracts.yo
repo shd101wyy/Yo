@@ -82,10 +82,10 @@
 ///
 _evaluate_contract_marker :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   args := match(
@@ -149,7 +149,7 @@ _evaluate_contract_marker :: (
 /// `index_unchecked` method of its receiver. Codegen calls it instead of
 /// `index` only when the node's `index-in-bounds` site is proved.
 (g_index_unchecked_twins : HashMap(ExprId, EvalValue)) = HashMap(ExprId, EvalValue).new();
-set_verify_target_paths :: (fn(imm(paths) : ArrayList(String)) -> unit)({
+set_verify_target_paths :: (fn(paths : &ArrayList(String)) -> unit)({
   g_verify_target_paths = paths;
   // A new verification recording starts: forget the previous compile's
   // container twins (watch rounds). Unlike the proved-site table, which
@@ -158,7 +158,7 @@ set_verify_target_paths :: (fn(imm(paths) : ArrayList(String)) -> unit)({
   g_index_unchecked_twins = HashMap(ExprId, EvalValue).new();
   ()
 });
-_is_verify_target :: (fn(imm(module_path) : String) -> bool)({
+_is_verify_target :: (fn(module_path : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   while((i < g_verify_target_paths.len()) && !found, {
@@ -175,7 +175,7 @@ _is_verify_target :: (fn(imm(module_path) : String) -> bool)({
 });
 /// `requires(...)` in expression position — no-op marker.
 /// Reject a zero-argument contract marker in expression position.
-_reject_zero_arg_marker :: (fn(imm(expr) : AstExpr, imm(message) : String, imm(exn) : Exception) -> unit)({
+_reject_zero_arg_marker :: (fn(expr : &AstExpr, message : &String, exn : &Exception) -> unit)({
   n := match(
     expr,
     .FnCall(_, _, a, _, _) => a.len(),
@@ -185,7 +185,7 @@ _reject_zero_arg_marker :: (fn(imm(expr) : AstExpr, imm(message) : String, imm(e
     exn.throw(dyn(format_error_message(ast_expr_token(expr), message)));
   });
 });
-evaluate_requires :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+evaluate_requires :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
     String.from("'requires(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no precondition."),
@@ -194,7 +194,7 @@ evaluate_requires :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) :
   _evaluate_contract_marker(expr, env, ctx, exn)
 });
 /// `ensures(...)` in expression position — no-op marker.
-evaluate_ensures :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+evaluate_ensures :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
     String.from("'ensures(...)' with zero arguments is a syntax error. Omit the clause entirely if there is no postcondition."),
@@ -204,7 +204,7 @@ evaluate_ensures :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : 
 });
 /// `invariant(...)` — no-op marker (loop placement checked in `while`; SMT
 /// discharge is a later phase).
-evaluate_invariant :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+evaluate_invariant :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
     String.from("'invariant(...)' with zero arguments is a syntax error."),
@@ -216,7 +216,7 @@ evaluate_invariant :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) 
 /// statement form (right after `invariant(...)`) is consumed by the V4
 /// verifier's loop encoding; the SIGNATURE clause is extracted by the
 /// function-type evaluator.
-evaluate_decreases :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+evaluate_decreases :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   _reject_zero_arg_marker(
     expr,
     String.from("'decreases(...)' with zero arguments is a syntax error."),
@@ -228,7 +228,7 @@ evaluate_decreases :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) 
 /// no-op marker, the INVERSE of the others: the zero-argument form is the
 /// only legal one (the signature extraction rejects it anywhere else); any
 /// argument is a syntax error naming the contract clauses it expected.
-evaluate_assumed :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+evaluate_assumed :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   n := match(
     expr,
     .FnCall(_, _, a, _, _) => a.len(),
@@ -278,7 +278,7 @@ BF_SET_CONTAINS :: "set_contains";
 /// identifier — the evaluator resolved the name (Phase 0's marker bound it)
 /// while codegen erased the binding. Other `ghost(...)` shapes keep the
 /// transparent no-op marker.
-evaluate_ghost :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+evaluate_ghost :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   args0 := match(
     expr,
     .FnCall(_, _, a, _, _) => a,
@@ -356,10 +356,10 @@ evaluate_ghost :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : Ev
 /// call.
 _evaluate_transparent_unary :: (
   fn(
-    imm(expr) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    expr : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> AstExpr
 )({
   arg := match(
@@ -390,11 +390,11 @@ _evaluate_transparent_unary :: (
 /// function's func_id here; function.yo's call arm rejects calls to these
 /// from non-ghost context (a ghost_fn has no runtime semantics).
 (g_ghost_fn_ids : HashSet(String)) = HashSet(String).new();
-register_ghost_fn :: (fn(imm(func_id) : String) -> unit)({
+register_ghost_fn :: (fn(func_id : &String) -> unit)({
   g_ghost_fn_ids.insert(func_id);
   ()
 });
-is_ghost_fn :: (fn(imm(func_id) : String) -> bool)(
+is_ghost_fn :: (fn(func_id : &String) -> bool)(
   g_ghost_fn_ids.contains(func_id)
 );
 /// V6 task 3: the ghost-fn DEF registry — `func_id → (params, body)` for
@@ -411,11 +411,11 @@ GhostFnDef :: ref(
   )
 );
 (g_ghost_fn_defs : HashMap(String, GhostFnDef)) = HashMap(String, GhostFnDef).new();
-register_ghost_fn_def :: (fn(imm(func_id) : String, imm(params) : ArrayList(String), imm(body) : AstExpr) -> unit)({
+register_ghost_fn_def :: (fn(func_id : &String, params : &ArrayList(String), body : &AstExpr) -> unit)({
   g_ghost_fn_defs.insert(func_id, GhostFnDef(params : params, body : body));
   ()
 });
-ghost_fn_def_of :: (fn(imm(func_id) : String) -> Option(GhostFnDef))(
+ghost_fn_def_of :: (fn(func_id : &String) -> Option(GhostFnDef))(
   g_ghost_fn_defs.get(func_id)
 );
 /// The refinement CHAIN registry: an outer predicate's func_id → the
@@ -425,11 +425,11 @@ ghost_fn_def_of :: (fn(imm(func_id) : String) -> Option(GhostFnDef))(
 /// refine() evaluation); read by the verifier's assume/prove walks.
 (g_refine_pred_chains : HashMap(String, ArrayList(String))) =
   HashMap(String, ArrayList(String)).new();
-register_refine_pred_chain :: (fn(imm(outer_fid) : String, imm(chain) : ArrayList(String)) -> unit)({
+register_refine_pred_chain :: (fn(outer_fid : &String, chain : &ArrayList(String)) -> unit)({
   g_refine_pred_chains.insert(outer_fid.clone(), chain);
   ()
 });
-refine_pred_chain_of :: (fn(imm(outer_fid) : String) -> ArrayList(String))(
+refine_pred_chain_of :: (fn(outer_fid : &String) -> ArrayList(String))(
   match(
     g_refine_pred_chains.get(outer_fid.clone()),
     .Some(chain) => chain,
@@ -450,7 +450,7 @@ refine_pred_chain_of :: (fn(imm(outer_fid) : String) -> ArrayList(String))(
 /// passing a T. `refine(T)` (one argument) is the bare alias: no
 /// predicate, no obligation.
 evaluate_refine :: (
-  fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr
 )({
   args := match(
     expr,
@@ -592,7 +592,7 @@ ${ast_expr_to_string(expr)}`
 /// wrapped function is REGISTERED as ghost (calls from non-ghost context
 /// are a compile error — function.yo's FuncVal arm checks the registry);
 /// the marker itself stays a transparent pass-through.
-evaluate_ghost_fn :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+evaluate_ghost_fn :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(expr, BF_GHOST_FN, .Some(usize(1))), {
     exn.throw(
       dyn(
@@ -659,7 +659,7 @@ evaluate_ghost_fn :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) :
 /// these only appear inside one predicate expression, and the VERIFIER's
 /// walk gives them their real SMT semantics (Seq / Array sorts).
 _evaluate_spec_collection :: (
-  fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr
 )({
   _reject_not_ghost_context(expr, ctx, exn);
   (cur_env : Environment) = env;
@@ -732,67 +732,67 @@ _evaluate_spec_collection :: (
   expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
   expr
 });
-evaluate_seq_unit :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_seq_unit :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 /// `seq_of(xs)` (R2 task 2): an `ArrayList(T)`'s elements as a ghost Seq.
 /// Typed as the list itself, like every Seq carrier here (Seq is an erased
 /// alias); the verifier keeps it in the list domain.
-evaluate_seq_of :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_seq_of :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 /// `produced(xs)` (R2 task 4): inside a `for` over the list `xs`, the prefix
 /// consumed so far. Typed as the list, like `seq_of`; the verifier reads it
 /// from the loop's ghost index.
-evaluate_produced :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_produced :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 /// `distinct(a, b)` (R2 task 5): in a `requires`, the two list arguments are
 /// different lists. It lets a body mutate one beside the other; the verifier
 /// proves it at each call from where the arguments came from.
-evaluate_distinct :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_distinct :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_seq_append :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_seq_append :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_seq_len :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_seq_len :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_seq_nth :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_seq_nth :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_str_bytes :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_str_bytes :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_ms_single :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_ms_single :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_ms_add :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_ms_add :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_ms_count :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_ms_count :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 /// `ms_of(a)` (V5 task 6): a fixed-length Array(T, N)'s elements as a
 /// ghost Multiset. The evaluator type-checks only (a carrier of the
 /// array's own type); the verifier's walk folds the count array over N.
-evaluate_ms_of :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_ms_of :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_set_single :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_set_single :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_set_add :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_set_add :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
-evaluate_set_contains :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_set_contains :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_spec_collection(expr, env, ctx, exn)
 );
 /// Ghost-only constructs (V5 §6: forall/exists/==>) have NO
 /// runtime semantics — outside ghost context they are a compile error,
 /// the same stance as `unwind(...)` outside `ctl(...) -> R`.
-_reject_not_ghost_context :: (fn(imm(expr) : AstExpr, imm(ctx) : EvalContext, imm(exn) : Exception) -> unit)({
+_reject_not_ghost_context :: (fn(expr : &AstExpr, ctx : &EvalContext, exn : &Exception) -> unit)({
   if(!ctx.is_ghost_context, {
     exn.throw(
       dyn(
@@ -810,7 +810,7 @@ _reject_not_ghost_context :: (fn(imm(expr) : AstExpr, imm(ctx) : EvalContext, im
 /// body's evaluation (the verifier walks the real AST into a Quant
 /// term; runtime-mode files are rejected: the gate above fires in the
 /// splice lowering's evaluation).
-_evaluate_quantifier :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+_evaluate_quantifier :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   _reject_not_ghost_context(expr, ctx, exn);
   args := match(
     expr,
@@ -964,16 +964,16 @@ _evaluate_quantifier :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx
   expr
 });
 /// forall(...) — ghost-only universal quantifier (V5).
-evaluate_forall :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_forall :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_quantifier(expr, env, ctx, exn)
 );
 /// exists(...) — ghost-only existential quantifier (V5).
-evaluate_exists :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)(
+evaluate_exists :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
   _evaluate_quantifier(expr, env, ctx, exn)
 );
 /// `a ==> b` — ghost-only implication (V5). Exactly two args; evaluates
 /// to an unknown bool like the quantifiers.
-evaluate_implies :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+evaluate_implies :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   _reject_not_ghost_context(expr, ctx, exn);
   args := match(
     expr,
@@ -1023,7 +1023,7 @@ evaluate_implies :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : 
 });
 /// `old(expr)` — entry-snapshot reference (handled specially inside `ensures`
 /// by the wrapper; transparent pass-through elsewhere).
-evaluate_old :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+evaluate_old :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(expr, BF_OLD, .Some(usize(1))), {
     exn.throw(
       dyn(
@@ -1062,7 +1062,7 @@ __YO_CONTRACT_RESULT :: "__yo_contract_result";
 /// `Variable "x" not found.` error at identifier resolution can append the
 /// label-the-return hint. With a labeled return an unbound name is an
 /// ordinary typo and nothing registers.
-_note_unlabeled_ensures_atoms :: (fn(imm(e) : AstExpr) -> unit)(
+_note_unlabeled_ensures_atoms :: (fn(e : &AstExpr) -> unit)(
   match(
     e,
     .Atom(_, _) => {
@@ -1086,7 +1086,7 @@ _note_unlabeled_ensures_atoms :: (fn(imm(e) : AstExpr) -> unit)(
 );
 /// Build a synthetic atom borrowing `src_tok`'s source position so diagnostics
 /// point at the user's contract clause.
-_synth_atom :: (fn(imm(value) : String, kind : TokenKind, imm(src_tok) : Token) -> AstExpr)(
+_synth_atom :: (fn(value : &String, kind : TokenKind, src_tok : &Token) -> AstExpr)(
   AstExpr.Atom(
     alloc_global_expr_id(),
     Token(
@@ -1105,7 +1105,7 @@ _synth_atom :: (fn(imm(value) : String, kind : TokenKind, imm(src_tok) : Token) 
 /// `evaluate_string_literal` runs `decode_str_lit_escapes(tok.value)`, which
 /// assumes the raw token value INCLUDES the surrounding double quotes — the
 /// escaping round-trips with that decode.
-_synth_string_token_value :: (fn(imm(s) : String) -> String)({
+_synth_string_token_value :: (fn(s : &String) -> String)({
   sb := StringBuilder.new();
   sb.write_byte(u8(0x22));
   {
@@ -1165,9 +1165,9 @@ _synth_string_token_value :: (fn(imm(s) : String) -> String)({
 /// also import-free).
 _build_assert_call :: (
   fn(
-    imm(pred) : AstExpr,
-    imm(label_pred) : AstExpr,
-    imm(label) : String,
+    pred : &AstExpr,
+    label_pred : &AstExpr,
+    label : &String,
     is_comptime_fn : bool
   ) -> AstExpr
 )({
@@ -1264,7 +1264,7 @@ _build_assert_call :: (
 /// Build a synthetic `name := value` (runtime) or `name :: value` (comptime)
 /// binding. Comptime functions need `::` because a `:=` runtime binding is
 /// rejected inside a compile-time-only function body.
-_build_binding :: (fn(imm(name) : String, imm(value) : AstExpr, imm(src_tok) : Token, imm(op) : String) -> AstExpr)({
+_build_binding :: (fn(name : &String, value : &AstExpr, src_tok : &Token, op : &String) -> AstExpr)({
   bind_tok := Token(
     kind : TokenKind.Identifier,
     value : op,
@@ -1292,12 +1292,12 @@ _build_binding :: (fn(imm(name) : String, imm(value) : AstExpr, imm(src_tok) : T
 /// `inout(usize)` accumulator through `recur`. Snapshot names only need to be
 /// unique WITHIN one wrapped body, and a monotonic global is strictly stronger.
 /// Local list builders for AST synthesis (ArrayList has no literal syntax).
-single1 :: (fn(imm(a) : AstExpr) -> ArrayList(AstExpr))({
+single1 :: (fn(a : &AstExpr) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   out.push(a);
   out
 });
-single2 :: (fn(imm(a) : AstExpr, imm(b) : AstExpr) -> ArrayList(AstExpr))({
+single2 :: (fn(a : &AstExpr, b : &AstExpr) -> ArrayList(AstExpr))({
   out := ArrayList(AstExpr).new();
   out.push(a);
   out.push(b);
@@ -1310,9 +1310,9 @@ single2 :: (fn(imm(a) : AstExpr, imm(b) : AstExpr) -> ArrayList(AstExpr))({
 /// reference to that snapshot.
 _hoist_old_in :: (
   fn(
-    imm(e) : AstExpr,
-    mut(snapshots) : ArrayList(AstExpr),
-    imm(bind_op) : String
+    e : &AstExpr,
+    snapshots : &mut ArrayList(AstExpr),
+    bind_op : &String
   ) -> AstExpr
 )(
   match(
@@ -1435,7 +1435,7 @@ ProvedGuardSite :: struct(
 /// Node ids whose guard codegen elided (a set: multi-pass emission may ask
 /// twice for one node).
 (g_elided_guard_nodes : HashSet(String)) = HashSet(String).new();
-record_proved_guard_site :: (fn(imm(site) : ProvedGuardSite) -> unit)({
+record_proved_guard_site :: (fn(site : &ProvedGuardSite) -> unit)({
   existing := match(g_proved_guard_sites.get(site.node_id), .Some(l) => l, .None => ArrayList(ProvedGuardSite).new());
   existing.push(site);
   g_proved_guard_sites.insert(site.node_id, existing);
@@ -1447,7 +1447,7 @@ clear_proved_guard_sites :: (fn() -> unit)({
   g_elided_guard_nodes = HashSet(String).new();
   ()
 });
-record_index_unchecked_twin :: (fn(node_id : ExprId, imm(twin) : EvalValue) -> unit)({
+record_index_unchecked_twin :: (fn(node_id : ExprId, twin : &EvalValue) -> unit)({
   g_index_unchecked_twins.insert(node_id, twin);
   ()
 });
@@ -1460,7 +1460,7 @@ elided_guard_count :: (fn() -> usize)(
 );
 /// Did a proof record exactly this node, this class, and this node's own
 /// canonical position? Any mismatch is `false`.
-_guard_site_recorded :: (fn(imm(expr) : AstExpr, class : str) -> bool)(
+_guard_site_recorded :: (fn(expr : &AstExpr, class : str) -> bool)(
   match(
     g_proved_guard_sites.get(ast_expr_id(expr)),
     .Some(sites) => {
@@ -1481,7 +1481,7 @@ _guard_site_recorded :: (fn(imm(expr) : AstExpr, class : str) -> bool)(
 );
 /// May codegen emit `expr`'s `class` guard as the raw operation? Counts the
 /// elision when it answers yes.
-guard_site_is_proved :: (fn(imm(expr) : AstExpr, class : str) -> bool)({
+guard_site_is_proved :: (fn(expr : &AstExpr, class : str) -> bool)({
   if(_guard_site_recorded(expr, class), {
     g_elided_guard_nodes.insert(`${ast_expr_id(expr).to_string()}/${class}`);
     return(true);
@@ -1490,7 +1490,7 @@ guard_site_is_proved :: (fn(imm(expr) : AstExpr, class : str) -> bool)({
 });
 /// The same for a guard that needs TWO proofs (the signed division guard:
 /// `divisor-nonzero` and `div-no-overflow`). One guard, counted once.
-guard_site_pair_is_proved :: (fn(imm(expr) : AstExpr, class_a : str, class_b : str) -> bool)({
+guard_site_pair_is_proved :: (fn(expr : &AstExpr, class_a : str, class_b : str) -> bool)({
   if(_guard_site_recorded(expr, class_a) && _guard_site_recorded(expr, class_b), {
     g_elided_guard_nodes.insert(`${ast_expr_id(expr).to_string()}/${class_a}+${class_b}`);
     return(true);
@@ -1503,11 +1503,11 @@ guard_site_pair_is_proved :: (fn(imm(expr) : AstExpr, class_a : str, class_b : s
 /// by the task's fn_id, so the verifier can report the CAUSE instead of
 /// the misleading "untyped expression" at the hollow body root.
 (g_verify_def_eval_failures : HashMap(String, String)) = HashMap(String, String).new();
-record_verify_task_def_eval_failure :: (fn(imm(fn_id) : String, imm(msg) : String) -> unit)({
+record_verify_task_def_eval_failure :: (fn(fn_id : &String, msg : &String) -> unit)({
   g_verify_def_eval_failures.insert(fn_id, msg);
   ()
 });
-verify_task_def_eval_failure :: (fn(imm(fn_id) : String) -> Option(String))(
+verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
   g_verify_def_eval_failures.get(fn_id)
 );
 /// The file set the current command is verifying (absolute or as-given
@@ -1517,7 +1517,7 @@ verify_task_def_eval_failure :: (fn(imm(fn_id) : String) -> Option(String))(
 /// The CLI override (`--verify-mode`); the file pragma is source of truth
 /// when present, this decides otherwise.
 (g_verify_mode_override : Option(String)) = Option(String).None;
-set_verify_mode_override :: (fn(imm(m) : Option(String)) -> unit)({
+set_verify_mode_override :: (fn(m : &Option(String)) -> unit)({
   g_verify_mode_override = m;
   ()
 });
@@ -1526,7 +1526,7 @@ set_verify_mode_override :: (fn(imm(m) : Option(String)) -> unit)({
 /// `"verify+"` | `"ignore"`. The FILE's pragma is the source of truth when
 /// present (plans/backlog/FORMAL_VERIFICATION.md §"Verification modes");
 /// otherwise the CLI override decides; the default is today's `runtime`.
-resolve_verify_mode :: (fn(imm(module_path) : String) -> String)(
+resolve_verify_mode :: (fn(module_path : &String) -> String)(
   cond(
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.NoContracts) => String.from("ignore"),
     file_has_pragma(Option(String).Some(module_path.clone()), Pragma.Verify) => String.from("verify"),
@@ -1541,7 +1541,7 @@ resolve_verify_mode :: (fn(imm(module_path) : String) -> String)(
 /// Queue one function. First-wins on `fn_id`: the def site fires once per
 /// module evaluation, but a specialization re-entry would re-register the
 /// same source — keep the first (definition-site) view.
-register_verify_task :: (fn(imm(t) : VerifyTask) -> unit)({
+register_verify_task :: (fn(t : &VerifyTask) -> unit)({
   (dup : bool) = false;
   (i : usize) = usize(0);
   while((i < g_verify_tasks.len()) && !dup, {
@@ -1567,7 +1567,7 @@ register_verify_task :: (fn(imm(t) : VerifyTask) -> unit)({
 /// nodes. Unbound names (params, the return label) soft-fall-back to
 /// VarRef exactly as at signature time.
 evaluated_for_verify :: (
-  fn(imm(p) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr
+  fn(p : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr
 )({
   // The verifier's diagnostic predicate pass IS ghost context (V5):
   // quantifier builtins inside requires/ensures/decreases evaluate here.
@@ -1608,14 +1608,14 @@ take_verify_tasks :: (fn() -> ArrayList(VerifyTask))({
 /// task exists for lambdas; pre-existing, recorded in the plan.)
 register_impl_inheritance_task :: (
   fn(
-    imm(trait_id) : String,
-    imm(label) : String,
-    imm(method_val) : EvalValue,
-    imm(fn_ty) : TypeValue,
-    imm(name_tok) : Token,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    trait_id : &String,
+    label : &String,
+    method_val : &EvalValue,
+    fn_ty : &TypeValue,
+    name_tok : &Token,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   if(!_is_verify_target(name_tok.module_path.clone()), {
@@ -1770,7 +1770,7 @@ register_impl_inheritance_task :: (
 /// (node-id identity) — true when one side is an inheritance planting or
 /// lambda origin-copy of the other, i.e. not independently declared
 /// contracts.
-_same_expr_ids :: (fn(imm(a) : ArrayList(AstExpr), imm(b) : ArrayList(AstExpr)) -> bool)(
+_same_expr_ids :: (fn(a : &ArrayList(AstExpr), b : &ArrayList(AstExpr)) -> bool)(
   cond(
     (a.len() != b.len()) => false,
     true => {
@@ -1822,11 +1822,11 @@ CallsiteContracts :: struct(
 );
 (g_callsite_contracts : HashMap(String, CallsiteContracts)) = HashMap(String, CallsiteContracts).new();
 register_callsite_contracts :: (
-  fn(imm(call_id) : String, imm(reqs) : ArrayList(AstExpr), imm(enss) : ArrayList(AstExpr)) -> unit
+  fn(call_id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr)) -> unit
 )({
   _ := g_callsite_contracts.insert(call_id, CallsiteContracts(reqs : reqs, enss : enss));
 });
-callsite_contracts_for :: (fn(imm(call_id) : String) -> Option(CallsiteContracts))(
+callsite_contracts_for :: (fn(call_id : &String) -> Option(CallsiteContracts))(
   g_callsite_contracts.get(call_id)
 );
 /// V6 task 4: specialized FuncVal id → the base (unspecialized) id it
@@ -1834,20 +1834,20 @@ callsite_contracts_for :: (fn(imm(call_id) : String) -> Option(CallsiteContracts
 /// so the verifier's mutual-recursion cliques can be spelled in BASE fids
 /// while the walk sees SPECIALIZED callee ids (`..._ret_N`).
 (g_specialized_base : HashMap(String, String)) = HashMap(String, String).new();
-register_specialized_base :: (fn(imm(spec_id) : String, imm(base_id) : String) -> unit)({
+register_specialized_base :: (fn(spec_id : &String, base_id : &String) -> unit)({
   _ := g_specialized_base.insert(spec_id, base_id);
 });
-specialized_base_of :: (fn(imm(id) : String) -> Option(String))(
+specialized_base_of :: (fn(id : &String) -> Option(String))(
   g_specialized_base.get(id)
 );
 /// Task-registration hook: stash contract instances for every contracted
 /// callee call in the task body (see the CallsiteContracts doc).
 prepare_callsite_contracts :: (
   fn(
-    imm(body) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    body : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   _prepare_callsite_contracts(body, env, ctx, exn);
@@ -1858,10 +1858,10 @@ prepare_callsite_contracts :: (
 /// arms and begin blocks are FnCall args, so every call site is reached.
 _prepare_callsite_contracts :: (
   fn(
-    imm(e) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    e : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   // A trailing `; ()` — a sole un-semicoloned `match(...)` would be an
@@ -1901,7 +1901,7 @@ _prepare_callsite_contracts :: (
 });
 /// The declared type of a call's `i`-th argument from its ExprInfo.
 _callsite_arg_type :: (
-  fn(imm(ctx) : EvalContext, imm(e) : AstExpr, i : usize) -> Option(TypeValue)
+  fn(ctx : &EvalContext, e : &AstExpr, i : usize) -> Option(TypeValue)
 )(
   match(
     e,
@@ -1921,7 +1921,7 @@ _callsite_arg_type :: (
 /// `.(recv, m)`, the callee's first param is `self` and the receiver is a
 /// value (not a type: `ArrayList(i32).new()` is a static call).
 _callsite_method_receiver :: (
-  fn(imm(ctx) : EvalContext, imm(f) : AstExpr, imm(params) : ArrayList(String)) -> Option(AstExpr)
+  fn(ctx : &EvalContext, f : &AstExpr, params : &ArrayList(String)) -> Option(AstExpr)
 )({
   first_is_self := match(params.get(usize(0)), .Some(p0) => (p0 == "self"), .None => false);
   if(!first_is_self, {
@@ -1954,7 +1954,7 @@ _callsite_method_receiver :: (
 /// site: the receiver's for `self` of a method call, else the matching
 /// argument's (shifted by one after a receiver).
 _callsite_param_type :: (
-  fn(imm(ctx) : EvalContext, imm(e) : AstExpr, imm(recv) : Option(AstExpr), i : usize) -> Option(TypeValue)
+  fn(ctx : &EvalContext, e : &AstExpr, recv : &Option(AstExpr), i : usize) -> Option(TypeValue)
 )(
   match(
     recv,
@@ -1978,11 +1978,11 @@ _callsite_param_type :: (
 /// site is an error, not a silent drop).
 _stash_callsite_contracts :: (
   fn(
-    imm(e) : AstExpr,
-    imm(f) : AstExpr,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    e : &AstExpr,
+    f : &AstExpr,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   // The callee: the callee node's FuncVal, or — for an INSTANCE method
@@ -2127,7 +2127,7 @@ _stash_callsite_contracts :: (
 /// `_trial_eval_fn_body` pattern); `YO_DEBUG_SWALLOW=1` prints what was
 /// dropped.
 _callsite_ensures_or_drop :: (
-  fn(imm(p) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, mut(out) : ArrayList(AstExpr)) -> unit
+  fn(p : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(AstExpr)) -> unit
 )({
   drop_exn := Exception(
     throw : (
@@ -2143,7 +2143,7 @@ _callsite_ensures_or_drop :: (
 });
 /// Conjoin a non-empty predicate list into ONE expression: nested `&&`
 /// (a single predicate passes through unwrapped). Fresh node ids.
-_conj_exprs :: (fn(imm(preds) : ArrayList(AstExpr), imm(tok) : Token) -> AstExpr)({
+_conj_exprs :: (fn(preds : &ArrayList(AstExpr), tok : &Token) -> AstExpr)({
   out := match(
     preds.get(usize(0)),
     .Some(p0) => clone_expr_fresh_ids(p0.clone()),
@@ -2187,14 +2187,14 @@ _conj_exprs :: (fn(imm(preds) : ArrayList(AstExpr), imm(tok) : Token) -> AstExpr
 /// proof is the inherit task's job).
 register_impl_variance_task :: (
   fn(
-    imm(trait_id) : String,
-    imm(label) : String,
-    imm(func_id) : String,
-    imm(name_tok) : Token,
-    imm(fn_ty) : TypeValue,
-    imm(env) : Environment,
-    imm(ctx) : EvalContext,
-    imm(exn) : Exception
+    trait_id : &String,
+    label : &String,
+    func_id : &String,
+    name_tok : &Token,
+    fn_ty : &TypeValue,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : &Exception
   ) -> unit
 )({
   if(!_is_verify_target(name_tok.module_path.clone()), {
@@ -2460,7 +2460,7 @@ register_impl_variance_task :: (
   ()
 });
 /// `assert((a) ==> (b))` with fresh node ids — one variance obligation.
-_implies_assert :: (fn(imm(a) : AstExpr, imm(b) : AstExpr, imm(tok) : Token) -> AstExpr)({
+_implies_assert :: (fn(a : &AstExpr, b : &AstExpr, tok : &Token) -> AstExpr)({
   imp_args := ArrayList(AstExpr).new();
   imp_args.push(a);
   imp_args.push(b);
@@ -2491,7 +2491,7 @@ _implies_assert :: (fn(imm(a) : AstExpr, imm(b) : AstExpr, imm(tok) : Token) -> 
 /// callee's guard because one caller proved it would be unsound.
 /// Returns the number of asserts stripped.
 strip_proved_ensures_asserts :: (
-  fn(imm(func_val) : EvalValue, imm(proved) : ArrayList(bool)) -> usize
+  fn(func_val : &EvalValue, proved : &ArrayList(bool)) -> usize
 )(
   match(
     func_val,
@@ -2551,7 +2551,7 @@ strip_proved_ensures_asserts :: (
 /// atom carrying the `<label>: <predicate>` message.
 /// Whether a call's callee names `name` — bare atom or the
 /// `.(import("std/assert"), name)` member form (the pre-fix splice shape).
-_assert_head_is :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
+_assert_head_is :: (fn(e : &AstExpr, name : &String) -> bool)(
   match(
     e,
     .FnCall(_, f, _, _, _) => _callee_named(f, name.clone()),
@@ -2560,7 +2560,7 @@ _assert_head_is :: (fn(imm(e) : AstExpr, imm(name) : String) -> bool)(
 );
 /// Whether a callee expression names `name` — bare atom or the
 /// `.(import("std/assert"), name)` member form.
-_callee_named :: (fn(imm(f) : AstExpr, imm(name) : String) -> bool)(
+_callee_named :: (fn(f : &AstExpr, name : &String) -> bool)(
   match(
     f,
     .Atom(_, ht) => (ht.value == name),
@@ -2570,7 +2570,7 @@ _callee_named :: (fn(imm(f) : AstExpr, imm(name) : String) -> bool)(
 /// The member-callee cond (arm-body extraction — no braced single
 /// expressions).
 _callee_member_cond :: (
-  fn(imm(dot_h) : AstExpr, imm(dot_args) : ArrayList(AstExpr), imm(name) : String) -> bool
+  fn(dot_h : &AstExpr, dot_args : &ArrayList(AstExpr), name : &String) -> bool
 )(
   cond(
     (ast_expr_token(dot_h).value == ".") => _dot_arg1_is(dot_args, name.clone()),
@@ -2578,7 +2578,7 @@ _callee_member_cond :: (
   )
 );
 /// Whether a `.`-call's SECOND argument is a plain atom named `name`.
-_dot_arg1_is :: (fn(imm(dot_args) : ArrayList(AstExpr), imm(name) : String) -> bool)(
+_dot_arg1_is :: (fn(dot_args : &ArrayList(AstExpr), name : &String) -> bool)(
   match(
     dot_args.get(usize(1)),
     .Some(.Atom(_, st)) => (st.value == name),
@@ -2588,7 +2588,7 @@ _dot_arg1_is :: (fn(imm(dot_args) : ArrayList(AstExpr), imm(name) : String) -> b
 );
 /// The message argument (arg 1) of an assert-shaped call when it is a
 /// plain string atom ("" otherwise).
-_assert_msg_of :: (fn(imm(e) : AstExpr) -> String)(
+_assert_msg_of :: (fn(e : &AstExpr) -> String)(
   match(
     e,
     .FnCall(_, _, a, _, _) => _arg1_string_atom(a),
@@ -2597,7 +2597,7 @@ _assert_msg_of :: (fn(imm(e) : AstExpr) -> String)(
 );
 /// Arg 1 of a call rendered as a string when it is a plain string atom
 /// ("" otherwise).
-_arg1_string_atom :: (fn(imm(a) : ArrayList(AstExpr)) -> String)(
+_arg1_string_atom :: (fn(a : &ArrayList(AstExpr)) -> String)(
   match(
     a.get(usize(1)),
     .Some(m_arg) => cond(
@@ -2608,7 +2608,7 @@ _arg1_string_atom :: (fn(imm(a) : ArrayList(AstExpr)) -> String)(
   )
 );
 
-_is_contract_assert_call :: (fn(imm(e) : AstExpr, imm(prefix) : String) -> bool)(
+_is_contract_assert_call :: (fn(e : &AstExpr, prefix : &String) -> bool)(
   // The spliced message atom's token value is QUOTED
   // (`_synth_string_token_value`), so the prefix includes the opening
   // quote: `"ensures failed:`.
@@ -2624,7 +2624,7 @@ _is_contract_assert_call :: (fn(imm(e) : AstExpr, imm(prefix) : String) -> bool)
 /// Whether `e` is the dependency-free runtime contract guard built by
 /// `_build_assert_call`: a two-arm `cond` whose else-arm panics with the
 /// quoted contract message.
-_contract_guard_is :: (fn(imm(e) : AstExpr, imm(prefix) : String) -> bool)(
+_contract_guard_is :: (fn(e : &AstExpr, prefix : &String) -> bool)(
   match(
     e,
     .FnCall(_, head, args, _, _) => cond(
@@ -2644,7 +2644,7 @@ _contract_guard_is :: (fn(imm(e) : AstExpr, imm(prefix) : String) -> bool)(
 );
 /// The else-arm of the runtime contract guard: `=> (true, __yo_panic(msg))`
 /// with the quoted contract message.
-_guard_arm2_is :: (fn(imm(arm2) : AstExpr, imm(prefix) : String) -> bool)(
+_guard_arm2_is :: (fn(arm2 : &AstExpr, prefix : &String) -> bool)(
   match(
     arm2,
     .FnCall(_, ah, aargs, _, _) => cond(
@@ -2672,7 +2672,7 @@ _guard_arm2_is :: (fn(imm(arm2) : AstExpr, imm(prefix) : String) -> bool)(
 );
 /// The panic call of the runtime contract guard: `__yo_panic("<prefix>…")`
 /// with the quoted contract message.
-_guard_panic_is :: (fn(imm(pc) : AstExpr, imm(prefix) : String) -> bool)(
+_guard_panic_is :: (fn(pc : &AstExpr, prefix : &String) -> bool)(
   match(
     pc,
     .FnCall(_, ph, pargs, _, _) => cond(
@@ -2693,7 +2693,7 @@ _guard_panic_is :: (fn(imm(pc) : AstExpr, imm(prefix) : String) -> bool)(
 /// The arm body: either the bare panic call or a begin sequencing the
 /// panic with `()` (the unit-unification wrapper) — descend into the
 /// begin's first statement.
-_guard_body_is :: (fn(imm(body) : AstExpr, imm(prefix) : String) -> bool)(
+_guard_body_is :: (fn(body : &AstExpr, prefix : &String) -> bool)(
   match(
     body,
     .FnCall(_, bh, bargs, _, _) => cond(
@@ -2717,17 +2717,17 @@ _guard_body_is :: (fn(imm(body) : AstExpr, imm(prefix) : String) -> bool)(
 /// ExprInfo (it lands on evaluated clones), so a callee is recognized as ghost
 /// by its module-level `name :: ghost_fn(...)` definition
 /// (`is_module_ghost_fn_def`), or by a FuncVal value when a node has one.
-requires_is_runtime_checkable :: (fn(imm(pred) : AstExpr, imm(table) : ExprInfoTable) -> bool)(
+requires_is_runtime_checkable :: (fn(pred : &AstExpr, table : &ExprInfoTable) -> bool)(
   _contract_clause_runs(pred, table, false)
 );
 /// An `ensures` clause that can run as an assert after the body: the
 /// `requires` rule, except that `old(...)` is allowed (the splice snapshots
 /// it at entry). A clause that quantifies or calls a `ghost_fn` is
 /// proof-only: splicing it would put a ghost-only builtin into runtime code.
-ensures_is_runtime_checkable :: (fn(imm(pred) : AstExpr, imm(table) : ExprInfoTable) -> bool)(
+ensures_is_runtime_checkable :: (fn(pred : &AstExpr, table : &ExprInfoTable) -> bool)(
   _contract_clause_runs(pred, table, true)
 );
-_contract_clause_runs :: (fn(imm(pred) : AstExpr, imm(table) : ExprInfoTable, allow_old : bool) -> bool)(
+_contract_clause_runs :: (fn(pred : &AstExpr, table : &ExprInfoTable, allow_old : bool) -> bool)(
   match(
     pred,
     .Atom(_, _) => match(
@@ -2772,7 +2772,7 @@ _contract_clause_runs :: (fn(imm(pred) : AstExpr, imm(table) : ExprInfoTable, al
 /// `wrap_function_body_with_contracts` splices: `verify+` asserts every
 /// requires; `verify` asserts only a runtime-checkable one, and nothing in a
 /// `ghost_fn`.
-requires_enforced_flags :: (fn(imm(reqs) : ArrayList(AstExpr), imm(mode) : String, in_ghost_fn : bool, imm(table) : ExprInfoTable) -> ArrayList(bool))({
+requires_enforced_flags :: (fn(reqs : &ArrayList(AstExpr), mode : &String, in_ghost_fn : bool, table : &ExprInfoTable) -> ArrayList(bool))({
   out := ArrayList(bool).new();
   (i : usize) = usize(0);
   while(i < reqs.len(), {
@@ -2789,10 +2789,10 @@ requires_enforced_flags :: (fn(imm(reqs) : ArrayList(AstExpr), imm(mode) : Strin
 });
 wrap_function_body_with_contracts :: (
   fn(
-    imm(body) : AstExpr,
-    imm(requires_exprs) : ArrayList(AstExpr),
-    imm(ensures_exprs) : ArrayList(AstExpr),
-    imm(return_label) : Option(String),
+    body : &AstExpr,
+    requires_exprs : &ArrayList(AstExpr),
+    ensures_exprs : &ArrayList(AstExpr),
+    return_label : &Option(String),
     is_comptime_fn : bool,
     returns_unit : bool,
     /// The literal is a `ghost_fn`'s: it never runs, so `verify` mode splices
@@ -2800,11 +2800,11 @@ wrap_function_body_with_contracts :: (
     in_ghost_fn : bool,
     /// Per `requires_exprs` entry: whether its predicate can run
     /// (`requires_is_runtime_checkable`). `verify` mode splices only those.
-    imm(requires_checkable) : ArrayList(bool),
+    requires_checkable : &ArrayList(bool),
     /// Per `ensures_exprs` entry: whether its predicate can run
     /// (`ensures_is_runtime_checkable`). Only those are ever spliced: a
     /// quantified or ghost_fn clause is proof-only in every mode.
-    imm(ensures_checkable) : ArrayList(bool)
+    ensures_checkable : &ArrayList(bool)
   ) -> AstExpr
 )({
   if((requires_exprs.len() == usize(0)) && (ensures_exprs.len() == usize(0)), {
@@ -3033,7 +3033,7 @@ export(evaluate_requires, evaluate_ensures, evaluate_invariant, evaluate_decreas
 /// `decreases(...)` has nothing to recurse on — both would be silently ignored,
 /// which is the one thing a claim must never be.
 _reject_law_clause :: (
-  fn(imm(fn_head) : AstExpr, clause : str, imm(at) : Token, imm(exn) : Exception) -> unit
+  fn(fn_head : &AstExpr, clause : str, at : &Token, exn : &Exception) -> unit
 )({
   args := match(
     fn_head,
@@ -3076,7 +3076,7 @@ _reject_law_clause :: (
 /// `contract_less` and DEGRADES its subset failures to the passing outcome
 /// `outside-subset`, so a body-asserts law would report green when its claim
 /// could not even be walked.
-evaluate_law :: (fn(imm(expr) : AstExpr, imm(env) : Environment, imm(ctx) : EvalContext, imm(exn) : Exception) -> AstExpr)({
+evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
   law_tok := ast_expr_token(expr);
   if(!ast_expr_is_fn_call_of(expr, BF_LAW, Option(usize).Some(usize(1))), {
     exn.throw(

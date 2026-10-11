@@ -22,12 +22,12 @@ pragma(Pragma.AllowUnsafe);
 // Forward reference slot for _universe_of
 // (needed by _determine_type_universe which is defined before the function)
 // ---------------------------------------------------------------------------
-(g_type_of_type_visited_fn : Option((fn(imm(ty) : TypeValue, imm(visited) : ArrayList(String)) -> TypeValue))) = .None;
+(g_type_of_type_visited_fn : Option((fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue))) = .None;
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
 /// Return true if `name` already appears in `visited`.
-_name_in_visited :: (fn(imm(visited) : ArrayList(String), imm(name) : String) -> bool)({
+_name_in_visited :: (fn(visited : &ArrayList(String), name : &String) -> bool)({
   result := false;
   i := usize(0);
   while(i < visited.len(), {
@@ -56,8 +56,8 @@ _max_usize :: (fn(a : usize, b : usize) -> usize)(
 // ---------------------------------------------------------------------------
 _determine_type_universe :: (
   fn(
-    imm(field_types) : ArrayList(TypeValue),
-    imm(visited_names) : ArrayList(String)
+    field_types : &ArrayList(TypeValue),
+    visited_names : &ArrayList(String)
   ) -> TypeValue
 )({
   max_level := usize(0);
@@ -95,7 +95,7 @@ _UniverseMemoEntry :: struct(ty : TypeValue, universe : TypeValue);
 /// Set when the name-cycle guard answered for a type on the current path:
 /// a result computed under it depends on that path, so it is not memoized.
 (g_universe_guard_fired : bool) = false;
-_universe_memo_lookup :: (fn(imm(key) : String, imm(ty) : TypeValue) -> Option(TypeValue))({
+_universe_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(TypeValue))({
   bucket := match(g_universe_memo.get(key), .Some(b) => b, .None => return(Option(TypeValue).None));
   (i : usize) = usize(0);
   while(i < bucket.len(), {
@@ -115,7 +115,7 @@ _universe_memo_lookup :: (fn(imm(key) : String, imm(ty) : TypeValue) -> Option(T
 /// guard flag is tracked per entry (saved, cleared, OR-ed back), so a cycle
 /// elsewhere in the walk does not stop unrelated entries from being memoized.
 _universe_memo_compute :: (
-  fn(imm(key) : String, imm(ty) : TypeValue, imm(name) : String, imm(fields) : ArrayList(TypeValue), imm(visited) : ArrayList(String)) -> TypeValue
+  fn(key : &String, ty : &TypeValue, name : &String, fields : &ArrayList(TypeValue), visited : &ArrayList(String)) -> TypeValue
 )({
   outer_fired := g_universe_guard_fired;
   g_universe_guard_fired = false;
@@ -136,7 +136,7 @@ _universe_memo_compute :: (
 /// distinct type instead of once per path through its 2^depth leaf tree
 /// (issues/fixed/defining-a-deep-struct-dag-is-exponential.md). Unions carry
 /// no id and are walked per path.
-_universe_of :: (fn(imm(ty) : TypeValue, imm(visited) : ArrayList(String)) -> TypeValue)(
+_universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)(
   match(
     ty,
     // Primitives -------------------------------------------------------------
@@ -256,7 +256,7 @@ _universe_of :: (fn(imm(ty) : TypeValue, imm(visited) : ArrayList(String)) -> Ty
 // from inside an `(fn() -> ...)({ ... })()` wrapper is rejected. The direct
 // top-level assignment reassigns the real global.
 g_type_of_type_visited_fn =
-  Option((fn(imm(ty) : TypeValue, imm(visited) : ArrayList(String)) -> TypeValue)).Some(
+  Option((fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)).Some(
     _universe_of
   );
 // ---------------------------------------------------------------------------
@@ -264,7 +264,7 @@ g_type_of_type_visited_fn =
 // ---------------------------------------------------------------------------
 /// Get the meta-type (type universe) of any `TypeValue`.
 ///
-type_of_type :: (fn(imm(ty) : TypeValue) -> TypeValue)({
+type_of_type :: (fn(ty : &TypeValue) -> TypeValue)({
   g_universe_memo.clear();
   g_universe_guard_fired = false;
   _universe_of(ty, ArrayList(String).new())

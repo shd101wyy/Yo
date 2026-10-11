@@ -25,7 +25,7 @@ test("bind the whole scrutinee while destructuring it", {
   assert(f(Shape.Dot) == i32(0));
 });
 test("a whole-value binding inside a payload", {
-  inner_r :: (fn(imm(b) : Boxed) -> i32)(
+  inner_r :: (fn(b : &Boxed) -> i32)(
     match(
       b,
       .Holds(inner := .Circle(_)) => match(
@@ -53,7 +53,7 @@ test("a whole-value binding over a literal", {
   assert(g(5) == i32(5));
 });
 test("whole-value binding of a reference-semantics payload", {
-  h :: (fn(imm(o) : Option(String)) -> usize)(
+  h :: (fn(o : &Option(String)) -> usize)(
     match(
       o,
       (all := .Some(s)) => (s.len() + match(all, .Some(t) => t.len(), .None => usize(0))),

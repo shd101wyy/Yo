@@ -76,16 +76,16 @@ get_global_cache_dir :: (fn() -> String)({
 /// `<cache_root>/context` — the `yo context` index cache, one content-keyed
 /// subtree per indexed tree (plans/reference/YO_CONTEXT.md D3). A PURE cache: `yo
 /// cache gc` sweeps it wholesale, and a query rebuilds any missing key.
-get_context_dir :: (fn(imm(cache_root) : String) -> String)(
+get_context_dir :: (fn(cache_root : &String) -> String)(
   Path.new(cache_root).join(Path.new(String.from("context"))).to_string()
 );
 /// The lock's `integrity` values start with this; the store strips it.
 INTEGRITY_PREFIX :: "sha256-";
 /// `<cache_root>/store/sha256` — the package trees, one directory per hash.
-get_store_dir :: (fn(imm(cache_root) : String) -> String)(
+get_store_dir :: (fn(cache_root : &String) -> String)(
   cache_root.concat(String.from("/store/sha256"))
 );
-_is_lower_hex :: (fn(imm(s) : String) -> bool)({
+_is_lower_hex :: (fn(s : &String) -> bool)({
   bytes := s;
   n := bytes.len();
   (i : usize) = usize(0);
@@ -104,7 +104,7 @@ _is_lower_hex :: (fn(imm(s) : String) -> bool)({
 /// (`<cache_root>/store/sha256/<hex>`), or what is wrong with the value.
 /// Pure path arithmetic — the manifest resolver computes it synchronously from
 /// `yo.lock`; the fetcher writes into it.
-store_tree_dir :: (fn(imm(cache_root) : String, imm(integrity) : String) -> Result(String, String))({
+store_tree_dir :: (fn(cache_root : &String, integrity : &String) -> Result(String, String))({
   prefix := String.from(INTEGRITY_PREFIX);
   if(!integrity.starts_with(prefix.clone()), {
     return(Result(String, String).Err(`integrity "${integrity}" does not start with "${INTEGRITY_PREFIX}"`));
@@ -121,20 +121,20 @@ store_tree_dir :: (fn(imm(cache_root) : String, imm(integrity) : String) -> Resu
 /// `<tree dir>.verified` — a sibling file written only after a full hash of
 /// the landed tree matched its name. A tree without it is re-hashed before it
 /// is trusted (an interrupted install, a hand-edited store).
-store_verified_marker :: (fn(imm(tree_dir) : String) -> String)(
+store_verified_marker :: (fn(tree_dir : &String) -> String)(
   tree_dir.concat(String.from(".verified"))
 );
 /// `<cache_root>/git` — the bare mirrors.
-get_git_mirrors_dir :: (fn(imm(cache_root) : String) -> String)(
+get_git_mirrors_dir :: (fn(cache_root : &String) -> String)(
   cache_root.concat(String.from("/git"))
 );
 /// The hex SHA-256 of a remote URL — the file-system name every per-remote
 /// artifact (mirror, tag index) is filed under.
-url_key :: (fn(imm(url) : String) -> String)(
+url_key :: (fn(url : &String) -> String)(
   sha256_hex(url.to_bytes())
 );
 /// `<cache_root>/git/<sha256(url)>.git` — the bare mirror of `url`.
-git_mirror_dir :: (fn(imm(cache_root) : String, imm(url) : String) -> String)({
+git_mirror_dir :: (fn(cache_root : &String, url : &String) -> String)({
   dir := get_git_mirrors_dir(cache_root);
   dir.push_str("/");
   dir.push_string(url_key(url));
@@ -142,13 +142,13 @@ git_mirror_dir :: (fn(imm(cache_root) : String, imm(url) : String) -> String)({
   dir
 });
 /// `<cache_root>/index` — the per-remote `ls-remote` answers.
-get_index_dir :: (fn(imm(cache_root) : String) -> String)(
+get_index_dir :: (fn(cache_root : &String) -> String)(
   cache_root.concat(String.from("/index"))
 );
 /// `<cache_root>/index/<sha256(url)>.tags` — the last `git ls-remote --tags`
 /// output for `url`, rewritten every online run and the ONLY tag source under
 /// `--offline`.
-tags_index_path :: (fn(imm(cache_root) : String, imm(url) : String) -> String)({
+tags_index_path :: (fn(cache_root : &String, url : &String) -> String)({
   p := get_index_dir(cache_root);
   p.push_str("/");
   p.push_string(url_key(url));
@@ -157,17 +157,17 @@ tags_index_path :: (fn(imm(cache_root) : String, imm(url) : String) -> String)({
 });
 /// `<cache_root>/store.lock` — held (`flock`) around every store and mirror
 /// mutation, so two installs never extract into the same name at once.
-store_lock_path :: (fn(imm(cache_root) : String) -> String)(
+store_lock_path :: (fn(cache_root : &String) -> String)(
   cache_root.concat(String.from("/store.lock"))
 );
 /// `<cache_root>/projects` — one absolute project directory per line, every
 /// project `yo install` has resolved; `yo cache gc` keeps what their locks
 /// reference and forgets projects that no longer exist.
-projects_registry_path :: (fn(imm(cache_root) : String) -> String)(
+projects_registry_path :: (fn(cache_root : &String) -> String)(
   cache_root.concat(String.from("/projects"))
 );
 /// Create the store, mirror and index directories and return the cache root.
-ensure_cache_layout :: (fn(io : Io, imm(exn) : Exception) -> Impl(Future(String, IoExn)))(
+ensure_cache_layout :: (fn(io : Io, exn : &Exception) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
     root := get_global_cache_dir();
     e.io.await(create_dir_all(Path.new(get_store_dir(root.clone())), e.io), e);
@@ -181,7 +181,7 @@ get_global_versions_cache_dir :: (fn() -> String)(
   get_global_cache_dir().concat(String.from("/versions"))
 );
 /// Return the cache directory for a specific Yo version.
-get_version_cache_dir :: (fn(imm(version) : String) -> String)(
+get_version_cache_dir :: (fn(version : &String) -> String)(
   get_global_versions_cache_dir().concat(String.from("/")).concat(version)
 );
 /// Return the INSTALL root that `scripts/install.sh` lays versions out under —
@@ -225,7 +225,7 @@ get_install_versions_dir :: (fn() -> Option(String))({
 });
 /// Return the install directory for a specific version, when this binary was
 /// script-installed. `.None` otherwise.
-get_install_version_dir :: (fn(imm(version) : String) -> Option(String))(
+get_install_version_dir :: (fn(version : &String) -> Option(String))(
   match(
     get_install_versions_dir(),
     .Some(root) => Option(String).Some(root.concat(String.from("/")).concat(version)),
