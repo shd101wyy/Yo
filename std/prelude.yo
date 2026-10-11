@@ -10531,7 +10531,7 @@ impl(
       match(
         self._inner.next(),
         .None => .None,
-        .Some(item) => .Some((self._f)(item))
+        .Some(item) => .Some((self._f)(&item))
       )
     )
   )
@@ -10568,7 +10568,7 @@ impl(
           },
           .Some(item) => {
             cond(
-              (self._f)(item) => {
+              (self._f)(&item) => {
                 loop_result = .Some(item);
                 break;
               },
@@ -10788,7 +10788,7 @@ impl(
             },
             .Some(item) => {
               cond(
-                (self._f)(item) => {
+                (self._f)(&item) => {
                   result = .Some(item);
                 },
                 true => {
@@ -10831,7 +10831,7 @@ impl(
           },
           .Some(item) => {
             cond(
-              (self._skipping && (self._f)(item)) => (),
+              (self._skipping && (self._f)(&item)) => (),
               true => {
                 self._skipping = false;
                 result = .Some(item);
@@ -10874,7 +10874,7 @@ impl(
           },
           .Some(item) => {
             match(
-              (self._f)(item),
+              (self._f)(&item),
               .Some(mapped) => {
                 result = .Some(mapped);
                 break;
