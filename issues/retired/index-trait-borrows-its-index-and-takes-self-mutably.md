@@ -1,7 +1,16 @@
-# Should `Index` take its index by value and `self` read-only, as Rust's does? (OPEN-DESIGN)
+# Should `Index` take its index by value and `self` read-only, as Rust's does? (RETIRED)
 
 **Kind:** design question: an open decision, not a defect. Filed 2026-10-11
 while making effect records by-value (`exn : Exception`, #1312).
+
+**Verdict (2026-10-11):** the recommendation was taken, in its stated order.
+The by-value index landed the same day — `Index`'s `idx` is `Idx` by value,
+the std and test impls were respelled, and the dispatch path learned the
+normal by-value argument rule (`consume_argument_for_parameter` in
+`try_to_call_with_index_trait`), without which an RC-typed index's count
+underflowed at the synthesized dispatch call. The `Index`/`IndexMut` split
+waits for decision 24 (V2b) with the projection result, as recommended.
+Retired to `issues/retired/` (resolved by landing, not by a targeted fix).
 
 ## The question
 

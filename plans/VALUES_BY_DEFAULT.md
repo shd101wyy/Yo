@@ -1194,9 +1194,10 @@ and in git, not a silent edit.
       (`NON_ESCAPABLE_TYPES.md` R3). It is second-class: never stored in a
       cell, never captured by an escaping closure.
     - While a `&mut` projection is live, its base is exclusively borrowed.
-    - `Index.index` becomes `fn(self : &mut Self, idx) -> &mut Self.Output`
+    - `Index.index` becomes `fn(self : &mut Self, idx : Idx) -> &mut Self.Output`
       (today `-> *(Self.Output)`, `plans/reference/INDEX_TRAIT.md`), with a
-      `&Self` form for reads.
+      `&Self` form for reads. The index is already by value (decision 34's
+      amendment); the projection result and the receiver split wait for V2b.
     - `with(i, body)` and `get_cloned` remain only where a projection cannot
       express the access.
     - Rejected: inferring the projection's mutability from the receiver.
@@ -1539,6 +1540,21 @@ and in git, not a silent edit.
         `std/time/duration.yo` (`Duration`'s `(+)`/`(-)`). Every other impl
         in the tree already wrote by-value operands or a lambda, which
         takes the trait's modes.
+      - **`Index` takes its index by value** too:
+        `index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)`, as
+        Rust's `Index::index(&self, index: Idx)`
+        (`issues/retired/index-trait-borrows-its-index-and-takes-self-mutably.md`).
+        Every `Idx` in the tree is a `Copy` scalar or a string key, so no
+        call site changes; the impls are `std/encoding/json.yo` (`String`,
+        `usize`), `std/collections/hash_map.yo` and
+        `std/collections/btree_map.yo` (`K`). The dispatch path
+        (`try_to_call_with_index_trait`) runs the normal by-value argument
+        rule (`consume_argument_for_parameter`) on the index argument: the
+        specialized `index` drops its by-value parameter on every exit, so
+        an RC-typed index is shared (+1) at the call site. A heavy index
+        type borrows by instantiating `Idx` with a reference type once
+        decision 43 makes `&T` a type. The `Index`/`IndexMut` split by
+        receiver mode stays with decision 24 (V2b).
     - **The rule.** The prelude's comparison traits declare their operands
       `&`, for example `Eq`'s `(==) : fn(lhs : &Self, rhs : &Rhs) -> bool`.
       - It covers `Eq` and `Ord`; every other operator trait takes its

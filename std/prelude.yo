@@ -373,12 +373,14 @@ impl(Allocator, Send());
 impl(Allocator, Sync());
 export(AllocatorVTable, Allocator);
 /// Index trait — enables `container(idx)` subscript syntax at runtime.
-/// The `Idx` parameter is the index type (e.g., `usize`, `Range(usize)`).
+/// The `Idx` parameter is the index type (e.g., `usize`, `Range(usize)`),
+/// taken BY VALUE as an operator operand takes its operands (decision 34 as
+/// amended 2026-10-11; `issues/retired/index-trait-borrows-its-index-and-takes-self-mutably.md`).
 /// Implementations must define an `Output` associated type and an `index` method.
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(self : &mut Self, idx : &Idx) -> *Self.Output)
+    index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)
   )
 );
 export(Index);

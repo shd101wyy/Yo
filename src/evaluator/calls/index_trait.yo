@@ -51,7 +51,7 @@ pragma(Pragma.AllowUnsafe);
 { convert_comptime_type_to_runtime_type, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { _is_verify_target, resolve_verify_mode, record_index_unchecked_twin } :: import("../builtins/contracts.yo");
 { evaluate_expression, evaluate_expression_guarded } :: import("../exprs/expr.yo");
-{ try_to_call_function_with_arguments } :: import("./helper.yo");
+{ try_to_call_function_with_arguments, consume_argument_for_parameter } :: import("./helper.yo");
 { get_func_param_comptime } :: import("../types/function.yo");
 { evaluate_comptime_fn_call } :: import("./comptime_fn.yo");
 { Exception } :: import("std/error");
@@ -1577,6 +1577,39 @@ try_to_call_with_index_trait :: (
     ret_ty,
     .Pointer(et) => et,
     _ => ret_ty
+  );
+  // The `idx` argument follows the same ownership rule as a normal call's
+  // argument (`consume_argument_for_parameter`). The Index trait takes its
+  // index BY VALUE (decision 34 as amended 2026-10-11), and the specialized
+  // method's C drops a by-value parameter on every exit path — without the
+  // caller-side share the dispatch call site emitted by
+  // `_generate_index_trait_call` (which passes the argument's plain rvalue,
+  // with no normal-call arg marshaling) under-counts an RC-typed index by one
+  // and frees it while the caller still reads it. `Copy` index types no-op
+  // inside the rule (`arg_is_bitwise_copy`), and a still-borrowed impl
+  // (`idx : &K`, a generic impl the conformance check cannot reach) reads its
+  // mode flags here and is skipped, exactly as a normal call would.
+  match(
+    method.method_type,
+    .Func({ meta : __ibv_fm }) => {
+      __ibv_ref := match(__ibv_fm.*.param_is_ref.get(usize(1)), .Some(b) => b, .None => false);
+      __ibv_own := match(__ibv_fm.*.param_is_owning.get(usize(1)), .Some(b) => b, .None => false);
+      if(!__ibv_ref, {
+        _ibv_drop := consume_argument_for_parameter(
+          evaluated_arg,
+          arg_expr,
+          arg_info,
+          __ibv_own,
+          false,
+          false,
+          false,
+          updated_env,
+          ctx,
+          exn
+        );
+      });
+    },
+    _ => ()
   );
   // Runtime dispatch through a trait method — the result is runtime-only,
   // so overload resolution doesn't prefer comptime functions.
