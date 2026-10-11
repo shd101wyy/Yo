@@ -51,6 +51,25 @@ dump_log() {
   echo "  ---- end $f ----"
 }
 
+echo "=== T1 GATE -1: S1 parses this tree ==="
+# A stale S1 fails EVERY gate below identically, which reads exactly like
+# branch fallout. Measured 2026-10-12: a local battery staged S1 from the
+# shared main checkout's yo-out (yo 0.2.37, built 2026-09-19, predating the
+# decision-42 `&mut T` sigils) and reported 53 failures, every log tailing
+# `error[E0008]: paren-less function and operator calls` at std/prelude.yo.
+# The exe-relative std walk-up makes it worse: `check ./src` silently parsed
+# the OTHER checkout's std (where the binary lives), not this one. CI is safe
+# by construction — S1 is the stage1 artifact built from this tree — so this
+# guard is for local batteries. One prelude parse turns the whole cascade
+# into a single named failure; no gate below can produce signal with such an
+# S1, so abort rather than accumulate 53 confusing ones.
+if ! s1_probe="$("$S1" check "$PWD/std/prelude.yo" --std-path "$PWD/std" 2>&1)"; then
+  fail "S1 is unusable on this tree: $("$S1" --version 2>/dev/null | head -1) at $S1 cannot parse $PWD/std/prelude.yo — stage S1 from THIS checkout's yo-out"
+  printf '%s\n' "$s1_probe" | head -6 | sed 's/^/  /'
+  echo "T1_ABORTED (${P}): S1 cannot parse this tree"
+  exit 1
+fi
+
 echo "=== T1 GATE 0: repros ==="
 for r in issues/repros/box-eq-comptime-int-forall-leak.yo issues/repros/arc-spawn-capture-split.yo; do
   n=$(basename "$r" .yo)
