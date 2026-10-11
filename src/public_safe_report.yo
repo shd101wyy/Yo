@@ -733,7 +733,7 @@ scan_class1_extractions :: (fn(file : &String, src_str : &String, out : &mut Arr
 });
 /// The same .yo tree walk as unsafe_report.yo's (see its comment for the `.`
 /// and skip-set handling); deliberately duplicated rather than shared.
-_psr_walk_yo_files :: (fn(root : &String, io : Io, exn : &Exception) -> Impl(Future(ArrayList(String), IoExn)))(
+_psr_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(ArrayList(String), IoExn)))(
   io.async((e : IoExn) => {
     is_dot := (root == ".");
     walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
@@ -782,7 +782,7 @@ _psr_walk_yo_files :: (fn(root : &String, io : Io, exn : &Exception) -> Impl(Fut
   })
 );
 /// Generate the report.
-generate_public_safe_report :: (fn(root_path : &String, io : Io, exn : &Exception) -> Impl(Future(PublicSafeReport, IoExn)))(
+generate_public_safe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> Impl(Future(PublicSafeReport, IoExn)))(
   io.async((e : IoExn) => {
     files := e.io.await(_psr_walk_yo_files(root_path.clone(), e.io, e.exn), e);
     findings := ArrayList(PublicSafeFinding).new();

@@ -128,7 +128,7 @@ _make_comptime_info :: (
     target_type : &TypeValue,
     env : &Environment,
     expr_tok : &Token,
-    exn : &Exception
+    exn : Exception
   ) -> ExprInfo
 )({
   // No range gate here: a `comptime_int` source is range-checked by the
@@ -147,7 +147,7 @@ _make_comptime_info :: (
 /// toward zero. A value the C conversion cannot represent — NaN, an infinity,
 /// or outside the target's range, all undefined behaviour in C — is an error
 /// (the range check is `check_comptime_int_value_fits`'s E1102).
-_float_raw_to_int_raw :: (fn(raw : &String, target_type : &TypeValue, tok : &Token, exn : &Exception) -> String)({
+_float_raw_to_int_raw :: (fn(raw : &String, target_type : &TypeValue, tok : &Token, exn : Exception) -> String)({
   v := match(
     parse_raw_float(raw.clone()),
     .Some(x) => x,
@@ -208,7 +208,7 @@ try_to_convert_to_numeric_type :: (
     expr : &AstExpr,
     caller_env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Option(AstExpr)
 )({
   if(!is_convertible_numeric_type(target_type), {

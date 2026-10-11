@@ -134,7 +134,7 @@ _synthesize_phantom_type_args :: (
     ge : &Environment,
     checked : &mut ArrayList(TypePair),
     opts : &Option(SynthesizeOptions),
-    exn : &Exception
+    exn : Exception
   ) -> SynthesizeResult
 )({
   (pe : Environment) = ee;
@@ -162,7 +162,7 @@ synthesize_types :: (
     given_env : &Environment,
     checked : &mut ArrayList(TypePair),
     opts : &Option(SynthesizeOptions),
-    exn : &Exception
+    exn : Exception
   ) -> SynthesizeResult
 )(
   _synthesize_types_impl(expected_ty, expected_env, given_ty, given_env, checked, opts, exn)
@@ -233,7 +233,7 @@ _bind_some_type :: (
     val : &EvalValue,
     ty : &TypeValue,
     tok : &Option(Token),
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   token := match(tok, .Some(t) => t, .None => synthetic_token(name, env.module_path));
@@ -409,7 +409,7 @@ can_assign_type_hierarchy :: (fn(expected : &TypeValue, given : &TypeValue) -> b
 /// Check if a SomeType (identified by `some_type_id`) occurs anywhere in `ty`.
 /// Prevents infinite types like T = Option(T).
 /// `visited` is a list of type IDs already being checked (prevents cycles).
-_occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &TypeValue, visited : &mut ArrayList(String), exn : &Exception) -> bool)({
+_occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &TypeValue, visited : &mut ArrayList(String), exn : Exception) -> bool)({
   ty_id := synthesis_type_id(ty);
   // Prevent infinite recursion on cyclic types
   (found_visited : bool) = false;
@@ -734,7 +734,7 @@ _synthesize_implicit_params :: (
     given_env : &Environment,
     checked : &mut ArrayList(TypePair),
     opts : &Option(SynthesizeOptions),
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   n_giv := given_types.len();
@@ -801,7 +801,7 @@ _synthesize_fn_traits :: (
     given_env : &Environment,
     checked : &mut ArrayList(TypePair),
     opts : &Option(SynthesizeOptions),
-    exn : &Exception
+    exn : Exception
   ) -> SynthesizeResult
 )({
   // Either side may be a `Func` rather than an `FnTraitT`: this helper also
@@ -878,7 +878,7 @@ _synthesize_future_traits :: (
     given_env : &Environment,
     checked : &mut ArrayList(TypePair),
     opts : &Option(SynthesizeOptions),
-    exn : &Exception
+    exn : Exception
   ) -> SynthesizeResult
 )({
   exp_out := match(expected_ty, .FutureTraitT(_, out, _, _) => out, _ => TypeValue.Unit);
@@ -914,7 +914,7 @@ _synthesize_types_impl :: (
     given_env : &Environment,
     checked : &mut ArrayList(TypePair),
     opts : &Option(SynthesizeOptions),
-    exn : &Exception
+    exn : Exception
   ) -> SynthesizeResult
 )({
   exp_id := synthesis_type_id(expected_ty);

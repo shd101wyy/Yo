@@ -135,7 +135,7 @@ _strip_delims :: (fn(s : &String) -> String)({
 });
 /// Evaluate `e` and return its comptime-string value if it has one.
 _eval_comptime_str :: (
-  fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> Option(String)
+  fn(e : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(String)
 )({
   evaluated := evaluate_expression_raw(e, env, ctx, exn);
   match(
@@ -152,7 +152,7 @@ _eval_comptime_str :: (
 /// Evaluate a constraint argument (register class atom, explicit register
 /// string, or raw("constraint")).
 _evaluate_constraint :: (
-  fn(constraint_expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> String
+  fn(constraint_expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> String
 )({
   if(_is_register_class_atom(constraint_expr), {
     return(_atom_value(constraint_expr));
@@ -190,7 +190,7 @@ _evaluate_constraint :: (
 });
 /// Parse const_val/sym operands.
 _parse_special_operand :: (
-  fn(operand_expr : &AstExpr, env : &Environment, ctx : &EvalContext, kind : &String, exn : &Exception) -> AsmOperand
+  fn(operand_expr : &AstExpr, env : &Environment, ctx : &EvalContext, kind : &String, exn : Exception) -> AsmOperand
 )({
   args := _fn_call_args_of(operand_expr);
   if((args.len() < usize(1)) || (args.len() > usize(2)), {
@@ -230,7 +230,7 @@ _parse_special_operand :: (
 });
 /// Parse a single operand sub-call.
 _parse_operand :: (
-  fn(operand_expr : &AstExpr, env : &Environment, ctx : &EvalContext, kind_in : &String, exn : &Exception) -> AsmOperand
+  fn(operand_expr : &AstExpr, env : &Environment, ctx : &EvalContext, kind_in : &String, exn : Exception) -> AsmOperand
 )({
   // Normalize the `ref` alias to `inout`.
   kind := cond((kind_in == String.from("ref")) => String.from("inout"), true => kind_in.clone());
@@ -488,7 +488,7 @@ _parse_operand :: (
 /// Parse asm_options(...) flags.
 /// Returns the `noreturn` flag (the only one the evaluator consumes).
 _parse_asm_options :: (
-  fn(option_expr : &AstExpr, exn : &Exception) -> bool
+  fn(option_expr : &AstExpr, exn : Exception) -> bool
 )({
   (noreturn : bool) = false;
   flags := _asm_option_flags();
@@ -527,7 +527,7 @@ _parse_asm_options :: (
 });
 /// Validate template placeholders `{N}` / `{name}` against the operand list.
 _validate_template_placeholders :: (
-  fn(template : &String, operands : &ArrayList(AsmOperand), tok : &Token, exn : &Exception) -> unit
+  fn(template : &String, operands : &ArrayList(AsmOperand), tok : &Token, exn : Exception) -> unit
 )({
   // Duplicate-name check.
   operand_names := ArrayList(String).new();
@@ -655,7 +655,7 @@ evaluate_asm :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);
@@ -962,7 +962,7 @@ evaluate_global_asm :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);

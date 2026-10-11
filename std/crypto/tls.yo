@@ -120,7 +120,7 @@ _ssl_err_string :: (fn() -> String)({
   unsafe(__yo_tls_err_string((*char)(buf.ptr().unwrap()), usize(256)));
   String.from_cstr(buf.ptr().unwrap()).unwrap_or(`unknown TLS error`.to_string())
 });
-_throw_tls :: (fn(err : &TlsError, exn : &Exception) -> unit)(
+_throw_tls :: (fn(err : &TlsError, exn : Exception) -> unit)(
   exn.throw(dyn(err))
 );
 /// A connected TLS client stream.

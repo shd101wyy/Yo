@@ -128,7 +128,7 @@ to_utf8 :: (fn(data : &ArrayList(u16)) -> Result(String, EncodingError))({
 });
 /// `to_utf8` as an effect: throws the `EncodingError` through `exn`
 /// instead of returning it. Kept for callers already inside an effect scope.
-to_utf8_exn :: (fn(data : &ArrayList(u16), exn : &Exception) -> String)(
+to_utf8_exn :: (fn(data : &ArrayList(u16), exn : Exception) -> String)(
   match(to_utf8(data), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 export(to_utf8, to_utf8_exn);
@@ -144,7 +144,7 @@ utf8_to_utf16 :: (fn(s : &String) -> ArrayList(u16))(from_utf8(s));
 /// DEPRECATED, removed in v0.2.32: call `utf16.to_utf8`.
 utf16_to_utf8 :: (fn(data : &ArrayList(u16)) -> Result(String, EncodingError))(to_utf8(data));
 /// DEPRECATED, removed in v0.2.32: call `utf16.to_utf8_exn`.
-utf16_to_utf8_exn :: (fn(data : &ArrayList(u16), exn : &Exception) -> String)(
+utf16_to_utf8_exn :: (fn(data : &ArrayList(u16), exn : Exception) -> String)(
   to_utf8_exn(data, exn)
 );
 export(utf8_to_utf16, utf16_to_utf8, utf16_to_utf8_exn);

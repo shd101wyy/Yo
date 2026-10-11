@@ -120,7 +120,7 @@ pragma(Pragma.AllowUnsafe);
 /// Every other right-hand side keeps `converted`, the type the ordinary
 /// comptime-to-runtime conversion produced.
 _comptime_numeric_into_slot :: (
-  fn(rhs_info : &ExprInfo, slot_ty : &TypeValue, converted : &TypeValue, tok : &Token, exn : &Exception) -> TypeValue
+  fn(rhs_info : &ExprInfo, slot_ty : &TypeValue, converted : &TypeValue, tok : &Token, exn : Exception) -> TypeValue
 )(
   match(comptime_numeric_slot_type(rhs_info.ty, rhs_info.value, slot_ty, tok, exn), .Some(t) => t, .None => converted)
 );
@@ -128,7 +128,7 @@ throw_rhs_contains_control_flow_expression_error :: (
   fn(
     rhs : &AstExpr,
     cf : ControlFlowFlags,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   cf_str := control_flow_to_string(cf);
@@ -344,7 +344,7 @@ _captured_root_of_place :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalCo
 /// may be frozen by a live capture-list closure (decision 18 rule 2), and an
 /// `imm` capture inside a closure body is read-only (E0908). An `imm`
 /// capture is the one `is_ref` binding that is not reassignable.
-_check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+_check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   (cur : AstExpr) = lhs;
   (walking : bool) = true;
   while(walking, {
@@ -680,7 +680,7 @@ _module_global_root_var :: (
 /// thread reaches the same global (`d1_record_global_write` consults the
 /// reachability walk's registry, and the walk consults this one).
 _d1_record_write :: (
-  fn(gv : &Variable, write_tok : &Token, how : &String, note : &String, exn : &Exception) -> unit
+  fn(gv : &Variable, write_tok : &Token, how : &String, note : &String, exn : Exception) -> unit
 )({
   if(is_implicitly_unsafe_capable_file(Option(String).Some(write_tok.module_path.clone())), {
     return(());
@@ -762,7 +762,7 @@ d3_record_inout_place :: (
 /// (`std/sync`'s `self : &mut Self` methods write only through atomics or locks)
 /// and is trusted. The summary target is the specialization when one exists.
 d3_check_pending :: (
-  fn(pending : &ArrayList(D3PendingInout), callee_fid : &String, callee_body : &AstExpr, ctx : &EvalContext, exn : &Exception) -> unit
+  fn(pending : &ArrayList(D3PendingInout), callee_fid : &String, callee_body : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
 )({
   if((pending.len() == usize(0)) || ctx.is_in_function_call_checking_phase, {
     return(());
@@ -876,7 +876,7 @@ d3_check_pending :: (
 /// (helper.yo, function.yo) all go through here so the three spellings of one
 /// race get one rule.
 throw_if_write_through_atomic_root :: (
-  fn(place : &AstExpr, env : &Environment, how : &String, exn : &Exception) -> unit
+  fn(place : &AstExpr, env : &Environment, how : &String, exn : Exception) -> unit
 )({
   if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(place).module_path.clone())), {
     return(());
@@ -957,7 +957,7 @@ evaluate_assignment :: (
     expr : &AstExpr,
     env_in : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

@@ -59,7 +59,7 @@ _first_code_in_text :: (fn(text : &String) -> String)(
 /// Load `src` as the module at `path` and return the first diagnostic code
 /// ("" for a clean load). Drains every error channel so nothing leaks into
 /// the next example.
-_load_code :: (fn(path : &String, src : &String, std_path : &String, io : Io, exn : &Exception) -> String)({
+_load_code :: (fn(path : &String, src : &String, std_path : &String, io : Io, exn : Exception) -> String)({
   ioexn := IoExn(io : io, exn : exn);
   io.await(write_string(Path.new(path.clone()), src, io), ioexn);
   _inv := mm_invalidate_document(path.clone());

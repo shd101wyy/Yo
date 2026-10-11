@@ -94,7 +94,7 @@ context_index_dir :: (fn(cache_root : &String, key : &String) -> String)(
 /// The cache root for the context index: `$YO_CONTEXT_CACHE` when set (the
 /// test/CI pin, mirroring `YO_STD`/`YO_SKILLS`), else the global cache root.
 context_cache_root :: (
-  fn(io : Io, exn : &Exception) -> String
+  fn(io : Io, exn : Exception) -> String
 )(
   match(
     env.get(String.from("YO_CONTEXT_CACHE")),
@@ -111,7 +111,7 @@ _collect_index_files :: (
     root : &String,
     files : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
@@ -185,7 +185,7 @@ context_corpus_name :: (fn(root : &String, prefix : &String) -> String)(
 /// same tree as dependency `utils`) used to share ONE index, named after
 /// whichever was built first.
 context_tree_key :: (
-  fn(root : &String, prefix : &String, io : Io, exn : &Exception) -> String
+  fn(root : &String, prefix : &String, io : Io, exn : Exception) -> String
 )({
   files := ArrayList(String).new();
   _collect_index_files(root.clone(), root.clone(), files, io, exn);
@@ -259,7 +259,7 @@ _doc_first_line :: (fn(doc : &Option(String)) -> String)(
 /// across `context_index_ensure` AND the loads that follow, and `yo cache gc`
 /// holds it while it sweeps `context/`, so no reader ever sees a directory
 /// that is half built or half deleted.
-context_lock :: (fn(cache_root : &String, io : Io, exn : &Exception) -> File)({
+context_lock :: (fn(cache_root : &String, io : Io, exn : Exception) -> File)({
   io.await(create_dir_all(Path.new(context_dir(cache_root.clone())), io), IoExn(io : io, exn : exn));
   lock_path := Path.new(context_dir(cache_root)).join(Path.new(String.from("context.lock"))).to_string();
   lock_file := io.await(File.open(Path.new(lock_path.clone()), OpenMode.Append, io), IoExn(io : io, exn : exn));
@@ -290,7 +290,7 @@ context_index_ensure :: (
     refresh : bool,
     prefix : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> String
 )({
   key := context_tree_key(root.clone(), prefix.clone(), io, exn);
@@ -739,7 +739,7 @@ _mark_barrel_origins :: (
     prefix : &String,
     entries : &mut ArrayList(ContextIndexEntry),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   bytes := io.await(read(Path.new(file_path.clone()), io), IoExn(io : io, exn : exn));
@@ -815,7 +815,7 @@ context_index_load :: (
     cache_root : &String,
     key : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(ContextIndexEntry)
 )({
   idx_dir := context_index_dir(cache_root.clone(), key.clone());
@@ -864,7 +864,7 @@ context_index_load_modules :: (
     cache_root : &String,
     key : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(ContextIndexModule)
 )({
   idx_dir := context_index_dir(cache_root.clone(), key.clone());

@@ -32,7 +32,7 @@
 } :: import("../../src/doc/context_index.yo");
 { search_score, _search_entries, LoadedWorld } :: import("../../src/context_command.yo");
 /// Write `text` to `<root>/<rel>`, creating parent directories.
-_put :: (fn(root : &String, rel : &String, text : &String, io : Io, exn : &Exception) -> unit)({
+_put :: (fn(root : &String, rel : &String, text : &String, io : Io, exn : Exception) -> unit)({
   path := Path.new(root).join(Path.new(rel));
   io.await(create_dir_all(path.parent().unwrap_or(Path.new(String.from("."))), io), IoExn(io : io, exn : exn));
   io.await(write_string(path, text, io), IoExn(io : io, exn : exn));
@@ -40,7 +40,7 @@ _put :: (fn(root : &String, rel : &String, text : &String, io : Io, exn : &Excep
 /// The fixture under `<base>/t`: `alpha_api` defines the API, `alpha/index.yo`
 /// re-exports it (the barrel `origin=` case), `beta` is a second module so
 /// name-uniqueness has something to be unique against. Returns the tree root.
-_write_fixture :: (fn(base : &String, io : Io, exn : &Exception) -> String)({
+_write_fixture :: (fn(base : &String, io : Io, exn : Exception) -> String)({
   root := `${base}/t`;
   _put(root.clone(), String.from("alpha_api.yo"), String.from("//! Alpha: the fixture's defining module.\nalpha_add :: (fn(a : i32, b : i32) -> i32)((a + b));\nAlpha :: struct(v : i32);\nALPHA_LIMIT :: 10;\nexport(alpha_add, Alpha, ALPHA_LIMIT);\n"), io, exn);
   _put(root.clone(), String.from("beta.yo"), String.from("//! Beta: a second module.\nbeta_hi :: (fn() -> unit)(());\nexport(beta_hi);\n"), io, exn);
@@ -62,7 +62,7 @@ _find_entry :: (
   });
   Option(ContextIndexEntry).None
 });
-_read_text :: (fn(path : &String, io : Io, exn : &Exception) -> String)(
+_read_text :: (fn(path : &String, io : Io, exn : Exception) -> String)(
   String.from_bytes(io.await(read(Path.new(path), io), IoExn(io : io, exn : exn)))
 );
 test("context_tree_key: stable, moves on a content edit, moves with the corpus name", {

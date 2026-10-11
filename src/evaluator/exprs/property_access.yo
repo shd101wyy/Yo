@@ -133,7 +133,7 @@ _attach_owned_temp_for_rc_unit_variant :: (
 /// An instantiation whose index is still a SomeT (a generic body) is not
 /// judged here: `gadt_branch_reachable` treats unresolved positions as a match.
 _reject_gadt_unreachable_variant :: (
-  fn(enum_ty : &TypeValue, enum_id : &String, variant_idx : usize, variant_name : &String, at : &AstExpr, exn : &Exception) -> unit
+  fn(enum_ty : &TypeValue, enum_id : &String, variant_idx : usize, variant_name : &String, at : &AstExpr, exn : Exception) -> unit
 )({
   if(!gadt_branch_reachable(enum_id.clone(), variant_idx), {
     idx := match(
@@ -321,7 +321,7 @@ build_field_path_collection :: (
 /// when recorded, else the type's own declaring module. Throws when the
 /// access token's module may not see a private member.
 _reject_private_static_member :: (
-  fn(type_id : &String, prop_name : &String, type_val_inner : &TypeValue, property_expr : &AstExpr, exn : &Exception) -> unit
+  fn(type_id : &String, prop_name : &String, type_val_inner : &TypeValue, property_expr : &AstExpr, exn : Exception) -> unit
 )({
   if(!is_private_member_name(prop_name.clone()), {
     return(());
@@ -436,7 +436,7 @@ evaluate_property_access :: (
     expr : &AstExpr,
     env_in : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

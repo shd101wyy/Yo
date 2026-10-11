@@ -54,7 +54,7 @@ _copy_skills_file :: (
     display : &String,
     counters : &SkillCopyCounters,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   existed := io.await(exists(dest.clone(), io), io);
@@ -75,7 +75,7 @@ _sorted_dir_names :: (
   fn(
     path : &Path,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(String)
 )({
   entries := io.await(read_dir(path.clone(), io), IoExn(io : io, exn : exn));
@@ -95,7 +95,7 @@ _copy_skills_dir :: (
     display_prefix : &String,
     counters : &SkillCopyCounters,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   // Explicit worklist of (src, dest, display prefix) triples — an iterative
@@ -131,7 +131,7 @@ _skill_description :: (
   fn(
     skill_md : &Path,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> String
 )({
   (desc : String) = String.from("");
@@ -195,7 +195,7 @@ description_from_frontmatter :: (fn(content : &String) -> String)({
 ///    inside a Yo checkout) — the same exe-walk-up-then-cwd shape
 ///    `resolve_std_path` uses for `std/`.
 _find_bundled_skills_dir :: (
-  fn(io : Io, exn : &Exception) -> Option(Path)
+  fn(io : Io, exn : Exception) -> Option(Path)
 )({
   override := env.get(String.from("YO_SKILLS"));
   if(override.is_some(), {
@@ -265,7 +265,7 @@ install_skills_into :: (
   fn(
     project : &Path,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Option(SkillsInstallResult)
 )({
   bundled_opt := _find_bundled_skills_dir(io, exn);
@@ -398,7 +398,7 @@ run_skills_install :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {

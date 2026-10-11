@@ -82,7 +82,7 @@ _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
   out
 });
 /// E0616 when two traits of one `Dyn` give it a vtable slot of the same name.
-_reject_dyn_slot_name_clash :: (fn(traits : &ArrayList(TypeValue), tok : &Token, exn : &Exception) -> unit)({
+_reject_dyn_slot_name_clash :: (fn(traits : &ArrayList(TypeValue), tok : &Token, exn : Exception) -> unit)({
   seen_names := ArrayList(String).new();
   seen_owner := ArrayList(String).new();
   (ti : usize) = usize(0);
@@ -122,7 +122,7 @@ evaluate_dyn_type :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   if(!ast_expr_is_fn_call_of(expr, BK_DYN_UPPER, .None), {

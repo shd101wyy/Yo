@@ -72,7 +72,7 @@ extern(
 );
 /// Read a whole file synchronously. Errors (a missing file, a permission
 /// failure) are thrown as the libc `IoError`.
-read_file_sync :: (fn(path : &String, exn : &Exception) -> ArrayList(u8))({
+read_file_sync :: (fn(path : &String, exn : Exception) -> ArrayList(u8))({
   // Module-qualified so the name says which `open` this is: libc's, not
   // `std/fs`'s `File.open`.
   fcntl :: import("std/libc/fcntl");
@@ -552,7 +552,7 @@ parse_manifest :: (fn(text : &String, path : &String) -> Result(Manifest, String
   )
 });
 /// Read and parse the manifest at `path` (absolute).
-load_manifest :: (fn(path : &String, exn : &Exception) -> Result(Manifest, String))(
+load_manifest :: (fn(path : &String, exn : Exception) -> Result(Manifest, String))(
   parse_manifest(String.from_bytes(read_file_sync(path.clone(), exn)), path)
 );
 // ---------------------------------------------------------------------------
@@ -773,7 +773,7 @@ resolve_import_roots :: (
   fn(
     manifest : &Manifest,
     root_lock_text : &Option(String),
-    exn : &Exception
+    exn : Exception
   ) -> Result(ImportRoots, String)
 )({
   out := ImportRoots(roots : ArrayList(ImportRoot).new(), unavailable : ArrayList(UnavailableImport).new());
@@ -852,7 +852,7 @@ resolve_import_roots :: (
   Result(ImportRoots, String).Ok(out)
 });
 /// The text of `<manifest dir>/yo.lock`, or `.None` when there is no lock.
-read_lock_text :: (fn(manifest : &Manifest, exn : &Exception) -> Option(String))({
+read_lock_text :: (fn(manifest : &Manifest, exn : Exception) -> Option(String))({
   lock_path := abs_under(manifest.dir.clone(), String.from(LOCK_FILENAME));
   if(file_exists_sync(lock_path.clone()), Option(String).Some(String.from_bytes(read_file_sync(lock_path, exn))), Option(String).None)
 });

@@ -2317,7 +2317,7 @@ _format_yo_source_impl :: (
   fn(
     input : &String,
     module_path : &String,
-    exn : &Exception,
+    exn : Exception,
     elide_parens : bool
   ) -> String
 )({
@@ -3390,7 +3390,7 @@ _formatted_parses_identically :: (
 /// owns the parseability verdict, and the tree's deliberately-unparseable
 /// cli-case fixture (`fix-says-what-it-cannot-repair`) is fmt-clean.
 _fmt_parse_gate :: (
-  fn(input : &String, formatted : &String, module_path : &String, exn : &Exception) -> unit
+  fn(input : &String, formatted : &String, module_path : &String, exn : Exception) -> unit
 )({
   if(formatted != input, {
     parse(input.clone(), module_path.clone(), exn);
@@ -3408,7 +3408,7 @@ _fmt_parse_gate :: (
 /// `_fmt_parse_gate` runs at every exit, so callers that apply the result
 /// (`format_yo_files`, the LSP's `_format_document`) get the parse
 /// diagnostic through their `exn` instead — never a rewrite.
-format_yo_source :: (fn(input : &String, module_path : &String, exn : &Exception) -> String)({
+format_yo_source :: (fn(input : &String, module_path : &String, exn : Exception) -> String)({
   formatted := _format_yo_source_impl(input.clone(), module_path.clone(), exn, true);
   // `return`, not cond-arm value returns: a local returned through a cond
   // arm is duplicated by the dup/drop policy and the original leaks (LSan
@@ -3437,7 +3437,7 @@ collect_yo_files :: (
     target_path : &Path,
     files : &mut ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   is_file_p := io.await(is_file(target_path, io), io);
@@ -3492,7 +3492,7 @@ find_yo_format_files :: (
     input_paths : &ArrayList(String),
     fmt_cwd : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(String)
 )({
   files := ArrayList(String).new();
@@ -3605,7 +3605,7 @@ _yo_fence_info :: (fn(info : &String) -> Option(bool))({
 /// a doc comment, each line carrying the fence's comment prefix. A block
 /// whose info string says `yo ignore` is left as written; any other ```yo
 /// block must parse (a parse failure reaches `exn` with the block's line).
-format_yo_fences :: (fn(text : &String, file : &String, in_comment : bool, exn : &Exception) -> String)({
+format_yo_fences :: (fn(text : &String, file : &String, in_comment : bool, exn : Exception) -> String)({
   lines := text.split("\n");
   out := ArrayList(String).new();
   (i : usize) = usize(0);
@@ -3700,7 +3700,7 @@ format_yo_files :: (
     input_paths : &ArrayList(String),
     options : &FormatYoFilesOptions,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> FormatYoFilesResult
 )({
   files := find_yo_format_files(input_paths, options.cwd.clone(), io, exn);

@@ -57,7 +57,7 @@ SockInfo :: import("../sys/sockinfo");
 // encoder and ONE decoder for the whole `net` layer. This file used to carry a
 // byte-for-byte copy of the encoder, which is how the hardcoded-"::1" bug
 // (plans/archive/STD_API_AUDIT.md C2) had to be fixed twice.
-_throw_net_io :: (fn(errno_val : i32, exn : &Exception) -> unit)(
+_throw_net_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
   exn.throw(dyn(NetError.from_io(IoError.from_errno(errno_val))))
 );
 // ============================================================================

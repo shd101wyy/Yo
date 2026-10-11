@@ -266,7 +266,7 @@ _bind_subject_and_eval_test :: (
     pc : &PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   known := match(value_opt, .Some(v) => !is_unknown_val(v), .None => false);
@@ -340,7 +340,7 @@ _make_const_test :: (
     pc : &PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   subject := _next_subject(pc);
@@ -395,7 +395,7 @@ _enum_const_to_variant :: (fn(value : &EvalValue, position_ty : &TypeValue) -> O
   )
 );
 /// Read the compile-time value the evaluation of `e` produced, or throw.
-_const_value_of :: (fn(e : &AstExpr, evaluated : &AstExpr, ctx : &EvalContext, exn : &Exception) -> EvalValue)({
+_const_value_of :: (fn(e : &AstExpr, evaluated : &AstExpr, ctx : &EvalContext, exn : Exception) -> EvalValue)({
   info := match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated)),
     .Some(i) => i,
@@ -458,7 +458,7 @@ _compile_const_expr :: (
     pc : &PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Pattern
 )({
   is_named := ((ast_expr_is_atom(e) && !_is_literal_atom(e)) || ast_expr_is_fn_call_of(e, ".", Option(usize).Some(usize(2))));
@@ -497,7 +497,7 @@ _compile_range :: (
     pc : &PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Pattern
 )({
   args := _args_of(e);
@@ -687,7 +687,7 @@ _compile_variant :: (
     pc : &PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Pattern
 )({
   through_ptr := is_pointer_type(position_ty_in);
@@ -1002,7 +1002,7 @@ _compile_tuple :: (
     pc : &PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Pattern
 )({
   args := _args_of(e);
@@ -1065,7 +1065,7 @@ _compile_struct :: (
     pc : &PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Pattern
 )({
   labels := _struct_field_labels(struct_ty);
@@ -1243,7 +1243,7 @@ compile_pattern :: (
     pc : &PatternCtx,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Pattern
 )({
   // `_`

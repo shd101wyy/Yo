@@ -118,7 +118,7 @@ sockaddr_to_socket_addr :: (fn(buf : *u8) -> SocketAddr)({
     true => SocketAddr.new(IpAddr.any_v4(), u16(0))
   )
 });
-_throw_io :: (fn(errno_val : i32, exn : &Exception) -> unit)(
+_throw_io :: (fn(errno_val : i32, exn : Exception) -> unit)(
   exn.throw(dyn(NetError.from_io(IoError.from_errno(errno_val))))
 );
 // ============================================================================

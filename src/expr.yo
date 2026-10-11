@@ -796,7 +796,7 @@ deleted_mode_spelling_error :: (fn(tok : &Token, old : &String) -> YoError)(
 /// Throw E0009 when `e` is a deleted mode spelling (`imm(x)`, `mut(x)`,
 /// `inout(x)`, `own(x)`): every slot that holds a mode calls this on what it
 /// was given before reading the internal form.
-reject_old_mode_spelling :: (fn(e : &AstExpr, exn : &Exception) -> unit)(
+reject_old_mode_spelling :: (fn(e : &AstExpr, exn : Exception) -> unit)(
   match(
     ast_expr_is_old_mode_spelling(e),
     .Some(old) => exn.throw(dyn(deleted_mode_spelling_error(ast_expr_token(e), old))),
@@ -1075,7 +1075,7 @@ expect_expr_to_be_fn_call_of :: (
     expr : &AstExpr,
     func_name : str,
     arg_count : Option(usize),
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(!ast_expr_is_fn_call(expr), {
@@ -1126,7 +1126,7 @@ expect_expr_to_be_fn_call_of_any :: (
     expr : &AstExpr,
     func_names : &ArrayList(str),
     arg_count : Option(usize),
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(!ast_expr_is_fn_call(expr), {

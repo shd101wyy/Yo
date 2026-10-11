@@ -68,7 +68,7 @@ supports_color :: (fn(s : &Stream) -> bool)(
 /// Throws `IoError` when `s` is not a terminal or the mode change fails.
 /// ALWAYS pair with `restore_mode()` — a process exiting in raw mode leaves
 /// the user's shell unreadable.
-enter_raw_mode :: (fn(s : &Stream, exn : &Exception) -> unit)({
+enter_raw_mode :: (fn(s : &Stream, exn : Exception) -> unit)({
   fd := _fd_of(s);
   IoError.check(IO_tty.tty_init(fd), exn);
   IoError.check(IO_tty.tty_set_mode(fd, IO_tty.TTY_MODE_RAW), exn);

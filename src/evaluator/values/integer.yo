@@ -37,7 +37,7 @@ import("std/fmt");
 /// Throw E1102 when the integer literal spelled `text` (optionally with a
 /// leading `-`) does not fit the fixed-width integer type `ty`. No-op for a
 /// type without a fixed range (`comptime_int`, floats).
-check_literal_fits :: (fn(text : &String, ty : &TypeValue, tok : &Token, exn : &Exception) -> unit)({
+check_literal_fits :: (fn(text : &String, ty : &TypeValue, tok : &Token, exn : Exception) -> unit)({
   negative := text.starts_with(`-`);
   digits := if(negative, text.substring(usize(1), text.len()), text.clone());
   match(
@@ -91,7 +91,7 @@ comptime_int_value_misfit :: (fn(raw : &String, ty : &TypeValue) -> Option(Strin
   )
 });
 /// `comptime_int_value_misfit` as a check: throws its E1102 at `tok`.
-check_comptime_int_value_fits :: (fn(raw : &String, ty : &TypeValue, tok : &Token, exn : &Exception) -> unit)(
+check_comptime_int_value_fits :: (fn(raw : &String, ty : &TypeValue, tok : &Token, exn : Exception) -> unit)(
   match(
     comptime_int_value_misfit(raw, ty),
     .Some(msg) => exn.throw(dyn(format_error_message(tok, msg))),
@@ -106,7 +106,7 @@ check_comptime_int_value_fits :: (fn(raw : &String, ty : &TypeValue, tok : &Toke
 /// enum field — so a comptime integer never reaches a typed slot unchecked
 /// (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
 comptime_numeric_slot_type :: (
-  fn(arg_ty : &TypeValue, value : &Option(EvalValue), slot_ty : &TypeValue, tok : &Token, exn : &Exception) -> Option(TypeValue)
+  fn(arg_ty : &TypeValue, value : &Option(EvalValue), slot_ty : &TypeValue, tok : &Token, exn : Exception) -> Option(TypeValue)
 )(
   cond(
     (is_comptime_int_type(arg_ty) && target_integer_type_range(slot_ty).is_some()) => {
@@ -126,7 +126,7 @@ evaluate_integer_literal :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);

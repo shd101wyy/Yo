@@ -993,7 +993,7 @@ _get_expr_type :: (
     expr : &AstExpr,
     env_mut : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> TypeValue
 )({
   evaluated := evaluate_expression_raw(expr, env_mut, ctx, exn);
@@ -1036,7 +1036,7 @@ _eval_and_update_env :: (
     expr : &AstExpr,
     env_mut : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Option(TypeValue)
 )({
   evaluated := evaluate_expression_raw(expr, env_mut, ctx, exn);
@@ -1074,7 +1074,7 @@ _try_eval_comptime_type :: (
     type_expr : &AstExpr,
     env_mut : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Option(TypeValue)
 )(
   _eval_and_update_env(type_expr, env_mut, ctx, exn)
@@ -1332,12 +1332,12 @@ _param_default_not_comptime_error :: (fn(label : &Option(String), param_type : &
 // ---------------------------------------------------------------------------
 /// `imm(x)` / `mut(x)` / `inout(x)` / `own(x)` on a parameter label: the
 /// deleted spellings of `x : &T` / `x : &mut T` / `sink(x)`, E0009.
-_reject_old_param_mode :: (fn(e : &AstExpr, exn : &Exception) -> unit)(reject_old_mode_spelling(e, exn));
+_reject_old_param_mode :: (fn(e : &AstExpr, exn : Exception) -> unit)(reject_old_mode_spelling(e, exn));
 /// `-> imm(T)` / `-> mut(T)` in a result slot: E0009 for the deleted mode
 /// words. `imm` is an ordinary identifier, so `imm(T)` is the deleted word
 /// only while no binding named `imm` is visible (a user type function may
 /// carry the name); `mut` is reserved.
-_reject_old_result_mode :: (fn(e : &AstExpr, env : &Environment, exn : &Exception) -> unit)({
+_reject_old_result_mode :: (fn(e : &AstExpr, env : &Environment, exn : Exception) -> unit)({
   if(ast_expr_is_fn_call_of(e, "imm", Option(usize).Some(usize(1))) && (get_variables_from_env(env, String.from("imm")).len() > usize(0)), {
     return(());
   });
@@ -1384,7 +1384,7 @@ evaluate_function_parameter :: (
     ctx : &EvalContext,
     is_parameter_comptime_by_default : bool,
     allow_shadowing : bool,
-    exn : &Exception
+    exn : Exception
   ) -> FuncParam
 )({
   (label : Option(String)) = Option(String).None;
@@ -2256,7 +2256,7 @@ validate_concrete_type_constraints :: (
     constraint_expr : &AstExpr,
     env_mut : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   // Collect (trait_expr, is_negated) pairs.
@@ -2458,7 +2458,7 @@ apply_single_trait_constraint :: (
     original_constraint_expr : &AstExpr,
     env_mut : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> bool
 )({
   // Check if trait expression is negated: !(Trait)
@@ -2635,7 +2635,7 @@ parse_where_clause_constraints :: (
     env_mut : &Environment,
     ctx : &EvalContext,
     collect_pending : bool,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
   pending_traits := ArrayList(PendingConstraint).new();
@@ -2972,7 +2972,7 @@ apply_where_clause_constraints :: (
     constraint_exprs : &ArrayList(AstExpr),
     env_mut : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )(
   if(constraint_exprs.len() == usize(0), (), {
@@ -2991,7 +2991,7 @@ prepare_where_clause_variables :: (
     constraint_exprs : &ArrayList(AstExpr),
     env_mut : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
   pending := ArrayList(PendingConstraint).new();
@@ -3074,7 +3074,7 @@ retry_pending_constraints :: (
     pending : &ArrayList(PendingConstraint),
     env_mut : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(PendingConstraint)
 )({
   still_pending := ArrayList(PendingConstraint).new();
@@ -3127,7 +3127,7 @@ evaluate_function_parameters :: (
     param_exprs : &ArrayList(AstExpr),
     env_mut : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> FuncParamsResult
 )({
   env_mut.push_frame(false);
@@ -3962,7 +3962,7 @@ evaluate_function_type :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   if(!ast_expr_is_fn_call_of(expr, "->", .Some(usize(2))), {

@@ -138,7 +138,7 @@ propagate_def_time_errors :: (fn() -> bool)(
 /// candidates are filtered), in `comptime_expect_error` propagate mode (the
 /// throw itself reaches that catch), or when an earlier rejection is pending
 /// (the first one is the one to report).
-raise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : &Exception) -> unit)({
+raise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : Exception) -> unit)({
   if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
     flag_flow_violation(err);
   });
@@ -155,7 +155,7 @@ raise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : &Exception
 /// Clearing without re-flagging lost it there, so an `unwind` type mismatch in
 /// a handler inside an `io.async` body passed `yo check`
 /// (issues/fixed/unwind-type-mismatch-in-an-io-async-body-handler-is-swallowed.md).
-reraise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : &Exception) -> unit)({
+reraise_flow_violation :: (fn(err : &YoError, ctx : &EvalContext, exn : Exception) -> unit)({
   clear_flow_violation();
   raise_flow_violation(err, ctx, exn);
 });
@@ -649,7 +649,7 @@ require_ref_own_argument_exclusivity :: (
     args : &ArrayList(AstExpr),
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   ref_root_vars := ArrayList(Variable).new();
@@ -793,7 +793,7 @@ _reject_if_container_reachable :: (
     n : usize,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(!ast_expr_is_atom(container_atom), {
@@ -894,7 +894,7 @@ require_valid_ref_argument_places :: (
     args : &ArrayList(AstExpr),
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   (n : usize) = param_is_ref.len();
