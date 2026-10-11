@@ -204,9 +204,9 @@ Today the rule is per type, and invisible at the use site:
 
 ```yo
 Bag :: struct(n : i32, items : ArrayList(i32));
-q := p;                 // p : Bag
-q.n = i32(2);           // p.n unchanged: the struct is a value
-q.items.push(i32(7));   // p.items changed: ArrayList is ref(struct(...))
+q := p; // p : Bag
+q.n = i32(2); // p.n unchanged: the struct is a value
+q.items.push(i32(7)); // p.items changed: ArrayList is ref(struct(...))
 ```
 
 After this plan, `q := p` is a move. A later use of `p` is E0901, with a
@@ -314,8 +314,8 @@ box :: (fn(generic(T : Type), v : T, (alloc : Option(Allocator)) ?= .None) -> Bo
 rc :: (fn(generic(T : Type), v : T, (alloc : Option(Allocator)) ?= .None) -> Rc(T))(...);
 arc :: (fn(generic(T : Type), v : T, (alloc : Option(Allocator)) ?= .None, where(T <: (Send, Sync, Acyclic))) -> Arc(T))(...);
 
-e := Expr.Add(box(l), box(r));                   // T inferred from the argument
-c := rc(node, alloc : .Some(arena.allocator()));  // placed in the arena
+e := Expr.Add(box(l), box(r)); // T inferred from the argument
+c := rc(node, alloc : .Some(arena.allocator())); // placed in the arena
 ```
 
 - **`T` is inferred** from the argument, which the ~1,300 tree-node
@@ -1232,11 +1232,17 @@ and in git, not a silent edit.
     - **Example:**
       ```yo
       append :: (fn(list : &mut List, v : i32) -> unit)({
-        cur := &mut list.head;               // Option(Box(Node))
+        cur := &mut list.head; // Option(Box(Node))
         while(cur.is_some(), {
-          match(cur, .Some(n) => { cur = &mut n.next; }, .None => ());
+          match(
+            cur,
+            .Some(n) => {
+              cur = &mut n.next;
+            },
+            .None => ()
+          );
         });
-        cur = .Some(box(Node(value : v, next : .None)));   // writes the tail slot (cur.* = … after decision 43)
+        cur = .Some(box(Node(value : v, next : .None))); // writes the tail slot (cur.* = … after decision 43)
       });
       ```
     - **Phase.** It lands with `y := &place` and last-use live ranges, before
@@ -1445,9 +1451,9 @@ and in git, not a silent edit.
     - **Examples:**
       ```yo
       swap(&mut x, &mut y);
-      show(&s);               // s stays usable
-      take(s);                // moved
-      match(&opt, .Some(v) => print(v), .None => ());   // decision 26
+      show(&s); // s stays usable
+      take(s); // moved
+      match(&opt, .Some(v) => print(v), .None => ()); // decision 26
       ```
     - **A mismatch is an error, never a conversion.** A bare `s` passed to
       a `&T` parameter is an error naming `&s`. A `&s` passed to a
@@ -1652,9 +1658,11 @@ and in git, not a silent edit.
     parameters.** Proposed and confirmed 2026-10-05 by the maintainer.
     - **The form.**
       ```yo
-      h := { x, y : &y, z : &mut z }(m : i32) => (x + y + z + m);
-      h2 := { s2 : s.clone() }() => log(s2);
-      xs.for_each({ &mut count }(x : i32) => { count = (count + x); });
+      h := ({ x, y : &y, z : &mut z }(m : i32) => (x + y + z + m));
+      h2 := ({ s2 : s.clone() }() => log(s2));
+      xs.for_each({ &mut count }(x : i32) => {
+        count = (count + x);
+      });
       ```
       - **Desugaring.** The parser already rewrites `{...}` to `_(...)`, so
         `{...}(params) => body` is `_(...)(params) => body`.
@@ -1779,8 +1787,8 @@ and in git, not a silent edit.
           under a bound:
           ```yo
           Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
-          derive(Pair(T), Clone);                                      // Pair(String) needs it
-          impl(generic(T : Type), where(T <: Copy), Pair(T), Copy());  // Pair(i32) is also Copy
+          derive(Pair(T), Clone); // Pair(String) needs it
+          impl(generic(T : Type), where(T <: Copy), Pair(T), Copy()); // Pair(i32) is also Copy
           ```
         - **A hand-written `Clone` is an error only on a type that is `Copy`
           for every instantiation:** a concrete `Copy` type such as
@@ -1999,20 +2007,34 @@ and in git, not a silent edit.
         ```yo
         // 1. Non-escaping: a &mut capture. No allocation. A FnMut.
         n := 0;
-        tick := { n : &mut n }() => { n.* = (n.* + 1); n.* };
-        tick(); tick();                       // n == 2
+        tick := ({ n : &mut n }() => {
+          n.* = (n.* + 1);
+          n.*
+        });
+        tick();
+        tick(); // n == 2
 
         // 2. Escaping, as a closure: the state lives in a RefCell the closure holds (decision 41).
         make_counter :: (fn() -> Impl(Fn() -> i32))({
           n := rc(RefCell(i32)(0));
-          { n }() => n.with_mut(v => { v.* = (v.* + 1); v.* })
+          { n }() => n.with_mut(v => {
+            v.* = (v.* + 1);
+            v.*
+          })
         });
 
         // 3. Escaping, with no allocation: a named struct — what Rust compiles an FnMut closure to.
         Counter :: struct(n : i32);
-        impl(Counter, next : (fn(self : &mut Self) -> i32)({ self.n = (self.n + 1); self.n }));
+        impl(
+          Counter,
+          next : (fn(self : &mut Self) -> i32)({
+            self.n = (self.n + 1);
+            self.n
+          })
+        );
         c := Counter(n : 0);
-        c.next(); c.next();
+        c.next();
+        c.next();
         ```
       - **Phase.** With decision 43, not before: until `&mut` is a type, a
         `&mut` capture writes through its pointer and the `Fn` call is
@@ -2037,18 +2059,19 @@ and in git, not a silent edit.
       - **Passing a closure is an ordinary argument** and takes decision
         33's markers:
         ```yo
-        add := { k }(x : i32) => (x + k);
-        add(1); add(2);                      // an Fn call: unmarked, add stays usable
+        add := ({ k }(x : i32) => (x + k));
+        add(1);
+        add(2); // an Fn call: unmarked, add stays usable
         apply :: (fn(f : &Impl(Fn(i32) -> i32), x : i32) -> i32)(f(x));
-        apply(&add, 5);                      // lending the closure: marked (after V3b Generation B;
-                                             // until then &add to an Impl(...) parameter is the address-of)
-        apply((x : i32) => (x * 2), 5);      // a literal is a temporary: exempt
-        keep(add);                           // a by-value (escaping) parameter: moves add
+        apply(&add, 5); // lending the closure: marked (after V3b Generation B;
+        // until then &add to an Impl(...) parameter is the address-of)
+        apply((x : i32) => (x * 2), 5); // a literal is a temporary: exempt
+        keep(add); // a by-value (escaping) parameter: moves add
 
-        send := { tx, msg }() => tx.send(msg);
-        send();                              // an FnOnce call: consumes send
-        send();                              // E0901: send was moved by the call above
-        run_once(send2);                     // a by-value Impl(FnOnce(...)) parameter: moves send2 in
+        send := ({ tx, msg }() => tx.send(msg));
+        send(); // an FnOnce call: consumes send
+        send(); // E0901: send was moved by the call above
+        run_once(send2); // a by-value Impl(FnOnce(...)) parameter: moves send2 in
         ```
       - **An `FnMut` closure is passed with `&mut`:** `step(&mut counter)`
         to an `f : &mut Impl(FnMut(...))` parameter. It cannot be called
