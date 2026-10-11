@@ -296,7 +296,7 @@ context_index_ensure :: (
   key := context_tree_key(root.clone(), prefix.clone(), io, exn);
   idx_dir := context_index_dir(cache_root.clone(), key.clone());
   manifest := Path.new(idx_dir.clone()).join(Path.new(String.from("manifest.txt"))).to_string();
-  has_manifest := io.await(exists(Path.new(manifest.clone()), io), &io);
+  has_manifest := io.await(exists(Path.new(manifest.clone()), io), io);
   if(has_manifest && !refresh, {
     return(key);
   });

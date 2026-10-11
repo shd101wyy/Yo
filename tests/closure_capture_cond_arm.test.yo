@@ -32,27 +32,27 @@ _wrapped :: (fn(cap : usize, io : Io) -> Impl(Future(usize, IoExn)))(
 test("a captured variable is readable as a cond arm's value (final arm)", {
   exn := Exception(throw : (_err -> unwind(())));
   e := IoExn(io : io, exn : exn);
-  assert(io.await(_last_arm(usize(42), io), &e) == usize(42), "the taken arm reads the capture");
-  assert(io.await(_last_arm(usize(3), io), &e) == usize(0), "and the other arm still works");
+  assert(io.await(_last_arm(usize(42), io), e) == usize(42), "the taken arm reads the capture");
+  assert(io.await(_last_arm(usize(3), io), e) == usize(0), "and the other arm still works");
 });
 test("a captured variable is readable as a cond arm's value (first arm)", {
   exn := Exception(throw : (_err -> unwind(())));
   e := IoExn(io : io, exn : exn);
-  assert(io.await(_first_arm(usize(3), io), &e) == usize(3), "the first arm reads the capture");
-  assert(io.await(_first_arm(usize(42), io), &e) == usize(0), "and the other arm still works");
+  assert(io.await(_first_arm(usize(3), io), e) == usize(3), "the first arm reads the capture");
+  assert(io.await(_first_arm(usize(42), io), e) == usize(0), "and the other arm still works");
 });
 test("a captured variable is readable as a single-arm cond's value", {
   exn := Exception(throw : (_err -> unwind(())));
   e := IoExn(io : io, exn : exn);
-  assert(io.await(_single_arm(usize(7), io), &e) == usize(7), "a one-arm cond reads the capture");
+  assert(io.await(_single_arm(usize(7), io), e) == usize(7), "a one-arm cond reads the capture");
 });
 test("a captured variable is readable as a match arm's value", {
   exn := Exception(throw : (_err -> unwind(())));
   e := IoExn(io : io, exn : exn);
-  assert(io.await(_match_arm(usize(9), true, io), &e) == usize(9), "a match arm reads the capture");
+  assert(io.await(_match_arm(usize(9), true, io), e) == usize(9), "a match arm reads the capture");
 });
 test("a captured variable inside an arm EXPRESSION still works", {
   exn := Exception(throw : (_err -> unwind(())));
   e := IoExn(io : io, exn : exn);
-  assert(io.await(_wrapped(usize(42), io), &e) == usize(43), "the wrapped shape is unchanged");
+  assert(io.await(_wrapped(usize(42), io), e) == usize(43), "the wrapped shape is unchanged");
 });

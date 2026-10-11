@@ -73,7 +73,7 @@ _many_sleeps_in_one_tick :: (fn(io : Io) -> unit)({
   hs := ArrayList(JoinHandle(i32)).new();
   (i : usize) = usize(0);
   while(i < usize(1500), i = (i + usize(1)), {
-    hs.push(io.spawn(_one_sleep(io), &io));
+    hs.push(io.spawn(_one_sleep(io), io));
   });
   (ok : usize) = usize(0);
   i = usize(0);
@@ -109,11 +109,11 @@ _sleeper :: (fn(ms : i32, order : &Rc(ArrayList(i32)), io : Io) -> Impl(Future(i
 );
 _timer_order :: (fn(io : Io) -> unit)({
   order := rc(ArrayList(i32).new());
-  h60 := io.spawn(_sleeper(i32(60), &order, io), &io);
-  h20 := io.spawn(_sleeper(i32(20), &order, io), &io);
-  h30 := io.spawn(_sleeper(i32(30), &order, io), &io);
-  h40 := io.spawn(_sleeper(i32(40), &order, io), &io);
-  io.await(yield(io), &io);
+  h60 := io.spawn(_sleeper(i32(60), &order, io), io);
+  h20 := io.spawn(_sleeper(i32(20), &order, io), io);
+  h30 := io.spawn(_sleeper(i32(30), &order, io), io);
+  h40 := io.spawn(_sleeper(i32(40), &order, io), io);
+  io.await(yield(io), io);
   h30.abort();
   _a := h60.await(io);
   _b := h20.await(io);

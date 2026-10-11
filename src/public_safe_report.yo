@@ -737,7 +737,7 @@ _psr_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Futu
   io.async((e : IoExn) => {
     is_dot := (root == ".");
     walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
-    exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), &e.io);
+    exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
     if(!exists, {
       return(ArrayList(String).new());
     });

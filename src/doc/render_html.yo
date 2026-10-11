@@ -1709,13 +1709,13 @@ render_doc_site :: (
   js_text := generate_search_js();
   search_idx := _build_search_index(model);
   symbol_links := _build_symbol_links(model);
-  io.await(create_dir_all(Path.new(output_dir.clone()), io), &ioexn);
+  io.await(create_dir_all(Path.new(output_dir.clone()), io), ioexn);
   module_dir := `${output_dir}/module`;
-  io.await(create_dir_all(Path.new(module_dir.clone()), io), &ioexn);
+  io.await(create_dir_all(Path.new(module_dir.clone()), io), ioexn);
   index_content := _render_index_content(model);
   index_sidebar := _render_sidebar(model, Option(String).None);
   index_page := _wrap_page(`${model.name} — Documentation`, &index_content, &index_sidebar, _search_index_json(&search_idx), &css_text, &js_text, model.favicon.clone());
-  io.await(write_string(Path.new(`${output_dir}/index.html`), &index_page, io), &ioexn);
+  io.await(write_string(Path.new(`${output_dir}/index.html`), &index_page, io), ioexn);
   (mi : usize) = usize(0);
   while(mi < model.modules.len(), {
     m := match(
@@ -1730,7 +1730,7 @@ render_doc_site :: (
     mod_content := render_module_content_html(&m, &symbol_links);
     mod_search := _fix_search_index_for_module_page(&search_idx);
     mod_page := _wrap_page(`${m.name} — ${model.name}`, &mod_content, &mod_sidebar, _search_index_json(&mod_search), &css_text, &js_text, _asset_for_module_page(model.favicon.clone()));
-    io.await(write_string(Path.new(`${module_dir}/${fname}.html`), &mod_page, io), &ioexn);
+    io.await(write_string(Path.new(`${module_dir}/${fname}.html`), &mod_page, io), ioexn);
     mi = (mi + usize(1));
   });
 });

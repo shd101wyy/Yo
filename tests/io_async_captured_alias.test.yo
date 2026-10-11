@@ -44,13 +44,13 @@ alias_of_array_list :: (fn(io : Io) -> Impl(Future(usize, IoExn)))({
 test("an awaiting io.async body reads a captured alias of a String local", {
   exn := Exception(throw : (err -> panic("unexpected io error")));
   e := IoExn(io : io, exn : exn);
-  n := io.await(alias_of_string("hello", io), &e);
+  n := io.await(alias_of_string("hello", io), e);
   assert(n == usize(5), `got ${n.to_string()}`);
 });
 test("an awaiting io.async body reads a captured alias of an ArrayList local", {
   exn := Exception(throw : (err -> panic("unexpected io error")));
   e := IoExn(io : io, exn : exn);
-  n := io.await(alias_of_array_list(io), &e);
+  n := io.await(alias_of_array_list(io), e);
   assert(n == usize(3), `got ${n.to_string()}`);
 });
 
@@ -66,7 +66,7 @@ alias_read_after_await :: (fn(data : str, io : Io) -> Impl(Future(usize, IoExn))
 test("a captured String alias read after the await", {
   exn := Exception(throw : (err -> panic("unexpected io error")));
   e := IoExn(io : io, exn : exn);
-  n := io.await(alias_read_after_await("hello", io), &e);
+  n := io.await(alias_read_after_await("hello", io), e);
   assert(n == usize(6), `got ${n.to_string()}`);
 });
 
@@ -95,7 +95,7 @@ test("a captured ref-struct alias is retained by the task and released once", {
   {
     exn := Exception(throw : (err -> panic("unexpected io error")));
     e := IoExn(io : io, exn : exn);
-    n := io.await(alias_of_ref_struct(usize(41), io), &e);
+    n := io.await(alias_of_ref_struct(usize(41), io), e);
     assert(n == usize(42), `got ${n.to_string()}`);
   };
   assert(g_alias_disposed == (before + i32(1)), `disposed ${(g_alias_disposed - before).to_string()} times, expected once`);
@@ -127,11 +127,11 @@ clone_capture :: (fn(data : str, io : Io) -> Impl(Future(usize, IoExn)))({
 test("controls: a parameter alias, a direct capture and a clone", {
   exn := Exception(throw : (err -> panic("unexpected io error")));
   e := IoExn(io : io, exn : exn);
-  a := io.await(alias_of_param(String.from("abc"), io), &e);
+  a := io.await(alias_of_param(String.from("abc"), io), e);
   assert(a == usize(3), `param alias: got ${a.to_string()}`);
-  b := io.await(direct_capture("abcd", io), &e);
+  b := io.await(direct_capture("abcd", io), e);
   assert(b == usize(4), `direct: got ${b.to_string()}`);
-  c := io.await(clone_capture("abcde", io), &e);
+  c := io.await(clone_capture("abcde", io), e);
   assert(c == usize(5), `clone: got ${c.to_string()}`);
 });
 
@@ -159,8 +159,8 @@ alias_inside_body :: (fn(data : str, io : Io) -> Impl(Future(usize, IoExn)))(
 test("canaries: owner and alias both captured; alias declared inside the body", {
   exn := Exception(throw : (err -> panic("unexpected io error")));
   e := IoExn(io : io, exn : exn);
-  a := io.await(owner_and_alias("xyz", io), &e);
+  a := io.await(owner_and_alias("xyz", io), e);
   assert(a == usize(6), `owner and alias: got ${a.to_string()}`);
-  b := io.await(alias_inside_body("hello", io), &e);
+  b := io.await(alias_inside_body("hello", io), e);
   assert(b == usize(6), `alias inside body: got ${b.to_string()}`);
 });

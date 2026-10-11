@@ -199,15 +199,15 @@ _poll_wakes_a_blocked_loop :: (fn(io : Io) -> unit)({
     _w := unsafe(write(int(write_fd), (*void)((*u8)("x")), usize(1)));
     ()
   });
-  io.await(sleep(u64(1000)), &io);
+  io.await(sleep(u64(1000)), io);
   t.join();
   unsafe(printf("  poll callback fired at %lld ms (loop blocked in a 1000 ms sleep)\n", stamp.*));
   assert(stamp.* > i64(0), "the callback fired");
   assert(stamp.* < i64(700), "the callback fired while the loop was blocked, not after the sleep");
   events.poll_stop(handle);
   events.poll_close(handle);
-  io.await(file.close(read_fd), &io);
-  io.await(file.close(write_fd), &io);
+  io.await(file.close(read_fd), io);
+  io.await(file.close(write_fd), io);
 });
 test("a poll watch fires while the loop is blocked on an unrelated timer", {
   if(platform == Platform.Linux, {

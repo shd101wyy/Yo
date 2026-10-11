@@ -69,7 +69,7 @@ test("async trait ?= default awaiting a Self async method", {
   );
   t_e := IoExn(io : io, exn : t_exn);
   a := Ra(k : usize(11));
-  v := io.await(a.read_plus(usize(13), io), &t_e);
+  v := io.await(a.read_plus(usize(13), io), t_e);
   assert(v == usize(24), "Ra.read_plus: 11 + 13");
 });
 test("async trait ?= default is monomorphized per implementor", {
@@ -83,7 +83,7 @@ test("async trait ?= default is monomorphized per implementor", {
   );
   t_e := IoExn(io : io, exn : t_exn);
   b := Rb(k : usize(4));
-  v := io.await(b.read_plus(usize(3), io), &t_e);
+  v := io.await(b.read_plus(usize(3), io), t_e);
   assert(v == usize(8), "Rb.read_plus: (4 + 1) + 3");
 });
 test("async trait ?= default with two await points", {
@@ -98,8 +98,8 @@ test("async trait ?= default with two await points", {
   t_e := IoExn(io : io, exn : t_exn);
   a := Ra(k : usize(11));
   b := Rb(k : usize(4));
-  va := io.await(a.read_twice(io), &t_e);
-  vb := io.await(b.read_twice(io), &t_e);
+  va := io.await(a.read_twice(io), t_e);
+  vb := io.await(b.read_twice(io), t_e);
   assert(va == usize(22), "Ra.read_twice: 11 + 11");
   assert(vb == usize(10), "Rb.read_twice: 5 + 5");
 });

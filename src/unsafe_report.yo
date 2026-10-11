@@ -499,7 +499,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(A
     // with their path-join shape.
     is_dot := (root == ".");
     walk_root := if(is_dot, match(env_cwd(), .Ok(cp) => cp.to_string(), .Err(_) => String.from(".")), root.clone());
-    exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), &e.io);
+    exists := e.io.await(fs_file.exists(Path.new(walk_root.clone()), e.io), e.io);
     if(!exists, {
       // Unreadable/missing root → skip.
       return(ArrayList(String).new());

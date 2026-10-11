@@ -20,8 +20,8 @@ main :: (fn(io : Io) -> unit)({
     return(i32(2));
   });
   // spawn 启动两个任务但不等待完成，返回 JoinHandle
-  handle1 := io.spawn(&task1, &io);
-  handle2 := io.spawn(&task2, &io);
+  handle1 := io.spawn(&task1, io);
+  handle2 := io.spawn(&task2, io);
   // 通过 handle 等待并提取结果（Option(T)）
   result1 := handle1.await(io);
   result2 := handle2.await(io);
@@ -41,10 +41,10 @@ export(main);
 main :: (fn(io : Io) -> unit)({
   a := io.async((io : Io) => { /* ... */ });
   b := io.async((io : Io) => { /* ... */ });
-  io.spawn(&a, &io); // 启动 a 但不等待（返回 JoinHandle）
-  io.spawn(&b, &io); // 启动 b 但不等待（返回 JoinHandle）
-  io.await(&a, &io);
-  io.await(&b, &io);
+  io.spawn(&a, io); // 启动 a 但不等待（返回 JoinHandle）
+  io.spawn(&b, io); // 启动 b 但不等待（返回 JoinHandle）
+  io.await(&a, io);
+  io.await(&b, io);
 });
 
 // 并行：不同线程，真正的同时执行
@@ -218,9 +218,9 @@ main :: (fn(io : Io) -> unit)({
   // - t1 运行到第一个 yield，挂起
   // - t2 运行到第一个 yield，挂起
   // - t3 运行到第一个 yield，挂起
-  h1 := io.spawn(&t1, &io);
-  h2 := io.spawn(&t2, &io);
-  h3 := io.spawn(&t3, &io);
+  h1 := io.spawn(&t1, io);
+  h2 := io.spawn(&t2, io);
+  h3 := io.spawn(&t3, io);
 
   // handle.await 等待完成并返回 Option(T)：
   // - 事件循环以轮询方式恢复 t1、t2、t3
@@ -303,11 +303,11 @@ main :: (fn(io : Io) -> unit)({
   (task : Impl(Future(i32, TaskCtx))) = io.async((e : TaskCtx) => {
     e.log(`doing work`);
     r := e.raise(`recoverable`);
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     r + i32(42)
   });
 
-  result := io.await(&task, &ctx);
+  result := io.await(&task, ctx);
   println(`result ${result}`);
 });
 export(main);
@@ -342,9 +342,9 @@ main :: (fn(io : Io) -> unit)({
   task := io.async((io : Io) => {
     return(i32(42));
   });
-  result1 := io.await(&task, &io);
-  result2 := io.await(&task, &io);
-  result3 := io.await(&task, &io);
+  result1 := io.await(&task, io);
+  result2 := io.await(&task, io);
+  result3 := io.await(&task, io);
   assert(result1 == i32(42), "first await returns 42");
   assert(result2 == i32(42), "second await returns 42");
   assert(result3 == i32(42), "third await returns 42");
@@ -395,7 +395,7 @@ main :: (fn(io : Io) -> unit)({
   Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   task := io.async((ctx : Ctx) => {
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     ctx.raise(`something went wrong`);
     return(i32(42));
   });
@@ -496,7 +496,7 @@ main :: (fn(io : Io) -> unit)({
   // 启动前：Cold
   assert(io.state(&task) == FutureState.Cold, "cold future is Cold");
 
-  io.await(&task, &io);
+  io.await(&task, io);
 
   // 完成后：Completed
   assert(io.state(&task) == FutureState.Completed, "done future is Completed");
@@ -612,7 +612,7 @@ count_down :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 
 main :: (fn(io : Io) -> unit)({
-  r := io.await(count_down(i32(10), io), &io);
+  r := io.await(count_down(i32(10), io), io);
   println(`count_down(10) = ${r}`); // count_down(10) = 10
 });
 export(main);
@@ -655,7 +655,7 @@ count_leaves :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 
 main :: (fn(io : Io) -> unit)({
-  r := io.await(count_leaves(i32(1000), io), &io);
+  r := io.await(count_leaves(i32(1000), io), io);
   println(`leaves = ${r}`); // leaves = 1000
 });
 export(main);
@@ -733,7 +733,7 @@ run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 );
 
 main :: (fn(io : Io) -> unit)({
-  n := io.await(run_all(io), &io);
+  n := io.await(run_all(io), io);
   println(`sum ${n}`); // sum 6，在 YO_ASYNC_STRICT=1 下也是如此
 });
 export(main);
@@ -908,10 +908,10 @@ main :: (fn(io : Io) -> unit)({
     /* 工作 */
   });
   // task 为冷状态（refcount=1），尚未启动
-  io.spawn(&task, &io);
+  io.spawn(&task, io);
   // spawn 启动任务：运行中的任务（事件循环）+1，返回的 JoinHandle 也 +1
   // （这里立即被丢弃：语句级的 spawn 会分离任务）
-  io.await(&task, &io);
+  io.await(&task, io);
   // 等待完成，提取结果
   // 任务完成，事件循环释放引用（refcount=1）
   // task 离开作用域（refcount=0，被释放）
@@ -1254,8 +1254,8 @@ main :: (fn(io : Io) -> unit)({
   });
 
   // 任务为冷状态——counter 仍为 0
-  handle1 := io.spawn(&task1, &io);
-  handle2 := io.spawn(&task2, &io);
+  handle1 := io.spawn(&task1, io);
+  handle2 := io.spawn(&task2, io);
   // 两者通过交替执行运行：counter = 22
   result1 := handle1.await(io);
   result2 := handle2.await(io);
@@ -1284,8 +1284,8 @@ main :: (fn(io : Io) -> unit)({
   });
 
   // 不使用 spawn：任务顺序执行
-  io.await(&task1, &io); // task1 完整运行至完成
-  io.await(&task2, &io); // 然后 task2 完整运行至完成
+  io.await(&task1, io); // task1 完整运行至完成
+  io.await(&task2, io); // 然后 task2 完整运行至完成
   // counter 无论哪种方式都等于 22，但没有交替执行
 });
 export(main);

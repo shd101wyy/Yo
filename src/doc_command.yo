@@ -181,7 +181,7 @@ _find_yo_files :: (
   fn(input_path : &String, io : Io, exn : Exception) -> ArrayList(String)
 )({
   abs := _resolve_path(input_path, exn);
-  path_exists := io.await(exists(Path.new(abs.clone()), io), &io);
+  path_exists := io.await(exists(Path.new(abs.clone()), io), io);
   if(!path_exists, {
     exn.throw(dyn(`Path does not exist: ${abs}`));
   });
@@ -310,7 +310,7 @@ _infer_project_name :: (
     );
   });
   pkg_path := Path.new(base_path.clone()).join(Path.new(String.from("package.json")));
-  pkg_exists := io.await(exists(&pkg_path, io), &io);
+  pkg_exists := io.await(exists(&pkg_path, io), io);
   if(pkg_exists, {
     pkg_bytes := io.await(read(Path.new(base_path.clone()).join(Path.new(String.from("package.json"))), io), IoExn(io : io, exn : exn));
     content := String.from_bytes(pkg_bytes);
@@ -323,7 +323,7 @@ _infer_project_name :: (
     );
   });
   build_path := Path.new(base_path.clone()).join(Path.new(String.from("build.yo")));
-  build_exists := io.await(exists(&build_path, io), &io);
+  build_exists := io.await(exists(&build_path, io), io);
   if(build_exists, {
     build_bytes := io.await(read(Path.new(base_path.clone()).join(Path.new(String.from("build.yo"))), io), IoExn(io : io, exn : exn));
     content := String.from_bytes(build_bytes);
@@ -433,11 +433,11 @@ _render_markdown_site :: (
   fn(model : &DocModel, out_dir : &String, io : Io, exn : Exception) -> unit
 )({
   ioexn := IoExn(io : io, exn : exn);
-  io.await(create_dir_all(Path.new(out_dir.clone()), io), &ioexn);
-  io.await(create_dir_all(Path.new(out_dir.clone()).join(Path.new(String.from("module"))), io), &ioexn);
+  io.await(create_dir_all(Path.new(out_dir.clone()), io), ioexn);
+  io.await(create_dir_all(Path.new(out_dir.clone()).join(Path.new(String.from("module"))), io), ioexn);
   io.await(
     write_string(Path.new(out_dir.clone()).join(Path.new(String.from("README.md"))), render_index_md(model), io),
-    &ioexn
+    ioexn
   );
   (i : usize) = usize(0);
   while(i < model.modules.len(), {
@@ -451,11 +451,11 @@ _render_markdown_site :: (
         match(
           target.parent(),
           .Some(parent_dir) => {
-            io.await(create_dir_all(&parent_dir, io), &ioexn);
+            io.await(create_dir_all(&parent_dir, io), ioexn);
           },
           .None => ()
         );
-        io.await(write_string(&target, &page, io), &ioexn);
+        io.await(write_string(&target, &page, io), ioexn);
       },
       .None => ()
     );
@@ -468,7 +468,7 @@ run_doc :: (
 )({
   start := Instant.now();
   input_abs := _resolve_path(options.input.clone(), exn);
-  input_exists := io.await(exists(Path.new(input_abs.clone()), io), &io);
+  input_exists := io.await(exists(Path.new(input_abs.clone()), io), io);
   if(!input_exists, {
     exn.throw(dyn(`Path does not exist: ${input_abs}`));
   });

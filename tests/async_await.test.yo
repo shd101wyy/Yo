@@ -1717,10 +1717,10 @@ test("Test explicit Future annotation with bundle effect struct", {
   ctx := Ctx(io : io, raise : raise, log : log);
   (task : Impl(Future(i32, Ctx))) = io.async((ctx : Ctx) => {
     ctx.log(`bundle struct test`);
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     i32(100)
   });
-  result := io.await(&task, &ctx);
+  result := io.await(&task, ctx);
   assert(result == i32(100), "Future(i32, Ctx) with bundle struct should work");
 });
 // ---------------------------------------------------------------------------
@@ -1832,7 +1832,7 @@ test("Test unwind in async closure", {
           }
         );
       ctx := Ctx(io : my_io, raise : raise);
-      my_io.await(task, &ctx);
+      my_io.await(task, ctx);
       assert(false, "expected task to unwind already");
     });
     task := io.async((ctx : Ctx) => {
@@ -1854,7 +1854,7 @@ test("Test unwind in async closure", {
           }
         );
       ctx := Ctx(io : my_io, raise : raise);
-      result := my_io.await(task, &ctx);
+      result := my_io.await(task, ctx);
       assert(false, "expected task to unwind already");
       return(result);
     });
@@ -1892,7 +1892,7 @@ test("Test JoinHandle await returns None on unwind", {
   Raise :: (ctl(generic(T : Type), msg : &String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   task := io.async((ctx : Ctx) => {
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     ctx.raise(`aborting task`);
     return(i32(99));
   });
@@ -1913,12 +1913,12 @@ test("Test JoinHandle two tasks one escapes", {
   Raise :: (ctl(generic(T : Type), msg : &String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   task1 := io.async((ctx : Ctx) => {
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     ctx.raise(`task1 escapes`);
     return(i32(0));
   });
   task2 := io.async((ctx : Ctx) => {
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     return(i32(42));
   });
   (raise : Raise) =
@@ -1993,7 +1993,7 @@ test("Test effect injection via io.await on SM future", {
   Ctx :: struct(io : Io, log : Log);
   task := io.async((ctx : Ctx) => {
     ctx.log(`before yield`);
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     ctx.log(`after yield`);
   });
   (log1 : Log) =
@@ -2107,7 +2107,7 @@ test("Test effect resume inside async closure", {
   Ctx :: struct(io : Io, raise : Raise);
   task := io.async((ctx : Ctx) => {
     a := ctx.raise(`first`);
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     b := ctx.raise(`second`);
     r := (a + b);
     r
@@ -2131,10 +2131,10 @@ test("Test effect resume across multiple yields", {
   task := io.async((ctx : Ctx) => {
     a := ctx.raise(`before yield 1`);
     counter.* = (counter.* + a);
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     b := ctx.raise(`between yields`);
     counter.* = (counter.* + b);
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     c := ctx.raise(`after yield 2`);
     counter.* = (counter.* + c);
     r := counter.*;
@@ -2186,7 +2186,7 @@ test("Test two effects injected via io.spawn", {
   Ctx :: struct(io : Io, raise : Raise, log : Log);
   task := io.async((ctx : Ctx) => {
     ctx.log(`spawned`);
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     result := ctx.raise(`check`);
     ctx.log(`resumed`);
     result
@@ -2221,7 +2221,7 @@ test("Test effect resume in async while loop", {
       v := ctx.get_value();
       sum.* = (sum.* + v);
       counter.* = (counter.* + i32(1));
-      ctx.io.await(yield(ctx.io), &ctx.io);
+      ctx.io.await(yield(ctx.io), ctx.io);
     });
     r := sum.*;
     r
@@ -2247,7 +2247,7 @@ test("Test effect resume in async while loop with break", {
     while(runtime(true), {
       counter.* = (counter.* + i32(1));
       v := ctx.get_value();
-      ctx.io.await(yield(ctx.io), &ctx.io);
+      ctx.io.await(yield(ctx.io), ctx.io);
       cond(
         (counter.* >= i32(3)) => {
           break;
@@ -2277,7 +2277,7 @@ test("Test unwind via injected effect aborts future", {
   Ctx :: struct(io : Io, raise : Raise);
   test_unwind :: (fn(my_io : Io) -> i32)({
     task := my_io.async((ctx : Ctx) => {
-      ctx.io.await(yield(ctx.io), &ctx.io);
+      ctx.io.await(yield(ctx.io), ctx.io);
       ctx.raise(`abort now`);
       return(i32(999));
     });
@@ -2302,7 +2302,7 @@ test("Test JoinHandle unwind via spawn-injected effect", {
   Raise :: (ctl(generic(T : Type), msg : &String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   task := io.async((ctx : Ctx) => {
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     ctx.raise(`aborting`);
     return(i32(0));
   });
@@ -2398,7 +2398,7 @@ test("Regression: async unwind RC no double-decrement UAF", {
   Ctx :: struct(io : Io, raise : Raise);
   test_and_check :: (fn(my_io : Io) -> i32)({
     task := my_io.async((ctx : Ctx) => {
-      ctx.io.await(yield(ctx.io), &ctx.io);
+      ctx.io.await(yield(ctx.io), ctx.io);
       ctx.raise(`abort now`);
       return(i32(999));
     });
@@ -4141,12 +4141,12 @@ _abort_read_and_throw :: (
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
-    first := e.io.await(_abort_opt_str(e.io), &e.io);
+    first := e.io.await(_abort_opt_str(e.io), e.io);
     match(
       first,
       .None => Option(String).None,
       .Some(path_like) => {
-        second := e.io.await(_abort_opt_str(e.io), &e.io);
+        second := e.io.await(_abort_opt_str(e.io), e.io);
         inner := match(second, .Some(c) => c, .None => String.new());
         match(
           _abort_parse_err(&inner),
@@ -4398,7 +4398,7 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
           outer.get(r),
           .None => (),
           .Some(d) => {
-            got := e.io.await(exists(Path.new(d.clone()), e.io), &e.io);
+            got := e.io.await(exists(Path.new(d.clone()), e.io), e.io);
             if(got, {
               inner := ArrayList(String).new();
               inner.push(String.from("."));
@@ -4409,7 +4409,7 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
                   inner.get(i),
                   .None => (),
                   .Some(f) => {
-                    hit := e.io.await(exists(Path.new(f.clone()), e.io), &e.io);
+                    hit := e.io.await(exists(Path.new(f.clone()), e.io), e.io);
                     if(hit, {
                       n = (n + usize(1));
                     });
@@ -4846,7 +4846,7 @@ throw_after_awaiting_branch :: (fn(shared : &BranchLocalProbe, ctx : &BranchRais
     cond(
       runtime(shared.id == i32(7)) => {
         x := shared;
-        c.io.await(yield(c.io), &c.io);
+        c.io.await(yield(c.io), c.io);
         seen = x.id;
       },
       true => ()
@@ -4867,7 +4867,7 @@ test("escape after an awaiting cond branch closed does not re-drop its locals", 
   {
     // The handle owns the task's state machine; its dispose (the sweep) runs
     // when this block releases the handle.
-    handle := io.spawn(throw_after_awaiting_branch(&shared, &ctx), &ctx);
+    handle := io.spawn(throw_after_awaiting_branch(&shared, &ctx), ctx);
     result := handle.await(io);
     assert(result.is_none(), "the task unwound");
   };
@@ -4926,7 +4926,7 @@ test("a nested e.io.async inside an IoExn async body compiles and awaits with th
   nested_with_bundle :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
     io.async(e => {
       inner := e.io.async(e2 => {
-        e2.io.await(sleep(u64(1)), &e2.io);
+        e2.io.await(sleep(u64(1)), e2.io);
         return(i32(2));
       });
       v := e.io.await(&inner, e);
@@ -4960,7 +4960,7 @@ bundle_outer_task :: (fn(ctx : &BundleCtx) -> Impl(Future(i32, BundleCtx)))(
         }
       );
     inner := BundleCtx(io : c.io, raise : inner_raise);
-    r := c.io.await(bundle_thrower(&inner), &inner);
+    r := c.io.await(bundle_thrower(&inner), inner);
     return(r + i32(1));
   })
 );
@@ -4972,7 +4972,7 @@ test("io.await inside an async body injects the bundle named at the await, not t
       }
     );
   ctx := BundleCtx(io : io, raise : outer_raise);
-  handle := io.spawn(bundle_outer_task(&ctx), &ctx);
+  handle := io.spawn(bundle_outer_task(&ctx), ctx);
   result := handle.await(io);
   assert(result.is_some(), "the inner handler resumed the throw; the task's own (unwinding) handler must not have run");
   assert(result.unwrap() == i32(8), "resumed value 7 + 1");
@@ -5075,14 +5075,14 @@ _NestedParsed :: enum(
 );
 _nested_resolve :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     s := String.from("resolved");
     s
   })
 );
 _nested_append :: (fn(line : &String, io : Io) -> Impl(Future(bool, IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     line.len() > usize(0)
   })
 );
@@ -5271,7 +5271,7 @@ _nested_named_mix_bound :: (fn(n : usize, rio : Io) -> Impl(Future(i32, Io)))(
 /// only, and the enclosing statements for both nested arms.
 _nested_loop_step :: (fn(n : usize, io : Io) -> Impl(Future(usize, IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     n + usize(1)
   })
 );
@@ -5321,13 +5321,13 @@ _while_reassign_await :: (fn(io : Io) -> Impl(Future(usize, IoExn)))(
 /// entry, and its binding must still be assigned there.
 _sib_flag :: (fn(io : Io) -> Impl(Future(bool, IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     true
   })
 );
 _sib_name :: (fn(io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     String.from("nm")
   })
 );
@@ -5364,7 +5364,7 @@ _sibling_second_awaits :: (fn(k : &_SibKind, io : Io) -> Impl(Future(String, IoE
 _NwArtifact :: ref(struct(name : String, mods : ArrayList(String)));
 _nw_resolve :: (fn(m : &String, io : Io) -> Impl(Future(Option(String), IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     if(m.len() > usize(1), Option(String).Some(m.clone()), Option(String).None)
   })
 );
@@ -5401,7 +5401,7 @@ _nested_whiles :: (fn(arts : &ArrayList(_NwArtifact), io : Io) -> Impl(Future(St
 _FieldRes :: ref(struct(root : Option(String), n : usize));
 _field_resolve :: (fn(io : Io) -> Impl(Future(_FieldRes, IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     _FieldRes(root : Option(String).Some(String.from("/dep")), n : usize(1))
   })
 );
@@ -5423,55 +5423,55 @@ test("an awaiting inner match inside a match arm keeps the arm's trailing statem
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
   bundle := IoExn(io : io, exn : exn);
-  pinned := io.await(_nested_shape_a(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), &bundle);
+  pinned := io.await(_nested_shape_a(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), bundle);
   assert(pinned == "v6;raylib", `synchronous inner arm: the trailing statements ran with the bound value (got ${pinned})`);
-  resolved := io.await(_nested_shape_a(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), &bundle);
+  resolved := io.await(_nested_shape_a(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), bundle);
   assert(resolved == "resolved;raylib", `awaiting inner arm: the trailing statements ran after the resume (got ${resolved})`);
-  other := io.await(_nested_shape_a(_NestedParsed.Other, io), &bundle);
+  other := io.await(_nested_shape_a(_NestedParsed.Other, io), bundle);
   assert(other == "other", "an unrelated arm is unaffected");
-  path := io.await(_nested_shape_a(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), &bundle);
+  path := io.await(_nested_shape_a(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), bundle);
   assert(path == "mylib@../mylib", "a synchronous sibling arm is unaffected");
 });
 test("the yo install shape: inner match, a second bound await, an awaiting if, and a sibling arm binding the same name", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
   bundle := IoExn(io : io, exn : exn);
-  pinned := io.await(_nested_shape_b(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), &bundle);
+  pinned := io.await(_nested_shape_b(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), bundle);
   assert(pinned == "v6;fetched:resolved;raylib", `pinned ref: every statement of the arm ran (got ${pinned})`);
-  latest := io.await(_nested_shape_b(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), &bundle);
+  latest := io.await(_nested_shape_b(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), bundle);
   assert(latest == "resolved;fetched:resolved;raylib", `resolved ref: every statement of the arm ran (got ${latest})`);
-  path := io.await(_nested_shape_b(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), &bundle);
+  path := io.await(_nested_shape_b(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), bundle);
   assert(path == "path-added:mylib", `the sibling arm's own await binding is intact (got ${path})`);
 });
 test("two nesting levels: an awaiting cond inside a match inside a match arm", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
   bundle := IoExn(io : io, exn : exn);
-  deep := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).None), true, io), &bundle);
+  deep := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).None), true, io), bundle);
   assert(deep == "resolved!;n", `innermost await: both enclosing levels' trailing statements ran (got ${deep})`);
-  shallow := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).None), false, io), &bundle);
+  shallow := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).None), false, io), bundle);
   assert(shallow == "shallow!;n", `innermost synchronous arm: both enclosing levels completed inline (got ${shallow})`);
-  pinned := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).Some(String.from("v1"))), true, io), &bundle);
+  pinned := io.await(_nested_shape_c(_NestedParsed.Git(String.from("n"), Option(String).Some(String.from("v1"))), true, io), bundle);
   assert(pinned == "v1;n", `middle synchronous arm (got ${pinned})`);
 });
 test("a value-producing cond arm that awaits twice keeps its tail value", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
   bundle := IoExn(io : io, exn : exn);
-  got := io.await(_nested_two_awaits(true, io), &bundle);
+  got := io.await(_nested_two_awaits(true, io), bundle);
   assert(got == "resolved|true", `the tail value after the second await reached the bound result (got ${got})`);
-  other := io.await(_nested_two_awaits(false, io), &bundle);
+  other := io.await(_nested_two_awaits(false, io), bundle);
   assert(other == "no", "the synchronous arm is unaffected");
 });
 test("an awaiting if statement after a bound await, then the arm's tail value", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
   bundle := IoExn(io : io, exn : exn);
-  pinned := io.await(_nested_if_statement(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), &bundle);
+  pinned := io.await(_nested_if_statement(_NestedParsed.Git(String.from("raylib"), Option(String).Some(String.from("v6"))), io), bundle);
   assert(pinned == "fetched:resolved;v6;raylib", `pinned: the if body ran and the tail value reached the result (got ${pinned})`);
-  latest := io.await(_nested_if_statement(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), &bundle);
+  latest := io.await(_nested_if_statement(_NestedParsed.Git(String.from("raylib"), Option(String).None), io), bundle);
   assert(latest == "fetched:resolved;resolved;raylib", `resolved: the if body ran and the tail value reached the result (got ${latest})`);
-  path := io.await(_nested_if_statement(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), &bundle);
+  path := io.await(_nested_if_statement(_NestedParsed.Path(String.from("mylib"), String.from("../mylib")), io), bundle);
   assert(path == "mylib", "a synchronous sibling arm is unaffected");
 });
 test("nested cond arms mixing a named and an anonymous future await through their own access", {
@@ -5491,13 +5491,13 @@ test("nested cond arms mixing a named and an anonymous future await through thei
 _MmParsed :: enum(Git(name : String, url : String), Path(name : String, rel : String));
 _mm_probe :: (fn(what : &String, io : Io) -> Impl(Future(bool, IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     what.len() > usize(1)
   })
 );
 _mm_latest :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     `^1.0.0(${url})`
   })
 );
@@ -5541,7 +5541,7 @@ _match_same_local_twice :: (fn(spec : &String, io : Io) -> Impl(Future(String, I
 _MmSrc :: enum(Git(url : String, tag : String), Path(p : String));
 _mm_tags_of :: (fn(url : &String, io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     `tags(${url})`
   })
 );
@@ -5568,11 +5568,11 @@ test("a nested arm that loops with an await runs its post-loop code for that arm
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
   bundle := IoExn(io : io, exn : exn);
-  plain := io.await(_nested_loop_arm(usize(0), io), &bundle);
+  plain := io.await(_nested_loop_arm(usize(0), io), bundle);
   assert(plain == "plain;end", `the plain outer arm runs nothing of the other arm (got ${plain})`);
-  no_loop := io.await(_nested_loop_arm(usize(1), io), &bundle);
+  no_loop := io.await(_nested_loop_arm(usize(1), io), bundle);
   assert(no_loop == "no-loop;outer-tail;end", `the synchronous nested arm: enclosing tail, no post-loop code (got ${no_loop})`);
-  looped := io.await(_nested_loop_arm(usize(2), io), &bundle);
+  looped := io.await(_nested_loop_arm(usize(2), io), bundle);
   assert(looped == "i=2;i=3;loop-done;outer-tail;end", `the looping nested arm: iterations, post-loop code, enclosing tail (got ${looped})`);
 });
 test("a while body that re-assigns an outer local from an await stores the future", {
@@ -5585,9 +5585,9 @@ test("a sibling arm's second-await binding is assigned when its continuation is 
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
   bundle := IoExn(io : io, exn : exn);
-  a := io.await(_sibling_second_awaits(_SibKind.A, io), &bundle);
+  a := io.await(_sibling_second_awaits(_SibKind.A, io), bundle);
   assert(a == "A:present=true;A:added;", `the first arm binds both awaits (got ${a})`);
-  b := io.await(_sibling_second_awaits(_SibKind.B, io), &bundle);
+  b := io.await(_sibling_second_awaits(_SibKind.B, io), bundle);
   assert(b == "B:nm=nm;B:added;", `the second arm's second-await binding is assigned (got ${b})`);
 });
 test("nested while loops in one async body with awaits before, inside and after the inner loop", {
@@ -5614,9 +5614,9 @@ test("two matches on the same match-bound local in one async body", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
   bundle := IoExn(io : io, exn : exn);
-  path := io.await(_match_same_local_twice(String.from("./mylib"), io), &bundle);
+  path := io.await(_match_same_local_twice(String.from("./mylib"), io), bundle);
   assert(path == "path mylib ./mylib  true", `the path arm, the probe await, the third match (got ${path})`);
-  git := io.await(_match_same_local_twice(String.from("user/repo"), io), &bundle);
+  git := io.await(_match_same_local_twice(String.from("user/repo"), io), bundle);
   assert(git == "git repo user/repo ^1.0.0(user/repo) false", `the git arm, the latest await, the third match (got ${git})`);
 });
 test("two matches on a loop local in an async while body", {
@@ -5710,18 +5710,18 @@ test("borrowed arm value: a payload out of the non-awaiting arm of an awaiting m
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
   b := IoExn(io : io, exn : exn);
-  some := io.await(_bp_pick_match(true, io), &b);
+  some := io.await(_bp_pick_match(true, io), b);
   assert(some == "abc", `the Some arm's payload survives the completion drops (got "${some}")`);
-  none := io.await(_bp_pick_match(false, io), &b);
+  none := io.await(_bp_pick_match(false, io), b);
   assert(none == "computed", `the awaiting arm still works (got "${none}")`);
 });
 test("borrowed arm value: a named local out of the non-awaiting arm of an awaiting cond keeps its reference", {
   if(arch == Arch.Wasm32, return(()));
   exn := Exception(throw : (_err -> unwind(())));
   b := IoExn(io : io, exn : exn);
-  taken := io.await(_bp_pick_cond(true, io), &b);
+  taken := io.await(_bp_pick_cond(true, io), b);
   assert(taken == "abc", `the local handed out of the arm survives the completion drops (got "${taken}")`);
-  other := io.await(_bp_pick_cond(false, io), &b);
+  other := io.await(_bp_pick_cond(false, io), b);
   assert(other == "computed", `the awaiting arm still works (got "${other}")`);
 });
 test("borrowed arm value: released exactly once, in the bound and the tail shape", {
@@ -5730,18 +5730,18 @@ test("borrowed arm value: released exactly once, in the bound and the tail shape
   b := IoExn(io : io, exn : exn);
   before := g_bp_disposed;
   {
-    r := io.await(_bp_pick_handle(Option(_BpHandle).Some(_BpHandle(tag : i32(1))), io), &b);
+    r := io.await(_bp_pick_handle(Option(_BpHandle).Some(_BpHandle(tag : i32(1))), io), b);
     assert(r.tag == i32(1), "the Some arm's handle");
     assert(g_bp_disposed == before, "nothing disposed while the result is live");
   };
   assert(g_bp_disposed == (before + i32(1)), "the handle is disposed exactly once after the result dies");
   {
-    r2 := io.await(_bp_pick_handle(Option(_BpHandle).None, io), &b);
+    r2 := io.await(_bp_pick_handle(Option(_BpHandle).None, io), b);
     assert(r2.tag == i32(9), "the awaiting arm's handle");
   };
   assert(g_bp_disposed == (before + i32(2)), "the awaited handle is disposed exactly once");
   {
-    r3 := io.await(_bp_pick_handle_tail(Option(_BpHandle).Some(_BpHandle(tag : i32(2))), io), &b);
+    r3 := io.await(_bp_pick_handle_tail(Option(_BpHandle).Some(_BpHandle(tag : i32(2))), io), b);
     assert(r3.tag == i32(2), "the tail-shape Some arm's handle");
     assert(g_bp_disposed == (before + i32(2)), "nothing disposed while the tail result is live");
   };
@@ -5798,26 +5798,26 @@ test("an io.async closure releases its captured values when the future dies", {
   // Each await sits in its own block: a temp's release is a scope-end drop, so
   // the count is read after the scope that owned the future has closed.
   {
-    a := io.await(_cap_sync_ref(_CapHandle(tag : i32(1)), io), &b);
+    a := io.await(_cap_sync_ref(_CapHandle(tag : i32(1)), io), b);
     assert(a == i32(1), "sync body reads the capture");
   };
   assert(g_cap_disposed == (before + i32(1)), `a ref captured by a sync-future body is released (disposed ${(g_cap_disposed - before).to_string()})`);
   {
-    c := io.await(_cap_sm_ref(_CapHandle(tag : i32(2)), io), &b);
+    c := io.await(_cap_sm_ref(_CapHandle(tag : i32(2)), io), b);
     assert(c == i32(3), "state-machine body reads the capture after an await");
   };
   assert(g_cap_disposed == (before + i32(2)), `a ref captured by a state machine is released (disposed ${(g_cap_disposed - before).to_string()})`);
   {
-    d := io.await(_cap_sync_opt(Option(_CapHandle).Some(_CapHandle(tag : i32(3))), io), &b);
+    d := io.await(_cap_sync_opt(Option(_CapHandle).Some(_CapHandle(tag : i32(3))), io), b);
     assert(d == i32(3), "sync body matches the captured Option");
   };
   assert(g_cap_disposed == (before + i32(3)), `an Option(ref) captured by a sync-future body is released (disposed ${(g_cap_disposed - before).to_string()})`);
   {
-    f := io.await(_cap_sm_opt(Option(_CapHandle).Some(_CapHandle(tag : i32(4))), io), &b);
+    f := io.await(_cap_sm_opt(Option(_CapHandle).Some(_CapHandle(tag : i32(4))), io), b);
     assert(f == i32(5), "state-machine body matches the captured Option after an await");
   };
   assert(g_cap_disposed == (before + i32(4)), `an Option(ref) captured by a state machine is released (disposed ${(g_cap_disposed - before).to_string()})`);
-  g := io.await(_cap_sm_str(String.from("cap"), io), &b);
+  g := io.await(_cap_sm_str(String.from("cap"), io), b);
   assert(g == "cap:1", `a captured String is intact after the await (got ${g})`);
 });
 // A nested bare block `{ …; }` holding an await, as a STATEMENT of an async
@@ -5912,21 +5912,21 @@ _nb_sizes :: (fn() -> ArrayList(usize))({
 test("nested bare block with an await as a cond-arm statement inside a loop runs", {
   exn := Exception(throw : (_err -> unwind(())));
   b := IoExn(io : io, exn : exn);
-  nested := io.await(_nb_cond_nested(_nb_sizes(), io), &b);
-  flat := io.await(_nb_cond_flat(_nb_sizes(), io), &b);
+  nested := io.await(_nb_cond_nested(_nb_sizes(), io), b);
+  flat := io.await(_nb_cond_flat(_nb_sizes(), io), b);
   assert(flat == usize(1008), `flat total (got ${flat.to_string()})`);
   assert(nested == flat, `the nested block's statements ran (nested ${nested.to_string()}, flat ${flat.to_string()})`);
 });
 test("nested bare block with an await as a match-arm statement inside a loop runs", {
   exn := Exception(throw : (_err -> unwind(())));
   b := IoExn(io : io, exn : exn);
-  nested := io.await(_nb_match_nested(_nb_sizes(), io), &b);
+  nested := io.await(_nb_match_nested(_nb_sizes(), io), b);
   assert(nested == usize(1008), `the nested block's statements ran (got ${nested.to_string()})`);
 });
 test("nested bare block with an await as a top-level statement of the body compiles and runs", {
   exn := Exception(throw : (_err -> unwind(())));
   b := IoExn(io : io, exn : exn);
-  got := io.await(_nb_top_nested(usize(5), io), &b);
+  got := io.await(_nb_top_nested(usize(5), io), b);
   assert(got == usize(12), `7 + 5 (got ${got.to_string()})`);
 });
 // issues/fixed/io-await-of-a-string-literal-task-rejects-its-str-destination.md:
@@ -5934,7 +5934,7 @@ test("nested bare block with an await as a top-level statement of the body compi
 // lowers it. `io.await` as a fn's tail and in a typed binding both have one.
 _await_literal_tail :: (fn(io : Io) -> str)({
   task := io.async((io : Io) => "hello async");
-  io.await(&task, &io)
+  io.await(&task, io)
 });
 test("Test io.await of a string-literal task into a str destination", {
   assert(_await_literal_tail(io) == "hello async", "tail position");
@@ -6410,7 +6410,7 @@ test("two awaits in the body of a nested while", {
 // ---------------------------------------------------------------------------
 _a_pw :: (fn(v : i32, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     v + i32(1)
   })
 );
@@ -6503,7 +6503,7 @@ _t_im :: (fn(opt : Option(i32), io : Io) -> Impl(Future(i32, IoExn)))(
     match(
       opt,
       .Some(d) => {
-        if(e.io.await(_f_im(d, e.io), &e.io), {
+        if(e.io.await(_f_im(d, e.io), e.io), {
           hits = (hits + i32(10));
         });
       },
@@ -6521,9 +6521,9 @@ test("an if whose condition awaits, inside a match arm", {
     )
   );
   b := IoExn(io : io, exn : exn);
-  assert(io.await(_t_im(.Some(i32(5)), io), &b) == i32(10), "the condition holds");
-  assert(io.await(_t_im(.Some(i32(0)), io), &b) == i32(0), "the condition fails");
-  assert(io.await(_t_im(.None, io), &b) == i32(0), "the other arm");
+  assert(io.await(_t_im(.Some(i32(5)), io), b) == i32(10), "the condition holds");
+  assert(io.await(_t_im(.Some(i32(0)), io), b) == i32(0), "the condition fails");
+  assert(io.await(_t_im(.None, io), b) == i32(0), "the other arm");
 });
 // ---------------------------------------------------------------------------
 // fn-typed locals across suspensions
@@ -6639,7 +6639,7 @@ test("a non-ASCII effect bundle field reaches a nested await", {
     }
   );
   eff := _NaEff(io : io, é : h);
-  assert(io.await(_na_work(io), &eff) == i32(7), "the handler ran");
+  assert(io.await(_na_work(io), eff) == i32(7), "the handler ran");
 });
 // ---------------------------------------------------------------------------
 // A `=>` closure passed to a generic callback inside an io.async body keeps
@@ -6929,8 +6929,8 @@ test("a second io.spawn of a running task keeps the first bundle", {
   tell_a :: (fn(x : i32) -> i32)(i32(1));
   tell_b :: (fn(x : i32) -> i32)(i32(2));
   task := io.async((ctx : _Tell2Ctx) => {
-    ctx.io.await(yield(ctx.io), &ctx.io);
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     ctx.tell(i32(0))
   });
   h1 := io.spawn(&task, { io, tell : tell_a });

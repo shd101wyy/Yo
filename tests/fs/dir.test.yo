@@ -467,14 +467,14 @@ test("file_type classifies file and directory", {
   tmp := temp_dir();
   fpath := Path.new(path_join(&tmp, `yo_fs_ft_file.txt`));
   dpath := Path.new(path_join(&tmp, `yo_fs_ft_dir`));
-  io.await(fs_file.write_string(&fpath, String.from("ft"), io), &e);
-  io.await(fs_dir.create_dir_all(&dpath, io), &e);
-  ft_file := io.await(fs_dir.file_type(&fpath, io), &e);
+  io.await(fs_file.write_string(&fpath, String.from("ft"), io), e);
+  io.await(fs_dir.create_dir_all(&dpath, io), e);
+  ft_file := io.await(fs_dir.file_type(&fpath, io), e);
   assert(match(ft_file, .File => true, _ => false), "regular file is .File");
-  ft_dir := io.await(fs_dir.file_type(&dpath, io), &e);
+  ft_dir := io.await(fs_dir.file_type(&dpath, io), e);
   assert(match(ft_dir, .Directory => true, _ => false), "directory is .Directory");
-  io.await(fs_dir.remove_dir(&dpath, io), &e);
-  io.await(fs_dir.remove_file(&fpath, io), &e);
+  io.await(fs_dir.remove_dir(&dpath, io), e);
+  io.await(fs_dir.remove_file(&fpath, io), e);
 });
 test("file_type does NOT follow a symlink: a link is .Symlink", {
   // lstat semantics, deliberately: `d_type` reports DT_LNK for a symlink, so
@@ -499,33 +499,33 @@ test("file_type does NOT follow a symlink: a link is .Symlink", {
   link := Path.new(path_join(&tmp, `yo_fs_ft_link`));
   dir_target := Path.new(path_join(&tmp, `yo_fs_ft_dtarget`));
   dir_link := Path.new(path_join(&tmp, `yo_fs_ft_dlink`));
-  io.await(fs_file.write_string(&target, String.from("t"), io), &e);
-  io.await(fs_dir.create_dir_all(&dir_target, io), &e);
+  io.await(fs_file.write_string(&target, String.from("t"), io), e);
+  io.await(fs_dir.create_dir_all(&dir_target, io), e);
   // The temp dir is shared and survives a failed run, so clear the links
   // before creating them — `symlink` onto an existing name is EEXIST. The
   // targets are made first so `exists` (which follows the link) sees them.
   cond(
     io.await(fs_file.exists(&link, io), io) => {
-      io.await(fs_dir.remove_file(&link, io), &e);
+      io.await(fs_dir.remove_file(&link, io), e);
     },
     true => ()
   );
   cond(
     io.await(fs_file.exists(&dir_link, io), io) => {
-      io.await(fs_dir.remove_file(&dir_link, io), &e);
+      io.await(fs_dir.remove_file(&dir_link, io), e);
     },
     true => ()
   );
-  io.await(fs_dir.symlink(&target, &link, io), &e);
-  io.await(fs_dir.symlink(&dir_target, &dir_link, io), &e);
-  ft_link := io.await(fs_dir.file_type(&link, io), &e);
+  io.await(fs_dir.symlink(&target, &link, io), e);
+  io.await(fs_dir.symlink(&dir_target, &dir_link, io), e);
+  ft_link := io.await(fs_dir.file_type(&link, io), e);
   assert(match(ft_link, .Symlink => true, _ => false), "link to a file is .Symlink, not .File");
-  ft_dir_link := io.await(fs_dir.file_type(&dir_link, io), &e);
+  ft_dir_link := io.await(fs_dir.file_type(&dir_link, io), e);
   assert(match(ft_dir_link, .Symlink => true, _ => false), "link to a dir is .Symlink, not .Directory");
-  io.await(fs_dir.remove_file(&dir_link, io), &e);
-  io.await(fs_dir.remove_file(&link, io), &e);
-  io.await(fs_dir.remove_dir(&dir_target, io), &e);
-  io.await(fs_dir.remove_file(&target, io), &e);
+  io.await(fs_dir.remove_file(&dir_link, io), e);
+  io.await(fs_dir.remove_file(&link, io), e);
+  io.await(fs_dir.remove_dir(&dir_target, io), e);
+  io.await(fs_dir.remove_file(&target, io), e);
 });
 test("file_type on a missing path throws", {
   missing := Path.new(`/nonexistent/yo_fs_ft_nope`);

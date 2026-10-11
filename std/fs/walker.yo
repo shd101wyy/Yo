@@ -133,7 +133,7 @@ _join_path :: (fn(base : &String, name : &String) -> String)(
 // issues/fixed/async-nested-cond-await-duplicate-while-labels.md.
 _canon_dir_target :: (fn(lp : &String, io : Io) -> Impl(Future(String, IoExn)))(
   io.async(e => {
-    is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), &e.io);
+    is_d := e.io.await(_file.is_dir(Path.new(lp), e.io), e.io);
     cond(
       is_d => {
         canon := e.io.await(_file.canonicalize(Path.new(lp), e.io), e);

@@ -196,7 +196,7 @@ test("spawn_blocking from a task on a spawned thread, 2000 times: each loop outl
   (i : i32) = i32(0);
   while(runtime(i < i32(2000)), {
     t := Thread(unit).spawn((io : Io) => {
-      v := io.await(spawn_blocking(() => i32(1), io), &io);
+      v := io.await(spawn_blocking(() => i32(1), io), io);
       _n := total.fetch_add(v, MemoryOrder.AcqRel);
       ()
     });

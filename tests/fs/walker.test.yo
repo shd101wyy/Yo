@@ -277,23 +277,23 @@ test("walk_with pattern filters relative paths; glob() expands", {
   e := IoExn(io : io, exn : exn);
   base := temp_dir();
   root := path_join(&base, `yo_glob_root`.to_string());
-  io.await(fs_dir.create_dir_all(Path.new(path_join(root.clone(), `sub/inner`.to_string())), io), &e);
-  io.await(fs_file.write_string(Path.new(path_join(root.clone(), `a.txt`.to_string())), `a`.to_string(), io), &e);
-  io.await(fs_file.write_string(Path.new(path_join(root.clone(), `b.log`.to_string())), `b`.to_string(), io), &e);
-  io.await(fs_file.write_string(Path.new(path_join(root.clone(), `sub/inner/c.txt`.to_string())), `c`.to_string(), io), &e);
+  io.await(fs_dir.create_dir_all(Path.new(path_join(root.clone(), `sub/inner`.to_string())), io), e);
+  io.await(fs_file.write_string(Path.new(path_join(root.clone(), `a.txt`.to_string())), `a`.to_string(), io), e);
+  io.await(fs_file.write_string(Path.new(path_join(root.clone(), `b.log`.to_string())), `b`.to_string(), io), e);
+  io.await(fs_file.write_string(Path.new(path_join(root.clone(), `sub/inner/c.txt`.to_string())), `c`.to_string(), io), e);
   // Shallow pattern: only the root-level .txt file.
   opts := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true, pattern : .Some(`*.txt`.to_string()));
-  shallow := io.await(fs_walker.walk_with(Path.new(root.clone()), &opts, io), &e);
+  shallow := io.await(fs_walker.walk_with(Path.new(root.clone()), &opts, io), e);
   assert(shallow.len() == usize(1), "only a.txt matches *.txt");
   assert(shallow(usize(0)).name == `a.txt`, "the right file");
   // Deep pattern: ** crosses directories.
   opts2 := WalkOptions(max_depth : .None, follow_symlinks : false, include_dirs : true, pattern : .Some(`**.txt`.to_string()));
-  deep := io.await(fs_walker.walk_with(Path.new(root.clone()), &opts2, io), &e);
+  deep := io.await(fs_walker.walk_with(Path.new(root.clone()), &opts2, io), e);
   assert(deep.len() == usize(2), "a.txt and sub/inner/c.txt");
   // glob(): pattern carries the static base.
-  found := io.await(fs_walker.glob(`${root}/**.txt`.to_string(), io), &e);
+  found := io.await(fs_walker.glob(`${root}/**.txt`.to_string(), io), e);
   assert(found.len() == usize(2), "glob finds both txt files");
-  found2 := io.await(fs_walker.glob(`${root}/*.log`.to_string(), io), &e);
+  found2 := io.await(fs_walker.glob(`${root}/*.log`.to_string(), io), e);
   assert(found2.len() == usize(1), "glob finds the log");
-  io.await(fs_walker.remove_dir_all(Path.new(&root), io), &e);
+  io.await(fs_walker.remove_dir_all(Path.new(&root), io), e);
 });

@@ -133,7 +133,7 @@ impl(Boom, ToString(to_string : (self -> self.msg)));
 impl(Boom, Error());
 _may_fail :: (fn(fail : bool, io : Io) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
-    io.await(yield(e.io), &e.io);
+    io.await(yield(e.io), e.io);
     cond(
       fail => e.exn.throw(dyn(Boom(msg : `framing broke`))),
       true => `ok body`
@@ -167,9 +167,9 @@ _three_guarded :: (fn(io : Io) -> String)({
     )
   );
   e := IoExn(io : io, exn : exn);
-  a := _show(io.await(_guarded(false, io), &e));
-  b := _show(io.await(_guarded(true, io), &e));
-  c := _show(io.await(_guarded(false, io), &e));
+  a := _show(io.await(_guarded(false, io), e));
+  b := _show(io.await(_guarded(true, io), e));
+  c := _show(io.await(_guarded(false, io), e));
   `${a} | ${b} | ${c}`
 });
 test("an unwind from a handler installed in an io.async body resolves that future", {
@@ -179,7 +179,7 @@ test("an unwind from a handler installed in an io.async body resolves that futur
 // one that installed the unwinding handler, and must not read its value.
 _run_fail :: (fn(io : Io, exn : Exception) -> String)({
   e := IoExn(io : io, exn : exn);
-  _show(io.await(_guarded(true, io), &e))
+  _show(io.await(_guarded(true, io), e))
 });
 test("a helper awaiting the guarded future reads the resolved value", {
   exn := Exception(
@@ -265,7 +265,7 @@ test("a JoinHandle of a raw I/O future reads its result and can abort it", {
 _SmWrap :: enum(A(t : Thing), B(t : Thing));
 _sm_make :: (fn(n : i32, io : Io) -> Impl(Future(_SmWrap, IoExn)))(
   io.async(e => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     _SmWrap.A(t : Thing(n : n))
   })
 );
@@ -283,7 +283,7 @@ _sm_escape_after_branch :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
         true => ()
       );
       w := opt.unwrap();
-      e.io.await(yield(e.io), &e.io);
+      e.io.await(yield(e.io), e.io);
       sum = (sum + match(w, .A(t) => t.n, .B(t) => t.n));
       cond(
         (i == i32(1)) => {
@@ -317,7 +317,7 @@ test("an escape after a closed branch drops each value-enum local once", {
 // dispose released it twice.
 _sm_throws_thing :: (fn(io : Io) -> Impl(Future(Thing, IoExn)))(
   io.async(e => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     e.exn.throw(dyn(`stop`));
     Thing(n : i32(0))
   })
@@ -347,7 +347,7 @@ test("an escape inside a reassignment's await releases the old value once", {
 // which was never assigned, so every call leaked one reference.
 _sm_hold :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     t.n
   })
 );
@@ -409,7 +409,7 @@ impl(
 );
 _sm_throw_after_await :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     e.exn.throw(dyn(_SmErr(n : i32(1))));
     i32(1)
   })

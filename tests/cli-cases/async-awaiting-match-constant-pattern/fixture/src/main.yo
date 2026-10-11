@@ -4,7 +4,7 @@ outer :: (fn(io : Io, k : Option(i32)) -> Impl(Future(i32)))(
   io.async((e : Io) => match(k, .Some(i32(3)) => e.await(inner(e, i32(1)), e), _ => i32(0)))
 );
 main :: (fn(io : Io) -> unit)({
-  v := io.await(outer(io, .Some(i32(3))), &io);
+  v := io.await(outer(io, .Some(i32(3))), io);
   println(`result: ${v}`);
 });
 export(main);

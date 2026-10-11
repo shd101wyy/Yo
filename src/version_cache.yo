@@ -306,12 +306,12 @@ is_version_cached :: (
       .Some(d) => cached_binary_path(&d),
       .None => _never_path()
     );
-    installed := e.io.await(exists(Path.new(&inst_path), e.io), &e.io);
+    installed := e.io.await(exists(Path.new(&inst_path), e.io), e.io);
     if(installed, {
       return(true);
     });
     version_dir := get_version_cache_dir(version);
-    e.io.await(exists(Path.new(cached_binary_path(&version_dir)), e.io), &e.io)
+    e.io.await(exists(Path.new(cached_binary_path(&version_dir)), e.io), e.io)
   })
 );
 /// Resolve the directory holding `version`, preferring a script-installed copy
@@ -331,12 +331,12 @@ resolve_version_dir :: (
       .Some(d) => d,
       .None => _never_path()
     );
-    inst_found := e.io.await(exists(Path.new(cached_binary_path(inst_dir.clone())), e.io), &e.io);
+    inst_found := e.io.await(exists(Path.new(cached_binary_path(inst_dir.clone())), e.io), e.io);
     if(inst_found, {
       return(Option(String).Some(inst_dir));
     });
     cached := get_version_cache_dir(version);
-    cached_found := e.io.await(exists(Path.new(cached_binary_path(cached.clone())), e.io), &e.io);
+    cached_found := e.io.await(exists(Path.new(cached_binary_path(cached.clone())), e.io), e.io);
     if(cached_found, {
       return(Option(String).Some(cached));
     });
@@ -376,7 +376,7 @@ _scan_versions_root :: (
 )(
   io.async((e : IoExn) => {
     found := ArrayList(String).new();
-    root_exists := e.io.await(exists(Path.new(versions_dir.clone()), e.io), &e.io);
+    root_exists := e.io.await(exists(Path.new(versions_dir.clone()), e.io), e.io);
     if(!root_exists, {
       return(found);
     });
@@ -389,7 +389,7 @@ _scan_versions_root :: (
         .Some(entry) => {
           if(match(entry.file_type, .Directory => true, _ => false), {
             entry_path := `${versions_dir}/${entry.name}`;
-            bin_exists := e.io.await(exists(Path.new(cached_binary_path(&entry_path)), e.io), &e.io);
+            bin_exists := e.io.await(exists(Path.new(cached_binary_path(&entry_path)), e.io), e.io);
             // A version present in BOTH roots must appear once.
             if(bin_exists && !_contains_version(known, entry.name.clone()) && !_contains_version(&found, entry.name.clone()), {
               found.push(entry.name);
@@ -445,14 +445,14 @@ clean_version_cache :: (
       version_opt,
       .Some(version) => {
         version_dir := get_version_cache_dir(&version);
-        dir_exists := e.io.await(exists(Path.new(&version_dir), e.io), &e.io);
+        dir_exists := e.io.await(exists(Path.new(&version_dir), e.io), e.io);
         if(dir_exists, {
           e.io.await(remove_dir_all(Path.new(&version_dir), e.io), e);
         });
       },
       .None => {
         versions_dir := get_global_versions_cache_dir();
-        dir_exists := e.io.await(exists(Path.new(&versions_dir), e.io), &e.io);
+        dir_exists := e.io.await(exists(Path.new(&versions_dir), e.io), e.io);
         if(dir_exists, {
           e.io.await(remove_dir_all(Path.new(&versions_dir), e.io), e);
         });
@@ -602,7 +602,7 @@ _cleanup_failed_download :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    ver_exists := e.io.await(exists(Path.new(version_dir), e.io), &e.io);
+    ver_exists := e.io.await(exists(Path.new(version_dir), e.io), e.io);
     if(ver_exists, {
       e.io.await(remove_dir_all(Path.new(version_dir), e.io), e);
     });
@@ -729,8 +729,8 @@ download_version :: (
     while(runtime((ei < entries.len()) && (found_root == false)), {
       entry := entries(ei);
       cand := `${tmp_path_str}/${entry.name}`;
-      cand_bin := e.io.await(exists(Path.new(`${cand}/bin`), e.io), &e.io);
-      cand_std := e.io.await(exists(Path.new(`${cand}/std`), e.io), &e.io);
+      cand_bin := e.io.await(exists(Path.new(`${cand}/bin`), e.io), e.io);
+      cand_std := e.io.await(exists(Path.new(`${cand}/std`), e.io), e.io);
       if(cand_bin && cand_std, {
         extracted_dir = cand;
         found_root = true;
@@ -743,7 +743,7 @@ download_version :: (
     });
     // 3. Remove any existing partial extraction (or a dead npm-shaped
     // entry), then MOVE the extracted bundle root to the version directory.
-    ver_exists := e.io.await(exists(Path.new(&version_dir), e.io), &e.io);
+    ver_exists := e.io.await(exists(Path.new(&version_dir), e.io), e.io);
     if(ver_exists, {
       e.io.await(remove_dir_all(Path.new(&version_dir), e.io), e);
     });

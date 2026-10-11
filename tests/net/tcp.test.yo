@@ -292,20 +292,20 @@ test("IPv6 loopback connect round-trip", {
   e := IoExn(io : io, exn : exn);
   port := listener.local_addr().port;
   assert(port != u16(0), "v6 ephemeral bind must report a real port");
-  client := io.await(TcpStream.connect(SocketAddr.new(IpAddr.V6(v6_loopback), port), io), &e);
-  server_stream := io.await(listener.accept(io), &e);
-  n := io.await(client.write_str("v6!", io), &e);
+  client := io.await(TcpStream.connect(SocketAddr.new(IpAddr.V6(v6_loopback), port), io), e);
+  server_stream := io.await(listener.accept(io), e);
+  n := io.await(client.write_str("v6!", io), e);
   assert(n == usize(3), "should send 3 bytes over IPv6");
   recv_buf := (*u8)(malloc(usize(16)).unwrap());
-  nr := io.await(server_stream.read(recv_buf, usize(16), io), &e);
+  nr := io.await(server_stream.read(recv_buf, usize(16), io), e);
   assert(nr == usize(3), "should receive 3 bytes over IPv6");
   assert((recv_buf.add(usize(0))).* == u8(118), "v");
   assert((recv_buf.add(usize(1))).* == u8(54), "6");
   assert((recv_buf.add(usize(2))).* == u8(33), "!");
   free(.Some((*void)(recv_buf)));
-  io.await(server_stream.close(io), &e);
-  io.await(client.close(io), &e);
-  io.await(listener.close(io), &e);
+  io.await(server_stream.close(io), e);
+  io.await(client.close(io), e);
+  io.await(listener.close(io), e);
 });
 test("bind to a non-local IPv6 address must fail (was: sockaddr hardcoded ::1)", {
   // plans/archive/STD_API_AUDIT.md C2: _make_sockaddr used to map EVERY V6 address to
@@ -757,8 +757,8 @@ _tcp_write_until_error :: (fn(s : &TcpStream, io : Io) -> bool)({
   e := IoExn(io : io, exn : exn);
   (i : i32) = i32(0);
   while(i < i32(50), i = (i + i32(1)), {
-    io.await(s.write_str("x", io), &e);
-    io.await(sleep(u64(2)), &e);
+    io.await(s.write_str("x", io), e);
+    io.await(sleep(u64(2)), e);
   });
   false
 });
@@ -772,13 +772,13 @@ test("a TcpStream write to a peer that has closed throws instead of killing the 
     )
   );
   e := IoExn(io : io, exn : exn);
-  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), &e);
-  client := io.await(TcpStream.connect(listener.local_addr(), io), &e);
-  server := io.await(listener.accept(io), &e);
-  io.await(client.close(io), &e);
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), e);
+  client := io.await(TcpStream.connect(listener.local_addr(), io), e);
+  server := io.await(listener.accept(io), e);
+  io.await(client.close(io), e);
   assert(_tcp_write_until_error(&server, io), "a write to the closed peer reported an error");
-  io.await(server.close(io), &e);
-  io.await(listener.close(io), &e);
+  io.await(server.close(io), e);
+  io.await(listener.close(io), e);
 });
 // The same from the connecting end: `connect` and `accept` each make their
 // stream safe for the stream-write op (on macOS, plain write(2) with
@@ -793,11 +793,11 @@ test("a connected TcpStream write to an accepted peer that has closed throws ins
     )
   );
   e := IoExn(io : io, exn : exn);
-  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), &e);
-  client := io.await(TcpStream.connect(listener.local_addr(), io), &e);
-  server := io.await(listener.accept(io), &e);
-  io.await(server.close(io), &e);
+  listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(0)), io), e);
+  client := io.await(TcpStream.connect(listener.local_addr(), io), e);
+  server := io.await(listener.accept(io), e);
+  io.await(server.close(io), e);
   assert(_tcp_write_until_error(&client, io), "a write to the closed peer reported an error");
-  io.await(client.close(io), &e);
-  io.await(listener.close(io), &e);
+  io.await(client.close(io), e);
+  io.await(listener.close(io), e);
 });

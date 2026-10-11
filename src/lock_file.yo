@@ -284,7 +284,7 @@ read_lock_file :: (
 )(
   io.async((e : IoExn) => {
     lock_path := project_dir.join(Path.new(String.from(LOCK_FILE_NAME)));
-    file_exists := e.io.await(exists(&lock_path, e.io), &e.io);
+    file_exists := e.io.await(exists(&lock_path, e.io), e.io);
     if(!file_exists, {
       return(LockRead(lock : LockFile.empty(), absent : true, problem : Option(String).None));
     });

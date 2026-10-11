@@ -66,11 +66,11 @@ test("await re-assigned into an existing var runs its cond branch", {
     )
   );
   t_e := IoExn(io : io, exn : t_exn);
-  a := io.await(pick(usize(1), io), &t_e);
+  a := io.await(pick(usize(1), io), t_e);
   assert(a == usize(11), "branch 1 awaited give_a");
-  b := io.await(pick(usize(2), io), &t_e);
+  b := io.await(pick(usize(2), io), t_e);
   assert(b == usize(107), "branch 2 awaited give_b");
-  c := io.await(pick(usize(3), io), &t_e);
+  c := io.await(pick(usize(3), io), t_e);
   assert(c == usize(999), "fallthrough untouched");
 });
 test("linear re-assignment of an await result lands", {
@@ -83,6 +83,6 @@ test("linear re-assignment of an await result lands", {
     )
   );
   t_e := IoExn(io : io, exn : t_exn);
-  a := io.await(lin(io), &t_e);
+  a := io.await(lin(io), t_e);
   assert(a == usize(12), "await result written then incremented");
 });

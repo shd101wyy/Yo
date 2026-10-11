@@ -471,7 +471,7 @@ ensure_mirror :: (
 )(
   io.async((e : IoExn) => {
     mirror := git_mirror_dir(cache_root.clone(), url.clone());
-    present := e.io.await(exists(Path.new(mirror.clone()), e.io), &e.io);
+    present := e.io.await(exists(Path.new(mirror.clone()), e.io), e.io);
     if(present, {
       return(mirror);
     });
@@ -642,7 +642,7 @@ _extract_tree :: (
     cmd.arg(String.from("--"));
     cmd.arg(String.from("."));
     status := e.io.await(cmd.status(e.io), e);
-    index_present := e.io.await(exists(Path.new(index.clone()), e.io), &e.io);
+    index_present := e.io.await(exists(Path.new(index.clone()), e.io), e.io);
     if(index_present, {
       e.io.await(remove_file(Path.new(&index), e.io), e);
     });
@@ -665,7 +665,7 @@ read_tags_index :: (
 )(
   io.async((e : IoExn) => {
     path := tags_index_path(cache_root, url);
-    present := e.io.await(exists(Path.new(path.clone()), e.io), &e.io);
+    present := e.io.await(exists(Path.new(path.clone()), e.io), e.io);
     if(!present, Option(String).None, {
       text := e.io.await(read_to_string(Path.new(&path), e.io), e);
       Option(String).Some(text)
@@ -701,7 +701,7 @@ _read_projects :: (
   io.async((e : IoExn) => {
     path := projects_registry_path(cache_root);
     out := ArrayList(String).new();
-    present := e.io.await(exists(Path.new(path.clone()), e.io), &e.io);
+    present := e.io.await(exists(Path.new(path.clone()), e.io), e.io);
     if(!present, {
       return(out);
     });
@@ -825,7 +825,7 @@ fetch_package :: (
     (commit : String) = match(locked_commit, .Some(c) => if(refresh, String.new(), c.clone()), .None => String.new());
     needs_ls_remote := (commit.len() == usize(0));
     mirror_dir := git_mirror_dir(cache_root.clone(), url.clone());
-    mirror_present := e.io.await(exists(Path.new(mirror_dir.clone()), e.io), &e.io);
+    mirror_present := e.io.await(exists(Path.new(mirror_dir.clone()), e.io), e.io);
     // Offline, the mirror is the only place a ref can be resolved.
     if(needs_ls_remote && offline && mirror_present, {
       from_mirror := e.io.await(mirror_rev_parse(mirror_dir.clone(), ref.clone(), e.io, e.exn), e);
@@ -858,12 +858,12 @@ fetch_package :: (
     });
     (have_tree : bool) = false;
     if(known_dir.len() > usize(0), {
-      present := e.io.await(exists(Path.new(known_dir.clone()), e.io), &e.io);
+      present := e.io.await(exists(Path.new(known_dir.clone()), e.io), e.io);
       have_tree = present;
     });
     (verified : bool) = false;
     if(have_tree, {
-      marked := e.io.await(exists(Path.new(store_verified_marker(known_dir.clone())), e.io), &e.io);
+      marked := e.io.await(exists(Path.new(store_verified_marker(known_dir.clone())), e.io), e.io);
       verified = marked;
     });
     (rehash_matches : bool) = false;
@@ -917,7 +917,7 @@ fetch_package :: (
         String.new()
       }
     );
-    landed := e.io.await(exists(Path.new(final_dir.clone()), e.io), &e.io);
+    landed := e.io.await(exists(Path.new(final_dir.clone()), e.io), e.io);
     if(landed, {
       // Another install landed the same tree meanwhile.
       e.io.await(remove_dir_all(Path.new(tmp.clone()), e.io), e);
@@ -983,7 +983,7 @@ _sweep_dir :: (
   ) -> Impl(Future(usize, IoExn))
 )(
   io.async((e : IoExn) => {
-    present := e.io.await(exists(Path.new(dir.clone()), e.io), &e.io);
+    present := e.io.await(exists(Path.new(dir.clone()), e.io), e.io);
     if(!present, {
       return(usize(0));
     });
@@ -1020,7 +1020,7 @@ _count_kept :: (
   ) -> Impl(Future(usize, IoExn))
 )(
   io.async((e : IoExn) => {
-    present := e.io.await(exists(Path.new(dir.clone()), e.io), &e.io);
+    present := e.io.await(exists(Path.new(dir.clone()), e.io), e.io);
     if(!present, {
       return(usize(0));
     });
@@ -1065,7 +1065,7 @@ gc_store :: (
       project_dir := projects(pi).clone();
       pi = (pi + usize(1));
       lock_path := `${project_dir}/yo.lock`;
-      has_lock := e.io.await(exists(Path.new(lock_path.clone()), e.io), &e.io);
+      has_lock := e.io.await(exists(Path.new(lock_path.clone()), e.io), e.io);
       (text : String) = String.new();
       if(has_lock, {
         read_text := e.io.await(read_to_string(Path.new(lock_path.clone()), e.io), e);

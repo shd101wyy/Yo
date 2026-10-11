@@ -446,13 +446,13 @@ collect_module_deps :: (
   });
   // Handle directory modules: if path.yo doesn't exist but path/index.yo does, use the latter.
   (abs_path : String) = abs_path_raw.clone();
-  (file_found : bool) = io.await(exists(Path.new(abs_path_raw.clone()), io), &io);
+  (file_found : bool) = io.await(exists(Path.new(abs_path_raw.clone()), io), io);
   if(!file_found, {
     // Strip the trailing .yo (3 chars) to get the base name, then try index.yo
     base_len := abs_path_raw.len();
     base_no_ext := abs_path_raw.substring(usize(0), base_len - usize(3));
     index_path := `${base_no_ext}/index.yo`;
-    index_found := io.await(exists(Path.new(&index_path), io), &io);
+    index_found := io.await(exists(Path.new(&index_path), io), io);
     cond(
       index_found => {
         abs_path = index_path;
@@ -3502,7 +3502,7 @@ _find_clang_asan_dll_path :: (fn(compiler : &String, io : Io) -> Option(String))
   compiler_dir := _win_dirname(first_line.clone());
   llvm_root := _win_dirname(compiler_dir.clone());
   clang_lib := `${llvm_root}\\lib\\clang`;
-  clang_lib_found := io.await(exists(Path.new(clang_lib.clone()), io), &io);
+  clang_lib_found := io.await(exists(Path.new(clang_lib.clone()), io), io);
   if(!clang_lib_found, {
     return(Option(String).None);
   });
@@ -3520,7 +3520,7 @@ _find_clang_asan_dll_path :: (fn(compiler : &String, io : Io) -> Option(String))
         // into the path and the probe silently found nothing
         // (issues/backslash-then-interpolation-in-a-template-is-not-interpolated.md).
         win_lib := (`${clang_lib}\\` + vname + String.from("\\lib\\windows"));
-        win_found := io.await(exists(Path.new(win_lib.clone()), io), &io);
+        win_found := io.await(exists(Path.new(win_lib.clone()), io), io);
         if(win_found, {
           return(Option(String).Some(win_lib));
         });
@@ -3912,7 +3912,7 @@ _compile_chunks_parallel :: (
     });
     stamp := sha256_hex(&stamp_src);
     stamp_path := `${obj}.inputs-sha256`;
-    obj_exists := io.await(exists(Path.new(obj.clone()), io), &io);
+    obj_exists := io.await(exists(Path.new(obj.clone()), io), io);
     cached := (!no_cache && (obj_exists && match(_chunk_read_stamp(stamp_path.clone(), io), .Some(prev) => (prev == stamp), .None => false)));
     if(!cached, {
       cmdline := String.new();
@@ -5805,7 +5805,7 @@ run_compile :: (
     line_c_name := if(emit_c_to.len() > usize(0), emit_c_to.clone(), `${c_base}.c`);
     line_chunk_base := `${c_base}_chunk`;
     c_parts := compile_module(&module_value, &mut ctx.expr_info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone());
-    (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), &io);
+    (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), io);
     // `--emit-c` (a debug path) reads the spill whole to print it; the file
     // write below copies it in pieces.
     (c_spilled : String) = String.new();
@@ -6164,7 +6164,7 @@ run_compile :: (
   // guarded by existence with a fallback warning.
   if(allocator == "mimalloc", {
     mim_static := `${std_root}/../vendor/mimalloc/src/static.c`;
-    mim_found := io.await(exists(Path.new(mim_static.clone()), io), &io);
+    mim_found := io.await(exists(Path.new(mim_static.clone()), io), io);
     if(mim_found, {
       cmd.arg(`-I${std_root}/../vendor/mimalloc/include`);
       cmd.arg(mim_static.clone());
@@ -8516,7 +8516,7 @@ _cache_clean :: (
     exn : Exception
   ) -> unit
 )({
-  present := io.await(exists(Path.new(cache_dir.clone()), io), &io);
+  present := io.await(exists(Path.new(cache_dir.clone()), io), io);
   if(!present, {
     println(`Cache directory does not exist: ${cache_dir}`);
     return(());
@@ -8531,9 +8531,9 @@ _cache_clean :: (
   while(i < dirs.len(), {
     d := dirs(i);
     i = (i + usize(1));
-    d_present := io.await(exists(Path.new(d.clone()), io), &io);
+    d_present := io.await(exists(Path.new(d.clone()), io), io);
     if(d_present, {
-      io.await(remove_dir_all(Path.new(&d), io), &e);
+      io.await(remove_dir_all(Path.new(&d), io), e);
     });
   });
   files := ArrayList(String).new();
@@ -8543,9 +8543,9 @@ _cache_clean :: (
   while(j < files.len(), {
     f := files(j);
     j = (j + usize(1));
-    f_present := io.await(exists(Path.new(f.clone()), io), &io);
+    f_present := io.await(exists(Path.new(f.clone()), io), io);
     if(f_present, {
-      io.await(remove_file(Path.new(&f), io), &e);
+      io.await(remove_file(Path.new(&f), io), e);
     });
   });
   println(`Removed the dependency store under ${cache_dir} (store/, git/, index/). versions/ is kept — 'yo version clean' removes it.`);
@@ -8559,7 +8559,7 @@ _cache_gc :: (
     exn : Exception
   ) -> unit
 )({
-  present := io.await(exists(Path.new(cache_dir.clone()), io), &io);
+  present := io.await(exists(Path.new(cache_dir.clone()), io), io);
   if(!present, {
     println(`Cache directory does not exist: ${cache_dir}`);
     return(());
@@ -9149,7 +9149,7 @@ run_unsafe_report_cmd :: (
     ai = (ai + usize(1));
   });
   // Path.new(".") normalizes to the empty path, so check the CWD directly.
-  target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), &io));
+  target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), io));
   if(!target_exists, {
     eprintln(`unsafe-report: path does not exist: ${target}`);
     exn.throw(dyn(`unsafe-report: path does not exist`));
@@ -9187,7 +9187,7 @@ run_public_safe_report_cmd :: (
     ai = (ai + usize(1));
   });
   // Path.new(".") normalizes to the empty path, so check the CWD directly.
-  target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), &io));
+  target_exists := if(target == ".", true, io.await(exists(Path.new(target.clone()), io), io));
   if(!target_exists, {
     eprintln(`public-safe-report: path does not exist: ${target}`);
     exn.throw(dyn(`public-safe-report: path does not exist`));
@@ -11113,7 +11113,7 @@ main :: (fn(io : Io) -> unit)({
       .Some(pinned_v) => if(pinned_v != String.from(CURRENT_YO_VERSION), {
         cached_dir := io.await(ensure_cached_version(pinned_v.clone(), io, exn), IoExn(io : io, exn : exn));
         bin_path := cached_binary_path(&cached_dir);
-        bin_found := io.await(exists(Path.new(bin_path.clone()), io), &io);
+        bin_found := io.await(exists(Path.new(bin_path.clone()), io), io);
         if(!bin_found, {
           exn.throw(dyn(`Error: Cached Yo v${pinned_v} is missing its compiler binary at ${bin_path}`));
         });

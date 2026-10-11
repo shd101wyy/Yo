@@ -3786,8 +3786,8 @@ main :: (fn(io : Io) -> unit)({
     io.await(yield(io), io);
     return(i32(2));
   });
-  handle1 := io.spawn(&task1, &io); // 启动 task1，返回 JoinHandle(i32)
-  handle2 := io.spawn(&task2, &io); // 启动 task2，返回 JoinHandle(i32)
+  handle1 := io.spawn(&task1, io); // 启动 task1，返回 JoinHandle(i32)
+  handle2 := io.spawn(&task2, io); // 启动 task2，返回 JoinHandle(i32)
   r1 := handle1.await(io); // 等待 → Option(i32)
   r2 := handle2.await(io);
 });

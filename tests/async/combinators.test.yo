@@ -394,9 +394,9 @@ impl(
 /// instead; it is the shape `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
 /// (Phase 2.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) made work.
 _bounded :: (fn(generic(S : Type), s : &S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))({
-  h := io.spawn(s.collect(io), &io);
+  h := io.spawn(s.collect(io), io);
   match(
-    io.await(timeout(&h, Duration.from_millis(i64(5000)), io), &io),
+    io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
     .Err(_) => {
       assert(false, "stream collect did not finish inside the deadline");
@@ -435,7 +435,7 @@ _count_items :: (
 /// Generic over the item type: `A` is bound from the argument's `Stream` impl,
 /// so the body can name `ArrayList(A)` and call the blanket `collect` on `s`.
 _collect_all :: (fn(generic(S : Type, A : Type), s : &S, io : Io, where(S <: Stream(Item := A))) -> ArrayList(A))(
-  io.await(s.collect(io), &io)
+  io.await(s.collect(io), io)
 );
 /// The same idea with the item type spelled out, so the body can use the
 /// values.

@@ -20,8 +20,8 @@ main :: (fn(io : Io) -> unit)({
     return(i32(2));
   });
   // spawn starts both without waiting, returning JoinHandles
-  handle1 := io.spawn(&task1, &io);
-  handle2 := io.spawn(&task2, &io);
+  handle1 := io.spawn(&task1, io);
+  handle2 := io.spawn(&task2, io);
   // await on handles and extract results (Option(T))
   result1 := handle1.await(io);
   result2 := handle2.await(io);
@@ -41,10 +41,10 @@ export(main);
 main :: (fn(io : Io) -> unit)({
   a := io.async((io : Io) => { /* ... */ });
   b := io.async((io : Io) => { /* ... */ });
-  io.spawn(&a, &io); // Start a without waiting (returns JoinHandle)
-  io.spawn(&b, &io); // Start b without waiting (returns JoinHandle)
-  io.await(&a, &io);
-  io.await(&b, &io);
+  io.spawn(&a, io); // Start a without waiting (returns JoinHandle)
+  io.spawn(&b, io); // Start b without waiting (returns JoinHandle)
+  io.await(&a, io);
+  io.await(&b, io);
 });
 
 // Parallelism: Different threads, true simultaneous execution
@@ -224,9 +224,9 @@ main :: (fn(io : Io) -> unit)({
   // - t1 runs until first yield, suspends
   // - t2 runs until first yield, suspends
   // - t3 runs until first yield, suspends
-  h1 := io.spawn(&t1, &io);
-  h2 := io.spawn(&t2, &io);
-  h3 := io.spawn(&t3, &io);
+  h1 := io.spawn(&t1, io);
+  h2 := io.spawn(&t2, io);
+  h3 := io.spawn(&t3, io);
 
   // handle.await waits for completion and returns Option(T):
   // - event loop resumes t1, t2, t3 in round-robin
@@ -311,11 +311,11 @@ main :: (fn(io : Io) -> unit)({
   (task : Impl(Future(i32, TaskCtx))) = io.async((e : TaskCtx) => {
     e.log(`doing work`);
     r := e.raise(`recoverable`);
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     r + i32(42)
   });
 
-  result := io.await(&task, &ctx);
+  result := io.await(&task, ctx);
   println(`result ${result}`);
 });
 export(main);
@@ -351,9 +351,9 @@ main :: (fn(io : Io) -> unit)({
   task := io.async((io : Io) => {
     return(i32(42));
   });
-  result1 := io.await(&task, &io);
-  result2 := io.await(&task, &io);
-  result3 := io.await(&task, &io);
+  result1 := io.await(&task, io);
+  result2 := io.await(&task, io);
+  result3 := io.await(&task, io);
   assert(result1 == i32(42), "first await returns 42");
   assert(result2 == i32(42), "second await returns 42");
   assert(result3 == i32(42), "third await returns 42");
@@ -409,7 +409,7 @@ main :: (fn(io : Io) -> unit)({
   Raise :: (ctl(generic(T : Type), msg : String) -> T);
   Ctx :: struct(io : Io, raise : Raise);
   task := io.async((ctx : Ctx) => {
-    ctx.io.await(yield(ctx.io), &ctx.io);
+    ctx.io.await(yield(ctx.io), ctx.io);
     ctx.raise(`something went wrong`);
     return(i32(42));
   });
@@ -516,7 +516,7 @@ main :: (fn(io : Io) -> unit)({
   // Before starting: Cold
   assert(io.state(&task) == FutureState.Cold, "cold future is Cold");
 
-  io.await(&task, &io);
+  io.await(&task, io);
 
   // After completion: Completed
   assert(io.state(&task) == FutureState.Completed, "done future is Completed");
@@ -634,7 +634,7 @@ count_down :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 
 main :: (fn(io : Io) -> unit)({
-  r := io.await(count_down(i32(10), io), &io);
+  r := io.await(count_down(i32(10), io), io);
   println(`count_down(10) = ${r}`); // count_down(10) = 10
 });
 export(main);
@@ -679,7 +679,7 @@ count_leaves :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 
 main :: (fn(io : Io) -> unit)({
-  r := io.await(count_leaves(i32(1000), io), &io);
+  r := io.await(count_leaves(i32(1000), io), io);
   println(`leaves = ${r}`); // leaves = 1000
 });
 export(main);
@@ -760,7 +760,7 @@ run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
 );
 
 main :: (fn(io : Io) -> unit)({
-  n := io.await(run_all(io), &io);
+  n := io.await(run_all(io), io);
   println(`sum ${n}`); // sum 6, also under YO_ASYNC_STRICT=1
 });
 export(main);
@@ -936,11 +936,11 @@ main :: (fn(io : Io) -> unit)({
     /* work */
   });
   // task is cold (refcount=1), hasn't started yet
-  io.spawn(&task, &io);
+  io.spawn(&task, io);
   // spawn starts the task: +1 for the running task (the event loop), and
   // +1 for the JoinHandle it returns (dropped at once here: a statement-level
   // spawn detaches)
-  io.await(&task, &io);
+  io.await(&task, io);
   // Waits for completion, extracts result
   // Task completes, event loop drops its reference (refcount=1)
   // task goes out of scope (refcount=0, freed)
@@ -1300,8 +1300,8 @@ main :: (fn(io : Io) -> unit)({
   });
 
   // Tasks are cold — counter is still 0
-  handle1 := io.spawn(&task1, &io);
-  handle2 := io.spawn(&task2, &io);
+  handle1 := io.spawn(&task1, io);
+  handle2 := io.spawn(&task2, io);
   // Both run via interleaved execution: counter = 22
   result1 := handle1.await(io);
   result2 := handle2.await(io);
@@ -1330,8 +1330,8 @@ main :: (fn(io : Io) -> unit)({
   });
 
   // Without spawn: tasks run sequentially
-  io.await(&task1, &io); // task1 runs fully to completion
-  io.await(&task2, &io); // then task2 runs fully to completion
+  io.await(&task1, io); // task1 runs fully to completion
+  io.await(&task2, io); // then task2 runs fully to completion
   // counter = 22 either way, but no interleaving
 });
 export(main);

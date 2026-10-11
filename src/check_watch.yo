@@ -356,7 +356,7 @@ wait_for_change :: (
   ) -> ArrayList(String)
 )({
   while(true, {
-    _t := io.await(sleep_mod.sleep(poll_ms), &io);
+    _t := io.await(sleep_mod.sleep(poll_ms), io);
     changed := ArrayList(String).new();
     (wi : usize) = usize(0);
     while(wi < files.len(), {
@@ -384,7 +384,7 @@ wait_for_change :: (
     });
     if(changed.len() > usize(0), {
       // Debounce: editors write-then-rename; give the burst a beat to finish.
-      _d := io.await(sleep_mod.sleep(u64(50)), &io);
+      _d := io.await(sleep_mod.sleep(u64(50)), io);
       return(changed);
     });
   });

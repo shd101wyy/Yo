@@ -43,7 +43,7 @@ test("Thread with async task", {
     task := io.async((io : Io) => {
       io.await(yield(io), io);
     });
-    io.await(&task, &io);
+    io.await(&task, io);
   });
   thread.join();
 });
@@ -55,7 +55,7 @@ test("Thread with async returning value", {
       io.await(yield(io), io);
       return(x + y);
     });
-    result := io.await(&task, &io);
+    result := io.await(&task, io);
     assert(result == i32(30), "async result should be 30");
   });
   thread.join();
@@ -70,7 +70,7 @@ test("Thread with async loop", {
       });
       return(counter);
     });
-    result := io.await(&task, &io);
+    result := io.await(&task, io);
     assert(result == i32(5), "counter should be 5");
   });
   thread.join();
@@ -85,8 +85,8 @@ test("Thread with multiple async tasks", {
       io.await(yield(io), io);
       return(i32(2));
     });
-    r1 := io.await(&task1, &io);
-    r2 := io.await(&task2, &io);
+    r1 := io.await(&task1, io);
+    r2 := io.await(&task2, io);
     assert((r1 + r2) == i32(3), "sum should be 3");
   });
   thread.join();
@@ -488,7 +488,7 @@ _dir_iter_roundtrip :: (fn(k : i32, io : Io) -> unit)({
     });
     io.await(fs_dir.remove_dir(&dpath, io), IoExn(io : io, exn : exn));
   });
-  io.await(&task, &io);
+  io.await(&task, io);
 });
 test("concurrent directory iteration on three threads", {
   t1 := Thread(unit).spawn(io => _dir_iter_roundtrip(i32(1), io));

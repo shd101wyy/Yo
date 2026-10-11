@@ -229,7 +229,7 @@ _git_version :: (
     cmd.arg(String.from("--tags"));
     cmd.arg(String.from("--always"));
     t := e.io.spawn(_git_output_task(&cmd, e.io), e);
-    out_opt := e.io.await(t.join(e.io), &e.io);
+    out_opt := e.io.await(t.join(e.io), e.io);
     out := match(out_opt, .Some(o) => o, .None => return(Option(String).None));
     if(!out.status.success(), return(Option(String).None));
     v := String.from_bytes(out.stdout).trim();
@@ -1350,7 +1350,7 @@ _cache_collect_yo_files :: (
       d := work(wi).clone();
       wi = (wi + usize(1));
       t := e.io.spawn(_read_dir_task(d.clone(), e.io), e);
-      entries := match(e.io.await(t.join(e.io), &e.io), .Some(es) => es, .None => ArrayList(DirEntry).new());
+      entries := match(e.io.await(t.join(e.io), e.io), .Some(es) => es, .None => ArrayList(DirEntry).new());
       names := ArrayList(String).new();
       (i : usize) = usize(0);
       while(i < entries.len(), {
@@ -1413,7 +1413,7 @@ _cache_read_file :: (
   io.async((e : IoExn) => {
     t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
     match(
-      e.io.await(t.join(e.io), &e.io),
+      e.io.await(t.join(e.io), e.io),
       .Some(bytes) => Option(ArrayList(u8)).Some(bytes),
       .None => Option(ArrayList(u8)).None
     )
@@ -1706,7 +1706,7 @@ _read_stamp :: (fn(path : &String, io : Io) -> Impl(Future(Option(String), IoExn
   io.async((e : IoExn) => {
     t := e.io.spawn(_read_bytes_task(path.clone(), e.io), e);
     match(
-      e.io.await(t.join(e.io), &e.io),
+      e.io.await(t.join(e.io), e.io),
       .Some(bytes) => Option(String).Some(String.from_bytes(bytes)),
       .None => Option(String).None
     )
@@ -1730,7 +1730,7 @@ _write_stamp :: (fn(path : &String, stamp : &String, io : Io) -> Impl(Future(uni
   io.async((e : IoExn) => {
     t := e.io.spawn(_write_string_task(path.clone(), stamp.clone(), e.io), e);
     match(
-      e.io.await(t.join(e.io), &e.io),
+      e.io.await(t.join(e.io), e.io),
       .Some(_u) => (),
       .None => ()
     )
@@ -2162,7 +2162,7 @@ compile_artifact :: (
     // The static-library child appends `.a` itself (the same suffix the
     // Building line shows), so the existence probe must too — without it a
     // static-library artifact could never cache-hit.
-    out_exists := e.io.await(exists(Path.new(`${output_path.to_string()}${lib_suffix}`), e.io), &e.io);
+    out_exists := e.io.await(exists(Path.new(`${output_path.to_string()}${lib_suffix}`), e.io), e.io);
     prev_stamp := e.io.await(_read_stamp(stamp_path.clone(), e.io), e);
     stamp_matches := match(prev_stamp, .Some(prev) => (prev == stamp), .None => false);
     use_cache := (cache_enabled && (stamp.len() > usize(0)) && out_exists && stamp_matches);
@@ -2296,7 +2296,7 @@ run_executable :: (
     // Missing-binary pre-flight: a step chain that
     // skipped the compile must fail HERE with a diagnostic, not with the
     // shell's exec error.
-    exe_found := e.io.await(exists(Path.new(exe_path.to_string()), e.io), &e.io);
+    exe_found := e.io.await(exists(Path.new(exe_path.to_string()), e.io), e.io);
     if(!exe_found, {
       return(Result(unit, String).Err(`Error: Compiled executable not found at ${exe_path.to_string()}`));
     });
@@ -2724,7 +2724,7 @@ _execute_batch :: (
     // suspends `_execute_batch` while the step tasks run, so it no longer
     // nests the event loop the way the blocking `JoinHandle.await` did
     // (issues/fixed/build-scheduler-join-all-nests-the-event-loop.md).
-    outs := e.io.await(join_all(&handles, e.io), &e.io);
+    outs := e.io.await(join_all(&handles, e.io), e.io);
     batch_results := ArrayList(StepResult).new();
     i = usize(0);
     while(i < batch.len(), {
@@ -3259,7 +3259,7 @@ run_build :: (
     member_build_file := e.io.await(_resolve_workspace_member(options.package.clone(), e.io, e.exn), e);
     effective_build_file := match(member_build_file, .Some(bf) => bf, .None => options.build_file.clone());
     build_file_path := Path.new(effective_build_file.clone());
-    build_file_exists := e.io.await(exists(&build_file_path, e.io), &e.io);
+    build_file_exists := e.io.await(exists(&build_file_path, e.io), e.io);
     if(!build_file_exists, {
       e.exn.throw(dyn(`Error: Build file not found: ${build_file_path.to_string()}`));
     });

@@ -22,16 +22,16 @@ dir :: import("std/sys/dir");
 _touch :: (fn(path : &String, content : &String, io : Io) -> unit)({
   c := path.to_cstr();
   p := c.ptr().unwrap();
-  fd := io.await(file.openat(AT_FDCWD, p, O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), &io);
+  fd := io.await(file.openat(AT_FDCWD, p, O_CREAT | (O_WRONLY | O_TRUNC), i32(0o644)), io);
   assert(fd >= i32(0), "open failed");
   body := content.to_cstr();
-  wr := io.await(file.write(fd, body.ptr().unwrap(), u32(content.len()), u64(0)), &io);
+  wr := io.await(file.write(fd, body.ptr().unwrap(), u32(content.len()), u64(0)), io);
   assert(wr >= i32(0), "write failed");
-  io.await(file.close(fd), &io);
+  io.await(file.close(fd), io);
 });
 _unlink :: (fn(path : &String, io : Io) -> unit)({
   c := path.to_cstr();
-  io.await(dir.unlink(AT_FDCWD, c.ptr().unwrap(), i32(0)), &io);
+  io.await(dir.unlink(AT_FDCWD, c.ptr().unwrap(), i32(0)), io);
 });
 test("watch a directory: creating a file produces events, poll drains them", {
   t_exn := Exception(
@@ -139,9 +139,9 @@ _watch_and_drop :: (fn(p : &String) -> bool)({
 _probe_fd :: (fn(path : &String, io : Io) -> i32)({
   c := path.to_cstr();
   p := c.ptr().unwrap();
-  fd := io.await(file.openat(AT_FDCWD, p, O_CREAT | O_WRONLY, i32(0o644)), &io);
+  fd := io.await(file.openat(AT_FDCWD, p, O_CREAT | O_WRONLY, i32(0o644)), io);
   assert(fd >= i32(0), "the probe file opened");
-  io.await(file.close(fd), &io);
+  io.await(file.close(fd), io);
   fd
 });
 // Regression: `Watcher` shipped a `close()` and no `Dispose`, so a dropped

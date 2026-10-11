@@ -6,8 +6,8 @@
 { println, ToString } :: import("std/fmt");
 leaf :: (fn(io : Io, n : i32) -> Impl(Future(i32)))(io.async((e : Io) => (n + i32(1))));
 main :: (fn(io : Io) -> unit)({
-  s := io.await(leaf(io, i32(1)), &io).to_string();
+  s := io.await(leaf(io, i32(1)), io).to_string();
   println(`receiver: ${s}`);
-  println(`interpolated: ${io.await(leaf(io, i32(2)), &io)}`);
+  println(`interpolated: ${io.await(leaf(io, i32(2)), io)}`);
 });
 export(main);

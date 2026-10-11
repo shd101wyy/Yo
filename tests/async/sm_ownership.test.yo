@@ -369,8 +369,8 @@ test("two heap locals of sibling scopes share a slot, each disposed once", {
 /// Spawn the two-block task, abort it while it sleeps in the second block,
 /// and drop the handle; the count seen before the abort is the result.
 _abort_in_the_second_block :: (fn(io : Io) -> i32)({
-  h := io.spawn(_sibling_scope_things(u64(50), io), &io);
-  io.await(sleep(u64(10)), &io);
+  h := io.spawn(_sibling_scope_things(u64(50), io), io);
+  io.await(sleep(u64(10)), io);
   seen := g_disposed;
   h.abort();
   _r := h.await(io);
@@ -404,8 +404,8 @@ test("a pinned object is released once when the task completes", {
   assert(g_disposed == i32(2), "the pinned object and the new one are each disposed once");
 });
 _abort_pinned :: (fn(io : Io) -> unit)({
-  h := io.spawn(_pin_across_await(u64(50), io), &io);
-  io.await(sleep(u64(10)), &io);
+  h := io.spawn(_pin_across_await(u64(50), io), io);
+  io.await(sleep(u64(10)), io);
   h.abort();
   _r := h.await(io);
 });
@@ -423,8 +423,8 @@ _alias_sleeper :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 _abort_alias :: (fn(io : Io) -> unit)({
-  h := io.spawn(_alias_sleeper(Thing(n : i32(1)), io), &io);
-  io.await(sleep(u64(10)), &io);
+  h := io.spawn(_alias_sleeper(Thing(n : i32(1)), io), io);
+  io.await(sleep(u64(10)), io);
   h.abort();
   _r := h.await(io);
 });
@@ -460,8 +460,8 @@ _store_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 _abort_store :: (fn(io : Io) -> unit)({
-  h := io.spawn(_store_then_sleep(io), &io);
-  io.await(sleep(u64(10)), &io);
+  h := io.spawn(_store_then_sleep(io), io);
+  io.await(sleep(u64(10)), io);
   h.abort();
   _r := h.await(io);
 });
@@ -482,7 +482,7 @@ impl(Oops, Error());
 _classify :: (fn(t : &Thing) -> Result(i32, Oops))(Result(i32, Oops).Err(Oops(thing : t)));
 _move_into_throw :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, IoExn)))(
   io.async((e : IoExn) => {
-    e.io.await(yield(e.io), &e.io);
+    e.io.await(yield(e.io), e.io);
     match(
       _classify(t),
       .Err(o) => e.exn.throw(dyn(o)),
@@ -606,7 +606,7 @@ _bound_then_moved :: (fn(bad : bool, io : Io) -> Impl(Future(Option(String), IoE
     match(
       r,
       .Err(msg) => {
-        e.io.await(yield(e.io), &e.io);
+        e.io.await(yield(e.io), e.io);
         e.exn.throw(dyn(msg))
       },
       .Ok(v) => .Some(v)
@@ -746,8 +746,8 @@ _rebind_then_sleep :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 _abort_rebind_then_sleep :: (fn(io : Io) -> unit)({
-  h := io.spawn(_rebind_then_sleep(io), &io);
-  io.await(sleep(u64(20)), &io);
+  h := io.spawn(_rebind_then_sleep(io), io);
+  io.await(sleep(u64(20)), io);
   h.abort();
   _r := h.await(io);
 });
@@ -777,8 +777,8 @@ _move_each_iteration :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   })
 );
 _abort_move_each_iteration :: (fn(io : Io) -> unit)({
-  h := io.spawn(_move_each_iteration(io), &io);
-  io.await(sleep(u64(20)), &io);
+  h := io.spawn(_move_each_iteration(io), io);
+  io.await(sleep(u64(20)), io);
   h.abort();
   _r := h.await(io);
 });

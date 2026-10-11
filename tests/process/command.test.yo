@@ -124,7 +124,7 @@ test("an abnormally-terminated child reports a signal, not an I/O error", {
       c
     }
   );
-  out := io.await(cmd.output(io), &e);
+  out := io.await(cmd.output(io), e);
   assert(!out.status.success(), "abnormal termination is not a success");
   assert(out.status.code().is_none(), "signal death has NO exit code");
   assert(out.status.signal() == i32(15), "SIGTERM recorded");
@@ -152,16 +152,16 @@ test("spawn with piped stdin/stdout: write, EOF, read back, wait", {
   e := IoExn(io : io, exn : exn);
   cmd := Command.new(`/bin/cat`.to_string());
   cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
-  child := io.await(cmd.spawn(io), &e);
+  child := io.await(cmd.spawn(io), e);
   assert(child.pid() > i32(0), "got a pid");
   payload := `piped héllo`.to_string().to_bytes();
-  n := io.await(child.write_stdin(&payload, io), &e);
+  n := io.await(child.write_stdin(&payload, io), e);
   assert(n == usize(12), "wrote 12 UTF-8 bytes");
-  io.await(child.close_stdin(io), &e);
-  out := io.await(child.read_stdout_to_end(io), &e);
+  io.await(child.close_stdin(io), e);
+  out := io.await(child.read_stdout_to_end(io), e);
   assert(out.len() == usize(12), "cat echoed everything");
   assert(out(usize(0)) == u8(112), "p");
-  st := io.await(child.wait(io), &e);
+  st := io.await(child.wait(io), e);
   assert(st.success(), "cat exits 0");
   assert(st.code().unwrap() == i32(0), "code Some(0)");
 });
@@ -185,14 +185,14 @@ test("env override and env_clear reach the child", {
   cmd := Command.new(`/bin/sh`.to_string());
   cmd.arg(`-c`.to_string()).arg(`printf %s "$YO_CMD_TEST-$HOME"`.to_string());
   cmd.env(`YO_CMD_TEST`.to_string(), `injected`.to_string());
-  out := io.await(cmd.output(io), &e);
+  out := io.await(cmd.output(io), e);
   s := String.from_bytes(out.stdout);
   assert(s.starts_with("injected-"), "override visible, HOME inherited");
   assert(s.len() > usize(9), "HOME non-empty when inherited");
   cmd2 := Command.new(`/bin/sh`.to_string());
   cmd2.arg(`-c`.to_string()).arg(`printf %s "$YO_CMD_TEST-$HOME"`.to_string());
   cmd2.env(`YO_CMD_TEST`.to_string(), `only`.to_string()).env_clear();
-  out2 := io.await(cmd2.output(io), &e);
+  out2 := io.await(cmd2.output(io), e);
   s2 := String.from_bytes(out2.stdout);
   assert(s2 == `only-`, "env_clear drops HOME, keeps the override");
 });
@@ -215,9 +215,9 @@ test("a signal death is code None, not exit 0", {
   e := IoExn(io : io, exn : exn);
   cmd := Command.new(`/bin/sleep`.to_string());
   cmd.arg(`5`.to_string());
-  child := io.await(cmd.spawn(io), &e);
+  child := io.await(cmd.spawn(io), e);
   child.kill(i32(9), exn);
-  st := io.await(child.wait(io), &e);
+  st := io.await(child.wait(io), e);
   assert(st.code().is_none(), "signal death has NO exit code");
   assert(st.signal() == i32(9), "SIGKILL recorded");
   assert(st.success() == false, "not a success");
@@ -247,8 +247,8 @@ test("Child.kill after the child was reaped throws ESRCH as an IoError", {
   e := IoExn(io : io, exn : ok_exn);
   cmd := Command.new(`/bin/sleep`.to_string());
   cmd.arg(`0`.to_string());
-  child := io.await(cmd.spawn(io), &e);
-  _st := io.await(child.wait(io), &e);
+  child := io.await(cmd.spawn(io), e);
+  _st := io.await(child.wait(io), e);
   // The pid is reaped: a signal to it has nobody to reach.
   child.kill(i32(15), exn);
   assert(false, "kill on a reaped child must throw");
@@ -272,8 +272,8 @@ test("Stdio.Null discards child stdout", {
   e := IoExn(io : io, exn : exn);
   cmd := Command.new(`/bin/echo`.to_string());
   cmd.arg(`discarded`.to_string()).stdout(Stdio.Null);
-  child := io.await(cmd.spawn(io), &e);
-  st := io.await(child.wait(io), &e);
+  child := io.await(cmd.spawn(io), e);
+  st := io.await(child.wait(io), e);
   assert(st.success(), "echo to /dev/null exits 0");
 });
 
@@ -319,7 +319,7 @@ test("__yo_async_spawn_start_cwd runs the child in the requested directory (curr
   );
   e := IoExn(io : io, exn : exn);
   dir := `yo_cwd_probe_dir`;
-  io.await(create_dir_all_str("yo_cwd_probe_dir", io), &e);
+  io.await(create_dir_all_str("yo_cwd_probe_dir", io), e);
   // The child creates `marker.txt` in ITS cwd; the assertion is path-free.
   storage := ArrayList(ArrayList(u8)).new();
   cond(
@@ -353,8 +353,8 @@ test("__yo_async_spawn_start_cwd runs the child in the requested directory (curr
   made := io.await(exists(&marker, io), io);
   assert(made, "the child must have run inside yo_cwd_probe_dir");
   free(.Some(argv_raw));
-  io.await(remove_file(&marker, io), &e);
-  io.await(remove_dir(Path.new(&dir), io), &e);
+  io.await(remove_file(&marker, io), e);
+  io.await(remove_dir(Path.new(&dir), io), e);
 });
 // Generation B (the v0.2.20 seed carries the runtime symbol): the std surface.
 test("Command.current_dir runs the child in the requested directory (generation B)", {
@@ -368,7 +368,7 @@ test("Command.current_dir runs the child in the requested directory (generation 
   );
   e := IoExn(io : io, exn : exn);
   dir := `yo_cwd_probe_dir_b`;
-  io.await(create_dir_all_str("yo_cwd_probe_dir_b", io), &e);
+  io.await(create_dir_all_str("yo_cwd_probe_dir_b", io), e);
   cmd := cond(
     (platform == Platform.Windows) => {
       c := Command.new(`cmd.exe`);
@@ -384,13 +384,13 @@ test("Command.current_dir runs the child in the requested directory (generation 
     }
   );
   cmd.current_dir(dir.to_string());
-  st := io.await(cmd.status(io), &e);
+  st := io.await(cmd.status(io), e);
   assert(st.success(), "child exited 0");
   marker := Path.new(`yo_cwd_probe_dir_b/marker.txt`);
   made := io.await(exists(&marker, io), io);
   assert(made, "the child must have run inside yo_cwd_probe_dir_b");
-  io.await(remove_file(&marker, io), &e);
-  io.await(remove_dir(Path.new(&dir), io), &e);
+  io.await(remove_file(&marker, io), e);
+  io.await(remove_dir(Path.new(&dir), io), e);
 });
 // Regression (issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md):
 // `output` used to drain stdout to EOF and only then stderr, so a child that
@@ -428,7 +428,7 @@ test("Command.output drains stdout and stderr concurrently (large stderr does no
       c
     }
   );
-  out := io.await(cmd.output(io), &e);
+  out := io.await(cmd.output(io), e);
   assert(out.status.success(), "child exited 0");
   assert(out.stderr.len() >= usize(300000), `stderr fully captured (got ${out.stderr.len()} bytes)`);
   assert(out.stdout.len() >= usize(2), "stdout captured after the stderr flood");
@@ -452,20 +452,20 @@ test("take_stdin/take_stdout give Writer/Reader handles over the child's pipes",
   e := IoExn(io : io, exn : exn);
   cmd := Command.new(`/bin/cat`.to_string());
   cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
-  child := io.await(cmd.spawn(io), &e);
+  child := io.await(cmd.spawn(io), e);
   w := child.take_stdin().unwrap();
   r := child.take_stdout().unwrap();
   assert(w.fd() >= i32(0), "the write handle owns a real fd");
   assert(r.fd() >= i32(0), "the read handle owns a real fd");
   // The Writer default `write_string` reaches a child pipe.
-  n := io.await(w.write_string(`handles héllo`, io), &e);
+  n := io.await(w.write_string(`handles héllo`, io), e);
   assert(n == usize(14), "wrote 14 UTF-8 bytes through the Writer");
-  io.await(w.close(io), &e);
+  io.await(w.close(io), e);
   assert(w.is_closed(), "closing is recorded");
   // The Reader default `read_to_string` drains a child pipe to EOF.
-  text := io.await(r.read_to_string(io), &e);
+  text := io.await(r.read_to_string(io), e);
   assert(text == `handles héllo`, `cat echoed it back: ${text}`);
-  st := io.await(child.wait(io), &e);
+  st := io.await(child.wait(io), e);
   assert(st.success(), "cat exits 0");
 });
 test("taking a stream moves the fd out of the Child", {
@@ -484,17 +484,17 @@ test("taking a stream moves the fd out of the Child", {
   e := IoExn(io : io, exn : exn);
   cmd := Command.new(`/bin/cat`.to_string());
   cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
-  child := io.await(cmd.spawn(io), &e);
+  child := io.await(cmd.spawn(io), e);
   first := child.take_stdout();
   assert(first.is_some(), "the first take yields the handle");
   assert(child.take_stdout().is_none(), "a second take yields .None — the fd moved out");
   // stderr was never piped, so there is nothing to take.
   assert(child.take_stderr().is_none(), "an unpiped stream has no handle");
-  match(child.take_stdin(), .Some(w) => io.await(w.close(io), &e), .None => assert(false, "stdin was piped"));
+  match(child.take_stdin(), .Some(w) => io.await(w.close(io), e), .None => assert(false, "stdin was piped"));
   r := first.unwrap();
-  out := io.await(r.read_to_end(io), &e);
+  out := io.await(r.read_to_end(io), e);
   assert(out.len() == usize(0), "cat saw EOF immediately and wrote nothing");
-  io.await(child.wait(io), &e);
+  io.await(child.wait(io), e);
 });
 // Dropping a taken stdin handle closes the pipe, so the child sees EOF without
 // an explicit close — `Dispose` on ChildStdin. Without it, `cat` would never
@@ -503,7 +503,7 @@ _feed_and_drop :: (fn(child : &Child, payload : &String, io : Io, e : IoExn) -> 
   match(
     child.take_stdin(),
     .Some(w) => {
-      io.await(w.write_string(payload, io), &e);
+      io.await(w.write_string(payload, io), e);
       // no close: `w`'s last reference dies with this frame
       true
     },
@@ -526,7 +526,7 @@ test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
   e := IoExn(io : io, exn : exn);
   cmd := Command.new(`/bin/cat`.to_string());
   cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
-  child := io.await(cmd.spawn(io), &e);
+  child := io.await(cmd.spawn(io), e);
   r := child.take_stdout().unwrap();
   assert(_feed_and_drop(&child, `dropped`, io, e), "stdin was piped");
   // BOUNDED on purpose. Without `Dispose` on `ChildStdin` the pipe stays open,
@@ -534,7 +534,7 @@ test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
   // HANGS — which in CI burns a job's whole timeout instead of reporting a
   // failure. Verified: with the impl removed this reports Elapsed in ~2s;
   // with it, the read finishes immediately.
-  rh := io.spawn(r.read_to_string(io), &e);
+  rh := io.spawn(r.read_to_string(io), e);
   text := match(
     io.await(timeout(&rh, Duration.from_millis(i64(2000)), io), io),
     .Ok(t) => t,
@@ -544,7 +544,7 @@ test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
     }
   );
   assert(text == `dropped`, `cat echoed it and exited: ${text}`);
-  st := io.await(child.wait(io), &e);
+  st := io.await(child.wait(io), e);
   assert(st.success(), "cat exits 0 after the dropped handle's EOF");
 });
 test("take_stderr reads a child's stderr as a Reader", {
@@ -565,11 +565,11 @@ test("take_stderr reads a child's stderr as a Reader", {
   cmd.arg(`-c`.to_string());
   cmd.arg(`printf 'to stderr' 1>&2`.to_string());
   cmd.stderr(Stdio.Piped);
-  child := io.await(cmd.spawn(io), &e);
+  child := io.await(cmd.spawn(io), e);
   r := child.take_stderr().unwrap();
-  text := io.await(r.read_to_string(io), &e);
+  text := io.await(r.read_to_string(io), e);
   assert(text == `to stderr`, `stderr came through: ${text}`);
-  io.await(child.wait(io), &e);
+  io.await(child.wait(io), e);
 });
 // One thread's share of a spawn/wait stress against the runtime's pid→HANDLE
 // registry, which used to be an UNLOCKED process-global list on Windows: two
@@ -608,12 +608,12 @@ _spawn_wait_rounds :: (fn(io : Io) -> unit)({
           c
         }
       );
-      st := io.await(cmd.status(io), &e);
+      st := io.await(cmd.status(io), e);
       assert(st.success(), `round ${n.to_string()}: echo should succeed`);
       n = (n + i64(1));
     });
   });
-  io.await(&task, &io);
+  io.await(&task, io);
 });
 test("concurrent spawn and wait on two threads", {
   t1 := Thread(unit).spawn(io => _spawn_wait_rounds(io));
@@ -651,7 +651,7 @@ test("a child-stdin write larger than the pipe buffer does not park the event lo
     }
   );
   cmd.stdin(Stdio.Piped);
-  child := io.await(cmd.spawn(io), &e);
+  child := io.await(cmd.spawn(io), e);
   ticker := io.spawn(sleep(Duration.from_millis(i64(100)), io), io);
   total := usize(262144);
   (sent : usize) = usize(0);
@@ -662,10 +662,10 @@ test("a child-stdin write larger than the pipe buffer does not park the event lo
       rest.push(u8(121));
       k = (k + usize(1));
     });
-    n := io.await(child.write_stdin(&rest, io), &e);
+    n := io.await(child.write_stdin(&rest, io), e);
     sent = (sent + n);
   });
   assert(ticker.is_finished(), "a 100 ms timer fired while the write waited on the child");
-  io.await(child.close_stdin(io), &e);
-  io.await(child.wait(io), &e);
+  io.await(child.close_stdin(io), e);
+  io.await(child.wait(io), e);
 });
