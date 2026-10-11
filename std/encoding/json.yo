@@ -1945,7 +1945,7 @@ __derive_from_json :: (
       // an `Option(T)` / `ArrayList(T)` / any generic field could not derive
       // FromJson at all. Indexing needs no name and no import at the use site.
       ftype :: ("(Type.get_struct_fields(Self).get(" + fi.to_comptime_string() + ").field_type <: FromJson)");
-      acc + ("__djf_" + fname + " := match(v.get(String.from(\"" + fname + "\")), .Some(__djf_j) => match(" + ftype + ".from_json(__djf_j), .Ok(__djf_ok) => __djf_ok, .Err(__djf_e) => { return(.Err(__djf_e)); }), .None => { return(.Err(JsonError.Other(String.from(\"missing field " + fname + " in " + type_name + "\")))); }); ")
+      acc + ("__djf_" + fname + " := match(v.get(String.from(\"" + fname + "\")), .Some(__djf_j) => match(" + ftype + ".from_json(&__djf_j), .Ok(__djf_ok) => __djf_ok, .Err(__djf_e) => { return(.Err(__djf_e)); }), .None => { return(.Err(JsonError.Other(String.from(\"missing field " + fname + " in " + type_name + "\")))); }); ")
     })
   );
   ctor_args :: __yo_comptime_fold_range(
