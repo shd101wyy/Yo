@@ -108,7 +108,7 @@ thread := Thread(unit).spawn((io : Io) => {
     io.await(yield(io), io);
     return(i32(42));
   });
-  result := io.await(task, io);
+  result := io.await(&task, &io);
   assert(result == i32(42), "async result");
 });
 thread.join();
@@ -170,7 +170,7 @@ spawn(pool, (io : Io) => {
   task := io.async((io : Io) => {
     io.await(yield(io), io);
   });
-  io.await(task, io);
+  io.await(&task, &io);
 });
 
 // 等待此前提交的所有任务
@@ -367,7 +367,7 @@ thread := Thread(unit).spawn((io : Io) => {
   task := io.async((io : Io) => {
     io.await(yield(io), io);
   });
-  io.await(task, io);
+  io.await(&task, &io);
 });
 thread.join();
 

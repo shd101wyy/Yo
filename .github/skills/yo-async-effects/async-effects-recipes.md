@@ -6,8 +6,8 @@ These patterns cover normal Yo async code and algebraic effects.
 
 | Need                       | Pattern                                                |
 | -------------------------- | ------------------------------------------------------ |
-| Sequential async work      | `result := io.await(task, io)`                         |
-| Start work and wait later  | `handle := io.spawn(task, io)` then `handle.await(io)` (in `main`) or `io.await(handle.join(io), io)` (in a task) |
+| Sequential async work      | `result := io.await(&task, &io)`                         |
+| Start work and wait later  | `handle := io.spawn(&task, &io)` then `handle.await(io)` (in `main`) or `io.await(handle.join(io), &io)` (in a task) |
 | Yield to other ready tasks | `io.await(yield(io), io)`                                |
 | True multithreading        | Use thread or parallelism APIs, not `io.async` alone   |
 
@@ -72,7 +72,7 @@ export(main);
 ```
 
 - `io.spawn(...)` begins execution without waiting.
-- `handle.await(io)` returns `Option(T)` because a spawned task can abort via `unwind`. It is a blocking poll: inside a task use `io.await(handle.join(io), io)` (`std/async`), the same `Option(T)` as a suspending future.
+- `handle.await(io)` returns `Option(T)` because a spawned task can abort via `unwind`. It is a blocking poll: inside a task use `io.await(handle.join(io), &io)` (`std/async`), the same `Option(T)` as a suspending future.
 
 ## Propagating and handling effects
 
@@ -219,7 +219,7 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
 - **`recur` inside `io.async` calls the lambda, not the outer function** — call the outer function by name (or use an iterative worklist) for async recursion.
 - **`io.await` may appear anywhere in an `io.async` body**: a `match`
   scrutinee, nested inside a condition (`if(!io.await(…), …)`), a later `cond`
-  branch, an operand (`add(io.await(a, io), io.await(b, io))`), a `while`
+  branch, an operand (`add(io.await(&a, io), io.await(&b, io))`), a `while`
   condition or step, a macro expansion. The body is lowered in one pass, and
   each await suspends exactly where it is written, in source order; laziness
   is kept (an await in a later branch or on the right of `&&` runs only when
@@ -464,7 +464,7 @@ over `E : Type.Struct`:
 
 ```yo
 wait_then :: (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T)(
-  io.await(fut, e)
+  io.await(&fut, &e)
 );
 ```
 

@@ -1761,7 +1761,7 @@ list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 for(list, value => {
-  println(value);
+  println(&value);
 });
 
 // 引用语义元素是句柄 — 变异落在集合里。
@@ -3168,8 +3168,8 @@ takes_fn(y => (y + k), 5); // 正确
 闭包的类型可以用来实例化容器。`ArrayList(type_of(k))` 保存 `k` 的副本；两个闭包的列表是两种类型，因此一个闭包不能放进另一个闭包的列表：
 
 ```yo
-(k1 : Impl(Fn() -> unit)) = (() => println(a));
-(k2 : Impl(Fn() -> unit)) = (() => println(s));
+(k1 : Impl(Fn() -> unit)) = (() => println(&a));
+(k2 : Impl(Fn() -> unit)) = (() => println(&s));
 l1 := ArrayList(type_of(k1)).new();
 l1.push(k1); // OK
 l1.push(k2); // 错误：k2 是另一种闭包类型

@@ -369,7 +369,7 @@ max :: (fn(comptime(a) : i32, comptime(b) : i32) -> comptime(i32))(
 );
 
 show :: (fn(generic(T : Type), value : T, where(T <: ToString)) -> unit)(
-  println(value)
+  println(&value)
 );
 ```
 
@@ -402,11 +402,11 @@ export(
 
 ```yo
 show :: (fn(value : Impl(ToString)) -> unit)(
-  println(value)
+  println(&value)
 );
 
 (erased : Dyn(ToString)) = dyn(i32(42));
-println(erased);
+println(&erased);
 ```
 
 - `Impl(Trait)` — static dispatch; concrete type chosen at compile time
@@ -490,7 +490,7 @@ while(i < list.len(), {
 
 // Combinator chains (.map / .filter / .into_iter / etc.) yield
 // computed values; pass them as the first arg:
-for(list.into_iter().map(x => (x + i32(1))), y => println(y));
+for(list.into_iter().map(x => (x + i32(1))), y => println(&y));
 ```
 
 - A `::` function recurses by calling its own name (mutual recursion works too); `recur(...)` names the enclosing function literal, for anonymous functions
@@ -562,7 +562,7 @@ list.push(i32(20));
 
 // Value form — implicit .into_iter(). The borrowed `for(&mut list, x => …)` form is below.
 for(list, value => {
-  println(value);
+  println(&value);
 });
 
 // In-place element mutation: index writes (struct/scalar elements) or
@@ -1193,7 +1193,7 @@ caller :: (fn() -> i32)({
   // The handler is a `ctl` value bound in `caller`. `unwind` exits `caller`.
   (raise : Raise) = (
     msg -> {
-      eprintln(msg);
+      eprintln(&msg);
       unwind(i32(-1));
     }
   );

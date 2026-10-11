@@ -1096,7 +1096,7 @@ test("Async test", {
   task := io.async((io : Io) => {
     io.await(yield(), io);
   });
-  io.await(task, io);
+  io.await(&task, &io);
 });
 ```
 

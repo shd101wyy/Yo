@@ -897,7 +897,7 @@ for(counters, c => {
 for(&mut names, s => {
   s.push_str("!");
 }); // value elements (String, …): the borrowed form writes in place
-for(chain.map(f), y => println(y)); // combinator chain: pass as the value-form iterator
+for(chain.map(f), y => println(&y)); // combinator chain: pass as the value-form iterator
 ```
 
 - First argument: the collection itself, or an iterator chain (`.map().filter()`-style).

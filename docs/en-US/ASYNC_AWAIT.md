@@ -89,8 +89,8 @@ main :: (fn(io : Io) -> unit)({
   // spawn starts both without waiting:
   // 1. task1 runs: counter=0→1, yields
   // 2. task2 runs: counter=1→11, yields
-  handle1 := io.spawn(task1, io);
-  handle2 := io.spawn(task2, io);
+  handle1 := io.spawn(&task1, &io);
+  handle2 := io.spawn(&task2, &io);
 
   // handle.await waits for completion and returns Option(T):
   // 3. task1 resumes: counter=11→12
@@ -144,12 +144,12 @@ task := io.async((io : Io) => {
 });
 
 // Sequential await: starts the task, runs to completion
-result := io.await(task, io);
+result := io.await(&task, &io);
 
 // Concurrent: spawn starts tasks without waiting, returns JoinHandle(T)
-handle1 := io.spawn(task1, io);
-handle2 := io.spawn(task2, io);
-handle3 := io.spawn(task3, io);
+handle1 := io.spawn(&task1, &io);
+handle2 := io.spawn(&task2, &io);
+handle3 := io.spawn(&task3, &io);
 
 // Then handle.await extracts results as Option(T)
 r1 := handle1.await(io);
@@ -168,14 +168,14 @@ main :: (fn(io : Io) -> unit)({
     // Can use io.await, io.async, io.spawn here
     io.await(yield(io), io);
   });
-  io.await(task, io);
+  io.await(&task, &io);
 });
 export(main);
 
 // Test blocks automatically have `io : Io` available
 test("my test", {
   task := io.async((io : Io) => { /* ... */ });
-  io.await(task, io);
+  io.await(&task, &io);
 });
 ```
 
@@ -374,10 +374,10 @@ shared := io.async((io : Io) => {
   io.await(sleep(u64(5)), io);
   i32(7)
 });
-a := io.async((io : Io) => io.await(shared, io));
-b := io.async((io : Io) => io.await(shared, io));
-ha := io.spawn(a, io);
-hb := io.spawn(b, io);
+a := io.async((io : Io) => io.await(&shared, io));
+b := io.async((io : Io) => io.await(&shared, io));
+ha := io.spawn(&a, &io);
+hb := io.spawn(&b, &io);
 // Both read .Some(7).
 ra := ha.await(io);
 rb := hb.await(io);
@@ -464,10 +464,10 @@ f := io.async((io : Io) => {
   io.await(sleep(u64(50)), io);
   i32(7)
 });
-hf := io.spawn(f, io);
-a := io.async((io : Io) => io.await(f, io));
-ha := io.spawn(a, io);
-io.await(yield(io), io);
+hf := io.spawn(&f, &io);
+a := io.async((io : Io) => io.await(&f, io));
+ha := io.spawn(&a, &io);
+io.await(yield(io), &io);
 hf.abort();
 // The awaiter was aborted with it.
 assert(ha.await(io).is_none(), "the awaiter reads .None");
@@ -593,17 +593,17 @@ cond(
   true => ()
 );
 if(!io.await(exists(p, io), io), { ... }); // inside a condition
-cond(c1 => ..., io.await(f, io) => ..., true => ...); // a later cond branch
+cond(c1 => ..., io.await(&f, io) => ..., true => ...); // a later cond branch
 match(io.await(num(io), io), 42 => ..., _ => ...); // a scrutinee
-x := add(io.await(a, io), io.await(b, io)); // two in one expression
+x := add(io.await(&a, io), io.await(&b, io)); // two in one expression
 while(io.await(more(io), io), { ... });
 while(c, {
-  t := io.await(f, io);
+  t := io.await(&f, io);
   i = t;
 }, { ... }); // the step of a 3-arg while
 ```
 
-Evaluation order is the source order. In `add(g(), io.await(f, io))`, `g()`
+Evaluation order is the source order. In `add(g(), io.await(&f, io))`, `g()`
 runs before the task suspends. Laziness is kept: an `await` in a later `cond`
 branch, or on the right of `&&`, runs only when that branch or operand is
 evaluated.
@@ -965,7 +965,7 @@ long as some copy of the handle does, and dropping the last copy releases that
 reference. Awaiting a handle does not consume it: awaiting it twice reads the
 same result. A handle that is dropped without being awaited **detaches** the
 task. The task keeps running, and it frees itself when it finishes, so a
-fire-and-forget `io.spawn(task, io);` statement leaks nothing.
+fire-and-forget `io.spawn(&task, &io);` statement leaks nothing.
 
 **A task still pending when its thread's program body returns is aborted and
 released at thread exit.** Nothing will ever drive that thread's event loop
@@ -1165,14 +1165,14 @@ Written once over `where(S <: Stream)`, mirroring the `Iterator` combinators:
 ```yo
 // Every third event's name, at most five of them.
 names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
-io.await(names.for_each(n => println(n), io), io);
+io.await(names.for_each(n => println(&n), io), &io);
 
 // Or as a loop, which can stop early: here at the first empty name.
 for_await(names, io, n => {
   if(n.len() == usize(0), {
     break;
   });
-  println(n);
+  println(&n);
 });
 ```
 
@@ -1267,11 +1267,11 @@ task := io.async((io : Io) => {
 });
 
 // io.await: Start if cold, wait for completion, return result
-result := io.await(task, io);
+result := io.await(&task, &io);
 
 // io.spawn: Start a cold Future without waiting, returns JoinHandle(T)
-handle1 := io.spawn(task1, io);
-handle2 := io.spawn(task2, io);
+handle1 := io.spawn(&task1, &io);
+handle2 := io.spawn(&task2, &io);
 // After spawn, tasks are running — handle.await returns Option(T)
 r1 := handle1.await(io);
 r2 := handle2.await(io);
@@ -1570,11 +1570,11 @@ task := io.async((io : Io) => {
 });
 
 // Sequential: start and run to completion
-result := io.await(task, io);
+result := io.await(&task, &io);
 
 // Concurrent: start tasks without waiting, then await handles
-handle1 := io.spawn(task1, io);
-handle2 := io.spawn(task2, io);
+handle1 := io.spawn(&task1, &io);
+handle2 := io.spawn(&task2, &io);
 r1 := handle1.await(io); // Option(T)
 r2 := handle2.await(io); // Option(T)
 ```

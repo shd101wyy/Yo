@@ -357,7 +357,7 @@ add1 :: add(i32(1), _);
 
 ```yo
 (value : Dyn(ToString)) = dyn(i32(42));
-println(value);
+println(&value);
 ```
 
 - `Dyn(Trait)` is a type-erased trait object
@@ -495,7 +495,7 @@ list.push(i32(2));
 
 // Value form — implicit .into_iter().
 for(list, value => {
-  println(value);
+  println(&value);
 });
 
 // Borrowed form — `x` is a `&mut` local borrow into the element's storage.

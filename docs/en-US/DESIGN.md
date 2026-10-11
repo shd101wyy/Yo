@@ -1818,7 +1818,7 @@ list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 for(list, value => {
-  println(value);
+  println(&value);
 });
 
 // Reference-semantics elements are handles — mutation lands in the collection.
@@ -3309,8 +3309,8 @@ A closure's type can instantiate a container. `ArrayList(type_of(k))` holds copi
 two closures' lists are two types, so a closure cannot go into another closure's list:
 
 ```yo
-(k1 : Impl(Fn() -> unit)) = (() => println(a));
-(k2 : Impl(Fn() -> unit)) = (() => println(s));
+(k1 : Impl(Fn() -> unit)) = (() => println(&a));
+(k2 : Impl(Fn() -> unit)) = (() => println(&s));
 l1 := ArrayList(type_of(k1)).new();
 l1.push(k1); // OK
 l1.push(k2); // error: k2 is a different closure type

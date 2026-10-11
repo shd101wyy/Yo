@@ -87,8 +87,8 @@ main :: (fn(io : Io) -> unit)({
   // spawn 启动两个任务但不等待：
   // 1. task1 运行：counter=0→1，让出
   // 2. task2 运行：counter=1→11，让出
-  handle1 := io.spawn(task1, io);
-  handle2 := io.spawn(task2, io);
+  handle1 := io.spawn(&task1, &io);
+  handle2 := io.spawn(&task2, &io);
 
   // handle.await 等待完成并返回 Option(T)：
   // 3. task1 恢复：counter=11→12
@@ -142,12 +142,12 @@ task := io.async((io : Io) => {
 });
 
 // 顺序 await：启动任务，运行至完成
-result := io.await(task, io);
+result := io.await(&task, &io);
 
 // 并发：spawn 启动任务但不等待，返回 JoinHandle(T)
-handle1 := io.spawn(task1, io);
-handle2 := io.spawn(task2, io);
-handle3 := io.spawn(task3, io);
+handle1 := io.spawn(&task1, &io);
+handle2 := io.spawn(&task2, &io);
+handle3 := io.spawn(&task3, &io);
 
 // 然后通过 handle.await 提取结果，类型为 Option(T)
 r1 := handle1.await(io);
@@ -166,14 +166,14 @@ main :: (fn(io : Io) -> unit)({
     // 此处可使用 io.await、io.async、io.spawn
     io.await(yield(io), io);
   });
-  io.await(task, io);
+  io.await(&task, &io);
 });
 export(main);
 
 // 测试块自动提供 `io : Io`
 test("my test", {
   task := io.async((io : Io) => { /* ... */ });
-  io.await(task, io);
+  io.await(&task, &io);
 });
 ```
 
@@ -364,10 +364,10 @@ shared := io.async((io : Io) => {
   io.await(sleep(u64(5)), io);
   i32(7)
 });
-a := io.async((io : Io) => io.await(shared, io));
-b := io.async((io : Io) => io.await(shared, io));
-ha := io.spawn(a, io);
-hb := io.spawn(b, io);
+a := io.async((io : Io) => io.await(&shared, io));
+b := io.async((io : Io) => io.await(&shared, io));
+ha := io.spawn(&a, &io);
+hb := io.spawn(&b, &io);
 // 两者都读到 .Some(7)。
 ra := ha.await(io);
 rb := hb.await(io);
@@ -444,10 +444,10 @@ f := io.async((io : Io) => {
   io.await(sleep(u64(50)), io);
   i32(7)
 });
-hf := io.spawn(f, io);
-a := io.async((io : Io) => io.await(f, io));
-ha := io.spawn(a, io);
-io.await(yield(io), io);
+hf := io.spawn(&f, &io);
+a := io.async((io : Io) => io.await(&f, io));
+ha := io.spawn(&a, &io);
+io.await(yield(io), &io);
 hf.abort();
 // 等待方随之被中止。
 assert(ha.await(io).is_none(), "the awaiter reads .None");
@@ -572,12 +572,12 @@ cond(
   true => ()
 );
 if(!io.await(exists(p, io), io), { ... }); // 在条件内部
-cond(c1 => ..., io.await(f, io) => ..., true => ...); // 位于后面的 cond 分支
+cond(c1 => ..., io.await(&f, io) => ..., true => ...); // 位于后面的 cond 分支
 match(io.await(num(io), io), 42 => ..., _ => ...); // 作为 match 的被匹配值
-x := add(io.await(a, io), io.await(b, io)); // 同一个表达式中的两个 await
+x := add(io.await(&a, io), io.await(&b, io)); // 同一个表达式中的两个 await
 while(io.await(more(io), io), { ... });
 while(c, {
-  t := io.await(f, io);
+  t := io.await(&f, io);
   i = t;
 }, { ... }); // 三参数 while 的 step
 ```
@@ -934,7 +934,7 @@ export(main);
 Future 的一个引用。只要还有任何一个句柄副本存在，任务及其结果就保持存活；最后一个
 副本被丢弃时释放这个引用。await 句柄不会消耗它：await 两次读到同一个结果。一个未被
 await 就被丢弃的句柄会**分离**任务：任务继续运行，并在结束时释放自己，因此一句
-即发即弃的 `io.spawn(task, io);` 不会泄漏任何东西。
+即发即弃的 `io.spawn(&task, &io);` 不会泄漏任何东西。
 
 **线程的程序体返回时仍处于 pending 或排队状态的任务，会在该线程退出时被 abort 并
 释放。** 之后不会再有任何东西驱动这个线程的事件循环，因此运行时会 abort 所有仍排队、
@@ -1125,14 +1125,14 @@ accepted := io.await(conns.collect(io), io); // ArrayList(Result(TcpStream, NetE
 ```yo
 // 最多取五个“内容变更”事件的名字。
 names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
-io.await(names.for_each(n => println(n), io), io);
+io.await(names.for_each(n => println(&n), io), &io);
 
 // 或者写成可以提前结束的循环：这里遇到第一个空名字就停。
 for_await(names, io, n => {
   if(n.len() == usize(0), {
     break;
   });
-  println(n);
+  println(&n);
 });
 ```
 
@@ -1221,11 +1221,11 @@ task := io.async((io : Io) => {
 });
 
 // io.await：若为冷任务则启动，等待完成，返回结果
-result := io.await(task, io);
+result := io.await(&task, &io);
 
 // io.spawn：启动冷 Future 但不等待，返回 JoinHandle(T)
-handle1 := io.spawn(task1, io);
-handle2 := io.spawn(task2, io);
+handle1 := io.spawn(&task1, &io);
+handle2 := io.spawn(&task2, &io);
 // spawn 后任务正在运行——handle.await 返回 Option(T)
 r1 := handle1.await(io);
 r2 := handle2.await(io);
@@ -1490,11 +1490,11 @@ task := io.async((io : Io) => {
 });
 
 // 顺序：启动并运行至完成
-result := io.await(task, io);
+result := io.await(&task, &io);
 
 // 并发：启动任务但不等待，然后 await handle
-handle1 := io.spawn(task1, io);
-handle2 := io.spawn(task2, io);
+handle1 := io.spawn(&task1, &io);
+handle2 := io.spawn(&task2, &io);
 r1 := handle1.await(io); // Option(T)
 r2 := handle2.await(io); // Option(T)
 ```
