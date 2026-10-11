@@ -43,7 +43,7 @@ Key design decisions:
 - **`index` returns `*(Output)`** (pointer), not the value directly. This matches Rust's `&Output` return and Yo's existing `arrayElementRef` mechanism.
 - **`Idx` is a type parameter on the trait**, allowing multiple implementations for the same type (e.g., `Index(usize)` for element access, `Index(Range(usize))` for slicing).
 - **`idx` is taken BY VALUE** (amended 2026-10-11, decision 34's by-value rule in `plans/VALUES_BY_DEFAULT.md`; `issues/retired/index-trait-borrows-its-index-and-takes-self-mutably.md`), as Rust's `Index::index(&self, index: Idx)` takes it. A heavy index type borrows by instantiating `Idx` with a reference type once references are types (decision 43).
-- **No `IndexMut`** — since `*(T)` in Yo is always mutable, assignment through the returned pointer works directly: `arr(0).* = value` or simply `arr(0) = value` (with auto-deref assignment support).
+- **`IndexMut` will be added** (amended 2026-10-11 by the maintainer; the earlier "no `IndexMut`" position — that `*(T)` is always mutable, so `arr(0) = value` writes through the returned pointer — is superseded). With decision 24's projections (`plans/VALUES_BY_DEFAULT.md` V2b), `Index` relaxes to `index : (fn(self : &Self, idx : Idx) -> &Self.Output)`, a read-only projection that type-checks through a shared borrow, and `IndexMut(Idx)` is added with `index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)`, which `arr(0) = value` and every write-through dispatch. Until V2b lands, the single `&mut Self` trait above stands.
 - **Associated type `Output`** — the result type varies by index type (e.g., `T` for `usize` indexing, `Slice(T)` for range slicing).
 
 ### Desugaring Rules
@@ -341,7 +341,7 @@ Resolved via compiler builtins approach: Array/Slice Index impls use `__yo_array
 ### Differences from Rust
 
 - Yo uses `arr(i)` instead of `arr[i]` — function call syntax, not bracket syntax.
-- No `IndexMut` — Yo's `*(T)` pointers are always mutable.
+- `IndexMut` is added at V2b (the 2026-10-11 amendment above); until then the single `*(T)`-returning trait covers reads and writes.
 - Range-based slicing (`arr(0..5)`) is handled via built-in functions, not through Index trait, to avoid pointer-to-temporary issues.
 - `..` and `..=` are defined via traits (`RangeOp`, `RangeInclusiveOp`), like `Add` defines `(+)`.
 - No `RangeFull` (`..`), `RangeFrom` (`1..`), or `RangeTo` (`..3`) — use explicit bounds instead.

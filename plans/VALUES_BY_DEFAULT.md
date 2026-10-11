@@ -1553,8 +1553,21 @@ and in git, not a silent edit.
         specialized `index` drops its by-value parameter on every exit, so
         an RC-typed index is shared (+1) at the call site. A heavy index
         type borrows by instantiating `Idx` with a reference type once
-        decision 43 makes `&T` a type. The `Index`/`IndexMut` split by
-        receiver mode stays with decision 24 (V2b).
+        decision 43 makes `&T` a type. **The `Index`/`IndexMut` split is
+        confirmed** (maintainer, 2026-10-11 — the retired half of
+        `issues/retired/index-trait-borrows-its-index-and-takes-self-mutably.md`
+        is real work, not a closed record): with decision 24's projections
+        (V2b), `Index` relaxes to
+        `index : (fn(self : &Self, idx : Idx) -> &Self.Output)` — a
+        read-only projection that type-checks through a shared borrow — and
+        `IndexMut(Idx)` is added with
+        `index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)`,
+        which element assignment (`xs(i) = v`) and every write-through
+        dispatch. The split lands there and only there because it is
+        meaningful once the result is a borrow instead of `*Self.Output`:
+        a `&Self` receiver handing out a mutable raw pointer would be the
+        very hole the split exists to close. `plans/reference/INDEX_TRAIT.md`'s
+        "No `IndexMut`" position is superseded from the same date.
     - **The rule.** The prelude's comparison traits declare their operands
       `&`, for example `Eq`'s `(==) : fn(lhs : &Self, rhs : &Rhs) -> bool`.
       - It covers `Eq` and `Ord`; every other operator trait takes its
@@ -4578,9 +4591,14 @@ is `Arc(Mutex(T))`, `clone()` or `&mut`, and the error says which.
 **V2b: unique buffers and the explicit-copy kind** (Generation A for the
 compiler; the std shapes are plain structs the seed lowers):
 - **Projections first** (decision 24), with decision 25's projection step
-  and `Index` re-expressed.
-  - `String`'s byte index stays read-only.
-  - `plans/reference/INDEX_TRAIT.md` gets the amendment.
+  and `Index` re-expressed: `index` returns `&Self.Output` from
+  `self : &Self`, and `IndexMut(Idx)` is added —
+  `index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)` —
+  dispatching element assignment and write-through (decision 34, confirmed
+  2026-10-11).
+  - `String`'s byte index stays read-only (`Index` only).
+  - `plans/reference/INDEX_TRAIT.md` gets the amendment, dropping its
+    "No `IndexMut`" position.
 - **Unique buffers.**
   - `ArrayList(T)` owns a plain buffer, with `Dispose` (free) and `Trace`
     (visit each slot) on its private buffer type. The same goes for every
