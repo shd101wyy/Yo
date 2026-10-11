@@ -1,0 +1,35 @@
+//! `yo fix --migrate markers`: every bare named place passed to a `&T`
+//! parameter takes `&`, one passed to a `&mut T` parameter `&mut`; the
+//! exemptions stay bare.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+Pair :: struct(name : String, items : ArrayList(i32));
+show :: (fn(s : &String) -> usize)(s.len());
+grow :: (fn(xs : &mut ArrayList(i32)) -> unit)(xs.push(i32(1)));
+peek :: (fn(n : &i32) -> i32)(n);
+take :: (fn(s : String) -> usize)(s.len());
+twice :: (fn(comptime(k) : i32, s : &String) -> usize)(s.len() * usize(2));
+relay :: (fn(s : &String, xs : &mut ArrayList(i32)) -> usize)({
+  grow(xs);
+  show(s)
+});
+main :: (fn() -> unit)({
+  s := String.from("hi");
+  p := Pair(name : String.from("a"), items : ArrayList(i32).new());
+  xs := ArrayList(i32).new();
+  n := i32(3);
+  _a := show(s);
+  _b := show(p.name);
+  grow(xs);
+  grow(p.items);
+  _c := peek(n);
+  _d := peek(xs(usize(0)));
+  _e := show(String.from("t"));
+  _f := relay(s, xs);
+  _g := (s == s);
+  _h := s.len();
+  _i := twice(i32(2), s);
+  _j := show(&s);
+  _k := take(s);
+});
+export(main);
