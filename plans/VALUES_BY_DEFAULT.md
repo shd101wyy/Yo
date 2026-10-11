@@ -1566,7 +1566,17 @@ and in git, not a silent edit.
         dispatch. The split lands there and only there because it is
         meaningful once the result is a borrow instead of `*Self.Output`:
         a `&Self` receiver handing out a mutable raw pointer would be the
-        very hole the split exists to close. `plans/reference/INDEX_TRAIT.md`'s
+        very hole the split exists to close, and flipping the result type
+        alone is impossible before the split exists — reads and writes ride
+        the same `index` today (`arr(i) = v` desugars through it), so a
+        read-only `&Self.Output` return leaves element assignment with no
+        path until `index_mut` takes the writes. `IndexUnchecked`
+        (`std/prelude.yo:394`, `index_unchecked : (fn(self : &mut Self,
+        idx : usize) -> *Self.Output)`, the bounds-check-free twin) splits
+        the same way in the same PR: a read half
+        `self : &Self -> &Self.Output` and an unchecked-write twin, both in
+        the `pragma(AllowUnsafe)` territory INDEX_TRAIT's goals reserve for
+        unchecked access. `plans/reference/INDEX_TRAIT.md`'s
         "No `IndexMut`" position is superseded from the same date.
     - **The rule.** The prelude's comparison traits declare their operands
       `&`, for example `Eq`'s `(==) : fn(lhs : &Self, rhs : &Rhs) -> bool`.
@@ -4595,7 +4605,9 @@ compiler; the std shapes are plain structs the seed lowers):
   `self : &Self`, and `IndexMut(Idx)` is added —
   `index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)` —
   dispatching element assignment and write-through (decision 34, confirmed
-  2026-10-11).
+  2026-10-11). `IndexUnchecked` splits identically in the same PR
+  (read half `self : &Self -> &Self.Output`, an unchecked-write twin,
+  both under `pragma(AllowUnsafe)`).
   - `String`'s byte index stays read-only (`Index` only).
   - `plans/reference/INDEX_TRAIT.md` gets the amendment, dropping its
     "No `IndexMut`" position.
