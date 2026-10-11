@@ -22,7 +22,7 @@
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 _take :: (fn(fut : &Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
-  io.async(e => e.io.await(fut, e.io))
+  io.async(e => e.io.await(fut, &e.io))
 );
 _work :: (fn(io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => i32(42)));
 test("a future passed as a parameter can be awaited inside an async closure", {
@@ -31,8 +31,8 @@ test("a future passed as a parameter can be awaited inside an async closure", {
 });
 _twice :: (fn(a : &Impl(Future(i32, Io)), b : &Impl(Future(i32, Io)), io : Io) -> Impl(Future(i32, Io)))(
   io.async(e => {
-    x := e.io.await(a, e.io);
-    y := e.io.await(b, e.io);
+    x := e.io.await(a, &e.io);
+    y := e.io.await(b, &e.io);
     x + y
   })
 );
@@ -51,7 +51,7 @@ _fp_plus :: (fn(x : i32, io : Io) -> Impl(Future(i32, Io)))(
     x + i32(s.len())
   })
 );
-_fp_run :: (fn(f : (fn(x : i32, io : Io) -> Impl(Future(i32, Io))), io : Io) -> i32)(io.await(f(i32(21), io), io));
+_fp_run :: (fn(f : (fn(x : i32, io : Io) -> Impl(Future(i32, Io))), io : Io) -> i32)(io.await(f(i32(21), io), &io));
 test("two async functions through one function-typed parameter", {
   assert(_fp_run(_fp_twice, io) == i32(42), "first function");
   assert(_fp_run(_fp_plus, io) == i32(24), "second function");

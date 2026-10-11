@@ -12,8 +12,8 @@ dir :: import("std/sys/dir");
 { platform, Platform } :: import("std/process");
 test("copyfile copies file contents", {
   tmp := temp_dir();
-  src_path_str := path_join(tmp, `yo_io_copy_src.txt`);
-  dst_path_str := path_join(tmp, `yo_io_copy_dst.txt`);
+  src_path_str := path_join(&tmp, `yo_io_copy_src.txt`);
+  dst_path_str := path_join(&tmp, `yo_io_copy_dst.txt`);
   src_path_c := src_path_str.to_cstr();
   dst_path_c := dst_path_str.to_cstr();
   src_path := src_path_c.ptr().unwrap();
@@ -48,8 +48,8 @@ test("copyfile copies file contents", {
 });
 test("sendfile transfers bytes", {
   tmp := temp_dir();
-  src_path_str := path_join(tmp, `yo_io_sendfile_src.txt`);
-  dst_path_str := path_join(tmp, `yo_io_sendfile_dst.txt`);
+  src_path_str := path_join(&tmp, `yo_io_sendfile_src.txt`);
+  dst_path_str := path_join(&tmp, `yo_io_sendfile_dst.txt`);
   src_path_c := src_path_str.to_cstr();
   dst_path_c := dst_path_str.to_cstr();
   src_path := src_path_c.ptr().unwrap();
@@ -96,7 +96,7 @@ test("sendfile transfers bytes", {
 test("copyfile copies a file whose reported size is 0 (/proc)", {
   if(platform == Platform.Linux, {
     tmp := temp_dir();
-    dst_str := path_join(tmp, `yo_io_copy_proc.txt`);
+    dst_str := path_join(&tmp, `yo_io_copy_proc.txt`);
     dst_c := dst_str.to_cstr();
     dst := dst_c.ptr().unwrap();
     io.await(dir.unlink(AT_FDCWD, dst, i32(0)), io);
@@ -117,8 +117,8 @@ test("copyfile copies a file larger than 2 GiB (YO_TEST_HEAVY=1)", {
   heavy := match(env.get(`YO_TEST_HEAVY`), .Some(v) => (v == "1"), .None => false);
   if((platform == Platform.Linux) && heavy, {
     tmp := temp_dir();
-    src_str := path_join(tmp, `yo_io_copy_big_src`);
-    dst_str := path_join(tmp, `yo_io_copy_big_dst`);
+    src_str := path_join(&tmp, `yo_io_copy_big_src`);
+    dst_str := path_join(&tmp, `yo_io_copy_big_dst`);
     src_c := src_str.to_cstr();
     dst_c := dst_str.to_cstr();
     src := src_c.ptr().unwrap();

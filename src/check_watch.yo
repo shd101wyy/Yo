@@ -97,7 +97,7 @@ watch_round :: (
         // enum patterns with boolean-literal payloads do not compare the
         // literal yet (issues/fixed/enum-pattern-bool-payload-not-compared.md).
         skip := match(
-          mm_definitions_changed(p_abs),
+          mm_definitions_changed(&p_abs),
           .Some(v) => !v,
           .None => false
         );
@@ -170,7 +170,7 @@ watch_round :: (
                   );
                   kopt = kit.next();
                 });
-                outcome := mm_revalidate_apply(pl, excluded);
+                outcome := mm_revalidate_apply(&pl, &excluded);
                 // Aliased-export fallbacks surface only during apply — drop
                 // them too (correct, the work is just wasted).
                 (fi1 : usize) = usize(0);
@@ -255,7 +255,7 @@ watch_round :: (
       files.get(fi),
       .Some(fp) => {
         key := mm_resolve_entry_abs(fp.clone(), std_path.clone());
-        if(removed.contains(key), {
+        if(removed.contains(&key), {
           rechecked = (rechecked + usize(1));
           ok := mm_load_file(fp.clone(), std_path.clone(), true, io, exn).ok;
           cond(
@@ -265,7 +265,7 @@ watch_round :: (
               // P1 single-print rule) — the watch round owns the print.
               match(
                 _take_load_error(),
-                .Some(rendered) => emit_rendered_text(rendered),
+                .Some(rendered) => emit_rendered_text(&rendered),
                 .None => ()
               );
               failed = (failed + usize(1));
@@ -320,7 +320,7 @@ run_watch_once :: (
       }
     );
   });
-  failed := watch_round(changed, files, std_path, io, exn);
+  failed := watch_round(&changed, files, std_path, io, exn);
   exit(failed);
 });
 /// Fill `stats` with the current `"${mtime}:${size}"` per path.
@@ -356,7 +356,7 @@ wait_for_change :: (
   ) -> ArrayList(String)
 )({
   while(true, {
-    _t := io.await(sleep_mod.sleep(poll_ms), io);
+    _t := io.await(sleep_mod.sleep(poll_ms), &io);
     changed := ArrayList(String).new();
     (wi : usize) = usize(0);
     while(wi < files.len(), {
@@ -384,7 +384,7 @@ wait_for_change :: (
     });
     if(changed.len() > usize(0), {
       // Debounce: editors write-then-rename; give the burst a beat to finish.
-      _d := io.await(sleep_mod.sleep(u64(50)), io);
+      _d := io.await(sleep_mod.sleep(u64(50)), &io);
       return(changed);
     });
   });
@@ -401,11 +401,11 @@ run_check_watch :: (
   ) -> unit
 )({
   stats := HashMap(String, String).new();
-  watch_snapshot(files, stats, io);
+  watch_snapshot(files, &mut stats, io);
   println(`watch: watching ${files.len().to_string()} file(s), polling every ${poll_ms.to_string()}ms — Ctrl-C to exit`);
   unsafe(fflush(.Some(stdout)));
   while(true, {
-    changed := wait_for_change(files, stats, poll_ms, io);
+    changed := wait_for_change(files, &mut stats, poll_ms, io);
     // The std path (prelude and everything under it) is outside the
     // invalidation machinery's reach — restart instead of corrupting.
     (std_edit : bool) = false;
@@ -426,7 +426,7 @@ run_check_watch :: (
       println(String.from("watch: a std/prelude file changed — restart the watch (the cached prelude env cannot be invalidated in-process)"));
       exit(usize(2));
     });
-    _r := watch_round(changed, files, std_path, io, exn);
+    _r := watch_round(&changed, files, std_path, io, exn);
     ()
   });
 });

@@ -97,9 +97,9 @@ test("chunked emission: the linkage split assembles a header + N linkable units"
   asm4 := assemble_chunks(
     String.from(_HEADERS),
     String.from(_DECLS),
-    code,
-    fn_ranges,
-    header_ranges,
+    &code,
+    &fn_ranges,
+    &header_ranges,
     String.from(_GLOBALS),
     usize(4)
   );
@@ -127,20 +127,20 @@ test("chunked emission: the linkage split assembles a header + N linkable units"
   assert(!chunk0.contains(String.from("static void proto_only_fn")), "residue definition should lose `static`");
   // 5. Header-routed ranges travel verbatim (still static: per-TU copies).
   assert(hdr.contains(String.from("static inline void borrow_x")), "borrow-primitive range should be header-routed and stay static");
-  assert(_count_chunks_with(chunks, String.from("borrow_marker")) == usize(0), "header-routed range must not also appear in a chunk");
+  assert(_count_chunks_with(&chunks, String.from("borrow_marker")) == usize(0), "header-routed range must not also appear in a chunk");
   // 6. RC helpers are header-routed (the RC hot path, per-TU copies).
   assert(hdr.contains(String.from("T1___drop")), "RC helper should be header-routed");
-  assert(_count_chunks_with(chunks, String.from("rc_marker")) == usize(0), "RC helper must not also appear in a chunk");
+  assert(_count_chunks_with(&chunks, String.from("rc_marker")) == usize(0), "RC helper must not also appear in a chunk");
   // 7. chunk_globals (split cross-chunk statics) land in chunk 0 ONLY.
   assert(chunk0.contains(String.from("int g_shared;")), "chunk_globals should be defined in chunk 0");
-  assert(_count_chunks_with(chunks, String.from("int g_shared;")) == usize(1), "chunk_globals must be defined exactly once");
+  assert(_count_chunks_with(&chunks, String.from("int g_shared;")) == usize(1), "chunk_globals must be defined exactly once");
   // 8. Each per-function range lands in EXACTLY ONE chunk, dequalified.
-  assert(_count_chunks_with(chunks, String.from("fn_alpha(void)")) == usize(1), "fn_alpha must appear in exactly one chunk");
-  assert(_count_chunks_with(chunks, String.from("fn_beta(void)")) == usize(1), "fn_beta must appear in exactly one chunk");
-  assert(_count_chunks_with(chunks, String.from("static inline int fn_alpha")) == usize(0), "fn_alpha body should lose `static inline`");
+  assert(_count_chunks_with(&chunks, String.from("fn_alpha(void)")) == usize(1), "fn_alpha must appear in exactly one chunk");
+  assert(_count_chunks_with(&chunks, String.from("fn_beta(void)")) == usize(1), "fn_beta must appear in exactly one chunk");
+  assert(_count_chunks_with(&chunks, String.from("static inline int fn_alpha")) == usize(0), "fn_alpha body should lose `static inline`");
   assert(!hdr.contains(String.from("fn_alpha(void) {")), "a plain function body must not be header-routed");
   // 9. The residue tail (main wrapper) stays in chunk 0, exactly once.
-  assert(_count_chunks_with(chunks, String.from("int main(void) {")) == usize(1), "the main wrapper must appear exactly once");
+  assert(_count_chunks_with(&chunks, String.from("int main(void) {")) == usize(1), "the main wrapper must appear exactly once");
   assert(chunk0.contains(String.from("int main(void) {")), "the main wrapper belongs to chunk 0 (residue)");
 });
 test("chunked emission: N=1 is degenerate — one unit holding everything", {
@@ -154,8 +154,8 @@ test("chunked emission: N=1 is degenerate — one unit holding everything", {
   asm1 := assemble_chunks(
     String.from(_HEADERS),
     String.from(_DECLS),
-    code,
-    fn_ranges,
+    &code,
+    &fn_ranges,
     ArrayList(ChunkRange).new(),
     String.from(_GLOBALS),
     usize(1)
@@ -177,14 +177,14 @@ test("chunked emission: more chunks than functions leaves the extra units empty 
   asm8 := assemble_chunks(
     String.from(_HEADERS),
     String.from(_DECLS),
-    code,
-    fn_ranges,
+    &code,
+    &fn_ranges,
     ArrayList(ChunkRange).new(),
     String.new(),
     usize(8)
   );
   assert(asm8.chunks.len() == usize(8), "N=8 must produce 8 chunks even with one function");
-  assert(_count_chunks_with(asm8.chunks, String.from("fn_alpha(void)")) == usize(1), "the single function lands in exactly one chunk");
+  assert(_count_chunks_with(&asm8.chunks, String.from("fn_alpha(void)")) == usize(1), "the single function lands in exactly one chunk");
 });
 
 test("chunked emission: --chunk-by module keeps a module's functions in one unit", {
@@ -213,9 +213,9 @@ test("chunked emission: --chunk-by module keeps a module's functions in one unit
   by_module := assemble_chunks(
     String.from(_HEADERS),
     String.from(_DECLS),
-    code,
-    fn_ranges,
-    header_ranges,
+    &code,
+    &fn_ranges,
+    &header_ranges,
     String.from(_GLOBALS),
     usize(4),
     true
@@ -259,8 +259,8 @@ test("a code spill spliced before the code tail is the unspilled C", {
   spilled.emit_header_line("#include <stdint.h>");
   (i : usize) = usize(0);
   while(i < usize(5), {
-    _spill_emit_function(plain, i);
-    _spill_emit_function(spilled, i);
+    _spill_emit_function(&plain, i);
+    _spill_emit_function(&spilled, i);
     spilled.spill_code_if_large();
     i = (i + usize(1));
   });
@@ -276,7 +276,7 @@ test("a code spill spliced before the code tail is the unspilled C", {
     if(pi == usize(4), {
       joined.push_string(_spill_read(path.clone()));
     });
-    match(parts.get(pi), .Some(p) => joined.push_string(p), .None => ());
+    match(parts.get(pi), .Some(p) => joined.push_string(&p), .None => ());
     pi = (pi + usize(1));
   });
   assert(joined == plain.print(), "spill + sections == print()");

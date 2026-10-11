@@ -501,7 +501,7 @@ test("Test generic functions", {
       return(x);
     });
     i32_container_value := Container(i32)(12);
-    x11 := use_container(i32_container_value, 13);
+    x11 := use_container(&i32_container_value, 13);
     x12 := use_container(Container(i32)(13), 12);
     x13 := use_container(Container(bool)(true), false);
     assert(x11 == 13);
@@ -867,14 +867,14 @@ _unit_bump :: (fn(b : &Rc(i32), by : i32) -> unit)({
 test("Binding a unit-returning call compiles and still runs the call", {
   counter := Rc(i32)(0);
   // The binding form that used to emit invalid C.
-  _r := _unit_bump(counter, i32(7));
+  _r := _unit_bump(&counter, i32(7));
   assert(counter.* == i32(7), "bound unit call must still execute");
   // A second binding in the same scope (each needs its own temp).
-  _s := _unit_bump(counter, i32(3));
+  _s := _unit_bump(&counter, i32(3));
   assert(counter.* == i32(10), "second bound unit call must also execute");
   // The same lowering one scope deeper.
   {
-    _t := _unit_bump(counter, i32(5));
+    _t := _unit_bump(&counter, i32(5));
     assert(counter.* == i32(15), "nested-scope bound unit call must execute");
   };
 });

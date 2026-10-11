@@ -16,7 +16,7 @@ main :: (fn() -> unit)({
   might_fail :: (fn(raise : &Raise) -> i32)(raise(`oops`));
   run :: (fn(generic(T : Type, E : Type.Struct), f : (fn(e : &E) -> T), e : &E) -> T)(f(e));
   (raise : Raise) = (msg -> begin(println(msg), return(i32(42)), ()));
-  result := run(might_fail, raise);
+  result := run(might_fail, &raise);
   assert(result == i32(42), "effect polymorphism: should be 42");
   println(`ok`);
 });

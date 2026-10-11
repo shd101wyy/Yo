@@ -63,8 +63,8 @@ evaluate_gensym :: (
         );
       });
       // Evaluate the prefix argument.
-      evaluated_prefix := evaluate_expression_raw(prefix_arg, env, ctx, exn);
-      prefix_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_prefix));
+      evaluated_prefix := evaluate_expression_raw(&prefix_arg, env, ctx, exn);
+      prefix_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_prefix));
       prefix_info := match(
         prefix_info_opt,
         .Some(pi) => pi,
@@ -72,8 +72,8 @@ evaluate_gensym :: (
           exn.throw(
             dyn(
               format_eval_failure(
-                ast_expr_token(prefix_arg),
-                `Failed to evaluate the prefix argument for "gensym":\n${ast_expr_to_string(prefix_arg)}`
+                ast_expr_token(&prefix_arg),
+                `Failed to evaluate the prefix argument for "gensym":\n${ast_expr_to_string(&prefix_arg)}`
               )
             )
           );
@@ -84,12 +84,12 @@ evaluate_gensym :: (
       match(
         prefix_info.value,
         .Some(pv) => {
-          if(!is_str_lit(pv), {
+          if(!is_str_lit(&pv), {
             exn.throw(
               dyn(
                 format_error_message(
-                  ast_expr_token(prefix_arg),
-                  `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(prefix_arg)}`
+                  ast_expr_token(&prefix_arg),
+                  `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(&prefix_arg)}`
                 )
               )
             );
@@ -112,8 +112,8 @@ evaluate_gensym :: (
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(prefix_arg),
-                `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(prefix_arg)}`
+                ast_expr_token(&prefix_arg),
+                `Expected comptime_str for prefix argument, got:\n${ast_expr_to_string(&prefix_arg)}`
               )
             )
           );
@@ -122,7 +122,7 @@ evaluate_gensym :: (
     }
   );
   // Generate a unique symbol: prefix + a per-(prefix, module) ordinal.
-  symbol := stable_module_id(prefix.clone(), env.module_path);
+  symbol := stable_module_id(prefix.clone(), &env.module_path);
   // Build a new Atom expression representing the generated identifier.
   tok := ast_expr_token(expr);
   // Fresh id — id-0 synthesized atoms all collide in the ExprInfo table
@@ -144,7 +144,7 @@ evaluate_gensym :: (
   val := EvalValue.ExprVal(atom_expr);
   info := new_expr_info(env, t_expr_t());
   info.value = .Some(val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 export(evaluate_gensym);

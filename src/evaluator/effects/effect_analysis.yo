@@ -122,7 +122,7 @@ is_effect_call_ :: (
         return(false);
       });
       func_type_opt := match(
-        get_info(func_expr),
+        get_info(&func_expr),
         .Some(info) => Option(TypeValue).Some(info.ty),
         .None => Option(TypeValue).None
       );
@@ -130,7 +130,7 @@ is_effect_call_ :: (
       if(!allow_missing_type, {
         ok := match(
           func_type_opt,
-          .Some(ty) => is_function_type(ty),
+          .Some(ty) => is_function_type(&ty),
           .None => false
         );
         if(!ok, {
@@ -141,7 +141,7 @@ is_effect_call_ :: (
       if(allow_missing_type, {
         bad := match(
           func_type_opt,
-          .Some(ty) => !is_function_type(ty),
+          .Some(ty) => !is_function_type(&ty),
           .None => false
         );
         if(bad, {
@@ -164,14 +164,14 @@ is_effect_call_ :: (
           return(false);
         });
         func_type_opt := match(
-          get_info(func_expr),
+          get_info(&func_expr),
           .Some(info) => Option(TypeValue).Some(info.ty),
           .None => Option(TypeValue).None
         );
         if(!allow_missing_type, {
           ok := match(
             func_type_opt,
-            .Some(ty) => is_function_type(ty),
+            .Some(ty) => is_function_type(&ty),
             .None => false
           );
           if(!ok, {
@@ -181,7 +181,7 @@ is_effect_call_ :: (
         if(allow_missing_type, {
           bad := match(
             func_type_opt,
-            .Some(ty) => !is_function_type(ty),
+            .Some(ty) => !is_function_type(&ty),
             .None => false
           );
           if(bad, {
@@ -198,7 +198,7 @@ is_effect_call_ :: (
       go := true;
       while(go, {
         cur_clone := current.clone();
-        is_dot_call := ast_expr_is_fn_call_of(cur_clone, ".", Option(usize).None);
+        is_dot_call := ast_expr_is_fn_call_of(&cur_clone, ".", Option(usize).None);
         if(!is_dot_call, {
           go = false;
           break;
@@ -280,14 +280,14 @@ is_effect_call_ :: (
       });
       // Verify the outermost "." expression type is a function
       outer_func_type_opt := match(
-        get_info(func_expr_for_info),
+        get_info(&func_expr_for_info),
         .Some(info) => Option(TypeValue).Some(info.ty),
         .None => Option(TypeValue).None
       );
       if(!allow_missing_type, {
         ok := match(
           outer_func_type_opt,
-          .Some(ty) => is_function_type(ty),
+          .Some(ty) => is_function_type(&ty),
           .None => false
         );
         if(!ok, {
@@ -297,7 +297,7 @@ is_effect_call_ :: (
       if(allow_missing_type, {
         bad := match(
           outer_func_type_opt,
-          .Some(ty) => !is_function_type(ty),
+          .Some(ty) => !is_function_type(&ty),
           .None => false
         );
         if(bad, {
@@ -374,7 +374,7 @@ is_transitive_effect_call_ :: (
   });
   // --- Path 2: Impl(Fn) / Dyn(Fn) types via FnTraitT ---
   // Extract the FnTraitT (if any) and check its implicit params.
-  fn_trait_opt := extract_fn_trait_from_type(func_type);
+  fn_trait_opt := extract_fn_trait_from_type(&func_type);
   match(
     fn_trait_opt,
     .None => (),
@@ -450,7 +450,7 @@ detect_effect_expr_ :: (
             }
           );
           match(
-            get_info(arg),
+            get_info(&arg),
             .Some(info) => {
               operation_arg_types.push(info.ty);
             },
@@ -677,8 +677,8 @@ analyze_effect_call_points :: (
         detect_effect_expr_(
           expr,
           parent_expr,
-          found,
-          effect_extras.*,
+          &mut found,
+          &mut effect_extras.*,
           effect_parameter_name.clone(),
           effect_field_path.clone(),
           include_transitive_calls,

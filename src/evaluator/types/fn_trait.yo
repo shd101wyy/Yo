@@ -73,46 +73,46 @@ evaluate_fn_trait_type :: (
   expr_args := _fn_trait_call_args(expr);
   fn_call_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   return_type_expr := match(expr_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-  is_once := ast_expr_is_fn_call_of(fn_call_expr, BK_FN_ONCE_TRAIT, Option(usize).None);
+  is_once := ast_expr_is_fn_call_of(&fn_call_expr, BK_FN_ONCE_TRAIT, Option(usize).None);
   if(is_once, {
     // `Dyn(FnOnce(...))` is move-only: arm the move-only checks.
     note_move_only_possible();
   });
-  if(!ast_expr_is_fn_call(fn_call_expr) ||
-    !(ast_expr_is_fn_call_of(fn_call_expr, BK_FN_TRAIT, Option(usize).None) || is_once), {
+  if(!ast_expr_is_fn_call(&fn_call_expr) ||
+    !(ast_expr_is_fn_call_of(&fn_call_expr, BK_FN_TRAIT, Option(usize).None) || is_once), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(fn_call_expr),
-          `Expected Fn(...) or FnOnce(...) for function trait, got:\n${ast_expr_to_string(fn_call_expr)}`
+          ast_expr_token(&fn_call_expr),
+          `Expected Fn(...) or FnOnce(...) for function trait, got:\n${ast_expr_to_string(&fn_call_expr)}`
         )
       )
     );
   });
   // Get parameter expressions from Fn(...)
-  param_exprs := _fn_trait_call_args(fn_call_expr);
+  param_exprs := _fn_trait_call_args(&fn_call_expr);
   // Evaluate parameters using the same logic as regular function types
   // (pushes a new env frame, doesn't pop it yet)
   prev_is_eval_fn_type := ctx.is_evaluating_function_type;
   ctx.is_evaluating_function_type = true;
   (env_mut : Environment) = env;
-  params_result := evaluate_function_parameters(param_exprs, env_mut, ctx, exn);
+  params_result := evaluate_function_parameters(&param_exprs, &env_mut, ctx, exn);
   // Evaluate the return type via the raw evaluator path so any
   // throw propagates cleanly to the caller's `exn` (the non-raw
   // wrapper's panic would otherwise swallow surfacing errors).
-  evaluated_ret_expr := evaluate_expression_raw(return_type_expr, env_mut, ctx, exn);
+  evaluated_ret_expr := evaluate_expression_raw(&return_type_expr, &env_mut, ctx, exn);
   ctx.is_evaluating_function_type = prev_is_eval_fn_type;
   // Extract return TypeValue from expr info
-  ret_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_ret_expr));
+  ret_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ret_expr));
   return_type := match(
     ret_info_opt,
     .Some(info) => {
-      if(!is_type_value(info.value), {
+      if(!is_type_value(&info.value), {
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(return_type_expr),
-              `Expected a type for Fn return type, got:\n${ast_expr_to_string(return_type_expr)}`
+              ast_expr_token(&return_type_expr),
+              `Expected a type for Fn return type, got:\n${ast_expr_to_string(&return_type_expr)}`
             )
           )
         );
@@ -127,7 +127,7 @@ evaluate_fn_trait_type :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(return_type_expr),
+            ast_expr_token(&return_type_expr),
             String.from("Failed to evaluate return type for Fn trait.")
           )
         )
@@ -174,11 +174,11 @@ evaluate_fn_trait_type :: (
     implicit_types.push(ip.ty);
     ii = (ii + usize(1));
   });
-  fn_trait_type := t_fn_trait(String.from(cond(is_once => BK_FN_ONCE_TRAIT, true => BK_FN_TRAIT)), call_param_labels, call_param_types, return_type, implicit_labels, implicit_types, call_param_is_ref, call_param_is_owning);
+  fn_trait_type := t_fn_trait(String.from(cond(is_once => BK_FN_ONCE_TRAIT, true => BK_FN_TRAIT)), &call_param_labels, &call_param_types, &return_type, &implicit_labels, &implicit_types, &call_param_is_ref, &call_param_is_owning);
   // Set expr info
-  out_info := new_expr_info(env_mut, type_of_type(fn_trait_type));
-  out_info.value = .Some(create_type_value(fn_trait_type));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  out_info := new_expr_info(&env_mut, type_of_type(&fn_trait_type));
+  out_info.value = .Some(create_type_value(&fn_trait_type));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_fn_trait_type);

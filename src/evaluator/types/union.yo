@@ -60,7 +60,7 @@ evaluate_union_type :: (
   // unique per mint like the `random_id` it replaces, but an edit in another
   // module cannot renumber it.
   decl_tok := ast_expr_token(expr);
-  union_id := stable_type_id(String.from("union_"), decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column));
+  union_id := stable_type_id(String.from("union_"), &decl_tok.module_path, usize(decl_tok.row), usize(decl_tok.column));
   // Member visibility: record which module declares this type (guards.yo).
   register_type_decl_module(union_id.clone(), decl_tok.module_path.clone());
   // Temporarily set SelfType so fields can reference Self.
@@ -79,7 +79,7 @@ evaluate_union_type :: (
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
-    result := evaluate_type_field(arg, i, env_mut, ctx, "union", exn);
+    result := evaluate_type_field(&arg, i, &env_mut, ctx, "union", exn);
     field := result.field;
     // Check for duplicate labels.
     (dup_idx : usize) = usize(0);
@@ -94,14 +94,14 @@ evaluate_union_type :: (
     if(has_dup, {
       arg_args := match(arg, .FnCall(_, _, a2, _, _) => a2, .Atom(_, _) => ArrayList(AstExpr).new());
       err_tok := if(
-        ast_expr_is_fn_call(arg),
-        match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(fe), .None => ast_expr_token(arg)),
-        ast_expr_token(arg)
+        ast_expr_is_fn_call(&arg),
+        match(arg_args.get(usize(0)), .Some(fe) => ast_expr_token(&fe), .None => ast_expr_token(&arg)),
+        ast_expr_token(&arg)
       );
       exn.throw(
         dyn(
           format_error_message(
-            err_tok,
+            &err_tok,
             `Duplicate label "${field.label}" in union field.`
           )
         )
@@ -112,29 +112,29 @@ evaluate_union_type :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg),
+            ast_expr_token(&arg),
             String.from("Union type cannot have default value for its fields.")
           )
         )
       );
     });
     // Union fields must be runtime types.
-    if(type_is_comptime_only(field.ty) || !type_implements_runtime(field.ty), {
+    if(type_is_comptime_only(&field.ty) || !type_implements_runtime(&field.ty), {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg),
+            ast_expr_token(&arg),
             String.from("Union type fields must be runtime types.")
           )
         )
       );
     });
     // Union fields cannot contain garbage-collected types.
-    if(type_contains_rc_type(field.ty), {
+    if(type_contains_rc_type(&field.ty), {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg),
+            ast_expr_token(&arg),
             String.from("Union type cannot have field with garbage-collected type.")
           )
         )
@@ -150,7 +150,7 @@ evaluate_union_type :: (
     i = (i + usize(1));
   });
   // Auto-derive trait markers (Send, Acyclic, Comptime, Runtime).
-  auto_derive_traits_for_union_type(union_id.clone(), field_types, env);
+  auto_derive_traits_for_union_type(union_id.clone(), &field_types, env);
   // Restore SelfType.
   ctx.self_type = old_self_type;
   // Build final Union TypeValue.
@@ -159,14 +159,14 @@ evaluate_union_type :: (
     field_labels,
     field_types
   );
-  union_val := create_type_value(union_ty);
-  meta_ty := type_of_type(union_ty);
-  out_info := new_expr_info(env_mut, meta_ty);
+  union_val := create_type_value(&union_ty);
+  meta_ty := type_of_type(&union_ty);
+  out_info := new_expr_info(&env_mut, &meta_ty);
   out_info.value = Option(EvalValue).Some(union_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   // Annotate callee (expr.func) with the same info.
   callee_expr := match(expr, .FnCall(_, fb, _, _, _) => fb, .Atom(_, _) => expr);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(callee_expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&callee_expr), &out_info);
   expr
 });
 export(evaluate_union_type);

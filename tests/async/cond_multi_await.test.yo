@@ -61,10 +61,10 @@ test("second await result is stored in each differently-shaped cond arm", {
   );
   e := IoExn(io : io, exn : exn);
   // The Wrap arm: n(7) + w.v(42) = 49 — used to SIGSEGV (w null).
-  r_http := io.await(_run(false, io), e);
+  r_http := io.await(_run(false, io), &e);
   assert(r_http == i32(49), "Wrap-arm second await (w.v) read correctly");
   // The i32 arm: a(7) + b(3) = 10.
-  r_https := io.await(_run(true, io), e);
+  r_https := io.await(_run(true, io), &e);
   assert(r_https == i32(10), "i32-arm second await (b) read correctly");
 });
 // An await as the CONDITION of a later `cond` arm, with a ref local held
@@ -83,7 +83,7 @@ _later_arm_await :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
     b := _ArmBox(v : i32(7));
     cond(
       runtime(false) => i32(0),
-      e.io.await(_ready_after_yield(e.io), e.io) => b.v,
+      e.io.await(_ready_after_yield(e.io), &e.io) => b.v,
       true => i32(-1)
     )
   })

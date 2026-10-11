@@ -54,7 +54,7 @@ _bump_by_ten :: (fn(c : &mut Counter) -> unit)({
 comptime_expect_error({
   _d3_inout_argument :: (fn() -> unit)({
     a := arc(Counter(n : i32(0)));
-    _bump_by_ten(a.*);
+    _bump_by_ten(&mut a.*);
   });
   _d3_inout_argument();
 });
@@ -81,7 +81,7 @@ Cell :: ref(struct(counter : Counter, slots : Array(i32, usize(2))));
 test("D3 canary: inout receiver, inout argument and index assignment on a plain ref struct", {
   c := Cell(counter : Counter(n : i32(0)), slots : Array(i32, usize(2))(i32(0), i32(0)));
   c.counter.bump();
-  _bump_by_ten(c.counter);
+  _bump_by_ten(&mut c.counter);
   c.slots(usize(1)) = i32(3);
   assert(c.counter.n == i32(11), "both writes landed");
   assert(c.slots(usize(1)) == i32(3), "the index write landed");
@@ -156,7 +156,7 @@ comptime_expect_error({
         items.push(i32(1));
       }
     );
-    _needs_send(f);
+    _needs_send(&f);
   });
   _d4_generic_send_bound();
 });
@@ -171,7 +171,7 @@ test("D4 canary: a closure over an atomic satisfies where(T <: Send), and arc() 
       hits.fetch_add(i32(1), MemoryOrder.AcqRel);
     }
   );
-  _needs_send(bump);
+  _needs_send(&bump);
   a := arc(bump);
   t := Thread(unit).spawn((io : Io) => {
     f := a.*;
@@ -437,7 +437,7 @@ comptime_expect_error({
         g_items.push(i32(9));
       }
     );
-    _needs_send(k);
+    _needs_send(&k);
   });
   _d9_generic_of_reaching_closure();
 });
@@ -448,7 +448,7 @@ comptime_expect_error({
         g_items.push(i32(9));
       }
     );
-    _d9_run(k);
+    _d9_run(&k);
   });
   _d9_send_param_of_reaching_closure();
 });
@@ -574,8 +574,8 @@ test("D9 canary: function values that reach only atomics are Send by every route
       ();
     }
   );
-  _needs_send(k);
-  _d9_run(k);
+  _needs_send(&k);
+  _d9_run(&k);
   t2 := Thread(unit).spawn((io : Io) => {
     k();
     ()

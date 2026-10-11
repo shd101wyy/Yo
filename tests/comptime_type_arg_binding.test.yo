@@ -67,9 +67,9 @@ impl(generic(K : Type, V : Type), _Phantom(K, V), size : (fn(self : &Self) -> u8
 _phantom_size :: (fn(comptime(K) : Type, comptime(V) : Type, b : &_Phantom(K, V)) -> u8)(b.size());
 test("A method on a phantom generic struct resolves through a comptime type parameter", {
   x := _Phantom(i32, i32)(n : u8(3));
-  assert(_phantom_size(i32, i32, x) == u8(3), "struct");
+  assert(_phantom_size(i32, i32, &x) == u8(3), "struct");
   y := _Phantom(bool, u8)(n : u8(7));
-  assert(_phantom_size(bool, u8, y) == u8(7), "a second instantiation");
+  assert(_phantom_size(bool, u8, &y) == u8(7), "a second instantiation");
 });
 // A `comptime(T) : Type` argument that is (or holds) a SomeT already resolved
 // to a concrete type — `IoFuture :: Impl(Concrete(__yo_io_future_t),
@@ -98,9 +98,9 @@ impl(generic(K : Type), _PhantomTag(K), code : (fn(self : &Self) -> u8)(match(se
 _phantom_code :: (fn(comptime(K) : Type, t : &_PhantomTag(K)) -> u8)(t.code());
 test("A method on a phantom generic enum resolves through a comptime type parameter", {
   t := _PhantomTag(i32).B(n : u8(5));
-  assert(_phantom_code(i32, t) == u8(5), "enum");
+  assert(_phantom_code(i32, &t) == u8(5), "enum");
   u := _PhantomTag(bool).A;
-  assert(_phantom_code(bool, u) == u8(0), "a second instantiation");
+  assert(_phantom_code(bool, &u) == u8(0), "a second instantiation");
 });
 // Each instantiation gets its own specialization: a body that reads the
 // phantom `K` answers for the receiver's own `K`. `_PhantomTag(u8)` and

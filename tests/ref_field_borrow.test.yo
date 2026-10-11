@@ -21,7 +21,7 @@ bump :: (fn(v : &mut i32) -> unit)({
 
 test("field of a local object passed to a ref param", {
   h := Holder(s : String.from("x"), n : i32(41));
-  bump(h.n);
+  bump(&mut h.n);
   assert(h.n == i32(42), "write-through landed in the field");
 });
 
@@ -30,7 +30,7 @@ test("String field write-through via a ref param", {
     v = nv;
   });
   h := Holder(s : String.from("hello"), n : i32(1));
-  replace_s(h.s, String.from("rewritten"));
+  replace_s(&mut h.s, String.from("rewritten"));
   assert(h.s == "rewritten", "owner sees the write");
 });
 
@@ -39,7 +39,7 @@ derive(PointS, Copy, Clone);
 
 test("value-struct field place", {
   p := PointS(x : i32(1), y : i32(2));
-  bump(p.x);
+  bump(&mut p.x);
   assert(p.x == i32(2), "stack-struct field write through the ref param");
 });
 
@@ -56,7 +56,7 @@ comptime_expect_error(
       v = i32(99);
     });
     w := Wrapper(inner : Holder(s : String.from("x"), n : i32(1)));
-    soak(w.inner.n, w);
+    soak(&mut w.inner.n, &w);
   })
 );
 
@@ -64,7 +64,7 @@ comptime_expect_error(
 // callee cannot reach, so nothing can free `w.inner` mid-call.
 test("intermediate object hop is allowed when the root is unreachable", {
   w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
-  bump(w.inner.n);
+  bump(&mut w.inner.n);
   assert(w.inner.n == i32(10), "write landed through the intermediate hop");
 });
 
@@ -73,7 +73,7 @@ test("intermediate object hop is allowed when the root is unreachable", {
 test("bind the intermediate object to a local first", {
   w := Wrapper(inner : Holder(s : String.from("x"), n : i32(9)));
   b := w.inner;
-  bump(b.n);
+  bump(&mut b.n);
   assert(w.inner.n == i32(10), "write landed through the local handle");
 });
 
@@ -82,14 +82,14 @@ test("bind the intermediate object to a local first", {
 g_holder := Holder(s : String.from("g"), n : i32(0));
 comptime_expect_error(
   module_root_field_rejected :: (fn() -> unit)({
-    bump(g_holder.n);
+    bump(&mut g_holder.n);
   })
 );
 
 // A WHOLE module-level variable is fine — its slot is stable storage.
 g_counter := i32(0);
 test("whole module-level variable to a ref param", {
-  bump(g_counter);
+  bump(&mut g_counter);
   assert(g_counter == i32(1), "global slot written through the ref param");
 });
 
@@ -103,7 +103,7 @@ comptime_expect_error(
       x.len()
     );
     h := Holder(s : String.from("element-zero"), n : i32(1));
-    n := use_and_sink(h.s, h);
+    n := use_and_sink(&mut h.s, h);
     consume(n);
   })
 );
@@ -116,7 +116,7 @@ comptime_expect_error(
     );
     h := Holder(s : String.from("element-zero"), n : i32(1));
     h2 := h;
-    n := use_and_sink(h.s, h2);
+    n := use_and_sink(&mut h.s, h2);
     consume(n);
   })
 );
@@ -128,7 +128,7 @@ test("ref and own arguments of distinct objects are allowed", {
   );
   a := Holder(s : String.from("abcde"), n : i32(1));
   b := Holder(s : String.from("other"), n : i32(2));
-  n := use_and_sink(a.s, b);
+  n := use_and_sink(&mut a.s, b);
   assert(n == usize(5), "borrow read fine while a distinct object was consumed");
 });
 
@@ -186,7 +186,7 @@ comptime_expect_error(
     });
     xs := ArrayList(i32).new();
     xs.push(i32(41));
-    evil(xs(usize(0)), xs);
+    evil(&mut xs(usize(0)), &xs);
   })
 );
 
@@ -200,7 +200,7 @@ comptime_expect_error(
     xs := ArrayList(i32).new();
     xs.push(i32(41));
     xs2 := xs;
-    evil(xs(usize(0)), xs2);
+    evil(&mut xs(usize(0)), &xs2);
   })
 );
 
@@ -212,7 +212,7 @@ comptime_expect_error(
     bump2 :: (fn(v : &mut i32) -> unit)({
       v = (v + i32(1));
     });
-    bump2(g_list(usize(0)));
+    bump2(&mut g_list(usize(0)));
   })
 );
 
@@ -225,7 +225,7 @@ test("indexed element to a ref param without the container", {
   });
   xs := ArrayList(i32).new();
   xs.push(i32(41));
-  bump3(xs(usize(0)));
+  bump3(&mut xs(usize(0)));
   assert(xs(usize(0)) == i32(42), "in-place element bump through the ref");
 });
 
@@ -246,7 +246,7 @@ test("interior-ref call releases the container's borrow flag on return", {
   });
   xs := ArrayList(i32).new();
   xs.push(i32(41));
-  bump4(xs(usize(0)));
+  bump4(&mut xs(usize(0)));
   xs.push(i32(5)); // realloc-capable growth right after the borrowed call
   assert(xs.len() == usize(2), "push after the borrowed call ran");
   assert(xs(usize(0)) == i32(42), "the bump landed before the growth");
@@ -264,12 +264,12 @@ test("interior-ref call releases the container's borrow flag on unwind", {
         unwind(());
       }
     );
-    bump_then_raise(target(usize(0)), raise);
+    bump_then_raise(&mut target(usize(0)), raise);
     assert(false, "unreachable: the handler unwound run_borrowed");
   });
   xs := ArrayList(i32).new();
   xs.push(i32(41));
-  run_borrowed(xs);
+  run_borrowed(&xs);
   xs.push(i32(5)); // must not panic: the unwind path released the flag
   assert(xs.len() == usize(2), "push after the unwound borrowed call ran");
   assert(xs(usize(0)) == i32(42), "the bump landed before the unwind");
@@ -285,7 +285,7 @@ test("copy the element out to combine with container use", {
   xs := ArrayList(i32).new();
   xs.push(i32(7));
   copied := match(xs.get(usize(0)), .Some(v) => v, .None => i32(0));
-  use_both(copied, xs);
+  use_both(&mut copied, &xs);
   assert(xs.len() == usize(2), "pushed the copy");
   assert(xs(usize(0)) == i32(7), "original element untouched (v=0 wrote the copy)");
 });
@@ -303,7 +303,7 @@ comptime_expect_error(
     });
     xs := ArrayList(i32).new();
     xs.push(i32(41));
-    run(xs(usize(0)), () => {
+    run(&mut xs(usize(0)), () => {
       xs.push(i32(0));
     });
   })
@@ -321,7 +321,7 @@ comptime_expect_error(
       v = i32(99);
     });
     b := rc(Holder(s : String.from("orig"), n : i32(1)));
-    evil(b.*.n, b);
+    evil(&mut b.*.n, &b);
   })
 );
 
@@ -332,7 +332,7 @@ test("box deref is allowed when the box is unreachable", {
     v = (v + i32(1));
   });
   b := rc(Holder(s : String.from("x"), n : i32(5)));
-  read_n(b.*.n);
+  read_n(&mut b.*.n);
   assert(b.*.n == i32(6), "write landed through the deref place");
 });
 
@@ -344,7 +344,7 @@ bump_static :: (fn(v : &mut i32) -> unit)({
   v = (v + i32(1));
 });
 test("module-level struct i32 field is allowed (non-Rc)", {
-  bump_static(g_static_val.n);
+  bump_static(&mut g_static_val.n);
   assert(g_static_val.n == i32(43), "i32 field write-through should work");
 });
 
@@ -357,7 +357,7 @@ comptime_expect_error(
     overwrite_rc :: (fn(v : &mut ArrayList(i32)) -> unit)({
       v = ArrayList(i32).new();
     });
-    overwrite_rc(g_rc_tuple.0);
+    overwrite_rc(&mut g_rc_tuple.0);
   })
 );
 
@@ -369,7 +369,7 @@ comptime_expect_error(
     overwrite_rc2 :: (fn(v : &mut ArrayList(i32)) -> unit)({
       v = ArrayList(i32).new();
     });
-    overwrite_rc2(g_rc_s.list);
+    overwrite_rc2(&mut g_rc_s.list);
   })
 );
 
@@ -382,6 +382,6 @@ comptime_expect_error(
     });
     xs := ArrayList(i32).new();
     xs.push(i32(41));
-    own_and_ref(xs(usize(0)), xs);
+    own_and_ref(&mut xs(usize(0)), xs);
   })
 );

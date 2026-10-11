@@ -59,13 +59,13 @@ test("streaming split updates equal the one-shot digest", {
       true => second.push(b)
     );
   });
-  split1 := Sha1.new().update(first).update(second).finish_hex();
+  split1 := Sha1.new().update(&first).update(&second).finish_hex();
   assert(split1 == sha1_hex(whole.to_bytes()), "sha1 split == one-shot");
-  split512 := Sha512.new().update(first).update(second).finish_hex();
+  split512 := Sha512.new().update(&first).update(&second).finish_hex();
   assert(split512 == sha512_hex(whole.to_bytes()), "sha512 split == one-shot");
-  split256 := Sha256.new().update(first).update(second).finish_hex();
+  split256 := Sha256.new().update(&first).update(&second).finish_hex();
   assert(split256 == sha256_hex(whole.to_bytes()), "sha256 split == one-shot");
-  splitmd5 := Md5.new().update(first).update(second).finish_hex();
+  splitmd5 := Md5.new().update(&first).update(&second).finish_hex();
   assert(splitmd5 == md5_hex(whole.to_bytes()), "md5 streaming == one-shot");
 });
 test("Md5 streaming type matches RFC 1321 vectors", {
@@ -95,7 +95,7 @@ test("HMAC RFC 2202 / RFC 4231 case 1 (20-byte 0x0b key)", {
     "HMAC-SHA256"
   );
   assert(
-    hmac_sha512_hex(key, msg) == `87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854`,
+    hmac_sha512_hex(&key, &msg) == `87aa7cdea5ef619d4ff0b4241a1d6cb02379f4e2ce4ec2787ad0b30545e17cdedaa833b7d6b8a702038b274eaea3f4e4be9d914eeb61f1702e696c203a126854`,
     "HMAC-SHA512"
   );
 });
@@ -103,7 +103,7 @@ test("HMAC RFC 4231 case 6: key longer than the block hashes down first", {
   key := _rep(u8(0xaa), usize(131));
   msg := _b("Test Using Larger Than Block-Size Key - Hash Key First");
   assert(
-    hmac_sha256_hex(key, msg) == `60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54`,
+    hmac_sha256_hex(&key, &msg) == `60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54`,
     "HMAC-SHA256 long key"
   );
 });

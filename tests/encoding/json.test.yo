@@ -267,19 +267,19 @@ test("json.stringify object", {
 test("json roundtrip simple object", {
   input := "{\"name\":\"test\",\"value\":42}";
   parsed := json.parse(input).unwrap();
-  output := json.stringify(parsed);
+  output := json.stringify(&parsed);
   assert(output == input, "roundtrip should preserve simple object");
 });
 test("json roundtrip nested", {
   input := "{\"a\":[1,2,3],\"b\":{\"c\":true}}";
   parsed := json.parse(input).unwrap();
-  output := json.stringify(parsed);
+  output := json.stringify(&parsed);
   assert(output == input, "roundtrip should preserve nested structure");
 });
 test("json roundtrip booleans and null", {
   input := "[true,false,null]";
   parsed := json.parse(input).unwrap();
-  output := json.stringify(parsed);
+  output := json.stringify(&parsed);
   assert(output == input, "roundtrip should preserve booleans and null");
 });
 // ===== JsonValue Methods =====
@@ -320,7 +320,7 @@ impl(
       xv := match(
         v.get(`x`),
         .Some(j) => match(
-          i32.from_json(j),
+          i32.from_json(&j),
           .Ok(n) => n,
           .Err(e) => {
             return(.Err(e));
@@ -333,7 +333,7 @@ impl(
       yv := match(
         v.get(`y`),
         .Some(j2) => match(
-          i32.from_json(j2),
+          i32.from_json(&j2),
           .Ok(n2) => n2,
           .Err(e2) => {
             return(.Err(e2));
@@ -379,8 +379,8 @@ test("json.decode integer errors", {
 test("json Option roundtrip", {
   (some_v : Option(i32)) = Option(i32).Some(i32(7));
   (none_v : Option(i32)) = Option(i32).None;
-  assert(json.encode(some_v) == "7", "Some encodes as payload");
-  assert(json.encode(none_v) == "null", "None encodes as null");
+  assert(json.encode(&some_v) == "7", "Some encodes as payload");
+  assert(json.encode(&none_v) == "null", "None encodes as null");
   match(
     json.decode(Option(i32), `null`),
     .Ok(o) => assert(o.is_none(), "null decodes to None"),
@@ -401,7 +401,7 @@ test("json ArrayList roundtrip", {
   list.push(i32(1));
   list.push(i32(2));
   list.push(i32(3));
-  assert(json.encode(list) == "[1,2,3]", "list encode");
+  assert(json.encode(&list) == "[1,2,3]", "list encode");
   match(
     json.decode(ArrayList(i32), `[1,2,3]`),
     .Ok(back) => {
@@ -416,7 +416,7 @@ test("json ArrayList roundtrip", {
 test("json HashMap roundtrip", {
   m := HashMap(String, i32).new();
   m.insert(`a`, i32(1));
-  assert(json.encode(m) == "{\"a\":1}", "single-key map encode");
+  assert(json.encode(&m) == "{\"a\":1}", "single-key map encode");
   match(
     json.decode(HashMap(String, i32), `{"a":1,"b":2}`),
     .Ok(back) => {
@@ -429,10 +429,10 @@ test("json HashMap roundtrip", {
 });
 test("json custom struct roundtrip", {
   p := _TPoint(x : i32(3), y : i32(-4));
-  encoded := json.encode(p);
+  encoded := json.encode(&p);
   assert(encoded == "{\"x\":3,\"y\":-4}", "struct encode shape");
   match(
-    json.decode(_TPoint, encoded),
+    json.decode(_TPoint, &encoded),
     .Ok(back) => {
       assert(back.x == i32(3), "x roundtrip");
       assert(back.y == i32(-4), "y roundtrip");
@@ -459,10 +459,10 @@ derive(_DOuter, ToJson(_DOuter));
 derive(_DOuter, FromJson(_DOuter));
 test("derived struct roundtrip", {
   v := _DInner(a : i32(7), b : `seven`);
-  s := json.encode(v);
+  s := json.encode(&v);
   assert(s == "{\"a\":7,\"b\":\"seven\"}", "derived encode shape");
   match(
-    json.decode(_DInner, s),
+    json.decode(_DInner, &s),
     .Ok(back) => {
       assert(back.a == i32(7), "a roundtrip");
       assert(back.b == "seven", "b roundtrip");
@@ -472,10 +472,10 @@ test("derived struct roundtrip", {
 });
 test("derived nested struct roundtrip", {
   o := _DOuter(name : `outer`, inner : _DInner(a : i32(1), b : `one`), flag : true);
-  s := json.encode(o);
+  s := json.encode(&o);
   assert(s == "{\"name\":\"outer\",\"inner\":{\"a\":1,\"b\":\"one\"},\"flag\":true}", "nested encode shape");
   match(
-    json.decode(_DOuter, s),
+    json.decode(_DOuter, &s),
     .Ok(back) => {
       assert(back.name == "outer", "name roundtrip");
       assert(back.inner.a == i32(1), "nested a roundtrip");
@@ -513,9 +513,9 @@ test("derived roundtrip with Option and ArrayList fields", {
   xs.push(i32(1));
   xs.push(i32(2));
   v := _DGeneric(tag : Option(i32).Some(i32(5)), items : xs, name : `g`);
-  s := json.encode(v);
+  s := json.encode(&v);
   match(
-    json.decode(_DGeneric, s),
+    json.decode(_DGeneric, &s),
     .Ok(back) => {
       assert(back.tag.is_some(), "Option field roundtrips as Some");
       assert(back.tag.unwrap_or(i32(0)) == i32(5), "Option payload roundtrips");
@@ -529,7 +529,7 @@ test("derived roundtrip with a None Option field", {
   ys := ArrayList(i32).new();
   v := _DGeneric(tag : Option(i32).None, items : ys, name : `n`);
   match(
-    json.decode(_DGeneric, json.encode(v)),
+    json.decode(_DGeneric, json.encode(&v)),
     .Ok(back) => assert(back.tag.is_none(), "None roundtrips as None"),
     .Err(_) => assert(false, "decode should succeed for a None field")
   );
@@ -569,7 +569,7 @@ test("json.parse throws on content after the value, and names the position", {
 test("JsonValue Default is null", {
   v := JsonValue.default();
   assert(match(v, .Null => true, _ => false), "default JsonValue is .Null");
-  assert(json.stringify(v) == `null`, "the default value stringifies as null");
+  assert(json.stringify(&v) == `null`, "the default value stringifies as null");
 });
 test("JsonValue variant predicates", {
   n := JsonValue.Null;
@@ -601,17 +601,17 @@ test("JsonValue object mutation: insert replaces in place, remove keeps order", 
   assert(o.insert(`b`, JsonValue.Number(f64(2.0))).is_none(), "b is new");
   prev := o.insert(`a`, JsonValue.Number(f64(3.0)));
   assert(prev.unwrap().as_f64().unwrap() == f64(1.0), "insert returns the replaced value");
-  assert(json.stringify(o) == `{"a":3,"b":2}`, "a keeps its original position");
+  assert(json.stringify(&o) == `{"a":3,"b":2}`, "a keeps its original position");
   gone := o.remove(`a`);
   assert(gone.unwrap().as_f64().unwrap() == f64(3.0), "remove returns the value");
   assert(o.remove(`a`).is_none(), "removing twice is None");
-  assert(json.stringify(o) == `{"b":2}`, "the survivor keeps its order");
+  assert(json.stringify(&o) == `{"b":2}`, "the survivor keeps its order");
 });
 test("JsonValue array mutation", {
   a := JsonValue.array();
   a.push(JsonValue.Number(f64(1.0)));
   a.push(JsonValue.Str(`two`));
-  assert(json.stringify(a) == `[1,"two"]`, "push appends");
+  assert(json.stringify(&a) == `[1,"two"]`, "push appends");
   assert(a.at(usize(1)).unwrap().as_string().unwrap() == `two`, "at reads back");
 });
 test("JsonValue.pointer resolves RFC 6901 paths", {
@@ -646,8 +646,8 @@ test("JsonValue Clone makes an independent tree", {
   b := a.clone();
   assert(a == b, "the clone starts equal");
   b.pointer(`/xs`).unwrap().push(JsonValue.Number(f64(2.0)));
-  assert(json.stringify(a) == `{"xs":[1]}`, "the original is untouched");
-  assert(json.stringify(b) == `{"xs":[1,2]}`, "the clone grew");
+  assert(json.stringify(&a) == `{"xs":[1]}`, "the original is untouched");
+  assert(json.stringify(&b) == `{"xs":[1,2]}`, "the clone grew");
 });
 test("JsonValue ToString is the compact JSON text", {
   v := json.parse("{\"a\": [1, 2]}").unwrap();
@@ -670,16 +670,16 @@ test("an integer literal parses as Int, a fractional one as Number", {
 test("an Int renders in decimal, never through %g", {
   // %g would print 10000000 as "1e+07", which is not a round-trippable integer.
   v := json.parse("10000000").unwrap();
-  assert(json.stringify(v) == "10000000", `10000000 must render exactly, got ${json.stringify(v)}`);
+  assert(json.stringify(&v) == "10000000", `10000000 must render exactly, got ${json.stringify(&v)}`);
   neg := json.parse("-42").unwrap();
-  assert(json.stringify(neg) == "-42", `-42 must render exactly, got ${json.stringify(neg)}`);
+  assert(json.stringify(&neg) == "-42", `-42 must render exactly, got ${json.stringify(&neg)}`);
 });
 test("an integer beyond 2^53 survives exactly — the reason the arm exists", {
   // As an f64 this value is indistinguishable from 2^53; as an Int it is exact.
   v := json.parse("9007199254740993").unwrap();
   assert(match(v, .Int(_) => true, _ => false), "2^53+1 must take the Int arm");
   assert(v.as_i64().unwrap() == i64(9007199254740993), "as_i64 must be exact above 2^53");
-  assert(json.stringify(v) == "9007199254740993", `must round-trip exactly, got ${json.stringify(v)}`);
+  assert(json.stringify(&v) == "9007199254740993", `must round-trip exactly, got ${json.stringify(&v)}`);
 });
 test("both arms are numbers, and Int widens to f64", {
   a := json.parse("42").unwrap();
@@ -694,7 +694,7 @@ test("both arms are numbers, and Int widens to f64", {
 test("integer ToJson emits Int, so a round trip is stable", {
   v := i32(7).to_json();
   assert(match(v, .Int(_) => true, _ => false), "i32.to_json must emit Int");
-  assert(json.stringify(v) == "7", `must render as 7, got ${json.stringify(v)}`);
+  assert(json.stringify(&v) == "7", `must render as 7, got ${json.stringify(&v)}`);
   // FromJson still accepts both arms.
   back := i32.from_json(json.parse("7").unwrap()).unwrap();
   assert(back == i32(7), "i32 decodes from an Int");
@@ -721,6 +721,6 @@ test("json.stringify escapes every control byte", {
     assert(out.byte_at(i) >= u8(32), "no raw control byte in the output");
     i = (i + usize(1));
   });
-  back := json.parse_string(out).unwrap();
+  back := json.parse_string(&out).unwrap();
   assert(match(back, .Str(v) => (v == s), _ => false), "the escapes round-trip");
 });

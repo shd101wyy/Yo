@@ -315,15 +315,15 @@ test("RwLock with pool tasks concurrent reads", {
   seen := AtomicI32(i32(0));
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(pool, io => {
+  spawn(&pool, io => {
     seen.fetch_add(lock.with_read(v => v), MemoryOrder.AcqRel);
     wg.done();
   });
-  spawn(pool, io => {
+  spawn(&pool, io => {
     seen.fetch_add(lock.with_read(v => v), MemoryOrder.AcqRel);
     wg.done();
   });
-  spawn(pool, io => {
+  spawn(&pool, io => {
     seen.fetch_add(lock.with_read(v => v), MemoryOrder.AcqRel);
     wg.done();
   });
@@ -336,7 +336,7 @@ test("RwLock with pool tasks write then read", {
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  spawn(pool, io => {
+  spawn(&pool, io => {
     lock.with_write(v => {
       v = i32(77);
       v

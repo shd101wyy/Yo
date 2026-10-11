@@ -1162,7 +1162,7 @@ test("append drains the other list", {
   b := ArrayList(i32).new();
   b.push(i32(2));
   b.push(i32(3));
-  a.append(b);
+  a.append(&mut b);
   assert(a.len() == usize(3), "receiver grew by the whole other list");
   assert((a(usize(1)) == i32(2)) && (a(usize(2)) == i32(3)), "elements moved in order");
   assert(b.is_empty() == true, "the source is left empty");
@@ -1188,21 +1188,21 @@ test("starts_with / ends_with compare element runs", {
   p := ArrayList(i32).new();
   p.push(i32(1));
   p.push(i32(2));
-  assert(l.starts_with(p) == true, "prefix matches");
-  assert(l.ends_with(p) == false, "not a suffix");
+  assert(l.starts_with(&p) == true, "prefix matches");
+  assert(l.ends_with(&p) == false, "not a suffix");
   q := ArrayList(i32).new();
   q.push(i32(2));
   q.push(i32(3));
-  assert(l.ends_with(q) == true, "suffix matches");
+  assert(l.ends_with(&q) == true, "suffix matches");
   empty := ArrayList(i32).new();
-  assert(l.starts_with(empty) == true, "every list starts with the empty one");
-  assert(l.ends_with(empty) == true, "and ends with it");
+  assert(l.starts_with(&empty) == true, "every list starts with the empty one");
+  assert(l.ends_with(&empty) == true, "and ends with it");
   bigger := ArrayList(i32).new();
   bigger.push(i32(1));
   bigger.push(i32(2));
   bigger.push(i32(3));
   bigger.push(i32(4));
-  assert(l.starts_with(bigger) == false, "a longer prefix cannot match");
+  assert(l.starts_with(&bigger) == false, "a longer prefix cannot match");
 });
 // ===== resize / fill =====
 test("resize grows with copies of the value and shrinks by dropping the tail", {

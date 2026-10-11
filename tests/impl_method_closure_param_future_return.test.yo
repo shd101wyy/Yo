@@ -51,13 +51,13 @@ impl(
   new : (fn(value : &T) -> Self)(Self(_value : value)),
   apply_async_t : (fn(self : &Self, body : &Impl(Fn(v : &mut T) -> T), io : Io) -> Impl(Future(T)))(
     io.async((io : Io) => {
-      r := body(self._value);
+      r := body(&mut self._value);
       return(r);
     })
   ),
   apply_async_r : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &mut T) -> R), io : Io) -> Impl(Future(R)))(
     io.async((io : Io) => {
-      r := body(self._value);
+      r := body(&mut self._value);
       return(r);
     })
   )

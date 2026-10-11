@@ -170,7 +170,7 @@ _iso_function_offense :: (
     match(
       children.get(ci),
       .Some(ct) => match(
-        _iso_function_offense(ct, send, seen, env, ctx),
+        _iso_function_offense(&ct, send, seen, env, ctx),
         .Some(o) => {
           return(Option(String).Some(o));
         },
@@ -222,29 +222,29 @@ evaluate_iso_type_call :: (
       return(expr);
     }
   );
-  evaluated_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
-  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+  evaluated_arg := evaluate_expression_raw(&arg_expr, &env, ctx, exn);
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   if(arg_info_opt.is_none(), {
     exn.throw(
       dyn(
         format_eval_failure(
-          ast_expr_token(arg_expr),
+          ast_expr_token(&arg_expr),
           `Failed to evaluate the argument expression for Iso`
         )
       )
     );
   });
-  arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, TypeValue.Unit));
+  arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, TypeValue.Unit));
   env.frames = arg_info.env.frames;
   env.module_path = arg_info.env.module_path;
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
   env.input_string = arg_info.env.input_string;
   // Check that the argument is a type value.
-  if(!is_type_value(arg_info.value), {
+  if(!is_type_value(&arg_info.value), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(arg_expr),
+          ast_expr_token(&arg_expr),
           `Iso expects a type as argument`
         )
       )
@@ -261,7 +261,7 @@ evaluate_iso_type_call :: (
   // Phase H: Ban Iso(Arc(T)) — Iso's uniqueness is about the Iso wrapper's
   // rc, not the inner Arc cell. After extract() you get the Arc back; Iso adds
   // nothing over naked Arc + move-on-spawn.
-  if(is_atomic_reference_struct_type(child_type) && _struct_has_deref_field(child_type), {
+  if(is_atomic_reference_struct_type(&child_type) && _struct_has_deref_field(&child_type), {
     exn.throw(
       dyn(
         format_error_message(
@@ -285,8 +285,8 @@ evaluate_iso_type_call :: (
   // `atomic_int` SomeT, and the SomeT-free test let any graph holding an
   // atomic skip D2 and D9 entirely
   // (issues/fixed/an-atomic-field-exempts-an-iso-graph-from-rule-d9.md).
-  if(type_has_no_open_some(child_type), {
-    if(is_iso_type(child_type), {
+  if(type_has_no_open_some(&child_type), {
+    if(is_iso_type(&child_type), {
       exn.throw(
         dyn(
           format_error_message(
@@ -298,15 +298,15 @@ evaluate_iso_type_call :: (
     });
     // Rule D9: every function value the isolated graph can hold is Send.
     match(
-      get_trait_type_from_env(env, String.from("Send")),
+      get_trait_type_from_env(&env, String.from("Send")),
       .Some(iso_send) => match(
-        _iso_function_offense(child_type, iso_send, ArrayList(String).new(), env, ctx),
+        _iso_function_offense(&child_type, &iso_send, ArrayList(String).new(), &env, ctx),
         .Some(iso_fo) => {
           exn.throw(
             dyn(
               format_error_message(
                 ast_expr_token(expr),
-                `Iso(${type_to_string(child_type)}) is not allowed: ${iso_fo}. Isolation proves the graph is uniquely owned; it does not make the code a function in it runs safe on another thread.`
+                `Iso(${type_to_string(&child_type)}) is not allowed: ${iso_fo}. Isolation proves the graph is uniquely owned; it does not make the code a function in it runs safe on another thread.`
               )
             )
           );
@@ -319,15 +319,15 @@ evaluate_iso_type_call :: (
     // (plans/VALUES_BY_DEFAULT.md §3.6): a non-atomic object, or a value
     // (struct, enum, tuple, array) holding one inline. The Iso holds an
     // object by its handle and a value inline.
-    child_is_atomic := (is_atomic_reference_struct_type(child_type) || is_atomic_reference_enum_type(child_type));
-    if(child_is_atomic || !type_reaches_non_atomic_cell(child_type), {
+    child_is_atomic := (is_atomic_reference_struct_type(&child_type) || is_atomic_reference_enum_type(&child_type));
+    if(child_is_atomic || !type_reaches_non_atomic_cell(&child_type), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(expr),
             cond(
-              child_is_atomic => `Iso(${type_to_string(child_type)}) is not allowed: an atomic object is already shared safely across threads (it is Sync) — send it directly.`,
-              true => `Iso(${type_to_string(child_type)}) is not allowed: Iso isolates a value that reaches a non-atomic cell (a ref struct or ref enum — ArrayList, HashMap, Rc, a user ref(struct) — or a value holding one) so it can move to one other thread, and ${type_to_string(child_type)} reaches none. Such a value is moved as it is — pass it directly.`
+              child_is_atomic => `Iso(${type_to_string(&child_type)}) is not allowed: an atomic object is already shared safely across threads (it is Sync) — send it directly.`,
+              true => `Iso(${type_to_string(&child_type)}) is not allowed: Iso isolates a value that reaches a non-atomic cell (a ref struct or ref enum — ArrayList, HashMap, Rc, a user ref(struct) — or a value holding one) so it can move to one other thread, and ${type_to_string(&child_type)} reaches none. Such a value is moved as it is — pass it directly.`
             )
           )
         )
@@ -335,14 +335,14 @@ evaluate_iso_type_call :: (
     });
   });
   // Create the Iso type.
-  iso_type := t_iso(child_type);
+  iso_type := t_iso(&child_type);
   // Phase 2bd deferred: addRcFunctionsToIsoType — generates atomic dispose/drop/dup
   // for the Iso type. Not yet implemented (same status as addRcFunctionsToDynType).
   // Store result.
-  type_val := create_type_value(iso_type);
-  out_info := new_expr_info(env, t_type());
+  type_val := create_type_value(&iso_type);
+  out_info := new_expr_info(&env, t_type());
   out_info.value = .Some(type_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 /// Join an ArrayList(String) with a separator into a single String.
@@ -464,22 +464,22 @@ evaluate_iso_value_call :: (
   saved_expected := ctx.expected_type;
   ctx.expected_type = .Some(ExpectedTypeCtx(ty : iso_child_type, env : env));
   evaluated_arg_gout := ArrayList(AstExpr).new();
-  evaluated_arg_gerr := evaluate_expression_guarded(arg_expr, env, ctx, evaluated_arg_gout);
+  evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, &env, ctx, &mut evaluated_arg_gout);
   ctx.expected_type = saved_expected;
-  match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
+  match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(&evaluated_arg_ge), .None => ());
   evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
-  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   if(arg_info_opt.is_none(), {
     exn.throw(
       dyn(
         format_eval_failure(
-          ast_expr_token(arg_expr),
+          ast_expr_token(&arg_expr),
           `Failed to evaluate argument for Iso value constructor`
         )
       )
     );
   });
-  arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, TypeValue.Unit));
+  arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, TypeValue.Unit));
   env.frames = arg_info.env.frames;
   env.module_path = arg_info.env.module_path;
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
@@ -488,7 +488,7 @@ evaluate_iso_value_call :: (
   match(
     arg_info.variable_name,
     .Some(var_name) => {
-      variables := get_variables_from_env(env, var_name);
+      variables := get_variables_from_env(&env, &var_name);
       n_vars := variables.len();
       if(n_vars > usize(0), {
         variable := match(
@@ -499,7 +499,7 @@ evaluate_iso_value_call :: (
               dyn(
                 with_code(
                   format_error_message(
-                    ast_expr_token(arg_expr),
+                    ast_expr_token(&arg_expr),
                     `Variable "${var_name}" not found.`
                   ),
                   E_VARIABLE_NOT_FOUND
@@ -510,11 +510,11 @@ evaluate_iso_value_call :: (
           }
         );
         // Check if the type may form RC cycles.
-        if(can_type_form_rc_cycle(variable.ty), {
+        if(can_type_form_rc_cycle(&variable.ty), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(arg_expr),
+                ast_expr_token(&arg_expr),
                 `Cannot isolate variable ${var_name} because its type may form RC cycles.`
               )
             )
@@ -525,7 +525,7 @@ evaluate_iso_value_call :: (
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(arg_expr),
+                ast_expr_token(&arg_expr),
                 `Cannot isolate variable ${var_name} because it does not own its RC value.`
               )
             )
@@ -534,14 +534,14 @@ evaluate_iso_value_call :: (
         // Check for aliases: look for variables whose is_owning_the_same_rc_value_as
         // points to this variable's id.
         var_id := variable.id.to_string();
-        alias_names := _find_rc_aliases(env, var_id);
+        alias_names := _find_rc_aliases(&env, &var_id);
         if(alias_names.len() > usize(0), {
           // Build comma-separated list.
-          alias_list := _join_strings(alias_names, String.from(", "));
+          alias_list := _join_strings(&alias_names, String.from(", "));
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(arg_expr),
+                ast_expr_token(&arg_expr),
                 `Cannot isolate ${var_name}, also owned by: ${alias_list}\nIso requires unique ownership (no aliases). Drop other aliases first.`
               )
             )
@@ -552,7 +552,7 @@ evaluate_iso_value_call :: (
           dyn(
             with_code(
               format_error_message(
-                ast_expr_token(arg_expr),
+                ast_expr_token(&arg_expr),
                 `Variable "${var_name}" not found.`
               ),
               E_VARIABLE_NOT_FOUND
@@ -567,16 +567,16 @@ evaluate_iso_value_call :: (
   match(
     arg_info.variable_name,
     .Some(var_name) => {
-      is_type_val := is_type_value(arg_info.value);
-      set_variable_as_consumed(var_name, ast_expr_token(arg_expr), env, false, is_type_val, exn);
+      is_type_val := is_type_value(&arg_info.value);
+      set_variable_as_consumed(&var_name, ast_expr_token(&arg_expr), &env, false, is_type_val, exn);
     },
     .None => ()
   );
   // Wrap result in iso_type — value is runtime only (no comptime value).
-  out_info := new_expr_info(env, iso_type);
+  out_info := new_expr_info(&env, iso_type);
   out_info.value = .None;
   out_info.path_collection = arg_info.path_collection;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   attach_temp_variable_to_expr(expr, true, ctx);
   expr
 });

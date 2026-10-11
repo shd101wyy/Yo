@@ -318,12 +318,12 @@ test("range bounds need not be present in the map", {
     });
     n
   });
-  assert(count(m, i32(15), i32(25)) == usize(1), "absent bounds pick the enclosed key");
-  assert(count(m, i32(0), i32(100)) == usize(3), "a window past both ends holds everything");
-  assert(count(m, i32(11), i32(19)) == usize(0), "a window between keys is empty");
-  assert(count(m, i32(25), i32(15)) == usize(0), "an inverted window yields nothing");
-  assert(count(m, i32(10), i32(10)) == usize(0), "an empty window yields nothing");
-  assert(count(m, i32(30), i32(31)) == usize(1), "the last key is reachable");
+  assert(count(&m, i32(15), i32(25)) == usize(1), "absent bounds pick the enclosed key");
+  assert(count(&m, i32(0), i32(100)) == usize(3), "a window past both ends holds everything");
+  assert(count(&m, i32(11), i32(19)) == usize(0), "a window between keys is empty");
+  assert(count(&m, i32(25), i32(15)) == usize(0), "an inverted window yields nothing");
+  assert(count(&m, i32(10), i32(10)) == usize(0), "an empty window yields nothing");
+  assert(count(&m, i32(30), i32(31)) == usize(1), "the last key is reachable");
 });
 test("adjacent ranges partition without overlap", {
   m := BTreeMap(i32, i32).new();
@@ -347,8 +347,8 @@ test("adjacent ranges partition without overlap", {
     });
     out
   });
-  a := drain(m, i32(0), i32(3));
-  b := drain(m, i32(3), i32(6));
+  a := drain(&m, i32(0), i32(3));
+  b := drain(&m, i32(3), i32(6));
   assert((a.len() + b.len()) == usize(6), "the two halves cover every key exactly once");
   assert(a(a.len() - usize(1)) == i32(2), "the first half stops below the split");
   assert(b(usize(0)) == i32(3), "the second half starts at it");

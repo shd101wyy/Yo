@@ -94,7 +94,7 @@ evaluate_tuple_element_value :: (
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(lhs_expr),
+          ast_expr_token(&lhs_expr),
           String.from("Labelled field is not allowed in tuple value.")
         )
       )
@@ -105,7 +105,7 @@ evaluate_tuple_element_value :: (
   match(
     ctx.expected_type,
     .Some(et) => cond(
-      is_tuple_type(et.ty) => {
+      is_tuple_type(&et.ty) => {
         match(
           et.ty,
           .Tuple(_, types) => {
@@ -120,7 +120,7 @@ evaluate_tuple_element_value :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(expr),
-                      `Incompatible types: the tuple has more fields than the expected ${type_to_string(et.ty)}.`
+                      `Incompatible types: the tuple has more fields than the expected ${type_to_string(&et.ty)}.`
                     )
                   )
                 );
@@ -133,7 +133,7 @@ evaluate_tuple_element_value :: (
         ();
       },
       true => {
-        ty_str := type_to_string(et.ty);
+        ty_str := type_to_string(&et.ty);
         exn.throw(
           dyn(
             format_error_message(
@@ -154,16 +154,16 @@ evaluate_tuple_element_value :: (
     .None => Option(ExpectedTypeCtx).None
   );
   evaluated_rhs_gout := ArrayList(AstExpr).new();
-  evaluated_rhs_gerr := evaluate_expression_guarded(expr, env, ctx, evaluated_rhs_gout);
+  evaluated_rhs_gerr := evaluate_expression_guarded(expr, &env, ctx, &mut evaluated_rhs_gout);
   ctx.expected_type = saved_expected;
-  match(evaluated_rhs_gerr, .Some(evaluated_rhs_ge) => exn.throw(evaluated_rhs_ge), .None => ());
+  match(evaluated_rhs_gerr, .Some(evaluated_rhs_ge) => exn.throw(&evaluated_rhs_ge), .None => ());
   evaluated_rhs := match(evaluated_rhs_gout.get(usize(0)), .Some(evaluated_rhs_g) => evaluated_rhs_g, .None => make_err_expr());
   // Mark the field value copy-semantics: a named RC value moved into the
   // tuple literal gets a deferred `___dup` (without it the literal aliased
   // the element's refcount and scope-end drops over-released, rc layer 4).
-  set_expr_as_needs_to_call_dup(evaluated_rhs, ctx, exn, "field-store");
+  set_expr_as_needs_to_call_dup(&evaluated_rhs, ctx, exn, "field-store");
   // Look up the resulting ExprInfo for the rhs.
-  rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_rhs));
+  rhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs));
   rhs_info := match(
     rhs_info_opt,
     .Some(info) => info,
@@ -176,7 +176,7 @@ evaluate_tuple_element_value :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.Unit) // unreachable
+      new_expr_info(&env, TypeValue.Unit) // unreachable
     }
   );
   env.frames = rhs_info.env.frames;
@@ -184,7 +184,7 @@ evaluate_tuple_element_value :: (
   env.function_declaration_frame_level = rhs_info.env.function_declaration_frame_level;
   env.input_string = rhs_info.env.input_string;
   // Reject `type` values stored as tuple elements.
-  if(is_type_value(rhs_info.value), {
+  if(is_type_value(&rhs_info.value), {
     exn.throw(
       dyn(
         format_error_message(
@@ -198,10 +198,10 @@ evaluate_tuple_element_value :: (
   child_type := match(
     expected_field_type_opt,
     .Some(et) => cond(
-      is_comptime_only_type_local(et) => rhs_info.ty,
-      true => convert_comptime_type_to_runtime_type(rhs_info.ty, env)
+      is_comptime_only_type_local(&et) => rhs_info.ty,
+      true => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
     ),
-    .None => convert_comptime_type_to_runtime_type(rhs_info.ty, env)
+    .None => convert_comptime_type_to_runtime_type(&rhs_info.ty, &env)
   );
   runtime_arg_exprs_in_order.push(evaluated_rhs);
   EvalTupleElementResult(
@@ -229,11 +229,11 @@ evaluate_tuple_elements_value :: (
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
     result := evaluate_tuple_element_value(
-      arg,
+      &arg,
       i,
-      env,
+      &env,
       ctx,
-      runtime_arg_exprs_in_order,
+      &mut runtime_arg_exprs_in_order,
       exn
     );
     field_labels.push(i.to_string());
@@ -277,10 +277,10 @@ evaluate_tuple_value :: (
   if(args.len() == usize(0), {
     info := new_expr_info(env, TypeValue.Unit);
     info.value = Option(EvalValue).Some(EvalValue.UnitVal);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
-  result := evaluate_tuple_elements_value(args, env, ctx, exn);
+  result := evaluate_tuple_elements_value(&args, env, ctx, exn);
   // Build the resulting tuple type and (if all elements known) tuple value.
   tuple_ty := TypeValue.Tuple(result.field_labels, result.field_types);
   (all_known : bool) = true;
@@ -295,7 +295,7 @@ evaluate_tuple_value :: (
         // `(ArrayList(i32).new(), i32(42))` at module level) carries a
         // TupleVal with an UnknownVal hole, and codegen's comptime short-cut
         // emits `._0 = /* skip generating value */` — invalid C.
-        .Some(kv) => if(is_unknown_val(kv), {
+        .Some(kv) => if(is_unknown_val(&kv), {
           all_known = false;
         }),
         .None => {
@@ -326,10 +326,10 @@ evaluate_tuple_value :: (
     });
     tuple_value_opt = Option(EvalValue).Some(EvalValue.TupleVal(val_list));
   });
-  info := new_expr_info(result.env, tuple_ty);
+  info := new_expr_info(&result.env, &tuple_ty);
   info.value = tuple_value_opt;
   info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(result.runtime_arg_exprs_in_order);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   // A RUNTIME tuple literal needs a temp to materialize into, exactly as the
   // array-literal path does (values/array.yo) — the former no-op stub here is
   // why a tuple passed straight to a call leaked one reference per RC-typed

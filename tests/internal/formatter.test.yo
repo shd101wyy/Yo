@@ -158,7 +158,7 @@ test("format_yo_source: fixture corpus from formatter.test.ts", {
   );
   ioexn := IoExn(io : io, exn : exn);
   dir := String.from("tests/internal/formatter_fixtures");
-  entries := io.await(fs_dir.read_dir(Path.new(dir.clone()), io), ioexn);
+  entries := io.await(fs_dir.read_dir(Path.new(dir.clone()), io), &ioexn);
   (checked : usize) = usize(0);
   (failed : usize) = usize(0);
   (i : usize) = usize(0);
@@ -167,9 +167,9 @@ test("format_yo_source: fixture corpus from formatter.test.ts", {
       entries.get(i),
       .Some(e) => if(e.name.ends_with(`.input`), {
         base := e.name.substring(usize(0), e.name.len() - usize(6));
-        input := io.await(fs_file.read_to_string(Path.new(`${dir}/${base}.input`), io), ioexn);
-        expected := io.await(fs_file.read_to_string(Path.new(`${dir}/${base}.expected`), io), ioexn);
-        got := _fmt(input);
+        input := io.await(fs_file.read_to_string(Path.new(`${dir}/${base}.input`), io), &ioexn);
+        expected := io.await(fs_file.read_to_string(Path.new(`${dir}/${base}.expected`), io), &ioexn);
+        got := _fmt(&input);
         if(got != expected, {
           println(`  FIXTURE FAILED: ${base}`);
           failed = (failed + usize(1));
@@ -198,16 +198,16 @@ test("format_yo_source: a template string AFTER a multibyte character survives",
   // The em dash below is what makes this test discriminating; the same source
   // with an ASCII hyphen passes under a broken conversion.
   src := String.from("//! doc — with an em dash\nf :: (fn(x : String) -> String)(`v=${x}`);\nexport(f);\n");
-  out := _fmt(src);
+  out := _fmt(&src);
   assert(out.contains(String.from("`v=${x}`")), "the template literal is intact");
   assert(!out.contains(String.from("`v=${x}`;\n`")), "no duplicated tail");
-  assert(_fmt(out) == out, "and formatting is idempotent");
+  assert(_fmt(&out) == out, "and formatting is idempotent");
 });
 test("format_yo_source: multibyte content inside a template string is preserved", {
   src := String.from("g :: (fn() -> String)(`名前 → ${String.new()}`);\nexport(g);\n");
-  out := _fmt(src);
+  out := _fmt(&src);
   assert(out.contains(String.from("名前 → ${String.new()}")), "multibyte body intact");
-  assert(_fmt(out) == out, "idempotent");
+  assert(_fmt(&out) == out, "idempotent");
 });
 test("format_yo_source: refuses a changed rendering of source the parser rejects", {
   // issues/fixed/fmt-reformats-parse-invalid-files.md — the renderer is token-level,
@@ -564,7 +564,7 @@ test("collect_yo_files skips dot-prefixed files in a directory walk", {
     )
   );
   files := ArrayList(String).new();
-  collect_yo_files(Path.new(String.from("tests/internal/formatter_fixtures")), files, io, exn);
+  collect_yo_files(Path.new(String.from("tests/internal/formatter_fixtures")), &mut files, io, exn);
   (saw_dot_file : bool) = false;
   (i : usize) = usize(0);
   while(i < files.len(), {
@@ -578,7 +578,7 @@ test("collect_yo_files skips dot-prefixed files in a directory walk", {
   direct := ArrayList(String).new();
   collect_yo_files(
     Path.new(String.from("tests/internal/formatter_fixtures/.fmt_walk_ignored.yo")),
-    direct,
+    &mut direct,
     io,
     exn
   );
@@ -598,12 +598,12 @@ _fences :: (fn(src : &String, in_comment : bool) -> String)({
 });
 test("format_yo_fences: a ```yo block in Markdown is formatted", {
   src := String.from("# T\n\n```yo\nf :: (fn(a : i32) -> i32)((a + a));\nx := f(i32(1));   // aligned\n```\n");
-  out := _fences(src, false);
+  out := _fences(&src, false);
   assert(out == "# T\n\n```yo\nf :: (fn(a : i32) -> i32)(a + a);\nx := f(i32(1)); // aligned\n```\n", `got:\n${out}`);
 });
 test("format_yo_fences: a block indented in a list item keeps its indent", {
   src := String.from("- item:\n\n  ```yo\n  g :: (fn(a : i32) -> i32)((a));\n  ```\n");
-  out := _fences(src, false);
+  out := _fences(&src, false);
   assert(out == "- item:\n\n  ```yo\n  g :: (fn(a : i32) -> i32)(a);\n  ```\n", `got:\n${out}`);
 });
 test("format_yo_fences: ```yo ignore and other languages are left as written", {
@@ -612,7 +612,7 @@ test("format_yo_fences: ```yo ignore and other languages are left as written", {
 });
 test("format_yo_fences: a ```yo block in a doc comment is formatted", {
   src := String.from("/// Doc.\n///\n/// ```yo\n/// x := f(i32(1));   // aligned\n/// ```\nf :: (fn() -> i32)(i32(1));\n");
-  out := _fences(src, true);
+  out := _fences(&src, true);
   assert(out == "/// Doc.\n///\n/// ```yo\n/// x := f(i32(1)); // aligned\n/// ```\nf :: (fn() -> i32)(i32(1));\n", `got:\n${out}`);
 });
 // Decision 42 (plans/VALUES_BY_DEFAULT.md): the sigil spelling is canonical

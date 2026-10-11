@@ -75,12 +75,12 @@ test("is_file returns true for a regular file", {
     )
   );
   tmp := temp_dir();
-  fpath := Path.new(path_join(tmp, `yo_fs_conv_is_file.txt`));
-  io.await(fs_file.write_string(fpath, String.from("hello"), io), IoExn(io : io, exn : exn));
-  r := io.await(fs_file.is_file(fpath, io), io);
+  fpath := Path.new(path_join(&tmp, `yo_fs_conv_is_file.txt`));
+  io.await(fs_file.write_string(&fpath, String.from("hello"), io), IoExn(io : io, exn : exn));
+  r := io.await(fs_file.is_file(&fpath, io), io);
   unsafe(printf("  is_file = %d\n", cond(r => i32(1), true => i32(0))));
   assert(r, "should be a file");
-  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(&fpath, io), IoExn(io : io, exn : exn));
 });
 test("is_file returns false for a directory", {
   exn := Exception(
@@ -92,16 +92,16 @@ test("is_file returns false for a directory", {
     )
   );
   tmp := temp_dir();
-  dpath := Path.new(path_join(tmp, `yo_fs_conv_is_file_dir`));
-  io.await(fs_dir.create_dir(dpath, io), IoExn(io : io, exn : exn));
-  r := io.await(fs_file.is_file(dpath, io), io);
+  dpath := Path.new(path_join(&tmp, `yo_fs_conv_is_file_dir`));
+  io.await(fs_dir.create_dir(&dpath, io), IoExn(io : io, exn : exn));
+  r := io.await(fs_file.is_file(&dpath, io), io);
   unsafe(printf("  is_file on dir = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!r, "directory should not be a file");
-  io.await(fs_dir.remove_dir(dpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_dir(&dpath, io), IoExn(io : io, exn : exn));
 });
 test("is_file returns false for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_no_such_file.txt`);
-  r := io.await(fs_file.is_file(fpath, io), io);
+  r := io.await(fs_file.is_file(&fpath, io), io);
   unsafe(printf("  is_file nonexistent = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!r, "nonexistent path should return false");
 });
@@ -118,12 +118,12 @@ test("is_dir returns true for a directory", {
     )
   );
   tmp := temp_dir();
-  dpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir`));
-  io.await(fs_dir.create_dir(dpath, io), IoExn(io : io, exn : exn));
-  r := io.await(fs_file.is_dir(dpath, io), io);
+  dpath := Path.new(path_join(&tmp, `yo_fs_conv_is_dir`));
+  io.await(fs_dir.create_dir(&dpath, io), IoExn(io : io, exn : exn));
+  r := io.await(fs_file.is_dir(&dpath, io), io);
   unsafe(printf("  is_dir = %d\n", cond(r => i32(1), true => i32(0))));
   assert(r, "should be a directory");
-  io.await(fs_dir.remove_dir(dpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_dir(&dpath, io), IoExn(io : io, exn : exn));
 });
 test("is_dir returns false for a file", {
   exn := Exception(
@@ -135,16 +135,16 @@ test("is_dir returns false for a file", {
     )
   );
   tmp := temp_dir();
-  fpath := Path.new(path_join(tmp, `yo_fs_conv_is_dir_file.txt`));
-  io.await(fs_file.write_string(fpath, String.from("test"), io), IoExn(io : io, exn : exn));
-  r := io.await(fs_file.is_dir(fpath, io), io);
+  fpath := Path.new(path_join(&tmp, `yo_fs_conv_is_dir_file.txt`));
+  io.await(fs_file.write_string(&fpath, String.from("test"), io), IoExn(io : io, exn : exn));
+  r := io.await(fs_file.is_dir(&fpath, io), io);
   unsafe(printf("  is_dir on file = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!r, "file should not be a directory");
-  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(&fpath, io), IoExn(io : io, exn : exn));
 });
 test("is_dir returns false for nonexistent path", {
   dpath := Path.new(`/nonexistent/yo_fs_conv_no_such_dir`);
-  r := io.await(fs_file.is_dir(dpath, io), io);
+  r := io.await(fs_file.is_dir(&dpath, io), io);
   unsafe(printf("  is_dir nonexistent = %d\n", cond(r => i32(1), true => i32(0))));
   assert(!r, "nonexistent path should return false");
 });
@@ -162,13 +162,13 @@ test("canonical resolves a real path", {
     )
   );
   tmp := temp_dir();
-  fpath := Path.new(path_join(tmp, `yo_fs_conv_canonical.txt`));
-  io.await(fs_file.write_string(fpath, String.from("canonical"), io), IoExn(io : io, exn : exn));
-  resolved := io.await(fs_file.canonicalize(fpath, io), IoExn(io : io, exn : exn));
+  fpath := Path.new(path_join(&tmp, `yo_fs_conv_canonical.txt`));
+  io.await(fs_file.write_string(&fpath, String.from("canonical"), io), IoExn(io : io, exn : exn));
+  resolved := io.await(fs_file.canonicalize(&fpath, io), IoExn(io : io, exn : exn));
   resolved_str := resolved.to_string();
   unsafe(printf("  canonical = %s\n", resolved_str.to_cstr().ptr().unwrap()));
   assert(resolved.is_absolute(), "canonical path should be absolute");
-  io.await(fs_dir.remove_file(fpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(&fpath, io), IoExn(io : io, exn : exn));
 });
 test("canonical resolves dot-dot segments", {
   exn := Exception(
@@ -181,24 +181,24 @@ test("canonical resolves dot-dot segments", {
     )
   );
   tmp := temp_dir();
-  dir_path := Path.new(path_join(tmp, `yo_fs_conv_canonical_dir`));
-  sub_path := Path.new(path_join(path_join(tmp, `yo_fs_conv_canonical_dir`), `sub`));
-  file_path := Path.new(path_join(tmp, `yo_fs_conv_canonical_dir/target.txt`));
-  io.await(fs_dir.create_dir(dir_path, io), IoExn(io : io, exn : exn));
-  io.await(fs_dir.create_dir(sub_path, io), IoExn(io : io, exn : exn));
-  io.await(fs_file.write_string(file_path, String.from("data"), io), IoExn(io : io, exn : exn));
+  dir_path := Path.new(path_join(&tmp, `yo_fs_conv_canonical_dir`));
+  sub_path := Path.new(path_join(path_join(&tmp, `yo_fs_conv_canonical_dir`), `sub`));
+  file_path := Path.new(path_join(&tmp, `yo_fs_conv_canonical_dir/target.txt`));
+  io.await(fs_dir.create_dir(&dir_path, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.create_dir(&sub_path, io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(&file_path, String.from("data"), io), IoExn(io : io, exn : exn));
   // Path with .. segment: dir/sub/../target.txt should resolve to dir/target.txt
-  dotdot_path := Path.new(path_join(path_join(path_join(tmp, `yo_fs_conv_canonical_dir`), `sub`), `../target.txt`));
-  resolved := io.await(fs_file.canonicalize(dotdot_path, io), IoExn(io : io, exn : exn));
-  direct := io.await(fs_file.canonicalize(file_path, io), IoExn(io : io, exn : exn));
+  dotdot_path := Path.new(path_join(path_join(path_join(&tmp, `yo_fs_conv_canonical_dir`), `sub`), `../target.txt`));
+  resolved := io.await(fs_file.canonicalize(&dotdot_path, io), IoExn(io : io, exn : exn));
+  direct := io.await(fs_file.canonicalize(&file_path, io), IoExn(io : io, exn : exn));
   resolved_str := resolved.to_string();
   direct_str := direct.to_string();
   unsafe(printf("  dotdot resolved = %s\n", resolved_str.to_cstr().ptr().unwrap()));
   unsafe(printf("  direct resolved  = %s\n", direct_str.to_cstr().ptr().unwrap()));
   assert(resolved_str == direct_str, "dot-dot path should resolve to same as direct");
-  io.await(fs_dir.remove_file(file_path, io), IoExn(io : io, exn : exn));
-  io.await(fs_dir.remove_dir(sub_path, io), IoExn(io : io, exn : exn));
-  io.await(fs_dir.remove_dir(dir_path, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_file(&file_path, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_dir(&sub_path, io), IoExn(io : io, exn : exn));
+  io.await(fs_dir.remove_dir(&dir_path, io), IoExn(io : io, exn : exn));
 });
 test("canonical throws for nonexistent path", {
   fpath := Path.new(`/nonexistent/yo_fs_conv_canonical_missing`);
@@ -210,7 +210,7 @@ test("canonical throws for nonexistent path", {
       }
     )
   );
-  io.await(fs_file.canonicalize(fpath, io), IoExn(io : io, exn : exn));
+  io.await(fs_file.canonicalize(&fpath, io), IoExn(io : io, exn : exn));
   assert(false, "should have thrown");
 });
 
@@ -239,18 +239,18 @@ test("copy copies contents, permission bits and returns the byte count", {
   base := temp_dir();
   src_p := Path.new(path_join(base.clone(), `s3_copy_src.txt`.to_string()));
   dst_p := Path.new(path_join(base.clone(), `s3_copy_dst.txt`.to_string()));
-  io.await(fs_file.write_string(src_p, `copy me, préserve me`.to_string(), io), e);
-  io.await(fs_file.set_permissions(src_p, fs_file.FilePermission(mode : u32(384)), io), e);
-  n := io.await(fs_file.copy(src_p, dst_p, io), e);
+  io.await(fs_file.write_string(&src_p, `copy me, préserve me`.to_string(), io), &e);
+  io.await(fs_file.set_permissions(&src_p, fs_file.FilePermission(mode : u32(384)), io), &e);
+  n := io.await(fs_file.copy(&src_p, &dst_p, io), &e);
   assert(n == u64(21), "byte count (multibyte é = 2 bytes)");
-  got := io.await(fs_file.read_to_string(dst_p, io), e);
+  got := io.await(fs_file.read_to_string(&dst_p, io), &e);
   assert(got == `copy me, préserve me`, "contents copied");
   if(platform != Platform.Windows, {
-    md := io.await(fs_metadata.metadata(dst_p, io), e);
+    md := io.await(fs_metadata.metadata(&dst_p, io), &e);
     assert((md.mode() & u32(4095)) == u32(384), "0o600 permission bits copied");
   });
-  io.await(fs_dir.remove_file(src_p, io), e);
-  io.await(fs_dir.remove_file(dst_p, io), e);
+  io.await(fs_dir.remove_file(&src_p, io), &e);
+  io.await(fs_dir.remove_file(&dst_p, io), &e);
 });
 test("remove_dir_all removes a nested tree (files, subdirs, symlink as link)", {
   // The plain nested tree is removed on EVERY platform. The symlink-as-link
@@ -271,22 +271,22 @@ test("remove_dir_all removes a nested tree (files, subdirs, symlink as link)", {
   base := temp_dir();
   root := Path.new(path_join(base.clone(), `s3_rda_root`.to_string()));
   sub := Path.new(path_join(base.clone(), `s3_rda_root/sub/deeper`.to_string()));
-  io.await(fs_dir.create_dir_all(sub, io), e);
-  io.await(fs_file.write_string(Path.new(path_join(base.clone(), `s3_rda_root/a.txt`.to_string())), `a`.to_string(), io), e);
-  io.await(fs_file.write_string(Path.new(path_join(base.clone(), `s3_rda_root/sub/deeper/b.txt`.to_string())), `b`.to_string(), io), e);
+  io.await(fs_dir.create_dir_all(&sub, io), &e);
+  io.await(fs_file.write_string(Path.new(path_join(base.clone(), `s3_rda_root/a.txt`.to_string())), `a`.to_string(), io), &e);
+  io.await(fs_file.write_string(Path.new(path_join(base.clone(), `s3_rda_root/sub/deeper/b.txt`.to_string())), `b`.to_string(), io), &e);
   if(platform != Platform.Windows, {
     // A symlink to a file OUTSIDE the tree: it must be removed as a LINK.
     outside := Path.new(path_join(base.clone(), `s3_rda_outside.txt`.to_string()));
-    io.await(fs_file.write_string(outside, `survives`.to_string(), io), e);
-    io.await(fs_dir.symlink(outside, Path.new(path_join(base.clone(), `s3_rda_root/sub/link`.to_string())), io), e);
+    io.await(fs_file.write_string(&outside, `survives`.to_string(), io), &e);
+    io.await(fs_dir.symlink(&outside, Path.new(path_join(base.clone(), `s3_rda_root/sub/link`.to_string())), io), &e);
   });
-  io.await(fs_walker.remove_dir_all(root, io), e);
-  gone := io.await(fs_file.exists(root, io), io);
+  io.await(fs_walker.remove_dir_all(&root, io), &e);
+  gone := io.await(fs_file.exists(&root, io), io);
   assert(gone == false, "tree fully removed");
   if(platform != Platform.Windows, {
     still := io.await(fs_file.exists(Path.new(path_join(base.clone(), `s3_rda_outside.txt`.to_string())), io), io);
     assert(still, "symlink TARGET untouched");
-    io.await(fs_dir.remove_file(Path.new(path_join(base.clone(), `s3_rda_outside.txt`.to_string())), io), e);
+    io.await(fs_dir.remove_file(Path.new(path_join(base.clone(), `s3_rda_outside.txt`.to_string())), io), &e);
   });
 });
 test("read_link returns the link target", {
@@ -336,12 +336,12 @@ test("read_link returns the link target", {
   base := temp_dir();
   target := Path.new(path_join(base.clone(), `s3_rl_target.txt`.to_string()));
   link := Path.new(path_join(base.clone(), `s3_rl_link`.to_string()));
-  io.await(fs_file.write_string(target, `t`.to_string(), io), e);
-  io.await(fs_dir.symlink(target, link, io), e);
-  got := io.await(fs_dir.read_link(link, io), e);
+  io.await(fs_file.write_string(&target, `t`.to_string(), io), &e);
+  io.await(fs_dir.symlink(&target, &link, io), &e);
+  got := io.await(fs_dir.read_link(&link, io), &e);
   assert(got.to_string() == target.to_string(), "target read back");
-  io.await(fs_dir.remove_file(link, io), e);
-  io.await(fs_dir.remove_file(target, io), e);
+  io.await(fs_dir.remove_file(&link, io), &e);
+  io.await(fs_dir.remove_file(&target, io), &e);
 });
 test("read_link on a non-link throws", {
   // Runs on EVERY platform: a regular file is not a reparse point, so
@@ -367,8 +367,8 @@ test("read_link on a non-link throws", {
       }
     )
   );
-  io.await(fs_file.write_string(plain, `p`.to_string(), io), IoExn(io : io, exn : e0));
-  io.await(read_link_probe(plain, io), IoExn(io : io, exn : exn));
+  io.await(fs_file.write_string(&plain, `p`.to_string(), io), IoExn(io : io, exn : e0));
+  io.await(read_link_probe(&plain, io), IoExn(io : io, exn : exn));
   assert(false, "read_link on a regular file must throw");
 });
 test("try_exists: true, false for absent, THROWS for a denied parent", {
@@ -387,11 +387,11 @@ test("try_exists: true, false for absent, THROWS for a denied parent", {
   e := IoExn(io : io, exn : exn);
   base := temp_dir();
   here := Path.new(path_join(base.clone(), `s3_te_here.txt`.to_string()));
-  io.await(fs_file.write_string(here, `x`.to_string(), io), e);
-  assert(io.await(fs_file.try_exists(here, io), e), "present is true");
+  io.await(fs_file.write_string(&here, `x`.to_string(), io), &e);
+  assert(io.await(fs_file.try_exists(&here, io), &e), "present is true");
   absent := Path.new(path_join(base.clone(), `s3_te_absent.txt`.to_string()));
-  assert(io.await(fs_file.try_exists(absent, io), e) == false, "absent is false, not an error");
-  io.await(fs_dir.remove_file(here, io), e);
+  assert(io.await(fs_file.try_exists(&absent, io), &e) == false, "absent is false, not an error");
+  io.await(fs_dir.remove_file(&here, io), &e);
 });
 test("try_exists THROWS for a denied parent instead of answering false", {
   // POSIX-only: the contract is built on a chmod-0 directory, which Windows
@@ -414,8 +414,8 @@ test("try_exists THROWS for a denied parent instead of answering false", {
   base := temp_dir();
   // 0o000 directory: plain exists() would lie `false`; try_exists throws.
   denied_dir := Path.new(path_join(base.clone(), `s3_te_denied`.to_string()));
-  io.await(fs_dir.create_dir(denied_dir, io), e);
-  io.await(fs_file.set_permissions(denied_dir, fs_file.FilePermission(mode : u32(0)), io), e);
+  io.await(fs_dir.create_dir(&denied_dir, io), &e);
+  io.await(fs_file.set_permissions(&denied_dir, fs_file.FilePermission(mode : u32(0)), io), &e);
   child := Path.new(path_join(base.clone(), `s3_te_denied/child.txt`.to_string()));
   exn := Exception(
     throw : (
@@ -425,10 +425,10 @@ test("try_exists THROWS for a denied parent instead of answering false", {
       }
     )
   );
-  io.await(try_exists_probe(child, io), IoExn(io : io, exn : exn));
+  io.await(try_exists_probe(&child, io), IoExn(io : io, exn : exn));
   // NOTE: reached only if try_exists did NOT throw — restore perms so the
   // temp dir stays removable either way, then fail.
-  io.await(fs_file.set_permissions(denied_dir, fs_file.FilePermission(mode : u32(448)), io), e);
+  io.await(fs_file.set_permissions(&denied_dir, fs_file.FilePermission(mode : u32(448)), io), &e);
   assert(false, "denied parent must throw");
 });
 test("try_exists denied-dir cleanup", {
@@ -449,7 +449,7 @@ test("try_exists denied-dir cleanup", {
   e := IoExn(io : io, exn : e0);
   base := temp_dir();
   denied_dir := Path.new(path_join(base.clone(), `s3_te_denied`.to_string()));
-  io.await(fs_file.set_permissions(denied_dir, fs_file.FilePermission(mode : u32(448)), io), e);
-  io.await(fs_dir.remove_dir(denied_dir, io), e);
+  io.await(fs_file.set_permissions(&denied_dir, fs_file.FilePermission(mode : u32(448)), io), &e);
+  io.await(fs_dir.remove_dir(&denied_dir, io), &e);
   assert(true, "cleaned");
 });

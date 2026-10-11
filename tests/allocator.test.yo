@@ -73,7 +73,7 @@ _aligned_round_trip :: (fn(alignment : usize, size : usize) -> unit)(
     aligned_alloc(alignment, size),
     .None => assert(false, "aligned_alloc returned .None for a legal request"),
     .Some(raw) => {
-      addr := unsafe.cast(raw, usize);
+      addr := unsafe.cast(&raw, usize);
       assert(
         (addr % alignment) == usize(0),
         "aligned_alloc honours the requested alignment"
@@ -118,7 +118,7 @@ test("aligned_alloc of zero bytes yields a unique freeable pointer", {
     aligned_alloc(usize(64), usize(0)),
     .None => assert(false, "a zero-size aligned_alloc must still allocate"),
     .Some(raw) => {
-      addr := unsafe.cast(raw, usize);
+      addr := unsafe.cast(&raw, usize);
       assert((addr % usize(64)) == usize(0), "the zero-size block is aligned");
       aligned_free(.Some(raw));
     }

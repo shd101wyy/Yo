@@ -59,7 +59,7 @@ _raw_exchange :: (fn(port : u16, request : &String, io : Io) -> Impl(Future(Stri
     s := e.io.await(TcpStream.connect(SocketAddr.loopback(port), e.io), e);
     w := e.io.await(s.write_string(request, e.io), e);
     assert(w == request.len(), `short write: ${w} of ${request.len()} bytes`);
-    raw := e.io.await(_read_all(s, e.io), e);
+    raw := e.io.await(_read_all(&s, e.io), e);
     e.io.await(s.close(e.io), e);
     raw
   })
@@ -155,7 +155,7 @@ test("serve_once reads a POST body and forwards request headers", {
   server := io.await(HttpServer.bind(SocketAddr.loopback(u16(19971)), io), IoExn(io : io, exn : exn));
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_method(HttpMethod.POST).with_body(`payload — 3 bytes of dash`).with_header(`X-Tag`, `t1`);
-  resp := io.await(fetch_with(`http://127.0.0.1:19971/post`, opts, io), IoExn(io : io, exn : exn));
+  resp := io.await(fetch_with(`http://127.0.0.1:19971/post`, &opts, io), IoExn(io : io, exn : exn));
   assert(resp.body == "POST /post tag=t1 body=[payload — 3 bytes of dash]", `echo body: ${resp.body}`);
   task.await(io);
   io.await(server.close(io), IoExn(io : io, exn : exn));
@@ -173,7 +173,7 @@ test("a chunked request body is decoded before the handler sees it", {
   task := io.spawn(server.serve_once(_echo, io), IoExn(io : io, exn : exn));
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19972)), io), IoExn(io : io, exn : exn));
   _w := io.await(s.write_string(`PUT /c HTTP/1.1\r\nHost: x\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n`, io), IoExn(io : io, exn : exn));
-  raw := io.await(_read_all(s, io), IoExn(io : io, exn : exn));
+  raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
   assert(raw.starts_with(`HTTP/1.1 200 OK\r\n`), `status line: ${raw}`);
   assert(raw.ends_with(`PUT /c tag=- body=[abcde]`), `decoded body reached the handler: ${raw}`);
   io.await(s.close(io), IoExn(io : io, exn : exn));
@@ -200,7 +200,7 @@ test("a request that does not parse gets 400 with the reason, handler not called
   );
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19973)), io), IoExn(io : io, exn : exn));
   _w := io.await(s.write_string(`BREW /pot HTTP/1.1\r\nHost: x\r\n\r\n`, io), IoExn(io : io, exn : exn));
-  raw := io.await(_read_all(s, io), IoExn(io : io, exn : exn));
+  raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
   assert(raw.contains(`Unknown method: BREW`), `reason in body: ${raw}`);
   assert(called.len() == usize(0), "handler must not run for a malformed request");
@@ -256,7 +256,7 @@ test("the server round-trips a binary request body byte-for-byte", {
   srv := io.await(HttpServer.bind(SocketAddr.loopback(u16(19979)), io), IoExn(io : io, exn : exn));
   task := io.spawn(
     srv.serve_once(req => {
-      resp := HttpResponse.with_status(StatusCode.OK()).with_body(req.body);
+      resp := HttpResponse.with_status(StatusCode.OK()).with_body(&req.body);
       resp
     }, io),
     IoExn(io : io, exn : exn)
@@ -267,8 +267,8 @@ test("the server round-trips a binary request body byte-for-byte", {
   payload.push(u8(0xFF));
   payload.push(u8(66));
   body := String.from_bytes(payload);
-  opts := FetchOptions.new().with_method(HttpMethod.POST).with_body(body);
-  r := io.await(fetch_with(`http://127.0.0.1:19979/echo`, opts, io), IoExn(io : io, exn : exn));
+  opts := FetchOptions.new().with_method(HttpMethod.POST).with_body(&body);
+  r := io.await(fetch_with(`http://127.0.0.1:19979/echo`, &opts, io), IoExn(io : io, exn : exn));
   task.await(io);
   io.await(srv.close(io), IoExn(io : io, exn : exn));
   assert(r.status == StatusCode.OK(), "200");
@@ -320,23 +320,23 @@ test("Content-Length framing: OWS after the colon is optional, and only a real f
   want := `12000|23456789`;
   // No OWS at all — the shape that used to lose the value's first digit.
   r1 := io.await(_raw_exchange(u16(19980), `POST /nows HTTP/1.1\r\nHost: x\r\nContent-Length:12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
-  assert(r1.ends_with(want), `Content-Length:12000 (no OWS): ${r1}`);
+  assert(r1.ends_with(&want), `Content-Length:12000 (no OWS): ${r1}`);
   // More than one space.
   r2 := io.await(_raw_exchange(u16(19980), `POST /spaces HTTP/1.1\r\nHost: x\r\nContent-Length:   12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
-  assert(r2.ends_with(want), `Content-Length:   12000 (three spaces): ${r2}`);
+  assert(r2.ends_with(&want), `Content-Length:   12000 (three spaces): ${r2}`);
   // A tab is OWS too.
   r3 := io.await(_raw_exchange(u16(19980), `POST /tab HTTP/1.1\r\nHost: x\r\nContent-Length:\t12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
-  assert(r3.ends_with(want), `Content-Length:<TAB>12000: ${r3}`);
+  assert(r3.ends_with(&want), `Content-Length:<TAB>12000: ${r3}`);
   // Trailing OWS is not part of the value.
   r4 := io.await(_raw_exchange(u16(19980), `POST /trailing HTTP/1.1\r\nHost: x\r\nContent-Length: 12000 \t \r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
-  assert(r4.ends_with(want), `Content-Length: 12000<SP><TAB><SP>: ${r4}`);
+  assert(r4.ends_with(&want), `Content-Length: 12000<SP><TAB><SP>: ${r4}`);
   // A DIFFERENT field whose name ends in the one we want must not supply the
   // framing — a field name has to START its line.
   r5 := io.await(_raw_exchange(u16(19980), `POST /hijack HTTP/1.1\r\nX-Content-Length: 3\r\nContent-Length: 12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
-  assert(r5.ends_with(want), `X-Content-Length must not frame the body: ${r5}`);
+  assert(r5.ends_with(&want), `X-Content-Length must not frame the body: ${r5}`);
   // The canonical spelling still works (baseline against over-rejection).
   r6 := io.await(_raw_exchange(u16(19980), `POST /last HTTP/1.1\r\nHost: x\r\nContent-Length: 12000\r\n\r\n${body}`, io), IoExn(io : io, exn : exn));
-  assert(r6.ends_with(want), `Content-Length: 12000 (canonical): ${r6}`);
+  assert(r6.ends_with(&want), `Content-Length: 12000 (canonical): ${r6}`);
   task.await(io);
   io.await(server.close(io), IoExn(io : io, exn : exn));
 });
@@ -409,7 +409,7 @@ test("a request with an unreadable Content-Length gets 400 and serve keeps servi
   );
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19976)), io), IoExn(io : io, exn : exn));
   _w := io.await(s.write_string(`POST /x HTTP/1.1\r\nHost: x\r\nContent-Length: abc\r\n\r\n`, io), IoExn(io : io, exn : exn));
-  raw := io.await(_read_all(s, io), IoExn(io : io, exn : exn));
+  raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
   assert(raw.starts_with(`HTTP/1.1 400 Bad Request\r\n`), `status line: ${raw}`);
   assert(raw.contains(`Content-Length`), `reason names the header: ${raw}`);
   io.await(s.close(io), IoExn(io : io, exn : exn));
@@ -445,8 +445,8 @@ test("a request over max_request_bytes gets 413 and serve keeps serving", {
   );
   s := io.await(TcpStream.connect(SocketAddr.loopback(u16(19977)), io), IoExn(io : io, exn : exn));
   big := `GET /aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa HTTP/1.1\r\nHost: x\r\n\r\n`;
-  _w := io.await(s.write_string(big, io), IoExn(io : io, exn : exn));
-  raw := io.await(_read_all(s, io), IoExn(io : io, exn : exn));
+  _w := io.await(s.write_string(&big, io), IoExn(io : io, exn : exn));
+  raw := io.await(_read_all(&s, io), IoExn(io : io, exn : exn));
   assert(raw.starts_with(`HTTP/1.1 413 `), `status line: ${raw}`);
   io.await(s.close(io), IoExn(io : io, exn : exn));
   r := io.await(fetch(`http://127.0.0.1:19977/last`, io), IoExn(io : io, exn : exn));

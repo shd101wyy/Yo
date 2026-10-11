@@ -32,11 +32,11 @@ pick_begin_arm :: (fn(k : &Krate, flag : bool) -> Krate)(
 
 main :: (fn() -> unit)({
   k := Krate(v : 7);
-  a := pick_begin_arm(k, true);
+  a := pick_begin_arm(&k, true);
   print(ref_count(k));
   print(" ");
   // The false branch exercises the value-arm path for contrast.
-  b := pick_begin_arm(k, false);
+  b := pick_begin_arm(&k, false);
   print(ref_count(a));
   print(" ");
   println(`${ref_count(k)} done`);

@@ -148,7 +148,7 @@ test("html.decode is a single pass: a 20k-entity document decodes promptly and i
   while(i < usize(20000), i = (i + usize(1)), {
     _a := src.push_str("x&amp;y&#60;&#x3E;é ");
   });
-  out := html.decode(src);
+  out := html.decode(&src);
   unit_len := `x&y<>é `.to_string().len();
   assert(out.len() == (usize(20000) * unit_len), "every entity decoded, nothing dropped");
   assert(out.starts_with(`x&y<>é x&y<>é `), "decoded in order");

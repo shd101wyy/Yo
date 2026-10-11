@@ -241,7 +241,7 @@ test("Test array index access - no RC leak for inline use", {
     identity :: (fn(b : &Rc(i32)) -> Rc(i32))(b);
     x := Rc(i32)(55);
     y := [x,];
-    result := identity(y(0));
+    result := identity(&y(0));
     assert(result.* == 55, "array index as fn arg should dup correctly");
   };
 });
@@ -405,7 +405,7 @@ test("Test early return of reassigned RC variable does not leak", {
   parts := ArrayList(str).new();
   parts.push("hello ");
   parts.push("world");
-  s := build_string(parts);
+  s := build_string(&parts);
   assert(s.len() == usize(11), "result should be 'hello world' (11 chars)");
   // If the RC is wrong (leak), ASAN will report it.
   assert(ref_count(s) == 1, "ref_count(s) should be 1 after early return");
@@ -579,7 +579,7 @@ test("Inline ref-enum unit-variant in non-argument positions does not leak", {
   assert(
     match(
       o,
-      .Some(v) => is_unit(v),
+      .Some(v) => is_unit(&v),
       .None => false
     ),
     "Option payload"
@@ -651,7 +651,7 @@ test("Loop traversal keeps ownership when the loop mutates the structure", {
     )
   );
   assert(
-    traversal_walk_with_sever(head) == 5,
+    traversal_walk_with_sever(&head) == 5,
     "severed traversal must still visit nodes 2 and 3 (owned, not borrowed)"
   );
 });
@@ -701,7 +701,7 @@ test("borrowed projection argument survives aliased container mutation", {
   b0 := w.b;
   assert(ref_count(b0) == 2, "w.b + b0 before the call");
   {
-    alias_poke_loop(w, w.b);
+    alias_poke_loop(&w, &w.b);
   };
   // Asserted AFTER the enclosing statement scope, deliberately. The two
   // compilers release the Stage-0 +1 at different points — yo-self drops it
@@ -735,11 +735,11 @@ test("read-only callee elides the Stage-0 borrowed-projection dup", {
   b0 := w.b;
   assert(ref_count(b0) == 2, "w.b + b0 before the calls");
   assert(
-    stage1_read_borrow(w, w.b) == 2,
+    stage1_read_borrow(&w, &w.b) == 2,
     "non-generic read-only callee sees rc 2 (mark-time skip)"
   );
   assert(
-    stage1_rc_of(w.b) == 2,
+    stage1_rc_of(&w.b) == 2,
     "generic read-only callee sees rc 2 (post-specialization unmark)"
   );
   assert(ref_count(b0) == 2, "ref_count balanced after both elided calls");
@@ -811,7 +811,7 @@ stage0_poke_index :: (fn(h : &Stage0Arr, borrowed : &Rc(i32)) -> i32)({
 test("an INDEXED borrowed argument is protected like a field projection", {
   h := Stage0Arr(a : Array(Rc(i32), 2)(rc(i32(42)), rc(i32(7))));
   assert(
-    stage0_poke_index(h, h.a(0)) == i32(42),
+    stage0_poke_index(&h, &h.a(0)) == i32(42),
     "an element read is a place into container storage too"
   );
 });
@@ -909,21 +909,21 @@ stage1_benign_extern :: (fn(w : &AliasWrap, borrowed : &Rc(i32)) -> usize)({
 test("mutation inside a runtime cond arm keeps the borrow alive", {
   w := AliasWrap(b : rc(i32(42)));
   assert(
-    stage1_cond_arm(w, w.b, true) == i32(42),
+    stage1_cond_arm(&w, &w.b, true) == i32(42),
     "a live cond arm's mutation must count"
   );
 });
 test("mutation inside a match arm keeps the borrow alive", {
   w := AliasWrap(b : rc(i32(42)));
   assert(
-    stage1_match_arm(w, w.b, Option(i32).Some(i32(1))) == i32(42),
+    stage1_match_arm(&w, &w.b, Option(i32).Some(i32(1))) == i32(42),
     "a live match arm's mutation must count"
   );
 });
 test("mutation three calls deep keeps the borrow alive", {
   w := AliasWrap(b : rc(i32(42)));
   assert(
-    stage1_deep1(w, w.b) == i32(42),
+    stage1_deep1(&w, &w.b) == i32(42),
     "the summary must be transitive through the call graph"
   );
 });
@@ -932,7 +932,7 @@ test("a benign extern does not defeat the read-only elision", {
   b0 := w.b;
   assert(ref_count(b0) == 2, "w.b + b0 before the call");
   assert(
-    stage1_benign_extern(w, w.b) == 2,
+    stage1_benign_extern(&w, &w.b) == 2,
     "printf must not make a callee may-mutate (elision preserved)"
   );
 });
@@ -944,7 +944,7 @@ test("a callee containing an explicit ___drop keeps the borrow alive", {
   // explicitly releases RC storage was classified read-only, which is how
   // `___drop` sitting in the safe-recurse list used to read.
   assert(
-    stage1_drop_owned(w.b, w.b) == 2,
+    stage1_drop_owned(w.b, &w.b) == 2,
     "an explicit ___drop must not be walked through as safe"
   );
   assert(w.b.* == i32(42), "the container's own handle is still valid");
@@ -952,14 +952,14 @@ test("a callee containing an explicit ___drop keeps the borrow alive", {
 test("mutation on a mutual-recursion back edge keeps the borrow alive", {
   w := AliasWrap(b : rc(i32(42)));
   assert(
-    Stage1Rec.even(w, w.b, i32(2)) == i32(42),
+    Stage1Rec.even(&w, &w.b, i32(2)) == i32(42),
     "cycle-guard optimism must not hide the back edge's mutation"
   );
 });
 test("mutation inside an invoked closure keeps the borrow alive", {
   w := AliasWrap(b : rc(i32(42)));
   assert(
-    stage1_closure(w, w.b) == i32(42),
+    stage1_closure(&w, &w.b) == i32(42),
     "skipping closure DEFINITIONS must not skip the closure CALL"
   );
 });
@@ -968,12 +968,12 @@ test("statement-hidden mutation keeps the borrowed-projection dup", {
   // The callee reassigns `w.b`, dropping the 42-box's container reference.
   // Without the caller's Stage-0 +1 the borrow would read recycled memory.
   assert(
-    stage1_sneaky(w, w.b, i32(0)) == i32(42),
+    stage1_sneaky(&w, &w.b, i32(0)) == i32(42),
     "borrow survives a mutation hidden behind a reassignment statement"
   );
   w2 := AliasWrap(b : rc(i32(42)));
   assert(
-    stage1_honest(w2, w2.b, i32(0)) == i32(42),
+    stage1_honest(&w2, &w2.b, i32(0)) == i32(42),
     "borrow survives a mutation behind a declaration"
   );
 });
@@ -1399,12 +1399,12 @@ test("a match/cond argument arm that returns a borrowed value does not over-rele
   before := g_at_disposed;
   {
     keep := ArgTemp(n : i32(9));
-    assert(at_pick_match(false, keep) == i32(9), "borrowed arm (match) reads the caller's value");
-    assert(at_pick_cond(false, keep) == i32(9), "borrowed arm (cond) reads the caller's value");
+    assert(at_pick_match(false, &keep) == i32(9), "borrowed arm (match) reads the caller's value");
+    assert(at_pick_cond(false, &keep) == i32(9), "borrowed arm (cond) reads the caller's value");
     assert(g_at_disposed == before, "the caller's value is still alive");
     assert(ref_count(keep) == 1, "and holds exactly its own reference");
-    assert(at_pick_match(true, keep) == i32(1), "fresh arm (match)");
-    assert(at_pick_cond(true, keep) == i32(2), "fresh arm (cond)");
+    assert(at_pick_match(true, &keep) == i32(1), "fresh arm (match)");
+    assert(at_pick_cond(true, &keep) == i32(2), "fresh arm (cond)");
     assert(g_at_disposed == (before + i32(2)), "each fresh arm result is disposed once");
     assert(ref_count(keep) == 1, "the kept value is untouched by the fresh arms");
   };
@@ -1521,9 +1521,9 @@ test("a match or cond call argument is released on an explicit return", {
   {
     keep := ArgTemp(n : i32(52));
     ko := Option(ArgTemp).Some(keep);
-    assert(at_ret_nested(true, ko) == i32(52), "borrowed arm (match)");
-    assert(at_ret_top(ko) == i32(52), "borrowed arm (cond)");
-    assert(at_ret_nested(true, ko) == i32(52), "the borrowed value survives repeated early returns");
+    assert(at_ret_nested(true, &ko) == i32(52), "borrowed arm (match)");
+    assert(at_ret_top(&ko) == i32(52), "borrowed arm (cond)");
+    assert(at_ret_nested(true, &ko) == i32(52), "the borrowed value survives repeated early returns");
     assert(g_at_disposed == (before + i32(2)), "and is still alive");
   };
   assert(g_at_disposed == (before + i32(3)), "the caller's value is disposed once, at its scope end");
@@ -1543,10 +1543,10 @@ fwb_scratch :: (fn(p : &FwbNamed) -> i32)({
 });
 test("a borrowed value is changed through an owned copy", {
   orig := FwbNamed(s : String.from("original-string-long-enough-for-the-heap"), n : i32(1));
-  renamed := fwb_rename(orig);
+  renamed := fwb_rename(&orig);
   assert(renamed.s == "renamed-string-long-enough-for-the-heap", "the copy has the new string");
   assert(orig.s == "original-string-long-enough-for-the-heap", "the caller's string is untouched");
-  assert(fwb_scratch(orig) == i32(2), "a non-RC field of a by-value parameter can be written");
+  assert(fwb_scratch(&orig) == i32(2), "a non-RC field of a by-value parameter can be written");
   assert(orig.n == i32(1), "the write changes only the local copy");
   o := Option(FwbNamed).Some(orig);
   from_arm := match(
@@ -1587,15 +1587,15 @@ test("ref_count: copies of a value holding RC data are counted in every position
   assert(ref_count(w.b) == usize(1), "the nested copy released its count");
   w3 := w;
   assert(ref_count(w.b) == usize(2), "a same-scope copy counts");
-  assert(_cow_local_copy(w) >= usize(3), "a callee's local copy of a parameter counts");
+  assert(_cow_local_copy(&w) >= usize(3), "a callee's local copy of a parameter counts");
   h := ArrayList(_CowLike).new();
   h.push(w);
   assert(ref_count(w.b) >= usize(3), "a list element counts");
   (f : Impl(Fn() -> usize)) = (() => ref_count(w.b));
   assert(f() >= usize(4), "a closure capture counts");
-  task := _cow_task(w, io);
+  task := _cow_task(&w, io);
   assert(ref_count(w.b) >= usize(5), "an async task slot counts");
-  assert(io.await(task, io) >= usize(5), "and the task sees a shared count");
+  assert(io.await(&task, io) >= usize(5), "and the task sees a shared count");
   assert((w3.n == i32(1)) && (h.len() == usize(1)), "all copies stay live to here");
 });
 // A borrowed value passed to an `own` parameter — a field place, or a borrowed
@@ -1632,7 +1632,7 @@ test("Type.method with an own parameter retains a borrowed parameter's field", {
   before := g_own_m_disposed;
   {
     w := _OwnMWrap(m : _OwnM(tag : i32(1)), n : i32(1));
-    h := _own_m_param_field(w);
+    h := _own_m_param_field(&w);
     assert(ref_count(w.m) == usize(2), `the holder and the caller each hold one, got ${ref_count(w.m).to_string()}`);
     assert((h.b.tag == i32(1)) && (g_own_m_disposed == before), "still live in both");
   };
@@ -1652,10 +1652,10 @@ test("Type.method with an own parameter retains a nested field and a borrowed pa
   before := g_own_m_disposed;
   {
     o := _OwnMOuter(w : _OwnMWrap(m : _OwnM(tag : i32(3)), n : i32(0)));
-    h := _own_m_nested_field(o);
+    h := _own_m_nested_field(&o);
     assert(ref_count(o.w.m) == usize(2), `nested field: got ${ref_count(o.w.m).to_string()}`);
     m := _OwnM(tag : i32(4));
-    h2 := _own_m_param(m);
+    h2 := _own_m_param(&m);
     assert(ref_count(m) == usize(2), `borrowed parameter: got ${ref_count(m).to_string()}`);
     assert((h.b.tag + h2.b.tag) == i32(7), "both holders read their box");
   };
@@ -1676,7 +1676,7 @@ test("a plain call with an own parameter still retains a field argument", {
   before := g_own_m_disposed;
   {
     w := _OwnMWrap(m : _OwnM(tag : i32(8)), n : i32(0));
-    h := _own_m_plain_field(w);
+    h := _own_m_plain_field(&w);
     assert(ref_count(w.m) == usize(2), `got ${ref_count(w.m).to_string()}`);
     assert(h.b.tag == i32(8), "the holder reads it");
   };
@@ -1705,9 +1705,9 @@ _al_poke_f :: (fn(i : &_AlInner, o : &_AlOuter) -> i32)({
 });
 test("a receiver projection outlives a method that replaces it", {
   o := _AlOuter(inner : _AlInner(v : i32(7)));
-  assert(_al_poke_f(o.inner, o) == i32(7), "plain call: the argument survived the replacement");
+  assert(_al_poke_f(&o.inner, &o) == i32(7), "plain call: the argument survived the replacement");
   o2 := _AlOuter(inner : _AlInner(v : i32(8)));
-  assert(o2.inner.poke(o2) == i32(8), "method call: the receiver survived the replacement");
+  assert(o2.inner.poke(&o2) == i32(8), "method call: the receiver survived the replacement");
   assert((o.inner.v + o2.inner.v) == i32(0), "both owners see the replacement");
 });
 // `ref_count(x)` reads the count of the cell `x` holds, in every shape
@@ -1834,10 +1834,10 @@ test("a newtype built from a parameter or a parameter's field retains it", {
   before := g_nt_disposed;
   {
     b := _NtBox(tag : i32(2));
-    v := _nt_from_param(b);
+    v := _nt_from_param(&b);
     assert(ref_count(b) == usize(2), `parameter: got ${ref_count(b).to_string()}`);
     h := _NtHolder(v : _NtV(b : _NtBox(tag : i32(3))));
-    hv := _nt_from_holder(h);
+    hv := _nt_from_holder(&h);
     assert(ref_count(h.v.b) == usize(2), `nested field of a parameter: got ${ref_count(h.v.b).to_string()}`);
     assert(((v.b.tag + hv.b.tag) == i32(5)) && (g_nt_disposed == before), "both read their box");
   };

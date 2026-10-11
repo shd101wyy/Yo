@@ -105,9 +105,9 @@ test("auto-deref: Arc reads forward, writes are D3 errors in safe code", {
 test("auto-deref: one generic body serves a value and an Rc", {
   p := _mk(i32(3));
   b := rc(_mk(i32(6)));
-  assert(_read_n(p) == i32(3), "plain receiver");
-  assert(_read_n(b) == i32(6), "Rc receiver");
-  assert(_read_n(p) == i32(3), "plain receiver again");
+  assert(_read_n(&p) == i32(3), "plain receiver");
+  assert(_read_n(&b) == i32(6), "Rc receiver");
+  assert(_read_n(&p) == i32(3), "plain receiver again");
 });
 test("auto-deref: indexing a forwarded field (callee position)", {
   b := rc(_mk(i32(1)));
@@ -167,7 +167,7 @@ test("auto-deref: an unclashed name forwards unchanged", {
 _clone_any :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());
 test("auto-deref: a trait-bound call at a wrapper instantiation is not the clash", {
   b := rc(_mk(i32(3)));
-  c := _clone_any(b);
+  c := _clone_any(&b);
   c.n = i32(8);
   assert(b.n == i32(3), "T := Rc(_P): the Rc's own clone, a new cell");
 });

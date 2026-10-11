@@ -43,7 +43,7 @@ test("get_variables_from_frame: empty frame → empty list", {
   match(
     env.frames.get(usize(0)),
     .Some(f) => {
-      out := get_variables_from_frame(f, String.from("missing"));
+      out := get_variables_from_frame(&f, String.from("missing"));
       assert(out.len() == usize(0), "no vars");
     },
     .None => assert(false, "expected outer frame")
@@ -51,13 +51,13 @@ test("get_variables_from_frame: empty frame → empty list", {
 });
 test("get_variables_from_frame: only matching-name vars are returned", {
   env := Environment.new(String.from("test"));
-  add_var(env, "x");
-  add_var(env, "y");
-  add_var(env, "x");
+  add_var(&env, "x");
+  add_var(&env, "y");
+  add_var(&env, "x");
   match(
     env.frames.get(usize(0)),
     .Some(f) => {
-      out := get_variables_from_frame(f, String.from("x"));
+      out := get_variables_from_frame(&f, String.from("x"));
       assert(out.len() == usize(2), "two x bindings");
     },
     .None => assert(false, "expected outer frame")
@@ -65,29 +65,29 @@ test("get_variables_from_frame: only matching-name vars are returned", {
 });
 test("find_variable_frame_level: missing variable → None", {
   env := Environment.new(String.from("test"));
-  add_var(env, "x");
+  add_var(&env, "x");
   assert(
-    find_variable_frame_level(env, String.from("not_defined")).is_none(),
+    find_variable_frame_level(&env, String.from("not_defined")).is_none(),
     "missing → None"
   );
 });
 test("find_variable_frame_level: outermost frame match", {
   env := Environment.new(String.from("test"));
-  add_var(env, "x");
+  add_var(&env, "x");
   match(
-    find_variable_frame_level(env, String.from("x")),
+    find_variable_frame_level(&env, String.from("x")),
     .Some(idx) => assert(idx == usize(0), "frame 0"),
     .None => assert(false, "expected Some")
   );
 });
 test("find_variable_frame_level: innermost frame wins when shadowed", {
   env := Environment.new(String.from("test"));
-  add_var(env, "x"); // outer x at frame 0
+  add_var(&env, "x"); // outer x at frame 0
   // Push a new frame and add another x in it.
   _idx := env.push_frame(true);
-  add_var(env, "x"); // inner x at frame 1
+  add_var(&env, "x"); // inner x at frame 1
   match(
-    find_variable_frame_level(env, String.from("x")),
+    find_variable_frame_level(&env, String.from("x")),
     .Some(idx) => assert(idx == usize(1), "innermost frame index"),
     .None => assert(false, "expected Some")
   );

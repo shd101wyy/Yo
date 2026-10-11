@@ -180,19 +180,19 @@ test("Once with pool tasks executes only once", {
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(pool, io => {
+  spawn(&pool, io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
-  spawn(pool, io => {
+  spawn(&pool, io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
     wg.done();
   });
-  spawn(pool, io => {
+  spawn(&pool, io => {
     o.call(() => {
       counter.fetch_add(i32(1), MemoryOrder.Relaxed);
     });
@@ -321,7 +321,7 @@ _early_return_init :: (fn(o : &Once, counter : &AtomicI32) -> unit)({
 test("Once.call leaves the lock released and the Once un-done when f exits early", {
   o := Once.new();
   counter := AtomicI32.new(i32(0));
-  _early_return_init(o, counter);
+  _early_return_init(&o, &counter);
   assert(counter.load(MemoryOrder.SeqCst) == i32(1), "the initializer ran once");
   assert(!o.is_done(), "an f that did not complete does not mark the Once done");
   // If the mutex had been left held, THIS call would hang instead of running.

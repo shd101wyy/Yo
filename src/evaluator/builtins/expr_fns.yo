@@ -64,15 +64,15 @@ evaluate_yo_expr_is_atom :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
+  eval_arg := evaluate_expression_raw(&arg_e, env, ctx, exn);
   arg_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg_e),
+            ast_expr_token(&arg_e),
             `Failed to evaluate argument for "${BF_YO_EXPR_IS_ATOM}"`
           )
         )
@@ -80,11 +80,11 @@ evaluate_yo_expr_is_atom :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(arg_e),
+          ast_expr_token(&arg_e),
           `Expected expression type for "${BF_YO_EXPR_IS_ATOM}" argument`
         )
       )
@@ -94,15 +94,15 @@ evaluate_yo_expr_is_atom :: (
   bool_val := match(
     arg_info.value,
     .Some(v) => if(
-      is_expr_val(v),
-      match(v, .ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_atom(e_box)), _ => create_unknown_val(t_bool())),
+      is_expr_val(&v),
+      match(v, .ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_atom(&e_box)), _ => create_unknown_val(t_bool())),
       create_unknown_val(t_bool())
     ),
     .None => {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_e),
+            ast_expr_token(&arg_e),
             `Expected expression value for "${BF_YO_EXPR_IS_ATOM}" argument`
           )
         )
@@ -110,9 +110,9 @@ evaluate_yo_expr_is_atom :: (
       return(make_err_expr());
     }
   );
-  out_info := new_expr_info(arg_info.env, t_bool());
+  out_info := new_expr_info(&arg_info.env, t_bool());
   out_info.value = Option(EvalValue).Some(bool_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -140,15 +140,15 @@ evaluate_yo_expr_is_fn_call :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
+  eval_arg := evaluate_expression_raw(&arg_e, env, ctx, exn);
   arg_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg_e),
+            ast_expr_token(&arg_e),
             `Failed to evaluate argument for "${BF_YO_EXPR_IS_FN_CALL}"`
           )
         )
@@ -156,11 +156,11 @@ evaluate_yo_expr_is_fn_call :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(arg_e),
+          ast_expr_token(&arg_e),
           `Expected expression type for "${BF_YO_EXPR_IS_FN_CALL}" argument`
         )
       )
@@ -170,15 +170,15 @@ evaluate_yo_expr_is_fn_call :: (
   bool_val := match(
     arg_info.value,
     .Some(v) => if(
-      is_expr_val(v),
-      match(v, .ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_fn_call(e_box)), _ => create_unknown_val(t_bool())),
+      is_expr_val(&v),
+      match(v, .ExprVal(e_box) => EvalValue.BoolVal(ast_expr_is_fn_call(&e_box)), _ => create_unknown_val(t_bool())),
       create_unknown_val(t_bool())
     ),
     .None => {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_e),
+            ast_expr_token(&arg_e),
             `Expected expression value for "${BF_YO_EXPR_IS_FN_CALL}" argument`
           )
         )
@@ -186,9 +186,9 @@ evaluate_yo_expr_is_fn_call :: (
       return(make_err_expr());
     }
   );
-  out_info := new_expr_info(arg_info.env, t_bool());
+  out_info := new_expr_info(&arg_info.env, t_bool());
   out_info.value = Option(EvalValue).Some(bool_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -216,15 +216,15 @@ evaluate_yo_expr_get_callee :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
+  eval_arg := evaluate_expression_raw(&arg_e, env, ctx, exn);
   arg_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg_e),
+            ast_expr_token(&arg_e),
             `Failed to evaluate argument for "${BF_YO_EXPR_GET_CALLEE}"`
           )
         )
@@ -232,18 +232,18 @@ evaluate_yo_expr_get_callee :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(arg_e),
+          ast_expr_token(&arg_e),
           `Expected expression type for "${BF_YO_EXPR_GET_CALLEE}" argument`
         )
       )
     );
     return(make_err_expr());
   });
-  out_info := new_expr_info(arg_info.env, t_expr_t());
+  out_info := new_expr_info(&arg_info.env, t_expr_t());
   // Default: unknown value; will be replaced if arg is a known ExprVal FnCall.
   out_info.value = Option(EvalValue).Some(create_unknown_val(t_expr_t()));
   match(
@@ -251,7 +251,7 @@ evaluate_yo_expr_get_callee :: (
     .Some(v) => match(
       v,
       .ExprVal(e_box) => {
-        if(ast_expr_is_fn_call(e_box), match(
+        if(ast_expr_is_fn_call(&e_box), match(
           e_box,
           .FnCall(_, func_box, _, _, _) => {
             out_info.value = Option(EvalValue).Some(EvalValue.ExprVal(func_box));
@@ -262,7 +262,7 @@ evaluate_yo_expr_get_callee :: (
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(arg_e),
+                ast_expr_token(&arg_e),
                 `Expected function call expression for argument to "${BF_YO_EXPR_GET_CALLEE}"`
               )
             )
@@ -277,7 +277,7 @@ evaluate_yo_expr_get_callee :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_e),
+            ast_expr_token(&arg_e),
             `Expected expression value for "${BF_YO_EXPR_GET_CALLEE}" argument`
           )
         )
@@ -285,7 +285,7 @@ evaluate_yo_expr_get_callee :: (
       return(make_err_expr());
     }
   );
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -313,15 +313,15 @@ evaluate_yo_expr_get_args :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
+  eval_arg := evaluate_expression_raw(&arg_e, env, ctx, exn);
   arg_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg_e),
+            ast_expr_token(&arg_e),
             `Failed to evaluate argument for "${BF_YO_EXPR_GET_ARGS}"`
           )
         )
@@ -329,11 +329,11 @@ evaluate_yo_expr_get_args :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(arg_e),
+          ast_expr_token(&arg_e),
           `Expected expression type for "${BF_YO_EXPR_GET_ARGS}" argument`
         )
       )
@@ -341,14 +341,14 @@ evaluate_yo_expr_get_args :: (
     return(make_err_expr());
   });
   list_ty := t_comptime_list(t_expr_t());
-  out_info := new_expr_info(arg_info.env, list_ty);
-  out_info.value = Option(EvalValue).Some(create_unknown_val(list_ty));
+  out_info := new_expr_info(&arg_info.env, &list_ty);
+  out_info.value = Option(EvalValue).Some(create_unknown_val(&list_ty));
   match(
     arg_info.value,
     .Some(v) => match(
       v,
       .ExprVal(e_box) => {
-        if(ast_expr_is_fn_call(e_box), match(
+        if(ast_expr_is_fn_call(&e_box), match(
           e_box,
           .FnCall(_, _, fn_args, _, _) => {
             elems := ArrayList(EvalValue).new();
@@ -366,7 +366,7 @@ evaluate_yo_expr_get_args :: (
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(arg_e),
+                ast_expr_token(&arg_e),
                 `Expected function call expression for argument to "${BF_YO_EXPR_GET_ARGS}"`
               )
             )
@@ -381,7 +381,7 @@ evaluate_yo_expr_get_args :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_e),
+            ast_expr_token(&arg_e),
             `Expected expression value for "${BF_YO_EXPR_GET_ARGS}" argument`
           )
         )
@@ -389,7 +389,7 @@ evaluate_yo_expr_get_args :: (
       return(make_err_expr());
     }
   );
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -417,15 +417,15 @@ evaluate_yo_expr_to_string :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression_raw(arg_e, env, ctx, exn);
+  eval_arg := evaluate_expression_raw(&arg_e, env, ctx, exn);
   arg_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg_e),
+            ast_expr_token(&arg_e),
             `Failed to evaluate argument for "${BF_YO_EXPR_TO_STRING}"`
           )
         )
@@ -433,25 +433,25 @@ evaluate_yo_expr_to_string :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(arg_info.ty), {
+  if(!is_expr_type(&arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(arg_e),
+          ast_expr_token(&arg_e),
           `Expected expression type for "${BF_YO_EXPR_TO_STRING}" argument`
         )
       )
     );
     return(make_err_expr());
   });
-  out_info := new_expr_info(arg_info.env, t_comptime_string());
+  out_info := new_expr_info(&arg_info.env, t_comptime_string());
   out_info.value = Option(EvalValue).Some(create_unknown_val(t_comptime_string()));
   match(
     arg_info.value,
     .Some(v) => match(
       v,
       .ExprVal(e_box) => {
-        str_val := ast_expr_to_string(e_box);
+        str_val := ast_expr_to_string(&e_box);
         out_info.value = Option(EvalValue).Some(EvalValue.StrLit(str_val));
         ()
       },
@@ -461,7 +461,7 @@ evaluate_yo_expr_to_string :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_e),
+            ast_expr_token(&arg_e),
             `Expected expression value for "${BF_YO_EXPR_TO_STRING}" argument`
           )
         )
@@ -469,7 +469,7 @@ evaluate_yo_expr_to_string :: (
       return(make_err_expr());
     }
   );
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -504,15 +504,15 @@ evaluate_yo_expr_eq :: (
       return(expr);
     }
   );
-  eval_first := evaluate_expression_raw(first_e, env, ctx, exn);
+  eval_first := evaluate_expression_raw(&first_e, env, ctx, exn);
   first_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_first)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_first)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(first_e),
+            ast_expr_token(&first_e),
             `Failed to evaluate first argument for "${BF_YO_EXPR_EQ}"`
           )
         )
@@ -520,11 +520,11 @@ evaluate_yo_expr_eq :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(first_info.ty), {
+  if(!is_expr_type(&first_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(first_e),
+          ast_expr_token(&first_e),
           `Expected expression type for "${BF_YO_EXPR_EQ}" first argument`
         )
       )
@@ -538,7 +538,7 @@ evaluate_yo_expr_eq :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(first_e),
+            ast_expr_token(&first_e),
             `Expected expression value for "${BF_YO_EXPR_EQ}" first argument`
           )
         )
@@ -546,16 +546,16 @@ evaluate_yo_expr_eq :: (
       return(make_err_expr());
     }
   );
-  cur_env := expr_info_adopt_env(first_info);
-  eval_second := evaluate_expression_raw(second_e, cur_env, ctx, exn);
+  cur_env := expr_info_adopt_env(&first_info);
+  eval_second := evaluate_expression_raw(&second_e, &cur_env, ctx, exn);
   second_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_second)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_second)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(second_e),
+            ast_expr_token(&second_e),
             `Failed to evaluate second argument for "${BF_YO_EXPR_EQ}"`
           )
         )
@@ -563,11 +563,11 @@ evaluate_yo_expr_eq :: (
       return(make_err_expr());
     }
   );
-  if(!is_expr_type(second_info.ty), {
+  if(!is_expr_type(&second_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(second_e),
+          ast_expr_token(&second_e),
           `Expected expression type for "${BF_YO_EXPR_EQ}" second argument`
         )
       )
@@ -581,7 +581,7 @@ evaluate_yo_expr_eq :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(second_e),
+            ast_expr_token(&second_e),
             `Expected expression value for "${BF_YO_EXPR_EQ}" second argument`
           )
         )
@@ -589,16 +589,16 @@ evaluate_yo_expr_eq :: (
       return(make_err_expr());
     }
   );
-  final_env := expr_info_adopt_env(second_info);
+  final_env := expr_info_adopt_env(&second_info);
   // Compare: if both are ExprVal, use are_values_equal; otherwise unknown bool.
   bool_val := if(
-    is_expr_val(first_val) && is_expr_val(second_val),
-    EvalValue.BoolVal(are_values_equal(first_val, cur_env, second_val, final_env)),
+    is_expr_val(&first_val) && is_expr_val(&second_val),
+    EvalValue.BoolVal(are_values_equal(&first_val, &cur_env, &second_val, &final_env)),
     create_unknown_val(t_bool())
   );
-  out_info := new_expr_info(final_env, t_bool());
+  out_info := new_expr_info(&final_env, t_bool());
   out_info.value = Option(EvalValue).Some(bool_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(

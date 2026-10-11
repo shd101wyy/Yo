@@ -320,7 +320,7 @@ test("Template string content", {
   sb.write_str("hello");
   sb.write_byte(u8(0x60));
   src := sb.to_string();
-  toks := non_ws(lex_or_panic(src, exn));
+  toks := non_ws(lex_or_panic(&src, exn));
   assert(toks.len() == usize(1), "expected 1 token");
   match(
     toks.get(usize(0)),
@@ -571,7 +571,7 @@ test("Token row tracking across newlines", {
   sb.write_byte(u8(10));
   sb.write_str("world");
   src := sb.to_string();
-  toks := non_ws(tokenize(src, `test.yo`, exn));
+  toks := non_ws(tokenize(&src, `test.yo`, exn));
   assert(toks.len() == usize(2), "expected 2 tokens");
   match(
     toks.get(usize(0)),
@@ -624,7 +624,7 @@ test("find_matching_bracket basic paren", {
   );
   toks := non_ws(tokenize(`(a, b)`, `test.yo`, exn));
   // indices: 0=(  1=a  2=,  3=b  4=)
-  result := find_matching_bracket(toks, usize(0));
+  result := find_matching_bracket(&toks, usize(0));
   match(
     result,
     .None => assert(false, "should find matching paren"),
@@ -642,7 +642,7 @@ test("find_matching_bracket nested parens", {
   );
   toks := non_ws(tokenize(`((a))`, `test.yo`, exn));
   // 0=(  1=(  2=a  3=)  4=)
-  result := find_matching_bracket(toks, usize(0));
+  result := find_matching_bracket(&toks, usize(0));
   match(
     result,
     .None => assert(false, "should find outer closing paren"),
@@ -659,7 +659,7 @@ test("find_matching_bracket curly", {
     )
   );
   toks := non_ws(tokenize(`{x}`, `test.yo`, exn));
-  result := find_matching_bracket(toks, usize(0));
+  result := find_matching_bracket(&toks, usize(0));
   match(
     result,
     .None => assert(false, "should find closing curly"),
@@ -676,7 +676,7 @@ test("find_matching_bracket returns None for non-bracket", {
     )
   );
   toks := non_ws(tokenize(`hello`, `test.yo`, exn));
-  result := find_matching_bracket(toks, usize(0));
+  result := find_matching_bracket(&toks, usize(0));
   assert(result == .None, "identifier has no matching bracket");
 });
 // ─── Error handling ───────────────────────────────────────────────────────────
@@ -763,7 +763,7 @@ test("Unterminated template string raises a lexer diagnostic", {
   sb.write_byte(u8(0x60));
   sb.write_str("unterminated");
   src := sb.to_string();
-  tokenize(src, `test.yo`, exn);
+  tokenize(&src, `test.yo`, exn);
   assert(false, "expected a lexer error to be raised");
 });
 // ─── Bracket token counts for parenthesized expressions ──────────────────────
@@ -1018,7 +1018,7 @@ test("Token.byte_offset is a BYTE offset while character stays a rune index", {
   // `input.chars()` counter; `Token.byte_offset` is what may index `input`
   // (issues/fixed/yo-self-formatter-corrupts-files-with-non-ascii.md).
   src := `a := "名前"; b := 1;`;
-  toks := non_ws(lex_or_panic(src, exn));
+  toks := non_ws(lex_or_panic(&src, exn));
   // a  :=  "名前"  ;  b  :=  1  ;  → 8 tokens
   assert(toks.len() == usize(8), "expected 8 non-whitespace tokens");
   match(
@@ -1070,7 +1070,7 @@ test("Token.byte_offset tracks a multibyte operator run correctly", {
   // `byte_offset` by the same `k`, which is only sound because every
   // operator char is one ASCII byte.
   src := `名 <= 名`;
-  toks := non_ws(lex_or_panic(src, exn));
+  toks := non_ws(lex_or_panic(&src, exn));
   assert(toks.len() == usize(3), "名 <= 名");
   match(
     toks.get(usize(1)),
@@ -1100,7 +1100,7 @@ test("Leading UTF-8 BOM is skipped, not lexed into the first token", {
   sb.write_rune(rune(u32(0xFEFF)));
   sb.write_str("open(1)");
   src := sb.to_string();
-  toks := non_ws(lex_or_panic(src, exn));
+  toks := non_ws(lex_or_panic(&src, exn));
   assert(toks.len() == usize(4), "open ( 1 ) — 4 non-whitespace tokens");
   match(
     toks.get(usize(0)),
@@ -1325,7 +1325,7 @@ test("A lone surrogate escape in a template is a lex error", {
         }
       )
     );
-    tokenize(src, `test.yo`, exn);
+    tokenize(&src, `test.yo`, exn);
     assert(false, "expected a lexer error to be raised");
   });
 });
@@ -1356,7 +1356,7 @@ test("A lone surrogate escape in a double-quoted literal is a lex error", {
         }
       )
     );
-    tokenize(src, `test.yo`, exn);
+    tokenize(&src, `test.yo`, exn);
     assert(false, "expected a lexer error to be raised");
   });
 });

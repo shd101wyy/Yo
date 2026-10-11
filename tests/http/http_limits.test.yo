@@ -57,7 +57,7 @@ test("with_timeout drives a too-short deadline to HttpError.Timeout", {
   );
   listener := io.await(TcpListener.bind(SocketAddr.loopback(u16(19988)), io), IoExn(io : io, exn : exn));
   opts := FetchOptions.new().with_timeout(Duration.from_millis(i64(1)));
-  err := _fetch_error(`http://127.0.0.1:19988/`, opts, io);
+  err := _fetch_error(`http://127.0.0.1:19988/`, &opts, io);
   assert(match(err, .Some(m) => m.contains(`timed out`), .None => false), `fetch must throw Timeout under a 1ms deadline against a silent peer, got: ${match(err, .Some(m) => m, .None => String.from("no error"))}`);
   io.await(listener.close(io), IoExn(io : io, exn : exn));
 });
@@ -80,7 +80,7 @@ test("with_max_response_bytes drives an over-cap body to ResponseTooLarge", {
     IoExn(io : io, exn : exn)
   );
   opts := FetchOptions.new().with_max_response_bytes(usize(16));
-  err := _fetch_error(`http://127.0.0.1:19989/`, opts, io);
+  err := _fetch_error(`http://127.0.0.1:19989/`, &opts, io);
   assert(match(err, .Some(m) => m.contains(`too large`), .None => false), `fetch must throw ResponseTooLarge over a 16-byte cap, got: ${match(err, .Some(m) => m, .None => String.from("no error"))}`);
   task.await(io);
   io.await(server.close(io), IoExn(io : io, exn : exn));

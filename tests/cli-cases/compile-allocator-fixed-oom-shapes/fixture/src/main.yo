@@ -35,7 +35,7 @@ _child_task :: (fn(io : Io) -> unit)({
         io.await(sleep(u64(3600000)), io);
         i32(0)
       }),
-      io
+      &io
     );
     i = (i + usize(1));
   });
@@ -92,11 +92,11 @@ main :: (fn(io : Io) -> unit)({
   shapes.push(String.from("thread"));
   shapes.push(String.from("string"));
   for(shapes, shape => {
-    out := io.await(Command.new(argv(usize(0))).arg(shape.clone()).env_clear().output(io), IoExn(io : io, exn : exn));
+    out := io.await(Command.new(&argv(usize(0))).arg(shape.clone()).env_clear().output(io), IoExn(io : io, exn : exn));
     text := String.from_bytes(out.stderr);
     (found : bool) = false;
     for(text.split("\n"), line => {
-      if(_is_alloc_diagnostic(line), {
+      if(_is_alloc_diagnostic(&line), {
         found = true;
       });
     });

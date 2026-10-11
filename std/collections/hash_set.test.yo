@@ -34,7 +34,7 @@ test("HashSet churn keeps the backing map's live + tombstones under the load thr
   cap0 := set._map.capacity;
   (n : i32) = i32(0);
   while(n < i32(20000), n = (n + i32(1)), {
-    assert(set.remove(n), "the oldest element is present");
+    assert(set.remove(&n), "the oldest element is present");
     set.insert(i32(2000) + n);
     threshold := ((set._map.capacity * usize(7)) / usize(8));
     assert((set._map.len() + set._map.tombstones()) <= threshold, "live + tombstones never exceeds the load threshold");

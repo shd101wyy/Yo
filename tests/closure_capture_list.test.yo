@@ -424,7 +424,7 @@ test("escape: a callee cannot pass on, return or capture its `imm(f)` argument",
   comptime_expect_error(_cl_ret_imm({ &w }() => w), "cannot be returned");
   comptime_expect_error(_cl_fwd_capture({ &w }() => w), "second-class");
   (f : Impl(Fn() -> i32)) = ({ &w }() => w);
-  comptime_expect_error(_cl_id(f), "cannot be returned");
+  comptime_expect_error(_cl_id(&f), "cannot be returned");
   assert(_cl_call0({ &w }() => w) == i32(1), "lending it to a call is fine");
 });
 test("escape: an `io.async` body and a thread body", {
@@ -456,7 +456,7 @@ test("exclusivity: `g(&f, &mut z)` with a named closure", {
   z := i32(0);
   {
     (f : Impl(Fn() -> i32)) = ({ &z }() => z);
-    comptime_expect_error(_cl_with_mut(f, &mut z), "lent exclusively");
+    comptime_expect_error(_cl_with_mut(&f, &mut z), "lent exclusively");
   };
 });
 test("exclusivity: a method receiver versus a `mut` capture of it", {
@@ -485,7 +485,7 @@ test("exclusivity: re-entry through a closure that reaches the callee", {
       n
     });
     (g : Impl(Fn() -> i32)) = ({ &f }() => i32(1));
-    comptime_expect_error(_cl_reentry(f, g), "lent exclusively");
+    comptime_expect_error(_cl_reentry(&f, &g), "lent exclusively");
   };
   assert(n == i32(0), "nothing ran");
 });

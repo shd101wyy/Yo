@@ -144,7 +144,7 @@ test("generic-impl single buffer-taking await (the shadow-registration face)", {
   );
   t_e := IoExn(io : io, exn : t_exn);
   w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
-  n := io.await(w.fill_once(io), t_e);
+  n := io.await(w.fill_once(io), &t_e);
   assert(n == usize(8), "eight bytes on the first fill");
 });
 test("generic-impl loop over a buffer-taking await (the BufReader shape)", {
@@ -158,7 +158,7 @@ test("generic-impl loop over a buffer-taking await (the BufReader shape)", {
   );
   t_e := IoExn(io : io, exn : t_exn);
   w := Wrap(TenSrc)(_inner : TenSrc(pos : u8(0)));
-  all := io.await(w.drain(io), t_e);
+  all := io.await(w.drain(io), &t_e);
   assert(all.len() == usize(10), "ten bytes drained");
   assert(all(usize(0)) == u8(1), "first byte");
   assert(all(usize(9)) == u8(10), "last byte");
@@ -174,7 +174,7 @@ test("trait-default read_to_end loops a buffer-taking await", {
   );
   t_e := IoExn(io : io, exn : t_exn);
   src := TenSrc(pos : u8(0));
-  all := io.await(src.read_to_end(io), t_e);
+  all := io.await(src.read_to_end(io), &t_e);
   assert(all.len() == usize(10), "ten bytes total");
   assert(all(usize(0)) == u8(1), "first byte");
   assert(all(usize(9)) == u8(10), "last byte");
@@ -190,7 +190,7 @@ test("free generic read_to_end loops a buffer-taking await", {
   );
   t_e := IoExn(io : io, exn : t_exn);
   src := TenSrc(pos : u8(0));
-  all := io.await(read_to_end_free(src, io), t_e);
+  all := io.await(read_to_end_free(&src, io), &t_e);
   assert(all.len() == usize(10), "ten bytes total");
   assert(all(usize(4)) == u8(5), "middle byte");
 });
@@ -243,7 +243,7 @@ test("a struct-literal call argument in an async loop is released with its list"
   t_e := IoExn(io : io, exn : t_exn);
   before := g_sm_arg_disposed;
   {
-    n := io.await(sm_arg_collect(io), t_e);
+    n := io.await(sm_arg_collect(io), &t_e);
     assert(n == usize(3), "three values pushed");
   };
   assert(g_sm_arg_disposed == (before + i32(3)), "each pushed value is disposed exactly once");

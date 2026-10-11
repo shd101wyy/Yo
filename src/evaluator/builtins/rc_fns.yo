@@ -76,15 +76,15 @@ _eval_arg :: (
 )({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   arg_expr := match(args.get(arg_idx), .Some(a) => a, .None => make_err_expr());
-  eval_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
+  eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg_expr),
+            ast_expr_token(&arg_expr),
             `Failed to evaluate argument for ${fn_name}`
           )
         )
@@ -105,9 +105,9 @@ evaluate_yo_decr_rc :: (
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_decr_rc", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(info.env, t_unit());
+  out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 evaluate_yo_decr_rc_atomic :: (
@@ -119,9 +119,9 @@ evaluate_yo_decr_rc_atomic :: (
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_decr_rc_atomic", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(info.env, t_unit());
+  out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 evaluate_yo_incr_rc :: (
@@ -133,9 +133,9 @@ evaluate_yo_incr_rc :: (
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_incr_rc", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(info.env, t_unit());
+  out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 evaluate_yo_incr_rc_atomic :: (
@@ -147,9 +147,9 @@ evaluate_yo_incr_rc_atomic :: (
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_incr_rc_atomic", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(info.env, t_unit());
+  out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 evaluate_yo_dyn_vtable_drop :: (
@@ -161,9 +161,9 @@ evaluate_yo_dyn_vtable_drop :: (
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_dyn_vtable_drop", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(info.env, t_unit());
+  out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 evaluate_yo_dyn_vtable_dup :: (
@@ -175,9 +175,9 @@ evaluate_yo_dyn_vtable_dup :: (
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_dyn_vtable_dup", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(info.env, t_unit());
+  out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 evaluate_yo_some_type_drop :: (
@@ -189,9 +189,9 @@ evaluate_yo_some_type_drop :: (
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_some_type_drop", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(info.env, t_unit());
+  out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 evaluate_yo_some_type_dup :: (
@@ -203,9 +203,9 @@ evaluate_yo_some_type_dup :: (
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_some_type_dup", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(info.env, t_unit());
+  out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 evaluate_yo_iso_dispose :: (
@@ -217,9 +217,9 @@ evaluate_yo_iso_dispose :: (
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_iso_dispose", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(info.env, t_unit());
+  out := new_expr_info(&info.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -234,9 +234,9 @@ evaluate_yo_rc_own :: (
   ) -> AstExpr
 )({
   info := _eval_arg("evaluate_yo_rc_own", expr, env, ctx, usize(0), exn);
-  out := new_expr_info(info.env, info.ty);
+  out := new_expr_info(&info.env, &info.ty);
   out.value = .None;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -252,14 +252,14 @@ evaluate_yo_iso_extract :: (
 )({
   info := _eval_arg("evaluate_yo_iso_extract", expr, env, ctx, usize(0), exn);
   arg_type := info.ty;
-  if(!is_iso_type(arg_type), {
+  if(!is_iso_type(&arg_type), {
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
+    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
     exn.throw(
       dyn(
         format_error_message(
-          tok,
-          `evaluate_yo_iso_extract: expected Iso type, but got: ${type_to_string(arg_type)}`
+          &tok,
+          `evaluate_yo_iso_extract: expected Iso type, but got: ${type_to_string(&arg_type)}`
         )
       )
     );
@@ -272,9 +272,9 @@ evaluate_yo_iso_extract :: (
   // expr type to the inner T; value stays `.None` (a runtime value, not a comptime
   // Option).
   inner_type := match(arg_type, .IsoT(child_box) => child_box, _ => t_unit());
-  out := new_expr_info(info.env, inner_type);
+  out := new_expr_info(&info.env, &inner_type);
   out.value = .None;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -296,23 +296,23 @@ evaluate_yo_iso_unique :: (
 )({
   info := _eval_arg("evaluate_yo_iso_unique", expr, env, ctx, usize(0), exn);
   arg_type := info.ty;
-  if(!type_reaches_non_atomic_cell(arg_type), {
+  if(!type_reaches_non_atomic_cell(&arg_type), {
     args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
+    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
     exn.throw(
       dyn(
         format_error_message(
-          tok,
-          `__yo_iso_unique expects a value that reaches a non-atomic cell, but got: ${type_to_string(arg_type)}`
+          &tok,
+          `__yo_iso_unique expects a value that reaches a non-atomic cell, but got: ${type_to_string(&arg_type)}`
         )
       )
     );
   });
   // Keep every count in this function accurate for the walk (env.yo).
   mark_function_frames_isolating(env);
-  out := new_expr_info(info.env, t_bool());
+  out := new_expr_info(&info.env, t_bool());
   out.value = .None;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -327,11 +327,11 @@ evaluate_yo_drop_array_element :: (
   ) -> AstExpr
 )({
   info0 := _eval_arg("evaluate_yo_drop_array_element", expr, env, ctx, usize(0), exn);
-  info1 := _eval_arg("evaluate_yo_drop_array_element", expr, info0.env, ctx, usize(1), exn);
+  info1 := _eval_arg("evaluate_yo_drop_array_element", expr, &info0.env, ctx, usize(1), exn);
   info1;
-  out := new_expr_info(info0.env, t_unit());
+  out := new_expr_info(&info0.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 evaluate_yo_drop_tuple_element :: (
@@ -343,11 +343,11 @@ evaluate_yo_drop_tuple_element :: (
   ) -> AstExpr
 )({
   info0 := _eval_arg("evaluate_yo_drop_tuple_element", expr, env, ctx, usize(0), exn);
-  info1 := _eval_arg("evaluate_yo_drop_tuple_element", expr, info0.env, ctx, usize(1), exn);
+  info1 := _eval_arg("evaluate_yo_drop_tuple_element", expr, &info0.env, ctx, usize(1), exn);
   info1;
-  out := new_expr_info(info0.env, t_unit());
+  out := new_expr_info(&info0.env, t_unit());
   out.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -362,25 +362,25 @@ evaluate_yo_dup_array_element :: (
   ) -> AstExpr
 )({
   info0 := _eval_arg("evaluate_yo_dup_array_element", expr, env, ctx, usize(0), exn);
-  info1 := _eval_arg("evaluate_yo_dup_array_element", expr, info0.env, ctx, usize(1), exn);
+  info1 := _eval_arg("evaluate_yo_dup_array_element", expr, &info0.env, ctx, usize(1), exn);
   info1;
   array_type := info0.ty;
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-  if(!is_array_type(array_type), {
-    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
+  if(!is_array_type(&array_type), {
+    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
     exn.throw(
       dyn(
         format_error_message(
-          tok,
-          `evaluate_yo_dup_array_element: expected array type, got: ${type_to_string(array_type)}`
+          &tok,
+          `evaluate_yo_dup_array_element: expected array type, got: ${type_to_string(&array_type)}`
         )
       )
     );
   });
   element_type := match(array_type, .Array(child_box, _, _) => child_box, _ => t_unit());
-  out := new_expr_info(info0.env, element_type);
+  out := new_expr_info(&info0.env, &element_type);
   out.value = .None;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 evaluate_yo_dup_tuple_element :: (
@@ -392,16 +392,16 @@ evaluate_yo_dup_tuple_element :: (
   ) -> AstExpr
 )({
   info0 := _eval_arg("evaluate_yo_dup_tuple_element", expr, env, ctx, usize(0), exn);
-  info1 := _eval_arg("evaluate_yo_dup_tuple_element", expr, info0.env, ctx, usize(1), exn);
+  info1 := _eval_arg("evaluate_yo_dup_tuple_element", expr, &info0.env, ctx, usize(1), exn);
   tuple_type := info0.ty;
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
-  if(!is_tuple_type(tuple_type), {
-    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
+  if(!is_tuple_type(&tuple_type), {
+    tok := match(args.get(usize(0)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
     exn.throw(
       dyn(
         format_error_message(
-          tok,
-          `evaluate_yo_dup_tuple_element: expected tuple type, got: ${type_to_string(tuple_type)}`
+          &tok,
+          `evaluate_yo_dup_tuple_element: expected tuple type, got: ${type_to_string(&tuple_type)}`
         )
       )
     );
@@ -418,11 +418,11 @@ evaluate_yo_dup_tuple_element :: (
     field_types.get(index_usize),
     .Some(ft) => ft,
     .None => {
-      tok := match(args.get(usize(1)), .Some(a) => ast_expr_token(a), .None => ast_expr_token(expr));
+      tok := match(args.get(usize(1)), .Some(a) => ast_expr_token(&a), .None => ast_expr_token(expr));
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             `evaluate_yo_dup_tuple_element: index ${index_i64} out of bounds for tuple`
           )
         )
@@ -430,9 +430,9 @@ evaluate_yo_dup_tuple_element :: (
       t_unit()
     }
   );
-  out := new_expr_info(info0.env, element_type);
+  out := new_expr_info(&info0.env, &element_type);
   out.value = .None;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 export(create_option_type);

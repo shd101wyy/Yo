@@ -290,8 +290,8 @@ test("IpAddr Ord is the numeric order, with every V4 before every V6", {
 test("IpAddr Hash agrees with Eq and separates the families", {
   a := IpAddr.V4(u8(127), u8(0), u8(0), u8(1));
   b := IpAddr.V4(u8(127), u8(0), u8(0), u8(1));
-  assert(hash_one(a) == hash_one(b), "equal addresses hash equal");
-  assert(hash_one(a) != hash_one(IpAddr.V4(u8(127), u8(0), u8(0), u8(2))), "different addresses hash differently");
+  assert(hash_one(&mut a) == hash_one(&mut b), "equal addresses hash equal");
+  assert(hash_one(&mut a) != hash_one(IpAddr.V4(u8(127), u8(0), u8(0), u8(2))), "different addresses hash differently");
   assert(hash_one(IpAddr.loopback_v4()) != hash_one(IpAddr.loopback_v6()), "the family tag separates V4 from V6");
 });
 test("SocketAddr Eq, Ord, Clone and use as a HashMap key", {
@@ -304,17 +304,17 @@ test("SocketAddr Eq, Ord, Clone and use as a HashMap key", {
   assert(SocketAddr.any(u16(9999)) < SocketAddr.loopback(u16(1)), "the IP outranks the port");
   d := a.clone();
   assert(d == a, "a clone equals its source");
-  assert(hash_one(a) == hash_one(b), "equal socket addresses hash equal");
-  assert(hash_one(a) != hash_one(c), "a differing port changes the hash");
+  assert(hash_one(&mut a) == hash_one(&mut b), "equal socket addresses hash equal");
+  assert(hash_one(&mut a) != hash_one(&mut c), "a differing port changes the hash");
   // The point of all four: a connection table keyed by peer.
   conns := HashMap(SocketAddr, i32).new();
   conns.insert(a, i32(1));
   conns.insert(c, i32(2));
   assert(conns.len() == usize(2), "two distinct keys");
-  assert(conns.get(b).unwrap() == i32(1), "an equal-but-distinct value finds the entry");
+  assert(conns.get(&b).unwrap() == i32(1), "an equal-but-distinct value finds the entry");
   conns.insert(b, i32(3));
   assert(conns.len() == usize(2), "re-inserting an equal key replaces");
-  assert(conns.get(a).unwrap() == i32(3), "with the new value");
+  assert(conns.get(&a).unwrap() == i32(3), "with the new value");
 });
 // ============================================================================
 // IpAddr.parse_v6 / IpAddr.parse

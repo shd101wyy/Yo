@@ -18,7 +18,7 @@ _leaf :: (fn(n : i32, io : Io) -> Impl(Future(i32)))(io.async((e : Io) => n));
 _checked :: (fn(n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
   k := (n + i32(1));
   io.async(e => {
-    r := e.io.await(_leaf(k, e.io), e.io);
+    r := e.io.await(_leaf(k, e.io), &e.io);
     cond(
       (r > i32(100)) => e.exn.throw(dyn(Boom(msg : `too big: ${r}`))),
       true => r
@@ -87,7 +87,7 @@ _log_push :: (fn(log : &mut ArrayList(i32), x : i32) -> i32)({
 _logged :: (fn(log : &ArrayList(i32), n : i32, io : Io) -> Impl(Future(i32, IoExn)))({
   _p := _log_push(log, i32(2));
   io.async(e => {
-    r := e.io.await(_leaf(n, e.io), e.io);
+    r := e.io.await(_leaf(n, e.io), &e.io);
     _q := _log_push(log, i32(3));
     r
   })
@@ -102,7 +102,7 @@ test("prologue and argument effects run once, in order", {
     )
   );
   log := ArrayList(i32).new();
-  v := io.await(_logged(log, _log_push(log, i32(1)), io), IoExn(io : io, exn : exn));
+  v := io.await(_logged(&log, _log_push(&mut log, i32(1)), io), IoExn(io : io, exn : exn));
   assert(v == i32(1), "the argument's value");
   assert(log.len() == usize(3), "three effects");
   assert(log.get(usize(0)).unwrap() == i32(1), "argument first");
@@ -164,7 +164,7 @@ test("a fused await in a cond arm", {
 _bound :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
     f := _checked(i32(20), e.io);
-    v := e.io.await(f, e);
+    v := e.io.await(&f, e);
     v
   })
 );
@@ -184,7 +184,7 @@ test("a bound future keeps the ordinary path", {
 _nap :: (fn(ms : u64, io : Io) -> Impl(Future(u64, IoExn)))({
   d := ms;
   io.async(e => {
-    e.io.await(sleep(d), e.io);
+    e.io.await(sleep(d), &e.io);
     d
   })
 });

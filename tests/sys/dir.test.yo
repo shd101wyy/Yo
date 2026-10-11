@@ -13,7 +13,7 @@ dir :: import("std/sys/dir");
 { temp_dir, path_join } :: import("../helper");
 test("async mkdir and rmdir", {
   tmp_dir := temp_dir();
-  dir_path_str := path_join(tmp_dir, `yo_io_dir_test`);
+  dir_path_str := path_join(&tmp_dir, `yo_io_dir_test`);
   dir_path_c := dir_path_str.to_cstr();
   dir_path := dir_path_c.ptr().unwrap();
   unlink_result := io.await(dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR), io);
@@ -27,7 +27,7 @@ test("async mkdir and rmdir", {
 });
 test("mkdir existing returns -EEXIST", {
   tmp_dir := temp_dir();
-  dir_path_str := path_join(tmp_dir, `yo_io_dir_test2`);
+  dir_path_str := path_join(&tmp_dir, `yo_io_dir_test2`);
   dir_path_c := dir_path_str.to_cstr();
   dir_path := dir_path_c.ptr().unwrap();
   io.await(dir.unlink(AT_FDCWD, dir_path, AT_REMOVEDIR), io);
@@ -40,8 +40,8 @@ test("mkdir existing returns -EEXIST", {
 });
 test("async rename", {
   tmp_dir := temp_dir();
-  old_path_str := path_join(tmp_dir, `yo_io_rename_src`);
-  new_path_str := path_join(tmp_dir, `yo_io_rename_dst`);
+  old_path_str := path_join(&tmp_dir, `yo_io_rename_src`);
+  new_path_str := path_join(&tmp_dir, `yo_io_rename_dst`);
   old_path_c := old_path_str.to_cstr();
   new_path_c := new_path_str.to_cstr();
   old_path := old_path_c.ptr().unwrap();
@@ -76,8 +76,8 @@ test("async rename", {
 });
 test("async symlink and readlink", {
   tmp_dir := temp_dir();
-  target_str := path_join(tmp_dir, `yo_io_symlink_target`);
-  link_path_str := path_join(tmp_dir, `yo_io_symlink_link`);
+  target_str := path_join(&tmp_dir, `yo_io_symlink_target`);
+  link_path_str := path_join(&tmp_dir, `yo_io_symlink_link`);
   target_c := target_str.to_cstr();
   link_path_c := link_path_str.to_cstr();
   target := target_c.ptr().unwrap();
@@ -122,8 +122,8 @@ test("async symlink and readlink", {
 });
 test("async hard link", {
   tmp_dir := temp_dir();
-  orig_path_str := path_join(tmp_dir, `yo_io_link_orig`);
-  link_path_str := path_join(tmp_dir, `yo_io_link_hard`);
+  orig_path_str := path_join(&tmp_dir, `yo_io_link_orig`);
+  link_path_str := path_join(&tmp_dir, `yo_io_link_hard`);
   orig_path_c := orig_path_str.to_cstr();
   link_path_c := link_path_str.to_cstr();
   orig_path := orig_path_c.ptr().unwrap();
@@ -165,7 +165,7 @@ test("async hard link", {
 });
 test("async unlink file", {
   tmp_dir := temp_dir();
-  file_path_str := path_join(tmp_dir, `yo_io_unlink_file`);
+  file_path_str := path_join(&tmp_dir, `yo_io_unlink_file`);
   file_path_c := file_path_str.to_cstr();
   file_path := file_path_c.ptr().unwrap();
   io.await(dir.unlink(AT_FDCWD, file_path, i32(0)), io);
@@ -190,7 +190,7 @@ test("async unlink file", {
 });
 test("unlink nonexistent returns -ENOENT", {
   tmp_dir := temp_dir();
-  bad_path_str := path_join(tmp_dir, `yo_io_nonexistent_file_999`);
+  bad_path_str := path_join(&tmp_dir, `yo_io_nonexistent_file_999`);
   bad_path_c := bad_path_str.to_cstr();
   bad_path := bad_path_c.ptr().unwrap();
   result := io.await(dir.unlink(AT_FDCWD, bad_path, i32(0)), io);
@@ -199,10 +199,10 @@ test("unlink nonexistent returns -ENOENT", {
 });
 test("async getdents lists directory entries", {
   tmp_dir := temp_dir();
-  test_dir_str := path_join(tmp_dir, `yo_io_readdir_test`);
-  file_a_str := path_join(test_dir_str, `file_a.txt`);
-  file_b_str := path_join(test_dir_str, `file_b.txt`);
-  subdir_str := path_join(test_dir_str, `subdir`);
+  test_dir_str := path_join(&tmp_dir, `yo_io_readdir_test`);
+  file_a_str := path_join(&test_dir_str, `file_a.txt`);
+  file_b_str := path_join(&test_dir_str, `file_b.txt`);
+  subdir_str := path_join(&test_dir_str, `subdir`);
   test_dir_c := test_dir_str.to_cstr();
   file_a_c := file_a_str.to_cstr();
   file_b_c := file_b_str.to_cstr();

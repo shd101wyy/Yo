@@ -28,7 +28,7 @@ _match_arm :: (fn(c : _Choice, io : Io) -> Impl(Future(i64, Io)))(
       },
       .Spin => {
         while(runtime(n < i64(3)), {
-          e.io.await(yield(e.io), e.io);
+          e.io.await(yield(e.io), &e.io);
           n = (n + i64(1));
         });
         // The statement under test: it must run ONCE, after the loop.
@@ -48,7 +48,7 @@ _cond_branch :: (fn(skip : bool, io : Io) -> Impl(Future(i64, Io)))(
       },
       true => {
         while(runtime(n < i64(3)), {
-          e.io.await(yield(e.io), e.io);
+          e.io.await(yield(e.io), &e.io);
           n = (n + i64(1));
         });
         trail = (trail + i64(1));
@@ -98,10 +98,10 @@ _spawn_arm :: (fn(c : _Choice, io : Io) -> Impl(Future(i64, Io)))(
             io2.await(yield(io2), io2);
             i32(1)
           }),
-          e.io
+          &e.io
         );
         while(runtime(!h.is_finished()), {
-          e.io.await(yield(e.io), e.io);
+          e.io.await(yield(e.io), &e.io);
           turns = (turns + i64(1));
         });
       }

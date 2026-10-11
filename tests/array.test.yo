@@ -276,9 +276,9 @@ test("Array cmp - the Ord default reaches Ordering", {
   a := Array(i32, 3)(1, 2, 3);
   b := Array(i32, 3)(1, 2, 4);
   // `Ordering` has no `Eq` impl in the prelude, so it is matched, not compared.
-  assert(match(a.cmp(b), .Less => true, _ => false), "less");
-  assert(match(b.cmp(a), .Greater => true, _ => false), "greater");
-  assert(match(a.cmp(a), .Equal => true, _ => false), "equal");
+  assert(match(a.cmp(&b), .Less => true, _ => false), "less");
+  assert(match(b.cmp(&a), .Greater => true, _ => false), "greater");
+  assert(match(a.cmp(&a), .Equal => true, _ => false), "equal");
 });
 test("Array Clone - independent of its source", {
   a := Array(i32, 3)(1, 2, 3);
@@ -305,8 +305,8 @@ test("Array Hash agrees with Eq through a HashMap key", {
   m.insert(k1, i32(11));
   m.insert(k3, i32(33));
   assert(m.len() == usize(2), "two distinct keys");
-  assert(match(m.get(k2), .Some(v) => (v == i32(11)), .None => false), "an EQUAL key finds the entry — Eq and Hash agree");
-  assert(match(m.get(k3), .Some(v) => (v == i32(33)), .None => false), "the second key round-trips");
+  assert(match(m.get(&k2), .Some(v) => (v == i32(11)), .None => false), "an EQUAL key finds the entry — Eq and Hash agree");
+  assert(match(m.get(&k3), .Some(v) => (v == i32(33)), .None => false), "the second key round-trips");
   m.insert(k2, i32(22));
   assert(m.len() == usize(2), "re-inserting an equal key replaces rather than adds");
 });

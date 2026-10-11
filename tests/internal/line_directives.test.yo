@@ -67,7 +67,7 @@ test("emitter emits a #line per position change and none for a repeat", {
   em.set_yo_line_position(String.from("app.yo"), u32(4));
   em.emit_string_line(String.from("c3"));
   text := em.print();
-  lines := _lines_of(text);
+  lines := _lines_of(&text);
   (directives : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < lines.len(), {
@@ -108,7 +108,7 @@ test("restore directive numbers the NEXT physical line honestly", {
   em.emit_string_line(String.from("c4"));
   text := em.print();
   assert(!text.contains(line_restore_marker()), "the placeholder zeros are patched away");
-  lines := _lines_of(text);
+  lines := _lines_of(&text);
   (checked : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < lines.len(), {
@@ -118,7 +118,7 @@ test("restore directive numbers the NEXT physical line honestly", {
         // The restore names the line AFTER itself: its number must equal that
         // line's 1-based physical index in the whole stream.
         nxt := match(lines.get(i + usize(1)), .Some(x) => x, .None => String.new());
-        assert(_line_directive_number(l) == (i + usize(2)), "restore number is the next line's physical index");
+        assert(_line_directive_number(&l) == (i + usize(2)), "restore number is the next line's physical index");
         assert(nxt == String.from("c4"), "the restore precedes c4");
         checked = (checked + usize(1));
       }),
@@ -149,7 +149,7 @@ test("chunk assembly rewrites markers to the chunk's own file and line", {
     String.from("h\n"),
     String.new(),
     code.clone(),
-    ranges,
+    &ranges,
     ArrayList(ChunkRange).new(),
     String.new(),
     usize(2),
@@ -163,7 +163,7 @@ test("chunk assembly rewrites markers to the chunk's own file and line", {
     match(
       assembly.chunks.get(ci),
       .Some(body) => {
-        lines := _lines_of(body);
+        lines := _lines_of(&body);
         (li : usize) = usize(0);
         while(li < lines.len(), {
           match(
@@ -177,7 +177,7 @@ test("chunk assembly rewrites markers to the chunk's own file and line", {
               // The chunk FILE is `#include "shared.h"` (1 line) + body: a
               // marker at body line L (1-based) is file line L+1, and #line
               // names the NEXT line — L+2 = (li + 1) + 2.
-              assert(_line_directive_number(l) == (li + usize(1) + usize(2)), "chunk restore number is the next file line");
+              assert(_line_directive_number(&l) == (li + usize(1) + usize(2)), "chunk restore number is the next file line");
             }),
             .None => ()
           );

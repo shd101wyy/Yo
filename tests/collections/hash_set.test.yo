@@ -203,7 +203,7 @@ test("HashSet.is_subset returns true for subset", {
   set2.insert(i32(1));
   set2.insert(i32(2));
   set2.insert(i32(3));
-  assert(set1.is_subset(set2));
+  assert(set1.is_subset(&set2));
 });
 test("HashSet.is_subset returns false for non-subset", {
   set1 := HashSet(i32).new();
@@ -213,7 +213,7 @@ test("HashSet.is_subset returns false for non-subset", {
   set2.insert(i32(1));
   set2.insert(i32(2));
   set2.insert(i32(3));
-  assert(!set1.is_subset(set2));
+  assert(!set1.is_subset(&set2));
 });
 test("HashSet.is_subset returns true for equal sets", {
   set1 := HashSet(i32).new();
@@ -222,8 +222,8 @@ test("HashSet.is_subset returns true for equal sets", {
   set2 := HashSet(i32).new();
   set2.insert(i32(1));
   set2.insert(i32(2));
-  assert(set1.is_subset(set2));
-  assert(set2.is_subset(set1));
+  assert(set1.is_subset(&set2));
+  assert(set2.is_subset(&set1));
 });
 test("HashSet.is_superset returns true for superset", {
   set1 := HashSet(i32).new();
@@ -233,7 +233,7 @@ test("HashSet.is_superset returns true for superset", {
   set2 := HashSet(i32).new();
   set2.insert(i32(1));
   set2.insert(i32(2));
-  assert(set1.is_superset(set2));
+  assert(set1.is_superset(&set2));
 });
 test("HashSet.is_superset returns false for non-superset", {
   set1 := HashSet(i32).new();
@@ -242,7 +242,7 @@ test("HashSet.is_superset returns false for non-superset", {
   set2 := HashSet(i32).new();
   set2.insert(i32(1));
   set2.insert(i32(3));
-  assert(!set1.is_superset(set2));
+  assert(!set1.is_superset(&set2));
 });
 test("HashSet.is_disjoint returns true for disjoint sets", {
   set1 := HashSet(i32).new();
@@ -251,7 +251,7 @@ test("HashSet.is_disjoint returns true for disjoint sets", {
   set2 := HashSet(i32).new();
   set2.insert(i32(3));
   set2.insert(i32(4));
-  assert(set1.is_disjoint(set2));
+  assert(set1.is_disjoint(&set2));
 });
 test("HashSet.is_disjoint returns false for overlapping sets", {
   set1 := HashSet(i32).new();
@@ -260,7 +260,7 @@ test("HashSet.is_disjoint returns false for overlapping sets", {
   set2 := HashSet(i32).new();
   set2.insert(i32(2));
   set2.insert(i32(3));
-  assert(!set1.is_disjoint(set2));
+  assert(!set1.is_disjoint(&set2));
 });
 test("HashSet.union creates combined set", {
   set1 := HashSet(i32).new();
@@ -269,7 +269,7 @@ test("HashSet.union creates combined set", {
   set2 := HashSet(i32).new();
   set2.insert(i32(2));
   set2.insert(i32(3));
-  result := set1.union(set2);
+  result := set1.union(&set2);
   union_set := result.unwrap();
   assert(union_set.len() == usize(3));
   assert(union_set.contains(i32(1)));
@@ -281,7 +281,7 @@ test("HashSet.union with empty set", {
   set1.insert(i32(1));
   set1.insert(i32(2));
   set2 := HashSet(i32).new();
-  result := set1.union(set2);
+  result := set1.union(&set2);
   union_set := result.unwrap();
   assert(union_set.len() == usize(2));
   assert(union_set.contains(i32(1)));
@@ -296,7 +296,7 @@ test("HashSet.intersection creates common elements set", {
   set2.insert(i32(2));
   set2.insert(i32(3));
   set2.insert(i32(4));
-  result := set1.intersection(set2);
+  result := set1.intersection(&set2);
   inter_set := result.unwrap();
   assert(inter_set.len() == usize(2));
   assert(inter_set.contains(i32(2)));
@@ -309,7 +309,7 @@ test("HashSet.intersection with empty set", {
   set1.insert(i32(1));
   set1.insert(i32(2));
   set2 := HashSet(i32).new();
-  result := set1.intersection(set2);
+  result := set1.intersection(&set2);
   inter_set := result.unwrap();
   assert(inter_set.is_empty());
 });
@@ -321,7 +321,7 @@ test("HashSet.difference creates elements in first but not second", {
   set2 := HashSet(i32).new();
   set2.insert(i32(2));
   set2.insert(i32(4));
-  result := set1.difference(set2);
+  result := set1.difference(&set2);
   diff_set := result.unwrap();
   assert(diff_set.len() == usize(2));
   assert(diff_set.contains(i32(1)));
@@ -334,7 +334,7 @@ test("HashSet.difference with empty set returns copy", {
   set1.insert(i32(1));
   set1.insert(i32(2));
   set2 := HashSet(i32).new();
-  result := set1.difference(set2);
+  result := set1.difference(&set2);
   diff_set := result.unwrap();
   assert(diff_set.len() == usize(2));
   assert(diff_set.contains(i32(1)));
@@ -349,7 +349,7 @@ test("HashSet.symmetric_difference creates elements in either but not both", {
   set2.insert(i32(2));
   set2.insert(i32(3));
   set2.insert(i32(4));
-  result := set1.symmetric_difference(set2);
+  result := set1.symmetric_difference(&set2);
   sym_diff := result.unwrap();
   assert(sym_diff.len() == usize(2));
   assert(sym_diff.contains(i32(1)));
@@ -364,7 +364,7 @@ test("HashSet.symmetric_difference with disjoint sets", {
   set2 := HashSet(i32).new();
   set2.insert(i32(3));
   set2.insert(i32(4));
-  result := set1.symmetric_difference(set2);
+  result := set1.symmetric_difference(&set2);
   sym_diff := result.unwrap();
   assert(sym_diff.len() == usize(4));
   assert(sym_diff.contains(i32(1)));
@@ -611,7 +611,7 @@ test("HashSet insert/remove churn keeps live + tombstones under the load thresho
   cap0 := set.capacity();
   (n : i32) = i32(0);
   while(n < i32(20000), n = (n + i32(1)), {
-    assert(set.remove(n), "the oldest element is present");
+    assert(set.remove(&n), "the oldest element is present");
     set.insert(i32(2000) + n);
     threshold := ((set.capacity() * usize(7)) / usize(8));
     assert((set.len() + set.tombstones()) <= threshold, "live + tombstones never exceeds the load threshold");
@@ -620,11 +620,11 @@ test("HashSet insert/remove churn keeps live + tombstones under the load thresho
   assert(set.capacity() == cap0, "a table that is mostly tombstones is rehashed in place, not doubled");
   (c : i32) = i32(20000);
   while(c < i32(22000), c = (c + i32(1)), {
-    assert(set.contains(c), "every live element is reachable");
+    assert(set.contains(&c), "every live element is reachable");
   });
   (r : i32) = i32(0);
   while(r < i32(20000), r = (r + i32(1)), {
-    assert(!set.contains(r), "every retired element is gone");
+    assert(!set.contains(&r), "every retired element is gone");
   });
 });
 test("HashSet Default is the empty set", {

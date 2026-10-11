@@ -124,14 +124,14 @@ test("nullable-pointer user enum: positional, labeled, curly and bare variant ar
   labeled :: (fn(s : &Slot) -> i32)(match(s, .Full(item : it) => it.v, .Empty => i32(-1)));
   curly :: (fn(s : &Slot) -> i32)(match(s, .Full({ item }) => item.v, .Empty => i32(-1)));
   bare :: (fn(s : &Slot) -> i32)(match(s, .Full => i32(1), .Empty => i32(0)));
-  assert(positional(full) == i32(9), "positional payload");
-  assert(positional(empty) == i32(-1), "positional empty");
-  assert(labeled(full) == i32(9), "labeled payload");
-  assert(labeled(empty) == i32(-1), "labeled empty");
-  assert(curly(full) == i32(9), "curly payload");
-  assert(curly(empty) == i32(-1), "curly empty");
-  assert(bare(full) == i32(1), "a bare .Full arm selects the payload variant");
-  assert(bare(empty) == i32(0), "a bare .Empty arm selects the fieldless variant");
+  assert(positional(&full) == i32(9), "positional payload");
+  assert(positional(&empty) == i32(-1), "positional empty");
+  assert(labeled(&full) == i32(9), "labeled payload");
+  assert(labeled(&empty) == i32(-1), "labeled empty");
+  assert(curly(&full) == i32(9), "curly payload");
+  assert(curly(&empty) == i32(-1), "curly empty");
+  assert(bare(&full) == i32(1), "a bare .Full arm selects the payload variant");
+  assert(bare(&empty) == i32(0), "a bare .Empty arm selects the fieldless variant");
 });
 // A labeled pattern may name fewer fields than the variant has, never more:
 // a mixed list with a positional sub-pattern past the last field was accepted

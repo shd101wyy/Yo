@@ -12,14 +12,14 @@ EnumHolder :: ref(struct(e : RefBindEnum));
 test("read through a ref param", {
   get_x :: (fn(p : &mut Point) -> i32)(p.x);
   pt := Point(x : i32(10), y : i32(20));
-  assert(get_x(pt) == i32(10), "read via ref param");
+  assert(get_x(&mut pt) == i32(10), "read via ref param");
 });
 test("write through a ref param propagates to the caller", {
   set_x :: (fn(p : &mut Point, value : i32) -> unit)({
     p.x = value;
   });
   pt := Point(x : i32(10), y : i32(20));
-  set_x(pt, i32(99));
+  set_x(&mut pt, i32(99));
   assert(pt.x == i32(99), "write via ref param propagates to caller's pt.x");
   assert(pt.y == i32(20), "unrelated field is untouched");
 });
@@ -32,7 +32,7 @@ test("ref params chain through nested calls", {
     inner(p);
   });
   pt := Point(x : i32(0), y : i32(0));
-  outer(pt);
+  outer(&mut pt);
   assert(pt.x == i32(2), "two increments through the chained refs");
 });
 test("enum field writes in place (no borrow needed)", {

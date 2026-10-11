@@ -67,19 +67,19 @@ test("parse_manifest: missing [package] is an error naming the file", {
 });
 test("parse_manifest: [package] without a name is an error", {
   msg := _err("[package]\nversion = \"1.0.0\"\n");
-  assert(msg.contains("name is required"), msg);
+  assert(msg.contains("name is required"), &msg);
 });
 test("parse_manifest: a name with a path separator is rejected", {
   msg := _err("[package]\nname = \"a/b\"\n");
-  assert(msg.contains("path separator"), msg);
+  assert(msg.contains("path separator"), &msg);
 });
 test("parse_manifest: a non-string field is an error naming the key", {
   msg := _err("[package]\nname = 42\n");
-  assert(msg.contains("\"name\" must be a string"), msg);
+  assert(msg.contains("\"name\" must be a string"), &msg);
 });
 test("parse_manifest: invalid TOML reports the TOML error", {
   msg := _err("[package\nname = \"app\"\n");
-  assert(msg.contains("TOML error"), msg);
+  assert(msg.contains("TOML error"), &msg);
 });
 // ---------------------------------------------------------------------------
 // [modules]
@@ -95,11 +95,11 @@ test("parse_manifest: [modules] entries keep declaration order", {
 });
 test("parse_manifest: a non-string module root is an error", {
   msg := _err("[package]\nname = \"app\"\n[modules]\ndefault = 1\n");
-  assert(msg.contains("[modules] default must be a string path"), msg);
+  assert(msg.contains("[modules] default must be a string path"), &msg);
 });
 test("parse_manifest: a module name with a slash is rejected", {
   msg := _err("[package]\nname = \"app\"\n[modules]\n\"a/b\" = \"x.yo\"\n");
-  assert(msg.contains("may not contain \"/\""), msg);
+  assert(msg.contains("may not contain \"/\""), &msg);
 });
 // ---------------------------------------------------------------------------
 // [dependencies] / [dev-dependencies]
@@ -161,27 +161,27 @@ test("parse_manifest: every dependency shape parses", {
 });
 test("parse_manifest: a dependency that is not an inline table is an error", {
   msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = \"1.0\"\n");
-  assert(msg.contains("must be an inline table"), msg);
+  assert(msg.contains("must be an inline table"), &msg);
 });
 test("parse_manifest: an unknown dependency key is an error (typos never mean default branch)", {
   msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = { git = \"u\", verison = \"1\" }\n");
-  assert(msg.contains("unknown key \"verison\""), msg);
+  assert(msg.contains("unknown key \"verison\""), &msg);
 });
 test("parse_manifest: two pins on one git dependency is an error", {
   msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = { git = \"u\", tag = \"v1\", branch = \"main\" }\n");
-  assert(msg.contains("only one of version, tag, branch, rev"), msg);
+  assert(msg.contains("only one of version, tag, branch, rev"), &msg);
 });
 test("parse_manifest: a path dependency cannot pin a ref", {
   msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = { path = \"../foo\", tag = \"v1\" }\n");
-  assert(msg.contains("cannot have version, tag, branch or rev"), msg);
+  assert(msg.contains("cannot have version, tag, branch or rev"), &msg);
 });
 test("parse_manifest: a dependency without a source is an error", {
   msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = { version = \"1\" }\n");
-  assert(msg.contains("needs a source"), msg);
+  assert(msg.contains("needs a source"), &msg);
 });
 test("parse_manifest: the same name in [dependencies] and [dev-dependencies] is an error", {
   msg := _err("[package]\nname = \"app\"\n[dependencies]\nfoo = { path = \"../foo\" }\n[dev-dependencies]\nfoo = { path = \"../foo2\" }\n");
-  assert(msg.contains("declared in both"), msg);
+  assert(msg.contains("declared in both"), &msg);
 });
 // ---------------------------------------------------------------------------
 // abs_under

@@ -35,28 +35,28 @@ test("store_tree_dir: a value without the sha256- prefix is an error naming it",
   match(
     store_tree_dir(String.from("/c"), String.from(HEX64)),
     .Ok(_) => panic("accepted a bare hex"),
-    .Err(m) => assert(m.contains(String.from("does not start with \"sha256-\"")), m)
+    .Err(m) => assert(m.contains(String.from("does not start with \"sha256-\"")), &m)
   );
 });
 test("store_tree_dir: a short hash is an error", {
   match(
     store_tree_dir(String.from("/c"), String.from("sha256-abc")),
     .Ok(_) => panic("accepted a short hash"),
-    .Err(m) => assert(m.contains(String.from("64 lowercase hex digits")), m)
+    .Err(m) => assert(m.contains(String.from("64 lowercase hex digits")), &m)
   );
 });
 test("store_tree_dir: uppercase or non-hex digits are an error (no path escape)", {
   bad := String.from("sha256-");
   bad.push_str("../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../../////////");
   match(
-    store_tree_dir(String.from("/c"), bad),
+    store_tree_dir(String.from("/c"), &bad),
     .Ok(_) => panic("accepted a path-escaping value"),
-    .Err(m) => assert(m.contains(String.from("64 lowercase hex digits")), m)
+    .Err(m) => assert(m.contains(String.from("64 lowercase hex digits")), &m)
   );
   upper := String.from("sha256-");
   upper.push_str("0123456789ABCDEF0123456789abcdef0123456789abcdef0123456789abcdef");
   match(
-    store_tree_dir(String.from("/c"), upper),
+    store_tree_dir(String.from("/c"), &upper),
     .Ok(_) => panic("accepted uppercase hex"),
     .Err(_) => ()
   );
@@ -100,5 +100,5 @@ test("get_global_cache_dir: returns non-empty string", {
 test("store and versions are children of the cache root", {
   root := get_global_cache_dir();
   assert(get_store_dir(root.clone()).starts_with(root.clone()), "store dir is under cache root");
-  assert(get_global_versions_cache_dir().starts_with(root), "versions dir is under cache root");
+  assert(get_global_versions_cache_dir().starts_with(&root), "versions dir is under cache root");
 });

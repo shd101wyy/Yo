@@ -6,7 +6,7 @@ base64 :: import("std/encoding/base64");
 // ===== Encoding Tests =====
 test("base64.encode empty input", {
   data := ArrayList(u8).new();
-  result := base64.encode(data);
+  result := base64.encode(&data);
   assert(result == "", "empty input should produce empty string");
 });
 test("base64.encode Hello", {
@@ -16,22 +16,22 @@ test("base64.encode Hello", {
   data.push(u8(108));
   data.push(u8(108));
   data.push(u8(111));
-  result := base64.encode(data);
+  result := base64.encode(&data);
   assert(result == "SGVsbG8=", "Hello should encode to SGVsbG8=");
   // The deprecated `base64_encode` alias (removed in v0.2.32) still delegates.
-  assert(base64.base64_encode(data) == result, "base64_encode alias delegates to base64.encode");
+  assert(base64.base64_encode(&data) == result, "base64_encode alias delegates to base64.encode");
 });
 test("base64.encode single byte", {
   data := ArrayList(u8).new();
   data.push(u8(65));
-  result := base64.encode(data);
+  result := base64.encode(&data);
   assert(result == "QQ==", "A should encode to QQ==");
 });
 test("base64.encode two bytes", {
   data := ArrayList(u8).new();
   data.push(u8(65));
   data.push(u8(66));
-  result := base64.encode(data);
+  result := base64.encode(&data);
   assert(result == "QUI=", "AB should encode to QUI=");
 });
 test("base64.encode three bytes no padding", {
@@ -39,7 +39,7 @@ test("base64.encode three bytes no padding", {
   data.push(u8(65));
   data.push(u8(66));
   data.push(u8(67));
-  result := base64.encode(data);
+  result := base64.encode(&data);
   assert(result == "QUJD", "ABC should encode to QUJD with no padding");
 });
 test("base64.encode Man", {
@@ -48,14 +48,14 @@ test("base64.encode Man", {
   data.push(u8(77));
   data.push(u8(97));
   data.push(u8(110));
-  result := base64.encode(data);
+  result := base64.encode(&data);
   assert(result == "TWFu", "Man should encode to TWFu");
 });
 // ===== URL-safe Encoding =====
 test("base64.encode_url no padding", {
   data := ArrayList(u8).new();
   data.push(u8(65));
-  result := base64.encode_url(data);
+  result := base64.encode_url(&data);
   // URL-safe should not have padding
   assert(result == "QQ", "URL-safe single byte should not have padding");
 });
@@ -99,8 +99,8 @@ test("base64 roundtrip", {
     data.push(i);
   });
   data.push(u8(255));
-  encoded := base64.encode(data);
-  decoded := base64.decode(encoded).unwrap();
+  encoded := base64.encode(&data);
+  decoded := base64.decode(&encoded).unwrap();
   assert(decoded.len() == usize(256), "roundtrip should preserve length");
   j := usize(0);
   while(j < usize(256), j = (j + usize(1)), {
@@ -112,8 +112,8 @@ test("base64 url roundtrip", {
   data.push(u8(0xFB));
   data.push(u8(0xFF));
   data.push(u8(0xFE));
-  encoded := base64.encode_url(data);
-  decoded := base64.decode_url(encoded).unwrap();
+  encoded := base64.encode_url(&data);
+  decoded := base64.decode_url(&encoded).unwrap();
   assert(decoded.len() == usize(3), "url roundtrip should preserve length");
   assert(decoded(usize(0)) == u8(0xFB), "url roundtrip byte 0");
   assert(decoded(usize(1)) == u8(0xFF), "url roundtrip byte 1");

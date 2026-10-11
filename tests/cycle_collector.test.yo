@@ -393,7 +393,7 @@ test("A dispose that resurrects a cycle member leaves no dangling handle", {
   });
   do_test :: (fn() -> MNode)({
     k := MNode(0, .None, .None, false, true);
-    build(k);
+    build(&k);
     before := Gc.tracked_count();
     Gc.collect();
     // Deterministic oracle BEFORE any deref of the possibly-dangling handle:
@@ -432,7 +432,7 @@ test("A resurrected pair is reclaimed once unreachable again", {
       a.next = .Some(b);
       b.next = .Some(a); // a <-> b, unreachable after return
     });
-    build(k);
+    build(&k);
     before := Gc.tracked_count();
     Gc.collect();
     // k, a, b tracked before; a's dispose stored b into the live k, so the
@@ -468,7 +468,7 @@ test("A resurrected pair is reclaimed once unreachable again", {
     kk.accept = false;
     kk.next = .None;
   });
-  clear(k);
+  clear(&k);
   Gc.collect();
   assert(Gc.tracked_count() == (base + u64(1)), "only the keeper remains after the pair became unreachable again");
 });

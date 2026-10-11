@@ -108,11 +108,11 @@ test("every code the classifier emits has a registry entry", {
       .Some(x) => x,
       .None => String.new()
     );
-    found := lookup_explain(c);
+    found := lookup_explain(&c);
     assert(found.is_some(), `code ${c} must have a registry entry`);
     match(
       found,
-      .Some(e) => _check_entry(e, c),
+      .Some(e) => _check_entry(&e, &c),
       .None => ()
     );
     i = (i + usize(1));
@@ -147,7 +147,7 @@ test("registry entries are unique and code-shaped", {
     });
     assert(!dup, `duplicate registry code ${e.code}`);
     seen.push(e.code);
-    _check_entry(e, e.code);
+    _check_entry(&e, &e.code);
     i = (i + usize(1));
   });
 });
@@ -210,7 +210,7 @@ test("explain_to_json carries both languages", {
   match(
     lookup_explain(String.from("E0601")),
     .Some(e) => {
-      js := explain_to_json(e);
+      js := explain_to_json(&e);
       assert(js.contains(String.from("\"code\":\"E0601\"")), "code field");
       assert(js.contains(String.from("\"title_zh\":")), "Chinese title field");
       assert(js.contains(String.from("\"explanation_zh\":")), "Chinese explanation field");
@@ -248,10 +248,10 @@ test("the reserved E13xx and E15xx bands are allocated with full entries", {
       .None => String.new()
     );
     match(
-      lookup_explain(c),
+      lookup_explain(&c),
       .Some(e) => {
         assert(e.code == c, `${c} round-trips`);
-        _check_entry(e, c);
+        _check_entry(&e, &c);
       },
       .None => assert(false, `${c} must have a registry entry`)
     );

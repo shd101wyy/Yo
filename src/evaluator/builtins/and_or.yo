@@ -59,7 +59,7 @@ evaluate_and_or :: (
     bool_result := is_and;
     out_info := new_expr_info(env, t_bool());
     out_info.value = .Some(EvalValue.BoolVal(bool_result));
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     return(expr);
   });
   // Short-circuiting evaluation.
@@ -75,8 +75,8 @@ evaluate_and_or :: (
       arg_opt,
       .None => {},
       .Some(arg) => {
-        evaluated_arg := evaluate_expression_raw(arg, cur_env, ctx, exn);
-        arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+        evaluated_arg := evaluate_expression_raw(&arg, &cur_env, ctx, exn);
+        arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
         arg_info := match(
           arg_info_opt,
           .Some(ai) => ai,
@@ -84,25 +84,25 @@ evaluate_and_or :: (
             exn.throw(
               dyn(
                 format_error_message(
-                  ast_expr_token(arg),
-                  `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(arg)}`
+                  ast_expr_token(&arg),
+                  `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(&arg)}`
                 )
               )
             );
             new_expr_info(env, t_bool())
           }
         );
-        if(!is_bool_type(arg_info.ty), {
+        if(!is_bool_type(&arg_info.ty), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(arg),
-                `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(arg)}`
+                ast_expr_token(&arg),
+                `Expected bool type for "${if(is_and, String.from("and"), String.from("or"))}" argument, got:\n${ast_expr_to_string(&arg)}`
               )
             )
           );
         });
-        cur_env = expr_info_adopt_env(arg_info);
+        cur_env = expr_info_adopt_env(&arg_info);
         arg_val_opt := arg_info.value;
         match(
           arg_val_opt,
@@ -111,20 +111,20 @@ evaluate_and_or :: (
             has_runtime = true;
           },
           .Some(av) => {
-            if(is_unknown_val(av), {
+            if(is_unknown_val(&av), {
               // A RUNTIME-ONLY unknown (create_runtime_unknown_val) — classify it as
               // RUNTIME. Folding it into `has_unknown` made the `||`/`&&`
               // result an UNMARKED unknown, which downstream comptime
               // overloads accept: `!((prev == key) || ...)` then preferred
               // `comptime_not` and codegen called an unemitted comptime fn
               // (tests/codegen-bootstrap/short_circuit_rc_temp_drop.yo).
-              if(is_runtime_only_unknown_val(av), {
+              if(is_runtime_only_unknown_val(&av), {
                 has_runtime = true;
               }, {
                 has_unknown = true;
               });
             }, {
-              if(is_bool_val(av), {
+              if(is_bool_val(&av), {
                 bv := match(av, .BoolVal(b) => b, _ => false);
                 if(is_and, {
                   if(!bv, {
@@ -162,7 +162,7 @@ evaluate_and_or :: (
     result_val,
     .Some(rv) => cond(
       // Short-circuited with definitive answer — keep it.
-      is_bool_val(rv) => .Some(rv),
+      is_bool_val(&rv) => .Some(rv),
       has_runtime => .None,
       has_unknown => .Some(create_unknown_val(t_bool())),
       true => result_val
@@ -173,9 +173,9 @@ evaluate_and_or :: (
       true => result_val
     )
   );
-  out_info := new_expr_info(cur_env, t_bool());
+  out_info := new_expr_info(&cur_env, t_bool());
   out_info.value = final_val;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_and_or);

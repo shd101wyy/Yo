@@ -14,7 +14,7 @@
 assert_str_eq :: (fn(actual : &String, expected : &String, msg : str) -> unit)(
   if(actual == expected, (), {
     println(`assert_str_eq FAILED: expected="${expected}" actual="${actual}" — ${msg}`);
-    assert(false, msg);
+    assert(false, &msg);
   })
 );
 // Retrieve the only expression from a program, asserting length == 1.
@@ -40,9 +40,9 @@ test("Parse single identifier", {
     )
   );
   prog := parse(`hello`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_atom(e), "expected Atom");
-  assert_str_eq(ast_expr_to_string(e), `hello`, "identifier value");
+  e := only_expr(&prog);
+  assert(ast_expr_is_atom(&e), "expected Atom");
+  assert_str_eq(ast_expr_to_string(&e), `hello`, "identifier value");
 });
 test("Parse integer literal", {
   exn := Exception(
@@ -54,9 +54,9 @@ test("Parse integer literal", {
     )
   );
   prog := parse(`42`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_atom(e), "expected Atom");
-  assert_str_eq(ast_expr_to_string(e), `42`, "integer value");
+  e := only_expr(&prog);
+  assert(ast_expr_is_atom(&e), "expected Atom");
+  assert_str_eq(ast_expr_to_string(&e), `42`, "integer value");
 });
 test("Parse float literal", {
   exn := Exception(
@@ -68,9 +68,9 @@ test("Parse float literal", {
     )
   );
   prog := parse(`3.14`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_atom(e), "expected Atom");
-  assert_str_eq(ast_expr_to_string(e), `3.14`, "float value");
+  e := only_expr(&prog);
+  assert(ast_expr_is_atom(&e), "expected Atom");
+  assert_str_eq(ast_expr_to_string(&e), `3.14`, "float value");
 });
 test("Parse bool literal true", {
   exn := Exception(
@@ -82,9 +82,9 @@ test("Parse bool literal true", {
     )
   );
   prog := parse(`true`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_atom(e), "expected Atom");
-  assert_str_eq(ast_expr_to_string(e), `true`, "bool value");
+  e := only_expr(&prog);
+  assert(ast_expr_is_atom(&e), "expected Atom");
+  assert_str_eq(ast_expr_to_string(&e), `true`, "bool value");
 });
 test("Parse string literal", {
   exn := Exception(
@@ -97,9 +97,9 @@ test("Parse string literal", {
   );
   // "hello" in Yo source — lexed as StringLit with the surrounding quotes in the value
   prog := parse(String.from("\"hello\""), `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_atom(e), "expected Atom");
-  assert_str_eq(ast_expr_to_string(e), String.from("\"hello\""), "string literal value includes quotes");
+  e := only_expr(&prog);
+  assert(ast_expr_is_atom(&e), "expected Atom");
+  assert_str_eq(ast_expr_to_string(&e), String.from("\"hello\""), "string literal value includes quotes");
 });
 test("Parse operator atom", {
   exn := Exception(
@@ -111,9 +111,9 @@ test("Parse operator atom", {
     )
   );
   prog := parse(`+`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_atom(e), "expected Atom");
-  assert_str_eq(ast_expr_to_string(e), `+`, "operator value");
+  e := only_expr(&prog);
+  assert(ast_expr_is_atom(&e), "expected Atom");
+  assert_str_eq(ast_expr_to_string(&e), `+`, "operator value");
 });
 // ─── Unit and parenthesized expressions ──────────────────────────────────────
 test("Parse unit value ()", {
@@ -126,9 +126,9 @@ test("Parse unit value ()", {
     )
   );
   prog := parse(`()`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall (unit is FnCall('tuple',[]))");
-  assert_str_eq(ast_expr_to_string(e), `()`, "unit value");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall (unit is FnCall('tuple',[]))");
+  assert_str_eq(ast_expr_to_string(&e), `()`, "unit value");
 });
 test("Parse parenthesized expression (x)", {
   exn := Exception(
@@ -140,9 +140,9 @@ test("Parse parenthesized expression (x)", {
     )
   );
   prog := parse(`(x)`, `test.yo`, exn);
-  e := only_expr(prog);
+  e := only_expr(&prog);
   // single expr in parens → the inner expr, not a wrapper
-  assert_str_eq(ast_expr_to_string(e), `x`, "parenthesized expr unwrapped");
+  assert_str_eq(ast_expr_to_string(&e), `x`, "parenthesized expr unwrapped");
 });
 test("Parse parenthesized infix (a + b)", {
   exn := Exception(
@@ -154,9 +154,9 @@ test("Parse parenthesized infix (a + b)", {
     )
   );
   prog := parse(`(a + b)`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `a + b`, "infix operator");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `a + b`, "infix operator");
 });
 test("Parse top-level infix a + b", {
   exn := Exception(
@@ -168,9 +168,9 @@ test("Parse top-level infix a + b", {
     )
   );
   prog := parse(`a + b`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `a + b`, "infix operator without parens");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `a + b`, "infix operator without parens");
 });
 // ─── Function calls ───────────────────────────────────────────────────────────
 test("Parse no-arg function call f()", {
@@ -183,9 +183,9 @@ test("Parse no-arg function call f()", {
     )
   );
   prog := parse(`f()`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `f()`, "no-arg call");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `f()`, "no-arg call");
 });
 test("Parse function call f(a, b)", {
   exn := Exception(
@@ -197,9 +197,9 @@ test("Parse function call f(a, b)", {
     )
   );
   prog := parse(`f(a, b)`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `f(a, b)`, "function call args");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `f(a, b)`, "function call args");
 });
 test("Reject whitespace-separated call f a, b", {
   exn := Exception(
@@ -222,9 +222,9 @@ test("Parse nested function call f(g(x))", {
     )
   );
   prog := parse(`f(g(x))`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `f(g(x))`, "nested calls");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `f(g(x))`, "nested calls");
 });
 // ─── Member access and method calls ──────────────────────────────────────────
 test("Parse member access obj.field", {
@@ -237,9 +237,9 @@ test("Parse member access obj.field", {
     )
   );
   prog := parse(`obj.field`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `(obj.field)`, "member access");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `(obj.field)`, "member access");
 });
 test("Parse method call obj.method(x)", {
   exn := Exception(
@@ -251,9 +251,9 @@ test("Parse method call obj.method(x)", {
     )
   );
   prog := parse(`obj.method(x)`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `(obj.method)(x)`, "method call");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `(obj.method)(x)`, "method call");
 });
 test("Parse chained member access a.b.c", {
   exn := Exception(
@@ -265,9 +265,9 @@ test("Parse chained member access a.b.c", {
     )
   );
   prog := parse(`a.b.c`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `((a.b).c)`, "chained member access");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `((a.b).c)`, "chained member access");
 });
 // ─── Curly bracket expressions ────────────────────────────────────────────────
 test("Parse begin block { x; y; }", {
@@ -280,9 +280,9 @@ test("Parse begin block { x; y; }", {
     )
   );
   prog := parse(`{ x; y; }`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `begin(x, y, ())`, "begin block with trailing unit");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `begin(x, y, ())`, "begin block with trailing unit");
 });
 test("Parse begin block { x; y } no trailing semicolon", {
   exn := Exception(
@@ -294,8 +294,8 @@ test("Parse begin block { x; y } no trailing semicolon", {
     )
   );
   prog := parse(`{ x; y }`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert_str_eq(ast_expr_to_string(e), `begin(x, y)`, "begin block without trailing unit");
+  e := only_expr(&prog);
+  assert_str_eq(ast_expr_to_string(&e), `begin(x, y)`, "begin block without trailing unit");
 });
 test("Parse single-statement block { x; }", {
   exn := Exception(
@@ -307,8 +307,8 @@ test("Parse single-statement block { x; }", {
     )
   );
   prog := parse(`{ x; }`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert_str_eq(ast_expr_to_string(e), `begin(x, ())`, "single-stmt block");
+  e := only_expr(&prog);
+  assert_str_eq(ast_expr_to_string(&e), `begin(x, ())`, "single-stmt block");
 });
 test("Parse anonymous struct { x: 1, y: 2 }", {
   exn := Exception(
@@ -320,8 +320,8 @@ test("Parse anonymous struct { x: 1, y: 2 }", {
     )
   );
   prog := parse(`{ x: 1, y: 2 }`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert_str_eq(ast_expr_to_string(e), `_(x : 1, y : 2)`, "anon struct with field assignments");
+  e := only_expr(&prog);
+  assert_str_eq(ast_expr_to_string(&e), `_(x : 1, y : 2)`, "anon struct with field assignments");
 });
 test("Parse shorthand anonymous struct { x, y }", {
   exn := Exception(
@@ -333,8 +333,8 @@ test("Parse shorthand anonymous struct { x, y }", {
     )
   );
   prog := parse(`{ x, y }`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert_str_eq(ast_expr_to_string(e), `_(x : x, y : y)`, "anon struct shorthand form");
+  e := only_expr(&prog);
+  assert_str_eq(ast_expr_to_string(&e), `_(x : x, y : y)`, "anon struct shorthand form");
 });
 test("Parse single-field shorthand anonymous struct { x }", {
   exn := Exception(
@@ -346,8 +346,8 @@ test("Parse single-field shorthand anonymous struct { x }", {
     )
   );
   prog := parse(`{ x }`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert_str_eq(ast_expr_to_string(e), `_(x : x)`, "single-field anon struct shorthand form");
+  e := only_expr(&prog);
+  assert_str_eq(ast_expr_to_string(&e), `_(x : x)`, "single-field anon struct shorthand form");
 });
 // ─── Closure capture lists (plans/VALUES_BY_DEFAULT.md decision 35) ─────────
 test("Parse a capture list: `{ x, &y, z : &mut w }(m) => body`", {
@@ -360,12 +360,12 @@ test("Parse a capture list: `{ x, &y, z : &mut w }(m) => body`", {
     )
   );
   prog := parse(`{ x, &y, z : &mut w }(m) => m`, `test.yo`, exn);
-  e := only_expr(prog);
+  e := only_expr(&prog);
   // The renderer's canonical form: the record callee is NOT parenthesized
   // (an arrow callee never is — `f(g(m)) => m` renders the same way), and a
   // renamed borrow entry renders `label : <unary operand>` with only the
   // OPERAND parenthesized (`&mut(w)`).
-  assert_str_eq(ast_expr_to_string(e), `_(x : x, __yo_imm(y), __yo_mut(z) : &mut(w))(m) => m`, "the record literal is the arrow's callee; the borrow entries read as the internal mode form");
+  assert_str_eq(ast_expr_to_string(&e), `_(x : x, __yo_imm(y), __yo_mut(z) : &mut(w))(m) => m`, "the record literal is the arrow's callee; the borrow entries read as the internal mode form");
 });
 test("Parse a record pattern arm `{ x, y } => body` next to a capture-list closure", {
   exn := Exception(
@@ -377,14 +377,14 @@ test("Parse a record pattern arm `{ x, y } => body` next to a capture-list closu
     )
   );
   prog := parse(`match(p, { x, y } => x)`, `test.yo`, exn);
-  e := only_expr(prog);
+  e := only_expr(&prog);
   // Match arms render without wrapping parens (`match(p, y(x) => x)` does
   // too); the record keeps the `_(…)` shape the shorthand-struct test above
   // establishes.
-  assert_str_eq(ast_expr_to_string(e), `match(p, _(x : x, y : y) => x)`, "a record pattern arm keeps the record shape");
+  assert_str_eq(ast_expr_to_string(&e), `match(p, _(x : x, y : y) => x)`, "a record pattern arm keeps the record shape");
   prog2 := parse(`match(p, { x }(y) => y)`, `test.yo`, exn);
-  e2 := only_expr(prog2);
-  assert_str_eq(ast_expr_to_string(e2), `match(p, _(x : x)(y) => y)`, "the capture-list shape parses; the evaluator rejects it as an arm pattern");
+  e2 := only_expr(&prog2);
+  assert_str_eq(ast_expr_to_string(&e2), `match(p, _(x : x)(y) => y)`, "the capture-list shape parses; the evaluator rejects it as an arm pattern");
 });
 // ─── Array and bracket expressions ───────────────────────────────────────────
 test("Parse array value [1, 2, 3]", {
@@ -397,9 +397,9 @@ test("Parse array value [1, 2, 3]", {
     )
   );
   prog := parse(`[1, 2, 3]`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `array(1, 2, 3)`, "array value");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `array(1, 2, 3)`, "array value");
 });
 test("Reject removed slice type [T]", {
   exn := Exception(
@@ -436,8 +436,8 @@ test("Parse Array type [T; N]", {
     )
   );
   prog := parse(`[T; N]`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert_str_eq(ast_expr_to_string(e), `Array(T, N)`, "array type");
+  e := only_expr(&prog);
+  assert_str_eq(ast_expr_to_string(&e), `Array(T, N)`, "array type");
 });
 // ─── Tuple forms ─────────────────────────────────────────────────────────────
 test("Parse tuple value (a, b)", {
@@ -451,9 +451,9 @@ test("Parse tuple value (a, b)", {
   );
   // comma-separated → tuple value → FnCall("tuple", [a, b])
   prog := parse(`(a, b)`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `(a, b)`, "tuple value");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `(a, b)`, "tuple value");
 });
 test("Parse Tuple type (a; b)", {
   exn := Exception(
@@ -466,9 +466,9 @@ test("Parse Tuple type (a; b)", {
   );
   // semicolon-separated → Tuple type → FnCall("Tuple", [a, b])
   prog := parse(`(a; b)`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `Tuple(a, b)`, "Tuple type");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `Tuple(a, b)`, "Tuple type");
 });
 // ─── Multiple top-level expressions ──────────────────────────────────────────
 test("Parse two top-level expressions separated by semicolon", {
@@ -485,12 +485,12 @@ test("Parse two top-level expressions separated by semicolon", {
   match(
     prog.get(usize(0)),
     .None => assert(false, "no first expr"),
-    .Some(e) => assert_str_eq(ast_expr_to_string(e), `a`, "first expr")
+    .Some(e) => assert_str_eq(ast_expr_to_string(&e), `a`, "first expr")
   );
   match(
     prog.get(usize(1)),
     .None => assert(false, "no second expr"),
-    .Some(e) => assert_str_eq(ast_expr_to_string(e), `b`, "second expr")
+    .Some(e) => assert_str_eq(ast_expr_to_string(&e), `b`, "second expr")
   );
 });
 test("Parse trailing semicolon appends unit expression", {
@@ -507,12 +507,12 @@ test("Parse trailing semicolon appends unit expression", {
   match(
     prog.get(usize(0)),
     .None => assert(false, "no first expr"),
-    .Some(e) => assert_str_eq(ast_expr_to_string(e), `x`, "first is x")
+    .Some(e) => assert_str_eq(ast_expr_to_string(&e), `x`, "first is x")
   );
   match(
     prog.get(usize(1)),
     .None => assert(false, "no second expr"),
-    .Some(e) => assert_str_eq(ast_expr_to_string(e), `()`, "second is unit")
+    .Some(e) => assert_str_eq(ast_expr_to_string(&e), `()`, "second is unit")
   );
 });
 test("Parse empty program", {
@@ -550,10 +550,10 @@ test("Parse dot-prefixed identifier .Some", {
     )
   );
   prog := parse(`.Some`, `test.yo`, exn);
-  e := only_expr(prog);
+  e := only_expr(&prog);
   // .Some → FnCall(Atom("."), [Atom("Some")], true) — unary dot
-  assert(ast_expr_is_fn_call(e), "expected FnCall for .Some");
-  assert_str_eq(ast_expr_to_string(e), `.Some`, "dot-prefixed atom");
+  assert(ast_expr_is_fn_call(&e), "expected FnCall for .Some");
+  assert_str_eq(ast_expr_to_string(&e), `.Some`, "dot-prefixed atom");
 });
 test("Parse dot-prefixed call .Ok(x)", {
   exn := Exception(
@@ -565,9 +565,9 @@ test("Parse dot-prefixed call .Ok(x)", {
     )
   );
   prog := parse(`.Ok(x)`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `.Ok(x)`, "dot-prefixed call");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `.Ok(x)`, "dot-prefixed call");
 });
 // ─── Complex expressions ──────────────────────────────────────────────────────
 test("Parse assignment-like x = y", {
@@ -580,9 +580,9 @@ test("Parse assignment-like x = y", {
     )
   );
   prog := parse(`x = y`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `x = y`, "assignment");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `x = y`, "assignment");
 });
 test("Parse multi-level dot chain a.b.c.d", {
   exn := Exception(
@@ -594,9 +594,9 @@ test("Parse multi-level dot chain a.b.c.d", {
     )
   );
   prog := parse(`a.b.c.d`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "expected FnCall");
-  assert_str_eq(ast_expr_to_string(e), `(((a.b).c).d)`, "multi-level chain");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "expected FnCall");
+  assert_str_eq(ast_expr_to_string(&e), `(((a.b).c).d)`, "multi-level chain");
 });
 test("Parse function call with multiple args and nested call", {
   exn := Exception(
@@ -608,24 +608,24 @@ test("Parse function call with multiple args and nested call", {
     )
   );
   prog := parse(`f(g(a), h(b, c))`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert_str_eq(ast_expr_to_string(e), `f(g(a), h(b, c))`, "nested calls as args");
+  e := only_expr(&prog);
+  assert_str_eq(ast_expr_to_string(&e), `f(g(a), h(b, c))`, "nested calls as args");
 });
 // ─── Phase 5g: Error formatting ──────────────────────────────────────────────
 test("extract_source_line: row 0 returns first line", {
   src := String.from("hello\nworld\nfoo");
-  result := extract_source_line(src, usize(0));
-  assert_str_eq(result, String.from("hello"), "row 0 should return(first line)");
+  result := extract_source_line(&src, usize(0));
+  assert_str_eq(&result, String.from("hello"), "row 0 should return(first line)");
 });
 test("extract_source_line: row 1 returns second line", {
   src := String.from("hello\nworld\nfoo");
-  result := extract_source_line(src, usize(1));
-  assert_str_eq(result, String.from("world"), "row 1 should return(second line)");
+  result := extract_source_line(&src, usize(1));
+  assert_str_eq(&result, String.from("world"), "row 1 should return(second line)");
 });
 test("extract_source_line: out-of-range returns empty string", {
   src := String.from("hello\nworld");
-  result := extract_source_line(src, usize(99));
-  assert_str_eq(result, String.from(""), "out-of-range row should return(empty string)");
+  result := extract_source_line(&src, usize(99));
+  assert_str_eq(&result, String.from(""), "out-of-range row should return(empty string)");
 });
 test("make_parse_error renders via the shared renderer", {
   tok := Token(
@@ -637,7 +637,7 @@ test("make_parse_error renders via the shared renderer", {
     module_path : String.from("test.yo"),
     input : String.from("a\nb\nc\n}")
   );
-  s := render_diagnostics_human(make_parse_error(tok, String.from("unexpected token: }")).diagnostics);
+  s := render_diagnostics_human(make_parse_error(&tok, String.from("unexpected token: }")).diagnostics);
   assert(s.contains(String.from("error[E0001]: unexpected token: }")), "should contain the coded error message");
   assert(s.contains(String.from("--> test.yo:4:1")), "should show row+1=4, col+1=1 in location");
   assert(s.contains(String.from("4 | }")), "should show source line with row+1");
@@ -656,7 +656,7 @@ test("generate_expr_from_code: integer literal produces atom", {
     )
   );
   expr := generate_expr_from_code(String.from("42"), exn);
-  assert(ast_expr_is_atom(expr), "42 should be an atom expression");
+  assert(ast_expr_is_atom(&expr), "42 should be an atom expression");
 });
 test("generate_expr_from_code: identifier produces atom", {
   exn := Exception(
@@ -668,7 +668,7 @@ test("generate_expr_from_code: identifier produces atom", {
     )
   );
   expr := generate_expr_from_code(String.from("x"), exn);
-  assert(ast_expr_is_atom(expr), "identifier should be an atom expression");
+  assert(ast_expr_is_atom(&expr), "identifier should be an atom expression");
 });
 test("generate_expr_from_code: function call produces fn call expr", {
   exn := Exception(
@@ -680,7 +680,7 @@ test("generate_expr_from_code: function call produces fn call expr", {
     )
   );
   expr := generate_expr_from_code(String.from("foo()"), exn);
-  assert(ast_expr_is_fn_call(expr), "foo() should be a fn call expression");
+  assert(ast_expr_is_fn_call(&expr), "foo() should be a fn call expression");
 });
 // ─── Colon/assignment operators with parenthesized -> RHS ────────────────────
 // Regression: these patterns are used extensively in the prelude and must parse
@@ -695,8 +695,8 @@ test("Parse colon : with parenthesized -> RHS", {
     )
   );
   prog := parse(`x : (fn() -> i32)`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "colon : should produce FnCall");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "colon : should produce FnCall");
 });
 test("Parse ?= with parenthesized -> RHS", {
   exn := Exception(
@@ -707,8 +707,8 @@ test("Parse ?= with parenthesized -> RHS", {
     )
   );
   prog := parse(`x ?= (fn() -> i32)`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "?= should produce FnCall");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "?= should produce FnCall");
 });
 test("Parse := with parenthesized -> RHS", {
   exn := Exception(
@@ -719,8 +719,8 @@ test("Parse := with parenthesized -> RHS", {
     )
   );
   prog := parse(`x := (fn() -> i32)`, `test.yo`, exn);
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), ":= should produce FnCall");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), ":= should produce FnCall");
 });
 test("Parse ?= with multi-line parenthesized -> RHS", {
   exn := Exception(
@@ -738,8 +738,8 @@ test("Parse ?= with multi-line parenthesized -> RHS", {
     `test.yo`,
     exn
   );
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "?= with multi-line should produce FnCall");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "?= with multi-line should produce FnCall");
 });
 test("Parse colon : with multi-line parenthesized -> RHS in struct field", {
   exn := Exception(
@@ -760,8 +760,8 @@ test("Parse colon : with multi-line parenthesized -> RHS in struct field", {
     `test.yo`,
     exn
   );
-  e := only_expr(prog);
-  assert(ast_expr_is_fn_call(e), "colon with multi-line parens should produce FnCall");
+  e := only_expr(&prog);
+  assert(ast_expr_is_fn_call(&e), "colon with multi-line parens should produce FnCall");
 });
 // ─── Template-string spec peeling (`_peel_spec`) ──────────────────────────────
 // `plans/archive/STD_API_AUDIT_D4_PLAN.md` §5.2 S4. `_peel_spec` splits `${expr:spec}`
@@ -791,7 +791,7 @@ _parse_ts :: (fn(inner : str, exn : Exception) -> String)({
   assert(prog.len() == usize(2), "template string should parse to import + rendering");
   match(
     prog.get(usize(1)),
-    .Some(e) => ast_expr_to_string(e),
+    .Some(e) => ast_expr_to_string(&e),
     .None => String.new()
   )
 });

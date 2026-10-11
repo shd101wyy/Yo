@@ -69,27 +69,27 @@ make_token :: (fn(module_path : &String, input : &String, row : usize, column : 
 // ─── format_error_message: the human render (exact) ──────────────────────────
 test("format_error_message renders the full block exactly once", {
   tok := make_token(`test.yo`, `let x = 1;`, usize(0), usize(4), `x`);
-  err := format_error_message(tok, `undefined variable x`);
-  s := render_diagnostics_human(err.diagnostics);
+  err := format_error_message(&tok, `undefined variable x`);
+  s := render_diagnostics_human(&err.diagnostics);
   expected := `error: undefined variable x\n  --> test.yo:1:5\n  |\n1 | let x = 1;\n  |     ^`;
   assert(s == expected, `exact render, got:\n${s}`);
 });
 test("format_error_message multi-line message keeps continuation lines", {
   tok := make_token(`test.yo`, `x := "s";`, usize(0), usize(0), `x`);
-  err := format_error_message(tok, `Incompatible types:\n- Expected: i32\n- Given   : String`);
-  s := render_diagnostics_human(err.diagnostics);
+  err := format_error_message(&tok, `Incompatible types:\n- Expected: i32\n- Given   : String`);
+  s := render_diagnostics_human(&err.diagnostics);
   expected := `error[E0601]: Incompatible types:\n- Expected: i32\n- Given   : String\n  --> test.yo:1:1\n  |\n1 | x := "s";\n  | ^\nhelp: run \`yo explain E0601\` for more information`;
   assert(s == expected, `multi-line render, got:\n${s}`);
 });
 test("format_error_message underlines the whole token (D5)", {
   tok := make_token(`t.yo`, `aa bb`, usize(0), usize(3), `bb`);
-  s := render_diagnostics_human(format_error_message(tok, `msg`).diagnostics);
+  s := render_diagnostics_human(format_error_message(&tok, `msg`).diagnostics);
   assert(s.contains(`  |    ^^`), `two carets under "bb", got:\n${s}`);
 });
 test("format_error_message gutter widens for multi-digit rows", {
   input := `one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\nnine\nten xx`;
-  tok := make_token(`g.yo`, input, usize(9), usize(4), `xx`);
-  s := render_diagnostics_human(format_error_message(tok, `msg`).diagnostics);
+  tok := make_token(`g.yo`, &input, usize(9), usize(4), `xx`);
+  s := render_diagnostics_human(format_error_message(&tok, `msg`).diagnostics);
   assert(s.contains(`   --> g.yo:10:5`), `w=2 anchor, got:\n${s}`);
   assert(s.contains(`   |`), `w=2 bar line, got:\n${s}`);
   assert(s.contains(`10 | ten xx`), `padded row line, got:\n${s}`);
@@ -99,7 +99,7 @@ test("format_error_message multibyte before the token aligns by rune column", {
   // `你` is one rune (3 bytes): the token `x` sits at RUNE column 1, and the
   // caret padding counts runes, so it lands under `x` (D4 lesson).
   tok := make_token(`m.yo`, `你x := 1;`, usize(0), usize(1), `x`);
-  s := render_diagnostics_human(format_error_message(tok, `msg`).diagnostics);
+  s := render_diagnostics_human(format_error_message(&tok, `msg`).diagnostics);
   expected := `error: msg\n  --> m.yo:1:2\n  |\n1 | 你x := 1;\n  |  ^`;
   assert(s == expected, `rune-column caret, got:\n${s}`);
 });
@@ -131,8 +131,8 @@ test("format_error_messages: entry 0 is the error, later entries are notes (D6)"
   list := ArrayList(TokenAndError).new();
   list.push(e1);
   list.push(e2);
-  err := format_error_messages(list);
-  s := render_diagnostics_human(err.diagnostics);
+  err := format_error_messages(&list);
+  s := render_diagnostics_human(&err.diagnostics);
   expected := `error: first error\n  --> b.yo:1:1\n  |\n1 | x y\n  | ^\n\nnote: second error\n  --> b.yo:1:3\n  |\n1 | x y\n  |   ^`;
   assert(s == expected, `error + note blocks, got:\n${s}`);
 });
@@ -140,18 +140,18 @@ test("format_error_messages: entry 0 is the error, later entries are notes (D6)"
 test("reanchor_primary_at moves the primary and keeps the old location as a note", {
   std_tok := make_token(`std/fmt/index.yo`, `where(T <: ToString)`, usize(0), usize(8), `<:`);
   call_tok := make_token(`main.yo`, `a\nb\nc\nd\n  println(p);`, usize(4), usize(2), `println`);
-  err := format_error_message_with_help(std_tok, `Type P does not implement required trait ToString.`, Option(String).Some(`implement it`));
-  moved := reanchor_primary_at(err, call_tok, `raised here, inside the standard library`);
+  err := format_error_message_with_help(&std_tok, `Type P does not implement required trait ToString.`, Option(String).Some(`implement it`));
+  moved := reanchor_primary_at(&err, &call_tok, `raised here, inside the standard library`);
   assert(moved.diagnostics.len() == usize(2), `primary + note, got ${moved.diagnostics.len().to_string()}`);
-  s := render_diagnostics_human(moved.diagnostics);
+  s := render_diagnostics_human(&moved.diagnostics);
   expected := `error[E0602]: Type P does not implement required trait ToString.\n  --> main.yo:5:3\n  |\n5 |   println(p);\n  |   ^^^^^^^\nhelp: implement it\nhelp: run \`yo explain E0602\` for more information\n\nnote: raised here, inside the standard library\n  --> std/fmt/index.yo:1:9\n  |\n1 | where(T <: ToString)\n  |         ^^`;
   assert(s == expected, `re-anchored render, got:\n${s}`);
 });
 // ─── format_lexer_error (D3: lexer errors carry file + source line) ─────────
 test("format_lexer_error renders like every other stage", {
   input := `a b\n@@ oops`;
-  err := format_lexer_error(`src.yo`, input, usize(1), usize(0), `unexpected character`);
-  s := render_diagnostics_human(err.diagnostics);
+  err := format_lexer_error(`src.yo`, &input, usize(1), usize(0), `unexpected character`);
+  s := render_diagnostics_human(&err.diagnostics);
   expected := `error[E0005]: unexpected character\n  --> src.yo:2:1\n  |\n2 | @@ oops\n  | ^\nhelp: run \`yo explain E0005\` for more information`;
   assert(s == expected, `lexer diagnostic, got:\n${s}`);
 });
@@ -176,11 +176,11 @@ test("format_coded_error carries the raise site's code with no span block", {
     .Some(c) => assert(c == "E1501", "the code the raise site named"),
     .None => assert(false, "the coded error must carry a code")
   );
-  s := render_diagnostics_human(err.diagnostics);
+  s := render_diagnostics_human(&err.diagnostics);
   expected := `error[E1501]: --offline: "m" needs the tags of https://example.com/mirror, and the cache has no tag list for it\nhelp: run \`yo explain E1501\` for more information`;
   assert(s == expected, `cli error render, got:\n${s}`);
   assert(
-    render_diagnostics_json(err.diagnostics).contains(String.from("\"code\":\"E1501\"")),
+    render_diagnostics_json(&err.diagnostics).contains(String.from("\"code\":\"E1501\"")),
     "--error-format json carries the code"
   );
 });
@@ -233,9 +233,9 @@ test("a coded diagnostic renders error[E0308] in both renderers", {
       source_line : String.from("x")
     )
   );
-  h := render_diagnostics_human(diags);
+  h := render_diagnostics_human(&diags);
   assert(h == `error[E0308]: mismatched types\n  --> a.yo:1:1\n  |\n1 | x\n  | ^\nhelp: run \`yo explain E0308\` for more information`, `coded human, got:\n${h}`);
-  sh := render_diagnostics_short(diags);
+  sh := render_diagnostics_short(&diags);
   assert(sh == `a.yo:1:1: error[E0308]: mismatched types`, `coded short, got:\n${sh}`);
 });
 // ─── YoError.to_string — the bare-tail Stage-0 shape ─────────────────────────
@@ -246,7 +246,7 @@ test("a coded diagnostic renders error[E0308] in both renderers", {
 // under the shard's LeakSanitizer build it is the leak's regression net.
 test("YoError.to_string renders through the trait tail", {
   tok := make_token(`test.yo`, `let x = 1;`, usize(0), usize(4), `x`);
-  err := format_error_message(tok, `undefined variable x`);
+  err := format_error_message(&tok, `undefined variable x`);
   s := err.to_string();
   expected := `error: undefined variable x\n  --> test.yo:1:5\n  |\n1 | let x = 1;\n  |     ^`;
   assert(s == expected, `to_string render, got:\n${s}`);
@@ -254,22 +254,22 @@ test("YoError.to_string renders through the trait tail", {
 // ─── render_diagnostics_short ────────────────────────────────────────────────
 test("render_diagnostics_short is one line per entry", {
   tok := make_token(`test.yo`, `let x = 1;`, usize(0), usize(4), `x`);
-  err := format_error_message(tok, `undefined variable x\nsecond line dropped in short`);
-  sh := render_diagnostics_short(err.diagnostics);
+  err := format_error_message(&tok, `undefined variable x\nsecond line dropped in short`);
+  sh := render_diagnostics_short(&err.diagnostics);
   assert(sh == `test.yo:1:5: error: undefined variable x`, `short render, got:\n${sh}`);
 });
 // ─── get_line_at_token / get_line_at_position (legacy warnings-path helpers) ─
 test("get_line_at_token single line", {
   tok := make_token(`test.yo`, `hello world`, usize(0), usize(6), `world`);
-  line := get_line_at_token(tok);
+  line := get_line_at_token(&tok);
   assert(line.contains(`test.yo:1:7:`), "header");
   assert(line.contains(`hello world`), "source line");
   assert(line.contains(`^`), "caret");
 });
 test("get_line_at_token multiline input selects correct row", {
   input := `line0\nline1\nline2`;
-  tok := make_token(`src.yo`, input, usize(1), usize(0), `line1`);
-  line := get_line_at_token(tok);
+  tok := make_token(`src.yo`, &input, usize(1), usize(0), `line1`);
+  line := get_line_at_token(&tok);
   assert(line.contains(`src.yo:2:1:`), "row 1 shown as row 2");
   assert(line.contains(`line1`), "correct source line selected");
 });
@@ -285,7 +285,7 @@ test("format_warning_messages no prefix", {
   entry := TokenAndWarning(token : tok, warning_message : `unused variable`);
   warnset := ArrayList(TokenAndWarning).new();
   warnset.push(entry);
-  result := format_warning_messages(.None, warnset);
+  result := format_warning_messages(.None, &warnset);
   assert(result.contains(`Warning: unused variable`), "warning message present");
   assert(result.contains(`^`), "caret present");
 });
@@ -294,7 +294,7 @@ test("format_warning_messages with prefix", {
   entry := TokenAndWarning(token : tok, warning_message : `deprecated usage`);
   warnset := ArrayList(TokenAndWarning).new();
   warnset.push(entry);
-  result := format_warning_messages(.Some(String.from("module warning")), warnset);
+  result := format_warning_messages(.Some(String.from("module warning")), &warnset);
   assert(result.contains(`Warning: module warning`), "prefix warning present");
   assert(result.contains(`deprecated usage`), "per-token warning present");
 });
@@ -305,8 +305,8 @@ test("format_warning_messages empty list no prefix", {
 // ─── YoError round-trip ──────────────────────────────────────────────────────
 test("YoError.diagnostics render the shared human form", {
   tok := make_token(`main.yo`, `let`, usize(0), usize(0), `let`);
-  err := format_error_message(tok, `unexpected keyword`);
-  s := render_diagnostics_human(err.diagnostics);
+  err := format_error_message(&tok, `unexpected keyword`);
+  s := render_diagnostics_human(&err.diagnostics);
   assert(s.starts_with(`error: unexpected keyword`), "severity header present");
   assert(s.contains(`--> main.yo:1:1`), "anchor present");
   assert(s.contains(`1 | let`), "source line present");
@@ -372,7 +372,7 @@ test("classifier: no \"not found\" message is coded as E0401 by its text", {
 });
 test("coded diagnostics render the explain tail (P2)", {
   tok := make_token(`t.yo`, `x := 1;`, usize(0), usize(0), `x`);
-  s := render_diagnostics_human(with_code(format_error_message(tok, `Variable "x" not found.`), "E0401").diagnostics);
+  s := render_diagnostics_human(with_code(format_error_message(&tok, `Variable "x" not found.`), "E0401").diagnostics);
   assert(s.starts_with(`error[E0401]: Variable "x" not found.`), `coded header, got:\n${s}`);
   assert(
     s.contains(`help: run \`yo explain E0401\` for more information`),
@@ -386,18 +386,18 @@ test("suggest_name finds near identifiers and rejects far ones", {
   cands.push(String.from("count"));
   cands.push(String.from("total"));
   match(
-    suggest_name(String.from("computee"), cands),
+    suggest_name(String.from("computee"), &cands),
     .Some(h) => assert(h == "compute", `computee → compute, got ${h}`),
     .None => assert(false, "near identifier must suggest")
   );
-  assert(suggest_name(String.from("zzzzzzz"), cands).is_none(), "far identifier suggests nothing");
+  assert(suggest_name(String.from("zzzzzzz"), &cands).is_none(), "far identifier suggests nothing");
 });
 test("format_error_message_with_help renders the hint block", {
   tok := make_token(`t.yo`, `compute(x);`, usize(0), usize(0), `compute`);
   // The raise site names the code (with_code); the text no longer does.
   err := with_code(
     format_error_message_with_help(
-      tok,
+      &tok,
       `Variable "computee" not found.`,
       Option(String).Some(`did you mean "compute"?`)
     ),
@@ -416,10 +416,10 @@ test("format_error_message_with_help renders the hint block", {
 test("color: human render carries SGR when on and is byte-identical when off", {
   tok := make_token(`t.yo`, `x := 1;`, usize(0), usize(0), `x`);
   set_color_enabled(false);
-  plain := render_diagnostics_human(with_code(format_error_message(tok, `Variable "x" not found.`), "E0401").diagnostics);
+  plain := render_diagnostics_human(with_code(format_error_message(&tok, `Variable "x" not found.`), "E0401").diagnostics);
   assert(!plain.contains(`\u{1b}`), `plain render must not contain ESC, got:\n${plain}`);
   set_color_enabled(true);
-  colored := render_diagnostics_human(with_code(format_error_message(tok, `Variable "x" not found.`), "E0401").diagnostics);
+  colored := render_diagnostics_human(with_code(format_error_message(&tok, `Variable "x" not found.`), "E0401").diagnostics);
   // Restore BEFORE asserting so a failure cannot leak color into the rest
   // of this file's exact-string pins (they run in this same process).
   set_color_enabled(false);
@@ -440,14 +440,14 @@ test("color: a warning renders with the warning color", {
     )
   );
   set_color_enabled(true);
-  s := render_diagnostics_human(warns);
+  s := render_diagnostics_human(&warns);
   set_color_enabled(false);
   assert(s.contains(`\u{1b}[1;33mwarning\u{1b}[0m: unused variable \`x\``), `yellow header, got:\n${s}`);
 });
 test("color: the json render never carries ESC, even with color forced on", {
   tok := make_token(`t.yo`, `x := 1;`, usize(0), usize(0), `x`);
   set_color_enabled(true);
-  j := render_diagnostics_json(format_error_message(tok, `Variable "x" not found.`).diagnostics);
+  j := render_diagnostics_json(format_error_message(&tok, `Variable "x" not found.`).diagnostics);
   set_color_enabled(false);
   assert(!j.contains(`\u{1b}`), `json payload must never carry ESC, got:\n${j}`);
 });
@@ -457,7 +457,7 @@ test("sarif: a valid 2.1.0 log with rule, region and fix", {
   tok := make_token(`t.yo`, `countr := 1;`, usize(0), usize(8), `countr`);
   err := with_code(
     format_error_message_with_repair(
-      tok,
+      &tok,
       `Variable "countr" not found.`,
       Option(String).None,
       String.from("counter"),
@@ -465,7 +465,7 @@ test("sarif: a valid 2.1.0 log with rule, region and fix", {
     ),
     "E0401"
   );
-  s := render_diagnostics_sarif(err.diagnostics);
+  s := render_diagnostics_sarif(&err.diagnostics);
   assert(s.contains(`"$schema":"https://json.schemastore.org/sarif-2.1.0.json"`), `schema, got:\n${s}`);
   assert(s.contains(`"version":"2.1.0"`), `version, got:\n${s}`);
   assert(s.contains(`"ruleId":"E0401"`), `ruleId, got:\n${s}`);
@@ -482,7 +482,7 @@ test("sarif: a valid 2.1.0 log with rule, region and fix", {
 ${s}`
   );
   match(
-    json.parse_string(s),
+    json.parse_string(&s),
     .Ok(_) => (),
     .Err(_) => assert(false, `sarif must round-trip through the json parser, got:\n${s}`)
   );
@@ -501,12 +501,12 @@ test("sarif: an ownership group is ONE log with two results sharing one rule", {
       error_message : `value moved here`
     )
   );
-  s := render_diagnostics_sarif(format_error_messages(toks).diagnostics);
+  s := render_diagnostics_sarif(format_error_messages(&toks).diagnostics);
   assert(s.contains(`"ruleId":"E0901"`), `primary keeps its code, got:\n${s}`);
   assert(s.contains(`"level":"error"`), `primary level, got:\n${s}`);
   assert(s.contains(`"level":"note"`), `secondary renders as note, got:\n${s}`);
   match(
-    json.parse_string(s),
+    json.parse_string(&s),
     .Ok(_) => (),
     .Err(_) => assert(false, `group log must parse, got:\n${s}`)
   );
@@ -514,7 +514,7 @@ test("sarif: an ownership group is ONE log with two results sharing one rule", {
 test("sarif: never colored, even with color forced on", {
   tok := make_token(`t.yo`, `x := 1;`, usize(0), usize(0), `x`);
   set_color_enabled(true);
-  s := render_diagnostics_sarif(format_error_message(tok, `Variable "x" not found.`).diagnostics);
+  s := render_diagnostics_sarif(format_error_message(&tok, `Variable "x" not found.`).diagnostics);
   set_color_enabled(false);
   assert(!s.contains(`\u{1b}`), `sarif must never carry ESC, got:\n${s}`);
 });

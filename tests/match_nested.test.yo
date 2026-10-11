@@ -134,7 +134,7 @@ test("two levels through Rc payloads", {
     match(
       l,
       .Cons(1, .Cons(2, .Cons(n, _))) => n,
-      .Cons(_, t) => sum_boxed(t),
+      .Cons(_, t) => sum_boxed(&t),
       .Nil => i32(-1)
     )
   );
@@ -180,7 +180,7 @@ test("whole-value binding of the Rc position still binds the Rc", {
   m :: (fn(l : &List) -> i32)(
     match(
       l,
-      .Cons(_, t) => inner_kind(t),
+      .Cons(_, t) => inner_kind(&t),
       .Nil => i32(0)
     )
   );

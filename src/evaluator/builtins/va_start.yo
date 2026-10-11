@@ -52,26 +52,26 @@ evaluate_va_start :: (
       },
       .Some(arg) => {
         // All arguments must be atom identifiers.
-        if(!ast_expr_is_atom(arg) || !is_valid_variable_name(arg), {
+        if(!ast_expr_is_atom(&arg) || !is_valid_variable_name(&arg), {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(arg),
-                `Invalid argument for va_start. Expected identifier, got:\n${ast_expr_to_string(arg)}`
+                ast_expr_token(&arg),
+                `Invalid argument for va_start. Expected identifier, got:\n${ast_expr_to_string(&arg)}`
               )
             )
           );
         });
-        var_name := ast_expr_token(arg).value;
+        var_name := ast_expr_token(&arg).value;
         // Arg 0: mark the va_list variable as initialized.
         if(i == usize(0), {
-          variables := get_variables_from_env(env, var_name);
+          variables := get_variables_from_env(env, &var_name);
           if(variables.len() == usize(0), {
             exn.throw(
               dyn(
                 with_code(
                   format_error_message(
-                    ast_expr_token(arg),
+                    ast_expr_token(&arg),
                     `Variable "${var_name}" not found.`
                   ),
                   E_VARIABLE_NOT_FOUND
@@ -95,7 +95,7 @@ evaluate_va_start :: (
                 is_owning_the_same_rc_value_as : variable.is_owning_the_same_rc_value_as,
                 is_reassignable : variable.is_reassignable,
                 token : variable.token,
-                initialized_at_token : .Some(ast_expr_token(arg)),
+                initialized_at_token : .Some(ast_expr_token(&arg)),
                 consumed_at_token : variable.consumed_at_token,
                 is_implicit : variable.is_implicit,
                 is_created_from_destructuring_atom_variable : variable.is_created_from_destructuring_atom_variable,
@@ -105,19 +105,19 @@ evaluate_va_start :: (
                 is_ref : false,
                 is_parameter : false
               );
-              update_existing_variable(env, variable, new_var);
+              update_existing_variable(env, &variable, &new_var);
             }
           );
         });
         // Arg 1: just verify the variable exists.
         if(i == usize(1), {
-          variables := get_variables_from_env(env, var_name);
+          variables := get_variables_from_env(env, &var_name);
           if(variables.len() == usize(0), {
             exn.throw(
               dyn(
                 with_code(
                   format_error_message(
-                    ast_expr_token(arg),
+                    ast_expr_token(&arg),
                     `Variable "${var_name}" not found.`
                   ),
                   E_VARIABLE_NOT_FOUND
@@ -132,7 +132,7 @@ evaluate_va_start :: (
   });
   info := new_expr_info(env, t_unit());
   info.value = .Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 export(evaluate_va_start);

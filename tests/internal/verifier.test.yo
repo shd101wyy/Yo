@@ -97,7 +97,7 @@ test("encode_term: quantifier shape", {
   body := vc_eq(VcTerm.Var(name : String.from("i"), sort : VcSort.BvS(width : usize(64))), VcTerm.BvLit(value : u64(0), width : usize(64)));
   q := VcTerm.Quant(VcQuantKind.Forall, names, sorts, body, ArrayList(VcTerm).new());
   assert(
-    encode_term(q) == "(forall ((i (_ BitVec 64))) (= i (_ bv0 64)))",
+    encode_term(&q) == "(forall ((i (_ BitVec 64))) (= i (_ bv0 64)))",
     "forall with typed binder"
   );
   // The triggered form: (forall (! body :pattern (t))) — the annotation
@@ -107,7 +107,7 @@ test("encode_term: quantifier shape", {
   trigs.push(body);
   qt := VcTerm.Quant(VcQuantKind.Forall, names, sorts, body, trigs);
   assert(
-    encode_term(qt) == "(forall ((i (_ BitVec 64))) (! (= i (_ bv0 64)) :pattern ((= i (_ bv0 64)))))",
+    encode_term(&qt) == "(forall ((i (_ BitVec 64))) (! (= i (_ bv0 64)) :pattern ((= i (_ bv0 64)))))",
     "forall with an explicit :pattern trigger"
   );
 });
@@ -119,7 +119,7 @@ test("encode_term: the ms_of function + its declare-fun (V5 task 6)", {
   msf_args := ArrayList(VcTerm).new();
   msf_args.push(arr);
   msf := VcTerm.Ctor(name : String.from("__yo_msof_bv64"), args : msf_args);
-  assert(encode_term(msf) == "(__yo_msof_bv64 a)", "ms_of application head (a Ctor-named uninterpreted application)");
+  assert(encode_term(&msf) == "(__yo_msof_bv64 a)", "ms_of application head (a Ctor-named uninterpreted application)");
   assert(
     encode_fundecl(VcSort.BvS(width : usize(64))) ==
       "(declare-fun __yo_msof_bv64 ((Array (_ BitVec 64) (_ BitVec 64))) (Array (_ BitVec 64) (_ BitVec 64)))",
@@ -140,7 +140,7 @@ test("encode_content: declarations, named assumptions, negated goal, check-sat",
 (assert (not (= x (_ bv2 32))))
 (check-sat)
 `;
-  assert(encode_content(q) == expected, "content golden");
+  assert(encode_content(&q) == expected, "content golden");
 });
 test("encode_script: options, content, evidence directives in fixed order", {
   q := new_vc_query(String.from("golden"));
@@ -162,7 +162,7 @@ test("encode_script: options, content, evidence directives in fixed order", {
 (get-unsat-core)
 (get-value (x))
 `;
-  assert(encode_script(q, opts) == expected, "script golden");
+  assert(encode_script(&q, opts) == expected, "script golden");
 });
 // ---------------------------------------------------------------------------
 // S-expression scanning
@@ -182,7 +182,7 @@ test("parse_z3_sexprs: atoms, lists, nesting, comments", {
     ),
     "first form is the atom unsat"
   );
-  core := z3_unsat_core_of(forms);
+  core := z3_unsat_core_of(&forms);
   assert(core.len() == usize(2), "core has two names");
   assert(
     match(
@@ -192,7 +192,7 @@ test("parse_z3_sexprs: atoms, lists, nesting, comments", {
     ),
     "core names parse"
   );
-  vals := z3_value_pairs_of(forms);
+  vals := z3_value_pairs_of(&forms);
   assert(
     match(
       vals.get(usize(0)),
@@ -204,7 +204,7 @@ test("parse_z3_sexprs: atoms, lists, nesting, comments", {
 });
 test("parse_z3_sexprs: nested value sexprs render losslessly", {
   forms := parse_z3_sexprs(String.from("sat\n((x (concat #x00000001 #x02)))"));
-  vals := z3_value_pairs_of(forms);
+  vals := z3_value_pairs_of(&forms);
   assert(
     match(
       vals.get(usize(0)),
@@ -218,7 +218,7 @@ test("z3_check_sat_of: finds the verdict atom, skips non-verdict atoms", {
   forms := parse_z3_sexprs(String.from("sat\n((x #x02))"));
   assert(
     match(
-      z3_check_sat_of(forms),
+      z3_check_sat_of(&forms),
       .Some(v) => (v == "sat"),
       .None => false
     ),
@@ -227,14 +227,14 @@ test("z3_check_sat_of: finds the verdict atom, skips non-verdict atoms", {
   forms2 := parse_z3_sexprs(String.from("unknown\n(:reason-unknown (incomplete quantifiers))"));
   assert(
     match(
-      z3_check_sat_of(forms2),
+      z3_check_sat_of(&forms2),
       .Some(v) => (v == "unknown"),
       .None => false
     ),
     "unknown detected"
   );
   forms3 := parse_z3_sexprs(String.from("(error \"line 1 column 1: unknown constant\")"));
-  assert(z3_check_sat_of(forms3).is_none(), "error stream has no verdict");
+  assert(z3_check_sat_of(&forms3).is_none(), "error stream has no verdict");
 });
 // ---------------------------------------------------------------------------
 // Verdict mapping (the mocked-runner seam: canned responses)
@@ -340,15 +340,15 @@ _golden_query :: (fn(goal_val : u64) -> VcQuery)({
 });
 test("verify_cache_key: stable for identical input, sensitive to options and content", {
   cfg := default_verify_run_config();
-  k1 := verify_cache_key(_golden_query(u64(2)), cfg);
-  k2 := verify_cache_key(_golden_query(u64(2)), cfg);
+  k1 := verify_cache_key(_golden_query(u64(2)), &cfg);
+  k2 := verify_cache_key(_golden_query(u64(2)), &cfg);
   assert(k1 == k2, "same query + options ⇒ same key");
   assert(k1.len() == usize(64), "sha256 hex length");
   cfg2 := default_verify_run_config();
   cfg2.encode_opts.rlimit = usize(1000);
-  k3 := verify_cache_key(_golden_query(u64(2)), cfg2);
+  k3 := verify_cache_key(_golden_query(u64(2)), &cfg2);
   assert(k1 != k3, "budget bump ⇒ different key");
-  k4 := verify_cache_key(_golden_query(u64(3)), cfg);
+  k4 := verify_cache_key(_golden_query(u64(3)), &cfg);
   assert(k1 != k4, "goal change ⇒ different key");
 });
 // ---------------------------------------------------------------------------
@@ -365,7 +365,7 @@ test("real z3: harness self-test proves 1+1==2 and refutes 1+1==3 (YO_TEST_Z3=1)
   }, {
     cfg := default_verify_run_config();
     binary := match(
-      resolve_solver_sync(cfg),
+      resolve_solver_sync(&cfg),
       .Resolved(path) => path,
       .InvalidPath(path) => {
         assert(false, `explicit solver path '${path}' does not exist`);
@@ -378,7 +378,7 @@ test("real z3: harness self-test proves 1+1==2 and refutes 1+1==3 (YO_TEST_Z3=1)
         String.new()
       }
     );
-    results := verifier_harness_self_test(cfg, binary.clone());
+    results := verifier_harness_self_test(&cfg, binary.clone());
     match(
       results.get(usize(0)),
       .Some(r1) => {
@@ -426,14 +426,14 @@ test("real z3: second run is a cache hit (YO_TEST_Z3=1)", {
     cfg := default_verify_run_config();
     cfg.no_cache = true;
     binary := match(
-      resolve_solver_sync(cfg),
+      resolve_solver_sync(&cfg),
       .Resolved(path) => path,
       _ => {
         assert(false, "no solver found: set YO_Z3_PATH or install the pinned z3");
         String.new()
       }
     );
-    first := verifier_harness_self_test(cfg, binary.clone());
+    first := verifier_harness_self_test(&cfg, binary.clone());
     match(
       first.get(usize(0)),
       .Some(r) => {
@@ -442,7 +442,7 @@ test("real z3: second run is a cache hit (YO_TEST_Z3=1)", {
       .None => ()
     );
     cfg2 := default_verify_run_config();
-    second := verifier_harness_self_test(cfg2, binary.clone());
+    second := verifier_harness_self_test(&cfg2, binary.clone());
     match(
       second.get(usize(0)),
       .Some(r2) => {
@@ -499,7 +499,7 @@ test("verify_report_is_vacuous: ok with no obligations is not a proof", {
     subset_construct : String.new(),
     subset_source : String.new()
   );
-  assert(verify_report_is_vacuous(vacuous), "ok + zero obligations is vacuous");
+  assert(verify_report_is_vacuous(&vacuous), "ok + zero obligations is vacuous");
   with_obl := ArrayList(VerifyFnObligation).new();
   with_obl.push(
     VerifyFnObligation(
@@ -517,7 +517,7 @@ test("verify_report_is_vacuous: ok with no obligations is not a proof", {
     subset_construct : String.new(),
     subset_source : String.new()
   );
-  assert(!verify_report_is_vacuous(real), "ok + a discharged obligation is a real proof");
+  assert(!verify_report_is_vacuous(&real), "ok + a discharged obligation is a real proof");
   outside := VerifyFnReport(
     fn_id : String.from("fn@src/x.yo:2"),
     mode : String.from("verify"),
@@ -526,7 +526,7 @@ test("verify_report_is_vacuous: ok with no obligations is not a proof", {
     subset_construct : String.from("parameter outside the integer/bool/array subset"),
     subset_source : String.new()
   );
-  assert(!verify_report_is_vacuous(outside), "only `ok` can be vacuous");
+  assert(!verify_report_is_vacuous(&outside), "only `ok` can be vacuous");
 });
 
 // ---------------------------------------------------------------------------
@@ -596,16 +596,16 @@ test("summarize_verify_reports: counts, vacuous, queries and cache hits", {
   reports.push(_rp(String.from("ok"), String.from("verify"), usize(0)));
   reports.push(_rp(String.from("assumed"), String.from("verify"), usize(0)));
   reports.push(_rp(String.from("refuted"), String.from("verify"), usize(1)));
-  sum := summarize_verify_reports(reports);
+  sum := summarize_verify_reports(&reports);
   assert(sum.total == usize(4), "four reports");
-  assert(verify_summary_count(sum, String.from("ok")) == usize(2), "two ok");
-  assert(verify_summary_count(sum, String.from("assumed")) == usize(1), "one assumed");
-  assert(verify_summary_count(sum, String.from("refuted")) == usize(1), "one refuted");
-  assert(verify_summary_count(sum, String.from("unproven")) == usize(0), "zero counts are still reported");
+  assert(verify_summary_count(&sum, String.from("ok")) == usize(2), "two ok");
+  assert(verify_summary_count(&sum, String.from("assumed")) == usize(1), "one assumed");
+  assert(verify_summary_count(&sum, String.from("refuted")) == usize(1), "one refuted");
+  assert(verify_summary_count(&sum, String.from("unproven")) == usize(0), "zero counts are still reported");
   assert(sum.vacuous == usize(1), "the ok with no obligations is vacuous");
   assert(sum.queries == usize(3), "three obligations went through the pipeline");
   assert(sum.cached == usize(2), "two of them came from the cache");
-  assert(verify_summary_count(sum, String.from("nonsense")) == usize(0), "an unknown outcome name counts zero");
+  assert(verify_summary_count(&sum, String.from("nonsense")) == usize(0), "an unknown outcome name counts zero");
 });
 
 // ---------------------------------------------------------------------------
@@ -617,7 +617,7 @@ test("usize/isize width follows the compilation target (32 on wasm32)", {
   match(
     parse_target(String.from("wasm32-wasip1")),
     .Ok(t) => {
-      set_current_target(t);
+      set_current_target(&t);
       assert(_pointer_width() == usize(32), "wasm32 usize is 32 bits");
     },
     .Err(e) => {
@@ -641,7 +641,7 @@ test("real z3: a --rlimit run stores its verdict under its own budget's key (YO_
   });
   base := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(base),
+    resolve_solver_sync(&base),
     .Resolved(path) => path,
     _ => {
       assert(false, "no solver found: set YO_Z3_PATH or install the pinned z3");
@@ -651,7 +651,7 @@ test("real z3: a --rlimit run stores its verdict under its own budget's key (YO_
   cfg := default_verify_run_config();
   cfg.encode_opts.rlimit = usize(7777777);
   q := _budget_query();
-  r := run_vc_query(q, cfg, binary);
+  r := run_vc_query(&q, &cfg, &binary);
   match(
     r.verdict,
     .Proved(_) => (),
@@ -659,8 +659,8 @@ test("real z3: a --rlimit run stores its verdict under its own budget's key (YO_
       assert(false, "5 + 5 == 10 proves");
     }
   );
-  own := `${verify_cache_dir()}/${verify_cache_key(q, cfg)}.json`;
-  default_slot := `${verify_cache_dir()}/${verify_cache_key(q, base)}.json`;
-  assert(_z3_exists_sync(own), "the verdict is cached under the run's own budget");
-  assert(!_z3_exists_sync(default_slot), "and NOT under the default budget's key, where a default run would reuse it");
+  own := `${verify_cache_dir()}/${verify_cache_key(&q, &cfg)}.json`;
+  default_slot := `${verify_cache_dir()}/${verify_cache_key(&q, &base)}.json`;
+  assert(_z3_exists_sync(&own), "the verdict is cached under the run's own budget");
+  assert(!_z3_exists_sync(&default_slot), "and NOT under the default budget's key, where a default run would reuse it");
 });

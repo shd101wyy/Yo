@@ -50,7 +50,7 @@ test("async openat, read, close", {
 test("async write and read back", {
   write_open_flags := (O_WRONLY | O_CREAT | O_TRUNC);
   tmp := temp_dir();
-  write_path_str := path_join(tmp, `yo_io_file_test.txt`);
+  write_path_str := path_join(&tmp, `yo_io_file_test.txt`);
   write_path_c := write_path_str.to_cstr();
   write_path := write_path_c.ptr().unwrap();
   open_result := io.await(openat(AT_FDCWD, write_path, write_open_flags, i32(0o644)), io);

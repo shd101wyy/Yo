@@ -40,7 +40,7 @@ take_early :: (fn(o : &Option(Holder), flag : bool) -> i32)({
 
 test("early return in shadowing match arm does not double-free the payload", {
   o := Option(Holder).Some(Holder(v : String.from("payload")));
-  x := take_early(o, true);
+  x := take_early(&o, true);
   assert(x == i32(1), "early-return path taken");
   // The payload must still be alive: o's borrow reads it after the call.
   alive := match(
@@ -53,7 +53,7 @@ test("early return in shadowing match arm does not double-free the payload", {
 
 test("normal path through the shadowing arm is balanced", {
   o := Option(Holder).Some(Holder(v : String.from("payload-2")));
-  x := take_early(o, false);
+  x := take_early(&o, false);
   assert(x == i32(2), "normal arm value");
   alive := match(
     o,
@@ -127,7 +127,7 @@ test("early return after a move-into-container does not drop the moved value", {
 test("early return crossing two shadowing arm scopes", {
   o := Option(Holder).Some(Holder(v : String.from("payload-3")));
   o2 := Option(Holder).Some(Holder(v : String.from("payload-4")));
-  x := take_nested(o, o2, true);
+  x := take_nested(&o, &o2, true);
   assert(x == i32(10), "early-return path taken");
   alive := match(
     o,

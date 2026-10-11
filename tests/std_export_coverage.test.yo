@@ -27,26 +27,26 @@ log :: import("std/log");
 test("hmac_sha1 / hmac_sha256 / hmac_sha512 wrappers", {
   key := String.from("key").to_bytes();
   msg := String.from("The quick brown fox jumps over the lazy dog").to_bytes();
-  assert(hex.encode(hmac_sha1(key, msg)) == "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9", "HMAC-SHA1");
-  assert(hex.encode(hmac_sha256(key, msg)) == "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", "HMAC-SHA256");
-  assert(hex.encode(hmac_sha512(key, msg)) == "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a", "HMAC-SHA512");
-  assert(hmac_sha1(key, msg).len() == usize(20), "sha1 digest size");
-  assert(hmac_sha512(key, msg).len() == usize(64), "sha512 digest size");
+  assert(hex.encode(hmac_sha1(&key, &msg)) == "de7c9b85b8b78aa6bc8a7a36f70a90701c9db4d9", "HMAC-SHA1");
+  assert(hex.encode(hmac_sha256(&key, &msg)) == "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8", "HMAC-SHA256");
+  assert(hex.encode(hmac_sha512(&key, &msg)) == "b42af09057bac1e2d41708e48a902e09b5ff7f12ab428a4fe86653c73dd248fb82f948a549f7b791a5b41915ee4d1ec3935357e4e2317250d0372afa2ebeeb3a", "HMAC-SHA512");
+  assert(hmac_sha1(&key, &msg).len() == usize(20), "sha1 digest size");
+  assert(hmac_sha512(&key, &msg).len() == usize(64), "sha512 digest size");
 });
 // --- encoding/json: the byte / String entry points and pretty printing.
 test("json.parse_bytes, json.parse_string, json.stringify_pretty", {
   src := `{"a": [1, 2, {"b": true}], "c": "x"}`;
   v1 := json.parse_bytes(src.to_bytes()).unwrap();
-  v2 := json.parse_string(src).unwrap();
-  assert(json.stringify(v1) == json.stringify(v2), "bytes and String entry points agree");
-  pretty := json.stringify_pretty(v1, usize(2));
+  v2 := json.parse_string(&src).unwrap();
+  assert(json.stringify(&v1) == json.stringify(&v2), "bytes and String entry points agree");
+  pretty := json.stringify_pretty(&v1, usize(2));
   assert(pretty.contains("\n"), "pretty output is multi-line");
   assert(pretty.contains(`  "a": [`), "two-space indent under the root");
   assert(pretty.contains(`      "b": true`), "nested objects indent further");
   // pretty output parses back to the same value
-  back := json.parse_string(pretty).unwrap();
-  assert(json.stringify(back) == json.stringify(v1), "pretty round-trips");
-  four := json.stringify_pretty(v1, usize(4));
+  back := json.parse_string(&pretty).unwrap();
+  assert(json.stringify(&back) == json.stringify(&v1), "pretty round-trips");
+  four := json.stringify_pretty(&v1, usize(4));
   assert(four.contains(`    "a": [`), "indent width is honoured");
 });
 // --- fmt: eprint writes to stderr without a newline (no crash, returns unit).
@@ -156,7 +156,7 @@ test("bench", {
 // --- hash: the default keys are what new() uses.
 test("DEFAULT_KEY_1 pairs with DEFAULT_KEY_0", {
   s := String.from("k");
-  assert(hash_one_with_keys(s, DEFAULT_KEY_0, DEFAULT_KEY_1) == hash_one(s), "explicit default keys == hash_one");
+  assert(hash_one_with_keys(&mut s, DEFAULT_KEY_0, DEFAULT_KEY_1) == hash_one(&mut s), "explicit default keys == hash_one");
 });
 // --- http/client: the documented defaults are what FetchOptions.new() carries.
 test("FetchOptions defaults match the exported constants", {

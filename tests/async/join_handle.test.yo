@@ -14,7 +14,7 @@ test("Test JoinHandle state after completion", {
   fut := io.async((io : Io) => {
     return(u64(7));
   });
-  h := io.spawn(fut, io);
+  h := io.spawn(&fut, io);
   // A body with no suspension points runs to completion inside io.spawn.
   s := h.state();
   assert(s == FutureState.Completed, "no-await task should be Completed right after spawn");
@@ -30,7 +30,7 @@ test("Test JoinHandle state while suspended", {
     io.await(sleep(u64(20)), io);
     return(i32(1));
   });
-  h := io.spawn(fut, io);
+  h := io.spawn(&fut, io);
   s := h.state();
   assert((s != FutureState.Completed) && (s != FutureState.Aborted), "sleeping task should not be terminal");
   assert(!h.is_finished(), "is_finished should be false while suspended");
@@ -47,7 +47,7 @@ test("Test JoinHandle abort returns None", {
     ran.* = true;
     return(i32(9));
   });
-  h := io.spawn(fut, io);
+  h := io.spawn(&fut, io);
   h.abort();
   assert(h.state() == FutureState.Aborted, "abort should mark the task Aborted");
   r := h.await(io);
@@ -66,7 +66,7 @@ test("Test aborted task pending completion is safe", {
     ran2.* = true;
     return(i32(3));
   });
-  h := io.spawn(fut, io);
+  h := io.spawn(&fut, io);
   h.abort();
   r := h.await(io);
   assert(match(r, .Some(_) => false, .None => true), "aborted task should give .None");
@@ -83,7 +83,7 @@ test("Test abort after completion is a no-op", {
     io.await(yield(io), io);
     return(u64(11));
   });
-  h := io.spawn(fut, io);
+  h := io.spawn(&fut, io);
   // Drive the loop until the spawned task has finished without awaiting the
   // handle, so `state()` is read on a task nothing else has observed.
   // Bounded poll, not one fixed sleep: `yield` parked on a 1 ms timer then, and
@@ -129,7 +129,7 @@ test("Test abort cancels the pending timer and releases the task", {
       io.await(sleep(u64(30000)), io);
       return(probe.id);
     });
-    h := io.spawn(fut, io);
+    h := io.spawn(&fut, io);
     // Let the spawned task reach its suspension point.
     io.await(yield(io), io);
     assert(!h.is_finished(), "task should be parked on the 30 s sleep");
@@ -156,34 +156,34 @@ _aborted_task :: (fn(io : Io) -> Impl(Future(i32, Io)))({
     io.await(sleep(u64(500)), io);
     i32(5)
   });
-  h := io.spawn(t, io);
+  h := io.spawn(&t, &io);
   h.abort();
   t
 });
 test("io.spawn of an already-aborted future returns a handle that reads None", {
   t := _aborted_task(io);
-  h2 := io.spawn(t, io);
+  h2 := io.spawn(&t, io);
   assert(h2.state() == FutureState.Aborted, "the second handle sees the abort");
   assert(h2.await(io).is_none(), "and reads .None instead of panicking");
 });
 test("io.await of an already-aborted future inside a task aborts the awaiting task", {
   t := _aborted_task(io);
   outer := io.async((io : Io) => {
-    v := io.await(t, io);
+    v := io.await(&t, io);
     v + i32(1)
   });
-  ho := io.spawn(outer, io);
+  ho := io.spawn(&outer, io);
   assert(ho.await(io).is_none(), "the awaiting task was aborted in turn");
 });
 /// A PLAIN function awaiting a future: the sync await path.
-_plain_get :: (fn(t : &Impl(Future(i32, Io)), io : Io) -> i32)(io.await(t, io));
+_plain_get :: (fn(t : &Impl(Future(i32, Io)), io : Io) -> i32)(io.await(t, &io));
 test("a plain function's io.await of an already-aborted future propagates to the calling task", {
   t := _aborted_task(io);
   caller := io.async((io : Io) => {
-    v := _plain_get(t, io);
+    v := _plain_get(&t, io);
     v + i32(1)
   });
-  hc := io.spawn(caller, io);
+  hc := io.spawn(&caller, io);
   assert(hc.await(io).is_none(), "the abort escaped the plain function and aborted the calling task");
 });
 // ---------------------------------------------------------------------------
@@ -206,13 +206,13 @@ test("aborting a task aborts the named child future its await started", {
     i32(1)
   });
   parent := io.async((io : Io) => {
-    v := io.await(child, io);
+    v := io.await(&child, io);
     v + i32(1)
   });
-  hp := io.spawn(parent, io);
+  hp := io.spawn(&parent, io);
   io.await(yield(io), io);
   hp.abort();
-  assert(io.state(child) == FutureState.Aborted, "the child the parent started was aborted with it");
+  assert(io.state(&child) == FutureState.Aborted, "the child the parent started was aborted with it");
   io.await(sleep(u64(80)), io);
   assert(!(ran.*), "and its body never resumed past its sleep");
   assert(hp.await(io).is_none(), "the parent reads .None");
@@ -224,9 +224,9 @@ test("aborting a task leaves a named future that someone else started running", 
     ran.* = true;
     i32(5)
   });
-  hs := io.spawn(shared, io);
-  waiter := io.async((io : Io) => io.await(shared, io));
-  hw := io.spawn(waiter, io);
+  hs := io.spawn(&shared, io);
+  waiter := io.async((io : Io) => io.await(&shared, io));
+  hw := io.spawn(&waiter, io);
   io.await(yield(io), io);
   hw.abort();
   r := hs.await(io);

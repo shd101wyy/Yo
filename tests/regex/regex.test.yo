@@ -767,7 +767,7 @@ test("index after 4-byte emoji is a byte offset", {
 test("match index feeds String.substring directly", {
   input := `你好世界再见`;
   re := Regex.new(`世界`).unwrap();
-  m := re.find(input).unwrap();
+  m := re.find(&input).unwrap();
   start := m.index();
   end_pos := (start + m.value().len());
   assert(input.substring(start, end_pos) == `世界`, "byte index slices the match back out");
@@ -793,7 +793,7 @@ test("replace_all with multibyte text between matches", {
 test("replacement $` uses byte-offset pre-match", {
   re := Regex.new(`世界`).unwrap();
   rep := String.from("<$`>");
-  result := re.replace(`你好世界后`, rep);
+  result := re.replace(`你好世界后`, &rep);
   assert(result == `你好<你好>后`, "$` is the byte-correct pre-match text");
 });
 test("replacement $' uses byte-offset post-match", {
@@ -1233,8 +1233,8 @@ test("Regex.escape covers the whole metacharacter set once", {
 });
 test("Regex.escape round-trips non-ASCII input", {
   s := `héllo.世界*`;
-  re := Regex.new(Regex.escape(s)).unwrap();
-  assert(re.is_match(s), "UTF-8 text should survive escaping byte-for-byte");
+  re := Regex.new(Regex.escape(&s)).unwrap();
+  assert(re.is_match(&s), "UTF-8 text should survive escaping byte-for-byte");
 });
 test("Regex.compile is the flags-free constructor", {
   re := Regex.new(`ab+c`).unwrap();
@@ -1280,13 +1280,13 @@ test("find_iter yields match_all's matches lazily", {
   re := Regex.new(`\d+`).unwrap();
   input := `a1 bb22 ccc333`;
   lazy_matches := ArrayList(RegexMatch).new();
-  it := re.find_iter(input);
+  it := re.find_iter(&input);
   nxt := it.next();
   while(nxt.is_some(), {
     lazy_matches.push(nxt.unwrap());
     nxt = it.next();
   });
-  eager := re.find_all(input);
+  eager := re.find_all(&input);
   assert(lazy_matches.len() == eager.len(), "find_iter should yield exactly match_all's match count");
   i := usize(0);
   while(i < eager.len(), i = (i + usize(1)), {
@@ -1295,7 +1295,7 @@ test("find_iter yields match_all's matches lazily", {
     assert((l.index() == e.index()) && (l.end() == e.end()), "lazy and eager match i should agree on byte offsets");
     assert(l.value() == e.value(), "lazy and eager match i should agree on text");
   });
-  exhausted := re.find_iter(input);
+  exhausted := re.find_iter(&input);
   exhausted.next();
   assert(exhausted.next().is_some(), "a fresh iterator still yields (single-pass, not shared)");
 });
@@ -1356,23 +1356,23 @@ test("replace_all_with keeps text between matches", {
 test("String pattern methods with a Regex: contains / index_of / last_index_of", {
   re := Regex.new(`[0-9]+`).unwrap();
   s := `a1b22c`;
-  assert(s.contains(re), "digit run contained");
-  assert(!`abc`.contains(re), "no digits");
-  assert(s.index_of(re).unwrap_or(usize(999)) == usize(1), "first digit run at byte 1");
-  assert(s.last_index_of(re).unwrap_or(usize(999)) == usize(3), "last digit run (22) at byte 3");
-  assert(s.index_of(re, usize(2)).unwrap_or(usize(999)) == usize(3), "from_index skips the first run");
+  assert(s.contains(&re), "digit run contained");
+  assert(!`abc`.contains(&re), "no digits");
+  assert(s.index_of(&re).unwrap_or(usize(999)) == usize(1), "first digit run at byte 1");
+  assert(s.last_index_of(&re).unwrap_or(usize(999)) == usize(3), "last digit run (22) at byte 3");
+  assert(s.index_of(&re, usize(2)).unwrap_or(usize(999)) == usize(3), "from_index skips the first run");
 });
 test("String pattern methods with a Regex: starts_with / ends_with / split / split_once", {
   re := Regex.new(`[0-9]+`).unwrap();
-  assert(`42x`.starts_with(re), "anchored at byte 0");
-  assert(!`x42`.starts_with(re), "not anchored at 0");
-  assert(`x42`.ends_with(re), "digit run at the end");
-  parts := `a1b22c`.split(re);
+  assert(`42x`.starts_with(&re), "anchored at byte 0");
+  assert(!`x42`.starts_with(&re), "not anchored at 0");
+  assert(`x42`.ends_with(&re), "digit run at the end");
+  parts := `a1b22c`.split(&re);
   assert(parts.len() == usize(3), "split on digit runs");
   sep := `|`;
-  assert(sep.join(parts) == `a|b|c`, "split parts");
+  assert(sep.join(&parts) == `a|b|c`, "split parts");
   match(
-    `x=42`.split_once(re),
+    `x=42`.split_once(&re),
     .Some(p) => begin(assert(p.0 == `x=`, "split_once before the digit run"), assert(p.1 == ``, "split_once after the digit run")),
     .None => assert(false, "digit run present")
   );
@@ -1382,16 +1382,16 @@ test("String replace / replacen with a Regex pattern", {
   // D10: String.replace replaces EVERY match, for a Regex pattern as for a
   // literal one. `Regex.replace` (the method ON the regex) keeps Rust's
   // regex-crate shape and still replaces the FIRST match only.
-  assert(`a1b22c`.replace(re, `#`) == `a#b#c`, "replace every match");
-  assert(`a1b22c`.replacen(re, `#`, usize(1)) == `a#b22c`, "replacen 1 = the first match");
-  assert(`a1b22c`.replace_first(re, `#`) == `a#b22c`, "replace_first is the pre-D10 replace");
-  assert(`a1b22c`.replace_all(re, `#`) == `a#b#c`, "replace_all agrees with replace");
+  assert(`a1b22c`.replace(&re, `#`) == `a#b#c`, "replace every match");
+  assert(`a1b22c`.replacen(&re, `#`, usize(1)) == `a#b22c`, "replacen 1 = the first match");
+  assert(`a1b22c`.replace_first(&re, `#`) == `a#b22c`, "replace_first is the pre-D10 replace");
+  assert(`a1b22c`.replace_all(&re, `#`) == `a#b#c`, "replace_all agrees with replace");
   zero := Regex.new(`x*`).unwrap();
-  assert(`abc`.replace(zero, `-`) == `-a-b-c-`, "zero-width regex inserts between runes, like the empty string");
+  assert(`abc`.replace(&zero, `-`) == `-a-b-c-`, "zero-width regex inserts between runes, like the empty string");
 });
 test("Regex Pattern offsets are String BYTE offsets", {
   re := Regex.new(`é+`).unwrap();
   s := `aébé`;
-  assert(s.index_of(re).unwrap_or(usize(999)) == usize(1), "é run starts at byte 1 (a is one byte)");
-  assert(s.last_index_of(re).unwrap_or(usize(999)) == usize(4), "last é run starts at byte 4 (after a, é, b)");
+  assert(s.index_of(&re).unwrap_or(usize(999)) == usize(1), "é run starts at byte 1 (a is one byte)");
+  assert(s.last_index_of(&re).unwrap_or(usize(999)) == usize(4), "last é run starts at byte 4 (after a, é, b)");
 });

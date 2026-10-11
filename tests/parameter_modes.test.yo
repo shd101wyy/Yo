@@ -89,7 +89,7 @@ test("an io.async body shares a handle into a by-value parameter: the slot keeps
     xs.push(q);
     (ref_count(q) * usize(10)) + xs.len()
   });
-  r := io.await(t, io);
+  r := io.await(&t, io);
   assert(r == usize(21), `the list and the slot each hold one reference (rc 2, len 1), got ${r}`);
 });
 
@@ -145,7 +145,7 @@ derive(_PmMoney, Copy, Clone);
 impl(_PmMoney, Add(_PmMoney)(Output : _PmMoney, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(_PmMoney(c : (lhs.c + rhs.c)))));
 impl(_PmMoney, Negate(Output : _PmMoney, neg : (fn(self : Self) -> Self.Output)(_PmMoney(c : (i32(0) - self.c)))));
 _PmTag :: struct(s : String);
-impl(_PmTag, Add(_PmTag)(Output : _PmTag, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(_PmTag(s : lhs.s.concat(rhs.s)))));
+impl(_PmTag, Add(_PmTag)(Output : _PmTag, (+) : (fn(lhs : Self, rhs : Self) -> Self.Output)(_PmTag(s : lhs.s.concat(&rhs.s)))));
 test("arithmetic and unary operator impls take their operands by value", {
   a := _PmMoney(c : i32(2));
   b := _PmMoney(c : i32(3));
@@ -172,7 +172,7 @@ test("a by-value operator copies a counted operand", {
 
 test("imm parameters borrow", {
   s := String.from("hello");
-  assert(_pm_len(s) == usize(5), "a bare argument to an imm parameter is a borrow");
+  assert(_pm_len(&s) == usize(5), "a bare argument to an imm parameter is a borrow");
   assert(_pm_len(&s) == usize(5), "&s lends s to an imm parameter");
   assert(_pm_plain_len(&s) == usize(5), "&s lends s to a second imm parameter");
   assert(s.len() == usize(5), "s stays usable after both borrows");
@@ -182,7 +182,7 @@ test("mut parameters are inout parameters", {
   (c : i32) = i32(1);
   _pm_inc(&mut c);
   assert(c == i32(2), "&mut c lends c to a mut parameter");
-  _pm_inc(c);
+  _pm_inc(&mut c);
   assert(c == i32(3), "a bare argument to a mut parameter still lends the place");
   (x : i32) = i32(1);
   (y : i32) = i32(2);
@@ -214,16 +214,16 @@ test("a mode is part of the fn type, for every type", {
   comptime_assert(!Type.is_compatible_with((fn(n : &mut i32) -> unit), (fn(n : i32) -> unit)), "mut is not a plain parameter");
   (f : (fn(x : &String) -> usize)) = _pm_len;
   s := String.from("abc");
-  assert(f(s) == usize(3), "an imm-parameter function is a value of its own fn type");
+  assert(f(&s) == usize(3), "an imm-parameter function is a value of its own fn type");
 });
 
 test("Fn traits spelled with imm and mut", {
   s := String.from("four");
-  assert(_pm_apply_imm(t => t.len(), s) == usize(4), "Impl(Fn(imm(s) : String) -> usize)");
+  assert(_pm_apply_imm(t => t.len(), &s) == usize(4), "Impl(Fn(imm(s) : String) -> usize)");
   (v : i32) = i32(1);
   _pm_apply_mut(n => {
     n = (n + i32(10));
-  }, v);
+  }, &mut v);
   assert(v == i32(11), "Impl(Fn(mut(n) : i32) -> unit) writes through to the caller");
 });
 
@@ -363,18 +363,18 @@ impl(_PmLens, by_value : (fn(s : String) -> usize)(s.len()), lent : (fn(s : &Str
 test("a function argument's modes must be its function-typed parameter's", {
   s := String.from("abc");
   (n : i32) = i32(1);
-  comptime_expect_error(_pm_call_hook(_pm_take, s), "`s : &String` in the expected type and `s : String` in the given one");
+  comptime_expect_error(_pm_call_hook(_pm_take, &s), "`s : &String` in the expected type and `s : String` in the given one");
   (g : _PmByValHook) = _pm_take;
-  comptime_expect_error(_pm_call_hook(g, s), "a parameter's mode is part of the function type");
-  comptime_expect_error(_pm_call_hook(_PmLens.by_value, s), "a parameter's mode is part of the function type");
-  comptime_expect_error(_pm_call_hook(_pm_sink_len, s), "a parameter's mode is part of the function type");
+  comptime_expect_error(_pm_call_hook(g, &s), "a parameter's mode is part of the function type");
+  comptime_expect_error(_pm_call_hook(_PmLens.by_value, &s), "a parameter's mode is part of the function type");
+  comptime_expect_error(_pm_call_hook(_pm_sink_len, &s), "a parameter's mode is part of the function type");
   comptime_expect_error(_pm_call_byval_hook(_pm_len, s), "`s : String` in the expected type and `s : &String` in the given one");
-  comptime_expect_error(_pm_call_mut_hook(_pm_plain_bump, n), "`n : &mut i32` in the expected type and `n : i32` in the given one");
-  comptime_expect_error(_pm_call_mut_hook(_pm_imm_bump, n), "`n : &mut i32` in the expected type and `n : &i32` in the given one");
-  comptime_expect_error(_pm_apply_imm(_pm_take, s), "a parameter's mode is part of the function type");
-  comptime_expect_error(_pm_apply_mut(_pm_plain_bump, n), "a parameter's mode is part of the function type");
+  comptime_expect_error(_pm_call_mut_hook(_pm_plain_bump, &mut n), "`n : &mut i32` in the expected type and `n : i32` in the given one");
+  comptime_expect_error(_pm_call_mut_hook(_pm_imm_bump, &mut n), "`n : &mut i32` in the expected type and `n : &i32` in the given one");
+  comptime_expect_error(_pm_apply_imm(_pm_take, &s), "a parameter's mode is part of the function type");
+  comptime_expect_error(_pm_apply_mut(_pm_plain_bump, &mut n), "a parameter's mode is part of the function type");
   (c : Impl(Fn(t : String) -> usize)) = (t => t.len());
-  comptime_expect_error(_pm_apply_imm(c, s), "a parameter's mode is part of the function type");
+  comptime_expect_error(_pm_apply_imm(&c, &s), "a parameter's mode is part of the function type");
   comptime_expect_error(_PmHookBox(f : _pm_take), "Incompatible types for field");
   comptime_expect_error(Option(_PmHook).Some(_pm_take), "Incompatible types for field");
   comptime_expect_error((fn() -> _PmHook)(_pm_take), "declared result type");
@@ -386,26 +386,26 @@ test("a function argument's modes must be its function-typed parameter's", {
 test("a function-typed parameter checks the whole signature of a concrete slot", {
   s := String.from("abc");
   (n : i32) = i32(1);
-  comptime_expect_error(_pm_call_hook(_pm_len_i32, s), "Incompatible types");
-  comptime_expect_error(_pm_call_hook(n, s), "Incompatible types");
+  comptime_expect_error(_pm_call_hook(_pm_len_i32, &s), "Incompatible types");
+  comptime_expect_error(_pm_call_hook(n, &s), "Incompatible types");
 });
 
 test("a function value whose modes are the slot's is accepted", {
   s := String.from("abc");
   (n : i32) = i32(1);
-  assert(_pm_call_hook(_pm_len, s) == usize(3), "an imm function for an imm slot");
-  assert(_pm_call_hook(_PmLens.lent, s) == usize(3), "an imm method value");
+  assert(_pm_call_hook(_pm_len, &s) == usize(3), "an imm function for an imm slot");
+  assert(_pm_call_hook(_PmLens.lent, &s) == usize(3), "an imm method value");
   (h : _PmHook) = _pm_len;
-  assert(_pm_call_hook(h, s) == usize(3), "a fn-typed local");
+  assert(_pm_call_hook(h, &s) == usize(3), "a fn-typed local");
   assert(_pm_call_byval_hook(_pm_sink_len, s) == usize(3), "sink and by value are one mode to the callee");
   assert(_pm_call_byval_hook(_pm_take, s) == usize(3), "a by-value function for a by-value slot");
-  _pm_call_mut_hook(_pm_inc, n);
+  _pm_call_mut_hook(_pm_inc, &mut n);
   assert(n == i32(2), "a mut function for a mut slot writes through");
-  assert(_pm_apply_imm(_pm_len, s) == usize(3), "an imm function for Impl(Fn(imm(s) : String) -> usize)");
-  assert(_pm_apply_imm(t => t.len(), s) == usize(3), "a closure literal adopts the slot's modes");
+  assert(_pm_apply_imm(_pm_len, &s) == usize(3), "an imm function for Impl(Fn(imm(s) : String) -> usize)");
+  assert(_pm_apply_imm(t => t.len(), &s) == usize(3), "a closure literal adopts the slot's modes");
   (c : Impl(Fn(t : &String) -> usize)) = (t => t.len());
-  assert(_pm_apply_imm(c, s) == usize(3), "a named closure typed with the slot's modes");
-  assert(_PmHookBox(f : _pm_len).f(s) == usize(3), "a struct field of the slot's type");
+  assert(_pm_apply_imm(&c, &s) == usize(3), "a named closure typed with the slot's modes");
+  assert(_PmHookBox(f : _pm_len).f(&s) == usize(3), "a struct field of the slot's type");
   assert(s.len() == usize(3), "s was only ever lent");
 });
 

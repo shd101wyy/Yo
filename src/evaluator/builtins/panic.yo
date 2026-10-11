@@ -109,28 +109,28 @@ evaluate_panic :: (
         return(expr);
       }
     );
-    evaluated := evaluate_expression_raw(msg_expr, cur_env, ctx, exn);
-    info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated));
+    evaluated := evaluate_expression_raw(&msg_expr, &cur_env, ctx, exn);
+    info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
     match(
       info_opt,
       .None => {
         exn.throw(
           dyn(
             format_eval_failure(
-              ast_expr_token(msg_expr),
+              ast_expr_token(&msg_expr),
               String.from("Failed to evaluate panic message")
             )
           )
         );
       },
       .Some(info) => {
-        cur_env = expr_info_adopt_env(info);
+        cur_env = expr_info_adopt_env(&info);
         msg_type := info.ty;
         msg_value := info.value;
         match(
           msg_value,
           .Some(.StrLit(raw)) => {
-            ct_msg = .Some(_unquote_str_lit(raw));
+            ct_msg = .Some(_unquote_str_lit(&raw));
           },
           .Some(_) => (),
           .None => ()
@@ -142,7 +142,7 @@ evaluate_panic :: (
         // "panic message must be a comptime_str or str", was swallowed by the
         // def-time trial-eval, and left the enclosing cond without ExprInfo →
         // "Failed to transpile cond(...)" in codegen.
-        is_str := is_str_type(msg_type);
+        is_str := is_str_type(&msg_type);
         // comptime_str: StrLit value, or an UNKNOWN value whose type is
         // comptime_str.
         // Under def-time body evaluation a `comptime_str` parameter binds
@@ -151,21 +151,21 @@ evaluate_panic :: (
         is_comptime_str := match(
           msg_value,
           .Some(.StrLit(_)) => true,
-          .Some(.UnknownVal(uty, _)) => is_comptime_string_type(uty),
+          .Some(.UnknownVal(uty, _)) => is_comptime_string_type(&uty),
           .Some(_) => false,
-          .None => is_comptime_string_type(msg_type)
+          .None => is_comptime_string_type(&msg_type)
         );
         // *(u8) — C string pointer (e.g. a String's to_cstr().ptr())
         is_ptr_to_u8 := match(
           msg_type,
-          .Pointer(pointee) => is_u8_type(pointee),
+          .Pointer(pointee) => is_u8_type(&pointee),
           _ => false
         );
         if(!is_str && !is_comptime_str && !is_ptr_to_u8, {
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(msg_expr),
+                ast_expr_token(&msg_expr),
                 String.from("__yo_panic message must be comptime_str, str, or *(u8)")
               )
             )
@@ -200,9 +200,9 @@ evaluate_panic :: (
       )
     );
   });
-  info := new_expr_info(cur_env, return_ty);
+  info := new_expr_info(&cur_env, &return_ty);
   // panic never returns a value — leave info.value as .None
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 export(evaluate_panic);

@@ -31,7 +31,7 @@ do_work :: (fn(iterations : i32, io : Io) -> i32)({
     )
   );
   // An await forces this function to be a state-machine function.
-  io.await(yield(io), io);
+  io.await(yield(io), &io);
   total := i32(0);
   i := i32(0);
   while(runtime(i < iterations), {
@@ -64,7 +64,7 @@ test("control fn called from worker closures", {
   // Match the yo_http_benchmark multi-threaded pattern: call the
   // control fn from main AND from a ThreadPool task closure.
   pool := ThreadPool.new(usize(2));
-  spawn(pool, io => {
+  spawn(&pool, io => {
     r := do_work(i32(4), io);
     assert(r == i32(6), "worker sum 0..3 should be 6");
   });

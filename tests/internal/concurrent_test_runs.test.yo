@@ -53,8 +53,8 @@ test("${name} two", {
 });
 `;
   io.await(
-    write_string(Path.new(`${dir}/${name}.test.yo`), src, io),
-    e
+    write_string(Path.new(`${dir}/${name}.test.yo`), &src, io),
+    &e
   );
 });
 test("two concurrent yo test runs over one directory both finish green", {
@@ -78,7 +78,7 @@ test("two concurrent yo test runs over one directory both finish green", {
   // window in which the pre-fix shared names collided.
   fixture := `tmp/yo-runner-conc-fixture`;
   _remove_tolerant(fixture.clone(), io);
-  io.await(create_dir_all(Path.new(fixture.clone()), io), e);
+  io.await(create_dir_all(Path.new(fixture.clone()), io), &e);
   names := ArrayList(String).new();
   names.push(`a`);
   names.push(`b`);
@@ -93,7 +93,7 @@ test("two concurrent yo test runs over one directory both finish green", {
       .Some(x) => x,
       .None => String.from("")
     );
-    _write_fixture_file(fixture.clone(), n, io, e);
+    _write_fixture_file(fixture.clone(), &n, io, e);
     ni = (ni + usize(1));
   });
   // Spawn BOTH children before waiting on either — the whole regression is
@@ -106,10 +106,10 @@ test("two concurrent yo test runs over one directory both finish green", {
   run_b.arg(String.from("test"));
   run_b.arg(fixture.clone());
   run_b.arg(String.from("--disable-sanitize"));
-  child_a := io.await(run_a.spawn(io), e);
-  child_b := io.await(run_b.spawn(io), e);
-  status_a := io.await(child_a.wait(io), e);
-  status_b := io.await(child_b.wait(io), e);
+  child_a := io.await(run_a.spawn(io), &e);
+  child_b := io.await(run_b.spawn(io), &e);
+  status_a := io.await(child_a.wait(io), &e);
+  status_b := io.await(child_b.wait(io), &e);
   // Each child's summary is its exit code: the runner exits 0 only when
   // every test in every file passed, and the collision killed a child
   // mid-directory (rc=1, no summary for the file it died on).

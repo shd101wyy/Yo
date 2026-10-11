@@ -1,7 +1,7 @@
 { println } :: import("std/fmt");
 run :: (fn(io : Io) -> i32)({
   task := io.async((io : Io) => i32(42));
-  handle := io.spawn(task, io);
+  handle := io.spawn(&task, &io);
   result := handle.await(io);
   // D7: JoinHandle.await yields .None for an aborted task; handle it.
   result.unwrap_or(i32(-1))

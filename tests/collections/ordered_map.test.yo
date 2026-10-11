@@ -232,7 +232,7 @@ test("OrderedMap swap_remove returns the value and moves the last key in", {
   assert(m.len() == usize(3), "the map shrank");
   assert(!m.contains_key(`b`), "b is gone");
   // `d` moved into b's slot, so the order is a, d, c — NOT a, c, d.
-  ks := _keys(m);
+  ks := _keys(&m);
   assert(ks.len() == usize(3), "three keys remain");
   assert(ks(usize(0)) == `a`, "a is still first");
   assert(ks(usize(1)) == `d`, "the LAST key moved into the removed slot");
@@ -248,7 +248,7 @@ test("OrderedMap swap_remove of the last key does not disturb the order", {
   m.insert(`b`, i32(2));
   m.insert(`c`, i32(3));
   assert(m.swap_remove(`c`).unwrap() == i32(3), "removed the last key");
-  ks := _keys(m);
+  ks := _keys(&m);
   assert((ks(usize(0)) == `a`) && (ks(usize(1)) == `b`), "a, b in order");
   assert(ks.len() == usize(2), "two keys");
 });
@@ -274,19 +274,19 @@ test("OrderedMap swap_remove keeps its position index in step", {
   assert(m.swap_remove(`k1`).unwrap() == i32(1), "k1");
   assert(m.swap_remove(`k2`).unwrap() == i32(2), "k2");
   assert(m.len() == usize(3), "three left");
-  ks := _keys(m);
+  ks := _keys(&m);
   assert(ks.len() == usize(3), "the order list agrees with len");
   // Whatever the order is, every remaining key must still map to its own
   // value — a stale index would have removed the wrong slot above.
   (j : usize) = usize(0);
   while(j < ks.len(), j = (j + usize(1)), {
     k := ks(j);
-    v := m.get(k);
+    v := m.get(&k);
     assert(v.is_some(), `${k} is still present`);
   });
   // And a fresh insert lands at the end with a correct position.
   m.insert(`tail`, i32(99));
-  ks2 := _keys(m);
+  ks2 := _keys(&m);
   assert(ks2(ks2.len() - usize(1)) == `tail`, "a new key goes to the end");
   assert(m.swap_remove(`tail`).unwrap() == i32(99), "and is removable");
 });
@@ -299,7 +299,7 @@ test("OrderedMap remove still preserves order after a swap_remove", {
   m.swap_remove(`a`);
   // order is now d, b, c
   m.remove(`b`);
-  ks := _keys(m);
+  ks := _keys(&m);
   assert(ks.len() == usize(2), "two keys");
   assert((ks(usize(0)) == `d`) && (ks(usize(1)) == `c`), "remove keeps the remaining order");
   assert(m.get(`d`).unwrap() == i32(4), "d");

@@ -43,7 +43,7 @@ test("Thread with async task", {
     task := io.async((io : Io) => {
       io.await(yield(io), io);
     });
-    io.await(task, io);
+    io.await(&task, &io);
   });
   thread.join();
 });
@@ -55,7 +55,7 @@ test("Thread with async returning value", {
       io.await(yield(io), io);
       return(x + y);
     });
-    result := io.await(task, io);
+    result := io.await(&task, &io);
     assert(result == i32(30), "async result should be 30");
   });
   thread.join();
@@ -70,7 +70,7 @@ test("Thread with async loop", {
       });
       return(counter);
     });
-    result := io.await(task, io);
+    result := io.await(&task, &io);
     assert(result == i32(5), "counter should be 5");
   });
   thread.join();
@@ -85,8 +85,8 @@ test("Thread with multiple async tasks", {
       io.await(yield(io), io);
       return(i32(2));
     });
-    r1 := io.await(task1, io);
-    r2 := io.await(task2, io);
+    r1 := io.await(&task1, &io);
+    r2 := io.await(&task2, &io);
     assert((r1 + r2) == i32(3), "sum should be 3");
   });
   thread.join();
@@ -116,7 +116,7 @@ _spawn_and_drop_handle :: (fn(out : &Channel(i32)) -> unit)({
 });
 test("dropping an un-joined Thread detaches it: the work still completes", {
   out := Channel(i32).new(usize(1));
-  _spawn_and_drop_handle(out);
+  _spawn_and_drop_handle(&out);
   assert(out.recv().unwrap() == i32(7), "the detached thread ran to completion");
 });
 test("join marks the handle joined, and dropping a joined handle releases nothing twice", {
@@ -461,9 +461,9 @@ _dir_iter_roundtrip :: (fn(k : i32, io : Io) -> unit)({
       )
     );
     tmp := temp_dir();
-    base := path_join(tmp, `yo_thread_dir_iter_${k}`);
+    base := path_join(&tmp, `yo_thread_dir_iter_${k}`);
     dpath := Path.new(base.clone());
-    io.await(fs_dir.create_dir(dpath, io), IoExn(io : io, exn : exn));
+    io.await(fs_dir.create_dir(&dpath, io), IoExn(io : io, exn : exn));
     (i : usize) = usize(0);
     while(runtime(i < usize(5)), {
       io.await(
@@ -474,7 +474,7 @@ _dir_iter_roundtrip :: (fn(k : i32, io : Io) -> unit)({
     });
     (n : i64) = i64(0);
     while(runtime(n < i64(40)), {
-      entries := io.await(fs_dir.read_dir(dpath, io), IoExn(io : io, exn : exn));
+      entries := io.await(fs_dir.read_dir(&dpath, io), IoExn(io : io, exn : exn));
       assert(entries.len() == usize(5), "expected the 5 files back");
       n = (n + i64(1));
     });
@@ -486,9 +486,9 @@ _dir_iter_roundtrip :: (fn(k : i32, io : Io) -> unit)({
       );
       j = (j + usize(1));
     });
-    io.await(fs_dir.remove_dir(dpath, io), IoExn(io : io, exn : exn));
+    io.await(fs_dir.remove_dir(&dpath, io), IoExn(io : io, exn : exn));
   });
-  io.await(task, io);
+  io.await(&task, &io);
 });
 test("concurrent directory iteration on three threads", {
   t1 := Thread(unit).spawn(io => _dir_iter_roundtrip(i32(1), io));

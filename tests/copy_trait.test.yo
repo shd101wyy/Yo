@@ -298,7 +298,7 @@ test("Copy: a Copy type clones through its Clone impl, and where(T <: Copy) give
   xs.push(p);
   ys := xs.clone();
   assert(match(ys.get(usize(0)), .Some(e) => (e == p), .None => false), "ArrayList.clone over a Copy element");
-  assert(_ct_clone_any(p) == p, "a where(T <: Clone) function accepts a Copy type");
+  assert(_ct_clone_any(&p) == p, "a where(T <: Clone) function accepts a Copy type");
   assert(_ct_clone_copy(p) == p, "a where(T <: Copy) body calls clone()");
   assert(_ct_clone_copy(i32(3)) == i32(3), "at a prelude Copy type");
   assert(_ct_clone_copy((i32(1), true)).0 == i32(1), "at a tuple, Copy structurally and Clone by the prelude's tuple impl");

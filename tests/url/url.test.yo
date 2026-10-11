@@ -144,7 +144,7 @@ test("Url to_string simple URL", {
 });
 test("Url to_string full URL round-trip", {
   input := String.from("https://user:pass@example.com:8080/path?q=1#frag");
-  url := Url.parse(input).unwrap();
+  url := Url.parse(&input).unwrap();
   s := url.to_string();
   assert(s == input, "to_string should round-trip");
 });
@@ -270,7 +270,7 @@ test("Url parse still accepts every legal URI byte", {
   while(runtime(i < legal.len()), {
     src := legal(i);
     match(
-      _parse_err(src),
+      _parse_err(&src),
       .Some(got) => assert(false, `legal URI rejected: [${src}] -> ${got}`),
       .None => ()
     );
@@ -285,52 +285,52 @@ _joined :: (fn(base : &String, reference : &String) -> String)(
 );
 test("Url.join: the RFC 3986 §5.4.1 normal examples", {
   b := `http://a/b/c/d;p?q`;
-  assert(_joined(b, `g:h`) == `g:h`, "an absolute reference replaces everything");
-  assert(_joined(b, `g`) == `http://a/b/c/g`, "a relative segment resolves against the directory");
-  assert(_joined(b, `./g`) == `http://a/b/c/g`, "./ is the same directory");
-  assert(_joined(b, `g/`) == `http://a/b/c/g/`, "a trailing slash survives");
-  assert(_joined(b, `/g`) == `http://a/g`, "an absolute path keeps only the authority");
-  assert(_joined(b, `//g`) == `http://g`, "a network-path reference keeps only the scheme");
-  assert(_joined(b, `?y`) == `http://a/b/c/d;p?y`, "a bare query keeps the path");
-  assert(_joined(b, `g?y`) == `http://a/b/c/g?y`, "path and query together");
-  assert(_joined(b, `#s`) == `http://a/b/c/d;p?q#s`, "a bare fragment keeps path AND query");
-  assert(_joined(b, `g#s`) == `http://a/b/c/g#s`, "path and fragment");
-  assert(_joined(b, `;x`) == `http://a/b/c/;x`, "a segment starting with ; is still a segment");
-  assert(_joined(b, `g;x`) == `http://a/b/c/g;x`, "parameters ride along on the segment");
-  assert(_joined(b, ``) == `http://a/b/c/d;p?q`, "an empty reference keeps path and query");
-  assert(_joined(b, `.`) == `http://a/b/c/`, ". is the current directory");
-  assert(_joined(b, `./`) == `http://a/b/c/`, "./ likewise");
-  assert(_joined(b, `..`) == `http://a/b/`, ".. goes up one");
-  assert(_joined(b, `../`) == `http://a/b/`, "../ likewise");
-  assert(_joined(b, `../g`) == `http://a/b/g`, "up one, then a segment");
-  assert(_joined(b, `../..`) == `http://a/`, "up two");
-  assert(_joined(b, `../../g`) == `http://a/g`, "up two, then a segment");
+  assert(_joined(&b, `g:h`) == `g:h`, "an absolute reference replaces everything");
+  assert(_joined(&b, `g`) == `http://a/b/c/g`, "a relative segment resolves against the directory");
+  assert(_joined(&b, `./g`) == `http://a/b/c/g`, "./ is the same directory");
+  assert(_joined(&b, `g/`) == `http://a/b/c/g/`, "a trailing slash survives");
+  assert(_joined(&b, `/g`) == `http://a/g`, "an absolute path keeps only the authority");
+  assert(_joined(&b, `//g`) == `http://g`, "a network-path reference keeps only the scheme");
+  assert(_joined(&b, `?y`) == `http://a/b/c/d;p?y`, "a bare query keeps the path");
+  assert(_joined(&b, `g?y`) == `http://a/b/c/g?y`, "path and query together");
+  assert(_joined(&b, `#s`) == `http://a/b/c/d;p?q#s`, "a bare fragment keeps path AND query");
+  assert(_joined(&b, `g#s`) == `http://a/b/c/g#s`, "path and fragment");
+  assert(_joined(&b, `;x`) == `http://a/b/c/;x`, "a segment starting with ; is still a segment");
+  assert(_joined(&b, `g;x`) == `http://a/b/c/g;x`, "parameters ride along on the segment");
+  assert(_joined(&b, ``) == `http://a/b/c/d;p?q`, "an empty reference keeps path and query");
+  assert(_joined(&b, `.`) == `http://a/b/c/`, ". is the current directory");
+  assert(_joined(&b, `./`) == `http://a/b/c/`, "./ likewise");
+  assert(_joined(&b, `..`) == `http://a/b/`, ".. goes up one");
+  assert(_joined(&b, `../`) == `http://a/b/`, "../ likewise");
+  assert(_joined(&b, `../g`) == `http://a/b/g`, "up one, then a segment");
+  assert(_joined(&b, `../..`) == `http://a/`, "up two");
+  assert(_joined(&b, `../../g`) == `http://a/g`, "up two, then a segment");
 });
 test("Url.join: the RFC 3986 §5.4.2 abnormal examples", {
   b := `http://a/b/c/d;p?q`;
   // Extra `..` cannot climb above the root — it is discarded, not an error.
-  assert(_joined(b, `../../../g`) == `http://a/g`, "one .. too many is discarded");
-  assert(_joined(b, `../../../../g`) == `http://a/g`, "two too many, likewise");
-  assert(_joined(b, `/./g`) == `http://a/g`, "a leading ./ on an absolute path");
-  assert(_joined(b, `/../g`) == `http://a/g`, "a leading ../ on an absolute path");
+  assert(_joined(&b, `../../../g`) == `http://a/g`, "one .. too many is discarded");
+  assert(_joined(&b, `../../../../g`) == `http://a/g`, "two too many, likewise");
+  assert(_joined(&b, `/./g`) == `http://a/g`, "a leading ./ on an absolute path");
+  assert(_joined(&b, `/../g`) == `http://a/g`, "a leading ../ on an absolute path");
   // A dot only counts as a dot segment when it IS the whole segment.
-  assert(_joined(b, `g.`) == `http://a/b/c/g.`, "g. is a segment named g.");
-  assert(_joined(b, `.g`) == `http://a/b/c/.g`, ".g is a segment named .g");
-  assert(_joined(b, `g..`) == `http://a/b/c/g..`, "g.. is a segment named g..");
-  assert(_joined(b, `..g`) == `http://a/b/c/..g`, "..g is a segment named ..g");
-  assert(_joined(b, `./../g`) == `http://a/b/g`, "./../ is just ../");
-  assert(_joined(b, `./g/.`) == `http://a/b/c/g/`, "a trailing . leaves the slash");
-  assert(_joined(b, `g/./h`) == `http://a/b/c/g/h`, "an interior ./");
-  assert(_joined(b, `g/../h`) == `http://a/b/c/h`, "an interior ../");
+  assert(_joined(&b, `g.`) == `http://a/b/c/g.`, "g. is a segment named g.");
+  assert(_joined(&b, `.g`) == `http://a/b/c/.g`, ".g is a segment named .g");
+  assert(_joined(&b, `g..`) == `http://a/b/c/g..`, "g.. is a segment named g..");
+  assert(_joined(&b, `..g`) == `http://a/b/c/..g`, "..g is a segment named ..g");
+  assert(_joined(&b, `./../g`) == `http://a/b/g`, "./../ is just ../");
+  assert(_joined(&b, `./g/.`) == `http://a/b/c/g/`, "a trailing . leaves the slash");
+  assert(_joined(&b, `g/./h`) == `http://a/b/c/g/h`, "an interior ./");
+  assert(_joined(&b, `g/../h`) == `http://a/b/c/h`, "an interior ../");
 });
 test("Url.join: empty interior segments survive, and a relative path may hold a colon", {
   b := `https://h/a/b`;
-  assert(_joined(b, `/x//y`) == `https://h/x//y`, "an empty interior segment is a segment");
+  assert(_joined(&b, `/x//y`) == `https://h/x//y`, "an empty interior segment is a segment");
   // `a/b:c` is a relative path whose second segment contains a colon — NOT a
   // URL with scheme `a/b`. The scheme split has to stop at the first slash.
-  assert(_joined(b, `p/q:r`) == `https://h/a/p/q:r`, "a colon after the first slash is not a scheme");
+  assert(_joined(&b, `p/q:r`) == `https://h/a/p/q:r`, "a colon after the first slash is not a scheme");
   // But a colon BEFORE any slash is a scheme, so this one is absolute.
-  assert(_joined(b, `mailto:a@b`) == `mailto:a@b`, "a colon before any slash IS a scheme");
+  assert(_joined(&b, `mailto:a@b`) == `mailto:a@b`, "a colon before any slash IS a scheme");
 });
 test("Url.join drops the base fragment and resolves a base with no path", {
   assert(_joined(`https://h/a#frag`, `b`) == `https://h/b`, "the base fragment never carries over");
@@ -422,7 +422,7 @@ test("Url setters reject a raw CRLF — the request-splitting vector", {
   u := Url.parse(String.from("http://example.com/a")).unwrap();
   crlf := `/a\r\nX-Injected: 1`;
   match(
-    u.set_path(crlf),
+    u.set_path(&crlf),
     .Ok(_) => assert(false, "a raw CRLF must be rejected"),
     .Err(e) =>
       match(

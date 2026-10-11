@@ -66,8 +66,8 @@ test("generic tail await of a unit trait default compiles and runs", {
   );
   t_e := IoExn(io : io, exn : t_exn);
   t := Tally(count : u8(0));
-  io.await(put_all_generic(t, u8(5), io), t_e);
-  io.await(put_all_generic(t, u8(7), io), t_e);
+  io.await(put_all_generic(&t, u8(5), io), &t_e);
+  io.await(put_all_generic(&t, u8(7), io), &t_e);
   assert(t.count == u8(12), "both puts landed");
 });
 test("concrete unit tail await control still works", {
@@ -80,7 +80,7 @@ test("concrete unit tail await control still works", {
     )
   );
   t_e := IoExn(io : io, exn : t_exn);
-  io.await(outer_unit(io), t_e);
+  io.await(outer_unit(io), &t_e);
   assert(true, "completed");
 });
 // The bare-(e) form (issues/fixed/io-async-bare-e-closure-body-never-evaluates.md):
@@ -95,7 +95,7 @@ test("bare-e closure with e.io.await body runs", {
     io.async((io2 : Io) => i32(7))
   );
   outer7 :: (fn(io : Io) -> Impl(Future(i32)))(
-    io.async(e => e.io.await(inner7(io), e.io))
+    io.async(e => e.io.await(inner7(io), &e.io))
   );
   v := io.await(outer7(io), io);
   assert(v == i32(7), "the bare-e closure body must actually run");

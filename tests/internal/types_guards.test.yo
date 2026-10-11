@@ -201,12 +201,12 @@ test("is_struct_type / is_enum_type / is_function_type / is_trait_type / is_modu
   tr := t_trait_simple(String.from("T"));
   m := t_module_simple(String.from("M"));
   sm := t_some_t(String.from("A"), usize(0));
-  assert(is_struct_type(s), "struct");
-  assert(is_enum_type(e), "enum");
-  assert(is_function_type(f), "function");
-  assert(is_trait_type(tr), "trait");
-  assert(is_module_type(m), "module");
-  assert(is_some_type(sm), "some_t");
+  assert(is_struct_type(&s), "struct");
+  assert(is_enum_type(&e), "enum");
+  assert(is_function_type(&f), "function");
+  assert(is_trait_type(&tr), "trait");
+  assert(is_module_type(&m), "module");
+  assert(is_some_type(&sm), "some_t");
   assert(!is_struct_type(t_i32()), "i32 not struct");
   assert(!is_function_type(t_bool()), "bool not function");
 });
@@ -239,8 +239,8 @@ test("is_type_hierarchy_type / is_type_0", {
 test("is_function_type_and_is_type_function", {
   f_ret_type := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_typeuni0());
   f_ret_unit := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
-  assert(is_function_type_and_is_type_function(f_ret_type), "fn returning TypeUni");
-  assert(!is_function_type_and_is_type_function(f_ret_unit), "fn returning unit");
+  assert(is_function_type_and_is_type_function(&f_ret_type), "fn returning TypeUni");
+  assert(!is_function_type_and_is_type_function(&f_ret_unit), "fn returning unit");
 });
 test("is_comptime_only_type_simple", {
   // Comptime-only types → true
@@ -263,11 +263,11 @@ test("is_function_type_and_returns_comptime_value", {
   f_ret_unit := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   f_ret_i32 := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_i32());
   // fn returning comptime-only types → true
-  assert(is_function_type_and_returns_comptime_value(f_ret_type), "fn → TypeUni(0)");
-  assert(is_function_type_and_returns_comptime_value(f_ret_cint), "fn → ComptimeInt");
+  assert(is_function_type_and_returns_comptime_value(&f_ret_type), "fn → TypeUni(0)");
+  assert(is_function_type_and_returns_comptime_value(&f_ret_cint), "fn → ComptimeInt");
   // fn returning runtime/dual types → false
-  assert(!is_function_type_and_returns_comptime_value(f_ret_unit), "fn → unit");
-  assert(!is_function_type_and_returns_comptime_value(f_ret_i32), "fn → i32");
+  assert(!is_function_type_and_returns_comptime_value(&f_ret_unit), "fn → unit");
+  assert(!is_function_type_and_returns_comptime_value(&f_ret_i32), "fn → i32");
   // Non-function type → false
   assert(!is_function_type_and_returns_comptime_value(t_i32()), "i32 not fn");
   assert(!is_function_type_and_returns_comptime_value(t_unit()), "unit not fn");
@@ -326,7 +326,7 @@ test("is_c_compatible_type", {
 // ---------------------------------------------------------------------------
 test("is_function_type_generic: simple func not generic", {
   f := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
-  assert(!is_function_type_generic(f), "simple func");
+  assert(!is_function_type_generic(&f), "simple func");
 });
 test("is_function_type_generic: generic func is generic", {
   // Build a Func variant with one generic label
@@ -359,8 +359,8 @@ test("is_function_type_generic: generic func is generic", {
     ),
     ArrayList(TypeValue).new()
   );
-  assert(is_function_type_generic(f), "generic func generic");
-  assert(is_function_type_hard_generic(f), "generic func hard generic");
+  assert(is_function_type_generic(&f), "generic func generic");
+  assert(is_function_type_hard_generic(&f), "generic func hard generic");
 });
 test("is_function_type_generic: implicit params make generic (but not hard)", {
   // Build a Func with one implicit (using) label and no generic
@@ -393,12 +393,12 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
     ),
     ArrayList(TypeValue).new()
   );
-  assert(is_function_type_generic(f), "implicit func generic");
-  assert(!is_function_type_hard_generic(f), "implicit func NOT hard generic");
+  assert(is_function_type_generic(&f), "implicit func generic");
+  assert(!is_function_type_hard_generic(&f), "implicit func NOT hard generic");
 });
 test("is_function_type_hard_generic: simple func not hard generic", {
   f := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
-  assert(!is_function_type_hard_generic(f), "simple not hard generic");
+  assert(!is_function_type_hard_generic(&f), "simple not hard generic");
 });
 // ---------------------------------------------------------------------------
 // Re-exported guards from type.yo
@@ -439,20 +439,20 @@ test("is_dyn_type: DynT returns true", {
 });
 test("is_fn_trait_type: FnTraitT returns true", {
   fn1 := t_fn_trait_simple(String.from("Fn"), ArrayList(TypeValue).new(), t_unit());
-  assert(is_fn_trait_type(fn1), "FnTraitT → true");
+  assert(is_fn_trait_type(&fn1), "FnTraitT → true");
   assert(!is_fn_trait_type(t_i32()), "i32 → false");
 });
 test("is_future_trait_type: FutureTraitT returns true", {
   f1 := t_future_trait_simple(String.from("Io"), t_unit());
-  assert(is_future_trait_type(f1), "FutureTraitT → true");
+  assert(is_future_trait_type(&f1), "FutureTraitT → true");
   assert(!is_future_trait_type(t_i32()), "i32 → false");
 });
 test("is_trait_type: FnTraitT and FutureTraitT are also trait types", {
   fn1 := t_fn_trait_simple(String.from("Fn"), ArrayList(TypeValue).new(), t_unit());
   f1 := t_future_trait_simple(String.from("Io"), t_unit());
   assert(is_trait_type(t_trait_simple(String.from("Display"))), "TraitT → true");
-  assert(is_trait_type(fn1), "FnTraitT is trait type");
-  assert(is_trait_type(f1), "FutureTraitT is trait type");
+  assert(is_trait_type(&fn1), "FnTraitT is trait type");
+  assert(is_trait_type(&f1), "FutureTraitT is trait type");
   assert(!is_trait_type(t_i32()), "i32 not trait type");
 });
 // ---------------------------------------------------------------------------
@@ -479,7 +479,7 @@ test("is_rc_type: struct (not object) is not RC", {
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
   );
-  assert(!is_rc_type(struct_ty), "struct → false");
+  assert(!is_rc_type(&struct_ty), "struct → false");
 });
 test("is_rc_type: object (is_reference_semantics=true) is RC", {
   labels := ArrayList(String).new();
@@ -496,20 +496,20 @@ test("is_rc_type: object (is_reference_semantics=true) is RC", {
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
   );
-  assert(is_rc_type(obj_ty), "object → true");
+  assert(is_rc_type(&obj_ty), "object → true");
 });
 test("is_rc_type: DynT is RC", {
   dyn_ty := t_dyn_simple(ArrayList(TypeValue).new());
-  assert(is_rc_type(dyn_ty), "DynT → true");
+  assert(is_rc_type(&dyn_ty), "DynT → true");
 });
 test("is_rc_type: IsoT is RC", {
   iso_ty := t_iso(t_i32());
-  assert(is_rc_type(iso_ty), "IsoT → true");
+  assert(is_rc_type(&iso_ty), "IsoT → true");
 });
 test("is_rc_type: SomeT with no Future constraint is not RC", {
   // A SomeT with no required traits: not RC
   some_ty := t_some_t(String.from("T"), usize(0));
-  assert(!is_rc_type(some_ty), "SomeT no future → false");
+  assert(!is_rc_type(&some_ty), "SomeT no future → false");
 });
 test("is_rc_type: SomeT with Future trait constraint is RC", {
   // A SomeT with a Future trait in required_trait_types
@@ -527,5 +527,5 @@ test("is_rc_type: SomeT with Future trait constraint is RC", {
     Option(TypeValue).None,
     Option(TypeValue).None
   );
-  assert(is_rc_type(some_ty), "SomeT with Future → true");
+  assert(is_rc_type(&some_ty), "SomeT with Future → true");
 });
