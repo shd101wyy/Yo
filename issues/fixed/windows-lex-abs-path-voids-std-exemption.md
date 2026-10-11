@@ -35,7 +35,7 @@ paths by literal string prefix after absolutizing both sides with
 `_lex_abs_path`. That helper recognized only a leading `/` as "already
 absolute":
 
-```yo
+```yo ignore
 if(s.starts_with(`/`), {
   return(s);
 });

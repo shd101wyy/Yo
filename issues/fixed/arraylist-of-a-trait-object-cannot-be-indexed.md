@@ -23,7 +23,7 @@ Reproduced with `ArrayList(AnyError)` — i.e. `ArrayList(Dyn(Error))` — via:
 { ArrayList } :: import("std/collections/array_list");
 xs := ArrayList(AnyError).new();
 xs.push(dyn(SomeError.Boom));
-_v := xs.get(usize(0));      // <- fails here
+_v := xs.get(usize(0)); // <- fails here
 ```
 
 ## Why it matters

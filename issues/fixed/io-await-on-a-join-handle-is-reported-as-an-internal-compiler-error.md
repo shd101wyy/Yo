@@ -107,7 +107,7 @@ flow-violation channel first, so an async-closure-body swallow re-raises it at
 check time, and only then throw:
 
 ```yo
-if(!(ctx.is_in_function_call_checking_phase) && !(propagate_def_time_errors()) && !(flow_violation_pending()), {
+if(!ctx.is_in_function_call_checking_phase && !propagate_def_time_errors() && !flow_violation_pending(), {
   flag_flow_violation(msg.clone());
 });
 exn.throw(dyn(format_error_message(tok, msg)));

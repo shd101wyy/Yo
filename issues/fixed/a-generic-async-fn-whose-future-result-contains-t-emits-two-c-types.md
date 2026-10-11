@@ -144,9 +144,15 @@ it away" is wrong, and it was my second dead end.
 Worked by hand, the adoption condition looks SATISFIED for this shape:
 
 ```yo
-((get_all_some_types(hkt_ty).len() == 0)
- || (rre_old_wanted && (type_somes_all_resolve_concrete(hkt_ty)
-      || (is_some_type(hkt_ty) && !_rre_mentions_binder(hkt_ty, rre_binder_ids)))))
+(
+  (get_all_some_types(hkt_ty).len() == 0)
+  || (
+    rre_old_wanted && (
+      type_somes_all_resolve_concrete(hkt_ty)
+      || (is_some_type(hkt_ty) && !_rre_mentions_binder(hkt_ty, rre_binder_ids))
+    )
+  )
+)
 && !is_unit_type(hkt_ty)
 ```
 

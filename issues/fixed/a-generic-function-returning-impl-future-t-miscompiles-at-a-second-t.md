@@ -247,7 +247,7 @@ per-call substitution and never needs an id. `type_implements_future` on the
 declared result is the test, and it is one line:
 
 ```yo
-if(!(type_implements_future(gc_res)), {
+if(!type_implements_future(gc_res), {
   return(ft);
 });
 ```
@@ -529,7 +529,7 @@ is part of the id), so `function_c_name` gives each its own C name, and the
 return type in the PROTOTYPE comes from that fid's REGISTERED `Func` type. The
 io.async stamp reads the same place:
 
-```yo
+```yo ignore
 .FuncVal(__fvd2, _) => match(
   get_func_type(__fvd2.*.func_id),
   .Func({ result : rr }) => if(!(is_some_type(rr)), {

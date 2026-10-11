@@ -62,16 +62,28 @@ path (`generateEvidenceCallSite`), which already emitted the preamble.
 
 ```yo
 { Exception } :: import("std/error");
-no_throw :: (fn(exn : Exception) -> i32)({ return(42); });
+no_throw :: (fn(exn : Exception) -> i32)({
+  return(42);
+});
 main :: (fn() -> unit)({
   // Step 1: unwind sets __yo_effect_escaped = 1
   (fn() -> i32)({
-    (exn : Exception) = ((error) -> { unwind(99); });
+    (exn : Exception) = (
+      error -> {
+        unwind(99);
+      }
+    );
     exn.throw(dyn(String.from("test")));
     return(0);
   })();
   // Step 2: next call — preamble must clear the stale flag
-  exn2 := Exception(throw: ((error) -> { unwind(0); }));
+  exn2 := Exception(
+    throw : (
+      error -> {
+        unwind(0);
+      }
+    )
+  );
   no_throw(exn2);
 });
 ```

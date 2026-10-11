@@ -24,7 +24,7 @@ is not a host executable; it has to run under `wasmtime`.
 `yo-self` has **no reference to `wasmtime` anywhere**. Its runner execs the
 batch binary directly:
 
-```yo
+```yo ignore
 yo-self/main.yo:2052
   tcmd := Command.new(tmp_bin.clone());
 ```

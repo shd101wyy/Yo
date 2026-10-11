@@ -103,11 +103,13 @@ takes `&`). For a list that must outlive the call or live in a cell, store
 
 ```yo
 Doc :: struct(text : String);
-word_ranges :: (fn(self : &Doc) -> ArrayList(Range(usize)))(...);   // Copy elements
+word_ranges :: (fn(self : &Doc) -> ArrayList(Range(usize)))(...); // Copy elements
 // use — the view is re-derived at each step, never stored:
 ranges := doc.word_ranges();
 d := &doc;
-for(ranges, r => { process(&d.text, r); });
+for(ranges, r => {
+  process(&d.text, r);
+});
 ```
 
 - `Range(usize)` is `Copy` (a conditional `derive` pair, D36's sweep), so the
@@ -152,10 +154,12 @@ re-derived in the callee (shape 4 + shape 5):
 ```yo
 sum :: (fn(xs : &ArrayList(i32), r : Range(usize)) -> i32)({
   acc := i32(0);
-  for(r, i => { acc = (acc + xs(i)); });
+  for(r, i => {
+    acc = (acc + xs(i));
+  });
   acc
 });
-sum(&v, lo..hi);
+sum(&v, lo .. hi);
 ```
 
 - A parser that returns "the rest of the input" returns the **offset**
@@ -184,7 +188,7 @@ Two Yo shapes, picked by where the context lives:
 ```yo
 // Shape 4: call-local — no Ctx type at all; the borrows are the signatures
 work :: (fn(db : &mut Db, cfg : &Config) -> unit)(...);
-work(&mut db, &cfg);                      // the sigils say what is lent (V3b)
+work(&mut db, &cfg); // the sigils say what is lent (V3b)
 
 // Shape 2: stored (a task, a spawn, a registry) — handles, not borrows
 Ctx :: struct(db : Rc(Db), cfg : Rc(Config));
@@ -214,11 +218,13 @@ let g = m.lock().unwrap();   // holds &mut T through a guard value
 Two Yo forms, the closure one preferred:
 
 ```yo
-n := m.with_lock(v => (v.* + i32(1)));                        // Mutex(T): the borrow is the closure's scope
-cell.with_mut(v => { v.* = (v.* + i32(1)); });              // RefCell(T) (D41)
-g := m.lock();                                               // a guard VALUE: LockGuard(T) holds m : &mut Mutex(T) (R1, R3)
-v := g.get_mut();                                            // the payload, a projection rooted at g
-v.* = (v.* + i32(1));                                        // g dropped at scope end, which unlocks (Dispose is an access, D38 A)
+n := m.with_lock(v => (v.* + i32(1))); // Mutex(T): the borrow is the closure's scope
+cell.with_mut(v => {
+  v.* = (v.* + i32(1));
+}); // RefCell(T) (D41)
+g := m.lock(); // a guard VALUE: LockGuard(T) holds m : &mut Mutex(T) (R1, R3)
+v := g.get_mut(); // the payload, a projection rooted at g
+v.* = (v.* + i32(1)); // g dropped at scope end, which unlocks (Dispose is an access, D38 A)
 ```
 
 - `with_lock`'s body is `Impl(FnMut(v : &mut T) -> R)`: the lend is exactly
@@ -299,10 +305,10 @@ Decision 19 (no partial moves) and decision 26 (a `match` on a borrowed
 scrutinee binds borrows) carry both idioms with no struct change:
 
 ```yo
-self.state = match(take(&mut self.state), .Running(j) => step(j), .Empty => .Empty);   // leaves Default
-old := replace(&mut self.state, .Empty);                                                  // Rust's mem::replace
-match(&mut self.conn, .Some(c) => c.send(msg), .None => ());                              // `as_mut` + `if let`
-n := match(&self.name, .Some(s) => s.clone(), .None => String.from("?"));                 // `as_deref().unwrap_or`: own it (see below)
+self.state = match(take(&mut self.state), .Running(j) => step(j), .Empty => .Empty); // leaves Default
+old := replace(&mut self.state, .Empty); // Rust's mem::replace
+match(&mut self.conn, .Some(c) => c.send(msg), .None => ()); // `as_mut` + `if let`
+n := match(&self.name, .Some(s) => s.clone(), .None => String.from("?")); // `as_deref().unwrap_or`: own it (see below)
 ```
 
 - `take(&mut place)` needs `Default` on the field type, like `mem::take`;
@@ -335,7 +341,10 @@ under decision 30.
 
 ```yo
 req := RequestBuilder.new().method("GET").header("a", "b").build();
-method : (fn(self : Self, m : str) -> Self)({ self.method = m; self });
+method : (fn(self : Self, m : str) -> Self)({
+  self.method = m;
+  self
+});
 ```
 
 A builder that must be mutated in place across statements (`b.a(); if c { b.b(); }`)
@@ -385,7 +394,7 @@ Node :: struct(
   do too (rustc's interners, ECS storages, Cranelift's arenas):
 
 ```yo
-Forest :: struct(nodes : ArrayList(Node));          // the one owner
+Forest :: struct(nodes : ArrayList(Node)); // the one owner
 Node :: struct(value : i32, children : ArrayList(usize), parent : Option(usize));
 ```
 
@@ -434,8 +443,8 @@ Interner :: struct(map : HashMap(String, usize), strings : ArrayList(String));
 
 intern :: (fn(self : &mut Interner, s : String) -> usize)(...);
 // the text is re-derived (shape 5), never stored:
-text := &it.strings(id);       // a local borrow of the interner
-it.strings(id).clone();            // or own a copy
+text := &it.strings(id); // a local borrow of the interner
+it.strings(id).clone(); // or own a copy
 ```
 
 A hot list of borrowed entries (`Vec<&'a V>`) becomes `ArrayList(usize)` of
@@ -473,9 +482,9 @@ returned by `entry(self : &mut Self, k : K) -> Entry(K, V)` under R3 (root
 Rust lines read the same:
 
 ```yo
-c := counts.entry(word).or_insert(i32(0));            // c : &mut i32, one lend of counts
+c := counts.entry(word).or_insert(i32(0)); // c : &mut i32, one lend of counts
 c.* = (c.* + i32(1));
-counts.update_with(word, n => (n + i32(1)));          // the closure form, shorter
+counts.update_with(word, n => (n + i32(1))); // the closure form, shorter
 cache.entry(k).or_insert_with(() => compute(k));
 ```
 
@@ -500,10 +509,10 @@ VALUES_BY_DEFAULT §3.11:
 ```yo
 a := Arena.new();
 with_allocator(a.allocator(), () => {
-  xs := ArrayList(Node).new();     // its buffer, and every cell it creates, lives in `a`
+  xs := ArrayList(Node).new(); // its buffer, and every cell it creates, lives in `a`
   ...
-});
-a.deinit();                        // panics while any block is live
+  });
+a.deinit(); // panics while any block is live
 ```
 
 - The value built in the arena is an **ordinary value** (`xs`, `Rc(Node)`,
@@ -599,8 +608,8 @@ stored, returned or spawned. Escaping closures own or share:
 // owns (shape 1): moves at last use, or clones
 { s2 : sink.clone() }() => s2.write(...);
 // shares (shape 2): a handle moves in; the outer keeps using its own handle
-{ s }() => s.write(...);                     // s : Rc(Sink) moves in
-{ s2 : Rc.clone(s) }() => s2.write(...);     // if s is used afterwards
+{ s }() => s.write(...); // s : Rc(Sink) moves in
+{ s2 : Rc.clone(s) }() => s2.write(...); // if s is used afterwards
 ```
 
 Non-escaping callbacks borrow freely, including `mut` captures, with no
@@ -609,7 +618,9 @@ says `Impl(FnMut(…))`):
 
 ```yo
 n := i32(0);
-xs.for_each({ n : &mut n }(x : i32) => { n.* = (n.* + x); });   // a FnMut; `.*` because operators never auto-deref (D43)
+xs.for_each({ n : &mut n }(x : i32) => {
+  n.* = (n.* + x);
+}); // a FnMut; `.*` because operators never auto-deref (D43)
 ```
 
 ### 7.2 Listener/observer registries — `Vec<Box<dyn Fn(&Event) + 'a>>`
@@ -623,7 +634,7 @@ The `+ 'a` is what Yo refuses: a stored callback cannot borrow the emitter.
 The registry holds **owned or shared first-class values**:
 
 ```yo
-Bus :: struct(listeners : ArrayList(Dyn(Fn(Event))));     // owned, move-only
+Bus :: struct(listeners : ArrayList(Dyn(Fn(Event)))); // owned, move-only
 Bus :: struct(listeners : ArrayList(Rc(Dyn(Fn(Event))))); // shared with several buses
 ```
 
@@ -649,7 +660,7 @@ operand of `io.await` or of a future-taking combinator, and (transitively)
 returned only when every borrowed place is rooted at the returning function's
 own `&`/`&mut` parameters. It cannot be spawned, stored or bound.
 
-```yo
+```yo ignore
 // rejected: an exclusive lend through a shared handle across a suspension
 shared.next(io)                    // shared : Rc(Stream)
 // the error names the fixes:
@@ -679,13 +690,13 @@ shapes that exist:
 
 ```yo
 // shape 2: Sync-bounded read sharing — Arc(ArrayList(T)) needs T <: (Send, Sync, Acyclic)
-shared := arc(data);                        // one move in; data is not used afterwards
-l := Thread.spawn({ d : Arc.clone(shared) }(io : Io) => sum_range(&d, 0..mid));
-r := Thread.spawn({ d : shared }(io : Io) => sum_range(&d, mid..n));
+shared := arc(data); // one move in; data is not used afterwards
+l := Thread.spawn({ d : Arc.clone(shared) }(io : Io) => sum_range(&d, 0 .. mid));
+r := Thread.spawn({ d : shared }(io : Io) => sum_range(&d, mid .. n));
 total := (l.join() + r.join());
 
 // shape 1: owned chunks moved in, results joined — rayon's `into_par_iter`
-chunks := data.into_chunks(k);              // each chunk an owned ArrayList(T)
+chunks := data.into_chunks(k); // each chunk an owned ArrayList(T)
 handles := chunks.into_iter().map(c => Thread.spawn({ c }(io : Io) => reduce(c))).collect();
 ```
 

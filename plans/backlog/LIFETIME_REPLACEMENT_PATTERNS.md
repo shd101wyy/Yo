@@ -115,10 +115,10 @@ method on the owner, which bounds-checks and hands back a reference under
 the single-root rule:
 
 ```yo
-Forest :: struct(nodes : ArrayList(Node));            // the one owner, a rooted value
-Node   :: struct(value : i32, children : ArrayList(usize), parent : Option(usize));
+Forest :: struct(nodes : ArrayList(Node)); // the one owner, a rooted value
+Node :: struct(value : i32, children : ArrayList(usize), parent : Option(usize));
 
-parent :: (fn(self : &Forest, id : usize) -> &Node)(self.nodes(id));   // I2 + II3
+parent :: (fn(self : &Forest, id : usize) -> &Node)(self.nodes(id)); // I2 + II3
 ```
 
 The arena is the root; the index is the address; the borrow is the

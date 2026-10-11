@@ -17,11 +17,11 @@ diagnostic.
 
 ```yo
 // Works:
-given(exn) := Exception(throw: ((err) -> panic("error")));
+given(exn) := Exception(throw : (err -> panic("error")));
 
 // NOW ERRORS with a clear message (previously: silent broken C):
 outer_val := i32(42);
-given(exn) := Exception(throw: ((err) -> begin(assert((outer_val == i32(0)), "bad"), panic("error"))));
+given(exn) := Exception(throw : (err -> begin(assert(outer_val == i32(0), "bad"), panic("error"))));
 ```
 
 ## Root Cause
