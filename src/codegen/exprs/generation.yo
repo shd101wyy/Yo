@@ -132,7 +132,7 @@
 { generate_match_expression } :: import("./match.yo");
 { generate_other_function_call, _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
 { is_closure_construction, generate_closure_construction } :: import("./closures.yo");
-{ generate_deferred_dup_expressions } :: import("./drop_dup.yo");
+{ generate_deferred_dup_expressions, generate_arg_code_with_deferred_dups } :: import("./drop_dup.yo");
 { get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, _idx_c_string_literal, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { sm_temp_slot_of } :: import("../async/state_machine_naming.yo");
 { is_arg_temp_across_suspension } :: import("../../evaluator/shared/suspension_analysis.yo");
@@ -477,11 +477,25 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
       .None => ()
     );
   });
-  // The single index argument.
-  index_code := match(
+  // The single index argument. A by-value `idx` parameter (the trait's
+  // contract since 2026-10-11) attaches its caller-side share as a deferred
+  // dup on the argument's ExprInfo (`consume_argument_for_parameter` in
+  // try_to_call_with_index_trait), exactly as a normal call's argument — and
+  // like a normal call's argument site, that dup must be EMITTED here and the
+  // dup result passed to the call: the specialized index method's C drops its
+  // by-value parameter on every exit, so passing the plain value with no
+  // balancing +1 under-counts an RC-typed index (the dup/drop pair optimizer
+  // never cancels these — `_mark_by_value_param_shares`). A `Copy` index
+  // carries no deferred dup and passes through unchanged.
+  index_arg_opt := match(
     expr,
-    .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(ix) => _call_generate_expr(ix, indent.clone(), context), .None => String.from("0")),
-    .Atom(_, _) => String.from("0")
+    .FnCall(_, _, a, _, _) => a.get(usize(0)),
+    _ => Option(AstExpr).None
+  );
+  index_code := match(
+    index_arg_opt,
+    .Some(ix) => generate_arg_code_with_deferred_dups(ix, indent.clone(), context),
+    .None => String.from("0")
   );
   // The receiver argument is its address (`&callee`): the specialized index
   // method's `self : &mut Self` lowers to a `Self*` C param (for an RC object

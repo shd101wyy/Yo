@@ -28,20 +28,21 @@ This inconsistency means:
 
 ### Trait Definition
 
-```rust
+```yo
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(self: *(Self), idx: Idx) -> *(Self.Output))
+    index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)
   )
 );
-export Index;
+export(Index);
 ```
 
 Key design decisions:
 
 - **`index` returns `*(Output)`** (pointer), not the value directly. This matches Rust's `&Output` return and Yo's existing `arrayElementRef` mechanism.
 - **`Idx` is a type parameter on the trait**, allowing multiple implementations for the same type (e.g., `Index(usize)` for element access, `Index(Range(usize))` for slicing).
+- **`idx` is taken BY VALUE** (amended 2026-10-11, decision 34's by-value rule in `plans/VALUES_BY_DEFAULT.md`; `issues/retired/index-trait-borrows-its-index-and-takes-self-mutably.md`), as Rust's `Index::index(&self, index: Idx)` takes it. A heavy index type borrows by instantiating `Idx` with a reference type once references are types (decision 43).
 - **No `IndexMut`** — since `*(T)` in Yo is always mutable, assignment through the returned pointer works directly: `arr(0).* = value` or simply `arr(0) = value` (with auto-deref assignment support).
 - **Associated type `Output`** — the result type varies by index type (e.g., `T` for `usize` indexing, `Slice(T)` for range slicing).
 
@@ -79,7 +80,7 @@ The old `arr(:)` and `arr(0:5)` colon syntax is removed.
 `..` and `..=` are defined inside traits (like `Add` defines `(+)`).
 All operator traits (Add, Sub, etc.) use `Output` as an **associated type**, not a function parameter — same pattern as Index.
 
-```rust
+```yo
 // Trait for the `..` range operator
 RangeOp :: trait(
   (..) : (fn(start: Self, end: Self) -> Range(Self))
@@ -118,19 +119,23 @@ Range types (`Range(T)`, `RangeInclusive(T)`) and their operator traits (`RangeO
 
 ### ArrayList Implementation
 
-```rust
-impl(forall(T : Type), ArrayList(T), Index(usize)(
-  Output : T,
-  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))({
-    assert((idx < self.*.len()), "ArrayList index out of bounds");
-    (self.*._ptr.unwrap() &+ idx)
-  })
-));
+```yo
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  Index(usize)(
+    Output : T,
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)({
+      assert((idx < self.len()), "ArrayList index out of bounds");
+      (self._ptr.unwrap() &+ idx)
+    })
+  )
+);
 ```
 
 After this, ArrayList supports:
 
-```rust
+```yo
 (list : ArrayList(i32)) = ArrayList(i32).init();
 list.append(i32(10));
 list.append(i32(20));
@@ -150,24 +155,32 @@ Methods that can be eliminated from ArrayList:
 
 ### Native Array Implementation
 
-```rust
-impl(forall(T : Type, comptime(N) : usize), Array(T, N), Index(usize)(
-  Output : T,
-  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
-    &(self.*.data(idx))
+```yo
+impl(
+  generic(T : Type, comptime(N) : usize),
+  Array(T, N),
+  Index(usize)(
+    Output : T,
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+      &(self.data(idx))
+    )
   )
-));
+);
 ```
 
 ### Native Slice Implementation
 
-```rust
-impl(forall(T : Type), Slice(T), Index(usize)(
-  Output : T,
-  index : (fn(self: *(Self), idx: usize) -> *(Self.Output))(
-    (self.*.ptr() &+ idx)
+```yo
+impl(
+  generic(T : Type),
+  Slice(T),
+  Index(usize)(
+    Output : T,
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+      (self.ptr() &+ idx)
+    )
   )
-));
+);
 ```
 
 ### Range-Based Slicing
@@ -185,7 +198,7 @@ This avoids the pointer-to-temporary problem that would arise from `Index(Range(
 
 Types to define in `std/prelude.yo`:
 
-```rust
+```yo
 Range :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(start : T, end : T)
 );

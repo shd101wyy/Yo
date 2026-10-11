@@ -13,7 +13,7 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : &usize) -> *Self.Output)(
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
       cond(
         (idx == usize(0)) => addr_of(self.data0),
         (idx == usize(1)) => addr_of(self.data1),
@@ -443,7 +443,7 @@ impl(
   Point,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : &usize) -> *Self.Output)(
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
       cond(
         (idx == usize(0)) => addr_of(self.x),
         true => addr_of(self.y)
@@ -491,7 +491,7 @@ impl(
   StrictPoint,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : &usize) -> *Self.Output)(
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
       cond(
         (idx == usize(0)) => addr_of(self.x),
         (idx == usize(1)) => addr_of(self.y),
@@ -531,7 +531,7 @@ impl(
   GenericPoint(T),
   Index(usize)(
     Output : T,
-    index : (fn(self : &mut Self, idx : &usize) -> *Self.Output)(
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
       cond(
         (idx == usize(0)) => addr_of(self.x),
         true => addr_of(self.y)
@@ -584,7 +584,7 @@ impl(
   Pair,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : &usize) -> *Self.Output)(
+    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
       cond(
         (idx == usize(0)) => addr_of(self.first),
         true => addr_of(self.second)
@@ -637,4 +637,65 @@ test("Typed binding from index call with operator-expression argument", {
   end_idx := usize(2);
   (b : u8) = al(end_idx - usize(1));
   assert(b == u8(9), "index with operator arg under typed binding");
+});
+// === By-value index arguments (decision 34 as amended 2026-10-11) ===
+// The Index trait takes its index BY VALUE. An RC-typed index (a String key)
+// exercises the caller-side share: the specialized `index` C function drops
+// its by-value parameter on every exit path, so the dispatch site must
+// balance it — without the `consume_argument_for_parameter` call in
+// try_to_call_with_index_trait the refcount underflowed and the key was
+// freed while the caller still read it.
+Keyed :: struct(entries : ArrayList(String));
+impl(
+  Keyed,
+  Index(String)(
+    Output : String,
+    index : (fn(self : &mut Self, key : String) -> *Self.Output)({
+      (i : usize) = usize(0);
+      while(i < self.entries.len(), i = (i + usize(1)), {
+        if(self.entries(i) == key, {
+          return(unsafe(addr_of(self.entries(i))));
+        });
+      });
+      __yo_panic("Keyed: key not found")
+    })
+  )
+);
+test("Index with a by-value String key keeps the caller's key alive", {
+  k := Keyed(entries : ArrayList(String).new());
+  k.entries.push(String.from("alpha"));
+  k.entries.push(String.from("beta"));
+  key := String.from("alpha");
+  first := k(key);
+  second := k(key);
+  assert(first == second, "same key indexes the same entry");
+  assert(key.len() == usize(5), "the by-value index did not consume the caller's key");
+  assert(k(key) == key, "still sound after a third dispatch");
+});
+test("Index with an owning-temp String key moves it", {
+  k := Keyed(entries : ArrayList(String).new());
+  k.entries.push(String.from("gamma"));
+  got := k(String.from("gamma"));
+  assert(got == String.from("gamma"), "temp-key dispatch");
+});
+test("HashMap Index with a by-value String key", {
+  m := HashMap(String, String).new();
+  m.insert(String.from("one"), String.from("1"));
+  key := String.from("one");
+  assert(m(key) == String.from("1"), "map index by String key");
+  assert(key.len() == usize(3), "key still alive after the dispatch");
+  assert(m(key) == String.from("1"), "second dispatch through the same key");
+});
+BadBorrowIdx :: struct(data0 : i32, data1 : i32);
+test("A borrowed idx no longer conforms to the by-value Index trait", {
+  comptime_expect_error(
+    impl(
+      BadBorrowIdx,
+      Index(usize)(
+        Output : i32,
+        index : (fn(self : &mut Self, idx : &usize) -> *Self.Output)(addr_of(self.data0))
+      )
+    ),
+    "but the trait requires"
+  );
 });

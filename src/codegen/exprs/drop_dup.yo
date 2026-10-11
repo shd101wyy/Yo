@@ -1351,6 +1351,49 @@ arm_value_with_dups :: (fn(body_expr : &AstExpr, indent : &String, context : &Fu
   });
   Option(String).Some(final_code)
 });
+/// An argument's C code with its DEFERRED DUP applied: when the evaluator
+/// attached a by-value share to the argument
+/// (`consume_argument_for_parameter` — a by-value parameter the callee drops
+/// at its exit), emit the dup and pass the DUP RESULT as the argument, so
+/// the caller-side +1 balances the callee's drop. The same rewrite
+/// `_generate_inline_call` applies per argument; extracted for the
+/// Index-trait dispatch sites (generation.yo, ptr_fns.yo), whose synthesized
+/// calls bypass the normal argument marshaling — the Index trait takes its
+/// index by value (decision 34 as amended 2026-10-11). An argument with no
+/// deferred dup (a `Copy` index, a borrowed one) passes through unchanged.
+generate_arg_code_with_deferred_dups :: (
+  fn(arg : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String
+)({
+  base_code := _call_generate_expr(arg, indent.clone(), context);
+  match(
+    context.base.get_expr_info(arg),
+    .Some(ix_ei) => match(
+      expr_info_deferred_dup_expressions(ix_ei),
+      .Some(ix_dups) => if(ix_dups.len() > usize(0), {
+        generate_deferred_dup_expressions(arg, indent.clone(), context);
+        match(
+          ix_dups.get(usize(0)),
+          .Some(ix_dup) => if(
+            ast_expr_is_fn_call(ix_dup),
+            match(
+              context.base.get_expr_info(ix_dup),
+              .Some(ix_dei) => match(
+                ix_dei.variable_name,
+                .Some(ix_dvn) => get_variable_name_for_codegen_at(ast_expr_id(ix_dup), ix_dvn, Option(Environment).Some(ix_dei.env)),
+                .None => base_code
+              ),
+              .None => base_code
+            ),
+            base_code
+          ),
+          .None => base_code
+        )
+      }, base_code),
+      .None => base_code
+    ),
+    .None => base_code
+  )
+});
 
 export(
   get_drop_function_for_type,
@@ -1362,6 +1405,7 @@ export(
   generate_dup_code_for_value,
   generate_deferred_drop_expressions,
   generate_deferred_dup_expressions,
+  generate_arg_code_with_deferred_dups,
   has_pending_emittable_drop,
   emit_deferred_dup_or_code,
   arm_value_with_dups
