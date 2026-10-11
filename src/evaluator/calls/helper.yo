@@ -338,7 +338,7 @@ generate_deferred_drop_expressions :: (
     variables_to_drop : &ArrayList(Variable),
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Option(ArrayList(AstExpr))
 )({
   n := variables_to_drop.len();
@@ -386,7 +386,7 @@ validate_function_return_type :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   // Skip validation if inside function-type evaluation or when expected type is set.
@@ -691,7 +691,7 @@ _refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> Ty
 /// Strip and validate a `label : value` argument. Labels are readability-only:
 /// a label that is written must match the declared parameter label at that
 /// position. Returns the value expression (the argument itself when unlabeled).
-strip_argument_label :: (fn(arg : &AstExpr, param_label : &String, exn : &Exception) -> AstExpr)({
+strip_argument_label :: (fn(arg : &AstExpr, param_label : &String, exn : Exception) -> AstExpr)({
   if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(arg);
   });
@@ -835,7 +835,7 @@ apply_call_site_borrow_markers :: (
     param_is_owning : &ArrayList(bool),
     param_labels : &ArrayList(String),
     first_is_receiver : bool,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(AstExpr)
 )({
   (any_marker : bool) = false;
@@ -1079,7 +1079,7 @@ consume_argument_for_parameter :: (
     callee_is_extern : bool,
     caller_env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception,
+    exn : Exception,
     /// `argument_is_aliased_by_inout`: the argument is a whole variable that
     /// the same call also passes `inout`.
     (aliased_by_inout : bool) ?= false,
@@ -1172,13 +1172,13 @@ _fn_trait_base_of :: (fn(ty : &TypeValue) -> String)(
     .None => String.from("")
   )
 );
-_arg_rule_throw :: (fn(tok : &Token, msg : &String, ctx : &EvalContext, exn : &Exception) -> unit)({
+_arg_rule_throw :: (fn(tok : &Token, msg : &String, ctx : &EvalContext, exn : Exception) -> unit)({
   raise_flow_violation(format_error_message(tok, msg), ctx, exn);
 });
 /// `_arg_rule_throw` for a mismatch between the two types `a` and `b`
 /// (`mark_generic_independent`: a generic body's trial re-raises it when
 /// neither contains a type variable).
-_arg_rule_throw_types :: (fn(tok : &Token, msg : &String, a : &TypeValue, b : &TypeValue, ctx : &EvalContext, exn : &Exception) -> unit)({
+_arg_rule_throw_types :: (fn(tok : &Token, msg : &String, a : &TypeValue, b : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
   raise_flow_violation(mark_generic_independent(format_error_message(tok, msg), a, b), ctx, exn);
 });
 /// The argument-side value/type rule. Returns the argument's type as this
@@ -1206,7 +1206,7 @@ check_argument_for_parameter :: (
     arg_tok : &Token,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> TypeValue
 )({
   // An `Impl(Future(T))` parameter binds per call through the trait check,
@@ -1330,7 +1330,7 @@ check_if_function_parameter_matches_argument :: (
     caller_env : &Environment,
     ctx : &EvalContext,
     runtime_arg_exprs_in_order : &mut ArrayList(AstExpr),
-    exn : &Exception,
+    exn : Exception,
     /// The parameter's `= <value>` ASSIGNED value, or `.None`. Appended last
     /// with a default so existing call sites need no change. See the Step-5b
     /// guard below.
@@ -1720,7 +1720,7 @@ compute_compile_time_signature :: (
     callee_env : &Environment,
     runtime_param_tys : &ArrayList(TypeValue),
     param_comptime : &ArrayList(bool),
-    exn : &Exception
+    exn : Exception
   ) -> String
 )({
   parts := ArrayList(String).new();
@@ -2654,7 +2654,7 @@ create_specialized_function_inline :: (
     callee_env : &Environment,
     caller_env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> EvalValue
 )({
   result := match(
@@ -5031,7 +5031,7 @@ create_specialization_at_call :: (
     callee_name : &String,
     names : &ArrayList(String),
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> EvalValue
 )({
   callee_in_std := match(fv, .FuncVal(fvd, _) => is_std_module_path(ast_expr_token(fvd.*.body).module_path, ctx.std_path.clone()), _ => false);
@@ -5087,7 +5087,7 @@ evaluate_ctl_function_body_inline :: (
     callee_env : &Environment,
     caller_env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> EvalValue
 )({
   // Extract FuncVal fields individually to avoid tuple destructuring.
@@ -5437,7 +5437,7 @@ validate_where_constraints_for_call :: (
     callee_env : &Environment,
     tok : &Token,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   where_constraint_list := get_func_where_constraints(func_id);
@@ -5591,7 +5591,7 @@ reapply_where_clause_exprs_for_call :: (
     func_id : &String,
     callee_env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   wce_exprs := get_func_where_clause_exprs(func_id);
@@ -5940,7 +5940,7 @@ runtime_value_for_comptime_param :: (fn(ty : &TypeValue, value : &Option(EvalVal
 /// A definition-time trial and a CTFE-capability analysis bind the caller's
 /// own parameters to unknowns by construction, so only a real call is judged.
 reject_runtime_comptime_arguments :: (
-  fn(fv : &EvalValue, args : &ArrayList(ArgEntry), tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit
+  fn(fv : &EvalValue, args : &ArrayList(ArgEntry), tok : &Token, ctx : &EvalContext, exn : Exception) -> unit
 )({
   if(in_def_time_trial() || ctx.is_analyzing_ctfe_capability, {
     return(());
@@ -6294,7 +6294,7 @@ _check_forall_bindings_after_arg :: (
     param_labels : &ArrayList(String),
     seen : &mut ArrayList(ForallBindingSeen),
     tok : &Token,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   (fi : usize) = usize(0);
@@ -6398,7 +6398,7 @@ try_to_call_function_with_arguments :: (
     is_method_call : bool,
     skip_specialization : bool,
     skip_ctfe_execution : bool,
-    exn : &Exception
+    exn : Exception
   ) -> FuncCallResult
 )({
   callee_expr;

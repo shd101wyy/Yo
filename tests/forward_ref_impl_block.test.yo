@@ -59,10 +59,10 @@ R :: struct(v : i32);
 derive(R, Copy, Clone);
 impl(
   R,
-  outer : (fn(self : *Self, exn : &Exception) -> i32)(
+  outer : (fn(self : *Self, exn : Exception) -> i32)(
     self.inner(exn)
   ),
-  inner : (fn(self : *Self, exn : &Exception) -> i32)(
+  inner : (fn(self : *Self, exn : Exception) -> i32)(
     cond(
       (self.v < i32(0)) => exn.throw(dyn(MyErr(msg : `neg`))),
       true => self.v
@@ -92,13 +92,13 @@ test("forward call with effect params", {
 S :: ref(struct(tag : i32));
 impl(
   S,
-  s_even : (fn(self : *Self, i : i32, exn : &Exception) -> bool)(
+  s_even : (fn(self : *Self, i : i32, exn : Exception) -> bool)(
     cond(
       (i == i32(0)) => true,
       true => self.s_odd(i - i32(1), exn)
     )
   ),
-  s_odd : (fn(self : *Self, i : i32, exn : &Exception) -> bool)(
+  s_odd : (fn(self : *Self, i : i32, exn : Exception) -> bool)(
     cond(
       (i == i32(0)) => false,
       true => self.s_even(i - i32(1), exn)

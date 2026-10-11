@@ -4111,7 +4111,7 @@ _abort_opt_str :: (fn(io : Io) -> Impl(Future(Option(String), Io)))(
 _abort_read_and_throw :: (
   fn(
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -4359,7 +4359,7 @@ test("nested awaiting whiles over real I/O futures drop outer arm locals once pe
   // timing-dependent via the inline fast-path). The slot now merges layers.
   // Real I/O futures (`exists`) are load-bearing: the same shape over `yield`
   // never crashed.
-  probe := (fn(io2 : Io, exn2 : &Exception) -> Impl(Future(usize, IoExn)))(
+  probe := (fn(io2 : Io, exn2 : Exception) -> Impl(Future(usize, IoExn)))(
     io2.async((e : IoExn) => {
       outer := ArrayList(String).new();
       outer.push(String.from("."));

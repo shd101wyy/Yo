@@ -105,7 +105,7 @@ pragma(Pragma.AllowUnsafe);
 /// measure is the `decreases(M1, M2, ...)` call itself (see the signature
 /// parser): each component is evaluated for its ExprInfo and the call node
 /// is kept, so the verifier reads the components back.
-_evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
+_evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
   cond(
     ast_expr_is_fn_call_of(dm, BF_DECREASES, Option(usize).None) => {
       match(
@@ -505,7 +505,7 @@ _ctor_binder_some_ids :: (
 });
 /// Record a type constructor's PHANTOM positions from its definition-time
 /// `prepare_callsite_contracts` over each evaluated contract clause.
-_stash_clause_callsite_contracts :: (fn(clauses : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+_stash_clause_callsite_contracts :: (fn(clauses : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   (i : usize) = usize(0);
   while(i < clauses.len(), {
     match(clauses.get(i), .Some(c) => prepare_callsite_contracts(c, env, ctx, exn), .None => ());
@@ -1092,7 +1092,7 @@ register_rerun_pending_def_evals :: (fn() -> unit)({
   set_evaluate_fn_body_fn(_evaluate_as_fn_body);
 });
 /// `call_evaluate_fn_body`'s implementation (evaluator/context.yo).
-_evaluate_as_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
+_evaluate_as_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
   evaluate_begin_expression(body, env, ctx, ArrayList(Variable).new(), true, exn)
 );
 /// Register a function body expression against a function type, producing a
@@ -1117,7 +1117,7 @@ try_to_implement_function_by_function_type :: (
     function_type : &TypeValue,
     caller_env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )(
   match(

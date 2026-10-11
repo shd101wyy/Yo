@@ -181,7 +181,7 @@ cached_binary_path :: (fn(version_dir : &String) -> String)({
 /// The PRE-MUSL release-bundle basename (`yo-v<v>-<os>-<arch>`, no suffix).
 /// Only the Linux glibc-era fallback in `download_version` should use this
 /// directly — everything else goes through `host_bundle_name`.
-_host_bundle_name_base :: (fn(version : &String, exn : &Exception) -> String)({
+_host_bundle_name_base :: (fn(version : &String, exn : Exception) -> String)({
   target := host_target();
   os_name := cond(
     is_target_macos(target) => `macos`,
@@ -219,7 +219,7 @@ _host_bundle_name_base :: (fn(version : &String, exn : &Exception) -> String)({
 /// by falling back to the short `host_bundle_name` form. The triple is the
 /// PUBLISHED asset name only — the compiler's own `--target` vocabulary stays
 /// vendor-less (`aarch64-macos`), see that plan's "what does NOT change".
-host_bundle_triple_name :: (fn(version : &String, exn : &Exception) -> String)({
+host_bundle_triple_name :: (fn(version : &String, exn : Exception) -> String)({
   target := host_target();
   triple := cond(
     is_target_macos(target) =>
@@ -262,7 +262,7 @@ host_bundle_triple_name :: (fn(version : &String, exn : &Exception) -> String)({
 /// bundle is THE Linux bundle and runs on glibc and musl systems alike; the
 /// glibc names exist only on releases that predate the musl legs (x64:
 /// v0.2.7+, arm64: v0.2.12+), which `download_version` falls back to.
-host_bundle_name :: (fn(version : &String, exn : &Exception) -> String)({
+host_bundle_name :: (fn(version : &String, exn : Exception) -> String)({
   base := _host_bundle_name_base(version, exn);
   cond(
     is_target_linux(host_target()) => `${base}-musl`,
@@ -284,7 +284,7 @@ is_version_cached :: (
   fn(
     version : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(bool, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -320,7 +320,7 @@ resolve_version_dir :: (
   fn(
     version : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -371,7 +371,7 @@ _scan_versions_root :: (
     versions_dir : &String,
     known : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -405,7 +405,7 @@ _scan_versions_root :: (
 list_cached_versions :: (
   fn(
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -437,7 +437,7 @@ clean_version_cache :: (
   fn(
     version_opt : &Option(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -598,7 +598,7 @@ _cleanup_failed_download :: (
     version_dir : &String,
     tmp_path : &Path,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -615,7 +615,7 @@ download_version :: (
   fn(
     version : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -760,7 +760,7 @@ ensure_cached_version :: (
   fn(
     version : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -784,7 +784,7 @@ ensure_cached_version :: (
 fetch_remote_versions :: (
   fn(
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(ArrayList(String), IoExn))
 )(
   io.async((e : IoExn) => {

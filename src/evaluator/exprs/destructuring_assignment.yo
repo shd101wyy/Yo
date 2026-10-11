@@ -113,7 +113,7 @@ _record_destructured_read :: (fn(env : &Environment, rhs_type : &TypeValue, labe
 /// The access site is the pattern TOKEN's module (lexical), not
 /// `env.module_path` (a call-time generic body carries the caller's).
 _reject_private_destructure :: (
-  fn(rhs_type : &TypeValue, label : &String, tok : &Token, exn : &Exception) -> unit
+  fn(rhs_type : &TypeValue, label : &String, tok : &Token, exn : Exception) -> unit
 )({
   pv_type_id := match(
     rhs_type,
@@ -139,7 +139,7 @@ _reject_private_destructure :: (
 /// ran it, so `{ a : b } :: m` onto an existing `b`, the same import twice,
 /// and a `c_include` re-declaring a Yo name were all silently accepted
 /// (plans/reference/C_INCLUDE_EXTERN_MODULE_VALUE.md §1).
-_reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
+_reject_shadowing :: (fn(env : &Environment, var_name : &String, at : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   if(var_name == String.from("__yo_self"), {
     return(());
   });
@@ -258,7 +258,7 @@ handle_member_destructuring :: (
     ctx : &EvalContext,
     is_compile_time_only : bool,
     is_destructuring_atom_variable : bool,
-    exn : &Exception
+    exn : Exception
   ) -> DestructuringResult
 )({
   require_underscore := !is_tuple_type(rhs_type);
@@ -671,7 +671,7 @@ evaluate_destructuring_assignment :: (
     env : &Environment,
     is_compile_time_only : bool,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> DestructuringResult
 )({
   rhs_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(rhs));

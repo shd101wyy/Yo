@@ -512,7 +512,7 @@ _Prepared :: struct(
 // that makes a close-delimited response terminate. A pooled request says
 // nothing — HTTP/1.1 is persistent by default, and saying `keep-alive`
 // explicitly is what an HTTP/1.0 client does.
-_prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn : &Exception) -> _Prepared)({
+_prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn : Exception) -> _Prepared)({
   // D13: Url.parse returns a Result; this caller is already inside an effect
   // scope, so it uses the _exn wrapper.
   url := Url.parse_exn(url_str, exn);
@@ -811,7 +811,7 @@ _fetch_once :: (
 /// A cross-scheme hop still passes through and then fails in `_fetch_once`'s
 /// scheme check as `UnsupportedScheme` (C1's rule) rather than being
 /// downgraded.
-_resolve_location :: (fn(base_str : &String, location : &String, exn : &Exception) -> String)({
+_resolve_location :: (fn(base_str : &String, location : &String, exn : Exception) -> String)({
   base := Url.parse_exn(base_str, exn);
   match(
     base.join(location),

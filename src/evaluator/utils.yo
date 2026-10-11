@@ -368,7 +368,7 @@ throw_expr_is_implicit_variable_error :: (
     rhs : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   // Determine which variable name to check.
@@ -437,7 +437,7 @@ require_expr_not_consumed :: (
     rhs : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   name_opt := match(
@@ -510,7 +510,7 @@ expect_expr_to_have_been_evaluated :: (
     expr : &AstExpr,
     error_message : &String,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> ExprInfo
 )(
   match(
@@ -718,7 +718,7 @@ _owning_param_binding_for_capture_move :: (fn(env : &Environment, name : &String
 /// API cannot take `FnOnce`), an `inout` binding, a module-level binding, and
 /// the by-value capture of a closure typed `Fn(...)` (E0913). A re-evaluation
 /// of the same call site is not a second call.
-consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   tok := ast_expr_token(callee);
   same_site := match(
     v.consumed_at_token,
@@ -840,7 +840,7 @@ _owning_param_binding_beside :: (fn(env : &Environment, v : &Variable) -> Option
   });
   Option(Variable).None
 });
-move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   match(
     v.consumed_at_token,
     .Some(ct) => {
@@ -903,7 +903,7 @@ _explicit_copy_kind :: (fn(ty : &TypeValue) -> String)(
 /// element, a dereference). The value cannot be copied, and moving it out
 /// would leave its owner partly moved: Yo has no partial moves, so the owner
 /// is moved whole or not at all.
-_throw_explicit_copy_violation :: (fn(rhs : &AstExpr, ty : &TypeValue, what : &String, ctx : &EvalContext, exn : &Exception) -> unit)({
+_throw_explicit_copy_violation :: (fn(rhs : &AstExpr, ty : &TypeValue, what : &String, ctx : &EvalContext, exn : Exception) -> unit)({
   name := _place_text(rhs);
   msg := `use of moved value: cannot copy \`${name}\`, whose type \`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}, and it cannot be moved either: ${what}`;
   help := cond(ast_expr_is_atom(rhs) => move_only_help(name, ty), true => move_only_type_help(ty));
@@ -918,7 +918,7 @@ _throw_explicit_copy_violation :: (fn(rhs : &AstExpr, ty : &TypeValue, what : &S
 /// captures so the closure can run again, and a closure that moves one out is
 /// call-once. The error names the moving line; the fix is the `FnOnce(...)`
 /// type, whose call consumes the closure.
-_throw_fn_closure_moves_capture :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : &Exception) -> unit)({
+_throw_fn_closure_moves_capture :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
   name := _place_text(rhs);
   msg := `Cannot move \`${name}\` out of the closure: it is a by-value capture, and the closure is typed \`Fn(...)\`, whose call borrows its captures so it can run again. A closure that moves a capture out is called once.`;
   help := `type the closure \`FnOnce(...)\`: its call consumes the closure, whose body then owns its captures and may move \`${name}\` (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)}) out`;
@@ -1019,7 +1019,7 @@ _move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environme
 /// E0913 for a move out of an implicit capture (Generation A of decision 37,
 /// as amended 2026-10-07): a closure body owns, and so may move out, only the
 /// by-value entries of a capture list, in a closure typed `FnOnce(...)`.
-_throw_implicit_capture_move :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : &Exception) -> unit)({
+_throw_implicit_capture_move :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &EvalContext, exn : Exception) -> unit)({
   name := _place_text(rhs);
   msg := `Cannot move \`${name}\` out of the closure: it is captured implicitly, and a closure body moves a capture out only from a capture list. A closure that moves a capture out is called once.`;
   help := `list the capture and type the closure \`FnOnce(...)\`: \`{ ${name} }(...) => ...\`, whose call consumes the closure (\`${type_to_string(ty)}\` ${_explicit_copy_kind(ty)})`;
@@ -1042,7 +1042,7 @@ _throw_implicit_capture_move :: (fn(rhs : &AstExpr, ty : &TypeValue, ctx : &Eval
 ///   is E0901, and its scope-end drop is skipped;
 /// - anything else is borrowed storage, and the copy is E0901
 ///   (`_throw_explicit_copy_violation`).
-transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, ctx : &EvalContext, exn : &Exception) -> unit)({
+transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_name : &String, ctx : &EvalContext, exn : Exception) -> unit)({
   match(
     find_variable_in_env(ei.env, variable_name.clone()),
     .None => (),
@@ -1110,7 +1110,7 @@ _capture_borrow_note :: (fn(b : &CaptureBorrow) -> String)({
 /// transitively) may not be `how` — returned, stored in a field or a `Dyn`,
 /// moved into a `sink` parameter, spawned, or named as a type argument. A
 /// no-op for any other type.
-reject_second_class_escape :: (fn(ty : &TypeValue, how : &String, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
+reject_second_class_escape :: (fn(ty : &TypeValue, how : &String, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   if(!type_is_second_class(ty), {
     return(());
   });
@@ -1165,7 +1165,7 @@ _CaptureFreeze :: struct(holder_id : usize, holder_name : String, borrow : Captu
 /// is second-class, check that every place it borrows outlives the holder
 /// (decision 38 A: a binding may not outlive any place its value borrows),
 /// and freeze those places for the holder's scope.
-note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(!type_is_second_class(ty), {
     return(());
   });
@@ -1218,7 +1218,7 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
 /// Decision 38 A, "results": a block, arm or `cond` result of type `ty` may
 /// not carry a borrow of a binding declared at or inside frame `scope_frame`
 /// of `env` (the scope the result is leaving).
-reject_second_class_result_outliving :: (fn(ty : &TypeValue, scope_frame : usize, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+reject_second_class_result_outliving :: (fn(ty : &TypeValue, scope_frame : usize, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(!type_is_second_class(ty), {
     return(());
   });
@@ -1253,7 +1253,7 @@ reject_second_class_result_outliving :: (fn(ty : &TypeValue, scope_frame : usize
 /// access, an `imm` capture freezes writes and moves (decision 18 rule 2).
 /// A field of `v` is the same root. A no-op unless some capture-list closure
 /// borrows `v`.
-check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(g_capture_freezes.len() == usize(0), {
     return(());
   });
@@ -1381,7 +1381,7 @@ _places_overlap :: (fn(a : &_ArgPlace, b : &_ArgPlace) -> bool)({
 /// errors, and a `for_each` literal that borrows a fresh local is not.
 /// `extra` is the called closure value, when the callee is one.
 require_capture_borrow_exclusivity :: (
-  fn(param_is_ref : &ArrayList(bool), args : &ArrayList(AstExpr), extra : &Option(AstExpr), env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit
+  fn(param_is_ref : &ArrayList(bool), args : &ArrayList(AstExpr), extra : &Option(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
 )({
   if(!capture_borrows_exist(), {
     return(());
@@ -1460,7 +1460,7 @@ set_expr_as_consumed :: (
     env : &Environment,
     allow_consume_again : bool,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
@@ -2055,7 +2055,7 @@ set_expr_as_needs_to_call_dup :: (
   fn(
     rhs : &AstExpr,
     ctx : &EvalContext,
-    exn : &Exception,
+    exn : Exception,
     /// The store kind, for YO_AUDIT_IMPLICIT_COPY only: `binding`, `assign`,
     /// `field-store`, `element`, `param`, `return` or `dyn`.
     (copy_path : str) ?= "dup"
@@ -2233,7 +2233,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
   fn(
     rhs : &AstExpr,
     ctx : &EvalContext,
-    exn : &Exception,
+    exn : Exception,
     /// Dup even when the argument's variable OWNS its value: the same call
     /// passes that variable `inout`, so the callee can replace the value the
     /// argument borrows (`argument_is_aliased_by_inout`, calls/helper.yo).
@@ -2758,7 +2758,7 @@ _snapshot_state_of :: (fn(snap : &LoopFlowSnapshot, id : usize, pre : &Option(To
 /// Afterwards the variable is in the state the ways out agree on, and a join
 /// record gives an enclosing branch or loop the loop's net effect.
 check_loop_flow :: (
-  fn(lc : &LoopBodyCtx, body_completes : bool, has_normal_exit : bool, env : &Environment, exn : &Exception) -> unit
+  fn(lc : &LoopBodyCtx, body_completes : bool, has_normal_exit : bool, env : &Environment, exn : Exception) -> unit
 )({
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
   (ri : usize) = usize(0);
@@ -2900,7 +2900,7 @@ _drop_in_arms_that_keep :: (
     consumed_at_tokens : &ArrayList(Option(Token)),
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception,
+    exn : Exception,
     (branch_expr : &Option(AstExpr)) ?= Option(AstExpr).None
   ) -> bool
 )({
@@ -3016,7 +3016,7 @@ reject_mixed_closure_arms :: (
   fn(
     bodies : &ArrayList(AstExpr),
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   (first_id : String) = String.new();
@@ -3062,7 +3062,7 @@ merge_and_check_envs :: (
     group_log_start : usize,
     arm_ranges : &ArrayList(usize),
     ctx : &EvalContext,
-    exn : &Exception,
+    exn : Exception,
     /// The whole `cond`/`match`, every arm included (a returning arm is not
     /// in `bodies`): a value moved in some arms is moved at its end, so the
     /// early-return drop pass covers the returns inside it.
@@ -4361,7 +4361,7 @@ local_borrow_note_pattern_binding :: (fn(name : &String, decl : &Token, borrow :
 /// E0911: the access `kind` of `place` at `tok` conflicts with the live
 /// borrow `info`, which freezes `frozen`.
 _lb_raise_conflict :: (
-  fn(info : &LocalBorrowInfo, frozen : &LocalBorrowPlace, place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit
+  fn(info : &LocalBorrowInfo, frozen : &LocalBorrowPlace, place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit
 )({
   ftext := _lb_place_text(frozen);
   rule := cond(
@@ -4396,7 +4396,7 @@ _lb_tok_after :: (fn(a : &Token, b : &Token) -> bool)((a.module_path == b.module
 /// An access of `place` at `tok`: E0911 if it conflicts with a live local
 /// borrow (decision 18, rule 2). A read conflicts with a live `mut` borrow;
 /// a write, a move or an exclusive borrow with any live borrow.
-local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
+local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -4421,7 +4421,7 @@ local_borrow_access :: (fn(place : &LocalBorrowPlace, kind : &LocalBorrowAccess,
 });
 /// An access of the place `e` names (no-op when it is not rooted at a
 /// variable or no local borrow is in scope).
-local_borrow_access_expr :: (fn(e : &AstExpr, kind : &LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)(
+local_borrow_access_expr :: (fn(e : &AstExpr, kind : &LocalBorrowAccess, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
   if(local_borrows_active(), {
     match(
       local_borrow_place_of(e, env, ctx),
@@ -4432,7 +4432,7 @@ local_borrow_access_expr :: (fn(e : &AstExpr, kind : &LocalBorrowAccess, tok : &
 );
 /// A write of `place` at `tok` that goes through an `imm` local borrow is
 /// E0908: the borrow is read-only (decision 18). `what` names the write.
-local_borrow_require_writable :: (fn(place : &LocalBorrowPlace, what : &String, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)(
+local_borrow_require_writable :: (fn(place : &LocalBorrowPlace, what : &String, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
   match(
     local_borrow_info_of(place.root_name.clone(), place.root_decl),
     .Some(info) => if(!info.is_mut, {
@@ -4458,7 +4458,7 @@ local_borrow_require_writable :: (fn(place : &LocalBorrowPlace, what : &String, 
 );
 /// A write (an assignment target, a `mut` argument the callee writes) of the
 /// place `e`: E0908 through an `imm` borrow, E0911 against a live borrow.
-local_borrow_write_expr :: (fn(e : &AstExpr, what : &String, tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)(
+local_borrow_write_expr :: (fn(e : &AstExpr, what : &String, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
   if(local_borrows_active(), {
     match(
       local_borrow_place_of(e, env, ctx),
@@ -4523,7 +4523,7 @@ local_borrow_result_borrow_of :: (fn(e : &AstExpr, env : &Environment, ctx : &Ev
 /// (decision 18 rule 1, decision 38 A): the value it names may be read
 /// through and copied out, but the borrow itself never crosses the function
 /// boundary.
-local_borrow_reject_result_borrow :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
+local_borrow_reject_result_borrow :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   ftext := match(
     info.places.get(usize(0)),
     .Some(p0) => _lb_place_text(p0),
@@ -4552,7 +4552,7 @@ local_borrow_reject_result_borrow :: (fn(info : &LocalBorrowInfo, tok : &Token, 
 });
 /// Rule 3 (decision 18): a borrow of a module-level place may not be live
 /// across a call, which could reach the place by name. `tok` is the call.
-local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalContext, exn : &Exception) -> unit)({
+local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalContext, exn : Exception) -> unit)({
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -4586,7 +4586,7 @@ local_borrow_note_call :: (fn(tok : &Token, callee_text : &String, ctx : &EvalCo
 /// through a reference cell or a module-level place may not be live across
 /// an `await`: another task could write the place while this one is
 /// suspended. `tok` is the await.
-local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
+local_borrow_note_await :: (fn(tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -4833,7 +4833,7 @@ local_borrow_register :: (
 });
 /// Decision 38 A: re-pointing `info` at `tok` is an error while a borrow
 /// derived from its current target is live.
-local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
+local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   (i : usize) = g_local_borrows.len();
   while(i > usize(0), {
     i = (i - usize(1));
@@ -4865,7 +4865,7 @@ local_borrow_require_no_live_derived :: (fn(info : &LocalBorrowInfo, tok : &Toke
 /// After a call evaluated at `tok`: rule 4 at an `await`, rule 3 at any other
 /// runtime call. `is_await` marks an `io.await`/`.await` call; `callee_text`
 /// names the callee.
-local_borrow_note_runtime_call :: (fn(is_await : bool, tok : &Token, callee_text : &String, ctx : &EvalContext, exn : &Exception) -> unit)(
+local_borrow_note_runtime_call :: (fn(is_await : bool, tok : &Token, callee_text : &String, ctx : &EvalContext, exn : Exception) -> unit)(
   cond(
     is_await => local_borrow_note_await(tok, ctx, exn),
     true => local_borrow_note_call(tok, callee_text, ctx, exn)
@@ -4882,7 +4882,7 @@ local_borrow_is_scalar_type :: (fn(t : &TypeValue) -> bool)(
 /// A binding a consuming `match` arm owns, still unmoved after the arm's
 /// body: it is dropped at the arm's end and at each `return` inside the arm,
 /// as a value kept by one arm of a branch is (`_drop_in_arms_that_keep`).
-drop_owned_match_binding_at_arm_end :: (fn(v : &Variable, body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+drop_owned_match_binding_at_arm_end :: (fn(v : &Variable, body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(v.consumed_at_token.is_some(), {
     return(());
   });

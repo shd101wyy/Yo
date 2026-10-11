@@ -1803,7 +1803,7 @@ _impl_site_string :: (fn(tok : &Token) -> String)(
 /// error, so every auto-dereference forwards through one of the known cells
 /// and never through a user wrapper. Checked on the RESOLVED trait — its
 /// nominal key against the prelude `Deref`'s — so an alias is caught too.
-_throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+_throw_if_deref_impl_outside_prelude :: (fn(trait_ty : &Option(TypeValue), tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(is_prelude_or_generated_file(Option(String).Some(tok.module_path.clone()), ctx.std_path.clone()), {
     return(());
   });
@@ -1887,7 +1887,7 @@ _generic_impl_bucket :: (fn(key : &String) -> ArrayList(GenericImplEntry))({
 /// (`note_trait_impl_site`, checked by the caller), and no registered generic
 /// impl of the same trait instantiation that covers this receiver. Records the
 /// impl for the reverse direction.
-_check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &TypeValue, site : &String, env : &Environment, tok : &Token, exn : &Exception) -> unit)({
+_check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &TypeValue, site : &String, env : &Environment, tok : &Token, exn : Exception) -> unit)({
   base := get_base_trait_key(trait_ty);
   if(base.len() == usize(0), {
     return(());
@@ -1926,7 +1926,7 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &Type
 /// an overlap (rule 3, the direction `_check_concrete_impl_coherence` cannot
 /// see). An inherent generic impl (no trait) is checked for a duplicate
 /// method under the same receiver pattern and bounds.
-_check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environment, tok : &Token, exn : &Exception) -> unit)({
+_check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environment, tok : &Token, exn : Exception) -> unit)({
   // Two substitutions of the forall binders: `canon` renames them by
   // position (`$0`, `$1`, …) so two impls that differ only in binder names
   // compare equal, and `shown` strips their constraint lists so a diagnostic
@@ -2987,7 +2987,7 @@ _try_lookup_trait_type :: (
     trait_expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> Option(TypeValue)
 )({
   // Fast path: walk through `Trait(...)` / `Trait(A)(B)` etc. to reach
@@ -3603,7 +3603,7 @@ _c3_eval_colon_pair :: (
     st : &ImplInFlight,
     field_opt : &Option(ImplPendingField),
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   colon_args := match(
@@ -3965,7 +3965,7 @@ _c2_register_member :: (
 /// source order, binds the bare label in the impl env, registers the member
 /// provisionally.
 _c2_eval_direct_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : &Exception) -> unit
+  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : Exception) -> unit
 )({
   mf_colon_args := match(
     pf.colon_expr,
@@ -4024,7 +4024,7 @@ _c2_eval_direct_field :: (
 /// (`Trait(name : fn_def, ...)`), with the trait's expected field type (Self
 /// substituted to the receiver pattern) and the entry's working bindings.
 _c2_eval_inner_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : &Exception) -> unit
+  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : Exception) -> unit
 )({
   g_colon_args := match(
     pf.colon_expr,
@@ -4096,7 +4096,7 @@ _c2_eval_inner_field :: (
 /// `try_to_implement_function_by_function_type` publishes the phase-A FuncVal
 /// a re-entrant sibling reference binds.
 _run_impl_field :: (
-  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : &Exception) -> unit
+  fn(pf : &ImplPendingField, st : &ImplInFlight, ctx : &EvalContext, exn : Exception) -> unit
 )({
   push_forcing_def(pf.def);
   pf.state = ImplFieldState.Forcing;
@@ -4253,7 +4253,7 @@ _collect_impl_where_constraints :: (
     forall_some_types : &ArrayList(TypeValue),
     forall_env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception,
+    exn : Exception,
     out_some_types : &mut ArrayList(TypeValue),
     out_traits : &mut ArrayList(TypeValue)
   ) -> unit
@@ -4363,7 +4363,7 @@ evaluate_module_value :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   (local_env : Environment) = env;
@@ -5900,7 +5900,7 @@ _is_hand_written_impl :: (fn(trait_tok : &Token, ctx : &EvalContext) -> bool)(
 /// constructor's token, which tells a derive's (spliced from the prelude)
 /// from a hand-written one.
 _check_copy_clone_exclusion :: (
-  fn(receiver_ty : &TypeValue, receiver_type_id : &String, trait_ty : &TypeValue, site : &String, trait_tok : &Token, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit
+  fn(receiver_ty : &TypeValue, receiver_type_id : &String, trait_ty : &TypeValue, site : &String, trait_tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
 )({
   match(
     _clone_and_copy_traits(env),
@@ -5942,7 +5942,7 @@ _check_copy_clone_exclusion :: (
 /// A conditional `Clone` that also serves types that are not `Copy`
 /// (`where(T <: Clone)`, the prelude `Option(T)`'s shape) is allowed: at a
 /// `Copy` instantiation its structural clone reduces to the copy.
-_check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
+_check_generic_copy_clone_exclusion :: (fn(entry : &GenericImplEntry, trait_tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   env := entry.definition_env;
   match(
     _clone_and_copy_traits(env),

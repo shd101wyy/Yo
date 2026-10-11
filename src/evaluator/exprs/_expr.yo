@@ -579,14 +579,14 @@ evaluator_deadline_tripped :: (fn() -> bool)(_g_eval_deadline_tripped);
 evaluator_deadline_message :: (fn() -> String)(
   `Yo compilation exceeded the configured time limit (possible evaluator hang). See issues/fixed/test-runner-no-compile-timeout.md.`
 );
-_throw_deadline_error :: (fn(exn : &Exception) -> unit)(
+_throw_deadline_error :: (fn(exn : Exception) -> unit)(
   exn.throw(
     dyn(
       evaluator_deadline_message()
     )
   )
 );
-_check_evaluator_deadline :: (fn(exn : &Exception) -> unit)(
+_check_evaluator_deadline :: (fn(exn : Exception) -> unit)(
   if(_g_eval_deadline_ns != i64(0), {
     if(_g_eval_deadline_tripped, {
       _throw_deadline_error(exn);
@@ -607,7 +607,7 @@ _evaluate_assert_ghost_args :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   // The ghost bracket applies ONLY in verification targets: there the
@@ -638,7 +638,7 @@ _evaluate_exists_or_call :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )(
   cond(
@@ -659,7 +659,7 @@ _evaluate_expression :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   _check_evaluator_deadline(exn);
@@ -1562,7 +1562,7 @@ _evaluate_expression_raw_wrapper :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   // A method receiver / operator operand already evaluated for the call whose

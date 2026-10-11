@@ -188,7 +188,7 @@ _evaluate_inout_local_binding :: (
     is_compile_time_only : bool,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   lhs_tok := ast_expr_token(lhs);
@@ -551,7 +551,7 @@ _evaluate_inout_local_binding :: (
 /// Codegen channel (init_assignment.yo `generate_local_borrow_repoint`): the
 /// `mut(cur)` node's ExprInfo carries the step: `source_variable` = the step
 /// pin, `macro_expansion` = the cell expression it takes.
-evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)({
+evaluate_local_borrow_repoint :: (fn(expr : &AstExpr, env_in : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
   (env : Environment) = env_in;
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   lhs := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
@@ -809,7 +809,7 @@ evaluate_initialization_assignment :: (
     expr : &AstExpr,
     env_in : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

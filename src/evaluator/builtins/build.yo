@@ -241,7 +241,7 @@ impl(
       manifest_fields : HashMap(String, String).new()
     )
   ),
-  register_executable : (fn(self : &mut Self, artifact : &BuildArtifact, exn : &Exception) -> unit)({
+  register_executable : (fn(self : &mut Self, artifact : &BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
@@ -271,7 +271,7 @@ impl(
       )
     );
   }),
-  register_static_library : (fn(self : &mut Self, artifact : &BuildArtifact, exn : &Exception) -> unit)({
+  register_static_library : (fn(self : &mut Self, artifact : &BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
@@ -301,7 +301,7 @@ impl(
       )
     );
   }),
-  register_shared_library : (fn(self : &mut Self, artifact : &BuildArtifact, exn : &Exception) -> unit)({
+  register_shared_library : (fn(self : &mut Self, artifact : &BuildArtifact, exn : Exception) -> unit)({
     Self._check_duplicate_artifact_name(self, artifact.name.clone(), exn);
     Self._check_name_taken(self, artifact.name.clone(), "an artifact", exn);
     self.artifacts.push(
@@ -331,7 +331,7 @@ impl(
       )
     );
   }),
-  register_test : (fn(self : &mut Self, suite : &BuildTestSuite, exn : &Exception) -> unit)({
+  register_test : (fn(self : &mut Self, suite : &BuildTestSuite, exn : Exception) -> unit)({
     Self._check_name_taken(self, suite.name.clone(), "a test suite", exn);
     self.test_suites.push(suite);
   }),
@@ -364,7 +364,7 @@ impl(
     });
     self.run_steps = kept;
   }),
-  register_step : (fn(self : &mut Self, name : &String, description : &String, exn : &Exception) -> unit)({
+  register_step : (fn(self : &mut Self, name : &String, description : &String, exn : Exception) -> unit)({
     Self._check_name_taken(self, name.clone(), "a step", exn);
     self.steps.push(
       BuildStep(
@@ -471,11 +471,11 @@ impl(
     });
     self.artifacts = new_artifacts;
   }),
-  register_doc : (fn(self : &mut Self, config : &BuildDocConfig, exn : &Exception) -> unit)({
+  register_doc : (fn(self : &mut Self, config : &BuildDocConfig, exn : Exception) -> unit)({
     Self._check_name_taken(self, config.name.clone(), "a documentation step", exn);
     self.doc_configs.push(config);
   }),
-  register_verify : (fn(self : &mut Self, config : &BuildVerifyConfig, exn : &Exception) -> unit)({
+  register_verify : (fn(self : &mut Self, config : &BuildVerifyConfig, exn : Exception) -> unit)({
     Self._check_name_taken(self, config.name.clone(), "a verify step", exn);
     self.verify_configs.push(config);
   }),
@@ -662,7 +662,7 @@ impl(
   /// two entities sharing a name make one of them unreachable — `depend_on`
   /// silently built the wrong thing (the plan's B11). Only artifacts were
   /// checked, and only against other artifacts.
-  _check_name_taken : (fn(self : &mut Self, name : &String, registering : str, exn : &Exception) -> unit)({
+  _check_name_taken : (fn(self : &mut Self, name : &String, registering : str, exn : Exception) -> unit)({
     taken := cond(
       self.find_artifact(name.clone()).is_some() => "an artifact",
       self.find_test(name.clone()).is_some() => "a test suite",
@@ -680,7 +680,7 @@ impl(
       );
     });
   }),
-  _check_duplicate_artifact_name : (fn(self : &mut Self, name : &String, exn : &Exception) -> unit)({
+  _check_duplicate_artifact_name : (fn(self : &mut Self, name : &String, exn : Exception) -> unit)({
     i := usize(0);
     n := self.artifacts.len();
     while(i < n, {
@@ -823,7 +823,7 @@ _build_extract_string :: (
     param : str,
     expr : &AstExpr,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> String
 )(
   match(
@@ -943,7 +943,7 @@ _build_extract_string_or :: (
     fallback : &String,
     expr : &AstExpr,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> String
 )(
   cond(
@@ -958,7 +958,7 @@ _build_require_args :: (
     least : usize,
     message : &String,
     expr : &AstExpr,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(args.len() < least, {
@@ -1051,7 +1051,7 @@ evaluate_yo_build_functions :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   args := match(

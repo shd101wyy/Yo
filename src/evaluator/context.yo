@@ -906,13 +906,13 @@ call_rerun_pending_def_evals :: (fn(env : &Environment, ctx : &EvalContext) -> O
 // bare `return(...)` body resolves `return`), for modules that cannot import
 // exprs/begin.yo without a cycle (values/impl.yo's trait-default
 // materialization). Installed by calls/function_type.yo.
-EvaluateFnBodyFn :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr);
+EvaluateFnBodyFn :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr);
 (g_evaluate_fn_body_fn : Option(EvaluateFnBodyFn)) = Option(EvaluateFnBodyFn).None;
 set_evaluate_fn_body_fn :: (fn(f : EvaluateFnBodyFn) -> unit)({
   g_evaluate_fn_body_fn = Option(EvaluateFnBodyFn).Some(f);
   ()
 });
-call_evaluate_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr)(
+call_evaluate_fn_body :: (fn(body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)(
   match(
     g_evaluate_fn_body_fn,
     .Some(f) => f(body, env, ctx, exn),

@@ -68,7 +68,7 @@ PACK_FILENAME :: "context.md";
 ///    inside a Yo checkout) — the same exe-walk-up-then-cwd shape
 ///    `resolve_std_path` uses for `std/`.
 _find_bundled_context_pack :: (
-  fn(io : Io, exn : &Exception) -> Option(Path)
+  fn(io : Io, exn : Exception) -> Option(Path)
 )({
   override := env.get(String.from("YO_CONTEXT_PACK"));
   if(override.is_some(), {
@@ -133,7 +133,7 @@ _DOCS_MARKER_B :: "DESIGN.md";
 /// executable's ancestors, then the working directory's ancestors. Release
 /// bundles ship `docs/en-US/` beside `std/` and `pack/`, so an installed
 /// toolchain finds the manuals of its own version.
-_find_bundled_docs :: (fn(io : Io, exn : &Exception) -> Option(Path))({
+_find_bundled_docs :: (fn(io : Io, exn : Exception) -> Option(Path))({
   override := env.get(String.from("YO_CONTEXT_DOCS"));
   if(override.is_some(), {
     p := Path.new(override.unwrap_or(String.from(".")));
@@ -161,7 +161,7 @@ _find_bundled_docs :: (fn(io : Io, exn : &Exception) -> Option(Path))({
 });
 /// Does `p` exist and name a directory?
 _is_dir :: (
-  fn(p : &Path, io : Io, exn : &Exception) -> bool
+  fn(p : &Path, io : Io, exn : Exception) -> bool
 )({
   found := io.await(exists(p.clone(), io), io);
   if(!found, {
@@ -172,7 +172,7 @@ _is_dir :: (
 });
 /// Does `p` exist and name a plain file?
 _is_file :: (
-  fn(p : &Path, io : Io, exn : &Exception) -> bool
+  fn(p : &Path, io : Io, exn : Exception) -> bool
 )({
   found := io.await(exists(p.clone(), io), io);
   if(!found, {
@@ -228,11 +228,11 @@ _USAGE :: "yo context [<module> [<name>] | <name>] [--list] [--search <query>] [
 /// Fail with a D4 exit code. `message` goes to stderr through the top-level
 /// handler; an empty one prints nothing (the JSON path already wrote its
 /// error object to stdout).
-_fail :: (fn(code : i32, message : &String, exn : &Exception) -> unit)({
+_fail :: (fn(code : i32, message : &String, exn : Exception) -> unit)({
   exn.throw(dyn(ExitWith(code : code, message : message)));
 });
 /// A usage error (exit 2), with the grammar appended.
-_usage_error :: (fn(en : &String, zh : &String, exn : &Exception) -> unit)({
+_usage_error :: (fn(en : &String, zh : &String, exn : Exception) -> unit)({
   _fail(_EXIT_USAGE, tr(`context: ${en}. Usage: ${_USAGE}`, `context：${zh}。用法：${_USAGE}`), exn);
 });
 /// Options parsed from `yo context`'s arguments. Absent strings are "".
@@ -268,7 +268,7 @@ ContextQuery :: struct(
 /// Parse the query flags and positionals. Every malformed argument is a
 /// usage error (exit 2).
 _parse_context_query :: (
-  fn(argv : &ArrayList(String), exn : &Exception) -> ContextQuery
+  fn(argv : &ArrayList(String), exn : Exception) -> ContextQuery
 )({
   q := ContextQuery(
     list : false,
@@ -382,7 +382,7 @@ _parse_context_query :: (
 /// `YO_ORIGINAL_CWD`, which main.yo records before it changes directory
 /// (the same authority `yo skills install` uses) — not against wherever the
 /// process happens to be.
-_context_corpus_root :: (fn(explicit : &String, io : Io, exn : &Exception) -> String)({
+_context_corpus_root :: (fn(explicit : &String, io : Io, exn : Exception) -> String)({
   if(explicit.len() == usize(0), {
     return(resolve_std_path());
   });
@@ -426,7 +426,7 @@ LoadedWorld :: struct(
 /// live from their directories. Anything missing is an error that says what
 /// to run — never a silently empty dependency set.
 _dep_corpora :: (
-  fn(io : Io, exn : &Exception) -> ArrayList(Corpus)
+  fn(io : Io, exn : Exception) -> ArrayList(Corpus)
 )({
   out := ArrayList(Corpus).new();
   start := _user_cwd();
@@ -492,7 +492,7 @@ _dep_corpora :: (
 /// lock is held across every build AND load, so a concurrent build, refresh
 /// or `yo cache gc` is never observed half done.
 _load_world :: (
-  fn(q : &ContextQuery, io : Io, exn : &Exception) -> LoadedWorld
+  fn(q : &ContextQuery, io : Io, exn : Exception) -> LoadedWorld
 )({
   world := LoadedWorld(
     entries : ArrayList(ContextIndexEntry).new(),
@@ -605,7 +605,7 @@ _str_array :: (fn(xs : &ArrayList(String)) -> JsonValue)({
 /// on stdout (and nothing on stderr); in text mode the message and one
 /// `Did you mean:` line per suggestion on stderr. Exits `code`.
 _miss :: (
-  fn(code : i32, message : &String, suggestions : &ArrayList(String), as_json : bool, exn : &Exception) -> unit
+  fn(code : i32, message : &String, suggestions : &ArrayList(String), as_json : bool, exn : Exception) -> unit
 )({
   if(as_json, {
     o := JsonValue.object();
@@ -778,7 +778,7 @@ _resolve_module :: (fn(mods : &ArrayList(ContextIndexModule), arg : &String) -> 
   ModuleResolution.NotFound
 });
 /// The module a TWO-positional query names, or a miss (exit 1).
-_require_module :: (fn(world : &LoadedWorld, arg : &String, as_json : bool, exn : &Exception) -> String)(
+_require_module :: (fn(world : &LoadedWorld, arg : &String, as_json : bool, exn : Exception) -> String)(
   match(
     _resolve_module(world.mods, arg),
     .Found(m) => m,
@@ -895,7 +895,7 @@ _anchor_names :: (fn(anchor : &String, item : &String) -> bool)({
   )
 });
 /// The rendered page of `module` from its owning corpus ("" when unknown).
-_module_page :: (fn(mods : &ArrayList(ContextIndexModule), module : &String, io : Io, exn : &Exception) -> String)({
+_module_page :: (fn(mods : &ArrayList(ContextIndexModule), module : &String, io : Io, exn : Exception) -> String)({
   (i : usize) = usize(0);
   while(i < mods.len(), {
     m := mods(i);
@@ -912,7 +912,7 @@ _module_page :: (fn(mods : &ArrayList(ContextIndexModule), module : &String, io 
 });
 /// The sections of `module`'s page, read once per query.
 _sections_of :: (
-  fn(cache : &mut HashMap(String, ArrayList(PageSection)), mods : &ArrayList(ContextIndexModule), module : &String, io : Io, exn : &Exception) -> ArrayList(PageSection)
+  fn(cache : &mut HashMap(String, ArrayList(PageSection)), mods : &ArrayList(ContextIndexModule), module : &String, io : Io, exn : Exception) -> ArrayList(PageSection)
 )(
   match(
     cache.get(module.clone()),
@@ -1064,7 +1064,7 @@ _deep_score :: (
     world : &LoadedWorld,
     cache : &mut HashMap(String, ArrayList(PageSection)),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> usize
 )({
   d := _defining_entry(world.entries, e);
@@ -1088,7 +1088,7 @@ _deep_score :: (
 /// printed several times over — the first copy wins (identical entries score
 /// alike). Entries differing in signature stay: they are distinct rows.
 _search_entries :: (
-  fn(query : &String, deep : bool, world : &LoadedWorld, io : Io, exn : &Exception) -> ArrayList(SearchHit)
+  fn(query : &String, deep : bool, world : &LoadedWorld, io : Io, exn : Exception) -> ArrayList(SearchHit)
 )({
   cache := HashMap(String, ArrayList(PageSection)).new();
   hits := ArrayList(SearchHit).new();
@@ -1126,7 +1126,7 @@ _search_entries :: (
 });
 /// `--search`: the ranked hits (50 rows in text); no hit exits 1 with
 /// did-you-mean names on stderr (D4).
-_run_context_search :: (fn(q : &ContextQuery, world : &LoadedWorld, io : Io, exn : &Exception) -> unit)({
+_run_context_search :: (fn(q : &ContextQuery, world : &LoadedWorld, io : Io, exn : Exception) -> unit)({
   hits := _search_entries(q.search.clone(), q.deep, world, io, exn);
   if(hits.len() == usize(0), {
     _miss(
@@ -1236,7 +1236,7 @@ _run_context_describe_module :: (fn(module : &String, world : &LoadedWorld, as_j
 /// then its rendered section (signature, full doc, examples) — read from
 /// the DEFINING module's page, so a barrel re-export shows the real doc.
 _print_item :: (
-  fn(e : &ContextIndexEntry, world : &LoadedWorld, cache : &mut HashMap(String, ArrayList(PageSection)), io : Io, exn : &Exception) -> unit
+  fn(e : &ContextIndexEntry, world : &LoadedWorld, cache : &mut HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> unit
 )({
   d := _defining_entry(world.entries, e);
   println(`${e.module} — ${e.name}`);
@@ -1260,7 +1260,7 @@ _print_item :: (
 });
 /// The item's JSON: its entry object plus `text`, the rendered section.
 _item_json :: (
-  fn(e : &ContextIndexEntry, world : &LoadedWorld, cache : &mut HashMap(String, ArrayList(PageSection)), io : Io, exn : &Exception) -> JsonValue
+  fn(e : &ContextIndexEntry, world : &LoadedWorld, cache : &mut HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> JsonValue
 )({
   d := _defining_entry(world.entries, e);
   o := _entry_json(e);
@@ -1275,7 +1275,7 @@ _item_json :: (
 /// the index stores methods unqualified, so the type is checked against the
 /// method's rendered heading)?
 _entry_names_item :: (
-  fn(e : &ContextIndexEntry, item : &String, world : &LoadedWorld, cache : &mut HashMap(String, ArrayList(PageSection)), io : Io, exn : &Exception) -> bool
+  fn(e : &ContextIndexEntry, item : &String, world : &LoadedWorld, cache : &mut HashMap(String, ArrayList(PageSection)), io : Io, exn : Exception) -> bool
 )({
   if(!item.contains(String.from(".")), {
     return(e.name == item);
@@ -1291,7 +1291,7 @@ _entry_names_item :: (
 /// `yo context <module> <name>`: one item's full entry. Several items of that
 /// name in the module (two types' `new`) list their headings and exit 1.
 _run_context_describe_item :: (
-  fn(module : &String, item : &String, world : &LoadedWorld, as_json : bool, io : Io, exn : &Exception) -> unit
+  fn(module : &String, item : &String, world : &LoadedWorld, as_json : bool, io : Io, exn : Exception) -> unit
 )({
   cache := HashMap(String, ArrayList(PageSection)).new();
   matches := ArrayList(ContextIndexEntry).new();
@@ -1342,7 +1342,7 @@ _run_context_describe_item :: (
 /// three with `--verbose`); none exits 1 with did-you-mean names. A barrel
 /// re-export of an item whose defining module is also a hit is the SAME item,
 /// so it is not counted twice.
-_run_context_describe_bare :: (fn(q : &ContextQuery, world : &LoadedWorld, io : Io, exn : &Exception) -> unit)({
+_run_context_describe_bare :: (fn(q : &ContextQuery, world : &LoadedWorld, io : Io, exn : Exception) -> unit)({
   name := q.subject.clone();
   raw := ArrayList(ContextIndexEntry).new();
   (i : usize) = usize(0);
@@ -1422,7 +1422,7 @@ _run_context_describe_bare :: (fn(q : &ContextQuery, world : &LoadedWorld, io : 
 // ---------------------------------------------------------------------------
 /// The manuals in `dir`: every `*.md` file's name without the extension,
 /// sorted.
-_doc_names :: (fn(dir : &Path, io : Io, exn : &Exception) -> ArrayList(String))({
+_doc_names :: (fn(dir : &Path, io : Io, exn : Exception) -> ArrayList(String))({
   entries := io.await(read_dir(dir.clone(), io), IoExn(io : io, exn : exn));
   names := ArrayList(String).new();
   (i : usize) = usize(0);
@@ -1451,7 +1451,7 @@ _doc_title :: (fn(content : &String) -> String)({
 });
 /// The manuals directory, or a packaging error (exit 2) naming where it was
 /// looked for.
-_require_docs_dir :: (fn(io : Io, exn : &Exception) -> Path)(
+_require_docs_dir :: (fn(io : Io, exn : Exception) -> Path)(
   match(
     _find_bundled_docs(io, exn),
     .Some(d) => d,
@@ -1480,7 +1480,7 @@ _require_docs_dir :: (fn(io : Io, exn : &Exception) -> Path)(
   )
 );
 /// `yo context --docs`: every bundled manual with its title.
-_run_context_docs_list :: (fn(as_json : bool, io : Io, exn : &Exception) -> unit)({
+_run_context_docs_list :: (fn(as_json : bool, io : Io, exn : Exception) -> unit)({
   dir := _require_docs_dir(io, exn);
   names := _doc_names(dir.clone(), io, exn);
   titles := ArrayList(String).new();
@@ -1513,7 +1513,7 @@ _run_context_docs_list :: (fn(as_json : bool, io : Io, exn : &Exception) -> unit
 });
 /// `yo context --doc <name>`: print one manual, case-insensitively, with or
 /// without its `.md`. A miss exits 1 with the closest names.
-_run_context_doc :: (fn(query : &String, as_json : bool, io : Io, exn : &Exception) -> unit)({
+_run_context_doc :: (fn(query : &String, as_json : bool, io : Io, exn : Exception) -> unit)({
   dir := _require_docs_dir(io, exn);
   names := _doc_names(dir.clone(), io, exn);
   want := cond(
@@ -1565,7 +1565,7 @@ _run_context_doc :: (fn(query : &String, as_json : bool, io : Io, exn : &Excepti
 /// (bundled std or `--path`, plus `--deps`) from the content-addressed cache,
 /// building it on first use, and answer the query.
 run_context :: (
-  fn(argv : &ArrayList(String), io : Io, exn : &Exception) -> unit
+  fn(argv : &ArrayList(String), io : Io, exn : Exception) -> unit
 )({
   q := _parse_context_query(argv, exn);
   // The manuals are their own mode: `--format` is the only flag that

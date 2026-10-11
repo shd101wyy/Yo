@@ -485,7 +485,7 @@ _scan_line :: (
 });
 /// Recursively collect .yo files under `p`, skipping node_modules/.git/dist/
 /// yo-out/build and every dot-directory (but not a `.`/`..` root argument).
-_walk_yo_files :: (fn(root : &String, io : Io, exn : &Exception) -> Impl(Future(ArrayList(String), IoExn)))(
+_walk_yo_files :: (fn(root : &String, io : Io, exn : Exception) -> Impl(Future(ArrayList(String), IoExn)))(
   io.async((e : IoExn) => {
     // Built on std/fs/walker (its stack loop is the proven async-while
     // shape) with post-filtering: an entry is dropped when ANY path segment
@@ -553,7 +553,7 @@ _walk_yo_files :: (fn(root : &String, io : Io, exn : &Exception) -> Impl(Future(
   })
 );
 /// Generate the report for every .yo file under `root_path`.
-generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : &Exception) -> Impl(Future(UnsafeReport, IoExn)))(
+generate_unsafe_report :: (fn(root_path : &String, io : Io, exn : Exception) -> Impl(Future(UnsafeReport, IoExn)))(
   io.async((e : IoExn) => {
     yo_files := e.io.await(_walk_yo_files(root_path.clone(), e.io, e.exn), e);
     privileged_files := ArrayList(String).new();

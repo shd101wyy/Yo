@@ -2010,7 +2010,7 @@ get_imports_file_override :: (fn() -> Option(String))(g_imports_file_override.cl
 /// the process cwd (the runner writes absolute paths; the flag is usable by
 /// hand too). Malformed lines (no `=`, empty name or root) are errors — the
 /// file is machine-written, so a bad line means a bug, not a typo.
-_load_imports_file :: (fn(exn : &Exception) -> unit)({
+_load_imports_file :: (fn(exn : Exception) -> unit)({
   if(g_imports_file_loaded, {
     return(());
   });
@@ -2065,7 +2065,7 @@ _load_imports_file :: (fn(exn : &Exception) -> unit)({
 /// `--imports` file is the explicit, complete mapping for an artifact; when
 /// it is set, discovery is skipped. A malformed manifest is an error here —
 /// it is a compile error of the entry, reported once by the owning edge.
-_register_manifest_import_roots :: (fn(fs_path : &String, exn : &Exception) -> unit)({
+_register_manifest_import_roots :: (fn(fs_path : &String, exn : Exception) -> unit)({
   if(g_imports_file_override.is_some(), {
     return(());
   });
@@ -2534,7 +2534,7 @@ mm_load_prelude_file :: (
     input_path : &String,
     std_path : &String,
     exprs : &ArrayList(AstExpr),
-    local_exn : &Exception
+    local_exn : Exception
   ) -> bool
 )({
   prelude_env := Environment.new(input_path.clone());
@@ -2664,7 +2664,7 @@ mm_load_prelude_file :: (
 /// other. The span is the body's own token — a real position in the right
 /// file. Only the ENTRY module is inspected: a library module that happens to
 /// export a function named `main` is not an entry point.
-_reject_non_unit_main :: (fn(module_value : &EvalValue, exn : &Exception) -> unit)({
+_reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit)({
   match(
     module_value,
     .StructVal(_, labels, values) => {
@@ -2747,7 +2747,7 @@ mm_eval_entry_exprs :: (
     entry_abs : &String,
     std_path : &String,
     exprs : &ArrayList(AstExpr),
-    exn : &Exception
+    exn : Exception
   ) -> ModuleLoadOutcome
 )({
   mm_set_loader_context(std_path.clone());
@@ -2880,7 +2880,7 @@ mm_load_file :: (
     std_path : &String,
     verbose : bool,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> ModuleLoadOutcome
 )({
   // Local exception handler escapes the function body with a failed outcome.
@@ -3010,7 +3010,7 @@ mm_preload_prelude :: (
     std_path : &String,
     verbose : bool,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> bool
 )({
   (ok : bool) = true;
@@ -3053,7 +3053,7 @@ mm_load_yo_file :: (
   fn(
     input_path : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> ModuleLoadOutcome
 )({
   std_path := resolve_std_path();

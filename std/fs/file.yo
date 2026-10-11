@@ -269,7 +269,7 @@ impl(
     )
   ),
   /// Seek to a position relative to `from`. Returns the new absolute byte offset.
-  seek : (fn(self : &Self, offset : i64, from : SeekFrom, exn : &Exception) -> i64)({
+  seek : (fn(self : &Self, offset : i64, from : SeekFrom, exn : Exception) -> i64)({
     // `_pos` is the authority, NOT the descriptor's position. `read`/`write_*`
     // are positional (pread/pwrite) and never move the descriptor, so it sits at
     // 0 forever — an `lseek(fd, n, SEEK_CUR)` would therefore compute from 0
@@ -302,7 +302,7 @@ impl(
   ///
   /// Inherent rather than a `Seek` default because a trait generic over the
   /// reference-point type cannot name its own "start" — see `io.Seek`.
-  rewind : (fn(self : &Self, exn : &Exception) -> unit)({
+  rewind : (fn(self : &Self, exn : Exception) -> unit)({
     self.seek(i64(0), SeekFrom.Start, exn);
     ()
   }),
@@ -402,7 +402,7 @@ impl(
 impl(
   File,
   IoTraits.Seek(SeekFrom)(
-    seek : (fn(self : &Self, offset : i64, from : SeekFrom, exn : &Exception) -> i64)(
+    seek : (fn(self : &Self, offset : i64, from : SeekFrom, exn : Exception) -> i64)(
       self.seek(offset, from, exn)
     ),
     position : (fn(self : &Self) -> i64)(

@@ -177,7 +177,7 @@ test("an unwind from a handler installed in an io.async body resolves that futur
 });
 // A synchronous frame that only passes the outer handler along is not the
 // one that installed the unwinding handler, and must not read its value.
-_run_fail :: (fn(io : Io, exn : &Exception) -> String)({
+_run_fail :: (fn(io : Io, exn : Exception) -> String)({
   e := IoExn(io : io, exn : exn);
   _show(io.await(_guarded(true, io), e))
 });

@@ -167,7 +167,7 @@ projects_registry_path :: (fn(cache_root : &String) -> String)(
   cache_root.concat(String.from("/projects"))
 );
 /// Create the store, mirror and index directories and return the cache root.
-ensure_cache_layout :: (fn(io : Io, exn : &Exception) -> Impl(Future(String, IoExn)))(
+ensure_cache_layout :: (fn(io : Io, exn : Exception) -> Impl(Future(String, IoExn)))(
   io.async((e : IoExn) => {
     root := get_global_cache_dir();
     e.io.await(create_dir_all(Path.new(get_store_dir(root.clone())), e.io), e);

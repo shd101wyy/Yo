@@ -123,7 +123,7 @@ _adoptable_type_binding :: (fn(env : &Environment, name : &String) -> Option(Typ
 /// is not a Yo identifier (`struct stat`, `struct timespec`). `.Some(spelling)`
 /// when `arg` has that shape (a malformed `c_type(...)` is an error), `.None`
 /// for every other field.
-_c_type_field_spelling :: (fn(arg : &AstExpr, exn : &Exception) -> Option(String))({
+_c_type_field_spelling :: (fn(arg : &AstExpr, exn : Exception) -> Option(String))({
   if(!ast_expr_is_fn_call_of(arg, ":", .Some(usize(2))), {
     return(Option(String).None);
   });
@@ -158,7 +158,7 @@ evaluate_c_include :: (
     expr : &AstExpr,
     env_in : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   if(!ast_expr_is_fn_call_of(expr, BK_C_INCLUDE, .None), {

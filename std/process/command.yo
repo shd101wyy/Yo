@@ -501,7 +501,7 @@ _spawn_with_fds :: (
 //    pipes cannot use overlapped I/O), so O_NONBLOCK is neither needed nor
 //    settable there — PIPE_NOWAIT would turn an empty pipe into an error
 //    (issues/fixed/command-output-windows-pipe-read-blocks-the-event-loop.md).
-_mark_parent_end :: (fn(fd : i32, exn : &Exception) -> unit)({
+_mark_parent_end :: (fn(fd : i32, exn : Exception) -> unit)({
   IoError.check(__yo_sync_fcntl_setfd(fd, i32(FD_CLOEXEC)), exn);
   cond(
     (__yo_process_platform() == "windows") => (),
@@ -981,7 +981,7 @@ impl(
   /// `IoError` through `exn`, Rust's `Child::kill -> io::Result<()>`. Until
   /// 2026-09-06 this handed back the raw `-errno` as an `i32`
   /// (issues/fixed/child-kill-returned-a-raw-errno.md).
-  kill : (fn(self : &Self, signum : i32, exn : &Exception) -> unit)({
+  kill : (fn(self : &Self, signum : i32, exn : Exception) -> unit)({
     _rc := IoError.check(IO_process.kill(self._pid, signum), exn);
   }),
   /// Wait for the child to exit and return its status. Closes any pipe fds
@@ -1021,7 +1021,7 @@ impl(
 );
 // One end-pair of a configured stream: (child_fd, parent_fd), -1 = absent.
 // SYNC — pipe(2) is synchronous and /dev/null opens through the sync shim.
-_stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : &Exception) -> Array(i32, usize(2)))({
+_stdio_fds :: (fn(mode : Stdio, child_reads : bool, exn : Exception) -> Array(i32, usize(2)))({
   out := Array(i32, usize(2))(i32(-1), i32(-1));
   match(
     mode,

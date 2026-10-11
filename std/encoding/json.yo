@@ -1155,15 +1155,15 @@ parse_string :: (fn(s : &String) -> Result(JsonValue, JsonError))(
 );
 /// `parse_bytes` as an effect, for callers already inside an effect
 /// scope. Same for the two below.
-parse_bytes_exn :: (fn(bytes : &ArrayList(u8), exn : &Exception) -> JsonValue)(
+parse_bytes_exn :: (fn(bytes : &ArrayList(u8), exn : Exception) -> JsonValue)(
   match(parse_bytes(bytes), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 /// `parse` as an effect.
-parse_exn :: (fn(s : str, exn : &Exception) -> JsonValue)(
+parse_exn :: (fn(s : str, exn : Exception) -> JsonValue)(
   match(parse(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 /// `parse_string` as an effect.
-parse_string_exn :: (fn(s : &String, exn : &Exception) -> JsonValue)(
+parse_string_exn :: (fn(s : &String, exn : Exception) -> JsonValue)(
   match(parse_string(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 export(
@@ -1984,13 +1984,13 @@ json_parse_bytes :: (fn(bytes : &ArrayList(u8)) -> Result(JsonValue, JsonError))
 /// DEPRECATED, removed in v0.2.32: call `json.parse_string`.
 json_parse_string :: (fn(s : &String) -> Result(JsonValue, JsonError))(parse_string(s));
 /// DEPRECATED, removed in v0.2.32: call `json.parse_exn`.
-json_parse_exn :: (fn(s : str, exn : &Exception) -> JsonValue)(parse_exn(s, exn));
+json_parse_exn :: (fn(s : str, exn : Exception) -> JsonValue)(parse_exn(s, exn));
 /// DEPRECATED, removed in v0.2.32: call `json.parse_bytes_exn`.
-json_parse_bytes_exn :: (fn(bytes : &ArrayList(u8), exn : &Exception) -> JsonValue)(
+json_parse_bytes_exn :: (fn(bytes : &ArrayList(u8), exn : Exception) -> JsonValue)(
   parse_bytes_exn(bytes, exn)
 );
 /// DEPRECATED, removed in v0.2.32: call `json.parse_string_exn`.
-json_parse_string_exn :: (fn(s : &String, exn : &Exception) -> JsonValue)(
+json_parse_string_exn :: (fn(s : &String, exn : Exception) -> JsonValue)(
   parse_string_exn(s, exn)
 );
 /// DEPRECATED, removed in v0.2.32: call `json.stringify`.

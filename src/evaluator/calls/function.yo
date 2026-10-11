@@ -260,7 +260,7 @@ _reject_private_method_call :: (
     method_info_opt : &Option(ReceiverMethodResult),
     callee : &AstExpr,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   mi := match(
@@ -326,7 +326,7 @@ _reject_dyn_uncallable_method_call :: (
     method_info_opt : &Option(ReceiverMethodResult),
     callee : &AstExpr,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   mi := match(
@@ -425,7 +425,7 @@ _reject_wrapper_payload_clash :: (
     arg_count : usize,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   mi := match(
@@ -568,7 +568,7 @@ _reject_class1_panic_method_call :: (
     method_info_opt : &Option(ReceiverMethodResult),
     callee : &AstExpr,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   c1_mi := match(
@@ -648,7 +648,7 @@ _reject_private_construction :: (
     struct_name : &String,
     labels : &ArrayList(String),
     tok : &Token,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   decl := type_decl_module(struct_id);
@@ -987,7 +987,7 @@ _instance_constructor_fid :: (fn(ty : &TypeValue) -> String)(
 /// the caller marks it pre-evaluated around the method call's argument
 /// matching, as it does the receiver of `x.m()`, so it is not evaluated twice.
 _infer_unapplied_ctor_receiver :: (
-  fn(callee : &AstExpr, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : &Exception) -> Option(usize)
+  fn(callee : &AstExpr, args : &ArrayList(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(usize)
 )({
   if(!ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
     return(Option(usize).None);
@@ -1484,7 +1484,7 @@ _receiver_type_display :: (fn(recv : &AstExpr, ctx : &EvalContext) -> String)(
   match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(recv)), .Some(ri) => type_to_string(ri.ty), .None => String.from("the receiver"))
 );
 _select_matching_overload :: (
-  fn(base : &ReceiverMethodResult, args : &ArrayList(AstExpr), func_expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> ReceiverMethodResult
+  fn(base : &ReceiverMethodResult, args : &ArrayList(AstExpr), func_expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> ReceiverMethodResult
 )({
   // Collect EVERY candidate whose trial passes (not just the first) so the
   // comptime-priority rule below can run — filter to type-matching
@@ -1709,7 +1709,7 @@ _try_expand_call_overload :: (
     args : &ArrayList(AstExpr),
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   info := match(
@@ -3973,7 +3973,7 @@ _evaluate_funcval_runtime_call :: (
     evaled_arg_infos : &ArrayList(ExprInfo),
     n_supplied_reg : usize,
     param_vars : &ArrayList(Variable),
-    exn : &Exception,
+    exn : Exception,
     fv_s0_drops : &ArrayList(AstExpr),
     fv_s0_marked_args : &ArrayList(AstExpr),
     fv_d3_pending : &ArrayList(D3PendingInout)
@@ -5210,7 +5210,7 @@ evaluate_function_call :: (
     given_type : &TypeValue,
     given_value : &Option(EvalValue),
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   call_tok := ast_expr_token(expr);
@@ -5242,7 +5242,7 @@ evaluate_function_call :: (
 /// reference cell or a module-level place may not be live across an `await`.
 /// A call evaluated at compile time, and an operator on scalars (a C
 /// operator), are not runtime calls.
-_local_borrow_note_call_site :: (fn(call : &AstExpr, call_tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
+_local_borrow_note_call_site :: (fn(call : &AstExpr, call_tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   info := match(expr_info_table_get(ctx.expr_info_table, ast_expr_id(call)), .Some(i) => i, .None => return(()));
   is_comptime := match(info.value, .Some(v) => !is_unknown_val(v), .None => false);
   if(is_comptime, {
@@ -5318,7 +5318,7 @@ _fnonce_callee_releases_itself :: (fn(callee_info : &ExprInfo) -> bool)({
 /// built and evaluated BEFORE the callee is consumed (evaluating it afterwards
 /// would read a moved value), exactly as the call machinery's own post-call
 /// drops are (`generate_deferred_drop_expressions`, calls/helper.yo).
-_record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+_record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   // The drop is a codegen artifact that runs after the call; evaluating it
   // must not consume the callee before the call reads it. Snapshot the
   // consumed state of every binding of the name (a `sink` parameter's
@@ -5368,7 +5368,7 @@ _attach_fnonce_callee_release :: (fn(call : &AstExpr, result : &AstExpr, ctx : &
     .None => ()
   );
 });
-_consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+_consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : &ExprInfo, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   is_once := match(
     extract_fn_trait_from_type(callee_info.ty),
     .Some(oft) => match(oft, .FnTraitT(base_name : ob) => (ob == "FnOnce"), _ => false),
@@ -5443,7 +5443,7 @@ _evaluate_function_call_unanchored :: (
     given_type : &TypeValue,
     given_value : &Option(EvalValue),
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   given_type;

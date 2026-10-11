@@ -385,7 +385,7 @@ _variable_is_imm_borrow :: (fn(v : &Variable) -> bool)(
 );
 /// E0901 for a scrutinee a `match` would have to move but cannot: `why`
 /// says what owns it, and the help names the borrow that matches it in place.
-_throw_unmovable_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, why : &String, ctx : &EvalContext, exn : &Exception) -> unit)({
+_throw_unmovable_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, why : &String, ctx : &EvalContext, exn : Exception) -> unit)({
   // `yo fix --migrate match-scrutinee` writes the borrow instead.
   if(migrate_match_scrutinee_on() && !propagate_def_time_errors(), {
     lt := _leftmost_token(scr);
@@ -444,7 +444,7 @@ _decide_match_mode :: (
     marker : u8,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> u8
 )({
   scr := ast_expr_strip_borrow_marker(scr_raw);
@@ -617,7 +617,7 @@ _bind_ty_of :: (fn(own : &_ArmOwnership, name : &String) -> Option(TypeValue))({
 /// one that keeps it to the arm's end; the user's bindings below a cell are
 /// recorded as borrows. Coverage is unchanged: a hidden binding sits where a
 /// `_` or an unlisted field was.
-_augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own : &_ArmOwnership, env : &Environment, exn : &Exception) -> Pattern)(
+_augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own : &_ArmOwnership, env : &Environment, exn : Exception) -> Pattern)(
   match(
     p,
     .Wildcard => cond(
@@ -869,7 +869,7 @@ _own_all :: (fn(vs : &ArrayList(Variable)) -> unit)({
 /// After a consuming arm's body: a binding it still owns is dropped at the
 /// arm's end (and at each exit inside it); one it moved is dropped at the
 /// exits before the move.
-_drop_owned_at_arm_end :: (fn(vs : &ArrayList(Variable), body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+_drop_owned_at_arm_end :: (fn(vs : &ArrayList(Variable), body : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   (i : usize) = usize(0);
   while(i < vs.len(), {
     match(
@@ -889,7 +889,7 @@ evaluate_match :: (
     expr : &AstExpr,
     env_in : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;

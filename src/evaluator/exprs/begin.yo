@@ -574,7 +574,7 @@ _check_keyword_position :: (
     n_args : usize,
     begin_args : &ArrayList(AstExpr),
     keyword : &String,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(n_args == usize(0), {
@@ -740,7 +740,7 @@ _m3_last_comparable_token_in_expr :: (fn(expr : &AstExpr, reference : &Token) ->
 /// `Rc`, a `ref` handle) keeps the end-of-block release until its own phase
 /// makes it explicit-copy: its right side may share the old value through a
 /// dup the pair optimizer elided (plans/VALUES_BY_DEFAULT.md §3.14).
-_drop_unused_old_value_now :: (fn(stmt : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)(
+_drop_unused_old_value_now :: (fn(stmt : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
   match(
     expr_info_table_get(ctx.expr_info_table, ast_expr_id(stmt)),
     .None => (),
@@ -1796,7 +1796,7 @@ _schedule_scope_end_drops :: (
     last_expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception,
+    exn : Exception,
     /// When true, only PARAMETER bindings are considered (the function-body
     /// parameters-frame pass) — a def-time body env can carry caller frames
     /// below the params frame, and scheduling a caller local's drop into the
@@ -2119,7 +2119,7 @@ evaluate_begin_expression :: (
     ctx : &EvalContext,
     variables_to_add : &ArrayList(Variable),
     is_evaluating_function_body_begin_block : bool,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   // Scope-exit release (plans/CODEGEN_MEMORY_REDUCTION.md §6): an OUTERMOST
@@ -2155,7 +2155,7 @@ _evaluate_begin_expression_impl :: (
     ctx : &EvalContext,
     variables_to_add : &ArrayList(Variable),
     is_evaluating_function_body_begin_block : bool,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   (env : Environment) = env_in;
@@ -3571,7 +3571,7 @@ export(evaluate_begin_expression);
 /// escape before the move still drops it, as the M3 driver above does for a
 /// block's own consumed locals. The binding lives in the arm's frame, not in
 /// the body block's, so the block's driver never sees it.
-attach_consumed_binding_exit_drops :: (fn(body : &AstExpr, v : &Variable, env : &Environment, ctx : &EvalContext, exn : &Exception) -> unit)({
+attach_consumed_binding_exit_drops :: (fn(body : &AstExpr, v : &Variable, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(v.consumed_at_token.is_none() || v.initialized_at_token.is_none() || !_variable_can_need_drop_ignoring_consumed(v), {
     return(());
   });

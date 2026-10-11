@@ -57,7 +57,7 @@ DocCommandOptions :: struct(
 /// `path.resolve(p)`: absolute paths are folded lexically; relative paths are
 /// joined onto the current working directory and then folded (`Path` itself
 /// records `..` as written, so the fold is the explicit `normalize()`).
-_resolve_path :: (fn(p : &String, exn : &Exception) -> String)({
+_resolve_path :: (fn(p : &String, exn : Exception) -> String)({
   path := Path.new(p.clone());
   if(path.is_absolute(), {
     return(path.normalize().to_string());
@@ -76,7 +76,7 @@ _run_git :: (
     dir : &String,
     git_args : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Option(String)
 )({
   cmd := Command.new(String.from("git"));
@@ -110,7 +110,7 @@ _run_git :: (
 /// short commit hash. `git -C <dir>` because std's Command has no
 /// current_dir (same route as build_runner's `_git_version`).
 detect_git_version :: (
-  fn(dir : &String, io : Io, exn : &Exception) -> Option(String)
+  fn(dir : &String, io : Io, exn : Exception) -> Option(String)
 )({
   describe_args := ArrayList(String).new();
   describe_args.push(String.from("describe"));
@@ -138,7 +138,7 @@ _collect_yo_files :: (
     dir : &String,
     files : &mut ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
@@ -178,7 +178,7 @@ _collect_yo_files :: (
 /// Find all `.yo` source files to document: a file input must be a `.yo`
 /// file; a directory is walked recursively; results are sorted.
 _find_yo_files :: (
-  fn(input_path : &String, io : Io, exn : &Exception) -> ArrayList(String)
+  fn(input_path : &String, io : Io, exn : Exception) -> ArrayList(String)
 )({
   abs := _resolve_path(input_path, exn);
   path_exists := io.await(exists(Path.new(abs.clone()), io), io);
@@ -295,7 +295,7 @@ _scan_quoted_value_after :: (fn(content : &String, marker : &String, connector :
 /// after the directory would hide a broken `yo.toml` behind a plausible-looking
 /// site (issues/fixed/yo-doc-infers-the-project-name-from-package-json.md).
 _infer_project_name :: (
-  fn(base_path : &String, io : Io, exn : &Exception) -> String
+  fn(base_path : &String, io : Io, exn : Exception) -> String
 )({
   manifest_path := Path.new(base_path.clone()).join(Path.new(String.from(MANIFEST_FILENAME))).to_string();
   if(file_exists_sync(manifest_path.clone()), {
@@ -367,7 +367,7 @@ document_one_file :: (
     std_path : &String,
     verbose : bool,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Option(DocumentedFile)
 )({
   module_name := _module_name_from_path(file_path.clone(), base_path.clone());
@@ -430,7 +430,7 @@ document_one_file :: (
 /// Render the Markdown site: README.md index + one page per module under
 /// module/.
 _render_markdown_site :: (
-  fn(model : &DocModel, out_dir : &String, io : Io, exn : &Exception) -> unit
+  fn(model : &DocModel, out_dir : &String, io : Io, exn : Exception) -> unit
 )({
   ioexn := IoExn(io : io, exn : exn);
   io.await(create_dir_all(Path.new(out_dir.clone()), io), ioexn);
@@ -464,7 +464,7 @@ _render_markdown_site :: (
 });
 /// Main entry point for the `yo doc` command.
 run_doc :: (
-  fn(options : &DocCommandOptions, io : Io, exn : &Exception) -> unit
+  fn(options : &DocCommandOptions, io : Io, exn : Exception) -> unit
 )({
   start := Instant.now();
   input_abs := _resolve_path(options.input.clone(), exn);

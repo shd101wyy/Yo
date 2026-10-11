@@ -261,7 +261,7 @@ discover_z3 :: (fn() -> Option(String))({
 /// unzip extracts straight into the solvers root (`unzip -o` overwrites),
 /// so no rename/remove-dir dance is needed.
 _install_z3 :: (
-  fn(io : Io, exn : &Exception) -> Impl(Future(String, IoExn))
+  fn(io : Io, exn : Exception) -> Impl(Future(String, IoExn))
 )(
   io.async((e : IoExn) => {
     stem := z3_host_asset_stem();
@@ -314,7 +314,7 @@ _install_z3 :: (
 );
 /// Resolve the solver: discovery first, install on miss.
 ensure_z3 :: (
-  fn(io : Io, exn : &Exception) -> Impl(Future(String, IoExn))
+  fn(io : Io, exn : Exception) -> Impl(Future(String, IoExn))
 )(
   io.async(
     (e : IoExn) => match(

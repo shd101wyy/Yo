@@ -130,7 +130,7 @@ StepResult :: ref(
 // execution context makes compile_artifact call f(argv) instead of spawning
 // a child `yo compile`, so the warm evaluator universe (module cache,
 // prelude env, shared ExprInfoTable) is reused across watch rounds.
-InProcessCompileFn :: (fn(argv : &ArrayList(String), io : Io, exn : &Exception) -> bool);
+InProcessCompileFn :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> bool);
 /// The callback lives in a MUTABLE REF-STRUCT SLOT, not a bare global
 /// Option: an async fn (`run_build`) reading a global fn-typed Option
 /// minted a temp the state machine carried across a suspension point, and
@@ -214,7 +214,7 @@ _git_version :: (
   fn(
     project_dir : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -351,7 +351,7 @@ _artifact_output_dir :: (
 /// The project's manifest — the nearest `yo.toml` at or above `project_dir`
 /// — or `.None` when it has none. A manifest that does not parse fails the
 /// build with its message.
-project_manifest :: (fn(project_dir : &String, exn : &Exception) -> Option(Manifest))(
+project_manifest :: (fn(project_dir : &String, exn : Exception) -> Option(Manifest))(
   match(
     find_manifest(project_dir),
     .None => Option(Manifest).None,
@@ -366,7 +366,7 @@ project_manifest :: (fn(project_dir : &String, exn : &Exception) -> Option(Manif
   )
 );
 /// The manifest's import-root closure, or the build error it reports.
-_manifest_roots :: (fn(manifest : &Manifest, exn : &Exception) -> ImportRoots)(
+_manifest_roots :: (fn(manifest : &Manifest, exn : Exception) -> ImportRoots)(
   match(
     resolve_import_roots(manifest, read_lock_text(manifest, exn), exn),
     .Ok(r) => r,
@@ -411,7 +411,7 @@ resolve_build_import_roots :: (
     offline : bool,
     verbose : bool,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -467,7 +467,7 @@ _link_store_trees :: (
   fn(
     manifest : &Manifest,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -614,7 +614,7 @@ _evaluate_dependency_build_file :: (
     build_file : &String,
     defines : &HashMap(String, String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(BuildRegistry, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -651,7 +651,7 @@ _evaluate_dependency_builds :: (
     registry : &BuildRegistry,
     defines : &HashMap(String, String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -769,7 +769,7 @@ _evaluate_dependency_builds :: (
 /// manifest names its modules and its dependencies; the LOCK is the root
 /// project's — dependencies' git dependencies are recorded there.
 _dependency_import_lines :: (
-  fn(dep_dir : &String, root_lock_text : &Option(String), exn : &Exception) -> ArrayList(String)
+  fn(dep_dir : &String, root_lock_text : &Option(String), exn : Exception) -> ArrayList(String)
 )({
   lines := ArrayList(String).new();
   dep_manifest := match(project_manifest(dep_dir.clone(), exn), .Some(m) => m, .None => return(lines));
@@ -1263,7 +1263,7 @@ expand_workspace_members :: (
 /// declares, is an error that LISTS what is available — a mistyped member name
 /// should say what the choices were, not "build file not found".
 _resolve_workspace_member :: (
-  fn(package : &Option(String), io : Io, exn : &Exception) -> Impl(Future(Option(String), IoExn))
+  fn(package : &Option(String), io : Io, exn : Exception) -> Impl(Future(Option(String), IoExn))
 )(
   io.async((e : IoExn) => {
     name := match(package, .Some(n) => n, .None => return(Option(String).None));
@@ -1765,7 +1765,7 @@ compile_artifact :: (
     artifact : &BuildArtifact,
     ctx : &ExecutionContext,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2275,7 +2275,7 @@ run_executable :: (
     args : &ArrayList(String),
     ctx : &ExecutionContext,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2350,7 +2350,7 @@ run_verify_step :: (
     cfg : &BuildVerifyConfig,
     ctx : &ExecutionContext,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2389,7 +2389,7 @@ run_test_suite :: (
     suite : &BuildTestSuite,
     ctx : &ExecutionContext,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(Result(unit, String), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2482,7 +2482,7 @@ execute_node :: (
     node : &DAGNode,
     ctx : &ExecutionContext,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(StepResult, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2670,7 +2670,7 @@ _execute_node_unless_blocked :: (
     blocked : bool,
     ctx : &ExecutionContext,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(StepResult, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2708,7 +2708,7 @@ _execute_batch :: (
     results : &HashMap(String, StepResult),
     ctx : &ExecutionContext,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(ArrayList(StepResult), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2758,7 +2758,7 @@ execute_dag :: (
     dag : &ArrayList(DAGNode),
     ctx : &ExecutionContext,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(HashMap(String, StepResult), IoExn))
 )(
   io.async((e : IoExn) => {
@@ -2971,7 +2971,7 @@ print_build_summary :: (
 /// B7: it used to print a line per requested step without building a DAG,
 /// validating the step or detecting a cycle).
 _plan_step :: (
-  fn(step_name : &String, ctx : &ExecutionContext, exn : &Exception) -> ArrayList(DAGNode)
+  fn(step_name : &String, ctx : &ExecutionContext, exn : Exception) -> ArrayList(DAGNode)
 )({
   match(
     ctx.registry.find_step(step_name.clone()),
@@ -3040,7 +3040,7 @@ execute_step :: (
     ctx : &ExecutionContext,
     dry_run : bool,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -3212,7 +3212,7 @@ evaluate_build_file :: (
     defines : &HashMap(String, String),
     manifest_opt : &Option(Manifest),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(BuildRegistry, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -3248,7 +3248,7 @@ run_build :: (
   fn(
     options : &BuildOptions,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {

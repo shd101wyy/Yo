@@ -286,19 +286,19 @@ _get_arg :: (fn(expr : &AstExpr, i : usize) -> AstExpr)(
 /// E0009 for a closure parameter written with a deleted mode word: the
 /// parameter itself (`mut(n)`) or the label of `name : T` (`imm(v) : T`), in
 /// one parameter or a tuple of them.
-_reject_old_closure_param :: (fn(p : &AstExpr, exn : &Exception) -> unit)({
+_reject_old_closure_param :: (fn(p : &AstExpr, exn : Exception) -> unit)({
   reject_old_mode_spelling(p, exn);
   if(ast_expr_is_fn_call_of(p, ":", Option(usize).Some(usize(2))), {
     reject_old_mode_spelling(match(p, .FnCall(_, _, pa, _, _) => match(pa.get(usize(0)), .Some(l) => l, .None => p), .Atom(_, _) => p), exn);
   });
 });
-_reject_old_closure_param_list :: (fn(ps : &ArrayList(AstExpr), exn : &Exception) -> unit)({
+_reject_old_closure_param_list :: (fn(ps : &ArrayList(AstExpr), exn : Exception) -> unit)({
   (i : usize) = usize(0);
   while(i < ps.len(), i = (i + usize(1)), {
     match(ps.get(i), .Some(p) => _reject_old_closure_param(p, exn), .None => ());
   });
 });
-_reject_old_closure_params :: (fn(decl : &AstExpr, exn : &Exception) -> unit)(
+_reject_old_closure_params :: (fn(decl : &AstExpr, exn : Exception) -> unit)(
   cond(
     ast_expr_is_fn_call_of(decl, BK_TUPLE, Option(usize).None) => match(
       decl,
@@ -657,7 +657,7 @@ _trial_eval_annotation_type :: (
 /// Flag it on the flow-violation channel first so the def-time caller
 /// re-raises it, at the capture site.
 _raise_capture_rejection :: (
-  fn(ctx : &EvalContext, exn : &Exception, capture_tok : &Token, msg : &String) -> unit
+  fn(ctx : &EvalContext, exn : Exception, capture_tok : &Token, msg : &String) -> unit
 )(raise_flow_violation(format_error_message(capture_tok, msg), ctx, exn));
 _check_anon_fn_captures :: (
   fn(
@@ -668,7 +668,7 @@ _check_anon_fn_captures :: (
     func_id : &String,
     tok : &Token,
     ctx : &EvalContext,
-    exn : &Exception,
+    exn : Exception,
     /// The capture-list frame (decision 35): its borrow entries are `is_ref`
     /// by construction and second-class, so the `inout` rule skips them.
     (cap_frame_idx : Option(usize)) ?= Option(usize).None
@@ -799,7 +799,7 @@ _CapListEntry :: struct(
   root_name : String,
   path : ArrayList(String)
 );
-_cap_list_error :: (fn(ctx : &EvalContext, exn : &Exception, tok : &Token, msg : &String) -> unit)(
+_cap_list_error :: (fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit)(
   _raise_capture_rejection(ctx, exn, tok, msg)
 );
 /// The one argument of a prefix call `f(a)`.
@@ -879,7 +879,7 @@ _evaluate_capture_list :: (
     raw_entries : &ArrayList(AstExpr),
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception,
+    exn : Exception,
     /// The closure is typed `FnOnce(...)`: its capture struct dies at the
     /// call, so every by-value entry's dup is marked uncancellable
     /// (`mark_call_once_capture_dup`).
@@ -1088,7 +1088,7 @@ evaluate_anonymous_function_implementation :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   tok := ast_expr_token(expr);

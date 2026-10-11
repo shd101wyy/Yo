@@ -412,7 +412,7 @@ collect_module_deps :: (
     visited : &mut ArrayList(String),
     all_exprs : &mut ArrayList(AstExpr),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   // Standard library imports: when std_base is empty, skip (legacy behavior —
@@ -585,7 +585,7 @@ _resolve_for_match :: (fn(p : &String) -> String)({
 /// may be replaced: in-process compiles (`build --watch`, `YO_TEST_IN_PROCESS`,
 /// the warm selfcheck) must come back to their caller.
 (g_compile_may_exec_cc : bool) = false;
-_index_std_exports :: (fn(std_path : &String, io : Io, exn : &Exception) -> unit)({
+_index_std_exports :: (fn(std_path : &String, io : Io, exn : Exception) -> unit)({
   if(g_std_exports_indexed, {
     return(());
   });
@@ -593,7 +593,7 @@ _index_std_exports :: (fn(std_path : &String, io : Io, exn : &Exception) -> unit
   _index_std_dir(std_path.clone(), std_path.clone(), io, exn);
 });
 _index_std_dir :: (
-  fn(root : &String, dir : &String, io : Io, exn : &Exception) -> unit
+  fn(root : &String, dir : &String, io : Io, exn : Exception) -> unit
 )({
   entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
   files := ArrayList(String).new();
@@ -703,7 +703,7 @@ _walk_check_dir :: (
     dir : &String,
     out : &mut ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   entries := io.await(read_dir(Path.new(dir.clone()), io), IoExn(io : io, exn : exn));
@@ -758,7 +758,7 @@ collect_check_files :: (
     path_str : &String,
     excludes : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(String)
 )({
   raw := ArrayList(String).new();
@@ -845,7 +845,7 @@ collect_check_files :: (
 /// annotated std/collections made every tier-1 `check ./std` red in
 /// solver-less environments).
 _run_contract_verification :: (
-  fn(io : Io, exn : &Exception, strict_missing_solver : bool, record_guard_sites : bool) -> bool
+  fn(io : Io, exn : Exception, strict_missing_solver : bool, record_guard_sites : bool) -> bool
 )({
   // 5b: every compile starts with an empty proved-site table (watch rounds).
   clear_proved_guard_sites();
@@ -929,7 +929,7 @@ check_single_file :: (
     input_path : &String,
     std_path : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> bool
 )({
   // V3: arm this file as THE verification target (both path spellings —
@@ -966,7 +966,7 @@ _arg_val :: (fn(argv : &ArrayList(String), i : usize) -> String)(
 /// (`yo compile -o` with nothing after silently produced an empty output name
 /// and a `.c` sidecar named `.c`).
 _arg_val_req :: (
-  fn(argv : &ArrayList(String), i : usize, flag : &String, exn : &Exception) -> String
+  fn(argv : &ArrayList(String), i : usize, flag : &String, exn : Exception) -> String
 )({
   if((i + usize(1)) < argv.len(), {
     return(argv(i + usize(1)));
@@ -1022,7 +1022,7 @@ _PendingFix :: struct(row : usize, col : usize, len : usize, replacement : Strin
 /// position backwards so an earlier edit cannot invalidate a later span.
 /// Returns the number applied.
 _apply_fixes_to_file :: (
-  fn(path : &String, fixes : &mut ArrayList(_PendingFix), io : Io, exn : &Exception) -> usize
+  fn(path : &String, fixes : &mut ArrayList(_PendingFix), io : Io, exn : Exception) -> usize
 )({
   if(fixes.len() == usize(0), {
     return(usize(0));
@@ -1105,7 +1105,7 @@ _rune_slice :: (fn(line : &String, col : usize, len : usize) -> String)({
 /// scrutinee a `match` cannot move, records `&` before the scrutinee. Read
 /// with today's borrowing `match`, the edit changes nothing.
 _run_migrate_params :: (
-  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : &Exception, (match_scrutinee : bool) ?= false) -> unit
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception, (match_scrutinee : bool) ?= false) -> unit
 )({
   if(match_scrutinee, set_migrate_match_scrutinee(true), set_migrate_param_modes(true));
   what_migrates := if(match_scrutinee, String.from("match scrutinees"), String.from("parameters"));
@@ -1235,7 +1235,7 @@ _parse_or_none :: (fn(src : &String, file : &String) -> Option(ArrayList(AstExpr
   local_exn := Exception(throw : (_err -> unwind(Option(ArrayList(AstExpr)).None)));
   Option(ArrayList(AstExpr)).Some(parse(src, file, local_exn))
 });
-_run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : &Exception) -> unit)({
+_run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : Exception) -> unit)({
   (n_sink : usize) = usize(0);
   (n_stale : usize) = usize(0);
   (failed : usize) = usize(0);
@@ -1720,7 +1720,7 @@ _raw_parse_or_none :: (fn(src : &String, file : &String) -> Option(ArrayList(Ast
   p := Parser.new(src, file, local_exn);
   Option(ArrayList(AstExpr)).Some(p.get_program(local_exn))
 });
-_run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : &Exception) -> unit)({
+_run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : Exception) -> unit)({
   counts := _bsm_new_counts();
   (n_stale : usize) = usize(0);
   (n_left : usize) = usize(0);
@@ -1849,7 +1849,7 @@ _addr_of_span_end :: (fn(runes : &ArrayList(rune), col : usize, expect : &String
 /// with their position and left as written; a second run picks up a nested
 /// one. Code that evaluation never reaches is not seen.
 _run_migrate_addr_of :: (
-  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : &Exception) -> unit
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
 )({
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
@@ -2024,7 +2024,7 @@ run_fix :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -2285,7 +2285,7 @@ run_check :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -2426,7 +2426,7 @@ run_verify_cmd :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   (target_path : String) = String.new();
@@ -3183,7 +3183,7 @@ _opt_step :: (fn(attached : &Option(String)) -> usize)(
 /// The value of a value option: the attached `=value` when present, else the
 /// (required) next argv entry.
 _opt_value :: (
-  fn(argv : &ArrayList(String), i : usize, flag : &String, attached : &Option(String), exn : &Exception) -> String
+  fn(argv : &ArrayList(String), i : usize, flag : &String, attached : &Option(String), exn : Exception) -> String
 )(
   match(attached, .Some(v) => v, .None => _arg_val_req(argv, i, flag, exn))
 );
@@ -3724,7 +3724,7 @@ _compile_chunks_parallel :: (
     hits_out : &mut ArrayList(usize),
     verbose : bool,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(String)
 )({
   objs := ArrayList(String).new();
@@ -3894,7 +3894,7 @@ _print_compile_profile :: (
   fn(
     json_path : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(!profile_enabled(), {
@@ -4030,7 +4030,7 @@ _print_compile_profile :: (
 /// Write the depfile: one `<sha256> <absolute path>` line per input, in
 /// first-open order. `files` is `input_file_entries()`, already formatted.
 _write_depfile :: (
-  fn(path : &String, files : &ArrayList(String), io : Io, exn : &Exception) -> Impl(Future(unit, IoExn))
+  fn(path : &String, files : &ArrayList(String), io : Io, exn : Exception) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
     body := String.new();
@@ -4074,7 +4074,7 @@ _compile_fail :: (fn(watch_mode : bool, code : int) -> unit)({
   });
   unsafe(exit(code));
 });
-run_warm_selfcheck_compile :: (fn(argv : &ArrayList(String), io : Io, exn : &Exception) -> unit)({
+run_warm_selfcheck_compile :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> unit)({
   input := match(
     argv.get(usize(2)),
     .Some(x) => x.clone(),
@@ -4273,7 +4273,7 @@ _cc_plan_serialize :: (fn(plan : &CcPlan) -> String)({
   _cc_plan_push_list(out, "chunk_hash", plan.chunk_hashes);
   out
 });
-_cc_plan_parse :: (fn(text : &String, exn : &Exception) -> CcPlan)({
+_cc_plan_parse :: (fn(text : &String, exn : Exception) -> CcPlan)({
   plan := _new_cc_plan(_CC_PLAN_EXE, String.new(), String.new(), String.new());
   lines := text.split(String.from("\n"));
   if(match(lines.get(usize(0)), .Some(l) => (l != "yo-cc-plan 1"), .None => true), {
@@ -4609,7 +4609,7 @@ _report_captured_cc_stderr :: (fn(captured_err : &ArrayList(u8)) -> unit)({
 });
 /// Run a plan: the C-compiler half of `run_compile`, unchanged in behaviour
 /// wherever it runs.
-_run_cc_plan :: (fn(plan : &CcPlan, io : Io, exn : &Exception) -> unit)({
+_run_cc_plan :: (fn(plan : &CcPlan, io : Io, exn : Exception) -> unit)({
   cc := plan.cc;
   if(plan.mode == _CC_PLAN_STATIC_LIB, {
     if(plan.verbose, {
@@ -4731,7 +4731,7 @@ _run_cc_plan :: (fn(plan : &CcPlan, io : Io, exn : &Exception) -> unit)({
 /// before cc starts. Not taken on Windows (no execve that keeps the waiting
 /// parent), under `--profile` (the phase table lives in this process), or with
 /// `YO_CC_IN_PROCESS=1`.
-_finish_cc_plan :: (fn(plan : &CcPlan, profile_json : &String, io : Io, exn : &Exception) -> unit)({
+_finish_cc_plan :: (fn(plan : &CcPlan, profile_json : &String, io : Io, exn : Exception) -> unit)({
   may_exec := (g_compile_may_exec_cc && !(platform == Platform.Windows) && (!profile_enabled() && proc_env.get(String.from("YO_CC_IN_PROCESS")).is_none()));
   if(may_exec, {
     match(
@@ -4758,7 +4758,7 @@ _finish_cc_plan :: (fn(plan : &CcPlan, profile_json : &String, io : Io, exn : &E
 });
 /// `yo __cc-plan <file>`: run a C-compiler plan written by `_finish_cc_plan`
 /// in this fresh image, then remove the file. Not a user command.
-run_cc_plan_cmd :: (fn(argv : &ArrayList(String), io : Io, exn : &Exception) -> unit)({
+run_cc_plan_cmd :: (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> unit)({
   plan_path := match(
     argv.get(usize(2)),
     .Some(p) => p,
@@ -4775,7 +4775,7 @@ run_compile :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(argv.len() < usize(3), {
@@ -6262,7 +6262,7 @@ export(run_compile);
 /// anything else is an error rather than a silent single-package run, because
 /// `--workspace` in a non-workspace is always a mistake.
 _collect_workspace_test_files :: (
-  fn(excludes : &ArrayList(String), io : Io, exn : &Exception) -> ArrayList(String)
+  fn(excludes : &ArrayList(String), io : Io, exn : Exception) -> ArrayList(String)
 )({
   cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
   root_path := match(
@@ -6305,7 +6305,7 @@ _collect_test_files :: (
     path_str : &String,
     excludes : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> ArrayList(String)
 )({
   // `excludes` has the same semantics as `check --exclude`: a path is skipped if
@@ -6351,7 +6351,7 @@ _collect_test_files :: (
 /// The textual pre-filter (a line starting with `test(`) keeps the walk cheap;
 /// the parse behind it is what decides, so a `test(` inside a multi-line
 /// string literal cannot turn a fixture into a test file.
-_module_has_inline_tests :: (fn(path : &String, io : Io, exn : &Exception) -> bool)({
+_module_has_inline_tests :: (fn(path : &String, io : Io, exn : Exception) -> bool)({
   src := String.from_bytes(io.await(read(Path.new(path.clone()), io), IoExn(io : io, exn : exn)));
   if(!(src.starts_with(String.from("test(")) || src.contains(String.from("\ntest("))), {
     return(false);
@@ -6457,7 +6457,7 @@ _current_rss_mb :: (fn() -> usize)(
 /// Append the file at `src_path` to `dst` in 4 MiB pieces (the code spill,
 /// plans/CODEGEN_MEMORY_REDUCTION.md §3 lever 3: reading it whole would put
 /// the ~110 MB of function bodies back in memory at the end).
-_copy_file_into :: (fn(src_path : &String, dst : &File, io : Io, exn : &Exception) -> unit)({
+_copy_file_into :: (fn(src_path : &String, dst : &File, io : Io, exn : Exception) -> unit)({
   chunk := usize(4194304);
   src := io.await(File.open(Path.new(src_path), .Read, io), IoExn(io : io, exn : exn));
   buf := (*u8)(valve_malloc(chunk).unwrap());
@@ -6643,7 +6643,7 @@ run_test :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   // The positional path defaults to "." — a bare `yo test` runs the current
@@ -7889,7 +7889,7 @@ run_effects :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   (target_path : String) = String.new();
@@ -8194,7 +8194,7 @@ run_init :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   (dir : String) = String.from(".");
@@ -8244,7 +8244,7 @@ run_fmt :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   // Parse arguments — collect positional paths, detect --check flag.
@@ -8322,7 +8322,7 @@ run_cache :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   usage := "Usage: yo cache <path|clean|gc>";
@@ -8350,7 +8350,7 @@ _cache_clean :: (
   fn(
     cache_dir : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   present := io.await(exists(Path.new(cache_dir.clone()), io), io);
@@ -8393,7 +8393,7 @@ _cache_gc :: (
   fn(
     cache_dir : &String,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   present := io.await(exists(Path.new(cache_dir.clone()), io), io);
@@ -8421,7 +8421,7 @@ run_add_cmd :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   usage := "Usage: yo add <spec> [--dev] [--path <subdir>] [--name <name>] [--branch <branch>] [--rev <sha>] [--verbose]";
@@ -8506,7 +8506,7 @@ run_remove_cmd :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   usage := "Usage: yo remove <name> [--verbose]";
@@ -8546,7 +8546,7 @@ run_install_cmd :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   usage := "Usage: yo install [--locked] [--offline] [--verbose]";
@@ -8596,7 +8596,7 @@ run_update_cmd :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   usage := "Usage: yo update [name...] [--latest] [--offline] [--verbose]";
@@ -8670,7 +8670,7 @@ _build_round_watch :: (fn(opts : &BuildOptions, io : Io) -> bool)({
 /// `-j N` — nodes per DAG level (§4.8). Zero, a non-number or a negative
 /// value is an error rather than a silent 1: a mistyped `-j` should not look
 /// like a sequential build.
-_parse_jobs :: (fn(value : &String, exn : &Exception) -> usize)(
+_parse_jobs :: (fn(value : &String, exn : Exception) -> usize)(
   match(
     value.parse_u64(),
     .Some(n) => if(n > u64(0), usize(n), {
@@ -8688,7 +8688,7 @@ run_build_cmd :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   steps := ArrayList(String).new();
@@ -8870,7 +8870,7 @@ run_build_cmd :: (
   // issues/fixed/warm-in-process-array-fill-call-stops-matching.md.
   if(watch, {
     set_in_process_compile_fn(
-      (fn(argv : &ArrayList(String), io : Io, exn : &Exception) -> bool)({
+      (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> bool)({
         g_compile_watch_failed = false;
         run_compile(argv, io, exn);
         !g_compile_watch_failed
@@ -8967,7 +8967,7 @@ run_unsafe_report_cmd :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   (target : String) = String.from(".");
@@ -9005,7 +9005,7 @@ run_public_safe_report_cmd :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   (target : String) = String.from("./std");
@@ -9040,7 +9040,7 @@ run_doc_cmd :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   (input : String) = String.from(".");
@@ -9172,7 +9172,7 @@ run_version_cmd :: (
   fn(
     argv : &ArrayList(String),
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   (action : String) = String.from("");
@@ -9563,7 +9563,7 @@ _print_indented :: (fn(text : &String) -> unit)({
 /// env var) selects the Chinese prose. Exit 0 when found; an unknown code
 /// exits 1 with a did-you-mean over the registry.
 run_explain :: (
-  fn(argv : &ArrayList(String), io : Io, exn : &Exception) -> unit
+  fn(argv : &ArrayList(String), io : Io, exn : Exception) -> unit
 )({
   (show_list : bool) = false;
   (as_json : bool) = false;

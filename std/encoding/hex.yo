@@ -106,7 +106,7 @@ decode :: (fn(s : &String) -> Result(ArrayList(u8), EncodingError))({
 });
 /// `decode` as an effect: throws the `EncodingError` through `exn`
 /// instead of returning it. Kept for callers already inside an effect scope.
-decode_exn :: (fn(s : &String, exn : &Exception) -> ArrayList(u8))(
+decode_exn :: (fn(s : &String, exn : Exception) -> ArrayList(u8))(
   match(decode(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
 );
 export(decode, decode_exn);
@@ -122,5 +122,5 @@ hex_encode :: (fn(data : &ArrayList(u8)) -> String)(encode(data));
 /// DEPRECATED, removed in v0.2.32: call `hex.decode`.
 hex_decode :: (fn(s : &String) -> Result(ArrayList(u8), EncodingError))(decode(s));
 /// DEPRECATED, removed in v0.2.32: call `hex.decode_exn`.
-hex_decode_exn :: (fn(s : &String, exn : &Exception) -> ArrayList(u8))(decode_exn(s, exn));
+hex_decode_exn :: (fn(s : &String, exn : Exception) -> ArrayList(u8))(decode_exn(s, exn));
 export(hex_encode, hex_decode, hex_decode_exn);

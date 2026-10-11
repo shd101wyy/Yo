@@ -60,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
 /// stands for: the prelude comptime type-constructor is called with `V`
 /// pre-bound to inner_type in the callee env (evaluate_comptime_fn_call evals
 /// the body in the passed callee_env and does NOT bind params).
-_create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Environment, ctx : &EvalContext, exn : &Exception) -> Option(TypeValue))({
+_create_box_type_via :: (fn(ctor : &String, inner_type : &TypeValue, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(TypeValue))({
   vars := get_variables_from_env(env, ctor.clone());
   (box_fv : Option(EvalValue)) = Option(EvalValue).None;
   (box_ft : TypeValue) = t_unit();
@@ -247,7 +247,7 @@ _require_dyn_traits_implemented :: (
     token : &Token,
     ctx : &EvalContext,
     env : &Environment,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   // Decide the bound on the UNDERLYING type when the payload is an Rc: both
@@ -459,7 +459,7 @@ _require_send_dyn_methods_reach_no_global :: (
     token : &Token,
     ctx : &EvalContext,
     env : &Environment,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   if(is_implicitly_unsafe_capable_file(Option(String).Some(token.module_path.clone())), {
@@ -527,7 +527,7 @@ _require_send_dyn_methods_reach_no_global :: (
 /// via the get_trait_default fall-through. Returns `fv` unchanged when it is not
 /// a FuncVal or not the default.
 _monomorphize_default_fv :: (
-  fn(fv : &EvalValue, default_fid : &String, value_type : &TypeValue, caller_env : &Environment, ctx : &EvalContext, exn : &Exception) -> EvalValue
+  fn(fv : &EvalValue, default_fid : &String, value_type : &TypeValue, caller_env : &Environment, ctx : &EvalContext, exn : Exception) -> EvalValue
 )(
   cond(
     !is_func_val(fv) => fv,
@@ -561,7 +561,7 @@ _monomorphize_default_fv :: (
 /// (issues/fixed/dyn-cannot-resolve-a-trait-method-that-comes-from-a-generic-impl.md).
 /// A candidate from the Dyn's own trait is preferred.
 _generic_impl_method_for_dyn :: (
-  fn(receiver_type : &TypeValue, fname : &String, trait_id : &String, caller_env : &Environment, ctx : &EvalContext, exn : &Exception) -> Option(EvalValue)
+  fn(receiver_type : &TypeValue, fname : &String, trait_id : &String, caller_env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(EvalValue)
 )({
   cands := find_methods_from_generic_impls(receiver_type, fname, caller_env);
   (picked : Option(MethodCandidate)) = Option(MethodCandidate).None;
@@ -617,7 +617,7 @@ _generic_impl_method_for_dyn :: (
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8); before this the evaluator
 /// accepted it and codegen wrote its refusal into the C as a comment
 /// (issues/fixed/dyn-of-an-existing-dyn-value-emits-an-error-comment-into-the-c.md).
-_reject_dyn_of_dyn :: (fn(ty : &TypeValue, tok : &Token, exn : &Exception) -> unit)({
+_reject_dyn_of_dyn :: (fn(ty : &TypeValue, tok : &Token, exn : Exception) -> unit)({
   if(is_dyn_type(ty), {
     exn.throw(
       dyn(
@@ -632,7 +632,7 @@ _reject_dyn_of_dyn :: (fn(ty : &TypeValue, tok : &Token, exn : &Exception) -> un
     );
   });
 });
-_resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue, ctx : &EvalContext, caller_env : &Environment, exn : &Exception) -> ArrayList(EvalValue))({
+_resolve_dyn_trait_values :: (fn(dyn_type : &TypeValue, value_type : &TypeValue, ctx : &EvalContext, caller_env : &Environment, exn : Exception) -> ArrayList(EvalValue))({
   trait_vals := ArrayList(EvalValue).new();
   // Resolve trait methods on the UNDERLYING type when the payload is an Rc.
   method_lookup_type := _unwrap_box_for_method_lookup(value_type);
@@ -772,7 +772,7 @@ _dyn_type_from_payload_or_throw :: (
     expr_tok : &Token,
     expected_ty : &Option(TypeValue),
     have_payload_ty : bool,
-    exn : &Exception
+    exn : Exception
   ) -> TypeValue
 )(
   match(
@@ -813,7 +813,7 @@ _dyn_type_from_payload_or_throw :: (
 /// Decision 37: `Fn` implies `FnOnce`, never the reverse. A closure typed
 /// `FnOnce(...)` boxed as a `Dyn(Fn(...))` could be called again through the
 /// `Fn` slot, re-running a body that already gave its captures away (E0913).
-_reject_fnonce_into_dyn_fn :: (fn(target : &Option(ExpectedTypeCtx), value_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : &Exception) -> unit)({
+_reject_fnonce_into_dyn_fn :: (fn(target : &Option(ExpectedTypeCtx), value_ty : &TypeValue, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
   target_base := match(
     target,
     .Some(t) => match(
@@ -840,7 +840,7 @@ evaluate_dyn_value :: (
     expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception
+    exn : Exception
   ) -> AstExpr
 )({
   expr_tok := ast_expr_token(expr);

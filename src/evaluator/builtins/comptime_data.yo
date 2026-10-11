@@ -151,7 +151,7 @@ _comptime_value_type :: (fn(env : &Environment) -> Option(TypeValue))({
 /// error. `.None` means "this is a trial run" — the argument has no value yet,
 /// so there is nothing to parse.
 _string_argument :: (
-  fn(name : &String, expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> Option(String)
+  fn(name : &String, expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(String)
 )({
   args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
   if(args.len() != usize(1), {
@@ -200,7 +200,7 @@ _annotate :: (fn(expr : &AstExpr, value : &Option(EvalValue), env : &Environment
   expr
 });
 evaluate_comptime_json_parse :: (
-  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr
 )({
   src := _string_argument(String.from(BF_COMPTIME_JSON_PARSE), expr, env, ctx, exn);
   if(src.is_none(), {
@@ -225,7 +225,7 @@ evaluate_comptime_json_parse :: (
   _annotate(expr, Option(EvalValue).Some(lifted), env, ctx)
 });
 evaluate_comptime_toml_parse :: (
-  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : &Exception) -> AstExpr
+  fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr
 )({
   src := _string_argument(String.from(BF_COMPTIME_TOML_PARSE), expr, env, ctx, exn);
   if(src.is_none(), {

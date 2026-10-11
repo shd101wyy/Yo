@@ -138,7 +138,7 @@ build_path_collection_from_captured_variables :: (
 /// channel — flag a flow violation first, then throw — the same shape as the
 /// callable-argument and C19 checks in calls/helper.yo.
 _raise_capture_trait_violation :: (
-  fn(ctx : &EvalContext, exn : &Exception, tok : &Token, msg : &String) -> unit
+  fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit
 )(raise_flow_violation(format_error_message(tok, msg), ctx, exn));
 /// The type a captured variable is JUDGED by for a marker trait such as
 /// `Send`. A captured CLOSURE arrives as its `Impl(Fn(...))` wrapper SomeT,
@@ -627,7 +627,7 @@ validate_send_closure_global_reach :: (
     env : &Environment,
     ctx : &EvalContext,
     error_token : &Token,
-    exn : &Exception
+    exn : Exception
   ) -> unit
 )({
   // The thread marker the slot requires (`Send` first), or "": D1 covers a
@@ -695,7 +695,7 @@ validate_capture_trait_requirements :: (
     env : &Environment,
     ctx : &EvalContext,
     error_token : &Token,
-    exn : &Exception,
+    exn : Exception,
     // The closure borrows its captures (`record_closure_capture_verdicts`).
     (borrows_captures : bool) ?= false
   ) -> unit
@@ -1208,7 +1208,7 @@ generate_captured_variable_dup_expressions :: (
     captured_vars_with_values : &Option(HashMap(String, FuncCapturedVarInfo)),
     env : &Environment,
     ctx : &EvalContext,
-    exn : &Exception,
+    exn : Exception,
     /// The closure's token: where a capture that is not implicitly copyable
     /// is moved, and the copy site YO_AUDIT_IMPLICIT_COPY reports for each
     /// dupped capture.

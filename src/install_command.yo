@@ -166,7 +166,7 @@ _user_cwd :: (fn() -> String)(
 );
 /// The manifest governing the user's cwd (the nearest `yo.toml` at or above
 /// it), loaded. An error when there is none or it does not parse.
-load_project_manifest :: (fn(exn : &Exception) -> Manifest)({
+load_project_manifest :: (fn(exn : Exception) -> Manifest)({
   start := _user_cwd();
   path := match(
     find_manifest(start.clone()),
@@ -227,7 +227,7 @@ install_dependencies :: (
     offline : bool,
     verbose : bool,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(LockFile, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -271,7 +271,7 @@ run_add :: (
   fn(
     options : &AddOptions,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -450,7 +450,7 @@ run_remove :: (
     name : &String,
     verbose : bool,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -534,7 +534,7 @@ _bump_ranges_to_latest :: (
     names : &ArrayList(String),
     verbose : bool,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(Manifest, IoExn))
 )(
   io.async((e : IoExn) => {
@@ -637,7 +637,7 @@ run_install :: (
   fn(
     options : &InstallOptions,
     io : Io,
-    exn : &Exception
+    exn : Exception
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
