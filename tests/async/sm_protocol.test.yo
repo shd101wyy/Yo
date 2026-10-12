@@ -34,8 +34,10 @@ test("two tasks awaiting one pending future both resume", {
     io.await(sleep(u64(5)), io);
     i32(7)
   });
-  a := io.async((io : Io) => io.await(shared, io));
-  b := io.async((io : Io) => io.await(shared, io));
+  // A future is awaited once (§3.13 A1): the two waiters join its task.
+  hs := io.spawn(shared, io);
+  a := io.async((io : Io) => match(io.await(hs.join(io), io), .Some(v) => v, .None => i32(-1)));
+  b := io.async((io : Io) => match(io.await(hs.join(io), io), .Some(v) => v, .None => i32(-1)));
   ha := io.spawn(a, io);
   hb := io.spawn(b, io);
   ra := ha.await(io);
@@ -51,12 +53,12 @@ test("aborting a task wakes the task awaiting it", {
     i32(7)
   });
   hf := io.spawn(f, io);
-  a := io.async((io : Io) => io.await(f, io));
+  a := io.async((io : Io) => io.await(hf.join(io), io).is_none());
   ha := io.spawn(a, io);
   io.await(yield(io), io);
   hf.abort();
   ra := ha.await(io);
-  assert(ra.is_none(), "the awaiter observed the abort and was aborted in turn");
+  assert(match(ra, .Some(seen) => seen, .None => false), "the awaiter woke and observed the abort");
   rf := hf.await(io);
   assert(rf.is_none(), "the aborted task reads .None");
 });

@@ -432,7 +432,8 @@ spawn_blocking :: (
   // delivered its value and its wake, so joining would only block the loop on
   // the thread's own teardown. Dropping the handle detaches it.
   _detached := worker;
-  io.async((io : Io) => {
+  // The task owns the park (it is waited on once, §3.13 A5) and the channel.
+  io.async({ p, chan }(io : Io) => {
     io.await(p.wait(io), io);
     _take_blocking_result(&chan)
   })

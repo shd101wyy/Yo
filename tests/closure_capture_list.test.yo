@@ -525,10 +525,16 @@ test("borrow places: a `mut` capture's place must be writable", {
     "needs a writable place"
   );
 });
-test("borrow places: a capture list on an `io.async` body is not supported yet", {
+test("borrow places: a borrow in an `io.async` body's capture list is not supported yet", {
   k := i32(1);
-  comptime_expect_error(io.async({ k }(io : Io) => k), "not supported yet");
+  comptime_expect_error(io.async({ &k }(io : Io) => k), "not supported yet");
   assert(k == i32(1), "k is untouched");
+});
+test("an `io.async` body's by-value capture list moves a captured future out", {
+  k := i32(1);
+  inner := io.async((io : Io) => (k + i32(40)));
+  outer := io.async({ inner, k }(io : Io) => (io.await(inner, io) + k));
+  assert(io.await(outer, io) == i32(42), "the body awaited the future it owns");
 });
 // A `cond`/`match` TAIL joins at the arms' concrete closure type, not the
 // declared `Impl(Fn)` result, so a borrowing closure returned through one

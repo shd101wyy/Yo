@@ -56,7 +56,7 @@ Below is a non-exhaustive list of features that Yo supports:
 - Homoiconicity and metaprogramming (**Yo** syntax is inspired by the **Lisp** S expression. Simple syntax rule, Human & AI friendly).
 - Closure.
 - [Algebraic Effects and Handlers](./docs/en-US/ALGEBRAIC_EFFECTS.md) (One-shot delimited continuation. Tail-Resumptive. Effect handlers with `return`/`unwind`, by [Evidence Passing](https://xnning.github.io/papers/multip.pdf)).
-- [Async/await](./docs/en-US/ASYNC_AWAIT.md) (Builtin `Io` effect. Stackless coroutine & Cooperative multi-tasking. Lazy Futures, multi-await, single-threaded concurrency via state machine transformation).
+- [Async/await](./docs/en-US/ASYNC_AWAIT.md) (Builtin `Io` effect. Stackless coroutine & Cooperative multi-tasking. Lazy move-only Futures, single-threaded concurrency via state machine transformation).
 - [FFI](./docs/en-US/FFI.md) — `c_include(...)` / `extern(...)` evaluate to module values: bind, select, rename, or glob their members; a bare declaration is the glob; no shadowing.
 - [Memory safety by default](./docs/en-US/MEMORY_SAFETY.md) — user code can't write UB (no raw pointers, no FFI, no inline assembly) without an explicit `pragma(Pragma.AllowUnsafe);` opt-in. `name : &mut T` parameters for in-place mutation; `yo unsafe-report` for auditing the unsafe surface.
 - [Explicit allocators](./docs/en-US/EXPLICIT_ALLOCATORS.md) — Zig-style placement beside reference counting: `with_allocator(arena.allocator(), f)` puts every object and container buffer `f` creates in an arena, RC still decides when each dies, and `Arena.deinit` panics instead of freeing under a live block.
