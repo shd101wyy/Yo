@@ -2952,6 +2952,21 @@ and in git, not a silent edit.
         is the carve-out, not a violation. No implicit route to a `Dyn`
         exists: not for a trait object over a nominal type, and not for a
         closure.
+      - **`&dyn(v)` is also `&Dyn(Trait)`, over a temporary.** `dyn(v)`
+        is an owned `Dyn(Trait)` (`v` moved into a heap cell) and `&`
+        over an owned `Dyn` lends its payload, so `&dyn(v)` has the same
+        type as `dyn(&v)` but points at a throwaway box. It follows the
+        temporary rules already in this plan: as a call argument
+        (`use(&dyn(v))`, `use : fn(x : &Dyn(Trait))`) it is legal, the
+        cell lives for the call and is freed after, and the `&` is
+        redundant because a temporary passed to a `&T` parameter is
+        exempt from the marker (decision 33), so the plain spelling is
+        `use(dyn(v))`; it allocates and consumes `v`, which `use(dyn(&v))`
+        does not. In a binding (`r := &dyn(v)`) or a capture list
+        (`{ r : &dyn(v) }`) it is the error a borrow of a temporary already
+        is (`t : &make_name()`): the cell dies at the end of the statement
+        and there is no lifetime extension. The one way to a borrowed
+        trait object over a value the caller keeps is `dyn(&v)`.
       - **A closure into a `Dyn(Fn(...))` slot is `dyn(f)` too**
         (maintainer, 2026-10-12: "make everything explicit when
         possible"). A closure literal in a `Dyn(Fn)` slot is already
@@ -3029,7 +3044,10 @@ and in git, not a silent edit.
       error naming `dyn(f)` at each site, and `dyn(f)` at each of the four
       compiles and runs (the issue's reproducer); a named `fn` the same
       way; `dyn(&f)` into a `&Dyn(Fn(...))` parameter calls with no
-      allocation.
+      allocation; `use(&dyn(v))` and `use(dyn(v))` both call and count one
+      allocation, `r := &dyn(v)` is an error naming the temporary, and `v`
+      is still usable after `use(dyn(&v))` and consumed after
+      `use(dyn(v))`.
 
 ## 5. Prerequisites, gates and the seed
 
