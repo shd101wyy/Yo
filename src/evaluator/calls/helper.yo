@@ -75,7 +75,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_second_class_escape, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -99,7 +99,8 @@ pragma(Pragma.AllowUnsafe);
   type_contains_rc_type,
   type_has_no_open_some,
   resolve_cell_chain,
-  fn_param_is_ptr_borrow
+  fn_param_is_ptr_borrow,
+  is_future_value_type
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -1170,16 +1171,19 @@ consume_argument_for_parameter :: (
     /// the same call also passes `inout`.
     (aliased_by_inout : bool) ?= false,
     /// The parameter is declared `sink(x)`: the argument moves, never shared.
-    (param_is_sink : bool) ?= false
+    (param_is_sink : bool) ?= false,
+    /// The slot is `io.async`'s body or `io.await`'s future, which accept a
+    /// second-class argument (decision 37, §3.13 A2).
+    (second_class_slot : bool) ?= false
   ) -> Option(AstExpr)
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
   // Decision 38 A: a second-class value is never moved into a by-value
-  // (`sink`) parameter: the callee could keep it past the borrow. In
-  // Generation A only a `sink` parameter is by value; Generation B's flip
-  // makes every plain parameter one.
-  if(param_is_owning && !param_is_ct, {
-    reject_second_class_escape(&arg_info.ty, String.from("moved into a by-value (`sink`) parameter"), ast_expr_token(actual_arg), ctx, exn);
+  // parameter: the callee could keep it past the borrow. `io.async`'s body
+  // and `io.await`'s future are the exceptions: the future a borrowing body
+  // makes is itself second-class, and an await finishes inside the borrow.
+  if(param_is_owning && !param_is_ct && !second_class_slot, {
+    reject_second_class_escape(&arg_info.ty, if(is_future_value_type(&arg_info.ty), String.from("spawned or moved into a by-value parameter (a borrowing future is awaited where it is made, §3.13 A2)"), String.from("moved into a by-value (`sink`) parameter")), ast_expr_token(actual_arg), ctx, exn);
   });
   // A value with nothing to transfer — no counted payload and implicitly
   // copyable, a `Copy` value — is COPIED into a by-value parameter and stays
@@ -1431,7 +1435,10 @@ check_if_function_parameter_matches_argument :: (
     (param_is_sink : bool) ?= false,
     /// A projection's `&T` parameter, passed by pointer
     /// (`fn_param_is_ptr_borrow`): it binds as a non-reassignable reference.
-    (param_is_ptr_borrow : bool) ?= false
+    (param_is_ptr_borrow : bool) ?= false,
+    /// The call is `io.async(...)` or `io.await(...)`: a by-value slot that
+    /// accepts a second-class body or future (decision 37, §3.13 A2).
+    (second_class_slot : bool) ?= false
   ) -> CheckParamResult
 )({
   // Step 1: labels are readability-only (see `strip_argument_label`).
@@ -1512,7 +1519,7 @@ check_if_function_parameter_matches_argument :: (
     runtime_arg_exprs_in_order.push(evaled_arg);
   });
   // Steps 4a–4c: the shared ownership rule (`consume_argument_for_parameter`).
-  s0_drop_captured := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink);
+  s0_drop_captured := consume_argument_for_parameter(&evaled_arg, &actual_arg, &arg_info, param_is_owning, is_ct_only, param_is_ref, callee_is_extern, &caller_env_r, ctx, exn, aliased_by_inout, param_is_sink, second_class_slot);
   s0_marked_arg_captured := if(s0_drop_captured.is_some(), Option(AstExpr).Some(evaled_arg), Option(AstExpr).None);
   // Step 5b: assigned-value check — if the parameter has an assigned value,
   // check that the argument value matches it. This is used for overload
@@ -4144,7 +4151,7 @@ create_specialized_function_inline :: (
               // Decision 38 A: a second-class value is never returned, which a
               // specialization checks per instantiation (`Impl(Fn)` bodies).
               if(!has_any_control_flow(sb_info.control_flow), {
-                reject_second_class_escape(&sb_ty, String.from("returned"), ast_expr_token(&cloned_body), ctx, exn);
+                reject_second_class_return(&sb_ty, ast_expr_token(&cloned_body), callee_env, ctx, exn);
               });
               sb_skip := (has_any_control_flow(sb_info.control_flow) || is_void_type(&spec_ret_ty) || is_type_hierarchy_type(&spec_ret_ty) || (get_all_some_types(&spec_ret_ty).len() > usize(0)) || (get_all_some_types(&sb_ty).len() > usize(0)) || sb_ret_is_ref);
               if(!sb_skip && !are_types_compatible(&sb_ty, &spec_ret_ty), {
@@ -7880,7 +7887,8 @@ try_to_call_function_with_arguments :: (
           callee_is_extern,
           argument_is_aliased_by_inout(&parg, match(pref.get(pi), .Some(b) => b, .None => false), &s7_inout_roots),
           p_sink,
-          fn_param_is_ptr_borrow(&norm_func_type2, pi)
+          fn_param_is_ptr_borrow(&norm_func_type2, pi),
+          is_io_async_call(expr) || is_io_await_call(expr)
         );
         if(!(is_method_call && (pi == usize(0))), {
           if(!call_is_operator, {

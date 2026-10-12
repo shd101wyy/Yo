@@ -202,7 +202,7 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 9. Future 只 await **一次**：第二次 `io.await`（或 `io.spawn` 之后再 await）是 E0901。多个任务都需要的结果只 join 一次再共享（`Rc(T)`、channel），或由每个任务 join 该任务的 `JoinHandle`
 10. 任务 await 期间被中止的 Future 会把中止传播给该任务（见"已中止的 Future"），而中止任务也会中止它正在 await 的 Future
 11. `io.spawn(future, e)` 在返回之前会**内联运行任务直到它的第一个挂起点**；spawn 本身不是调用方的挂起点
-12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下
+12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下。由于一个包会启动许多 Future，包的每个字段都必须可以隐式复制：只能移动的字段、或没有 `Copy` 的纯数据字段，在 `io.await`/`io.spawn` 处报错（§3.13 A6）。共享状态放在 `Rc` 字段中
 
 ### 执行模型
 
@@ -348,6 +348,42 @@ export(main);
 ```
 
 `io.state(&f)` 借用 Future，在它被消耗之前可以调用任意多次。多个任务都需要的结果只计算一次再共享：在一处 await，然后以 `Rc(T)` 共享该值，或通过 channel 发送。
+
+### 借用的 Future
+
+`io.async` 的函数体可以借用而不是拥有：在捕获列表里写出借用（`{ &x }`、`{ &mut x }`）。这样得到的 Future 是**二等值**（`plans/VALUES_BY_DEFAULT.md` §3.13 A2），与借用的闭包一样：
+
+- 它在创建处被 await，作为 `io.await` 的操作数（直接作为操作数，或作为 `if`/`cond`/`match` 分支的值、块的末尾表达式）；
+- 当它借用的每个位置都是某个函数自己的 `&`/`&mut` 参数时，该函数可以返回它，因为调用方借出的位置比它活得久。`&T` 参数要通过函数体自己的捕获列表借用（`{ &c }`）；只通过所捕获的闭包间接借用 `&T` 参数的 Future 被返回时是 E0909。函数经由 `&Impl(Fn(...))` 参数借到的借用闭包算作该参数（`m.with_lock({ &s }(v : &mut i64) => ..., io)`）；
+- 它不能绑定到局部变量（包括 `match` 分支的模式）、用 `_ := ...` 丢弃、存储、被逃逸的闭包捕获或被 spawn（E0909）；
+- 它所在 `io.await` 的效应包必须是一个位置（`io`、`self.io`），而不是会运行代码的表达式：效应包在 Future 创建之后求值，否则可能移动或覆盖 Future 借用的位置（E0910）；
+- 调用的接收者和各个参数一经求值，它们借出的位置就由 Future 持有，因此同一调用中靠后的参数不能移动被借出的位置、给它赋值或再次以 `&mut` 借出它（`bump_by(&mut c, take(c), io)`，以及 `touch` 为 `&mut self` 方法时的 `bump_by(&mut c, c.touch(), io)`，都是 E0910）。请在语句之前算好这样的参数。
+
+通过函数值（函数类型的局部变量或参数）进行的调用无法显示其 Future 借用了什么，因此假定它的 Future 借用了该调用用 `&`/`&mut` 借出的每个位置：`fp := bump; f := fp(&mut c, io);` 与直接调用一样是 E0909。
+
+通过 `Dyn` 的调用经由虚表进行，而虚表中的 Future 类型不携带任何借用，所以如果某个类型的 trait 方法返回借用的 Future，这个类型就不能转换为该 trait 的 `Dyn`：此时 `dyn(v)` 是 E0909。请在具体类型上调用该方法，或通过泛型 `Impl(Trait)` 参数调用，或者让方法里的 `io.async` 按值捕获所需的值；这样通过 `Dyn` 得到的 Future 就是一等值，可以绑定或 spawn。
+
+```yo
+{ assert } :: import("std/assert");
+
+Counter :: struct(n : i32);
+bump :: (fn(c : &mut Counter, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut c }(io : Io) => {
+    c.n = (c.n + i32(1));
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  c := Counter(n : i32(0));
+  io.await(bump(&mut c, io), io);
+  io.await(bump(&mut c, io), io);
+  assert(c.n == i32(2), "each await writes through the lent `&mut`");
+  // f := bump(&mut c, io); // E0909：`f` 会持有一个借用的 Future
+});
+export(main);
+```
+
+借给借用的 Future 的位置不能经过 `Rc`/`Arc` 解引用、`ref` 对象或对集合的索引（`io.await(count(&r.*.items, io), io)` 和 `io.await(bump(&mut xs(i), io), io)` 都是 E0909）：这个借用跨越挂起点持续存在，期间另一个任务通过它自己的句柄写入或重新分配时没有任何检查能发现。改为借出句柄（`h : &Rc(S)`），在 Future 内每次使用时读取 `h.*.items`，或者让任务拥有这个值。固定大小数组的元素属于数组自身的存储，可以借出。
 
 ### 中止的 Future
 

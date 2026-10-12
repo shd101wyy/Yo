@@ -149,3 +149,23 @@ test("Test an uncontended lock still costs no suspension", {
   assert(m.get() == i64(100), `a hundred uncontended round trips, got ${m.get().to_string()}`);
   assert(m.waiter_count() == usize(0), "and nothing ever queued");
 });
+// ---------------------------------------------------------------------------
+// with_lock with a body that borrows the caller's locals (§3.13 A2): the
+// future captures the `&Impl(Fn)` parameter, and the closure's borrows are
+// the caller's, lent for the call
+// (issues/fixed/a-future-capturing-a-borrowing-closure-parameter-is-rejected-as-returned.md).
+// ---------------------------------------------------------------------------
+test("Test with_lock runs a body that borrows the caller's locals", {
+  m := Mutex(i64).new(i64(1));
+  s := ArrayList(i64).new();
+  s.push(i64(41));
+  r := io.await(
+    m.with_lock({ &s }(v : &mut i64) => {
+      v = (v + match(s.get(usize(0)), .Some(e) => e, .None => i64(-1)));
+      v
+    }, io),
+    io
+  );
+  assert(r == i64(42), "the body reads the borrowed list under the lock");
+  assert(m.get() == i64(42), "the body wrote the protected value");
+});

@@ -208,7 +208,7 @@ yield(io)                     // Create a pending Future completed by the next l
 9. A Future is awaited **once**: a second `io.await` (or an await after `io.spawn`) is E0901. A result several tasks need is joined once and shared (`Rc(T)`, a channel), or each task joins the task's `JoinHandle`
 10. A Future aborted while a task awaits it propagates the abort to that task (see "Aborted Futures"), and aborting the task aborts the Future it awaits
 11. `io.spawn(future, e)` runs the task **inline up to its first suspension point** before returning; spawn is not itself a suspension point of the caller
-12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under
+12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under. Because one bundle starts many futures, every bundle field must be implicitly copyable: a move-only field, or plain data without `Copy`, is an error at the `io.await`/`io.spawn` (§3.13 A6). Keep shared state in an `Rc` field
 
 ### Execution Model
 
@@ -363,6 +363,75 @@ export(main);
 before it is consumed. A result that several tasks need is computed once and
 shared: await it in one place and share the value as `Rc(T)`, or send it
 through a channel.
+
+### Borrowing Futures
+
+An `io.async` body may borrow instead of owning: name the borrow in its
+capture list (`{ &x }`, `{ &mut x }`). The Future it makes is then
+**second-class** (§3.13 A2 of `plans/VALUES_BY_DEFAULT.md`), like a closure
+that borrows:
+
+- it is awaited where it is made, as the operand of `io.await` (directly, or
+  as the value of an `if`/`cond`/`match` arm or a block's tail);
+- a function may return it when everything it borrows is one of that
+  function's own `&`/`&mut` parameters, so the caller's lent places outlive
+  it. A `&T` parameter is borrowed through the body's own capture list
+  (`{ &c }`); a returned Future that reaches one only through a closure it
+  captures is E0909. A borrowing closure the function was lent through a
+  `&Impl(Fn(...))` parameter counts as that parameter
+  (`m.with_lock({ &s }(v : &mut i64) => ..., io)`);
+- it is never bound to a local (a `match` arm's pattern included), discarded
+  with `_ := ...`, stored, captured by an escaping closure or spawned (E0909);
+- the effect bundle of its `io.await` is a place (`io`, `self.io`), not an
+  expression that runs code: the bundle is evaluated after the Future is made,
+  and could otherwise move or overwrite what the Future borrows (E0910);
+- the Future holds what the call's receiver and arguments lend from the moment
+  each is evaluated, so a later argument of the same call may not move the
+  lent place, assign to it or lend it `&mut` again
+  (`bump_by(&mut c, take(c), io)` and `bump_by(&mut c, c.touch(), io)` with a
+  `&mut self` method are E0910). Compute such an argument before the
+  statement.
+
+A call through a function value (a local or parameter of function type)
+cannot show what its Future borrows, so its Future is assumed to borrow every
+place the call lends with `&`/`&mut`: `fp := bump; f := fp(&mut c, io);` is
+E0909 like the direct call.
+
+A call through a `Dyn` goes through its vtable, whose Future type carries no
+borrows, so a type whose trait method returns a borrowing Future cannot be
+made a `Dyn` of that trait: `dyn(v)` is E0909 there. Call the method on the
+concrete type or through a generic `Impl(Trait)` parameter, or let the
+method's `io.async` capture what it needs by value; a Future made through a
+`Dyn` is then first-class and may be bound or spawned.
+
+```yo
+{ assert } :: import("std/assert");
+
+Counter :: struct(n : i32);
+bump :: (fn(c : &mut Counter, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut c }(io : Io) => {
+    c.n = (c.n + i32(1));
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  c := Counter(n : i32(0));
+  io.await(bump(&mut c, io), io);
+  io.await(bump(&mut c, io), io);
+  assert(c.n == i32(2), "each await writes through the lent `&mut`");
+  // f := bump(&mut c, io); // E0909: `f` would hold a borrowing future
+});
+export(main);
+```
+
+A place lent to a borrowing Future may not pass through an `Rc`/`Arc`
+dereference, a `ref` object or an index into a collection
+(`io.await(count(&r.*.items, io), io)` and `io.await(bump(&mut xs(i), io), io)`
+are E0909): the borrow lasts across the suspension, and nothing would notice
+another task writing or reallocating through its own handle meanwhile. Lend
+the handle instead (`h : &Rc(S)`) and read `h.*.items` inside the Future at
+each use, or own the value in the task. An element of a fixed-size array is
+part of the array's own storage and may be lent.
 
 ### Aborted Futures
 

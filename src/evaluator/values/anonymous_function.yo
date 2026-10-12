@@ -35,7 +35,6 @@ pragma(Pragma.AllowUnsafe);
   BK_MATCH,
   is_function_boundary_arrow,
   clone_expr_fresh_ids,
-  ast_expr_is_atom_of,
   ast_expr_is_capture_mode_entry,
   reject_old_mode_spelling,
   ast_expr_is_capture_list_params,
@@ -143,9 +142,9 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_return, capture_place_crosses_cell } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
-{ is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
+{ is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
 {
@@ -783,8 +782,8 @@ Pass \`${k}\` as a regular function parameter instead of capturing it in a closu
 // Capture lists (plans/VALUES_BY_DEFAULT.md decisions 35 and 38)
 // ---------------------------------------------------------------------------
 /// One entry of a closure's capture list, evaluated at the literal: a
-/// by-value field (`x`, `x : e`) or a borrow of a place (`imm(y) : &p`,
-/// `mut(z) : &mut p`).
+/// by-value field (`x`, `x : e`) or a borrow of a place (`y : &p`,
+/// `z : &mut p`).
 _CapListEntry :: struct(
   label : String,
   label_tok : Token,
@@ -797,7 +796,9 @@ _CapListEntry :: struct(
   init : AstExpr,
   root_id : usize,
   root_name : String,
-  path : ArrayList(String)
+  path : ArrayList(String),
+  /// The borrowed place's root is a `&T` parameter (a by-value C local).
+  root_is_value_param : bool
 );
 _cap_list_error :: (fn(ctx : &EvalContext, exn : Exception, tok : &Token, msg : &String) -> unit)(
   _raise_capture_rejection(ctx, exn, tok, msg)
@@ -841,31 +842,6 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
     fields.push(match(rev.get(ri), .Some(f) => f, .None => String.new()));
   });
   Option(AstExpr).Some(cur)
-});
-/// Decision 38 D: no hop of the evaluated place `ev` may pass through a cell
-/// (an `Rc`/`Arc`, any `ref` object, or a pointer dereference `p.*`). A borrow
-/// capture could not hold the cell's run-time mark: the closure may be copied,
-/// and a per-call mark would leave the pointer dangling between calls.
-_cap_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext) -> bool)({
-  (cur : AstExpr) = ev;
-  (walking : bool) = true;
-  while(walking, {
-    if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-      recv := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-      fld := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-      if(ast_expr_is_atom_of(&fld, "*"), {
-        return(true);
-      });
-      recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => t_unit());
-      if(is_reference_struct_type(&recv_ty) || is_atomic_reference_struct_type(&recv_ty), {
-        return(true);
-      });
-      cur = recv;
-    }, {
-      walking = false;
-    });
-  });
-  false
 });
 /// Evaluate a closure's capture list `{ … }` (decision 35) in the scope that
 /// writes the literal. Each entry becomes one field of the capture struct:
@@ -972,13 +948,19 @@ _evaluate_capture_list :: (
       if(is_unit_type(&place_ty), {
         _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A borrow capture cannot name a unit-typed place: it has no runtime storage.`);
       });
-      if(_cap_place_crosses_cell(&ev_place, ctx), {
+      if(capture_place_crosses_cell(&ev_place, ctx), {
         _cap_list_error(
           ctx,
           exn,
           ast_expr_token(&place_e),
           `A borrow capture cannot reach through an \`Rc\`/\`Arc\` (or any \`ref\` object or pointer dereference): \`${ast_expr_to_string(&place_e)}\` lives in a shared cell, and a closure, which may be copied, cannot hold the cell's run-time borrow mark (decision 38 D). Capture the handle and re-derive the place on each call: \`{ &${root_tok.value} }(...) => ${ast_expr_to_string(&place_e)}...\`.`
         );
+      });
+      // §3.13 A2: a future keeps its own copy of a `&T` parameter it borrows
+      // (C receives the parameter by value, in the frame the future may
+      // outlive), so it borrows the parameter whole, not a place inside it.
+      if(ctx.is_inside_io_async_call && root_var.is_imm_borrow && (fields.len() > usize(0)), {
+        _cap_list_error(ctx, exn, ast_expr_token(&place_e), `An \`io.async\` body borrows a \`&\` parameter whole: \`${ast_expr_to_string(&place_e)}\` is a place inside the parameter \`${root_tok.value}\`, which the future copies when it is made (plans/VALUES_BY_DEFAULT.md §3.13 A2). Borrow the parameter, \`{ &${root_tok.value} }\`, and read \`${ast_expr_to_string(&place_e)}\` in the body.`);
       });
       if(is_mut, {
         // Decision 38 D: a `mut` capture's place must be writable.
@@ -1000,7 +982,8 @@ _evaluate_capture_list :: (
           init : ev_place,
           root_id : root_var.id,
           root_name : root_tok.value.clone(),
-          path : fields
+          path : fields,
+          root_is_value_param : root_var.is_imm_borrow
         )
       );
     }, {
@@ -1075,7 +1058,8 @@ _evaluate_capture_list :: (
           init : field_init,
           root_id : usize(0),
           root_name : String.new(),
-          path : ArrayList(String).new()
+          path : ArrayList(String).new(),
+          root_is_value_param : false
         )
       );
     });
@@ -1529,22 +1513,11 @@ evaluate_anonymous_function_implementation :: (
   cap_entries := match(
     cap_list_raw,
     .Some(cl_raw) => {
-      entries := _evaluate_capture_list(&cl_raw, env, ctx, exn, closure_owns_captures);
       // An `io.async` body owns its by-value entries, so it may move one out
-      // (an awaited future, §3.13 A1). A borrow entry would make the future
-      // second-class (§3.13 A2), which has not landed.
-      if(ctx.is_inside_io_async_call, {
-        (ei : usize) = usize(0);
-        while(ei < entries.len(), ei = (ei + usize(1)), {
-          match(
-            entries.get(ei),
-            .Some(e) => if(e.is_borrow, {
-              _cap_list_error(ctx, exn, &e.label_tok, String.from("A borrow in an `io.async` body's capture list is not supported yet: it would make the future second-class (plans/VALUES_BY_DEFAULT.md §3.13 A2), which has not landed. Capture the value by value, or capture implicitly."));
-            }),
-            .None => ()
-          );
-        });
-      });
+      // (an awaited future, §3.13 A1). A borrow entry makes the future
+      // second-class (§3.13 A2): the io.async call registers the body's
+      // borrows on the future's type.
+      entries := _evaluate_capture_list(&cl_raw, env, ctx, exn, closure_owns_captures);
       entries
     },
     .None => ArrayList(_CapListEntry).new()
@@ -2320,9 +2293,11 @@ Result type: ${type_to_string(&decl_result_ty)}`
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
           .Some(cr_info) => {
             cr_body_ty := cr_info.ty;
-            // Decision 38 A: a second-class value is never returned.
+            // Decision 38 A: a second-class value is never returned, except
+            // a borrowing future rooted at the closure's own borrow
+            // parameters (§3.13 A2).
             if(!has_any_control_flow(cr_info.control_flow), {
-              reject_second_class_escape(&cr_body_ty, String.from("returned"), ast_expr_token(&anon_eb), ctx, exn);
+              reject_second_class_return(&cr_body_ty, ast_expr_token(&anon_eb), env, ctx, exn);
             });
             cr_ret_ty := match(function_type, .Func({ result : cr_r }) => cr_r, _ => t_unit());
             cr_skip := (has_any_control_flow(cr_info.control_flow) || is_void_type(&cr_ret_ty) || is_type_hierarchy_type(&cr_ret_ty) || (get_all_some_types(&cr_ret_ty).len() > usize(0)) || (get_all_some_types(&cr_body_ty).len() > usize(0)));
@@ -2877,11 +2852,9 @@ Result type: ${type_to_string(&decl_result_ty)}`
     cap_res := create_capture_type_and_value(Option(TypeValue).None, &cvwv, env, &tok);
     closure_capture_type = cap_res.capture_type;
     _mark_fnonce_capture_struct_of(closure_owns_captures, &closure_capture_type);
-    // An `io.async` body escapes into its future, and a borrowing future
-    // (§3.13 A2) has not landed: it may not capture a second-class value.
-    if(ctx.is_inside_io_async_call, {
-      match(closure_capture_type, .Some(ia_ct) => reject_second_class_escape(&ia_ct, String.from("captured by an `io.async` body (a borrowing future, plans/VALUES_BY_DEFAULT.md §3.13 A2, has not landed)"), &tok, ctx, exn), .None => ());
-    });
+    // An `io.async` body may capture a second-class value: its future is then
+    // a borrowing future, second-class too (§3.13 A2; the io.async call
+    // registers the capture struct's borrows on the future).
     // The borrow entries make the capture struct second-class (and, for a
     // `mut` entry, move-only): decision 38 A.
     match(
@@ -2902,6 +2875,9 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     root_id : ce.root_id,
                     root_name : ce.root_name.clone(),
                     path : ce.path.clone(),
+                    root_is_value_param : ce.root_is_value_param,
+                    through_value : false,
+                    assumed : false,
                     site : `${ce.label_tok.module_path}:${(ce.label_tok.row + u32(1)).to_string()}:${(ce.label_tok.column + u32(1)).to_string()}`
                   )
                 );

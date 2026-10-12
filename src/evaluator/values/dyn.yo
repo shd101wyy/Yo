@@ -30,13 +30,13 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, generate_some_type_id, t_dyn } :: import("../../types/creators.yo");
 { is_dyn_type, is_some_type, is_function_type, is_reference_struct_type, is_boxed_type, is_atomic_reference_struct_type, shared_cell_type_name_of_constructor, shared_cell_canonical_names } :: import("../../types/guards.yo");
-{ type_contains_some_type_deep, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
+{ type_contains_some_type_deep, type_is_move_only, move_only_reason, dyn_member_is_method, dyn_member_unsafe_reason, CaptureBorrow, capture_borrows_exist, capture_borrow_place_string, collect_type_borrows, is_future_value_type } :: import("../../types/utils.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type, function_value_slot_mismatch } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ format_error_message, with_code } :: import("../../error.yo");
-{ E_TYPE_MISMATCH, E_CLOSURE_MOVES_CAPTURE, E_DYN_UNCALLABLE } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
+{ E_TYPE_MISMATCH, E_CLOSURE_MOVES_CAPTURE, E_DYN_UNCALLABLE, E_BORROW_ESCAPES } :: import("../../diagnostics.yo");
 { evaluate_comptime_fn_call } :: import("../calls/comptime_fn.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
@@ -512,6 +512,78 @@ _require_send_dyn_methods_reach_no_global :: (
       .None => ()
     );
     ti = (ti + usize(1));
+  });
+});
+/// §3.13 A2 for trait objects: a call through a `Dyn` goes through the
+/// vtable slot, whose type is the trait's declared `Impl(Future(...))`, so the
+/// future it returns cannot carry the borrows the implementation's `io.async`
+/// makes. `dyn(v)` is therefore rejected when one of the methods of `v` that
+/// fill the vtable returns a borrowing future, and every future a `Dyn` method
+/// call returns is first-class by construction
+/// (issues/fixed/a-dyn-method-future-carries-no-borrows.md).
+_reject_dyn_borrowing_future_methods :: (
+  fn(
+    dyn_type : &TypeValue,
+    trait_vals : &ArrayList(EvalValue),
+    value_type : &TypeValue,
+    token : &Token,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> unit
+)({
+  if(!capture_borrows_exist(), {
+    return(());
+  });
+  (ti : usize) = usize(0);
+  while(ti < trait_vals.len(), ti = (ti + usize(1)), {
+    match(
+      trait_vals.get(ti),
+      .Some(.TraitVal(tname, fnames, fvals)) => {
+        (fi : usize) = usize(0);
+        while(fi < fvals.len(), fi = (fi + usize(1)), {
+          // The method's result type, and its body's evaluated type: the
+          // borrows ride on the body's `io.async` wrapper, which the declared
+          // `Impl(Future(...))` result reaches only through its resolution.
+          (res_ty : TypeValue) = TypeValue.Unit;
+          (body_ty : TypeValue) = TypeValue.Unit;
+          match(
+            fvals.get(fi),
+            .Some(.Some(.FuncVal(fvd, _))) => {
+              res_ty = match(get_func_type(fvd.*.func_id.clone()), .Func({ result : r }) => r, _ => TypeValue.Unit);
+              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => bi.ty, .None => TypeValue.Unit);
+            },
+            _ => ()
+          );
+          if(is_future_value_type(&res_ty), {
+            bs := ArrayList(CaptureBorrow).new();
+            collect_type_borrows(&res_ty, &mut bs);
+            if(is_future_value_type(&body_ty), {
+              collect_type_borrows(&body_ty, &mut bs);
+            });
+            match(
+              bs.get(usize(0)),
+              .Some(b0) => {
+                mname := match(fnames.get(fi), .Some(n) => n, .None => String.new());
+                raise_flow_violation(
+                  with_code(
+                    format_error_message_with_help(
+                      token,
+                      `\`${type_to_string(value_type)}\` cannot be made a \`${type_to_string(dyn_type)}\`: its method \`${tname}.${mname}\` returns a future that borrows \`${capture_borrow_place_string(&b0)}\` (plans/VALUES_BY_DEFAULT.md §3.13 A2), and a call through a \`Dyn\` goes through the vtable, whose future type carries no borrows, so the caller could bind, store or spawn that future and outlive what it borrows.`,
+                      Option(String).Some(`call the method on the concrete type or through a generic \`Impl(${tname})\` parameter, which carry the borrow, or let the method's \`io.async\` capture what it needs by value`)
+                    ),
+                    E_BORROW_ESCAPES
+                  ),
+                  ctx,
+                  exn
+                );
+              },
+              .None => ()
+            );
+          });
+        });
+      },
+      _ => ()
+    );
   });
 });
 /// Monomorphize a trait `?=`-default method FuncVal to a concrete receiver.
@@ -1122,6 +1194,7 @@ evaluate_dyn_value :: (
       });
       ne_trait_vals := _resolve_dyn_trait_values(ret_type.clone(), &ne_value_type, ctx, env, exn);
       _require_send_dyn_methods_reach_no_global(&ret_type, &ne_trait_vals, &expr_tok, ctx, env, exn);
+      _reject_dyn_borrowing_future_methods(&ret_type, &ne_trait_vals, &ne_value_type, &expr_tok, ctx, exn);
       expr_info_set_dyn_call_trait_values(&out_info, Option(ArrayList(EvalValue)).Some(ne_trait_vals));
     });
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
@@ -1282,6 +1355,7 @@ evaluate_dyn_value :: (
   // concrete type.
   trait_vals := _resolve_dyn_trait_values(dyn_type.clone(), &value_type, ctx, &cur_env, exn);
   _require_send_dyn_methods_reach_no_global(dyn_type.clone(), &trait_vals, &expr_tok, ctx, &cur_env, exn);
+  _reject_dyn_borrowing_future_methods(dyn_type.clone(), &trait_vals, &value_type, &expr_tok, ctx, exn);
   // Annotate the outer dyn(...) expression with the resolved DynType and
   // the ordered trait values for C codegen vtable emission.
   out_info := new_expr_info(&cur_env, &dyn_type);

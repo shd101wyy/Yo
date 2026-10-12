@@ -450,6 +450,19 @@ CaptureBorrow :: struct(
   root_id : usize,
   root_name : String,
   path : ArrayList(String),
+  /// The root is a `&T` parameter, which C receives by value: a future
+  /// that borrows it keeps its own copy (§3.13 A2, `_lent_param_capture_fields`).
+  root_is_value_param : bool,
+  /// The borrow reaches the future through a captured value (a borrowing
+  /// closure the `io.async` body captures), not through the body's own
+  /// capture-list entry. A future copies a `&T` parameter it borrows
+  /// (`_lent_param_capture_fields`), but only through its own entry, so such a
+  /// borrow of a `&T` parameter keeps the future from being returned (§3.13 A2).
+  through_value : bool,
+  /// Not a capture-list entry: the borrow a call through a function value is
+  /// assumed to make of a place it lends (the callee's body is not visible, so
+  /// the future it returns may keep the place, §3.13 A2).
+  assumed : bool,
   /// `module:row:col` of the entry, for diagnostics.
   site : String
 );
@@ -503,6 +516,30 @@ collect_type_borrows :: (fn(ty : &TypeValue, out : &mut ArrayList(CaptureBorrow)
 );
 _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(CaptureBorrow), depth : u32) -> unit)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  // A borrowing future (§3.13 A2): `io.async` registers its body's
+  // capture-list borrows under the future's per-call wrapper id, and a
+  // function returning it carries that future as its result's resolution. A
+  // future is a counted state machine, so this precedes the reference-type
+  // stop below.
+  match(
+    ty,
+    .SomeT({ id : st_id, resolution : f_res }) => if(is_future_value_type(&ty) && (depth <= u32(12)), {
+      match(
+        g_capture_borrows.get(&st_id),
+        .Some(bs) => {
+          (bi : usize) = usize(0);
+          while(bi < bs.len(), {
+            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
+            bi = (bi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      match(f_res, .Some(concrete) => recur(&concrete, out, depth + u32(1)), .None => ());
+      return(());
+    }),
+    _ => ()
+  );
   if((depth > u32(12)) || is_rc_type(&ty), {
     return(());
   });
@@ -733,7 +770,7 @@ _is_dyn_fnonce :: (fn(ty : &TypeValue) -> bool)(
 /// function's result, `IoFuture`). It is a reference-counted state machine,
 /// yet move-only (plans/VALUES_BY_DEFAULT.md decision 13, §3.13 A1): `io.await`
 /// and `io.spawn` consume it, so one future is awaited or spawned once.
-_is_future_value :: (fn(ty : &TypeValue) -> bool)(
+is_future_value_type :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
     .SomeT({ required_trait_types : rtt }) => {
@@ -754,7 +791,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
   cond(
     (depth > u32(8)) => false,
     _is_dyn_fnonce(&ty) => true,
-    _is_future_value(&ty) => true,
+    is_future_value_type(&ty) => true,
     is_rc_type(&ty) => false,
     _nominal_declares_move_only(&ty) => true,
     // A closure with a `mut` capture (decision 35): two copies of one
@@ -3263,7 +3300,7 @@ export(is_bound_closure_identity);
 export(is_closure_capture_struct);
 export(resolve_cell_chain);
 export(type_contains_some_type_deep);
-export(type_mentions_impl_fn_or_future);
+export(type_mentions_impl_fn_or_future, is_future_value_type);
 export(fn_type_unrepresentable_impl, fn_type_unrepresentable_impl_message, fn_type_unrepresentable_impl_help);
 export(get_size_of_type, get_alignment_of_type);
 export(type_representation_contains_raw_ptr, type_may_provide_slice_source);

@@ -19,6 +19,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_token,
   ast_expr_id,
   ast_expr_is_atom,
+  ast_expr_is_atom_of,
   ast_expr_is_fn_call_of,
   ast_expr_to_string,
   make_err_expr,
@@ -53,7 +54,8 @@ pragma(Pragma.AllowUnsafe);
   new_expr_info,
   expr_info_adopt_env,
   expr_info_capture_type,
-  expr_info_set_deferred_dup_expressions
+  expr_info_set_deferred_dup_expressions,
+  expr_info_index_trait_ptr_type
 } :: import("../expr_info.yo");
 {
   Environment,
@@ -75,7 +77,8 @@ pragma(Pragma.AllowUnsafe);
   is_fnonce_capture_frame,
   is_closure_param_frame,
   variable_note_arm_move,
-  variable_move_note
+  variable_move_note,
+  variable_inout_borrow_root_id
 } :: import("../env.yo");
 { Token, TokenKind } :: import("../token.yo");
 { EvalContext, LoopBodyCtx, LoopFlowSnapshot, FuncOrAsyncBlockKind, copy_trait_blockers_via_hook } :: import("./context.yo");
@@ -97,11 +100,11 @@ pragma(Pragma.AllowUnsafe);
 { eprintln } :: import("std/fmt");
 { EvalValue, is_unknown_val, is_type_value, is_var_ref, is_func_val } :: import("../value.yo");
 { TypeValue, t_refine_inner } :: import("../types/definitions.yo");
-{ is_never_type, is_unit_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_iso_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type } :: import("../types/guards.yo");
+{ is_never_type, is_unit_type, is_function_type_and_returns_comptime_value, is_box_type, is_dyn_type, is_iso_type, is_future_trait_type, is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_primitive_type, is_pointer_type, is_bool_type, is_array_type } :: import("../types/guards.yo");
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -1104,6 +1107,9 @@ _log_user_move :: (fn(v : &Variable, tok : &Token, env : &Environment) -> unit)(
 /// `items : &s.items` at m.yo:3:5)".
 _capture_borrow_note :: (fn(b : &CaptureBorrow) -> String)({
   sig := if(b.is_mut, String.from("&mut "), String.from("&"));
+  if(b.assumed, {
+    return(`the place lent to \`${b.label}\` (\`${sig}\` at ${b.site}: the call goes through a function value, whose future may keep what it is lent)`);
+  });
   `\`${capture_borrow_place_string(b)}\` (the capture \`${b.label} : ${sig}${capture_borrow_place_string(b)}\` at ${b.site})`
 });
 /// Decision 38 A: a second-class value (one holding a capture-list borrow,
@@ -1130,6 +1136,120 @@ reject_second_class_escape :: (fn(ty : &TypeValue, how : &String, tok : &Token, 
     exn
   );
 });
+/// Decision 38 D: no hop of the evaluated place `ev` may pass through a cell
+/// (an `Rc`/`Arc`, any `ref` object, or a pointer dereference `p.*`). A borrow
+/// capture could not hold the cell's run-time mark: the closure may be copied,
+/// and a per-call mark would leave the pointer dangling between calls.
+///
+/// An index hop (`xs(i)`, `r.*(i)`) counts too. An `Index`-trait element is
+/// reached through the `*(T)` the index method returns: it lives in a buffer
+/// the container owns behind a pointer, and the interior-reference mark
+/// `&mut xs(i)` takes (decision 28) is call-scoped. An element of a fixed-size
+/// array is part of the array's own storage, so the walk goes on to the array.
+capture_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext) -> bool)({
+  (cur : AstExpr) = ev;
+  (walking : bool) = true;
+  while(walking, {
+    if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+      recv := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      fld := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      if(ast_expr_is_atom_of(&fld, "*"), {
+        return(true);
+      });
+      recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => TypeValue.Unit);
+      if(is_reference_struct_type(&recv_ty) || is_atomic_reference_struct_type(&recv_ty), {
+        return(true);
+      });
+      cur = recv;
+    }, {
+      // An index hop: a one-argument call whose callee is the indexed value.
+      base := match(
+        cur,
+        .FnCall(_, i_callee, i_args, i_infix, _) => if(!i_infix && (i_args.len() == usize(1)), Option(AstExpr).Some(i_callee), Option(AstExpr).None),
+        .Atom(_, _) => Option(AstExpr).None
+      );
+      match(
+        base,
+        .Some(b) => {
+          via_index_trait := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cur)), .Some(ci) => expr_info_index_trait_ptr_type(&ci).is_some(), .None => false);
+          base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)), .Some(bi) => bi.ty, .None => TypeValue.Unit);
+          cond(
+            is_array_type(&base_ty) => {
+              cur = b;
+            },
+            (via_index_trait || is_pointer_type(&base_ty) || is_reference_struct_type(&base_ty) || is_atomic_reference_struct_type(&base_ty)) => {
+              return(true);
+            },
+            true => {
+              walking = false;
+            }
+          );
+        },
+        .None => {
+          walking = false;
+        }
+      );
+    });
+  });
+  false
+});
+/// A function's result of type `ty` (§3.13 A2, decision 38 A). A
+/// second-class value is never returned, except a borrowing future whose every
+/// borrow is rooted at a `&`/`&mut` parameter: the caller lent those places
+/// for the call, so they outlive the future it gets back.
+reject_second_class_return :: (fn(ty : &TypeValue, tok : &Token, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(!type_is_second_class(ty), {
+    return(());
+  });
+  if(is_future_value_type(ty), {
+    bs := ArrayList(CaptureBorrow).new();
+    collect_type_borrows(ty, &mut bs);
+    (all_params : bool) = true;
+    (bi : usize) = usize(0);
+    while(bi < bs.len(), bi = (bi + usize(1)), {
+      b := match(bs.get(bi), .Some(x) => x, .None => return(()));
+      // A `&T` parameter is copied into the future only through the body's
+      // own `{ &p }` entry; a borrowing closure the body captures points at
+      // the parameter's slot in the frame that returns.
+      if(b.through_value && b.root_is_value_param, {
+        raise_flow_violation(
+          with_code(
+            format_error_message_with_help(
+              tok,
+              `This future borrows the \`&\` parameter \`${b.root_name}\` through a closure it captures (${_capture_borrow_note(&b)}), so it cannot be returned: C passes \`${b.root_name}\` by value, in the frame that returns, and a returned future keeps its own copy of a \`&\` parameter only when its own capture list borrows it (plans/VALUES_BY_DEFAULT.md §3.13 A2).`,
+              Option(String).Some(`borrow the parameter in the \`io.async\` body's own capture list (\`io.async({ &${b.root_name} }(io : Io) => ...)\`) and read it there, or await the future inside this function`)
+            ),
+            E_BORROW_ESCAPES
+          ),
+          ctx,
+          exn
+        );
+        return(());
+      });
+      rooted := match(
+        _find_var_by_id(env, b.root_id),
+        .Some(root_at) => variable_is_borrow_parameter(&root_at.0),
+        .None => false
+      );
+      if(!rooted, {
+        all_params = false;
+      });
+    });
+    if(all_params, {
+      return(());
+    });
+  });
+  reject_second_class_escape(ty, String.from("returned"), tok, ctx, exn);
+});
+/// `v` is a `&`/`&mut` parameter (a borrow the caller lent for the call), not
+/// a local borrow binding (`y := &mut x`, which has an inout root).
+variable_is_borrow_parameter :: (fn(v : &Variable) -> bool)(
+  v.is_imm_borrow || (v.is_ref && variable_inout_borrow_root_id(v).is_none())
+);
+/// Some binding of `env` has the id `id`.
+variable_id_in_scope :: (fn(env : &Environment, id : usize) -> bool)(
+  _find_var_by_id(env, id).is_some()
+);
 /// The binding with id `id` in `env`, and its (frame, position).
 _find_var_by_id :: (fn(env : &Environment, id : usize) -> Option(Tuple(Variable, usize, usize)))({
   (fi : usize) = env.frames.len();
@@ -1171,6 +1291,40 @@ note_second_class_binding :: (fn(holder : &Variable, ty : &TypeValue, tok : &Tok
   });
   bs := ArrayList(CaptureBorrow).new();
   collect_type_borrows(ty, &mut bs);
+  // §3.13 A2: a borrowing future is awaited where it is made. Bound to a
+  // local, it would hold its borrow across whatever runs before the await.
+  if(is_future_value_type(ty), {
+    b0 := match(bs.get(usize(0)), .Some(x) => x, .None => return(()));
+    // `_ := f(&mut x, io)` binds a hidden temporary: name the discard.
+    if(is_any_temp_variable_name(holder.name.clone()), {
+      raise_flow_violation(
+        with_code(
+          format_error_message_with_help(
+            tok,
+            `A borrowing future cannot be discarded with \`_ := ...\`: it borrows ${_capture_borrow_note(&b0)}, so it is second-class (plans/VALUES_BY_DEFAULT.md §3.13 A2) and is awaited where it is made.`,
+            Option(String).Some(String.from("await it (`io.await(f(&mut x, io), io)`); a future that is never awaited never runs"))
+          ),
+          E_BORROW_ESCAPES
+        ),
+        ctx,
+        exn
+      );
+      return(());
+    });
+    raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          tok,
+          `\`${holder.name}\` would hold a borrowing future: it borrows ${_capture_borrow_note(&b0)}, so it is second-class (plans/VALUES_BY_DEFAULT.md §3.13 A2) and cannot be bound to a local.`,
+          Option(String).Some(String.from("await the future where it is made (`io.await(f(&mut x, io), io)`), or capture the value by value so the future owns it"))
+        ),
+        E_BORROW_ESCAPES
+      ),
+      ctx,
+      exn
+    );
+    return(());
+  });
   holder_at := _find_var_by_id(env, holder.id);
   (bi : usize) = usize(0);
   while(bi < bs.len(), {
@@ -3985,7 +4139,8 @@ export(audit_copy_trait_enabled, audit_pending_copies_enabled, audit_record_copy
 export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
-export(reject_second_class_escape, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
+export(variable_is_borrow_parameter, variable_id_in_scope);
+export(capture_place_crosses_cell, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
 export(doc_comment_lookup_key_from_token);
 export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow);
 export(are_values_equal);

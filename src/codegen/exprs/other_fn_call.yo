@@ -15,6 +15,7 @@
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { sm_local_field_name, is_await_consumed_temp } :: import("../async/state_machine_naming.yo");
+{ is_any_temp_variable_name } :: import("../../utils.yo");
 { declare_c_var_name, get_type_string, get_storage_type_string, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, c_field_name, c_variant_member_name, is_function_value_with_only_builtin_yo_inline_function_call, type_key, get_runtime_struct_fields, RuntimeStructField, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, ImplClosureCallInfo, scope_stack_contains, _checked_fixed_array_subscript, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { extract_fn_trait_from_type, type_implements_future } :: import("../../evaluator/trait_checking.yo");
@@ -289,6 +290,32 @@ _store_temp_var_to_state_machine_if_needed :: (fn(temp_var : &String, indent : &
       em.emit_string_line(`${indent}sm->${sm_local_field_name(cv.base.id.to_string())} = ${sanitize_for_c_identifier(temp_var.clone(), false)};`);
     }
   );
+});
+/// §3.13 A2: the task slot of a temporary lent by `&`/`&mut` inside an
+/// `io.async` state machine. The temporary lives to the end of its statement,
+/// and a borrowing future made in that statement can hold its address across
+/// a suspension, after the resume function's C local is gone. The slot holds
+/// the same value (`_store_temp_var_to_state_machine_if_needed` stored it when
+/// the temporary was made), and the temporary's scope-end drop reads the slot.
+_sm_lent_temp_slot :: (fn(code : &String, context : &FunctionGenerationContext) -> Option(String))({
+  if(context.in_async_state_machine.is_none() || !is_any_temp_variable_name(code), {
+    return(Option(String).None);
+  });
+  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(Option(String).None));
+  vals := smv.values();
+  (go : bool) = true;
+  while(go, {
+    match(
+      vals.next(),
+      .Some(cv) => if((cv.base.name == code) && match(cv.kind, .Local => true, .Outer => false), {
+        return(Option(String).Some(`sm->${sm_local_field_name(cv.base.id.to_string())}`));
+      }),
+      .None => {
+        go = false;
+      }
+    );
+  });
+  Option(String).None
 });
 /// The container-pointer C code for an interior `ref` argument (an Index-trait
 /// expression), or `.None`.
@@ -679,7 +706,7 @@ _apply_ref_amp :: (fn(args : &ArrayList(String), param_is_ref : &ArrayList(bool)
             w
           }, if(_is_addressable_c_expr(c.clone()) && !arg_is_tag_constant, {
             w := String.from("(&(");
-            w.push_string(&c);
+            w.push_string(match(_sm_lent_temp_slot(&c, context), .Some(slot) => slot, .None => c.clone()));
             w.push_str("))");
             w
           }, {

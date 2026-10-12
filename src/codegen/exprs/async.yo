@@ -14,7 +14,8 @@
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
   BK_BEGIN,
-  ast_call_args_unmarked
+  ast_call_args_unmarked,
+  make_err_expr
 } :: import("../../expr.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { stable_position_id, stable_label_id, debug_knob, is_temp_variable_name, is_any_temp_variable_name } :: import("../../utils.yo");
@@ -32,7 +33,7 @@
   is_reference_struct_type,
   is_rc_type
 } :: import("../../types/guards.yo");
-{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, capture_struct_borrows } :: import("../../types/utils.yo");
 {
   CapturedVariable,
   CapturedVariableKind,
@@ -48,7 +49,7 @@
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
 { get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid, is_fnonce_capture_struct } :: import("../../function_value.yo");
-{ ExprInfo, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, is_by_value_param_share_dup } :: import("../../expr_info.yo");
+{ ExprInfo, CaptureFieldInit, expr_info_capture_field_inits, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, is_by_value_param_share_dup } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -608,6 +609,7 @@ emit_async_block_struct_definition :: (
           .None => ()
         );
       });
+      _emit_lent_param_slots(&cap_ty, context);
       em.emit_declaration_line("");
     },
     .None => ()
@@ -1203,6 +1205,76 @@ _owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))
   });
   out
 });
+/// §3.13 A2: the capture fields that borrow a `&T` parameter whole
+/// (`{ &p }`). C receives such a parameter by value, in the frame that made
+/// the future, and a returned future outlives that frame. The future keeps
+/// its own copy of the lent value (`_emit_lent_param_slots`) and points the
+/// capture at it (`_emit_lent_param_installs`). The caller's place stays
+/// frozen while the future lives, so the copy cannot go stale, and it owns
+/// nothing, so nothing drops it.
+_lent_param_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
+  out := ArrayList(TypeField).new();
+  struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => return(out));
+  borrows := match(capture_struct_borrows(&struct_id), .Some(bs) => bs, .None => return(out));
+  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  (i : usize) = usize(0);
+  while(i < fields.len(), i = (i + usize(1)), {
+    match(
+      fields.get(i),
+      .Some(f) => if(match(f.ty, .Pointer(_) => true, _ => false), {
+        (lent : bool) = false;
+        (bi : usize) = usize(0);
+        while(bi < borrows.len(), bi = (bi + usize(1)), {
+          if(match(borrows.get(bi), .Some(b) => (b.root_is_value_param && (b.path.len() == usize(0)) && (b.label == f.label)), .None => false), {
+            lent = true;
+          });
+        });
+        if(lent, {
+          out.push(f);
+        });
+      }),
+      .None => ()
+    );
+  });
+  out
+});
+/// The state machine's copy slot for each lent `&T` parameter
+/// (`_lent_param_capture_fields`).
+_emit_lent_param_slots :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  lent := _lent_param_capture_fields(capture_type);
+  (i : usize) = usize(0);
+  while(i < lent.len(), i = (i + usize(1)), {
+    match(
+      lent.get(i),
+      .Some(f) => match(
+        f.ty,
+        .Pointer(pointee) => em.emit_declaration_string_line(`  ${get_type_string(&pointee, &context.base)} __yo_lent_${sanitize_for_c_identifier(f.label.clone(), false)};  // the future's copy of the lent parameter ${f.label.clone()}`),
+        _ => ()
+      ),
+      .None => ()
+    );
+  });
+});
+/// Copy each lent `&T` parameter into the future `sm_ptr` (read through the
+/// capture while the parameter's frame is still live) and point the capture
+/// at the copy.
+_emit_lent_param_installs :: (fn(capture_type : &TypeValue, sm_ptr : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  lent := _lent_param_capture_fields(capture_type);
+  (i : usize) = usize(0);
+  while(i < lent.len(), i = (i + usize(1)), {
+    match(
+      lent.get(i),
+      .Some(f) => {
+        label := sanitize_for_c_identifier(f.label.clone(), false);
+        em.emit_string_line(`${indent.clone()}${sm_ptr.clone()}->__yo_lent_${label.clone()} = *(${sm_ptr.clone()}->__capture.${label.clone()});`);
+        em.emit_string_line(`${indent.clone()}${sm_ptr.clone()}->__capture.${label.clone()} = &${sm_ptr.clone()}->__yo_lent_${label.clone()};`);
+      },
+      .None => ()
+    );
+  });
+});
 /// Generate the state-machine dispose function for an async block: drops the
 /// capture struct, the result field (on normal completion, state == -1), and
 /// cross-boundary locals (on unwind/abort, state == -2). Called by `__yo_decr_rc`
@@ -1430,9 +1502,12 @@ generate_async_block_constructor :: (
   // Capture struct.
   match(
     capture_type,
-    .Some(_) => {
+    .Some(ctor_cap_ty) => {
       em.emit_line("  // Initialize captured variables");
       em.emit_line("  sm->__capture = __capture;");
+      lent_sm := String.from("sm");
+      lent_indent := String.from("  ");
+      _emit_lent_param_installs(&ctor_cap_ty, &lent_sm, &lent_indent, context);
       em.emit_line("");
     },
     .None => ()
@@ -1496,7 +1571,18 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
 /// field reaching the fallback emits a loud marker (it is never hit by capture-free
 /// async blocks, including the BASELINE fixture).
 _build_async_capture_struct_literal :: (
-  fn(expr : &AstExpr, dup_exprs : &ArrayList(AstExpr), capture_type : &TypeValue, capture_struct_name : &String, indent : &String, context : &FunctionGenerationContext) -> String
+  fn(
+    expr : &AstExpr,
+    dup_exprs : &ArrayList(AstExpr),
+    capture_type : &TypeValue,
+    capture_struct_name : &String,
+    indent : &String,
+    context : &FunctionGenerationContext,
+    /// A capture list's evaluated entries (decision 35): a borrow entry's
+    /// field stores the address of its place (§3.13 A2), and a renamed
+    /// by-value entry (`{ m : k }`) its initializer.
+    (field_inits : &Option(ArrayList(CaptureFieldInit))) ?= Option(ArrayList(CaptureFieldInit)).None
+  ) -> String
 )({
   in_special_context := (match(context.current_closure_captures, .Some(_) => true, .None => false) || match(context.in_async_state_machine, .Some(_) => true, .None => false));
   struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
@@ -1512,10 +1598,45 @@ _build_async_capture_struct_literal :: (
         label_c := sanitize_for_c_identifier(label.clone(), false);
         // A unit field is erased from the capture struct, so it takes no
         // initializer (issues/fixed/a-unit-parameter-captured-by-an-io-async-body-emits-an-initializer-for-an-erased-field.md).
+        (renamed_init : Option(AstExpr)) = Option(AstExpr).None;
+        borrow_init := match(
+          field_inits,
+          .Some(inits) => {
+            (found : Option(AstExpr)) = Option(AstExpr).None;
+            (fi : usize) = usize(0);
+            while(fi < inits.len(), fi = (fi + usize(1)), {
+              match(
+                inits.get(fi),
+                .Some(cfi) => if(cfi.label == label, {
+                  if(cfi.is_borrow, {
+                    found = Option(AstExpr).Some(cfi.init);
+                  }, if(!(ast_expr_is_atom(&cfi.init) && (ast_expr_token(&cfi.init).value == label)), {
+                    // A by-value entry under a new name (`{ m : k }`) has no
+                    // variable of the field's name to read: its initializer
+                    // is the field's value, as the sync closure path builds
+                    // it (issues/fixed/a-renamed-by-value-capture-of-an-awaiting-io-async-body-reads-an-undeclared-name.md).
+                    renamed_init = Option(AstExpr).Some(cfi.init);
+                  }));
+                }),
+                .None => ()
+              );
+            });
+            found
+          },
+          .None => Option(AstExpr).None
+        );
         if(is_unit_type(&field.ty), {
           ();
         }, if(field.is_effect_param, {
           parts.push(`.${label_c} = NULL`);
+        }, if(borrow_init.is_some(), {
+          bi_expr := match(borrow_init, .Some(bi) => bi, .None => make_err_expr());
+          place_code := _call_generate_expr(&bi_expr, indent.clone(), context);
+          parts.push(`.${label_c} = (&(${place_code}))`);
+        }, if(renamed_init.is_some(), {
+          ri_expr := match(renamed_init, .Some(ri) => ri, .None => make_err_expr());
+          ri_code := _call_generate_expr(&ri_expr, indent.clone(), context);
+          parts.push(`.${label_c} = ${emit_deferred_dup_or_code(&ri_expr, &ri_code, indent.clone(), context)}`);
         }, {
           // Find a matching deferred ___dup expression by variable name.
           (matched : Option(AstExpr)) = Option(AstExpr).None;
@@ -1598,7 +1719,7 @@ _build_async_capture_struct_literal :: (
               );
             }
           );
-        }));
+        }))));
       },
       .None => ()
     );
@@ -2599,6 +2720,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // repro's rc=139 on `sm->var_<id>-><field>`).
   (fsm_capture_type : Option(TypeValue)) = expr_info_capture_type(&ei);
   (fsm_capture_dups : Option(ArrayList(AstExpr))) = expr_info_deferred_dup_expressions(&ei);
+  (fsm_field_inits : Option(ArrayList(CaptureFieldInit))) = expr_info_capture_field_inits(&ei);
   if(is_io_async, {
     match(
       ei.runtime_arg_exprs_in_order,
@@ -2609,6 +2731,9 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
           .Some(cei) => {
             if(fsm_capture_type.is_none(), {
               fsm_capture_type = expr_info_capture_type(&cei);
+            });
+            if(fsm_field_inits.is_none(), {
+              fsm_field_inits = expr_info_capture_field_inits(&cei);
             });
             if(fsm_capture_dups.is_none(), {
               taken := expr_info_deferred_dup_expressions(&cei);
@@ -2856,7 +2981,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     .Some(cap_ty) => {
       capture_struct_name := _find_capture_type_c_name(&cap_ty, context);
       literal_dups := match(fsm_capture_dups, .Some(d) => d, .None => ArrayList(AstExpr).new());
-      literal := _build_async_capture_struct_literal(expr, &literal_dups, &cap_ty, &capture_struct_name, indent.clone(), context);
+      literal := _build_async_capture_struct_literal(expr, &literal_dups, &cap_ty, &capture_struct_name, indent.clone(), context, &fsm_field_inits);
       `${constructor_name.clone()}(${literal})`
     },
     .None => `${constructor_name.clone()}()`
@@ -3622,6 +3747,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     em.emit_declaration_string_line(`  ${result_type_c_name.clone()} result;`);
   });
   em.emit_declaration_string_line(`  ${ccn.clone()} __capture;`);
+  match(eff_capture_type, .Some(slot_cap_ty) => _emit_lent_param_slots(&slot_cap_ty, context), .None => ());
   (si : usize) = usize(0);
   while(si < sync_param_slots.len(), {
     match(sync_param_slots.get(si), .Some(slot) => em.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};`), .None => ());
@@ -3951,6 +4077,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         .None => ()
       );
     });
+    match(eff_capture_type, .Some(inst_cap_ty) => _emit_lent_param_installs(&inst_cap_ty, &result_var, indent, context), .None => ());
   });
   // State 0 = not started (lazy); resume executes the closure.
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->state = 0;`);

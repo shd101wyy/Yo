@@ -49,3 +49,26 @@ be the model's only non-call mark scope.
   spelling accepted; a `mut` through an `Rc` deref still rejected;
 - a positive test that the accepted spelling survives a concurrent
   `push` on the other handle (re-derived places read the new buffer).
+
+## Fix (2026-10-12, §3.13 A2)
+
+A2 landed borrowing futures with the rule enforced. A borrowing future can be
+used in one place only, as the direct operand of `io.await`, because binding,
+storing and spawning it are E0909. So the check sits there:
+`_check_awaited_future_lends` (`src/evaluator/calls/function.yo`) maps each
+borrow the awaited future carries back to the argument its call lent (a
+`&`/`&mut` marker argument by the parameter's label, and a method receiver as
+`self`). It rejects a lent place that crosses an `Rc`/`Arc` or `ref`
+dereference, including an auto-dereferenced receiver (`k.bump(io)` on an
+`Rc(Counter)`). The error names the handle-passing fix. A capture list
+written directly on the `io.async` body already rejected such places
+(decision 38 D, `capture_place_crosses_cell`).
+
+Tests, in `tests/async_await.test.yo`, "a borrowing future cannot hold a
+place lent through an Rc deref":
+- `io.await(_a2_count(&r.*.items, io), io)` is rejected;
+- the `&mut` twin is rejected;
+- the auto-dereferenced receiver `k.bump(io)` is rejected;
+- the handle spelling `_a2_count_through(&r, io)` is accepted, and it reads a
+  push that another task made through its own handle while the future was
+  suspended.
