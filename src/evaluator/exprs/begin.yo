@@ -2354,7 +2354,8 @@ _evaluate_begin_expression_impl :: (
               fb_ctx.kind,
               .FunctionBody => match(
                 fb_ctx.func_type,
-                .Some(.Func({ result : ret_box })) => Option(TypeValue).Some(ret_box),
+                // A projection returns its place's address (decision 24).
+                .Some(.Func({ result : ret_box, meta : ret_meta })) => Option(TypeValue).Some(if(ret_meta.*.result_is_ref, t_ptr(&ret_box), ret_box)),
                 .Some(_) => Option(TypeValue).None,
                 .None => Option(TypeValue).None
               ),
@@ -2400,9 +2401,9 @@ _evaluate_begin_expression_impl :: (
             .None => env
           );
           // Defense-in-depth flowability on the return ARGUMENT.
-          // (Ref-returning functions are banned at signature evaluation —
-          // see types/function.yo — so only the raw-pointer-representation
-          // rooting check remains for explicit `return(...)`.)
+          // (A projection's `return(&place)` is root-checked where its
+          // marker is evaluated, `evaluate_address_call`; only the
+          // raw-pointer-representation rooting check remains here.)
           match(
             ctx.is_evaluating_function_body_or_async_block,
             .Some(rfb_ctx) => match(

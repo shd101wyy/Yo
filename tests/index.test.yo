@@ -982,3 +982,25 @@ test("V2b: a generic branching projection; the caller's return keeps its type", 
   p(usize(1)) = u8(9);
   assert(p.second == u8(9), "the match arm wrote second");
 });
+// A projection's `return(...)` of a generic raw-pointer call (std's buffer
+// form, `return(unsafe(items.ptr().unwrap().add(i)))`): the argument is typed
+// against `*(T)`, not `T` (it was E0601 "Cannot unify *(i32) and i32").
+_quad_last :: (fn(p : *Quad) -> *i32)(addr_of(p.*.z));
+QuadRev :: struct(q : Quad);
+impl(
+  QuadRev,
+  VIndex(usize)(
+    Output : i32,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)({
+      if(idx == usize(0), {
+        return(_quad_last(addr_of(self.q)).add(usize(0)));
+      });
+      &self.q.w
+    })
+  )
+);
+test("V2b: a projection returns a raw-pointer call", {
+  r := QuadRev(q : Quad(w : i32(1), x : i32(2), y : i32(3), z : i32(4)));
+  assert(r(usize(0)) == i32(4), "r(0) is q.z through return(_quad_last(...))");
+  assert(r(usize(1)) == i32(1), "r(1) is q.w");
+});

@@ -45,7 +45,10 @@ There are two defects. The first one exposed the second.
    `u8` while its arms were `*(u8)`, and the specialization threw. The return
    check in `evaluate_begin_expression` has the same defect, and so do the
    all-arms-return types of `cond` and `match`. A projection's
-   `return(&place)` was checked against `T`.
+   `return(&place)` was checked against `T`. The expected type of a
+   `return(...)` argument was `T` as well, so a generic raw-pointer call
+   (`return(unsafe(items.ptr().unwrap().add(i)))`, std's buffer form) was
+   E0601 "Cannot unify *(i32) and i32".
 2. **The throw leaked the function-body context.** `_specialize_index_method`
    (`src/evaluator/calls/index_trait.yo`) swallows a specialization failure
    and falls back to the generic method value. The throw unwinds past the
@@ -56,9 +59,9 @@ There are two defects. The first one exposed the second.
 
 ## Fix
 
-- The specialization, the `begin` return check, and the all-arms-return types
-  of `cond` / `match` use `*(T)` for a function whose `FuncMeta.result_is_ref`
-  is set.
+- The specialization, the `begin` return check, the expected type of a
+  `return(...)` argument, and the all-arms-return types of `cond` / `match` use
+  `*(T)` for a function whose `FuncMeta.result_is_ref` is set.
 - `_specialize_index_method` runs the swallowing trial in its own function and
   restores the function-body context, and truncates the specializing stack,
   after it returns, whether or not the trial threw.
@@ -68,4 +71,6 @@ There are two defects. The first one exposed the second.
 `tests/index.test.yo`, "V2b: a generic branching projection; the caller's
 return keeps its type". It covers the generic `Pair2(T)` with an early
 `return(&self.first)`, a `cond` tail, a `match` `index_mut`, and a caller that
-widens and `return`s. It failed with E0605 before the fix.
+widens and `return`s. It failed with E0605 before the fix. "V2b: a
+projection returns a raw-pointer call" covers the `return(...)` argument; it
+failed with E0601.
