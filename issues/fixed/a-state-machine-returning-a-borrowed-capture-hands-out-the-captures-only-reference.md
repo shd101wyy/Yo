@@ -56,6 +56,14 @@ The tail goes through `arm_value_with_dups` (`src/codegen/exprs/drop_dup.yo`),
 as a match arm's value does: its deferred dups are emitted and the result
 takes the dup'd value.
 
+The fused lowering of an await (`_emit_fused_statements`,
+`src/codegen/exprs/async.yo`) runs the wrapper's body in the caller's state
+machine and had the same defect: its tail read
+`__yo_await_value0 = sm->__fzN_capture.__yo_v_v;` and then dropped the
+capture, so the `out.push(io.await(slow(…), io))` loop above, moved inside a
+task, crashed on every run (v0.2.59 too). Its tail goes through `arm_value_with_dups` as well.
+
 Regression test: `tests/async/sm_ownership.test.yo`, "a state machine
 returning an implicit capture retains it for the result" (a `Dispose` counter
-that fails before the fix, and the `String` loop).
+that fails before the fix, the `String` loop, and both again inside a task,
+where the await is fused).
