@@ -409,9 +409,9 @@ lowering (`plans/archive/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
 ### API
 
 ```yo
-handle := io.spawn(&task, &ctx); // → JoinHandle(T), ctx is the task's effect bundle
+handle := io.spawn(&task, ctx); // → JoinHandle(T), ctx is the task's effect bundle
 result := handle.await(io); // → Option(T), blocking: main / plain fns only
-result := io.await(handle.join(io), &io); // → Option(T), suspending: the form inside a task (std/async)
+result := io.await(handle.join(io), io); // → Option(T), suspending: the form inside a task (std/async)
 handle.state();
 handle.is_finished();
 handle.abort();

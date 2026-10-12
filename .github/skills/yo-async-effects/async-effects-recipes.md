@@ -6,8 +6,8 @@ These patterns cover normal Yo async code and algebraic effects.
 
 | Need                       | Pattern                                                |
 | -------------------------- | ------------------------------------------------------ |
-| Sequential async work      | `result := io.await(&task, &io)`                         |
-| Start work and wait later  | `handle := io.spawn(&task, &io)` then `handle.await(io)` (in `main`) or `io.await(handle.join(io), &io)` (in a task) |
+| Sequential async work      | `result := io.await(&task, io)`                         |
+| Start work and wait later  | `handle := io.spawn(&task, io)` then `handle.await(io)` (in `main`) or `io.await(handle.join(io), io)` (in a task) |
 | Yield to other ready tasks | `io.await(yield(io), io)`                                |
 | True multithreading        | Use thread or parallelism APIs, not `io.async` alone   |
 
@@ -72,7 +72,7 @@ export(main);
 ```
 
 - `io.spawn(...)` begins execution without waiting.
-- `handle.await(io)` returns `Option(T)` because a spawned task can abort via `unwind`. It is a blocking poll: inside a task use `io.await(handle.join(io), &io)` (`std/async`), the same `Option(T)` as a suspending future.
+- `handle.await(io)` returns `Option(T)` because a spawned task can abort via `unwind`. It is a blocking poll: inside a task use `io.await(handle.join(io), io)` (`std/async`), the same `Option(T)` as a suspending future.
 
 ## Propagating and handling effects
 
@@ -464,7 +464,7 @@ over `E : Type.Struct`:
 
 ```yo
 wait_then :: (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T)(
-  io.await(&fut, &e)
+  io.await(&fut, e)
 );
 ```
 
