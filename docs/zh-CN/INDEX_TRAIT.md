@@ -41,6 +41,77 @@ collection(idx) = val; // 调用 index(collection, idx)，通过指针写入
 p := addr_of(collection(idx)); // 调用 index(collection, idx)，不解引用
 ```
 
+## 读与写：`Index` 与 `IndexMut`
+
+值语义默认化（V2b，决策 34）像 Rust 一样把元素访问一分为二。**读**经由 `index`：一个只读投影，以共享方式借用容器。**写**经由 `index_mut`：一个可变投影，以独占方式借用容器：
+
+```yo ignore
+Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index : (fn(self : &Self, idx : Idx) -> &Self.Output)
+  )
+);
+IndexMut :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)
+  )
+);
+```
+
+编译器现在已经接受这两种形式。随附 std 的 `Index` 会在下一个种子版本发布时切换到它们，并新增 `IndexMut`；在那之前，prelude 仍然声明下一节所述的单一方法 `index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)`，读和写都走它。
+
+- **下标调用哪个方法。** 作为值读取的 `x(i)` 调用 `index`。每一次写都调用 `index_mut`：`x(i) = v`、元素的字段（`x(i).f = v`）、嵌套元素（`grid(i)(j) = v`）、元素上的 `self : &mut Self` 方法（`x(i).push(v)`）、`&mut` 实参（`f(&mut x(i))`）、`addr_of(x(i))`，以及对它的 `&mut` 局部借用。`x(i) = (x(i) + 1)` 这样的读-改-写先读后写。Yo 没有复合赋值运算符。
+- **只读元素。** 只实现 `Index` 而不实现 `IndexMut` 的类型，其元素是只读的；通过 `x(i)` 写入会得到一个指出缺少 `IndexMut` 的编译错误。
+- **可写的接收者。** `index_mut` 接收 `self : &mut Self`，所以通过 `x` 的只读借用（一个 `x : &T` 参数）写 `x(i)` 是 E0908。
+- **同一个 `Output`。** 同一索引类型的 `Index` 与 `IndexMut` 必须给出相同的 `Output`。
+
+### 投影
+
+`index` 和 `index_mut` 是**投影**（决策 24）：结果为借用的函数，即 `-> &T` 或 `-> &mut T`。投影产出一个位置，其结果表达式就是这个位置，并带上与结果类型一致的借用符号：
+
+```yo ignore
+Trio :: struct(a : i32, b : i32, c : i32);
+impl(
+  Trio,
+  Index(usize)(
+    Output : i32,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
+      cond(
+        (idx == usize(0)) => &self.a,
+        (idx == usize(1)) => &self.b,
+        true => &self.c
+      )
+    )
+  )
+);
+impl(
+  Trio,
+  IndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      cond(
+        (idx == usize(0)) => &mut self.a,
+        (idx == usize(1)) => &mut self.b,
+        true => &mut self.c
+      )
+    )
+  )
+);
+t := Trio(a : i32(1), b : i32(2), c : i32(3));
+t(usize(1)) = i32(20); // index_mut
+assert(t(usize(1)) == i32(20), "index");
+```
+
+投影遵循以下规则：
+
+- **位置从借用参数出发。** 位置以投影自己的某个 `&`/`&mut` 参数为根，经由字段和元素访问到达。局部变量、临时值、按值参数和模块级绑定都会被拒绝，因为它们的存储随调用结束。`-> &mut T` 投影的位置必须以 `&mut` 参数为根。
+- **借用符号与结果一致。** `-> &T` 投影写 `&place`，`-> &mut T` 投影写 `&mut place`。
+- **裸指针位置。** 在 `pragma(Pragma.AllowUnsafe)` 文件中，位置可以是裸指针解引用（`&(p &+ i).*`），结果也可以直接是裸指针 `*T`。std 的缓冲区使用的就是这种形式。
+- **ABI。** 投影的 `&T` 参数按指针传递（在其他地方 `&T` 参数按值传递），所以它返回的位置属于调用者。
+- **在哪里调用投影。** 目前投影只能通过其特征分派的下标（`x(i)`）到达。像 `t.index(i)` 或 `f(&x)` 这样的直接调用在决策 24 的其余部分落地之前是编译错误：其余部分指把投影结果用作接收者、实参、操作数，或绑定到局部变量。
+
 ## 实现 Index
 
 ### 基本实现
@@ -241,7 +312,7 @@ b := s.byte_at(usize(0)); // u8(72) — 字节级访问（'H'）；越界时 pan
 c := s.get_byte(usize(9)); // .None — 带检查的形式
 ```
 
-`index` 返回一个可写的位置：通过这个位置写入（`s(i) = b`）会改变所有共享该缓冲区的字符串，还可能留下非法的 UTF-8。Rust 的 `String` 同样没有可写的字节索引。等 `Index` 把读和写分开（在位置形式之外增加按值读取的形式）之后，只读的 `s(i)` 会回来。如需字符级访问，请使用 `chars()` 迭代器。区间语法糖 `s(a..b)` 不受影响；它和其余所有字符串索引（`substring`、`index_of` 等）都是字节偏移 —— 完整契约见 [STRINGS.md](./STRINGS.md)。
+`index` 返回一个可写的位置：通过这个位置写入（`s(i) = b`）会改变所有共享该缓冲区的字符串，还可能留下非法的 UTF-8。Rust 的 `String` 同样没有可写的字节索引。随附 std 切换到读写分离之后（见[读与写](#读与写index-与-indexmut)），`String` 会实现 `Output : u8` 的 `Index(usize)`，且不实现 `IndexMut`：`s(i)` 读取一个字节，`s(i) = b` 是编译错误。如需字符级访问，请使用 `chars()` 迭代器。区间语法糖 `s(a..b)` 不受影响；它和其余所有字符串索引（`substring`、`index_of` 等）都是字节偏移 —— 完整契约见 [STRINGS.md](./STRINGS.md)。
 
 ## 错误处理
 

@@ -3621,3 +3621,38 @@ mark_generic_independent :: (fn(err : &YoError, a : &TypeValue, b : &TypeValue) 
   YoError(diagnostics : entries)
 });
 export(mark_generic_independent);
+/// Decision 34's ABI choice, taken for decision 24's projections: a `&T`
+/// parameter of a function whose result is a borrow (`-> &T` / `-> &mut T`)
+/// is passed as a pointer, because the result may point into it; every other
+/// `&T` parameter is passed by value. Parameter `i` of `fn_ty` is such a
+/// pointer-passed shared borrow (`&mut T` parameters are pointers anyway, and
+/// a by-value parameter is never one).
+fn_param_is_ptr_borrow :: (fn(fn_ty : &TypeValue, i : usize) -> bool)(
+  match(
+    fn_ty,
+    .Func({ meta : pb_m }) => (
+      pb_m.*.result_is_ref && !match(pb_m.*.param_is_ref.get(i), .Some(b) => b, .None => true) && !match(pb_m.*.param_is_owning.get(i), .Some(b) => b, .None => true)
+    ),
+    _ => false
+  )
+);
+/// The per-parameter C-ABI pointer flags of `fn_ty`: `param_is_ref` (a `&mut T`
+/// parameter) or `fn_param_is_ptr_borrow`. Only the lowering reads it (the
+/// prototype, the argument `&`, the casts); every rule about writes and
+/// exclusivity reads `param_is_ref`.
+fn_abi_param_is_ptr :: (fn(fn_ty : &TypeValue) -> ArrayList(bool))({
+  out := ArrayList(bool).new();
+  match(
+    fn_ty,
+    .Func({ meta : ap_m }) => {
+      (i : usize) = usize(0);
+      while(i < ap_m.*.param_is_ref.len(), {
+        out.push(match(ap_m.*.param_is_ref.get(i), .Some(b) => b, .None => false) || fn_param_is_ptr_borrow(fn_ty, i));
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  out
+});
+export(fn_param_is_ptr_borrow, fn_abi_param_is_ptr);

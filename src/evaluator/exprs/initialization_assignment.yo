@@ -6,6 +6,7 @@
 //!   - `name := handler`   — implicit parameter declaration
 //!   - `_ := rhs`                 — discard (renamed to a temp var)
 { String } :: import("std/string");
+{ promote_index_places_for_write } :: import("../calls/index_trait.yo");
 { ArrayList } :: import("std/collections/array_list");
 {
   AstExpr,
@@ -452,6 +453,9 @@ _evaluate_inout_local_binding :: (
     true => local_borrow_place_of(&evaluated_rhs, env, ctx)
   );
   if(is_mut, {
+    // A `&mut` binding writes the place: its element accesses dispatch
+    // `IndexMut` (decision 34, V2b).
+    promote_index_places_for_write(&evaluated_rhs, env, ctx, exn);
     match(
       lb_place,
       .Some(lp) => {

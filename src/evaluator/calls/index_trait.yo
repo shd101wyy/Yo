@@ -14,11 +14,11 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { str_lit_unquote_bytes } :: import("../../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr } :: import("../../expr.yo");
-{ Environment, get_receiver_methods_by_name_from_env, get_variables_from_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
+{ Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_usize, t_type } :: import("../../types/creators.yo");
-{ is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type } :: import("../../types/guards.yo");
+{ is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type, is_reference_struct_type } :: import("../../types/guards.yo");
 {
   EvalValue,
   is_array_val,
@@ -42,14 +42,22 @@ pragma(Pragma.AllowUnsafe);
   ExprInfo,
   new_expr_info,
   expr_info_table_get,
+  expr_info_table_set,
   ComptimeRef,
   expr_info_adopt_env,
-  expr_info_comptime_ref
+  expr_info_comptime_ref,
+  expr_info_index_trait_ptr_type,
+  expr_info_index_method_type,
+  expr_info_set_index_method_type,
+  expr_info_set_index_method_value
 } :: import("../../expr_info.yo");
-{ format_error_message, format_eval_failure } :: import("../../error.yo");
+{ format_error_message, format_eval_failure, with_code } :: import("../../error.yo");
+{ E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ variable_is_imm_borrow } :: import("../utils.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { convert_comptime_type_to_runtime_type, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
-{ _is_verify_target, resolve_verify_mode, record_index_unchecked_twin } :: import("../builtins/contracts.yo");
+{ _is_verify_target, resolve_verify_mode, record_index_unchecked_twin, forget_index_unchecked_twin } :: import("../builtins/contracts.yo");
 { evaluate_expression, evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { try_to_call_function_with_arguments, consume_argument_for_parameter } :: import("./helper.yo");
 { get_func_param_comptime } :: import("../types/function.yo");
@@ -363,7 +371,8 @@ _extract_range_indices :: (
 _find_all_index_methods :: (
   fn(
     concrete_type : &TypeValue,
-    env : &Environment
+    env : &Environment,
+    (method_name : str) ?= "index"
   ) -> ArrayList(_IndexMethodEntry)
 )({
   result := ArrayList(_IndexMethodEntry).new();
@@ -378,7 +387,7 @@ _find_all_index_methods :: (
         match(
           lbl_opt,
           .Some(lbl) => {
-            if(lbl == "index", {
+            if(lbl == method_name, {
               match(
                 ty_opt,
                 .Some(fty) => {
@@ -410,7 +419,7 @@ _find_all_index_methods :: (
   // this, `x(i)` on a struct receiver with an unknown value soft-fell to
   // `unit` under def-eval, poisoning every comparison built on it.
   if(result.len() == usize(0), {
-    reg_methods := get_receiver_methods_by_name_from_env(env, String.from("index"), concrete_type, false);
+    reg_methods := get_receiver_methods_by_name_from_env(env, String.from(method_name), concrete_type, false);
     (ri : usize) = usize(0);
     while(ri < reg_methods.len(), {
       match(
@@ -435,8 +444,59 @@ _find_all_index_methods :: (
 // ---------------------------------------------------------------------------
 // _find_index_method
 // ---------------------------------------------------------------------------
-/// Find a single `index` method whose signature matches:
-///   `(self: *(Self), idx: ArgType) -> *(Output)`
+/// The two shapes an `Index` method takes (decision 34, confirmed
+/// 2026-10-11; `plans/reference/INDEX_TRAIT.md`):
+///   - the projection `index : fn(self : &Self, idx : Idx) -> &Self.Output`
+///     and its write twin `index_mut : fn(self : &mut Self, idx : Idx) ->
+///     &mut Self.Output` (decision 24, V2b);
+///   - the single pre-V2b method `index : fn(self : &mut Self, idx : Idx) ->
+///     *Self.Output`, which serves reads and writes alike. It stays accepted
+///     until the bundled std switches (Generation B: a seed must lower
+///     `-> &T` first).
+/// `is_projection` tells them apart; `output` is the element type either way.
+_IndexShape :: struct(is_projection : bool, is_mut : bool, output : TypeValue);
+/// The shape of `method_type` as an index method for an argument of
+/// `arg_type`, or `.None` when it is not one.
+_index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Option(_IndexShape))(
+  match(
+    method_type,
+    .Func({ param_types, result : result_box, meta : __fm1 }) => cond(
+      (param_types.len() != usize(2)) => Option(_IndexShape).None,
+      true => {
+        p0_is_ref := match(__fm1.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false);
+        p0_is_ptr := is_pointer_type(&param_types(usize(0)));
+        // `are_types_compatible(actual, expected)` — the ARGUMENT's type is the
+        // actual, the parameter's declared type is the expected. Passing
+        // them the other way round made the parameter type the "actual",
+        // so the comptime widening arms (types/compatibility.yo:124-146 for
+        // ComptimeInt, :171-190 for ComptimeString) — which all key off
+        // `actual` — never fired: `l(0)` on a `ComptimeIndex(usize)` impl was
+        // rejected with "Type does not implement Index for the given argument
+        // type" while `l(usize(0))` worked.
+        p1_compatible := are_types_compatible(arg_type, &param_types(usize(1)));
+        cond(
+          !p1_compatible => Option(_IndexShape).None,
+          // A projection: `&Self` for `index`, `&mut Self` for `index_mut`.
+          __fm1.*.result_is_ref => Option(_IndexShape).Some(_IndexShape(is_projection : true, is_mut : __fm1.*.result_is_mut_ref, output : result_box)),
+          // The pre-V2b shape: self must be a pointer type OR a `&mut`
+          // parameter, and the result a raw pointer to the element.
+          ((p0_is_ptr || p0_is_ref) && is_pointer_type(&result_box)) => Option(_IndexShape).Some(
+            _IndexShape(
+              is_projection : false,
+              is_mut : true,
+              output : match(result_box, .Pointer(et) => et, _ => result_box)
+            )
+          ),
+          true => Option(_IndexShape).None
+        )
+      }
+    ),
+    _ => Option(_IndexShape).None
+  )
+);
+/// Find the method that reads `concrete_type(arg)`: an `index` of either
+/// shape whose index parameter accepts `arg_type`. A projection `index` must
+/// be the read one (`-> &Self.Output`).
 _find_index_method :: (
   fn(
     concrete_type : &TypeValue,
@@ -444,66 +504,45 @@ _find_index_method :: (
     env : &Environment
   ) -> Option(_IndexMethodEntry)
 )({
-  methods := _find_all_index_methods(concrete_type, env);
-  n := methods.len();
+  methods := _find_all_index_methods(concrete_type, env, "index");
   (i : usize) = usize(0);
-  (found : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
-  while((i < n) && found.is_none(), {
+  while(i < methods.len(), {
+    m := methods(i);
     match(
-      methods.get(i),
-      .Some(m) => {
-        match(
-          m.method_type,
-          .Func({ param_types, result : result_box, meta : __fm1 }) => {
-            param_is_ref := __fm1.*.param_is_ref;
-            if(param_types.len() == usize(2), {
-              p0_opt := param_types.get(usize(0));
-              p1_opt := param_types.get(usize(1));
-              match(
-                p0_opt,
-                .Some(p0) => {
-                  match(
-                    p1_opt,
-                    .Some(p1) => {
-                      ret_ty := result_box;
-                      // self must be a pointer type OR a `ref` parameter —
-                      // both `(self : *(Self), ...)` and the modern
-                      // `(self : &mut Self, ...)` shape are accepted.
-                      p0_is_ptr := is_pointer_type(&p0);
-                      p0_is_ref := match(
-                        param_is_ref.get(usize(0)),
-                        .Some(b) => b,
-                        .None => false
-                      );
-                      // `are_types_compatible(actual, expected)` — the ARGUMENT's type is the
-                      // actual, the parameter's declared type is the expected. Passing
-                      // them the other way round made the parameter type the "actual",
-                      // so the comptime widening arms (types/compatibility.yo:124-146 for
-                      // ComptimeInt, :171-190 for ComptimeString) — which all key off
-                      // `actual` — never fired: `l(0)` on a `ComptimeIndex(usize)` impl was
-                      // rejected with "Type does not implement Index for the given argument
-                      // type" while `l(usize(0))` worked.
-                      p1_compatible := are_types_compatible(arg_type, &p1);
-                      ret_is_ptr := is_pointer_type(&ret_ty);
-                      if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
-                        found = Option(_IndexMethodEntry).Some(m);
-                      });
-                    },
-                    .None => ()
-                  );
-                },
-                .None => ()
-              );
-            });
-          },
-          _ => ()
-        );
-      },
+      _index_shape_of(&m.method_type, arg_type),
+      .Some(sh) => if(!sh.is_projection || !sh.is_mut, {
+        return(Option(_IndexMethodEntry).Some(m));
+      }),
       .None => ()
     );
     i = (i + usize(1));
   });
-  found
+  Option(_IndexMethodEntry).None
+});
+/// Find the method that writes `concrete_type(arg)`: an `index_mut`
+/// projection (`self : &mut Self -> &mut Self.Output`) whose index parameter
+/// accepts `arg_type`.
+_find_index_mut_method :: (
+  fn(
+    concrete_type : &TypeValue,
+    arg_type : &TypeValue,
+    env : &Environment
+  ) -> Option(_IndexMethodEntry)
+)({
+  methods := _find_all_index_methods(concrete_type, env, "index_mut");
+  (i : usize) = usize(0);
+  while(i < methods.len(), {
+    m := methods(i);
+    match(
+      _index_shape_of(&m.method_type, arg_type),
+      .Some(sh) => if(sh.is_projection && sh.is_mut && match(m.method_type, .Func({ meta : imm_fm }) => match(imm_fm.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), {
+        return(Option(_IndexMethodEntry).Some(m));
+      }),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  Option(_IndexMethodEntry).None
 });
 // ---------------------------------------------------------------------------
 // _try_comptime_element_access
@@ -1567,17 +1606,9 @@ try_to_call_with_index_trait :: (
       )
     }
   );
-  // Get the output type: index method returns *(Output), deref to get Output
-  ret_ty := match(
-    method.method_type,
-    .Func({ result : result_box }) => result_box,
-    _ => t_unit()
-  );
-  output_ty := match(
-    ret_ty,
-    .Pointer(et) => et,
-    _ => ret_ty
-  );
+  // The element type: a projection's result, or the pointee of the pre-V2b
+  // `*(Output)` (`_index_shape_of`).
+  output_ty := match(_index_shape_of(&method.method_type, &arg_type), .Some(sh) => sh.output, .None => t_unit());
   // The `idx` argument follows the same ownership rule as a normal call's
   // argument (`consume_argument_for_parameter`). The Index trait takes its
   // index BY VALUE (decision 34 as amended 2026-10-11), and the specialized
@@ -1656,7 +1687,20 @@ try_to_call_with_index_trait :: (
 /// `Output` as `index`'s. Runtime-mode files record nothing, so their C is
 /// unchanged.
 _record_index_unchecked_twin :: (
-  fn(value_type : &TypeValue, arg_type : &TypeValue, output_ty : &TypeValue, expr : &AstExpr, caller_env : &Environment, ctx : &EvalContext, idx_expr : &AstExpr) -> unit
+  fn(
+    value_type : &TypeValue,
+    arg_type : &TypeValue,
+    output_ty : &TypeValue,
+    expr : &AstExpr,
+    caller_env : &Environment,
+    ctx : &EvalContext,
+    idx_expr : &AstExpr,
+    /// The twin's trait and method: `IndexUnchecked.index_unchecked` for a
+    /// read, `IndexUncheckedMut.index_unchecked_mut` for a write through
+    /// `IndexMut` (the V2b split).
+    (trait_name : str) ?= "IndexUnchecked",
+    (method_name : str) ?= "index_unchecked"
+  ) -> unit
 )({
   tok := ast_expr_token(expr);
   if(!_is_verify_target(tok.module_path.clone()), {
@@ -1670,22 +1714,27 @@ _record_index_unchecked_twin :: (
     return(());
   });
   trait_id := match(
-    get_trait_type_from_env(caller_env, String.from("IndexUnchecked")),
+    get_trait_type_from_env(caller_env, String.from(trait_name)),
     .Some(.TraitT(id : tid)) => tid,
     _ => String.new()
   );
   if(trait_id == "", {
     return(());
   });
-  cands := get_receiver_methods_by_name_from_env(caller_env, String.from("index_unchecked"), value_type, false);
+  cands := get_receiver_methods_by_name_from_env(caller_env, String.from(method_name), value_type, false);
   (picked : Option(_IndexMethodEntry)) = Option(_IndexMethodEntry).None;
   (ci : usize) = usize(0);
   while((ci < cands.len()) && picked.is_none(), {
     c := cands(ci);
     if((c.source_trait_id == trait_id) && c.value.is_some(), {
+      // Its element is the subscript's: the pointee of a pre-V2b
+      // `*(Output)`, or a projection's result.
       same_output := match(
         c.ty,
-        .Func({ result : .Pointer(twin_out) }) => (are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)),
+        .Func({ result : twin_ret, meta : twin_m }) => {
+          twin_out := if(twin_m.*.result_is_ref, twin_ret, match(twin_ret, .Pointer(tp) => tp, _ => t_unit()));
+          (twin_m.*.result_is_ref || is_pointer_type(&twin_ret)) && are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)
+        },
         _ => false
       );
       if(same_output, {
@@ -1707,6 +1756,171 @@ _record_index_unchecked_twin :: (
     },
     .None => ()
   );
+});
+// ---------------------------------------------------------------------------
+// promote_index_places_for_write
+// ---------------------------------------------------------------------------
+/// The binding whose storage the receiver place `recv` names: field steps and
+/// element accesses down to a variable. `.None` when a step leaves the
+/// receiver's own storage (a raw-pointer deref, a reference-typed base, a
+/// call result): then the root's mode says nothing about the receiver.
+_index_receiver_root :: (fn(recv : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
+  (cur : AstExpr) = recv;
+  while(true, {
+    match(
+      cur,
+      .Atom(_, rr_tok) => {
+        return(get_variables_from_env(env, rr_tok.value.clone()).last());
+      },
+      .FnCall(_, rr_callee, rr_args, rr_infix, _) => {
+        cur = cond(
+          ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
+            base := match(rr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
+            field_is_deref := match(rr_args.get(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false);
+            base_is_ref := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => (is_pointer_type(&bi.ty) || is_reference_struct_type(&bi.ty)), .None => true);
+            if(field_is_deref || base_is_ref, {
+              return(Option(Variable).None);
+            });
+            base
+          },
+          (!rr_infix && _is_index_call(&cur, ctx)) => rr_callee,
+          true => {
+            return(Option(Variable).None);
+          }
+        );
+      }
+    );
+  });
+  Option(Variable).None
+});
+/// `e` is an element access dispatched through an `Index` method.
+_is_index_call :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
+    .Some(ei) => (expr_info_index_trait_ptr_type(&ei).is_some() && expr_info_index_method_type(&ei).is_some()),
+    .None => false
+  )
+);
+/// Re-dispatch one element access `call` (already dispatched as a read) to
+/// its receiver's `index_mut`, when the read went through a projection
+/// `index`. See `promote_index_places_for_write`.
+_promote_index_call :: (fn(call : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  info := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)), .Some(i) => i, .None => return(()));
+  read_ty := match(expr_info_index_method_type(&info), .Some(t) => t, .None => return(()));
+  (recv : AstExpr) = match(call, .FnCall(_, pc_callee, _, _, _) => pc_callee, .Atom(_, _) => return(()));
+  (idx : AstExpr) = match(call, .FnCall(_, _, pc_args, _, _) => match(pc_args.get(usize(0)), .Some(a) => a, .None => return(())), .Atom(_, _) => return(()));
+  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => return(()));
+  arg_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&idx)), .Some(ai) => ai.ty, .None => return(()));
+  read_shape := match(_index_shape_of(&read_ty, &arg_ty), .Some(sh) => sh, .None => return(()));
+  // The pre-V2b method serves writes itself; an `index_mut` is already one.
+  if(!read_shape.is_projection || read_shape.is_mut, {
+    return(());
+  });
+  place_text := ast_expr_to_string(call);
+  tok := ast_expr_token(call);
+  mut_m := match(
+    _find_index_mut_method(&recv_ty, &arg_ty, env),
+    .Some(m) => m,
+    .None => {
+      exn.throw(
+        dyn(
+          format_error_message(
+            &tok,
+            `Cannot write \`${place_text}\`: \`${type_to_string(&recv_ty)}\` implements \`Index\`, whose \`index\` is a read projection (\`-> &Self.Output\`), but not \`IndexMut\`, whose \`index_mut\` (\`self : &mut Self -> &mut Self.Output\`) every write through \`x(i)\` dispatches (decision 34). Implement \`IndexMut(${type_to_string(&arg_ty)})\` to make the element writable.`
+          )
+        )
+      );
+      return(());
+    }
+  );
+  mut_shape := match(_index_shape_of(&mut_m.method_type, &arg_ty), .Some(sh) => sh, .None => return(()));
+  if(!(are_types_compatible(&mut_shape.output, &read_shape.output) && are_types_compatible(&read_shape.output, &mut_shape.output)), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          &tok,
+          `Cannot write \`${place_text}\`: \`index_mut\` yields \`${type_to_string(&mut_shape.output)}\` and \`index\` yields \`${type_to_string(&read_shape.output)}\`; \`IndexMut\` and \`Index\` share one \`Output\`.`
+        )
+      )
+    );
+  });
+  // `index_mut` takes `self : &mut Self`: the receiver must be a place the
+  // caller may write, never a read-only borrow.
+  match(
+    _index_receiver_root(&recv, env, ctx),
+    .Some(rv) => if(variable_is_imm_borrow(&rv), {
+      exn.throw(
+        dyn(
+          with_code(
+            format_error_message(
+              &tok,
+              `Cannot write \`${place_text}\`: \`IndexMut.index_mut\` takes \`self : &mut Self\`, and \`${rv.name}\` is a read-only borrow. Declare it \`${rv.name} : &mut T\` (or borrow it with \`&mut\`) to write its elements.`
+            ),
+            E_WRITE_THROUGH_BORROW
+          )
+        )
+      );
+    }),
+    .None => ()
+  );
+  spec_out := ArrayList(EvalValue).new();
+  saved_exp := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  match(
+    mut_m.method_value,
+    .Some(_) => _specialize_index_method(&mut_m.method_value, &mut_m.method_type, call, env, ctx, &idx, &mut spec_out),
+    .None => ()
+  );
+  // The write's bounds-check-free twin is `IndexUncheckedMut`'s; the read
+  // twin recorded at dispatch must not serve the write.
+  forget_index_unchecked_twin(ast_expr_id(call));
+  _record_index_unchecked_twin(&recv_ty, &arg_ty, &read_shape.output, call, env, ctx, &idx, "IndexUncheckedMut", "index_unchecked_mut");
+  ctx.expected_type = saved_exp;
+  new_value := match(spec_out.get(usize(0)), .Some(sv) => Option(EvalValue).Some(sv), .None => mut_m.method_value);
+  expr_info_set_index_method_type(&info, Option(TypeValue).Some(mut_m.method_type));
+  expr_info_set_index_method_value(&info, &new_value);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(call), &info);
+});
+/// Decision 34's split at a write (V2b): every element access along the
+/// place `place` is written through — the target of `xs(i) = v`, of
+/// `xs(i).f = v`, of `grid(i)(j) = v`, a `&mut` argument or receiver
+/// (`xs(i).push(v)`), `addr_of(xs(i))`, a `&mut` projection's result. An
+/// access dispatched to a read projection (`index`, `self : &Self ->
+/// &Self.Output`) is re-dispatched to its receiver's `index_mut` (`self :
+/// &mut Self -> &mut Self.Output`), whose receiver must then be writable;
+/// a type with no `index_mut` has read-only elements. The pre-V2b method
+/// (`self : &mut Self -> *Self.Output`) serves reads and writes alike and
+/// stays as dispatched.
+promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  (cur : AstExpr) = place;
+  (walking : bool) = true;
+  while(walking, {
+    (next : Option(AstExpr)) = match(
+      cur,
+      .FnCall(_, pw_callee, pw_args, pw_infix, _) => cond(
+        ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => match(
+          pw_args.get(usize(1)),
+          .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(AstExpr).None, pw_args.get(usize(0))),
+          .None => Option(AstExpr).None
+        ),
+        (!pw_infix && _is_index_call(&cur, ctx)) => {
+          _promote_index_call(&cur, env, ctx, exn);
+          Option(AstExpr).Some(pw_callee)
+        },
+        true => Option(AstExpr).None
+      ),
+      .Atom(_, _) => Option(AstExpr).None
+    );
+    match(
+      next,
+      .Some(n) => {
+        cur = n;
+      },
+      .None => {
+        walking = false;
+      }
+    );
+  });
 });
 // ---------------------------------------------------------------------------
 // has_index_impl
@@ -1737,5 +1951,5 @@ has_index_impl :: (
   methods := _find_all_index_methods(concrete_type, caller_env);
   methods.len() > usize(0)
 });
-export(try_to_call_with_index_trait);
+export(try_to_call_with_index_trait, promote_index_places_for_write);
 export(has_index_impl);

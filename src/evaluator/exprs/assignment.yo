@@ -78,6 +78,7 @@ pragma(Pragma.AllowUnsafe);
 { type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound, mark_generic_independent } :: import("../../types/utils.yo");
 { format_error_message, format_error_message_with_help, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
 { E_VARIABLE_NOT_FOUND, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
+{ promote_index_places_for_write } :: import("../calls/index_trait.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { evaluate_binding, set_defer_generic_fn_type_check } :: import("./binding.yo");
@@ -363,13 +364,19 @@ _check_capture_borrow_write :: (fn(lhs : &AstExpr, tok : &Token, env : &Environm
     root_vars.last(),
     .Some(rv) => {
       check_capture_freeze_access(&rv, true, tok, env, ctx, exn);
+      // A projection's `&T` parameter has the same shape (a pointer that is
+      // not reassignable, `bind_parameter`'s `is_ptr_borrow`).
       if(rv.is_ref && !rv.is_reassignable, {
         raise_flow_violation(
           with_code(
             format_error_message_with_help(
               tok,
-              `Cannot write through \`${rv.name}\`: it is a \`&\` capture, a read-only borrow of the place the closure was given.`,
-              Option(String).Some(`capture it \`${rv.name} : &mut ...\` to write the place (a non-escaping closure only), or write a local copy`)
+              if(
+                rv.is_parameter,
+                `Cannot write through \`${rv.name}\`: it is a \`&T\` parameter, a read-only borrow of the caller's place.`,
+                `Cannot write through \`${rv.name}\`: it is a \`&\` capture, a read-only borrow of the place the closure was given.`
+              ),
+              Option(String).Some(if(rv.is_parameter, `declare it \`${rv.name} : &mut T\` to write the caller's place`, `capture it \`${rv.name} : &mut ...\` to write the place (a non-escaping closure only), or write a local copy`))
             ),
             E_WRITE_THROUGH_BORROW
           ),
@@ -1055,6 +1062,9 @@ evaluate_assignment :: (
     local_borrow_mark_receiver(&lhs);
     evaluated_lhs := evaluate_expression_raw(&lhs, &env, ctx, exn);
     local_borrow_clear_receiver();
+    // The target is written: its element accesses dispatch `IndexMut`
+    // (decision 34, V2b).
+    promote_index_places_for_write(&evaluated_lhs, &env, ctx, exn);
     ctx.expected_type = saved_expected;
     ctx.is_lhs_of_assignment = saved_is_lhs;
     lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lhs));

@@ -699,3 +699,169 @@ test("A borrowed idx no longer conforms to the by-value Index trait", {
     "but the trait requires"
   );
 });
+// ============================================================
+// V2b: the read/write split (decision 34) over projections (decision 24).
+// The prelude's `Index` keeps its pre-V2b `-> *Self.Output` shape until a
+// seed lowers `-> &T` (Generation B), so these traits spell the V2b shapes
+// locally. The subscript dispatches by method name: `x(i)` reads through
+// `index`, and every write (`=`, a field of the element, a `&mut` receiver
+// or argument, `addr_of`) goes through `index_mut`.
+// ============================================================
+VIndex :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index : (fn(self : &Self, idx : Idx) -> &Self.Output)
+  )
+);
+VIndexMut :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)
+  )
+);
+// Inline storage: the projection's place is inside `self`, so its `&Self`
+// receiver must reach the caller's value, never a by-value copy.
+Trio :: struct(a : i32, b : i32, c : i32);
+impl(
+  Trio,
+  VIndex(usize)(
+    Output : i32,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
+      cond(
+        (idx == usize(0)) => &self.a,
+        (idx == usize(1)) => &self.b,
+        true => &self.c
+      )
+    )
+  )
+);
+impl(
+  Trio,
+  VIndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      cond(
+        (idx == usize(0)) => &mut self.a,
+        (idx == usize(1)) => &mut self.b,
+        true => &mut self.c
+      )
+    )
+  )
+);
+test("V2b: a read projection reads the caller's element", {
+  t := Trio(a : i32(1), b : i32(2), c : i32(3));
+  assert(t(usize(0)) == i32(1), "t(0)");
+  assert(t(usize(1)) == i32(2), "t(1)");
+  assert(t(usize(2)) == i32(3), "t(2)");
+});
+test("V2b: element assignment dispatches IndexMut", {
+  t := Trio(a : i32(1), b : i32(2), c : i32(3));
+  t(usize(1)) = i32(20);
+  assert(t.b == i32(20), "the write reached the field");
+  assert(t(usize(1)) == i32(20), "and reads back");
+  // A read-modify-write is a read dispatch then a write dispatch.
+  t(usize(2)) = (t(usize(2)) + i32(30));
+  assert(t.c == i32(33), "t(2) = t(2) + 30");
+});
+_trio_bump :: (fn(t : &mut Trio, i : usize) -> unit)({
+  t(i) = (t(i) + i32(1));
+});
+_trio_sum :: (fn(t : &Trio) -> i32)(
+  t(usize(0)) + t(usize(1)) + t(usize(2))
+);
+test("V2b: a &mut parameter writes its elements, a & parameter reads them", {
+  t := Trio(a : i32(1), b : i32(2), c : i32(3));
+  _trio_bump(&mut t, usize(0));
+  _trio_bump(&mut t, usize(0));
+  assert(t.a == i32(3), "two bumps through a &mut parameter");
+  assert(_trio_sum(&t) == i32(8), "reads through a & parameter");
+});
+_trio_write_shared :: (fn(t : &Trio) -> unit)({
+  comptime_expect_error(t(usize(0)) = i32(9), "is a read-only borrow");
+});
+// A collection of value elements: `grid(i)(j) = v` writes through both
+// projections, and `pts(i).x = v` writes a field of the element.
+Rows :: struct(rows : ArrayList(Trio));
+impl(
+  Rows,
+  VIndex(usize)(
+    Output : Trio,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)({
+      assert(idx < self.rows.len(), "Rows index out of bounds");
+      &self.rows(idx)
+    })
+  )
+);
+impl(
+  Rows,
+  VIndexMut(usize)(
+    Output : Trio,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)({
+      assert(idx < self.rows.len(), "Rows index out of bounds");
+      &mut self.rows(idx)
+    })
+  )
+);
+impl(
+  Trio,
+  bump_all : (fn(self : &mut Self) -> unit)({
+    self.a = (self.a + i32(1));
+    self.b = (self.b + i32(1));
+    self.c = (self.c + i32(1));
+  })
+);
+test("V2b: nested and field writes go through IndexMut at every level", {
+  g := Rows(rows : ArrayList(Trio).new());
+  g.rows.push(Trio(a : i32(1), b : i32(2), c : i32(3)));
+  g.rows.push(Trio(a : i32(4), b : i32(5), c : i32(6)));
+  assert(g(usize(1))(usize(2)) == i32(6), "nested read");
+  g(usize(1))(usize(2)) = i32(60);
+  assert(g.rows(usize(1)).c == i32(60), "nested write");
+  g(usize(0)).b = i32(22);
+  assert(g(usize(0)).b == i32(22), "a field of the element");
+  g(usize(0)).bump_all();
+  assert(g(usize(0))(usize(0)) == i32(2), "a &mut receiver");
+  assert(g(usize(0)).b == i32(23), "a &mut receiver, second field");
+});
+// Read-only elements: `Index` without `IndexMut`.
+Frozen :: struct(v : i32);
+impl(
+  Frozen,
+  VIndex(usize)(
+    Output : i32,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)({
+      assert(idx == usize(0), "Frozen has one element");
+      &self.v
+    })
+  )
+);
+test("V2b: a type with Index but no IndexMut has read-only elements", {
+  f := Frozen(v : i32(7));
+  assert(f(usize(0)) == i32(7), "the read");
+  comptime_expect_error(f(usize(0)) = i32(8), "but not `IndexMut`");
+});
+test("V2b: IndexMut needs a writable receiver", {
+  t := Trio(a : i32(1), b : i32(2), c : i32(3));
+  _trio_write_shared(&t);
+  assert(t.a == i32(1), "nothing was written");
+});
+test("V2b: a projection yields a place rooted at a borrow parameter", {
+  comptime_expect_error(
+    (fn(t : &Trio) -> &i32)({
+      x := t.a;
+      &x
+    }),
+    "is a local"
+  );
+  comptime_expect_error((fn(t : Trio) -> &i32)(&t.a), "is a by-value parameter");
+  comptime_expect_error((fn(t : &Trio) -> &mut i32)(&mut t.a), "is a shared borrow");
+  comptime_expect_error((fn(t : &mut Trio) -> &mut i32)(&t.a), "write `&mut place`");
+  comptime_expect_error((fn(t : &Trio) -> &i32)(&mut t.a), "write `&place`, not `&mut place`");
+});
+// A projection yielding a place of its parameter is accepted; its call
+// sites other than the trait subscript are the rest of decision 24.
+_v2b_first :: (fn(t : &Trio) -> &i32)(&t.a);
+test("V2b: a projection is reached through the subscript", {
+  t := Trio(a : i32(5), b : i32(6), c : i32(7));
+  comptime_expect_error(_v2b_first(&t), "Calling one directly is not supported yet");
+});

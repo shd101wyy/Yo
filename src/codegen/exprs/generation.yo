@@ -463,7 +463,11 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
   // rvalue spill: if the callee is a function call returning a temporary (not an
   // atom, not a `.` property access which yields an lvalue), store it into a temp
   // first so we can take its address. Keyed by ast id for a unique temp name.
-  if(ast_expr_is_fn_call(&callee) && (!ast_expr_is_atom(&callee) && !ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2)))), {
+  // An element access as the receiver (`g(i)(j)`) is already a place,
+  // `(*index_fn(...))`: spilling it would hand the outer method a copy, and a
+  // write through `index_mut` would land in the copy.
+  callee_is_index_place := match(context.base.get_expr_info(&callee), .Some(cei0) => (expr_info_index_trait_ptr_type(&cei0).is_some() && expr_info_index_method_type(&cei0).is_some()), .None => false);
+  if(ast_expr_is_fn_call(&callee) && (!ast_expr_is_atom(&callee) && !ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2)))) && !callee_is_index_place, {
     match(
       context.base.get_expr_info(&callee),
       .Some(cei) => {

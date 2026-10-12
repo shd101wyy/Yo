@@ -5,7 +5,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT, projection_tail_mode } :: import("../../expr.yo");
 { is_array_type, is_struct_type, is_tuple_type } :: import("../../types/guards.yo");
 {
   ExprInfo,
@@ -21,7 +21,7 @@ pragma(Pragma.AllowUnsafe);
   record_addr_of_site,
   migrate_addr_of_on
 } :: import("../../expr_info.yo");
-{ Variable, Environment, snapshot_env } :: import("../../env.yo");
+{ Variable, Environment, snapshot_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 {
   EvalValue,
@@ -35,6 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
+{ promote_index_places_for_write } :: import("../calls/index_trait.yo");
 { Exception } :: import("std/error");
 /// A fresh single-element PtrVal cell.
 _cell1 :: (fn(v : &EvalValue) -> ArrayList(EvalValue))({
@@ -69,6 +70,42 @@ _aggregate_type_of :: (fn(place : &AstExpr, ctx : &EvalContext) -> Option(TypeVa
       found
     },
     .Atom(_, _) => .None
+  )
+);
+/// Decision 24's root rule (`NON_ESCAPABLE_TYPES.md` R3, first cut): the
+/// place a projection yields is reached from one of its own borrow
+/// parameters, through field steps, element accesses and raw-pointer derefs
+/// (`p.*`, which only a `pragma(AllowUnsafe)` file can write). A `&mut place`
+/// result needs a `&mut` parameter. Returns the error, or `.None`.
+_projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(String))(
+  match(
+    place,
+    .Atom(_, pr_tok) => match(
+      get_variables_from_env(env, pr_tok.value.clone()).last(),
+      .Some(v) => cond(
+        (!v.is_parameter || v.is_compile_time_only || !(v.is_ref || v.is_imm_borrow)) => Option(String).Some(
+          `A projection yields a place reached from one of its \`&\`/\`&mut\` parameters, and \`${pr_tok.value}\` is ${cond(v.is_parameter => "a by-value parameter", v.is_module_level => "a module-level binding", true => "a local")}: its storage ends with the call (decision 24, the single-root rule).`
+        ),
+        (is_mut && (!v.is_ref || v.is_imm_borrow)) => Option(String).Some(
+          `A \`&mut\` projection yields a place reached from a \`&mut\` parameter, and \`${pr_tok.value}\` is a shared borrow (\`&T\`).`
+        ),
+        true => Option(String).None
+      ),
+      .None => Option(String).Some(`A projection yields a place reached from one of its \`&\`/\`&mut\` parameters; \`${pr_tok.value}\` is not one.`)
+    ),
+    .FnCall(_, pr_callee, pr_args, _, _) => cond(
+      ast_expr_is_fn_call_of(place, BF_DOT, Option(usize).Some(usize(2))) => match(
+        pr_args.get(usize(1)),
+        // A raw-pointer deref: the place is wherever the pointer points.
+        .Some(f) => if(ast_expr_is_atom_of(&f, "*"), Option(String).None, {
+          base := match(pr_args.get(usize(0)), .Some(b) => b, .None => make_err_expr());
+          _projection_root_error(&base, is_mut, env, ctx)
+        }),
+        .None => Option(String).None
+      ),
+      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place)), .Some(pi) => expr_info_index_trait_ptr_type(&pi).is_some(), .None => false) => _projection_root_error(&pr_callee, is_mut, env, ctx),
+      true => Option(String).Some(String.from("A projection yields a place, and this is a temporary: its storage ends with the call (decision 24, the single-root rule)."))
+    )
   )
 );
 evaluate_address_call :: (
@@ -174,6 +211,25 @@ evaluate_address_call :: (
       )
     );
   });
+  // A raw pointer and a `&mut` projection's result write the place, so its
+  // element accesses dispatch `IndexMut` (decision 34, V2b); a `&`
+  // projection's result only reads it.
+  if(match(projection_tail_mode(expr), .Some(ptm) => ptm, .None => true), {
+    promote_index_places_for_write(&eval_arg, env, ctx, exn);
+  });
+  // A projection's result (`rewrite_projection_tails`): the place must be
+  // rooted at the projection's own borrow parameters.
+  match(
+    projection_tail_mode(expr),
+    .Some(pt_mut) => match(
+      _projection_root_error(&eval_arg, pt_mut, env, ctx),
+      .Some(pt_msg) => {
+        exn.throw(dyn(format_error_message(ast_expr_token(&arg_expr), pt_msg)));
+      },
+      .None => ()
+    ),
+    .None => ()
+  );
   arg_type := arg_info.ty;
   pointer_type := t_ptr(&arg_type);
   // Determine compile-time pointer value from comptimeRef.

@@ -1453,6 +1453,12 @@ record_index_unchecked_twin :: (fn(node_id : ExprId, twin : &EvalValue) -> unit)
   g_index_unchecked_twins.insert(node_id, twin);
   ()
 });
+/// Drop the twin recorded for `node_id`: a subscript promoted to `IndexMut`
+/// without an unchecked-write twin keeps its checked `index_mut`.
+forget_index_unchecked_twin :: (fn(node_id : ExprId) -> unit)({
+  _ftw := g_index_unchecked_twins.remove(&node_id);
+  ()
+});
 index_unchecked_twin_of :: (fn(node_id : ExprId) -> Option(EvalValue))(
   g_index_unchecked_twins.get(&node_id)
 );
@@ -3343,6 +3349,7 @@ export(
   guard_site_pair_is_proved,
   record_index_unchecked_twin,
   index_unchecked_twin_of,
+  forget_index_unchecked_twin,
   evaluate_seq_unit,
   evaluate_seq_of,
   evaluate_produced,

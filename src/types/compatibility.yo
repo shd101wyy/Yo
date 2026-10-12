@@ -782,7 +782,7 @@ _compat_impl :: (
         // stand where a by-value one was expected, and let the CTFE memo hand
         // `Wrap(fn(x : &mut i32) -> unit)` the by-value instance (a SIGSEGV,
         // issues/fixed/inout-call-through-a-fn-value-loses-the-mutation.md).
-        if(ameta.*.result_is_ref != emeta.*.result_is_ref, {
+        if((ameta.*.result_is_ref != emeta.*.result_is_ref) || (ameta.*.result_is_mut_ref != emeta.*.result_is_mut_ref), {
           return(false);
         });
         (mi : usize) = usize(0);

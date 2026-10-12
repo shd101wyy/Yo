@@ -10,7 +10,7 @@
 { should_skip_function_codegen, _async_override_return_type, awaited_future_c_type_override, emitted_return_type_string, generate_function_prototype } :: import("../functions/declarations.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_function_type, is_unit_type, is_array_type, is_dyn_type, is_struct_type, is_enum_type, is_union_type, is_fn_trait_type, is_some_type } :: import("../../types/guards.yo");
-{ type_is_control_bound, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
+{ type_is_control_bound, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, type_contains_rc_cell_or_move_only, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
 { Environment, get_variables_from_env, find_innermost_frame_with_given_variable, Variable } :: import("../../env.yo");
 { is_builtin_yo_inline_function } :: import("../constants.yo");
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
@@ -1474,7 +1474,8 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               // The method's per-param ref flags: they gate the argument dups
               // (`_dispatch_arg_code`) and the ref-amp below.
               m_fid_amp := match(mfv, .FuncVal(__fvd6, _) => __fvd6.*.func_id, _ => String.from(""));
-              ia_pir := match(get_func_type(&m_fid_amp), .Func({ meta : __fm3 }) => __fm3.*.param_is_ref, _ => ArrayList(bool).new());
+              ia_ft := get_func_type(&m_fid_amp);
+              ia_pir := fn_abi_param_is_ptr(&ia_ft);
               inline_args := ArrayList(String).new();
               ia_n := dm_runtime.len();
               (ia_i : usize) = usize(0);
@@ -1522,6 +1523,16 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               ),
               .None => ArrayList(bool).new()
             );
+            // The C pointer flags (a projection's `&T` parameters too); the
+            // borrow acquires keep `cm_param_is_ref`.
+            cm_abi_ptr := match(
+              method_fv,
+              .Some(mfv3) => {
+                cm_ft := get_func_type(match(mfv3, .FuncVal(__fvd8, _) => __fvd8.*.func_id, _ => String.from("")));
+                fn_abi_param_is_ptr(&cm_ft)
+              },
+              .None => ArrayList(bool).new()
+            );
             // Resolved BEFORE the argument loop (they only need `method_fv`)
             // so the loop can tell whether an empty — i.e. `unit` — argument
             // has a real C parameter slot to fill with the dead byte.
@@ -1535,7 +1546,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 dm_runtime.get(cmi),
                 .Some(a) => {
                   cm_arg_list.push({
-                    mc := _dispatch_arg_code(&a, match(cm_param_is_ref.get(cmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
+                    mc := _dispatch_arg_code(&a, match(cm_abi_ptr.get(cmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
                     hs := match(cm_ptypes.get(cmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
@@ -1544,7 +1555,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               );
               cmi = (cmi + usize(1));
             });
-            cm_arg_list = _apply_ref_amp(&cm_arg_list, &cm_param_is_ref, &dm_runtime, indent.clone(), context);
+            cm_arg_list = _apply_ref_amp(&cm_arg_list, &cm_abi_ptr, &dm_runtime, indent.clone(), context);
             cm_call := cn.clone();
             cm_call.push_str("(");
             cm_call.push_string(_join_args(&cm_arg_list));
@@ -1650,6 +1661,10 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           .Some(rmcn) => {
             rm_runtime := match(ei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new());
             rm_pir := match(get_func_type(rm_fid.clone()), .Func({ meta : __fmrm }) => __fmrm.*.param_is_ref, _ => ArrayList(bool).new());
+            // The C pointer flags (a projection's `&T` parameters too); the
+            // borrow acquires keep `rm_pir`.
+            rm_abi_ft := get_func_type(rm_fid.clone());
+            rm_abi_ptr := fn_abi_param_is_ptr(&rm_abi_ft);
             // Resolved BEFORE the argument loop (they only need `rm_fid`) so an
             // empty — i.e. `unit` — argument can be filled with the dead byte
             // when the callee actually has a C parameter at that index.
@@ -1663,7 +1678,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
                 rm_runtime.get(rmi),
                 .Some(a) => {
                   rm_args.push({
-                    mc := _dispatch_arg_code(&a, match(rm_pir.get(rmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
+                    mc := _dispatch_arg_code(&a, match(rm_abi_ptr.get(rmi), .Some(r) => r, .None => false), expr, indent.clone(), context);
                     hs := match(rm_ptypes.get(rmi), .Some(_) => true, .None => false);
                     if((mc.len() == usize(0)) && hs, String.from("0"), mc)
                   });
@@ -1672,7 +1687,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               );
               rmi = (rmi + usize(1));
             });
-            rm_args = _apply_ref_amp(&rm_args, &rm_pir, &rm_runtime, indent.clone(), context);
+            rm_args = _apply_ref_amp(&rm_args, &rm_abi_ptr, &rm_runtime, indent.clone(), context);
             rm_call := rmcn.clone();
             rm_call.push_str("(");
             rm_call.push_string(_join_args(&rm_args));
@@ -2186,12 +2201,15 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   );
   param_types := match(function_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
   param_is_ref := match(function_type, .Func({ meta : __fm5 }) => __fm5.*.param_is_ref, _ => ArrayList(bool).new());
+  // The C pointer flags: `param_is_ref`, plus a projection's `&T` parameters
+  // (`fn_abi_param_is_ptr`). The borrow acquires below keep `param_is_ref`.
+  abi_is_ptr := fn_abi_param_is_ptr(function_type);
   // Materialize args, then auto-`&` ref params.
   args := ArrayList(String).new();
   na := runtime_args.len();
   (ai : usize) = usize(0);
   while(ai < na, {
-    pref := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
+    pref := match(abi_is_ptr.get(ai), .Some(r) => r, .None => false);
     // A `unit` argument materializes to "" (see _materialize_arg). If the callee
     // has a real C parameter at this index it is now a one-byte placeholder, so
     // pass the dead byte rather than leaving `f(xs, )`. With NO matching
@@ -2208,7 +2226,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     );
     ai = (ai + usize(1));
   });
-  args2 := _apply_ref_amp(&args, &param_is_ref, &runtime_args, indent.clone(), context);
+  args2 := _apply_ref_amp(&args, &abi_is_ptr, &runtime_args, indent.clone(), context);
   args_list := _join_args(&args2);
   em := context.base.emitter;
   // extern "yo". (Run as a statement, not a binding: the match yields unit and
@@ -2342,7 +2360,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           if(should_skip_function_codegen(fid.clone(), c_func_name.clone(), &fv, &context.base) && !is_io_async_sm_closure(fid.clone()), {
             return(Option(String).Some(`// Failed to transpile ${ast_expr_to_string(expr)}`));
           });
-          casted := _per_arg_cast(args_list.clone(), &param_types, &param_is_ref, context);
+          casted := _per_arg_cast(args_list.clone(), &param_types, &abi_is_ptr, context);
           // `is_unit_type` does not walk the SomeT resolution chain, but
           // `get_type_string` does — and the normalization above deliberately
           // leaves `result_type` as a SomeT when the expression's own type is

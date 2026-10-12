@@ -23,11 +23,12 @@
 //! impl.yo → function_type.yo → trait_checking.yo → impl.yo.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
+{ Token } :: import("../../token.yo");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, make_err_expr, clone_expr_fresh_ids, rewrite_projection_tails } :: import("../../expr.yo");
 { copy_func_param_defaults, copy_func_param_default_exprs, copy_func_param_type_exprs, copy_func_param_comptime, copy_func_param_assigned_values, get_func_param_comptime, copy_func_return_type_expr, copy_macro_registration, get_func_variadic_param, copy_func_variadic_param, copy_func_where_constraints, get_func_where_constraints, WhereConstraintEntry, get_func_requires_exprs, get_func_ensures_exprs, get_func_decreases_expr, get_func_return_label, copy_func_contract_exprs, has_func_assumed_body } :: import("../types/function.yo");
 { ExprInfo, new_expr_info, expr_info_table_set, expr_info_table_get, has_control_flow, has_any_control_flow, push_active_where_trait_ids, pop_active_where_trait_ids, some_resolution, trial_body_site, record_generic_trial_error, clear_generic_trial_error } :: import("../../expr_info.yo");
 {
@@ -93,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { stable_func_id, display_module_path, debug_knob } :: import("../../utils.yo");
 { register_func_type, get_func_type, mark_fn_unemittable } :: import("../../function_value.yo");
-{ get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound } :: import("../../types/utils.yo");
+{ get_all_some_types, type_representation_contains_raw_ptr, type_is_control_bound, fn_param_is_ptr_borrow } :: import("../../types/utils.yo");
 { are_types_compatible, are_types_compatible_invariant } :: import("../../types/compatibility.yo");
 { format_error_message, yo_error_from_diagnostics, YoError, with_code_carried } :: import("../../error.yo");
 { Diagnostic, E_COMPTIME_RUNTIME_BINDING } :: import("../../diagnostics.yo");
@@ -978,7 +979,7 @@ _build_def_time_body_env :: (
     );
     // The shared binding rule (calls/helper.yo): the declared comptime,
     // `inout` and `own` flags.
-    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, synthetic_token(&pn, &module_path));
+    bind_parameter(&fresh_env, &pn, &pt, &pv, p_ct || is_type_0(&pt), p_ref, p_own, synthetic_token(&pn, &module_path), fn_param_is_ptr_borrow(fn_type_for_foralls, pi));
     pi = (pi + usize(1));
   });
   fresh_env
@@ -1175,7 +1176,35 @@ Result type: ${type_to_string(&result_box)}`
           )
         );
       });
-      body_expr_raw := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      body_expr_unprojected := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      // Decision 24: a projection's body yields a place with the sigil of its
+      // result's mode; each result position becomes the marked
+      // `addr_of(place)` (`rewrite_projection_tails`), so the body produces
+      // the `*(T)` the C ABI returns and the evaluator checks the place's root
+      // where it evaluates the marker.
+      body_expr_raw := if(result_is_ref, {
+        proj_mismatches := ArrayList(Token).new();
+        rewritten := rewrite_projection_tails(&body_expr_unprojected, __fm2.*.result_is_mut_ref, &mut proj_mismatches);
+        match(
+          proj_mismatches.get(usize(0)),
+          .Some(mt) => {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  &mt,
+                  if(
+                    __fm2.*.result_is_mut_ref,
+                    String.from("This function returns `&mut T`, so its result is a mutable place: write `&mut place`. A `&place` is a shared borrow and cannot be handed out as `&mut`."),
+                    String.from("This function returns `&T`, so its result is a shared place: write `&place`, not `&mut place`.")
+                  )
+                )
+              )
+            );
+          },
+          .None => ()
+        );
+        rewritten
+      }, body_expr_unprojected);
       // Phase 0 task #6 of plans/backlog/FORMAL_VERIFICATION.md: splice
       // `assert(P, msg)` / `comptime_assert(P, msg)` calls into the body for
       // each `requires(...)` / `ensures(...)` predicate declared in the
@@ -1985,8 +2014,22 @@ Result type: ${type_to_string(&result_box)}`
                     .None => ()
                   );
                 });
-                ub_skip := (has_any_control_flow(ub_info.control_flow) || is_void_type(&result_box) || is_type_hierarchy_type(&result_box) || type_contains_some_type_for_codegen_param(&result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(&ub_ty, ArrayList(String).new()) || result_is_ref);
-                if(!ub_skip && !are_types_compatible(&ub_ty, &result_box), {
+                ub_skip := (has_any_control_flow(ub_info.control_flow) || is_void_type(&result_box) || is_type_hierarchy_type(&result_box) || type_contains_some_type_for_codegen_param(&result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(&ub_ty, ArrayList(String).new()));
+                // A projection's body yields the place's address
+                // (`rewrite_projection_tails`): `&place` / `&mut place`.
+                ub_place_ptr := t_ptr(&result_box);
+                if(!ub_skip && result_is_ref && !are_types_compatible(&ub_ty, &ub_place_ptr), {
+                  mark_fn_unemittable(fn_val_id.clone());
+                  exn.throw(
+                    dyn(
+                      format_error_message(
+                        ast_expr_token(&fb),
+                        `This function returns \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}${type_to_string(&result_box)}\`, a projection (decision 24): its result is a place of type \`${type_to_string(&result_box)}\` written \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}place\`, and this body has type \`${type_to_string(&ub_ty)}\`.`
+                      )
+                    )
+                  );
+                });
+                if(!ub_skip && !result_is_ref && !are_types_compatible(&ub_ty, &result_box), {
                   // The registration above already happened; a definition
                   // rejected here must not be emitted (its callers were
                   // discarded with the throw — a `comptime_expect_error`
@@ -2008,7 +2051,7 @@ Result type: ${type_to_string(&result_box)}`
                 // A `comptime_int` body VALUE returned as a fixed-width
                 // integer must fit it — the compatibility above is
                 // value-blind (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
-                if(!ub_skip && is_comptime_int_type(&ub_ty), {
+                if(!ub_skip && !result_is_ref && is_comptime_int_type(&ub_ty), {
                   match(
                     match(ub_info.value, .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(&ub_raw, &result_box), _ => Option(String).None), .None => Option(String).None),
                     .Some(ub_fit_msg) => {

@@ -48,8 +48,9 @@ FuncMeta :: struct(
   /// Rc value. Used by
   /// `require_ref_own_argument_exclusivity`.
   param_is_owning : ArrayList(bool),
-  /// True when the return was declared `-> &mut T`.
-  /// `is_flowable_expr` requires a flowable return.
+  /// True when the return is a borrow, `-> &T` or `-> &mut T`: a projection
+  /// (decision 24). It returns `T*` at the C ABI; `result_is_mut_ref` tells
+  /// the two modes apart. `is_flowable_expr` requires a flowable return.
   result_is_ref : bool,
   /// True when the param list ends with a `...` variadic marker (C-style
   /// variadic externs). The
@@ -93,7 +94,12 @@ FuncMeta :: struct(
   /// moves the argument instead of sharing a still implicitly copyable kind.
   /// Caller-side only, so not part of the function type's identity; `.None`
   /// means none is `sink`.
-  (param_is_sink : Option(ArrayList(bool))) ?= Option(ArrayList(bool)).None
+  (param_is_sink : Option(ArrayList(bool))) ?= Option(ArrayList(bool)).None,
+  /// With `result_is_ref`: the result is `-> &mut T` (a mutable projection,
+  /// decision 24) rather than `-> &T` (a read projection). Defaulted so a
+  /// construction site that drops it degrades to the read projection, which
+  /// rejects writes instead of admitting them.
+  (result_is_mut_ref : bool) ?= false
 );
 derive(FuncMeta, Clone);
 /// The Yo type universe.

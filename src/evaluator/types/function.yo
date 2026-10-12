@@ -1345,9 +1345,13 @@ _reject_old_result_mode :: (fn(e : &AstExpr, env : &Environment, exn : Exception
 });
 /// A borrow in a result slot: the internal `__yo_mut(T)` / `__yo_imm(T)`,
 /// which `-> &mut T` / `-> &T` are rewritten to at parse time (decision 42).
-/// A function cannot return a borrow until projections (decision 24) land.
+/// It makes the function a projection (decision 24).
 _is_borrow_result_mode :: (fn(e : &AstExpr) -> bool)(
   ast_expr_is_inout_mode_call(e, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_IMM, Option(usize).None)
+);
+/// The `T` of a borrow result `__yo_mut(T)` / `__yo_imm(T)`.
+_borrow_result_inner :: (fn(e : &AstExpr) -> AstExpr)(
+  match(_fn_call_args(e).get(usize(0)), .Some(a) => a, .None => make_err_expr())
 );
 /// Evaluate a single function parameter expression.
 ///
@@ -4029,27 +4033,31 @@ evaluate_function_type :: (
   (is_return_comptime_only : bool) = false;
   (is_return_unquote : bool) = false;
   (is_return_type_ref : bool) = false;
+  (is_return_type_mut_ref : bool) = false;
   (return_type_expr : AstExpr) = return_expr;
   // -> (ret : i32) or -> (comptime(ret) : i32) or -> (unquote(ret) : Expr)
   if(ast_expr_is_fn_call_of(&return_type_expr, ":", .Some(usize(2))), {
     ret_args := _fn_call_args(&return_type_expr);
     (rl_expr : AstExpr) = match(ret_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
     return_type_expr = match(ret_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
-    // `(name : &mut T)` — ref-return forms are BANNED: refs are
-    // second-class and may appear only in parameter position and local
-    // lvalue borrows.
+    // `(name : &T)` / `(name : &mut T)`: a labeled projection result
+    // (decision 24). The sigil goes on the type, never on the label.
     _reject_old_result_mode(&rl_expr, &env_mut, exn);
     _reject_old_result_mode(&return_type_expr, &env_mut, exn);
-    if(_is_borrow_result_mode(&rl_expr) ||
-      (ast_expr_is_fn_call(&return_type_expr) && _is_borrow_result_mode(&return_type_expr)), {
+    if(_is_borrow_result_mode(&rl_expr), {
       exn.throw(
         dyn(
           format_error_message(
             ast_expr_token(&rl_expr),
-            String.from("A function cannot return a borrow (`-> &T`, `-> &mut T`): a borrow is second-class and lives only in a parameter, a closure parameter or a local borrow. Return the value instead, or take a callback parameter that receives the borrow (`f : Impl(Fn(x : &mut T) -> R)`).")
+            String.from("A borrow result is written on the type, not the label: `-> (name : &T)` or `-> (name : &mut T)`.")
           )
         )
       );
+    });
+    if(ast_expr_is_fn_call(&return_type_expr) && _is_borrow_result_mode(&return_type_expr), {
+      is_return_type_ref = true;
+      is_return_type_mut_ref = ast_expr_is_inout_mode_call(&return_type_expr, Option(usize).None);
+      return_type_expr = _borrow_result_inner(&return_type_expr);
     });
     // comptime modifier
     if(ast_expr_is_fn_call_of(&rl_expr, BK_COMPTIME, Option(usize).None), {
@@ -4109,17 +4117,8 @@ evaluate_function_type :: (
     // In a labeled return slot, a `comptime` modifier goes on the LABEL,
     // never on the TYPE: reject `-> (name : comptime(T))`; use
     // `-> (comptime(name) : T)` (or unlabeled `-> comptime(T)`). A borrow
-    // result is banned above.
-    if(ast_expr_is_fn_call(&return_type_expr) && _is_borrow_result_mode(&return_type_expr), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(&return_type_expr),
-            String.from("A function cannot return a borrow (`-> &T`, `-> &mut T`): a borrow is second-class and lives only in a parameter, a closure parameter or a local borrow. Return the value instead, or take a callback parameter that receives the borrow (`f : Impl(Fn(x : &mut T) -> R)`).")
-          )
-        )
-      );
-    });
+    // result was stripped above; the trailing check rejects one nested
+    // under another wrapper.
     if(ast_expr_is_fn_call(&return_type_expr) && ast_expr_is_fn_call_of(&return_type_expr, BK_COMPTIME, Option(usize).None), {
       exn.throw(
         dyn(
@@ -4142,19 +4141,13 @@ evaluate_function_type :: (
     });
     return_label = .Some(ast_expr_token(&rl_expr).value);
   }, {
-    // -> i32 or -> comptime(i32) or -> unquote(Expr)
-    // `-> &mut T` is BANNED: refs are second-class and may appear only
-    // in parameter position and local lvalue borrows.
+    // -> i32 or -> comptime(i32) or -> unquote(Expr) or a projection's
+    // -> &T / -> &mut T (decision 24).
     _reject_old_result_mode(&return_type_expr, &env_mut, exn);
     if(ast_expr_is_fn_call(&return_type_expr) && _is_borrow_result_mode(&return_type_expr), {
-      exn.throw(
-        dyn(
-          format_error_message(
-            ast_expr_token(&return_type_expr),
-            String.from("A function cannot return a borrow (`-> &T`, `-> &mut T`): a borrow is second-class and lives only in a parameter, a closure parameter or a local borrow. Return the value instead, or take a callback parameter that receives the borrow (`f : Impl(Fn(x : &mut T) -> R)`).")
-          )
-        )
-      );
+      is_return_type_ref = true;
+      is_return_type_mut_ref = ast_expr_is_inout_mode_call(&return_type_expr, Option(usize).None);
+      return_type_expr = _borrow_result_inner(&return_type_expr);
     });
     if(ast_expr_is_fn_call_of(&return_type_expr, BK_COMPTIME, Option(usize).None), {
       is_return_comptime_only = true;
@@ -4209,14 +4202,25 @@ evaluate_function_type :: (
       );
     });
   });
-  // `-> &mut T` in the return slot is BANNED: refs are second-class and
-  // may appear only in parameter position and local lvalue borrows.
+  // A borrow left after the wrappers were stripped sits under another one
+  // (`-> comptime(&T)`, `-> &&T`): only a run-time projection returns a
+  // borrow, and it returns one level of it.
   if(ast_expr_is_fn_call(&return_type_expr) && _is_borrow_result_mode(&return_type_expr), {
     exn.throw(
       dyn(
         format_error_message(
           ast_expr_token(&return_type_expr),
-          String.from("A function cannot return a borrow (`-> &T`, `-> &mut T`): a borrow is second-class and lives only in a parameter, a closure parameter or a local borrow. Return the value instead, or take a callback parameter that receives the borrow (`f : Impl(Fn(x : &mut T) -> R)`).")
+          String.from("A borrow result is one `&T` or `&mut T` on a run-time function (a projection, decision 24): it cannot be nested in `comptime(...)`, `unquote(...)` or another borrow.")
+        )
+      )
+    );
+  });
+  if(is_return_type_ref && is_return_comptime_only, {
+    exn.throw(
+      dyn(
+        format_error_message(
+          ast_expr_token(&return_type_expr),
+          String.from("A borrow result is one `&T` or `&mut T` on a run-time function (a projection, decision 24): it cannot be nested in `comptime(...)`, `unquote(...)` or another borrow.")
         )
       )
     );
@@ -4662,6 +4666,7 @@ evaluate_function_type :: (
         param_is_ref : param_is_ref,
         param_is_owning : param_is_owning,
         result_is_ref : is_return_type_ref,
+        result_is_mut_ref : is_return_type_mut_ref,
         // has_variadic — set from the trailing `...` marker (C-style
         // variadic externs).
         has_variadic : params_result.has_variadic,
