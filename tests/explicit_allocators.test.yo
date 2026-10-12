@@ -127,11 +127,13 @@ test("A task keeps its scope across a suspension", {
     })
   );
   outside := _Point(x : i32(0), y : i32(0));
+  assert(arena.live_blocks() == usize(1), `the task's state machine: ${arena.live_blocks()}`);
   p := io.await(task, io);
   assert(p.x == i32(8), "result");
-  // The task's state machine and the point it built after resuming are the
-  // arena's; the runtime's own `yield` future is not (Rule 2).
-  assert(arena.live_blocks() == usize(2), `task + post-await point: ${arena.live_blocks()}`);
+  // The point the task built after resuming is the arena's; the runtime's
+  // own `yield` future is not (Rule 2). The task's state machine was the
+  // arena's too, and the await released it: it consumed the task (§3.13 A1).
+  assert(arena.live_blocks() == usize(1), `post-await point: ${arena.live_blocks()}`);
 });
 // One state-machine type for both allocators: the per-type task pool
 // (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 7) is shared between them.

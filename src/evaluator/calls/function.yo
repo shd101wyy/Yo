@@ -4966,6 +4966,50 @@ _evaluate_funcval_runtime_call :: (
 _try_eval_operand_type :: (
   fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(TypeValue)) -> unit
 )({
+  // A probe, not the operand's evaluation: the operand is evaluated again for
+  // the call, so a move the probe records (`x + take(d)`) would make that
+  // second evaluation a use of a moved value (E0901). Every binding's move
+  // state is put back afterwards
+  // (issues/fixed/a-move-inside-an-overloaded-operators-operand-is-a-use-after-move.md).
+  saved_vars := ArrayList(Variable).new();
+  saved_moves := ArrayList(Option(Rc(Token))).new();
+  (fi : usize) = usize(0);
+  while(fi < env.frames.len(), fi = (fi + usize(1)), {
+    match(
+      env.frames.get(fi),
+      .Some(fr) => {
+        (vi : usize) = usize(0);
+        while(vi < fr.variables.len(), vi = (vi + usize(1)), {
+          match(
+            fr.variables.get(vi),
+            .Some(v) => {
+              saved_moves.push(v.consumed_at_token);
+              saved_vars.push(v);
+            },
+            .None => ()
+          );
+        });
+      },
+      .None => ()
+    );
+  });
+  _probe_operand_type(arg, env, ctx, out);
+  (ri : usize) = usize(0);
+  while(ri < saved_vars.len(), ri = (ri + usize(1)), {
+    match(
+      saved_vars.get(ri),
+      .Some(v) => {
+        v.consumed_at_token = match(saved_moves.get(ri), .Some(m) => m, .None => Option(Rc(Token)).None);
+      },
+      .None => ()
+    );
+  });
+});
+/// The probe itself: a failure unwinds out of THIS function, so the caller's
+/// restore runs on both outcomes.
+_probe_operand_type :: (
+  fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(TypeValue)) -> unit
+)({
   oe_exn := Exception(throw : (_e -> unwind(())));
   oe_evaled := evaluate_expression_raw(arg, env, ctx, oe_exn);
   match(

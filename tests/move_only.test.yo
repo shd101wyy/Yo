@@ -775,3 +775,15 @@ test("consuming match: an io.async arm keeps a looked-through cell across an awa
   assert(result.* == i32(3), "f moved after the await, k read through the kept cell");
   assert(g_mo_disposed == (before + i32(2)), "f by the callee, the cell at the arm's end");
 });
+// issues/fixed/a-move-inside-an-overloaded-operators-operand-is-a-use-after-move.md:
+// the overload pick of `+` probed its right operand's type by evaluating it,
+// which recorded the move, and the real evaluation then reported E0901.
+test("a move inside an operator's operand moves once", {
+  before := g_mo_disposed;
+  d := _MoFd(n : i32(5));
+  x := (i32(3) + _mo_take(d));
+  assert(x == i32(8), "the operand ran once");
+  e := _MoFd(n : i32(1));
+  assert((i32(1) + _mo_take(e)) == i32(2), "inside an assert's condition");
+  assert(g_mo_disposed == (before + i32(2)), "each value disposed once, by the callee");
+});
