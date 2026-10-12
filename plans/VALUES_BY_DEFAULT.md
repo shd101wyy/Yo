@@ -58,10 +58,11 @@ Progress:
   - V3 async A1 (§3.13): futures are move-only, `io.await`/`io.spawn`
     consume them, the `io.async` body slot is a by-value `FnOnce`, and
     `Park` is a move-only value whose `wait` consumes it (A5's `Park` line).
+  - V3 async A2 (§3.13): a future may borrow, and is then second-class.
 - **In progress:**
-  - V3's remaining async work (§3.13): A2, A3 (Generation A landed with
-    A1's PR; the prelude switch waits for the seed), A4, A5's remaining
-    lines, A6.
+  - V3's remaining async work (§3.13): A3 (Generation A landed with A1's
+    PR; the prelude switch waits for the seed), A4, A5's remaining lines,
+    A6.
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
@@ -874,7 +875,7 @@ instead.
       captured future moves it out, which needs a by-value capture list
       (`io.async({ f }(io : Io) => io.await(f, io))`; an implicit capture is
       E0913, decision 37). A by-value list is accepted on an `io.async`
-      body; a borrow entry stays an error until A2.
+      body, and since A2 a borrow entry is too.
     - **Sharing a task.** Several waiters join one task through its
       `JoinHandle` (`io.await(h.join(io), io)`), which stays a shared `ref`
       struct until A3. The tests that awaited one future from two tasks, or
@@ -931,6 +932,49 @@ instead.
     `mutating func next() async`.
   - **It enables** `Stream.next(self : &mut Self, io)`, the async
     `Mutex.lock(self : &Self, io)`, and `Receiver.recv(self : &Self, io)`.
+  - **As built (2026-10-12, A2).**
+    - **The second-class bit.** An `io.async` body's capture-list borrows,
+      including those of a captured second-class value, are registered under
+      the future's per-call wrapper id (`_register_borrowing_future`,
+      `src/evaluator/calls/function.yo`). `collect_type_borrows` reads that
+      registry before its reference-type stop and follows a future's
+      resolution, so a function's `Impl(Future)` result carries its body's
+      borrows. Decision 38 A's machinery then applies unchanged.
+    - **Where it may appear.** `io.async`'s body slot and `io.await`'s
+      operand accept a second-class argument (`second_class_slot`). Every
+      other by-value slot rejects it, `io.spawn` included. Binding one to a
+      local is E0909 (`note_second_class_binding`). A return, whether
+      `return(...)`, a function's tail, a specialized body or a closure's
+      tail, goes through `reject_second_class_return`: a borrowing future
+      whose every borrow is rooted at a `&`/`&mut` parameter of the
+      returning function is accepted.
+    - **Forwarding is not accepted yet.** A function that returns another
+      function's borrowing future (`f(c : &mut C, io) -> …` returning
+      `bump(&mut c, io)`) is rejected, because the call's borrows are rooted at
+      the callee's parameters and are not re-rooted at the caller's. Await
+      it inside an `io.async` body that borrows `c` instead. Re-rooting
+      lands with decision 43's reference results.
+    - **The `Rc`/`Arc` rule** (decision 38 D, amended) is checked at the
+      await, the one place a borrowing future is used
+      (`_check_awaited_future_lends`). Each borrow maps to the argument its
+      call lent (by parameter label, the receiver as `self`), and a lent
+      place that crosses a cell is E0909. That includes an auto-dereferenced
+      receiver.
+    - **A lent `&T` parameter is copied.** C receives a `&T` parameter by
+      value, in the frame that made the future, so a returned future that
+      held `&param` would point at a dead slot. The state machine keeps its
+      own copy (`__yo_lent_<label>`, `_emit_lent_param_installs`) and the
+      capture points at it. The copy cannot go stale, because the caller's
+      place stays frozen while the future lives, and it owns nothing. An
+      `io.async` capture list therefore borrows a `&` parameter whole:
+      `{ &p.f }` is an error naming `{ &p }`.
+    - **Codegen.** A state-machine body (one that awaits) builds its
+      capture struct from the capture list's entries, so a borrow entry
+      stores its place's address, as the sync path already did.
+    - **Not yet:** decision 38 B's overlap for two borrowing futures
+      passed to one combinator (`select(s.next(io), s.next(io))`) lands
+      with A4's future-taking combinators. Until then, no combinator
+      accepts a borrowing future.
 - **A3. `JoinHandle(T)` is a move-only value struct over a raw future
   pointer:** `struct(__future : *(void))` with a `Dispose` that releases the
   task's count.

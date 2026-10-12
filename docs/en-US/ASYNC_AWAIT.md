@@ -364,6 +364,46 @@ before it is consumed. A result that several tasks need is computed once and
 shared: await it in one place and share the value as `Rc(T)`, or send it
 through a channel.
 
+### Borrowing Futures
+
+An `io.async` body may borrow instead of owning: name the borrow in its
+capture list (`{ &x }`, `{ &mut x }`). The Future it makes is then
+**second-class** (§3.13 A2 of `plans/VALUES_BY_DEFAULT.md`), like a closure
+that borrows:
+
+- it is awaited where it is made, as the direct operand of `io.await`;
+- a function may return it when everything it borrows is one of that
+  function's own `&`/`&mut` parameters, so the caller's lent places outlive
+  it;
+- it is never bound to a local, stored, captured by an escaping closure or
+  spawned (E0909).
+
+```yo
+{ assert } :: import("std/assert");
+
+Counter :: struct(n : i32);
+bump :: (fn(c : &mut Counter, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut c }(io : Io) => {
+    c.n = (c.n + i32(1));
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  c := Counter(n : i32(0));
+  io.await(bump(&mut c, io), io);
+  io.await(bump(&mut c, io), io);
+  assert(c.n == i32(2), "each await writes through the lent `&mut`");
+  // f := bump(&mut c, io); // E0909: `f` would hold a borrowing future
+});
+export(main);
+```
+
+A place lent to a borrowing Future may not pass through an `Rc`/`Arc`
+dereference (`io.await(count(&r.*.items, io), io)` is E0909): the borrow
+lasts across the suspension, and nothing would notice another task writing
+through its own handle meanwhile. Lend the handle instead (`h : &Rc(S)`) and
+read `h.*.items` inside the Future at each use, or own the value in the task.
+
 ### Aborted Futures
 
 When an algebraic effect handler calls `unwind` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.

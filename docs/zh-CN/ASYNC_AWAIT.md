@@ -349,6 +349,36 @@ export(main);
 
 `io.state(&f)` 借用 Future，在它被消耗之前可以调用任意多次。多个任务都需要的结果只计算一次再共享：在一处 await，然后以 `Rc(T)` 共享该值，或通过 channel 发送。
 
+### 借用的 Future
+
+`io.async` 的函数体可以借用而不是拥有：在捕获列表里写出借用（`{ &x }`、`{ &mut x }`）。这样得到的 Future 是**二等值**（`plans/VALUES_BY_DEFAULT.md` §3.13 A2），与借用的闭包一样：
+
+- 它在创建处被 await，作为 `io.await` 的直接操作数；
+- 当它借用的每个位置都是某个函数自己的 `&`/`&mut` 参数时，该函数可以返回它，因为调用方借出的位置比它活得久；
+- 它不能绑定到局部变量、存储、被逃逸的闭包捕获或被 spawn（E0909）。
+
+```yo
+{ assert } :: import("std/assert");
+
+Counter :: struct(n : i32);
+bump :: (fn(c : &mut Counter, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut c }(io : Io) => {
+    c.n = (c.n + i32(1));
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  c := Counter(n : i32(0));
+  io.await(bump(&mut c, io), io);
+  io.await(bump(&mut c, io), io);
+  assert(c.n == i32(2), "each await writes through the lent `&mut`");
+  // f := bump(&mut c, io); // E0909：`f` 会持有一个借用的 Future
+});
+export(main);
+```
+
+借给借用的 Future 的位置不能经过 `Rc`/`Arc` 解引用（`io.await(count(&r.*.items, io), io)` 是 E0909）：这个借用跨越挂起点持续存在，期间另一个任务通过它自己的句柄写入时没有任何检查能发现。改为借出句柄（`h : &Rc(S)`），在 Future 内每次使用时读取 `h.*.items`，或者让任务拥有这个值。
+
 ### 中止的 Future
 
 当代数效应处理器在异步任务内调用 `unwind` 时，Future 被标记为**已中止**（内部状态 = -2）。任务的续体被丢弃，不会存储结果。

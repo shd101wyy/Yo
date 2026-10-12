@@ -531,10 +531,20 @@ test("borrow places: a `mut` capture's place must be writable", {
     "needs a writable place"
   );
 });
-test("borrow places: a borrow in an `io.async` body's capture list is not supported yet", {
+test("borrow places: an `io.async` body's capture list may borrow, and its future is second-class (§3.13 A2)", {
   k := i32(1);
-  comptime_expect_error(io.async({ &k }(io : Io) => k), "not supported yet");
-  assert(k == i32(1), "k is untouched");
+  assert(io.await(io.async({ &k }(io : Io) => k), io) == i32(1), "the awaited future reads the borrowed local");
+  io.await(
+    io.async({ &mut k }(io : Io) => {
+      k = (k + i32(1));
+    }),
+    io
+  );
+  assert(k == i32(2), "a `&mut` entry writes the caller's place");
+  comptime_expect_error({
+    f := io.async({ &k }(io : Io) => k);
+    ()
+  }, "would hold a borrowing future");
 });
 test("an `io.async` body's by-value capture list moves a captured future out", {
   k := i32(1);
