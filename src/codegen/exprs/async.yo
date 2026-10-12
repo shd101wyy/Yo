@@ -1100,12 +1100,56 @@ _capture_type_entry_exists :: (fn(capture_type : &TypeValue, context : &Function
   });
   false
 });
+/// The fields of a capture struct, typed as `capture_type` instantiates them.
+/// The field registry is keyed by the struct id, which every instantiation of
+/// a closure inside a generic body shares, so its types are whichever
+/// instantiation registered first (or the generic one): a `JoinHandle(T)`
+/// capture of `std/async`'s `join` was disposed through `JoinHandle(T)`'s
+/// unresolved dispose, a C type mismatch
+/// (issues/fixed/a-capture-in-a-generic-io-async-body-is-dropped-with-another-instantiations-type.md).
+/// The labels and the effect-parameter flags come from the registry; each
+/// type comes from `capture_type` itself.
+_capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
+  struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => return(ArrayList(TypeField).new()));
+  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  (labels, types) := match(
+    capture_type,
+    .Struct({ field_labels : fl, field_types : ft }) => (fl, ft),
+    _ => (ArrayList(String).new(), ArrayList(TypeValue).new())
+  );
+  out := ArrayList(TypeField).new();
+  (i : usize) = usize(0);
+  while(i < fields.len(), i = (i + usize(1)), {
+    match(
+      fields.get(i),
+      .Some(f) => {
+        typed := f;
+        (li : usize) = usize(0);
+        while(li < labels.len(), li = (li + usize(1)), {
+          if(match(labels.get(li), .Some(l) => (l == f.label), .None => false), {
+            match(
+              types.get(li),
+              .Some(t) => {
+                typed.ty = t;
+              },
+              .None => ()
+            );
+          });
+        });
+        out.push(typed);
+      },
+      .None => ()
+    );
+  });
+  out
+});
 /// Inline RC-field drops for a capture struct whose `___drop` function was not
 /// generated (e.g. it holds unresolved SomeType fields).
 _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
-  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  fields := _capture_struct_fields(capture_type);
+  owns_captures := is_fnonce_capture_struct(&struct_id);
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
@@ -1113,7 +1157,7 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &Fu
       .Some(field) => if(!field.is_effect_param, {
         field_ref := `sm->__capture.${sanitize_for_c_identifier(field.label.clone(), false)}`;
         // An owned capture list's moved-out capture belongs to its new owner.
-        move_flag := sm_move_flag_of(field_ref.clone());
+        move_flag := sm_move_flag_of(field_ref.clone(), owns_captures);
         match(move_flag, .Some(flag) => em.emit_string_line(`  if (!${flag}) {`), .None => ());
         match(
           _rc_field_drop_line(field_ref.clone(), &field.ty, String.from("  "), context),
@@ -1146,7 +1190,7 @@ _owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))
   if(!is_fnonce_capture_struct(&struct_id), {
     return(out);
   });
-  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  fields := _capture_struct_fields(capture_type);
   (i : usize) = usize(0);
   while(i < fields.len(), i = (i + usize(1)), {
     match(
