@@ -3877,7 +3877,7 @@ export(main);
 - `io.async(fn)` 创建一个**冷 Future** — 函数体在被等待或启动之前不会执行
 - `io.await(future, e)` 消耗一个 Future：若为冷则启动，运行至完成并移出结果；Future 只 await **一次**（`e` 是效应记录 —— 纯 `Io` 任务就是 `io`）
 - `io.spawn(future, e)` 消耗一个冷 Future 并启动而不等待，返回 `JoinHandle(T)`
-- `handle.await(io)` 等待一个已启动的任务，返回 `Option(T)` — 任务中止（unwind）时返回 `.None`
+- `handle.await(io)` 等待一个已启动的任务，返回 `Option(T)` — 任务中止（unwind）时返回 `.None`。`JoinHandle` 是只可移动的值：await 会消耗它，因此一个任务只 await 一次
 - 所有异步代码运行在**同一线程**上（无线程创建，无数据竞争）
 
 详细文档请参阅 [ASYNC_AWAIT.md](./ASYNC_AWAIT.md)。
