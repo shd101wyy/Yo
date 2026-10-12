@@ -2583,10 +2583,11 @@ test("to_bytes copies, into_bytes moves when unique, from_bytes takes the list",
   assert(v == "own", "from_bytes takes the list over");
   assert((v.get_byte(usize(0)) == Option(u8).Some(u8(111))) && (v.get_byte(usize(9)) == Option(u8).None), "get_byte reads in place");
 });
-test("A String has no writable byte place: s(i) does not compile, byte_at reads", {
+test("A String has no writable byte place: s(i) reads, s(i) = b does not compile", {
   // issues/fixed/a-string-byte-index-is-a-writable-place.md: `s(i) = b` wrote
-  // the shared buffer and could break UTF-8.
+  // the shared buffer and could break UTF-8. `Index(usize)` has no `IndexMut`.
   s := String.from("abc");
-  comptime_expect_error(s(usize(0)) = u8(255), "is not callable");
-  assert(s.byte_at(usize(0)) == u8(97), "byte_at reads the byte");
+  comptime_expect_error(s(usize(0)) = u8(255), "IndexMut");
+  assert(s(usize(0)) == u8(97), "s(i) reads the byte");
+  assert(s.byte_at(usize(2)) == s(usize(2)), "and agrees with byte_at");
 });

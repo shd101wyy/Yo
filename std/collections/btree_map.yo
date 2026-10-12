@@ -414,11 +414,22 @@ impl(
   BTreeMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(self : &mut Self, idx : K, where(K <: Ord(K))) -> *Self.Output)({
+    index : (fn(self : &Self, idx : K, where(K <: Ord(K))) -> &Self.Output)({
       r := self._find(&idx);
       assert(r.found, "BTreeMap: key not found");
-      entry_ptr := addr_of(self._entries(r.idx));
-      addr_of(entry_ptr.*.value)
+      &self._entries(r.idx).value
+    })
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  BTreeMap(K, V),
+  IndexMut(K)(
+    Output : V,
+    index_mut : (fn(self : &mut Self, idx : K, where(K <: Ord(K))) -> &mut Self.Output)({
+      r := self._find(&idx);
+      assert(r.found, "BTreeMap: key not found");
+      &mut self._entries(r.idx).value
     })
   )
 );

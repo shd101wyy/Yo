@@ -982,10 +982,31 @@ impl(
   Index(usize)(
     /// The output type is the element type `T`.
     Output : T,
-    /// Returns a pointer to the element at the given index. Panics if the index is out of bounds.
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)({
+    /// The element at `idx`, read (a read projection). Panics if the index
+    /// is out of bounds.
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)({
       // Bounds check via `if` + `__yo_panic` (not `assert`: this module is
       // inside `std/assert`'s dependency cycle and cannot import it).
+      if(idx >= self._length, {
+        __yo_panic("ArrayList: index out of bounds");
+      });
+      match(
+        self._ptr,
+        .Some(_ptr) => _ptr.add(idx),
+        .None => __yo_panic("ArrayList: index on empty list")
+      )
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  IndexMut(usize)(
+    /// The output type is the element type `T`.
+    Output : T,
+    /// The element at `idx`, written (a mutable projection). Panics if the
+    /// index is out of bounds.
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)({
       if(idx >= self._length, {
         __yo_panic("ArrayList: index out of bounds");
       });
@@ -1006,7 +1027,24 @@ impl(
     /// `index` minus the length test. Codegen calls this only at a subscript
     /// the verifier proved in bounds
     /// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
-    index_unchecked : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+    index_unchecked : (fn(self : &Self, idx : usize) -> &Self.Output)(
+      match(
+        self._ptr,
+        .Some(_ptr) => _ptr.add(idx),
+        .None => __yo_panic("ArrayList: index on empty list")
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  ArrayList(T),
+  IndexUncheckedMut(
+    /// The output type is the element type `T`, the same as `IndexMut(usize)`'s.
+    Output : T,
+    /// `index_mut` minus the length test, on the same terms as
+    /// `index_unchecked`.
+    index_unchecked_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
       match(
         self._ptr,
         .Some(_ptr) => _ptr.add(idx),
