@@ -4823,7 +4823,13 @@ compiler; the std shapes are plain structs the seed lowers):
     `Index(usize)` with `Output : u8`, and the "String — no `Index(usize)`"
     section of `docs/*/INDEX_TRAIT.md` and `tests/string/string.test.yo`'s
     byte-place test move with it. Dispatch then keys on the prelude traits.
-    The draft is branch feat/vbd-v2b-index-mut-genb.
+    The draft is branch feat/vbd-v2b-index-mut-genb. Checking it with the
+    Generation A compiler found one prerequisite: `Clone.clone` and
+    `ToString.to_string` take `self : &mut Self`, so `xs(i).clone()` through
+    a `&` container becomes a write and E0908
+    (`issues/questions/clone-and-to-string-take-their-receiver-mutably.md`
+    recommends switching both to `&Self` first; that sweep is not
+    seed-gated).
 - **Unique buffers.**
   - `ArrayList(T)` owns a plain buffer, with `Dispose` (free) and `Trace`
     (visit each slot) on its private buffer type. The same goes for every
