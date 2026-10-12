@@ -3972,8 +3972,8 @@ export(main);
 Key properties:
 
 - `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or spawned
-- `io.await(future, e)` starts a cold future and runs it to completion; can be called **multiple times** on the same Future (`e` is the effect record — just `io` for pure-Io tasks)
-- `io.spawn(future, e)` starts a cold future without waiting, returns `JoinHandle(T)`
+- `io.await(future, e)` consumes a future: starts it if cold, runs it to completion and moves its result out; a future is awaited **once** (`e` is the effect record — just `io` for pure-Io tasks)
+- `io.spawn(future, e)` consumes a cold future and starts it without waiting, returns `JoinHandle(T)`
 - `handle.await(io)` waits for a spawned task, returns `Option(T)` — `.None` on unwind (abort)
 - All async code runs on the **same thread** (no thread spawning, no data races)
 

@@ -258,9 +258,11 @@ _recvs_in_order :: (fn(io : Io, fifo : bool) -> unit)({
   if(fifo, {
     assert(io.await(r1, io) == i32(1), "the first recv completes first");
     assert(b1.* == u8(65), "and gets the first byte");
+    assert(io.await(tcp.send(fd1, (*u8)("B"), usize(1), i32(0)), io) == i32(1), "send B");
+  }, {
+    assert(io.await(tcp.send(fd1, (*u8)("B"), usize(1), i32(0)), io) == i32(1), "send B");
+    assert(io.await(r1, io) == i32(1), "the first recv completes");
   });
-  assert(io.await(tcp.send(fd1, (*u8)("B"), usize(1), i32(0)), io) == i32(1), "send B");
-  assert(io.await(r1, io) == i32(1), "the first recv completes");
   assert(io.await(r2, io) == i32(1), "the second recv completes");
   if(fifo, {
     assert(b2.* == u8(66), "the second recv gets the second byte");

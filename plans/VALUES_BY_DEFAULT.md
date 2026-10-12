@@ -3881,8 +3881,8 @@ is `Arc(Mutex(T))`, `clone()` or `&mut`, and the error says which.
        an inner closure moving an enclosing `FnOnce` closure's capture
        (pre-existing, fixed here), and an `io.async` body disposing a captured
        move-only value twice
-       (`issues/an-io-async-body-disposes-a-captured-move-only-value-twice.md`,
-       pre-existing, open).
+       (`issues/fixed/an-io-async-body-disposes-a-captured-move-only-value-twice.md`,
+       pre-existing; fixed by V3 async A1).
      **Decided 2026-10-09 by the maintainer, for steps 2 and 3:**
      - **`sink` stays until the phase that makes plain move its kind** (V2b
        for `String` and the collections, V2c for `Rc`/`Arc`, V5 for `ref`).

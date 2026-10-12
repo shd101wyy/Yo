@@ -135,10 +135,7 @@ impl(
   /// The future that resolves once one of this park's wakers fires
   /// (immediately if a wake already arrived). It consumes the park:
   /// `io.await(p.wait(io), io)`.
-  wait : (fn(self : Self, _io : Io) -> IoFuture)({
-    { _future } := self;
-    _future
-  })
+  wait : (fn(self : Self, _io : Io) -> IoFuture)(match(self, Park(_future : f) => f))
 );
 /// Suspend the current task until the waker handed to `register` is woken.
 ///
