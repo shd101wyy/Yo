@@ -103,17 +103,17 @@ _apply_width :: (
         al,
         .Left => {
           sb.write_string(text);
-          _pad_runes(sb, fill, padding);
+          _pad_runes(&mut sb, fill, padding);
         },
         .Right => {
-          _pad_runes(sb, fill, padding);
+          _pad_runes(&mut sb, fill, padding);
           sb.write_string(text);
         },
         .Center => {
           left := (padding / usize(2));
-          _pad_runes(sb, fill, left);
+          _pad_runes(&mut sb, fill, left);
           sb.write_string(text);
-          _pad_runes(sb, fill, padding - left);
+          _pad_runes(&mut sb, fill, padding - left);
         }
       );
       sb.to_string()
@@ -244,7 +244,7 @@ impl(
       },
       .None => ()
     );
-    _apply_width(self.fill, self.align, self.width, text, dflt)
+    _apply_width(self.fill, self.align, self.width, &text, dflt)
   }),
   /// Number-aware padding: with `0` set and no explicit alignment, the zero
   /// fill goes BETWEEN the sign/prefix and the digits, so `-0042` and
@@ -261,7 +261,7 @@ impl(
         sb := StringBuilder.new();
         sb.write_string(sign);
         sb.write_string(prefix);
-        _pad_runes(sb, rune(u32(0x30)), self.width - total_len);
+        _pad_runes(&mut sb, rune(u32(0x30)), self.width - total_len);
         sb.write_string(digits);
         sb.to_string()
       },
@@ -270,7 +270,7 @@ impl(
         whole.push_string(sign);
         whole.push_string(prefix);
         whole.push_string(digits);
-        _apply_width(self.fill, self.align, self.width, whole, Alignment.Right)
+        _apply_width(self.fill, self.align, self.width, &whole, Alignment.Right)
       }
     )
   })

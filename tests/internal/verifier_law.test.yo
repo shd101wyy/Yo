@@ -65,7 +65,7 @@ _arm :: (fn(rel_path : &String, std_path : &String) -> unit)({
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   take_verify_tasks();
   set_verify_mode_override(Option(String).Some(String.from("verify")));
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
 });
 /// Evaluate a fixture that must LOAD CLEANLY, then run the verify pass.
@@ -91,8 +91,8 @@ _verify_fixture :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport)
     }
   );
   cfg := default_verify_run_config();
-  binary := match(resolve_solver_sync(cfg), .Resolved(p) => p, _ => String.new());
-  verify_registered_functions(cfg, binary)
+  binary := match(resolve_solver_sync(&cfg), .Resolved(p) => p, _ => String.new());
+  verify_registered_functions(&cfg, &binary)
 });
 /// Evaluate a fixture that must be REJECTED, and assert the diagnostic says
 /// why. Returns nothing: the assertion IS the test.
@@ -187,9 +187,9 @@ test("law: a true law PROVES from the callee's contract alone", {
     return(());
   });
   reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/law_abs_nonneg.yo"), io);
-  assert(_count_outcome(reports, String.from("refuted")) == usize(0), "nothing may refute");
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(0), "nothing may refute");
   match(
-    _first_law(reports),
+    _first_law(&reports),
     .Some(rp) => {
       assert(rp.outcome == "ok", `the law must prove, got '${rp.outcome}'`);
       // Three obligations, not one: the claim itself plus the two call-site
@@ -213,7 +213,7 @@ test("law: a law over an IMPORTED callee proves like a same-file one", {
   });
   reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/law_imported_callee.yo"), io);
   match(
-    _first_law(reports),
+    _first_law(&reports),
     .Some(rp) => {
       assert(rp.outcome == "ok", `the cross-file law must prove, got '${rp.outcome}': ${rp.subset_construct}`);
       assert(
@@ -270,7 +270,7 @@ test("law: a false law REFUTES with a counter-example", {
   });
   reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/law_false.yo"), io);
   match(
-    _first_law(reports),
+    _first_law(&reports),
     .Some(rp) => {
       assert(rp.outcome == "refuted", `the false law must refute, got '${rp.outcome}'`);
       (named : bool) = false;
@@ -282,7 +282,7 @@ test("law: a false law REFUTES with a counter-example", {
             obl.verdict,
             .Refuted(ce) => {
               // x = 0 is where "abs is strictly positive" fails.
-              if(_join(ce, String.from("; ")).contains(String.from("x = #x0000000000000000")), {
+              if(_join(&ce, String.from("; ")).contains(String.from("x = #x0000000000000000")), {
                 named = true;
               });
             },

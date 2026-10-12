@@ -29,7 +29,7 @@ test("Test single-hop forwarded closure param", {
     fn(depth : i32, get_info : &Impl(Fn(k : i32) -> i32)) -> ArrayList(i32)
   )({
     out := ArrayList(i32).new();
-    walk1(depth, get_info, out);
+    walk1(depth, get_info, &mut out);
     out
   });
   tbl := ArrayList(i32).new();
@@ -63,7 +63,7 @@ test("Test two-hop forwarded closure param with dyn-capturing detector", {
     det := Detector(
       detect : dyn((k : i32) => (get_info(k) + match(extras.get(usize(0)), .Some(v) => v, .None => i32(0))))
     );
-    walk2(depth, get_info, det, out);
+    walk2(depth, get_info, &det, &mut out);
     out
   });
   outer2 :: (

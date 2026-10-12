@@ -257,7 +257,7 @@ test("borrowed for: return from the body and unwind through the body release the
   list.push(i32(1));
   list.push(i32(4));
   list.push(i32(5));
-  assert(find_first_even(list) == i32(4), "returned from inside the borrowed loop");
+  assert(find_first_even(&list) == i32(4), "returned from inside the borrowed loop");
   list.push(i32(6)); // must not panic: the return path released the flag
   assert(list.len() == usize(4), "push after the early return");
   unwind_out :: (fn(xs : &ArrayList(i32)) -> unit)({
@@ -272,7 +272,7 @@ test("borrowed for: return from the body and unwind through the body release the
     });
     assert(false, "unreachable");
   });
-  unwind_out(list);
+  unwind_out(&list);
   assert(list(usize(0)) == i32(0), "the first write landed before the unwind");
   list.push(i32(7)); // must not panic: the unwind path released the flag
   assert(list.len() == usize(5), "push after the unwind");

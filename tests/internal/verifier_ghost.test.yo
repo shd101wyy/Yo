@@ -54,7 +54,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -72,11 +72,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 _load_error :: (fn(rel_path : &String, io : Io) -> String)({
   exn := Exception(
@@ -92,7 +92,7 @@ _load_error :: (fn(rel_path : &String, io : Io) -> String)({
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -140,9 +140,9 @@ test("ghost_fn predicates INLINE (bounded proves through within)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/ghost_fn_inline.yo"), io, true);
-  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _second(reports);
-  assert(rp.outcome == "ok", `bounded proves through the inlined requires, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _second(&reports);
+  assert(rp.outcome == "ok", `bounded proves through the inlined requires, got: [${_reports_dump(&reports)}]`);
 });
 
 test("the inlining is REAL — a false post-condition REFUTES (x = 0 model)", {
@@ -150,9 +150,9 @@ test("the inlining is REAL — a false post-condition REFUTES (x = 0 model)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/ghost_fn_inline_false.yo"), io, true);
-  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _second(reports);
-  assert(rp.outcome == "refuted", `strictly_bounded refutes (an assumed-instead-of-inlined predicate would prove anything), got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _second(&reports);
+  assert(rp.outcome == "refuted", `strictly_bounded refutes (an assumed-instead-of-inlined predicate would prove anything), got: [${_reports_dump(&reports)}]`);
 });
 
 test("ghost bindings track through the walk (ghost_bump proves)", {
@@ -160,9 +160,9 @@ test("ghost bindings track through the walk (ghost_bump proves)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/ghost_binding.yo"), io, true);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "ok", `ghost_bump proves (the assert reads the ghost binding), got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "ok", `ghost_bump proves (the assert reads the ghost binding), got: [${_reports_dump(&reports)}]`);
 });
 
 test("a ghost binding does not poison a same-named local in ANOTHER module (FV audit)", {
@@ -177,16 +177,16 @@ test("a ghost binding does not poison a same-named local in ANOTHER module (FV a
   // name
   // (issues/fixed/ghost-binding-escape-gate-is-a-process-global-name-set.md).
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/ghost_name_collision.yo"), io, true);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "ok", `a same-named local in another module is NOT a ghost binding, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "ok", `a same-named local in another module is NOT a ghost binding, got: [${_reports_dump(&reports)}]`);
 });
 
 test("reading a ghost binding from ordinary code is a LOUD gate (solver-free)", {
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/ghost_escape.yo"), io, false);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "subset-error", `leaky is gated, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "subset-error", `leaky is gated, got: [${_reports_dump(&reports)}]`);
   assert(
     rp.subset_construct.contains(String.from("ghost")),
     `the report names the ghost escape, got: ${rp.subset_construct}`
@@ -243,13 +243,13 @@ test("the same contracted ghost_fn still verifies from ghost context", {
     io,
     true
   );
-  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   assert(
-    _first(reports).outcome == "ok",
-    `the lemma proves, got: [${_reports_dump(reports)}]`
+    _first(&reports).outcome == "ok",
+    `the lemma proves, got: [${_reports_dump(&reports)}]`
   );
   assert(
-    _second(reports).outcome == "ok",
-    `the caller proves, got: [${_reports_dump(reports)}]`
+    _second(&reports).outcome == "ok",
+    `the caller proves, got: [${_reports_dump(&reports)}]`
   );
 });

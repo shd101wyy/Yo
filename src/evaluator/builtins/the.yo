@@ -56,15 +56,15 @@ evaluate_the :: (
     }
   );
   // Evaluate the type expression.
-  eval_type := evaluate_expression_raw(type_arg, env, ctx, exn);
+  eval_type := evaluate_expression_raw(&type_arg, env, ctx, exn);
   type_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_type)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_type)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(type_arg),
+            ast_expr_token(&type_arg),
             String.from("the: failed to evaluate type expression")
           )
         )
@@ -72,7 +72,7 @@ evaluate_the :: (
       new_expr_info(env, t_unit())
     }
   );
-  cur_env := expr_info_adopt_env(type_info);
+  cur_env := expr_info_adopt_env(&type_info);
   // First argument must be a TypeVal.
   expected_type := match(
     type_info.value,
@@ -81,7 +81,7 @@ evaluate_the :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(type_arg),
+            ast_expr_token(&type_arg),
             String.from("the: first argument must be a type")
           )
         )
@@ -92,7 +92,7 @@ evaluate_the :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(type_arg),
+            ast_expr_token(&type_arg),
             String.from("the: first argument must be a compile-time type")
           )
         )
@@ -106,42 +106,42 @@ evaluate_the :: (
     ExpectedTypeCtx(ty : expected_type, env : cur_env)
   );
   eval_val_gout := ArrayList(AstExpr).new();
-  eval_val_gerr := evaluate_expression_guarded(value_arg, cur_env, ctx, eval_val_gout);
+  eval_val_gerr := evaluate_expression_guarded(&value_arg, &cur_env, ctx, &mut eval_val_gout);
   ctx.expected_type = saved_expected;
-  match(eval_val_gerr, .Some(eval_val_ge) => exn.throw(eval_val_ge), .None => ());
+  match(eval_val_gerr, .Some(eval_val_ge) => exn.throw(&eval_val_ge), .None => ());
   eval_val := match(eval_val_gout.get(usize(0)), .Some(eval_val_g) => eval_val_g, .None => make_err_expr());
   val_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_val)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(value_arg),
+            ast_expr_token(&value_arg),
             String.from("the: failed to evaluate value expression")
           )
         )
       );
-      new_expr_info(cur_env, t_unit())
+      new_expr_info(&cur_env, t_unit())
     }
   );
-  cur_env = expr_info_adopt_env(val_info);
+  cur_env = expr_info_adopt_env(&val_info);
   // Check type compatibility (actual = val_info.ty, expected = expected_type).
-  if(!are_types_compatible(val_info.ty, expected_type), {
+  if(!are_types_compatible(&val_info.ty, &expected_type), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(value_arg),
-          `the: type mismatch: expected '${type_to_string(expected_type)}', got '${type_to_string(val_info.ty)}'`
+          ast_expr_token(&value_arg),
+          `the: type mismatch: expected '${type_to_string(&expected_type)}', got '${type_to_string(&val_info.ty)}'`
         )
       )
     );
   });
   // Return ExprInfo with the explicitly specified type.
-  out_info := new_expr_info(cur_env, expected_type);
+  out_info := new_expr_info(&cur_env, &expected_type);
   out_info.value = val_info.value;
   out_info.path_collection = val_info.path_collection;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_the);

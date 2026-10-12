@@ -115,7 +115,7 @@ poll_init :: (fn(fd : i32) -> PollHandle)(
 /// event loop ALIVE: a program whose only remaining work is a started poll
 /// will not exit.
 poll_start :: (fn(handle : PollHandle, events : i32, callback : PollCallback, user_data : *u8) -> i32)(
-  __yo_poll_start(handle.handle, events, unsafe.cast(callback, *u8), user_data)
+  __yo_poll_start(handle.handle, events, unsafe.cast(&callback, *u8), user_data)
 );
 /// Stop watching and release the loop reference. Returns 0 on success,
 /// `-EINVAL` for a null handle. Idempotent: stopping a handle that is
@@ -168,7 +168,7 @@ fs_event_init :: (fn() -> FsEventHandle)(
 /// loop diffs to work out which entry changed, and `ReadDirectoryChangesW`
 /// on Windows.
 fs_event_start :: (fn(handle : FsEventHandle, path : *u8, flags : u32, callback : FsEventCallback, user_data : *u8) -> i32)(
-  __yo_fs_event_start(handle.handle, path, flags, unsafe.cast(callback, *u8), user_data)
+  __yo_fs_event_start(handle.handle, path, flags, unsafe.cast(&callback, *u8), user_data)
 );
 /// Stop watching and release the loop reference, tearing down the platform
 /// watch (the inotify watch, the kqueue and its snapshot, the directory

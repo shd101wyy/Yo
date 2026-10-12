@@ -61,8 +61,8 @@ extern(
   // (plans/VALUES_BY_DEFAULT.md decision 37), so a relay may move what it
   // captured out of its body.
   __yo_thread_spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> __yo_thread_t),
-  __yo_thread_join : (fn(t : &__yo_thread_t) -> unit),
-  __yo_thread_detach : (fn(t : &__yo_thread_t) -> unit)
+  __yo_thread_join : (fn(t : __yo_thread_t) -> unit),
+  __yo_thread_detach : (fn(t : __yo_thread_t) -> unit)
 );
 extern(
   "Yo",
@@ -434,7 +434,7 @@ spawn_blocking :: (
   _detached := worker;
   io.async((io : Io) => {
     io.await(p.wait(io), io);
-    _take_blocking_result(chan)
+    _take_blocking_result(&chan)
   })
 });
 /// SAFETY: the blocking-bracket's loop pointer. `__yo_async_blocking_end`

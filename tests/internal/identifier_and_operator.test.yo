@@ -63,8 +63,8 @@ test("evaluate_identifier_and_operator: builtin keyword i32 → TypeVal", {
   env := Environment.new(String.from("test"));
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(1), "i32");
-  evaluate_identifier_and_operator(expr, env, ctx, true, exn);
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  evaluate_identifier_and_operator(&expr, &env, &ctx, true, exn);
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&expr));
   assert(info_opt.is_some(), "ExprInfo set for i32");
   match(
     info_opt,
@@ -72,7 +72,7 @@ test("evaluate_identifier_and_operator: builtin keyword i32 → TypeVal", {
       assert(info.value.is_some(), "value is present for i32");
       match(
         info.value,
-        .Some(v) => assert(is_type_val(v), "value is TypeVal for i32"),
+        .Some(v) => assert(is_type_val(&v), "value is TypeVal for i32"),
         .None => assert(false, "no value for i32 keyword")
       );
     },
@@ -92,8 +92,8 @@ test("evaluate_identifier_and_operator: builtin keyword bool → TypeVal", {
   env := Environment.new(String.from("test"));
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(2), "bool");
-  evaluate_identifier_and_operator(expr, env, ctx, true, exn);
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  evaluate_identifier_and_operator(&expr, &env, &ctx, true, exn);
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&expr));
   assert(info_opt.is_some(), "ExprInfo set for bool");
   match(
     info_opt,
@@ -114,7 +114,7 @@ test("evaluate_identifier_and_operator: defined variable returns type and value"
   env := Environment.new(String.from("test"));
   tok := mk_ident_token("x");
   add_variable_to_env(
-    env,
+    &env,
     String.from("x"),
     t_i32(),
     Option(EvalValue).Some(EvalValue.IntLit(String.from("42"))),
@@ -126,12 +126,12 @@ test("evaluate_identifier_and_operator: defined variable returns type and value"
     // rc
     false,
     // implicit
-    tok
+    &tok
   );
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(3), "x");
-  evaluate_identifier_and_operator(expr, env, ctx, true, exn);
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expr));
+  evaluate_identifier_and_operator(&expr, &env, &ctx, true, exn);
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&expr));
   assert(info_opt.is_some(), "ExprInfo set for x");
   match(
     info_opt,
@@ -162,7 +162,7 @@ test("evaluate_identifier_and_operator: undefined variable throws", {
   env := Environment.new(String.from("test"));
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(4), "undefined_var");
-  evaluate_identifier_and_operator(expr, env, ctx, true, exn);
+  evaluate_identifier_and_operator(&expr, &env, &ctx, true, exn);
   // If no exception was thrown, we reach here → test fails
   assert(false, "should have thrown for undefined variable");
 });
@@ -180,7 +180,7 @@ test("evaluate_identifier_and_operator: throw_error_on_undefined=false on uninit
   tok := mk_ident_token("y");
   // Add variable with no value (simulate uninitialized / forward reference)
   add_variable_to_env(
-    env,
+    &env,
     String.from("y"),
     t_bool(),
     Option(EvalValue).None,
@@ -193,11 +193,11 @@ test("evaluate_identifier_and_operator: throw_error_on_undefined=false on uninit
     // rc
     false,
     // implicit
-    tok
+    &tok
   );
   ctx := eval_context_new(String.from(""), String.from("test"));
   expr := mk_ident(usize(5), "y");
   // throw_error_on_undefined=false: no error expected
-  evaluate_identifier_and_operator(expr, env, ctx, false, exn);
+  evaluate_identifier_and_operator(&expr, &env, &ctx, false, exn);
   // Reaching here means no exception was thrown — correct
 });

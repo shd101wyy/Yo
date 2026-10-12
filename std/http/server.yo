@@ -78,12 +78,12 @@ impl(
   )(
     io.async(e => {
       stream := e.io.await(self.listener.accept(e.io), e);
-      framed := e.io.await(read_http_message(stream, self.max_request_bytes, MessageKind.Request, e.io), e);
+      framed := e.io.await(read_http_message(&stream, self.max_request_bytes, MessageKind.Request, e.io), e);
       resp := match(
         framed,
         .Ok(raw) => match(
-          parse_request(raw),
-          .Ok(req) => handler(req),
+          parse_request(&raw),
+          .Ok(req) => handler(&req),
           .Err(perr) => HttpResponse.with_status(StatusCode.BAD_REQUEST()).with_body(perr.to_string())
         ),
         .Err(ferr) => match(

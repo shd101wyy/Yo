@@ -19,7 +19,7 @@ test("flock on invalid fd returns -EBADF", {
 });
 test("flock exclusive lock and unlock on temp file", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_lock_ex_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_lock_ex_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
@@ -35,7 +35,7 @@ test("flock exclusive lock and unlock on temp file", {
 });
 test("flock shared lock and unlock on temp file", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_lock_sh_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_lock_sh_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
@@ -51,7 +51,7 @@ test("flock shared lock and unlock on temp file", {
 });
 test("flock LOCK_NB exclusive lock conflict with self returns EWOULDBLOCK", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_lock_nb_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_lock_nb_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd1 := temp_io.mkstemp(template_path);
@@ -81,7 +81,7 @@ test("flock LOCK_NB exclusive lock conflict with self returns EWOULDBLOCK", {
 });
 test("flock multiple shared locks coexist but block exclusive", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_lock_multi_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_lock_multi_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd1 := temp_io.mkstemp(template_path);
@@ -119,7 +119,7 @@ test("flock multiple shared locks coexist but block exclusive", {
 });
 test("flock upgrade shared lock to exclusive lock", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_lock_upgrade_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_lock_upgrade_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
@@ -140,7 +140,7 @@ test("flock upgrade shared lock to exclusive lock", {
 });
 test("flock unlock without prior lock succeeds", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_lock_noop_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_lock_noop_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);

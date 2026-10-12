@@ -221,7 +221,7 @@ test("nested old(old(...)) in ensures resolves to the entry value", {
     n = (n + i32(1));
   });
   x := i32(7);
-  bump(x);
+  bump(&mut x);
   assert(x == i32(8), "nested old(old(n)) captured entry value");
 });
 
@@ -268,7 +268,7 @@ test("ensures(...) with old(...) captures the entry value of a ref param", {
     n = (n + i32(1));
   });
   x := i32(5);
-  increment(x);
+  increment(&mut x);
   assert(x == i32(6), "x incremented to 6 (old(n) captured entry value)");
 });
 
@@ -319,7 +319,7 @@ test("ensures(...) on a unit-returning function with a side effect", {
     n = x;
   });
   n := i32(0);
-  set(n, i32(42));
+  set(&mut n, i32(42));
   assert(n == i32(42), "n set to 42 (unit-return ensures path)");
 });
 
@@ -341,7 +341,7 @@ test("requires + ensures + old() together on a non-unit return", {
     prev
   });
   x := i32(10);
-  r := bump_and_report(x);
+  r := bump_and_report(&mut x);
   assert(x == i32(11), "n bumped to 11");
   assert(r == i32(10), "returns the previous value (old n)");
 });
@@ -356,7 +356,7 @@ test("ensures(...) with multiple old(...) snapshots", {
   });
   p := i32(1);
   q := i32(2);
-  swap_check(p, q);
+  swap_check(&mut p, &mut q);
   assert(p == i32(2), "a got b's old value");
   assert(q == i32(1), "b got a's old value");
 });
@@ -383,7 +383,7 @@ test("V1: the label resolves alongside old(...) and requires(...)", {
     prev
   });
   x := i32(3);
-  r := bump_and_report(x);
+  r := bump_and_report(&mut x);
   assert(x == i32(4), "n bumped");
   assert(r == i32(3), "returns the entry value via the label");
 });
@@ -397,7 +397,7 @@ test("V1: unlabeled non-unit return supports param-only ensures(...)", {
     x
   });
   n := i32(0);
-  v := set_and_get(n, i32(42));
+  v := set_and_get(&mut n, i32(42));
   assert(n == i32(42), "n set through the ref param");
   assert(v == i32(42), "returned the new value");
 });
@@ -428,7 +428,7 @@ test("V1: a unit return label unreferenced by ensures(...) is accepted", {
     n = x;
   });
   n := i32(0);
-  set(n, i32(7));
+  set(&mut n, i32(7));
   assert(n == i32(7), "unit-return with unreferenced label works");
 });
 

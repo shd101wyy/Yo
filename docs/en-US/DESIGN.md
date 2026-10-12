@@ -715,7 +715,7 @@ show(&s); // s stays usable
 take(s); // moved
 ```
 
-`&x` is only this marker. Passed to a by-value parameter it is an error naming `x` and `x.clone()`; passed to a raw-pointer parameter, or written anywhere else (a field store, a receiver `(&x).m()`, a variadic C argument), it is an error naming `addr_of(x)`, the raw-pointer address-of of unsafe code. The other places a sigil stands are a local borrow binding (`y := &place`, `y := &mut place`, see [FLOWABILITY.md](./FLOWABILITY.md)), a capture-list entry and the borrowed `for` source (`for(&mut xs, x => ...)`). A bare named place passed to a `&T` or `&mut T` parameter is E0914 naming `&x` or `&mut x` (on under `YO_STRICT_MARKERS=1` for code outside std until std and the compiler are migrated); temporaries, literals, closures and operator operands need no marker. `yo fix <path> --migrate markers` inserts the missing markers, and `yo fix <path> --migrate addr-of` rewrites old code whose `&x` was the address-of.
+`&x` is only this marker. Passed to a by-value parameter it is an error naming `x` and `x.clone()`; passed to a raw-pointer parameter, or written anywhere else (a field store, a receiver `(&x).m()`, a variadic C argument), it is an error naming `addr_of(x)`, the raw-pointer address-of of unsafe code. The other places a sigil stands are a local borrow binding (`y := &place`, `y := &mut place`, see [FLOWABILITY.md](./FLOWABILITY.md)), a capture-list entry and the borrowed `for` source (`for(&mut xs, x => ...)`). A bare named place passed to a `&T` or `&mut T` parameter is E0914 naming `&x` or `&mut x`, in all code, std included; temporaries, literals, closures and operator operands need no marker. `yo fix <path> --migrate markers` inserts the missing markers, and `yo fix <path> --migrate addr-of` rewrites old code whose `&x` was the address-of.
 
 ### Named arguments
 
@@ -1233,7 +1233,7 @@ keep :: (fn(f : Fd) -> unit)(()); // a by-value parameter moves the value in
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));
-  n := peek(a); // borrowed; `a` is still usable
+  n := peek(&a); // borrowed; `a` is still usable
   b := a; // moves `a` into `b`
   // a.n           // E0901: use of moved value: `a`
   keep(b); // moves `b`; `keep` disposes it when it returns
@@ -1818,7 +1818,7 @@ list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 for(list, value => {
-  println(value);
+  println(&value);
 });
 
 // Reference-semantics elements are handles — mutation lands in the collection.
@@ -3309,8 +3309,8 @@ A closure's type can instantiate a container. `ArrayList(type_of(k))` holds copi
 two closures' lists are two types, so a closure cannot go into another closure's list:
 
 ```yo
-(k1 : Impl(Fn() -> unit)) = (() => println(a));
-(k2 : Impl(Fn() -> unit)) = (() => println(s));
+(k1 : Impl(Fn() -> unit)) = (() => println(&a));
+(k2 : Impl(Fn() -> unit)) = (() => println(&s));
 l1 := ArrayList(type_of(k1)).new();
 l1.push(k1); // OK
 l1.push(k2); // error: k2 is a different closure type
@@ -3961,8 +3961,8 @@ main :: (fn(io : Io) -> unit)({
     io.await(yield(io), io);
     return(i32(2));
   });
-  handle1 := io.spawn(task1, io); // start task1, returns JoinHandle(i32)
-  handle2 := io.spawn(task2, io); // start task2, returns JoinHandle(i32)
+  handle1 := io.spawn(&task1, io); // start task1, returns JoinHandle(i32)
+  handle2 := io.spawn(&task2, io); // start task2, returns JoinHandle(i32)
   r1 := handle1.await(io); // wait → Option(i32)
   r2 := handle2.await(io);
 });

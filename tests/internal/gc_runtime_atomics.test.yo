@@ -42,14 +42,14 @@ mk_context :: (fn(needs_cycle_gc : bool) -> FunctionGenerationContext)({
     false
   );
   base.needs_cycle_gc = needs_cycle_gc;
-  FunctionGenerationContext.new(base)
+  FunctionGenerationContext.new(&base)
 });
 /// Emit the RC runtime through the production dispatcher
 /// (`generate_atomic_gc_runtime_functions`: full when needs_cycle_gc, else
 /// lightweight) and return the full C text (headers + declarations + code).
 emit_rc_runtime :: (fn(needs_cycle_gc : bool) -> String)({
   ctx := mk_context(needs_cycle_gc);
-  generate_atomic_gc_runtime_functions(ctx);
+  generate_atomic_gc_runtime_functions(&ctx);
   em := ctx.base.emitter;
   em.print()
 });
@@ -57,19 +57,19 @@ emit_rc_runtime :: (fn(needs_cycle_gc : bool) -> String)({
 /// return the full C text.
 emit_parallelism_runtime :: (fn() -> String)({
   em := Emitter.new();
-  generate_parallelism_runtime(em, false, host_target(), false);
+  generate_parallelism_runtime(&em, false, host_target(), false);
   em.print()
 });
 /// index_of that panics when the marker is missing (so a template rename fails
 /// loudly instead of slicing from index 0).
 must_find :: (fn(hay : &String, needle : str, from : usize) -> usize)(
   match(
-    hay.index_of(needle, from),
+    hay.index_of(&needle, from),
     .Some(i) => i,
     .None => {
       msg := String.from("codegen pin marker not found in emitted C: ");
       msg.push_str(needle);
-      panic(msg);
+      panic(&msg);
       usize(0)
     }
   )
@@ -78,23 +78,23 @@ test("__yo_incr_rc_atomic uses atomic_fetch_add_explicit with relaxed", {
   incr_line := "atomic_fetch_add_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_relaxed)";
   c_light := emit_rc_runtime(false);
   assert(c_light.contains("atomic_fetch_add_explicit"), "lightweight: incr uses atomic_fetch_add_explicit");
-  assert(c_light.contains(incr_line), "lightweight: incr fetch_add is memory_order_relaxed");
+  assert(c_light.contains(&incr_line), "lightweight: incr fetch_add is memory_order_relaxed");
   c_full := emit_rc_runtime(true);
-  assert(c_full.contains(incr_line), "full-GC: incr fetch_add is memory_order_relaxed");
+  assert(c_full.contains(&incr_line), "full-GC: incr fetch_add is memory_order_relaxed");
 });
 test("__yo_decr_rc_atomic uses atomic_fetch_sub_explicit with acq_rel", {
   decr_line := "atomic_fetch_sub_explicit((_Atomic uint32_t*)&header->ref_count, 1, memory_order_acq_rel)";
   c_light := emit_rc_runtime(false);
-  assert(c_light.contains(decr_line), "lightweight: decr fetch_sub is memory_order_acq_rel");
+  assert(c_light.contains(&decr_line), "lightweight: decr fetch_sub is memory_order_acq_rel");
   c_full := emit_rc_runtime(true);
-  assert(c_full.contains(decr_line), "full-GC: decr fetch_sub is memory_order_acq_rel");
+  assert(c_full.contains(&decr_line), "full-GC: decr fetch_sub is memory_order_acq_rel");
 });
 test("drop dispatch runs within the decrement function", {
   c := emit_rc_runtime(false);
   // Mirror the TS slice: from the decr definition to its first `}` (which
   // closes the `if (header->type_id)` block, past the dispatch call) + 500.
-  start := must_find(c, "static void __yo_decr_rc_atomic", usize(0));
-  close := must_find(c, "}", start);
+  start := must_find(&c, "static void __yo_decr_rc_atomic", usize(0));
+  close := must_find(&c, "}", start);
   body := c.substring(start, close + usize(500));
   assert(body.contains("atomic_fetch_sub_explicit"), "decr body contains the atomic fetch_sub");
   assert(body.contains("memory_order_acq_rel"), "decr body fetch_sub is acq_rel");
@@ -106,8 +106,8 @@ test("__yo_worker_pool_init is guarded (idempotent)", {
   assert(c.contains("static void __yo_worker_pool_init"), "pool init function is emitted");
   // Mirror the TS slice: from the init definition to its first `}` (which
   // closes the guard's early-return block) + 500.
-  start := must_find(c, "static void __yo_worker_pool_init(", usize(0));
-  close := must_find(c, "}", start);
+  start := must_find(&c, "static void __yo_worker_pool_init(", usize(0));
+  close := must_find(&c, "}", start);
   body := c.substring(start, close + usize(500));
   assert(body.contains("if (__yo_worker_pool_initialized)"), "init body checks the flag");
   assert(body.contains("return"), "init body returns early when already initialized");
@@ -135,29 +135,29 @@ assert_prefix_only :: (fn(c : &String, sig : str) -> unit)({
 /// full-header cast.
 assert_tracked_first :: (fn(c : &String, sig : str) -> unit)({
   body := fn_body(c, sig);
-  test_at := must_find(body, "((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED", usize(0));
-  cast_at := must_find(body, "(__yo_ref_header_t*)ptr", usize(0));
+  test_at := must_find(&body, "((__yo_rc_prefix_t*)ptr)->gc_flags & __YO_GC_TRACKED", usize(0));
+  cast_at := must_find(&body, "(__yo_ref_header_t*)ptr", usize(0));
   assert(test_at < cast_at, `${sig} casts to the full header before the TRACKED test`);
 });
 test("full-GC prefix-only RC paths never cast to the full header", {
   c := emit_rc_runtime(true);
-  assert_prefix_only(c, "static inline void __yo_decr_rc(void* ptr) {");
-  assert_prefix_only(c, "static inline void* __yo_incr_rc(void* ptr) {");
-  assert_prefix_only(c, "static void* __yo_incr_rc_atomic(void* ptr) {");
-  assert_prefix_only(c, "static void __yo_decr_rc_atomic(void* ptr) {");
-  assert_prefix_only(c, "static inline void __yo_borrow_acquire(void* ptr) {");
-  assert_prefix_only(c, "static inline void __yo_borrow_release(void* ptr) {");
-  assert_prefix_only(c, "static inline void __yo_borrow_assert_unborrowed(void* ptr) {");
+  assert_prefix_only(&c, "static inline void __yo_decr_rc(void* ptr) {");
+  assert_prefix_only(&c, "static inline void* __yo_incr_rc(void* ptr) {");
+  assert_prefix_only(&c, "static void* __yo_incr_rc_atomic(void* ptr) {");
+  assert_prefix_only(&c, "static void __yo_decr_rc_atomic(void* ptr) {");
+  assert_prefix_only(&c, "static inline void __yo_borrow_acquire(void* ptr) {");
+  assert_prefix_only(&c, "static inline void __yo_borrow_release(void* ptr) {");
+  assert_prefix_only(&c, "static inline void __yo_borrow_assert_unborrowed(void* ptr) {");
 });
 test("every full-GC visitor tests TRACKED through the prefix before a full-header cast", {
   c := emit_rc_runtime(true);
-  assert_tracked_first(c, "static void __yo_gc_unregister(void* ptr) {");
-  assert_tracked_first(c, "static void __yo_gc_mark_gray_visitor(void* ptr, void* child_traverse) {");
-  assert_tracked_first(c, "static void __yo_gc_scan_black_visitor(void* ptr, void* child_traverse) {");
-  assert_tracked_first(c, "static void __yo_gc_scan_visitor(void* ptr, void* child_traverse) {");
-  assert_tracked_first(c, "static void __yo_gc_gather_white_visitor(void* ptr, void* child_traverse) {");
-  assert_tracked_first(c, "static void __yo_gc_trial_delete_visitor(void* ptr, void* child_traverse) {");
-  assert_tracked_first(c, "static void __yo_gc_scan_restore_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(&c, "static void __yo_gc_unregister(void* ptr) {");
+  assert_tracked_first(&c, "static void __yo_gc_mark_gray_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(&c, "static void __yo_gc_scan_black_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(&c, "static void __yo_gc_scan_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(&c, "static void __yo_gc_gather_white_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(&c, "static void __yo_gc_trial_delete_visitor(void* ptr, void* child_traverse) {");
+  assert_tracked_first(&c, "static void __yo_gc_scan_restore_visitor(void* ptr, void* child_traverse) {");
 });
 /// Pin: a cycle-GC `dispose_fn` slot holds a `void*` thunk, never the typed
 /// `___dispose` behind a cast. The runtime calls the slot as `void (*)(void*)`,
@@ -166,16 +166,16 @@ test("every full-GC visitor tests TRACKED through the prefix before a full-heade
 /// (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
 test("a dispose_fn slot holds a void* thunk, emitted once per dispose function", {
   ctx := mk_context(true);
-  first := dispose_fn_thunk(String.from("yo_id_7"), ctx);
-  second := dispose_fn_thunk(String.from("yo_id_7"), ctx);
-  other := dispose_fn_thunk(String.from("yo_id_8"), ctx);
+  first := dispose_fn_thunk(String.from("yo_id_7"), &ctx);
+  second := dispose_fn_thunk(String.from("yo_id_7"), &ctx);
+  other := dispose_fn_thunk(String.from("yo_id_8"), &ctx);
   assert(first == "__yo_dispose_thunk_yo_id_7", "the thunk is named after its dispose function");
   assert(second == first, "a second request returns the same thunk");
   assert(other == "__yo_dispose_thunk_yo_id_8", "each dispose function gets its own thunk");
   em := ctx.base.emitter;
   c := em.print();
   thunk := "static inline void __yo_dispose_thunk_yo_id_7(void* ptr) { yo_id_7(ptr); }";
-  at := must_find(c, thunk, usize(0));
-  assert(match(c.index_of(thunk, at + usize(1)), .Some(_) => false, .None => true), "the thunk is emitted exactly once");
+  at := must_find(&c, thunk, usize(0));
+  assert(match(c.index_of(&thunk, at + usize(1)), .Some(_) => false, .None => true), "the thunk is emitted exactly once");
   assert(c.contains("static inline void __yo_dispose_thunk_yo_id_8(void* ptr) { yo_id_8(ptr); }"), "the second thunk is emitted");
 });

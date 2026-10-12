@@ -36,7 +36,7 @@ or the network stack.
 `tests/crypto/tls.test.yo:49` (and its twin `tests/http/http.test.yo:137`)
 decides "is this failure fatal?" from **one bit — whether `CI` is set**:
 
-```yo
+```yo ignore
 _network_required :: (fn() -> bool)(env.get("CI").is_some());
 ...
 cond(

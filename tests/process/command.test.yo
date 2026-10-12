@@ -155,7 +155,7 @@ test("spawn with piped stdin/stdout: write, EOF, read back, wait", {
   child := io.await(cmd.spawn(io), e);
   assert(child.pid() > i32(0), "got a pid");
   payload := `piped héllo`.to_string().to_bytes();
-  n := io.await(child.write_stdin(payload, io), e);
+  n := io.await(child.write_stdin(&payload, io), e);
   assert(n == usize(12), "wrote 12 UTF-8 bytes");
   io.await(child.close_stdin(io), e);
   out := io.await(child.read_stdout_to_end(io), e);
@@ -350,11 +350,11 @@ test("__yo_async_spawn_start_cwd runs the child in the requested directory (curr
   status := io.await(IO_process.waitpid(pid, i32(0)), io);
   assert(IO_process.exit_status(status) == i32(0), `child should exit 0, status ${status}`);
   marker := Path.new(`yo_cwd_probe_dir/marker.txt`);
-  made := io.await(exists(marker, io), io);
+  made := io.await(exists(&marker, io), io);
   assert(made, "the child must have run inside yo_cwd_probe_dir");
   free(.Some(argv_raw));
-  io.await(remove_file(marker, io), e);
-  io.await(remove_dir(Path.new(dir), io), e);
+  io.await(remove_file(&marker, io), e);
+  io.await(remove_dir(Path.new(&dir), io), e);
 });
 // Generation B (the v0.2.20 seed carries the runtime symbol): the std surface.
 test("Command.current_dir runs the child in the requested directory (generation B)", {
@@ -387,10 +387,10 @@ test("Command.current_dir runs the child in the requested directory (generation 
   st := io.await(cmd.status(io), e);
   assert(st.success(), "child exited 0");
   marker := Path.new(`yo_cwd_probe_dir_b/marker.txt`);
-  made := io.await(exists(marker, io), io);
+  made := io.await(exists(&marker, io), io);
   assert(made, "the child must have run inside yo_cwd_probe_dir_b");
-  io.await(remove_file(marker, io), e);
-  io.await(remove_dir(Path.new(dir), io), e);
+  io.await(remove_file(&marker, io), e);
+  io.await(remove_dir(Path.new(&dir), io), e);
 });
 // Regression (issues/fixed/command-output-drains-stdout-then-stderr-sequentially.md):
 // `output` used to drain stdout to EOF and only then stderr, so a child that
@@ -528,7 +528,7 @@ test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
   cmd.stdin(Stdio.Piped).stdout(Stdio.Piped);
   child := io.await(cmd.spawn(io), e);
   r := child.take_stdout().unwrap();
-  assert(_feed_and_drop(child, `dropped`, io, e), "stdin was piped");
+  assert(_feed_and_drop(&child, `dropped`, io, e), "stdin was piped");
   // BOUNDED on purpose. Without `Dispose` on `ChildStdin` the pipe stays open,
   // `cat` waits for an EOF that never comes, and a bare `read_to_string` here
   // HANGS — which in CI burns a job's whole timeout instead of reporting a
@@ -536,7 +536,7 @@ test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
   // with it, the read finishes immediately.
   rh := io.spawn(r.read_to_string(io), e);
   text := match(
-    io.await(timeout(rh, Duration.from_millis(i64(2000)), io), io),
+    io.await(timeout(&rh, Duration.from_millis(i64(2000)), io), io),
     .Ok(t) => t,
     .Err(te) => {
       assert(false, `dropping the ChildStdin did not deliver EOF — ${te}`);
@@ -613,7 +613,7 @@ _spawn_wait_rounds :: (fn(io : Io) -> unit)({
       n = (n + i64(1));
     });
   });
-  io.await(task, io);
+  io.await(&task, io);
 });
 test("concurrent spawn and wait on two threads", {
   t1 := Thread(unit).spawn(io => _spawn_wait_rounds(io));
@@ -662,7 +662,7 @@ test("a child-stdin write larger than the pipe buffer does not park the event lo
       rest.push(u8(121));
       k = (k + usize(1));
     });
-    n := io.await(child.write_stdin(rest, io), e);
+    n := io.await(child.write_stdin(&rest, io), e);
     sent = (sent + n);
   });
   assert(ticker.is_finished(), "a 100 ms timer fired while the write waited on the child");

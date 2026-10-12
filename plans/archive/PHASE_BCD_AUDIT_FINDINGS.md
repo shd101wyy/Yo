@@ -77,7 +77,8 @@ Working back from there:
 
 ```yo
 main :: (fn(io : Io, exn : __yo_test_exn.Exception) -> unit)({
-  match(__yo_batch_env.env.get(`YO_TEST_INDEX`),
+  match(
+    __yo_batch_env.env.get(`YO_TEST_INDEX`),
     .Some(__yo_test_idx) => cond(
       (__yo_test_idx == `0`) => { /* test body 0 */ },
       ...
@@ -151,12 +152,13 @@ For-macro expansion (Phase D — `std/prelude.yo:7796–7853` after the most rec
 
 ```yo
 {
-  __for_coll := unquote(coll);                  // local
+  __for_coll := unquote(coll); // local
   __for_iter := __for_coll.iter();
   while(runtime(true), {
-    match(__for_iter.next(),
+    match(
+      __for_iter.next(),
       .Some(__for_pos) => {
-        ref(name) := __for_coll.project(__for_pos);   // (*)
+        ref(name) := __for_coll.project(__for_pos); // (*)
         body
       },
       .None => break

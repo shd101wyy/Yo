@@ -40,24 +40,24 @@ test("type_key: function types keyed by params and result", {
   p1.push(`a`);
   t1 := ArrayList(TypeValue).new();
   t1.push(t_i32());
-  f_i32_to_bool := t_func_simple(p1, t1, t_bool());
+  f_i32_to_bool := t_func_simple(&p1, &t1, t_bool());
   p2 := ArrayList(String).new();
   p2.push(`a`);
   t2 := ArrayList(TypeValue).new();
   t2.push(t_i32());
-  f_i32_to_i32 := t_func_simple(p2, t2, t_i32());
+  f_i32_to_i32 := t_func_simple(&p2, &t2, t_i32());
   assert(
-    type_key(f_i32_to_bool) == type_key(f_i32_to_bool),
+    type_key(&f_i32_to_bool) == type_key(&f_i32_to_bool),
     "fn key stable"
   );
   assert(
-    !(type_key(f_i32_to_bool) == type_key(f_i32_to_i32)),
+    !(type_key(&f_i32_to_bool) == type_key(&f_i32_to_i32)),
     "fn keys differ on result type"
   );
 });
 test("type_key: SomeT distinct from concrete", {
   st := t_some_t(`T`, usize(0));
-  assert(!(type_key(st) == type_key(t_i32())), "SomeT vs i32");
+  assert(!(type_key(&st) == type_key(t_i32())), "SomeT vs i32");
 });
 // A one-field capture struct, as create_capture_type_and_value builds it.
 _capture_struct :: (fn(sid : &String, label : &String, field : &TypeValue) -> TypeValue)({
@@ -78,12 +78,12 @@ test("type_key: a capture struct's key survives a re-resolution of its captured 
   wrapper := t_some_t(`Impl`, usize(0));
   first := _capture_struct(`capture_tk_first`, `n`, t_i32());
   second := _capture_struct(`capture_tk_second`, `b`, t_bool());
-  as_first := t_with_resolution(wrapper, first);
-  as_second := t_with_resolution(wrapper, second);
-  outer_first := _capture_struct(`capture_tk_outer`, `cb`, as_first);
-  outer_second := _capture_struct(`capture_tk_outer`, `cb`, as_second);
+  as_first := t_with_resolution(&wrapper, &first);
+  as_second := t_with_resolution(&wrapper, &second);
+  outer_first := _capture_struct(`capture_tk_outer`, `cb`, &as_first);
+  outer_second := _capture_struct(`capture_tk_outer`, `cb`, &as_second);
   // The bare identity is its resolution (the closure-container rule).
-  assert(type_key(as_first) == type_key(first), "a resolved closure identity keys as its capture struct");
-  assert(type_key(as_second) == type_key(second), "each resolution keys as its own capture struct");
-  assert(type_key(outer_first) == type_key(outer_second), "the capture struct's key does not follow the resolution");
+  assert(type_key(&as_first) == type_key(&first), "a resolved closure identity keys as its capture struct");
+  assert(type_key(&as_second) == type_key(&second), "each resolution keys as its own capture struct");
+  assert(type_key(&outer_first) == type_key(&outer_second), "the capture struct's key does not follow the resolution");
 });

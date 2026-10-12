@@ -41,7 +41,7 @@ evaluate_as :: (
     expr,
     .FnCall(_, _, a, _, _) => a,
     _ => {
-      exn.throw(dyn(format_error_message(tok, String.from("as: expected FnCall"))));
+      exn.throw(dyn(format_error_message(&tok, String.from("as: expected FnCall"))));
       return(expr);
     }
   );
@@ -49,7 +49,7 @@ evaluate_as :: (
     exn.throw(
       dyn(
         format_error_message(
-          tok,
+          &tok,
           `"as" function expects exactly 2 arguments, got ${args.len()}`
         )
       )
@@ -70,8 +70,8 @@ evaluate_as :: (
     }
   );
   // Evaluate the value argument.
-  eval_val_expr := evaluate_expression_raw(val_arg_expr, env, ctx, exn);
-  val_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_val_expr));
+  eval_val_expr := evaluate_expression_raw(&val_arg_expr, env, ctx, exn);
+  val_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_val_expr));
   val_info := match(
     val_info_opt,
     .Some(i) => i,
@@ -79,7 +79,7 @@ evaluate_as :: (
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(val_arg_expr),
+            ast_expr_token(&val_arg_expr),
             `Failed to evaluate value argument for "as"`
           )
         )
@@ -90,8 +90,8 @@ evaluate_as :: (
   // Evaluate the type argument using the updated env from the value evaluation.
   // Private copy of the recorded scope (shared between ExprInfos; see env.yo
   // `expr_info_env_snapshot`).
-  eval_type_expr := evaluate_expression_raw(type_arg_expr, expr_info_adopt_env(val_info), ctx, exn);
-  type_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_type_expr));
+  eval_type_expr := evaluate_expression_raw(&type_arg_expr, expr_info_adopt_env(&val_info), ctx, exn);
+  type_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_type_expr));
   type_info := match(
     type_info_opt,
     .Some(i) => i,
@@ -99,7 +99,7 @@ evaluate_as :: (
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(type_arg_expr),
+            ast_expr_token(&type_arg_expr),
             `Failed to evaluate type argument for "as"`
           )
         )
@@ -108,11 +108,11 @@ evaluate_as :: (
     }
   );
   // Check that the second argument is a type.
-  if(!is_type_value(type_info.value), {
+  if(!is_type_value(&type_info.value), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(type_arg_expr),
+          ast_expr_token(&type_arg_expr),
           `Second argument to "as" must be a type`
         )
       )
@@ -126,23 +126,23 @@ evaluate_as :: (
     .None => t_unit()
   );
   source_type := val_info.ty;
-  updated_env := expr_info_adopt_env(type_info);
+  updated_env := expr_info_adopt_env(&type_info);
   // Check if types are compatible for casting.
-  if(!are_types_compatible(source_type, target_type), {
+  if(!are_types_compatible(&source_type, &target_type), {
     exn.throw(
       dyn(
         format_error_message(
-          tok,
-          `Cannot cast from type "${type_to_string(source_type)}" to type "${type_to_string(target_type)}" - types are not compatible`
+          &tok,
+          `Cannot cast from type "${type_to_string(&source_type)}" to type "${type_to_string(&target_type)}" - types are not compatible`
         )
       )
     );
   });
   // Return the value with the new type.
-  out := new_expr_info(updated_env, target_type);
+  out := new_expr_info(&updated_env, &target_type);
   out.value = val_info.value;
   out.path_collection = val_info.path_collection;
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 export(evaluate_as);

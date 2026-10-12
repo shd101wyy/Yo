@@ -235,7 +235,7 @@ test("HashMap(K, unit) does not overflow its bucket array", {
   (missing : i32) = i32(0);
   (j : i32) = i32(0);
   while(j < i32(64), {
-    if(!m.contains_key(j), {
+    if(!m.contains_key(&j), {
       missing = (missing + i32(1));
     });
     j = (j + i32(1));
@@ -330,9 +330,9 @@ test("a unit field is erased from the C layout but still reads, writes and compa
 });
 test("a unit-typed constructor argument still runs for its side effects", {
   c := _Counter(n : i32(0));
-  v := _UnitLast(a : i32(1), u : _bump(c));
-  r := _RefWithUnit(a : i32(2), u : _bump(c), s : String.from("s"));
-  (t : _UnitTuple) = (i32(3), _bump(c));
+  v := _UnitLast(a : i32(1), u : _bump(&c));
+  r := _RefWithUnit(a : i32(2), u : _bump(&c), s : String.from("s"));
+  (t : _UnitTuple) = (i32(3), _bump(&c));
   assert(c.n == i32(3), `each erased unit argument ran once (got ${c.n})`);
   assert((v.a + r.a + t.0) == i32(6), "the non-unit fields are intact");
 });
@@ -351,8 +351,8 @@ test("a generic struct at T = unit erases the field; Array(unit, N) constructs, 
   assert(_SZ_PAIR_UNIT == usize(4), "Pair(unit) is just the i32");
   assert(_SZ_PAIR_I32 == usize(8), "Pair(i32) is two i32s");
   p := _mk_pair((), i32(7));
-  u := _pair_x(p);
-  assert(_pair_n(p) == i32(7), "the non-unit field of a generic-at-unit struct is intact");
+  u := _pair_x(&p);
+  assert(_pair_n(&p) == i32(7), "the non-unit field of a generic-at-unit struct is intact");
   q := _Pair(unit)(x : (), n : i32(9));
   assert(q.n == i32(9), "direct construction of a generic-at-unit struct");
   arr := Array(unit, usize(3)).fill(());

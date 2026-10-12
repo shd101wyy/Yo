@@ -47,9 +47,9 @@ _round_trips :: (fn(text : &String) -> bool)({
       return(false);
     }
   );
-  s := toml.stringify(a);
+  s := toml.stringify(&a);
   b := match(
-    toml.parse(s),
+    toml.parse(&s),
     .Ok(v) => v,
     .Err(_) => {
       return(false);
@@ -103,7 +103,7 @@ name = "test"   # after a value
 [server]  # after a header
 port = 8080 # after the last value
 # trailing comment, no newline`;
-  d := _doc(input);
+  d := _doc(&input);
   assert(d.get(`name`).unwrap().as_string().unwrap() == `test`, "name survives its comment");
   srv := d.get(`server`).unwrap();
   assert(srv.get(`port`).unwrap().as_int().unwrap() == i64(8080), "port survives its comment");
@@ -121,11 +121,11 @@ test("A control character in a comment is rejected", {
   bad := `x = 1 # bad`;
   bad.push_byte(u8(7));
   bad.push_str("here");
-  assert(_rejected(bad), "BEL in a comment");
+  assert(_rejected(&bad), "BEL in a comment");
   ok := `x = 1 #`;
   ok.push_byte(u8(9));
   ok.push_str("a tab is allowed");
-  assert(!_rejected(ok), "a tab in a comment is fine");
+  assert(!_rejected(&ok), "a tab in a comment is fine");
 });
 // ============================================================================
 // Strings
@@ -159,21 +159,21 @@ test("Multi-line basic strings", {
 first
 second"""`;
   assert(
-    _str_at(input, `s`) ==
+    _str_at(&input, `s`) ==
       `first
 second`,
     "the newline right after the opener is dropped"
   );
   quoted :=
     `s = """he said ""hi"" ok"""`;
-  assert(_str_at(quoted, `s`) == `he said ""hi"" ok`, "one or two quotes are content");
+  assert(_str_at(&quoted, `s`) == `he said ""hi"" ok`, "one or two quotes are content");
   four :=
     `s = """a""""`;
-  assert(_str_at(four, `s`) == `a"`, "a run of four ends the string after one content quote");
+  assert(_str_at(&four, `s`) == `a"`, "a run of four ends the string after one content quote");
   trimmed :=
     `s = """a \\
       b"""`;
-  assert(_str_at(trimmed, `s`) == `a b`, "a line-ending backslash trims the newline and the indent");
+  assert(_str_at(&trimmed, `s`) == `a b`, "a line-ending backslash trims the newline and the indent");
   assert(
     _rejected(
       `s = "a\\
@@ -188,7 +188,7 @@ test("Literal strings", {
   ml :=
     `s = '''
 raw \\n stays'''`;
-  assert(_str_at(ml, `s`) == `raw \\n stays`, "multi-line literal, opening newline dropped");
+  assert(_str_at(&ml, `s`) == `raw \\n stays`, "multi-line literal, opening newline dropped");
   assert(_str_at(`s = ''`, `s`) == ``, "the empty literal string");
   assert(_str_at(`s = ""`, `s`) == ``, "the empty basic string");
 });
@@ -520,7 +520,7 @@ test("A raw CR inside a multi-line string is not a newline", {
   bad := `s = """a`;
   bad.push_byte(u8(13));
   bad.push_str("b\"\"\"");
-  assert(_rejected(bad), "a lone CR is a forbidden control character");
+  assert(_rejected(&bad), "a lone CR is a forbidden control character");
 });
 // ============================================================================
 // Rejection — the corruption rows of the issue, with their offsets
@@ -617,7 +617,7 @@ y = 2`
 `;
   lone_cr.push_byte(u8(13));
   lone_cr.push_str("y = 2");
-  assert(_rejected(lone_cr), "a bare CR between lines is not whitespace either");
+  assert(_rejected(&lone_cr), "a bare CR between lines is not whitespace either");
 });
 // ============================================================================
 // Serialization
@@ -630,7 +630,7 @@ name = "x"
 [server.inner]
 deep = true`
   );
-  s := toml.stringify(d);
+  s := toml.stringify(&d);
   assert(s.contains(`[server]`), "a header for the sub-table");
   assert(s.contains(`[server.inner]`), "a dotted header for the nested table");
   assert(s.contains(`port = 8080`), "an integer");
@@ -645,7 +645,7 @@ test("Serializer: keys, floats, arrays of tables, empty tables", {
   t := TomlValue.new_table();
   _a := t.insert(`bare_key-1`, TomlValue.Int(i64(1)));
   _b := t.insert(`needs quoting`, TomlValue.Int(i64(2)));
-  s := toml.stringify(t);
+  s := toml.stringify(&t);
   assert(s.contains(`bare_key-1 = 1`), "a bare key is written bare");
   assert(s.contains(`"needs quoting" = 2`), "a key that cannot be bare is quoted");
   f := TomlValue.new_table();
@@ -653,7 +653,7 @@ test("Serializer: keys, floats, arrays of tables, empty tables", {
   _d := f.insert(`pi`, TomlValue.Float(f64(3.141592653589793)));
   _e := f.insert(`inf`, TomlValue.Float(f64.INFINITY));
   _f2 := f.insert(`nan`, TomlValue.Float(f64.NAN));
-  fs := toml.stringify(f);
+  fs := toml.stringify(&f);
   assert(fs.contains(`whole = 3.0`), "an integral float keeps a `.0` so it stays a float");
   assert(fs.contains(`pi = 3.141592653589793`), "a float renders in full precision, shortest form");
   assert(fs.contains(`inf = inf`), "infinity");
@@ -664,12 +664,12 @@ a = 1
 [[x]]
 a = 2`
   );
-  as_text := toml.stringify(aot);
+  as_text := toml.stringify(&aot);
   assert(as_text.contains(`[[x]]`), "an array of tables gets [[…]] headers");
   mixed := _doc(`x = [1, "two"]`);
-  assert(toml.stringify(mixed).contains(`x = [1, "two"]`), "a mixed array stays inline");
+  assert(toml.stringify(&mixed).contains(`x = [1, "two"]`), "a mixed array stays inline");
   empty := _doc(`[a]`);
-  assert(toml.stringify(empty).contains(`[a]`), "an empty table still gets its header");
+  assert(toml.stringify(&empty).contains(`[a]`), "an empty table still gets its header");
 });
 test("Round trip: one per value kind", {
   assert(_round_trips(`s = "hi"`), "string");
@@ -763,16 +763,16 @@ name = "apple"
 
 [[fruits]]
 name = "banana"`;
-  d := _doc(input);
+  d := _doc(&input);
   assert(d.get(`title`).unwrap().as_string().unwrap() == `TOML Example`, "title");
   assert(d.get(`owner`).unwrap().get(`dob`).unwrap().is_datetime(), "dob");
   assert(d.get(`database`).unwrap().get(`ports`).unwrap().array_len() == usize(3), "ports");
   assert(d.get(`servers`).unwrap().get(`beta`).unwrap().get(`ip`).unwrap().as_string().unwrap() == `10.0.0.2`, "beta ip");
   assert(d.get(`fruits`).unwrap().array_len() == usize(2), "two fruits");
-  assert(_round_trips(input), "the whole document round-trips");
+  assert(_round_trips(&input), "the whole document round-trips");
   // And the serialized text is stable: stringify twice, same bytes.
-  once := toml.stringify(d);
-  twice := toml.stringify(_doc(once));
+  once := toml.stringify(&d);
+  twice := toml.stringify(_doc(&once));
   assert(once == twice, "serialization is deterministic");
 });
 test("ToString renders TOML text; the kind enum compares", {

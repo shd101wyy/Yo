@@ -587,7 +587,7 @@ impl(_OsCat, _OsOt(other_n : (self -> i32(1))));
 _os_takes_sp :: (fn(s : &Dyn(_OsSp)) -> i32)(s.speak());
 test("Dyn: no upcast from Dyn(A, B) to Dyn(A), with a note saying so", {
   (both : Dyn(_OsSp, _OsOt)) = dyn(_OsCat(n : i32(3)));
-  comptime_expect_error(_os_takes_sp(both), "write upcast(value, Dyn(...))");
+  comptime_expect_error(_os_takes_sp(&both), "write upcast(value, Dyn(...))");
   assert(both.speak() == i32(3), "the value itself is fine");
 });
 // Explicit upcast (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 2.8): the same payload
@@ -605,8 +605,8 @@ test("Dyn: upcast drops traits and keeps each payload's impls", {
   (cs : Dyn(_OsSp)) = upcast(cat, Dyn(_OsSp));
   (ds : Dyn(_OsSp)) = upcast(dog, Dyn(_OsSp));
   (dot : Dyn(_OsOt)) = upcast(dog, Dyn(_OsOt));
-  assert(_os_takes_sp(cs) == i32(3), "the cat's speak");
-  assert(_os_takes_sp(ds) == i32(40), "the dog's speak");
+  assert(_os_takes_sp(&cs) == i32(3), "the cat's speak");
+  assert(_os_takes_sp(&ds) == i32(40), "the dog's speak");
   assert(dot.other_n() == i32(2), "the dog's other_n");
   assert(cat.other_n() == i32(1), "the source is still usable");
   // The payload is shared: the upcast Dyn downcasts back to it.
@@ -663,7 +663,7 @@ impl(_OrdC, _OrdB(b : (self -> (self.n + i32(100)))));
 _ord_take :: (fn(d : &Dyn(_OrdB, _OrdA)) -> i32)(d.a() + (d.b() * i32(1000)));
 test("Dyn: the trait order is not part of the type", {
   (x : Dyn(_OrdA, _OrdB)) = dyn(_OrdC(n : i32(1)));
-  assert(_ord_take(x) == i32(101001), "both slots dispatch to their own impl");
+  assert(_ord_take(&x) == i32(101001), "both slots dispatch to their own impl");
   assert(Type.eq(Dyn(_OrdA, _OrdB), Dyn(_OrdB, _OrdA)), "one type");
 });
 // issues/fixed/a-method-call-two-trait-impls-supply-silently-picks-one.md:
@@ -675,8 +675,8 @@ impl(_ClC, _ClB(get : (self -> i32(2))));
 test("an unqualified call two trait impls supply is ambiguous (E0616)", {
   c := _ClC(n : i32(0));
   comptime_expect_error(c.get(), "is ambiguous");
-  assert((_ClC <: _ClA).get(c) == i32(1), "qualified: A");
-  assert((_ClC <: _ClB).get(c) == i32(2), "qualified: B");
+  assert((_ClC <: _ClA).get(&c) == i32(1), "qualified: A");
+  assert((_ClC <: _ClB).get(&c) == i32(2), "qualified: B");
 });
 // issues/fixed/dyn-fn-inout-param-pointer-level-mismatch.md: an `inout`
 // parameter of a Dyn vtable slot is `T*` in the slot, the wrapper and every
@@ -701,11 +701,11 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
     })
   );
   (x : i32) = i32(41);
-  h.cb(x);
+  h.cb(&mut x);
   assert(x == i32(42), "a local i32 is incremented in place");
-  _dio_bump_twice(x, h);
+  _dio_bump_twice(&mut x, &h);
   assert(x == i32(44), "an inout parameter is forwarded, not re-addressed");
-  _dio_call_param(x, h.cb);
+  _dio_call_param(&mut x, &h.cb);
   assert(x == i32(45), "a Dyn(Fn) parameter called with an inout parameter");
   p := _DioPusher(
     push : dyn((xs : &mut ArrayList(i32)) => {
@@ -713,8 +713,8 @@ test("Dyn(Fn) with an inout parameter writes through to the caller's place", {
     })
   );
   (ys : ArrayList(i32)) = ArrayList(i32).new();
-  p.push(ys);
-  _dio_push_through(ys, p);
+  p.push(&mut ys);
+  _dio_push_through(&mut ys, &p);
   assert(ys.len() == usize(2), "a local ArrayList is pushed through the callback, directly and forwarded");
   assert(match(ys.get(usize(1)), .Some(v) => (v == i32(7)), .None => false), "the pushed element reads back");
 });
@@ -734,9 +734,9 @@ _dio_trait_bump :: (fn(y : &mut i32, d : &Dyn(_DioBump)) -> unit)({
 test("Dyn(trait) method with an inout parameter writes through to the caller's place", {
   (d : Dyn(_DioBump)) = dyn(_DioStep(k : i32(2)));
   (x : i32) = i32(40);
-  d.bump(x);
+  d.bump(&mut x);
   assert(x == i32(42), "a local i32 is updated in place");
-  _dio_trait_bump(x, d);
+  _dio_trait_bump(&mut x, &d);
   assert(x == i32(44), "an inout parameter is forwarded, not re-addressed");
 });
 
@@ -757,8 +757,8 @@ test("dyn of a function value checks its signature against the Dyn's `Fn`", {
     (h : Dyn(Fn(x : i32) -> i32)) = dyn(_dfs_by_value);
   }, "Incompatible types");
   (by_value : Dyn(Fn(t : String) -> usize)) = dyn(t => t.len());
-  comptime_expect_error(_dfs_call(by_value, s), "a parameter's mode is part of the function type");
+  comptime_expect_error(_dfs_call(&by_value, &s), "a parameter's mode is part of the function type");
   (c : Dyn(Fn(t : &String) -> usize)) = dyn(t => t.len());
-  assert(_dfs_call(c, s) == usize(4), "a closure literal adopts the Dyn's modes");
+  assert(_dfs_call(&c, &s) == usize(4), "a closure literal adopts the Dyn's modes");
   assert(s.len() == usize(4), "s was only ever lent");
 });

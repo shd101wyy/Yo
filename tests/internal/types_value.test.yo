@@ -13,11 +13,11 @@ test("primitive constructors and tags", {
   tf32 := t_f32();
   tunit := t_unit();
   tbl := t_bool();
-  assert(type_value_tag(ti32) == TypeTag.TI32, "i32 tag");
-  assert(type_value_tag(tu8t) == TypeTag.TU8, "u8 tag");
-  assert(type_value_tag(tf32) == TypeTag.TF32, "f32 tag");
-  assert(type_value_tag(tunit) == TypeTag.TUnit, "unit tag");
-  assert(type_value_tag(tbl) == TypeTag.TBool, "bool tag");
+  assert(type_value_tag(&ti32) == TypeTag.TI32, "i32 tag");
+  assert(type_value_tag(&tu8t) == TypeTag.TU8, "u8 tag");
+  assert(type_value_tag(&tf32) == TypeTag.TF32, "f32 tag");
+  assert(type_value_tag(&tunit) == TypeTag.TUnit, "unit tag");
+  assert(type_value_tag(&tbl) == TypeTag.TBool, "bool tag");
 });
 test("is_int / is_signed / is_numeric", {
   assert(is_int_type(t_i32()), "i32 is int");
@@ -32,12 +32,12 @@ test("is_int / is_signed / is_numeric", {
 test("compound types — pointer / str / array", {
   pi32 := t_ptr(t_i32());
   ai32 := t_array(t_i32(), usize(8));
-  assert(is_pointer_type(pi32), "ptr is ptr");
+  assert(is_pointer_type(&pi32), "ptr is ptr");
   assert(is_str_type(t_str()), "str is str");
-  assert(is_array_type(ai32), "array is array");
-  assert(type_value_tag(pi32) == TypeTag.TPtr, "ptr tag");
+  assert(is_array_type(&ai32), "array is array");
+  assert(type_value_tag(&pi32) == TypeTag.TPtr, "ptr tag");
   assert(type_value_tag(t_str()) == TypeTag.TStr, "str tag");
-  assert(type_value_tag(ai32) == TypeTag.TArray, "array tag");
+  assert(type_value_tag(&ai32) == TypeTag.TArray, "array tag");
   // Nested pointer
   ppi32 := t_ptr(t_ptr(t_i32()));
   match(

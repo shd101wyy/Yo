@@ -8,8 +8,8 @@ describe :: (fn(c : &mut Counter) -> i32)(c.n);
 g := Counter(n : i32(0));
 main :: (fn() -> unit)({
   t := Thread(i32).spawn((io : Io) => g.n);
-  println(`read-only inout is fine: ${describe(g)}`);
-  bump_by_ten(g);
+  println(`read-only inout is fine: ${describe(&mut g)}`);
+  bump_by_ten(&mut g);
   println(`seen=${t.join()}`);
 });
 export(main);

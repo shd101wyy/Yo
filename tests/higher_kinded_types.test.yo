@@ -12,7 +12,7 @@ identity :: (
 )(x);
 test("Basic HKT identity function", {
   (x : Option(i32)) = .Some(i32(42));
-  result := identity(generic(Option, i32), x);
+  result := identity(generic(Option, i32), &x);
   match(
     result,
     .Some(v) => {
@@ -37,7 +37,7 @@ impl(
     map : (fn(generic(A : Type, B : Type), self : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))(
       match(
         self,
-        .Some(v) => .Some(f(v)),
+        .Some(v) => .Some(f(&v)),
         .None => .None
       )
     )
@@ -92,7 +92,7 @@ do_map :: (
 );
 test("Generic do_map with where clause", {
   (x : Option(i32)) = .Some(i32(10));
-  result := do_map(generic(Option, i32, i32), x, (fn(a : &i32) -> i32)(a * i32(2)));
+  result := do_map(generic(Option, i32, i32), &x, (fn(a : &i32) -> i32)(a * i32(2)));
   match(
     result,
     .Some(v) => {
@@ -168,7 +168,7 @@ impl(
     transform : (fn(generic(A : Type, B : Type), self : &Option(A), f : (fn(a : &A) -> B)) -> Option(B))(
       match(
         self,
-        .Some(v) => .Some(f(v)),
+        .Some(v) => .Some(f(&v)),
         .None => .None
       )
     ),
@@ -209,7 +209,7 @@ test("Comptime HKT basic assertion", {
 // ─────────────────────────────────────────────────────
 test("do_map on None preserves None", {
   (x : Option(i32)) = .None;
-  result := do_map(generic(Option, i32, bool), x, (fn(a : &i32) -> bool)(a > i32(0)));
+  result := do_map(generic(Option, i32, bool), &x, (fn(a : &i32) -> bool)(a > i32(0)));
   match(
     result,
     .Some(_) => assert(false, "expected None"),
@@ -288,7 +288,7 @@ test("Partial application leaves one placeholder", {
 // ─────────────────────────────────────────────────────
 test("HKT identity with nested Option", {
   (x : Option(bool)) = .Some(true);
-  result := identity(generic(Option, bool), x);
+  result := identity(generic(Option, bool), &x);
   match(
     result,
     .Some(v) => assert(v, "expected true"),
@@ -314,7 +314,7 @@ test("Functor map with different values", {
 // ─────────────────────────────────────────────────────
 test("do_map with type change", {
   (x : Option(i32)) = .Some(i32(0));
-  result := do_map(generic(Option, i32, bool), x, (fn(a : &i32) -> bool)(a == i32(0)));
+  result := do_map(generic(Option, i32, bool), &x, (fn(a : &i32) -> bool)(a == i32(0)));
   match(
     result,
     .Some(v) => assert(v, "expected true (0 == 0)"),

@@ -21,7 +21,7 @@ impl(
   _digest : (fn(self : &Self, key : &mut String) -> u64)({
     h := DefaultHasher.new();
     key.hash(&mut h);
-    (h.finish() % self.n)
+    h.finish() % self.n
   }),
   lookup : (fn(self : &Self, key : &String) -> u64)(self._digest(key))
 );

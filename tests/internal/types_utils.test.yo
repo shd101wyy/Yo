@@ -361,7 +361,7 @@ test("get_all_some_types: primitive type has no SomeT", {
 });
 test("get_all_some_types: SomeT itself is collected", {
   ty := t_some_t(String.from("T"), usize(0));
-  result := get_all_some_types(ty);
+  result := get_all_some_types(&ty);
   assert(result.len() == usize(1), "SomeT should return(1 element)");
   match(
     result.get(usize(0)),
@@ -376,8 +376,8 @@ test("get_all_some_types: SomeT itself is collected", {
 });
 test("get_all_some_types: SomeT nested in Array is collected", {
   inner := t_some_t(String.from("E"), usize(1));
-  ty := t_array(inner, usize(3));
-  result := get_all_some_types(ty);
+  ty := t_array(&inner, usize(3));
+  result := get_all_some_types(&ty);
   assert(result.len() == usize(1), "Array(SomeT) should yield 1 SomeT");
 });
 test("get_all_some_types: bool has no SomeT", {
@@ -394,7 +394,7 @@ test("type_contains_rc_type: primitives return(false)", {
 });
 test("type_contains_rc_type: array of i32 returns false", {
   ty := t_array(t_i32(), usize(3));
-  assert(!type_contains_rc_type(ty), "Array(i32) → false");
+  assert(!type_contains_rc_type(&ty), "Array(i32) → false");
 });
 test("type_contains_rc_type: object struct is RC", {
   labels := ArrayList(String).new();
@@ -411,7 +411,7 @@ test("type_contains_rc_type: object struct is RC", {
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
   );
-  assert(type_contains_rc_type(obj), "object → true");
+  assert(type_contains_rc_type(&obj), "object → true");
 });
 test("type_contains_rc_type: plain struct returns false", {
   labels := ArrayList(String).new();
@@ -428,7 +428,7 @@ test("type_contains_rc_type: plain struct returns false", {
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
   );
-  assert(!type_contains_rc_type(s), "plain struct → false");
+  assert(!type_contains_rc_type(&s), "plain struct → false");
 });
 test("type_contains_rc_type: struct containing object field returns true", {
   field_labels := ArrayList(String).new();
@@ -460,20 +460,20 @@ test("type_contains_rc_type: struct containing object field returns true", {
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
   );
-  assert(type_contains_rc_type(outer), "Struct(object field) → true");
+  assert(type_contains_rc_type(&outer), "Struct(object field) → true");
 });
 test("type_contains_rc_type: IsoT returns true", {
   iso := t_iso(t_i32());
-  assert(type_contains_rc_type(iso), "IsoT → true");
+  assert(type_contains_rc_type(&iso), "IsoT → true");
 });
 test("type_contains_rc_type: DynT returns true", {
   dyn_val := t_dyn_simple(ArrayList(TypeValue).new());
-  assert(type_contains_rc_type(dyn_val), "DynT → true");
+  assert(type_contains_rc_type(&dyn_val), "DynT → true");
 });
 test("type_contains_rc_type: unresolved SomeT is conservatively true", {
   // Unresolved generic — conservative: true
   some := t_some_t(String.from("T"), usize(0));
-  assert(type_contains_rc_type(some), "SomeT unresolved → true");
+  assert(type_contains_rc_type(&some), "SomeT unresolved → true");
 });
 // ---------------------------------------------------------------------------
 // type_representation_contains_raw_ptr (port of
@@ -515,23 +515,23 @@ test("raw-ptr predicate: Array(Ptr(i32), 3) is true — array of pointers propag
 });
 test("raw-ptr predicate: plain struct with no pointer fields is false", {
   s := _trp_struct(String.from("Plain"), _trp_labels1(String.from("x")), _trp_types1(t_i32()), false, false, false);
-  assert(!type_representation_contains_raw_ptr(s), "struct(x : i32)");
+  assert(!type_representation_contains_raw_ptr(&s), "struct(x : i32)");
 });
 test("raw-ptr predicate: newtype struct wrapping a Ptr field is true", {
   s := _trp_struct(String.from("Wrap"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, true);
-  assert(type_representation_contains_raw_ptr(s), "newtype(p : *(u8))");
+  assert(type_representation_contains_raw_ptr(&s), "newtype(p : *(u8))");
 });
 test("raw-ptr predicate: plain struct wrapping a Ptr field is true", {
   s := _trp_struct(String.from("Holder"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, false);
-  assert(type_representation_contains_raw_ptr(s), "struct(p : *(u8))");
+  assert(type_representation_contains_raw_ptr(&s), "struct(p : *(u8))");
 });
 test("raw-ptr predicate: object struct with Ptr field is FALSE — heap-owning", {
   s := _trp_struct(String.from("Owned"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), true, false, false);
-  assert(!type_representation_contains_raw_ptr(s), "object(p : *(u8))");
+  assert(!type_representation_contains_raw_ptr(&s), "object(p : *(u8))");
 });
 test("raw-ptr predicate: atomic object struct is FALSE — Arc-style heap-owning", {
   s := _trp_struct(String.from("Shared"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), true, true, false);
-  assert(!type_representation_contains_raw_ptr(s), "atomic object(p : *(u8))");
+  assert(!type_representation_contains_raw_ptr(&s), "atomic object(p : *(u8))");
 });
 test("raw-ptr predicate: tuple with a Ptr field is true", {
   labels := ArrayList(String).new();
@@ -565,7 +565,7 @@ test("raw-ptr predicate: enum with a variant carrying a Ptr field is true", {
   discs.push(i64(0));
   discs.push(i64(1));
   e := TypeValue.EnumT(String.from(""), String.from("OptPtr"), vnames, vfields, Option(String).None, vlabels, discs, false, false, ArrayList(TypeValue).new());
-  assert(type_representation_contains_raw_ptr(e), "enum(None, Some(*(u8)))");
+  assert(type_representation_contains_raw_ptr(&e), "enum(None, Some(*(u8)))");
 });
 test("raw-ptr predicate: enum with only primitive variants is false", {
   vnames := ArrayList(String).new();
@@ -581,7 +581,7 @@ test("raw-ptr predicate: enum with only primitive variants is false", {
   discs.push(i64(0));
   discs.push(i64(1));
   e := TypeValue.EnumT(String.from(""), String.from("Prim"), vnames, vfields, Option(String).None, vlabels, discs, false, false, ArrayList(TypeValue).new());
-  assert(!type_representation_contains_raw_ptr(e), "enum(A, B(i32))");
+  assert(!type_representation_contains_raw_ptr(&e), "enum(A, B(i32))");
 });
 test("raw-ptr predicate: union with a Ptr field is true", {
   labels := ArrayList(String).new();
@@ -594,8 +594,8 @@ test("raw-ptr predicate: union with a Ptr field is true", {
 });
 test("raw-ptr predicate: nested struct wrapping a newtype with an inner Ptr is true", {
   inner := _trp_struct(String.from("Inner"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, true);
-  outer := _trp_struct(String.from("Outer"), _trp_labels1(String.from("w")), _trp_types1(inner), false, false, false);
-  assert(type_representation_contains_raw_ptr(outer), "struct(w : newtype(p : *(u8)))");
+  outer := _trp_struct(String.from("Outer"), _trp_labels1(String.from("w")), _trp_types1(&inner), false, false, false);
+  assert(type_representation_contains_raw_ptr(&outer), "struct(w : newtype(p : *(u8)))");
 });
 // issues/fixed/defining-a-deep-struct-dag-is-exponential.md: the predicate
 // used to stop at depth 40 in place of a visited set, so a Ptr 45 levels down
@@ -607,7 +607,7 @@ test("raw-ptr predicate: a Ptr 45 levels down is found", {
     deep = _trp_struct(String.from("Nest"), _trp_labels1(String.from("inner")), _trp_types1(deep.clone()), false, false, false);
     i = (i + usize(1));
   });
-  assert(type_representation_contains_raw_ptr(deep), "45-deep chain ending in *(u8)");
+  assert(type_representation_contains_raw_ptr(&deep), "45-deep chain ending in *(u8)");
 });
 test("raw-ptr predicate: a type object that contains itself terminates", {
   labels := ArrayList(String).new();
@@ -615,23 +615,23 @@ test("raw-ptr predicate: a type object that contains itself terminates", {
   labels.push(String.from("b"));
   fields := ArrayList(TypeValue).new();
   fields.push(t_i32());
-  looped := _trp_struct(String.from("Loop"), labels, fields, false, false, false);
+  looped := _trp_struct(String.from("Loop"), &labels, &fields, false, false, false);
   fields.push(looped.clone());
-  assert(!type_representation_contains_raw_ptr(looped), "struct(a : i32, b : <itself>)");
+  assert(!type_representation_contains_raw_ptr(&looped), "struct(a : i32, b : <itself>)");
   ptr_labels := ArrayList(String).new();
   ptr_labels.push(String.from("a"));
   ptr_labels.push(String.from("b"));
   ptr_fields := ArrayList(TypeValue).new();
-  looped_ptr := _trp_struct(String.from("LoopPtr"), ptr_labels, ptr_fields, false, false, false);
+  looped_ptr := _trp_struct(String.from("LoopPtr"), &ptr_labels, &ptr_fields, false, false, false);
   ptr_fields.push(looped_ptr.clone());
   ptr_fields.push(t_ptr(t_u8()));
-  assert(type_representation_contains_raw_ptr(looped_ptr), "struct(a : <itself>, b : *(u8))");
+  assert(type_representation_contains_raw_ptr(&looped_ptr), "struct(a : <itself>, b : *(u8))");
 });
 // Distinct types that share an id (here all empty) are not a cycle.
 test("raw-ptr predicate: nested structs with the same id are walked, not taken for a cycle", {
   inner := _trp_struct(String.from("A"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, false);
-  outer := _trp_struct(String.from("B"), _trp_labels1(String.from("w")), _trp_types1(inner), false, false, false);
-  assert(type_representation_contains_raw_ptr(outer), "struct(w : struct(p : *(u8))), both id \"\"");
+  outer := _trp_struct(String.from("B"), _trp_labels1(String.from("w")), _trp_types1(&inner), false, false, false);
+  assert(type_representation_contains_raw_ptr(&outer), "struct(w : struct(p : *(u8))), both id \"\"");
 });
 test("raw-ptr predicate: Dyn(Trait) is FALSE — RC-managed reference-semantics", {
   assert(!type_representation_contains_raw_ptr(t_dyn_simple(ArrayList(TypeValue).new())), "Dyn()");

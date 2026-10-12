@@ -36,7 +36,7 @@ diagnostics (`ast_place_text`, `src/expr.yo`) for every marker argument. For a
 call-shaped place it did
 
 ```yo
-out := recur(pf);      // a name: the callee token's own `value`
+out := recur(pf); // a name: the callee token's own `value`
 out.push_str("(");
 ```
 

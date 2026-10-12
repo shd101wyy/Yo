@@ -35,7 +35,7 @@
 _put :: (fn(root : &String, rel : &String, text : &String, io : Io, exn : Exception) -> unit)({
   path := Path.new(root).join(Path.new(rel));
   io.await(create_dir_all(path.parent().unwrap_or(Path.new(String.from("."))), io), IoExn(io : io, exn : exn));
-  io.await(write_string(path, text, io), IoExn(io : io, exn : exn));
+  io.await(write_string(&path, text, io), IoExn(io : io, exn : exn));
 });
 /// The fixture under `<base>/t`: `alpha_api` defines the API, `alpha/index.yo`
 /// re-exports it (the barrel `origin=` case), `beta` is a second module so
@@ -86,7 +86,7 @@ test("context_tree_key: stable, moves on a content edit, moves with the corpus n
   named := context_tree_key(root.clone(), String.from("utils"), io, exn);
   assert(named != k1, "a dependency prefix is part of the key");
   _put(root.clone(), String.from("beta.yo"), String.from("//! Beta, edited.\nbeta_hi :: (fn() -> unit)(());\nexport(beta_hi);\n"), io, exn);
-  k3 := context_tree_key(root, String.new(), io, exn);
+  k3 := context_tree_key(&root, String.new(), io, exn);
   assert(k3 != k1, "one content edit moves the key");
 });
 test("context_module_name: the corpus name prefixes, index.yo collapses", {
@@ -115,14 +115,14 @@ test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, b
   cache := `${base}/cache`;
   key := context_index_ensure(root.clone(), cache.clone(), false, String.new(), io, exn);
   entries := context_index_load(cache.clone(), key.clone(), io, exn);
-  add := match(_find_entry(entries, `t/alpha_api`, `alpha_add`), .Some(e) => e, .None => __yo_panic("alpha_add is indexed"));
+  add := match(_find_entry(&entries, `t/alpha_api`, `alpha_add`), .Some(e) => e, .None => __yo_panic("alpha_add is indexed"));
   assert(add.kind == "fn", `alpha_add is a fn, got ${add.kind}`);
   assert(add.signature.contains(String.from("i32")), "signature carries the param types");
   assert(add.origin.len() == usize(0), "the defining entry has no origin");
-  assert(match(_find_entry(entries, `t/alpha_api`, `Alpha`), .Some(e) => (e.kind == "type"), .None => false), "Alpha is a type");
-  assert(match(_find_entry(entries, `t/alpha_api`, `ALPHA_LIMIT`), .Some(e) => (e.kind == "constant"), .None => false), "ALPHA_LIMIT is a constant");
-  assert(_find_entry(entries, `t/beta`, `beta_hi`).is_some(), "beta_hi is indexed");
-  barrel := match(_find_entry(entries, `t/alpha`, `alpha_add`), .Some(e) => e, .None => __yo_panic("the barrel re-export is indexed"));
+  assert(match(_find_entry(&entries, `t/alpha_api`, `Alpha`), .Some(e) => (e.kind == "type"), .None => false), "Alpha is a type");
+  assert(match(_find_entry(&entries, `t/alpha_api`, `ALPHA_LIMIT`), .Some(e) => (e.kind == "constant"), .None => false), "ALPHA_LIMIT is a constant");
+  assert(_find_entry(&entries, `t/beta`, `beta_hi`).is_some(), "beta_hi is indexed");
+  barrel := match(_find_entry(&entries, `t/alpha`, `alpha_add`), .Some(e) => e, .None => __yo_panic("the barrel re-export is indexed"));
   assert(barrel.origin == "t/alpha_api", `barrel origin= t/alpha_api, got '${barrel.origin}'`);
   mods := context_index_load_modules(cache.clone(), key.clone(), io, exn);
   assert(mods.len() == usize(3), `three modules, got ${mods.len().to_string()}`);
@@ -150,7 +150,7 @@ test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, b
   snapshot := ArrayList(String).new();
   (fi : usize) = usize(0);
   while(fi < files.len(), {
-    text := _read_text(Path.new(idx_dir.clone()).join(Path.new(files(fi))).to_string(), io, exn);
+    text := _read_text(Path.new(idx_dir.clone()).join(Path.new(&files(fi))).to_string(), io, exn);
     assert(!text.contains(base.clone()), `${files(fi)} records no absolute path`);
     snapshot.push(text);
     fi = (fi + usize(1));
@@ -158,18 +158,18 @@ test("context_index_ensure: round-trip, barrel origin=, reuse without refresh, b
   // Plant a sentinel where a rebuild would write: a reuse must return it,
   // a refresh must replace it.
   index_path := Path.new(idx_dir.clone()).join(Path.new(String.from("index.txt"))).to_string();
-  io.await(write_string(Path.new(index_path), String.from("t/x\tsentinel\tfn\t()\t\n"), io), IoExn(io : io, exn : exn));
+  io.await(write_string(Path.new(&index_path), String.from("t/x\tsentinel\tfn\t()\t\n"), io), IoExn(io : io, exn : exn));
   key2 := context_index_ensure(root.clone(), cache.clone(), false, String.new(), io, exn);
   assert(key2 == key, "reuse keeps the key");
   reused := context_index_load(cache.clone(), key.clone(), io, exn);
-  assert(_find_entry(reused, `t/x`, `sentinel`).is_some(), "without refresh the index is not rebuilt");
-  key3 := context_index_ensure(root, cache.clone(), true, String.new(), io, exn);
+  assert(_find_entry(&reused, `t/x`, `sentinel`).is_some(), "without refresh the index is not rebuilt");
+  key3 := context_index_ensure(&root, cache.clone(), true, String.new(), io, exn);
   assert(key3 == key, "refresh keeps the key");
-  rebuilt := context_index_load(cache, key, io, exn);
-  assert(_find_entry(rebuilt, `t/x`, `sentinel`).is_none(), "refresh rebuilds the index");
+  rebuilt := context_index_load(&cache, &key, io, exn);
+  assert(_find_entry(&rebuilt, `t/x`, `sentinel`).is_none(), "refresh rebuilds the index");
   (fj : usize) = usize(0);
   while(fj < files.len(), {
-    again := _read_text(Path.new(idx_dir.clone()).join(Path.new(files(fj))).to_string(), io, exn);
+    again := _read_text(Path.new(idx_dir.clone()).join(Path.new(&files(fj))).to_string(), io, exn);
     assert(again == snapshot(fj), `${files(fj)} is byte-identical across builds`);
     fj = (fj + usize(1));
   });
@@ -190,8 +190,8 @@ test("a module the evaluator cannot load is marked degraded", {
   _put(root.clone(), String.from("ok.yo"), String.from("//! Fine.\nfine :: (fn() -> i32)(i32(1));\nexport(fine);\n"), io, exn);
   _put(root.clone(), String.from("broken.yo"), String.from("//! Broken.\nbroken :: (fn() -> i32)(no_such_name);\nexport(broken);\n"), io, exn);
   cache := `${base}/cache`;
-  key := context_index_ensure(root, cache.clone(), false, String.new(), io, exn);
-  mods := context_index_load_modules(cache, key, io, exn);
+  key := context_index_ensure(&root, cache.clone(), false, String.new(), io, exn);
+  mods := context_index_load_modules(&cache, &key, io, exn);
   (i : usize) = usize(0);
   (saw : usize) = usize(0);
   while(i < mods.len(), {
@@ -227,7 +227,7 @@ test("search scoring: exact > prefix > substring > signature > doc", {
   inner := search_score(mk(String.from("readd"), String.new(), String.new()), q.clone());
   insig := search_score(mk(String.from("x"), String.from("fn(add : i32) -> i32"), String.new()), q.clone());
   indoc := search_score(mk(String.from("y"), String.new(), String.from("use add here")), q.clone());
-  none := search_score(mk(String.from("z"), String.new(), String.new()), q);
+  none := search_score(mk(String.from("z"), String.new(), String.new()), &q);
   assert(exact == usize(400), `exact 400, got ${exact.to_string()}`);
   assert(cased == usize(400), `case-insensitive, got ${cased.to_string()}`);
   assert(prefix == usize(300), `prefix 300, got ${prefix.to_string()}`);
@@ -258,18 +258,18 @@ test("search scoring: a multi-word query ANDs its tokens over name, module, sign
     `(String) fn(generic(H) self : &mut String, hasher : &mut H) -> unit`,
     String.new()
   );
-  s_mod := search_score(e_mod, String.from("hash string"));
+  s_mod := search_score(&e_mod, String.from("hash string"));
   assert(s_mod == usize(150), `name-exact ∧ module-substring → the weaker token's tier 150, got ${s_mod.to_string()}`);
   e_doc := mkm(`std/x`, `hash`, String.new(), `Hashes a string quickly.`);
-  assert(search_score(e_doc, String.from("hash string")) == usize(50), `a doc-only token scores the doc tier 50`);
+  assert(search_score(&e_doc, String.from("hash string")) == usize(50), `a doc-only token scores the doc tier 50`);
   e_sig := mkm(`std/x`, `hash`, `fn(s : String) -> u64`, String.new());
-  assert(search_score(e_sig, String.from("hash string")) == usize(100), `a signature-only token scores 100`);
+  assert(search_score(&e_sig, String.from("hash string")) == usize(100), `a signature-only token scores 100`);
   e_none := mkm(`std/x`, `hash`, String.new(), String.new());
-  assert(search_score(e_none, String.from("hash string")) == usize(0), `a token matching nowhere kills the entry`);
-  assert(search_score(e_mod, String.from("  Hash   string ")) == usize(150), `whitespace runs collapse and tokens are lowercased`);
-  assert(search_score(e_mod, String.from("   ")) == usize(0), `a whitespace-only query is no query`);
+  assert(search_score(&e_none, String.from("hash string")) == usize(0), `a token matching nowhere kills the entry`);
+  assert(search_score(&e_mod, String.from("  Hash   string ")) == usize(150), `whitespace runs collapse and tokens are lowercased`);
+  assert(search_score(&e_mod, String.from("   ")) == usize(0), `a whitespace-only query is no query`);
   e_file := mkm(`std/fs/file`, `read`, String.new(), String.new());
-  assert(search_score(e_file, String.from("file")) == usize(150), `the module tier also serves one-token queries, above signature and doc`);
+  assert(search_score(&e_file, String.from("file")) == usize(150), `the module tier also serves one-token queries, above signature and doc`);
 });
 test("_search_entries: byte-identical rows collapse; a multi-word query matches", {
   // An IO failure fails the test. deep=false never touches io/exn, but the
@@ -300,7 +300,7 @@ test("_search_entries: byte-identical rows collapse; a multi-word query matches"
   entries.push(row(`close`, `(fn(self : Self) -> unit)`));
   entries.push(row(`close`, `(fn(self : Self) -> bool)`));
   world := LoadedWorld(entries : entries, mods : ArrayList(ContextIndexModule).new());
-  hits := _search_entries(String.from("close"), false, world, io, exn);
+  hits := _search_entries(String.from("close"), false, &world, io, exn);
   // `is_closed` is a legitimate name-substring hit, so the row count is 3
   // (the deduped trio + is_closed + the distinct-signature close) where the
   // unfixed stream printed 5.
@@ -322,7 +322,7 @@ test("_search_entries: byte-identical rows collapse; a multi-word query matches"
   assert(saw_bool, `the distinct-signature close survived`);
   // The token fix runs through the whole hit stream: `channel` matches only
   // the module.
-  hits2 := _search_entries(String.from("close channel"), false, world, io, exn);
+  hits2 := _search_entries(String.from("close channel"), false, &world, io, exn);
   assert(hits2.len() == usize(3), `every distinct row matches the module token: 3, got ${hits2.len().to_string()}`);
   assert(hits2(usize(0)).score == usize(150), `name-exact ∧ module-substring → 150, got ${hits2(usize(0)).score.to_string()}`);
 });

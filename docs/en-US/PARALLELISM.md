@@ -114,7 +114,7 @@ thread := Thread(unit).spawn((io : Io) => {
     io.await(yield(io), io);
     return(i32(42));
   });
-  result := io.await(task, io);
+  result := io.await(&task, io);
   assert(result == i32(42), "async result");
 });
 thread.join();
@@ -172,7 +172,7 @@ ThreadPool.is_shutdown : (fn(self : ThreadPool) -> bool);
 pool := ThreadPool.new(usize(4));
 
 // Simple tasks on the pool
-spawn(pool, (io : Io) => {
+spawn(&pool, (io : Io) => {
   do_work();
 });
 
@@ -181,7 +181,7 @@ spawn(pool, (io : Io) => {
   task := io.async((io : Io) => {
     io.await(yield(io), io);
   });
-  io.await(task, io);
+  io.await(&task, io);
 });
 
 // Wait for everything submitted so far
@@ -401,7 +401,7 @@ thread := Thread(unit).spawn((io : Io) => {
   task := io.async((io : Io) => {
     io.await(yield(io), io);
   });
-  io.await(task, io);
+  io.await(&task, io);
 });
 thread.join();
 

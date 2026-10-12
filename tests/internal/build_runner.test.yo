@@ -85,7 +85,7 @@ test("build_dag: empty step produces a single-node DAG", {
   );
   reg := BuildRegistry.new();
   reg.register_step(String.from("install"), String.from("Build all"), exn);
-  dag := build_dag(reg, String.from("install"));
+  dag := build_dag(&reg, String.from("install"));
   assert(dag.len() == usize(1), "root step only");
   node := dag(usize(0));
   assert(node.name == `install`, "root name");
@@ -109,7 +109,7 @@ test("register_executable carries the fixed-allocator heap size", {
   a := _mk_artifact(ArtifactKind.Executable, String.from("app"), String.from("./src/main.yo"));
   a.allocator = String.from("fixed");
   a.heap_size = usize(65536);
-  reg.register_executable(a, exn);
+  reg.register_executable(&a, exn);
   got := reg.artifacts(usize(0));
   assert(got.heap_size == usize(65536), "heap_size is copied on registration");
   assert(got.allocator == `fixed`, "allocator is copied on registration");
@@ -155,10 +155,10 @@ test("build_dag: step with artifact dependencies", {
   reg.register_step(String.from("install"), String.from("Build all"), exn);
   reg.add_step_dependency(String.from("install"), String.from("app"));
   reg.add_step_dependency(String.from("install"), String.from("lib-a"));
-  dag := build_dag(reg, String.from("install"));
+  dag := build_dag(&reg, String.from("install"));
   assert(dag.len() == usize(3), "install, app, lib-a");
-  assert(_dag_find(dag, String.from("app")).is_some(), "app present");
-  assert(_dag_find(dag, String.from("lib-a")).is_some(), "lib-a present");
+  assert(_dag_find(&dag, String.from("app")).is_some(), "app present");
+  assert(_dag_find(&dag, String.from("lib-a")).is_some(), "lib-a present");
 });
 test("build_dag: linked artifacts create edges", {
   exn := Exception(
@@ -175,10 +175,10 @@ test("build_dag: linked artifacts create edges", {
   reg.register_link(String.from("app"), String.from("mylib"));
   reg.register_step(String.from("install"), String.from("Build all"), exn);
   reg.add_step_dependency(String.from("install"), String.from("app"));
-  dag := build_dag(reg, String.from("install"));
+  dag := build_dag(&reg, String.from("install"));
   match(
-    _dag_find(dag, String.from("app")),
-    .Some(app_node) => assert(_deps_contain(app_node, String.from("mylib")), "app depends on mylib"),
+    _dag_find(&dag, String.from("app")),
+    .Some(app_node) => assert(_deps_contain(&app_node, String.from("mylib")), "app depends on mylib"),
     .None => assert(false, "app node missing")
   );
 });
@@ -196,12 +196,12 @@ test("build_dag: run step depends on its artifact", {
   reg.register_run(String.from("app"), ArrayList(String).new());
   reg.register_step(String.from("run"), String.from("Run the app"), exn);
   reg.add_step_dependency(String.from("run"), String.from("run:app"));
-  dag := build_dag(reg, String.from("run"));
+  dag := build_dag(&reg, String.from("run"));
   match(
-    _dag_find(dag, String.from("run:app")),
+    _dag_find(&dag, String.from("run:app")),
     .Some(run_node) => {
       assert(match(run_node.kind, .Run => true, _ => false), "kind is Run");
-      assert(_deps_contain(run_node, String.from("app")), "run:app depends on app");
+      assert(_deps_contain(&run_node, String.from("app")), "run:app depends on app");
     },
     .None => assert(false, "run:app node missing")
   );
@@ -231,7 +231,7 @@ test("build_dag: a verify step is a leaf Verify node a step can depend on", {
     ),
     .None => assert(false, "registered")
   );
-  dag := build_dag(reg, String.from("install"));
+  dag := build_dag(&reg, String.from("install"));
   assert(dag.len() == usize(2), "verify node plus the step");
   (found : bool) = false;
   (i : usize) = usize(0);
@@ -270,8 +270,8 @@ test("register_verify: the one build namespace rejects a reused name", {
   );
   reg := BuildRegistry.new();
   reg.register_step(String.from("verify"), String.from("A custom step"), quiet);
-  assert(_register_verify_throws(reg, String.from("verify")), "a verify step cannot reuse a step's name");
-  assert(!_register_verify_throws(reg, String.from("proofs")), "a fresh name registers");
+  assert(_register_verify_throws(&reg, String.from("verify")), "a verify step cannot reuse a step's name");
+  assert(!_register_verify_throws(&reg, String.from("proofs")), "a fresh name registers");
 });
 test("build_dag: nested steps are walked transitively", {
   exn := Exception(
@@ -288,11 +288,11 @@ test("build_dag: nested steps are walked transitively", {
   reg.add_step_dependency(String.from("compile"), String.from("app"));
   reg.register_step(String.from("install"), String.from("Install step"), exn);
   reg.add_step_dependency(String.from("install"), String.from("compile"));
-  dag := build_dag(reg, String.from("install"));
+  dag := build_dag(&reg, String.from("install"));
   assert(dag.len() == usize(3), "install, compile, app");
   match(
-    _dag_find(dag, String.from("install")),
-    .Some(install_node) => assert(_deps_contain(install_node, String.from("compile")), "install depends on compile"),
+    _dag_find(&dag, String.from("install")),
+    .Some(install_node) => assert(_deps_contain(&install_node, String.from("compile")), "install depends on compile"),
     .None => assert(false, "install node missing")
   );
 });
@@ -314,7 +314,7 @@ test("build_dag: deduplicates shared dependencies", {
   reg.register_step(String.from("install"), String.from("Build all"), exn);
   reg.add_step_dependency(String.from("install"), String.from("app-a"));
   reg.add_step_dependency(String.from("install"), String.from("app-b"));
-  dag := build_dag(reg, String.from("install"));
+  dag := build_dag(&reg, String.from("install"));
   (common_count : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < dag.len(), {
@@ -331,20 +331,20 @@ test("detect_cycle: no cycle returns None", {
   dag.push(_mk_node(String.from("a"), ArrayList(String).new()));
   dag.push(_mk_node(String.from("b"), _deps1(String.from("a"))));
   dag.push(_mk_node(String.from("c"), _deps1(String.from("b"))));
-  assert(detect_cycle(dag).is_none(), "acyclic DAG");
+  assert(detect_cycle(&dag).is_none(), "acyclic DAG");
 });
 test("detect_cycle: direct cycle is detected", {
   dag := ArrayList(DAGNode).new();
   dag.push(_mk_node(String.from("a"), _deps1(String.from("b"))));
   dag.push(_mk_node(String.from("b"), _deps1(String.from("a"))));
-  assert(detect_cycle(dag).is_some(), "a <-> b cycle");
+  assert(detect_cycle(&dag).is_some(), "a <-> b cycle");
 });
 test("detect_cycle: indirect cycle is detected", {
   dag := ArrayList(DAGNode).new();
   dag.push(_mk_node(String.from("a"), _deps1(String.from("b"))));
   dag.push(_mk_node(String.from("b"), _deps1(String.from("c"))));
   dag.push(_mk_node(String.from("c"), _deps1(String.from("a"))));
-  assert(detect_cycle(dag).is_some(), "a -> b -> c -> a cycle");
+  assert(detect_cycle(&dag).is_some(), "a -> b -> c -> a cycle");
 });
 test("detect_cycle: a dangling dependency does not hide the cycle after it", {
   // The plan's B12: `_dfs_cycle` skipped a dependency that is not a node by
@@ -355,14 +355,14 @@ test("detect_cycle: a dangling dependency does not hide the cycle after it", {
   deps.push(String.from("ghost"));
   deps.push(String.from("b"));
   dag := ArrayList(DAGNode).new();
-  dag.push(_mk_node(String.from("a"), deps));
+  dag.push(_mk_node(String.from("a"), &deps));
   dag.push(_mk_node(String.from("b"), _deps1(String.from("a"))));
-  assert(detect_cycle(dag).is_some(), "a -> b -> a, behind a dangling name");
+  assert(detect_cycle(&dag).is_some(), "a -> b -> a, behind a dangling name");
 });
 test("detect_cycle: self-loop is detected", {
   dag := ArrayList(DAGNode).new();
   dag.push(_mk_node(String.from("a"), _deps1(String.from("a"))));
-  assert(detect_cycle(dag).is_some(), "a -> a self-loop");
+  assert(detect_cycle(&dag).is_some(), "a -> a self-loop");
 });
 
 test("artifact stamp: a different compiler binary is a different stamp", {

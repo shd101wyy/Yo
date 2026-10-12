@@ -22,7 +22,7 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 test("wait_timeout reports a timeout when nobody signals", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
-  woken := m.with_lock(_v => cv.wait_timeout_with(m, Duration.from_millis(i64(40))));
+  woken := m.with_lock(_v => cv.wait_timeout_with(&m, Duration.from_millis(i64(40))));
   assert(!woken, "an unsignalled wait reports false");
 });
 test("wait_timeout returns true when signalled before the deadline", {
@@ -38,7 +38,7 @@ test("wait_timeout returns true when signalled before the deadline", {
   woken := m.with_lock(_v => {
     _ := ready.send(i32(1));
     // A 10s budget that must not be consumed.
-    cv.wait_timeout_with(m, Duration.from_secs(i64(10)))
+    cv.wait_timeout_with(&m, Duration.from_secs(i64(10)))
   });
   signaller.join();
   assert(woken, "a signalled wait reports true, not a timeout");
@@ -47,11 +47,11 @@ test("wait_timeout treats a zero and a negative Duration as 'do not block'", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
   m.with_lock(_v => {
-    assert(!cv.wait_timeout_with(m, Duration.zero()), "zero times out");
+    assert(!cv.wait_timeout_with(&m, Duration.zero()), "zero times out");
     // A negative Duration must clamp to zero rather than becoming a very long
     // wait through an unsigned conversion.
     assert(
-      !cv.wait_timeout_with(m, Duration.from_millis(i64(-5))),
+      !cv.wait_timeout_with(&m, Duration.from_millis(i64(-5))),
       "a negative Duration times out too"
     );
   });
@@ -64,7 +64,7 @@ test("wait_timeout re-acquires the mutex before returning", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
   m.with_lock(_v => {
-    cv.wait_timeout_with(m, Duration.from_millis(i64(20)));
+    cv.wait_timeout_with(&m, Duration.from_millis(i64(20)));
     // Still held here, so the guard's unlock at the closure's end is on a
     // mutex we hold, and a try after it must be the only thing that can
     // take it.
@@ -91,7 +91,7 @@ test("wait blocks until signalled, with the predicate re-checked", {
     // The predicate loop is the contract: a spurious wake must not be mistaken
     // for the condition becoming true.
     while(runtime(flag.load(MemoryOrder.SeqCst) == i32(0)), {
-      cv.wait_with(m);
+      cv.wait_with(&m);
     });
   });
   setter.join();
@@ -111,7 +111,7 @@ test("broadcast releases every waiter", {
         m.with_lock(_v => {
           _ := parked.send(i32(1));
           while(runtime(flag.load(MemoryOrder.SeqCst) == i32(0)), {
-            cv.wait_with(m);
+            cv.wait_with(&m);
           });
         });
         woken.fetch_add(i32(1), MemoryOrder.SeqCst);

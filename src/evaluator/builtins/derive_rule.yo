@@ -82,7 +82,7 @@ evaluate_derive_rule :: (
     exn.throw(
       dyn(
         format_error_message(
-          tok,
+          &tok,
           String.from("derive_rule requires exactly 2 arguments")
         )
       )
@@ -91,7 +91,7 @@ evaluate_derive_rule :: (
   trait_arg_expr := match(args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
   derive_fn_expr := match(args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
   // Extract the registry key from the trait arg expression (before evaluation).
-  key_opt := extract_derive_key(trait_arg_expr);
+  key_opt := extract_derive_key(&trait_arg_expr);
   key := match(
     key_opt,
     .Some(k) => k,
@@ -99,7 +99,7 @@ evaluate_derive_rule :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             String.from("derive_rule: first argument must be a trait name or trait constructor call")
           )
         )
@@ -108,8 +108,8 @@ evaluate_derive_rule :: (
     }
   );
   // Evaluate the derive function argument.
-  evaled_derive_fn := evaluate_expression_raw(derive_fn_expr, env, ctx, exn);
-  derive_fn_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaled_derive_fn));
+  evaled_derive_fn := evaluate_expression_raw(&derive_fn_expr, env, ctx, exn);
+  derive_fn_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_derive_fn));
   derive_fn_info := match(
     derive_fn_info_opt,
     .Some(i) => i,
@@ -117,7 +117,7 @@ evaluate_derive_rule :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             String.from("derive_rule: failed to evaluate derive function")
           )
         )
@@ -132,7 +132,7 @@ evaluate_derive_rule :: (
       exn.throw(
         dyn(
           format_error_message(
-            tok,
+            &tok,
             String.from("derive_rule: derive function has no compile-time value")
           )
         )
@@ -140,11 +140,11 @@ evaluate_derive_rule :: (
       EvalValue.UnitVal
     }
   );
-  if(!is_func_val(derive_fn_val), {
+  if(!is_func_val(&derive_fn_val), {
     exn.throw(
       dyn(
         format_error_message(
-          tok,
+          &tok,
           String.from("derive_rule: second argument must be a function")
         )
       )
@@ -155,7 +155,7 @@ evaluate_derive_rule :: (
   g_derive_rule_types.insert(key, EvalValue.TypeVal(derive_fn_info.ty));
   out := new_expr_info(env, t_unit());
   out.value = Option(EvalValue).Some(EvalValue.UnitVal);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
   expr
 });
 export(evaluate_derive_rule);

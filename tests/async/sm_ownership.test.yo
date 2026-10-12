@@ -41,7 +41,7 @@ _second_arm_await_of_field :: (fn(h : &Holder, io : Io) -> Impl(Future(i32, Io))
     cond(
       (out == i32(0)) => {
         a := e.await(_leaf(i32(1), e), e);
-        b := e.await(h.fut, e);
+        b := e.await(&h.fut, e);
         out = (a + b);
       },
       true => {
@@ -53,10 +53,10 @@ _second_arm_await_of_field :: (fn(h : &Holder, io : Io) -> Impl(Future(i32, Io))
 );
 test("a cond arm's second await of a field-held future leaves the field's reference alone", {
   h := Holder(fut : unsafe(__yo_async_yield_start()));
-  r := io.await(_second_arm_await_of_field(h, io), io);
+  r := io.await(_second_arm_await_of_field(&h, io), io);
   assert(r == i32(1), "the arm's awaits both ran");
   // Read the field's future again: it used to be freed by the arm's await.
-  r2 := io.await(h.fut, io);
+  r2 := io.await(&h.fut, io);
   assert(r2 == i32(0), "the field's future is still alive");
 });
 
@@ -67,7 +67,7 @@ _named_future_in_loop :: (fn(n : i64, io : Io) -> Impl(Future(i64, Io)))(
     (acc : i64) = i64(0);
     (i : i64) = i64(0);
     while(runtime(i < n), {
-      v := io.await(f, io);
+      v := io.await(&f, io);
       acc = (acc + i64(v));
       i = (i + i64(1));
     });
@@ -87,12 +87,12 @@ test("awaiting an already-running future from a state machine releases it", {
       io.await(sleep(u64(5)), io);
       Thing(n : i32(7))
     });
-    hf := io.spawn(f, io);
+    hf := io.spawn(&f, io);
     a := io.async((io : Io) => {
-      v := io.await(f, io);
+      v := io.await(&f, io);
       v.n
     });
-    r := io.await(a, io);
+    r := io.await(&a, io);
     assert(r == i32(7), "the awaiter read the running future's result");
     _rf := hf.await(io);
   };
@@ -111,7 +111,7 @@ test("an aborted task drops its Option and value-struct locals", {
       io.await(yield(io), io);
       match(o, .Some(q) => q.n, .None => i32(0)) + p.t.n + i32(s.len())
     });
-    h := io.spawn(task, io);
+    h := io.spawn(&task, io);
     h.abort();
     r := h.await(io);
     assert(r.is_none(), "the task was aborted");
@@ -142,7 +142,7 @@ test("a nested io.async capturing a state machine's String retains it", {
     );
     r + s.len()
   });
-  r := io.await(outer, io);
+  r := io.await(&outer, io);
   assert(r == usize(15), "the outer machine's String survives the inner future");
   assert(g_disposed == (before + i32(1)), "the captured Thing is released exactly once");
 });
@@ -163,7 +163,7 @@ test("reassigning a heap local from an await releases the old value", {
       t = io.await(_mk_thing(i32(3), io), io);
       t.n
     });
-    r := io.await(task, io);
+    r := io.await(&task, io);
     assert(r == i32(3), "the last reassignment wins");
   };
   assert(g_disposed == (before + i32(3)), "all three Things are disposed");
@@ -238,8 +238,8 @@ test("two io.async closures that update a module global", {
     io.await(yield(io), io);
     g_counter = (g_counter + i32(2));
   });
-  h1 := io.spawn(t1, io);
-  h2 := io.spawn(t2, io);
+  h1 := io.spawn(&t1, io);
+  h2 := io.spawn(&t2, io);
   _a := h1.await(io);
   _b := h2.await(io);
   assert(g_counter == i32(3), "both tasks ran on the loop's own thread");
@@ -260,7 +260,7 @@ test("an aborted task drops a pattern binding's scrutinee once", {
         .None => i32(0)
       )
     });
-    h := io.spawn(task, io);
+    h := io.spawn(&task, io);
     h.abort();
     r := h.await(io);
     assert(r.is_none(), "the task was aborted");
@@ -498,7 +498,7 @@ _throw_moved :: (fn(t : &Thing, io : Io) -> bool)({
 test("an arm that moves its payload into a thrown dyn: the aborted task releases it once", {
   g_disposed = i32(0);
   keep := Thing(n : i32(7));
-  assert(_throw_moved(keep, io), "the throw unwinds to the handler");
+  assert(_throw_moved(&keep, io), "the throw unwinds to the handler");
   assert(ref_count(keep) == 1, "the thrown payload and the task's scrutinee released it once between them");
   assert(g_disposed == i32(0), "keep is still alive");
 });
@@ -561,7 +561,7 @@ _take_n :: (fn(t : &Thing, io : Io) -> Impl(Future(i32, Io)))(
 );
 _arg_dup_in_task :: (fn(keep : &ArrayList(Thing), io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
-    x := e.await(_take_n(keep(usize(0)), e), e);
+    x := e.await(_take_n(&keep(usize(0)), e), e);
     x
   })
 );
@@ -570,7 +570,7 @@ test("an argument read out of a container inside a task is released", {
   {
     keep := ArrayList(Thing).new();
     keep.push(Thing(n : i32(7)));
-    r := io.await(_arg_dup_in_task(keep, io), io);
+    r := io.await(_arg_dup_in_task(&keep, io), io);
     assert(r == i32(7), "the task's value");
   };
   assert((g_disposed - before) == i32(1), `the Thing was released with its list, released ${g_disposed - before}`);
@@ -669,7 +669,7 @@ _MvReport :: struct(items : ArrayList(Thing), n : usize, extra : i32);
 // the task kept in a C local across the suspension reads garbage, whatever
 // the frame layout (issues/fixed/an-earlier-argument-read-after-an-await-in-a-later-argument-is-stale.md).
 _scrub_stack :: (fn(k : u64) -> u64)({
-  (buf : Array(u64, 512)) = Array(u64, 512).fill(k);
+  (buf : Array(u64, 512)) = Array(u64, 512).fill(&k);
   (i : usize) = usize(0);
   (s : u64) = u64(0);
   while(i < usize(512), {
@@ -716,7 +716,7 @@ _rebind_then_read :: (fn(bump : bool, io : Io) -> Impl(Future(i32, Io)))(
     e.await(yield(e), e);
     (cur : Thing) = t;
     if(bump, {
-      b := e.await(_bumped(t, e), e);
+      b := e.await(_bumped(&t, e), e);
       cur = b;
     });
     cur.n
@@ -807,7 +807,7 @@ test("an io.async future stored in a generic struct's Option field is awaited fr
   h := _hold_future(io.async((io2 : Io) => i32(8)));
   r := match(
     h.r,
-    .Some(task) => io.await(task, io),
+    .Some(task) => io.await(&task, io),
     .None => i32(-1)
   );
   assert(r == i32(8), "the stored future's value");
@@ -819,7 +819,7 @@ _wrap_future :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)({
 });
 test("a generic struct with a pointer-to-future field, built beside the future it returns", {
   task := _wrap_future(() => io.async((io2 : Io) => i32(8)));
-  assert(io.await(task, io) == i32(8), "the returned future's value");
+  assert(io.await(&task, io) == i32(8), "the returned future's value");
 });
 // A generic `Dispose` impl over a type-function instance runs for the
 // instance at a future, as it does at a ref struct: the impl matcher binds
@@ -844,7 +844,7 @@ test("a generic Dispose impl runs for a guard over a future, as over a ref struc
   g_guards = i32(0);
   t := _guarded(() => Thing(n : i32(1)));
   task := _guarded(() => io.async((io2 : Io) => i32(8)));
-  assert(io.await(task, io) == i32(8), "the future's value");
+  assert(io.await(&task, io) == i32(8), "the future's value");
   assert(t.n == i32(1), "the ref struct's value");
   assert(g_guards == i32(2), "both guards disposed");
 });

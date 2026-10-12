@@ -58,7 +58,7 @@ test("parses ## Deprecated section", {
 });
 test("parses multiple sections", {
   text := `Creates a connection pool.\n\nDetailed description about pooling.\n\n## Returns\n\nA \`Pool\` instance.\n\n## Errors\n\nReturns \`Err\` if config is invalid.\n\n## Examples\n\n\`\`\`rust\npool := createPool(10, 5000);\n\`\`\``;
-  result := parse_doc_comment(text);
+  result := parse_doc_comment(&text);
   assert(result.summary == `Creates a connection pool.`, "summary");
   assert(result.description == `Creates a connection pool.\n\nDetailed description about pooling.`, "description");
   assert(result.sections.size == usize(3), "three sections");
@@ -95,7 +95,7 @@ test("handles section with multi-line content", {
 });
 test("handles description with no sections", {
   text := `This is a simple function.\n\nIt does one thing well.`;
-  result := parse_doc_comment(text);
+  result := parse_doc_comment(&text);
   assert(result.summary == `This is a simple function.`, "summary");
   assert(result.description == text, "full description");
   assert(result.sections.size == usize(0), "no sections");
@@ -119,7 +119,7 @@ test("handles summary with multi-line first paragraph", {
 });
 test("handles real-world doc comment", {
   text := `Creates a new connection pool with the given configuration.\n\nThe pool lazily initializes connections up to \`max_size\`. Idle connections\nare reaped after \`timeout\` milliseconds of inactivity.\n\n## Returns\n\nA \`Result(Pool, PoolError)\` — \`Ok\` with the pool on success,\nor \`Err\` with a \`PoolError\` if the configuration is invalid.\n\n## Panics\n\nPanics if the global allocator is exhausted.\n\n## Examples\n\n\`\`\`rust\n(pool : Result(Pool, PoolError)) = createPool(u32(10), u32(5000));\n\`\`\``;
-  result := parse_doc_comment(text);
+  result := parse_doc_comment(&text);
   assert(result.summary == `Creates a new connection pool with the given configuration.`, "summary");
   assert(result.sections.size == usize(3), "three sections");
   returns_val := match(result.sections.get(`returns`), .Some(v) => v, .None => ``);

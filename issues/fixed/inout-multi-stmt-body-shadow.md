@@ -40,7 +40,7 @@ Compile with `./yo-cli compile <file>.yo`.
 Single-expression body works fine:
 
 ```yo
-my_fn :: (fn(inout(self) : u64) -> u64)(self);   // OK
+my_fn :: (fn(inout(self) : u64) -> u64)(self); // OK
 ```
 
 `inout` on object/struct types where the body accesses fields (`self.field`) also works — `emitter.yo` migrated cleanly. The bug only manifests when `self` itself appears as a bare value in an expression that triggers temp-variable materialization.
@@ -49,7 +49,7 @@ my_fn :: (fn(inout(self) : u64) -> u64)(self);   // OK
 
 This blocks the ToString trait migration to `inout(self) : Self` (and presumably any other trait migration where impl bodies use `self` as a bare value rather than `self.field`). The impl looks like:
 
-```yo
+```yo ignore
 to_string : (fn(inout(self) : Self) -> String)({
   buffer := Array(u8, _INT_BUFFER_SIZE).fill(0);
   ...

@@ -61,7 +61,7 @@ evaluate_unsafe :: (
     exn.throw(
       dyn(
         format_error_message(
-          tok,
+          &tok,
           String.from("'unsafe(...)' is not available in safe code.\n\nTo use raw pointer operations in this file, declare at the top:\n\n    pragma(Pragma.AllowUnsafe);\n\nThis marks the file as unsafe-capable and accepts responsibility for\nthe raw memory operations it contains.")
         )
       )
@@ -80,16 +80,16 @@ evaluate_unsafe :: (
   // Evaluate the argument with the unsafe context enabled, then restore.
   old_unsafe := ctx.unsafe_context;
   ctx.unsafe_context = true;
-  evaluated_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
+  evaluated_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   ctx.unsafe_context = old_unsafe;
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
   match(
     info_opt,
     .None => {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_expr),
+            ast_expr_token(&arg_expr),
             String.from("Failed to evaluate the argument of 'unsafe(...)'.")
           )
         )
@@ -103,7 +103,7 @@ evaluate_unsafe :: (
   // call so downstream bindings, dup/drop scheduling, and consumption tracking
   // see the inner temp variable as if `unsafe(...)` weren't there. Reusing the
   // same ExprInfo object preserves all of it.
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), arg_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &arg_info);
   expr
 });
 export(evaluate_unsafe);

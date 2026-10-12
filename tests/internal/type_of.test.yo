@@ -39,15 +39,15 @@ check_tag :: (fn(result : &Option(TypeValue), expected : TypeTag, label : str) -
   match(
     result,
     .Some(t) => {
-      got := type_value_tag(t);
+      got := type_value_tag(&t);
       if(got == expected, (), {
         println(`FAIL [${label}]: unexpected tag`);
-        assert(false, label);
+        assert(false, &label);
       });
     },
     .None => {
       println(`FAIL [${label}]: expected Some, got None`);
-      assert(false, label);
+      assert(false, &label);
     }
   )
 );
@@ -56,7 +56,7 @@ check_none :: (fn(result : &Option(TypeValue), label : str) -> unit)(
     result,
     .Some(_) => {
       println(`FAIL [${label}]: expected None, got Some`);
-      assert(false, label);
+      assert(false, &label);
     },
     .None => ()
   )
@@ -66,70 +66,70 @@ check_none :: (fn(result : &Option(TypeValue), label : str) -> unit)(
 // ---------------------------------------------------------------------------
 test("type_of_literal: bool true", {
   e := make_atom(TokenKind.Bool, "true");
-  check_tag(type_of_literal(e), TypeTag.TBool, "bool true");
+  check_tag(type_of_literal(&e), TypeTag.TBool, "bool true");
 });
 test("type_of_literal: bool false", {
   e := make_atom(TokenKind.Bool, "false");
-  check_tag(type_of_literal(e), TypeTag.TBool, "bool false");
+  check_tag(type_of_literal(&e), TypeTag.TBool, "bool false");
 });
 // ---------------------------------------------------------------------------
 // Integer literal
 // ---------------------------------------------------------------------------
 test("type_of_literal: integer", {
   e := make_atom(TokenKind.Integer, "42");
-  check_tag(type_of_literal(e), TypeTag.TComptimeInt, "integer 42");
+  check_tag(type_of_literal(&e), TypeTag.TComptimeInt, "integer 42");
 });
 test("type_of_literal: zero integer", {
   e := make_atom(TokenKind.Integer, "0");
-  check_tag(type_of_literal(e), TypeTag.TComptimeInt, "integer 0");
+  check_tag(type_of_literal(&e), TypeTag.TComptimeInt, "integer 0");
 });
 // ---------------------------------------------------------------------------
 // Float literal
 // ---------------------------------------------------------------------------
 test("type_of_literal: float", {
   e := make_atom(TokenKind.Float, "3.14");
-  check_tag(type_of_literal(e), TypeTag.TComptimeFloat, "float 3.14");
+  check_tag(type_of_literal(&e), TypeTag.TComptimeFloat, "float 3.14");
 });
 // ---------------------------------------------------------------------------
 // String literal
 // ---------------------------------------------------------------------------
 test("type_of_literal: string literal", {
   e := make_atom(TokenKind.StringLit, "\"hello\"");
-  check_tag(type_of_literal(e), TypeTag.TComptimeString, "string literal");
+  check_tag(type_of_literal(&e), TypeTag.TComptimeString, "string literal");
 });
 // ---------------------------------------------------------------------------
 // Template string
 // ---------------------------------------------------------------------------
 test("type_of_literal: template string", {
   e := make_atom(TokenKind.TemplateString, "`hello`");
-  check_tag(type_of_literal(e), TypeTag.TComptimeString, "template string");
+  check_tag(type_of_literal(&e), TypeTag.TComptimeString, "template string");
 });
 // ---------------------------------------------------------------------------
 // Char literal
 // ---------------------------------------------------------------------------
 test("type_of_literal: char literal", {
   e := make_atom(TokenKind.CharLit, "'a'");
-  check_tag(type_of_literal(e), TypeTag.TU32, "char literal");
+  check_tag(type_of_literal(&e), TypeTag.TU32, "char literal");
 });
 // ---------------------------------------------------------------------------
 // Non-literal atoms → None
 // ---------------------------------------------------------------------------
 test("type_of_literal: identifier → None", {
   e := make_atom(TokenKind.Identifier, "foo");
-  check_none(type_of_literal(e), "identifier should be None");
+  check_none(type_of_literal(&e), "identifier should be None");
 });
 test("type_of_literal: operator → None", {
   e := make_atom(TokenKind.Operator, "+");
-  check_none(type_of_literal(e), "operator should be None");
+  check_none(type_of_literal(&e), "operator should be None");
 });
 test("type_of_literal: semicolon → None", {
   e := make_atom(TokenKind.Semicolon, ";");
-  check_none(type_of_literal(e), "semicolon should be None");
+  check_none(type_of_literal(&e), "semicolon should be None");
 });
 // ---------------------------------------------------------------------------
 // FnCall expressions → None
 // ---------------------------------------------------------------------------
 test("type_of_literal: fn call → None", {
   e := make_fn_call_no_args("foo");
-  check_none(type_of_literal(e), "fn call should be None");
+  check_none(type_of_literal(&e), "fn call should be None");
 });

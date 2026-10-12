@@ -14,7 +14,7 @@
 //!
 //!   // Read it back
 //!   content := io.await(read_to_string(Path.new(`test.txt`), io), { io, exn });
-//!   println(content);
+//!   println(&content);
 //!
 //!   // Open with OpenMode
 //!   f := io.await(File.open(Path.new(`test.txt`), .Read, io), { io, exn });
@@ -151,7 +151,7 @@ impl(
       flags := match(
         opts.to_flags(),
         .Ok(f) => f,
-        .Err(msg) => e.exn.throw(dyn(Context.new(msg, dyn(IoError.InvalidInput))))
+        .Err(msg) => e.exn.throw(dyn(Context.new(&msg, dyn(IoError.InvalidInput))))
       );
       path_str := path.to_string();
       cstr_bytes := path_str.to_cstr();
@@ -563,7 +563,7 @@ set_permissions_str :: (fn(path : str, perm : FilePermission, io : Io) -> Impl(F
 copy :: (fn(from : &Path, to : &Path, io : Io) -> Impl(Future(u64, IoExn)))(
   io.async(e => {
     bytes := e.io.await(read(from, e.io), e);
-    e.io.await(write(to, bytes, e.io), e);
+    e.io.await(write(to, &bytes, e.io), e);
     md := e.io.await(metadata(from, e.io), e);
     e.io.await(set_permissions(to, FilePermission(mode : (md.mode() & u32(4095))), e.io), e);
     u64(bytes.len())
@@ -655,7 +655,7 @@ canonicalize :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))(
     );
     resolved := String.from_cstr(resolved_buf).unwrap();
     free(.Some((*void)(resolved_buf)));
-    Path.new(resolved)
+    Path.new(&resolved)
   })
 );
 /// Resolve a path to its canonical absolute form (`str` path variant).

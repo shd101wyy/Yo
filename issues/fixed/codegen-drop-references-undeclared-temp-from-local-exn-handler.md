@@ -54,13 +54,17 @@ try_populate_expr_info_table :: (
   fn(exprs : ArrayList(AstExpr), module_path : String) -> Option(ExprInfoTable)
 )({
   given(local_exn) := Exception(
-    throw : ((_err) -> escape(Option(ExprInfoTable).None))
+    throw : (_err -> escape(Option(ExprInfoTable).None))
   );
   env := Environment.new(module_path);
   ctx := eval_context_new(String.from(""), module_path);
   register_evaluate_expression();
   _r := evaluate_anonymous_module_begin_exprs(
-    exprs, env, &(ctx), false, using(local_exn)
+    exprs,
+    env,
+    &ctx,
+    false,
+    using(local_exn)
   );
   Option(ExprInfoTable).Some(ctx.expr_info_table)
 });

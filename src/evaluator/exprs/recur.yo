@@ -143,7 +143,7 @@ evaluate_recur :: (
     // When `functionValue` is a function value, pass it; otherwise pass None.
     function_val_opt := match(
       func_body_ctx.func_value,
-      .Some(fv) => if(is_func_val(fv), Option(EvalValue).Some(fv), Option(EvalValue).None),
+      .Some(fv) => if(is_func_val(&fv), Option(EvalValue).Some(fv), Option(EvalValue).None),
       .None => Option(EvalValue).None
     );
     // Extract callee and args from the recur(...) FnCall node.
@@ -158,11 +158,11 @@ evaluate_recur :: (
       _ => ArrayList(AstExpr).new()
     );
     call_result := try_to_call_function_with_arguments(
-      function_val_opt,
-      is_evaluating_function_body_of_type,
+      &function_val_opt,
+      &is_evaluating_function_body_of_type,
       expr,
-      callee_expr,
-      arg_exprs,
+      &callee_expr,
+      &arg_exprs,
       env,
       ctx,
       false,
@@ -196,16 +196,16 @@ evaluate_recur :: (
     );
     recur_unknown := if(
       recur_ret_is_comptime,
-      create_unknown_val(return_type),
-      create_runtime_unknown_val(return_type)
+      create_unknown_val(&return_type),
+      create_runtime_unknown_val(&return_type)
     );
     // Write ExprInfo for this recur expression.
-    out_info := new_expr_info(caller_env, return_type);
+    out_info := new_expr_info(&caller_env, &return_type);
     out_info.value = Option(EvalValue).Some(recur_unknown);
     out_info.runtime_arg_exprs_in_order =
       Option(ArrayList(AstExpr)).Some(call_result.runtime_arg_exprs_in_order);
     out_info.deferred_drop_expressions = call_result.deferred_drop_expressions;
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
     // Attach a temp variable for RC drop tracking.
     // Stub: no-op for now.
     attach_temp_variable_to_expr(expr, true, ctx);
@@ -217,8 +217,8 @@ evaluate_recur :: (
   evaluate_function_call(
     expr,
     env,
-    is_evaluating_function_body_of_type,
-    func_body_ctx.func_value,
+    &is_evaluating_function_body_of_type,
+    &func_body_ctx.func_value,
     ctx,
     exn
   )

@@ -17,7 +17,7 @@ test("fallocate invalid fd returns -EBADF", {
 });
 test("fallocate mode 0 extends file size", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_fallocate_extend_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_fallocate_extend_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
@@ -39,7 +39,7 @@ test("fallocate mode 0 extends file size", {
 });
 test("fallocate KEEP_SIZE preserves file size", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_fallocate_keepsize_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_fallocate_keepsize_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
@@ -62,7 +62,7 @@ test("fallocate Linux ZERO_RANGE and PUNCH_HOLE", {
   cond(
     (platform == Platform.Linux) => {
       tmp := temp_dir();
-      template_str := path_join(tmp, `yo_io_fallocate_linux_flags_XXXXXX`);
+      template_str := path_join(&tmp, `yo_io_fallocate_linux_flags_XXXXXX`);
       template_c := template_str.to_cstr();
       template_path := template_c.ptr().unwrap();
       fd := temp_io.mkstemp(template_path);

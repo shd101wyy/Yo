@@ -697,7 +697,7 @@ test("HashMap insert/remove churn keeps live + tombstones under the load thresho
   // Retire the oldest key and admit a new one, 20,000 times over 2,000 live entries.
   (n : i32) = i32(0);
   while(n < i32(20000), n = (n + i32(1)), {
-    removed := map.remove(n);
+    removed := map.remove(&n);
     assert(removed.is_some(), "the oldest key is present");
     assert(removed.unwrap() == (n * i32(3)), "with its value");
     map.insert(i32(2000) + n, (i32(2000) + n) * i32(3));
@@ -708,11 +708,11 @@ test("HashMap insert/remove churn keeps live + tombstones under the load thresho
   assert(map.capacity == cap0, "a table that is mostly tombstones is rehashed in place, not doubled");
   (c : i32) = i32(20000);
   while(c < i32(22000), c = (c + i32(1)), {
-    assert(map.get(c).unwrap() == (c * i32(3)), "every live key is reachable with its value");
+    assert(map.get(&c).unwrap() == (c * i32(3)), "every live key is reachable with its value");
   });
   (r : i32) = i32(0);
   while(r < i32(20000), r = (r + i32(1)), {
-    assert(map.get(r).is_none(), "every retired key is gone");
+    assert(map.get(&r).is_none(), "every retired key is gone");
   });
 });
 test("get_key_value returns the STORED key beside the value", {
@@ -800,12 +800,12 @@ test("entry inserts correctly across the resize its own insert triggers", {
   // rehashes the table and invalidates the slot the probe found.
   (i : i32) = i32(0);
   while(i < i32(64), i = (i + i32(1)), {
-    assert(m.entry(i).or_insert(i * i32(2)) == (i * i32(2)), "each fresh key inserts its default");
+    assert(m.entry(&i).or_insert(i * i32(2)) == (i * i32(2)), "each fresh key inserts its default");
   });
   assert(m.len() == usize(64), "every key landed");
   (j : i32) = i32(0);
   while(j < i32(64), j = (j + i32(1)), {
-    assert(m.get(j).unwrap() == (j * i32(2)), "and is reachable after the rehashes");
+    assert(m.get(&j).unwrap() == (j * i32(2)), "and is reachable after the rehashes");
   });
 });
 test("entry reuses a tombstone rather than lengthening the chain", {
@@ -848,10 +848,10 @@ test("retain keeps exactly the entries the predicate accepts", {
   while(j < i32(20), j = (j + i32(1)), {
     cond(
       ((j % i32(2)) == i32(0)) => {
-        assert(m.get(j).unwrap() == (j * i32(10)), "an even key kept its value");
+        assert(m.get(&j).unwrap() == (j * i32(10)), "an even key kept its value");
       },
       true => {
-        assert(m.get(j).is_none(), "an odd key is gone");
+        assert(m.get(&j).is_none(), "an odd key is gone");
       }
     );
   });
@@ -884,7 +884,7 @@ test("extend merges another map, overwriting on duplicates", {
   b := HashMap(i32, i32).new();
   b.insert(i32(2), i32(99));
   b.insert(i32(3), i32(30));
-  a.extend(b);
+  a.extend(&b);
   assert(a.len() == usize(3), "the union of the key sets");
   assert(a.get(i32(1)).unwrap() == i32(10), "an untouched key");
   assert(a.get(i32(2)).unwrap() == i32(99), "a duplicate takes the other map's value");
@@ -897,7 +897,7 @@ test("extend accepts any IntoIterator over entries, not just a map", {
   entries := ArrayList(MapEntry(i32, i32)).new();
   entries.push(MapEntry(i32, i32)(key : i32(2), value : i32(20)));
   entries.push(MapEntry(i32, i32)(key : i32(1), value : i32(99)));
-  a.extend(entries);
+  a.extend(&entries);
   assert(a.len() == usize(2), "the list's entries arrived");
   assert(a.get(i32(2)).unwrap() == i32(20), "a new key");
   assert(a.get(i32(1)).unwrap() == i32(99), "and a duplicate overwrote");

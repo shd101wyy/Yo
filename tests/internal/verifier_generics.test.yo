@@ -54,7 +54,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -72,11 +72,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
@@ -134,8 +134,8 @@ test("a contracted generic callee's ensures is assumed at the call site", {
   );
   // `pick` (verified abstractly over its type parameter) and the caller,
   // which proves only through pick's assumed ensures.
-  assert(reports.len() == usize(2), `pick and the caller register, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  assert(_count_outcome(reports, String.from("ok")) == usize(2), `both prove, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(2), `pick and the caller register, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(2), `both prove, got: [${_reports_dump(&reports)}]`);
 });
 
 test("a generic callee's requires discharges when satisfied", {
@@ -150,7 +150,7 @@ test("a generic callee's requires discharges when satisfied", {
   match(
     reports.get(usize(0)),
     .Some(rp) => {
-      assert(rp.outcome == "ok", `flag=true discharges the generic requires, got: [${_reports_dump(reports)}]`);
+      assert(rp.outcome == "ok", `flag=true discharges the generic requires, got: [${_reports_dump(&reports)}]`);
     },
     .None => ()
   );
@@ -167,6 +167,6 @@ test("a generic callee's requires VIOLATION refutes", {
   );
   // The generic callee itself verifies; the caller passing flag=false
   // refutes its requires.
-  assert(_count_outcome(reports, String.from("refuted")) == usize(1), `flag=false must refute the requires discharge, got: [${_reports_dump(reports)}]`);
-  assert(_count_outcome(reports, String.from("ok")) == usize(1), `only the generic callee may verify, got: [${_reports_dump(reports)}]`);
+  assert(_count_outcome(&reports, String.from("refuted")) == usize(1), `flag=false must refute the requires discharge, got: [${_reports_dump(&reports)}]`);
+  assert(_count_outcome(&reports, String.from("ok")) == usize(1), `only the generic callee may verify, got: [${_reports_dump(&reports)}]`);
 });

@@ -107,10 +107,10 @@ main :: (fn(io : Io) -> unit)({
   while(i < N_ECHO, {
     rb := __yo_async_recv_start(fd_b, buf, usize(64), i32(0));
     io.await(__yo_async_send_start(fd_a, buf, usize(32), i32(0)), io);
-    io.await(rb, io);
+    io.await(&rb, io);
     ra := __yo_async_recv_start(fd_a, buf, usize(64), i32(0));
     io.await(__yo_async_send_start(fd_b, buf, usize(32), i32(0)), io);
-    io.await(ra, io);
+    io.await(&ra, io);
     i = (i + usize(1));
   });
   d_delta := (_syscalls() - before);
@@ -166,7 +166,7 @@ main :: (fn(io : Io) -> unit)({
   });
   // The parked recv is still live: complete it.
   io.await(__yo_async_send_start(parked_b, buf, usize(1), i32(0)), io);
-  if(io.await(parked, io) != i32(1), {
+  if(io.await(&parked, io) != i32(1), {
     panic(String.from("the parked recv did not complete"));
   });
   io.await(tcp.close(parked_a), io);

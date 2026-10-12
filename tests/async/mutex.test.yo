@@ -47,9 +47,9 @@ test("Test mutex excludes across awaits", {
       return(());
     })
   );
-  h1 := io.spawn(worker(m, in_section, overlaps, io), io);
-  h2 := io.spawn(worker(m, in_section, overlaps, io), io);
-  h3 := io.spawn(worker(m, in_section, overlaps, io), io);
+  h1 := io.spawn(worker(&m, &in_section, &overlaps, io), io);
+  h2 := io.spawn(worker(&m, &in_section, &overlaps, io), io);
+  h3 := io.spawn(worker(&m, &in_section, &overlaps, io), io);
   _r1 := h1.await(io);
   _r2 := h2.await(io);
   _r3 := h3.await(io);
@@ -69,7 +69,7 @@ test("Test mutex lock waits", {
     m.unlock();
     return(());
   });
-  h := io.spawn(releaser, io);
+  h := io.spawn(&releaser, io);
   io.await(m.lock(io), io);
   assert(m.get() == i64(1), "lock should only be acquired after the releaser ran");
   m.unlock();
@@ -102,11 +102,11 @@ test("Test mutex acquisition is FIFO and no waiter is lost", {
   // Spawned in order. Each reaches its `lock` and parks before the next runs,
   // because a spawn does not start the task — the first suspension of the
   // spawner does, and there is none between these six lines.
-  h1 := io.spawn(worker(m, order, i64(1), io), io);
-  h2 := io.spawn(worker(m, order, i64(2), io), io);
-  h3 := io.spawn(worker(m, order, i64(3), io), io);
-  h4 := io.spawn(worker(m, order, i64(4), io), io);
-  h5 := io.spawn(worker(m, order, i64(5), io), io);
+  h1 := io.spawn(worker(&m, &order, i64(1), io), io);
+  h2 := io.spawn(worker(&m, &order, i64(2), io), io);
+  h3 := io.spawn(worker(&m, &order, i64(3), io), io);
+  h4 := io.spawn(worker(&m, &order, i64(4), io), io);
+  h5 := io.spawn(worker(&m, &order, i64(5), io), io);
   // Let them all reach the queue before anything is released.
   io.await(sleep(u64(5)), io);
   assert(m.waiter_count() == usize(5), `all five queued, got ${m.waiter_count().to_string()}`);
@@ -144,7 +144,7 @@ test("Test an uncontended lock still costs no suspension", {
     });
     return(());
   });
-  h := io.spawn(body, io);
+  h := io.spawn(&body, io);
   _d := h.await(io);
   assert(m.get() == i64(100), `a hundred uncontended round trips, got ${m.get().to_string()}`);
   assert(m.waiter_count() == usize(0), "and nothing ever queued");

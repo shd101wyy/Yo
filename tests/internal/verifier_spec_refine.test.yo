@@ -62,7 +62,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -80,11 +80,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
@@ -166,11 +166,11 @@ test("alias-created refinements prove: composition chain, Bounded capture, wrapp
   // is outside the V3 subset).
   assert(
     reports.len() == usize(11),
-    `all eleven functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `all eleven functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    (_count_outcome(reports, String.from("ok")) == usize(10)) && (_count_outcome(reports, String.from("outside-subset")) == usize(1)) && (_count_outcome(reports, String.from("refuted")) == usize(0)),
-    `every outcome must pass (10 ok + 1 outside-subset degrade, 0 refuted): [${_reports_dump(reports)}]`
+    (_count_outcome(&reports, String.from("ok")) == usize(10)) && (_count_outcome(&reports, String.from("outside-subset")) == usize(1)) && (_count_outcome(&reports, String.from("refuted")) == usize(0)),
+    `every outcome must pass (10 ok + 1 outside-subset degrade, 0 refuted): [${_reports_dump(&reports)}]`
   );
 });
 
@@ -185,14 +185,14 @@ test("the negative twins refute: single even refinement does not discharge a div
   );
   assert(
     reports.len() == usize(5),
-    `all five functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `all five functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("refuted")) == usize(2),
-    `use_even (zero IS even — the single-leg refinement must NOT discharge a division) and band_caller_bad (nothing bounds v into the band) must refute: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("refuted")) == usize(2),
+    `use_even (zero IS even — the single-leg refinement must NOT discharge a division) and band_caller_bad (nothing bounds v into the band) must refute: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(3),
-    `the predicate fns and use_band stay ok (modular): [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(3),
+    `the predicate fns and use_band stay ok (modular): [${_reports_dump(&reports)}]`
   );
 });

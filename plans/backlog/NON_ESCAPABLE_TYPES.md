@@ -112,8 +112,8 @@ StrArg :: enum(Borrowed(&String), Owned(String));
 ### R2. Construction lends; the borrow set is the components' union
 
 ```yo
-v := View(T)(xs : &xs, lo : lo, hi : hi);        // lends xs for v's life
-e := map.entry(k);                                // lends map (&mut) for e's life
+v := View(T)(xs : &xs, lo : lo, hi : hi); // lends xs for v's life
+e := map.entry(k); // lends map (&mut) for e's life
 ```
 
 A `&` component is initialized with a sigiled argument (decision 33) or
@@ -138,9 +138,9 @@ conflicts with every other access to its root while the value is live
   clauses, narrows it:
 
 ```yo
-slice :: (fn(xs : &ArrayList(T), lo : usize, hi : usize) -> View(T))(...);              // depends on xs, inferred
-longest :: (fn(a : &ArrayList(u8), b : &ArrayList(u8)) -> View(u8))(...);               // depends on a AND b
-pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(a)) -> View(u8))(...);      // narrowed: a view of b is an error
+slice :: (fn(xs : &ArrayList(T), lo : usize, hi : usize) -> View(T))(...); // depends on xs, inferred
+longest :: (fn(a : &ArrayList(u8), b : &ArrayList(u8)) -> View(u8))(...); // depends on a AND b
+pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(a)) -> View(u8))(...); // narrowed: a view of b is an error
 ```
 
 - At the call site the result borrows the argument places lent to the
@@ -223,9 +223,11 @@ Returning the container is R3 over the joined set:
 // `ArrayList(str)` are ordinary first-class values.
 words :: (fn(self : &Doc) -> ArrayList(View(u8)))({
   out := ArrayList(View(u8)).new();
-  ranges := self.word_ranges();                                     // a named binding: a borrow never crosses a temporary (decision 35)
-  for(&ranges, r => { out.push(self.text.view(r)); });              // every root of `out` is self
-  out                                                               // R3: depends on self
+  ranges := self.word_ranges(); // a named binding: a borrow never crosses a temporary (decision 35)
+  for(&ranges, r => {
+    out.push(self.text.view(r));
+  }); // every root of `out` is self
+  out // R3: depends on self
 });
 ```
 

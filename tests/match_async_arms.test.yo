@@ -32,7 +32,7 @@ test("literal payload arms with an await in each arm (#661 gap 2)", {
       .None => i32(0)
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(100), "Some(true) must take the true arm inside async");
 });
 test("int literal payload arms with awaits", {
@@ -53,7 +53,7 @@ test("int literal payload arms with awaits", {
       .Flag2(_) => i32(-3)
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(11), "the -1 arm must win inside async");
 });
 test("labeled and curly patterns in await-carrying arms bind (audit A3)", {
@@ -73,7 +73,7 @@ test("labeled and curly patterns in await-carrying arms bind (audit A3)", {
       }
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(20), "labeled/curly bindings must be assigned (4 * 5)");
 });
 test("positional twin of the labeled case still works", {
@@ -93,7 +93,7 @@ test("positional twin of the labeled case still works", {
       }
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(20), "positional binds unchanged");
 });
 // The await-carrying twin of the synchronous nullable-pointer match: a `_` arm
@@ -127,7 +127,7 @@ test("a wildcard arm on a nullable-pointer Option with awaits", {
     );
     result.* = (a + b);
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == (n - i32(5)), ".Some binds the payload and .None takes the wildcard, inside async");
 });
 // The await-carrying twin: a nullable-pointer user enum matched with labeled,
@@ -165,7 +165,7 @@ test("nullable-pointer user enum arms with awaits: labeled, curly, bare", {
     );
     result.* = (a + b + c);
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == (((n + i32(2)) * i32(2)) + i32(1)), "labeled and curly bind the payload, a bare arm selects by variant name");
 });
 // ---------------------------------------------------------------------------
@@ -200,7 +200,7 @@ test("a nested variant pattern in an awaiting arm", {
       }
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(70), "Ok2(A2(7)) must bind x=7 and take the nested arm");
 });
 test("an or-pattern arm with an await", {
@@ -221,7 +221,7 @@ test("an or-pattern arm with an await", {
       .Flag2(_) => i32(-3)
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(11), "Code(-1) must take the or-pattern arm");
 });
 test("a guard arm with an await", {
@@ -242,7 +242,7 @@ test("a guard arm with an await", {
       .None => i32(0)
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(108), "Some(8) must fail the guard and bind v=8");
 });
 test("a string-constant arm with an await", {
@@ -264,7 +264,7 @@ test("a string-constant arm with an await", {
       }
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(1), "the string constant arm must match");
 });
 test("a range arm and a catch-all binding with awaits", {
@@ -288,7 +288,7 @@ test("a range arm and a catch-all binding with awaits", {
       }
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(2), "43 must take the (10 ..= 99) arm");
 });
 test("a whole-value := binding with an await", {
@@ -305,7 +305,7 @@ test("a whole-value := binding with an await", {
       .None => i32(0)
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(0), "whole and v are the same Some(6)");
 });
 test("a tuple scrutinee with awaiting arms", {
@@ -326,7 +326,7 @@ test("a tuple scrutinee with awaiting arms", {
       (x, false) => x
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(400), "(4, true) must take the second arm");
 });
 test("a struct pattern with an await", {
@@ -347,7 +347,7 @@ test("a struct pattern with an await", {
       }
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(19), "Pt(1, 9) must take the general struct arm");
 });
 List2 :: ref(enum(Nil2, Cons2(head : i32, tail : Rc(Self))));
@@ -369,6 +369,6 @@ test("a pattern through an Rc payload with an await", {
       .Nil2 => i32(0)
     );
   });
-  io.await(task, io);
+  io.await(&task, io);
   assert(result.* == i32(3), "the nested Rc payload pattern must bind second=3");
 });

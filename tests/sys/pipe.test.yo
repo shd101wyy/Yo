@@ -132,8 +132,8 @@ test("two concurrent async reads on one pipe end both complete", {
         n := io.await(file.read(read_fd, buf_b, u32(8), u64(0)), io);
         read_b.* = n;
       });
-      handle_a := io.spawn(task_a, io);
-      handle_b := io.spawn(task_b, io);
+      handle_a := io.spawn(&task_a, io);
+      handle_b := io.spawn(&task_b, io);
       // Let both tasks reach their would-block and register.
       io.await(sleep(u64(20)), io);
       data := (*u8)("hi!\n");

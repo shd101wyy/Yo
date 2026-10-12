@@ -67,7 +67,7 @@ handle_folding_ranges :: (fn(text : &String, doc_abs : &String) -> JsonValue)({
           open_row := match(open_rows.last(), .Some(r) => r, .None => usize(t.row));
           _p := open_rows.pop();
           if(open_row < usize(t.row), {
-            _push_fold(out, seen, open_row, usize(t.row), "region");
+            _push_fold(&mut out, &mut seen, open_row, usize(t.row), "region");
           });
         });
       },
@@ -77,7 +77,7 @@ handle_folding_ranges :: (fn(text : &String, doc_abs : &String) -> JsonValue)({
       ) => {
         line_count := t.value.split(String.from("\n")).len();
         if(line_count > usize(1), {
-          _push_fold(out, seen, usize(t.row), (usize(t.row) + line_count) - usize(1), "comment");
+          _push_fold(&mut out, &mut seen, usize(t.row), (usize(t.row) + line_count) - usize(1), "comment");
         });
       },
       true => ()
@@ -126,7 +126,7 @@ _semantic_walk :: (
       key := `${usize(tok.row)}:${usize(tok.column)}`;
       if(!out.contains_key(key.clone()), {
         kind := _SEM_VARIABLE;
-        if(roles.members.contains(id) || roles.labels.contains(id), {
+        if(roles.members.contains(&id) || roles.labels.contains(&id), {
           kind = _SEM_PROPERTY;
         });
         if(kind == _SEM_VARIABLE, {
@@ -167,12 +167,12 @@ _semantic_walk :: (
       _,
       _
     ) => {
-      recur(func_box, roles, info_table, out);
+      recur(&func_box, roles, info_table, out);
       (i : usize) = usize(0);
       while(i < args.len(), {
         match(
           args.get(i),
-          .Some(a) => recur(a, roles, info_table, out),
+          .Some(a) => recur(&a, roles, info_table, out),
           .None => ()
         );
         i = (i + usize(1));
@@ -247,7 +247,7 @@ handle_semantic_tokens :: (
   while(wi < exprs.len(), {
     match(
       exprs.get(wi),
-      .Some(e) => _semantic_walk(e, roles, info_table, atom_kinds),
+      .Some(e) => _semantic_walk(&e, &roles, info_table, &mut atom_kinds),
       .None => ()
     );
     wi = (wi + usize(1));
@@ -343,7 +343,7 @@ handle_semantic_tokens :: (
       b := text.byte_at(bi);
       if(b == u8(0x0A), {
         if((cur_col - seg_start) > usize(0), {
-          cursor = _emit_sem_segment(lines, data, seg_row, seg_start, cur_col - seg_start, kind, cursor);
+          cursor = _emit_sem_segment(&lines, &mut data, seg_row, seg_start, cur_col - seg_start, kind, &cursor);
         });
         seg_row = (seg_row + usize(1));
         cur_col = usize(0);
@@ -356,7 +356,7 @@ handle_semantic_tokens :: (
       bi = (bi + usize(1));
     });
     if((cur_col - seg_start) > usize(0), {
-      cursor = _emit_sem_segment(lines, data, seg_row, seg_start, cur_col - seg_start, kind, cursor);
+      cursor = _emit_sem_segment(&lines, &mut data, seg_row, seg_start, cur_col - seg_start, kind, &cursor);
     });
   });
   jb().put("data", JsonValue.Array(items : data)).obj()

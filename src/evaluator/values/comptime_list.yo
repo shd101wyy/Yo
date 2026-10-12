@@ -54,7 +54,7 @@ evaluate_comptime_list_value :: (
   (child_type_opt : Option(TypeValue)) = match(
     ctx.expected_type,
     .Some(et) => cond(
-      is_comptime_list_type(et.ty) => match(
+      is_comptime_list_type(&et.ty) => match(
         et.ty,
         .ComptimeListT(box_child) => Option(TypeValue).Some(box_child),
         _ => Option(TypeValue).None
@@ -68,8 +68,8 @@ evaluate_comptime_list_value :: (
   (j : usize) = usize(0);
   while(j < n_args, {
     arg := match(args.get(j), .Some(a) => a, .None => make_err_expr());
-    evaluated_arg := evaluate_expression_raw(arg, env_loop, ctx, exn);
-    arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+    evaluated_arg := evaluate_expression_raw(&arg, &env_loop, ctx, exn);
+    arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     // Elements must have a compile-time value.
     has_value := match(
       arg_info_opt,
@@ -80,7 +80,7 @@ evaluate_comptime_list_value :: (
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg),
+            ast_expr_token(&arg),
             `Failed to evaluate expr_list element. Expected compile-time known value`
           )
         )
@@ -89,9 +89,9 @@ evaluate_comptime_list_value :: (
     arg_info := match(
       arg_info_opt,
       .Some(info) => info,
-      .None => new_expr_info(env_loop, t_usize()) // unreachable
+      .None => new_expr_info(&env_loop, t_usize()) // unreachable
     );
-    env_loop = expr_info_adopt_env(arg_info);
+    env_loop = expr_info_adopt_env(&arg_info);
     val := match(
       arg_info.value,
       .Some(v) => v,
@@ -99,7 +99,7 @@ evaluate_comptime_list_value :: (
         exn.throw(
           dyn(
             format_error_message(
-              ast_expr_token(arg),
+              ast_expr_token(&arg),
               `comptime_list element has no compile-time value`
             )
           )
@@ -114,14 +114,14 @@ evaluate_comptime_list_value :: (
       child_type_opt,
       .None => Option(TypeValue).Some(arg_ty),
       .Some(ct) => {
-        compat := are_types_compatible(arg_ty, ct);
+        compat := are_types_compatible(&arg_ty, &ct);
         if(!compat, {
-          ct_str := type_to_string(ct);
-          arg_str := type_to_string(arg_ty);
+          ct_str := type_to_string(&ct);
+          arg_str := type_to_string(&arg_ty);
           exn.throw(
             dyn(
               format_error_message(
-                ast_expr_token(arg),
+                ast_expr_token(&arg),
                 `Mismatched element types in comptime_list. Expected element of type ${ct_str}, got ${arg_str}`
               )
             )
@@ -147,11 +147,11 @@ evaluate_comptime_list_value :: (
       t_usize() // unreachable
     }
   );
-  list_type := t_comptime_list(child_type);
+  list_type := t_comptime_list(&child_type);
   list_val := EvalValue.ComptimeListVal(elements);
-  info := new_expr_info(env_loop, list_type);
+  info := new_expr_info(&env_loop, &list_type);
   info.value = Option(EvalValue).Some(list_val);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 export(evaluate_comptime_list_value);

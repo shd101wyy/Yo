@@ -83,26 +83,32 @@ All operator traits (Add, Sub, etc.) use `Output` as an **associated type**, not
 ```yo
 // Trait for the `..` range operator
 RangeOp :: trait(
-  (..) : (fn(start: Self, end: Self) -> Range(Self))
+  (..) : (fn(start : Self, end : Self) -> Range(Self))
 );
 
 // Trait for the `..=` inclusive range operator
 RangeInclusiveOp :: trait(
-  (..=) : (fn(start: Self, end: Self) -> RangeInclusive(Self))
+  (..=) : (fn(start : Self, end : Self) -> RangeInclusive(Self))
 );
 
 // Implement for usize
-impl(usize, RangeOp(
-  (..) : (fn(start: Self, end: Self) -> Range(Self))(
-    Range(usize)(start: start, end: end)
+impl(
+  usize,
+  RangeOp(
+    (..) : (fn(start : Self, end : Self) -> Range(Self))(
+      Range(usize)(start : start, end : end)
+    )
   )
-));
+);
 
-impl(usize, RangeInclusiveOp(
-  (..=) : (fn(start: Self, end: Self) -> RangeInclusive(Self))(
-    RangeInclusive(usize)(start: start, end: end)
+impl(
+  usize,
+  RangeInclusiveOp(
+    (..=) : (fn(start : Self, end : Self) -> RangeInclusive(Self))(
+      RangeInclusive(usize)(start : start, end : end)
+    )
   )
-));
+);
 ```
 
 #### Lexer Considerations
@@ -119,7 +125,7 @@ Range types (`Range(T)`, `RangeInclusive(T)`) and their operator traits (`RangeO
 
 ### ArrayList Implementation
 
-```yo
+```yo ignore
 impl(
   generic(T : Type),
   ArrayList(T),
@@ -140,9 +146,9 @@ After this, ArrayList supports:
 list.append(i32(10));
 list.append(i32(20));
 
-(first : i32) = list(0);          // 10, via Index
-(ptr : *(i32)) = &(list(0));      // pointer to first element
-list(0) = i32(42);                 // mutation via pointer
+(first : i32) = list(0); // 10, via Index
+(ptr : *i32) = &list(0); // pointer to first element
+list(0) = i32(42); // mutation via pointer
 ```
 
 Methods that can be eliminated from ArrayList:
@@ -162,7 +168,7 @@ impl(
   Index(usize)(
     Output : T,
     index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
-      &(self.data(idx))
+      &self.data(idx)
     )
   )
 );
@@ -170,7 +176,7 @@ impl(
 
 ### Native Slice Implementation
 
-```yo
+```yo ignore
 impl(
   generic(T : Type),
   Slice(T),

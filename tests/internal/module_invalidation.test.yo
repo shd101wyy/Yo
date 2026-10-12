@@ -59,7 +59,7 @@ _doc_round :: (fn(doc_path : &String, text : &String, std_path : &String, io : I
   mm_set_open_document(doc_path.clone(), text.clone());
   _inv := mm_invalidate_document(doc_path.clone());
   out := ArrayList(AnalyzeOutcome).new();
-  _diags := analyze_document(doc_path.clone(), text, std_path.clone(), io, out);
+  _diags := analyze_document(doc_path.clone(), text, std_path.clone(), io, &mut out);
   match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false)
 });
 /// A trait with a DEFAULT method, reached through a generic impl on a
@@ -70,7 +70,7 @@ _TRAIT_DOC :: "Named :: trait(\n  name : (fn(self : &Self) -> i32),\n  (twice : 
 /// Analyze the app document; return the outcome's `ok`.
 _analyze_app_ok :: (fn(app_path : &String, std_path : &String, io : Io) -> bool)({
   out := ArrayList(AnalyzeOutcome).new();
-  _diags := analyze_document(app_path.clone(), String.from(_APP), std_path.clone(), io, out);
+  _diags := analyze_document(app_path.clone(), String.from(_APP), std_path.clone(), io, &mut out);
   match(out.get(usize(0)), .Some(oc) => oc.ok, .None => false)
 });
 
@@ -290,8 +290,8 @@ test("CTFE: an executed clone's metadata does not outlive the call", {
   eleven_path := `${dir}/eleven.yo`;
   io.await(write_string(Path.new(one_path.clone()), _ctfe_doc(usize(1)), io), ioexn);
   io.await(write_string(Path.new(eleven_path.clone()), _ctfe_doc(usize(11)), io), ioexn);
-  one := _retained_info_count(one_path, _ctfe_doc(usize(1)), std_path.clone(), io);
-  eleven := _retained_info_count(eleven_path, _ctfe_doc(usize(11)), std_path, io);
+  one := _retained_info_count(&one_path, _ctfe_doc(usize(1)), std_path.clone(), io);
+  eleven := _retained_info_count(&eleven_path, _ctfe_doc(usize(11)), &std_path, io);
   per_call := ((eleven - one) / usize(10));
   // `A<k> :: make(i32(<k>))` is 8 nodes (`::`, its atom, `A<k>`, the call, `make`,
   // `i32(<k>)`, `i32`, the literal). Each call also executed a fresh clone of
@@ -327,8 +327,8 @@ test("overload trials: a trial's clones leave no metadata behind", {
   eleven_path := `${dir}/eleven.yo`;
   io.await(write_string(Path.new(one_path.clone()), _overload_doc(usize(1)), io), ioexn);
   io.await(write_string(Path.new(eleven_path.clone()), _overload_doc(usize(11)), io), ioexn);
-  one := _retained_info_count(one_path, _overload_doc(usize(1)), std_path.clone(), io);
-  eleven := _retained_info_count(eleven_path, _overload_doc(usize(11)), std_path, io);
+  one := _retained_info_count(&one_path, _overload_doc(usize(1)), std_path.clone(), io);
+  eleven := _retained_info_count(&eleven_path, _overload_doc(usize(11)), &std_path, io);
   per_call := ((eleven - one) / usize(10));
   // `_b<k> := !(flag);` is 6 nodes (`:=`, its atom, `_b<k>`, the call, `!`,
   // `flag`); each candidate's check also records its trait-typed signature
@@ -362,8 +362,8 @@ test("captures: a specialization of a handle-backed FuncVal stores no flat captu
   std_path := resolve_std_path();
   specs_before := specialization_cache_count();
   flat_before := specialization_flat_capture_count();
-  assert(_doc_round(doc_path.clone(), String.from(_SPEC_CAPTURE_DOC), std_path, io), "the document analyzes clean");
-  mm_forget_open_document(doc_path);
+  assert(_doc_round(doc_path.clone(), String.from(_SPEC_CAPTURE_DOC), &std_path, io), "the document analyzes clean");
+  mm_forget_open_document(&doc_path);
   assert(specialization_cache_count() > specs_before, "the document specialized `pick`");
   added_flat := (specialization_flat_capture_count() - flat_before);
   assert(added_flat == usize(0), `the new specializations hold ${added_flat.to_string()} flat capture names; expected 0`);
@@ -389,8 +389,8 @@ test("captures: a handle-backed FuncVal keeps no capture value snapshot", {
   std_path := resolve_std_path();
   specs_before := specialization_cache_count();
   vals_before := specialization_capture_value_count();
-  assert(_doc_round(doc_path.clone(), String.from(_SPEC_CAPTURE_DOC), std_path, io), "the document analyzes clean");
-  mm_forget_open_document(doc_path);
+  assert(_doc_round(doc_path.clone(), String.from(_SPEC_CAPTURE_DOC), &std_path, io), "the document analyzes clean");
+  mm_forget_open_document(&doc_path);
   assert(specialization_cache_count() > specs_before, "the document specialized `pick`");
   added_vals := (specialization_capture_value_count() - vals_before);
   assert(added_vals == usize(0), `the new specializations hold ${added_vals.to_string()} capture values; expected 0`);
@@ -408,17 +408,17 @@ test("captures: a captured frame slice survives the frame shrinking", {
   frame.variables.push(make_capture_variable(String.from("c"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
   slices := ArrayList(CaptureSlice).new();
   slices.push(CaptureSlice(vars : frame.variables, start : usize(0), end : frame.variables.len()));
-  frame_truncate_variables(frame, usize(1));
+  frame_truncate_variables(&frame, usize(1));
   assert(frame.variables.len() == usize(1), "the frame shrank");
-  captured := cap_slices_materialize(slices);
+  captured := cap_slices_materialize(&slices);
   assert(captured.len() == usize(3), "the captured slice still names all three bindings");
   assert(match(captured.get(usize(2)), .Some(v) => (v.name == "c"), .None => false), "the captured slice's last binding is intact");
   // Growth after the shrink goes to the frame's new list, never into the slice.
   frame.variables.push(make_capture_variable(String.from("d"), t_i32(), Option(EvalValue).None, String.from("m.yo")));
-  again := cap_slices_materialize(slices);
+  again := cap_slices_materialize(&slices);
   assert(match(again.get(usize(1)), .Some(v) => (v.name == "b"), .None => false), "a later push does not overwrite the captured slice");
   // A derivation's prefix is a slice of the same list, not a copy.
-  prefix := cap_slices_prefix(slices, usize(2));
+  prefix := cap_slices_prefix(&slices, usize(2));
   assert(match(prefix.get(usize(0)), .Some(sl) => ((sl.start == usize(0)) && (sl.end == usize(2))), .None => false), "a prefix narrows the slice");
 });
 test("owner logs: a one-shot command records none, an invalidating one does", {
@@ -444,12 +444,12 @@ test("owner logs: a one-shot command records none, an invalidating one does", {
   set_owner_logs_enabled(false);
   before_off := owned_id_log_entry_count();
   assert(_doc_round(off_path.clone(), String.from(_IMPL_DOC), std_path.clone(), io), "the document analyzes clean with owner logs off");
-  mm_forget_open_document(off_path);
+  mm_forget_open_document(&off_path);
   assert(owned_id_log_entry_count() == before_off, `owner logs off: the logs grew by ${(owned_id_log_entry_count() - before_off).to_string()}`);
   set_owner_logs_enabled(true);
   before_on := owned_id_log_entry_count();
-  assert(_doc_round(on_path.clone(), String.from(_IMPL_DOC), std_path, io), "the document analyzes clean with owner logs on");
-  mm_forget_open_document(on_path);
+  assert(_doc_round(on_path.clone(), String.from(_IMPL_DOC), &std_path, io), "the document analyzes clean with owner logs on");
+  mm_forget_open_document(&on_path);
   assert(owned_id_log_entry_count() > before_on, "owner logs on: analyzing a document records its ids");
 });
 
@@ -507,7 +507,7 @@ test("match-arm registry: a command without codegen records nothing", {
   io.await(write_string(Path.new(off_path.clone()), String.from(_MATCH_DOC), io), ioexn);
   set_codegen_tables_enabled(false);
   before_off := match_arms_entry_count();
-  off_clean := _doc_round(off_path.clone(), String.from(_MATCH_DOC), std_path, io);
+  off_clean := _doc_round(off_path.clone(), String.from(_MATCH_DOC), &std_path, io);
   after_off := match_arms_entry_count();
   set_codegen_tables_enabled(true);
   assert(off_clean, "the document analyzes clean with the tables off");

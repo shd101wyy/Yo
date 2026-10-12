@@ -221,80 +221,80 @@ _choose_err :: (fn(reqs : &ArrayList(Requirement)) -> String)(
 );
 test("choose_ref: one range picks the highest tag inside it", {
   reqs := _reqs();
-  _want(reqs, "<root>", _ver("^0.2"));
-  assert(_chosen_tag(reqs) == "v0.2.0", "^0.2 → v0.2.0");
+  _want(&reqs, "<root>", _ver("^0.2"));
+  assert(_chosen_tag(&reqs) == "v0.2.0", "^0.2 → v0.2.0");
   only := _reqs();
-  _want(only, "<root>", _ver(">=0.1"));
-  assert(_chosen_tag(only) == "v1.1.0", ">=0.1 → the highest release");
+  _want(&only, "<root>", _ver(">=0.1"));
+  assert(_chosen_tag(&only) == "v1.1.0", ">=0.1 → the highest release");
 });
 test("choose_ref: two overlapping ranges are unified to the highest tag inside BOTH", {
   reqs := _reqs();
-  _want(reqs, "<root>", _ver(">=0.1"));
-  _want(reqs, "other", _ver("^0.2"));
-  assert(_chosen_tag(reqs) == "v0.2.0", ">=0.1 ∧ ^0.2 → v0.2.0, not v1.1.0");
+  _want(&reqs, "<root>", _ver(">=0.1"));
+  _want(&reqs, "other", _ver("^0.2"));
+  assert(_chosen_tag(&reqs) == "v0.2.0", ">=0.1 ∧ ^0.2 → v0.2.0, not v1.1.0");
 });
 test("choose_ref: disjoint ranges are an error naming every requirer", {
   reqs := _reqs();
-  _want(reqs, "<root>", _ver("^1"));
-  _want(reqs, "utils", _ver("^0.2"));
-  msg := _choose_err(reqs);
+  _want(&reqs, "<root>", _ver("^1"));
+  _want(&reqs, "utils", _ver("^0.2"));
+  msg := _choose_err(&reqs);
   assert(msg.contains(String.from("no tag of https://host/dep satisfies every requirement")), `message: ${msg}`);
   assert(msg.contains(String.from("<root> requires version \"^1\"")), `names the root: ${msg}`);
   assert(msg.contains(String.from("utils requires version \"^0.2\"")), `names utils: ${msg}`);
 });
 test("choose_ref: an exact tag that is a version satisfies a range, or errors", {
   ok := _reqs();
-  _want(ok, "<root>", GitRequirement.Tag(String.from("v1.0.0")));
-  _want(ok, "utils", _ver("^1"));
-  assert(_chosen_tag(ok) == "v1.0.0", "the pin is inside the range");
-  match(_choose(ok), .Ok(c) => assert(c.version_text() == "1.0.0", "version text of a tag"), .Err(_) => panic("ok"));
+  _want(&ok, "<root>", GitRequirement.Tag(String.from("v1.0.0")));
+  _want(&ok, "utils", _ver("^1"));
+  assert(_chosen_tag(&ok) == "v1.0.0", "the pin is inside the range");
+  match(_choose(&ok), .Ok(c) => assert(c.version_text() == "1.0.0", "version text of a tag"), .Err(_) => panic("ok"));
   bad := _reqs();
-  _want(bad, "<root>", GitRequirement.Tag(String.from("v0.1.0")));
-  _want(bad, "utils", _ver("^1"));
-  msg := _choose_err(bad);
+  _want(&bad, "<root>", GitRequirement.Tag(String.from("v0.1.0")));
+  _want(&bad, "utils", _ver("^1"));
+  msg := _choose_err(&bad);
   assert(msg.contains(String.from("pinned AND ranged")), `message: ${msg}`);
 });
 test("choose_ref: two different pins are an error; the same pin twice is fine", {
   same := _reqs();
-  _want(same, "<root>", GitRequirement.Rev(String.from("abc123")));
-  _want(same, "utils", GitRequirement.Rev(String.from("abc123")));
-  assert(_chosen_tag(same) == "abc123", "same rev twice");
+  _want(&same, "<root>", GitRequirement.Rev(String.from("abc123")));
+  _want(&same, "utils", GitRequirement.Rev(String.from("abc123")));
+  assert(_chosen_tag(&same) == "abc123", "same rev twice");
   diff := _reqs();
-  _want(diff, "<root>", GitRequirement.Branch(String.from("main")));
-  _want(diff, "utils", GitRequirement.Tag(String.from("v1.0.0")));
-  msg := _choose_err(diff);
+  _want(&diff, "<root>", GitRequirement.Branch(String.from("main")));
+  _want(&diff, "utils", GitRequirement.Tag(String.from("v1.0.0")));
+  msg := _choose_err(&diff);
   assert(msg.contains(String.from("pinned two different ways")), `message: ${msg}`);
   assert(msg.contains(String.from("branch \"main\"")) && msg.contains(String.from("tag \"v1.0.0\"")), `names both pins: ${msg}`);
 });
 test("choose_ref: a rev with a range cannot be reconciled", {
   reqs := _reqs();
-  _want(reqs, "<root>", GitRequirement.Rev(String.from("abc123")));
-  _want(reqs, "utils", _ver("^1"));
-  assert(_choose_err(reqs).contains(String.from("pinned AND ranged")), "a commit is not a version");
+  _want(&reqs, "<root>", GitRequirement.Rev(String.from("abc123")));
+  _want(&reqs, "utils", _ver("^1"));
+  assert(_choose_err(&reqs).contains(String.from("pinned AND ranged")), "a commit is not a version");
 });
 test("choose_ref: a non-semver exact tag, a branch and the default branch", {
   t := _reqs();
-  _want(t, "<root>", GitRequirement.Tag(String.from("release-2024")));
+  _want(&t, "<root>", GitRequirement.Tag(String.from("release-2024")));
   match(
-    _choose(t),
+    _choose(&t),
     .Ok(c) => match(c, .Exact(r) => assert(r == "release-2024", "exact"), _ => panic("Exact expected")),
     .Err(_) => panic("ok")
   );
   b := _reqs();
-  _want(b, "<root>", GitRequirement.Branch(String.from("dev")));
-  match(_choose(b), .Ok(c) => assert(c.is_branch() && (c.ref_text() == "dev"), "branch"), .Err(_) => panic("ok"));
+  _want(&b, "<root>", GitRequirement.Branch(String.from("dev")));
+  match(_choose(&b), .Ok(c) => assert(c.is_branch() && (c.ref_text() == "dev"), "branch"), .Err(_) => panic("ok"));
   d := _reqs();
-  _want(d, "<root>", GitRequirement.DefaultBranch);
+  _want(&d, "<root>", GitRequirement.DefaultBranch);
   match(
-    _choose(d),
+    _choose(&d),
     .Ok(c) => assert(c.is_branch() && (c.ref_text().len() == usize(0)), "default branch has no name yet"),
     .Err(_) => panic("ok")
   );
 });
 test("choose_ref: a bad range is reported with its requirer", {
   reqs := _reqs();
-  _want(reqs, "utils", _ver("latest"));
-  msg := _choose_err(reqs);
+  _want(&reqs, "utils", _ver("latest"));
+  msg := _choose_err(&reqs);
   assert(msg.starts_with(String.from("utils: version requirement \"latest\"")), `message: ${msg}`);
 });
 // ---------------------------------------------------------------------------
@@ -313,30 +313,30 @@ _locked :: (fn(source : &String) -> LockEntry)(
 _url :: (fn() -> String)(String.from("https://host/dep"));
 test("locked_entry_satisfies: a locked tag inside every range is reused", {
   reqs := _reqs();
-  _want(reqs, "<root>", _ver("^0.2"));
-  _want(reqs, "utils", _ver(">=0.1"));
-  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("v0.2.0"))), _url(), reqs), "v0.2.0 fits both");
-  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("v0.1.0"))), _url(), reqs), "v0.1.0 is outside ^0.2");
-  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("main"))), _url(), reqs), "a branch does not satisfy a range");
+  _want(&reqs, "<root>", _ver("^0.2"));
+  _want(&reqs, "utils", _ver(">=0.1"));
+  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("v0.2.0"))), _url(), &reqs), "v0.2.0 fits both");
+  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("v0.1.0"))), _url(), &reqs), "v0.1.0 is outside ^0.2");
+  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("main"))), _url(), &reqs), "a branch does not satisfy a range");
 });
 test("locked_entry_satisfies: pins must match exactly; a bare git follows any recorded ref", {
   tag := _reqs();
-  _want(tag, "<root>", GitRequirement.Tag(String.from("v1.0.0")));
-  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("v1.0.0"))), _url(), tag), "same tag");
-  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("v1.1.0"))), _url(), tag), "other tag");
+  _want(&tag, "<root>", GitRequirement.Tag(String.from("v1.0.0")));
+  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("v1.0.0"))), _url(), &tag), "same tag");
+  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("v1.1.0"))), _url(), &tag), "other tag");
   branch := _reqs();
-  _want(branch, "<root>", GitRequirement.Branch(String.from("dev")));
-  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("dev"))), _url(), branch), "same branch");
-  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("main"))), _url(), branch), "other branch");
+  _want(&branch, "<root>", GitRequirement.Branch(String.from("dev")));
+  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("dev"))), _url(), &branch), "same branch");
+  assert(!locked_entry_satisfies(_locked(git_source(_url(), String.from("main"))), _url(), &branch), "other branch");
   dflt := _reqs();
-  _want(dflt, "<root>", GitRequirement.DefaultBranch);
-  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("main"))), _url(), dflt), "any recorded branch");
+  _want(&dflt, "<root>", GitRequirement.DefaultBranch);
+  assert(locked_entry_satisfies(_locked(git_source(_url(), String.from("main"))), _url(), &dflt), "any recorded branch");
 });
 test("locked_entry_satisfies: a different URL or a path source never satisfies", {
   reqs := _reqs();
-  _want(reqs, "<root>", _ver("*"));
-  assert(!locked_entry_satisfies(_locked(git_source(String.from("https://elsewhere/dep"), String.from("v1.0.0"))), _url(), reqs), "moved repository");
-  assert(!locked_entry_satisfies(_locked(path_source(String.from("../dep"))), _url(), reqs), "a path entry for a git requirement");
+  _want(&reqs, "<root>", _ver("*"));
+  assert(!locked_entry_satisfies(_locked(git_source(String.from("https://elsewhere/dep"), String.from("v1.0.0"))), _url(), &reqs), "moved repository");
+  assert(!locked_entry_satisfies(_locked(path_source(String.from("../dep"))), _url(), &reqs), "a path entry for a git requirement");
 });
 // ---------------------------------------------------------------------------
 // The dependency toolchain's failures carry codes (E15xx)
@@ -394,7 +394,7 @@ test("resolve_and_fetch --offline with no cached tags fails as error[E1501]", {
     )
   );
   options := ResolveOptions(mode : ResolveMode.Install, locked : false, offline : true, verbose : false);
-  io.await(resolve_and_fetch(manifest, options, io, exn), IoExn(io : io, exn : exn));
+  io.await(resolve_and_fetch(&manifest, &options, io, exn), IoExn(io : io, exn : exn));
   assert(false, "the offline resolve must throw");
 });
 test("resolve_and_fetch --locked with no yo.lock fails as error[E1503]", {
@@ -426,6 +426,6 @@ test("resolve_and_fetch --locked with no yo.lock fails as error[E1503]", {
     )
   );
   options := ResolveOptions(mode : ResolveMode.Install, locked : true, offline : true, verbose : false);
-  io.await(resolve_and_fetch(manifest, options, io, exn), IoExn(io : io, exn : exn));
+  io.await(resolve_and_fetch(&manifest, &options, io, exn), IoExn(io : io, exn : exn));
   assert(false, "the locked resolve must throw");
 });

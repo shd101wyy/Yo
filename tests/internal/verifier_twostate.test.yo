@@ -59,7 +59,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -77,11 +77,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 /// The reports' ids/outcomes rendered for assert messages.
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
@@ -117,16 +117,16 @@ test("old(...) reads the ENTRY state (old_step proves)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/two_state_old.yo"), io, true);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "ok", `old_step proves, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "ok", `old_step proves, got: [${_reports_dump(&reports)}]`);
 });
 
 test("old(...) of a body-local is a LOUD gate (solver-free)", {
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/two_state_old_gate.yo"), io, true);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "subset-error", `old_local is gated, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "subset-error", `old_local is gated, got: [${_reports_dump(&reports)}]`);
   assert(
     rp.subset_construct.contains(String.from("not bound at function entry")),
     `the gate names the entry rule, got: ${rp.subset_construct}`
@@ -137,9 +137,9 @@ test("a swallowed def-time body failure reports its CAUSE (solver-free)", {
   // The load EXPECTEDLY fails (E0902); the registered task survives it
   // and the report below carries the recorded cause.
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/def_eval_swallowed.yo"), io, false);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "subset-error", `reassign_param reports the cause, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "subset-error", `reassign_param reports the cause, got: [${_reports_dump(&reports)}]`);
   assert(
     rp.subset_construct.contains(String.from("definition-time evaluation failed")),
     `the report names the def-eval failure, got: ${rp.subset_construct}`

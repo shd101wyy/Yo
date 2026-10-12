@@ -11,7 +11,7 @@ file :: import("std/sys/file");
 temp_io :: import("std/sys/temp");
 test("mkdtemp creates and removes directory", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_mkdtemp_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_mkdtemp_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   mk := temp_io.mkdtemp(template_path);
@@ -28,7 +28,7 @@ test("mkdtemp creates and removes directory", {
 });
 test("mkstemp creates and removes file", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_mkstemp_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_mkstemp_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);

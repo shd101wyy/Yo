@@ -63,14 +63,14 @@ mk_init_assign :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
-  mk_op_call(id, BK_INIT_ASSIGN, args)
+  mk_op_call(id, BK_INIT_ASSIGN, &args)
 });
 /// Build `lhs :: rhs` const declaration expression.
 mk_const :: (fn(id : usize, lhs : &AstExpr, rhs : &AstExpr) -> AstExpr)({
   args := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
-  mk_op_call(id, BK_CONST, args)
+  mk_op_call(id, BK_CONST, &args)
 });
 /// Stub evaluator: stores t_bool() + BoolVal(true) ExprInfo for any expr.
 stub_eval_bool :: (
@@ -82,7 +82,7 @@ stub_eval_bool :: (
 )({
   info := new_expr_info(env, t_bool());
   info.value = Option(EvalValue).Some(EvalValue.BoolVal(true));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 /// Raw-seam variant of stub_eval_bool (ignores the custom handler).
@@ -106,7 +106,7 @@ stub_eval_i32 :: (
 )({
   info := new_expr_info(env, t_i32());
   info.value = Option(EvalValue).Some(EvalValue.IntLit(String.from("42")));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 // ---------------------------------------------------------------------------
@@ -132,8 +132,8 @@ test_invalid_shape_throws :: (fn() -> bool)({
   args := ArrayList(AstExpr).new();
   args.push(lhs);
   args.push(rhs);
-  expr := mk_op_call(usize(10), "=", args);
-  _r := evaluate_initialization_assignment(expr, env, ctx, exn);
+  expr := mk_op_call(usize(10), "=", &args);
+  _r := evaluate_initialization_assignment(&expr, &env, &ctx, exn);
   false
 });
 test("init_assign: invalid shape (not := or ::) throws", {
@@ -158,8 +158,8 @@ test("init_assign: name := rhs adds variable to env", {
   env.push_frame(false);
   lhs := mk_ident(usize(3), "myvar");
   rhs := mk_ident(usize(4), "true");
-  expr := mk_init_assign(usize(20), lhs, rhs);
-  result := evaluate_initialization_assignment(expr, env, ctx, exn);
+  expr := mk_init_assign(usize(20), &lhs, &rhs);
+  result := evaluate_initialization_assignment(&expr, &env, &ctx, exn);
   // Variable should be findable in env.
   var_opt := env.lookup(String.from("myvar"));
   match(
@@ -171,7 +171,7 @@ test("init_assign: name := rhs adds variable to env", {
     .None => assert(false, "variable myvar not found in env")
   );
   // ExprInfo for the whole expression should be set.
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result));
   match(
     info_opt,
     .Some(_) => (),
@@ -197,8 +197,8 @@ test("init_assign: name :: rhs adds non-reassignable variable to env", {
   env.push_frame(false);
   lhs := mk_ident(usize(5), "constvar");
   rhs := mk_ident(usize(6), "true");
-  expr := mk_const(usize(30), lhs, rhs);
-  result := evaluate_initialization_assignment(expr, env, ctx, exn);
+  expr := mk_const(usize(30), &lhs, &rhs);
+  result := evaluate_initialization_assignment(&expr, &env, &ctx, exn);
   var_opt := env.lookup(String.from("constvar"));
   match(
     var_opt,
@@ -231,10 +231,10 @@ test("init_assign: rhs renames to temp var", {
   // `_` as LHS should be renamed to a temp variable name.
   lhs := mk_ident(usize(7), "_");
   rhs := mk_ident(usize(8), "true");
-  expr := mk_init_assign(usize(40), lhs, rhs);
-  result := evaluate_initialization_assignment(expr, env, ctx, exn);
+  expr := mk_init_assign(usize(40), &lhs, &rhs);
+  result := evaluate_initialization_assignment(&expr, &env, &ctx, exn);
   // ExprInfo for the result should record a variable_name (the temp name).
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result));
   match(
     info_opt,
     .Some(info) => match(

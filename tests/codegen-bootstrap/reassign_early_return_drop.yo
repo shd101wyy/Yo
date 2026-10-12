@@ -38,7 +38,7 @@ f :: (fn(expected_env : &Env, given_env : &Env, deep : bool) -> Res)({
   (ee : Env) = expected_env;
   (ge : Env) = given_env;
   giv_id := name_of(given_env);
-  if(has_pair(exp_id, giv_id), {
+  if(has_pair(&exp_id, &giv_id), {
     return(Res(expected_env : ee, given_env : ge));
   });
   if(deep, {
@@ -54,7 +54,7 @@ main :: (fn() -> unit)({
   while(i < i32(10), {
     e := Env(x : i, cyc : Option(Env).None);
     e2 := Env(x : i, cyc : Option(Env).None);
-    r := f(e, e2, false);
+    r := f(&e, &e2, false);
     i = (i + i32(1));
   });
   assert(Gc.tracked_count() == u64(0), `expected 0 live tracked objects, got ${Gc.tracked_count()}`);

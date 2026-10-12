@@ -31,7 +31,7 @@ The same argument that made the function-level case safe applies here, and it
 was checked rather than assumed. `loop-variant-nonneg` at `vc.yo:2000` is
 emitted **unconditionally** whenever the loop carries a measure:
 
-```yo
+```yo ignore
 m_havoc := match(a.decreases, .Some(dm) => _expr_term(ctx, dm), .None => ...);
 if(m_havoc.is_some(), {
   ...

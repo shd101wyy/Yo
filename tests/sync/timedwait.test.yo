@@ -52,7 +52,7 @@ test("__yo_cond_timedwait times out, and actually waits that long", {
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
   start := Instant.now();
-  signalled := m.with_lock(_v => cv.wait_timeout_with(m, Duration.from_nanos(i64(50000000))));
+  signalled := m.with_lock(_v => cv.wait_timeout_with(&m, Duration.from_nanos(i64(50000000))));
   waited := start.elapsed();
   assert(!signalled, "nobody signalled, so it must report a timeout");
   eprintln(`  waited ${waited.as_millis()}ms for a 50ms timeout`);
@@ -75,7 +75,7 @@ test("__yo_cond_timedwait returns early when signalled", {
   signalled := m.with_lock(_v => {
     _ := ready.send(i32(1));
     // A 10s budget that must not be consumed.
-    cv.wait_timeout_with(m, Duration.from_secs(i64(10)))
+    cv.wait_timeout_with(&m, Duration.from_secs(i64(10)))
   });
   waited := start.elapsed();
   signaller.join();
@@ -89,7 +89,7 @@ test("__yo_cond_timedwait honours a SUB-millisecond timeout", {
   // instant false that happens to look the same.
   m := Mutex(i64).new(i64(0));
   cv := Cond.new();
-  signalled := m.with_lock(_v => cv.wait_timeout_with(m, Duration.from_micros(i64(100))));
+  signalled := m.with_lock(_v => cv.wait_timeout_with(&m, Duration.from_micros(i64(100))));
   assert(!signalled, "an unsignalled sub-millisecond wait still times out");
 });
 test("__yo_cond_timedwait treats a zero and a negative timeout as 'do not block'", {
@@ -97,10 +97,10 @@ test("__yo_cond_timedwait treats a zero and a negative timeout as 'do not block'
   cv := Cond.new();
   start := Instant.now();
   m.with_lock(_v => {
-    assert(!cv.wait_timeout_with(m, Duration.zero()), "zero times out");
+    assert(!cv.wait_timeout_with(&m, Duration.zero()), "zero times out");
     // A negative timeout is clamped to zero rather than becoming a very long
     // wait through an unsigned conversion.
-    assert(!cv.wait_timeout_with(m, Duration.from_nanos(i64(-1))), "negative times out");
+    assert(!cv.wait_timeout_with(&m, Duration.from_nanos(i64(-1))), "negative times out");
   });
   waited := start.elapsed();
   assert(waited.as_secs() < i64(2), `both returned promptly, in ${waited.as_millis()}ms`);

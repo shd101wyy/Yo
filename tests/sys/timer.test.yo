@@ -35,10 +35,10 @@ test("Test Io timer", {
     assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
     value.* = (value.* + 1); // 3
   });
-  io.spawn(task1, io);
-  io.spawn(task2, io);
-  io.await(task1, io);
-  io.await(task2, io);
+  io.spawn(&task1, io);
+  io.spawn(&task2, io);
+  io.await(&task1, io);
+  io.await(&task2, io);
 });
 test("Test zero-length sleep completes", {
   // sleep(0) must complete on the next loop turn on every runtime. Linux's
@@ -53,8 +53,8 @@ test("Test zero-length sleep completes", {
     assert(r1 >= i32(0), "sleep(0) awaited inside a task should complete without error");
     inner.* = true;
   });
-  io.spawn(t, io);
-  io.await(t, io);
+  io.spawn(&t, io);
+  io.await(&t, io);
   assert(inner.*, "the zero-sleep task body should have run to completion");
 });
 // io_uring submission is deferred to the loop's next poll, so a single tick
@@ -109,10 +109,10 @@ _sleeper :: (fn(ms : i32, order : &Rc(ArrayList(i32)), io : Io) -> Impl(Future(i
 );
 _timer_order :: (fn(io : Io) -> unit)({
   order := rc(ArrayList(i32).new());
-  h60 := io.spawn(_sleeper(i32(60), order, io), io);
-  h20 := io.spawn(_sleeper(i32(20), order, io), io);
-  h30 := io.spawn(_sleeper(i32(30), order, io), io);
-  h40 := io.spawn(_sleeper(i32(40), order, io), io);
+  h60 := io.spawn(_sleeper(i32(60), &order, io), io);
+  h20 := io.spawn(_sleeper(i32(20), &order, io), io);
+  h30 := io.spawn(_sleeper(i32(30), &order, io), io);
+  h40 := io.spawn(_sleeper(i32(40), &order, io), io);
   io.await(yield(io), io);
   h30.abort();
   _a := h60.await(io);
@@ -142,7 +142,7 @@ test("timers fire in deadline order around an aborted one (epoll fallback)", {
 // (issues/fixed/pending-io-future-local-drop-uaf.md).
 _drop_an_armed_sleep :: (fn(io : Io) -> bool)({
   deadline := sleep(u64(5));
-  s := io.state(deadline);
+  s := io.state(&deadline);
   s == FutureState.Completed
 });
 test("a sleep future dropped before it fires does not fire into freed memory", {

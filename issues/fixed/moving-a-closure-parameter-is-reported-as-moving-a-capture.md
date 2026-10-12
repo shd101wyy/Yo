@@ -15,7 +15,7 @@ _Res :: struct(n : i32);
 impl(_Res, Dispose(dispose : (fn(imm(self) : Self) -> unit)(())));
 _run :: (fn(imm(f) : Impl(Fn(r : _Res) -> i32)) -> i32)(f(_Res(n : i32(5))));
 main :: (fn() -> unit)({
-  a := _run((r) => {
+  a := _run(r => {
     x := r;
     x.n
   });

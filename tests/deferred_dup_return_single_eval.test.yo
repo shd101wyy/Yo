@@ -28,17 +28,17 @@ test("chained Index tail compiles and returns the inner element", {
   inner.push(String.from("x"));
   inner.push(String.from("y"));
   rows.push(inner);
-  assert(pick(rows, usize(0), usize(1)) == "y", "rows(0)(1)");
-  assert(pick(rows, usize(0), usize(0)) == "x", "rows(0)(0)");
+  assert(pick(&rows, usize(0), usize(1)) == "y", "rows(0)(1)");
+  assert(pick(&rows, usize(0), usize(0)) == "x", "rows(0)(0)");
 });
 test("the tail call is evaluated exactly once", {
   items := ArrayList(String).new();
   items.push(String.from("only"));
   c := Counter(items : items, hits : ArrayList(usize).new());
-  v := first_of(c);
+  v := first_of(&c);
   assert(v == "only", "value");
   assert(c.hits.len() == usize(1), "index() ran once for one call");
-  v2 := first_of(c);
+  v2 := first_of(&c);
   assert(v2 == "only", "value again");
   assert(c.hits.len() == usize(2), "and once more for the second call");
 });

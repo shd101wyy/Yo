@@ -105,10 +105,10 @@ test("epoll fallback: a parked reader and writer on one fd both complete", {
       assert(n > i32(0), "peer drain");
       got = (got + i64(n));
     });
-    assert(io.await(w_fut, io) == i32(1), "parked writer completed");
+    assert(io.await(&w_fut, io) == i32(1), "parked writer completed");
     // Wake the reader: its EPOLLIN interest must have survived the writer.
     assert(io.await(tcp.send(fd1, (*u8)("R"), usize(1), i32(0)), io) == i32(1), "peer send");
-    assert(io.await(r_fut, io) == i32(1), "parked reader completed");
+    assert(io.await(&r_fut, io) == i32(1), "parked reader completed");
     assert(rbuf.* == u8(82), "reader got 'R'");
     io.await(tcp.close(fd0), io);
     io.await(tcp.close(fd1), io);
@@ -132,7 +132,7 @@ _pending_recv_fails_after_close :: (fn(io : Io) -> unit)({
   r_fut := tcp.recv(fd0, rbuf, usize(16), i32(0));
   io.await(yield(io), io);
   assert(io.await(tcp.close(fd0), io) == i32(0), "close");
-  assert(io.await(r_fut, io) < i32(0), "the pending recv fails once its fd is closed");
+  assert(io.await(&r_fut, io) < i32(0), "the pending recv fails once its fd is closed");
   io.await(tcp.close(fd1), io);
 });
 test("closing an fd fails the recv still pending on it", {
@@ -163,7 +163,7 @@ _aborted_recv_leaves_the_data :: (fn(io : Io) -> unit)({
     b := (*u8)(b_uninit.as_ptr());
     return(io.await(tcp.recv(fd0, b, usize(16), i32(0)), io));
   });
-  h := io.spawn(fut, io);
+  h := io.spawn(&fut, io);
   io.await(yield(io), io);
   h.abort();
   assert(match(h.await(io), .Some(_) => false, .None => true), "the recv task was aborted");
@@ -206,7 +206,7 @@ _aborted_recv_behind_a_live_one :: (fn(io : Io) -> unit)({
     got := io.await(tcp.recv(fd0, b, usize(16), i32(0)), io);
     got
   });
-  h := io.spawn(fut, io);
+  h := io.spawn(&fut, io);
   io.await(yield(io), io);
   h.abort();
   assert(match(h.await(io), .Some(_) => false, .None => true), "the recv task was aborted");
@@ -215,7 +215,7 @@ _aborted_recv_behind_a_live_one :: (fn(io : Io) -> unit)({
   live := tcp.recv(fd0, rbuf, usize(16), i32(0));
   io.await(yield(io), io);
   assert(io.await(tcp.send(fd1, (*u8)("X"), usize(1), i32(0)), io) == i32(1), "peer send");
-  assert(io.await(live, io) == i32(1), "the live recv gets the byte");
+  assert(io.await(&live, io) == i32(1), "the live recv gets the byte");
   assert(rbuf.* == u8(88), "and it is the byte that was sent");
   io.await(tcp.close(fd0), io);
   io.await(tcp.close(fd1), io);
@@ -256,12 +256,12 @@ _recvs_in_order :: (fn(io : Io, fifo : bool) -> unit)({
   r2 := tcp.recv(fd0, b2, usize(1), i32(0));
   assert(io.await(tcp.send(fd1, (*u8)("A"), usize(1), i32(0)), io) == i32(1), "send A");
   if(fifo, {
-    assert(io.await(r1, io) == i32(1), "the first recv completes first");
+    assert(io.await(&r1, io) == i32(1), "the first recv completes first");
     assert(b1.* == u8(65), "and gets the first byte");
   });
   assert(io.await(tcp.send(fd1, (*u8)("B"), usize(1), i32(0)), io) == i32(1), "send B");
-  assert(io.await(r1, io) == i32(1), "the first recv completes");
-  assert(io.await(r2, io) == i32(1), "the second recv completes");
+  assert(io.await(&r1, io) == i32(1), "the first recv completes");
+  assert(io.await(&r2, io) == i32(1), "the second recv completes");
   if(fifo, {
     assert(b2.* == u8(66), "the second recv gets the second byte");
   }, {
@@ -305,8 +305,8 @@ _inline_recv_behind_a_parked_one :: (fn(io : Io) -> unit)({
   assert(io.await(tcp.send(fd1, (*u8)("A"), usize(1), i32(0)), io) == i32(1), "send A");
   r2 := tcp.recv(fd0, b2, usize(1), i32(0));
   assert(io.await(tcp.send(fd1, (*u8)("B"), usize(1), i32(0)), io) == i32(1), "send B");
-  assert(io.await(r1, io) == i32(1), "the parked recv completes");
-  assert(io.await(r2, io) == i32(1), "the later recv completes");
+  assert(io.await(&r1, io) == i32(1), "the parked recv completes");
+  assert(io.await(&r2, io) == i32(1), "the later recv completes");
   unsafe(printf("  r1 got %c, r2 got %c\n", i32(b1.*), i32(b2.*)));
   assert(b1.* == u8(65), "the parked recv gets the first byte");
   assert(b2.* == u8(66), "the later recv gets the second byte");
@@ -348,7 +348,7 @@ _dup2_over_parked_recv :: (fn(io : Io) -> unit)({
   parked := tcp.recv(a0, buf, usize(16), i32(0));
   io.await(yield(io), io);
   assert(pipe_io.dup2(b0, a0) == a0, "dup2 onto the parked fd");
-  r := io.await(parked, io);
+  r := io.await(&parked, io);
   unsafe(printf("  parked recv after dup2 = %d\n", r));
   assert(r == i32(-9), "the parked recv fails with EBADF");
   // a0 is now b0's socket, and must not inherit the old one's registration.
@@ -398,10 +398,10 @@ _await_completed_by_poll :: (fn(io : Io) -> unit)({
   r := tcp.recv(p0, pbuf, usize(16), i32(0));
   io.await(yield(io), io);
   assert(io.await(tcp.send(p1, (*u8)("x"), usize(1), i32(0)), io) == i32(1), "feed r");
-  assert(io.await(r, io) == i32(1), "the awaited recv returns");
+  assert(io.await(&r, io) == i32(1), "the awaited recv returns");
   // Now end the unrelated recv: closing its fd fails it with EBADF.
   io.await(tcp.close(u0), io);
-  assert(io.await(unrelated, io) == i32(-9), "the unrelated recv ends with the close");
+  assert(io.await(&unrelated, io) == i32(-9), "the unrelated recv ends with the close");
   io.await(tcp.close(u1), io);
   io.await(tcp.close(p0), io);
   io.await(tcp.close(p1), io);

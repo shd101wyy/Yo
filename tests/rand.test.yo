@@ -70,7 +70,7 @@ test("shuffle permutes in place; choice picks a member", {
   while(i < usize(20), i = (i + usize(1)), {
     xs.push(i32(i));
   });
-  r.shuffle(xs);
+  r.shuffle(&mut xs);
   assert(xs.len() == usize(20), "length preserved");
   // Every original element still present exactly once.
   (sum : i32) = i32(0);
@@ -88,12 +88,12 @@ test("shuffle permutes in place; choice picks a member", {
   assert(sum == i32(190), "same multiset (sum 0..19)");
   assert(moved, "at least one element moved (20! odds say always)");
   match(
-    r.choice(xs),
+    r.choice(&xs),
     .Some(v) => assert((v >= i32(0)) && (v < i32(20)), "choice is a member"),
     .None => assert(false, "non-empty choice")
   );
   empty := ArrayList(i32).new();
-  assert(r.choice(empty).is_none(), "empty choice is None");
+  assert(r.choice(&empty).is_none(), "empty choice is None");
 });
 test("one-element ranges are the safe edge: range(x..x+1) is x and next_below(1) is 0", {
   // issues/fixed/rng-range-and-next-below-divide-by-zero-on-an-empty-range.md

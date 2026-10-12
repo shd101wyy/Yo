@@ -144,7 +144,7 @@ impl(
         nx := io.await(self._inner.next(io), io);
         match(
           nx,
-          .Some(item) => Option(B).Some((self._f)(item)),
+          .Some(item) => Option(B).Some((self._f)(&item)),
           .None => Option(B).None
         )
       })
@@ -176,7 +176,7 @@ impl(
           match(
             nx,
             .Some(item) => {
-              keep := (self._f)(item);
+              keep := (self._f)(&item);
               if(keep, {
                 out = Option(A).Some(item);
                 searching = false;
@@ -216,7 +216,7 @@ impl(
           match(
             nx,
             .Some(item) => {
-              mapped := (self._f)(item);
+              mapped := (self._f)(&item);
               if(mapped.is_some(), {
                 out = mapped;
                 searching = false;
@@ -390,7 +390,7 @@ impl(
         match(
           nx,
           .Some(item) => {
-            (f)(item);
+            (f)(&item);
           },
           .None => {
             draining = false;

@@ -700,7 +700,7 @@ show(&s); // s 仍可使用
 take(s); // 被移动
 ```
 
-`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。借用符号可以出现的其他位置是局部借用绑定（`y := &place`、`y := &mut place`，见 [FLOWABILITY.md](./FLOWABILITY.md)）、捕获列表条目，以及借用式 `for` 的来源（`for(&mut xs, x => ...)`）。裸的具名位置传给 `&T` 或 `&mut T` 参数是 E0914，并给出 `&x` 或 `&mut x`（在 std 与编译器完成迁移之前，它在 `YO_STRICT_MARKERS=1` 下对 std 以外的代码生效）；临时值、字面量、闭包和运算符操作数不需要标记。`yo fix <path> --migrate markers` 会插入缺少的标记，`yo fix <path> --migrate addr-of` 会改写旧代码中作为取址的 `&x`。
+`&x` 只有这一种含义。传给按值参数时会报错并给出 `x` 和 `x.clone()`；传给裸指针参数，或写在其他任何位置（字段写入、接收者 `(&x).m()`、C 可变参数），会报错并给出 `addr_of(x)`，即不安全代码中的裸指针取址。借用符号可以出现的其他位置是局部借用绑定（`y := &place`、`y := &mut place`，见 [FLOWABILITY.md](./FLOWABILITY.md)）、捕获列表条目，以及借用式 `for` 的来源（`for(&mut xs, x => ...)`）。裸的具名位置传给 `&T` 或 `&mut T` 参数是 E0914，并给出 `&x` 或 `&mut x`，对所有代码生效，包括 std；临时值、字面量、闭包和运算符操作数不需要标记。`yo fix <path> --migrate markers` 会插入缺少的标记，`yo fix <path> --migrate addr-of` 会改写旧代码中作为取址的 `&x`。
 
 ### 命名参数
 
@@ -1202,7 +1202,7 @@ keep :: (fn(f : Fd) -> unit)(()); // 按值参数把值移动进来
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));
-  n := peek(a); // 借用；`a` 仍可使用
+  n := peek(&a); // 借用；`a` 仍可使用
   b := a; // 把 `a` 移动到 `b`
   // a.n           // E0901：使用了被移动的值：`a`
   keep(b); // 移动 `b`；`keep` 返回时把它 dispose
@@ -1761,7 +1761,7 @@ list := ArrayList(i32).new();
 list.push(i32(10));
 list.push(i32(20));
 for(list, value => {
-  println(value);
+  println(&value);
 });
 
 // 引用语义元素是句柄 — 变异落在集合里。
@@ -3168,8 +3168,8 @@ takes_fn(y => (y + k), 5); // 正确
 闭包的类型可以用来实例化容器。`ArrayList(type_of(k))` 保存 `k` 的副本；两个闭包的列表是两种类型，因此一个闭包不能放进另一个闭包的列表：
 
 ```yo
-(k1 : Impl(Fn() -> unit)) = (() => println(a));
-(k2 : Impl(Fn() -> unit)) = (() => println(s));
+(k1 : Impl(Fn() -> unit)) = (() => println(&a));
+(k2 : Impl(Fn() -> unit)) = (() => println(&s));
 l1 := ArrayList(type_of(k1)).new();
 l1.push(k1); // OK
 l1.push(k2); // 错误：k2 是另一种闭包类型
@@ -3786,8 +3786,8 @@ main :: (fn(io : Io) -> unit)({
     io.await(yield(io), io);
     return(i32(2));
   });
-  handle1 := io.spawn(task1, io); // 启动 task1，返回 JoinHandle(i32)
-  handle2 := io.spawn(task2, io); // 启动 task2，返回 JoinHandle(i32)
+  handle1 := io.spawn(&task1, io); // 启动 task1，返回 JoinHandle(i32)
+  handle2 := io.spawn(&task2, io); // 启动 task2，返回 JoinHandle(i32)
   r1 := handle1.await(io); // 等待 → Option(i32)
   r2 := handle2.await(io);
 });

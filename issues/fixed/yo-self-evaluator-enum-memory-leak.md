@@ -44,7 +44,7 @@ functions generated `___dup` bodies that destructured RC-managed fields, called
 `___dup` on local copies, **discarded the return values**, and returned the
 original `__yo_self` unchanged.
 
-```yo
+```yo ignore
 // Old (broken) struct dup:
 (__yo_self: StructType) -> StructType {
   { field1: _alias } := __yo_self;
@@ -61,7 +61,7 @@ including `String`, `Token`, `AstExpr`, etc. The RC increments from the internal
 **Fix:** The dup functions now properly construct new struct/enum values with the
 dup'd field values:
 
-```yo
+```yo ignore
 // New (fixed) struct dup:
 (__yo_self: StructType) -> StructType {
   { field1: _alias } := __yo_self;

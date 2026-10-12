@@ -249,7 +249,7 @@ test("String concat two ASCII strings", {
   bytes2.push(u8(111));
   str1 := String.from_bytes(bytes1);
   str2 := String.from_bytes(bytes2);
-  result := str1.concat(str2);
+  result := str1.concat(&str2);
   assert(result.len() == usize(4));
   assert(result.at(usize(0)).unwrap().to_u32() == u32(72));
   assert(result.at(usize(1)).unwrap().to_u32() == u32(101));
@@ -262,7 +262,7 @@ test("String concat empty with non-empty", {
   bytes.push(u8(65));
   bytes.push(u8(66));
   s := String.from_bytes(bytes);
-  result := empty.concat(s);
+  result := empty.concat(&s);
   assert(result.len() == usize(2));
 });
 test("String concat non-empty with empty", {
@@ -271,13 +271,13 @@ test("String concat non-empty with empty", {
   bytes.push(u8(66));
   s := String.from_bytes(bytes);
   empty := String.new();
-  result := s.concat(empty);
+  result := s.concat(&empty);
   assert(result.len() == usize(2));
 });
 test("String concat two empty strings", {
   empty1 := String.new();
   empty2 := String.new();
-  result := empty1.concat(empty2);
+  result := empty1.concat(&empty2);
   assert(result.is_empty());
 });
 test("String concat UTF-8 strings", {
@@ -291,7 +291,7 @@ test("String concat UTF-8 strings", {
   bytes2.push(u8(0x87));
   str1 := String.from_bytes(bytes1);
   str2 := String.from_bytes(bytes2);
-  result := str1.concat(str2);
+  result := str1.concat(&str2);
   // 中 @0, 文 @3.
   assert(result.len() == usize(6));
   assert(result.chars().count() == usize(2));
@@ -305,7 +305,7 @@ test("String concat preserves original strings", {
   bytes2.push(u8(66));
   str1 := String.from_bytes(bytes1);
   str2 := String.from_bytes(bytes2);
-  result := str1.concat(str2);
+  result := str1.concat(&str2);
   assert(str1.len() == usize(1));
   assert(str2.len() == usize(1));
   assert(result.len() == usize(2));
@@ -374,7 +374,7 @@ test("String multiple concat operations", {
   str1 := String.from_bytes(bytes1);
   str2 := String.from_bytes(bytes2);
   str3 := String.from_bytes(bytes3);
-  result := str1.concat(str2).concat(str3);
+  result := str1.concat(&str2).concat(&str3);
   assert(result.len() == usize(3));
   assert(result.at(usize(0)).unwrap().to_u32() == u32(65));
   assert(result.at(usize(1)).unwrap().to_u32() == u32(66));
@@ -510,11 +510,11 @@ test("String with many ASCII characters", {
 });
 test("String concat multiple times", {
   base := String.from("A");
-  result := base.concat(base);
+  result := base.concat(&base);
   assert(result.len() == usize(2));
-  result2 := result.concat(result);
+  result2 := result.concat(&result);
   assert(result2.len() == usize(4));
-  result3 := result2.concat(result2);
+  result3 := result2.concat(&result2);
   assert(result3.len() == usize(8));
 });
 // ===== String Byte Array Tests =====
@@ -697,7 +697,7 @@ test("String punctuation marks", {
 test("String concat with special characters", {
   str1 := String.from("Hello");
   str2 := String.from(" 世界");
-  result := str1.concat(str2);
+  result := str1.concat(&str2);
   // 5 ASCII + 1 space + 3 + 3 = 12 bytes, 8 runes.
   assert(result.len() == usize(12));
   assert(result.chars().count() == usize(8));
@@ -706,7 +706,7 @@ test("String concat three strings", {
   str1 := String.from("A");
   str2 := String.from("B");
   str3 := String.from("C");
-  result := str1.concat(str2).concat(str3);
+  result := str1.concat(&str2).concat(&str3);
   assert(result.len() == usize(3));
   assert(result.at(usize(0)).unwrap().to_u32() == u32(65));
   assert(result.at(usize(1)).unwrap().to_u32() == u32(66));
@@ -714,7 +714,7 @@ test("String concat three strings", {
 });
 test("String concat identical strings", {
   s := String.from("Test");
-  result := s.concat(s);
+  result := s.concat(&s);
   assert(result.len() == usize(8));
   assert(s.len() == usize(4));
 });
@@ -2134,7 +2134,7 @@ test("String strip_prefix", {
   assert(s.strip_prefix(String.from("prefix-")).unwrap_or(String.from("?")) == String.from("x"), "strips the prefix");
   assert(s.strip_prefix(String.from("nope-")).is_none(), "non-matching prefix is .None");
   assert(s.strip_prefix("").unwrap_or(String.from("?")) == s, "empty prefix strips nothing");
-  assert(s.strip_prefix(s).unwrap_or(String.from("?")) == String.from(""), "whole-string prefix strips to empty");
+  assert(s.strip_prefix(&s).unwrap_or(String.from("?")) == String.from(""), "whole-string prefix strips to empty");
 });
 test("String strip_suffix", {
   s := String.from("file.rs");
@@ -2485,7 +2485,7 @@ _bumped :: (fn(c : _Counter) -> i32)({
 });
 test("Writing a String through inout, own or a local copy is accepted (E0908 extension)", {
   c := String.new();
-  _append_inout(c);
+  _append_inout(&mut c);
   assert(c == "!", "inout reaches the caller's string, empty or not");
   assert(_append_own(String.from("x")) == "x!", "own moves the string in");
   assert(_append_local(String.from("y")) == "y!", "a local copy is the callee's own");
@@ -2515,8 +2515,8 @@ _clone_append_local :: (fn(out : &String) -> String)({
 test("A String clone is independent, empty or not", {
   a := String.new();
   b := String.from("hi");
-  assert(_clone_append_local(a) == "!", "the callee's clone is written");
-  assert(_clone_append_local(b) == "hi!", "the callee's clone is written");
+  assert(_clone_append_local(&a) == "!", "the callee's clone is written");
+  assert(_clone_append_local(&b) == "hi!", "the callee's clone is written");
   assert(a == "", "an empty caller string is untouched");
   assert(b == "hi", "a non-empty caller string is untouched");
   s := String.from("abc");
@@ -2565,7 +2565,7 @@ test("every mutator writes only its own clone", {
 });
 test("s.push_string(s) appends a copy of itself", {
   s := String.from("ab");
-  s.push_string(s);
+  s.push_string(&s);
   assert(s == "abab", "the argument is read before the write");
 });
 test("to_bytes copies, into_bytes moves when unique, from_bytes takes the list", {

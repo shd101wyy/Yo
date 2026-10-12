@@ -25,7 +25,7 @@ test("macro_registry: register quoted params — for() macro shape (params 0 and
   idxs := ArrayList(usize).new();
   idxs.push(usize(0));
   idxs.push(usize(1));
-  register_macro_quoted_params(fn_id.clone(), idxs);
+  register_macro_quoted_params(fn_id.clone(), &idxs);
   assert(is_macro_fn(String.from("test_for_macro_id")), "registered fn is a macro");
   assert(is_param_quoted(String.from("test_for_macro_id"), usize(0)), "param 0 is quoted");
   assert(is_param_quoted(String.from("test_for_macro_id"), usize(1)), "param 1 is quoted");
@@ -44,7 +44,7 @@ test("macro_registry: register unquote return(type)", {
 test("macro_registry: register_macro_quoted_params with empty list — does not register", {
   fn_id := String.from("test_empty_idxs");
   empty_idxs := ArrayList(usize).new();
-  register_macro_quoted_params(fn_id.clone(), empty_idxs);
+  register_macro_quoted_params(fn_id.clone(), &empty_idxs);
   assert(is_macro_fn(String.from("test_empty_idxs")) == false, "empty list does not mark as macro");
 });
 test("macro_registry: separate ids do not interfere", {
@@ -52,7 +52,7 @@ test("macro_registry: separate ids do not interfere", {
   fn_id_b := String.from("test_separate_b");
   idxs_a := ArrayList(usize).new();
   idxs_a.push(usize(0));
-  register_macro_quoted_params(fn_id_a.clone(), idxs_a);
+  register_macro_quoted_params(fn_id_a.clone(), &idxs_a);
   register_macro_return_is_unquote(fn_id_b.clone());
   assert(is_macro_fn(String.from("test_separate_a")), "a is a macro (quoted param)");
   assert(is_macro_fn(String.from("test_separate_b")), "b is a macro (unquote return)");

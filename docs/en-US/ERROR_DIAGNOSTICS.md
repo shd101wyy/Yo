@@ -131,9 +131,16 @@ spelling (decision 42):
   `&T` parameter, and `&mut x` before one passed to a `&mut T` parameter. It
   evaluates every file, because only the evaluator knows a parameter's mode;
   receivers, temporaries, operator operands, by-value and compile-time
-  parameters, and a borrow binding passed whole stay bare. A missing marker
-  is E0914, on under `YO_STRICT_MARKERS=1` for code outside std until std and
-  the compiler are migrated.
+  parameters, a borrow binding passed whole and ghost code (contract
+  predicates, `ghost_fn` bodies) stay bare. A missing marker is E0914, always
+  on, std included.
+
+The semantic migrations reach only what evaluation reaches, so two options
+widen it. `yo fix ./std ./tests --migrate markers` evaluates several paths
+in one session: a generic `std` body is evaluated when a test instantiates
+it, and its sites are rewritten because `std` is among the paths.
+`--target <triple>` evaluates for that target, as `compile --target` does,
+so a `cond(platform == ...)` arm for another platform is migrated too.
 
 None of them changes what a program does. A file that does not evaluate keeps
 what evaluation never reached, and `fix` exits non-zero naming it.

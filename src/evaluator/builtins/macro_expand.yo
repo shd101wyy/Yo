@@ -50,7 +50,7 @@ evaluate_macro_expand :: (
     expr,
     .FnCall(_, _, a, _, _) => a,
     _ => {
-      exn.throw(dyn(format_error_message(tok, String.from("macro_expand: expected FnCall"))));
+      exn.throw(dyn(format_error_message(&tok, String.from("macro_expand: expected FnCall"))));
       return(expr);
     }
   );
@@ -60,7 +60,7 @@ evaluate_macro_expand :: (
     exn.throw(
       dyn(
         format_error_message(
-          tok,
+          &tok,
           `"macro_expand" expects 1 or 2 arguments, but got ${n}`
         )
       )
@@ -73,15 +73,15 @@ evaluate_macro_expand :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
+  eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
   arg_info := match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg)),
     .Some(i) => i,
     .None => {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg_expr),
+            ast_expr_token(&arg_expr),
             `Failed to evaluate the argument expression for "macro_expand"`
           )
         )
@@ -89,13 +89,13 @@ evaluate_macro_expand :: (
       return(expr);
     }
   );
-  cur_env := expr_info_adopt_env(arg_info);
-  if(!is_expr_type(arg_info.ty), {
+  cur_env := expr_info_adopt_env(&arg_info);
+  if(!is_expr_type(&arg_info.ty), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(arg_expr),
-          `The argument expression for "macro_expand" must be an Expr value, but got: ${type_to_string(arg_info.ty)}`
+          ast_expr_token(&arg_expr),
+          `The argument expression for "macro_expand" must be an Expr value, but got: ${type_to_string(&arg_info.ty)}`
         )
       )
     );
@@ -110,15 +110,15 @@ evaluate_macro_expand :: (
         return(expr);
       }
     );
-    eval_level := evaluate_expression_raw(level_arg, cur_env, ctx, exn);
+    eval_level := evaluate_expression_raw(&level_arg, &cur_env, ctx, exn);
     level_info := match(
-      expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_level)),
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_level)),
       .Some(i) => i,
       .None => {
         exn.throw(
           dyn(
             format_eval_failure(
-              ast_expr_token(level_arg),
+              ast_expr_token(&level_arg),
               `Failed to evaluate the level argument expression for "macro_expand"`
             )
           )
@@ -126,12 +126,12 @@ evaluate_macro_expand :: (
         return(expr);
       }
     );
-    if(!is_comptime_int_type(level_info.ty), {
+    if(!is_comptime_int_type(&level_info.ty), {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(level_arg),
-            `The level argument for "macro_expand" must be a comptime_int value, but got: ${type_to_string(level_info.ty)}`
+            ast_expr_token(&level_arg),
+            `The level argument for "macro_expand" must be a comptime_int value, but got: ${type_to_string(&level_info.ty)}`
           )
         )
       );
@@ -142,7 +142,7 @@ evaluate_macro_expand :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(level_arg),
+            ast_expr_token(&level_arg),
             `The level argument for "macro_expand" must be a comptime_int value`
           )
         )
@@ -163,7 +163,7 @@ evaluate_macro_expand :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(level_arg),
+            ast_expr_token(&level_arg),
             `The level argument for "macro_expand" must be non-negative, but got: ${lv_parsed}`
           )
         )
@@ -184,7 +184,7 @@ evaluate_macro_expand :: (
         (should_continue : bool) = true;
         while(should_continue, {
           // Check if it's a function call.
-          if(!ast_expr_is_fn_call(current_expr), {
+          if(!ast_expr_is_fn_call(&current_expr), {
             should_continue = false;
           });
           if(should_continue, {
@@ -205,21 +205,21 @@ evaluate_macro_expand :: (
             (expanded_ok : bool) = false;
             (expanded_expr : AstExpr) = current_expr;
             expanded_expr = evaluate_function_call(
-              current_expr,
-              current_env,
+              &current_expr,
+              &current_env,
               t_unit(),
               Option(EvalValue).None,
               ctx,
               exn
             );
-            expanded_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(expanded_expr));
+            expanded_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&expanded_expr));
             match(
               expanded_info_opt,
               .None => {
                 should_continue = false;
               },
               .Some(ei) => {
-                current_env = expr_info_adopt_env(ei);
+                current_env = expr_info_adopt_env(&ei);
                 match(
                   ei.value,
                   .Some(ev) => match(
@@ -227,7 +227,7 @@ evaluate_macro_expand :: (
                     .ExprVal(new_expr_box) => {
                       new_expr := new_expr_box;
                       // If no change, stop to avoid infinite loop.
-                      same := (ast_expr_to_string(new_expr) == ast_expr_to_string(current_expr));
+                      same := (ast_expr_to_string(&new_expr) == ast_expr_to_string(&current_expr));
                       if(same, {
                         should_continue = false;
                       });
@@ -251,26 +251,26 @@ evaluate_macro_expand :: (
           });
         });
         // Process unquotes in the final expression.
-        final_expr := process_unquotes_in_expr(current_expr, current_env, ctx, exn);
-        out := new_expr_info(current_env, t_expr_t());
+        final_expr := process_unquotes_in_expr(&current_expr, &current_env, ctx, exn);
+        out := new_expr_info(&current_env, t_expr_t());
         out.value = Option(EvalValue).Some(EvalValue.ExprVal(final_expr));
         out.path_collection = arg_info.path_collection;
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
       },
       _ => {
         // Unknown value: pass through with original type/value.
-        out := new_expr_info(cur_env, arg_info.ty);
+        out := new_expr_info(&cur_env, &arg_info.ty);
         out.value = arg_info.value;
         out.path_collection = arg_info.path_collection;
-        expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
       }
     ),
     .None => {
       // No compile-time value: pass through.
-      out := new_expr_info(cur_env, arg_info.ty);
+      out := new_expr_info(&cur_env, &arg_info.ty);
       out.value = arg_info.value;
       out.path_collection = arg_info.path_collection;
-      expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out);
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
     }
   );
   expr

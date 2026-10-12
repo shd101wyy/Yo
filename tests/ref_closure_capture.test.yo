@@ -44,6 +44,6 @@ no_capture :: (fn(x : &mut i32, y : i32) -> Impl(Fn() -> i32))({
 });
 test("ref-param closure capture gate doesn't false-positive on uncaptured ref", {
   v := i32(5);
-  closure := no_capture(v, i32(42));
+  closure := no_capture(&mut v, i32(42));
   assert(closure() == i32(42), "y_copy returned");
 });

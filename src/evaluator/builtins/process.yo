@@ -50,7 +50,7 @@ evaluate_yo_process_functions :: (
     val := EvalValue.StrLit(raw);
     info := new_expr_info(env, t_comptime_string());
     info.value = .Some(val);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
   if(ast_expr_is_fn_call_of(expr, BF_YO_PROCESS_ARCH, .Some(usize(0))), {
@@ -60,7 +60,7 @@ evaluate_yo_process_functions :: (
     val := EvalValue.StrLit(raw);
     info := new_expr_info(env, t_comptime_string());
     info.value = .Some(val);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
   // The pointer size is likewise target-derived — wasm32 is 32-bit while the
@@ -71,7 +71,7 @@ evaluate_yo_process_functions :: (
     val := EvalValue.IntLit(bits.to_string());
     info := new_expr_info(env, t_comptime_int());
     info.value = .Some(val);
-    expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
     return(expr);
   });
   exn.throw(

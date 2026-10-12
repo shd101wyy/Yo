@@ -145,27 +145,27 @@ extern(
   __yo_as : (fn(generic(_Self : Type), self : &_Self, comptime(Target) : Type) -> Target),
   // Arithmetic Operators
   /// +
-  __yo_op_add : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_add : (fn(generic(T : Type), x : T, y : T) -> T),
   /// -
-  __yo_op_sub : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_sub : (fn(generic(T : Type), x : T, y : T) -> T),
   /// *
-  __yo_op_mul : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_mul : (fn(generic(T : Type), x : T, y : T) -> T),
   /// /
-  __yo_op_div : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_div : (fn(generic(T : Type), x : T, y : T) -> T),
   /// %
-  __yo_op_mod : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_mod : (fn(generic(T : Type), x : T, y : T) -> T),
   /// -
-  __yo_op_neg : (fn(generic(T : Type), x : &T) -> T),
+  __yo_op_neg : (fn(generic(T : Type), x : T) -> T),
   // Wrapping arithmetic (safe mode Phase 3a-i): two's-complement wrap for
   // signed (defined by -fwrapv), modular for unsigned. The escape hatch the
   // + - * overflow traps are built on — for arithmetic that wraps BY DESIGN
   // (hash mixing, counters, checksums).
   /// wrapping add
-  __yo_op_add_wrap : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_add_wrap : (fn(generic(T : Type), x : T, y : T) -> T),
   /// wrapping sub
-  __yo_op_sub_wrap : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_sub_wrap : (fn(generic(T : Type), x : T, y : T) -> T),
   /// wrapping mul
-  __yo_op_mul_wrap : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_mul_wrap : (fn(generic(T : Type), x : T, y : T) -> T),
   // Relational Operators
   /// ==
   __yo_op_eq : (fn(generic(T : Type), x : &T, y : &T) -> bool),
@@ -181,20 +181,20 @@ extern(
   __yo_op_gte : (fn(generic(T : Type), x : &T, y : &T) -> bool),
   // Logical Operators
   /// !
-  __yo_op_not : (fn(generic(T : Type), x : &T) -> bool),
+  __yo_op_not : (fn(generic(T : Type), x : T) -> bool),
   // Bitwise Operators
   /// &
-  __yo_op_bit_and : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_bit_and : (fn(generic(T : Type), x : T, y : T) -> T),
   /// |
-  __yo_op_bit_or : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_bit_or : (fn(generic(T : Type), x : T, y : T) -> T),
   /// ^
-  __yo_op_bit_xor : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_bit_xor : (fn(generic(T : Type), x : T, y : T) -> T),
   /// ~
-  __yo_op_bit_complement : (fn(generic(T : Type), x : &T) -> T),
+  __yo_op_bit_complement : (fn(generic(T : Type), x : T) -> T),
   /// <<
-  __yo_op_bit_left_shift : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_bit_left_shift : (fn(generic(T : Type), x : T, y : T) -> T),
   /// >>
-  __yo_op_bit_right_shift : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_bit_right_shift : (fn(generic(T : Type), x : T, y : T) -> T),
   // Ptr related functions
   __yo_ptr_add :
     (fn(generic(T : Type), ptr : &T, offset : usize) -> T),
@@ -5107,14 +5107,14 @@ impl(
     while(e > u32(0), {
       cond(
         ((e & u32(1)) == u32(1)) => {
-          acc = acc.wrapping_mul(base);
+          acc = acc.wrapping_mul(&base);
         },
         true => ()
       );
       e = (e >> u32(1));
       cond(
         (e > u32(0)) => {
-          base = base.wrapping_mul(base);
+          base = base.wrapping_mul(&base);
         },
         true => ()
       );
@@ -5409,7 +5409,7 @@ _trailing_zeros_u64 :: (fn(x : u64) -> u32)(
     (x == u64(0)) => u32(64),
     // `x & -x` isolates the lowest set bit; `x-1` then has exactly that many
     // ones below it. The negation wraps by design (wrapping_sub).
-    true => _popcount_u64((x & u64(0).wrapping_sub(x)) - u64(1))
+    true => _popcount_u64((x & u64(0).wrapping_sub(&x)) - u64(1))
   )
 );
 /// Reverse all 64 bits.
@@ -5751,8 +5751,8 @@ impl(
   /// opposite sides of zero (`u64(1) - u64(-1)`).
   abs_diff : (fn(self : Self, other : Self) -> u8)(
     cond(
-      (self >= other) => u8(self.wrapping_sub(other)),
-      true => u8(other.wrapping_sub(self))
+      (self >= other) => u8(self.wrapping_sub(&other)),
+      true => u8(other.wrapping_sub(&self))
     )
   )
 );
@@ -5763,8 +5763,8 @@ impl(
   /// `i16.MAX.abs_diff(i16.MIN)`.
   abs_diff : (fn(self : Self, other : Self) -> u16)(
     cond(
-      (self >= other) => u16(self.wrapping_sub(other)),
-      true => u16(other.wrapping_sub(self))
+      (self >= other) => u16(self.wrapping_sub(&other)),
+      true => u16(other.wrapping_sub(&self))
     )
   )
 );
@@ -5775,8 +5775,8 @@ impl(
   /// `i32.MAX.abs_diff(i32.MIN)` (see the i8 impl for the wrapping_sub note).
   abs_diff : (fn(self : Self, other : Self) -> u32)(
     cond(
-      (self >= other) => u32(self.wrapping_sub(other)),
-      true => u32(other.wrapping_sub(self))
+      (self >= other) => u32(self.wrapping_sub(&other)),
+      true => u32(other.wrapping_sub(&self))
     )
   )
 );
@@ -5787,8 +5787,8 @@ impl(
   /// `i64.MAX.abs_diff(i64.MIN)`.
   abs_diff : (fn(self : Self, other : Self) -> u64)(
     cond(
-      (self >= other) => u64(self.wrapping_sub(other)),
-      true => u64(other.wrapping_sub(self))
+      (self >= other) => u64(self.wrapping_sub(&other)),
+      true => u64(other.wrapping_sub(&self))
     )
   )
 );
@@ -5816,8 +5816,8 @@ impl(
   /// impl for the wrapping_sub note).
   abs_diff : (fn(self : Self, other : Self) -> usize)(
     cond(
-      (self >= other) => usize(self.wrapping_sub(other)),
-      true => usize(other.wrapping_sub(self))
+      (self >= other) => usize(self.wrapping_sub(&other)),
+      true => usize(other.wrapping_sub(&self))
     )
   )
 );
@@ -8269,7 +8269,7 @@ impl(
   map : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &T) -> B)) -> Option(B))(
     match(
       self,
-      .Some(value) => Option(B).Some(f(value)),
+      .Some(value) => Option(B).Some(f(&value)),
       .None => Option(B).None
     )
   ),
@@ -8277,7 +8277,7 @@ impl(
   and_then : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &T) -> Option(B))) -> Option(B))(
     match(
       self,
-      .Some(value) => f(value),
+      .Some(value) => f(&value),
       .None => Option(B).None
     )
   ),
@@ -8286,7 +8286,7 @@ impl(
     match(
       self,
       .Some(value) => cond(
-        predicate(value) => Option(T).Some(value),
+        predicate(&value) => Option(T).Some(value),
         true => Option(T).None
       ),
       .None => Option(T).None
@@ -8304,7 +8304,7 @@ impl(
   map_or : (fn(generic(B : Type), self : &Self, default_val : &B, f : &Impl(Fn(a : &T) -> B)) -> B)(
     match(
       self,
-      .Some(value) => f(value),
+      .Some(value) => f(&value),
       .None => default_val
     )
   ),
@@ -8312,7 +8312,7 @@ impl(
   map_or_else : (fn(generic(B : Type), self : &Self, default_fn : &Impl(Fn() -> B), f : &Impl(Fn(a : &T) -> B)) -> B)(
     match(
       self,
-      .Some(value) => f(value),
+      .Some(value) => f(&value),
       .None => default_fn()
     )
   ),
@@ -8352,7 +8352,7 @@ impl(
   is_some_and : (fn(self : &Self, f : &Impl(Fn(a : &T) -> bool)) -> bool)(
     match(
       self,
-      .Some(value) => f(value),
+      .Some(value) => f(&value),
       .None => false
     )
   ),
@@ -8361,7 +8361,7 @@ impl(
     match(
       self,
       .Some(value) => {
-        f(value);
+        f(&value);
         Option(T).Some(value)
       },
       .None => Option(T).None
@@ -8668,7 +8668,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
           // `Clone` impl by name: `self.f.clone()` would be decision 32's
           // wrapper/payload clash (E0616) when the payload is `Clone` too.
           part :: cond(
-            Type.impls(fields.get(fi).field_type, Deref) => __s5("(type_of(self.", fname, ") <: Clone).clone(self.", fname, ")"),
+            Type.impls(fields.get(fi).field_type, Deref) => __s5("(type_of(self.", fname, ") <: Clone).clone(&mut self.", fname, ")"),
             true => __s3("self.", fname, ".clone()")
           );
           cond(
@@ -8718,7 +8718,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   part :: cond(
-                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(type_of(__v_", fname, ") <: Clone).clone(__v_", fname, ")"),
+                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(type_of(__v_", fname, ") <: Clone).clone(&mut __v_", fname, ")"),
                     true => __s3("__v_", fname, ".clone()")
                   );
                   cond(
@@ -9148,7 +9148,7 @@ impl(
   map : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &OkType) -> B)) -> Result(B, ErrorType))(
     match(
       self,
-      .Ok(value) => Result(B, ErrorType).Ok(f(value)),
+      .Ok(value) => Result(B, ErrorType).Ok(f(&value)),
       .Err(error) => Result(B, ErrorType).Err(error)
     )
   ),
@@ -9157,14 +9157,14 @@ impl(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
-      .Err(error) => Result(OkType, F).Err(f(error))
+      .Err(error) => Result(OkType, F).Err(f(&error))
     )
   ),
   /// Chain a computation that may fail on the `Ok` value.
   and_then : (fn(generic(B : Type), self : &Self, f : &Impl(Fn(a : &OkType) -> Result(B, ErrorType))) -> Result(B, ErrorType))(
     match(
       self,
-      .Ok(value) => f(value),
+      .Ok(value) => f(&value),
       .Err(error) => Result(B, ErrorType).Err(error)
     )
   ),
@@ -9173,7 +9173,7 @@ impl(
     match(
       self,
       .Ok(value) => Result(OkType, F).Ok(value),
-      .Err(error) => f(error)
+      .Err(error) => f(&error)
     )
   ),
   /// Return `res` if `Ok`, otherwise propagate `Err`.
@@ -9212,7 +9212,7 @@ impl(
   map_or : (fn(generic(B : Type), self : &Self, default_val : &B, f : &Impl(Fn(a : &OkType) -> B)) -> B)(
     match(
       self,
-      .Ok(value) => f(value),
+      .Ok(value) => f(&value),
       .Err(_) => default_val
     )
   ),
@@ -9220,8 +9220,8 @@ impl(
   map_or_else : (fn(generic(B : Type), self : &Self, default_fn : &Impl(Fn(a : &ErrorType) -> B), f : &Impl(Fn(a : &OkType) -> B)) -> B)(
     match(
       self,
-      .Ok(value) => f(value),
-      .Err(error) => default_fn(error)
+      .Ok(value) => f(&value),
+      .Err(error) => default_fn(&error)
     )
   ),
   /// Extract the `Ok` value, or call `f` with the error to produce a fallback.
@@ -9229,7 +9229,7 @@ impl(
     match(
       self,
       .Ok(value) => value,
-      .Err(error) => f(error)
+      .Err(error) => f(&error)
     )
   ),
   /// Extract the `Ok` value, or return `or_value` if `Err`.
@@ -9261,7 +9261,7 @@ impl(
     match(
       self,
       .Ok(value) => {
-        f(value);
+        f(&value);
         Result(OkType, ErrorType).Ok(value)
       },
       .Err(error) => Result(OkType, ErrorType).Err(error)
@@ -9273,7 +9273,7 @@ impl(
       self,
       .Ok(value) => Result(OkType, ErrorType).Ok(value),
       .Err(error) => {
-        f(error);
+        f(&error);
         Result(OkType, ErrorType).Err(error)
       }
     )
@@ -9950,7 +9950,7 @@ impl(
   /// initialized through: a raw pointer only unsafe-capable code can hold, so
   /// safe code cannot reach the uninitialized read. It is not inspected.
   assume_init : (fn(sink(self) : Self, written : &*BaseType) -> BaseType)(
-    __yo_maybe_uninit_assume_init(Self, BaseType, self, written)
+    __yo_maybe_uninit_assume_init(Self, BaseType, &self, written)
   ),
   /// Test-support probe for the member-visibility rule (E0405): a `_`-prefixed
   /// method declared in the PRELUDE is private to this module exactly like one
@@ -10205,7 +10205,7 @@ impl(
   __BorrowGuard(C),
   Dispose(
     dispose : (fn(self : &Self) -> unit)({
-      __yo_borrow_release(self._c);
+      __yo_borrow_release(&self._c);
     })
   )
 );
@@ -10245,7 +10245,7 @@ __borrow_guard :: (fn(generic(C : Type), c : &C) -> __BorrowGuard(C))({
 /// });
 ///
 /// // Consume an iterator chain.
-/// for(list.into_iter(), x => print(x));
+/// for(list.into_iter(), x => print(&x));
 ///
 /// // Borrow struct elements in place (read AND write).
 /// for(&mut enemies, e => {
@@ -10339,7 +10339,7 @@ for :: (
                 ptr_var :: gensym("for_ptr");
                 quote({
                   unquote(coll_var) := unquote(coll);
-                  unquote(guard_var) := __borrow_guard(unquote(coll_var));
+                  unquote(guard_var) := __borrow_guard(&unquote(coll_var));
                   unquote(iter_var) := unquote(coll_var).iter();
                   __yo_borrow_check(
                     unquote(coll_var),
@@ -10373,7 +10373,7 @@ for :: (
                 ptr_var :: gensym("for_ptr");
                 quote({
                   unquote(coll_var) := unquote(coll);
-                  unquote(guard_var) := __borrow_guard(unquote(coll_var));
+                  unquote(guard_var) := __borrow_guard(&unquote(coll_var));
                   unquote(iter_var) := unquote(coll_var).iter();
                   __yo_borrow_check(
                     unquote(coll_var),
@@ -10531,7 +10531,7 @@ impl(
       match(
         self._inner.next(),
         .None => .None,
-        .Some(item) => .Some((self._f)(item))
+        .Some(item) => .Some((self._f)(&item))
       )
     )
   )
@@ -10568,7 +10568,7 @@ impl(
           },
           .Some(item) => {
             cond(
-              (self._f)(item) => {
+              (self._f)(&item) => {
                 loop_result = .Some(item);
                 break;
               },
@@ -10788,7 +10788,7 @@ impl(
             },
             .Some(item) => {
               cond(
-                (self._f)(item) => {
+                (self._f)(&item) => {
                   result = .Some(item);
                 },
                 true => {
@@ -10831,7 +10831,7 @@ impl(
           },
           .Some(item) => {
             cond(
-              (self._skipping && (self._f)(item)) => (),
+              (self._skipping && (self._f)(&item)) => (),
               true => {
                 self._skipping = false;
                 result = .Some(item);
@@ -10874,7 +10874,7 @@ impl(
           },
           .Some(item) => {
             match(
-              (self._f)(item),
+              (self._f)(&item),
               .Some(mapped) => {
                 result = .Some(mapped);
                 break;
@@ -12015,7 +12015,7 @@ impl(
           break;
         },
         .Some(item) => {
-          acc = (f)(acc, item);
+          acc = (f)(&acc, &item);
         }
       );
     });
@@ -12038,7 +12038,7 @@ impl(
           break;
         },
         .Some(item) => {
-          (f)(item);
+          (f)(&item);
         }
       );
     });
@@ -12085,7 +12085,7 @@ impl(
         },
         .Some(item) => {
           cond(
-            (pred)(item) => {
+            (pred)(&item) => {
               result = true;
               break;
             },
@@ -12115,7 +12115,7 @@ impl(
         },
         .Some(item) => {
           cond(
-            !pred(item) => {
+            !pred(&item) => {
               result = false;
               break;
             },
@@ -12145,7 +12145,7 @@ impl(
         },
         .Some(item) => {
           cond(
-            (pred)(item) => {
+            (pred)(&item) => {
               found = .Some(item);
               break;
             },
@@ -12176,7 +12176,7 @@ impl(
         },
         .Some(item) => {
           cond(
-            (pred)(item) => {
+            (pred)(&item) => {
               found = .Some(idx);
               break;
             },
@@ -12412,7 +12412,7 @@ impl(
           break;
         },
         .Some(item) => {
-          out = (C <: FromIterator).from_iter_add(out, item);
+          out = (C <: FromIterator).from_iter_add(out, &item);
         }
       );
     });
@@ -12502,14 +12502,16 @@ export(JoinHandle);
 /// Provides `io.async`, `io.await`, `io.spawn`, and `io.state` operations.
 /// Automatically injected into `main` when declared with `io : Io`.
 Io :: struct(
-  /// Create a new `Future` from an async closure.
-  async : (fn(generic(T : Type, E : Type.Struct), action : &Impl(Fn(e : &E) -> T)) -> Impl(Future(T, E))),
+  /// Create a `Future` from an async closure. The effect row goes by value
+  /// (#1312's rule: `io : Io`, `e : E`, never `&`; the generic rows kept the
+  /// borrow until 2026-10-11).
+  async : (fn(generic(T : Type, E : Type.Struct), action : &Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
   /// Await a `Future`, suspending until its result is ready.
-  await : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : &E) -> T),
+  await : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : E) -> T),
   /// Inspect the current state of a `Future` without blocking.
   state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
   /// Spawn a `Future` as an independent task, returning a `JoinHandle`.
-  spawn : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : &E) -> JoinHandle(T))
+  spawn : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 // Phase L (THREAD_SAFETY): Io is NOT Send — the async runtime it represents
 // is per-thread (per AGENTS.md). Sending Io across a thread boundary would
@@ -12524,10 +12526,10 @@ impl(Io, !Sync());
 export(Io);
 extern(
   "Yo",
-  __yo_io_async : (fn(generic(T : Type, E : Type.Struct), action : &Impl(Fn(e : &E) -> T)) -> Impl(Future(T, E))),
-  __yo_io_await : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : &E) -> T),
+  __yo_io_async : (fn(generic(T : Type, E : Type.Struct), action : &Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  __yo_io_await : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : E) -> T),
   __yo_io_state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
-  __yo_io_spawn : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : &E) -> JoinHandle(T))
+  __yo_io_spawn : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 /// Built-in Io module instance. Automatically injected for `main` functions
 /// with `io : Io`.

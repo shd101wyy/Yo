@@ -74,7 +74,7 @@ test("Rc.clone(b) infers T from the receiver", {
 test("Rc.clone(b) has the type Rc(i32).clone(b) has", {
   b := rc(i32(3));
   (c : Rc(i32)) = Rc.clone(b);
-  d := Rc(i32).clone(b);
+  d := Rc(i32).clone(&mut b);
   assert(c.* == d.*, "both spellings clone the payload");
   comptime_assert(Type.eq(type_of(Rc.clone(b)), Rc(i32)), "the result is an Rc(i32)");
 });
@@ -91,7 +91,7 @@ test("Rc.clone(w) infers T from the receiver", {
   assert(c.* == i32(5), "today's Rc clone is a new cell (V2c makes it a handle)");
   comptime_assert(Type.eq(type_of(Rc.clone(w)), Rc(i32)), "the result is an Rc(i32)");
   comptime_assert(Type.eq(type_of(Rc.clone(rc(true))), Rc(bool)), "T := bool");
-  (d : Rc(i32)) = Rc(i32).clone(w);
+  (d : Rc(i32)) = Rc(i32).clone(&mut w);
   assert(d.* == i32(7), "the applied spelling still works");
 });
 test("Rc.clone(w) on a nested wrapper names the outer constructor", {
@@ -113,7 +113,7 @@ test("a user generic struct with two type parameters", {
   assert(_Pair.second(p), "B := bool");
   _Pair.set_first(p, i32(8));
   assert(p.a == i32(8), "an inout receiver");
-  assert(_Pair(i32, bool).first(p) == i32(8), "the applied spelling still works");
+  assert(_Pair(i32, bool).first(&p) == i32(8), "the applied spelling still works");
 });
 test("a user generic enum", {
   t := _Tagged(i32).Some(i32(6));
@@ -189,9 +189,9 @@ test("an alias or partially applied constructor is its own constructor", {
   q := _Pair(i32, u8)(a : i32(1), b : u8(2));
   comptime_expect_error(_Alias.first(q), "another type constructor built it");
   comptime_expect_error(_Alias.first(q), "call the method through the constructor that built");
-  assert(_Alias(u8).first(q) == i32(1), "the applied alias names the same type");
+  assert(_Alias(u8).first(&q) == i32(1), "the applied alias names the same type");
   assert(_Pair.first(q) == i32(1), "the constructor that built it");
   p := _Partial(bool)(a : i32(3), b : true);
   comptime_expect_error(_Partial.first(p), "another type constructor built it");
-  assert(_Partial(bool).first(p) == i32(3), "the applied partial application");
+  assert(_Partial(bool).first(&p) == i32(3), "the applied partial application");
 });

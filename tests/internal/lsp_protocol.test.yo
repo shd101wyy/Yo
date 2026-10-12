@@ -82,7 +82,7 @@ test("rune <-> UTF-16 columns around an astral-plane rune", {
   assert_eq(utf16_col_to_rune_col(line.clone(), usize(99)), usize(5), "past the end clamps");
   cjk := `中文x`;
   assert_eq(rune_col_to_utf16_col(cjk.clone(), usize(2)), usize(2), "BMP runes are one unit each");
-  assert_eq(utf16_col_to_rune_col(cjk, usize(2)), usize(2), "BMP inverse");
+  assert_eq(utf16_col_to_rune_col(&cjk, usize(2)), usize(2), "BMP inverse");
 });
 
 test("is_any_temp_variable_name recognises the generator's shape for any module path", {
@@ -106,7 +106,7 @@ _PARSE_ERR :: "add_one :: (fn(x : i32) -> i32)((x + i32(1)));\nmain :: (fn() -> 
 /// Analyze `text` as `doc_path`; the outcome the server would retain.
 _analyze :: (fn(doc_path : &String, text : &String, std_path : &String, io : Io) -> Option(AnalyzeOutcome))({
   out := ArrayList(AnalyzeOutcome).new();
-  _diags := analyze_document(doc_path.clone(), text, std_path, io, out);
+  _diags := analyze_document(doc_path.clone(), text, std_path, io, &mut out);
   out.get(usize(0))
 });
 
@@ -148,7 +148,7 @@ test("analysis state survives evaluation and parse errors", {
       // The ExprInfo recorded before the error is still there: hover on `y`
       // (line 3, column 8 — `_z := y`) is typed.
       lines := String.from(_EVAL_ERR).split(String.from("\n"));
-      hover := handle_hover(String.from(_EVAL_ERR), doc_path.clone(), lines, ev.exprs, ev.info_table, usize(3), usize(8));
+      hover := handle_hover(String.from(_EVAL_ERR), doc_path.clone(), &lines, &ev.exprs, &ev.info_table, usize(3), usize(8));
       assert(hover.is_some(), "hover still answers from the partial ExprInfo after an evaluation error");
     },
     .None => assert(false, "evaluation error: no outcome")
@@ -278,14 +278,14 @@ test("hover shows contracts + verification status for a contracted function", {
       hv := handle_hover(
         String.from(_CONTRACT_DOC),
         doc_path.clone(),
-        lines,
-        oc.exprs,
-        oc.info_table,
+        &lines,
+        &oc.exprs,
+        &oc.info_table,
         usize(8),
         usize(22)
       );
       assert(hv.is_some(), "hover answers on a contracted callee");
-      text := _hover_text(hv);
+      text := _hover_text(&hv);
       assert(
         text.contains(String.from("requires: num > i32(0)")),
         `hover renders the requires clause, got: ${text}`
@@ -307,14 +307,14 @@ test("hover shows contracts + verification status for a contracted function", {
       hg := handle_hover(
         String.from(_CONTRACT_DOC),
         doc_path.clone(),
-        lines,
-        oc.exprs,
-        oc.info_table,
+        &lines,
+        &oc.exprs,
+        &oc.info_table,
         usize(6),
         usize(32)
       );
       assert(hg.is_some(), "hover answers on a ghost_fn reference");
-      gtext := _hover_text(hg);
+      gtext := _hover_text(&hg);
       assert(
         gtext.contains(String.from("ghost_fn (spec-only")),
         `hover marks the ghost_fn as spec-only, got: ${gtext}`
@@ -388,10 +388,10 @@ test("references honor context.includeDeclaration", {
       assert(oc.ok && oc.parsed, "the typed-decl document analyzes ok");
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
       with_decl := json.stringify(
-        handle_references(String.from(_TYPED_DECL), doc_path.clone(), lines, `file:///virtual/doc_typed.yo`, oc.exprs, oc.info_table, usize(1), usize(1), true)
+        handle_references(String.from(_TYPED_DECL), doc_path.clone(), &lines, `file:///virtual/doc_typed.yo`, &oc.exprs, &oc.info_table, usize(1), usize(1), true)
       );
       without_decl := json.stringify(
-        handle_references(String.from(_TYPED_DECL), doc_path.clone(), lines, `file:///virtual/doc_typed.yo`, oc.exprs, oc.info_table, usize(1), usize(1), false)
+        handle_references(String.from(_TYPED_DECL), doc_path.clone(), &lines, `file:///virtual/doc_typed.yo`, &oc.exprs, &oc.info_table, usize(1), usize(1), false)
       );
       // The declaration (1:1) and both uses (2:35, 2:43) when included.
       assert(with_decl.contains("\"start\":{\"line\":1,\"character\":1}"), "includeDeclaration=true has the declaration");
@@ -403,7 +403,7 @@ test("references honor context.includeDeclaration", {
       assert(without_decl.contains("\"start\":{\"line\":2,\"character\":43}"), "includeDeclaration=false keeps the second use");
       // Absent flag defaults to including it.
       defaulted := json.stringify(
-        handle_references(String.from(_TYPED_DECL), doc_path.clone(), lines, `file:///virtual/doc_typed.yo`, oc.exprs, oc.info_table, usize(1), usize(1))
+        handle_references(String.from(_TYPED_DECL), doc_path.clone(), &lines, `file:///virtual/doc_typed.yo`, &oc.exprs, &oc.info_table, usize(1), usize(1))
       );
       assert(defaulted.contains("\"start\":{\"line\":1,\"character\":1}"), "absent context defaults to includeDeclaration=true");
     },
@@ -431,7 +431,7 @@ test("documentSymbol lists typed top-level declarations", {
     _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
     .Some(oc) => {
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
-      syms := json.stringify(handle_document_symbols(oc.exprs, lines));
+      syms := json.stringify(handle_document_symbols(&oc.exprs, &lines));
       assert(syms.contains("\"name\":\"Point\",\"kind\":23"), "the struct binding keeps its Struct kind");
       assert(syms.contains("\"name\":\"answer\",\"kind\":12"), "the fn binding keeps its Function kind");
       assert(
@@ -463,24 +463,24 @@ test("prepareRename answers on bindings, not on members or labels", {
     _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
     .Some(oc) => {
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
-      on_decl := handle_prepare_rename(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(1));
+      on_decl := handle_prepare_rename(String.from(_TYPED_DECL), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(1), usize(1));
       assert(on_decl.is_some(), "prepareRename answers on the declaration");
       match(
         on_decl,
         .Some(pr) => {
           assert(
-            json.stringify(pr).contains("\"placeholder\":\"p\""),
+            json.stringify(&pr).contains("\"placeholder\":\"p\""),
             "prepareRename carries the current name as placeholder"
           );
         },
         .None => ()
       );
       assert(
-        handle_prepare_rename(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(2), usize(37)).is_none(),
+        handle_prepare_rename(String.from(_TYPED_DECL), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(2), usize(37)).is_none(),
         "prepareRename answers nothing on a member name (p.x)"
       );
       assert(
-        handle_prepare_rename(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(20)).is_none(),
+        handle_prepare_rename(String.from(_TYPED_DECL), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(1), usize(20)).is_none(),
         "prepareRename answers nothing on a struct-literal label (Point(x : …))"
       );
     },
@@ -514,7 +514,7 @@ test("documentHighlight: Write on the declaration, Text on uses, nothing on memb
     .Some(oc) => {
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
       hl := json.stringify(
-        handle_document_highlight(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(1))
+        handle_document_highlight(String.from(_TYPED_DECL), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(1), usize(1))
       );
       assert(hl.contains(",\"kind\":3}"), `the declaration occurrence highlights as Write (kind 3), got: ${hl}`);
       assert(
@@ -522,9 +522,9 @@ test("documentHighlight: Write on the declaration, Text on uses, nothing on memb
         "both uses highlight"
       );
       member := json.stringify(
-        handle_document_highlight(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(2), usize(37))
+        handle_document_highlight(String.from(_TYPED_DECL), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(2), usize(37))
       );
-      assert_eq(member, String.from("[]"), "a member name (p.x) highlights nothing");
+      assert_eq(&member, String.from("[]"), "a member name (p.x) highlights nothing");
     },
     .None => assert(false, "typed-decl document: no outcome")
   );
@@ -550,30 +550,30 @@ test("typeDefinition: a value jumps to its type's binding; labels and fn-typed n
     _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
     .Some(oc) => {
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
-      on_value := handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(1));
+      on_value := handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(1), usize(1));
       assert(on_value.is_some(), "typeDefinition answers on a struct-typed value");
       match(
         on_value,
         .Some(loc) => {
-          assert(json.stringify(loc).contains("{\"line\":0,\"character\":0}"), "typeDefinition on `p` lands on the Point binding at 0:0");
+          assert(json.stringify(&loc).contains("{\"line\":0,\"character\":0}"), "typeDefinition on `p` lands on the Point binding at 0:0");
         },
         .None => ()
       );
-      on_type := handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(5));
+      on_type := handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(1), usize(5));
       assert(on_type.is_some(), "typeDefinition answers on a type name");
       match(
         on_type,
         .Some(loc2) => {
-          assert(json.stringify(loc2).contains("{\"line\":0,\"character\":0}"), "typeDefinition on a type name lands on its binding");
+          assert(json.stringify(&loc2).contains("{\"line\":0,\"character\":0}"), "typeDefinition on a type name lands on its binding");
         },
         .None => ()
       );
       assert(
-        handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(1), usize(20)).is_none(),
+        handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(1), usize(20)).is_none(),
         "typeDefinition answers nothing on a struct-literal label"
       );
       assert(
-        handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(2), usize(0)).is_none(),
+        handle_type_definition(String.from(_TYPED_DECL), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(2), usize(0)).is_none(),
         "typeDefinition answers nothing on a fn-typed name"
       );
     },
@@ -601,7 +601,7 @@ test("a cursor at an identifier's end column still names it", {
     _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
     .Some(oc) => {
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
-      hv := handle_hover(String.from(_TYPED_DECL), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(0), usize(5));
+      hv := handle_hover(String.from(_TYPED_DECL), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(0), usize(5));
       assert(hv.is_some(), "hover answers at an identifier's end column");
     },
     .None => assert(false, "typed-decl document: no outcome")
@@ -634,14 +634,14 @@ test("workspace/symbol lists the open documents' matching top-level symbols", {
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
       ws := ArrayList(WorkspaceDoc).new();
       ws.push(WorkspaceDoc(uri : String.from("file:///virtual/ws-a.yo"), exprs : oc.exprs, lines : lines));
-      all := json.stringify(handle_workspace_symbols(String.new(), ws));
+      all := json.stringify(handle_workspace_symbols(String.new(), &ws));
       assert(all.contains("\"Point\"") && all.contains("\"answer\"") && all.contains("\"p\""), "an empty query lists every symbol");
       assert(all.contains("file:///virtual/ws-a.yo"), "each item points into its document");
-      poin := json.stringify(handle_workspace_symbols(String.from("poin"), ws));
+      poin := json.stringify(handle_workspace_symbols(String.from("poin"), &ws));
       assert(poin.contains("\"Point\""), "a case-insensitive substring query finds Point");
       assert(!poin.contains("\"answer\""), "non-matching symbols are left out");
-      none := json.stringify(handle_workspace_symbols(String.from("zzzzz"), ws));
-      assert_eq(none, String.from("[]"), "no match answers an empty array");
+      none := json.stringify(handle_workspace_symbols(String.from("zzzzz"), &ws));
+      assert_eq(&none, String.from("[]"), "no match answers an empty array");
     },
     .None => assert(false, "typed-decl document: no outcome")
   );
@@ -665,7 +665,7 @@ test("an error's std-anchored note becomes relatedInformation, not a 0:0 entry",
   mm_forget_open_document(doc_path.clone());
   _pre := mm_invalidate_document(doc_path.clone());
   out_state := ArrayList(AnalyzeOutcome).new();
-  diags := analyze_document(doc_path.clone(), text.clone(), std_path.clone(), io, out_state);
+  diags := analyze_document(doc_path.clone(), text.clone(), std_path.clone(), io, &mut out_state);
   assert_eq(diags.len(), usize(1), "only the primary surfaces; its note is attached, not standalone");
   match(
     diags.get(usize(0)),
@@ -708,7 +708,7 @@ test("semanticTokens: keywords, literals and comments from the lexer; identifier
       // _TYPED_DECL line 0: `Point :: struct(x : i32, y : i32);`
       // Point -> type (1), :: skipped, struct -> keyword (0), x/y -> property
       // (4, struct-field labels), i32 -> type (1).
-      toks := json.stringify(handle_semantic_tokens(String.from(_TYPED_DECL), doc_path.clone(), oc.exprs, oc.info_table));
+      toks := json.stringify(handle_semantic_tokens(String.from(_TYPED_DECL), doc_path.clone(), &oc.exprs, &oc.info_table));
       assert(toks.contains("[0,0,5,1,0"), "Point is a 5-rune type token");
       assert(toks.contains(",0,9,6,0,0"), "struct is a keyword token");
       assert(toks.contains(",0,7,1,4,0"), "the struct-field label x is a property token");
@@ -744,7 +744,7 @@ test("semanticTokens: string literals and numbers classify from the token", {
     _analyze(doc_path.clone(), text.clone(), std_path.clone(), io),
     .Some(oc) => {
       assert(oc.ok && oc.parsed, "the semantic-token document analyzes ok");
-      toks := json.stringify(handle_semantic_tokens(text.clone(), doc_path.clone(), oc.exprs, oc.info_table));
+      toks := json.stringify(handle_semantic_tokens(text.clone(), doc_path.clone(), &oc.exprs, &oc.info_table));
       assert(toks.contains(",1,0,1,3,0"), "the binding name s is a variable token");
       assert(toks.contains(",0,5,6,1,0"), "String is a type token");
       assert(toks.contains(",0,7,4,4,0"), "the .from member is a property token");
@@ -805,7 +805,7 @@ test("semanticTokens columns and lengths are wire-encoded and source-exact", {
       // 3 source runes with the astral one counting twice — not the
       // 1-rune decoded value
       // (issues/lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md).
-      toks := json.stringify(handle_semantic_tokens(text.clone(), doc_path.clone(), oc.exprs, oc.info_table));
+      toks := json.stringify(handle_semantic_tokens(text.clone(), doc_path.clone(), &oc.exprs, &oc.info_table));
       assert(toks.contains("[0,0,5,3,0"), "emoji is a 5-rune variable token");
       assert(toks.contains(",0,9,4,5,0"), "the string token counts the astral rune as two utf-16 units");
       assert(toks.contains(",0,6,1,3,0"), "n starts 6 utf-16 units after the string start (rune math would say 5)");
@@ -840,7 +840,7 @@ test("semanticTokens splits a multi-line comment into per-line segments", {
       // line — `/* one` (6 runes) on line 0, `   two */` (9 runes) on
       // line 1 — never one 16-rune token at line 0
       // (issues/lsp-semantic-tokens-emit-rune-columns-and-value-lengths.md).
-      toks := json.stringify(handle_semantic_tokens(text.clone(), doc_path.clone(), oc.exprs, oc.info_table));
+      toks := json.stringify(handle_semantic_tokens(text.clone(), doc_path.clone(), &oc.exprs, &oc.info_table));
       assert(toks.contains("[0,0,6,7,0"), "line 0 carries the 6-rune comment segment");
       assert(toks.contains(",1,0,9,7,0"), "line 1 carries its own 9-rune comment segment");
       assert(!toks.contains(",16,"), "no 16-rune single token");
@@ -877,17 +877,17 @@ test("includeDeclaration=false drops a :: declaration from the declaration itsel
       // the syntactic fallback must still identify it
       // (issues/lsp-references-ignore-include-declaration-on-comptime-decl.md).
       with_decl := json.stringify(
-        handle_references(text.clone(), doc_path.clone(), lines, `file:///virtual/doc_fndecl.yo`, oc.exprs, oc.info_table, usize(0), usize(0), true)
+        handle_references(text.clone(), doc_path.clone(), &lines, `file:///virtual/doc_fndecl.yo`, &oc.exprs, &oc.info_table, usize(0), usize(0), true)
       );
       without_decl := json.stringify(
-        handle_references(text.clone(), doc_path.clone(), lines, `file:///virtual/doc_fndecl.yo`, oc.exprs, oc.info_table, usize(0), usize(0), false)
+        handle_references(text.clone(), doc_path.clone(), &lines, `file:///virtual/doc_fndecl.yo`, &oc.exprs, &oc.info_table, usize(0), usize(0), false)
       );
       assert(with_decl.contains("\"start\":{\"line\":0,\"character\":0}"), "includeDeclaration=true has the :: declaration");
       assert(!without_decl.contains("\"start\":{\"line\":0,\"character\":0}"), "includeDeclaration=false drops the :: declaration when asked from it");
       assert(without_decl.contains("\"start\":{\"line\":1,\"character\":25}"), "the use stays");
       // documentHighlight gets the Write kind back on the same fallback.
       hl := json.stringify(
-        handle_document_highlight(text.clone(), doc_path.clone(), lines, oc.exprs, oc.info_table, usize(0), usize(0))
+        handle_document_highlight(text.clone(), doc_path.clone(), &lines, &oc.exprs, &oc.info_table, usize(0), usize(0))
       );
       assert(hl.contains("\"kind\":3"), "the :: declaration highlights as Write");
     },
@@ -927,7 +927,7 @@ test("documentSymbol: flat SymbolInformation for non-hierarchical clients", {
     _analyze(doc_path.clone(), String.from(_TYPED_DECL), std_path.clone(), io),
     .Some(oc) => {
       lines := String.from(_TYPED_DECL).split(String.from("\n"));
-      flat := json.stringify(handle_document_symbols_flat(oc.exprs, lines, `file:///virtual/doc_typed.yo`));
+      flat := json.stringify(handle_document_symbols_flat(&oc.exprs, &lines, `file:///virtual/doc_typed.yo`));
       assert(flat.contains("\"location\":{\"uri\":\"file:///virtual/doc_typed.yo\""), "flat items carry a location with the document uri");
       assert(flat.contains("\"name\":\"Point\",\"kind\":23"), "the symbols and kinds are the same entries");
       assert(!flat.contains("selectionRange"), "no hierarchical-only field in the flat shape");
@@ -957,7 +957,7 @@ test("documentSymbol lists runtime and thread_local declarations", {
     _analyze(doc_path.clone(), text.clone(), std_path.clone(), io),
     .Some(oc) => {
       lines := text.split(String.from("\n"));
-      syms := json.stringify(handle_document_symbols(oc.exprs, lines));
+      syms := json.stringify(handle_document_symbols(&oc.exprs, &lines));
       assert(syms.contains("\"name\":\"c\",\"kind\":13"), "the typed module constant is a Variable");
       assert(syms.contains("\"name\":\"x\",\"kind\":13"), "a top-level := runtime static is a Variable");
       assert(syms.contains("\"name\":\"t\",\"kind\":13"), "thread_local(name) := init is a Variable");
@@ -996,14 +996,14 @@ test("implementation: a trait cursor lists this file's impls of it; a type curso
       // implement Show — Point's and Vec's — and NOT Point's inherent
       // impl (no trait argument).
       from_trait := json.stringify(
-        handle_implementations(text.clone(), doc_path.clone(), `file:///virtual/doc_impl.yo`, text.split(String.from("\n")), oc.exprs, usize(0), usize(1))
+        handle_implementations(text.clone(), doc_path.clone(), `file:///virtual/doc_impl.yo`, text.split(String.from("\n")), &oc.exprs, usize(0), usize(1))
       );
       assert(from_trait.contains("\"line\":2"), "Point's trait impl is offered from the trait");
       assert(from_trait.contains("\"line\":5"), "Vec's trait impl is offered from the trait");
       assert(!from_trait.contains("\"line\":3"), "Point's INHERENT impl (no trait) is not offered from the trait");
       // Cursor on the type Point (line 1, column 1): both of Point's impls.
       from_type := json.stringify(
-        handle_implementations(text.clone(), doc_path.clone(), `file:///virtual/doc_impl.yo`, text.split(String.from("\n")), oc.exprs, usize(1), usize(1))
+        handle_implementations(text.clone(), doc_path.clone(), `file:///virtual/doc_impl.yo`, text.split(String.from("\n")), &oc.exprs, usize(1), usize(1))
       );
       assert(from_type.contains("\"line\":2"), "Point's trait impl is offered from the type");
       assert(from_type.contains("\"line\":3"), "Point's inherent impl is offered from the type");
@@ -1039,7 +1039,7 @@ test("documentLink: import paths link to the files they name", {
     .Some(oc) => {
       assert(oc.ok && oc.parsed, "the links document analyzes ok");
       lines := text.split(String.from("\n"));
-      links := json.stringify(handle_document_links(text.clone(), doc_path.clone(), lines, std_path.clone()));
+      links := json.stringify(handle_document_links(text.clone(), doc_path.clone(), &lines, std_path.clone()));
       // The relative import links to the helper file next to the document;
       // the std import links into std/fmt. Both carry the quoted-string
       // range on their line.

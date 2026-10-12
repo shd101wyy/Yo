@@ -184,8 +184,8 @@ test("find_yo_version_file: finds .yo-version in current directory", {
     .Some(p) => assert(p.to_string() == vfile, "must find the file in the start dir"),
     .None => assert(false, "expected to find .yo-version")
   );
-  io.await(fs_dir.remove_file(Path.new(vfile), io), ioexn);
-  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+  io.await(fs_dir.remove_file(Path.new(&vfile), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(&base), io), ioexn);
 });
 test("find_yo_version_file: finds .yo-version in parent directory", {
   exn := Exception(
@@ -209,9 +209,9 @@ test("find_yo_version_file: finds .yo-version in parent directory", {
     .Some(p) => assert(p.to_string() == vfile, "must find the parent's file"),
     .None => assert(false, "expected to find .yo-version upward")
   );
-  io.await(fs_dir.remove_file(Path.new(vfile), io), ioexn);
-  io.await(fs_dir.remove_dir(Path.new(child), io), ioexn);
-  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+  io.await(fs_dir.remove_file(Path.new(&vfile), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(&child), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(&base), io), ioexn);
 });
 test("find_yo_version_file: picks nearest .yo-version in directory hierarchy", {
   exn := Exception(
@@ -237,10 +237,10 @@ test("find_yo_version_file: picks nearest .yo-version in directory hierarchy", {
     .Some(p) => assert(p.to_string() == inner_v, "the NEAREST file wins"),
     .None => assert(false, "expected to find .yo-version")
   );
-  io.await(fs_dir.remove_file(Path.new(inner_v), io), ioexn);
-  io.await(fs_dir.remove_file(Path.new(outer_v), io), ioexn);
-  io.await(fs_dir.remove_dir(Path.new(inner), io), ioexn);
-  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+  io.await(fs_dir.remove_file(Path.new(&inner_v), io), ioexn);
+  io.await(fs_dir.remove_file(Path.new(&outer_v), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(&inner), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(&base), io), ioexn);
 });
 test("find_yo_version_file: returns None when no .yo-version exists", {
   exn := Exception(
@@ -257,7 +257,7 @@ test("find_yo_version_file: returns None when no .yo-version exists", {
   io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), ioexn);
   found := io.await(find_yo_version_file(Path.new(base.clone()), io), io);
   assert(match(found, .None => true, .Some(_) => false), "no file anywhere up from the temp dir");
-  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(&base), io), ioexn);
 });
 test("read_yo_version: reads and parses .yo-version", {
   exn := Exception(
@@ -280,8 +280,8 @@ test("read_yo_version: reads and parses .yo-version", {
     .Some(v) => assert(v == `0.1.12`, "parsed and v-prefix stripped"),
     .None => assert(false, "expected Some(version)")
   );
-  io.await(fs_dir.remove_file(Path.new(vfile), io), ioexn);
-  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+  io.await(fs_dir.remove_file(Path.new(&vfile), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(&base), io), ioexn);
 });
 test("read_yo_version: returns None when no file exists", {
   exn := Exception(
@@ -298,7 +298,7 @@ test("read_yo_version: returns None when no file exists", {
   io.await(fs_dir.create_dir_all(Path.new(base.clone()), io), ioexn);
   got := io.await(read_yo_version(Path.new(base.clone()), io, exn), ioexn);
   assert(match(got, .None => true, .Some(_) => false), "no file → None");
-  io.await(fs_dir.remove_dir(Path.new(base), io), ioexn);
+  io.await(fs_dir.remove_dir(Path.new(&base), io), ioexn);
 });
 test("read_yo_version: throws on invalid content", {
   cleanup_exn := Exception(

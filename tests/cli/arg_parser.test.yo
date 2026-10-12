@@ -8,7 +8,7 @@ test("ArgParser parse flags", {
   args := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`--verbose`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should parse successfully");
   parsed := result.unwrap();
   assert(parsed.get_flag(`--verbose`), "verbose should be true");
@@ -20,7 +20,7 @@ test("ArgParser parse options", {
   args.push(`test-app`);
   args.push(`--output`);
   args.push(`result.txt`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should parse successfully");
   parsed := result.unwrap();
   opt := parsed.get_option(`--output`);
@@ -33,7 +33,7 @@ test("ArgParser parse short flags", {
   args := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`-v`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should parse -v");
   assert(result.unwrap().get_flag(`--verbose`), "-v should set verbose");
 });
@@ -43,7 +43,7 @@ test("ArgParser parse positionals", {
   args := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`hello.txt`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should parse positional");
   parsed := result.unwrap();
   input := parsed.get_positional(`input`);
@@ -55,7 +55,7 @@ test("ArgParser default option value", {
   parser.add_option(`--output`, `-o`, `Output`, `default.txt`);
   args := ArrayList(String).new();
   args.push(`test-app`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should parse with defaults");
   parsed := result.unwrap();
   opt := parsed.get_option(`--output`);
@@ -67,7 +67,7 @@ test("ArgParser unknown flag error", {
   args := ArrayList(String).new();
   args.push(`test-app`);
   args.push(`--unknown`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_err(), "should error on unknown flag");
 });
 test("ArgParser help text generation", {
@@ -88,7 +88,7 @@ test("ArgParser simple subcommand", {
   args.push(`git`);
   args.push(`commit`);
   args.push(`--amend`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should parse subcommand");
   parsed := result.unwrap();
   sub := parsed.get_subcommand();
@@ -108,7 +108,7 @@ test("ArgParser subcommand with option", {
   args.push(`build`);
   args.push(`--target`);
   args.push(`release`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should parse subcommand option");
   parsed := result.unwrap();
   sub := parsed.get_subcommand();
@@ -126,7 +126,7 @@ test("ArgParser subcommand default option", {
   args := ArrayList(String).new();
   args.push(`tool`);
   args.push(`build`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should parse with sub default");
   sub_args := result.unwrap().get_subcommand_args().unwrap();
   target := sub_args.get_option(`--target`);
@@ -143,7 +143,7 @@ test("ArgParser nested subcommand", {
   args.push(`container`);
   args.push(`ls`);
   args.push(`--all`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should parse nested");
   parsed := result.unwrap();
   sub1 := parsed.get_subcommand().unwrap();
@@ -160,7 +160,7 @@ test("ArgParser no subcommand chosen", {
   parser.add_subcommand(`test`, `Test`);
   args := ArrayList(String).new();
   args.push(`tool`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should parse with no subcommand");
   parsed := result.unwrap();
   assert(parsed.get_subcommand().is_none(), "no subcommand should be set");
@@ -173,7 +173,7 @@ test("ArgParser unknown subcommand falls through to positional", {
   args := ArrayList(String).new();
   args.push(`tool`);
   args.push(`unknown-command`);
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_ok(), "should treat unknown as positional");
   parsed := result.unwrap();
   assert(parsed.get_subcommand().is_none(), "no subcommand matched");
@@ -190,7 +190,7 @@ test("ArgParser subcommand error propagates", {
   args.push(`build`);
   args.push(`--target`);
   // missing value
-  result := parser.parse(args);
+  result := parser.parse(&args);
   assert(result.is_err(), "should error on missing subcmd opt value");
 });
 test("ArgParser help text includes subcommands", {

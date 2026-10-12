@@ -25,7 +25,7 @@ derive(_Inner, Copy, Clone);
 derive(_Inner, Error(.Boom => `boom`));
 test("an Error.source() result re-erases as AnyError, so a chain can be walked", {
   (base : AnyError) = dyn(_Inner.Boom);
-  (top : AnyError) = dyn(Context.new(`while loading`, base));
+  (top : AnyError) = dyn(Context.new(`while loading`, &base));
   (cur : AnyError) = top;
   (links : usize) = usize(1);
   // The assignment `cur = next` is what failed to type-check: `source()` is
@@ -80,23 +80,23 @@ test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)",
   );
   assert(bound == `root(R)`, `binding the payload lost the trait, got ${bound}`);
   // ...and passing it straight to a parameter is the other.
-  (passed : String) = match(c.parent(), .Some(p) => _handle(p), .None => `root`);
+  (passed : String) = match(c.parent(), .Some(p) => _handle(&p), .None => `root`);
   assert(passed == `root(R)`, `passing the payload lost the trait, got ${passed}`);
 });
 test("root_cause returns the innermost error, and is identity on a lone error", {
   // Scored at RUNTIME on the rendered value, not on a comptime assertion:
   // a comptime_assert here could hold vacuously.
   (base : AnyError) = dyn(_Inner.Boom);
-  (top : AnyError) = dyn(Context.new(`while loading`, base));
+  (top : AnyError) = dyn(Context.new(`while loading`, &base));
   assert(
-    root_cause(top).to_string() == `boom`,
-    `root_cause of a wrapped error is the inner one, got ${root_cause(top).to_string()}`
+    root_cause(&top).to_string() == `boom`,
+    `root_cause of a wrapped error is the inner one, got ${root_cause(&top).to_string()}`
   );
   // An error with nothing underneath is its own root cause — never .None, so
   // callers need no unwrapping.
   (lone : AnyError) = dyn(_Inner.Boom);
   assert(
-    root_cause(lone).to_string() == `boom`,
+    root_cause(&lone).to_string() == `boom`,
     "root_cause of a lone error is that error"
   );
 });
@@ -107,8 +107,8 @@ test("root_cause returns the innermost error, and is identity on a lone error", 
 // `source()`'s re-erasure across a method boundary.
 test("error_chain yields every link, outermost first", {
   (base : AnyError) = dyn(_Inner.Boom);
-  (top : AnyError) = dyn(Context.new(`while loading`, base));
-  it := error_chain(top);
+  (top : AnyError) = dyn(Context.new(`while loading`, &base));
+  it := error_chain(&top);
   (links : usize) = usize(0);
   (last : String) = String.new();
   (going : bool) = true;

@@ -232,7 +232,7 @@ impl(
   )({
     self._raw_lock();
     _guard := __MutexUnlocker(T)(self);
-    body(self._value)
+    body(&mut self._value)
   }),
   /// Run `body` under the lock IF it can be taken without waiting, and
   /// return `.Some(result)`; `.None` when another thread holds it.
@@ -270,7 +270,7 @@ impl(
       true => {
         self._owner.store(me, MemoryOrder.Release);
         _guard := __MutexUnlocker(T)(self);
-        Option(R).Some(body(self._value))
+        Option(R).Some(body(&mut self._value))
       }
     )
   }),

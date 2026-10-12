@@ -117,7 +117,7 @@ _copy_skills_dir :: (
       if(md.is_dir(), {
         stack.push({ src : src_entry, dest : dest_entry, prefix : display });
       }, {
-        _copy_skills_file(src_entry, dest_entry, display, counters, io, exn);
+        _copy_skills_file(&src_entry, &dest_entry, &display, counters, io, exn);
       });
       j = (j + usize(1));
     });
@@ -140,7 +140,7 @@ _skill_description :: (
     return(desc);
   });
   content := io.await(read_to_string(skill_md.clone(), io), IoExn(io : io, exn : exn));
-  description_from_frontmatter(content)
+  description_from_frontmatter(&content)
 });
 /// The pure half of `_skill_description`: pull `description:` out of a
 /// SKILL.md's YAML frontmatter. Split from the file read so it can be tested
@@ -167,7 +167,7 @@ description_from_frontmatter :: (fn(content : &String) -> String)({
           in_frontmatter = false;
           closed = true;
         },
-        line.starts_with(key) => {
+        line.starts_with(&key) => {
           desc = line.substring(key.len(), line.len()).trim();
         },
         true => ()
@@ -343,9 +343,9 @@ install_skills_into :: (
       display := `${parent}/skills/${name}`;
       md := io.await(metadata(src_entry.clone(), io), IoExn(io : io, exn : exn));
       if(md.is_dir(), {
-        _copy_skills_dir(src_entry, dest_entry, display, counters, io, exn);
+        _copy_skills_dir(&src_entry, &dest_entry, &display, &counters, io, exn);
       }, {
-        _copy_skills_file(src_entry, dest_entry, display, counters, io, exn);
+        _copy_skills_file(&src_entry, &dest_entry, &display, &counters, io, exn);
       });
       e = (e + usize(1));
     });
@@ -428,6 +428,6 @@ run_skills_install :: (
   if(res.skills.len() == usize(0), {
     return(());
   });
-  print_skills_summary(res);
+  print_skills_summary(&res);
 });
 export(run_skills_install, install_skills_into, print_skills_summary, description_from_frontmatter, SkillEntry, SkillsInstallResult);

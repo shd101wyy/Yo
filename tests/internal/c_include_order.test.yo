@@ -47,10 +47,10 @@ _registered :: (fn() -> ArrayList(String))({
 
 test("windows: <windows.h> is emitted before every dependent Win32 header", {
   out := ordered_c_includes(_registered(), true, false);
-  win := _index_of(out, String.from("<windows.h>"));
-  psapi := _index_of(out, String.from("<psapi.h>"));
-  bcrypt := _index_of(out, String.from("<bcrypt.h>"));
-  io_h := _index_of(out, String.from("<io.h>"));
+  win := _index_of(&out, String.from("<windows.h>"));
+  psapi := _index_of(&out, String.from("<psapi.h>"));
+  bcrypt := _index_of(&out, String.from("<bcrypt.h>"));
+  io_h := _index_of(&out, String.from("<io.h>"));
   assert(win == usize(0), `<windows.h> must be first, was at ${win.to_string()}`);
   assert(psapi < out.len(), "<psapi.h> must survive on Windows");
   assert(win < psapi, `<psapi.h> at ${psapi.to_string()} must follow <windows.h> at ${win.to_string()}`);
@@ -77,27 +77,27 @@ test("windows: <windows.h> is emitted exactly once even though it was registered
 
 test("windows: POSIX-only headers are dropped", {
   out := ordered_c_includes(_registered(), true, false);
-  assert(_index_of(out, String.from("<unistd.h>")) == out.len(), "<unistd.h> must not reach a Windows emission");
+  assert(_index_of(&out, String.from("<unistd.h>")) == out.len(), "<unistd.h> must not reach a Windows emission");
 });
 
 test("posix: Win32 headers are dropped and the file-op headers are appended", {
   out := ordered_c_includes(_registered(), false, false);
-  assert(_index_of(out, String.from("<windows.h>")) == out.len(), "<windows.h> must not reach a POSIX emission");
-  assert(_index_of(out, String.from("<psapi.h>")) < out.len(), "<psapi.h> is not platform-filtered — the registrant guards it");
-  assert(_index_of(out, String.from("<unistd.h>")) < out.len(), "<unistd.h> must be present");
-  assert(_index_of(out, String.from("<sys/random.h>")) < out.len(), "<sys/random.h> must be appended");
+  assert(_index_of(&out, String.from("<windows.h>")) == out.len(), "<windows.h> must not reach a POSIX emission");
+  assert(_index_of(&out, String.from("<psapi.h>")) < out.len(), "<psapi.h> is not platform-filtered — the registrant guards it");
+  assert(_index_of(&out, String.from("<unistd.h>")) < out.len(), "<unistd.h> must be present");
+  assert(_index_of(&out, String.from("<sys/random.h>")) < out.len(), "<sys/random.h> must be appended");
 });
 
 test("posix: the registered set keeps its own order, unsorted", {
   out := ordered_c_includes(_registered(), false, true);
-  psapi := _index_of(out, String.from("<psapi.h>"));
-  stdint := _index_of(out, String.from("<stdint.h>"));
+  psapi := _index_of(&out, String.from("<psapi.h>"));
+  stdint := _index_of(&out, String.from("<stdint.h>"));
   assert(psapi < stdint, "registered order must be preserved, not sorted");
 });
 
 test("mach-o/dyld.h reaches macOS only", {
   on_mac := ordered_c_includes(_registered(), false, true);
   off_mac := ordered_c_includes(_registered(), false, false);
-  assert(_index_of(on_mac, String.from("<mach-o/dyld.h>")) < on_mac.len(), "<mach-o/dyld.h> must survive on macOS");
-  assert(_index_of(off_mac, String.from("<mach-o/dyld.h>")) == off_mac.len(), "<mach-o/dyld.h> must be dropped off macOS");
+  assert(_index_of(&on_mac, String.from("<mach-o/dyld.h>")) < on_mac.len(), "<mach-o/dyld.h> must survive on macOS");
+  assert(_index_of(&off_mac, String.from("<mach-o/dyld.h>")) == off_mac.len(), "<mach-o/dyld.h> must be dropped off macOS");
 });

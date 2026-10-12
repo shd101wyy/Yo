@@ -74,7 +74,9 @@ A reduced form without the `where(...)` clause does not crash:
 
 ```yo
 my_id :: (fn(comptime(T) : Type, x : T) -> T)(x);
-main :: (fn() -> unit)({ _ := my_id(i32, i32(42)); });
+main :: (fn() -> unit)({
+  _ := my_id(i32, i32(42));
+});
 export(main);
 ```
 

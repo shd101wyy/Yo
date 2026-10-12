@@ -14,7 +14,7 @@ temp_io :: import("std/sys/temp");
 seek_io :: import("std/sys/seek");
 test("lseek SEEK_SET SEEK_CUR SEEK_END on regular file", {
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_seek_regular_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_seek_regular_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);
@@ -46,7 +46,7 @@ test("lseek invalid fd invalid whence and negative offset errors", {
   bad_fd_ret := seek_io.lseek(i32(-1), i64(0), seek_io.SEEK_SET);
   assert(bad_fd_ret == (i64(0) - i64(EBADF)), "lseek on invalid fd should return -EBADF");
   tmp := temp_dir();
-  template_str := path_join(tmp, `yo_io_seek_error_XXXXXX`);
+  template_str := path_join(&tmp, `yo_io_seek_error_XXXXXX`);
   template_c := template_str.to_cstr();
   template_path := template_c.ptr().unwrap();
   fd := temp_io.mkstemp(template_path);

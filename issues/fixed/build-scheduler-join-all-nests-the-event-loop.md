@@ -26,7 +26,7 @@ tree that aborts is P1.4h.
 P1.4h runs a DAG level's ready nodes as spawned tasks and collected them with
 `std/async`'s `join_all`:
 
-```yo
+```yo ignore
 handles.push(e.io.spawn(_execute_node_unless_blocked(…), e));
 …
 outs := join_all(handles, e.io);

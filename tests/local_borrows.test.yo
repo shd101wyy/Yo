@@ -187,24 +187,24 @@ head_count :: (fn(list : &List) -> usize)(
 );
 test("the cursor walk appends at the tail slot (decision 25)", {
   l := List(head : .None);
-  append(l, i32(1));
-  append(l, i32(2));
-  append(l, i32(3));
-  assert(sum_list(l) == i32(6), "three nodes, in order");
-  before := head_count(l);
-  append(l, i32(4));
-  assert(sum_list(l) == i32(10), "a fourth at the tail");
-  assert(head_count(l) == before, "each step's pin was released when the walk ended");
+  append(&mut l, i32(1));
+  append(&mut l, i32(2));
+  append(&mut l, i32(3));
+  assert(sum_list(&l) == i32(6), "three nodes, in order");
+  before := head_count(&l);
+  append(&mut l, i32(4));
+  assert(sum_list(&l) == i32(10), "a fourth at the tail");
+  assert(head_count(&l) == before, "each step's pin was released when the walk ended");
 });
 test("an early return mid-walk releases the cell the last step pinned", {
   l := List(head : .None);
-  append(l, i32(1));
-  append(l, i32(5));
-  append(l, i32(9));
-  before := head_count(l);
-  assert(first_over(l, i32(4)) == i32(5), "found the second node");
-  assert(first_over(l, i32(100)) == i32(-1), "walked off the end");
-  assert(head_count(l) == before, "no pin outlived the walk");
+  append(&mut l, i32(1));
+  append(&mut l, i32(5));
+  append(&mut l, i32(9));
+  before := head_count(&l);
+  assert(first_over(&l, i32(4)) == i32(5), "found the second node");
+  assert(first_over(&l, i32(100)) == i32(-1), "walked off the end");
+  assert(head_count(&l) == before, "no pin outlived the walk");
 });
 
 // --- Rejected: writes through imm (E0908) --------------------------------------

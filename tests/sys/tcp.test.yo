@@ -149,7 +149,7 @@ test("SockAddr helper functions", {
 // io_uring backends hold a reference for every parked operation.
 _drop_a_pending_recv :: (fn(fd : i32, buf : *u8, io : Io) -> bool)({
   pending := tcp.recv(fd, buf, usize(64), i32(0));
-  s := io.state(pending);
+  s := io.state(&pending);
   s == FutureState.Completed
 });
 test("a recv future dropped while pending does not complete into freed memory", {

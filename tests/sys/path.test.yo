@@ -10,10 +10,10 @@ path_io :: import("std/sys/path");
 { AT_FDCWD, AT_REMOVEDIR, O_WRONLY, O_CREAT, O_TRUNC, O_RDONLY } :: import("std/sys/constants");
 test("realpath resolves . and ..", {
   tmp := temp_dir();
-  base_dir_str := path_join(tmp, `yo_io_realpath_dir`);
-  sub_dir_str := path_join(base_dir_str, `sub`);
+  base_dir_str := path_join(&tmp, `yo_io_realpath_dir`);
+  sub_dir_str := path_join(&base_dir_str, `sub`);
   file_name := `target.txt`;
-  file_str := path_join(base_dir_str, file_name);
+  file_str := path_join(&base_dir_str, &file_name);
   base_dir_c := base_dir_str.to_cstr();
   sub_dir_c := sub_dir_str.to_cstr();
   file_c := file_str.to_cstr();
@@ -34,8 +34,8 @@ test("realpath resolves . and ..", {
   wr := io.await(file.write(fd, data, u32(13), u64(0)), io);
   assert(wr == i32(13));
   io.await(file.close(fd), io);
-  dot_dir_str := path_join(sub_dir_str, `..`);
-  dot_path_str := path_join(dot_dir_str, file_name);
+  dot_dir_str := path_join(&sub_dir_str, `..`);
+  dot_path_str := path_join(&dot_dir_str, &file_name);
   dot_path_c := dot_path_str.to_cstr();
   dot_path := dot_path_c.ptr().unwrap();
   buf_uninit := MaybeUninit(Array(u8, usize(4096))).new();
@@ -56,9 +56,9 @@ test("realpath resolves . and ..", {
 });
 test("realpath resolves symlink target", {
   tmp := temp_dir();
-  base_dir_str := path_join(tmp, `yo_io_realpath_link`);
-  target_str := path_join(base_dir_str, `target.txt`);
-  link_str := path_join(base_dir_str, `link.txt`);
+  base_dir_str := path_join(&tmp, `yo_io_realpath_link`);
+  target_str := path_join(&base_dir_str, `target.txt`);
+  link_str := path_join(&base_dir_str, `link.txt`);
   base_dir_c := base_dir_str.to_cstr();
   target_c := target_str.to_cstr();
   link_c := link_str.to_cstr();
@@ -102,7 +102,7 @@ test("realpath resolves symlink target", {
 });
 test("realpath on nonexistent returns error", {
   tmp := temp_dir();
-  bad_path_str := path_join(tmp, `yo_io_realpath_missing_999`);
+  bad_path_str := path_join(&tmp, `yo_io_realpath_missing_999`);
   bad_path_c := bad_path_str.to_cstr();
   bad_path := bad_path_c.ptr().unwrap();
   io.await(dir.unlink(AT_FDCWD, bad_path, i32(0)), io);

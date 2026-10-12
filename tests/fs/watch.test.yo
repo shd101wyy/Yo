@@ -43,12 +43,12 @@ test("watch a directory: creating a file produces events, poll drains them", {
     )
   );
   d := temp_dir();
-  target := path_join(d, `yo_watch_poll.txt`);
-  _unlink(target, io);
-  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
+  target := path_join(&d, `yo_watch_poll.txt`);
+  _unlink(&target, io);
+  w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
   assert(w.is_active(), "active after watch()");
   assert(w.pending() == usize(0), "nothing queued yet");
-  _touch(target, String.from("hello"), io);
+  _touch(&target, String.from("hello"), io);
   io.await(sleep(u64(250)), io);
   first := w.poll();
   assert(first.is_some(), "an event was queued for the new file");
@@ -67,7 +67,7 @@ test("watch a directory: creating a file produces events, poll drains them", {
   assert(w.pending() == usize(0), "poll drained the queue");
   w.close();
   assert(!w.is_active(), "closed");
-  _unlink(target, io);
+  _unlink(&target, io);
 });
 test("next(io) resolves when an event arrives and .None after close", {
   t_exn := Exception(
@@ -79,10 +79,10 @@ test("next(io) resolves when an event arrives and .None after close", {
     )
   );
   d := temp_dir();
-  target := path_join(d, `yo_watch_next.txt`);
-  _unlink(target, io);
-  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
-  _touch(target, String.from("x"), io);
+  target := path_join(&d, `yo_watch_next.txt`);
+  _unlink(&target, io);
+  w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
+  _touch(&target, String.from("x"), io);
   ev := io.await(w.next(io), io);
   assert(ev.is_some(), "next resolved with an event");
   // drain whatever else the backend coalesced, then close: next must not hang
@@ -93,7 +93,7 @@ test("next(io) resolves when an event arrives and .None after close", {
   w.close();
   after := io.await(w.next(io), io);
   assert(after.is_none(), "closed watcher's next is .None");
-  _unlink(target, io);
+  _unlink(&target, io);
 });
 // The handler is installed in the function whose return the unwind exits —
 // a `ctl` handler is frame-bound (docs/en-US/ALGEBRAIC_EFFECTS.md).
@@ -157,17 +157,17 @@ _probe_fd :: (fn(path : &String, io : Io) -> i32)({
 // RLIMIT_NOFILE swallows 200 leaks without complaining.
 test("a watcher dropped without close() releases its backend handle", {
   d := temp_dir();
-  probe := path_join(d, `yo_watch_fd_probe.txt`);
-  base := _probe_fd(probe, io);
+  probe := path_join(&d, `yo_watch_fd_probe.txt`);
+  base := _probe_fd(&probe, io);
   (i : usize) = usize(0);
   while(i < usize(200), {
     assert(
-      _watch_and_drop(d),
+      _watch_and_drop(&d),
       `watch failed at iteration ${i} — dropped watchers are not releasing their backend handles`
     );
     i = (i + usize(1));
   });
-  after := _probe_fd(probe, io);
+  after := _probe_fd(&probe, io);
   assert(
     after <= (base + i32(8)),
     `200 dropped watchers moved the next free descriptor from ${base} to ${after} — their backend handles leaked`
@@ -181,15 +181,15 @@ test("a watcher dropped without close() releases its backend handle", {
       }
     )
   );
-  target := path_join(d, `yo_watch_drop.txt`);
-  _unlink(target, io);
-  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
-  _touch(target, String.from("x"), io);
+  target := path_join(&d, `yo_watch_drop.txt`);
+  _unlink(&target, io);
+  w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
+  _touch(&target, String.from("x"), io);
   ev := io.await(w.next(io), io);
   assert(ev.is_some(), "a watcher created after 200 dropped ones still delivers");
   w.close();
-  _unlink(target, io);
-  _unlink(probe, io);
+  _unlink(&target, io);
+  _unlink(&probe, io);
 });
 // A `Watcher` is the first `Stream` implementor — its `next` WAS this shape
 // before the trait existed (plans/reference/ASYNC_ITERATION_STREAM.md), so
@@ -206,14 +206,14 @@ test("a Watcher is a Stream: map + take collects one event name", {
     )
   );
   d := temp_dir();
-  target := path_join(d, `yo_watch_stream.txt`);
-  _unlink(target, io);
-  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
+  target := path_join(&d, `yo_watch_stream.txt`);
+  _unlink(&target, io);
+  w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
   names := w.map(e => e.name).take(usize(1));
   h := io.spawn(names.collect(io), io);
-  _touch(target, String.from("x"), io);
+  _touch(&target, String.from("x"), io);
   got := match(
-    io.await(timeout(h, Duration.from_millis(i64(5000)), io), io),
+    io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
     .Err(_) => {
       assert(false, "the watcher stream delivered no event inside the deadline");
@@ -227,7 +227,7 @@ test("a Watcher is a Stream: map + take collects one event name", {
     more = w.poll();
   });
   w.close();
-  _unlink(target, io);
+  _unlink(&target, io);
 });
 
 test("a recursive watch keeps reporting subdirectory changes after the first batch", {
@@ -251,17 +251,17 @@ test("a recursive watch keeps reporting subdirectory changes after the first bat
     )
   );
   d := temp_dir();
-  sub := path_join(d, `yo_watch_sub`);
+  sub := path_join(&d, `yo_watch_sub`);
   io.await(dir.mkdir(AT_FDCWD, sub.to_cstr().ptr().unwrap(), i32(0o755)), io);
-  root_target := path_join(d, `yo_watch_recur_root.txt`);
-  sub_target := path_join(sub, `yo_watch_recur_child.txt`);
-  _unlink(root_target, io);
-  _unlink(sub_target, io);
+  root_target := path_join(&d, `yo_watch_recur_root.txt`);
+  sub_target := path_join(&sub, `yo_watch_recur_child.txt`);
+  _unlink(&root_target, io);
+  _unlink(&sub_target, io);
 
-  w := watch(Path.new(d), WatchOptions(recursive : true), t_exn);
+  w := watch(Path.new(&d), WatchOptions(recursive : true), t_exn);
   assert(w.is_active(), "recursive watch started");
 
-  _touch(root_target, String.from("one"), io);
+  _touch(&root_target, String.from("one"), io);
   io.await(sleep(u64(250)), io);
   (saw_root : bool) = false;
   cur := w.poll();
@@ -274,7 +274,7 @@ test("a recursive watch keeps reporting subdirectory changes after the first bat
   });
   assert(saw_root, "the root-file event was delivered");
 
-  _touch(sub_target, String.from("two"), io);
+  _touch(&sub_target, String.from("two"), io);
   io.await(sleep(u64(250)), io);
   (saw_child : bool) = false;
   cur = w.poll();
@@ -296,8 +296,8 @@ test("a recursive watch keeps reporting subdirectory changes after the first bat
   );
 
   w.close();
-  _unlink(sub_target, io);
-  _unlink(root_target, io);
+  _unlink(&sub_target, io);
+  _unlink(&root_target, io);
 });
 // A task waiting in next() must not burn CPU. next used to re-yield in a loop,
 // so the waiting task was always runnable and the loop never blocked: 300 ms
@@ -335,10 +335,10 @@ test("a task waiting in next(io) does not spin the CPU", {
       )
     );
     d := temp_dir();
-    target := path_join(d, `yo_watch_idle.txt`);
-    _unlink(target, io);
-    w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
-    h := io.spawn(_touch_later(target, io), io);
+    target := path_join(&d, `yo_watch_idle.txt`);
+    _unlink(&target, io);
+    w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
+    h := io.spawn(_touch_later(&target, io), io);
     cpu0 := _cpu_ms();
     ev := io.await(w.next(io), io);
     cpu := (_cpu_ms() - cpu0);
@@ -347,7 +347,7 @@ test("a task waiting in next(io) does not spin the CPU", {
     assert(cpu < i64(150), "the wait parked instead of spinning");
     _j := h.await(io);
     w.close();
-    _unlink(target, io);
+    _unlink(&target, io);
   });
 });
 // A directory watch must not rescan the directory on every loop pass. The
@@ -369,9 +369,9 @@ test("a directory watch does not rescan the directory on every loop pass", {
   _mk := io.await(dir.mkdir(AT_FDCWD, d.to_cstr().ptr().unwrap(), i32(0o755)), io);
   (i : i32) = i32(0);
   while(i < i32(300), i = (i + i32(1)), {
-    _touch(path_join(d, `f${i}`), String.from("x"), io);
+    _touch(path_join(&d, `f${i}`), String.from("x"), io);
   });
-  w := watch(Path.new(d), WatchOptions.defaults(), t_exn);
+  w := watch(Path.new(&d), WatchOptions.defaults(), t_exn);
   t0 := _cpu_ms();
   (k : i32) = i32(0);
   while(k < i32(20000), k = (k + i32(1)), {
@@ -383,7 +383,7 @@ test("a directory watch does not rescan the directory on every loop pass", {
   w.close();
   (j : i32) = i32(0);
   while(j < i32(300), j = (j + i32(1)), {
-    _unlink(path_join(d, `f${j}`), io);
+    _unlink(path_join(&d, `f${j}`), io);
   });
   _rm := io.await(dir.unlink(AT_FDCWD, d.to_cstr().ptr().unwrap(), AT_REMOVEDIR), io);
 });

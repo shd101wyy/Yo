@@ -867,13 +867,13 @@ Rules:
 | `for(&xs, x => …)`, `for(&mut xs, x => …)` | the borrowed loop | the sigil goes on the source; the element mode follows |
 | `f(&mut x)`, `f(&mut s.items)` | lends the place to a `&mut T` param | `&mut` is ONE prefix token; to any other param it is an error |
 | `f(&x)` | lends `x` to a `&T` param, a generic one included | to a by-value (plain or `sink`) param: an error naming `x` / `x.clone()`; to a `*(T)` param: an error naming `addr_of(x)`; to a `&mut T` param: an error naming `&mut x` (all E0914) |
-| `f(x)` with `x` a named place (variable, field path, element `xs(i)`) and a `&T`/`&mut T` param | E0914 naming `&x` / `&mut x` | the marker is required for every type, `Copy` too (`peek(&n)`); exempt: receivers, temporaries/literals/closures, operator operands, a borrow binding passed whole (`&p` is an accepted reborrow), `::` constants and function names. On under `YO_STRICT_MARKERS=1` (code outside std) until std and `src/` are swept; `yo fix <path> --migrate markers` inserts the markers |
+| `f(x)` with `x` a named place (variable, field path, element `xs(i)`) and a `&T`/`&mut T` param | E0914 naming `&x` / `&mut x` | the marker is required for every type, `Copy` too (`peek(&n)`); exempt: receivers, temporaries/literals/closures, operator operands, a borrow binding passed whole (`&p` is an accepted reborrow), `::` constants and function names, ghost code (contract predicates, `ghost_fn` bodies). Always on, std included (the tree is swept); `yo fix <path> --migrate markers` inserts the markers |
 | `match(&x, …)`, `match(&mut x, …)` | (decision 26) a borrowing / `&mut`-place match | the desugar peels the marker and records it (`borrowed_match_scrutinee_kind`); a bare scrutinee is taken BY VALUE (see "How a `match` takes its scrutinee" below) |
 | `addr_of(x)` | the raw-pointer address-of → `*(T)` | unsafe-capable files only. `&x` anywhere that is not a lending argument, scrutinee, local borrow or capture entry (a field store, a receiver `(&x).m()`, a variadic C argument) is an error naming `addr_of(x)` |
 | `imm(x)`, `mut(x)`, `inout(x)`, `own(x)` | (deleted) | E0009 naming `x : &T` / `x : &mut T` / `sink(x)`; `yo fix <path> --migrate borrow-spelling` (the borrow words) and `--migrate modes` (`own`) rewrite old code, and `yo fix <path> --migrate addr-of` rewrites an old address-of `&x` (it evaluates the code, so a lending `&x` stays) |
 | `size_of`, `align_of`, `type_of`, `type_id` | (deleted in Generation B) `sizeof`, `alignof`, `typeof`, `typeid` | the only spellings; `std/term.yo`'s `size_of` became `term_size` |
 
-There is no mismatch error for a BARE argument yet (`show(s)` to a `&T` parameter stays legal); a later step turns decision 33's error on. An unannotated lambda param (`(lhs, rhs) => …`) takes its mode from the expected `Fn` type; an annotated one spells it (`(v : &mut i32) => …`). Not yet: a borrow result `-> &T` / `-> &mut T` (rejected: projections, decision 24, are not implemented), and unlabeled fn-type params: `fn` and `Fn` parameters always need labels (`Fn(s : &String) -> usize`, never `Fn(&String)`), so the mode prefixes the labelled parameter's type.
+A bare named place to a `&T`/`&mut T` parameter is E0914, always on (std included). An unannotated lambda param (`(lhs, rhs) => …`) takes its mode from the expected `Fn` type; an annotated one spells it (`(v : &mut i32) => …`). Not yet: a borrow result `-> &T` / `-> &mut T` (rejected: projections, decision 24, are not implemented), and unlabeled fn-type params: `fn` and `Fn` parameters always need labels (`Fn(s : &String) -> usize`, never `Fn(&String)`), so the mode prefixes the labelled parameter's type.
 
 `&mut` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated to `(self : &mut Self)` — Hash, Clone, ToString, Index, ComptimeIndex, Writer, Reader, and `Iterator` (the for-loop redesign documented in `plans/archive/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/reference/MEMORY_SAFETY.md`).
 
@@ -897,7 +897,7 @@ for(counters, c => {
 for(&mut names, s => {
   s.push_str("!");
 }); // value elements (String, …): the borrowed form writes in place
-for(chain.map(f), y => println(y)); // combinator chain: pass as the value-form iterator
+for(chain.map(f), y => println(&y)); // combinator chain: pass as the value-form iterator
 ```
 
 - First argument: the collection itself, or an iterator chain (`.map().filter()`-style).

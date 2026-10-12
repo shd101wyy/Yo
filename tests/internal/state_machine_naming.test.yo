@@ -37,7 +37,7 @@ slot_of :: (fn(v : &Variable, kind : CapturedVariableKind, aliases : &Option(Has
   smv := HashMap(String, CapturedVariable).new();
   smv.insert(v.id.to_string(), mk_entry(v, kind));
   match(
-    sm_slot_of_variable(v, smv, Option(HashMap(String, String)).None, aliases, String.from(capture_slot)),
+    sm_slot_of_variable(v, &smv, Option(HashMap(String, String)).None, aliases, String.from(capture_slot)),
     .Some(s) => s,
     .None => String.from("<none>")
   )
@@ -55,17 +55,17 @@ test("an outer variable ignores a field alias keyed by its id", {
   v := mk_variable("count");
   aliases := HashMap(String, String).new();
   aliases.insert(v.id.to_string(), String.from("slot_0"));
-  got := slot_of(v, CapturedVariableKind.Outer, Option(HashMap(String, String)).Some(aliases), "__capture");
+  got := slot_of(&v, CapturedVariableKind.Outer, Option(HashMap(String, String)).Some(aliases), "__capture");
   assert(got == "sm->__capture.__yo_v_count", `got ${got}`);
 });
 test("controls: a local's slot is its own field or its alias, a variable not in the map has none", {
   v := mk_variable("count");
-  local := slot_of(v, CapturedVariableKind.Local, Option(HashMap(String, String)).None, "__capture");
+  local := slot_of(&v, CapturedVariableKind.Local, Option(HashMap(String, String)).None, "__capture");
   assert(local == `sm->var_${v.id.to_string()}`, `local: got ${local}`);
   aliases := HashMap(String, String).new();
   aliases.insert(v.id.to_string(), String.from("slot_0"));
-  aliased := slot_of(v, CapturedVariableKind.Local, Option(HashMap(String, String)).Some(aliases), "__capture");
+  aliased := slot_of(&v, CapturedVariableKind.Local, Option(HashMap(String, String)).Some(aliases), "__capture");
   assert(aliased == "sm->slot_0", `aliased: got ${aliased}`);
-  absent := sm_slot_of_variable(v, HashMap(String, CapturedVariable).new(), Option(HashMap(String, String)).None, Option(HashMap(String, String)).None, String.from("__capture"));
+  absent := sm_slot_of_variable(&v, HashMap(String, CapturedVariable).new(), Option(HashMap(String, String)).None, Option(HashMap(String, String)).None, String.from("__capture"));
   assert(absent.is_none(), "a variable not in the map has no slot");
 });

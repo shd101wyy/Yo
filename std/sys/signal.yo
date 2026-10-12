@@ -44,7 +44,7 @@ SignalHandler :: (fn(data : *u8) -> unit);
 /// and recorded in the table, but the OS will never raise it — the only thing
 /// that can reach such a handler there is an in-process `kill` (below).
 on_signal :: (fn(signum : i32, handler : SignalHandler) -> i32)(
-  __yo_signal_start(signum, unsafe.cast(handler, *u8))
+  __yo_signal_start(signum, unsafe.cast(&handler, *u8))
 );
 /// Remove the handler for `signum` and restore the default disposition
 /// (`SIG_DFL`). Returns 0 on success, a negative errno on failure; the same

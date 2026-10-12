@@ -101,12 +101,12 @@ test("Test impl for i32, bool, Rc(i32)", {
   t := true;
   f := false;
   bi := Rc(i32)(100);
-  assert(use_id(i) == i, "use_id should return the same i32 value");
-  assert(use_id(t) == t, "use_id should return the same bool value");
-  assert(use_id(f) == f, "use_id should return the same bool value");
-  bi_ret := use_id(bi);
+  assert(use_id(&i) == i, "use_id should return the same i32 value");
+  assert(use_id(&t) == t, "use_id should return the same bool value");
+  assert(use_id(&f) == f, "use_id should return the same bool value");
+  bi_ret := use_id(&bi);
   assert(bi_ret.* == bi.*, "use_id should return the same Boxed i32 value");
-  assert(use_id(bi).* == bi.*, "use_id should return the same Boxed i32 value");
+  assert(use_id(&bi).* == bi.*, "use_id should return the same Boxed i32 value");
 });
 test("Test fn return Impl that expects error", {
   comptime_expect_error(
@@ -205,9 +205,9 @@ use_trait_b_explicit :: (fn(generic(T : Type), self : &T, where(T <: TraitDisamb
 });
 test("Test trait method disambiguation with where-clause constraints", {
   p := DisambigPoint(10, 20);
-  assert(use_trait_a(p) == 10, "use_trait_a should dispatch to TraitDisambigA.get_number (returns x)");
-  assert(use_trait_b(p) == 20, "use_trait_b should dispatch to TraitDisambigB.get_number (returns y)");
-  assert(use_trait_b_explicit(p) == 20, "use_trait_b_explicit should dispatch to TraitDisambigB.get_number (returns y)");
+  assert(use_trait_a(&p) == 10, "use_trait_a should dispatch to TraitDisambigA.get_number (returns x)");
+  assert(use_trait_b(&p) == 20, "use_trait_b should dispatch to TraitDisambigB.get_number (returns y)");
+  assert(use_trait_b_explicit(&p) == 20, "use_trait_b_explicit should dispatch to TraitDisambigB.get_number (returns y)");
 });
 // Regression: issues/fixed/heterogeneous-eq-overload-dispatch.md.
 // A second same-name trait-method overload from a PARAMETRIC trait
@@ -390,7 +390,7 @@ impl(
   MrE,
   Eq(MrE)(
     (==) : (fn(lhs : &Self, rhs : &Self) -> bool)(
-      match(lhs, .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false), .Node(a) => match(rhs, .Node(b) => _mr_kids_eq(a, b), _ => false))
+      match(lhs, .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false), .Node(a) => match(rhs, .Node(b) => _mr_kids_eq(&a, &b), _ => false))
     ),
     (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(
       !(lhs == rhs)

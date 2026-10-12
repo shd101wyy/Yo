@@ -102,7 +102,7 @@ test("prologue and argument effects run once, in order", {
     )
   );
   log := ArrayList(i32).new();
-  v := io.await(_logged(log, _log_push(log, i32(1)), io), IoExn(io : io, exn : exn));
+  v := io.await(_logged(&log, _log_push(&mut log, i32(1)), io), IoExn(io : io, exn : exn));
   assert(v == i32(1), "the argument's value");
   assert(log.len() == usize(3), "three effects");
   assert(log.get(usize(0)).unwrap() == i32(1), "argument first");
@@ -164,7 +164,7 @@ test("a fused await in a cond arm", {
 _bound :: (fn(io : Io) -> Impl(Future(i32, IoExn)))(
   io.async(e => {
     f := _checked(i32(20), e.io);
-    v := e.io.await(f, e);
+    v := e.io.await(&f, e);
     v
   })
 );

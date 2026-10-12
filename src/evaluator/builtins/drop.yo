@@ -45,8 +45,8 @@ evaluate_drop :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
-  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
+  eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
   match(
     arg_info_opt,
     .Some(_) => (),
@@ -54,7 +54,7 @@ evaluate_drop :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_expr),
+            ast_expr_token(&arg_expr),
             String.from("___drop: failed to evaluate the argument expression.")
           )
         )
@@ -68,7 +68,7 @@ evaluate_drop :: (
       return(expr);
     }
   );
-  (cur_env : Environment) = expr_info_adopt_env(arg_info);
+  (cur_env : Environment) = expr_info_adopt_env(&arg_info);
   arg_type := arg_info.ty;
   variable_name_opt := arg_info.variable_name;
   // NOTE: When type_contains_rc_type is fully implemented, we need to handle:
@@ -87,13 +87,13 @@ evaluate_drop :: (
   match(
     variable_name_opt,
     .Some(vname) => {
-      set_variable_as_consumed(vname, ast_expr_token(arg_expr), cur_env, true, is_tv, exn);
+      set_variable_as_consumed(&vname, ast_expr_token(&arg_expr), &cur_env, true, is_tv, exn);
     },
     .None => ()
   );
-  out_info := new_expr_info(cur_env, t_unit());
+  out_info := new_expr_info(&cur_env, t_unit());
   // value is None (runtime) for the non-RC path
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_drop);

@@ -47,8 +47,8 @@ evaluate_dup :: (
       return(expr);
     }
   );
-  eval_arg := evaluate_expression_raw(arg_expr, env, ctx, exn);
-  arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(eval_arg));
+  eval_arg := evaluate_expression_raw(&arg_expr, env, ctx, exn);
+  arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&eval_arg));
   match(
     arg_info_opt,
     .Some(_) => (),
@@ -56,7 +56,7 @@ evaluate_dup :: (
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_expr),
+            ast_expr_token(&arg_expr),
             String.from("___dup: failed to evaluate the argument expression.")
           )
         )
@@ -70,11 +70,11 @@ evaluate_dup :: (
       return(expr);
     }
   );
-  (cur_env : Environment) = expr_info_adopt_env(arg_info);
+  (cur_env : Environment) = expr_info_adopt_env(&arg_info);
   arg_type := arg_info.ty;
   // Resolve a SomeT that carries a resolution.
   (concrete_type : TypeValue) = arg_type;
-  if(is_some_type(concrete_type), {
+  if(is_some_type(&concrete_type), {
     match(
       concrete_type,
       .SomeT({ resolution : dup_rc_cell }) => match(
@@ -101,22 +101,22 @@ evaluate_dup :: (
   // no evaluator-side ___dup methods are synthesized (ref-struct RC is
   // lowered directly in codegen, see evaluator/types/struct.yo) — structs
   // keep the simple path below.
-  if(type_contains_rc_type(concrete_type), {
+  if(type_contains_rc_type(&concrete_type), {
     dup_var_name := match(arg_info.variable_name, .Some(n) => n, .None => String.new());
     if(dup_var_name.len() > usize(0), {
       (dup_calls : ArrayList(String)) = ArrayList(String).new();
-      if(is_tuple_type(concrete_type), {
+      if(is_tuple_type(&concrete_type), {
         tup_fts := match(concrete_type, .Tuple(_, fts) => fts, _ => ArrayList(TypeValue).new());
         (dti : usize) = usize(0);
         while(dti < tup_fts.len(), {
           ft := match(tup_fts.get(dti), .Some(t) => t, .None => TypeValue.Unit);
-          if(type_contains_rc_type(ft), {
+          if(type_contains_rc_type(&ft), {
             dup_calls.push(`${BF_YO_DUP_TUPLE_ELEMENT}(${dup_var_name}, ${dti.to_string()})`);
           });
           dti = (dti + usize(1));
         });
       });
-      if(is_array_type(concrete_type), {
+      if(is_array_type(&concrete_type), {
         (arr_elem, arr_len, arr_lvar) := match(
           concrete_type,
           .Array(e, l, lv) => (e, l, lv),
@@ -124,7 +124,7 @@ evaluate_dup :: (
         );
         // Only compile-time-known lengths; a
         // pattern-era `length_var` means the length is not concrete — skip.
-        if(type_contains_rc_type(arr_elem) && (arr_lvar.len() == usize(0)), {
+        if(type_contains_rc_type(&arr_elem) && (arr_lvar.len() == usize(0)), {
           (dai : usize) = usize(0);
           while(dai < arr_len, {
             dup_calls.push(`${BF_YO_DUP_ARRAY_ELEMENT}(${dup_var_name}, ${dai.to_string()})`);
@@ -141,21 +141,21 @@ evaluate_dup :: (
           });
           match(
             dup_calls.get(dci),
-            .Some(c) => dup_code.push_string(c),
+            .Some(c) => dup_code.push_string(&c),
             .None => ()
           );
           dci = (dci + usize(1));
         });
         dup_code.push_str(")");
-        gen_expr := generate_expr_from_code(dup_code, exn);
-        evaluated_gen := evaluate_expression_raw(gen_expr, cur_env, ctx, exn);
+        gen_expr := generate_expr_from_code(&dup_code, exn);
+        evaluated_gen := evaluate_expression_raw(&gen_expr, &cur_env, ctx, exn);
         // Stamp the ORIGINAL `___dup(...)` node with the generated node's
         // info too (the new node is returned, and
         // stamping both keeps id-keyed readers of the original consistent).
         match(
-          expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_gen)),
+          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_gen)),
           .Some(gen_info) => {
-            expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), gen_info);
+            expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &gen_info);
           },
           .None => ()
         );
@@ -163,9 +163,9 @@ evaluate_dup :: (
       });
     });
   });
-  out_info := new_expr_info(cur_env, arg_type);
+  out_info := new_expr_info(&cur_env, &arg_type);
   // value is None (runtime)
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_dup);

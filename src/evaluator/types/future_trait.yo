@@ -69,7 +69,7 @@ _resolve_effect_arg :: (
   is_spread := (
     ast_expr_is_fn_call(effect_expr) &&
       ast_expr_is_fn_call_of(effect_expr, "...", .Some(usize(1))) &&
-        match(_future_args(effect_expr).get(usize(0)), .Some(a) => ast_expr_is_atom(a), .None => false)
+        match(_future_args(effect_expr).get(usize(0)), .Some(a) => ast_expr_is_atom(&a), .None => false)
   );
   cond(
     // `Future` takes exactly two arguments, the result type and ONE effect
@@ -91,11 +91,11 @@ _resolve_effect_arg :: (
     true => {
       // Individual effect type — evaluate it
       evaluated_expr := evaluate_expression_raw(effect_expr, env, ctx, exn);
-      info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_expr));
+      info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_expr));
       match(
         info_opt,
         .Some(info) => {
-          if(!is_type_value(info.value), {
+          if(!is_type_value(&info.value), {
             exn.throw(
               dyn(
                 format_error_message(
@@ -110,10 +110,10 @@ _resolve_effect_arg :: (
             .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
             .None => TypeValue.Unit
           );
-          label := _effect_label_for(effect_type, effect_expr);
+          label := _effect_label_for(&effect_type, effect_expr);
           out_labels.push(label);
           out_types.push(effect_type);
-          expr_info_adopt_env(info)
+          expr_info_adopt_env(&info)
         },
         .None => {
           exn.throw(
@@ -157,8 +157,8 @@ evaluate_future_type :: (
   });
   // Evaluate output type (first arg)
   element_type_expr := match(expr_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
-  evaluated_elem_expr := evaluate_expression_raw(element_type_expr, env, ctx, exn);
-  elem_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_elem_expr));
+  evaluated_elem_expr := evaluate_expression_raw(&element_type_expr, env, ctx, exn);
+  elem_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_elem_expr));
   elem_info := match(
     elem_info_opt,
     .Some(i) => i,
@@ -166,21 +166,21 @@ evaluate_future_type :: (
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(element_type_expr),
-            `Failed to evaluate the element type expression for Future:\n${ast_expr_to_string(element_type_expr)}`
+            ast_expr_token(&element_type_expr),
+            `Failed to evaluate the element type expression for Future:\n${ast_expr_to_string(&element_type_expr)}`
           )
         )
       );
       new_expr_info(env, TypeValue.Unit)
     }
   );
-  (env_mut : Environment) = expr_info_adopt_env(elem_info);
-  if(!is_type_value(elem_info.value), {
+  (env_mut : Environment) = expr_info_adopt_env(&elem_info);
+  if(!is_type_value(&elem_info.value), {
     exn.throw(
       dyn(
         format_error_message(
-          ast_expr_token(element_type_expr),
-          `Future type constructor expects a type as its first argument, but got:\n${ast_expr_to_string(element_type_expr)}`
+          ast_expr_token(&element_type_expr),
+          `Future type constructor expects a type as its first argument, but got:\n${ast_expr_to_string(&element_type_expr)}`
         )
       )
     );
@@ -203,15 +203,15 @@ evaluate_future_type :: (
         break;
       }
     );
-    env_mut = _resolve_effect_arg(effect_expr, env_mut, ctx, effect_labels, effect_types, exn);
+    env_mut = _resolve_effect_arg(&effect_expr, &env_mut, ctx, &mut effect_labels, &mut effect_types, exn);
     ei = (ei + usize(1));
   });
   // Build the FutureTraitT
-  future_type := t_future_trait(String.from(BK_FUTURE), output_type, effect_labels, effect_types);
+  future_type := t_future_trait(String.from(BK_FUTURE), &output_type, &effect_labels, &effect_types);
   // Set expr info
-  out_info := new_expr_info(env_mut, type_of_type(future_type));
-  out_info.value = .Some(create_type_value(future_type));
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  out_info := new_expr_info(&env_mut, type_of_type(&future_type));
+  out_info.value = .Some(create_type_value(&future_type));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });
 export(evaluate_future_type);

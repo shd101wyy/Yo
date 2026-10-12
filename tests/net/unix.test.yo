@@ -31,11 +31,11 @@ test("bind, connect, accept, echo round-trip", {
   e := IoExn(io : io, exn : exn);
   path := _sock("echo.sock");
   // A run that died before its cleanup leaves the socket file behind.
-  _remove_stale(path, io);
-  listener := io.await(UnixListener.bind(path, io), e);
+  _remove_stale(&path, io);
+  listener := io.await(UnixListener.bind(&path, io), e);
   assert(listener.fd() >= i32(0), "listener fd valid");
   assert(listener.local_path().contains(`yo_unix_echo.sock`), "local_path");
-  client := io.await(UnixStream.connect(path, io), e);
+  client := io.await(UnixStream.connect(&path, io), e);
   server := io.await(listener.accept(io), e);
   assert(server.fd() >= i32(0), "accepted fd valid");
   n := io.await(client.write_str("héllo unix", io), e);
@@ -54,7 +54,7 @@ test("bind, connect, accept, echo round-trip", {
   while(j < got, j = (j + usize(1)), {
     reply.push(buf(j));
   });
-  wn := io.await(server.write_bytes(reply, io), e);
+  wn := io.await(server.write_bytes(&reply, io), e);
   assert(wn == usize(11), "echoed 11");
   buf2 := ArrayList(u8).new();
   (k : usize) = usize(0);
@@ -66,7 +66,7 @@ test("bind, connect, accept, echo round-trip", {
   io.await(server.close(io), e);
   io.await(client.close(io), e);
   io.await(listener.close(io), e);
-  io.await(remove_file(path, io), e);
+  io.await(remove_file(&path, io), e);
 });
 test("UnixStream satisfies the Reader/Writer bounds (D5)", {
   taker_r :: (fn(generic(R : Type), r : &R, where(R <: Reader)) -> bool)(true);
@@ -75,8 +75,8 @@ test("UnixStream satisfies the Reader/Writer bounds (D5)", {
   match(
     fake(),
     .Some(s) => {
-      assert(taker_r(s), "UnixStream satisfies Reader");
-      assert(taker_w(s), "UnixStream satisfies Writer");
+      assert(taker_r(&s), "UnixStream satisfies Reader");
+      assert(taker_w(&s), "UnixStream satisfies Writer");
     },
     .None => ()
   );
@@ -98,8 +98,8 @@ test("binding an existing path throws AddressInUse", {
   );
   e := IoExn(io : io, exn : e0);
   path := _sock("dup.sock");
-  _remove_stale(path, io);
-  first := io.await(UnixListener.bind(path, io), e);
+  _remove_stale(&path, io);
+  first := io.await(UnixListener.bind(&path, io), e);
   exn := Exception(
     throw : (
       err -> {
@@ -109,7 +109,7 @@ test("binding an existing path throws AddressInUse", {
       }
     )
   );
-  second := io.await(UnixListener.bind(path, io), IoExn(io : io, exn : exn));
+  second := io.await(UnixListener.bind(&path, io), IoExn(io : io, exn : exn));
   assert(false, "second bind must throw");
 });
 test("dup.sock cleanup", {
@@ -163,15 +163,15 @@ test("a UnixStream write to a peer that has closed throws instead of killing the
   e := IoExn(io : io, exn : exn);
   path := _sock("sigpipe.sock");
   // A run killed by the very SIGPIPE this pins leaves its socket file behind.
-  _remove_stale(path, io);
-  listener := io.await(UnixListener.bind(path, io), e);
-  client := io.await(UnixStream.connect(path, io), e);
+  _remove_stale(&path, io);
+  listener := io.await(UnixListener.bind(&path, io), e);
+  client := io.await(UnixStream.connect(&path, io), e);
   server := io.await(listener.accept(io), e);
   io.await(client.close(io), e);
-  assert(_unix_write_until_error(server, io), "a write to the closed peer reported an error");
+  assert(_unix_write_until_error(&server, io), "a write to the closed peer reported an error");
   io.await(server.close(io), e);
   io.await(listener.close(io), e);
-  io.await(remove_file(path, io), e);
+  io.await(remove_file(&path, io), e);
 });
 // The same from the connecting end, which `connect` (not `accept`) makes safe
 // for the stream-write op.
@@ -186,13 +186,13 @@ test("a connected UnixStream write to an accepted peer that has closed throws in
   );
   e := IoExn(io : io, exn : exn);
   path := _sock("sigpipe-client.sock");
-  _remove_stale(path, io);
-  listener := io.await(UnixListener.bind(path, io), e);
-  client := io.await(UnixStream.connect(path, io), e);
+  _remove_stale(&path, io);
+  listener := io.await(UnixListener.bind(&path, io), e);
+  client := io.await(UnixStream.connect(&path, io), e);
   server := io.await(listener.accept(io), e);
   io.await(server.close(io), e);
-  assert(_unix_write_until_error(client, io), "a write to the closed peer reported an error");
+  assert(_unix_write_until_error(&client, io), "a write to the closed peer reported an error");
   io.await(client.close(io), e);
   io.await(listener.close(io), e);
-  io.await(remove_file(path, io), e);
+  io.await(remove_file(&path, io), e);
 });

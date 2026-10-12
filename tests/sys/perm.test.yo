@@ -14,7 +14,7 @@ dir :: import("std/sys/dir");
 { temp_dir, path_join } :: import("../helper");
 test("access F_OK R_OK W_OK on existing file", {
   tmp := temp_dir();
-  p := path_join(tmp, `yo_perm_test.txt`);
+  p := path_join(&tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
   write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
@@ -40,7 +40,7 @@ test("access on nonexistent file returns -ENOENT", {
 });
 test("chmodat changes and restores permissions", {
   tmp := temp_dir();
-  p := path_join(tmp, `yo_perm_test.txt`);
+  p := path_join(&tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
   write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
@@ -68,7 +68,7 @@ test("chmodat changes and restores permissions", {
 });
 test("fchmod by fd sets executable bit", {
   tmp := temp_dir();
-  p := path_join(tmp, `yo_perm_test.txt`);
+  p := path_join(&tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
   write_flags := (O_WRONLY | O_CREAT | O_TRUNC);
@@ -101,7 +101,7 @@ test("chmodat on nonexistent file returns -ENOENT", {
 });
 test("fchown with -1 -1 succeeds (no change)", {
   tmp := temp_dir();
-  p := path_join(tmp, `yo_perm_test.txt`);
+  p := path_join(&tmp, `yo_perm_test.txt`);
   c := p.to_cstr();
   test_path := c.ptr().unwrap();
   write_flags := (O_WRONLY | O_CREAT | O_TRUNC);

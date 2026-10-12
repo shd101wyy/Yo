@@ -650,7 +650,7 @@ x : i32;
 // print(x);  // ERROR: variable 'x' is not initialized
 asm("mov {0}, $42", out(reg, x));
 
-print(x); // OK: x is now initialized by asm
+print(&x); // OK: x is now initialized by asm
 ```
 
 **Variable-target outputs do NOT contribute to the return type.** Only return-value outputs and `inout` operands determine the return type.

@@ -49,10 +49,10 @@ comptime_expect_error(
 // stays legal (`std/sync/mutex.yo` is the live std precedent).
 test("callback-style ref params remain legal", {
   with_x :: (fn(p : &mut Point, body : &Impl(Fn(v : &mut i32) -> i32)) -> i32)(
-    body(p.x)
+    body(&mut p.x)
   );
   pt := Point(x : i32(21), y : i32(0));
-  doubled := with_x(pt, v => (v + v));
+  doubled := with_x(&mut pt, v => (v + v));
   assert(doubled == i32(42), "callback received the field by ref");
 });
 
@@ -64,7 +64,7 @@ test("returning the value instead of a ref", {
     h.s
   );
   h := Holder(s : String.from("hello"));
-  s := get_s(h);
+  s := get_s(&h);
   s.push_str(" world");
   assert(h.s == "hello world", "returned handle mutates the same object");
 });

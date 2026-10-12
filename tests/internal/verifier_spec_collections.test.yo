@@ -51,7 +51,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -69,11 +69,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
@@ -108,9 +108,9 @@ test("Seq identities prove (unit/append/len)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/spec_seq.yo"), io, true);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "ok", `seq_len_two proves, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "ok", `seq_len_two proves, got: [${_reports_dump(&reports)}]`);
 });
 
 test("Multiset counts prove (single + add = 2)", {
@@ -118,8 +118,8 @@ test("Multiset counts prove (single + add = 2)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/spec_multiset.yo"), io, true);
-  rp := _first(reports);
-  assert(rp.outcome == "ok", `ms_counts proves, got: [${_reports_dump(reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "ok", `ms_counts proves, got: [${_reports_dump(&reports)}]`);
 });
 
 test("a WRONG Multiset count REFUTES (== 3)", {
@@ -127,8 +127,8 @@ test("a WRONG Multiset count REFUTES (== 3)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/spec_multiset_false.yo"), io, true);
-  rp := _first(reports);
-  assert(rp.outcome == "refuted", `ms_wrong refutes (the Array encoding is real), got: [${_reports_dump(reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "refuted", `ms_wrong refutes (the Array encoding is real), got: [${_reports_dump(&reports)}]`);
 });
 
 test("Set membership proves (add twice is still present)", {
@@ -136,8 +136,8 @@ test("Set membership proves (add twice is still present)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/spec_set.yo"), io, true);
-  rp := _first(reports);
-  assert(rp.outcome == "ok", `set_has proves, got: [${_reports_dump(reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "ok", `set_has proves, got: [${_reports_dump(&reports)}]`);
 });
 
 test("str content proves as Seq(u8) (length + element)", {
@@ -145,6 +145,6 @@ test("str content proves as Seq(u8) (length + element)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/spec_str_bytes.yo"), io, true);
-  rp := _first(reports);
-  assert(rp.outcome == "ok", `str_content proves, got: [${_reports_dump(reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "ok", `str_content proves, got: [${_reports_dump(&reports)}]`);
 });

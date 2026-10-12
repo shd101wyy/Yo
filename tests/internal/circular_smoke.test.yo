@@ -6,7 +6,7 @@
 { assert, panic } :: import("std/assert");
 test("Circular type↔value: type_for_value(IntV) → IntT", {
   v := ValueB.IntV(i32(7));
-  t := type_for_value(v);
+  t := type_for_value(&v);
   match(
     t,
     .IntT => assert(true, "expected IntT"),
@@ -28,11 +28,11 @@ test("Circular type↔value: round-trip through both directions", {
   // type, then ask for its type again — checking that both halves of the
   // cycle behave consistently.
   declared := TypeShape.FuncT(`result_int`);
-  v := default_value(declared);
+  v := default_value(&declared);
   match(
     v,
     .FnV(stored) => {
-      derived := type_for_value(v);
+      derived := type_for_value(&v);
       match(
         derived,
         .FuncT(name) => assert(name == `result_int`, "name should round-trip"),

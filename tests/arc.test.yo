@@ -41,7 +41,7 @@ test("Test Arc passed to function", {
   Counter :: struct(count : i32);
   read_arc :: (fn(a : &Arc(Counter)) -> i32)(a.*.count);
   c := arc(Counter(i32(50)));
-  result := read_arc(c);
+  result := read_arc(&c);
   assert(result == 50);
   // c is still valid after passing to function (Arc copies on pass)
   assert(c.*.count == 50);

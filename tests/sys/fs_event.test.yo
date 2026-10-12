@@ -33,7 +33,7 @@ test("fs_event init/start/stop", {
 });
 test("fs_event detects file creation", {
   dir_str := temp_dir();
-  test_file := path_join(dir_str, `yo_test_fs_event_create.txt`);
+  test_file := path_join(&dir_str, `yo_test_fs_event_create.txt`);
   test_file_c := test_file.to_cstr();
   test_file_path := test_file_c.ptr().unwrap();
   // Clean up from previous runs
@@ -69,7 +69,7 @@ test("fs_event detects file creation", {
 });
 test("fs_event detects file modification", {
   dir_str := temp_dir();
-  test_file := path_join(dir_str, `yo_test_fs_event_modify.txt`);
+  test_file := path_join(&dir_str, `yo_test_fs_event_modify.txt`);
   test_file_c := test_file.to_cstr();
   test_file_path := test_file_c.ptr().unwrap();
   // Create the file first
@@ -110,7 +110,7 @@ test("fs_event detects file modification", {
 });
 test("fs_event stop prevents further callbacks", {
   dir_str := temp_dir();
-  test_file := path_join(dir_str, `yo_test_fs_event_stopped.txt`);
+  test_file := path_join(&dir_str, `yo_test_fs_event_stopped.txt`);
   test_file_c := test_file.to_cstr();
   test_file_path := test_file_c.ptr().unwrap();
   // Clean up from previous runs
@@ -144,7 +144,7 @@ test("fs_event stop prevents further callbacks", {
 });
 test("fs_event detects file deletion", {
   dir_str := temp_dir();
-  test_file := path_join(dir_str, `yo_test_fs_event_delete.txt`);
+  test_file := path_join(&dir_str, `yo_test_fs_event_delete.txt`);
   test_file_c := test_file.to_cstr();
   test_file_path := test_file_c.ptr().unwrap();
   // Create the file first
@@ -189,7 +189,7 @@ test("a deleted watch directory reports the deletion once, not on every tick", {
   cond(
     ((platform == Platform.Macos) || (platform == Platform.Linux)) => {
       dir_str := temp_dir();
-      watch := path_join(dir_str, `yo_fs_event_deleted_dir`);
+      watch := path_join(&dir_str, `yo_fs_event_deleted_dir`);
       watch_c := watch.to_cstr();
       watch_path := watch_c.ptr().unwrap();
       // Clean up any leftover from a previous run, then create fresh.

@@ -323,7 +323,7 @@ test("Channel send from pool task recv from main", {
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  spawn(pool, io => {
+  spawn(&pool, io => {
     _ := ch.send(i32(42));
     wg.done();
   });
@@ -338,7 +338,7 @@ test("Channel pool task sends multiple values", {
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(1));
-  spawn(pool, io => {
+  spawn(&pool, io => {
     _ := ch.send(i32(10));
     _ := ch.send(i32(20));
     _ := ch.send(i32(30));
@@ -485,9 +485,9 @@ test("Receiver.try_recv is Empty while open and Disconnected once senders are go
 test("send fails once the Receiver has been dropped", {
   // Rust's SendError: the value that could not be sent comes back.
   ch := Channel(i32).new(usize(1));
-  tx := Sender(i32)._attach(ch);
+  tx := Sender(i32)._attach(&ch);
   {
-    rx := Receiver(i32)._attach(ch);
+    rx := Receiver(i32)._attach(&ch);
     assert(rx.len() == usize(0), "nothing buffered");
   };
   match(
@@ -525,7 +525,7 @@ test("dropping the last Sender wakes a Receiver already blocked in recv", {
     // already-closed fast path.
     sleep_blocking(Duration.from_millis(i64(50)));
   };
-  answer := _recv_within(verdict, i64(3000));
+  answer := _recv_within(&verdict, i64(3000));
   assert(
     match(answer, .Some(v) => (v == i32(-1)), .None => false),
     "the blocked recv woke up Disconnected when the last sender dropped"
@@ -557,9 +557,9 @@ test("buffered values reach a blocked Receiver before the disconnect", {
     assert(tx.send(i32(21)).is_ok(), "sent while the consumer is parked");
     assert(tx.send(i32(22)).is_ok(), "and a second one");
   };
-  v1 := _recv_within(verdict, i64(3000));
-  v2 := _recv_within(verdict, i64(3000));
-  v3 := _recv_within(verdict, i64(3000));
+  v1 := _recv_within(&verdict, i64(3000));
+  v2 := _recv_within(&verdict, i64(3000));
+  v3 := _recv_within(&verdict, i64(3000));
   assert(match(v1, .Some(v) => (v == i32(21)), .None => false), "21 arrived");
   assert(match(v2, .Some(v) => (v == i32(22)), .None => false), "22 arrived");
   assert(match(v3, .Some(v) => (v == i32(-1)), .None => false), "and only then the disconnect");

@@ -85,8 +85,8 @@ name_of :: (fn(d : &Dog) -> String)(d.name());
 impl(Dog, Greeter(name : (fn(self : &Self) -> String)(self.n.clone())));
 test("trait default and trait method from an impl below the caller", {
   d := Dog(n : `rex`);
-  assert(say_hi(d) == "hi rex", "greet default");
-  assert(name_of(d) == "rex", "name");
+  assert(say_hi(&d) == "hi rex", "greet default");
+  assert(name_of(&d) == "rex", "name");
 });
 // ---------- static method from an impl below the caller ----------
 make_dog :: (fn() -> Dog)(Dog.with_name(`fido`));
@@ -117,7 +117,7 @@ impl(
 );
 test("methods from two later impl blocks, used by a free function and another type's impl", {
   c := Counter(v : i32(1));
-  assert(twice_then_thrice(c) == i32(7), "3 + 4");
+  assert(twice_then_thrice(&c) == i32(7), "3 + 4");
   assert(Wrapper(c : c).total() == i32(6), "2 + 4");
 });
 // ---------- impl whose receiver type is defined below it ----------
@@ -156,7 +156,7 @@ impl(
       match(
         lhs,
         .Leaf(x) => match(rhs, .Leaf(y) => (x == y), _ => false),
-        .Node(a) => match(rhs, .Node(b) => _kids_eq(a, b), _ => false)
+        .Node(a) => match(rhs, .Node(b) => _kids_eq(&a, &b), _ => false)
       )
     ),
     (!=) : (fn(lhs : &Self, rhs : &Self) -> bool)(!(lhs == rhs))
@@ -186,8 +186,8 @@ test("list elements of a recursive struct compare through its later Eq impl", {
   xs.push(Branch(v : i32(1), kids : ArrayList(Branch).new()));
   ys := ArrayList(Branch).new();
   ys.push(Branch(v : i32(2), kids : ArrayList(Branch).new()));
-  assert(_first_differs(xs, ys), "1 != 2");
-  assert(!_first_differs(xs, xs), "1 == 1");
+  assert(_first_differs(&xs, &ys), "1 != 2");
+  assert(!_first_differs(&xs, &xs), "1 == 1");
 });
 // ---------- a member calling a trait method from a later impl of its own type ----------
 // issues/fixed/a-member-cannot-call-a-trait-method-from-a-later-impl-of-its-type.md

@@ -60,7 +60,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -78,11 +78,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
@@ -117,9 +117,9 @@ test("a universally-quantified post-condition proves (positive_floor)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/quantifier_forall.yo"), io, true);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "ok", `positive_floor proves, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "ok", `positive_floor proves, got: [${_reports_dump(&reports)}]`);
 });
 
 test("a FALSE universally-quantified post-condition REFUTES (off_by_one)", {
@@ -127,9 +127,9 @@ test("a FALSE universally-quantified post-condition REFUTES (off_by_one)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/quantifier_false.yo"), io, true);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "refuted", `off_by_one refutes, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "refuted", `off_by_one refutes, got: [${_reports_dump(&reports)}]`);
 });
 
 test("inout params verify two-state (inout_bump proves)", {
@@ -137,9 +137,9 @@ test("inout params verify two-state (inout_bump proves)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/inout_two_state.yo"), io, true);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "ok", `inout_bump proves, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "ok", `inout_bump proves, got: [${_reports_dump(&reports)}]`);
 });
 
 test("inout old/current are DISTINCT states (inout_nochange REFUTES)", {
@@ -147,16 +147,16 @@ test("inout old/current are DISTINCT states (inout_nochange REFUTES)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/inout_two_state_wrong.yo"), io, true);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "refuted", `inout_nochange refutes, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "refuted", `inout_nochange refutes, got: [${_reports_dump(&reports)}]`);
 });
 
 test("==> outside ghost context is a compile error (solver-free)", {
   reports := _load_reports(String.from("./tests/spec/fixtures/negative/ghost_gate_runtime.yo"), io, false);
-  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  rp := _first(reports);
-  assert(rp.outcome == "subset-error", `runtime_implies is gated, got: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(1), `one function, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  rp := _first(&reports);
+  assert(rp.outcome == "subset-error", `runtime_implies is gated, got: [${_reports_dump(&reports)}]`);
   assert(
     rp.subset_construct.contains(String.from("ghost-only builtin")) || rp.subset_construct.contains(String.from("definition-time evaluation failed")),
     `the report names the ghost gate (possibly via the def-eval chain), got: ${rp.subset_construct}`
@@ -178,7 +178,7 @@ test("the encoding emits a raw-spelling SMT forall (solver-free)", {
   targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel.clone(), std_path.clone(), true, io, exn);
@@ -216,7 +216,7 @@ test("the encoding emits a raw-spelling SMT forall (solver-free)", {
     match(
       res.obligations.get(oi),
       .Some(obl) => {
-        scripts.write_string(encode_script(obl.query, default_encode_options()));
+        scripts.write_string(encode_script(&obl.query, default_encode_options()));
       },
       .None => ()
     );

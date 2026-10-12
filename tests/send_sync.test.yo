@@ -190,7 +190,7 @@ test("a move-only capture crosses spawn(pool, …) and disposes once", {
   {
     pool := ThreadPool.new(usize(1));
     f := _SsFd(fd : i32(4));
-    spawn(pool, io => {
+    spawn(&pool, io => {
       assert(f.fd == i32(4), "the worker saw the moved value");
       ()
     });

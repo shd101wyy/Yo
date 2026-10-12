@@ -39,18 +39,18 @@ test("downcast recovers the value, which is what is(T) tests for", {
 });
 test("Context renders its message ahead of the cause", {
   (inner : AnyError) = dyn(NotFound(path : `cfg.toml`));
-  c := Context.new(`while loading the config`, inner);
+  c := Context.new(`while loading the config`, &inner);
   assert(c.to_string() == `while loading the config: no such file: cfg.toml`, "message, colon, cause");
 });
 test("Context nests, and each layer adds a prefix", {
   (inner : AnyError) = dyn(NotFound(path : `a`));
-  (one : AnyError) = dyn(Context.new(`reading`, inner));
-  two := Context.new(`starting up`, one);
+  (one : AnyError) = dyn(Context.new(`reading`, &inner));
+  two := Context.new(`starting up`, &one);
   assert(two.to_string() == `starting up: reading: no such file: a`, "the whole chain renders innermost last");
 });
 test("Context overrides source, and the cause is reachable inline", {
   (inner : AnyError) = dyn(Denied(who : `root`));
-  (c : AnyError) = dyn(Context.new(`connecting`, inner));
+  (c : AnyError) = dyn(Context.new(`connecting`, &inner));
   // Inline only: the result cannot be stored at Option(AnyError) — see the
   // module doc and the issue it points at.
   assert(match(c.source(), .Some(s) => (s.to_string() == `denied for root`), .None => false), "source yields the cause");
@@ -61,7 +61,7 @@ test("an error that does NOT override source reports none", {
 });
 test("AnyError.is sees Context itself, not its cause", {
   (inner : AnyError) = dyn(NotFound(path : `x`));
-  (c : AnyError) = dyn(Context.new(`ctx`, inner));
+  (c : AnyError) = dyn(Context.new(`ctx`, &inner));
   assert(c.is(Context), "the outer type");
   assert(!c.is(NotFound), "is(T) does NOT look through the chain, as in Rust");
 });

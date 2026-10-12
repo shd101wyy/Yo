@@ -522,24 +522,24 @@ impl(
     );
     dash := u8(45);
     colon := u8(58);
-    year := match(_digits(bs, usize(0), usize(4)), .Some(v) => v, .None => return(err(usize(0))));
-    if(!_byte_is(bs, usize(4), dash, dash), return(err(usize(4))));
-    month := match(_digits(bs, usize(5), usize(2)), .Some(v) => v, .None => return(err(usize(5))));
-    if(!_byte_is(bs, usize(7), dash, dash), return(err(usize(7))));
-    day := match(_digits(bs, usize(8), usize(2)), .Some(v) => v, .None => return(err(usize(8))));
+    year := match(_digits(&bs, usize(0), usize(4)), .Some(v) => v, .None => return(err(usize(0))));
+    if(!_byte_is(&bs, usize(4), dash, dash), return(err(usize(4))));
+    month := match(_digits(&bs, usize(5), usize(2)), .Some(v) => v, .None => return(err(usize(5))));
+    if(!_byte_is(&bs, usize(7), dash, dash), return(err(usize(7))));
+    day := match(_digits(&bs, usize(8), usize(2)), .Some(v) => v, .None => return(err(usize(8))));
     // 'T' | 't' | ' ' (the space form is an RFC 3339 §5.6 NOTE allowance).
-    sep_ok := (_byte_is(bs, usize(10), u8(84), u8(116)) || _byte_is(bs, usize(10), u8(32), u8(32)));
+    sep_ok := (_byte_is(&bs, usize(10), u8(84), u8(116)) || _byte_is(&bs, usize(10), u8(32), u8(32)));
     if(!sep_ok, return(err(usize(10))));
-    hour := match(_digits(bs, usize(11), usize(2)), .Some(v) => v, .None => return(err(usize(11))));
-    if(!_byte_is(bs, usize(13), colon, colon), return(err(usize(13))));
-    minute := match(_digits(bs, usize(14), usize(2)), .Some(v) => v, .None => return(err(usize(14))));
-    if(!_byte_is(bs, usize(16), colon, colon), return(err(usize(16))));
-    second := match(_digits(bs, usize(17), usize(2)), .Some(v) => v, .None => return(err(usize(17))));
+    hour := match(_digits(&bs, usize(11), usize(2)), .Some(v) => v, .None => return(err(usize(11))));
+    if(!_byte_is(&bs, usize(13), colon, colon), return(err(usize(13))));
+    minute := match(_digits(&bs, usize(14), usize(2)), .Some(v) => v, .None => return(err(usize(14))));
+    if(!_byte_is(&bs, usize(16), colon, colon), return(err(usize(16))));
+    second := match(_digits(&bs, usize(17), usize(2)), .Some(v) => v, .None => return(err(usize(17))));
     (at : usize) = usize(19);
     (nanos : i64) = i64(0);
     // Optional fraction: '.' then 1+ digits.
     cond(
-      _byte_is(bs, at, u8(46), u8(46)) => {
+      _byte_is(&bs, at, u8(46), u8(46)) => {
         at = (at + usize(1));
         (digits_seen : usize) = usize(0);
         (scale : i64) = i64(100000000);
@@ -567,14 +567,14 @@ impl(
     // Offset: 'Z'/'z' or ±HH:MM. REQUIRED by the grammar.
     (offset : i32) = i32(0);
     cond(
-      _byte_is(bs, at, u8(90), u8(122)) => {
+      _byte_is(&bs, at, u8(90), u8(122)) => {
         at = (at + usize(1));
       },
-      (_byte_is(bs, at, u8(43), u8(43)) || _byte_is(bs, at, dash, dash)) => {
-        neg := _byte_is(bs, at, dash, dash);
-        oh := match(_digits(bs, at + usize(1), usize(2)), .Some(v) => v, .None => return(err(at + usize(1))));
-        if(!_byte_is(bs, at + usize(3), colon, colon), return(err(at + usize(3))));
-        om := match(_digits(bs, at + usize(4), usize(2)), .Some(v) => v, .None => return(err(at + usize(4))));
+      (_byte_is(&bs, at, u8(43), u8(43)) || _byte_is(&bs, at, dash, dash)) => {
+        neg := _byte_is(&bs, at, dash, dash);
+        oh := match(_digits(&bs, at + usize(1), usize(2)), .Some(v) => v, .None => return(err(at + usize(1))));
+        if(!_byte_is(&bs, at + usize(3), colon, colon), return(err(at + usize(3))));
+        om := match(_digits(&bs, at + usize(4), usize(2)), .Some(v) => v, .None => return(err(at + usize(4))));
         if(om > i64(59), return(Result(DateTime, DateTimeError).Err(DateTimeError.OutOfRange(field : "offset"))));
         raw := i32((oh * i64(3600)) + (om * i64(60)));
         offset = cond(neg => (i32(0) - raw), true => raw);

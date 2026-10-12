@@ -40,7 +40,7 @@ test("NonZero(i32) is a usable parameter type; check_non_zero is the runtime gat
   safe_div :: (fn(num : i32, denom : &NonZero(i32)) -> i32)(num / denom);
   match(
     check_non_zero(i32(2)),
-    .Some(d) => assert(safe_div(i32(10), d) == i32(5), "10/2 == 5 through the gate"),
+    .Some(d) => assert(safe_div(i32(10), &d) == i32(5), "10/2 == 5 through the gate"),
     .None => assert(false, "2 is nonzero — the gate must pass it")
   );
   match(
@@ -54,7 +54,7 @@ test("Bounded(T, lo, hi) gates both ends at runtime", {
   in_range :: (fn(x : &Bounded(i32, i32(0), i32(100))) -> i32)(x);
   match(
     check_bounded(i32(50), i32(0), i32(100)),
-    .Some(v) => assert(in_range(v) == i32(50), "50 in [0,100]"),
+    .Some(v) => assert(in_range(&v) == i32(50), "50 in [0,100]"),
     .None => assert(false, "50 is in [0,100]")
   );
   match(
@@ -70,17 +70,17 @@ test("Positive / Negative / NonNegative gates pass and reject correctly", {
   nn :: (fn(x : &NonNegative(i32)) -> i32)(x);
   match(
     check_positive(i32(7)),
-    .Some(v) => assert(pos(v) == i32(7), "Positive(i32) passthrough"),
+    .Some(v) => assert(pos(&v) == i32(7), "Positive(i32) passthrough"),
     .None => assert(false, "7 is positive")
   );
   match(
     check_negative(i32(-3)),
-    .Some(v) => assert(neg(v) == i32(-3), "Negative(i32) passthrough"),
+    .Some(v) => assert(neg(&v) == i32(-3), "Negative(i32) passthrough"),
     .None => assert(false, "-3 is negative")
   );
   match(
     check_non_negative(i32(0)),
-    .Some(v) => assert(nn(v) == i32(0), "NonNegative(i32) admits 0"),
+    .Some(v) => assert(nn(&v) == i32(0), "NonNegative(i32) admits 0"),
     .None => assert(false, "0 is non-negative")
   );
   match(
@@ -95,12 +95,12 @@ test("Even / Odd gates partition the integers", {
   o :: (fn(x : &Odd(i32)) -> i32)(x);
   match(
     check_even(i32(4)),
-    .Some(v) => assert(e(v) == i32(4), "Even(i32) passthrough"),
+    .Some(v) => assert(e(&v) == i32(4), "Even(i32) passthrough"),
     .None => assert(false, "4 is even")
   );
   match(
     check_odd(i32(3)),
-    .Some(v) => assert(o(v) == i32(3), "Odd(i32) passthrough"),
+    .Some(v) => assert(o(&v) == i32(3), "Odd(i32) passthrough"),
     .None => assert(false, "3 is odd")
   );
   match(
@@ -130,8 +130,8 @@ test("Refine(T, p) is the general constructor and composes over a refinement", {
   match(
     check_non_zero(i32(3)),
     .Some(nz3) => {
-      doubly := unchecked(odd_i32, nz3, addr_of(nz3));
-      assert(gated(doubly) == i32(3), "the composed refinement carries the value through");
+      doubly := unchecked(odd_i32, &nz3, addr_of(nz3));
+      assert(gated(&doubly) == i32(3), "the composed refinement carries the value through");
     },
     .None => assert(false, "3 is nonzero")
   );
@@ -140,9 +140,9 @@ test("Refine(T, p) is the general constructor and composes over a refinement", {
 test("unchecked is the trusted cast (no gate, no proof)", {
   non_zero_i32 :: ghost_fn((fn(x : &i32) -> bool)(x != i32(0)));
   v := i32(9);
-  blind := unchecked(non_zero_i32, v, addr_of(v));
+  blind := unchecked(non_zero_i32, &v, addr_of(v));
   use :: (fn(x : &NonZero(i32)) -> i32)(i32(81) / x);
-  assert(use(blind) == i32(9), "9/9 == 1 — the caller vouches for the predicate");
+  assert(use(&blind) == i32(9), "9/9 == 1 — the caller vouches for the predicate");
 });
 
 // A refined RESULT is still its inner type to operators and methods: a binder

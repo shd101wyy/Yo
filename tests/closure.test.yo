@@ -373,7 +373,7 @@ test("a generic's static -> Self constructor at a closure type", {
   (k : Impl(Fn() -> i32)) = (() => (n + i32(2)));
   e := _ClosureSlot(type_of(k)).empty(i32(3));
   assert(e.tag == i32(3), "the empty slot");
-  s := _ClosureSlot(type_of(k)).holding(i32(4), k);
+  s := _ClosureSlot(type_of(k)).holding(i32(4), &k);
   assert(s.tag == i32(4), "the holding slot");
   assert(match(s._f, .Some(g) => g(), .None => i32(0)) == i32(42), "the held closure ran");
 });
@@ -484,7 +484,7 @@ test("a closure local passed as an argument stays owned by the caller", {
   {
     p := CapPayload(n : i32(5));
     (c : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
-    assert(_cap_call(c) == i32(8), "the callee calls it");
+    assert(_cap_call(&c) == i32(8), "the callee calls it");
     assert(c(i32(1)) == i32(6), "the caller still owns a live closure");
   };
   assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
@@ -668,7 +668,7 @@ test("a closure returning Impl(Fn) through a nested Impl(Fn) slot", {
   assert(mk(i32(4))() == i32(9), "called directly");
   h := mk(i32(10));
   assert(h() == i32(21), "bound, then called");
-  assert(_nim_use(mk, i32(21)) == i32(43), "passed to a nested Impl(Fn) parameter");
+  assert(_nim_use(&mk, i32(21)) == i32(43), "passed to a nested Impl(Fn) parameter");
 });
 test("a function's Impl(Fn) result through a generic parameter releases its capture once", {
   before := g_cap_disposed;

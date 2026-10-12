@@ -113,23 +113,23 @@ test("a same-named impl member keeps its own receiver's doc comment", {
     )
   );
   tokens := tokenize(_twin_new_source(), `test.yo`, exn);
-  lookup := build_doc_lookup(extract_doc_comments(tokens));
-  impls := extract_impl_info_from_tokens(tokens, lookup);
+  lookup := build_doc_lookup(extract_doc_comments(&tokens));
+  impls := extract_impl_info_from_tokens(&tokens, &mut lookup);
   vs_methods := match(
     impls.get(`Vs`),
     .Some(e) => e.methods,
     .None => ArrayList(DocFunction).new()
   );
   assert(vs_methods.len() == usize(2), "Vs has new and get");
-  assert(_is_doc(_method_doc_of(vs_methods, `new`), `Make one.`), "Vs.new carries its own comment");
-  assert(_is_doc(_method_doc_of(vs_methods, `get`), `Read it.`), "and so does the unique member");
+  assert(_is_doc(_method_doc_of(&vs_methods, `new`), `Make one.`), "Vs.new carries its own comment");
+  assert(_is_doc(_method_doc_of(&vs_methods, `get`), `Read it.`), "and so does the unique member");
   rs_methods := match(
     impls.get(`Rs`),
     .Some(e) => e.methods,
     .None => ArrayList(DocFunction).new()
   );
   assert(
-    _is_doc(_method_doc_of(rs_methods, `new`), `Make a ref one.`),
+    _is_doc(_method_doc_of(&rs_methods, `new`), `Make a ref one.`),
     "Rs.new keeps its own comment instead of overwriting Vs.new's"
   );
 });
@@ -147,8 +147,8 @@ test("the impl scan records receiver-qualified doc keys for the registry lookups
     )
   );
   tokens := tokenize(_twin_new_source(), `test.yo`, exn);
-  lookup := build_doc_lookup(extract_doc_comments(tokens));
-  extract_impl_info_from_tokens(tokens, lookup);
+  lookup := build_doc_lookup(extract_doc_comments(&tokens));
+  extract_impl_info_from_tokens(&tokens, &mut lookup);
   assert(_is_doc(lookup.get(`Vs.new`), `Make one.`), "a qualified key for Vs.new");
   assert(_is_doc(lookup.get(`Rs.new`), `Make a ref one.`), "a qualified key for Rs.new");
   assert(_is_doc(lookup.get(`Vs.get`), `Read it.`), "a qualified key for the unique member");
@@ -167,15 +167,15 @@ test("a doc comment separated from the member by a plain note still attaches", {
     )
   );
   source := `impl(\n  Vs,\n  /// Make one.\n  // grouped under construction\n  new : (fn(x : i32) -> Self)(Self(x))\n);\n`;
-  tokens := tokenize(source, `test.yo`, exn);
-  lookup := build_doc_lookup(extract_doc_comments(tokens));
-  impls := extract_impl_info_from_tokens(tokens, lookup);
+  tokens := tokenize(&source, `test.yo`, exn);
+  lookup := build_doc_lookup(extract_doc_comments(&tokens));
+  impls := extract_impl_info_from_tokens(&tokens, &mut lookup);
   vs_methods := match(
     impls.get(`Vs`),
     .Some(e) => e.methods,
     .None => ArrayList(DocFunction).new()
   );
-  assert(_is_doc(_method_doc_of(vs_methods, `new`), `Make one.`), "the fallback still finds the comment");
+  assert(_is_doc(_method_doc_of(&vs_methods, `new`), `Make one.`), "the fallback still finds the comment");
 });
 // ---------------------------------------------------------------------------
 // build_doc_module_from_tokens — the DEGRADED (token-only) module shape
@@ -203,8 +203,8 @@ token_module_ :: (fn(source : &String) -> DocModule)({
   build_doc_module_from_tokens(
     String.from("fixture"),
     String.from("fixture"),
-    extract_doc_comments(tokens),
-    tokens
+    extract_doc_comments(&tokens),
+    &tokens
   )
 });
 /// The canonical shape: a documented struct (+field docs, +impl method), an
@@ -214,7 +214,7 @@ _token_fixture_source := String.from(
   "//! Fixture module.\n/// A documented point.\nPoint :: struct(\n  /// Horizontal coordinate.\n  x : i32,\n  /// Vertical coordinate.\n  y : i32\n);\nimpl(\n  Point,\n  /// Taxicab length.\n  taxicab : (fn(self : Self) -> i32)((self.x + self.y))\n);\n/// The kind of a shape.\nShapeKind :: enum(\n  /// A circle.\n  Circle,\n  /// A box.\n  Boxed(label : String)\n);\n/// Renderable things.\nRenderable :: trait(\n  /// Render to a string.\n  render : (fn(self : Self) -> String)\n);\n/// A real constant.\nMAX_COORD :: i32(1000);\n/// Not exported.\n_helper :: (fn() -> i32)(i32(1));\nexport(Point, ShapeKind, Renderable, MAX_COORD);\n"
 );
 test("token-only docs count exported top-level declarations, not members", {
-  m := token_module_(_token_fixture_source);
+  m := token_module_(&_token_fixture_source);
   // The one number run_doc sums: functions + types + traits + constants.
   // Members (x, y, taxicab, Circle, Boxed, render) and the unexported
   // `_helper` must NOT appear as standalone items.
@@ -226,7 +226,7 @@ test("token-only docs count exported top-level declarations, not members", {
   assert(match(c.doc, .Some(d) => (d == `A real constant.`), .None => false), "the constant keeps its doc");
 });
 test("token-only docs attach methods, fields and variants to their type", {
-  m := token_module_(_token_fixture_source);
+  m := token_module_(&_token_fixture_source);
   assert(m.types.len() == usize(2), `Point and ShapeKind are types, got ${m.types.len().to_string()}`);
   point := m.types(usize(0));
   assert(point.name == `Point`, `first type is Point, got '${point.name}'`);

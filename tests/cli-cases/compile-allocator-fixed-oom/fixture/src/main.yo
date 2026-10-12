@@ -53,7 +53,7 @@ main :: (fn(io : Io) -> unit)({
   // Parent: spawn the child, capture its output, print the panic line.
   _s := env.set(String.from("YO_FIXED_OOM_CHILD"), String.from("1"));
   argv := args();
-  cmd := Command.new(argv(usize(0)));
+  cmd := Command.new(&argv(usize(0)));
   out := io.await(cmd.output(io), IoExn(io : io, exn : exn));
   assert(!out.status.success(), "the OOM child must die, not exit 0");
   text := String.from_bytes(out.stderr);

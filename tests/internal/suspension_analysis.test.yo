@@ -115,7 +115,7 @@ test("extract_target_variable_id: non-assign parent => None", {
 test("extract_target_variable_id: := parent but get_info returns None => None", {
   // x := io.await(task, io)
   rhs := make_fncall_expr("io.await");
-  parent := make_assign_expr("x", rhs);
+  parent := make_assign_expr("x", &rhs);
   result := extract_target_variable_id(Option(AstExpr).Some(parent), get_info_none);
   // get_info_none returns None, so no variable info → result is None
   is_none := match(result, .None => true, .Some(_) => false);
@@ -127,7 +127,7 @@ test("extract_target_variable_id: := parent but get_info returns None => None", 
 test("analyze_suspension_points: atom body — no suspensions", {
   body := make_ident_expr("x");
   detector := make_noop_detector();
-  result := analyze_suspension_points(body, get_info_none, detector);
+  result := analyze_suspension_points(&body, get_info_none, &detector);
   assert(!result.has_suspensions, "no suspensions");
   assert(result.suspension_points.len() == usize(0), "no suspension points");
   assert(result.captured_variables.len() == usize(0), "no captured vars");
@@ -135,7 +135,7 @@ test("analyze_suspension_points: atom body — no suspensions", {
 test("analyze_suspension_points: fncall body — noop detector → 0 points", {
   body := make_fncall_expr("some_call");
   detector := make_noop_detector();
-  result := analyze_suspension_points(body, get_info_none, detector);
+  result := analyze_suspension_points(&body, get_info_none, &detector);
   assert(!result.has_suspensions, "no suspensions");
   assert(result.suspension_points.len() == usize(0), "noop detector adds nothing");
 });
@@ -146,7 +146,7 @@ test("analyze_suspension_points: fncall body — detect_all detector → 1 point
   // Body is a single FnCall: `io.await(task, io)`.
   body := make_fncall_expr("io.await");
   detector := make_detect_all_detector();
-  result := analyze_suspension_points(body, get_info_none, detector);
+  result := analyze_suspension_points(&body, get_info_none, &detector);
   // detect is called for the FnCall itself AND for the func atom (because walk_expr_
   // recurses into args after detect). But the func is an Atom, so detect is only
   // triggered once (for the FnCall). The func Atom goes to the Atom branch.
@@ -166,7 +166,7 @@ test("analyze_suspension_points: nested fncall — detect_all detects outer + in
     make_token(TokenKind.Identifier, "outer_call")
   );
   detector := make_detect_all_detector();
-  result := analyze_suspension_points(outer, get_info_none, detector);
+  result := analyze_suspension_points(&outer, get_info_none, &detector);
   // detect fires for both outer_call FnCall and inner_call FnCall → 2 points
   assert(result.suspension_points.len() == usize(2), "two suspension points");
 });
@@ -182,7 +182,7 @@ test("analyze_suspension_points: suspension point index is sequential", {
     make_token(TokenKind.Identifier, "b")
   );
   detector := make_detect_all_detector();
-  result := analyze_suspension_points(outer, get_info_none, detector);
+  result := analyze_suspension_points(&outer, get_info_none, &detector);
   sp0 := match(
     result.suspension_points.get(usize(0)),
     .None => {
@@ -205,6 +205,6 @@ test("analyze_suspension_points: suspension point index is sequential", {
 test("analyze_suspension_points: variable_id_remapping starts empty", {
   body := make_ident_expr("x");
   detector := make_noop_detector();
-  result := analyze_suspension_points(body, get_info_none, detector);
+  result := analyze_suspension_points(&body, get_info_none, &detector);
   assert(result.variable_id_remapping.len() == usize(0), "no remappings");
 });

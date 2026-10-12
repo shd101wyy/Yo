@@ -33,7 +33,7 @@ test("Test downcast AnyError to an error type this program never throws", {
     match(downcast(candidate, NeverThrownError), .Some(_) => true, .None => false)
   );
   (err : AnyError) = dyn(`plain message`);
-  assert(!is_never_thrown(err), "a never-thrown error type can never be inside an AnyError");
+  assert(!is_never_thrown(&err), "a never-thrown error type can never be inside an AnyError");
   match(
     downcast(err, NeverThrownError),
     .Some(_) => assert(false, "Expected None for a never-thrown error type"),
@@ -129,7 +129,7 @@ test("Test Exception with custom MathError enum", {
   assert(false, "Expected division by zero to throw an exception");
 });
 test("Test ResumableException throwing and catching with String", {
-  safe_divide :: (fn(x : i32, y : i32, exn : &ResumableException(i32)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
     cond(
       (y == i32(0)) => exn.throw(dyn(`division by zero`)),
       true => (x / y)
@@ -172,7 +172,7 @@ test("Test ResumableException with custom MathError enum", {
     )
   );
   impl(MathError, Error());
-  safe_divide :: (fn(x : i32, y : i32, exn : &ResumableException(i32)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
     cond(
       (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
       true => (x / y)
@@ -358,7 +358,7 @@ test("a local moved out through the return value is released when a throw unwind
 // an ordinary identifier, the error was swallowed, the body got no ExprInfos,
 // and codegen shipped an `abort()` stub that killed the process on the first
 // throw with no diagnostic anywhere.
-_bare_arrow_divide :: (fn(x : i32, y : i32, exn : &ResumableException(i32)) -> i32)(
+_bare_arrow_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(
     (y == i32(0)) => exn.throw(dyn(`division by zero`)),
     true => (x / y)

@@ -96,7 +96,7 @@ test("a re-exported type takes the declaring module's documentation", {
   // walk order, and must not let the bare entry claim the donor slot.
   modules.push(_module_with(`index`, _point(false, sig.clone())));
   modules.push(_module_with(`point`, _point(true, sig.clone())));
-  build_cross_references(modules);
+  build_cross_references(&modules);
   idx := match(modules.get(usize(0)), .Some(m) => m, .None => return(()));
   t := match(idx.types.get(usize(0)), .Some(x) => x, .None => return(()));
   assert(
@@ -121,7 +121,7 @@ test("a DIFFERENT type of the same name is not a donor", {
   modules := ArrayList(DocModule).new();
   modules.push(_module_with(`index`, _point(false, `Point :: struct(x : i32, y : i32)`)));
   modules.push(_module_with(`other`, _point(true, `Point :: struct(lat : f64, lon : f64)`)));
-  build_cross_references(modules);
+  build_cross_references(&modules);
   idx := match(modules.get(usize(0)), .Some(m) => m, .None => return(()));
   t := match(idx.types.get(usize(0)), .Some(x) => x, .None => return(()));
   assert(t.doc.is_none(), "no doc is taken from a type that merely shares the name");
@@ -133,9 +133,9 @@ test("a module that documents its own re-export keeps what it wrote", {
   own := _point(false, sig.clone());
   own.doc = Option(String).Some(`Re-exported here with a note of its own.`);
   modules := ArrayList(DocModule).new();
-  modules.push(_module_with(`index`, own));
+  modules.push(_module_with(`index`, &own));
   modules.push(_module_with(`point`, _point(true, sig.clone())));
-  build_cross_references(modules);
+  build_cross_references(&modules);
   idx := match(modules.get(usize(0)), .Some(m) => m, .None => return(()));
   t := match(idx.types.get(usize(0)), .Some(x) => x, .None => return(()));
   assert(

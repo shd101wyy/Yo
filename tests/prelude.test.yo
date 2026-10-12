@@ -344,13 +344,13 @@ test("float cmp is total: NaNs equal each other and sort after +inf", {
   one := f64(1.0);
   nan := (zero / zero);
   inf := (one / zero);
-  assert(match(nan.cmp(one), .Greater => true, _ => false), "NaN cmp 1.0 is Greater");
-  assert(match(one.cmp(nan), .Less => true, _ => false), "1.0 cmp NaN is Less");
-  assert(match(nan.cmp(nan), .Equal => true, _ => false), "NaN cmp NaN is Equal");
-  assert(match(inf.cmp(nan), .Less => true, _ => false), "+inf cmp NaN is Less");
-  assert(match(one.cmp(one), .Equal => true, _ => false), "1.0 cmp 1.0 is Equal");
+  assert(match(nan.cmp(&one), .Greater => true, _ => false), "NaN cmp 1.0 is Greater");
+  assert(match(one.cmp(&nan), .Less => true, _ => false), "1.0 cmp NaN is Less");
+  assert(match(nan.cmp(&nan), .Equal => true, _ => false), "NaN cmp NaN is Equal");
+  assert(match(inf.cmp(&nan), .Less => true, _ => false), "+inf cmp NaN is Less");
+  assert(match(one.cmp(&one), .Equal => true, _ => false), "1.0 cmp 1.0 is Equal");
   neg := -one;
-  assert(match(neg.cmp(one), .Less => true, _ => false), "-1.0 cmp 1.0 is Less");
+  assert(match(neg.cmp(&one), .Less => true, _ => false), "-1.0 cmp 1.0 is Less");
   zero32 := f32(0.0);
   nan32 := (zero32 / zero32);
   assert(match(nan32.cmp(f32(5.0)), .Greater => true, _ => false), "f32 NaN cmp is Greater");
@@ -361,12 +361,12 @@ test("float cmp is total: NaNs equal each other and sort after +inf", {
 test("float Hash is deleted — hashing a float is a compile error", {
   comptime_expect_error({
     f := f64(1.5);
-    h := hash_one(f);
+    h := hash_one(&mut f);
     consume(h);
   });
   comptime_expect_error({
     g := f32(1.5);
-    h2 := hash_one(g);
+    h2 := hash_one(&mut g);
     consume(h2);
   });
 });
@@ -397,7 +397,7 @@ test("Option completion: expect, is_some_and, inspect, take, replace", {
 test("Option zip and transpose", {
   a := Option(i32).Some(i32(1));
   b := Option(u8).Some(u8(2));
-  pair := a.zip(b);
+  pair := a.zip(&b);
   assert(pair.is_some(), "zip of two Somes is Some");
   p := pair.unwrap();
   assert((p._0 == i32(1)) && (p._1 == u8(2)), "zip pairs both values");
@@ -451,19 +451,19 @@ test("Option and Result order totally and hash consistently with Eq", {
   assert(two > one, "> works");
   assert(none <= none, "None <= None");
   assert(two >= two, ">= reflexive");
-  assert(match(none.cmp(one), .Less => true, _ => false), "cmp default via <");
-  assert(match(one.cmp(one), .Equal => true, _ => false), "cmp Equal");
-  assert(hash_one(one) == hash_one(Option(i32).Some(i32(1))), "equal options hash equally");
-  assert(hash_one(none) != hash_one(one), "None and Some(1) hash differently");
+  assert(match(none.cmp(&one), .Less => true, _ => false), "cmp default via <");
+  assert(match(one.cmp(&one), .Equal => true, _ => false), "cmp Equal");
+  assert(hash_one(&mut one) == hash_one(Option(i32).Some(i32(1))), "equal options hash equally");
+  assert(hash_one(&mut none) != hash_one(&mut one), "None and Some(1) hash differently");
   ok1 := Result(i32, u8).Ok(i32(1));
   ok2 := Result(i32, u8).Ok(i32(2));
   err0 := Result(i32, u8).Err(u8(0));
   assert(ok1 < ok2, "Ok orders by inner value");
   assert(ok2 < err0, "every Ok sorts before every Err");
   assert(err0 > ok1, "Err > Ok");
-  assert(match(ok1.cmp(err0), .Less => true, _ => false), "Result cmp default");
-  assert(hash_one(ok1) == hash_one(Result(i32, u8).Ok(i32(1))), "equal results hash equally");
-  assert(hash_one(ok1) != hash_one(err0), "Ok and Err hash differently");
+  assert(match(ok1.cmp(&err0), .Less => true, _ => false), "Result cmp default");
+  assert(hash_one(&mut ok1) == hash_one(Result(i32, u8).Ok(i32(1))), "equal results hash equally");
+  assert(hash_one(&mut ok1) != hash_one(&mut err0), "Ok and Err hash differently");
 });
 test("Option and Result to_string render variant and payload", {
   { println } :: import("std/fmt");
@@ -476,7 +476,7 @@ test("Option and Result to_string render variant and payload", {
   err := Result(i32, u8).Err(u8(2));
   assert(ok.to_string() == `Ok(1)`, "Ok renders payload");
   assert(err.to_string() == `Err(2)`, "Err renders payload");
-  println(some);
+  println(&some);
 });
 test("Rc Default holds the payload type's default", {
   b := Rc(i32).default();

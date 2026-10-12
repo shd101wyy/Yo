@@ -58,7 +58,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -76,11 +76,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 /// The same flow with a NONEXISTENT solver binary: any obligation that is
 /// not constant-folded reports solver-error; only CTFE-folded ones pass.
@@ -100,7 +100,7 @@ _load_reports_bogus_solver :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -113,7 +113,7 @@ _load_reports_bogus_solver :: (
   );
   assert(outcome.ok, `fixture ${rel_path} failed to load`);
   cfg := default_verify_run_config();
-  verify_and_strip_tasks(cfg, String.from("/nonexistent/z3-ctfe-probe"), take_verify_tasks())
+  verify_and_strip_tasks(&cfg, String.from("/nonexistent/z3-ctfe-probe"), take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
@@ -194,11 +194,11 @@ test("safe_div over refine(i32, non_zero) proves with no manual requires; a disc
   // vacuously.
   assert(
     reports.len() == usize(5),
-    `all five functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `all five functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(5),
-    `safe_div, caller_ok, by_alias (the NAMED-ALIAS spelling carries the refinement too), alias_caller and the predicate fn must all verify, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(5),
+    `safe_div, caller_ok, by_alias (the NAMED-ALIAS spelling carries the refinement too), alias_caller and the predicate fn must all verify, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -213,15 +213,15 @@ test("a caller passing an unconstrained value REFUTES at refine#N (the callee st
   );
   assert(
     reports.len() == usize(3),
-    `all three functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `all three functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("refuted")) == usize(1),
-    `caller_bad must refute at refine#1, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("refuted")) == usize(1),
+    `caller_bad must refute at refine#1, got: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(2),
-    `safe_div itself must stay ok (modular: one bad caller does not poison the callee), got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(2),
+    `safe_div itself must stay ok (modular: one bad caller does not poison the callee), got: [${_reports_dump(&reports)}]`
   );
   // The counter-example names the argument: d = 0.
   (names_d : bool) = false;
@@ -299,7 +299,7 @@ test("worked example: a refinement-typed index proves an array read in bounds", 
   });
   assert(
     (reports.len() == usize(3)) && (ok_n == usize(3)),
-    `first_of_8 (entry-assumed index in [0,8) discharges the AoRTE bound) and pick (refine#1 discharged from its requires) must verify alongside the predicate fn, got ${reports.len().to_string()} report(s), ${ok_n.to_string()} ok: [${_reports_dump(reports)}]`
+    `first_of_8 (entry-assumed index in [0,8) discharges the AoRTE bound) and pick (refine#1 discharged from its requires) must verify alongside the predicate fn, got ${reports.len().to_string()} report(s), ${ok_n.to_string()} ok: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -313,12 +313,12 @@ test("worked example twin: an under-constrained index refutes at refine#1", {
     true
   );
   assert(
-    _count_outcome(reports, String.from("refuted")) == usize(1),
-    `bad_pick must refute at refine#1, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("refuted")) == usize(1),
+    `bad_pick must refute at refine#1, got: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(2),
-    `the callee and predicate fn stay ok (modular), got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(2),
+    `the callee and predicate fn stay ok (modular), got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -340,7 +340,7 @@ test("refine#N with LITERAL arguments folds — proves and refutes with NO solve
   );
   assert(
     reports.len() == usize(4),
-    `all four functions report (predicate fn, takes_nz, lit_caller, lit_caller_bad), got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `all four functions report (predicate fn, takes_nz, lit_caller, lit_caller_bad), got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   // fn_ids carry path:line (no fn names) — the literal callers sit at
   // :12 (lit_caller, must PROVE from the folded 5 != 0) and :14
@@ -365,14 +365,14 @@ test("refine#N with LITERAL arguments folds — proves and refutes with NO solve
   });
   assert(
     lit_proved && lit_refuted,
-    `the literal caller must prove and the literal-zero caller must refute — WITHOUT a solver (both obligations constant-fold): [${_reports_dump(reports)}]`
+    `the literal caller must prove and the literal-zero caller must refute — WITHOUT a solver (both obligations constant-fold): [${_reports_dump(&reports)}]`
   );
   // V7 telemetry honesty: the folded obligations are NOT solver queries.
   // The whole fixture folded (a bogus solver path proved everything), so
   // the summary must read queries=0 / folded=2 — a fold-heavy run must
   // never read as solver load — and each folded obligation carries its
   // rendered goal (`--explain`'s VC display).
-  sum := summarize_verify_reports(reports);
+  sum := summarize_verify_reports(&reports);
   assert(
     (sum.queries == usize(0)) && (sum.folded == usize(2)),
     `summary must count the two folded refine#N obligations as folded, not queries: queries=${sum.queries.to_string()} folded=${sum.folded.to_string()}`
@@ -403,6 +403,6 @@ test("refine#N with LITERAL arguments folds — proves and refutes with NO solve
   });
   assert(
     goal_ok,
-    `every folded obligation carries its rendered goal (the VC display), got: [${_reports_dump(reports)}]`
+    `every folded obligation carries its rendered goal (the VC display), got: [${_reports_dump(&reports)}]`
   );
 });

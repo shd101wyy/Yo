@@ -178,13 +178,13 @@ test("WaitGroup with pool tasks", {
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(pool, io => {
+  spawn(&pool, io => {
     wg.done();
   });
-  spawn(pool, io => {
+  spawn(&pool, io => {
     wg.done();
   });
-  spawn(pool, io => {
+  spawn(&pool, io => {
     wg.done();
   });
   wg.wait();
@@ -195,15 +195,15 @@ test("WaitGroup with pool tasks and sleep", {
   wg := WaitGroup.new();
   pool := ThreadPool.new(usize(2));
   wg.add(i32(3));
-  spawn(pool, io => {
+  spawn(&pool, io => {
     sleep_blocking(Duration.from_millis(i64(10)));
     wg.done();
   });
-  spawn(pool, io => {
+  spawn(&pool, io => {
     sleep_blocking(Duration.from_millis(i64(20)));
     wg.done();
   });
-  spawn(pool, io => {
+  spawn(&pool, io => {
     sleep_blocking(Duration.from_millis(i64(30)));
     wg.done();
   });

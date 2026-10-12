@@ -53,7 +53,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -71,11 +71,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
@@ -111,13 +111,13 @@ test("a mutually recursive clique with decreases on every member PROVES", {
     io,
     true
   );
-  assert(reports.len() == usize(2), `both clique members verify, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(2), `both clique members verify, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   (i : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
       .Some(rp) => {
-        assert(rp.outcome == "ok", `every clique-edge decrease obligation proves, got: [${_reports_dump(reports)}]`);
+        assert(rp.outcome == "ok", `every clique-edge decrease obligation proves, got: [${_reports_dump(&reports)}]`);
       },
       .None => ()
     );
@@ -134,7 +134,7 @@ test("a clique edge WITHOUT a decrease REFUTES", {
     io,
     true
   );
-  assert(reports.len() == usize(2), `both functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(2), `both functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   (refuted : bool) = false;
   (i : usize) = usize(0);
   while(i < reports.len(), {
@@ -149,5 +149,5 @@ test("a clique edge WITHOUT a decrease REFUTES", {
     );
     i = (i + usize(1));
   });
-  assert(refuted, `the n < n edge must refute, got: [${_reports_dump(reports)}]`);
+  assert(refuted, `the n < n edge must refute, got: [${_reports_dump(&reports)}]`);
 });

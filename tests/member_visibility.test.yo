@@ -19,11 +19,11 @@ test("the public surface works from another directory", {
 });
 test("same-directory siblings may use private members", {
   c := sibling_build(i32(10));
-  assert(sibling_peek(c) == i32(10), "sibling reads the private field");
-  assert(sibling_bump(c, i32(1)).count() == i32(11), "sibling calls the private method");
-  assert(sibling_static_bump(c, i32(2)).count() == i32(12), "sibling calls it in static form");
-  assert(sibling_destructure(c) == i32(10), "sibling destructures the private field");
-  assert(sibling_spread(c) == i32(10), "sibling spreads the private field");
+  assert(sibling_peek(&c) == i32(10), "sibling reads the private field");
+  assert(sibling_bump(&c, i32(1)).count() == i32(11), "sibling calls the private method");
+  assert(sibling_static_bump(&c, i32(2)).count() == i32(12), "sibling calls it in static form");
+  assert(sibling_destructure(&c) == i32(10), "sibling destructures the private field");
+  assert(sibling_spread(&c) == i32(10), "sibling spreads the private field");
 });
 test("a private field is neither readable nor writable from another directory", {
   (c : Counter) = Counter.new(String.from("x"));

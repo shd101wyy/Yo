@@ -23,7 +23,7 @@
 _put :: (fn(root : &String, rel : &String, text : &String, io : Io, exn : Exception) -> unit)({
   path := Path.new(root).join(Path.new(rel));
   io.await(create_dir_all(path.parent().unwrap_or(Path.new(String.from("."))), io), IoExn(io : io, exn : exn));
-  io.await(write_string(path, text, io), IoExn(io : io, exn : exn));
+  io.await(write_string(&path, text, io), IoExn(io : io, exn : exn));
 });
 /// A directory with one loadable module and one that fails evaluation (an
 /// unbound name) but lexes fine, so the token-only fallback documents it.
@@ -106,7 +106,7 @@ test("a degraded module fails the run unless --allow-token-only is passed", {
   // The failure happens before rendering: a failed run must not leave a
   // plausible-looking doc site behind.
   json := Path.new(out.clone()).join(Path.new(String.from("doc.json")));
-  wrote := io.await(exists(json, io), io);
+  wrote := io.await(exists(&json, io), io);
   assert(!wrote, "no doc.json is written for a failed run");
 });
 test("--allow-token-only renders, with members on their types and no unexported items", {
@@ -123,9 +123,9 @@ test("--allow-token-only renders, with members on their types and no unexported 
   out := `${base}/out2`;
   run_doc(_doc_options(root.clone(), out.clone(), true), io, exn);
   json_path := Path.new(out.clone()).join(Path.new(String.from("doc.json")));
-  wrote := io.await(exists(json_path, io), io);
+  wrote := io.await(exists(&json_path, io), io);
   assert(wrote, "the opt-in run renders its output");
-  json := String.from_bytes(io.await(read(json_path, io), IoExn(io : io, exn : exn)));
+  json := String.from_bytes(io.await(read(&json_path, io), IoExn(io : io, exn : exn)));
   // The loadable module documents through the evaluator.
   assert(json.contains(String.from("\"name\": \"fine\"")), "ok.yo's export is documented");
   // The degraded module's type entry carries its own and its members' docs.
@@ -160,6 +160,6 @@ test("a fully loadable tree never needs the flag", {
   threw := _run_doc_catching(_doc_options(root.clone(), out.clone(), false), io);
   assert(threw.is_none(), "a clean tree must not throw");
   json := Path.new(out.clone()).join(Path.new(String.from("doc.json")));
-  wrote := io.await(exists(json, io), io);
+  wrote := io.await(exists(&json, io), io);
   assert(wrote, "the clean run renders normally");
 });

@@ -97,7 +97,7 @@ _valid_kind :: (fn(r : Result(unit, Utf8Error)) -> str)(
 /// round trip can be asserted in a single expression.
 _encoded_bytes :: (fn(code : u32) -> ArrayList(u8))({
   out := ArrayList(u8).new();
-  encode_lossy_into(code, out);
+  encode_lossy_into(code, &mut out);
   out
 });
 _at :: (fn(l : &ArrayList(u8), i : usize) -> u8)(
@@ -201,7 +201,7 @@ test("decode honours a non-zero start index", {
   b.push(u8(0xE2));
   b.push(u8(0x82));
   b.push(u8(0xAC));
-  r := decode(b, usize(1));
+  r := decode(&b, usize(1));
   assert(_kind(r) == "ok", "the euro sign at offset 1 decodes");
   assert(_code(r) == u32(0x20AC), "offset 1 is U+20AC");
   assert(_width(r) == usize(3), "offset 1 is 3 bytes wide");
@@ -216,8 +216,8 @@ test("decode rejects a continuation byte in first position", {
   b := ArrayList(u8).new();
   b.push(u8(0x41));
   b.push(u8(0x80));
-  assert(_kind(decode(b, usize(1))) == "InvalidStart", "a stray continuation byte after ASCII");
-  assert(_err_index(decode(b, usize(1))) == usize(1), "the error names byte 1");
+  assert(_kind(decode(&b, usize(1))) == "InvalidStart", "a stray continuation byte after ASCII");
+  assert(_err_index(decode(&b, usize(1))) == usize(1), "the error names byte 1");
 });
 test("decode rejects the always-overlong leads 0xC0 and 0xC1", {
   // The canonical overlong NUL and overlong '/' — both die at the lead byte.
@@ -274,7 +274,7 @@ test("Utf8Error carries the offset of the offending sequence", {
   b.push(u8(0x42));
   b.push(u8(0xE2));
   b.push(u8(0x82));
-  r := decode(b, usize(2));
+  r := decode(&b, usize(2));
   assert(_kind(r) == "UnexpectedEnd", "the tail is truncated");
   assert(_err_index(r) == usize(2), "the error names byte 2");
 });
@@ -336,7 +336,7 @@ test("decode_lossy terminates over a fully invalid buffer", {
   (i : usize) = usize(0);
   (seen : usize) = usize(0);
   while(i < b.len(), {
-    d := decode_lossy(b, i);
+    d := decode_lossy(&b, i);
     assert(d.code.to_u32() == u32(0xFFFD), "every byte becomes U+FFFD");
     assert(d.width > usize(0), "the width always advances");
     i = (i + d.width);
@@ -349,39 +349,39 @@ test("decode_lossy terminates over a fully invalid buffer", {
 // ============================================================================
 test("encode_into writes each width", {
   out := ArrayList(u8).new();
-  assert(encode_into(rune(char : u32(0x41)), out) == usize(1), "ASCII writes 1 byte");
-  assert(_at(out, usize(0)) == u8(0x41), "ASCII byte");
+  assert(encode_into(rune(char : u32(0x41)), &mut out) == usize(1), "ASCII writes 1 byte");
+  assert(_at(&out, usize(0)) == u8(0x41), "ASCII byte");
   out2 := ArrayList(u8).new();
-  assert(encode_into(rune(char : u32(0xE9)), out2) == usize(2), "U+00E9 writes 2 bytes");
-  assert(_at(out2, usize(0)) == u8(0xC3), "U+00E9 byte 0");
-  assert(_at(out2, usize(1)) == u8(0xA9), "U+00E9 byte 1");
+  assert(encode_into(rune(char : u32(0xE9)), &mut out2) == usize(2), "U+00E9 writes 2 bytes");
+  assert(_at(&out2, usize(0)) == u8(0xC3), "U+00E9 byte 0");
+  assert(_at(&out2, usize(1)) == u8(0xA9), "U+00E9 byte 1");
   out3 := ArrayList(u8).new();
-  assert(encode_into(rune(char : u32(0x20AC)), out3) == usize(3), "U+20AC writes 3 bytes");
-  assert(_at(out3, usize(0)) == u8(0xE2), "U+20AC byte 0");
-  assert(_at(out3, usize(1)) == u8(0x82), "U+20AC byte 1");
-  assert(_at(out3, usize(2)) == u8(0xAC), "U+20AC byte 2");
+  assert(encode_into(rune(char : u32(0x20AC)), &mut out3) == usize(3), "U+20AC writes 3 bytes");
+  assert(_at(&out3, usize(0)) == u8(0xE2), "U+20AC byte 0");
+  assert(_at(&out3, usize(1)) == u8(0x82), "U+20AC byte 1");
+  assert(_at(&out3, usize(2)) == u8(0xAC), "U+20AC byte 2");
   out4 := ArrayList(u8).new();
-  assert(encode_into(rune(char : u32(0x1F600)), out4) == usize(4), "U+1F600 writes 4 bytes");
-  assert(_at(out4, usize(0)) == u8(0xF0), "U+1F600 byte 0");
-  assert(_at(out4, usize(1)) == u8(0x9F), "U+1F600 byte 1");
-  assert(_at(out4, usize(2)) == u8(0x98), "U+1F600 byte 2");
-  assert(_at(out4, usize(3)) == u8(0x80), "U+1F600 byte 3");
+  assert(encode_into(rune(char : u32(0x1F600)), &mut out4) == usize(4), "U+1F600 writes 4 bytes");
+  assert(_at(&out4, usize(0)) == u8(0xF0), "U+1F600 byte 0");
+  assert(_at(&out4, usize(1)) == u8(0x9F), "U+1F600 byte 1");
+  assert(_at(&out4, usize(2)) == u8(0x98), "U+1F600 byte 2");
+  assert(_at(&out4, usize(3)) == u8(0x80), "U+1F600 byte 3");
 });
 test("encode appends rather than overwriting", {
   out := ArrayList(u8).new();
-  encode_into(rune(char : u32(0x41)), out);
-  encode_into(rune(char : u32(0x20AC)), out);
+  encode_into(rune(char : u32(0x41)), &mut out);
+  encode_into(rune(char : u32(0x20AC)), &mut out);
   assert(out.len() == usize(4), "1 + 3 bytes");
-  assert(_at(out, usize(0)) == u8(0x41), "the ASCII byte stays first");
-  assert(_at(out, usize(1)) == u8(0xE2), "the euro sign follows");
+  assert(_at(&out, usize(0)) == u8(0x41), "the ASCII byte stays first");
+  assert(_at(&out, usize(1)) == u8(0xE2), "the euro sign follows");
 });
 test("encode returns a fresh buffer", {
   b := encode(rune(char : u32(0x10FFFF)));
   assert(b.len() == usize(4), "U+10FFFF is 4 bytes");
-  assert(_at(b, usize(0)) == u8(0xF4), "U+10FFFF byte 0");
-  assert(_at(b, usize(1)) == u8(0x8F), "U+10FFFF byte 1");
-  assert(_at(b, usize(2)) == u8(0xBF), "U+10FFFF byte 2");
-  assert(_at(b, usize(3)) == u8(0xBF), "U+10FFFF byte 3");
+  assert(_at(&b, usize(0)) == u8(0xF4), "U+10FFFF byte 0");
+  assert(_at(&b, usize(1)) == u8(0x8F), "U+10FFFF byte 1");
+  assert(_at(&b, usize(2)) == u8(0xBF), "U+10FFFF byte 2");
+  assert(_at(&b, usize(3)) == u8(0xBF), "U+10FFFF byte 3");
 });
 test("encode/decode round-trips the boundary code points", {
   // Every width boundary, plus the two scalars bracketing the surrogate block.
@@ -402,7 +402,7 @@ test("encode/decode round-trips the boundary code points", {
   while(i < codes.len(), {
     cp := match(codes.get(i), .Some(c) => c, .None => u32(0));
     bytes := _encoded_bytes(cp);
-    back := decode(bytes, usize(0));
+    back := decode(&bytes, usize(0));
     assert(_kind(back) == "ok", "the round trip decodes");
     assert(_code(back) == cp, "the round trip preserves the code point");
     assert(_width(back) == bytes.len(), "the width matches the encoded length");
@@ -414,24 +414,24 @@ test("encode_lossy_into substitutes non-scalars", {
   // A lone surrogate must NOT come out as CESU-8.
   s := _encoded_bytes(u32(0xD800));
   assert(s.len() == usize(3), "U+FFFD is 3 bytes");
-  assert(_at(s, usize(0)) == u8(0xEF), "U+FFFD byte 0");
-  assert(_at(s, usize(1)) == u8(0xBF), "U+FFFD byte 1");
-  assert(_at(s, usize(2)) == u8(0xBD), "U+FFFD byte 2");
+  assert(_at(&s, usize(0)) == u8(0xEF), "U+FFFD byte 0");
+  assert(_at(&s, usize(1)) == u8(0xBF), "U+FFFD byte 1");
+  assert(_at(&s, usize(2)) == u8(0xBD), "U+FFFD byte 2");
   // ...and neither must a scalar above U+10FFFF.
   o := _encoded_bytes(u32(0x110000));
   assert(o.len() == usize(3), "out-of-range becomes U+FFFD");
-  assert(_at(o, usize(0)) == u8(0xEF), "out-of-range byte 0");
+  assert(_at(&o, usize(0)) == u8(0xEF), "out-of-range byte 0");
   // A legal scalar is passed through unchanged.
   k := _encoded_bytes(u32(0x20AC));
   assert(k.len() == usize(3), "U+20AC survives");
-  assert(_at(k, usize(0)) == u8(0xE2), "U+20AC byte 0");
+  assert(_at(&k, usize(0)) == u8(0xE2), "U+20AC byte 0");
 });
 test("encode_lossy_into output is always valid UTF-8", {
   out := ArrayList(u8).new();
-  encode_lossy_into(u32(0xD800), out);
-  encode_lossy_into(u32(0x41), out);
-  encode_lossy_into(u32(0x110000), out);
-  assert(_valid_kind(validate(out)) == "ok", "a lossy buffer still validates");
+  encode_lossy_into(u32(0xD800), &mut out);
+  encode_lossy_into(u32(0x41), &mut out);
+  encode_lossy_into(u32(0x110000), &mut out);
+  assert(_valid_kind(validate(&out)) == "ok", "a lossy buffer still validates");
 });
 // ============================================================================
 // Validation
@@ -463,7 +463,7 @@ test("validate walks past valid prefixes to the first bad byte", {
   b.push(u8(0xAC));
   b.push(u8(0x80));
   match(
-    validate(b),
+    validate(&b),
     .Ok(_) => assert(false, "the trailing 0x80 must be rejected"),
     .Err(e) => {
       assert(e.index() == usize(4), "the error names byte 4");
@@ -478,16 +478,16 @@ test("validate_range checks a sub-range and never reads past it", {
   b.push(u8(0x82));
   b.push(u8(0xAC));
   b.push(u8(0x42));
-  assert(_valid_kind(validate_range(b, usize(0), usize(5))) == "ok", "the whole buffer is valid");
-  assert(_valid_kind(validate_range(b, usize(1), usize(4))) == "ok", "the euro sign alone is valid");
-  assert(_valid_kind(validate_range(b, usize(4), usize(5))) == "ok", "the trailing 'B' is valid");
+  assert(_valid_kind(validate_range(&b, usize(0), usize(5))) == "ok", "the whole buffer is valid");
+  assert(_valid_kind(validate_range(&b, usize(1), usize(4))) == "ok", "the euro sign alone is valid");
+  assert(_valid_kind(validate_range(&b, usize(4), usize(5))) == "ok", "the trailing 'B' is valid");
   // A range that cuts the euro sign in half must FAIL rather than read on.
-  assert(_valid_kind(validate_range(b, usize(1), usize(3))) == "UnexpectedEnd", "a range cutting a sequence");
+  assert(_valid_kind(validate_range(&b, usize(1), usize(3))) == "UnexpectedEnd", "a range cutting a sequence");
   // Starting inside a sequence is an invalid start byte.
-  assert(_valid_kind(validate_range(b, usize(2), usize(5))) == "InvalidStart", "a range starting mid-sequence");
+  assert(_valid_kind(validate_range(&b, usize(2), usize(5))) == "InvalidStart", "a range starting mid-sequence");
   // An empty range is trivially valid, and `to` is clamped to the length.
-  assert(_valid_kind(validate_range(b, usize(2), usize(2))) == "ok", "an empty range is valid");
-  assert(_valid_kind(validate_range(b, usize(0), usize(999))) == "ok", "`to` is clamped to the length");
+  assert(_valid_kind(validate_range(&b, usize(2), usize(2))) == "ok", "an empty range is valid");
+  assert(_valid_kind(validate_range(&b, usize(0), usize(999))) == "ok", "`to` is clamped to the length");
 });
 // ============================================================================
 // The rest of std goes through this module — spot-check the seams

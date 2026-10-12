@@ -52,7 +52,7 @@ stub_evaluate_i32 :: (
   ) -> AstExpr
 )({
   info := new_expr_info(env, t_i32());
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &info);
   expr
 });
 /// The raw evaluator twin of `stub_evaluate_i32` (the handler is unused): the code under
@@ -76,13 +76,13 @@ test("evaluate_unwind: writes ExprInfo with Unwind control flow", {
   ctx_ptr.is_inside_given_handler = true;
   env := Environment.new(String.from("test"));
   call := mk_escape_call(usize(21), "0", usize(22));
-  result := evaluate_unwind(call, env, ctx, exn);
-  info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(result));
+  result := evaluate_unwind(&call, &env, &ctx, exn);
+  info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result));
   assert(match(info_opt, .Some(_) => true, .None => false), "unwind(did not record an ExprInfo)");
   info := match(
     info_opt,
     .Some(i) => i,
-    .None => new_expr_info(env, t_i32())
+    .None => new_expr_info(&env, t_i32())
   );
   // Type should be i32 (from stub).
   match(

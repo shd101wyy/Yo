@@ -66,7 +66,7 @@ test("inout binding chains: to an inout local and to an inout parameter", {
   assert(y == i32(11), "z aliases y");
   bump_via_alias(y);
   assert(x == i32(12), "a binding passed to an inout parameter hands over the same pointer");
-  bump_via_alias(x);
+  bump_via_alias(&mut x);
   assert(x == i32(13), "the callee's own binding of its inout param writes back");
 });
 test("inout binding created per loop iteration", {
@@ -189,7 +189,7 @@ test("pin is released on break and on early return", {
     v := n;
     v
   });
-  assert(early(h) == i32(3), "early return through a live pin");
+  assert(early(&h) == i32(3), "early return through a live pin");
   assert(ref_count(h2) == 1, "pin released on the return path");
 });
 test("pin is released when an effect unwinds through the binding's scope", {
@@ -207,7 +207,7 @@ test("pin is released when an effect unwinds through the binding's scope", {
     raise();
     n = i32(-9); // unreachable
   });
-  run_and_unwind(h);
+  run_and_unwind(&h);
   assert(h2.n == i32(9), "the write before the unwind landed");
   assert(ref_count(h2) == 1, "the pin was released on the unwind path (h2 := h shares one count)");
 });

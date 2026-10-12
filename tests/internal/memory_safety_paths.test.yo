@@ -161,12 +161,12 @@ impl(
 );
 `;
   found := ArrayList(Class1Extraction).new();
-  scan_class1_extractions(String.from("fixture.yo"), src, found);
+  scan_class1_extractions(String.from("fixture.yo"), &src, &mut found);
   assert(found.len() == usize(3), "three panicking Option methods; Widget is not a class-1 receiver");
-  assert(_class1_status(found, "Option", "unwrap") == "gated", "unwrap is gated");
-  assert(_class1_status(found, "Option", "expect_some") == "UNGATED", "an unknown trapping extraction is UNGATED");
-  assert(_class1_status(found, "Option", "comptime_unwrap") == "comptime", "a comptime(self) method is comptime");
-  assert(_class1_status(found, "Option", "is_some") == "absent", "a method that cannot panic is not listed");
+  assert(_class1_status(&found, "Option", "unwrap") == "gated", "unwrap is gated");
+  assert(_class1_status(&found, "Option", "expect_some") == "UNGATED", "an unknown trapping extraction is UNGATED");
+  assert(_class1_status(&found, "Option", "comptime_unwrap") == "comptime", "a comptime(self) method is comptime");
+  assert(_class1_status(&found, "Option", "is_some") == "absent", "a method that cannot panic is not listed");
 });
 
 test("class-1 scan: every trapping Option/Result extraction in the prelude is gated", {
@@ -181,7 +181,7 @@ test("class-1 scan: every trapping Option/Result extraction in the prelude is ga
   );
   src := io.await(fs_file.read_to_string(Path.new(String.from("std/prelude.yo")), io), IoExn(io : io, exn : exn));
   found := ArrayList(Class1Extraction).new();
-  scan_class1_extractions(String.from("std/prelude.yo"), src, found);
+  scan_class1_extractions(String.from("std/prelude.yo"), &src, &mut found);
   (ungated : usize) = usize(0);
   (i : usize) = usize(0);
   while(i < found.len(), {
@@ -194,8 +194,8 @@ test("class-1 scan: every trapping Option/Result extraction in the prelude is ga
   });
   assert(ungated == usize(0), "a trapping Option/Result extraction is missing from is_class1_panic_method_name (see above)");
   // The scan must SEE the known methods, or a zero above is vacuous.
-  assert(_class1_status(found, "Option", "unwrap") == "gated", "Option.unwrap found and gated");
-  assert(_class1_status(found, "Result", "unwrap_err") == "gated", "Result.unwrap_err found and gated");
-  assert(_class1_status(found, "Result", "expect_err") == "gated", "Result.expect_err found and gated");
-  assert(_class1_status(found, "Option", "comptime_unwrap") == "comptime", "Option.comptime_unwrap found as comptime");
+  assert(_class1_status(&found, "Option", "unwrap") == "gated", "Option.unwrap found and gated");
+  assert(_class1_status(&found, "Result", "unwrap_err") == "gated", "Result.unwrap_err found and gated");
+  assert(_class1_status(&found, "Result", "expect_err") == "gated", "Result.expect_err found and gated");
+  assert(_class1_status(&found, "Option", "comptime_unwrap") == "comptime", "Option.comptime_unwrap found as comptime");
 });

@@ -82,13 +82,13 @@ try_to_implement_array_by_array_type :: (
   if((n_args != expected_len) && (arr_len_var.len() == usize(0)), {
     func_tok := match(
       expr,
-      .FnCall(_, func_box, _, _, _) => ast_expr_token(func_box),
+      .FnCall(_, func_box, _, _, _) => ast_expr_token(&func_box),
       .Atom(_, tok) => tok
     );
     exn.throw(
       dyn(
         format_error_message(
-          func_tok,
+          &func_tok,
           `Array constructor expects ${expected_len.to_string()} elements, got ${n_args.to_string()}.`
         )
       )
@@ -113,41 +113,41 @@ try_to_implement_array_by_array_type :: (
     saved_expected := ctx.expected_type;
     ctx.expected_type = .Some(ExpectedTypeCtx(ty : expected_element_type, env : env));
     evaluated_arg_gout := ArrayList(AstExpr).new();
-    evaluated_arg_gerr := evaluate_expression_guarded(arg_expr, env, ctx, evaluated_arg_gout);
+    evaluated_arg_gerr := evaluate_expression_guarded(&arg_expr, &env, ctx, &mut evaluated_arg_gout);
     ctx.expected_type = saved_expected;
-    match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(evaluated_arg_ge), .None => ());
+    match(evaluated_arg_gerr, .Some(evaluated_arg_ge) => exn.throw(&evaluated_arg_ge), .None => ());
     evaluated_arg := match(evaluated_arg_gout.get(usize(0)), .Some(evaluated_arg_g) => evaluated_arg_g, .None => make_err_expr());
-    arg_info_opt := expr_info_table_get(ctx.expr_info_table, ast_expr_id(evaluated_arg));
+    arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_arg));
     if(arg_info_opt.is_none(), {
       exn.throw(
         dyn(
           format_eval_failure(
-            ast_expr_token(arg_expr),
+            ast_expr_token(&arg_expr),
             `Failed to evaluate array element at index ${i.to_string()}.`
           )
         )
       );
     });
-    arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(env, expected_element_type));
-    set_expr_as_needs_to_call_dup(evaluated_arg, ctx, exn, "element");
+    arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, &expected_element_type));
+    set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "element");
     env.frames = arg_info.env.frames;
     env.module_path = arg_info.env.module_path;
     env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
     env.input_string = arg_info.env.input_string;
     // For first element: if expected element type is Array with unknown-length child,
     // update expected element type based on actual evaluated type.
-    if((i == usize(0)) && is_array_type(expected_element_type), {
-      if(is_array_type(arg_info.ty), {
+    if((i == usize(0)) && is_array_type(&expected_element_type), {
+      if(is_array_type(&arg_info.ty), {
         expected_element_type = arg_info.ty;
       });
     });
     // Type compatibility check.
-    if(!are_types_compatible(arg_info.ty, expected_element_type), {
+    if(!are_types_compatible(&arg_info.ty, &expected_element_type), {
       exn.throw(
         dyn(
           format_error_message(
-            ast_expr_token(arg_expr),
-            `Array element at index ${i.to_string()} has incompatible type:\n- Expected: ${type_to_string(expected_element_type)}\n- Given   : ${type_to_string(arg_info.ty)}`
+            ast_expr_token(&arg_expr),
+            `Array element at index ${i.to_string()} has incompatible type:\n- Expected: ${type_to_string(&expected_element_type)}\n- Given   : ${type_to_string(&arg_info.ty)}`
           )
         )
       );
@@ -160,7 +160,7 @@ try_to_implement_array_by_array_type :: (
     // not a constant.
     match(
       arg_info.value,
-      .Some(v) => if(is_unknown_val(v), {
+      .Some(v) => if(is_unknown_val(&v), {
         all_elements_are_comptime = false;
       }, {
         elements.push(v);
@@ -174,7 +174,7 @@ try_to_implement_array_by_array_type :: (
   // Store result in expr_info_table.
   // Re-use array_type but with refined element type (may have been updated from first element).
   final_array_type := TypeValue.Array(expected_element_type, eff_len, String.from(""));
-  out_info := new_expr_info(env, final_array_type);
+  out_info := new_expr_info(&env, &final_array_type);
   // Only a FULLY compile-time array gets a compile-time value. Stamping one
   // with manufactured `UnknownVal` placeholders (as this used to) told codegen
   // "emit this as a constant", and the comptime emitter has no case for an
@@ -187,7 +187,7 @@ try_to_implement_array_by_array_type :: (
     out_info.value = .Some(EvalValue.ArrayVal(elements));
   });
   out_info.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(runtime_arg_exprs);
-  expr_info_table_set(ctx.expr_info_table, ast_expr_id(expr), out_info);
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   if(!all_elements_are_comptime, {
     // Runtime construction needs a temp to materialize into, exactly as the
     // array-literal path does.
