@@ -76,9 +76,9 @@ _many_sleeps_in_one_tick :: (fn(io : Io) -> unit)({
     hs.push(io.spawn(_one_sleep(io), io));
   });
   (ok : usize) = usize(0);
-  i = usize(0);
-  while(i < hs.len(), i = (i + usize(1)), {
-    r := match(hs(i).await(io), .Some(v) => v, .None => i32(-1));
+  // Awaiting a handle consumes it: pop each one off the list.
+  while(hs.len() > usize(0), {
+    r := match(hs.pop(), .Some(h) => match(h.await(io), .Some(v) => v, .None => i32(-1)), .None => i32(-1));
     if(r > i32(0), {
       ok = (ok + usize(1));
     });

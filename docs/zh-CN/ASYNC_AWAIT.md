@@ -184,8 +184,9 @@ io.async(fn)                  // 创建冷 Future（惰性，不会立即启动�
 io.await(future, io)          // 消耗 Future：若为冷任务则启动，等待完成，返回（移出）结果
 io.state(&future)             // 查询 Future 的当前状态（返回 FutureState）；借用它
 io.spawn(future, io)          // 消耗冷 Future 并启动但不等待，返回 JoinHandle(T)
-handle.await(io)       // 等待已 spawn 的任务，返回 Option(T)（unwind 时返回 .None）；阻塞等待，用于 main / 普通 fn
-handle.join(io)        // 同样的 Option(T)，但作为 Future（std/async）：任务内部用这个
+handle.await(io)       // 消耗句柄：等待已 spawn 的任务，返回 Option(T)（unwind 时返回 .None）；阻塞等待，用于 main / 普通 fn
+handle.join(io)        // 消耗句柄，得到同样 Option(T) 的 Future（std/async）：任务内部用这个
+handle.state()         // 借用句柄：任务的 FutureState（is_finished()、abort()、as_ptr() 同样借用）
 yield()                       // 创建预完成的 Future（将控制权让给事件循环）
 ```
 
@@ -195,11 +196,11 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 2. `io.await(future)` 启动冷 Future 并顺序运行至完成
 3. `io.state(&future)` 返回当前 `FutureState`，不会阻塞或启动 Future
 4. `io.spawn(future)` 消耗冷 Future 并启动但不等待——返回 `JoinHandle(T)` 以便后续 await
-5. `handle.await(io)` 等待已 spawn 的任务，返回 `Option(T)`——完成时返回 `.Some(result)`，unwind（中止）时返回 `.None`
+5. `handle.await(io)` 等待已 spawn 的任务，返回 `Option(T)`——完成时返回 `.Some(result)`，unwind（中止）时返回 `.None`。`JoinHandle` 是只可移动的值：`await` 和 `join` 消耗它，`state`、`is_finished`、`abort` 和 `as_ptr` 借用它
 6. Future 是**只可移动**的值：`io.await` 和 `io.spawn` 消耗它，因此已中止的任务只能通过它的 `JoinHandle` 访问，读出 `.None`
 7. 所有异步代码运行在**同一线程**上——不会创建新线程
 8. `yield()` 挂起当前任务，将控制权让给事件循环中其他就绪的任务
-9. Future 只 await **一次**：第二次 `io.await`（或 `io.spawn` 之后再 await）是 E0901。多个任务都需要的结果只 join 一次再共享（`Rc(T)`、channel），或由每个任务 join 该任务的 `JoinHandle`
+9. Future 只 await **一次**：第二次 `io.await`（或 `io.spawn` 之后再 await）是 E0901。`JoinHandle` 也一样：第二次 `await` 或 `join` 是 E0901。多个任务都需要的结果只 join 一次再共享（`Rc(T)`、channel）
 10. 任务 await 期间被中止的 Future 会把中止传播给该任务（见"已中止的 Future"），而中止任务也会中止它正在 await 的 Future
 11. `io.spawn(future, e)` 在返回之前会**内联运行任务直到它的第一个挂起点**；spawn 本身不是调用方的挂起点
 12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下。由于一个包会启动许多 Future，包的每个字段都必须可以隐式复制：只能移动的字段、或没有 `Copy` 的纯数据字段，在 `io.await`/`io.spawn` 处报错（§3.13 A6）。共享状态放在 `Rc` 字段中
@@ -459,8 +460,8 @@ ha.abort();
 assert(ha.await(io).is_none(), "the aborted task reads .None");
 ```
 
-`std/async` 的 `timeout(handle, d, io)` 建立在 `abort` 之上。超时时，任务以及
-它所阻塞的一切都会被取消。
+`std/async` 的 `timeout(handle, d, io)` 建立在 `abort` 之上，并消耗句柄。超时时，
+任务以及它所阻塞的一切都会被取消。
 
 **Future 状态机的状态：**
 
@@ -712,7 +713,7 @@ run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     handles.push(io.spawn(work(i32(1), io), io));
     handles.push(io.spawn(work(i32(2), io), io));
     // ✓ 真正的挂起点：这个任务等待期间其他任务照常运行
-    outs := io.await(join_all(&handles, io), io);
+    outs := io.await(join_all(handles, io), io);
     (sum : i32) = i32(0);
     (i : usize) = usize(0);
     while(i < outs.len(), {
@@ -745,7 +746,22 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-`join` 不会消耗 handle；对已完成任务的 `join` 会立即解析。这些等待之下是一个运行时原语：
+`join` 会消耗句柄（`plans/VALUES_BY_DEFAULT.md` §3.13 A3）：结果从任务中移出，对已完成
+任务的 `join` 会立即解析。`join_all`、`race_first`、`any_first` 和 `timeout` 同样消耗
+它们的句柄。`race` 和 `any` 按值接收列表，并连同下标一起把它交还：`(index, handles)`，
+因此失败者仍然可以被 abort 或 join：
+
+```yo ignore
+(w, rest) := io.await(race(handles, io), io);
+(i : usize) = usize(0);
+while(i < rest.len(), i = (i + usize(1)), {
+  if(i != w, {
+    rest(i).abort(); // 失败者：通过交还的列表 abort 它
+  });
+});
+```
+
+这些等待之下是一个运行时原语：
 一个由任务完成或中止来唤醒的 park future（`std/sys/externs` 的 `__yo_join_wait_new` /
 `__yo_join_wait_add`）；`race` 和 `timeout` 会把多个 handle 加到同一个等待上。
 
@@ -936,13 +952,12 @@ export(main);
 
 **核心洞察**：即使用户代码提前丢弃句柄，任务也会保持存活直到完成！
 
-**`JoinHandle(T)` 持有一个引用。** `io.spawn` 返回一个 `ref` 结构体，它持有任务
-Future 的一个引用：`io.spawn` 消耗了 Future，它的引用移入句柄。只要还有任何一个
-句柄副本存在，任务及其结果就保持存活；最后一个副本被丢弃时释放这个引用。await 句柄
-目前还不会消耗它（`plans/VALUES_BY_DEFAULT.md` §3.13 A3 会把它变成只可移动的值）：
-await 两次读到同一个结果。一个未被
-await 就被丢弃的句柄会**分离**任务：任务继续运行，并在结束时释放自己，因此一句
-即发即弃的 `io.spawn(task, io);` 不会泄漏任何东西。
+**`JoinHandle(T)` 持有一个引用。** `io.spawn` 返回一个只可移动的值结构体，它持有
+任务 Future 的一个引用：`io.spawn` 消耗了 Future，它的引用移入句柄。句柄没有 `Clone`，
+因此一个任务只有一个句柄。await 它（`h.await(io)`，或 `io.await(h.join(io), io)`）会
+消耗它：结果从任务中移出，句柄的引用被释放。一个未被 await 就被丢弃的句柄会**分离**
+任务：它的 `Dispose` 释放引用，任务继续运行，并在结束时释放自己，因此一句即发即弃的
+`io.spawn(task, io);` 不会泄漏任何东西。
 
 **线程的程序体返回时仍处于 pending 或排队状态的任务，会在该线程退出时被 abort 并
 释放。** 之后不会再有任何东西驱动这个线程的事件循环，因此运行时会 abort 所有仍排队、

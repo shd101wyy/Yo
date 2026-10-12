@@ -61,4 +61,4 @@ its task. The detach test was parked under `issues/repros/` until step 2 restore
    awaited twice reads the same result". The leak doc is closed.
 
 The handle's extra allocation per spawn is tracked in
-`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`.
+`issues/fixed/an-owning-join-handle-costs-an-allocation-per-spawn.md`.

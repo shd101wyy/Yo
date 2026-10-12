@@ -186,8 +186,9 @@ io.async(fn)                  // Create a cold Future (lazy, doesn't start)
 io.await(future, e)           // Consume the Future: start it if cold, wait, return (move out) its result
 io.state(&future)             // Query the current state of a Future (returns FutureState); borrows it
 io.spawn(future, e)           // Consume a cold Future and start it without waiting, returns JoinHandle(T)
-handle.await(io)              // Wait for spawned task, returns Option(T) (.None on unwind); a BLOCKING wait for main / plain fns
-handle.join(io)               // The same Option(T) as a Future (std/async): the form for inside a task
+handle.await(io)              // Consume the handle: wait for the task, return Option(T) (.None on unwind); a BLOCKING wait for main / plain fns
+handle.join(io)               // Consume the handle into a Future of the same Option(T) (std/async): the form for inside a task
+handle.state()                // Borrow the handle: the task's FutureState (also is_finished(), abort(), as_ptr())
 yield(io)                     // Create a pending Future completed by the next loop turn (yields control to the event loop)
 
 // `e` is the EFFECT RECORD the future needs. For a pure-Io task that is just
@@ -201,11 +202,11 @@ yield(io)                     // Create a pending Future completed by the next l
 2. `io.await(future)` starts a cold future and runs it sequentially to completion
 3. `io.state(&future)` returns the current `FutureState` without blocking or starting the Future
 4. `io.spawn(future)` consumes a cold future and starts it without waiting — returns `JoinHandle(T)` for later awaiting
-5. `handle.await(io)` waits for a spawned task and returns `Option(T)` — `.Some(result)` on completion, `.None` on unwind (abort)
+5. `handle.await(io)` waits for a spawned task and returns `Option(T)` — `.Some(result)` on completion, `.None` on unwind (abort). A `JoinHandle` is move-only: `await` and `join` consume it, and `state`, `is_finished`, `abort` and `as_ptr` borrow it
 6. A Future is **move-only**: `io.await` and `io.spawn` consume it, so an aborted task is reachable only through its `JoinHandle`, which reads `.None`
 7. All async code runs on the **same thread** — no thread spawning
 8. `yield()` suspends the current task and yields to other ready tasks in the event loop
-9. A Future is awaited **once**: a second `io.await` (or an await after `io.spawn`) is E0901. A result several tasks need is joined once and shared (`Rc(T)`, a channel), or each task joins the task's `JoinHandle`
+9. A Future is awaited **once**: a second `io.await` (or an await after `io.spawn`) is E0901. So is a `JoinHandle`: a second `await` or `join` is E0901. A result several tasks need is joined once and shared (`Rc(T)`, a channel)
 10. A Future aborted while a task awaits it propagates the abort to that task (see "Aborted Futures"), and aborting the task aborts the Future it awaits
 11. `io.spawn(future, e)` runs the task **inline up to its first suspension point** before returning; spawn is not itself a suspension point of the caller
 12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under. Because one bundle starts many futures, every bundle field must be implicitly copyable: a move-only field, or plain data without `Copy`, is an error at the `io.await`/`io.spawn` (§3.13 A6). Keep shared state in an `Rc` field
@@ -494,8 +495,9 @@ ha.abort();
 assert(ha.await(io).is_none(), "the aborted task reads .None");
 ```
 
-`timeout(handle, d, io)` from `std/async` is built on `abort`. When it times
-out, the task and everything it is blocked on are cancelled.
+`timeout(handle, d, io)` from `std/async` is built on `abort`. It consumes the
+handle. When it times out, the task and everything it is blocked on are
+cancelled.
 
 **Future State Machine States:**
 
@@ -754,7 +756,7 @@ run_all :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     handles.push(io.spawn(work(i32(1), io), io));
     handles.push(io.spawn(work(i32(2), io), io));
     // ✓ a real suspension point: the other tasks run while this one waits
-    outs := io.await(join_all(&handles, io), io);
+    outs := io.await(join_all(handles, io), io);
     (sum : i32) = i32(0);
     (i : usize) = usize(0);
     while(i < outs.len(), {
@@ -787,8 +789,22 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-Joining does not consume the handle, and a `join` of a finished task resolves
-at once. Under the wait is one runtime primitive, a park future the task's
+Joining consumes the handle (§3.13 A3 of `plans/VALUES_BY_DEFAULT.md`): the
+result moves out of the task, and a `join` of a finished task resolves at
+once. `join_all`, `race_first`, `any_first` and `timeout` consume their
+handles too. `race` and `any` take the list by value and hand it back with
+the index, `(index, handles)`, so the losers can still be aborted or joined:
+
+```yo ignore
+(w, rest) := io.await(race(handles, io), io);
+(i : usize) = usize(0);
+while(i < rest.len(), i = (i + usize(1)), {
+  if(i != w, {
+    rest(i).abort(); // a loser: abort it through the returned list
+  });
+});
+```
+ Under the wait is one runtime primitive, a park future the task's
 completion or abort wakes (`__yo_join_wait_new` / `__yo_join_wait_add` in
 `std/sys/externs`); `race` and `timeout` add several handles to one wait.
 
@@ -980,14 +996,15 @@ export(main);
 
 **Key Insight**: Tasks stay alive until completion even if user code drops their handle early!
 
-**`JoinHandle(T)` owns a reference.** `io.spawn` returns a `ref` struct that
-holds one reference to the task's Future: `io.spawn` consumed the Future, and
-its reference moved into the handle. The task and its result live as long as
-some copy of the handle does, and dropping the last copy releases that
-reference. Awaiting a handle does not consume it yet (`plans/VALUES_BY_DEFAULT.md`
-§3.13 A3 makes it a move-only value): awaiting it twice reads the same result. A handle that is dropped without being awaited **detaches** the
-task. The task keeps running, and it frees itself when it finishes, so a
-fire-and-forget `io.spawn(task, io);` statement leaks nothing.
+**`JoinHandle(T)` owns a reference.** `io.spawn` returns a move-only value
+struct that holds one reference to the task's Future: `io.spawn` consumed the
+Future, and its reference moved into the handle. The handle has no `Clone`,
+so one task has one handle. Awaiting it (`h.await(io)`, or
+`io.await(h.join(io), io)`) consumes it: the result moves out of the task, and
+the handle's reference is released. A handle that is dropped without being
+awaited **detaches** the task: its `Dispose` releases the reference, the task
+keeps running, and it frees itself when it finishes, so a fire-and-forget
+`io.spawn(task, io);` statement leaks nothing.
 
 **A task still pending when its thread's program body returns is aborted and
 released at thread exit.** Nothing will ever drive that thread's event loop

@@ -62,9 +62,10 @@ Progress:
   - V3 async A6's Generation A (§3.13): a bundle field that is not
     implicitly copyable is an error where the bundle is copied.
 - **In progress:**
-  - V3's remaining async work (§3.13): A3 (Generation A landed with A1's
-    PR; the prelude switch waits for the seed), A4, A5's remaining lines,
-    and A6's `Rc`-field half (V2c).
+  - V3's remaining async work (§3.13): A3 Generation B (the prelude switch)
+    and A4's handle half are built on `feat/vbd-v3-genb` and wait for a seed
+    carrying A3 Generation A; then A4's future operands, A5's remaining
+    lines, and A6's `Rc`-field half (V2c).
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
@@ -1011,6 +1012,35 @@ instead.
       share one handle join it once.
     - Branch `async-handle-genb` holds the `Impl(Future(T))` shape that
       "Why a pointer field" rejects. It is a record, not a candidate.
+  - **As built, Generation B (2026-10-12, branch `feat/vbd-v3-genb`).**
+    - **The prelude switch.** `JoinHandle(T)` is `struct(__future : *T)`, a
+      value struct whose `Dispose` releases the task's reference. It has no
+      `Clone`, so it is move-only, and stays `!Send`/`!Sync`.
+      `__yo_join_handle_await` takes `self : JoinHandle(T)` by value; `state`,
+      `as_ptr`, `is_finished` and `abort` borrow. The field stays `*T`, not
+      `*(void)`: the type parameter must appear in a field for generic impl
+      matching, and codegen casts it at every use. `io.spawn` builds the
+      handle without an allocation, which closes
+      `issues/fixed/an-owning-join-handle-costs-an-allocation-per-spawn.md`.
+    - **The consumed handle is not disposed again.** The evaluator marks a
+      handle moved into `await` (or `join`'s capture list), so its scope-end
+      `Dispose` is not emitted; the await releases the reference itself.
+    - **Decision 19's moves.** `Option.take`/`replace` and `ArrayList.pop`/
+      `swap`/`remove`/`reverse` move through `__yo_ptr_read`/`__yo_ptr_write`,
+      so a move-only element or payload works (`ArrayList(JoinHandle(T))`'s
+      `pop` is how a handle list is drained). `get` still copies, so it is
+      E0901 for a move-only element: borrow in place (`hs(i).abort()`) or own
+      with `pop`/`remove`.
+    - **Bugs found and fixed:**
+      `issues/fixed/a-method-call-on-a-move-only-element-disposes-a-copy-of-it.md`
+      (Aliasing Stage 0 "dup"ed a move-only element bitwise and disposed the
+      copy), `issues/fixed/a-capture-move-flag-is-read-in-a-state-machine-that-has-none.md`
+      and
+      `issues/fixed/a-capture-in-a-generic-io-async-body-is-dropped-with-another-instantiations-type.md`.
+    - **Tests that shared one handle** were rewritten per A1: two waiters on
+      one task wait through the join-wait primitive on `as_ptr()`
+      (`tests/async/sm_protocol.test.yo`), and a "re-read the result" test
+      became a single await plus an E0901 case.
 - **A4. Combinators (`std/async/index.yo`) take handles by value, and two
   also take futures.**
   - **Future operands.** `timeout` and a two-way `select` accept futures, so
@@ -1022,6 +1052,31 @@ instead.
     `Tuple(usize, ArrayList(JoinHandle(T)))` and
     `Tuple(Option(usize), ArrayList(JoinHandle(T)))`.
   - `_wait_any` takes raw pointers (`as_ptr`).
+  - **As built, the handle half (2026-10-12, with A3 Generation B).**
+    - `join(self : Self, io)` consumes its handle: the future owns it through
+      a by-value capture list, `io.async({ self }(io : Io) => …)`.
+    - `join_all`, `race_first` and `any_first` take
+      `handles : ArrayList(JoinHandle(T))` by value and drain it (`join_all`
+      reverses once and pops, so its results stay in list order). `race` and
+      `any` take it by value and resolve to
+      `Tuple(usize, ArrayList(JoinHandle(T)))` and
+      `Tuple(Option(usize), ArrayList(JoinHandle(T)))`; `race_first` and
+      `any_first` are `race`/`any` followed by `_settle`, which joins the
+      winner and aborts and joins every loser.
+    - `_wait_any(tasks : &ArrayList(*void))` takes the raw pointers
+      (`_task_ptrs`, `as_ptr()`), and `any` keeps its still-running set as
+      pointers instead of handle copies.
+    - `timeout(handle : JoinHandle(T), limit, io)` consumes its handle and
+      joins it on every path.
+    - **An `ArrayList` is still a shared handle** until V2b, so a caller's
+      binding of the list a combinator drained sees it empty, and `race`'s
+      returned list is the same list. The by-value signatures are already the
+      V2b ones.
+    - **Not in this step: the future operands.** `timeout` and a two-way
+      `select` over FUTURES (to wrap a borrowing future, A2) need the
+      compiler to accept a second-class future in a combinator's operand and
+      to run it as a scoped child; they wait for that support, with decision
+      38 B's overlap check (A2's "Not yet").
 - **A5. Wakers, parks, channels, mutexes and streams.**
   - **`Waker`** is move-only with `Clone`. A clone registers one more token
     (the runtime counts live tokens, `std/async/waker.yo`), and its cell
