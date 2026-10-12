@@ -2203,7 +2203,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
   param_is_ref := match(function_type, .Func({ meta : __fm5 }) => __fm5.*.param_is_ref, _ => ArrayList(bool).new());
   // The C pointer flags: `param_is_ref`, plus a projection's `&T` parameters
   // (`fn_abi_param_is_ptr`). The borrow acquires below keep `param_is_ref`.
-  abi_is_ptr := fn_abi_param_is_ptr(function_type);
+  abi_is_ptr := fn_abi_param_is_ptr(&function_type);
   // Materialize args, then auto-`&` ref params.
   args := ArrayList(String).new();
   na := runtime_args.len();
