@@ -320,12 +320,56 @@ load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
     )
   )
 );
+/// The module struct type `mt` with field `name`'s type replaced by `ty`,
+/// rebuilt; `.None` when `mt` is not a struct or has no such field.
+_module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue) -> Option(TypeValue))(
+  match(
+    mt,
+    .Struct(sid, sname, tlabels, ttypes, sref, satomic, snt, scfid, stas, ssns) => {
+      new_types := ArrayList(TypeValue).new();
+      (found : bool) = false;
+      (ti : usize) = usize(0);
+      while(ti < ttypes.len(), {
+        ft := match(ttypes.get(ti), .Some(t) => t, .None => TypeValue.Unit);
+        if(match(tlabels.get(ti), .Some(t) => (t == name), .None => false), {
+          new_types.push(ty);
+          found = true;
+        }, {
+          new_types.push(ft);
+        });
+        ti = (ti + usize(1));
+      });
+      cond(
+        found => Option(TypeValue).Some(
+          TypeValue.Struct(
+            id : sid,
+            name : sname,
+            field_labels : tlabels,
+            field_types : new_types,
+            is_reference_semantics : sref,
+            is_atomic_rc : satomic,
+            is_newtype : snt,
+            constructor_func_id : scfid,
+            type_arguments : stas,
+            is_source_namespace : ssns
+          )
+        ),
+        true => Option(TypeValue).None
+      )
+    },
+    _ => Option(TypeValue).None
+  )
+);
 /// Phase 3b (plans/reference/INCREMENTAL_COMPILATION_ZIG_LESSONS.md §6 step 4): patch
-/// ONE exported slot of a cached module in place — the value AND the paired
-/// field type — after its definition was re-evaluated per-def. Importers that
-/// hold the whole module value share the StructVal's arrays, so the update
-/// reaches every live consumer without dropping anyone's cache entry (the
-/// file-level drop is what this exists to beat). `.None`: module not cached.
+/// ONE exported slot of a cached module in place after its definition was
+/// re-evaluated per-def. Importers that hold the whole module value share the
+/// StructVal's arrays, so the value update reaches every live consumer without
+/// dropping anyone's cache entry (the file-level drop is what this exists to
+/// beat). The paired field TYPE is not patched: the cache slot gets a rebuilt
+/// module type (`_module_type_with_field`), because a `TypeValue` is a value
+/// (plans/VALUES_BY_DEFAULT.md V4). Every load after the patch reads the
+/// rebuilt type; an importer that read the module type before it keeps the
+/// field type it read, while the value slot it shares is current. `.None`: module not cached.
 /// `.Some(false)`: `name` has no slot — either the definition is not exported
 /// (fine, nothing to patch) or it is exported under a DIFFERENT label
 /// (`export(Foo : bar)`), which the caller must treat as unpatchable and fall
@@ -363,28 +407,20 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
           ),
         .None => ()
       );
-      // The sns struct TYPE's paired field type, same in-place discipline.
+      // The sns struct TYPE's paired field type. A type is never patched in
+      // place (plans/VALUES_BY_DEFAULT.md V4: `TypeValue` is a value, and
+      // other holders of the old type keep what they read): the slot gets a
+      // rebuilt module type, and every later load reads that one.
       if(patched, {
         match(
           g_module_cache_types.get(i),
-          .Some(mt) =>
-            match(
-              mt,
-              .Struct({ field_labels : tlabels, field_types : ttypes }) => {
-                (ti : usize) = usize(0);
-                while(ti < tlabels.len(), {
-                  match(
-                    tlabels.get(ti),
-                    .Some(t) => if(t == name, {
-                      ttypes(ti) = var.ty;
-                    }),
-                    .None => ()
-                  );
-                  ti = (ti + usize(1));
-                });
-              },
-              _ => ()
-            ),
+          .Some(mt) => match(
+            _module_type_with_field(&mt, name, &var.ty),
+            .Some(rebuilt) => {
+              g_module_cache_types(i) = rebuilt;
+            },
+            .None => ()
+          ),
           .None => ()
         );
       });
