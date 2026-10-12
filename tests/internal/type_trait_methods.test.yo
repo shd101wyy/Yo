@@ -162,7 +162,7 @@ test("get_receiver_methods_by_name_from_env: through pointer deref", {
     _entry(String.from("foo"))
   );
   // Pointer to struct s.
-  ptr_ty := TypeValue.Pointer(s);
+  ptr_ty := TypeValue.Pointer(rc(s));
   env := Environment.new(String.from(""));
   hits := get_receiver_methods_by_name_from_env(
     &env,
@@ -227,7 +227,7 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
     param_types,
     ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new(),
-    t_i32(),
+    rc(t_i32()),
     rc(
       FuncMeta(
         forall_labels : ArrayList(String).new(),
@@ -257,7 +257,7 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
     field_labels : trait_field_labels,
     field_types : trait_field_types,
     id : String.from("trait_greeter"),
-    is_concrete : Option(TypeValue).None,
+    is_concrete : Option(Rc(TypeValue)).None,
     self_constraints : ArrayList(TypeValue).new(),
     neg_self_constraints : ArrayList(TypeValue).new(),
     assoc_constraint_labels : ArrayList(String).new(),
@@ -272,13 +272,13 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
     id : String.from("st_t"),
     name : String.from("T"),
     frame_level : usize(0),
-    parent_type : TypeValue.TypeUni(usize(0)),
+    parent_type : rc(TypeValue.TypeUni(usize(0))),
     required_trait_types : required_traits,
     required_trait_levels : required_levels,
     negative_trait_types : ArrayList(TypeValue).new(),
     negative_trait_levels : ArrayList(usize).new(),
-    kind_function_type : Option(TypeValue).None,
-    resolution : Option(TypeValue).None
+    kind_function_type : Option(Rc(TypeValue)).None,
+    resolution : Option(Rc(TypeValue)).None
   );
   env := Environment.new(String.from(""));
   hits := get_receiver_methods_by_name_from_env(
@@ -310,7 +310,7 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
     param_types,
     ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new(),
-    t_i32(),
+    rc(t_i32()),
     rc(
       FuncMeta(
         forall_labels : ArrayList(String).new(),
@@ -340,7 +340,7 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
     field_labels : trait_field_labels,
     field_types : trait_field_types,
     id : String.from("trait_greeter_dyn"),
-    is_concrete : Option(TypeValue).None,
+    is_concrete : Option(Rc(TypeValue)).None,
     self_constraints : ArrayList(TypeValue).new(),
     neg_self_constraints : ArrayList(TypeValue).new(),
     assoc_constraint_labels : ArrayList(String).new(),
@@ -385,7 +385,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
     param_types,
     ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new(),
-    t_i32(),
+    rc(t_i32()),
     rc(
       FuncMeta(
         forall_labels : ArrayList(String).new(),
@@ -416,7 +416,7 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
     field_labels : trait_field_labels,
     field_types : trait_field_types,
     id : String.from("trait_functor"),
-    is_concrete : Option(TypeValue).None,
+    is_concrete : Option(Rc(TypeValue)).None,
     self_constraints : ArrayList(TypeValue).new(),
     neg_self_constraints : ArrayList(TypeValue).new(),
     assoc_constraint_labels : ArrayList(String).new(),
@@ -427,30 +427,30 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
     id : String.from("st_f"),
     name : String.from("F"),
     frame_level : usize(0),
-    parent_type : TypeValue.TypeUni(usize(0)),
+    parent_type : rc(TypeValue.TypeUni(usize(0))),
     required_trait_types : ArrayList(TypeValue).new(),
     required_trait_levels : ArrayList(usize).new(),
     negative_trait_types : ArrayList(TypeValue).new(),
     negative_trait_levels : ArrayList(usize).new(),
-    kind_function_type : Option(TypeValue).None,
-    resolution : Option(TypeValue).None
+    kind_function_type : Option(Rc(TypeValue)).None,
+    resolution : Option(Rc(TypeValue)).None
   );
   arg_some_t := TypeValue.SomeT(
     id : String.from("st_a"),
     name : String.from("A"),
     frame_level : usize(0),
-    parent_type : TypeValue.TypeUni(usize(0)),
+    parent_type : rc(TypeValue.TypeUni(usize(0))),
     required_trait_types : ArrayList(TypeValue).new(),
     required_trait_levels : ArrayList(usize).new(),
     negative_trait_types : ArrayList(TypeValue).new(),
     negative_trait_levels : ArrayList(usize).new(),
-    kind_function_type : Option(TypeValue).None,
-    resolution : Option(TypeValue).None
+    kind_function_type : Option(Rc(TypeValue)).None,
+    resolution : Option(Rc(TypeValue)).None
   );
   args_list := ArrayList(TypeValue).new();
   args_list.push(arg_some_t);
   type_app := TypeValue.TypeAppT(
-    constructor : ctor_some_t,
+    constructor : rc(ctor_some_t),
     args : args_list
   );
   // Push a frame so the where-clause-constraint setter has somewhere
@@ -490,14 +490,14 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
   param_labels.push(String.from("self"));
   param_labels.push(String.from("other"));
   param_types := ArrayList(TypeValue).new();
-  param_types.push(TypeValue.Pointer(s));
+  param_types.push(TypeValue.Pointer(rc(s)));
   param_types.push(s);
   fn_ty := TypeValue.Func(
     ArrayList(TypeValue).new(),
     param_types,
     ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new(),
-    t_i32(),
+    rc(t_i32()),
     rc(
       FuncMeta(
         forall_labels : ArrayList(String).new(),
@@ -561,13 +561,13 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
   param_labels := ArrayList(String).new();
   param_labels.push(String.from("self"));
   param_types := ArrayList(TypeValue).new();
-  param_types.push(TypeValue.Pointer(s));
+  param_types.push(TypeValue.Pointer(rc(s)));
   fn_ty := TypeValue.Func(
     ArrayList(TypeValue).new(),
     param_types,
     ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new(),
-    t_i32(),
+    rc(t_i32()),
     rc(
       FuncMeta(
         forall_labels : ArrayList(String).new(),
@@ -626,7 +626,7 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
     param_types,
     ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new(),
-    t_i32(),
+    rc(t_i32()),
     rc(
       FuncMeta(
         forall_labels : ArrayList(String).new(),
@@ -656,7 +656,7 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
     field_labels : trait_field_labels,
     field_types : trait_field_types,
     id : String.from("trait_greeter_envscan"),
-    is_concrete : Option(TypeValue).None,
+    is_concrete : Option(Rc(TypeValue)).None,
     self_constraints : ArrayList(TypeValue).new(),
     neg_self_constraints : ArrayList(TypeValue).new(),
     assoc_constraint_labels : ArrayList(String).new(),
@@ -672,25 +672,25 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
     id : String.from("st_shared"),
     name : String.from("_Self"),
     frame_level : usize(0),
-    parent_type : TypeValue.TypeUni(usize(0)),
+    parent_type : rc(TypeValue.TypeUni(usize(0))),
     required_trait_types : ArrayList(TypeValue).new(),
     required_trait_levels : ArrayList(usize).new(),
     negative_trait_types : ArrayList(TypeValue).new(),
     negative_trait_levels : ArrayList(usize).new(),
-    kind_function_type : Option(TypeValue).None,
-    resolution : Option(TypeValue).None
+    kind_function_type : Option(Rc(TypeValue)).None,
+    resolution : Option(Rc(TypeValue)).None
   );
   output_t := TypeValue.SomeT(
     id : String.from("st_shared"),
     name : String.from("Output"),
     frame_level : usize(0),
-    parent_type : TypeValue.TypeUni(usize(0)),
+    parent_type : rc(TypeValue.TypeUni(usize(0))),
     required_trait_types : ArrayList(TypeValue).new(),
     required_trait_levels : ArrayList(usize).new(),
     negative_trait_types : ArrayList(TypeValue).new(),
     negative_trait_levels : ArrayList(usize).new(),
-    kind_function_type : Option(TypeValue).None,
-    resolution : Option(TypeValue).None
+    kind_function_type : Option(Rc(TypeValue)).None,
+    resolution : Option(Rc(TypeValue)).None
   );
   env := Environment.new(String.from(""));
   add_where_clause_constraint_to_env(&env, &_self_t, &greeter_trait, false);
