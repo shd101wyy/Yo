@@ -7,12 +7,13 @@
 pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
+{ HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("./definitions.yo");
 // P2 hash-consing: RE-WIRED (2026-07-02) — the runaway explosion this was
 // unwired for during the bisect turned out to be _patch_self_shell's missing
 // cycle guard (now fixed + guarded, issues/fixed/patch-self-shell-exponential-walk.md);
 // interning was exonerated. Measured win: −1.45 M TypeValues / −0.28 GB.
-{ intern_type } :: import("./intern.yo");
+{ intern_type, type_memo_key } :: import("./intern.yo");
 { t_dyn, enum_phantom_positions } :: import("./creators.yo");
 { resolve_cell_chain } :: import("./utils.yo");
 { are_types_compatible_exact } :: import("./compatibility.yo");
@@ -54,17 +55,23 @@ Substitution :: ref(
     /// copies even share an id — and a name-keyed entry for one rewrote the
     /// others (`ch.map(f).filter(g)` built `StreamFilter(_, <f's capture>)`).
     own_resolution_ids : ArrayList(String),
-    /// Struct and enum nodes this walk already substituted, sorted by
-    /// address (`node_memo_from`, searched with `__yo_ptr_lt`), and their
-    /// results (`node_memo_to`). A TypeValue is a shared DAG and the walk was
-    /// a tree walk: two calls in one `check src/main.yo` re-substituted a
-    /// 36 KB-key type through 4.46 M nodes each (interning every one), ~16 s
-    /// (issues/fixed/substitute-walks-a-shared-type-as-a-tree.md). Per
-    /// object: a masked or length-stripped copy starts its own.
-    node_memo_from : ArrayList(TypeValue),
-    node_memo_to : ArrayList(TypeValue)
+    /// Struct and enum nodes this walk already substituted, and their
+    /// results: bucketed by the node's `id`, told apart within a bucket by
+    /// structural key (`type_memo_key`, rendered only when a bucket already
+    /// holds an entry). A TypeValue is a shared DAG and the walk was a tree
+    /// walk: two calls in one `check src/main.yo` re-substituted a 36 KB-key
+    /// type through 4.46 M nodes each (interning every one), ~16 s
+    /// (issues/fixed/substitute-walks-a-shared-type-as-a-tree.md). It keyed
+    /// on object identity until a `TypeValue` became a value
+    /// (plans/VALUES_BY_DEFAULT.md V4). 0 or 1 element: the map is made on
+    /// the walk's first memoized node. A masked or length-stripped copy
+    /// starts its own.
+    node_memo : ArrayList(HashMap(String, ArrayList(_NodeMemoEntry)))
   )
 );
+/// One memoized node of a walk: the node, its structural key (`""` until a
+/// same-id node needs it) and its substitution.
+_NodeMemoEntry :: struct(from : TypeValue, key : String, to : TypeValue);
 /// Create an empty substitution.
 subst_new :: (fn() -> Substitution)(
   Substitution(
@@ -77,8 +84,7 @@ subst_new :: (fn() -> Substitution)(
     len_var_names : ArrayList(String).new(),
     len_var_values : ArrayList(usize).new(),
     own_resolution_ids : ArrayList(String).new(),
-    node_memo_from : ArrayList(TypeValue).new(),
-    node_memo_to : ArrayList(TypeValue).new()
+    node_memo : ArrayList(HashMap(String, ArrayList(_NodeMemoEntry))).new()
   )
 );
 /// Bind a const-generic array LENGTH variable (`N` in `Array(T, N)`) to its
@@ -128,8 +134,7 @@ _without_len_vars :: (fn(s : &Substitution) -> Substitution)(
       len_var_names : ArrayList(String).new(),
       len_var_values : ArrayList(usize).new(),
       own_resolution_ids : s.own_resolution_ids,
-      node_memo_from : ArrayList(TypeValue).new(),
-      node_memo_to : ArrayList(TypeValue).new()
+      node_memo : ArrayList(HashMap(String, ArrayList(_NodeMemoEntry))).new()
     )
   )
 );
@@ -394,8 +399,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
     // An adopted own resolution belongs to its SomeT, never to a nested
     // fn's binder (a distinct SomeT), so the mask never applies to it.
     own_resolution_ids : s.own_resolution_ids,
-    node_memo_from : ArrayList(TypeValue).new(),
-    node_memo_to : ArrayList(TypeValue).new()
+    node_memo : ArrayList(HashMap(String, ArrayList(_NodeMemoEntry))).new()
   );
   (ci : usize) = usize(0);
   while(ci < s.names.len(), {
@@ -419,36 +423,55 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
   masked
 });
 /// `_substitute_node` through the walk's struct/enum memo (see
-/// `node_memo_from`): a shared node is substituted once per walk.
+/// `node_memo`): a shared node is substituted once per walk.
 _substitute_at :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> TypeValue)({
-  (memoized : bool) = match(ty, .Struct({ id : _ }) => true, .EnumT({ id : _ }) => true, _ => false);
-  if(!memoized, {
-    return(_substitute_node(s, ty, is_root));
+  (id : String) = match(
+    ty,
+    .Struct({ id : sid }) => sid,
+    .EnumT({ id : eid }) => eid,
+    _ => {
+      return(_substitute_node(s, ty, is_root));
+    }
+  );
+  if(s.node_memo.len() == usize(0), {
+    s.node_memo.push(HashMap(String, ArrayList(_NodeMemoEntry)).new());
   });
-  (at : usize) = _node_memo_lower_bound(s, ty);
-  if(match(s.node_memo_from.get(at), .Some(f) => __yo_ptr_eq(&f, ty), .None => false), {
-    return(match(s.node_memo_to.get(at), .Some(t) => t, .None => ty));
-  });
+  memo := match(s.node_memo.get(usize(0)), .Some(m) => m, .None => HashMap(String, ArrayList(_NodeMemoEntry)).new());
+  (probe : String) = String.new();
+  match(
+    memo.get(&id),
+    .Some(bucket) => {
+      probe = type_memo_key(ty);
+      (i : usize) = usize(0);
+      while(i < bucket.len(), {
+        match(
+          bucket.get(i),
+          .Some(e) => {
+            ek := cond(
+              (e.key.len() > usize(0)) => e.key,
+              true => {
+                k := type_memo_key(&e.from);
+                bucket(i) = _NodeMemoEntry(from : e.from, key : k.clone(), to : e.to);
+                k
+              }
+            );
+            if(ek == probe, {
+              return(e.to);
+            });
+          },
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => ()
+  );
   out := _substitute_node(s, ty, is_root);
-  // The recursion inserted entries of its own, so the slot moved.
-  (slot : usize) = _node_memo_lower_bound(s, ty);
-  s.node_memo_from.insert(slot, ty);
-  s.node_memo_to.insert(slot, out);
+  // The recursion may have added this id's bucket, so it is read again.
+  bucket2 := match(memo.get(&id), .Some(b) => b, .None => ArrayList(_NodeMemoEntry).new());
+  bucket2.push(_NodeMemoEntry(from : ty, key : probe, to : out));
+  _ := memo.insert(id, bucket2);
   out
-});
-/// The first `node_memo_from` slot whose address is not below `ty`'s.
-_node_memo_lower_bound :: (fn(s : &Substitution, ty : &TypeValue) -> usize)({
-  (lo : usize) = usize(0);
-  (hi : usize) = s.node_memo_from.len();
-  while(lo < hi, {
-    mid := (lo + ((hi - lo) / usize(2)));
-    if(match(s.node_memo_from.get(mid), .Some(f) => __yo_ptr_lt(&f, ty), .None => false), {
-      lo = (mid + usize(1));
-    }, {
-      hi = mid;
-    });
-  });
-  lo
 });
 _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> TypeValue)(
   // P2 hash-consing: intern each substitution result. `substitute` recurses via
