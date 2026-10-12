@@ -281,16 +281,11 @@ emit_io_spawn_effect_injection :: (fn(expr : &AstExpr, future_var : &String, ind
   tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
   em := context.base.emitter;
   em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
-  // Only a COLD future takes the bundle: it is the one this spawn starts. A
-  // second spawn of a running (or finished) task returns another handle to
-  // the same task, which keeps running under the bundle it was started with
-  // — the rule `io.await` already follows (its injection sits under the
-  // cold-start check). Copying first let a second spawner's handlers replace
-  // the first's mid-task
-  // (issues/fixed/a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md).
-  em.emit_string_line(`${indent.clone()}if (((__yo_future_header_t*)(void*)${future_var.clone()})->state == 0) {`);
-  em.emit_string_line(`${indent.clone()}  __yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
-  em.emit_string_line(`${indent.clone()}}`);
+  // `io.spawn` consumes its future (decision 13, §3.13 A1), so the future
+  // is cold here and this spawn is the one that starts it: it takes the
+  // bundle. (A second spawn of one task, whose bundle rule this replaced,
+  // can no longer be written.)
+  em.emit_string_line(`${indent.clone()}__yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
 });
 /// Generate effect-injection code for an `io.await` cold-start.
 /// Early-returns when the future has
@@ -442,6 +437,8 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // "unhandled", and takes over the unwind that caused it (below: caught here
   // or propagated).
   em.emit_string_line(`${indent.clone()}    __yo_task_abort_take_unwind((void*)${sync_future_var.clone()});`);
+  // The await consumed the future (decision 13): release it on this exit too.
+  em.emit_string_line(`${indent.clone()}    __yo_decr_rc((void*)${sync_future_var.clone()});`);
   // One abort semantics (plans/ASYNC_IO_API_AUDIT.md A2, decision Q1): an
   // aborted future propagates its abort to this awaiter, whether it was
   // aborted before the await started or while it waited, and whether or not
@@ -529,33 +526,23 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   };
   em.emit_string_line(`${indent.clone()}  }`);
   em.emit_string_line(`${indent.clone()}}`);
+  // The await consumed the future (plans/VALUES_BY_DEFAULT.md decision 13,
+  // §3.13 A1): it MOVES the result out, then releases the future. State -3
+  // marks the result as taken, so the future's dispose (which drops a
+  // Completed future's result) leaves it to the awaiter. No other reader
+  // can observe it: the future was moved into this await.
   if(!is_result_unit, {
     result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
-    result_type_str := get_type_string(&result_type, &context.base);
     var_decl := get_variable_type_string(&result_type, result_var.clone(), &context.base);
     // Every abort returned above, so the future is Completed here.
+    em.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
     if(type_contains_rc_cell_or_move_only(&result_type), {
-      match(
-        get_dup_function_for_type(&result_type, context),
-        .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_fn}(${sync_future_var.clone()}->result);`),
-        // INLINE dup, not a bare copy. No `___dup` methods are synthesized
-        // (see drop_dup.yo), so `.None` is the ONLY path — and a bare copy
-        // hands out a second owner with no increment, while the scope-end
-        // pass still emits a decrement per binding. Awaiting one RC-result
-        // future twice therefore over-released it: heap corruption (SIGTRAP
-        // on macOS, tcache corruption on glibc), the Linux-only failure of
-        // tests/async_await.test.yo "Test await future multiple times returns
-        // same result".
-        .None => {
-          dup_code := generate_dup_code_for_value(`${sync_future_var.clone()}->result`, &result_type, context);
-          em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_code};`);
-        }
-      );
-    }, {
-      em.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
+      em.emit_string_line(`${indent.clone()}${sync_future_var.clone()}->state = -3;`);
     });
+    em.emit_string_line(`${indent.clone()}__yo_decr_rc((void*)${sync_future_var.clone()});`);
     return(result_var);
   });
+  em.emit_string_line(`${indent.clone()}__yo_decr_rc((void*)${sync_future_var.clone()});`);
   String.from("")
 });
 /// `io.state` — read a Future's raw state, mapped to the FutureState enum
