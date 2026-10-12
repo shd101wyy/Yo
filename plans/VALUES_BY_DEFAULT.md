@@ -2949,13 +2949,30 @@ and in git, not a silent edit.
         second-class value the borrow was. Decision 38's "a second-class
         value may not be stored in a `Dyn`" means an owned `Dyn` cell;
         `dyn(&v)` builds no cell and yields a second-class object, so it
-        is the carve-out, not a violation. A trait object over a nominal
-        type has no implicit route. The one conversion that stays
-        implicit is a closure into a `Dyn(Fn(...))` slot
-        (`(d : Dyn(Fn() -> i32)) = f`, decision 38's audited route),
-        because a closure literal's type is unnameable and `Impl(Fn)` /
-        `Dyn(Fn)` are its only spellings; `dyn(f)` and `dyn(&f)` are
-        accepted there too (`tests/closure_capture_list.test.yo`).
+        is the carve-out, not a violation. No implicit route to a `Dyn`
+        exists: not for a trait object over a nominal type, and not for a
+        closure.
+      - **A closure into a `Dyn(Fn(...))` slot is `dyn(f)` too**
+        (maintainer, 2026-10-12: "make everything explicit when
+        possible"). A closure literal in a `Dyn(Fn)` slot is already
+        rejected (`Anonymous function: expected a Func or Impl(Fn(...))
+        type`) and `docs/en-US/DESIGN.md` ("Closure types") documents
+        `dyn(...)` as the spelling, but a named `Impl(Fn(...))` value or a
+        named `fn` flows bare into a `Dyn(Fn)` binding, field, argument or
+        result today, and three of those four sites emit invalid C
+        (`issues/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md`).
+        The rule: every site that erases a callable spells `dyn(f)`
+        (owned, `Dyn(Fn(...))`) or `dyn(&f)` (borrowed, `&Dyn(Fn(...))`);
+        a bare `f` in a `Dyn(Fn)` slot is a type error whose note names
+        `dyn(f)`. `Impl(Fn(...))` is untouched: it is the closure's own
+        static type, not an erasure, so a literal or a named closure still
+        flows into it bare. Decision 38's audit route "every coercion to
+        `Dyn`" becomes that type error, raised before the escape check;
+        its pinned tests keep expecting an error and only the message
+        changes. The rejection is the fix of the issue above and needs no
+        codegen, so it lands first, with `yo fix --migrate dyn-spelling`
+        wrapping each bare site in the tree; `dyn(&f)` lands with `&Dyn`
+        in decision 43's phase.
       - **`&Dyn(Trait)` is the borrowed object, not a pointer to the
         handle.** For every other `T`, `&T` points at the `T` value. For
         `Dyn`, `&d` over an owned `d : Dyn(Trait)` is the fat pair over the
@@ -3007,7 +3024,12 @@ and in git, not a silent edit.
       the owning slot is accepted; a generic `swap` instantiated at
       `Dyn(...)` is rejected at that instantiation; `upcast(r, Dyn(A))`
       over a `&Dyn(A, B)` calls `A`'s methods, and a bare `&Dyn(A, B)` into
-      a `&Dyn(A)` slot is a type error.
+      a `&Dyn(A)` slot is a type error; a named `Impl(Fn(...))` value bare
+      in a `Dyn(Fn(...))` binding, field, argument and result is a type
+      error naming `dyn(f)` at each site, and `dyn(f)` at each of the four
+      compiles and runs (the issue's reproducer); a named `fn` the same
+      way; `dyn(&f)` into a `&Dyn(Fn(...))` parameter calls with no
+      allocation.
 
 ## 5. Prerequisites, gates and the seed
 
