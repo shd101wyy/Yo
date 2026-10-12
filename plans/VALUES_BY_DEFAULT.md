@@ -58,10 +58,13 @@ Progress:
   - V3 async A1 (§3.13): futures are move-only, `io.await`/`io.spawn`
     consume them, the `io.async` body slot is a by-value `FnOnce`, and
     `Park` is a move-only value whose `wait` consumes it (A5's `Park` line).
+  - V3 async A2 (§3.13): a future may borrow, and is then second-class.
+  - V3 async A6's Generation A (§3.13): a bundle field that is not
+    implicitly copyable is an error where the bundle is copied.
 - **In progress:**
-  - V3's remaining async work (§3.13): A2, A3 (Generation A landed with
-    A1's PR; the prelude switch waits for the seed), A4, A5's remaining
-    lines, A6;
+  - V3's remaining async work (§3.13): A3 (Generation A landed with A1's
+    PR; the prelude switch waits for the seed), A4, A5's remaining lines,
+    and A6's `Rc`-field half (V2c);
   - V2b: "Projections first", Generation A (feat/vbd-v2b-index-mut; the
     prelude switch is Generation B).
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
@@ -876,7 +879,7 @@ instead.
       captured future moves it out, which needs a by-value capture list
       (`io.async({ f }(io : Io) => io.await(f, io))`; an implicit capture is
       E0913, decision 37). A by-value list is accepted on an `io.async`
-      body; a borrow entry stays an error until A2.
+      body, and since A2 a borrow entry is too.
     - **Sharing a task.** Several waiters join one task through its
       `JoinHandle` (`io.await(h.join(io), io)`), which stays a shared `ref`
       struct until A3. The tests that awaited one future from two tasks, or
@@ -933,6 +936,114 @@ instead.
     `mutating func next() async`.
   - **It enables** `Stream.next(self : &mut Self, io)`, the async
     `Mutex.lock(self : &Self, io)`, and `Receiver.recv(self : &Self, io)`.
+  - **As built (2026-10-12, A2).**
+    - **The second-class bit.** An `io.async` body's capture-list borrows,
+      including those of a captured second-class value, are registered under
+      the future's per-call wrapper id (`_register_borrowing_future`,
+      `src/evaluator/calls/function.yo`). `collect_type_borrows` reads that
+      registry before its reference-type stop and follows a future's
+      resolution, so a function's `Impl(Future)` result carries its body's
+      borrows. Decision 38 A's machinery then applies unchanged.
+    - **Where it may appear.** `io.async`'s body slot and `io.await`'s
+      operand accept a second-class argument (`second_class_slot`). Every
+      other by-value slot rejects it, `io.spawn` included. Binding one to a
+      local is E0909 (`note_second_class_binding`). A return, whether
+      `return(...)`, a function's tail, a specialized body or a closure's
+      tail, goes through `reject_second_class_return`: a borrowing future
+      whose every borrow is rooted at a `&`/`&mut` parameter of the
+      returning function is accepted.
+    - **Forwarding is not accepted yet.** A function that returns another
+      function's borrowing future (`f(c : &mut C, io) -> …` returning
+      `bump(&mut c, io)`) is rejected, because the call's borrows are rooted at
+      the callee's parameters and are not re-rooted at the caller's. Await
+      it inside an `io.async` body that borrows `c` instead. Re-rooting
+      lands with decision 43's reference results.
+    - **The `Rc`/`Arc` rule** (decision 38 D, amended) is checked at the
+      call that makes the future (`_note_future_producing_call`, run after
+      every call in `evaluate_function_call`), so no `cond`/`if`/`match` arm
+      or block tail hides it. Each borrow maps to the argument its call lent
+      (by parameter label, the receiver as `self`), and a lent place that
+      crosses a cell is E0909. That includes an auto-dereferenced receiver
+      and an index hop: an `Index`-trait element lives in a buffer behind a
+      pointer, and the interior mark `&mut xs(i)` takes is call-scoped; a
+      fixed-size array's element is the array's own storage. `io.await`
+      keeps a belt (`_check_awaited_future`): every borrowing leaf of its
+      operand (through arms and block tails) must be a call the hook checked,
+      or an `io.async` written in place.
+    - **Calls through a function value** (2026-10-13, review fix). The
+      callee's body is not visible, so the future's type carries none of its
+      borrows. The conservative rule: a call through a function value whose
+      result is a future is assumed to borrow every place it lends with
+      `&`/`&mut`; the assumed borrows are registered under a fresh wrapper id
+      for the call that resolves to the call's own type, and every rule above
+      applies. A function by name, a method resolved to its definition and an
+      extern are exact. A parameter without a label is named by position in
+      the messages (`argument 1`).
+    - **`Dyn` methods** (2026-10-13, second review round). A vtable slot's
+      future type is the trait's declared `Impl(Future(...))`, so it cannot
+      carry the borrows of the implementation's `io.async`. Assuming the
+      function-value rule for it would reject the common
+      `self.inner.read(io)` on a `Dyn` field of a `ref` object (std's
+      `BufReader(Dyn(Reader))` among them), because the assumed receiver
+      borrow crosses the `ref` object. So the rule is exact at the other end:
+      `dyn(v)` is E0909 when a method of `v` that fills the vtable returns a
+      borrowing future (`_reject_dyn_borrowing_future_methods`,
+      `src/evaluator/values/dyn.yo`), and a future made through a `Dyn` is
+      first-class (`issues/fixed/a-dyn-method-future-carries-no-borrows.md`).
+    - **The bundle** (2026-10-13, review fix). `io.await` evaluates its
+      bundle after its future is made, while the future already holds its
+      borrow, and no freeze covers that window (it needs the borrows
+      re-rooted at the caller's places, decision 43). Until then, with a
+      borrowing future the bundle must be a place that runs no code (`io`,
+      `self.io`); anything else is E0910.
+    - **The argument list** (2026-10-13, second review round). The same
+      window opens inside the call: the future's borrow of a place starts
+      when the receiver or argument that lends it is evaluated, and the
+      later arguments run while it is held. With a borrowing future, a later
+      argument that moves the lent place's root, assigns to an overlapping
+      place or lends one `&mut` (written out, or as the receiver of a
+      `&mut self` method) is E0910
+      (`_check_future_call_argument_conflicts`); a read is left to decision
+      28's argument exclusivity
+      (`issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-the-future.md`).
+      A plain call has the move case too, with the borrow ending at the call
+      (`issues/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`).
+    - **Bindings** include a `match` arm's pattern bindings
+      (`note_second_class_binding` runs for them), and `_ := f(&mut x, io)`
+      is rejected by name: a borrowing future cannot be discarded.
+    - **A lent `&T` parameter is copied.** C receives a `&T` parameter by
+      value, in the frame that made the future, so a returned future that
+      held `&param` would point at a dead slot. The state machine keeps its
+      own copy (`__yo_lent_<label>`, `_emit_lent_param_installs`) and the
+      capture points at it. The copy cannot go stale, because the caller's
+      place stays frozen while the future lives (the bundle rule above closes
+      the one window inside the `io.await`), and it owns nothing. An
+      `io.async` capture list therefore borrows a `&` parameter whole:
+      `{ &p.f }` is an error naming `{ &p }`. For the same reason the copy is
+      made only through the body's own entry: a returned future that borrows
+      a `&T` parameter through a closure it captures (`f = { &c }() => …`
+      captured by the body) is E0909 naming `{ &c }`
+      (`CaptureBorrow.through_value`). Awaited inside the function, it is
+      accepted.
+    - **A borrowing closure lent to a parameter.** A body that captures a
+      `&`/`&mut` parameter holding a borrowing closure (`with_lock`'s
+      `body : &Impl(Fn(...))`) carries the closure's borrows, whose roots
+      are the caller's. `_register_borrowing_future` re-roots those at the
+      parameter: the caller lent its argument for the call, so the future
+      is returned under the parameter rule. The closure struct is copied into
+      the future, so no lent copy is needed.
+    - **Codegen.** A state-machine body (one that awaits) builds its
+      capture struct from the capture list's entries, so a borrow entry
+      stores its place's address, and a renamed by-value entry
+      (`{ m : k }`) its initializer, as the sync path already did. Inside a
+      state machine, a temporary lent by `&`/`&mut` is addressed in its task
+      slot, since a borrowing future made in its statement can hold the
+      address across a suspension; and a local a capture list borrows lives
+      in the task to the end of its scope, as an `&x` argument's root does.
+    - **Not yet:** decision 38 B's overlap for two borrowing futures
+      passed to one combinator (`select(s.next(io), s.next(io))`) lands
+      with A4's future-taking combinators. Until then, no combinator
+      accepts a borrowing future.
 - **A3. `JoinHandle(T)` is a move-only value struct over a raw future
   pointer:** `struct(__future : *(void))` with a `Dispose` that releases the
   task's count.
@@ -1000,6 +1111,15 @@ instead.
   - **Open, decided in V2c:** what copying an `Rc` field means once `Rc`
     copies are explicit. Either the bundle copy clones its `Rc`/`Arc`
     fields, or bundles become explicit-copy (`io.spawn(b.clone(), …)`).
+  - **As built (2026-10-12, A6).** With a borrowing future, A2 also requires
+    the `io.await` bundle to be a place (see A2's "As built" note).
+    `_check_bundle_fields_copy`
+    (`src/evaluator/calls/function.yo`) runs at every `io.await` and
+    `io.spawn`. It rejects a bundle field that `type_requires_explicit_copy`
+    (move-only, or plain data without `Copy`) with E0901, naming the `Rc`
+    field fix. A buffer-owning field (`String`, a collection) joins the rule
+    when V2b makes those types explicit-copy, and an `Rc` field waits for
+    V2c's answer above. No std or test bundle had such a field.
 - **Unchanged:** the single-threaded runtime, the bundle model,
   `Future(T, E)`, abort propagation, `IoFuture` as a raw `i32` future, the
   join-wait primitive (`__yo_join_wait_new`/`__yo_join_wait_add`), and

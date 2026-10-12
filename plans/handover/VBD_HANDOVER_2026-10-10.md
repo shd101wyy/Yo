@@ -104,7 +104,7 @@ Filed this cycle and still open:
 | `issues/tests-declared-under-src-are-never-run-by-ci.md` | S3 | |
 | `issues/a-closure-parameter-written-as-a-call-is-accepted-under-the-expected-label.md` | S3 | Filed during Gen B |
 
-Older VBD-relevant S1s still open: `issues/a-borrowing-future-can-carry-an-imm-borrow-across-an-rc-deref-with-no-mark.md` (V3 async), `issues/an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`, and `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`. `issues/collection-iterators-have-no-sound-post-v2b-shape.md` is input to V2b (decision 39). For the full categorized list, run `python scripts/gen-issue-triage.py` locally; the generated `issues/TRIAGE.md` is untracked.
+Older VBD-relevant S1s still open: `issues/fixed/a-borrowing-future-can-carry-an-imm-borrow-across-an-rc-deref-with-no-mark.md` (V3 async), `issues/an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md`, and `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`. `issues/collection-iterators-have-no-sound-post-v2b-shape.md` is input to V2b (decision 39). For the full categorized list, run `python scripts/gen-issue-triage.py` locally; the generated `issues/TRIAGE.md` is untracked.
 
 ## 5. How to work in this repository (portable)
 

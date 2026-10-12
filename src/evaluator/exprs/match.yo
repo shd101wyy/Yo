@@ -94,8 +94,8 @@ pragma(Pragma.AllowUnsafe);
 { type_to_string } :: import("../../types/string.yo");
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
-{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding } :: import("../utils.yo");
-{ set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow } :: import("../utils.yo");
+{ merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding, note_second_class_binding } :: import("../utils.yo");
+{ set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow, local_borrow_info_of_variable } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
@@ -1221,6 +1221,12 @@ evaluate_match :: (
           );
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&b.atom), new_expr_info(&env, &b.ty));
           scope_release_note_binding(ast_expr_id(&b.atom), &env, b.name.clone());
+          // Decision 38 A: a pattern binding is a binding. A second-class
+          // value it binds freezes what it borrows for the arm, and a
+          // borrowing future cannot be bound at all (§3.13 A2).
+          if(!ct_known, {
+            match(_added, .Some(sc_var) => note_second_class_binding(&sc_var, &b.ty, ast_expr_token(&b.atom), &env, ctx, exn), .None => ());
+          });
           match(lb_scr_source, .Some(lbs) => local_borrow_note_pattern_binding(b.name.clone(), ast_expr_token(&b.atom), &lbs), .None => ());
           if(audit_pending_copies_enabled(), {
             match(_added, .Some(added_var) => audit_note_match_binding(&added_var, &scr_info), .None => ());

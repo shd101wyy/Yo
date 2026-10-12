@@ -7042,3 +7042,402 @@ test("a match or cond condition inside io.async takes the right branch when it a
   assert(io.await(_wrong_branch_if_match(io), io) == i32(1), "if(match(...), await)");
   assert(io.await(_wrong_branch_if_cond(io), io) == i32(1), "if(cond(...), await)");
 });
+// ---------------------------------------------------------------------------
+// §3.13 A2 (plans/VALUES_BY_DEFAULT.md): a future may borrow, and is then
+// second-class. It is awaited where it is made, and returned only when every
+// place it borrows is rooted at the returning function's `&`/`&mut`
+// parameters.
+// ---------------------------------------------------------------------------
+_A2Counter :: struct(n : i32);
+impl(
+  _A2Counter,
+  bump : (fn(self : &mut Self, io : Io) -> Impl(Future(unit, Io)))(
+    io.async({ &mut self }(io : Io) => {
+      self.n = (self.n + i32(1));
+    })
+  )
+);
+_a2_bump :: (fn(c : &mut _A2Counter, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut c }(io : Io) => {
+    c.n = (c.n + i32(1));
+  })
+);
+_a2_tenfold :: (fn(c : &_A2Counter, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &c }(io : Io) => (c.n * i32(10)))
+);
+/// Suspends before it reads its borrow, long after `_a2_tenfold_later`'s
+/// frame is gone: C passes `c` by value, so the future reads its own copy.
+_a2_tenfold_later :: (fn(c : &_A2Counter, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &c }(io : Io) => {
+    io.await(yield(io), io);
+    (c.n * i32(10))
+  })
+);
+_A2Shared :: struct(items : ArrayList(i32));
+_a2_count :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ &items }(io : Io) => items.len())
+);
+_a2_push :: (fn(items : &mut ArrayList(i32), io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut items }(io : Io) => items.push(i32(1)))
+);
+/// The handle spelling: the future borrows the `Rc` handle and re-derives
+/// `h.*.items` at each use, after its suspension too.
+_a2_count_through :: (fn(h : &Rc(_A2Shared), io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ &h }(io : Io) => {
+    io.await(yield(io), io);
+    h.*.items.len()
+  })
+);
+test("a borrowing future: a function returns a future over its & or &mut parameter (§3.13 A2)", {
+  c := _A2Counter(n : i32(0));
+  io.await(_a2_bump(&mut c, io), io);
+  io.await(_a2_bump(&mut c, io), io);
+  assert(c.n == i32(2), "two awaits write through the lent &mut");
+  assert(io.await(_a2_tenfold(&c, io), io) == i32(20), "a & parameter is read through the future's own copy");
+  assert(io.await(_a2_tenfold_later(&c, io), io) == i32(20), "the copy outlives the frame that made the future, across a suspension");
+  io.await(c.bump(io), io);
+  assert(c.n == i32(3), "a &mut self method returns a borrowing future");
+  x := i32(5);
+  io.await(
+    io.async({ &mut x }(io : Io) => {
+      x = (x + i32(1));
+    }),
+    io
+  );
+  assert(x == i32(6), "an io.async body borrows a local for an await in place");
+});
+test("a borrowing future is awaited where it is made: never bound, spawned or carried out of its lender's scope", {
+  c := _A2Counter(n : i32(0));
+  comptime_expect_error({
+    f := _a2_bump(&mut c, io);
+    ()
+  }, "would hold a borrowing future");
+  comptime_expect_error(io.spawn(_a2_bump(&mut c, io), io), "spawned or moved into a by-value parameter");
+  comptime_expect_error({
+    y := i32(1);
+    io.async({ &y }(io : Io) => y)
+  }, "declared inside the block");
+});
+test("a borrowing future cannot hold a place lent through an Rc deref (decision 38 D, §3.13 A2)", {
+  r := rc(_A2Shared(items : ArrayList(i32).new()));
+  comptime_expect_error(io.await(_a2_count(&r.*.items, io), io), "lives in a shared cell");
+  comptime_expect_error(io.await(_a2_push(&mut r.*.items, io), io), "lives in a shared cell");
+  k := rc(_A2Counter(n : i32(0)));
+  comptime_expect_error(io.await(k.bump(io), io), "lives in a shared cell");
+  r.*.items.push(i32(1));
+  other := r;
+  pusher := io.spawn(
+    io.async({ other }(io : Io) => {
+      other.*.items.push(i32(2));
+    }),
+    io
+  );
+  n := io.await(_a2_count_through(&r, io), io);
+  pusher.await(io);
+  assert(n == usize(2), "the re-derived place reads the push another task made through its own handle");
+});
+// The decision 38 D check runs at the call that makes the future, so no
+// wrapper hides it: a `cond`/`if`/`match` arm or a block tail
+// (issues/fixed/a-wrapped-await-operand-skips-the-shared-cell-check.md).
+test("a borrowing future made in an arm or a block tail is checked where it is made (decision 38 D, §3.13 A2)", {
+  r := rc(_A2Shared(items : ArrayList(i32).new()));
+  b := true;
+  comptime_expect_error(io.await(if(b, _a2_count(&r.*.items, io), _a2_count(&r.*.items, io)), io), "lives in a shared cell");
+  comptime_expect_error(io.await(cond(b => _a2_push(&mut r.*.items, io), true => _a2_push(&mut r.*.items, io)), io), "lives in a shared cell");
+  comptime_expect_error(io.await(match(b, true => _a2_count(&r.*.items, io), false => _a2_count(&r.*.items, io)), io), "lives in a shared cell");
+  k := rc(_A2Counter(n : i32(0)));
+  comptime_expect_error(
+    io.await({
+      u := i32(0);
+      k.bump(io)
+    }, io),
+    "lives in a shared cell"
+  );
+  c := _A2Counter(n : i32(1));
+  n := io.await(if(b, _a2_tenfold_later(&c, io), _a2_tenfold_later(&c, io)), io);
+  assert(n == i32(10), "an arm's borrowing future over a local is awaited in place");
+});
+_a2_bump_i32 :: (fn(c : &mut i32, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut c }(io : Io) => {
+    io.await(yield(io), io);
+    c = (c + i32(1));
+  })
+);
+_A2Cells :: struct(cells : Array(i32, 2));
+// An element reached through an index lives in the container's buffer, which
+// another handle can reallocate while the future waits
+// (issues/fixed/an-index-place-lent-to-a-borrowing-future-skips-the-shared-cell-check.md).
+test("a borrowing future cannot hold an element lent through an index (decision 38 D, §3.13 A2)", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  comptime_expect_error(io.await(_a2_bump_i32(&mut xs(usize(0)), io), io), "lives in a shared cell");
+  r := rc(_A2Shared(items : ArrayList(i32).new()));
+  r.*.items.push(i32(1));
+  comptime_expect_error(io.await(_a2_bump_i32(&mut r.*.items(usize(0)), io), io), "lives in a shared cell");
+  a := _A2Cells(cells : Array(i32, 2)(i32(4), i32(5)));
+  io.await(_a2_bump_i32(&mut a.cells(usize(1)), io), io);
+  assert(a.cells(usize(1)) == i32(6), "an element of a fixed-size array is part of the local's own storage");
+});
+// A call through a function value cannot show what its future borrows: the
+// future is assumed to borrow every place the call lends
+// (issues/fixed/a-call-through-a-function-value-drops-the-borrowing-future-checks.md).
+test("a future made through a function value is assumed to borrow what the call lends (§3.13 A2)", {
+  c := _A2Counter(n : i32(0));
+  fp := _a2_bump;
+  comptime_expect_error({
+    f := fp(&mut c, io);
+    ()
+  }, "would hold a borrowing future");
+  comptime_expect_error(io.spawn(fp(&mut c, io), io), "spawned or moved into a by-value parameter");
+  r := rc(_A2Shared(items : ArrayList(i32).new()));
+  gp := _a2_count;
+  comptime_expect_error(io.await(gp(&r.*.items, io), io), "lives in a shared cell");
+  io.await(fp(&mut c, io), io);
+  assert(c.n == i32(1), "awaited in place, the call through the function value runs");
+});
+// io.await evaluates its bundle after the future is made
+// (issues/fixed/an-await-bundle-can-overwrite-the-place-its-future-borrows.md).
+test("a borrowing future's io.await takes a bundle that is a place (§3.13 A2)", {
+  s := ArrayList(i32).new();
+  s.push(i32(7));
+  comptime_expect_error(
+    io.await(_a2_count(&s, io), {
+      s = ArrayList(i32).new();
+      io
+    }),
+    "the bundle must be a place"
+  );
+  comptime_expect_error(
+    io.await(_a2_count(&s, io), {
+      io.await(_a2_push(&mut s, io), io);
+      io
+    }),
+    "the bundle must be a place"
+  );
+  assert(io.await(_a2_count(&s, io), io) == usize(1), "a place bundle is accepted");
+});
+// A pattern binding is a binding
+// (issues/fixed/a-match-arm-binds-a-borrowing-future.md).
+test("a match arm cannot bind a borrowing future, and _ := cannot discard one (§3.13 A2)", {
+  c := _A2Counter(n : i32(1));
+  comptime_expect_error(
+    match(
+      _a2_tenfold(&c, io),
+      f => {
+        c.n = i32(5);
+        io.await(f, io)
+      }
+    ),
+    "would hold a borrowing future"
+  );
+  comptime_expect_error({
+    _ := _a2_bump(&mut c, io);
+    ()
+  }, "cannot be discarded");
+  comptime_expect_error({
+    _a2_bump(&mut c, io);
+    ()
+  }, "it borrows, so it cannot be discarded");
+});
+// A future that borrows a `&T` parameter keeps its own copy only through its
+// own capture-list entry; through a captured closure it would point at the
+// parameter's slot in the frame that returns
+// (issues/fixed/a-returned-future-borrows-a-parameter-through-a-captured-closure.md).
+_A2Pair :: struct(n : i32, m : i32);
+comptime_expect_error(
+  _a2_via_closure :: (fn(c : &_A2Pair, io : Io) -> Impl(Future(i32, Io)))({
+    (f : Impl(Fn() -> i32)) = ({ &c }() => (c.n + c.m));
+    io.async((io : Io) => {
+      io.await(yield(io), io);
+      f()
+    })
+  }),
+  "through a closure it captures"
+);
+/// The future's own entry is the accepted spelling.
+_a2_via_entry :: (fn(c : &_A2Pair, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &c }(io : Io) => {
+    io.await(yield(io), io);
+    (c.n + c.m)
+  })
+);
+/// A body that captures the `&Impl(Fn)` parameter it was given: the closure's
+/// borrows are the caller's, lent for the call, so the future is returned
+/// (issues/fixed/a-future-capturing-a-borrowing-closure-parameter-is-rejected-as-returned.md).
+_a2_run_body :: (fn(body : &Impl(Fn() -> i32), io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    body()
+  })
+);
+test("a returned future borrows a parameter through its own entry, or the closure a parameter lends (§3.13 A2)", {
+  p := _A2Pair(n : i32(20), m : i32(22));
+  assert(io.await(_a2_via_entry(&p, io), io) == i32(42), "the future's own `{ &c }` entry is copied");
+  s := i32(41);
+  assert(io.await(_a2_run_body({ &s }() => (s + i32(1)), io), io) == i32(42), "a borrowing closure lent to a `&Impl(Fn)` parameter");
+});
+// A temporary lent to a borrowing future inside an awaiting `io.async` body
+// is addressed in its task slot, not the resume function's C local
+// (issues/fixed/a-temporary-lent-to-a-borrowing-future-in-an-async-body-dangles.md).
+impl(
+  _A2Pair,
+  later : (fn(self : &mut Self, io : Io) -> Impl(Future(i32, Io)))(
+    io.async({ &mut self }(io : Io) => {
+      io.await(yield(io), io);
+      self.n = (self.n + i32(1));
+      (self.n + self.m)
+    })
+  )
+);
+_a2_make_pair :: (fn(a : i32) -> _A2Pair)(_A2Pair(n : a, m : i32(22)));
+_a2_bump_pair_later :: (fn(c : &mut _A2Pair, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &mut c }(io : Io) => {
+    io.await(yield(io), io);
+    c.n = (c.n + i32(1));
+    (c.n + c.m)
+  })
+);
+_a2_temps_in_sm :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    a := io.await(_a2_bump_pair_later(&mut _a2_make_pair(i32(19)), io), io);
+    b := io.await(_a2_make_pair(i32(19)).later(io), io);
+    (a + b)
+  })
+);
+// A local borrowed by a capture list lives in the task as long as its
+// scope, however the closure is used later
+// (issues/fixed/a-local-borrowed-by-a-closure-in-an-async-body-is-not-hoisted.md).
+_a2_closure_locals_in_sm :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    x := _A2Pair(n : i32(20), m : i32(22));
+    (f : Impl(Fn() -> i32)) = ({ &x }() => (x.n + x.m));
+    io.await(yield(io), io);
+    y := _A2Pair(n : i32(1), m : i32(2));
+    (g : Impl(Fn() -> i32)) = ({ &y }() => (y.n + y.m));
+    inner := io.await(
+      io.async((io : Io) => {
+        io.await(yield(io), io);
+        g()
+      }),
+      io
+    );
+    (f() + inner)
+  })
+);
+// A by-value capture under a new name, in a body that awaits
+// (issues/fixed/a-renamed-by-value-capture-of-an-awaiting-io-async-body-reads-an-undeclared-name.md).
+_a2_renamed_capture :: (fn(k : usize, s : String, io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ m : k, t : s }(io : Io) => {
+    io.await(yield(io), io);
+    (m + t.len())
+  })
+);
+test("borrowed temporaries and closure-borrowed locals of an awaiting io.async body live in the task (§3.13 A2)", {
+  assert(io.await(_a2_temps_in_sm(io), io) == i32(84), "a temporary lent `&mut` to a borrowing future, as an argument and as a receiver");
+  assert(io.await(_a2_closure_locals_in_sm(io), io) == i32(45), "locals a capture list borrows, read after a suspension and by an inner future");
+  assert(io.await(_a2_renamed_capture(usize(40), String.from("ab"), io), io) == usize(42), "a renamed by-value capture of a state-machine body");
+});
+// The move flag of a capture field belongs to the state machine that
+// declared it (issues/fixed/a-generic-io-async-capture-move-flag-leaks-across-specializations.md).
+_a2_gen_push :: (fn(generic(T : Type), x : ArrayList(T), v : T, io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ x, v }(io : Io) => {
+    io.await(yield(io), io);
+    x.push(v);
+    x.len()
+  })
+);
+test("a generic io.async body's capture move flag belongs to its specialization", {
+  a := io.await(_a2_gen_push(ArrayList(i32).new(), i32(1), io), io);
+  b := io.await(_a2_gen_push(ArrayList(String).new(), String.from("q"), io), io);
+  assert((a + b) == usize(2), "both specializations push once");
+});
+// A `Dyn` vtable slot's future type carries no borrows, so `dyn(v)` rejects a
+// `v` whose method in the vtable returns a borrowing future, and a future made
+// through a `Dyn` is first-class
+// (issues/fixed/a-dyn-method-future-carries-no-borrows.md).
+_A2Bump :: trait(bump : (fn(self : &mut Self, io : Io) -> Impl(Future(i32, Io))));
+_A2DynBorrowing :: struct(n : i32);
+impl(
+  _A2DynBorrowing,
+  _A2Bump(
+    bump : (fn(self : &mut Self, io : Io) -> Impl(Future(i32, Io)))(
+      io.async({ &mut self }(io : Io) => {
+        io.await(yield(io), io);
+        self.n = (self.n + i32(1));
+        self.n
+      })
+    )
+  )
+);
+_A2DynByValue :: struct(n : i32);
+impl(
+  _A2DynByValue,
+  _A2Bump(
+    bump : (fn(self : &mut Self, io : Io) -> Impl(Future(i32, Io)))({
+      self.n = (self.n + i32(1));
+      k := self.n;
+      io.async({ k }(io : Io) => {
+        io.await(yield(io), io);
+        k
+      })
+    })
+  )
+);
+test("dyn(v) rejects a v whose method returns a borrowing future (§3.13 A2)", {
+  comptime_expect_error({
+    (d : Dyn(_A2Bump)) = dyn(_A2DynBorrowing(n : i32(41)));
+    ()
+  }, "returns a future that borrows");
+  (d : Dyn(_A2Bump)) = dyn(_A2DynByValue(n : i32(41)));
+  h := io.spawn(d.bump(io), io);
+  assert(h.await(io) == .Some(i32(42)), "a by-value future made through the vtable is spawned");
+  cb := _A2DynBorrowing(n : i32(1));
+  assert(io.await(cb.bump(io), io) == i32(2), "the borrowing method is called on the concrete type");
+});
+// The future a call makes holds what its arguments lend from the moment each
+// is evaluated, so a later argument of the same call cannot move, overwrite
+// or lend `&mut` the place
+// (issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-the-future.md).
+_a2_bump_by :: (fn(c : &mut _A2Pair, k : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &mut c, k }(io : Io) => {
+    io.await(yield(io), io);
+    c.n = (c.n + k);
+    c.n
+  })
+);
+_a2_take_pair :: (fn(p : _A2Pair) -> i32)(p.n);
+_a2_touch_pair :: (fn(p : &mut _A2Pair) -> i32)({
+  p.n = (p.n + i32(1));
+  p.n
+});
+impl(
+  _A2Pair,
+  touch : (fn(self : &mut Self) -> i32)({
+    self.m = (self.m + i32(1));
+    self.m
+  })
+);
+test("a later argument cannot move, overwrite or lend &mut what an earlier one lends to the call's future (§3.13 A2)", {
+  p := _A2Pair(n : i32(1), m : i32(2));
+  comptime_expect_error(
+    io.await(
+      _a2_bump_by(&mut p, {
+        p = _A2Pair(n : i32(0), m : i32(0));
+        i32(1)
+      }, io),
+      io
+    ),
+    "an earlier argument of the same call lends"
+  );
+  comptime_expect_error(io.await(_a2_bump_by(&mut p, _a2_touch_pair(&mut p), io), io), "an earlier argument of the same call lends");
+  comptime_expect_error(io.await(_a2_bump_by(&mut p, p.touch(), io), io), "an earlier argument of the same call lends");
+  comptime_expect_error({
+    q := _A2Pair(n : i32(1), m : i32(2));
+    io.await(_a2_bump_by(&mut q, _a2_take_pair(q), io), io)
+  }, "an earlier argument of the same call lends");
+  k := _a2_touch_pair(&mut p);
+  assert(io.await(_a2_bump_by(&mut p, k, io), io) == i32(4), "an argument computed before the statement");
+  o := _A2Pair(n : i32(2), m : i32(0));
+  assert(io.await(_a2_bump_by(&mut p, _a2_take_pair(o), io), io) == i32(6), "a later argument may move another binding");
+});

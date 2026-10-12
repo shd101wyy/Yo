@@ -80,7 +80,7 @@ comm -12 added removed    # anything that is not a deliberate rewrite is a merge
 | `issues/a-binary-operator-called-through-a-dyn-is-an-internal-compiler-error.md` | S3 | Needs the design choice decision 34 left open. |
 | `issues/a-partially-applied-constructor-names-its-instances-with-an-internal-name.md` | S3 | Cosmetic in diagnostics. |
 | `issues/a-member-read-on-a-primitive-value-has-no-diagnostic.md` | S3 | Test lands with the fix. |
-| `issues/a-borrowing-future-can-carry-an-imm-borrow-across-an-rc-deref-with-no-mark.md` | open | Filed on the copy-trait branch during the rescue. |
+| `issues/fixed/a-borrowing-future-can-carry-an-imm-borrow-across-an-rc-deref-with-no-mark.md` | open | Filed on the copy-trait branch during the rescue. |
 | `issues/collection-iterators-have-no-sound-post-v2b-shape.md` | open | Same; relates to decision 39's audit. |
 | `issues/ci-flake-episodes-nondeterministic-job-failures-across-platforms.md` | S3 | Rerun-first guidance inside. |
 | The remainder of the open list | various | Generate TRIAGE locally (`python scripts/gen-issue-triage.py`) for the current categorized view. |

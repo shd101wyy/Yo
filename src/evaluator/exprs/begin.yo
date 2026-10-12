@@ -88,7 +88,7 @@ pragma(Pragma.AllowUnsafe);
 { is_flowable_expr, flow_options_default, FlowOptions }
 :: import("../../types/flowability.yo");
 { throw_unwind_type_mismatch, UNWIND_WITHOUT_ENCLOSING_FN } :: import("./unwind.yo");
-{ type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy } :: import("../../types/utils.yo");
+{ type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_second_class, is_future_value_type } :: import("../../types/utils.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -108,7 +108,7 @@ pragma(Pragma.AllowUnsafe);
   audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
   audit_print_implicit_copy,
-  reject_second_class_escape,
+  reject_second_class_return,
   reject_second_class_result_outliving,
   local_borrows_mark,
   local_borrows_truncate,
@@ -2385,7 +2385,7 @@ _evaluate_begin_expression_impl :: (
           });
           ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(&env, TypeValue.Unit));
           // Decision 38 A: a second-class value is never returned.
-          reject_second_class_escape(&ret_info.ty, String.from("returned"), ast_expr_token(&ret_arg), ctx, exn);
+          reject_second_class_return(&ret_info.ty, ast_expr_token(&ret_arg), &env, ctx, exn);
           env.frames = ret_info.env.frames;
           env.module_path = ret_info.env.module_path;
           env.function_declaration_frame_level = ret_info.env.function_declaration_frame_level;
@@ -2753,12 +2753,19 @@ _evaluate_begin_expression_impl :: (
             .Some(mu_info) => match(
               _must_use_kind(&evaluated, &mu_info.ty),
               .Some(mu_kind) => {
+                // A borrowing future cannot be discarded (§3.13 A2): `_ :=`
+                // binds it, which is an error of its own.
+                mu_fix := if(
+                  is_future_value_type(&mu_info.ty) && type_is_second_class(&mu_info.ty),
+                  String.from("Await it with io.await(...): it borrows, so it cannot be discarded with `_ := ...;` either."),
+                  String.from("Handle it (match, ?), await a future with io.await(...), or discard it on purpose with `_ := ...;`.")
+                );
                 exn.throw(
                   dyn(
                     with_code(
                       format_error_message(
                         ast_expr_token(&evaluated),
-                        `This statement drops ${mu_kind}: its value is never used. Handle it (match, ?), await a future with io.await(...), or discard it on purpose with \`_ := ...;\`.`
+                        `This statement drops ${mu_kind}: its value is never used. ${mu_fix}`
                       ),
                       E_DISCARDED_MUST_USE
                     )
