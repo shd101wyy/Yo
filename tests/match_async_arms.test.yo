@@ -372,3 +372,24 @@ test("a pattern through an Rc payload with an await", {
   io.await(&task, io);
   assert(result.* == i32(3), "the nested Rc payload pattern must bind second=3");
 });
+test("a wrapper pattern Rc(p) with an await (decision 31)", {
+  n := runtime_int();
+  l := List2.Cons2(1, rc(List2.Cons2(i32(2) + n, rc(List2.Nil2))));
+  result := Rc(i32)(0);
+  task := io.async((io : Io) => {
+    result.* = match(
+      l,
+      .Cons2(1, Rc(.Cons2(second, Rc(.Nil2)))) => {
+        io.await(yield(io), io);
+        second
+      },
+      .Cons2(h, Rc(rest)) => {
+        io.await(yield(io), io);
+        h + match(rest, .Cons2(x, _) => x, .Nil2 => i32(0))
+      },
+      .Nil2 => i32(0)
+    );
+  });
+  io.await(&task, io);
+  assert(result.* == i32(3), "Rc(p) through the tail must bind second=3");
+});
