@@ -8384,14 +8384,17 @@ impl(
   Option(T),
   /// Take the value out of the option, leaving `None` in its place.
   take : (fn(self : &mut Self) -> Option(T))({
-    old := self;
-    self = Option(T).None;
+    // A bitwise move out and in: a move-only payload is never copied.
+    p := addr_of(self);
+    old := __yo_ptr_read(p);
+    __yo_ptr_write(p, Option(T).None);
     old
   }),
   /// Replace the contained value with `Some(value)`, returning the old option.
   replace : (fn(self : &mut Self, value : T) -> Option(T))({
-    old := self;
-    self = Option(T).Some(value);
+    p := addr_of(self);
+    old := __yo_ptr_read(p);
+    __yo_ptr_write(p, Option(T).Some(value));
     old
   })
 );
