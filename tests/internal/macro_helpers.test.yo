@@ -32,7 +32,7 @@ test("macro helpers: ExprVal Atom equality via __yo_expr_eq", {
       )
     );
     src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\nis_same :: (fn() -> unquote(Expr))(cond(__yo_expr_eq(quote(x), quote(x)) => quote(1), true => quote(0)));\nv :: is_same();\nexport(v);\n");
-    eval := Evaluator.new(String.from("<phase6f1>"), String.from("<no-std>"), noop_loader, src, exn);
+    eval := Evaluator.new(String.from("<phase6f1>"), String.from("<no-std>"), noop_loader, &src, exn);
     match(
       eval.get_module_error(),
       .Some(_) => {
@@ -109,7 +109,7 @@ test("macro helpers: gensym produces fresh atoms", {
     // Freshness is still what's under test: both gensym'd bindings coexist
     // in one block, and `v` picks the second (4).
     src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\nmake_pair :: (fn() -> unquote(Expr))({ a :: gensym(\"u\"); b :: gensym(\"v\"); quote({ unquote(a) :: 3; unquote(b) :: 4; unquote(b) }) });\nv :: make_pair();\nexport(v);\n");
-    eval := Evaluator.new(String.from("<phase6f2>"), String.from("<no-std>"), noop_loader, src, exn);
+    eval := Evaluator.new(String.from("<phase6f2>"), String.from("<no-std>"), noop_loader, &src, exn);
     match(
       eval.get_module_error(),
       .Some(_) => {
@@ -185,7 +185,7 @@ test("macro helpers: .cdr on ComptimeListVal", {
     // real module evaluator matches TS). car(cdr(args((3 + 4)))) = 4 still
     // exercises .cdr semantics (drops the first arg).
     src := String.from("pragma(Pragma.SkipPrelude);\npragma(Pragma.AllowMacroDef);\ncdr_first :: (fn(quote(e) : Expr) -> unquote(Expr))(__yo_comptime_list_car(__yo_comptime_list_cdr(__yo_expr_get_args(e))));\nv :: cdr_first((3 + 4));\nexport(v);\n");
-    eval := Evaluator.new(String.from("<phase6f3>"), String.from("<no-std>"), noop_loader, src, exn);
+    eval := Evaluator.new(String.from("<phase6f3>"), String.from("<no-std>"), noop_loader, &src, exn);
     match(
       eval.get_module_error(),
       .Some(_) => {
@@ -272,15 +272,15 @@ test("macro helpers: a gensym'd token shares its source token's input", {
   call := AstExpr.FnCall(usize(900001), AstExpr.Atom(usize(900002), tok), ArrayList(AstExpr).new(), false, tok);
   env := Environment.new(String.from("gensym_share_test.yo"));
   ctx := eval_context_new(String.from(""), String.from("gensym_share_test.yo"));
-  _r := evaluate_gensym(call, env, ctx, exn);
+  _r := evaluate_gensym(&call, &env, &ctx, exn);
   match(
-    expr_info_table_get(ctx.expr_info_table, ast_expr_id(call)),
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&call)),
     .Some(info) => match(
       info.value,
       .Some(v) => match(
         v,
         .ExprVal(atom) => {
-          synth := ast_expr_token(atom);
+          synth := ast_expr_token(&atom);
           assert(synth.input == source, "the synthesized token carries the source text");
           // `ptr()` is buffer identity; `to_bytes()` would compare two fresh copies.
           assert(synth.input.ptr() == source.ptr(), "the synthesized token SHARES the source text instead of copying it");

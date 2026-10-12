@@ -57,7 +57,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -75,11 +75,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
@@ -132,13 +132,13 @@ test("trait variance: weakened requires + strengthened ensures PROVE", {
     io,
     true
   );
-  assert(reports.len() == usize(2), `the method's own task + the variance task, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(2), `the method's own task + the variance task, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   (i : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
       .Some(rp) => {
-        assert(rp.outcome == "ok", `trait_variance proves, got: [${_reports_dump(reports)}]`);
+        assert(rp.outcome == "ok", `trait_variance proves, got: [${_reports_dump(&reports)}]`);
       },
       .None => ()
     );
@@ -155,15 +155,15 @@ test("trait variance: STRENGTHENED requires REFUTES at i == 0", {
     io,
     true
   );
-  assert(reports.len() == usize(2), `the method's own task + the variance task, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
-  vr := _variance_report(reports);
+  assert(reports.len() == usize(2), `the method's own task + the variance task, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
+  vr := _variance_report(&reports);
   match(
     vr,
     .Some(rp) => {
-      assert(rp.outcome == "refuted", `the requires-contravariance obligation refutes, got: [${_reports_dump(reports)}]`);
+      assert(rp.outcome == "refuted", `the requires-contravariance obligation refutes, got: [${_reports_dump(&reports)}]`);
     },
     .None => {
-      assert(false, `no impl-variance task in: [${_reports_dump(reports)}]`);
+      assert(false, `no impl-variance task in: [${_reports_dump(&reports)}]`);
     }
   );
 });
@@ -177,13 +177,13 @@ test("trait contract INHERITANCE: the impl's own proof needs the trait's require
     io,
     true
   );
-  assert(reports.len() == usize(2), `the inherited-contract own task + the reflexive variance task, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(2), `the inherited-contract own task + the reflexive variance task, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   (i : usize) = usize(0);
   while(i < reports.len(), {
     match(
       reports.get(i),
       .Some(rp) => {
-        assert(rp.outcome == "ok", `trait_inherit proves via the inherited contracts, got: [${_reports_dump(reports)}]`);
+        assert(rp.outcome == "ok", `trait_inherit proves via the inherited contracts, got: [${_reports_dump(&reports)}]`);
       },
       .None => ()
     );
@@ -210,7 +210,7 @@ test("trait variance: the INLINE clause spelling loads and proves (was the claus
     io,
     true
   );
-  assert(reports.len() == usize(3), `the method task + the impl-variance task + main, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(3), `the method task + the impl-variance task + main, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   (ok_n : usize) = usize(0);
   (variance_ok : bool) = false;
   (i : usize) = usize(0);
@@ -229,6 +229,6 @@ test("trait variance: the INLINE clause spelling loads and proves (was the claus
     );
     i = (i + usize(1));
   });
-  assert(ok_n == usize(2), `the method and its variance task must prove (main passes as the outside-subset degrade), got: [${_reports_dump(reports)}]`);
-  assert(variance_ok, `the impl-variance task must prove for the inline-spelled method, got: [${_reports_dump(reports)}]`);
+  assert(ok_n == usize(2), `the method and its variance task must prove (main passes as the outside-subset degrade), got: [${_reports_dump(&reports)}]`);
+  assert(variance_ok, `the impl-variance task must prove for the inline-spelled method, got: [${_reports_dump(&reports)}]`);
 });

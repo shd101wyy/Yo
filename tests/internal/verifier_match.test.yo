@@ -56,7 +56,7 @@ _load_reports :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))(
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -71,11 +71,11 @@ _load_reports :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport))(
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 /// The reports' ids/outcomes rendered for assert messages.
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
@@ -108,7 +108,7 @@ test("match + enum datatypes verify (binding, bare-variant, construction)", {
     return(());
   });
   reports := _load_reports(String.from("./tests/spec/fixtures/valid/match_enum.yo"), io);
-  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`);
+  assert(reports.len() == usize(2), `two functions, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`);
   (i : usize) = usize(0);
   while(i < reports.len(), {
     rp := match(
@@ -119,7 +119,7 @@ test("match + enum datatypes verify (binding, bare-variant, construction)", {
         return(());
       }
     );
-    assert(rp.outcome == "ok", `every match fixture fn proves, got: [${_reports_dump(reports)}]`);
+    assert(rp.outcome == "ok", `every match fixture fn proves, got: [${_reports_dump(&reports)}]`);
     i = (i + usize(1));
   });
 });
@@ -139,7 +139,7 @@ test("the SMT encoding of a match query declares the datatype (solver-free)", {
   targets.push(mm_resolve_entry_abs(rel.clone(), std_path.clone()));
   take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel.clone(), std_path.clone(), true, io, exn);

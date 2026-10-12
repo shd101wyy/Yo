@@ -40,7 +40,7 @@ _round :: (
 )({
   changed := ArrayList(String).new();
   changed.push(lib_path.clone());
-  watch_round(changed, files, std_path, io, exn)
+  watch_round(&changed, files, std_path, io, exn)
 });
 
 test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean", {
@@ -75,11 +75,11 @@ test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean",
   // 1. Break lib on DISK (rename the export) -> the round must recheck the
   //    reverse closure and fail exactly the importer.
   io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_RENAMED), io), ioexn);
-  failed1 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed1 := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed1 == usize(1), `broken lib: expected 1 failed, got ${failed1.to_string()}`);
   // 2. Fix lib on disk -> the next round is clean again.
   io.await(write_string(Path.new(lib_path.clone()), String.from(_LIB_OK), io), ioexn);
-  failed2 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed2 := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed2 == usize(0), `fixed lib: expected 0 failed, got ${failed2.to_string()}`);
   // 3. Long-lived-process guarantee: repeated rounds keep the registry
   //    sizes flat (B2 purge-on-invalidation, consumed by watch_round).
@@ -87,7 +87,7 @@ test("Phase C: watch_round rechecks the reverse closure, error -> fix -> clean",
   gi_before := generic_impl_entry_count();
   (r : usize) = usize(0);
   while(r < usize(5), {
-    _f := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+    _f := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
     r = (r + usize(1));
   });
   ttm_after := type_trait_methods_entry_count();
@@ -211,7 +211,7 @@ test("Phase 3a: mm_definitions_changed — comment/whitespace edits are no-ops, 
   files.push(lib_path.clone());
   changed := ArrayList(String).new();
   changed.push(lib_path.clone());
-  failed := watch_round(changed, files, std_path.clone(), io, exn);
+  failed := watch_round(&changed, &files, std_path.clone(), io, exn);
   assert(failed == usize(0), "comment-only round must not fail anything");
 });
 
@@ -261,7 +261,7 @@ test("Phase 3b: a body edit re-evaluates only the changed def + its dependents",
   // (unchanged, no dependent edge).
   io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
   before := force_pending_count();
-  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   delta := (force_pending_count() - before);
   assert(failed == usize(0), `body edit must not fail: ${failed.to_string()}`);
   assert(delta == usize(2), `body edit must re-force exactly answer+main, forced ${delta.to_string()}`);
@@ -274,7 +274,7 @@ test("Phase 3b: a body edit re-evaluates only the changed def + its dependents",
   while(r < usize(5), {
     body := cond(((r % usize(2)) == usize(0)) => _P3B_LIB_V1, true => _P3B_LIB_V2);
     io.await(write_string(Path.new(lib_path.clone()), String.from(body), io), ioexn);
-    _f := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+    _f := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
     r = (r + usize(1));
   });
   assert(type_trait_methods_entry_count() == ttm_before, "type_trait_methods grew across per-def rounds");
@@ -283,10 +283,10 @@ test("Phase 3b: a body edit re-evaluates only the changed def + its dependents",
   // type-checking fails the round; fixing it cleans the next round (the
   // failed def must not stay failed after its hash moves again).
   io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_BRK), io), ioexn);
-  failed_b := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed_b := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed_b == usize(1), `broken body must fail the round, failed=${failed_b.to_string()}`);
   io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
-  failed_f := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed_f := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed_f == usize(0), `fixed body must clean the round, failed=${failed_f.to_string()}`);
 });
 
@@ -324,13 +324,13 @@ test("Phase 3b: a signature edit takes the per-def path and the re-forced depend
   // stale-callee.md) and fails on arity through the per-def channel.
   io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_SIG), io), ioexn);
   before := force_pending_count();
-  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   delta := (force_pending_count() - before);
   assert(failed == usize(1), `signature edit must fail the dependent, failed=${failed.to_string()}`);
   assert(delta == usize(2), `signature edit must re-force exactly answer+main, forced ${delta.to_string()}`);
   // Fix: back to the parameterless body — the next round is clean again.
   io.await(write_string(Path.new(lib_path.clone()), String.from(_P3B_LIB_V2), io), ioexn);
-  failed2 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed2 := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed2 == usize(0), "fixed signature must be clean again");
 });
 
@@ -450,7 +450,7 @@ test("Phase 3b: a struct-field edit (type producer) falls back to file-level", {
     ioexn
   );
   before := force_pending_count();
-  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   delta := (force_pending_count() - before);
   assert(failed == usize(0), "unused struct edit must not fail");
   assert(delta == usize(0), `type-producer edit must stay file-level (no per-def forces), forced ${delta.to_string()}`);
@@ -557,7 +557,7 @@ test("Phase 3 re-bind: a destructured importer is re-bound, not dropped, and its
     plan.fallback_modules.len() == usize(0),
     `the re-bound importer must not also be a fallback, got ${plan.fallback_modules.len().to_string()}`
   );
-  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed == usize(0), `re-bind round must not fail: ${failed.to_string()}`);
   after_value := _def_int_value(reader_key.clone(), String.from("doubled"));
   assert(after_value == "4", `the re-bound importer must see helper() == 2, so doubled == 4, got ${after_value}`);
@@ -589,7 +589,7 @@ test("Phase 3 re-bind: an import RENAME falls back instead of re-binding", {
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial renamed-import app check should pass");
   io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
-  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed == usize(0), `renamed-import round must not fail: ${failed.to_string()}`);
 });
 
@@ -619,7 +619,7 @@ test("Phase 3 re-bind: an ordered statement that computed with the old value fal
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial ordered-reader app check should pass");
   io.await(write_string(Path.new(lib_path.clone()), String.from(_RB_LIB_V2), io), ioexn);
-  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed == usize(0), `ordered-reader round must not fail: ${failed.to_string()}`);
 });
 
@@ -662,12 +662,12 @@ test("Phase 3b: rule D1 re-judges a re-forced body — the reach memo answers on
   // the old body must not answer for the new one
   // (issues/fixed/mutation-summary-memos-answer-for-a-re-evaluated-body.md).
   io.await(write_string(Path.new(lib_path.clone()), String.from(_D1W_LIB_REACH), io), ioexn);
-  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed == usize(1), `a re-forced body that reaches a non-Send global must fail the thread closure, failed=${failed.to_string()}`);
   // And back: the re-forced clean body is summarized again, so the next round
   // is clean (not "never evaluated").
   io.await(write_string(Path.new(lib_path.clone()), String.from(_D1W_LIB_CLEAN), io), ioexn);
-  failed2 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed2 := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed2 == usize(0), `the clean body must pass again, failed=${failed2.to_string()}`);
 });
 
@@ -709,10 +709,10 @@ test("Phase 3b: an edit re-judges the edited definition's same-module callers, t
   files.push(app_path.clone());
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "initial same-module app check should pass");
   io.await(write_string(Path.new(lib_path.clone()), String.from(_SMC_LIB_SIG), io), ioexn);
-  failed := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed == usize(1), `a same-module caller of a re-typed definition must fail the round, failed=${failed.to_string()}`);
   io.await(write_string(Path.new(lib_path.clone()), String.from(_SMC_LIB_OK), io), ioexn);
-  failed2 := _round(lib_path.clone(), files, std_path.clone(), io, exn);
+  failed2 := _round(lib_path.clone(), &files, std_path.clone(), io, exn);
   assert(failed2 == usize(0), `the reverted helper must pass again, failed=${failed2.to_string()}`);
   // 2. Rule D1 through an unchanged middle function: only `callee` is edited;
   //    `mid` calls it, `run`'s thread closure calls `mid`.
@@ -728,10 +728,10 @@ test("Phase 3b: an edit re-judges the edited definition's same-module callers, t
   files_d1.push(app_d1.clone());
   assert(mm_load_file(app_d1.clone(), std_path.clone(), true, io, exn).ok, "initial same-module D1 app check should pass");
   io.await(write_string(Path.new(lib_d1.clone()), String.from(_SMC_D1_REACH), io), ioexn);
-  failed3 := _round(lib_d1.clone(), files_d1, std_path.clone(), io, exn);
+  failed3 := _round(lib_d1.clone(), &files_d1, std_path.clone(), io, exn);
   assert(failed3 == usize(1), `a thread closure reaching g through mid -> callee must fail the round, failed=${failed3.to_string()}`);
   io.await(write_string(Path.new(lib_d1.clone()), String.from(_SMC_D1_CLEAN), io), ioexn);
-  failed4 := _round(lib_d1.clone(), files_d1, std_path.clone(), io, exn);
+  failed4 := _round(lib_d1.clone(), &files_d1, std_path.clone(), io, exn);
   assert(failed4 == usize(0), `the reverted callee must pass again, failed=${failed4.to_string()}`);
 });
 
@@ -767,7 +767,7 @@ test("build --watch: invalidate_changed_files makes an edited import re-read on 
   assert(_def_int_value(reader_key.clone(), String.from("doubled")) == "2", "without invalidation the cache still serves the old import");
   changed := ArrayList(String).new();
   changed.push(lib_path.clone());
-  dropped := invalidate_changed_files(changed, std_path.clone());
+  dropped := invalidate_changed_files(&changed, std_path.clone());
   assert(dropped >= usize(2), `the edited import and its importer must leave the cache, dropped ${dropped.to_string()}`);
   assert(mm_load_file(app_path.clone(), std_path.clone(), true, io, exn).ok, "the reload after invalidation should pass");
   after := _def_int_value(reader_key.clone(), String.from("doubled"));

@@ -120,8 +120,8 @@ test("the cached prelude loads as a module, not as Unit", {
   _first := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
   outcome := mm_load_file(prelude.clone(), std_path.clone(), false, io, exn);
   assert(outcome.ok, "the cached prelude is a successful load");
-  assert(is_module_type(outcome.module_type), "the outcome's type is a module type, not Unit");
-  labels := _ns_labels(outcome.module_type);
+  assert(is_module_type(&outcome.module_type), "the outcome's type is a module type, not Unit");
+  labels := _ns_labels(&outcome.module_type);
   assert(labels.len() > usize(100), `the prelude namespace is populated, got ${labels.len().to_string()} field(s)`);
   // Three declarations a reader of the prelude page must find: a type, a
   // generic type constructor and a trait.
@@ -155,13 +155,13 @@ test("the cached prelude's parameterised bindings carry their fn field types", {
   // binding's recorded type. Typed `unit` — what reconstructing the type from
   // the value alone produces — makes `yo doc` render the declaration as a
   // `<fn(T)>` constant instead of a type-function.
-  option_ty := _ns_field_type(outcome.module_type, String.from("Option"));
-  assert(is_function_type(option_ty), "Option's namespace field type is its comptime-fn type, not unit");
-  assert(is_function_type_and_is_type_function(option_ty), "Option routes into the type-function doc branch");
-  eq_ty := _ns_field_type(outcome.module_type, String.from("Eq"));
-  assert(is_function_type(eq_ty), "Eq's namespace field type is its comptime-fn type, not unit");
-  ord_ty := _ns_field_type(outcome.module_type, String.from("Ord"));
-  assert(is_function_type(ord_ty), "Ord's namespace field type is its comptime-fn type, not unit");
+  option_ty := _ns_field_type(&outcome.module_type, String.from("Option"));
+  assert(is_function_type(&option_ty), "Option's namespace field type is its comptime-fn type, not unit");
+  assert(is_function_type_and_is_type_function(&option_ty), "Option routes into the type-function doc branch");
+  eq_ty := _ns_field_type(&outcome.module_type, String.from("Eq"));
+  assert(is_function_type(&eq_ty), "Eq's namespace field type is its comptime-fn type, not unit");
+  ord_ty := _ns_field_type(&outcome.module_type, String.from("Ord"));
+  assert(is_function_type(&ord_ty), "Ord's namespace field type is its comptime-fn type, not unit");
 });
 test("the doc builder renders the cached prelude's parameterised declarations", {
   exn := Exception(
@@ -191,14 +191,14 @@ test("the doc builder renders the cached prelude's parameterised declarations", 
   doc := build_doc_module(
     String.from("prelude"),
     String.from("prelude"),
-    outcome.module_value,
-    outcome.module_type,
-    extract_doc_comments(tokens),
-    tokens,
-    outcome.env
+    &outcome.module_value,
+    &outcome.module_type,
+    extract_doc_comments(&tokens),
+    &tokens,
+    &outcome.env
   );
-  type_names := _doc_type_names(doc);
-  trait_names := _doc_trait_names(doc);
+  type_names := _doc_type_names(&doc);
+  trait_names := _doc_trait_names(&doc);
   assert(type_names.contains(String.from("Option")), "Option documents as a type, not a constant");
   assert(type_names.contains(String.from("Result")), "Result documents as a type, not a constant");
   assert(type_names.contains(String.from("Rc")), "Rc documents as a type, not a constant");

@@ -53,7 +53,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -71,11 +71,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
@@ -116,6 +116,6 @@ test("a generic fn's body verifies ABSTRACTLY: identity's ensures proves over th
   // use_id carries no contracts: it reports a vacuous ok (no obligation).
   assert(
     (reports.len() == usize(2)) && (reports.get(usize(0)).unwrap().outcome == "ok") && (reports.get(usize(0)).unwrap().obligations.len() == usize(1)) && (reports.get(usize(1)).unwrap().outcome == "ok") && (reports.get(usize(1)).unwrap().obligations.len() == usize(0)),
-    `identity must verify abstractly, got: [${_reports_dump(reports)}]`
+    `identity must verify abstractly, got: [${_reports_dump(&reports)}]`
   );
 });

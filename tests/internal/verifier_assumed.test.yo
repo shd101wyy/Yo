@@ -59,7 +59,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -77,11 +77,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 /// The rendered load diagnostic for a fixture that must FAIL to load.
 _load_error :: (fn(rel_path : &String, io : Io) -> String)({
@@ -98,7 +98,7 @@ _load_error :: (fn(rel_path : &String, io : Io) -> String)({
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -222,15 +222,15 @@ test("an assumed fn reports assumed and its caller proves through the assumed co
   // clean — the AoRTE flagship: unannotated code is still checked.
   assert(
     reports.len() == usize(3),
-    `all three functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `all three functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("assumed")) == usize(1),
-    `assumed_double must report assumed, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("assumed")) == usize(1),
+    `assumed_double must report assumed, got: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(2),
-    `caller_ok must prove through the assumed contracts (and opaque_inc walks clean), got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(2),
+    `caller_ok must prove through the assumed contracts (and opaque_inc walks clean), got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -244,14 +244,14 @@ test("an assumed callee's requires still gates callers (the body is skipped, nev
     true
   );
   assert(
-    _count_outcome(reports, String.from("assumed")) == usize(1),
-    `assumed_pos must report assumed (not walked, not refuted), got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("assumed")) == usize(1),
+    `assumed_pos must report assumed (not walked, not refuted), got: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("refuted")) == usize(1),
-    `bad_caller must refute the undischarged requires, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("refuted")) == usize(1),
+    `bad_caller must refute the undischarged requires, got: [${_reports_dump(&reports)}]`
   );
-  rp := _first_refuted_with(reports, String.from("requires#"), String.from("x = "));
+  rp := _first_refuted_with(&reports, String.from("requires#"), String.from("x = "));
   assert(rp.outcome == "refuted", `the counter-example must name the caller's x`);
 });
 
@@ -279,7 +279,7 @@ test("an uncontracted fn whose body fails the subset degrades to the passing out
   );
   assert(
     reports.len() == usize(1),
-    `exactly one function reports, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `exactly one function reports, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   rp := match(
     reports.get(usize(0)),
@@ -291,7 +291,7 @@ test("an uncontracted fn whose body fails the subset degrades to the passing out
   );
   assert(
     rp.outcome == "outside-subset",
-    `plain_read (contract-less, field-read body) must degrade to outside-subset, got: [${_reports_dump(reports)}]`
+    `plain_read (contract-less, field-read body) must degrade to outside-subset, got: [${_reports_dump(&reports)}]`
   );
   assert(
     rp.subset_construct.len() > usize(0),

@@ -71,7 +71,7 @@ _verify_fixture :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport)
   // the target set, evaluate, drain.
   take_verify_tasks();
   set_verify_mode_override(Option(String).Some(String.from("verify")));
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -86,7 +86,7 @@ _verify_fixture :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport)
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
@@ -96,7 +96,7 @@ _verify_fixture :: (fn(rel_path : &String, io : Io) -> ArrayList(VerifyFnReport)
   // This test therefore runs under YO_TEST_LEAK_VERDICT=0 (the same
   // staging ratchet as the differential shards; ASan crash detection
   // stays armed).
-  verify_registered_functions(cfg, binary)
+  verify_registered_functions(&cfg, &binary)
 });
 /// The number of reports whose outcome equals `want`.
 _count_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String) -> usize)({
@@ -144,7 +144,7 @@ _first_outcome :: (fn(reports : &ArrayList(VerifyFnReport), want : &String, what
         );
         j = (j + usize(1));
       });
-      assert(false, `expected a '${want}' report (${what}), got: [${_join(ids, String.from(", "))}]`);
+      assert(false, `expected a '${want}' report (${what}), got: [${_join(&ids, String.from(", "))}]`);
       reports.get(usize(0)).unwrap()
     }
   )
@@ -162,7 +162,7 @@ _refuted_with :: (fn(rp : &VerifyFnReport, name_prefix : &String, needle : &Stri
         match(
           obl.verdict,
           .Refuted(ce) => {
-            ce_all := _join(ce, String.from("; "));
+            ce_all := _join(&ce, String.from("; "));
             if(name_ok && ce_all.contains(needle.clone()), {
               hit = true;
             });
@@ -209,9 +209,9 @@ test("subset error: while loop outside the V3 verifiable subset (no solver neede
     );
     di = (di + usize(1));
   });
-  dump := _join(ids, String.from(", "));
+  dump := _join(&ids, String.from(", "));
   assert(reports.len() == usize(1), `expected exactly 1 report, got ${reports.len().to_string()}: [${dump}]`);
-  rp := _first_outcome(reports, String.from("subset-error"), String.from("sum_to uses while"));
+  rp := _first_outcome(&reports, String.from("subset-error"), String.from("sum_to uses while"));
   assert(rp.subset_construct.contains(String.from("while")), `the subset error must name the construct, got '${rp.subset_construct}'`);
 });
 
@@ -220,8 +220,8 @@ test("refuted: wrong ensures on abs (counter-example names x)", {
     return(());
   });
   reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/wrong_ensures.yo"), io);
-  rp := _first_outcome(reports, String.from("refuted"), String.from("abs_wrong ensures(r > 0)"));
-  assert(_refuted_with(rp, String.from("ensures#"), String.from("x = ")), "the counter-example must name the input x");
+  rp := _first_outcome(&reports, String.from("refuted"), String.from("abs_wrong ensures(r > 0)"));
+  assert(_refuted_with(&rp, String.from("ensures#"), String.from("x = ")), "the counter-example must name the input x");
 });
 
 test("refuted: AoRTE divisor-nonzero on unannotated divide", {
@@ -229,8 +229,8 @@ test("refuted: AoRTE divisor-nonzero on unannotated divide", {
     return(());
   });
   reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/bugged_div.yo"), io);
-  rp := _first_outcome(reports, String.from("refuted"), String.from("divide_bugged y=0"));
-  assert(_refuted_with(rp, String.from("divisor-nonzero"), String.from("y = ")), "the divisor obligation must refute naming y");
+  rp := _first_outcome(&reports, String.from("refuted"), String.from("divide_bugged y=0"));
+  assert(_refuted_with(&rp, String.from("divisor-nonzero"), String.from("y = ")), "the divisor obligation must refute naming y");
 });
 
 test("refuted: caller does not discharge callee requires (modular: callee still ok)", {
@@ -238,9 +238,9 @@ test("refuted: caller does not discharge callee requires (modular: callee still 
     return(());
   });
   reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/caller_violates_requires.yo"), io);
-  assert(_count_outcome(reports, String.from("ok")) == usize(1), "safe_div itself must verify");
-  rp := _first_outcome(reports, String.from("refuted"), String.from("recip_bugged requires discharge"));
-  assert(_refuted_with(rp, String.from("requires#"), String.from("d = ")), "the counter-example must name the caller's d");
+  assert(_count_outcome(&reports, String.from("ok")) == usize(1), "safe_div itself must verify");
+  rp := _first_outcome(&reports, String.from("refuted"), String.from("recip_bugged requires discharge"));
+  assert(_refuted_with(&rp, String.from("requires#"), String.from("d = ")), "the counter-example must name the caller's d");
 });
 
 test("positive battery: every function in verify_straight_line proves", {
@@ -263,7 +263,7 @@ test("positive battery: every function in verify_straight_line proves", {
               match(
                 obl.verdict,
                 .Refuted(ce) => {
-                  ids.push(`  ${obl.name}: ${_join(ce, String.from(", "))}`);
+                  ids.push(`  ${obl.name}: ${_join(&ce, String.from(", "))}`);
                 },
                 _ => ()
               );
@@ -277,7 +277,7 @@ test("positive battery: every function in verify_straight_line proves", {
     );
     bi = (bi + usize(1));
   });
-  assert(_count_outcome(reports, String.from("ok")) == reports.len(), `all battery functions must prove, got: [${_join(ids, String.from(", "))}]`);
+  assert(_count_outcome(&reports, String.from("ok")) == reports.len(), `all battery functions must prove, got: [${_join(&ids, String.from(", "))}]`);
   assert(reports.len() >= usize(7), `expected at least 7 verified functions, got ${reports.len().to_string()}`);
 });
 
@@ -318,15 +318,15 @@ _names_unique :: (fn(rp : &VerifyFnReport) -> bool)({
 test("the literal folder wraps: subtracting or negating a zero literal does not abort", {
   reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/fold_wrapping_literals.yo"), io);
   assert(reports.len() == usize(2), `both functions are reported (got ${reports.len().to_string()})`);
-  assert(_count_outcome(reports, String.from("ok")) == usize(2), "both fold to a proof");
+  assert(_count_outcome(&reports, String.from("ok")) == usize(2), "both fold to a proof");
 });
 
 test("obligation names are unique and guard obligations carry their site", {
   reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/obligation_sites.yo"), io);
   match(
-    _fn_report_named(reports, String.from(":10")),
+    _fn_report_named(&reports, String.from(":10")),
     .Some(rp) => {
-      assert(_names_unique(rp), "two_divs: two divisions give two distinct obligation names");
+      assert(_names_unique(&rp), "two_divs: two divisions give two distinct obligation names");
       (rows : ArrayList(usize)) = ArrayList(usize).new();
       (i : usize) = usize(0);
       while(i < rp.obligations.len(), {
@@ -354,9 +354,9 @@ test("obligation names are unique and guard obligations carry their site", {
     }
   );
   match(
-    _fn_report_named(reports, String.from(":16")),
+    _fn_report_named(&reports, String.from(":16")),
     .Some(rp2) => {
-      assert(_names_unique(rp2), "two_calls: two calls of safe_div give two distinct requires#0 names");
+      assert(_names_unique(&rp2), "two_calls: two calls of safe_div give two distinct requires#0 names");
       (ri : usize) = usize(0);
       (n_req : usize) = usize(0);
       while(ri < rp2.obligations.len(), {
@@ -380,9 +380,9 @@ test("call actuals are the caller's values even when they share the callee's par
     return(());
   });
   ok_reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/call_arg_swap.yo"), io);
-  assert(_count_outcome(ok_reports, String.from("ok")) == usize(2), "one_more and swapped (one_more(b, a)) must verify");
+  assert(_count_outcome(&ok_reports, String.from("ok")) == usize(2), "one_more and swapped (one_more(b, a)) must verify");
   bad_reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/call_arg_swap_false.yo"), io);
-  assert(_count_outcome(bad_reports, String.from("refuted")) == usize(1), "differ's same(b, a) must refute");
+  assert(_count_outcome(&bad_reports, String.from("refuted")) == usize(1), "differ's same(b, a) must refute");
 });
 
 test("an uncontracted pure fn is transparent to specs; one that prints is refused by name", {
@@ -390,10 +390,10 @@ test("an uncontracted pure fn is transparent to specs; one that prints is refuse
     return(());
   });
   ok_reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/transparent_pure_fn.yo"), io);
-  assert(_count_outcome(ok_reports, String.from("ok")) == usize(4), "sq, clamp, square_small and clamped must verify");
+  assert(_count_outcome(&ok_reports, String.from("ok")) == usize(4), "sq, clamp, square_small and clamped must verify");
   bad_reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/transparent_pure_fn_false.yo"), io);
-  assert(_count_outcome(bad_reports, String.from("refuted")) == usize(1), "square_off must refute");
-  rp := _first_outcome(bad_reports, String.from("subset-error"), String.from("uses_noisy"));
+  assert(_count_outcome(&bad_reports, String.from("refuted")) == usize(1), "square_off must refute");
+  rp := _first_outcome(&bad_reports, String.from("subset-error"), String.from("uses_noisy"));
   assert(rp.subset_construct.contains("not spec-transparent: its body is outside the verifier subset"), `uses_noisy must name why noisy is opaque, got: ${rp.subset_construct}`);
 });
 
@@ -402,9 +402,9 @@ test("a recursive transparent callee needs decreases: is_even unfolds, spin is r
     return(());
   });
   ok_reports := _verify_fixture(String.from("./tests/spec/fixtures/valid/transparent_recursive.yo"), io);
-  assert(_count_outcome(ok_reports, String.from("ok")) == usize(2), "is_even and six_is_even must verify");
+  assert(_count_outcome(&ok_reports, String.from("ok")) == usize(2), "is_even and six_is_even must verify");
   bad_reports := _verify_fixture(String.from("./tests/spec/fixtures/negative/transparent_recursive_false.yo"), io);
-  assert(_count_outcome(bad_reports, String.from("ok")) == usize(1), "only is_even may verify (liar used to, through spin's inconsistent axiom)");
-  rp := _first_outcome(bad_reports, String.from("subset-error"), String.from("liar"));
+  assert(_count_outcome(&bad_reports, String.from("ok")) == usize(1), "only is_even may verify (liar used to, through spin's inconsistent axiom)");
+  rp := _first_outcome(&bad_reports, String.from("subset-error"), String.from("liar"));
   assert(rp.subset_construct.contains("calls itself without decreases"), `liar must name spin's missing decreases, got: ${rp.subset_construct}`);
 });

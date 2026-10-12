@@ -55,7 +55,7 @@ _load_reports :: (
   targets.push(mm_resolve_entry_abs(rel_path.clone(), std_path.clone()));
   _ := take_verify_tasks();
   set_verify_mode_override(Option(String).None);
-  set_verify_target_paths(targets);
+  set_verify_target_paths(&targets);
   clear_module_cache();
   mm_preload_prelude(std_path.clone(), true, io, exn);
   outcome := mm_load_file(rel_path.clone(), std_path.clone(), true, io, exn);
@@ -73,11 +73,11 @@ _load_reports :: (
   );
   cfg := default_verify_run_config();
   binary := match(
-    resolve_solver_sync(cfg),
+    resolve_solver_sync(&cfg),
     .Resolved(p) => p,
     _ => String.new()
   );
-  verify_and_strip_tasks(cfg, binary, take_verify_tasks())
+  verify_and_strip_tasks(&cfg, &binary, take_verify_tasks())
 });
 _reports_dump :: (fn(reports : &ArrayList(VerifyFnReport)) -> String)({
   ids := ArrayList(String).new();
@@ -144,15 +144,15 @@ test("get/first/sum2 over an ArrayList prove; an assumed concat's length ensures
   );
   assert(
     reports.len() == usize(5),
-    `all five functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `all five functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(4),
-    `get, first, sum2 and total must verify, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(4),
+    `get, first, sum2 and total must verify, got: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("assumed")) == usize(1),
-    `concat_len is the assumed spec, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("assumed")) == usize(1),
+    `concat_len is the assumed spec, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -167,15 +167,15 @@ test("a caller violating get's requires and an out-of-bounds read both REFUTE (g
   );
   assert(
     reports.len() == usize(3),
-    `all three functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `all three functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("refuted")) == usize(2),
-    `bad (requires#1) and bad_sum (index-in-bounds) must refute, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("refuted")) == usize(2),
+    `bad (requires#1) and bad_sum (index-in-bounds) must refute, got: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(1),
-    `get itself stays ok (modular), got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(1),
+    `get itself stays ok (modular), got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -195,11 +195,11 @@ test("concat's body verifies through new()'s and push()'s std contracts; two pus
   );
   assert(
     reports.len() == usize(2),
-    `concat and push_two report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `concat and push_two report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(2),
-    `both must verify, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(2),
+    `both must verify, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -214,11 +214,11 @@ test("a wrong concat length and an over-claimed push both REFUTE", {
   );
   assert(
     reports.len() == usize(2),
-    `concat_wrong and push_once report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `concat_wrong and push_once report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("refuted")) == usize(2),
-    `both must refute, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("refuted")) == usize(2),
+    `both must refute, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -233,11 +233,11 @@ test("a body that mutates a list parameter without an old(param) clause is a pre
   );
   assert(
     reports.len() == usize(2),
-    `grow and shrink report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `grow and shrink report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("subset-error")) == usize(2),
-    `grow and shrink must be subset errors naming old(xs), got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("subset-error")) == usize(2),
+    `grow and shrink must be subset errors naming old(xs), got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -255,11 +255,11 @@ test("get past the end is None, get in bounds agrees with the index read, pop sh
   );
   assert(
     reports.len() == usize(4),
-    `four functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `four functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(4),
-    `past_end, agrees, pop_last and pop_empty must verify, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(4),
+    `past_end, agrees, pop_last and pop_empty must verify, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -274,11 +274,11 @@ test("a Some at the end and an off-by-one pop length both REFUTE", {
   );
   assert(
     reports.len() == usize(2),
-    `two functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `two functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("refuted")) == usize(2),
-    `both must refute, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("refuted")) == usize(2),
+    `both must refute, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -292,8 +292,8 @@ test("a list mutation next to a possible alias (a local copy, a second same-type
     true
   );
   assert(
-    _count_outcome(local_reports, String.from("subset-error")) == usize(1),
-    `alias_push must be a subset error, got: [${_reports_dump(local_reports)}]`
+    _count_outcome(&local_reports, String.from("subset-error")) == usize(1),
+    `alias_push must be a subset error, got: [${_reports_dump(&local_reports)}]`
   );
   param_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/dml_list_alias_params.yo"),
@@ -301,8 +301,8 @@ test("a list mutation next to a possible alias (a local copy, a second same-type
     true
   );
   assert(
-    _count_outcome(param_reports, String.from("subset-error")) == usize(1),
-    `two must be a subset error, got: [${_reports_dump(param_reports)}]`
+    _count_outcome(&param_reports, String.from("subset-error")) == usize(1),
+    `two must be a subset error, got: [${_reports_dump(&param_reports)}]`
   );
 });
 
@@ -317,11 +317,11 @@ test("insert/remove/swap_remove/swap and an insert-remove round trip verify thro
   );
   assert(
     reports.len() == usize(5),
-    `5 functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `5 functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(5),
-    `ins, rem, srem, sw and round_trip must verify, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(5),
+    `ins, rem, srem, sw and round_trip must verify, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -336,11 +336,11 @@ test("a claim that a mutator left the list unchanged REFUTES (each std mutator m
   );
   assert(
     reports.len() == usize(4),
-    `4 functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `4 functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("refuted")) == usize(4),
-    `ins_same, rem_same, srem_same and sw_same must refute, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("refuted")) == usize(4),
+    `ins_same, rem_same, srem_same and sw_same must refute, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -355,11 +355,11 @@ test("zip, filter and reverse prove their result lengths", {
   );
   assert(
     reports.len() == usize(3),
-    `3 functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `3 functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(3),
-    `zip_max, filter_pos and reverse must verify, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(3),
+    `zip_max, filter_pos and reverse must verify, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -374,11 +374,11 @@ test("an unchecked zip, an all-keeping filter and a short reverse REFUTE", {
   );
   assert(
     reports.len() == usize(3),
-    `3 functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `3 functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("refuted")) == usize(3),
-    `zip_unchecked, filter_all and reverse_short must refute, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("refuted")) == usize(3),
+    `zip_unchecked, filter_all and reverse_short must refute, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -393,11 +393,11 @@ test("a loop havocs a cond-bound integer and a comparison-bound bool at their ow
   );
   assert(
     reports.len() == usize(2),
-    `2 functions report, got ${reports.len().to_string()}: [${_reports_dump(reports)}]`
+    `2 functions report, got ${reports.len().to_string()}: [${_reports_dump(&reports)}]`
   );
   assert(
-    _count_outcome(reports, String.from("ok")) == usize(2),
-    `count_up and any_less must verify, got: [${_reports_dump(reports)}]`
+    _count_outcome(&reports, String.from("ok")) == usize(2),
+    `count_up and any_less must verify, got: [${_reports_dump(&reports)}]`
   );
 });
 
@@ -411,8 +411,8 @@ test("payload and qualified variant constructions verify, and a final arm keeps 
     true
   );
   assert(
-    _count_outcome(ok_reports, String.from("ok")) == usize(6),
-    `six constructions must verify, got: [${_reports_dump(ok_reports)}]`
+    _count_outcome(&ok_reports, String.from("ok")) == usize(6),
+    `six constructions must verify, got: [${_reports_dump(&ok_reports)}]`
   );
   bad_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/variant_payload_construction_false.yo"),
@@ -420,8 +420,8 @@ test("payload and qualified variant constructions verify, and a final arm keeps 
     true
   );
   assert(
-    _count_outcome(bad_reports, String.from("refuted")) == usize(2),
-    `both false twins must refute, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(2),
+    `both false twins must refute, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
@@ -435,8 +435,8 @@ test("a contracted generic fn is verified abstractly: identity, pick and tenth p
     true
   );
   assert(
-    _count_outcome(ok_reports, String.from("ok")) == usize(3),
-    `identity, pick and tenth must verify, got: [${_reports_dump(ok_reports)}]`
+    _count_outcome(&ok_reports, String.from("ok")) == usize(3),
+    `identity, pick and tenth must verify, got: [${_reports_dump(&ok_reports)}]`
   );
   bad_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/generic_body_abstract_false.yo"),
@@ -444,8 +444,8 @@ test("a contracted generic fn is verified abstractly: identity, pick and tenth p
     true
   );
   assert(
-    _count_outcome(bad_reports, String.from("refuted")) == usize(2),
-    `wrong_id and tenth_wrong must refute, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(2),
+    `wrong_id and tenth_wrong must refute, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
@@ -459,8 +459,8 @@ test("a recursive ghost_fn is an axiomatized function: a loop invariant over it 
     true
   );
   assert(
-    _count_outcome(ok_reports, String.from("ok")) == usize(2),
-    `all_pos and check_all must verify, got: [${_reports_dump(ok_reports)}]`
+    _count_outcome(&ok_reports, String.from("ok")) == usize(2),
+    `all_pos and check_all must verify, got: [${_reports_dump(&ok_reports)}]`
   );
   bad_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/ghost_fn_recursive_false.yo"),
@@ -471,12 +471,12 @@ test("a recursive ghost_fn is an axiomatized function: a loop invariant over it 
   // the claim needs a counterexample through the quantified definition);
   // spin's measure does not decrease (refuted).
   assert(
-    _count_outcome(bad_reports, String.from("ok")) == usize(1),
-    `only all_pos may verify, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("ok")) == usize(1),
+    `only all_pos may verify, got: [${_reports_dump(&bad_reports)}]`
   );
   assert(
-    _count_outcome(bad_reports, String.from("refuted")) == usize(1),
-    `spin must refute at decreases-step, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(1),
+    `spin must refute at decreases-step, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
@@ -493,8 +493,8 @@ test("a lemma (unit ghost_fn with ensures) is proved by induction and used throu
   // (push's element contract carries the loop; the lemma call carries the
   // ensures).
   assert(
-    _count_outcome(ok_reports, String.from("ok")) == usize(3),
-    `member, member_frame and copy_keeps_member must verify, got: [${_reports_dump(ok_reports)}]`
+    _count_outcome(&ok_reports, String.from("ok")) == usize(3),
+    `member, member_frame and copy_keeps_member must verify, got: [${_reports_dump(&ok_reports)}]`
   );
   bad_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/lemma_member_frame_false.yo"),
@@ -504,12 +504,12 @@ test("a lemma (unit ghost_fn with ensures) is proved by induction and used throu
   // member and the true member_frame verify; the false lemma does not;
   // misuse's call cannot prove the lemma's prefix requires.
   assert(
-    _count_outcome(bad_reports, String.from("ok")) == usize(2),
-    `only member and member_frame may verify, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("ok")) == usize(2),
+    `only member and member_frame may verify, got: [${_reports_dump(&bad_reports)}]`
   );
   assert(
-    _count_outcome(bad_reports, String.from("refuted")) == usize(1),
-    `misuse must refute at the lemma's requires, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(1),
+    `misuse must refute at the lemma's requires, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
@@ -526,7 +526,7 @@ test("push of an element type without Eq: the file loads and the function gets i
   );
   assert(
     reports.len() == usize(1),
-    `two_points must get exactly one outcome, got: [${_reports_dump(reports)}]`
+    `two_points must get exactly one outcome, got: [${_reports_dump(&reports)}]`
   );
 });
 test("seq_of: a list's elements as a ghost Seq; append is one line, its reversal and a lossy copy fail", {
@@ -539,8 +539,8 @@ test("seq_of: a list's elements as a ghost Seq; append is one line, its reversal
     true
   );
   assert(
-    _count_outcome(ok_reports, String.from("ok")) == usize(2),
-    `append and first_of_append must verify, got: [${_reports_dump(ok_reports)}]`
+    _count_outcome(&ok_reports, String.from("ok")) == usize(2),
+    `append and first_of_append must verify, got: [${_reports_dump(&ok_reports)}]`
   );
   bad_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/dml_append_seq_false.yo"),
@@ -548,12 +548,12 @@ test("seq_of: a list's elements as a ghost Seq; append is one line, its reversal
     true
   );
   assert(
-    _count_outcome(bad_reports, String.from("ok")) == usize(0),
-    `neither false twin may verify, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("ok")) == usize(0),
+    `neither false twin may verify, got: [${_reports_dump(&bad_reports)}]`
   );
   assert(
-    _count_outcome(bad_reports, String.from("refuted")) == usize(1),
-    `copy_all must refute, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(1),
+    `copy_all must refute, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
@@ -567,8 +567,8 @@ test("member as a recursive ghost_fn: a search loop proves it, a lemma gives its
     true
   );
   assert(
-    _count_outcome(ok_reports, String.from("ok")) == usize(3),
-    `member, contains and member_witness must verify, got: [${_reports_dump(ok_reports)}]`
+    _count_outcome(&ok_reports, String.from("ok")) == usize(3),
+    `member, contains and member_witness must verify, got: [${_reports_dump(&ok_reports)}]`
   );
   bad_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/dml_member_false.yo"),
@@ -576,8 +576,8 @@ test("member as a recursive ghost_fn: a search loop proves it, a lemma gives its
     true
   );
   assert(
-    _count_outcome(bad_reports, String.from("ok")) == usize(1),
-    `only member may verify, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("ok")) == usize(1),
+    `only member may verify, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
@@ -591,8 +591,8 @@ test("sorted insert keeps the list sorted and holds x; appending x at the end re
     true
   );
   assert(
-    _count_outcome(ok_reports, String.from("ok")) == usize(1),
-    `sorted_insert must verify, got: [${_reports_dump(ok_reports)}]`
+    _count_outcome(&ok_reports, String.from("ok")) == usize(1),
+    `sorted_insert must verify, got: [${_reports_dump(&ok_reports)}]`
   );
   bad_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/dml_sorted_insert_false.yo"),
@@ -600,8 +600,8 @@ test("sorted insert keeps the list sorted and holds x; appending x at the end re
     true
   );
   assert(
-    _count_outcome(bad_reports, String.from("refuted")) == usize(1),
-    `insert_at_end must refute, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(1),
+    `insert_at_end must refute, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
@@ -615,8 +615,8 @@ test("a lexicographic decreases(i, j) proves a recursion no single measure can; 
     true
   );
   assert(
-    _count_outcome(ok_reports, String.from("ok")) == usize(1),
-    `walk must verify, got: [${_reports_dump(ok_reports)}]`
+    _count_outcome(&ok_reports, String.from("ok")) == usize(1),
+    `walk must verify, got: [${_reports_dump(&ok_reports)}]`
   );
   bad_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/decreases_lexicographic_false.yo"),
@@ -624,8 +624,8 @@ test("a lexicographic decreases(i, j) proves a recursion no single measure can; 
     true
   );
   assert(
-    _count_outcome(bad_reports, String.from("refuted")) == usize(2),
-    `walk_up and walk_single must refute at decreases-step, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(2),
+    `walk_up and walk_single must refute at decreases-step, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
@@ -639,8 +639,8 @@ test("a for over a list verifies with produced(xs); a double push, a skipped cou
     true
   );
   assert(
-    _count_outcome(ok_reports, String.from("ok")) == usize(3),
-    `copy, index_of and count_positive must verify, got: [${_reports_dump(ok_reports)}]`
+    _count_outcome(&ok_reports, String.from("ok")) == usize(3),
+    `copy, index_of and count_positive must verify, got: [${_reports_dump(&ok_reports)}]`
   );
   bad_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/for_produced_false.yo"),
@@ -648,12 +648,12 @@ test("a for over a list verifies with produced(xs); a double push, a skipped cou
     true
   );
   assert(
-    _count_outcome(bad_reports, String.from("refuted")) == usize(2),
-    `copy_twice and count_all must refute, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(2),
+    `copy_twice and count_all must refute, got: [${_reports_dump(&bad_reports)}]`
   );
   assert(
-    _count_outcome(bad_reports, String.from("subset-error")) == usize(1),
-    `grow must be a subset error, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("subset-error")) == usize(1),
+    `grow must be a subset error, got: [${_reports_dump(&bad_reports)}]`
   );
 });
 
@@ -667,8 +667,8 @@ test("distinct(a, b) lets a body mutate one of two same-typed lists; one list pa
     true
   );
   assert(
-    _count_outcome(ok_reports, String.from("ok")) == usize(3),
-    `append_all, into_fresh and forward must verify, got: [${_reports_dump(ok_reports)}]`
+    _count_outcome(&ok_reports, String.from("ok")) == usize(3),
+    `append_all, into_fresh and forward must verify, got: [${_reports_dump(&ok_reports)}]`
   );
   bad_reports := _load_reports(
     String.from("./tests/spec/fixtures/negative/list_distinct_false.yo"),
@@ -676,11 +676,11 @@ test("distinct(a, b) lets a body mutate one of two same-typed lists; one list pa
     true
   );
   assert(
-    _count_outcome(bad_reports, String.from("refuted")) == usize(1),
-    `onto_itself must refute, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("refuted")) == usize(1),
+    `onto_itself must refute, got: [${_reports_dump(&bad_reports)}]`
   );
   assert(
-    _count_outcome(bad_reports, String.from("subset-error")) == usize(1),
-    `append_unchecked must be a subset error, got: [${_reports_dump(bad_reports)}]`
+    _count_outcome(&bad_reports, String.from("subset-error")) == usize(1),
+    `append_unchecked must be a subset error, got: [${_reports_dump(&bad_reports)}]`
   );
 });

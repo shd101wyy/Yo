@@ -111,7 +111,7 @@ test("the --sanitize address probe consults the chosen --c-compiler, not the sys
   );
   self_argv := args();
   io.await(
-    copy(Path.new(self_argv(usize(0))), Path.new(shim.clone()), io),
+    copy(Path.new(&self_argv(usize(0))), Path.new(shim.clone()), io),
     IoExn(io : io, exn : exn)
   );
   sep := if(platform == Platform.Windows, String.from(";"), String.from(":"));
@@ -128,7 +128,7 @@ test("the --sanitize address probe consults the chosen --c-compiler, not the sys
   compile_argv.push(String.from("-o"));
   compile_argv.push(`${scratch}/fx-out.exe`);
   _sv := env.set(String.from("YO_FAKE_CC_MODE"), String.from("1"));
-  run_compile(compile_argv, io, exn);
+  run_compile(&compile_argv, io, exn);
   log := String.from_bytes(read_file_sync(log_path.clone(), exn));
   assert(
     log == String.from("asan\nplain\n"),
@@ -156,7 +156,7 @@ test("the ASan DLL directory goes on PATH once, however many batches apply it", 
   assert(p == once, `200 batches leave one entry; got ${p.len().to_string()} bytes`);
   // Windows compares directories ignoring case and a trailing separator.
   upper := String.from("C:\\llvm\\LIB\\clang\\21\\lib\\Windows\\");
-  assert(windows_path_with_dir_first(once.clone(), upper) == once, "a differently spelled copy is the same entry");
+  assert(windows_path_with_dir_first(once.clone(), &upper) == once, "a differently spelled copy is the same entry");
   // Already present further down: left where it is.
   later := `${base};${dll}`;
   assert(windows_path_with_dir_first(later.clone(), dll.clone()) == later, "an entry later in PATH is not duplicated");
