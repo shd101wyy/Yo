@@ -144,7 +144,9 @@
   generate_await,
   generate_state,
   generate_join_handle_await,
-  emit_io_spawn_effect_injection
+  emit_io_spawn_effect_injection,
+  join_handle_is_value_struct,
+  join_handle_future_field_c_type
 } :: import("./await.yo");
 {
   is_io_async_call,
@@ -407,9 +409,14 @@ _generate_io_spawn :: (fn(expr : &AstExpr, indent : &String, context : &Function
   match(
     join_handle_type_name,
     .Some(jh) => {
-      // `JoinHandle(T)*` → its generated constructor `__yo_new_<cname>`.
-      jh_base := jh.trim_end_matches("*").trim();
-      handle_code := `__yo_new_${jh_base}((void*)${spawn_var.clone()})`;
+      handle_code := match(
+        expr_ei,
+        // A value handle (§3.13 A3): its one field is the future's pointer,
+        // and building it allocates nothing.
+        .Some(ei) => if(join_handle_is_value_struct(&ei.ty), `(${jh}){ .__future = (${join_handle_future_field_c_type(&ei.ty, context)})(${spawn_var.clone()}) }`, `__yo_new_${jh.trim_end_matches("*").trim()}((void*)${spawn_var.clone()})`),
+        // `JoinHandle(T)*` → its generated constructor `__yo_new_<cname>`.
+        .None => `__yo_new_${jh.trim_end_matches("*").trim()}((void*)${spawn_var.clone()})`
+      );
       // Materialize the handle into the spawn's own temp, as a call does:
       // the scope-end drop the evaluator schedules for that temp is what
       // releases a DISCARDED handle (a statement-level spawn). Returned as an
