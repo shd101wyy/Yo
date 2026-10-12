@@ -83,7 +83,7 @@ generate_anonymous_array :: (fn(expr : &AstExpr, indent : &String, context : &Fu
       // `Array(unit, N)` has no `data` member (the element is zero-sized), so
       // the literal is the empty struct; the element expressions above still
       // ran for their side effects.
-      if(match(array_type, .Array({ element : ae }) => is_unit_type(&ae), _ => false), {
+      if(match(array_type, .Array({ element : ae }) => is_unit_type(&ae.*), _ => false), {
         array_value.push_str("){ }");
       }, {
         array_value.push_str("){ .data = { ");
@@ -146,7 +146,7 @@ generate_yo_array_fill :: (fn(expr : &AstExpr, indent : &String, context : &Func
   // `Array(unit, N)`: no `data` member to fill (the element is zero-sized); the
   // declaration above is the whole value. `fill_value_code` was generated
   // above, so a side-effecting fill expression already ran.
-  if(match(array_type, .Array(fe, _, _) => is_unit_type(&fe), _ => false), {
+  if(match(array_type, .Array(fe, _, _) => is_unit_type(&fe.*), _ => false), {
     return(temp_var_name);
   });
   // Fill loop header.

@@ -185,7 +185,7 @@ _ptr_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_
     (deref_level : usize) = usize(0);
     (current_type : TypeValue) = object_type;
     while(is_pointer_type(&current_type), {
-      current_type = match(current_type, .Pointer(p) => p, _ => current_type);
+      current_type = match(current_type, .Pointer(p) => p.*, _ => current_type);
       deref_level = (deref_level + usize(1));
     });
     // Reference-semantics structs are already pointers in C — one more deref.

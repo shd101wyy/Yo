@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, FuncMeta, t_refine_inner } :: import("./definitions.yo");
+{ TypeValue, FuncMeta, t_refine_inner, tv_opt_rc } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 { type_to_string } :: import("./string.yo");
 { debug_knob } :: import("../utils.yo");
@@ -122,9 +122,9 @@ t_c_ulong :: (fn() -> TypeValue)(g_t_c_ulong);
 t_c_longlong :: (fn() -> TypeValue)(g_t_c_longlong);
 t_c_ulonglong :: (fn() -> TypeValue)(g_t_c_ulonglong);
 t_c_longdouble :: (fn() -> TypeValue)(g_t_c_longdouble);
-t_ptr :: (fn(pointee : &TypeValue) -> TypeValue)(.Pointer(pointee));
+t_ptr :: (fn(pointee : &TypeValue) -> TypeValue)(.Pointer(rc(pointee)));
 t_array :: (fn(element : &TypeValue, length : usize) -> TypeValue)(
-  .Array(element, length, String.from(""))
+  .Array(rc(element), length, String.from(""))
 );
 /// Array type whose LENGTH is an unresolved generic variable (`Array(T, U)`
 /// with `U : usize` in a generic list). `length` is a placeholder 0; the
@@ -143,7 +143,7 @@ t_array_var :: (fn(element : &TypeValue, length_var : &String) -> TypeValue)({
     );
     eprintln(`[alen] ${shape} ${length_var}`);
   });
-  .Array(element, usize(0), length_var)
+  .Array(rc(element), usize(0), length_var)
 });
 /// Marker prefix of a COMPUTED array length recorded at definition time
 /// (`-> Array(u8, N + usize(1))`, `Array(u8, T.BYTES * 2)`): the length
@@ -166,10 +166,10 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
       t,
       .Array(cal_elem, _, cal_var) => cond(
         is_computed_array_len_var(&cal_var) => true,
-        true => recur(&cal_elem, d + usize(1))
+        true => recur(&cal_elem.*, d + usize(1))
       ),
-      .Pointer(cal_p) => recur(&cal_p, d + usize(1)),
-      .IsoT(cal_i) => recur(&cal_i, d + usize(1)),
+      .Pointer(cal_p) => recur(&cal_p.*, d + usize(1)),
+      .IsoT(cal_i) => recur(&cal_i.*, d + usize(1)),
       .Tuple(_, cal_tts) => {
         (cal_found0 : bool) = false;
         (cal_ti : usize) = usize(0);
@@ -241,7 +241,7 @@ t_func_simple :: (
     param_types,
     ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new(),
-    result,
+    rc(result),
     rc(
       FuncMeta(
         forall_labels : ArrayList(String).new(),
@@ -276,11 +276,11 @@ t_trait :: (
     field_types : &ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  .TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
+  .TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(Rc(TypeValue)).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
 );
 /// Create a named trait type with no fields.
 t_trait_simple :: (fn(name : &String) -> TypeValue)(
-  .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
+  .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(Rc(TypeValue)).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
 );
 /// Create a module type with field lists.
 t_module :: (
@@ -303,13 +303,13 @@ t_module_simple :: (fn(name : &String) -> TypeValue)(
 // ---------------------------------------------------------------------------
 t_expr_t :: (fn() -> TypeValue)(.ExprT);
 t_comptime_list :: (fn(child : &TypeValue) -> TypeValue)(
-  .ComptimeListT(child)
+  .ComptimeListT(rc(child))
 );
 t_type_app :: (fn(constructor : &TypeValue, args : &ArrayList(TypeValue)) -> TypeValue)(
-  .TypeAppT(constructor, args)
+  .TypeAppT(rc(constructor), args)
 );
 t_iso :: (fn(child : &TypeValue) -> TypeValue)(
-  .IsoT(child)
+  .IsoT(rc(child))
 );
 /// The sort key of one trait in a `Dyn`'s trait list: its declaration id,
 /// which is fixed when the trait is built. NOT its printed name: a trait is
@@ -387,7 +387,7 @@ t_fn_trait :: (
     call_param_is_owning : &ArrayList(bool)
   ) -> TypeValue
 )(
-  .FnTraitT(base_name, call_param_labels, call_param_types, call_result, implicit_labels, implicit_types, call_param_is_ref, call_param_is_owning)
+  .FnTraitT(base_name, call_param_labels, call_param_types, rc(call_result), implicit_labels, implicit_types, call_param_is_ref, call_param_is_owning)
 );
 t_fn_trait_simple :: (
   fn(
@@ -396,7 +396,7 @@ t_fn_trait_simple :: (
     call_result : &TypeValue
   ) -> TypeValue
 )(
-  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, call_result, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new(), ArrayList(bool).new())
+  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, rc(call_result), ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new(), ArrayList(bool).new())
 );
 t_future_trait :: (
   fn(
@@ -406,10 +406,10 @@ t_future_trait :: (
     effect_types : &ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  .FutureTraitT(base_name, output, effect_labels, effect_types)
+  .FutureTraitT(base_name, rc(output), effect_labels, effect_types)
 );
 t_future_trait_simple :: (fn(base_name : &String, output : &TypeValue) -> TypeValue)(
-  .FutureTraitT(base_name, output, ArrayList(String).new(), ArrayList(TypeValue).new())
+  .FutureTraitT(base_name, rc(output), ArrayList(String).new(), ArrayList(TypeValue).new())
 );
 /// Create an unconstrained SomeType (generic type variable).
 t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
@@ -417,13 +417,13 @@ t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
     generate_some_type_id(),
     name,
     frame_level,
-    .TypeUni(usize(0)),
+    rc(.TypeUni(usize(0))),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
-    Option(TypeValue).None,
-    Option(TypeValue).None
+    Option(Rc(TypeValue)).None,
+    Option(Rc(TypeValue)).None
   )
 );
 /// `t` (a SomeT) with the SAME identity carrying the resolution `concrete`
@@ -443,7 +443,7 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
       wr_ntt,
       wr_ntl,
       wr_kft,
-      Option(TypeValue).Some(concrete)
+      Option(Rc(TypeValue)).Some(rc(concrete))
     ),
     _ => t
   )
@@ -453,7 +453,7 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
 t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ft,
-    .Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt) => TypeValue.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt),
+    .Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt) => TypeValue.Func(fr_ft, fr_pt, fr_it, fr_wt, rc(result), fr_meta, fr_vt),
     _ => ft
   )
 );
@@ -486,7 +486,7 @@ clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
       sneg,
       snegl,
       skind,
-      Option(TypeValue).None
+      Option(Rc(TypeValue)).None
     ),
     _ => s
   )
@@ -501,13 +501,13 @@ t_some_t_with_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue
     generate_some_type_id(),
     name,
     frame_level,
-    .TypeUni(usize(0)),
+    rc(.TypeUni(usize(0))),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
-    Option(TypeValue).Some(kind),
-    Option(TypeValue).None
+    Option(Rc(TypeValue)).Some(rc(kind)),
+    Option(Rc(TypeValue)).None
   )
 );
 // ---------------------------------------------------------------------------
@@ -573,7 +573,7 @@ type_value_tag :: (fn(t : &TypeValue) -> TypeTag)(
     .FnTraitT(base_name : _) => TypeTag.TTrait,
     .FutureTraitT(base_name : _) => TypeTag.TTrait,
     // V6 task 3: a refinement's tag IS its inner's tag (erasure).
-    .RefineT(inner, _) => type_value_tag(&inner),
+    .RefineT(inner, _) => type_value_tag(&inner.*),
     .ExternOpaqueT(_, _) => TypeTag.TExternOpaque
   )
 );
@@ -667,9 +667,9 @@ _contains_self_shell :: (
         hit
       }
     ),
-    .Pointer(inner) => recur(&inner, shell_id, visited),
-    .Array(el, _, _) => recur(&el, shell_id, visited),
-    .ComptimeListT(el) => recur(&el, shell_id, visited),
+    .Pointer(inner) => recur(&inner.*, shell_id, visited),
+    .Array(el, _, _) => recur(&el.*, shell_id, visited),
+    .ComptimeListT(el) => recur(&el.*, shell_id, visited),
     _ => false
   )
 );
@@ -737,9 +737,9 @@ _patch_self_shell_guarded :: (
         .EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, new_etas)
       }
     ),
-    .Pointer(inner) => .Pointer(recur(&inner, shell_id, final_ty, visited)),
-    .Array(el, n, lv) => .Array(recur(&el, shell_id, final_ty, visited), n, lv),
-    .ComptimeListT(el) => .ComptimeListT(recur(&el, shell_id, final_ty, visited)),
+    .Pointer(inner) => .Pointer(rc(recur(&inner.*, shell_id, final_ty, visited))),
+    .Array(el, n, lv) => .Array(rc(recur(&el.*, shell_id, final_ty, visited)), n, lv),
+    .ComptimeListT(el) => .ComptimeListT(rc(recur(&el.*, shell_id, final_ty, visited))),
     .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
       true => {

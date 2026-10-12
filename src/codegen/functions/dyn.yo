@@ -378,7 +378,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
               match(
                 rt,
                 .FnTraitT({ base_name : fn_base, call_param_types, call_result, call_param_is_ref }) => {
-                  return_str := get_type_string(&call_result, &context.base);
+                  return_str := get_type_string(&call_result.*, &context.base);
                   // A `Dyn(FnOnce(...))` call consumes the Dyn (decision 37):
                   // the wrapper releases the box after the call.
                   is_call_once := (fn_base == "FnOnce");
@@ -386,7 +386,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                   params := _wrapper_params(call_param_types.clone(), call_param_is_ref.clone(), usize(0), context);
                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
                   ncp := call_param_types.len();
-                  is_void := is_void_type(&call_result);
+                  is_void := is_void_type(&call_result.*);
                   // Dyn'd CLOSURE: the boxed payload is the closure's CAPTURE
                   // STRUCT — resolve the closure C fn via impl_closure_call_map
                   // (capture-struct id → fn name) and call it directly with
@@ -398,7 +398,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                     // struct rides on resolved_concrete — key the map with it.
                     .SomeT({ resolution : ccrc }) => match(
                       ccrc,
-                      .Some(ccrct) => match(ccrct, .Struct({ id : csid2 }) => csid2, _ => String.from("")),
+                      .Some(ccrct) => match(ccrct.*, .Struct({ id : csid2 }) => csid2, _ => String.from("")),
                       .None => String.from("")
                     ),
                     _ => String.from("")
@@ -563,7 +563,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   // spelled raw is not a C identifier
                                   // (issues/fixed/a-dyn-over-an-operator-trait-emits-an-invalid-c-wrapper-name.md).
                                   wrapper := `__yo_wrap_${impl_key}_${sanitize_for_c_identifier(label.clone(), false)}`;
-                                  return_str := get_type_string(&result, &context.base);
+                                  return_str := get_type_string(&result.*, &context.base);
                                   // Defined with the SLOT's signature (the vtable
                                   // initializer below takes it uncast); the impl's
                                   // own C types are reached by casts inside. A
@@ -572,7 +572,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   // the trait the Future interface pointer.
                                   slot_params_tys := match(slot_ty, .Some(.Func({ param_types : spt })) => spt, _ => param_types.clone());
                                   slot_param_is_ref := match(slot_ty, .Some(.Func({ meta : sfm })) => sfm.*.param_is_ref, _ => param_is_ref.clone());
-                                  slot_ret := match(slot_ty, .Some(.Func({ result : sres })) => get_type_string(&sres, &context.base), _ => return_str.clone());
+                                  slot_ret := match(slot_ty, .Some(.Func({ result : sres })) => get_type_string(&sres.*, &context.base), _ => return_str.clone());
                                   params := _wrapper_params(slot_params_tys.clone(), slot_param_is_ref.clone(), usize(1), context);
                                   arg_casts := ArrayList(String).new();
                                   (ac_j : usize) = usize(1);
@@ -642,7 +642,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                                   if(should_skip_function_codegen(func_id.clone(), entry.c_name.clone(), &entry.value, &context.base), {
                                     em.emit_declaration_string_line(`  __yo_abort(); /* dyn method unavailable: impl fn skipped (degraded type) */`);
                                   }, {
-                                    _emit_wrapper_call(&em, &impl_cname, &first_arg, param_types.len(), is_void_type(&result), &arg_casts, &ret_cast);
+                                    _emit_wrapper_call(&em, &impl_cname, &first_arg, param_types.len(), is_void_type(&result.*), &arg_casts, &ret_cast);
                                   });
                                   em.emit_declaration_line("}");
                                   em.emit_declaration_line("");

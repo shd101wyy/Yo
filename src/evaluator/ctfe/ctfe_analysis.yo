@@ -94,7 +94,7 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
   implicit_labels := match(func_type, .Func({ meta : __fm3 }) => __fm3.*.implicit_labels, _ => ArrayList(String).new());
   implicit_types := match(func_type, .Func({ implicit_types : it }) => it, _ => ArrayList(TypeValue).new());
   where_types := match(func_type, .Func({ where_types : wt }) => wt, _ => ArrayList(TypeValue).new());
-  result_box := match(func_type, .Func({ result : rb }) => rb, _ => t_unit());
+  result_box := match(func_type, .Func({ result : rb }) => rb.*, _ => t_unit());
   match(
     _to_comptime_type(&result_box),
     .None => Option(TypeValue).None,
@@ -104,7 +104,7 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
         param_types,
         implicit_types,
         where_types,
-        comptime_result_ty,
+        rc(comptime_result_ty),
         rc(
           FuncMeta(
             forall_labels : forall_labels,
@@ -407,7 +407,7 @@ analyze_ctfe_capability :: (
   // Skip generic functions — they need specialisation first.
   forall_labels := match(func_type, .Func({ meta : m }) => m.*.forall_labels, _ => ArrayList(String).new());
   param_types := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
-  result_box := match(func_type, .Func({ result : rb }) => rb, _ => t_unit());
+  result_box := match(func_type, .Func({ result : rb }) => rb.*, _ => t_unit());
   // Any param type or the return type prohibiting the comptime modifier
   // (runtime-only types like Ptr, Slice, Void) rules CTFE out.
   (prohibited : bool) = type_prohibits_comptime_modifier(&result_box);

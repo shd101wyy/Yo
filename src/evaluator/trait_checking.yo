@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
-{ TypeValue, FuncMeta, t_refine_inner } :: import("../types/definitions.yo");
+{ TypeValue, FuncMeta, t_refine_inner, tv_opt_get } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -673,7 +673,7 @@ copy_structural_parts :: (fn(ty_in : &TypeValue) -> Option(ArrayList(TypeValue))
     .Tuple({ field_types : tp_fields }) => Option(ArrayList(TypeValue)).Some(tp_fields),
     .Array(element : ar_elem, length : _, length_var : _) => {
       parts := ArrayList(TypeValue).new();
-      parts.push(ar_elem);
+      parts.push(ar_elem.*);
       Option(ArrayList(TypeValue)).Some(parts)
     },
     .Func({ result : _ }) => Option(ArrayList(TypeValue)).Some(ArrayList(TypeValue).new()),
@@ -1464,7 +1464,7 @@ type_implements_trait :: (
         // pragma(Pragma.AllowUnsafe).
         .Pointer(pointee_box) => if(tn == "Acyclic", {
           pfields := ArrayList(TypeValue).new();
-          pfields.push(pointee_box);
+          pfields.push(pointee_box.*);
           fields_opt = Option(ArrayList(TypeValue)).Some(pfields);
         }),
         _ => ()
@@ -2201,7 +2201,7 @@ extract_fn_trait_from_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
                 match(
                   eft_rc,
                   .Some(eft_next) => {
-                    eft_cur = eft_next;
+                    eft_cur = eft_next.*;
                   },
                   .None => {
                     eft_going = false;
@@ -2611,7 +2611,7 @@ type_contains_some_type_for_codegen_param :: (
     // issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md
     tc_rc := match(
       ty,
-      .SomeT({ resolution : rcl }) => rcl,
+      .SomeT({ resolution : rcl }) => tv_opt_get(&rcl),
       _ => Option(TypeValue).None
     );
     match(
@@ -2631,8 +2631,8 @@ type_contains_some_type_for_codegen_param :: (
   });
   match(
     ty,
-    .Array(element, _, _) => recur(&element, checked_ids),
-    .Pointer(pointee) => recur(&pointee, checked_ids),
+    .Array(element, _, _) => recur(&element.*, checked_ids),
+    .Pointer(pointee) => recur(&pointee.*, checked_ids),
     .Tuple(_, field_types) => {
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -2734,7 +2734,7 @@ type_contains_some_type_for_codegen_param :: (
         i = (i + usize(1));
       });
       if(!found, {
-        found = recur(&result_box, checked_ids);
+        found = recur(&result_box.*, checked_ids);
       });
       found
     },
@@ -2937,7 +2937,7 @@ find_some_type_missing_comptime_constraint :: (
     match(
       ty,
       .Pointer(inner) => {
-        return(recur(&inner, env));
+        return(recur(&inner.*, env));
       },
       _ => ()
     );

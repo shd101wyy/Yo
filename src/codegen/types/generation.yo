@@ -1346,7 +1346,7 @@ _walk_pointee_newtype :: (fn(ft : &TypeValue) -> Option(TypeValue))(
   match(
     ft,
     .Pointer(pointee) => {
-      p := pointee;
+      p := pointee.*;
       if(is_struct_type(&p) && is_newtype_type(&p), Option(TypeValue).Some(p), Option(TypeValue).None)
     },
     _ => if(
@@ -1356,7 +1356,7 @@ _walk_pointee_newtype :: (fn(ft : &TypeValue) -> Option(TypeValue))(
         .Some(ptrty) => match(
           ptrty,
           .Pointer(pe) => {
-            p := pe;
+            p := pe.*;
             if(is_struct_type(&p) && is_newtype_type(&p), Option(TypeValue).Some(p), Option(TypeValue).None)
           },
           _ => Option(TypeValue).None
@@ -1436,7 +1436,7 @@ _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self
     // wrapper too late — "array has incomplete element type".
     is_array_type(ft) => match(
       ft,
-      .Array(elem, _, _) => recur(deps_set, &elem, self_type_id, guard_nullable, cname_to_typeid, context),
+      .Array(elem, _, _) => recur(deps_set, &elem.*, self_type_id, guard_nullable, cname_to_typeid, context),
       _ => ()
     ),
     true => ()
@@ -1545,7 +1545,7 @@ _dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed
         // (`dyn_member_unsafe_reason`: no `generic(...)`, `Self` only as the
         // receiver), go in the vtable.
         if(dyn_member_is_method(field_ty) && dyn_member_unsafe_reason(field_ty).is_none(), {
-          ret_str := get_type_string(&result, context);
+          ret_str := get_type_string(&result.*, context);
           plist := String.new();
           np := param_labels.len();
           (pi : usize) = usize(0);
@@ -1598,7 +1598,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
           is_fn_trait_type(&tt) => match(
             tt,
             .FnTraitT({ call_param_labels, call_param_types, call_result, call_param_is_ref }) => {
-              ret_str := get_type_string(&call_result, context);
+              ret_str := get_type_string(&call_result.*, context);
               plist := String.new();
               np := call_param_labels.len();
               (pi : usize) = usize(0);
@@ -1748,7 +1748,7 @@ generate_dyn_box_types :: (fn(context : &CodeGenContext) -> unit)({
 /// FUTURE-typed function parameter (`task : Impl(Future(T, E))`).
 generate_future_trait_declaration :: (fn(type : &TypeValue, c_name : &String, context : &CodeGenContext) -> unit)({
   em := context.emitter;
-  result_type := match(type, .FutureTraitT({ output : ftd_o }) => ftd_o.clone(), _ => return(()));
+  result_type := match(type, .FutureTraitT({ output : ftd_o }) => ftd_o.*.clone(), _ => return(()));
   em.emit_declaration_string_line(`struct ${c_name.clone()}_struct { // Generic Future interface for ${type_to_string(type)}`);
   em.emit_declaration_string_line(String.from("  __YO_FUTURE_PREFIX  // header, state (0 cold, -1 completed, -2 aborted), type operations, waiter"));
   if(is_unit_type(&result_type), {
@@ -1773,7 +1773,7 @@ generate_future_trait_declaration :: (fn(type : &TypeValue, c_name : &String, co
 /// Is the child of the Iso type `iso_type` a reference object (held by its
 /// handle), rather than a value held inline?
 iso_child_is_object :: (fn(iso_type : &TypeValue) -> bool)(
-  match(iso_type, .IsoT(c) => (is_reference_struct_type(&c) || is_reference_enum_type(&c)), _ => true)
+  match(iso_type, .IsoT(c) => (is_reference_struct_type(&c.*) || is_reference_enum_type(&c.*)), _ => true)
 );
 /// The Iso wrapper struct bodies, emitted after every other type declaration
 /// (see `generate_iso_type_declarations`'s first pass).

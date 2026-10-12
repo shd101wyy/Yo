@@ -81,7 +81,7 @@ _bound_mentions_some :: (fn(req : &TypeValue, self_var : &TypeValue) -> bool)({
         match(cpts.get(i), .Some(t) => parts.push(t), .None => ());
         i = (i + usize(1));
       });
-      parts.push(cr);
+      parts.push(cr.*);
     },
     _ => ()
   );
@@ -142,7 +142,7 @@ _wrapper_carrier_args_concrete :: (fn(rtts : &ArrayList(TypeValue)) -> bool)({
           );
           j = (j + usize(1));
         });
-        if(ok && (get_all_some_types(&cc_cr).len() > usize(0)), {
+        if(ok && (get_all_some_types(&cc_cr.*).len() > usize(0)), {
           ok = false;
         });
       },
@@ -154,7 +154,7 @@ _wrapper_carrier_args_concrete :: (fn(rtts : &ArrayList(TypeValue)) -> bool)({
         // SomeTs by construction — a deep SomeT-freeness test rejected
         // every annotated `Impl(Future(_, Ctx))` binding, the async_await
         // arm-65 family).
-        if(is_some_type(resolve_cell_chain(&cc_fo)), {
+        if(is_some_type(resolve_cell_chain(&cc_fo.*)), {
           ok = false;
         });
         (k : usize) = usize(0);
@@ -304,7 +304,7 @@ _future_trait_of :: (fn(t : &TypeValue) -> Option(TypeValue))(
 _resolved_or_self :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     resolve_cell_chain(t),
-    .SomeT({ resolution : r }) => match(r, .Some(x) => resolve_cell_chain(&x), .None => resolve_cell_chain(t)),
+    .SomeT({ resolution : r }) => match(r, .Some(x) => resolve_cell_chain(&x.*), .None => resolve_cell_chain(t)),
     other => other
   )
 );
@@ -417,8 +417,8 @@ _compat_impl :: (
             expected,
             .Str => true,
             .Pointer(einner) => cond(
-              is_u8_type(&einner) => true,
-              is_char_type(&einner) => true,
+              is_u8_type(&einner.*) => true,
+              is_char_type(&einner.*) => true,
               true => false
             ),
             _ => false
@@ -605,7 +605,7 @@ _compat_impl :: (
         match(
           a_resolution,
           .Some(a_res_ty2) => {
-            if(recur(&a_res_ty2, expected, mode, visited), {
+            if(recur(&a_res_ty2.*, expected, mode, visited), {
               return(true);
             });
           },
@@ -660,7 +660,7 @@ _compat_impl :: (
         match(
           e_resolution,
           .Some(e_res_ty2) => {
-            if(recur(actual, &e_res_ty2, mode, visited), {
+            if(recur(actual, &e_res_ty2.*, mode, visited), {
               return(true);
             });
           },
@@ -718,7 +718,7 @@ _compat_impl :: (
     // Pointer children always use require_exact=true
     .Pointer(ainner) => match(
       expected,
-      .Pointer(einner) => recur(&ainner, &einner, _exact_mode(mode), visited),
+      .Pointer(einner) => recur(&ainner.*, &einner.*, _exact_mode(mode), visited),
       _ => false
     ),
     .Array(ainner, alen, alvar) => match(
@@ -730,7 +730,7 @@ _compat_impl :: (
           ((alvar.len() > usize(0)) || (elvar.len() > usize(0))) => true,
           true => (alen == elen)
         );
-        len_ok && recur(&ainner, &einner, mode, visited)
+        len_ok && recur(&ainner.*, &einner.*, mode, visited)
       },
       _ => false
     ),
@@ -826,8 +826,8 @@ _compat_impl :: (
           match(epts.get(si), .Some(v) => e_sig.push(v), .None => ());
           si = (si + usize(1));
         });
-        a_sig.push(aret);
-        e_sig.push(eret);
+        a_sig.push(aret.*);
+        e_sig.push(eret.*);
         n_alpha := _push_alpha_pairs(&ameta.*.forall_labels, &a_sig, &emeta.*.forall_labels, &e_sig);
         (func_ok : bool) = true;
         i = usize(0);
@@ -840,7 +840,7 @@ _compat_impl :: (
           i = (i + usize(1));
         });
         if(func_ok, {
-          func_ok = recur(&aret, &eret, mode, visited);
+          func_ok = recur(&aret.*, &eret.*, mode, visited);
         });
         _pop_alpha_pairs(n_alpha);
         func_ok
@@ -1415,20 +1415,20 @@ _compat_impl :: (
     .ExternOpaqueT(_, eo_ac) => match(expected, .ExternOpaqueT(_, eo_ec) => (eo_ac == eo_ec), _ => false),
     .ComptimeListT(achild) => match(
       expected,
-      .ComptimeListT(echild) => recur(&achild, &echild, mode, visited),
+      .ComptimeListT(echild) => recur(&achild.*, &echild.*, mode, visited),
       _ => false
     ),
     .TypeAppT(constructor : acon, args : aargs) => match(
       expected,
       .TypeAppT(constructor : econ, args : eargs) => {
         // Both constructors must be SomeT and share the same unique ID
-        acid_valid := match(acon, .SomeT(id : _) => true, _ => false);
-        ecid_valid := match(econ, .SomeT(id : _) => true, _ => false);
+        acid_valid := match(acon.*, .SomeT(id : _) => true, _ => false);
+        ecid_valid := match(econ.*, .SomeT(id : _) => true, _ => false);
         if(!acid_valid || !ecid_valid, {
           return(false);
         });
-        acid := match(acon, .SomeT(id : cid) => cid, _ => ``);
-        ecid := match(econ, .SomeT(id : cid) => cid, _ => ``);
+        acid := match(acon.*, .SomeT(id : cid) => cid, _ => ``);
+        ecid := match(econ.*, .SomeT(id : cid) => cid, _ => ``);
         if(acid != ecid, {
           return(false);
         });
@@ -1450,7 +1450,7 @@ _compat_impl :: (
     ),
     .IsoT(achild) => match(
       expected,
-      .IsoT(echild) => recur(&achild, &echild, mode, visited),
+      .IsoT(echild) => recur(&achild.*, &echild.*, mode, visited),
       _ => false
     ),
     // DynT: the same trait set on both sides, and none of expected's negative
@@ -1561,7 +1561,7 @@ _compat_impl :: (
           });
           i = (i + usize(1));
         });
-        recur(&aret, &eret, mode, visited)
+        recur(&aret.*, &eret.*, mode, visited)
       },
       _ => false
     ),
@@ -1573,7 +1573,7 @@ _compat_impl :: (
           if(abn != ebn, {
             return(false);
           });
-          if(!recur(&aout, &eout, mode, visited), {
+          if(!recur(&aout.*, &eout.*, mode, visited), {
             return(false);
           });
           // A bundle-less future (a raw `IoFuture`, `yield`) is compatible with

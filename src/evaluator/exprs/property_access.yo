@@ -42,7 +42,7 @@ pragma(Pragma.AllowUnsafe);
   type_of_eval_value,
   is_type_value
 } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, tv_opt_get } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type, type_decl_module } :: import("../../types/guards.yo");
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
@@ -736,7 +736,7 @@ Raw pointer operations may dereference invalid memory.`
               )
             );
           });
-          base_ty_deref := match(ot, .Pointer(pt) => pt, _ => t_unit());
+          base_ty_deref := match(ot, .Pointer(pt) => pt.*, _ => t_unit());
           // Resolve SomeType from env if needed.
           (resolved_base : TypeValue) = cond(
             is_some_type(&base_ty_deref) => get_value_of_some_type_from_env(&env, &base_ty_deref),
@@ -1339,7 +1339,7 @@ Raw pointer operations may dereference invalid memory.`
       // repro issues/repros/iso-witness-member-call.yo).
       tt_recv_opt := match(
         type_val_inner,
-        .TraitT(_, _, _, _, _, ic, _, _, _, _) => ic,
+        .TraitT(_, _, _, _, _, ic, _, _, _, _) => tv_opt_get(&ic),
         _ => Option(TypeValue).None
       );
       match(
@@ -1574,7 +1574,7 @@ Raw pointer operations may dereference invalid memory.`
     match(
       base_ty,
       .Pointer(pt) => {
-        base_ty = pt;
+        base_ty = pt.*;
       },
       _ => ()
     );

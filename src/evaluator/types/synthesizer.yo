@@ -507,11 +507,11 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
       });
       res
     },
-    .Array(elem, _, _) => recur(some_type_id, some_type_name, &elem, visited, exn),
-    .ComptimeListT(child) => recur(some_type_id, some_type_name, &child, visited, exn),
+    .Array(elem, _, _) => recur(some_type_id, some_type_name, &elem.*, visited, exn),
+    .ComptimeListT(child) => recur(some_type_id, some_type_name, &child.*, visited, exn),
     // Don't check inside pointer types (valid indirection)
     .Pointer(_) => false,
-    .IsoT(child) => recur(some_type_id, some_type_name, &child, visited, exn),
+    .IsoT(child) => recur(some_type_id, some_type_name, &child.*, visited, exn),
     .Func({ param_types, implicit_types, result, meta : __fm1 }) => {
       forall_labels := __fm1.*.forall_labels;
       // A generic declared by this Func's OWN signature SHADOWS the
@@ -571,14 +571,14 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
         i = (i + usize(1));
       });
       if(!res, {
-        if(recur(some_type_id, some_type_name, &result, visited, exn), {
+        if(recur(some_type_id, some_type_name, &result.*, visited, exn), {
           res = true;
         });
       });
       res
     },
     .FutureTraitT(_, out_box, _, ets) => {
-      if(recur(some_type_id, some_type_name, &out_box, visited, exn), {
+      if(recur(some_type_id, some_type_name, &out_box.*, visited, exn), {
         return(true);
       });
       (res : bool) = false;
@@ -617,14 +617,14 @@ _occurs_check :: (fn(some_type_id : &String, some_type_name : &String, ty : &Typ
         i = (i + usize(1));
       });
       if(!res, {
-        if(recur(some_type_id, some_type_name, &call_result, visited, exn), {
+        if(recur(some_type_id, some_type_name, &call_result.*, visited, exn), {
           res = true;
         });
       });
       res
     },
     .TypeAppT(constructor, args) => {
-      if(recur(some_type_id, some_type_name, &constructor, visited, exn), {
+      if(recur(some_type_id, some_type_name, &constructor.*, visited, exn), {
         return(true);
       });
       (res : bool) = false;
@@ -826,14 +826,14 @@ _synthesize_fn_traits :: (
   );
   exp_result := match(
     expected_ty,
-    .FnTraitT(_, _, _, r, _, _, _, _) => r,
-    .Func({ result : r }) => r,
+    .FnTraitT(_, _, _, r, _, _, _, _) => r.*,
+    .Func({ result : r }) => r.*,
     _ => TypeValue.Unit
   );
   giv_result := match(
     given_ty,
-    .FnTraitT(_, _, _, r, _, _, _, _) => r,
-    .Func({ result : r }) => r,
+    .FnTraitT(_, _, _, r, _, _, _, _) => r.*,
+    .Func({ result : r }) => r.*,
     _ => TypeValue.Unit
   );
   (ee : Environment) = expected_env;
@@ -881,8 +881,8 @@ _synthesize_future_traits :: (
     exn : Exception
   ) -> SynthesizeResult
 )({
-  exp_out := match(expected_ty, .FutureTraitT(_, out, _, _) => out, _ => TypeValue.Unit);
-  giv_out := match(given_ty, .FutureTraitT(_, out, _, _) => out, _ => TypeValue.Unit);
+  exp_out := match(expected_ty, .FutureTraitT(_, out, _, _) => out.*, _ => TypeValue.Unit);
+  giv_out := match(given_ty, .FutureTraitT(_, out, _, _) => out.*, _ => TypeValue.Unit);
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   res := _synthesize_types_impl(&exp_out, &ee, &giv_out, &ge, checked, opts, exn);
@@ -1574,8 +1574,8 @@ _synthesize_types_impl :: (
   });
   // Case: Pointer + Pointer
   if(is_pointer_type(expected_ty) && is_pointer_type(given_ty), {
-    exp_child := match(expected_ty, .Pointer(c) => c, _ => TypeValue.Unit);
-    giv_child := match(given_ty, .Pointer(c) => c, _ => TypeValue.Unit);
+    exp_child := match(expected_ty, .Pointer(c) => c.*, _ => TypeValue.Unit);
+    giv_child := match(given_ty, .Pointer(c) => c.*, _ => TypeValue.Unit);
     res := _synthesize_types_impl(&exp_child, &ee, &giv_child, &ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1583,8 +1583,8 @@ _synthesize_types_impl :: (
   });
   // Case: Iso + Iso
   if(is_iso_type(expected_ty) && is_iso_type(given_ty), {
-    exp_child := match(expected_ty, .IsoT(c) => c, _ => TypeValue.Unit);
-    giv_child := match(given_ty, .IsoT(c) => c, _ => TypeValue.Unit);
+    exp_child := match(expected_ty, .IsoT(c) => c.*, _ => TypeValue.Unit);
+    giv_child := match(given_ty, .IsoT(c) => c.*, _ => TypeValue.Unit);
     res := _synthesize_types_impl(&exp_child, &ee, &giv_child, &ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1627,8 +1627,8 @@ _synthesize_types_impl :: (
   });
   // Case: Array + Array
   if(is_array_type(expected_ty) && is_array_type(given_ty), {
-    exp_elem := match(expected_ty, .Array(e, _, _) => e, _ => TypeValue.Unit);
-    giv_elem := match(given_ty, .Array(e, _, _) => e, _ => TypeValue.Unit);
+    exp_elem := match(expected_ty, .Array(e, _, _) => e.*, _ => TypeValue.Unit);
+    giv_elem := match(given_ty, .Array(e, _, _) => e.*, _ => TypeValue.Unit);
     res := _synthesize_types_impl(&exp_elem, &ee, &giv_elem, &ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1670,8 +1670,8 @@ _synthesize_types_impl :: (
   });
   // Case: ComptimeList + ComptimeList
   if(is_comptime_list_type(expected_ty) && is_comptime_list_type(given_ty), {
-    exp_elem := match(expected_ty, .ComptimeListT(e) => e, _ => TypeValue.Unit);
-    giv_elem := match(given_ty, .ComptimeListT(e) => e, _ => TypeValue.Unit);
+    exp_elem := match(expected_ty, .ComptimeListT(e) => e.*, _ => TypeValue.Unit);
+    giv_elem := match(given_ty, .ComptimeListT(e) => e.*, _ => TypeValue.Unit);
     res := _synthesize_types_impl(&exp_elem, &ee, &giv_elem, &ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1685,8 +1685,8 @@ _synthesize_types_impl :: (
     giv_pt := match(given_ty, .Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
     exp_it := match(expected_ty, .Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
     giv_it := match(given_ty, .Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
-    exp_ret := match(expected_ty, .Func({ result : r }) => r, _ => TypeValue.Unit);
-    giv_ret := match(given_ty, .Func({ result : r }) => r, _ => TypeValue.Unit);
+    exp_ret := match(expected_ty, .Func({ result : r }) => r.*, _ => TypeValue.Unit);
+    giv_ret := match(given_ty, .Func({ result : r }) => r.*, _ => TypeValue.Unit);
     if((exp_fa.len() == giv_fa.len()) && (exp_pt.len() == giv_pt.len()), {
       // Synthesize generic type params
       n_fa := exp_fa.len();
@@ -1754,7 +1754,7 @@ _synthesize_types_impl :: (
   // x : F(A)) -> F(A)` left `F` unbound and the result `TypeApp(F, [A])`
   // (issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md).
   if(is_type_application_type(expected_ty) && !is_type_application_type(given_ty), {
-    hk_con := match(expected_ty, .TypeAppT(c, _) => c, _ => TypeValue.Unit);
+    hk_con := match(expected_ty, .TypeAppT(c, _) => c.*, _ => TypeValue.Unit);
     hk_args := match(expected_ty, .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     hk_cfid := match(
       given_ty,
@@ -1777,7 +1777,7 @@ _synthesize_types_impl :: (
       .SomeT({ id : hk_id, name : hk_name, kind_function_type : hk_kind }) => match(
         hk_ctor,
         .Some(hk_cv) => if(hk_targs.len() == hk_args.len(), {
-          hk_kind_ty := match(hk_kind, .Some(k) => k, .None => TypeValue.Unit);
+          hk_kind_ty := match(hk_kind, .Some(k) => k.*, .None => TypeValue.Unit);
           _bind_some_type(&ee, &hk_name, &hk_id, &hk_cv, &hk_kind_ty, opts_token(opts, &ee), exn);
           (hk_i : usize) = usize(0);
           while(hk_i < hk_args.len(), {
@@ -1797,8 +1797,8 @@ _synthesize_types_impl :: (
   });
   // Case: TypeApplication + TypeApplication
   if(is_type_application_type(expected_ty) && is_type_application_type(given_ty), {
-    exp_con := match(expected_ty, .TypeAppT(c, _) => c, _ => TypeValue.Unit);
-    giv_con := match(given_ty, .TypeAppT(c, _) => c, _ => TypeValue.Unit);
+    exp_con := match(expected_ty, .TypeAppT(c, _) => c.*, _ => TypeValue.Unit);
+    giv_con := match(given_ty, .TypeAppT(c, _) => c.*, _ => TypeValue.Unit);
     exp_args := match(expected_ty, .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     giv_args := match(given_ty, .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     res := _synthesize_types_impl(&exp_con, &ee, &giv_con, &ge, checked, opts, exn);

@@ -114,7 +114,7 @@ _tk_resolve_arg_slot :: (fn(t_in : &TypeValue) -> TypeValue)({
           match(
             ras_rc,
             .Some(nx) => {
-              cur = nx;
+              cur = nx.*;
             },
             .None => {
               walk = false;
@@ -629,7 +629,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
     // issues/fixed/yo-self-specialization-signature-type-identity.md.
     .Pointer(pointee) => {
       key := String.from("*(");
-      key.push_string(recur(&pointee, depth + usize(1)));
+      key.push_string(recur(&pointee.*, depth + usize(1)));
       key.push_str(")");
       key
     },
@@ -807,7 +807,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
     },
     .Pointer(pointee) => {
       out := String.from("*(");
-      out.push_string(recur(&pointee, depth + usize(1)));
+      out.push_string(recur(&pointee.*, depth + usize(1)));
       out.push_str(")");
       out
     },

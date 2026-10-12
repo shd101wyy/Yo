@@ -131,7 +131,7 @@ _ms_type_is_function_like :: (fn(t : &TypeValue) -> bool)({
   });
   match(
     t,
-    .Pointer({ pointee : p }) => is_function_type(&p),
+    .Pointer({ pointee : p }) => is_function_type(&p.*),
     _ => false
   )
 });
@@ -776,7 +776,7 @@ _msp_type_contains_pointer_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool
     is_pointer_type(&ty) => true,
     true => match(
       ty,
-      .Array(element : elem, length : _) => recur(&elem, depth + u32(1)),
+      .Array(element : elem, length : _) => recur(&elem.*, depth + u32(1)),
       .Tuple(field_labels : _, field_types : fields) => {
         (found : bool) = false;
         (i : usize) = usize(0);
@@ -847,10 +847,10 @@ _msp_type_contains_pointer_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool
         });
         found
       },
-      .IsoT(child : child) => recur(&child, depth + u32(1)),
+      .IsoT(child : child) => recur(&child.*, depth + u32(1)),
       .SomeT({ required_trait_types : _, resolution : resolved }) => match(
         resolved,
-        .Some(concrete) => recur(&concrete, depth + u32(1)),
+        .Some(concrete) => recur(&concrete.*, depth + u32(1)),
         .None => true
       ),
       _ => false
@@ -916,7 +916,7 @@ _msp_allocator_slot :: (fn(func_expr : &AstExpr, table : &ExprInfoTable) -> Stri
   is_vtable := match(
     recv_ty,
     .Some(rt) => {
-      pointee := match(rt, .Pointer({ pointee : pt }) => pt, _ => rt);
+      pointee := match(rt, .Pointer({ pointee : pt }) => pt.*, _ => rt);
       match(
         resolve_struct_shell(&pointee),
         // The declaring module is std/allocator.yo, or std/prelude.yo once

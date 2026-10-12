@@ -125,7 +125,7 @@ evaluate_comptime_fn :: (
   // shared analysis.
   forall_labels := match(func_type, .Func({ meta : __fm1 }) => __fm1.*.forall_labels, _ => ArrayList(String).new());
   param_types := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
-  result_box := match(func_type, .Func({ result : rb }) => rb, _ => t_unit());
+  result_box := match(func_type, .Func({ result : rb }) => rb.*, _ => t_unit());
   // Skip functions with generic parameters — they need specialisation first.
   if(forall_labels.len() > usize(0), {
     exn.throw(

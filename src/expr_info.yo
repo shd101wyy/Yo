@@ -1940,7 +1940,7 @@ is_thread_local :: (fn(module_path : &String, name : &String) -> bool)(
 some_resolution :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
-    .SomeT({ resolution : sr_r }) => sr_r,
+    .SomeT({ resolution : sr_r }) => match(sr_r, .Some(r) => Option(TypeValue).Some(r.*), .None => Option(TypeValue).None),
     _ => Option(TypeValue).None
   )
 );
@@ -2383,7 +2383,7 @@ adopt_receiver_struct_instance :: (
         match(
           rta,
           .SomeT({ resolution : .Some(ai_conc) }) => {
-            rta = ai_conc;
+            rta = ai_conc.*;
           },
           _ => ()
         );

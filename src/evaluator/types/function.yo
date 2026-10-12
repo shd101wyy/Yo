@@ -43,7 +43,7 @@ import("std/fmt");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta, tv_opt_rc } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -2153,7 +2153,7 @@ use_id :: (fn(generic(T : Type),
                   if(
                     match(
                       final_param_type,
-                      .Func({ result, meta : __fm2 }) => (__fm2.*.result_is_comptime_only && is_type_0(&result)),
+                      .Func({ result, meta : __fm2 }) => (__fm2.*.result_is_comptime_only && is_type_0(&result.*)),
                       _ => false
                     ),
                     Option(EvalValue).Some(create_type_value(t_some_t_with_kind(&label_str, param_frame_level, &final_param_type))),
@@ -3757,7 +3757,7 @@ evaluate_function_parameters :: (
             is_vcomptime = true;
             vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
             vparam_name = ast_expr_token(&vlabel_expr).value;
-            vparam_type = TypeValue.ComptimeListT(t_type());
+            vparam_type = TypeValue.ComptimeListT(rc(t_type()));
           }, {
             // ...(quote(name)) or ...(:(name)) — the unary quote
             // macro. `:` (unary) aliases `quote` semantically.
@@ -4648,7 +4648,7 @@ evaluate_function_type :: (
     param_types,
     implicit_types,
     where_types,
-    return_type,
+    rc(return_type),
     rc(
       FuncMeta(
         forall_labels : forall_labels,
@@ -4743,7 +4743,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
       // so the async pipeline's unresolved-SomeT registrations keep their
       // identity.
       .FutureTraitT({ output : fut_out, effect_types : fut_ets }) => {
-        fo_inner := get_all_some_types(&fut_out);
+        fo_inner := get_all_some_types(&fut_out.*);
         (foi : usize) = usize(0);
         while(foi < fo_inner.len(), {
           match(
@@ -4801,7 +4801,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
           );
           cj = (cj + usize(1));
         });
-        cr_inner := get_all_some_types(&cr);
+        cr_inner := get_all_some_types(&cr.*);
         (ci : usize) = usize(0);
         while(ci < cr_inner.len(), {
           match(
@@ -5167,7 +5167,7 @@ _collect_type_arg_somes :: (
         match(cta_pts.get(cta_p), .Some(cta_pt) => recur(&cta_pt, acc, visited_ids), .None => ());
         cta_p = (cta_p + usize(1));
       });
-      recur(&cta_res, acc, visited_ids);
+      recur(&cta_res.*, acc, visited_ids);
     },
     .Tuple(_, field_types : cta_tfs) => {
       (cta_t : usize) = usize(0);
@@ -5176,9 +5176,9 @@ _collect_type_arg_somes :: (
         cta_t = (cta_t + usize(1));
       });
     },
-    .Pointer(pointee : cta_p2) => recur(&cta_p2, acc, visited_ids),
-    .Array(element : cta_e, _, _) => recur(&cta_e, acc, visited_ids),
-    .IsoT(child : cta_c) => recur(&cta_c, acc, visited_ids),
+    .Pointer(pointee : cta_p2) => recur(&cta_p2.*, acc, visited_ids),
+    .Array(element : cta_e, _, _) => recur(&cta_e.*, acc, visited_ids),
+    .IsoT(child : cta_c) => recur(&cta_c.*, acc, visited_ids),
     _ => ()
   )
 );
@@ -5218,7 +5218,7 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
             .SomeT({ resolution : tas_cell }) => match(
               tas_cell,
               .Some(tas_c) => {
-                tas_r = tas_c;
+                tas_r = tas_c.*;
                 tas_own = true;
               },
               .None => ()

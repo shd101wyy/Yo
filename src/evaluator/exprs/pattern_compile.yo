@@ -1355,7 +1355,7 @@ compile_pattern :: (
     _wrapper_pattern_ctor(e, env),
     .Some(ctor) => {
       // One pointer level is looked through first, as at every position.
-      cell_ty := match(position_ty, .Pointer(p) => p, _ => position_ty);
+      cell_ty := match(position_ty, .Pointer(p) => p.*, _ => position_ty);
       if(!_wrapper_position_matches(&cell_ty, &ctor), {
         exn.throw(
           dyn(

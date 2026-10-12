@@ -1543,7 +1543,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // type IS the inner's. Without this arm the variant reached the
     // `// Unknown type:` fallback INSIDE prototypes and emitted malformed C
     // for every refined-parameter signature (array_list's annotated ops).
-    .RefineT(inner, _) => get_type_string(&inner, context),
+    .RefineT(inner, _) => get_type_string(&inner.*, context),
     .Unit => String.from("void"),
     .Void => String.from("void"),
     // `never` has no values; a `-> never` function returns `void` in C.
@@ -1610,7 +1610,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
       // In Yo a PtrType is a borrow `*(T)`. Object types are already pointers
       // in C; for value types a borrow is a pointer to the value. Either way
       // the C type is `<base>*`.
-      base := recur(&pointee, context);
+      base := recur(&pointee.*, context);
       base.push_str("*");
       base
     },
@@ -1619,7 +1619,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // length — falls through to the unknown fallback.)
     .Array(element, length, length_var) => cond(
       (length_var.len() == usize(0)) => {
-        element_type_string := recur(&element, context);
+        element_type_string := recur(&element.*, context);
         array_type_name := String.from("Array_");
         array_type_name.push_string(c_symbol_name(element_type_string.clone()));
         array_type_name.push_str("_");
@@ -1732,7 +1732,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // struct + runtime helpers
     // (__yo_create_iso_*, __yo_iso_extract_*, __yo_iso_dispose_*) get emitted.
     .IsoT(c) => {
-      child_c_name := recur(&c, context);
+      child_c_name := recur(&c.*, context);
       clean := _strip_stars(child_c_name.clone()).trim();
       iso_name := String.from("Iso_");
       iso_name.push_string(c_symbol_name(&clean));

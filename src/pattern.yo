@@ -283,7 +283,7 @@ is_pattern_cell_type :: (fn(t : &TypeValue) -> bool)(
 /// self-shell resolved. A cell position is presented as its inner type to the
 /// constructor reasoning (the wrapper is transparent for coverage).
 norm_position_type :: (fn(t : &TypeValue) -> TypeValue)({
-  inner := match(t, .Pointer(p) => p, _ => t);
+  inner := match(t, .Pointer(p) => p.*, _ => t);
   inner2 := match(
     is_pattern_cell_type(&inner),
     true => match(box_inner_type(&inner), .Some(bi) => bi, .None => inner),

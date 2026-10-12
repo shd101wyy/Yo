@@ -404,6 +404,16 @@ TypeValue :: enum(
     c_name : String
   )
 );
+/// An `Option(Rc(Self))` child (`SomeT.resolution`, `TraitT.is_concrete`,
+/// `SomeT.kind_function_type`) read as an `Option(TypeValue)`: the child
+/// itself, shared.
+tv_opt_get :: (fn(o : &Option(Rc(TypeValue))) -> Option(TypeValue))(
+  match(o, .Some(r) => Option(TypeValue).Some(r.*), .None => Option(TypeValue).None)
+);
+/// An `Option(TypeValue)` stored as an `Option(Rc(Self))` child.
+tv_opt_rc :: (fn(o : &Option(TypeValue)) -> Option(Rc(TypeValue)))(
+  match(o, .Some(t) => Option(Rc(TypeValue)).Some(rc(t)), .None => Option(Rc(TypeValue)).None)
+);
 /// V6 task 3: unwrap ONE refinement wrapper — `refine(T, p)` reads as `T`
 /// for every runtime surface (the erasure rule). Lives HERE (not in
 /// guards.yo) because guards.yo imports creators.yo, whose
@@ -414,7 +424,7 @@ TypeValue :: enum(
 t_refine_inner :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    .RefineT(inner, _) => inner,
+    .RefineT(inner, _) => inner.*,
     _ => t
   )
 );
@@ -470,4 +480,4 @@ get_struct_field_comptime_flags :: (
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );
-export(TypeValue, FuncMeta, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(TypeValue, FuncMeta, t_refine_inner, tv_opt_get, tv_opt_rc, register_struct_field_comptime_flags, get_struct_field_comptime_flags);

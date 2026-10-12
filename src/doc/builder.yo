@@ -2869,9 +2869,9 @@ _resolve_inner_type :: (fn(field_type : &TypeValue, value : &EvalValue) -> TypeV
         match(
           registered,
           .Func({ result }) => {
-            is_type_uni_result := match(result, .TypeUni(_) => true, _ => false);
+            is_type_uni_result := match(result.*, .TypeUni(_) => true, _ => false);
             if(!is_type_uni_result, {
-              return(result);
+              return(result.*);
             });
           },
           _ => ()
@@ -3049,7 +3049,7 @@ build_doc_function :: (
       match(
         func_type,
         .Func({ result, meta }) => {
-          return_type = type_to_string(&result);
+          return_type = type_to_string(&result.*);
           if(meta.*.forall_labels.len() > usize(0), {
             type_params = Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(func_type, doc_lookup));
           });
@@ -4062,7 +4062,7 @@ build_doc_module :: (
             // to the unresolvable generic type constructor.
             is_hierarchy := match(
               field_type,
-              .Func({ result : fn_result }) => match(fn_result, .TypeUni(lvl) => (lvl >= usize(1)), _ => false),
+              .Func({ result : fn_result }) => match(fn_result.*, .TypeUni(lvl) => (lvl >= usize(1)), _ => false),
               _ => false
             );
             if(is_hierarchy, {

@@ -230,7 +230,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
   // collection, so the typedef is emitted before any reference; also collect
   // the element type. (Same side-effect registration as the Iso arm below.)
   if(is_array_type(&type), {
-    match(type, .Array({ element }) => recur(&element, context), _ => ());
+    match(type, .Array({ element }) => recur(&element.*, context), _ => ());
     _gs := get_type_string(&type, context);
     return(());
   });
@@ -293,8 +293,8 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     // C name appears as the interface struct's `result` field.
     match(
       type,
-      .FutureTraitT({ output : ftc_out }) => if(!is_some_type(&ftc_out), {
-        recur(&ftc_out, context);
+      .FutureTraitT({ output : ftc_out }) => if(!is_some_type(&ftc_out.*), {
+        recur(&ftc_out.*, context);
       }),
       _ => ()
     );
@@ -373,7 +373,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
     match(
       type,
       .IsoT({ child }) => {
-        recur(&child, context);
+        recur(&child.*, context);
         _gs := get_type_string(&type, context);
       },
       _ => ()
@@ -405,7 +405,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
                   match(__mpt.get(__mpi), .Some(__pt) => recur(&__pt, context), .None => ());
                   __mpi = (__mpi + usize(1));
                 });
-                recur(&__mres, context);
+                recur(&__mres.*, context);
               },
               _ => recur(&ft, context)
             ),
@@ -427,7 +427,7 @@ collect_type :: (fn(type_in : &TypeValue, context : &CodeGenContext) -> unit)({
 _collect_field_pointees :: (fn(ft : &TypeValue, context : &CodeGenContext) -> unit)(
   match(
     ft,
-    .Pointer(p) => collect_type(&p, context),
+    .Pointer(p) => collect_type(&p.*, context),
     .EnumT({ variant_fields }) => {
       nv := variant_fields.len();
       (vi : usize) = usize(0);
@@ -438,7 +438,7 @@ _collect_field_pointees :: (fn(ft : &TypeValue, context : &CodeGenContext) -> un
         while(fj < nfi, {
           match(
             fields.get(fj),
-            .Some(vf) => match(vf, .Pointer(p) => collect_type(&p, context), _ => ()),
+            .Some(vf) => match(vf, .Pointer(p) => collect_type(&p.*, context), _ => ()),
             .None => ()
           );
           fj = (fj + usize(1));
@@ -529,7 +529,7 @@ collect_types_from_function_type :: (fn(function_type : &TypeValue, context : &C
         match(forall_types.get(fi), .Some(ft) => collect_type(&ft, context), .None => ());
         fi = (fi + usize(1));
       });
-      collect_type(&result, context);
+      collect_type(&result.*, context);
     },
     _ => ()
   )

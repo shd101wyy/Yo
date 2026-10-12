@@ -268,7 +268,7 @@ type_requires_comptime_modifier :: (fn(ty : &TypeValue) -> bool)(
       });
       rcm_any
     },
-    .Array(rcm_el, _, _) => recur(&rcm_el),
+    .Array(rcm_el, _, _) => recur(&rcm_el.*),
     _ => type_is_comptime_only(ty)
   )
 );
@@ -327,7 +327,7 @@ type_implements_runtime_builtin :: (fn(ty : &TypeValue) -> Option(bool))({
   (rb_base : TypeValue) = ty;
   (rb_hops : usize) = usize(0);
   while(match(rb_base, .Pointer(_) => (rb_hops < usize(8)), _ => false), {
-    rb_base = match(rb_base, .Pointer(p) => p, _ => rb_base);
+    rb_base = match(rb_base, .Pointer(p) => p.*, _ => rb_base);
     rb_hops = (rb_hops + usize(1));
   });
   if(rb_hops > usize(0), {
@@ -510,7 +510,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
   });
   match(
     ty,
-    .Array(element : elem, length : _) => recur(&elem, out, depth + u32(1)),
+    .Array(element : elem, length : _) => recur(&elem.*, out, depth + u32(1)),
     .Tuple({ field_types : fields }) => {
       (i : usize) = usize(0);
       while(i < fields.len(), {
@@ -548,7 +548,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
         vi = (vi + usize(1));
       });
     },
-    .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(&concrete, out, depth + u32(1)), .None => ()),
+    .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(&concrete.*, out, depth + u32(1)), .None => ()),
     _ => ()
   );
 });
@@ -572,9 +572,9 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
   match(
     ty,
     .Pointer(inner) => {
-      return(if(type_is_second_class(&inner), Option(TypeValue).Some(inner), Option(TypeValue).None));
+      return(if(type_is_second_class(&inner.*), Option(TypeValue).Some(inner.*), Option(TypeValue).None));
     },
-    .Array(element : elem, length : _) => comps.push(elem),
+    .Array(element : elem, length : _) => comps.push(elem.*),
     .Tuple({ field_types : fields }) => {
       (i : usize) = usize(0);
       while(i < fields.len(), {
@@ -601,7 +601,7 @@ _pointee_second_class_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(Ty
         vi = (vi + usize(1));
       });
     },
-    .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => comps.push(concrete), .None => ()),
+    .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => comps.push(concrete.*), .None => ()),
     _ => ()
   );
   (ci : usize) = usize(0);
@@ -743,7 +743,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
     _capture_struct_declares_mut(&ty) => true,
     true => match(
       ty,
-      .Array(element : elem, length : _) => recur(&elem, depth + u32(1)),
+      .Array(element : elem, length : _) => recur(&elem.*, depth + u32(1)),
       .Tuple(field_labels : _, field_types : fields) => {
         (i : usize) = usize(0);
         while(i < fields.len(), {
@@ -781,7 +781,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
       },
       // A generic parameter is judged where it is bound: a generic body is
       // re-evaluated per instantiation (§3.4 "checked per instantiation").
-      .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(&concrete, depth + u32(1)), .None => false),
+      .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(&concrete.*, depth + u32(1)), .None => false),
       _ => false
     )
   )
@@ -844,7 +844,7 @@ _plain_data_lacks_copy :: (fn(ty_in : &TypeValue) -> bool)({
     ty_in,
     .SomeT({ resolution : sr }) => match(
       sr,
-      .Some(c) => c,
+      .Some(c) => c.*,
       .None => {
         // A generic parameter is judged where it is bound (a generic body is
         // re-evaluated per instantiation), as `type_is_move_only` does.
@@ -908,7 +908,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     ty,
     .Array(element : elem, length : _) => {
       labels.push(String.from("elements"));
-      comps.push(elem);
+      comps.push(elem.*);
     },
     .Tuple({ field_types : fields }) => {
       (i : usize) = usize(0);
@@ -944,7 +944,7 @@ _move_only_reason_inner :: (fn(ty_in : &TypeValue, depth : u32) -> Option(String
     .SomeT({ resolution : rc }) => match(
       rc,
       .Some(concrete) => {
-        return(recur(&concrete, depth + u32(1)));
+        return(recur(&concrete.*, depth + u32(1)));
       },
       .None => ()
     ),
@@ -999,7 +999,7 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, depth : u32, flip : bool) -> 
       ty,
       // Array — recurse on element type
       .Array(element : elem, length : _) =>
-        recur(&elem, depth + u32(1), flip),
+        recur(&elem.*, depth + u32(1), flip),
       // Tuple — check all field types
       .Tuple(field_labels : _, field_types : fields) => {
         (found : bool) = false;
@@ -1083,7 +1083,7 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, depth : u32, flip : bool) -> 
         found
       },
       // Iso — check child type
-      .IsoT(child : child) => recur(&child, depth + u32(1), flip),
+      .IsoT(child : child) => recur(&child.*, depth + u32(1), flip),
       // SomeT — follow the resolved concrete type if present; an unresolved
       // SomeType is treated as RC. The Future carve-out is already handled
       // by `is_rc_type(ty)` above (line ~307). Without this follow-through a
@@ -1093,7 +1093,7 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, depth : u32, flip : bool) -> 
       // over-release (issues/retired/yo-self-stage2-unwind-check-coverage.md).
       .SomeT({ required_trait_types : _, resolution : resolved }) => match(
         resolved,
-        .Some(concrete) => recur(&concrete, depth + u32(1), flip),
+        .Some(concrete) => recur(&concrete.*, depth + u32(1), flip),
         .None => true
       ),
       // Function — false (functions are not reference types)
@@ -1201,11 +1201,11 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)(
     ),
     .Tuple(field_labels : _, field_types : fields) => _any_reaches_non_atomic_cell(&fields, depth + u32(1)),
     .Union(name : _, field_labels : _, field_types : fields) => _any_reaches_non_atomic_cell(&fields, depth + u32(1)),
-    .Array(element : elem, length : _) => _reaches_non_atomic_cell_inner(&elem, depth + u32(1)),
+    .Array(element : elem, length : _) => _reaches_non_atomic_cell_inner(&elem.*, depth + u32(1)),
     .DynT(required_trait_types : _) => true,
     .SomeT({ resolution : resolved }) => match(
       resolved,
-      .Some(concrete) => _reaches_non_atomic_cell_inner(&concrete, depth + u32(1)),
+      .Some(concrete) => _reaches_non_atomic_cell_inner(&concrete.*, depth + u32(1)),
       .None => false
     ),
     _ => false
@@ -1298,8 +1298,8 @@ _type_is_control_bound_inner :: (fn(ty : &TypeValue, depth : u32) -> bool)(
       },
       // Element/pointee recursion (rule 11: a pointer to a ctl type is itself
       // control-bound — `*(Raise)` must be rejected).
-      .Array(element : elem, length : _, length_var : _) => recur(&elem, depth + u32(1)),
-      .Pointer(pointee : p) => recur(&p, depth + u32(1)),
+      .Array(element : elem, length : _, length_var : _) => recur(&elem.*, depth + u32(1)),
+      .Pointer(pointee : p) => recur(&p.*, depth + u32(1)),
       // SomeT — conservatively false (no resolved concrete type to follow
       // on this path).
       _ => false
@@ -1365,7 +1365,7 @@ buffer_element_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
               match(
                 vf.get(fi),
                 .Some(.Pointer(pointee)) => {
-                  result = Option(TypeValue).Some(pointee);
+                  result = Option(TypeValue).Some(pointee.*);
                 },
                 .Some(_) => (),
                 .None => ()
@@ -1519,7 +1519,7 @@ _type_refs_back_to_cyclic :: (
       true => true
     ),
     .ExternOpaqueT(_, _) => false,
-    .Array({ element : el }) => recur(&el, original_id, visited),
+    .Array({ element : el }) => recur(&el.*, original_id, visited),
     .Tuple({ field_types : tf }) => {
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -1743,7 +1743,7 @@ _collect_some_types_into :: (
       acc.push(ty);
     },
     .TypeAppT(constructor : con, args : args_list) => {
-      recur(&con, acc, visited_ids);
+      recur(&con.*, acc, visited_ids);
       (i : usize) = usize(0);
       n := args_list.len();
       while(i < n, {
@@ -1752,13 +1752,13 @@ _collect_some_types_into :: (
       });
     },
     .Array(element : el, _, _) => {
-      recur(&el, acc, visited_ids);
+      recur(&el.*, acc, visited_ids);
     },
     .Pointer(pointee : pt) => {
-      recur(&pt, acc, visited_ids);
+      recur(&pt.*, acc, visited_ids);
     },
     .IsoT(child : ch) => {
-      recur(&ch, acc, visited_ids);
+      recur(&ch.*, acc, visited_ids);
     },
     .Func({ forall_types : ftys, param_types : ptys, result : res }) => {
       (i : usize) = usize(0);
@@ -1771,7 +1771,7 @@ _collect_some_types_into :: (
         match(ptys.get(j), .Some(pt) => recur(&pt, acc, visited_ids), .None => ());
         j = (j + usize(1));
       });
-      recur(&res, acc, visited_ids);
+      recur(&res.*, acc, visited_ids);
     },
     .Tuple(_, field_types : ftys) => {
       (i : usize) = usize(0);
@@ -1915,11 +1915,11 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList
       });
       false
     },
-    .Pointer(pt) => recur(&pt, visited_ids),
-    .Array(element : el, _, _) => recur(&el, visited_ids),
-    .IsoT(ch) => recur(&ch, visited_ids),
+    .Pointer(pt) => recur(&pt.*, visited_ids),
+    .Array(element : el, _, _) => recur(&el.*, visited_ids),
+    .IsoT(ch) => recur(&ch.*, visited_ids),
     .TypeAppT(constructor : con, args : cargs) => {
-      if(recur(&con, visited_ids), {
+      if(recur(&con.*, visited_ids), {
         return(true);
       });
       (cai : usize) = usize(0);
@@ -1946,7 +1946,7 @@ _mentions_some_type_into :: (fn(ty_in : &TypeValue, visited_ids : &mut ArrayList
         });
         pi2 = (pi2 + usize(1));
       });
-      recur(&res, visited_ids)
+      recur(&res.*, visited_ids)
     },
     .Tuple(_, field_types : tt_fts) => {
       (ti : usize) = usize(0);
@@ -2038,7 +2038,7 @@ fields_have_incompatible_contexts :: (fn(fts : &ArrayList(TypeValue)) -> bool)({
     // SelfRecursive structs). Unwrap before classifying.
     (fo_hops : usize) = usize(0);
     while(match(ft, .Pointer(_) => (fo_hops < usize(8)), _ => false), {
-      ft = match(ft, .Pointer(p) => p, _ => ft);
+      ft = match(ft, .Pointer(p) => p.*, _ => ft);
       fo_hops = (fo_hops + usize(1));
     });
     // A reference-semantics struct (object type) is runtime-only REGARDLESS
@@ -2147,7 +2147,7 @@ type_somes_all_resolve_concrete :: (fn(ty : &TypeValue) -> bool)({
             match(
               sarc_rc,
               .Some(nx) => {
-                cur = nx;
+                cur = nx.*;
               },
               .None => {
                 walk = false;
@@ -2201,7 +2201,7 @@ resolve_cell_chain :: (fn(t_in : &TypeValue) -> TypeValue)({
           match(
             rcc_rc,
             .Some(nx) => {
-              cur = nx;
+              cur = nx.*;
             },
             .None => {
               walk = false;
@@ -2383,7 +2383,7 @@ fn_type_unrepresentable_impl :: (fn(ty : &TypeValue) -> Option(TypeValue))(
       // `Impl(Fn(...))` and are no part of this function's representation.
       (i : usize) = usize(0);
       while(i <= fu_pt.len(), {
-        fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t, .None => TypeValue.Unit), true => fu_res);
+        fu_t := cond((i < fu_pt.len()) => match(fu_pt.get(i), .Some(t) => t, .None => TypeValue.Unit), true => fu_res.*);
         match(
           fu_t,
           .SomeT({ name : nm, required_trait_types : rtt, resolution : res }) => if((nm == "Impl") && res.is_none() && !_any_future_trait(&rtt), {
@@ -2614,7 +2614,7 @@ get_alignment_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     .Pointer(_) => .Some(usize(get_target_pointer_size_bytes())),
     .Func({ result : _ }) => .Some(usize(get_target_pointer_size_bytes())),
     // Array: element alignment
-    .Array({ element : el }) => recur(&el),
+    .Array({ element : el }) => recur(&el.*),
     // str: pointer-aligned (fat pointer {ptr,len})
     .Str => .Some(usize(get_target_pointer_size_bytes())),
     // Dyn: pointer-aligned (fat pointer {data, vtable}; see get_size_of_type).
@@ -2822,9 +2822,9 @@ get_size_of_type :: (fn(ty_in : &TypeValue) -> Option(usize))({
     // `_zst_dummy` (`_emit_array_wrapper`) — see `_c_aggregate_size` for why an
     // empty struct is not usable.
     .Array({ element : el, length : n }) => cond(
-      is_unit_type(&el) => Option(usize).Some(usize(8)),
+      is_unit_type(&el.*) => Option(usize).Some(usize(8)),
       true => match(
-        recur(&el),
+        recur(&el.*),
         .Some(elem_bits) => .Some(elem_bits * n),
         .None => .None
       )
@@ -3116,7 +3116,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           }
         )
       },
-      .Array({ element : el }) => recur(&el, depth - usize(1)),
+      .Array({ element : el }) => recur(&el.*, depth - usize(1)),
       _ => false
     )
   )
@@ -3232,7 +3232,7 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           }
         )
       },
-      .Array({ element : el }) => recur(&el, depth - usize(1)),
+      .Array({ element : el }) => recur(&el.*, depth - usize(1)),
       _ => false
     )
   )
@@ -3353,8 +3353,8 @@ dyn_member_unsafe_reason :: (fn(member_ty : &TypeValue) -> Option(String))(
         });
         i = (i + usize(1));
       });
-      if(_mentions_trait_self(&res), {
-        return(Option(String).Some(`it returns ${type_to_string(&res)}, which the Dyn erases`));
+      if(_mentions_trait_self(&res.*), {
+        return(Option(String).Some(`it returns ${type_to_string(&res.*)}, which the Dyn erases`));
       });
       Option(String).None
     },
@@ -3601,12 +3601,12 @@ _type_mentions_generic_length :: (fn(ty : &TypeValue, depth : u32) -> bool)(
     (depth > u32(16)) => false,
     true => match(
       ty,
-      .Array(element : el, length : _, length_var : lv) => ((lv.len() > usize(0)) || _type_mentions_generic_length(&el, depth + u32(1))),
-      .Pointer(pointee : p) => _type_mentions_generic_length(&p, depth + u32(1)),
+      .Array(element : el, length : _, length_var : lv) => ((lv.len() > usize(0)) || _type_mentions_generic_length(&el.*, depth + u32(1))),
+      .Pointer(pointee : p) => _type_mentions_generic_length(&p.*, depth + u32(1)),
       .Tuple(_, fts) => _any_mentions_generic_length(&fts, depth),
       .Struct({ field_types : sfts }) => _any_mentions_generic_length(&sfts, depth),
       .TypeAppT(_, args) => _any_mentions_generic_length(&args, depth),
-      .Func({ param_types : pts, result : r }) => (_any_mentions_generic_length(&pts, depth) || _type_mentions_generic_length(&r, depth + u32(1))),
+      .Func({ param_types : pts, result : r }) => (_any_mentions_generic_length(&pts, depth) || _type_mentions_generic_length(&r.*, depth + u32(1))),
       _ => false
     )
   )
