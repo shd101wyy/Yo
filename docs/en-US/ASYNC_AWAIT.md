@@ -208,7 +208,7 @@ yield(io)                     // Create a pending Future completed by the next l
 9. A Future is awaited **once**: a second `io.await` (or an await after `io.spawn`) is E0901. A result several tasks need is joined once and shared (`Rc(T)`, a channel), or each task joins the task's `JoinHandle`
 10. A Future aborted while a task awaits it propagates the abort to that task (see "Aborted Futures"), and aborting the task aborts the Future it awaits
 11. `io.spawn(future, e)` runs the task **inline up to its first suspension point** before returning; spawn is not itself a suspension point of the caller
-12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under
+12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under. Because one bundle starts many futures, every bundle field must be implicitly copyable: a move-only field, or plain data without `Copy`, is an error at the `io.await`/`io.spawn` (§3.13 A6). Keep shared state in an `Rc` field
 
 ### Execution Model
 

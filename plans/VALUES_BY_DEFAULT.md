@@ -59,10 +59,12 @@ Progress:
     consume them, the `io.async` body slot is a by-value `FnOnce`, and
     `Park` is a move-only value whose `wait` consumes it (A5's `Park` line).
   - V3 async A2 (§3.13): a future may borrow, and is then second-class.
+  - V3 async A6's Generation A (§3.13): a bundle field that is not
+    implicitly copyable is an error where the bundle is copied.
 - **In progress:**
   - V3's remaining async work (§3.13): A3 (Generation A landed with A1's
     PR; the prelude switch waits for the seed), A4, A5's remaining lines,
-    A6.
+    and A6's `Rc`-field half (V2c).
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
@@ -1042,6 +1044,13 @@ instead.
   - **Open, decided in V2c:** what copying an `Rc` field means once `Rc`
     copies are explicit. Either the bundle copy clones its `Rc`/`Arc`
     fields, or bundles become explicit-copy (`io.spawn(b.clone(), …)`).
+  - **As built (2026-10-12, A6).** `_check_bundle_fields_copy`
+    (`src/evaluator/calls/function.yo`) runs at every `io.await` and
+    `io.spawn`. It rejects a bundle field that `type_requires_explicit_copy`
+    (move-only, or plain data without `Copy`) with E0901, naming the `Rc`
+    field fix. A buffer-owning field (`String`, a collection) joins the rule
+    when V2b makes those types explicit-copy, and an `Rc` field waits for
+    V2c's answer above. No std or test bundle had such a field.
 - **Unchanged:** the single-threaded runtime, the bundle model,
   `Future(T, E)`, abort propagation, `IoFuture` as a raw `i32` future, the
   join-wait primitive (`__yo_join_wait_new`/`__yo_join_wait_add`), and

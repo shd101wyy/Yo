@@ -202,7 +202,7 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 9. Future 只 await **一次**：第二次 `io.await`（或 `io.spawn` 之后再 await）是 E0901。多个任务都需要的结果只 join 一次再共享（`Rc(T)`、channel），或由每个任务 join 该任务的 `JoinHandle`
 10. 任务 await 期间被中止的 Future 会把中止传播给该任务（见"已中止的 Future"），而中止任务也会中止它正在 await 的 Future
 11. `io.spawn(future, e)` 在返回之前会**内联运行任务直到它的第一个挂起点**；spawn 本身不是调用方的挂起点
-12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下
+12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下。由于一个包会启动许多 Future，包的每个字段都必须可以隐式复制：只能移动的字段、或没有 `Copy` 的纯数据字段，在 `io.await`/`io.spawn` 处报错（§3.13 A6）。共享状态放在 `Rc` 字段中
 
 ### 执行模型
 
