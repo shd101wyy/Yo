@@ -41,6 +41,7 @@ pragma(Pragma.AllowUnsafe);
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : HashMap(String, ArrayList(CaptureBorrow))) = HashMap(String, ArrayList(CaptureBorrow)).new();
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
+{ type_memo_key } :: import("./intern.yo");
 { type_to_string } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
@@ -2968,42 +2969,81 @@ g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
 // Raw-pointer / slice-source representation predicates (for flow analysis)
 // ---------------------------------------------------------------------------
 /// One memoized named aggregate of a representation predicate walk: the type
-/// object walked and the predicate's answer for it.
-_ReprMemoEntry :: struct(ty : TypeValue, answer : bool);
+/// walked, its structural key (`type_memo_key`; `""` until a same-id type
+/// needs it) and the predicate's answer for it.
+_ReprMemoEntry :: struct(ty : TypeValue, key : String, answer : bool);
 /// The memo of the current top-level predicate call, bucketed by
-/// `<predicate>:struct:<id>` / `<predicate>:enum:<id>`. A hit requires the SAME
-/// type object (a same-id copy rebuilt by substitution can differ). Without
-/// it a struct DAG (`S(i) :: struct(a : S(i-1), b : S(i-1))`) is walked once
-/// per path through its 2^depth leaf tree
+/// `<predicate>:struct:<id>` / `<predicate>:enum:<id>`. A hit requires the same
+/// TYPE (a same-id copy rebuilt by substitution can differ), compared by
+/// structural key within the bucket: a `TypeValue` is a value
+/// (plans/VALUES_BY_DEFAULT.md V4), so there is no object identity to compare.
+/// Without the memo a struct DAG (`S(i) :: struct(a : S(i-1), b : S(i-1))`) is
+/// walked once per path through its 2^depth leaf tree
 /// (issues/fixed/defining-a-deep-struct-dag-is-exponential.md).
 (g_repr_memo : HashMap(String, ArrayList(_ReprMemoEntry))) = HashMap(String, ArrayList(_ReprMemoEntry)).new();
-/// The aggregate type objects on the current path: the same object reached
-/// again is a cycle, answered `false` there. By identity, not by id: two
-/// different types can share an id (an empty id, or a substituted copy).
-(g_repr_path : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+/// One aggregate on the current path: its memo bucket, the type, and its
+/// structural key (`""` until compared).
+_ReprPathEntry :: struct(bucket : String, ty : TypeValue, key : String);
+/// The aggregate types on the current path: the same type reached again is
+/// a cycle, answered `false` there. By bucket and structural key, not by id
+/// alone: two different types can share an id (an empty id, or a
+/// substituted copy).
+(g_repr_path : ArrayList(_ReprPathEntry)) = ArrayList(_ReprPathEntry).new();
 /// Set when the walk was cut, by a cycle or by the depth backstop: a `false`
 /// computed under a cut depends on the path, so it is not memoized. A `true`
 /// is exact either way.
 (g_repr_cut : bool) = false;
-_repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
+_repr_path_contains :: (fn(bucket : &String, ty : &TypeValue) -> bool)({
+  (probe : String) = String.new();
   (i : usize) = usize(0);
   while(i < g_repr_path.len(), {
-    if(match(g_repr_path.get(i), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
-      return(true);
-    });
+    match(
+      g_repr_path.get(i),
+      .Some(p) => if(p.bucket == bucket, {
+        if(probe.len() == usize(0), {
+          probe = type_memo_key(ty);
+        });
+        pk := cond(
+          (p.key.len() > usize(0)) => p.key,
+          true => {
+            k := type_memo_key(&p.ty);
+            g_repr_path(i) = _ReprPathEntry(bucket : p.bucket, ty : p.ty, key : k.clone());
+            k
+          }
+        );
+        if(pk == probe, {
+          return(true);
+        });
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   false
 });
+_repr_path_push :: (fn(bucket : &String, ty : &TypeValue) -> unit)(
+  g_repr_path.push(_ReprPathEntry(bucket : bucket, ty : ty, key : String.new()))
+);
 _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
   bucket := match(g_repr_memo.get(key), .Some(b) => b, .None => return(Option(bool).None));
+  probe := type_memo_key(ty);
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
       bucket.get(i),
-      .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
-        return(Option(bool).Some(e.answer));
-      }),
+      .Some(e) => {
+        ek := cond(
+          (e.key.len() > usize(0)) => e.key,
+          true => {
+            k := type_memo_key(&e.ty);
+            bucket(i) = _ReprMemoEntry(ty : e.ty, key : k.clone(), answer : e.answer);
+            k
+          }
+        );
+        if(ek == probe, {
+          return(Option(bool).Some(e.answer));
+        });
+      },
       .None => ()
     );
     i = (i + usize(1));
@@ -3012,7 +3052,7 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
 });
 _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)({
   bucket := match(g_repr_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
-  bucket.push(_ReprMemoEntry(ty : ty, answer : answer));
+  bucket.push(_ReprMemoEntry(ty : ty, key : String.new(), answer : answer));
   _ := g_repr_memo.insert(key, bucket);
 });
 /// Start a top-level predicate call: an empty memo, no cut.
@@ -3051,13 +3091,13 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(ty), {
+            if(_repr_path_contains(&key, ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            _repr_path_push(&key, ty);
             (i : usize) = usize(0);
             (found : bool) = false;
             while((i < fts.len()) && !found, {
@@ -3106,13 +3146,13 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(ty), {
+            if(_repr_path_contains(&key, ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            _repr_path_push(&key, ty);
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
@@ -3167,13 +3207,13 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(ty), {
+            if(_repr_path_contains(&key, ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            _repr_path_push(&key, ty);
             (i : usize) = usize(0);
             (found : bool) = false;
             while((i < fts.len()) && !found, {
@@ -3222,13 +3262,13 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(ty), {
+            if(_repr_path_contains(&key, ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            _repr_path_push(&key, ty);
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
