@@ -62,9 +62,14 @@ __yo_decr_rc(sm->var_bb_…);                  // the caller's scope end: a seco
 
 ## Fix
 
-The fused arguments go through `generate_arg_code_with_deferred_dups`
-(`src/codegen/exprs/drop_dup.yo`), the per-argument rewrite the ordinary call
-applies.
+An argument that carries a by-value parameter's share
+(`is_by_value_param_share_dup`) takes it at the fused site through
+`emit_deferred_dup_or_code`, on its own spelling, as a call inside a state
+machine does (`_materialize_arg`, `src/codegen/exprs/other_fn_call.yo`). Its
+other deferred dups (the caller-owned +1 of a borrowed projection, for a `&`
+parameter) are not emitted in a state machine; emitting every deferred dup
+named temps the state machine never declared (`remove_dir(&entry.path, …)` in
+`std/fs/walker.yo`).
 
 Regression test: `tests/async/sm_ownership.test.yo`, "a fused await keeps a
 named local passed by value alive" (a `Dispose` counter: before the fix each
