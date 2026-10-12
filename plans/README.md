@@ -153,7 +153,14 @@ the one multi-root-beyond-frame-compile-time shape that is decision 43's
 recorded `generic(r : Region)` trigger). It opens with the position
 statement — everything safe Rust computes, safe Yo computes with the
 same memory safety; the differences are where the checking happens and
-what sharing costs, not what is computable.
+what sharing costs, not what is computable. §8 compares Vale/Valen's
+group borrowing (verdagon.dev, 2026-10), the closest live alternative:
+path-typed references and aggregate invalidation — the same insight
+independently reached, a trade triangle (Valen wins stored-ref
+aliasing, Yo wins exclusivity and type location-freedom), a soundness
+verdict, and three harvests (field-path `depends`, unique reachability
+as a static `get_mut`, generational-reference evidence for the
+`Arena(T)`/`Id(T)` candidate).
 
 `archive/` holds closed campaigns; their banners are the summaries. Good
 starting points: [`BOOTSTRAPPING`](archive/BOOTSTRAPPING.md) and

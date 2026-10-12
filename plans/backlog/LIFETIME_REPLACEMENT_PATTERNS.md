@@ -220,6 +220,92 @@ at compile time, plus the one shape with no answer:
 - Nothing else currently: the remaining gaps are boundary items 1, 3 and
   4, which are design positions, not missing tools.
 
+## 8. Related designs: Vale/Valen's group borrowing
+
+Two posts (verdagon.dev, 2026-10): "Group Borrowing" — Nick Smith's
+draft, written up by Evan O'Donald — and "Valen Group Borrowing" —
+Valen, O'Donald's successor to Vale, which adopts the design over a
+deterministic-generational-reference safety net. It is the closest live
+alternative to this toolbox, arrived at independently; recorded so the
+next survey does not rediscover it.
+
+**The rules.** Single ownership underneath; no Rust lifetimes and no
+region names. Every reference is typed by the **owner path** it points
+into (`&Entity in world.entities[]`), and invalidation is path-precise:
+mutating an object kills references into its **child groups** (anything
+independently destructible — `Box`'d payloads, variant cases, collection
+elements) and leaves references *at* it alive; `vec.push` invalidates
+`&vec[0]`, not `&vec`. Any number of read-write references to one object
+may coexist — there is no aliasing-xor-mutability law; the goal is only
+"no use-after-free", checked at compile time, with signatures declaring
+the paths a callee may mutate.
+
+**The correspondence** — the same insight: exclusivity and invalidation
+belong at the aggregate, not the object.
+
+| Valen | this toolbox |
+| --- | --- |
+| a group | a value (the struct IS the group) |
+| refs *at* an object survive mutation | sibling fields never conflict (D18) |
+| refs *into* child groups die on mutation | growth under a cursor is E0911 / the pin panic |
+| child group = independently destructible | cell and buffer payloads |
+| `-> &Gem in self.gem` | the single-root return (R3) — the same rule, the path spelled in the type instead of inferred |
+| RC "when references don't need to be temporary" | shape II2 (share it) |
+| deterministic generational references | the runtime net (III4/III5): marks, bounds, generations |
+
+The frame boundary lands in the same place: the Valen post does not
+address references stored in long-lived structures and offers RC when
+references "don't need to be temporary" — beyond the frame, both
+languages store handles, not borrows.
+
+**The differences — a trade triangle.**
+
+- **Stored-ref aliasing (Valen > Yo).** Two read-write references to
+  runtime-chosen elements of one collection are free in Valen (the
+  `attack(a, d)` game shape); Yo needs provably distinct places
+  (verifier `distinct`) or a `RefCell` — the price of per-place
+  exclusivity.
+- **Exclusivity (Yo > Valen).** Valen has one reference kind and no
+  `&mut`; stored exclusive references (Rust's `Vec<&mut T>`) are an
+  open problem ("unique groups"), and `noalias` for LLVM is named as a
+  challenge. Yo's exclusivity is what CP1a's `restrict` and the
+  verifier's place reasoning stand on.
+- **Type location-freedom (Yo > Valen).** Valen's types carry owner
+  paths, which unify across callers — a structural spelling of the
+  region threading this plan rejects; every Yo check stays readable in
+  one signature.
+
+**Soundness.** The draft is static-only and explicitly unproven; a
+missed invalidation is a use-after-free, and O'Donald's earlier
+region-borrowing designs "broke and were repaired several times".
+Valen is sound by architecture rather than by proof: the deterministic
+generational references catch what the checker misses — the same
+static-first, runtime-net philosophy as Group III. Threads and data
+races are unaddressed in the posts.
+
+**Harvests** — three ideas worth taking, none of them paths in types:
+
+- **Field-path `depends`.** Valen's signature paths are finer than our
+  parameter-level `depends(a)`; a `depends(self.rings)` would narrow
+  the caller-side freeze to the named sub-place and stay
+  intraprocedural at the call site. A candidate refinement for
+  decision 43's phase, to be filed with the `depends` grammar.
+- **Unique reachability as a static `get_mut`.** Valen's "temporary
+  uniqueness" (cross into an exclusive context when uniquely reachable
+  during the call) is the static form of `Rc.get_mut` — input for
+  `issues/questions/rc-get-mut-try-unwrap-make-mut-are-undecided.md`.
+- **Generational-reference evidence.** A whole language betting on
+  deterministic generation checks is the strongest external validation
+  yet for §7's generational `Arena(T)`/`Id(T)` candidate, where the
+  same mechanism lives inside one container instead of under every
+  dereference.
+
+**Not taken:** path-carrying reference types (callers would unify
+location types — cross-frame constraint solving under another name,
+failing the one-signature test) and the abandonment of exclusivity
+(CP1a, verifier places, and E0911's lost-update catching are built on
+it).
+
 ## Maintenance
 
 Parked in `backlog/` as the toolbox companion to the catalog. Detail
