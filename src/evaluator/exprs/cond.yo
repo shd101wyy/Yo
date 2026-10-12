@@ -40,7 +40,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime } :: import("../context.yo");
 { EvalValue, create_unknown_val, is_bool_val, is_runtime_only_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ t_bool, t_unit, t_never } :: import("../../types/creators.yo");
+{ t_bool, t_unit, t_never, t_ptr } :: import("../../types/creators.yo");
 {
   is_bool_type,
   is_some_type,
@@ -766,8 +766,8 @@ evaluate_cond :: (
                         .Some(ft) => {
                           match(
                             ft,
-                            .Func({ result : result_box }) => {
-                              return_type = Option(TypeValue).Some(result_box);
+                            .Func({ result : result_box, meta : rb_meta }) => {
+                              return_type = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box));
                             },
                             _ => ()
                           );

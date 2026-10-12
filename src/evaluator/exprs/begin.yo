@@ -77,7 +77,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { EvalValue, is_type_value } :: import("../../value.yo");
 { TypeValue, t_refine_inner } :: import("../../types/definitions.yo");
-{ t_unit } :: import("../../types/creators.yo");
+{ t_unit, t_ptr } :: import("../../types/creators.yo");
 { is_some_type, is_reference_struct_type } :: import("../../types/guards.yo");
 { HashSet } :: import("std/collections/hash_set");
 { is_io_async_call, is_io_await_call } :: import("../async/await_analysis.yo");
@@ -2877,8 +2877,10 @@ _evaluate_begin_expression_impl :: (
               .Some(ft) => {
                 match(
                   ft,
-                  .Func({ result : result_box }) => {
-                    expected_ret := result_box;
+                  .Func({ result : result_box, meta : rb_meta }) => {
+                    // A projection's `return(&place)` yields the place's
+                    // address (decision 24, `rewrite_projection_tails`).
+                    expected_ret := if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box);
                     synth_ok := _try_synthesize_return_type(&expected_ret, &return_type, &env);
                     if(!synth_ok, {
                       compat := are_types_compatible(&return_type, &expected_ret);

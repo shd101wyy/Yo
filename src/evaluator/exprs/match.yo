@@ -2088,8 +2088,8 @@ evaluate_match :: (
                     .Some(ft) => {
                       match(
                         ft,
-                        .Func({ result : result_box }) => {
-                          ret_type_em = Option(TypeValue).Some(result_box);
+                        .Func({ result : result_box, meta : rb_meta }) => {
+                          ret_type_em = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box));
                         },
                         _ => ()
                       );

@@ -936,3 +936,49 @@ test("V2b: a projection forwards its self to helpers and through addr_of", {
   q(usize(0)) = (q(usize(0)) + q(usize(3)));
   assert(q.w == i32(5), "q(0) = q(0) + q(3)");
 });
+// A GENERIC projection whose body branches (`cond`/`match`, an early
+// `return(&place)`): its specialization types the arms against `*(T)`, and a
+// caller's own `return(...)` is checked against the caller's result
+// (issues/fixed/a-swallowed-index-specialization-leaks-its-function-context.md).
+Pair2 :: (fn(comptime(T) : Type) -> comptime(Type))(struct(first : T, second : T));
+impl(
+  generic(T : Type),
+  Pair2(T),
+  VIndex(usize)(
+    Output : T,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)({
+      if(idx == usize(0), {
+        return(&self.first);
+      });
+      cond(
+        (idx == usize(1)) => &self.second,
+        true => &self.first
+      )
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  Pair2(T),
+  VIndexMut(usize)(
+    Output : T,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      match(
+        idx,
+        0 => &mut self.first,
+        _ => &mut self.second
+      )
+    )
+  )
+);
+_pair2_widen :: (fn(p : Pair2(u8)) -> i32)({
+  b := p(usize(1));
+  return(i32(b) + i32(1));
+});
+test("V2b: a generic branching projection; the caller's return keeps its type", {
+  p := Pair2(u8)(first : u8(3), second : u8(7));
+  assert(_pair2_widen(p) == i32(8), "p(1) widened");
+  assert(p(usize(0)) == u8(3), "the early return(&self.first)");
+  p(usize(1)) = u8(9);
+  assert(p.second == u8(9), "the match arm wrote second");
+});

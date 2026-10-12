@@ -3558,8 +3558,14 @@ create_specialized_function_inline :: (
             ctx.captured_variables = Option(HashMap(String, CapturedVarInfo)).None;
           });
           ctx.is_evaluating_loop_body = Option(LoopBodyCtx).None;
+          // A projection's body yields its place's address (decision 24,
+          // `rewrite_projection_tails`), so a `cond`/`match` tail is typed
+          // against `*(T)`, not the `T` the result names.
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
-            ExpectedTypeCtx(ty : spec_ret_ty.clone(), env : callee_env)
+            ExpectedTypeCtx(
+              ty : match(func_type, .Func({ meta : se_m }) => if(se_m.*.result_is_ref, t_ptr(&spec_ret_ty), spec_ret_ty.clone()), _ => spec_ret_ty.clone()),
+              env : callee_env
+            )
           );
           ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(
             ArrayList(ImplConcreteTypeInfo).new()

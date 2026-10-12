@@ -1023,6 +1023,39 @@ _try_comptime_string_index :: (
 _specialize_index_method :: (
   fn(mv : &Option(EvalValue), mty : &TypeValue, expr : &AstExpr, caller_env : &Environment, ctx : &EvalContext, idx_expr : &AstExpr, out : &mut ArrayList(EvalValue)) -> unit
 )({
+  // The swallowed throw unwinds out of the trial below, past the restores
+  // of the function-body context the specialization installed, and a later
+  // `return(...)` in the CALLER's body was then checked against the index
+  // method's result type (issues/fixed/a-swallowed-index-specialization-leaks-its-function-context.md).
+  saved_fb := ctx.is_evaluating_function_body_or_async_block;
+  saved_caps := ctx.captured_variables;
+  saved_loop := ctx.is_evaluating_loop_body;
+  saved_fri := ctx.function_return_impl_concrete_type;
+  saved_self := ctx.self_type;
+  saved_enclosing := ctx.enclosing_function_return_type;
+  saved_spec := ctx.currently_specializing_function;
+  saved_spec_len := match(ctx.currently_specializing_function_stack, .Some(st) => st.len(), .None => usize(0));
+  _specialize_index_method_trial(mv, mty, expr, caller_env, ctx, idx_expr, out);
+  ctx.is_evaluating_function_body_or_async_block = saved_fb;
+  ctx.captured_variables = saved_caps;
+  ctx.is_evaluating_loop_body = saved_loop;
+  ctx.function_return_impl_concrete_type = saved_fri;
+  ctx.self_type = saved_self;
+  ctx.enclosing_function_return_type = saved_enclosing;
+  ctx.currently_specializing_function = saved_spec;
+  match(
+    ctx.currently_specializing_function_stack,
+    .Some(st) => {
+      while(st.len() > saved_spec_len, {
+        st.pop();
+      });
+    },
+    .None => ()
+  );
+});
+_specialize_index_method_trial :: (
+  fn(mv : &Option(EvalValue), mty : &TypeValue, expr : &AstExpr, caller_env : &Environment, ctx : &EvalContext, idx_expr : &AstExpr, out : &mut ArrayList(EvalValue)) -> unit
+)({
   recv := match(expr, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => expr);
   margs := ArrayList(AstExpr).new();
   margs.push(recv);
