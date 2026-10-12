@@ -791,11 +791,13 @@ test("a move inside an operator's operand moves once", {
 // Aliasing Stage 0 gave the element a caller-owned "+1" for a callee that is
 // not read-only, which for a move-only value was a bitwise copy whose drop
 // ran `Dispose` while the list still owned the element.
-(g_mo_seen : i32) = i32(0);
+// The method writes container storage (a global list), so the mutation
+// summary cannot prove it read-only and Stage 0 applied.
+(g_mo_seen : ArrayList(i32)) = ArrayList(i32).new();
 impl(
   _MoFd,
   _mo_note : (fn(self : &Self) -> i32)({
-    g_mo_seen = (g_mo_seen + i32(1));
+    g_mo_seen.push(self.n);
     self.n
   })
 );
@@ -826,12 +828,13 @@ test("ArrayList pop/swap/remove/reverse move a move-only element", {
   xs.reverse();
   assert(xs(usize(0)).n == i32(1), "reversed: first");
   assert(xs(usize(3)).n == i32(4), "reversed: last");
+  // [1, 3, 2, 4]
   r := xs.remove(usize(1));
-  assert(r.n == i32(2), "removed the second element");
+  assert(r.n == i32(3), "removed the second element");
   assert(xs.len() == usize(3), "the tail closed the gap");
-  assert(xs(usize(1)).n == i32(3), "the tail moved left");
+  assert(xs(usize(1)).n == i32(2), "the tail moved left");
   assert(g_mo_disposed == before, "no move disposed anything");
-  assert(_mo_take(r) == i32(2), "the removed element is owned");
+  assert(_mo_take(r) == i32(3), "the removed element is owned");
   match(
     xs.pop(),
     .Some(p) => assert(_mo_take(p) == i32(4), "pop moves the last element out"),
