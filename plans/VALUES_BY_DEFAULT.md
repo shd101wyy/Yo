@@ -64,6 +64,13 @@ Progress:
     lines, A6;
   - V2b: "Projections first", Generation A (feat/vbd-v2b-index-mut; the
     prelude switch is Generation B).
+  - V4: decision 31's wrapper patterns `Rc(p)` / `Arc(p)`, Generation A
+    (feat/vbd-v4-wrapper-patterns; Generation B deletes the implicit `Rc`
+    look-through once a seed carries it). The `TypeValue` conversion is
+    blocked on two codegen issues
+    (`issues/value-enum-drops-are-emitted-inline-at-every-drop-site.md`,
+    `issues/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md`;
+    branch feat/vbd-v4-typevalue).
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
