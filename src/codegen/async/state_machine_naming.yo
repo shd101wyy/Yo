@@ -181,8 +181,13 @@ note_sm_move_flag_field :: (fn(field : &String) -> unit)({
 /// The move flag (`sm->__yo_mv_<field>`) of the slot `sm_code`
 /// (`sm-><field>`), or `.None` when the slot has none. A capture-list field
 /// `sm->__capture.<label>` has the flag `sm->__yo_mv___capture_<label>`
-/// (`sm_capture_move_flag_name`).
-sm_move_flag_of :: (fn(sm_code : &String) -> Option(String))({
+/// (`sm_capture_move_flag_name`) only in a state machine that owns its
+/// capture list (`owns_captures`, an `FnOnce` capture struct): a capture
+/// label carries no variable id, so the set alone cannot tell which struct
+/// declared the flag, and another state machine's implicit capture of the
+/// same name has none
+/// (issues/fixed/a-capture-move-flag-is-read-in-a-state-machine-that-has-none.md).
+sm_move_flag_of :: (fn(sm_code : &String, (owns_captures : bool) ?= false) -> Option(String))({
   if(!sm_code.starts_with("sm->"), {
     return(Option(String).None);
   });
@@ -191,6 +196,9 @@ sm_move_flag_of :: (fn(sm_code : &String) -> Option(String))({
     return(Option(String).None);
   });
   if(field.starts_with("__capture."), {
+    if(!owns_captures, {
+      return(Option(String).None);
+    });
     return(Option(String).Some(`sm->${sm_capture_move_flag_name(field.substring(usize(10), field.len()))}`));
   });
   Option(String).Some(`sm->__yo_mv_${field}`)

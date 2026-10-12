@@ -14,7 +14,7 @@
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
-{ FunctionGenerationContext } :: import("../functions/context.yo");
+{ FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { emit_deferred_dup_or_code, generate_dup_code_for_value, generate_drop_code_for_value } :: import("./drop_dup.yo");
@@ -98,7 +98,7 @@ _sm_binding_slot :: (fn(key : ExprId, env : &Environment, name : &String, contex
 /// a loop re-binds the name every iteration).
 _clear_sm_move_flag :: (fn(slot : &String, indent : &String, context : &FunctionGenerationContext) -> unit)(
   match(
-    sm_move_flag_of(slot),
+    sm_move_flag_of(slot, sm_owns_fnonce_captures(context)),
     .Some(flag) => {
       em := context.base.emitter;
       em.emit_string_line(`${indent}${flag} = 0;`);

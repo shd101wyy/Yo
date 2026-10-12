@@ -48,12 +48,12 @@
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
 { get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid, is_fnonce_capture_struct } :: import("../../function_value.yo");
-{ ExprInfo, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution, is_by_value_param_share_dup } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
 } :: import("../../evaluator/trait_checking.yo");
-{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
+{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions, emit_deferred_dup_or_code, arm_value_with_dups } :: import("./drop_dup.yo");
 { Emitter } :: import("../../emitter.yo");
 { generate_atom, _generate_sm_atom } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -1098,12 +1098,56 @@ _capture_type_entry_exists :: (fn(capture_type : &TypeValue, context : &Function
   });
   false
 });
+/// The fields of a capture struct, typed as `capture_type` instantiates them.
+/// The field registry is keyed by the struct id, which every instantiation of
+/// a closure inside a generic body shares, so its types are whichever
+/// instantiation registered first (or the generic one): a `JoinHandle(T)`
+/// capture of `std/async`'s `join` was disposed through `JoinHandle(T)`'s
+/// unresolved dispose, a C type mismatch
+/// (issues/fixed/a-capture-in-a-generic-io-async-body-is-dropped-with-another-instantiations-type.md).
+/// The labels and the effect-parameter flags come from the registry; each
+/// type comes from `capture_type` itself.
+_capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
+  struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => return(ArrayList(TypeField).new()));
+  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  (labels, types) := match(
+    capture_type,
+    .Struct({ field_labels : fl, field_types : ft }) => (fl, ft),
+    _ => (ArrayList(String).new(), ArrayList(TypeValue).new())
+  );
+  out := ArrayList(TypeField).new();
+  (i : usize) = usize(0);
+  while(i < fields.len(), i = (i + usize(1)), {
+    match(
+      fields.get(i),
+      .Some(f) => {
+        typed := f;
+        (li : usize) = usize(0);
+        while(li < labels.len(), li = (li + usize(1)), {
+          if(match(labels.get(li), .Some(l) => (l == f.label), .None => false), {
+            match(
+              types.get(li),
+              .Some(t) => {
+                typed.ty = t;
+              },
+              .None => ()
+            );
+          });
+        });
+        out.push(typed);
+      },
+      .None => ()
+    );
+  });
+  out
+});
 /// Inline RC-field drops for a capture struct whose `___drop` function was not
 /// generated (e.g. it holds unresolved SomeType fields).
 _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
   struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
-  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  fields := _capture_struct_fields(capture_type);
+  owns_captures := is_fnonce_capture_struct(&struct_id);
   (i : usize) = usize(0);
   while(i < fields.len(), {
     match(
@@ -1111,7 +1155,9 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &Fu
       .Some(field) => if(!field.is_effect_param, {
         field_ref := `sm->__capture.${sanitize_for_c_identifier(field.label.clone(), false)}`;
         // An owned capture list's moved-out capture belongs to its new owner.
-        move_flag := sm_move_flag_of(field_ref.clone());
+        // Only a counted or move-only capture has a flag
+        // (`_owned_capture_fields`).
+        move_flag := sm_move_flag_of(field_ref.clone(), owns_captures && type_contains_rc_cell_or_move_only(&field.ty));
         match(move_flag, .Some(flag) => em.emit_string_line(`  if (!${flag}) {`), .None => ());
         match(
           _rc_field_drop_line(field_ref.clone(), &field.ty, String.from("  "), context),
@@ -1144,7 +1190,7 @@ _owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))
   if(!is_fnonce_capture_struct(&struct_id), {
     return(out);
   });
-  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  fields := _capture_struct_fields(capture_type);
   (i : usize) = usize(0);
   while(i < fields.len(), i = (i + usize(1)), {
     match(
@@ -2071,8 +2117,13 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
     match(
       stmts.get(i),
       .Some(st) => {
-        code := _call_generate_expr(&st, indent.clone(), context);
-        if(i == (stmts.len() - usize(1)), {
+        is_tail := (i == (stmts.len() - usize(1)));
+        // The tail takes its deferred dups, as the state machine's own tail
+        // does: a borrowed tail (an implicit capture) is the capture's, and
+        // the capture is dropped once the value is read
+        // (issues/fixed/a-state-machine-returning-a-borrowed-capture-hands-out-the-captures-only-reference.md).
+        code := if(is_tail, match(arm_value_with_dups(&st, indent, context), .Some(c) => c, .None => _call_generate_expr(&st, indent.clone(), context)), _call_generate_expr(&st, indent.clone(), context));
+        if(is_tail, {
           tail = code;
         }, {
           skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env.module_path, code.clone()), .None => true));
@@ -2085,6 +2136,24 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
     );
   });
   tail
+});
+/// Does `arg` carry the share a by-value parameter takes of it
+/// (`is_by_value_param_share_dup`)? Its other deferred dups (the caller-owned
+/// +1 of a borrowed projection) are not emitted in a state machine.
+_fused_arg_carries_param_share :: (fn(arg : &AstExpr, context : &FunctionGenerationContext) -> bool)({
+  ei := match(context.base.get_expr_info(arg), .Some(e) => e, .None => return(false));
+  dl := match(expr_info_deferred_dup_expressions(&ei), .Some(d) => d, .None => return(false));
+  (i : usize) = usize(0);
+  while(i < dl.len(), i = (i + usize(1)), {
+    match(
+      dl.get(i),
+      .Some(d) => if(is_by_value_param_share_dup(ast_expr_id(&d)), {
+        return(true);
+      }),
+      .None => ()
+    );
+  });
+  false
 });
 /// Lower `await_expr` as a fused site, or return `.None` to leave it to the
 /// ordinary suspension. Returns the C code of the await's value.
@@ -2133,12 +2202,23 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
       .None => ()
     )
   );
-  // 1. The call's arguments, evaluated in the caller as the call would.
+  // 1. The call's arguments, evaluated in the caller as the call would. A
+  // by-value parameter is the wrapper's to drop, so an argument carrying
+  // that parameter's share takes it here, on its own spelling, as a call in
+  // a state machine does (`_materialize_arg`, other_fn_call.yo)
+  // (issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md).
   rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   arg_codes := ArrayList(String).new();
   (ai : usize) = usize(0);
   while(ai < rargs.len(), ai = (ai + usize(1)), {
-    match(rargs.get(ai), .Some(a) => arg_codes.push(_call_generate_expr(&a, indent.clone(), context)), .None => ());
+    match(
+      rargs.get(ai),
+      .Some(a) => {
+        code := _call_generate_expr(&a, indent.clone(), context);
+        arg_codes.push(if(_fused_arg_carries_param_share(&a, context), emit_deferred_dup_or_code(&a, &code, indent, context), code));
+      },
+      .None => ()
+    );
   });
   // 2. The wrapper's parameters, prologue and capture construction, in a C
   // block of their own (their names are the wrapper's), with no
