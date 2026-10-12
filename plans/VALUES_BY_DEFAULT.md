@@ -2243,7 +2243,9 @@ and in git, not a silent edit.
         bound-checked generics.
     - **Where it may not go.** A second-class value may not be:
       - returned;
-      - stored in a field, element or `Dyn`;
+      - stored in a field, element or `Dyn` (an owned `Dyn` cell; `dyn(&v)`
+        builds no cell and yields a second-class borrowed object, decision
+        44);
       - captured by an escaping closure, implicitly or by value;
       - spawned;
       - passed to a by-value parameter (except `io.async`, decision 37) —
@@ -2944,8 +2946,16 @@ and in git, not a silent edit.
         explicit: `use_id(dyn(point))`, never `use_id(point)`. The borrowed
         form matches it with the same keyword over a borrow: `dyn(&v)` is
         `&Dyn(Trait)`, `dyn(&mut v)` is `&mut Dyn(Trait)`, each the
-        second-class value the borrow was. There is no unsizing coercion
-        anywhere in the language.
+        second-class value the borrow was. Decision 38's "a second-class
+        value may not be stored in a `Dyn`" means an owned `Dyn` cell;
+        `dyn(&v)` builds no cell and yields a second-class object, so it
+        is the carve-out, not a violation. A trait object over a nominal
+        type has no implicit route. The one conversion that stays
+        implicit is a closure into a `Dyn(Fn(...))` slot
+        (`(d : Dyn(Fn() -> i32)) = f`, decision 38's audited route),
+        because a closure literal's type is unnameable and `Impl(Fn)` /
+        `Dyn(Fn)` are its only spellings; `dyn(f)` and `dyn(&f)` are
+        accepted there too (`tests/closure_capture_list.test.yo`).
       - **`&Dyn(Trait)` is the borrowed object, not a pointer to the
         handle.** For every other `T`, `&T` points at the `T` value. For
         `Dyn`, `&d` over an owned `d : Dyn(Trait)` is the fat pair over the
