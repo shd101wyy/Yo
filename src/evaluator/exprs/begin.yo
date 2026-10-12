@@ -108,7 +108,7 @@ pragma(Pragma.AllowUnsafe);
   audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
   audit_print_implicit_copy,
-  reject_second_class_escape,
+  reject_second_class_return,
   reject_second_class_result_outliving,
   local_borrows_mark,
   local_borrows_truncate,
@@ -2384,7 +2384,7 @@ _evaluate_begin_expression_impl :: (
           });
           ret_info := match(ret_info_opt, .Some(ri) => ri, .None => new_expr_info(&env, TypeValue.Unit));
           // Decision 38 A: a second-class value is never returned.
-          reject_second_class_escape(&ret_info.ty, String.from("returned"), ast_expr_token(&ret_arg), ctx, exn);
+          reject_second_class_return(&ret_info.ty, ast_expr_token(&ret_arg), &env, ctx, exn);
           env.frames = ret_info.env.frames;
           env.module_path = ret_info.env.module_path;
           env.function_declaration_frame_level = ret_info.env.function_declaration_frame_level;

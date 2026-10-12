@@ -546,7 +546,22 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
         vi = (vi + usize(1));
       });
     },
-    .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(&concrete, out, depth + u32(1)), .None => ()),
+    .SomeT({ id : st_id, resolution : rc }) => {
+      // A borrowing future (§3.13 A2): `io.async` registers its body's
+      // capture-list borrows under the future's per-call wrapper id.
+      match(
+        g_capture_borrows.get(&st_id),
+        .Some(bs) => {
+          (bi : usize) = usize(0);
+          while(bi < bs.len(), {
+            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
+            bi = (bi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      match(rc, .Some(concrete) => recur(&concrete, out, depth + u32(1)), .None => ());
+    },
     _ => ()
   );
 });
@@ -733,7 +748,7 @@ _is_dyn_fnonce :: (fn(ty : &TypeValue) -> bool)(
 /// function's result, `IoFuture`). It is a reference-counted state machine,
 /// yet move-only (plans/VALUES_BY_DEFAULT.md decision 13, §3.13 A1): `io.await`
 /// and `io.spawn` consume it, so one future is awaited or spawned once.
-_is_future_value :: (fn(ty : &TypeValue) -> bool)(
+is_future_value_type :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
     .SomeT({ required_trait_types : rtt }) => {
@@ -754,7 +769,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
   cond(
     (depth > u32(8)) => false,
     _is_dyn_fnonce(&ty) => true,
-    _is_future_value(&ty) => true,
+    is_future_value_type(&ty) => true,
     is_rc_type(&ty) => false,
     _nominal_declares_move_only(&ty) => true,
     // A closure with a `mut` capture (decision 35): two copies of one
@@ -3263,7 +3278,7 @@ export(is_bound_closure_identity);
 export(is_closure_capture_struct);
 export(resolve_cell_chain);
 export(type_contains_some_type_deep);
-export(type_mentions_impl_fn_or_future);
+export(type_mentions_impl_fn_or_future, is_future_value_type);
 export(fn_type_unrepresentable_impl, fn_type_unrepresentable_impl_message, fn_type_unrepresentable_impl_help);
 export(get_size_of_type, get_alignment_of_type);
 export(type_representation_contains_raw_ptr, type_may_provide_slice_source);

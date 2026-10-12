@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -2149,6 +2149,33 @@ _freshen_io_async_result :: (fn(t : &TypeValue) -> TypeValue)(
   )
 );
 
+/// §3.13 A2: an `io.async` body whose capture list borrows makes its future
+/// second-class. The body's borrows are registered under the future's
+/// per-call wrapper id (`fut_ty`, fresh from `_freshen_io_async_result`), so
+/// decision 38 A's checks see them on the future: it may be awaited or
+/// returned under the parameter rule, and never bound, stored or spawned.
+_register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr), ctx : &EvalContext) -> unit)({
+  if(!capture_borrows_exist(), {
+    return(());
+  });
+  match(
+    fut_ty,
+    .SomeT({ id : fut_id }) => match(
+      args.get(usize(0)),
+      .Some(body) => match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&body)),
+        .Some(body_info) => {
+          bs := ArrayList(CaptureBorrow).new();
+          collect_type_borrows(&body_info.ty, &mut bs);
+          register_capture_borrows(&fut_id, &bs);
+        },
+        .None => ()
+      ),
+      .None => ()
+    ),
+    _ => ()
+  );
+});
 /// Whether a call's result, resolved through the call's env
 /// (`_resolve_some_types_deep`), replaces the result the call computed. A
 /// concrete resolution always does. A wrapper (`Impl(Future(Option(U), Io))`)
@@ -7892,7 +7919,8 @@ Fix: wrap the call:
                   ctx,
                   exn,
                   argument_is_aliased_by_inout(&arg_expr_eff, fv_p_is_ref, inout_argument_roots(&fv_args, &fv_param_is_ref)),
-                  fv_p_sink
+                  fv_p_sink,
+                  is_io_async_call(expr) || is_io_await_call(expr)
                 ),
                 .Some(fv_s0d) => {
                   fv_s0_drops.push(fv_s0d);
@@ -9201,6 +9229,7 @@ Fix: wrap the call:
           // shared id cross-poisoned sibling calls — item 7 of
           // issues/retired/yo-self-async-emission-cluster.md).
           ret_type_rt = _freshen_io_async_result(&ret_type_rt);
+          _register_borrowing_future(&ret_type_rt, &args, ctx);
           match(
             _future_output_some_id(&ret_type_rt),
             .Some(_) => match(
@@ -9885,6 +9914,7 @@ Fix: wrap the call:
             // (fresh wrapper FIRST, then the output takes the closure's
             // concrete result as its resolution).
             ret_type_none = _freshen_io_async_result(&ret_type_none);
+            _register_borrowing_future(&ret_type_none, &args, ctx);
             match(
               _future_output_some_id(&ret_type_none),
               .Some(_) => match(
