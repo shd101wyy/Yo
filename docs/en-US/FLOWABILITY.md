@@ -89,8 +89,11 @@ re-point is E0911 while a borrow derived from `cur`'s current target is
 live. Each step into a cell pins it and releases the cell the previous step
 pinned, so the walk is memory-safe even when another handle drops a node.
 
-**Functions cannot return a borrow** (there is no `-> &T` / `-> &mut T`
-result yet), and refs cannot be stored in fields, captured by closures, or
+**A function returns a borrow only as a projection** (`-> &T` / `-> &mut T`,
+decision 24): its body yields a place spelled with the result's sigil
+(`&self.a`, `&mut self.rows(i)`), rooted at one of its own borrow parameters,
+and it is reached through the subscript (`x(i)`), never called directly yet
+(see [INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)). Refs cannot be stored in fields, captured by closures, or
 placed inside generic types. A borrow is born
 at a call boundary or a binding and dies with the enclosing scope — it can
 never outlive the storage it points into.
