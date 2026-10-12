@@ -5334,6 +5334,20 @@ _note_list_alias :: (fn(ctx : &mut VcCtx, name : &String, rhs : &AstExpr) -> uni
     .None => ()
   )
 );
+/// The caller's variable an argument names: the atom itself, or the place a
+/// call-site marker lends (`&x`, `&mut x`, decision 33). `.None` for any
+/// other argument.
+_arg_place_atom :: (fn(a : &AstExpr) -> Option(AstExpr))(
+  cond(
+    ast_expr_is_atom(a) => Option(AstExpr).Some(a.clone()),
+    (ast_expr_is_fn_call_of(a, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(a, "&mut", .Some(usize(1)))) => match(
+      a,
+      .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(place) => if(ast_expr_is_atom(&place), Option(AstExpr).Some(place), Option(AstExpr).None), .None => Option(AstExpr).None),
+      .Atom(_, _) => Option(AstExpr).None
+    ),
+    true => Option(AstExpr).None
+  )
+);
 /// `distinct(x, y)` at a call, from where the caller's two arguments came
 /// from: two different plain names, neither ever bound from an existing
 /// list, and one of them a fresh local or the pair stated by the caller's
@@ -6296,7 +6310,7 @@ _callee_call_term :: (
       callee_params.get(ani),
       .Some(acp) => {
         aa := eff_args.get(ani).unwrap();
-        ctx.call_arg_names.insert(acp.clone(), cond(ast_expr_is_atom(&aa) => ast_expr_token(&aa).value, true => String.new()));
+        ctx.call_arg_names.insert(acp.clone(), match(_arg_place_atom(&aa), .Some(pa) => ast_expr_token(&pa).value, .None => String.new()));
         ()
       },
       .None => ()
@@ -6372,31 +6386,35 @@ _callee_call_term :: (
   while(hvi < eff_args.len(), {
     match(
       eff_args.get(hvi),
-      .Some(ha) => if(ast_expr_is_atom(&ha), {
-        hnm := ast_expr_token(&ha).value;
-        hcp := match(callee_params.get(hvi), .Some(c) => c, .None => String.new());
-        if((hcp.len() > usize(0)) && _contracts_mention_old_of(&reqs, &enss, hcp.clone()), {
-          match(
-            arg_terms.get(hvi),
-            .Some(hpre) => match(
-              hpre,
-              .Var(_, hsort) => if(_list_sort_elem(&hsort).is_some(), {
-                fresh_h := _next_fresh(ctx);
-                hnew := VcTerm.Var(name : `__yo_mut${fresh_h.to_string()}_${hnm.clone()}`, sort : hsort);
-                pre_map.insert(hcp.clone(), hpre);
-                ctx.vars.insert(hcp.clone(), hnew);
-                havoc_names.push(hnm.clone());
-                havoc_terms.push(hnew);
-                if(!ctx.mutated_names.contains(hnm.clone()), {
-                  ctx.mutated_names.push(hnm.clone());
-                });
-              }),
-              _ => ()
-            ),
-            .None => ()
-          );
-        });
-      }),
+      .Some(ha_arg) => match(
+        _arg_place_atom(&ha_arg),
+        .Some(ha) => {
+          hnm := ast_expr_token(&ha).value;
+          hcp := match(callee_params.get(hvi), .Some(c) => c, .None => String.new());
+          if((hcp.len() > usize(0)) && _contracts_mention_old_of(&reqs, &enss, hcp.clone()), {
+            match(
+              arg_terms.get(hvi),
+              .Some(hpre) => match(
+                hpre,
+                .Var(_, hsort) => if(_list_sort_elem(&hsort).is_some(), {
+                  fresh_h := _next_fresh(ctx);
+                  hnew := VcTerm.Var(name : `__yo_mut${fresh_h.to_string()}_${hnm.clone()}`, sort : hsort);
+                  pre_map.insert(hcp.clone(), hpre);
+                  ctx.vars.insert(hcp.clone(), hnew);
+                  havoc_names.push(hnm.clone());
+                  havoc_terms.push(hnew);
+                  if(!ctx.mutated_names.contains(hnm.clone()), {
+                    ctx.mutated_names.push(hnm.clone());
+                  });
+                }),
+                _ => ()
+              ),
+              .None => ()
+            );
+          });
+        },
+        .None => ()
+      ),
       .None => ()
     );
     hvi = (hvi + usize(1));
