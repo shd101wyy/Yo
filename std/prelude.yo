@@ -214,6 +214,16 @@ extern(
     (fn(generic(T : Type), ptr1 : &T, ptr2 : &T) -> bool),
   __yo_ptr_gte :
     (fn(generic(T : Type), ptr1 : &T, ptr2 : &T) -> bool),
+  /// Move the value out of `*ptr` bitwise (Rust's `ptr::read`): the pointee no
+  /// longer owns it, so its storage must not drop it again. The move-only
+  /// counterpart of `ptr.*`, which copies (decision 19's `take`/`replace` and
+  /// a collection's `pop` are built on it).
+  __yo_ptr_read :
+    (fn(generic(T : Type), ptr : *T) -> T),
+  /// Move `value` into `*ptr` bitwise (Rust's `ptr::write`): the old value is
+  /// not dropped, so it must have been moved out or never initialized.
+  __yo_ptr_write :
+    (fn(generic(T : Type), ptr : *T, sink(value) : T) -> unit),
   // str (builtin static string view) intrinsics
   __yo_str_from_raw_parts :
     (fn(ptr : *u8, length : usize) -> str),
