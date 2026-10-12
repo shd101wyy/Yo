@@ -307,21 +307,21 @@ test("read_link returns the link target", {
     base := temp_dir();
     target := Path.new(path_join(base.clone(), `s3_rl_target_dir`.to_string()));
     link := Path.new(path_join(base.clone(), `s3_rl_junction`.to_string()));
-    _remove_stale_dir(link, io);
-    _remove_stale_dir(target, io);
-    io.await(fs_dir.create_dir(target, io), e);
-    ok := _make_junction(link, target, io);
+    _remove_stale_dir(&link, io);
+    _remove_stale_dir(&target, io);
+    io.await(fs_dir.create_dir(&target, io), e);
+    ok := _make_junction(&link, &target, io);
     assert(ok, "mklink /J created the junction");
-    got := io.await(fs_dir.read_link(link, io), e);
+    got := io.await(fs_dir.read_link(&link, io), e);
     // Path.to_string renders `/`-separated on every platform, and mklink
     // stored the backslash spelling of the SAME target, so the plain
     // comparison (like the POSIX arm below) is the right one.
     assert(got.to_string() == target.to_string(), "junction target read back");
-    io.await(fs_dir.remove_dir(link, io), e);
+    io.await(fs_dir.remove_dir(&link, io), e);
     // Removing a junction removes the LINK, never the target.
-    still := io.await(fs_file.exists(target, io), io);
+    still := io.await(fs_file.exists(&target, io), io);
     assert(still, "junction target untouched by remove_dir");
-    io.await(fs_dir.remove_dir(target, io), e);
+    io.await(fs_dir.remove_dir(&target, io), e);
     return(());
   });
   exn := Exception(

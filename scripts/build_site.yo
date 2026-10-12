@@ -47,7 +47,7 @@ _git :: (fn(root : String, git_args : ArrayList(String), io : Io) -> Option(Stri
     match(
       git_args.get(i),
       .Some(a) => {
-        _arg_c := cmd.arg(a);
+        _arg_c := cmd.arg(&a);
       },
       .None => ()
     );
@@ -210,7 +210,7 @@ _inject_heading_ids :: (fn(html : String) -> String)({
       lvl := String.from_bytes(lvl_s);
       close := `</h${lvl}>`;
       match(
-        html.index_of(close, i),
+        html.index_of(&close, i),
         .Some(end_i) => {
           // Both cut points sit on ASCII markers — boundary-safe.
           content := html.substring(i + usize(4), end_i);
@@ -592,7 +592,7 @@ _inject_home_link :: (fn(file : String, home_href : str, ie : IoExn) -> unit)({
         updated.push_string(content.substring(usize(0), at + marker.len()));
         updated.push_string(`\n  ${link}`);
         updated.push_string(content.substring(at + marker.len(), content.len()));
-        ie.io.await(write_string(Path.new(file.clone()), updated, ie.io), ie);
+        ie.io.await(write_string(Path.new(file.clone()), &updated, ie.io), ie);
       },
       .None => ()
     );
@@ -695,7 +695,7 @@ main :: (fn(io : Io) -> unit)({
   opts.enable_admonition = true;
   opts.enable_callout = true;
   opts.enable_footnote = true;
-  (readme_html : String) = markdown_to_html(readme_src.clone(), opts);
+  (readme_html : String) = markdown_to_html(readme_src.clone(), &opts);
   readme_html = _inject_heading_ids(readme_html);
   // The generated-docs link points into the same site.
   readme_html = readme_html.replace_all(
@@ -705,7 +705,7 @@ main :: (fn(io : Io) -> unit)({
   readme_html = _rewrite_attr(readme_html, "href", github_blob.clone(), false);
   readme_html = _rewrite_attr(readme_html, "src", github_blob.clone(), true);
   homepage := _wrap_homepage(String.from("Yo Programming Language"), readme_html, _homepage_css(), site_version.clone(), github_blob.clone());
-  io.await(write_string(Path.new(`${output_dir}/index.html`), homepage, io), ie);
+  io.await(write_string(Path.new(`${output_dir}/index.html`), &homepage, io), ie);
   println(String.from("  ✓ index.html"));
   // ── Step 2: static assets ──
   println(String.from("\n[2/3] Copying static assets..."));

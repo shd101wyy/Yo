@@ -296,11 +296,11 @@ derive(generic(T : Type), where(T <: Copy), _Wrap(T), Copy);
 test("soundness: an inout call through a fn value mutates the argument", {
   (f : (fn(x : &mut i32) -> unit)) = _bump;
   (v : i32) = i32(5);
-  f(v);
-  _bump(v);
+  f(&mut v);
+  _bump(&mut v);
   assert(v == i32(7), "fn-typed local and direct call both mutate");
   (w : _Wrap((fn(x : &mut i32) -> unit))) = _Wrap((fn(x : &mut i32) -> unit))(inner : _bump);
-  w.inner(v);
+  w.inner(&mut v);
   assert(v == i32(8), "fn-typed struct field mutates");
 });
 // Phase 3.5: the parameter modes are part of the fn type, so a by-reference
@@ -331,7 +331,7 @@ test("soundness: the memo keeps a by-value and an inout instantiation apart", {
   (w1 : _Wrap((fn(x : &mut i32) -> unit))) = _Wrap((fn(x : &mut i32) -> unit))(inner : _bump);
   (v : i32) = i32(5);
   w0.inner(v);
-  w1.inner(v);
+  w1.inner(&mut v);
   assert(v == i32(6), "the inout instance mutates");
 });
 test("soundness canary: a fn value flows into a slot of the same modes", {
@@ -339,7 +339,7 @@ test("soundness canary: a fn value flows into a slot of the same modes", {
   (h : (fn(sink(s) : String) -> usize)) = _p35_eat;
   (k : (fn(s : &String) -> usize)) = _p35_len;
   (v : i32) = i32(1);
-  g(v);
+  g(&mut v);
   assert(v == i32(2), "inout slot");
   assert(h(String.from("abc")) == usize(3), "own slot");
   assert(k(String.from("ab")) == usize(2), "borrow slot");
@@ -477,13 +477,13 @@ _TwoTRec :: struct(key : i32, tag : i32);
 derive(_TwoTRec, Copy, Clone);
 _inner_at :: (fn(generic(T : Type), a : &T, b : &T, less : &Impl(Fn(x : &T, y : &T) -> bool)) -> bool)(less(a, b));
 _outer_at :: (fn(generic(T : Type), xs : &ArrayList(T), less : &Impl(Fn(x : &T, y : &T) -> bool)) -> bool)(
-  _inner_at(usize(0), usize(1), (i, j) => less(xs(i), xs(j)))
+  _inner_at(usize(0), usize(1), (i, j) => less(&xs(i), &xs(j)))
 );
 test("soundness canary: a closure keeps the inner instantiation's parameter type", {
   xs := ArrayList(_TwoTRec).new();
   xs.push(_TwoTRec(key : i32(1), tag : i32(0)));
   xs.push(_TwoTRec(key : i32(2), tag : i32(1)));
-  assert(_outer_at(xs, (p, q) => (p.key < q.key)), "compares the records through indices");
+  assert(_outer_at(&xs, (p, q) => (p.key < q.key)), "compares the records through indices");
 });
 // issues/fixed/calling-an-io-param-closure-in-a-generic-fn-keeps-an-unresolved-somet.md:
 // calling an `Impl(Fn(io : Io) -> T)` parameter inside a generic body typed the
@@ -526,12 +526,12 @@ test("soundness canary: a method-call argument binds the callee's type parameter
 _hk_identity :: (fn(generic(F : (fn(comptime(T) : Type) -> comptime(Type)), A : Type), x : &F(A)) -> F(A))(x);
 test("soundness canary: F(A) infers F and A and the result is Option(i32)", {
   o := Option(i32).Some(i32(7));
-  r := _hk_identity(o);
+  r := _hk_identity(&o);
   (r2 : Option(i32)) = r;
   assert(match(r2, .Some(v) => v, .None => i32(0)) == i32(7), "the constructor was applied");
   xs := ArrayList(i32).new();
   xs.push(i32(3));
-  ys := _hk_identity(xs);
+  ys := _hk_identity(&xs);
   assert(ys.len() == usize(1), "a struct constructor too");
 });
 // issues/fixed/iterator-chain-shared-stamp-cross-item-pollution.md (Phase 2.4):
@@ -628,7 +628,7 @@ test("soundness: a free fn binds an associated type from its where-clause", {
 _sound_apply_dyn :: (fn(generic(A : Type, B : Type), f : &Dyn(Fn(x : &A) -> B), v : &A) -> B)(f(v));
 test("soundness: Dyn(Fn(x : A) -> B) binds A and B from the argument", {
   (inc : Dyn(Fn(y : &i32) -> i32)) = dyn(y => (y + i32(1)));
-  assert(_sound_apply_dyn(inc, i32(41)) == i32(42), "B inferred");
+  assert(_sound_apply_dyn(&inc, i32(41)) == i32(42), "B inferred");
 });
 // ---------------------------------------------------------------------------
 // Phase 2.5: one argument/parameter rule for every call path
@@ -877,14 +877,14 @@ test("soundness: a Dyn is neither downcast nor upcast", {
   (one : Dyn(_P38DA)) = dyn(_P38OnlyA(n : i32(5)));
   (both : Dyn(_P38DA, _P38DB)) = dyn(_P38Both(n : i32(1)));
   // `_P38OnlyA` has no `db`: a downcast would dispatch through a missing slot.
-  comptime_expect_error(_p38_takes_both(one));
+  comptime_expect_error(_p38_takes_both(&one));
   comptime_expect_error({
     both = one;
   });
-  comptime_expect_error(_p38_takes_a(both), "write upcast(value, Dyn(...))");
+  comptime_expect_error(_p38_takes_a(&both), "write upcast(value, Dyn(...))");
   assert(!_p38_both_into_a, "no upcast in the relation");
   assert(!_p38_a_into_both, "no downcast in the relation");
-  assert(_p38_takes_both(both) == i32(2), "the exact trait set flows");
+  assert(_p38_takes_both(&both) == i32(2), "the exact trait set flows");
   assert(one.da() == i32(5), "the value itself is fine");
 });
 // issues/fixed/recursive-type-definitions-have-no-indirection-check.md: a
@@ -920,7 +920,7 @@ test("soundness: a ref struct's Option(Self) survives a generic specialization",
   l := ArrayList(_osf_env).new();
   l.push(_osf_env(n : i64(5), memo : Option(_osf_env).None));
   match(
-    _osf_first(l),
+    _osf_first(&l),
     .Some(e) => assert(e.n == i64(5), "the specialization returns the concrete Env"),
     .None => panic("the Option(Self) field made the read come back None")
   );
@@ -972,7 +972,7 @@ _p5_early_return_kept :: (fn(c : bool, keep : &mut ArrayList(_P5Box)) -> i32)({
 test("soundness: the returning arm releases its moved value once", {
   keep := ArrayList(_P5Box).new();
   before := g_p5_disposed;
-  assert(_p5_early_return_kept(true, keep) == i32(5), "the returning path moved the box");
+  assert(_p5_early_return_kept(true, &mut keep) == i32(5), "the returning path moved the box");
   assert(g_p5_disposed == before, `the keeper still holds the box, got ${(g_p5_disposed - before).to_string()} disposals`);
   keep.clear();
   assert(g_p5_disposed == (before + i32(1)), `released once the keeper lets go, got ${(g_p5_disposed - before).to_string()}`);
@@ -1009,8 +1009,8 @@ _p5_tail_move_three_way :: (fn(k : i32, keep : &mut ArrayList(_P5Box)) -> i32)({
 test("soundness: a returning arm's move is released once when the tail moves the value too", {
   keep := ArrayList(_P5Box).new();
   before := g_p5_disposed;
-  assert(_p5_tail_move_kept(true, keep) == i32(5), "the returning path moved the box");
-  assert(_p5_tail_move_kept(false, keep) == i32(5), "the tail moved the box");
+  assert(_p5_tail_move_kept(true, &mut keep) == i32(5), "the returning path moved the box");
+  assert(_p5_tail_move_kept(false, &mut keep) == i32(5), "the tail moved the box");
   assert(g_p5_disposed == before, `the keeper still holds both boxes, got ${(g_p5_disposed - before).to_string()} disposals`);
   keep.clear();
   assert(g_p5_disposed == (before + i32(2)), `each released once the keeper lets go, got ${(g_p5_disposed - before).to_string()}`);
@@ -1018,9 +1018,9 @@ test("soundness: a returning arm's move is released once when the tail moves the
 test("soundness: a sibling arm's return still releases the value the tail moves", {
   keep := ArrayList(_P5Box).new();
   before := g_p5_disposed;
-  assert(_p5_tail_move_three_way(i32(0), keep) == i32(10), "the moving arm returned");
-  assert(_p5_tail_move_three_way(i32(1), keep) == i32(-1), "the other arm returned");
-  assert(_p5_tail_move_three_way(i32(2), keep) == i32(2), "the tail moved the box");
+  assert(_p5_tail_move_three_way(i32(0), &mut keep) == i32(10), "the moving arm returned");
+  assert(_p5_tail_move_three_way(i32(1), &mut keep) == i32(-1), "the other arm returned");
+  assert(_p5_tail_move_three_way(i32(2), &mut keep) == i32(2), "the tail moved the box");
   assert(g_p5_disposed == before, `the keeper still holds all three, got ${(g_p5_disposed - before).to_string()} disposals`);
   keep.clear();
   assert(g_p5_disposed == (before + i32(3)), `each released once the keeper lets go, got ${(g_p5_disposed - before).to_string()}`);
@@ -1054,7 +1054,7 @@ _p5_clobber :: (fn(a : &mut _P5Holder, b : &_P5Holder) -> usize)({
 });
 test("soundness: a by-value argument outlives the inout argument it overlaps", {
   x := _P5Holder(s : String.from("original-value-yyyyyyyyyyyyyyyyyyyyyyyyyyyy"));
-  n := _p5_clobber(x, x);
+  n := _p5_clobber(&mut x, &x);
   assert(n == usize(43), `the borrowed value survived the writes, len ${n.to_string()}`);
   assert(x.s.starts_with(`fresh-value-2`), "the inout write reached the caller");
 });

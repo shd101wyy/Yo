@@ -351,8 +351,8 @@ test("a generic struct at T = unit erases the field; Array(unit, N) constructs, 
   assert(_SZ_PAIR_UNIT == usize(4), "Pair(unit) is just the i32");
   assert(_SZ_PAIR_I32 == usize(8), "Pair(i32) is two i32s");
   p := _mk_pair((), i32(7));
-  u := _pair_x(p);
-  assert(_pair_n(p) == i32(7), "the non-unit field of a generic-at-unit struct is intact");
+  u := _pair_x(&p);
+  assert(_pair_n(&p) == i32(7), "the non-unit field of a generic-at-unit struct is intact");
   q := _Pair(unit)(x : (), n : i32(9));
   assert(q.n == i32(9), "direct construction of a generic-at-unit struct");
   arr := Array(unit, usize(3)).fill(());

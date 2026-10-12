@@ -128,11 +128,11 @@ test("over-rejection canary: every legal callable argument still binds", {
   cl := ClosureType({
     return(y + i32(100));
   });
-  assert(apply_cb(cl) == i32(103), "ClosureType value");
+  assert(apply_cb(&cl) == i32(103), "ClosureType value");
   // a capturing closure bound to a local first
   base := i32(20);
   (cap : Impl(Fn(x : i32) -> i32)) = (x => (x + base));
-  assert(apply_cb(cap) == i32(23), "closure through a local");
+  assert(apply_cb(&cap) == i32(23), "closure through a local");
   // a method's closure param, and one FORWARDED into another Impl(Fn) slot
   h := Holder(n : i32(7));
   assert(h.run(x => (x - i32(1))) == i32(6), "method closure param");
@@ -143,10 +143,10 @@ test("over-rejection canary: the io.async closure shapes still build futures", {
     v := i32(1);
     v
   });
-  assert(io.await(bare, io) == i32(1), "io.async(e => ...)");
+  assert(io.await(&bare, io) == i32(1), "io.async(e => ...)");
   annotated := io.async((e : Io) => {
     v := i32(2);
     v
   });
-  assert(io.await(annotated, io) == i32(2), "io.async((e : Io) => ...)");
+  assert(io.await(&annotated, io) == i32(2), "io.async((e : Io) => ...)");
 });
