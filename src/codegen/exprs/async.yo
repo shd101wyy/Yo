@@ -47,7 +47,7 @@
   is_io_spawn_call,
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
-{ get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid } :: import("../../function_value.yo");
+{ get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid, is_fnonce_capture_struct } :: import("../../function_value.yo");
 { ExprInfo, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
@@ -92,7 +92,7 @@
   generate_async_block_cancel_pending_function_inline,
   resume_scope_wrapper
 } :: import("../async/state_machine.yo");
-{ get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_sm_move_flag_field, sm_move_flag_of } :: import("../async/state_machine_naming.yo");
+{ get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_sm_move_flag_field, sm_move_flag_of, sm_capture_move_flag_name } :: import("../async/state_machine_naming.yo");
 { _c_string_literal } :: import("./comptime_value.yo");
 { codegen_fatal, codegen_fatal_expr, codegen_user_error, codegen_report_error } :: import("../constants.yo");
 { yo_error_from_diagnostics } :: import("../../error.yo");
@@ -593,6 +593,21 @@ emit_async_block_struct_definition :: (
       capture_struct_name := _find_capture_type_c_name(&cap_ty, context);
       em.emit_declaration_line("  // Captured variables from outer scope");
       em.emit_declaration_string_line(`  ${capture_struct_name} __capture;`);
+      // A capture list the state machine owns (decision 37): a move out of a
+      // capture sets its flag, and the dispose drops only unflagged captures.
+      owned_caps := _owned_capture_fields(&cap_ty);
+      (oci : usize) = usize(0);
+      while(oci < owned_caps.len(), oci = (oci + usize(1)), {
+        match(
+          owned_caps.get(oci),
+          .Some(cf) => {
+            label := sanitize_for_c_identifier(cf.label.clone(), false);
+            note_sm_move_flag_field(`__capture.${label.clone()}`);
+            em.emit_declaration_string_line(`  uint8_t ${sm_capture_move_flag_name(label.clone())};  // capture ${cf.label.clone()} was moved out`);
+          },
+          .None => ()
+        );
+      });
       em.emit_declaration_line("");
     },
     .None => ()
@@ -698,11 +713,6 @@ emit_async_block_struct_definition :: (
   // field per await expression for its result
   // (plans/ASYNC_STATE_MACHINE_GENERATION.md phase 5).
   em.emit_declaration_line("  void* __yo_await_slot;  // the future the task is suspended on (owned)");
-  // A NAMED future the pending await cold-started (not owned: the name's own
-  // slot owns it). Aborting the task aborts it too — structured cancellation
-  // of a child the task started; a named future someone else started may be
-  // shared, so it is left running (plans/ASYNC_IO_API_AUDIT.md F5).
-  em.emit_declaration_line("  void* __yo_started_child;  // a named future the pending await started (not owned)");
   irfs := inline_await_result_fields(&info.analysis, context);
   (iai : usize) = usize(0);
   while(iai < irfs.len(), iai = (iai + usize(1)), {
@@ -1100,6 +1110,9 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &Fu
       fields.get(i),
       .Some(field) => if(!field.is_effect_param, {
         field_ref := `sm->__capture.${sanitize_for_c_identifier(field.label.clone(), false)}`;
+        // An owned capture list's moved-out capture belongs to its new owner.
+        move_flag := sm_move_flag_of(field_ref.clone());
+        match(move_flag, .Some(flag) => em.emit_string_line(`  if (!${flag}) {`), .None => ());
         match(
           _rc_field_drop_line(field_ref.clone(), &field.ty, String.from("  "), context),
           .Some(line) => em.emit_string_line(&line),
@@ -1115,11 +1128,34 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &Fu
             });
           }
         );
+        match(move_flag, .Some(_) => em.emit_line("  }"), .None => ());
       }),
       .None => ()
     );
     i = (i + usize(1));
   });
+});
+/// The droppable fields of a capture struct the state machine owns: an
+/// `FnOnce` capture list (decision 37, `is_fnonce_capture_struct`). Empty for
+/// any other capture struct, whose fields the dispose drops unconditionally.
+_owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
+  out := ArrayList(TypeField).new();
+  struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => return(out));
+  if(!is_fnonce_capture_struct(&struct_id), {
+    return(out);
+  });
+  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  (i : usize) = usize(0);
+  while(i < fields.len(), i = (i + usize(1)), {
+    match(
+      fields.get(i),
+      .Some(f) => if(!f.is_effect_param && type_contains_rc_cell_or_move_only(&f.ty), {
+        out.push(f);
+      }),
+      .None => ()
+    );
+  });
+  out
 });
 /// Generate the state-machine dispose function for an async block: drops the
 /// capture struct, the result field (on normal completion, state == -1), and
@@ -1155,10 +1191,10 @@ generate_async_block_state_dispose_function :: (
       }, {
         match(
           get_drop_function_for_type(&cap_ty, context),
-          .Some(drop_fn) => {
+          .Some(drop_fn) => if(_owned_capture_fields(&cap_ty).len() > usize(0), _emit_inline_capture_field_drops(&cap_ty, context), {
             em.emit_line("  ASYNC_DEBUG(\"  Dropping capture struct\\n\");");
             em.emit_string_line(`  ${drop_fn}(sm->__capture);`);
-          },
+          }),
           .None => _emit_inline_capture_field_drops(&cap_ty, context)
         );
       });
@@ -3671,6 +3707,13 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   has_drop := (match(capture_drop_fn, .Some(_) => true, .None => false) || match(result_drop_fn, .Some(_) => true, .None => false) || has_result_inline || has_capture_inline);
   if(has_drop, {
     em.emit_declaration_string_line(`  ${struct_name.clone()}* sm = (${struct_name.clone()}*)ptr;`);
+    // A capture list the closure owns (decision 37): once the body has run it
+    // dropped or moved every capture itself (a sync future's body runs to its
+    // end in one resume), so the future drops them only while still cold.
+    owns_caps := match(eff_capture_type, .Some(oct) => (_owned_capture_fields(&oct).len() > usize(0)), .None => false);
+    if(owns_caps && (match(capture_drop_fn, .Some(_) => true, .None => false) || has_capture_inline), {
+      em.emit_declaration_line("  if (sm->state == 0) {  // never ran: its body did not take the capture list");
+    });
     match(
       capture_drop_fn,
       .Some(drop_fn) => {
@@ -3686,6 +3729,9 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         });
       })
     );
+    if(owns_caps && (match(capture_drop_fn, .Some(_) => true, .None => false) || has_capture_inline), {
+      em.emit_declaration_line("  }");
+    });
     match(
       result_drop_fn,
       .Some(drop_fn) => {

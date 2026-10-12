@@ -55,8 +55,13 @@ Progress:
     borrows `x : &T` / `x : &mut T`; a source mode word is E0009, rewritten
     by `yo fix --migrate borrow-spelling`;
   - the §6 measurement (#1220). Its call-site pass is deferred.
+  - V3 async A1 (§3.13): futures are move-only, `io.await`/`io.spawn`
+    consume them, the `io.async` body slot is a by-value `FnOnce`, and
+    `Park` is a move-only value whose `wait` consumes it (A5's `Park` line).
 - **In progress:**
-  - V3's remaining async work (§3.13).
+  - V3's remaining async work (§3.13): A2, A3 (Generation A landed with
+    A1's PR; the prelude switch waits for the seed), A4, A5's remaining
+    lines, A6.
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
@@ -845,6 +850,43 @@ instead.
   - This deletes multi-await, the per-await result dup, and the
     second-spawn bundle rule (`plans/ASYNC_IO_API_AUDIT.md`, A3). V3
     re-checks `__yo_started_child`.
+  - **As built (2026-10-12, A1).**
+    - **Which types.** A value whose type is a `SomeT` requiring the
+      `Future` trait (`Impl(Future(T, E))`, and `IoFuture`, which is
+      `Impl(Concrete(__yo_io_future_t), Future(i32))`) is move-only
+      (`_is_future_value`, `src/types/utils.yo`).
+    - **The prelude.** `await`/`spawn` take `fut : Impl(Future(T, E))` by
+      value, `state` takes `&Impl(...)`, and `async` takes
+      `action : Impl(FnOnce(e : E) -> T)` (decision 37's slot). The by-value
+      slot is what fixes
+      `issues/fixed/an-io-async-body-disposes-a-captured-move-only-value-twice.md`:
+      the body owns its captures instead of borrowing them while the state
+      machine copied them.
+    - **Codegen.** The await moves the result out of the future and marks
+      it `state = -3` (result taken), so the future's dispose no longer
+      drops it; then it releases the future. Every await in a state machine
+      goes through `__yo_await_slot`, which owns the awaited future, so
+      `__yo_started_child` is deleted: the abort hook always aborts the
+      slot's future, because nothing else can hold it. `io.spawn` moves the
+      caller's reference into the `JoinHandle` (no extra count) and always
+      sets the bundle (a spawned future is always cold).
+    - **Capture lists on `io.async`.** An `io.async` body that awaits a
+      captured future moves it out, which needs a by-value capture list
+      (`io.async({ f }(io : Io) => io.await(f, io))`; an implicit capture is
+      E0913, decision 37). A by-value list is accepted on an `io.async`
+      body; a borrow entry stays an error until A2.
+    - **Sharing a task.** Several waiters join one task through its
+      `JoinHandle` (`io.await(h.join(io), io)`), which stays a shared `ref`
+      struct until A3. The tests that awaited one future from two tasks, or
+      spawned and then awaited it, were rewritten that way; the "spawn or
+      await an already-aborted future" cases are unreachable and deleted.
+    - **Open: a future in a field.** Awaiting a future held in a field
+      moves it out of the field, which needs decision 19's
+      `take(&mut x.field)`/`replace(&mut x.field, v)`. Neither has landed
+      (`Option.take` copies `self`, E0901 for a move-only payload), so a
+      future stored in a struct is awaited only by moving the whole value
+      (a non-generic struct pattern, `match(p, Park(_future : f) => f)`).
+      They land with V2b's non-copying access (decision 20).
   - A result that several tasks need is joined ONCE and shared as `Rc(T)`,
     or sent through a channel (corrected 2026-10-07, second audit #1264 finding
     3; the first text said `Rc(JoinHandle(T))`). That spelling cannot
@@ -902,13 +944,25 @@ instead.
     `h.await(self, io)`.
   - **Borrowing:** `state`, `is_finished`, `abort` and `as_ptr`
     (`self : &Self`).
-  - **Status (2026-10-05).** Not landed. V3's compiler PR (#1217) did not
-    carry it.
-    - Generation A codegen is on branch `async-handle-gena` (2026-10-03,
-      no PR). It lands in V3's async PR, rebased onto #1217's move-only
-      machinery.
-    - The prelude switch lands with V3's std half
-      (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`).
+  - **As built, Generation A (2026-10-12).**
+    - **Codegen lowers both handle shapes:** today's `ref(struct(__future))`
+      and the value `struct(__future : *T)`
+      (`join_handle_is_value_struct`, `src/codegen/exprs/await.yo`).
+      `io.spawn` builds a value handle as `(JH){ .__future = … }`.
+    - **A value handle's await consumes it.** It moves the result out,
+      marks the future `-3` (result taken; `state()` reads it as
+      `Completed`) and releases the handle's reference
+      (`__yo_join_handle_release_raw`).
+    - **New builtins.** `__yo_ptr_read(p)` and `__yo_ptr_write(p, v)`, a
+      bitwise move out of and into a pointee, lowered inline as `(*(p))`
+      and `(*(p) = (v))`. Generation B uses them for the move-outs that
+      std's pointer reads cannot do today: `ArrayList.pop`/`swap`/`remove`
+      and `Option.take`/`replace` on a move-only payload. They are declared
+      in the prelude but unused in std until a seed carries them.
+    - **Generation B (needs a seed with the above):** the prelude switches
+      `JoinHandle` to the value struct with a releasing `Dispose`;
+      `await`/`join`/`timeout` consume it, and the multi-waiter tests that
+      share one handle join it once.
     - Branch `async-handle-genb` holds the `Impl(Future(T))` shape that
       "Why a pointer field" rejects. It is a record, not a candidate.
 - **A4. Combinators (`std/async/index.yo`) take handles by value, and two
@@ -3470,11 +3524,12 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
 **Compiler, remaining** (none of it is in #1217):
 - **Async (§3.13):**
   - `MoveOnly` on state machines and `IoFuture`, and consuming
-    `io.await`/`io.spawn` that move the result out (A1);
+    `io.await`/`io.spawn` that move the result out (A1) — landed, see A1's
+    "As built";
   - second-class borrowing futures (A2);
   - scoped children for `timeout`/`select` (A4);
   - the bundle rule (A6);
-  - a re-check of `__yo_started_child`.
+  - a re-check of `__yo_started_child` — done with A1: deleted.
 - **`Send`/`Sync` (§3.8) and decision 38 E, Generation A — landed
   (feat/vbd-send-sync).**
   - **The derivation.** `Sync` is today's `Send` derivation: plain data,
@@ -3966,8 +4021,8 @@ is `Arc(Mutex(T))`, `clone()` or `&mut`, and the error says which.
        an inner closure moving an enclosing `FnOnce` closure's capture
        (pre-existing, fixed here), and an `io.async` body disposing a captured
        move-only value twice
-       (`issues/an-io-async-body-disposes-a-captured-move-only-value-twice.md`,
-       pre-existing, open).
+       (`issues/fixed/an-io-async-body-disposes-a-captured-move-only-value-twice.md`,
+       pre-existing; fixed by V3 async A1).
      **Decided 2026-10-09 by the maintainer, for steps 2 and 3:**
      - **`sink` stays until the phase that makes plain move its kind** (V2b
        for `String` and the collections, V2c for `Rc`/`Arc`, V5 for `ref`).

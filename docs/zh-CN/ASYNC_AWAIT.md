@@ -20,8 +20,8 @@ main :: (fn(io : Io) -> unit)({
     return(i32(2));
   });
   // spawn 启动两个任务但不等待完成，返回 JoinHandle
-  handle1 := io.spawn(&task1, io);
-  handle2 := io.spawn(&task2, io);
+  handle1 := io.spawn(task1, io);
+  handle2 := io.spawn(task2, io);
   // 通过 handle 等待并提取结果（Option(T)）
   result1 := handle1.await(io);
   result2 := handle2.await(io);
@@ -41,10 +41,10 @@ export(main);
 main :: (fn(io : Io) -> unit)({
   a := io.async((io : Io) => { /* ... */ });
   b := io.async((io : Io) => { /* ... */ });
-  io.spawn(&a, io); // 启动 a 但不等待（返回 JoinHandle）
-  io.spawn(&b, io); // 启动 b 但不等待（返回 JoinHandle）
-  io.await(&a, io);
-  io.await(&b, io);
+  ha := io.spawn(a, io); // 启动 a 但不等待（消耗 a，返回它的 JoinHandle）
+  hb := io.spawn(b, io); // 启动 b 但不等待
+  _ra := ha.await(io);
+  _rb := hb.await(io);
 });
 
 // 并行：不同线程，真正的同时执行
@@ -87,8 +87,8 @@ main :: (fn(io : Io) -> unit)({
   // spawn 启动两个任务但不等待：
   // 1. task1 运行：counter=0→1，让出
   // 2. task2 运行：counter=1→11，让出
-  handle1 := io.spawn(&task1, io);
-  handle2 := io.spawn(&task2, io);
+  handle1 := io.spawn(task1, io);
+  handle2 := io.spawn(task2, io);
 
   // handle.await 等待完成并返回 Option(T)：
   // 3. task1 恢复：counter=11→12
@@ -142,12 +142,12 @@ task := io.async((io : Io) => {
 });
 
 // 顺序 await：启动任务，运行至完成
-result := io.await(&task, io);
+result := io.await(task, io);
 
 // 并发：spawn 启动任务但不等待，返回 JoinHandle(T)
-handle1 := io.spawn(&task1, io);
-handle2 := io.spawn(&task2, io);
-handle3 := io.spawn(&task3, io);
+handle1 := io.spawn(task1, io);
+handle2 := io.spawn(task2, io);
+handle3 := io.spawn(task3, io);
 
 // 然后通过 handle.await 提取结果，类型为 Option(T)
 r1 := handle1.await(io);
@@ -166,14 +166,14 @@ main :: (fn(io : Io) -> unit)({
     // 此处可使用 io.await、io.async、io.spawn
     io.await(yield(io), io);
   });
-  io.await(&task, io);
+  io.await(task, io);
 });
 export(main);
 
 // 测试块自动提供 `io : Io`
 test("my test", {
   task := io.async((io : Io) => { /* ... */ });
-  io.await(&task, io);
+  io.await(task, io);
 });
 ```
 
@@ -181,9 +181,9 @@ test("my test", {
 
 ```yo ignore
 io.async(fn)                  // 创建冷 Future（惰性，不会立即启动）
-io.await(future, io)              // 若为冷任务则启动，等待完成，返回结果
-io.state(future)              // 查询 Future 的当前状态（返回 FutureState）
-io.spawn(future, io)              // 启动冷 Future 但不等待，返回 JoinHandle(T)
+io.await(future, io)          // 消耗 Future：若为冷任务则启动，等待完成，返回（移出）结果
+io.state(&future)             // 查询 Future 的当前状态（返回 FutureState）；借用它
+io.spawn(future, io)          // 消耗冷 Future 并启动但不等待，返回 JoinHandle(T)
 handle.await(io)       // 等待已 spawn 的任务，返回 Option(T)（unwind 时返回 .None）；阻塞等待，用于 main / 普通 fn
 handle.join(io)        // 同样的 Option(T)，但作为 Future（std/async）：任务内部用这个
 yield()                       // 创建预完成的 Future（将控制权让给事件循环）
@@ -193,14 +193,14 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 
 1. `io.async(fn)` 创建**惰性** Future——函数体在 await 或 spawn 之前不会执行
 2. `io.await(future)` 启动冷 Future 并顺序运行至完成
-3. `io.state(future)` 返回当前 `FutureState`，不会阻塞或启动 Future
-4. `io.spawn(future)` 启动冷 Future 但不等待——返回 `JoinHandle(T)` 以便后续 await
+3. `io.state(&future)` 返回当前 `FutureState`，不会阻塞或启动 Future
+4. `io.spawn(future)` 消耗冷 Future 并启动但不等待——返回 `JoinHandle(T)` 以便后续 await
 5. `handle.await(io)` 等待已 spawn 的任务，返回 `Option(T)`——完成时返回 `.Some(result)`，unwind（中止）时返回 `.None`
-6. 对已**中止**的 Future 进行 spawn 不会启动任何东西：它的 `JoinHandle` 读出 `.None`
+6. Future 是**只可移动**的值：`io.await` 和 `io.spawn` 消耗它，因此已中止的任务只能通过它的 `JoinHandle` 访问，读出 `.None`
 7. 所有异步代码运行在**同一线程**上——不会创建新线程
 8. `yield()` 挂起当前任务，将控制权让给事件循环中其他就绪的任务
-9. `io.await(future)` 可以对同一 Future **多次调用**——每次调用返回相同的结果
-10. await 一个**已中止**的 Future 会把中止传播给等待者（见"已中止的 Future"），无论它是在 await 开始之前还是等待期间被中止的
+9. Future 只 await **一次**：第二次 `io.await`（或 `io.spawn` 之后再 await）是 E0901。多个任务都需要的结果只 join 一次再共享（`Rc(T)`、channel），或由每个任务 join 该任务的 `JoinHandle`
+10. 任务 await 期间被中止的 Future 会把中止传播给该任务（见"已中止的 Future"），而中止任务也会中止它正在 await 的 Future
 11. `io.spawn(future, e)` 在返回之前会**内联运行任务直到它的第一个挂起点**；spawn 本身不是调用方的挂起点
 12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下
 
@@ -218,9 +218,9 @@ main :: (fn(io : Io) -> unit)({
   // - t1 运行到第一个 yield，挂起
   // - t2 运行到第一个 yield，挂起
   // - t3 运行到第一个 yield，挂起
-  h1 := io.spawn(&t1, io);
-  h2 := io.spawn(&t2, io);
-  h3 := io.spawn(&t3, io);
+  h1 := io.spawn(t1, io);
+  h2 := io.spawn(t2, io);
+  h3 := io.spawn(t3, io);
 
   // handle.await 等待完成并返回 Option(T)：
   // - 事件循环以轮询方式恢复 t1、t2、t3
@@ -307,7 +307,7 @@ main :: (fn(io : Io) -> unit)({
     r + i32(42)
   });
 
-  result := io.await(&task, ctx);
+  result := io.await(task, ctx);
   println(`result ${result}`);
 });
 export(main);
@@ -317,9 +317,9 @@ export(main);
 
 ```yo
 Io :: struct(
-  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))),
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 ```
@@ -331,47 +331,23 @@ Io :: struct(
 
 这是一个实现选择，而非语义上的必要要求。
 
-### 多次 Await
+### Future 只 await 一次
 
-同一个 Future 可以被**多次** await。每次对同一 Future 调用 `io.await` 都会返回相同的结果：
+Future 是只能移动的值（`plans/VALUES_BY_DEFAULT.md` 决策 13）。`io.await(f, io)` 和 `io.spawn(f, io)` 会消耗 `f`，因此每个 Future 只能被 await 或 spawn 一次；`io.await` 把结果移出，所以结果类型也可以是只能移动的类型。第二次 await 是 E0901：
 
 ```yo
 { assert } :: import("std/assert");
 
 main :: (fn(io : Io) -> unit)({
-  task := io.async((io : Io) => {
-    return(i32(42));
-  });
-  result1 := io.await(&task, io);
-  result2 := io.await(&task, io);
-  result3 := io.await(&task, io);
-  assert(result1 == i32(42), "first await returns 42");
-  assert(result2 == i32(42), "second await returns 42");
-  assert(result3 == i32(42), "third await returns 42");
+  task := io.async((io : Io) => i32(42));
+  result := io.await(task, io);
+  assert(result == i32(42), "the await moves the result out");
+  // io.await(task, io); // E0901：`task` 已被上面的 await 移走
 });
 export(main);
 ```
 
-Future 在完成后保留其结果。对于引用计数类型的结果，每次 `io.await` 调用会对结果进行 dup，使调用方获得自己的引用。Future 的 dispose 函数在状态机被释放时 drop 原始值。
-
-多个任务也可以**同时 await 同一个尚未完成的 Future**。每个等待方都会登记在该
-Future 上，Future 完成时它们按登记顺序全部恢复：
-
-```yo
-{ sleep } :: import("std/sys/timer");
-
-shared := io.async((io : Io) => {
-  io.await(sleep(u64(5)), io);
-  i32(7)
-});
-a := io.async((io : Io) => io.await(&shared, io));
-b := io.async((io : Io) => io.await(&shared, io));
-ha := io.spawn(&a, io);
-hb := io.spawn(&b, io);
-// 两者都读到 .Some(7)。
-ra := ha.await(io);
-rb := hb.await(io);
-```
+`io.state(&f)` 借用 Future，在它被消耗之前可以调用任意多次。多个任务都需要的结果只计算一次再共享：在一处 await，然后以 `Rc(T)` 共享该值，或通过 channel 发送。
 
 ### 中止的 Future
 
@@ -408,7 +384,7 @@ main :: (fn(io : Io) -> unit)({
         unwind(());
       }
     );
-  handle := io.spawn(&task, { io, raise });
+  handle := io.spawn(task, { io, raise });
   result := handle.await(io);
   // result 是 Option(i32).None——任务已被中止
   assert(result.is_none(), "aborted task returns None");
@@ -444,15 +420,13 @@ f := io.async((io : Io) => {
   io.await(sleep(u64(50)), io);
   i32(7)
 });
-hf := io.spawn(&f, io);
-a := io.async((io : Io) => io.await(&f, io));
-ha := io.spawn(&a, io);
+// 等待的任务拥有 `f`（捕获列表把它移入，§3.13 A1）。
+a := io.async({ f }(io : Io) => io.await(f, io));
+ha := io.spawn(a, io);
 io.await(yield(io), io);
-hf.abort();
-// 等待方随之被中止。
-assert(ha.await(io).is_none(), "the awaiter reads .None");
-// 被中止的任务本身也是。
-assert(hf.await(io).is_none(), "the aborted task reads .None");
+ha.abort();
+// 中止等待方，也中止了它正在 await 的 Future。
+assert(ha.await(io).is_none(), "the aborted task reads .None");
 ```
 
 `std/async` 的 `timeout(handle, d, io)` 建立在 `abort` 之上。超时时，任务以及
@@ -496,10 +470,12 @@ main :: (fn(io : Io) -> unit)({
   // 启动前：Cold
   assert(io.state(&task) == FutureState.Cold, "cold future is Cold");
 
-  io.await(&task, io);
+  // spawn 消耗 Future；之后由它的句柄读取任务状态。
+  h := io.spawn(task, io);
+  _r := h.await(io);
 
   // 完成后：Completed
-  assert(io.state(&task) == FutureState.Completed, "done future is Completed");
+  assert(h.state() == FutureState.Completed, "done task is Completed");
 });
 export(main);
 ```
@@ -572,12 +548,12 @@ cond(
   true => ()
 );
 if(!io.await(exists(p, io), io), { ... }); // 在条件内部
-cond(c1 => ..., io.await(&f, io) => ..., true => ...); // 位于后面的 cond 分支
+cond(c1 => ..., io.await(f, io) => ..., true => ...); // 位于后面的 cond 分支
 match(io.await(num(io), io), 42 => ..., _ => ...); // 作为 match 的被匹配值
-x := add(io.await(&a, io), io.await(&b, io)); // 同一个表达式中的两个 await
+x := add(io.await(a, io), io.await(b, io)); // 同一个表达式中的两个 await
 while(io.await(more(io), io), { ... });
 while(c, {
-  t := io.await(&f, io);
+  t := io.await(f, io);
   i = t;
 }, { ... }); // 三参数 while 的 step
 ```
@@ -908,13 +884,13 @@ main :: (fn(io : Io) -> unit)({
     /* 工作 */
   });
   // task 为冷状态（refcount=1），尚未启动
-  io.spawn(&task, io);
-  // spawn 启动任务：运行中的任务（事件循环）+1，返回的 JoinHandle 也 +1
-  // （这里立即被丢弃：语句级的 spawn 会分离任务）
-  io.await(&task, io);
-  // 等待完成，提取结果
+  h := io.spawn(task, io);
+  // spawn 消耗 `task`：它的引用移入 JoinHandle，运行中的任务（事件循环）
+  // 再 +1（refcount=2）
+  _r := h.await(io);
+  // 等待完成，读出结果
   // 任务完成，事件循环释放引用（refcount=1）
-  // task 离开作用域（refcount=0，被释放）
+  // h 离开作用域（refcount=0，被释放）
 });
 export(main);
 ```
@@ -922,19 +898,21 @@ export(main);
 **引用计数生命周期：**
 
 1. **创建**：`io.async(fn)` 分配状态机，`refcount = 1`
-2. **启动（通过 await/spawn）**：启动前 `__yo_incr_rc()`（refcount = 2）
-   - 一个引用属于用户代码（`task` 变量）
-   - 一个引用属于运行中的任务（由事件循环持有）
-3. **用户释放**：当 `task` 离开作用域时，`__yo_decr_rc()`（refcount = 1）
+2. **启动（通过 await/spawn）**：Future 被消耗，调用方的引用移入 await（或
+   `JoinHandle`），`__yo_incr_rc()` 再为运行中的任务加一（refcount = 2）
+3. **await 结束**：await 移出结果并释放它的引用（refcount = 1）；句柄被丢弃时
+   释放它的引用
 4. **任务完成**：状态机调用 `__yo_decr_rc()`（refcount = 0，被释放）
 
-**核心洞察**：即使用户代码提前释放任务，任务也会保持存活直到完成！
+**核心洞察**：即使用户代码提前丢弃句柄，任务也会保持存活直到完成！
 
 **`JoinHandle(T)` 持有一个引用。** `io.spawn` 返回一个 `ref` 结构体，它持有任务
-Future 的一个引用。只要还有任何一个句柄副本存在，任务及其结果就保持存活；最后一个
-副本被丢弃时释放这个引用。await 句柄不会消耗它：await 两次读到同一个结果。一个未被
+Future 的一个引用：`io.spawn` 消耗了 Future，它的引用移入句柄。只要还有任何一个
+句柄副本存在，任务及其结果就保持存活；最后一个副本被丢弃时释放这个引用。await 句柄
+目前还不会消耗它（`plans/VALUES_BY_DEFAULT.md` §3.13 A3 会把它变成只可移动的值）：
+await 两次读到同一个结果。一个未被
 await 就被丢弃的句柄会**分离**任务：任务继续运行，并在结束时释放自己，因此一句
-即发即弃的 `io.spawn(&task, io);` 不会泄漏任何东西。
+即发即弃的 `io.spawn(task, io);` 不会泄漏任何东西。
 
 **线程的程序体返回时仍处于 pending 或排队状态的任务，会在该线程退出时被 abort 并
 释放。** 之后不会再有任何东西驱动这个线程的事件循环，因此运行时会 abort 所有仍排队、
@@ -1221,11 +1199,11 @@ task := io.async((io : Io) => {
 });
 
 // io.await：若为冷任务则启动，等待完成，返回结果
-result := io.await(&task, io);
+result := io.await(task, io);
 
 // io.spawn：启动冷 Future 但不等待，返回 JoinHandle(T)
-handle1 := io.spawn(&task1, io);
-handle2 := io.spawn(&task2, io);
+handle1 := io.spawn(task1, io);
+handle2 := io.spawn(task2, io);
 // spawn 后任务正在运行——handle.await 返回 Option(T)
 r1 := handle1.await(io);
 r2 := handle2.await(io);
@@ -1254,8 +1232,8 @@ main :: (fn(io : Io) -> unit)({
   });
 
   // 任务为冷状态——counter 仍为 0
-  handle1 := io.spawn(&task1, io);
-  handle2 := io.spawn(&task2, io);
+  handle1 := io.spawn(task1, io);
+  handle2 := io.spawn(task2, io);
   // 两者通过交替执行运行：counter = 22
   result1 := handle1.await(io);
   result2 := handle2.await(io);
@@ -1284,8 +1262,8 @@ main :: (fn(io : Io) -> unit)({
   });
 
   // 不使用 spawn：任务顺序执行
-  io.await(&task1, io); // task1 完整运行至完成
-  io.await(&task2, io); // 然后 task2 完整运行至完成
+  io.await(task1, io); // task1 完整运行至完成
+  io.await(task2, io); // 然后 task2 完整运行至完成
   // counter 无论哪种方式都等于 22，但没有交替执行
 });
 export(main);
@@ -1467,7 +1445,7 @@ handle.await(io);
 
 Yo 的 async/await 提供：
 
-1. **惰性执行** — `io.async(fn)` 创建冷 Future，在 `io.await` 或 `io.spawn` 之前不会启动
+1. **惰性执行** — `io.async(fn)` 创建冷 Future，在 `io.await` 或 `io.spawn` 之前不会启动；两者都会消耗 Future
 2. **单线程并发** — 所有异步代码运行在同一线程上
 3. **并发 spawn** — `io.spawn(f)` 启动冷 Future 但不等待，返回 `JoinHandle(T)`
 4. **无线程安全顾虑** — 不可能发生数据竞争
@@ -1490,11 +1468,11 @@ task := io.async((io : Io) => {
 });
 
 // 顺序：启动并运行至完成
-result := io.await(&task, io);
+result := io.await(task, io);
 
 // 并发：启动任务但不等待，然后 await handle
-handle1 := io.spawn(&task1, io);
-handle2 := io.spawn(&task2, io);
+handle1 := io.spawn(task1, io);
+handle2 := io.spawn(task2, io);
 r1 := handle1.await(io); // Option(T)
 r2 := handle2.await(io); // Option(T)
 ```

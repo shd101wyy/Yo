@@ -1529,10 +1529,23 @@ evaluate_anonymous_function_implementation :: (
   cap_entries := match(
     cap_list_raw,
     .Some(cl_raw) => {
+      entries := _evaluate_capture_list(&cl_raw, env, ctx, exn, closure_owns_captures);
+      // An `io.async` body owns its by-value entries, so it may move one out
+      // (an awaited future, §3.13 A1). A borrow entry would make the future
+      // second-class (§3.13 A2), which has not landed.
       if(ctx.is_inside_io_async_call, {
-        _cap_list_error(ctx, exn, &tok, String.from("A capture list on an `io.async` body is not supported yet: its borrows would make the future second-class (plans/VALUES_BY_DEFAULT.md §3.13 A2), which has not landed. Capture implicitly, or bind the values to locals the body reads."));
+        (ei : usize) = usize(0);
+        while(ei < entries.len(), ei = (ei + usize(1)), {
+          match(
+            entries.get(ei),
+            .Some(e) => if(e.is_borrow, {
+              _cap_list_error(ctx, exn, &e.label_tok, String.from("A borrow in an `io.async` body's capture list is not supported yet: it would make the future second-class (plans/VALUES_BY_DEFAULT.md §3.13 A2), which has not landed. Capture the value by value, or capture implicitly."));
+            }),
+            .None => ()
+          );
+        });
       });
-      _evaluate_capture_list(&cl_raw, env, ctx, exn, closure_owns_captures)
+      entries
     },
     .None => ArrayList(_CapListEntry).new()
   );

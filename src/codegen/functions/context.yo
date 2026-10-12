@@ -100,7 +100,12 @@ InlineSmLowering :: ref(
     /// Set while a drop or RC builtin renders its operand: a drop releases
     /// the slot's value where it stands and is emitted again on every exit
     /// path, so its operand is not a move out of the slot.
-    rc_operand : bool
+    rc_operand : bool,
+    /// The block's capture list is owned by the state machine (an `FnOnce`
+    /// capture struct, decision 37): its dispose drops every capture the body
+    /// did not move (each has a move flag), on every path, so the body's own
+    /// capture drops are not emitted.
+    owns_fnonce_captures : bool
   )
 );
 /// An effect-evidence parameter threaded into a function for explicit-effects
@@ -413,7 +418,12 @@ note_state_machine_binding_id :: (fn(context : &FunctionGenerationContext, id : 
     .None => ()
   )
 );
-export(record_declared_temp_var, note_short_circuit_handled, take_short_circuit_handled, note_state_machine_binding_id);
+/// True while lowering an `io.async` state machine that owns its capture list
+/// (`InlineSmLowering.owns_fnonce_captures`).
+sm_owns_fnonce_captures :: (fn(context : &FunctionGenerationContext) -> bool)(
+  match(context.sm_inline_lowering, .Some(low) => low.owns_fnonce_captures, .None => false)
+);
+export(record_declared_temp_var, note_short_circuit_handled, take_short_circuit_handled, note_state_machine_binding_id, sm_owns_fnonce_captures);
 
 export(
   FunctionGenerationContext,

@@ -1893,7 +1893,7 @@ jobs:
             r := tcp.recv(fd0, b, usize(16), i32(0));
             io.await(yield(io), io);
             assert(io.await(tcp.send(fd1, (*u8)("k"), usize(1), i32(0)), io) == i32(1), "send");
-            assert(io.await(&r, io) == i32(1), "parked recv woken");
+            assert(io.await(r, io) == i32(1), "parked recv woken");
             io.await(write_string(Path.new(String.from("/probe-out.txt")), String.from("ok"), io), e);
           });
           export(main);

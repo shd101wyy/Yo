@@ -281,16 +281,11 @@ emit_io_spawn_effect_injection :: (fn(expr : &AstExpr, future_var : &String, ind
   tmp_name := fresh_local_name(String.from("__yo_eff_bundle_"), &context.base.current_function_name);
   em := context.base.emitter;
   em.emit_string_line(`${indent.clone()}${bundle_type} ${tmp_name.clone()} = ${bundle_code};`);
-  // Only a COLD future takes the bundle: it is the one this spawn starts. A
-  // second spawn of a running (or finished) task returns another handle to
-  // the same task, which keeps running under the bundle it was started with
-  // — the rule `io.await` already follows (its injection sits under the
-  // cold-start check). Copying first let a second spawner's handlers replace
-  // the first's mid-task
-  // (issues/fixed/a-second-io-spawn-of-a-running-task-overwrites-its-effect-bundle.md).
-  em.emit_string_line(`${indent.clone()}if (((__yo_future_header_t*)(void*)${future_var.clone()})->state == 0) {`);
-  em.emit_string_line(`${indent.clone()}  __yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
-  em.emit_string_line(`${indent.clone()}}`);
+  // `io.spawn` consumes its future (decision 13, §3.13 A1), so the future
+  // is cold here and this spawn is the one that starts it: it takes the
+  // bundle. (A second spawn of one task, whose bundle rule this replaced,
+  // can no longer be written.)
+  em.emit_string_line(`${indent.clone()}__yo_future_set_bundle((void*)${future_var.clone()}, (void*)&${tmp_name});`);
 });
 /// Generate effect-injection code for an `io.await` cold-start.
 /// Early-returns when the future has
@@ -442,6 +437,8 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // "unhandled", and takes over the unwind that caused it (below: caught here
   // or propagated).
   em.emit_string_line(`${indent.clone()}    __yo_task_abort_take_unwind((void*)${sync_future_var.clone()});`);
+  // The await consumed the future (decision 13): release it on this exit too.
+  em.emit_string_line(`${indent.clone()}    __yo_decr_rc((void*)${sync_future_var.clone()});`);
   // One abort semantics (plans/ASYNC_IO_API_AUDIT.md A2, decision Q1): an
   // aborted future propagates its abort to this awaiter, whether it was
   // aborted before the await started or while it waited, and whether or not
@@ -529,33 +526,23 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   };
   em.emit_string_line(`${indent.clone()}  }`);
   em.emit_string_line(`${indent.clone()}}`);
+  // The await consumed the future (plans/VALUES_BY_DEFAULT.md decision 13,
+  // §3.13 A1): it MOVES the result out, then releases the future. State -3
+  // marks the result as taken, so the future's dispose (which drops a
+  // Completed future's result) leaves it to the awaiter. No other reader
+  // can observe it: the future was moved into this await.
   if(!is_result_unit, {
     result_var := match(expr_ei.variable_name, .Some(n) => sanitize_for_c_identifier(&n, false), .None => `__sync_await_result_${ast_expr_id(expr).to_string()}`);
-    result_type_str := get_type_string(&result_type, &context.base);
     var_decl := get_variable_type_string(&result_type, result_var.clone(), &context.base);
     // Every abort returned above, so the future is Completed here.
+    em.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
     if(type_contains_rc_cell_or_move_only(&result_type), {
-      match(
-        get_dup_function_for_type(&result_type, context),
-        .Some(dup_fn) => em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_fn}(${sync_future_var.clone()}->result);`),
-        // INLINE dup, not a bare copy. No `___dup` methods are synthesized
-        // (see drop_dup.yo), so `.None` is the ONLY path — and a bare copy
-        // hands out a second owner with no increment, while the scope-end
-        // pass still emits a decrement per binding. Awaiting one RC-result
-        // future twice therefore over-released it: heap corruption (SIGTRAP
-        // on macOS, tcache corruption on glibc), the Linux-only failure of
-        // tests/async_await.test.yo "Test await future multiple times returns
-        // same result".
-        .None => {
-          dup_code := generate_dup_code_for_value(`${sync_future_var.clone()}->result`, &result_type, context);
-          em.emit_string_line(`${indent.clone()}${var_decl} = ${dup_code};`);
-        }
-      );
-    }, {
-      em.emit_string_line(`${indent.clone()}${var_decl} = ${sync_future_var.clone()}->result;`);
+      em.emit_string_line(`${indent.clone()}${sync_future_var.clone()}->state = -3;`);
     });
+    em.emit_string_line(`${indent.clone()}__yo_decr_rc((void*)${sync_future_var.clone()});`);
     return(result_var);
   });
+  em.emit_string_line(`${indent.clone()}__yo_decr_rc((void*)${sync_future_var.clone()});`);
   String.from("")
 });
 /// `io.state` — read a Future's raw state, mapped to the FutureState enum
@@ -604,6 +591,22 @@ _option_some_field_type :: (fn(option_type : &TypeValue) -> Option(TypeValue))(
     _ => Option(TypeValue).None
   )
 );
+/// The `JoinHandle(T)` the prelude declares is a `ref` struct today and a
+/// move-only VALUE struct `struct(__future : *(T))` with a `Dispose` once
+/// §3.13 A3's prelude switch lands (plans/VALUES_BY_DEFAULT.md). Codegen
+/// lowers both, so the prelude can switch once a seed carries this
+/// (Generation A; plans/backlog/SEED_VERSION_AUTOMATION.md).
+join_handle_is_value_struct :: (fn(ty : &TypeValue) -> bool)(
+  match(ty, .Struct({ is_reference_semantics : r }) => !r, _ => false)
+);
+/// The C type of a value `JoinHandle`'s `__future` field.
+join_handle_future_field_c_type :: (fn(ty : &TypeValue, context : &FunctionGenerationContext) -> String)(
+  match(
+    ty,
+    .Struct({ field_types : fts }) => match(fts.get(usize(0)), .Some(ft) => get_type_string(&ft, &context.base), .None => String.from("void*")),
+    _ => String.from("void*")
+  )
+);
 /// `JoinHandle.await(io)` — poll a spawned task, return Option(T). Casts the
 /// handle's void* future to a common header layout, polls until completed/aborted,
 /// and builds .Some(result)/.None.
@@ -620,8 +623,10 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
     match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   });
   handle_code := _call_generate_expr(&handle_arg, indent.clone(), context);
-  // The handle (a `ref` struct) keeps its reference until its Dispose.
-  jh_member := String.from("->__future");
+  // The handle keeps its reference until its Dispose: a `ref` handle reads
+  // the future through its cell, a value handle holds it in its field.
+  handle_is_value := match(context.base.get_expr_info(&handle_arg), .Some(hei) => join_handle_is_value_struct(&hei.ty), .None => false);
+  jh_member := if(handle_is_value, String.from(".__future"), String.from("->__future"));
   expr_ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("JoinHandle.await missing ExprInfo"))));
   option_type := expr_ei.ty;
   if(!is_enum_type(&option_type), {
@@ -653,7 +658,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   var_decl := get_variable_type_string(&option_type, result_var.clone(), &context.base);
   em.emit_string_line(`${indent.clone()}${var_decl};`);
   em.emit_string_line(`${indent.clone()}{`);
-  em.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = ${handle_code}${jh_member};`);
+  em.emit_string_line(`${indent.clone()}  void* ${fut_var.clone()} = (void*)(${handle_code})${jh_member};`);
   em.emit_string_line(`${indent.clone()}  struct ${header_struct_name.clone()} {`);
   em.emit_string_line(`${indent.clone()}    __YO_FUTURE_PREFIX`);
   em.emit_string_line(`${indent.clone()}    ${result_type_name.clone()} result;`);
@@ -669,7 +674,13 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
     em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()} };`);
   }, {
     rt := match(result_type_opt, .Some(t) => t, .None => TypeValue.Unit);
-    if(type_contains_rc_cell_or_move_only(&rt), {
+    if(handle_is_value && type_contains_rc_cell_or_move_only(&rt), {
+      // A value handle is consumed (§3.13 A3): the result moves out of the
+      // task, which no longer drops it (`-3`, result taken; the same
+      // protocol as `io.await`).
+      em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${header_var.clone()}->result${some_close.clone()};`);
+      em.emit_string_line(`${indent.clone()}    ${header_var.clone()}->state = -3;  // result taken`);
+    }, if(type_contains_rc_cell_or_move_only(&rt), {
       match(
         get_dup_function_for_type(&rt, context),
         .Some(dup_fn) => em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_fn}(${header_var.clone()}->result)${some_close.clone()};`),
@@ -690,7 +701,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
       );
     }, {
       em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${header_var.clone()}->result${some_close.clone()};`);
-    });
+    }));
   });
   em.emit_string_line(`${indent.clone()}  } else {`);
   em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 0;`);
@@ -698,9 +709,12 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed(${fut_var.clone()});`);
   em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${none_code};`);
   em.emit_string_line(`${indent.clone()}  }`);
-  // The handle keeps the future referenced (its Dispose releases it), so
-  // awaiting neither consumes the handle nor releases the task: a handle
-  // awaited twice reads the same result.
+  // A `ref` handle keeps the future referenced (its Dispose releases it), so
+  // awaiting it neither consumes the handle nor releases the task. A value
+  // handle is consumed by the await, which releases its reference here.
+  if(handle_is_value, {
+    em.emit_string_line(`${indent.clone()}  __yo_join_handle_release_raw(${fut_var.clone()});  // the consumed handle's reference`);
+  });
   em.emit_string_line(`${indent.clone()}}`);
   // Rule 1: a result temp with a task slot is dropped through the slot, so
   // the owned result goes there too
@@ -730,5 +744,7 @@ export(
   emit_effect_injection_for_await,
   generate_await,
   generate_state,
-  generate_join_handle_await
+  generate_join_handle_await,
+  join_handle_is_value_struct,
+  join_handle_future_field_c_type
 );

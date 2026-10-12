@@ -229,11 +229,11 @@ containing the actual handlers:
 ```yo
 // Single bundle (most common)
 fut1 : Impl(Future(i32, IoExn)); // IoExn = { io, exn }
-y := io.await(&fut1, { io, exn });
+y := io.await(fut1, { io, exn });
 
 // Single-effect future — pass the effect value directly
 fut2 : Impl(Future(i32, Io));
-x := io.await(&fut2, io);
+x := io.await(fut2, io);
 ```
 
 The closure passed to `io.async` must pin `e`'s type — the inferencer
@@ -250,7 +250,7 @@ fut := io.async((e : type_of(effects)) => {
   e.log(`hello`);
 });
 
-result := io.await(&fut, effects);
+result := io.await(fut, effects);
 ```
 
 ```yo
@@ -493,7 +493,7 @@ standalone, not closures" is the implementation-side statement of the same rule.
     Result(String, String).Ok(raw)
   });
   // .Err("...") when may_fail threw: the error is caught per task.
-  r := io.await(&guarded, e);
+  r := io.await(guarded, e);
   ```
 
   A frame that only passes a handler along never catches its unwind, so no

@@ -108,25 +108,25 @@ test("Test a wake before the park suspends is not lost", {
 });
 
 // ---------------------------------------------------------------------------
-// 1b. Awaiting the park does not RELEASE it.
+// 1b. A park is waited on once.
 //
-// `Park.wait` awaits `self._future` — a future read out of a field, which the
-// struct still owns and still drops in its own dispose. An await that takes
-// that reference instead of one of its own frees the future while the park and
-// its wakers still point at it
-// (issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md).
-// Two awaits make the imbalance unambiguous: the count reaches zero with two
-// live holders left, so the ASan-armed CI legs report a use-after-free rather
-// than a one-off drop at scope end.
+// `Park.wait` consumes the park and hands its future to the await, which owns
+// it from then on (plans/VALUES_BY_DEFAULT.md §3.13 A1/A5). A waker taken
+// before the wait keeps the future alive past it
+// (issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md:
+// the ASan-armed CI legs report a use-after-free if the await frees it early).
 // ---------------------------------------------------------------------------
-test("Test awaiting the same park twice does not release its future twice", {
+test("Test a park is waited on once, and its waker outlives the wait", {
   p := Park.new();
   w := p.waker();
   w.wake();
   io.await(p.wait(io), io);
-  io.await(p.wait(io), io);
-  assert(w.is_woken(), "the park survived both awaits, and is still woken");
-  assert(p.waker().is_woken(), "and it can still hand out a waker");
+  assert(w.is_woken(), "the waker still reads the woken future after the wait");
+  comptime_expect_error({
+    q := Park.new();
+    io.await(q.wait(io), io);
+    io.await(q.wait(io), io);
+  }, "moved");
 });
 
 // ---------------------------------------------------------------------------
@@ -151,9 +151,10 @@ test("Test waking twice is a no-op", {
 // ---------------------------------------------------------------------------
 test("Test a spawned task parks until the top level wakes it", {
   p := Park.new();
+  w := p.waker();
   ran := Rc(bool)(false);
   h := io.spawn(
-    io.async((io : Io) => {
+    io.async({ p, ran }(io : Io) => {
       io.await(p.wait(io), io);
       ran.* = true;
       return(i32(7));
@@ -164,7 +165,7 @@ test("Test a spawned task parks until the top level wakes it", {
   io.await(yield(io), io);
   assert(!(ran.*), "the task is parked, so it has not run past the park");
   assert(!h.is_finished(), "and it is not finished");
-  p.waker().wake();
+  w.wake();
   r := h.await(io);
   assert(ran.*, "the wake resumed the task");
   assert(match(r, .Some(v) => (v == i32(7)), .None => false), "and it produced its value");
@@ -177,16 +178,16 @@ test("Test a spawned task parks until the top level wakes it", {
 // ---------------------------------------------------------------------------
 test("Test one signal wakes every waiter in a list", {
   n := usize(8);
-  parks := ArrayList(Park).new();
+  wakers := ArrayList(Waker).new();
   handles := ArrayList(JoinHandle(i32)).new();
   woken := Rc(i32)(i32(0));
   (i : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {
     p := Park.new();
-    parks.push(p);
+    wakers.push(p.waker());
     handles.push(
       io.spawn(
-        io.async((io : Io) => {
+        io.async({ p, woken }(io : Io) => {
           io.await(p.wait(io), io);
           woken.* = (woken.* + i32(1));
           return(i32(1));
@@ -200,7 +201,7 @@ test("Test one signal wakes every waiter in a list", {
   // One pass over the list, waking every waiter.
   (j : usize) = usize(0);
   while(j < n, j = (j + usize(1)), {
-    match(parks.get(j), .Some(pk) => pk.waker().wake(), .None => ());
+    match(wakers.get(j), .Some(w) => w.wake(), .None => ());
   });
   (k : usize) = usize(0);
   while(k < n, k = (k + usize(1)), {
@@ -252,24 +253,18 @@ test("Test dropping a waker leaves the loop able to finish other work", {
 // ---------------------------------------------------------------------------
 test("Test a waker relay hands off without a millisecond floor", {
   n := usize(400);
-  parks := ArrayList(Park).new();
-  (i : usize) = usize(0);
-  while(i < n, i = (i + usize(1)), {
-    parks.push(Park.new());
-  });
   hops := Rc(i32)(i32(0));
   handles := ArrayList(JoinHandle(i32)).new();
+  // Built from the last task back: each park moves into its task, and the
+  // task before it holds its waker.
+  (next_w : Option(Waker)) = Option(Waker).None;
   (t : usize) = usize(0);
   while(t < n, t = (t + usize(1)), {
-    mine := match(parks.get(t), .Some(pk) => pk, .None => Park.new());
-    next_w := match(
-      parks.get(t + usize(1)),
-      .Some(np) => Option(Waker).Some(np.waker()),
-      .None => Option(Waker).None
-    );
+    mine := Park.new();
+    mine_w := mine.waker();
     handles.push(
       io.spawn(
-        io.async((io : Io) => {
+        io.async({ mine, next_w, hops }(io : Io) => {
           io.await(mine.wait(io), io);
           hops.* = (hops.* + i32(1));
           match(next_w, .Some(w) => w.wake(), .None => ());
@@ -278,11 +273,12 @@ test("Test a waker relay hands off without a millisecond floor", {
         io
       )
     );
+    next_w = Option(Waker).Some(mine_w);
   });
   io.await(yield(io), io);
   started := Instant.now();
   // Fire the first hand-off; the relay carries itself the rest of the way.
-  match(parks.get(usize(0)), .Some(p0) => p0.waker().wake(), .None => ());
+  match(next_w, .Some(w0) => w0.wake(), .None => ());
   (k : usize) = usize(0);
   while(k < n, k = (k + usize(1)), {
     match(

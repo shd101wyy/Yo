@@ -14,7 +14,7 @@
 { is_unit_type, is_some_type } :: import("../../types/guards.yo");
 { expr_info_deferred_dup_expressions, expr_info_early_return_only_deferred_drop_expressions, some_resolution, scope_variables, scope_release_mode, scope_release_note_mismatch, is_fnonce_capture_drop } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
-{ FunctionGenerationContext, resolve_var_name_in_context } :: import("../functions/context.yo");
+{ FunctionGenerationContext, resolve_var_name_in_context, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
 { emit_async_future_escape, emit_async_future_completion, emit_sm_unwind_catch } :: import("./async_completion.yo");
@@ -253,7 +253,7 @@ _drop_target_is_state_machine_field :: (fn(v : &Variable, var_name : &String, co
 });
 _keep_pending_drop :: (fn(drop_expr : &AstExpr, expr : &AstExpr, already : &HashSet(String), additional_skip : &Option(HashSet(String)), use_env : bool, context : &FunctionGenerationContext) -> bool)({
   var_name := match(get_deferred_drop_target_atom_name(drop_expr), .Some(vn) => vn, .None => return(false));
-  if(is_deferred_drop_for_closure_capture(drop_expr, &context.current_closure_captures), {
+  if(is_deferred_drop_for_closure_capture(drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
     return(false);
   });
   // The enclosing assignment's save-old-value temp receives ownership only
@@ -711,7 +711,7 @@ generate_early_return_only_deferred_drop_expressions :: (fn(expr : &AstExpr, ind
         while(i < early_drops.len(), {
           match(
             early_drops.get(i),
-            .Some(drop_expr) => if(!is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures), {
+            .Some(drop_expr) => if(!is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
               // Gate: the drop target's C declaration must have been emitted AND
               // its enclosing C block must still be open at this exact point
               // (block-scope stack — same authoritative C-emission-order signal

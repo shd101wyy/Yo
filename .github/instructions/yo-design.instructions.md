@@ -409,7 +409,7 @@ lowering (`plans/archive/FOR_AWAIT_NEEDS_MACRO_AWARE_ASYNC_TRANSFORM.md`).
 ### API
 
 ```yo
-handle := io.spawn(&task, ctx); // → JoinHandle(T), ctx is the task's effect bundle
+handle := io.spawn(task, ctx); // → JoinHandle(T), ctx is the task's effect bundle
 result := handle.await(io); // → Option(T), blocking: main / plain fns only
 result := io.await(handle.join(io), io); // → Option(T), suspending: the form inside a task (std/async)
 handle.state();
@@ -419,6 +419,7 @@ handle.abort();
 
 ### Semantics
 
+- **A future is move-only** (`plans/VALUES_BY_DEFAULT.md` §3.13 A1): `io.await(f, e)` and `io.spawn(f, e)` consume `f`, `io.state(&f)` borrows it. A second await, or an await after a spawn, is E0901; several waiters join the task's handle instead (`io.await(h.join(io), io)`). An `io.async` body that awaits a CAPTURED future must move it in with a by-value capture list (`io.async({ f }(io : Io) => io.await(f, io))`; an implicit capture is E0913), and a function that awaits or captures a future parameter takes it `sink(f) : Impl(Future(T, E))`.
 - `io.spawn(task, e)` copies the bundle `e` into the cold future, runs the task INLINE up to its first suspension point (spawn is not itself a suspension point), and returns a `JoinHandle(T)`.
 - `handle.await(io)` returns `Option(T)`: `.Some(result)` on completion, `.None` when the task was aborted (an effect handler called `unwind`, or `handle.abort()`). Awaiting does NOT consume the handle; a second await re-reads the same result (a fresh dup). It is a BLOCKING poll loop in every context, so inside an `io.async` body it nests the event loop (`YO_ASYNC_STRICT=1` panics there). Inside a task use **`io.await(handle.join(io), io)`** (`std/async`): the same `Option(T)` as a future that suspends the task. The `std/async` combinators (`join_all`, `race`, `race_first`, `any`, `any_first`, `timeout`) are futures of the same kind — `io.await(join_all(handles, io), io)` in `main` and in a task alike.
 - The handle owns a reference: the task and its result live as long as some copy of the handle does, and `Dispose` releases that reference. Dropping the last copy without awaiting DETACHES the task (it keeps running and frees itself when it finishes), which is what makes a fire-and-forget `io.spawn(task, e);` statement correct. Abort-on-drop is deliberately NOT the semantics.
