@@ -816,7 +816,9 @@ _place_leftmost_token :: (fn(e : &AstExpr) -> Token)(
 /// a closure, a borrow binding passed whole, a method receiver and an
 /// operator operand (the callers skip those two), a by-value or compile-time
 /// parameter, a `Type`-valued one, and a raw-pointer one (its argument is a
-/// pointer value, and `&x` there is the `addr_of(x)` error).
+/// pointer value, and `&x` there is the `addr_of(x)` error). Ghost context
+/// (a contract predicate, a `ghost_fn` body) is exempt too: spec code never
+/// moves or writes, so it names parameters bare.
 ///
 /// Under `yo fix --migrate markers` the site is recorded instead
 /// (`record_marker_site`), and the migration inserts the marker.
@@ -834,7 +836,7 @@ check_call_site_borrow_marker :: (
     exn : Exception
   ) -> unit
 )({
-  if(param_is_owning || param_is_ct || ctx.is_in_function_call_checking_phase, {
+  if(param_is_owning || param_is_ct || ctx.is_in_function_call_checking_phase || ctx.is_ghost_context, {
     return(());
   });
   if(is_type_hierarchy_type(param_ty) || is_pointer_type(param_ty), {
