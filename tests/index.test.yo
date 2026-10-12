@@ -885,3 +885,54 @@ test("V2b: a projection is reached through the subscript", {
   t := Trio(a : i32(5), b : i32(6), c : i32(7));
   comptime_expect_error(_v2b_first(&t), "Calling one directly is not supported yet");
 });
+// A projection body that forwards its pointer-bound `self` whole: to a
+// method, to a static `Self.helper(self, …)`, and through `addr_of(self)` to a
+// raw-pointer helper (the shape of the prelude's `Array` impl).
+Quad :: struct(w : i32, x : i32, y : i32, z : i32);
+impl(
+  Quad,
+  _clamp : (fn(self : &Self, idx : usize) -> usize)(
+    cond(
+      (idx > usize(3)) => usize(3),
+      true => idx
+    )
+  ),
+  _slot : (fn(self : &Self, idx : usize) -> usize)(
+    self._clamp(idx)
+  )
+);
+_quad_at :: (fn(p : *Quad, i : usize) -> *i32)(
+  cond(
+    (i == usize(0)) => addr_of(p.*.w),
+    (i == usize(1)) => addr_of(p.*.x),
+    (i == usize(2)) => addr_of(p.*.y),
+    true => addr_of(p.*.z)
+  )
+);
+impl(
+  Quad,
+  VIndex(usize)(
+    Output : i32,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
+      _quad_at(addr_of(self), Self._slot(self, self._clamp(idx)))
+    )
+  )
+);
+impl(
+  Quad,
+  VIndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      _quad_at(addr_of(self), Self._slot(self, self._clamp(idx)))
+    )
+  )
+);
+test("V2b: a projection forwards its self to helpers and through addr_of", {
+  q := Quad(w : i32(1), x : i32(2), y : i32(3), z : i32(4));
+  assert(q(usize(1)) == i32(2), "q(1) through a method, a static helper and addr_of(self)");
+  assert(q(usize(9)) == i32(4), "q(9) clamps to the last slot");
+  q(usize(2)) = i32(30);
+  assert(q.y == i32(30), "the write reached the caller's field, not a copy");
+  q(usize(0)) = (q(usize(0)) + q(usize(3)));
+  assert(q.w == i32(5), "q(0) = q(0) + q(3)");
+});

@@ -44,8 +44,13 @@ Related: `issues/fixed/abandoned-impl-members-survive-the-error.md` (the same un
 
 ## Fix
 
-`evaluate_comptime_expect_error` (`src/evaluator/builtins/comptime_expect_error.yo`)
-saves and restores both fields with the rest of the context.
+Both catch sites that keep evaluating with the same context restore the two
+fields alongside `truncate_forcing_depths`: `evaluate_comptime_expect_error`
+(`src/evaluator/builtins/comptime_expect_error.yo`) and the module walker's
+abort edge (`evaluate_anonymous_module_begin_exprs`,
+`src/evaluator/values/anonymous_module.yo`), which a `yo check` or LSP session
+crosses before evaluating the next module. The pending-definition forcer and
+the in-block field forcer already ran on a copied context or restored them.
 
 ## Test
 
