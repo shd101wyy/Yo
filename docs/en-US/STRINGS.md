@@ -127,19 +127,17 @@ decode.
 `char_substring()` and `truncate_chars()` — were removed on 2026-08-26;
 `len()` and the idioms above are the whole vocabulary.)
 
-## Element access: `byte_at(i)`, not `s(i)`
+## Element access: `s(i)` and `byte_at(i)`
 
 `byte_at(i)` returns the **byte** at offset `i` as a `u8` — byte-level access
 into the UTF-8 buffer, no boundary requirement — and panics past the end.
 `get_byte(i)` is the checked form: `.None` past the end (Rust's
 `s.as_bytes().get(i)`). Both read the string in place. Decoding is `at(i)`.
 
-A runtime `String` has no `s(i)`: it does not implement `Index(usize)`, so
-`s(usize(0))` is E0606 ("s is not callable"). `Index` hands out a writable
-place, and a write through it (`s(i) = b`) would reach every string sharing
-the buffer and could leave invalid UTF-8 behind. A read-only `s(i)` returns once
-`Index` separates reads from writes. The range sugar `s(a..b)` is unaffected:
-it builds a new string.
+`s(i)` reads the same byte: `String` implements `Index(usize)` with
+`Output : u8` and no `IndexMut`. `s(i) = b` is a compile error: a write would
+reach every string sharing the buffer and could leave invalid UTF-8 behind. The
+range sugar `s(a..b)` builds a new string.
 
 ```yo
 { String } :: import("std/string");

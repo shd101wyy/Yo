@@ -15,37 +15,9 @@ v := list(usize(0)); // 42
 
 ## The Index Trait
 
-The `Index` trait is defined in the prelude and is available to all Yo programs:
+The `Index` trait and its write half `IndexMut` are defined in the prelude and are available to all Yo programs:
 
 ```yo
-Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
-  trait(
-    Output : Type,
-    index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)
-  )
-);
-```
-
-- **`Idx`**: The index type (e.g., `usize`, or a custom key type).
-- **`Output`**: An associated type specifying the element type returned.
-- **`index`**: A method that takes `self` as `&mut Self` (so it can return a pointer into the caller's storage) and an index, returning a **pointer** to the element.
-
-The `index` method returns `*(Output)` (a pointer), which is automatically dereferenced when used in value context. This design enables both reading and writing through the same trait:
-
-```yo
-// Read: auto-deref happens
-v := collection(idx); // calls index(collection, idx).*
-// Write via call-syntax assignment (preferred)
-collection(idx) = val; // calls index(collection, idx), writes through pointer
-// Address-of: returns pointer directly
-p := addr_of(collection(idx)); // calls index(collection, idx), no deref
-```
-
-## Reads and writes: `Index` and `IndexMut`
-
-Values by default (V2b, decision 34) splits element access in two, as Rust does. A **read** goes through `index`, a read projection that borrows the container shared. A **write** goes through `index_mut`, a mutable projection that borrows it exclusively:
-
-```yo ignore
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
@@ -60,7 +32,23 @@ IndexMut :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 );
 ```
 
-The compiler accepts these shapes today. The bundled std's `Index` switches to them, and gains `IndexMut`, with the next seed release: until then the prelude still declares the single `index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)` described in the next section, which serves reads and writes alike.
+- **`Idx`**: The index type (e.g., `usize`, or a custom key type), taken by value.
+- **`Output`**: An associated type specifying the element type. `Index` and `IndexMut` of the same index type agree on it.
+- **`index`**: A read projection: it borrows the container shared and yields the element's place.
+- **`index_mut`**: A mutable projection: it borrows the container exclusively and yields the element's place for writing.
+
+```yo
+// Read: calls index, then reads the place
+v := collection(idx);
+// Write via call-syntax assignment: calls index_mut, writes the place
+collection(idx) = val;
+// Address-of: calls index_mut, returns the place's address
+p := addr_of(collection(idx));
+```
+
+## Reads and writes: `Index` and `IndexMut`
+
+Values by default (V2b, decision 34) splits element access in two, as Rust does.
 
 - **Which method a subscript calls.** `x(i)` read as a value calls `index`. Every write calls `index_mut`: `x(i) = v`, a field of the element (`x(i).f = v`), a nested element (`grid(i)(j) = v`), a `self : &mut Self` method on the element (`x(i).push(v)`), a `&mut` argument (`f(&mut x(i))`), `addr_of(x(i))`, and a `&mut` local borrow of it. A read-modify-write such as `x(i) = (x(i) + 1)` is a read and then a write. Yo has no compound assignment operator.
 - **Read-only elements.** A type that implements `Index` without `IndexMut` has read-only elements, and a write through `x(i)` is a compile error naming the missing `IndexMut`.
@@ -123,11 +111,26 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
       cond(
-        (idx == usize(0)) => addr_of(self.data0),
-        (idx == usize(1)) => addr_of(self.data1),
-        (idx == usize(2)) => addr_of(self.data2),
+        (idx == usize(0)) => &self.data0,
+        (idx == usize(1)) => &self.data1,
+        (idx == usize(2)) => &self.data2,
+        true => panic("MyArray: index out of bounds")
+      )
+    )
+  )
+);
+// Without this impl, `arr(i)` reads but `arr(i) = v` is a compile error.
+impl(
+  MyArray,
+  IndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      cond(
+        (idx == usize(0)) => &mut self.data0,
+        (idx == usize(1)) => &mut self.data1,
+        (idx == usize(2)) => &mut self.data2,
         true => panic("MyArray: index out of bounds")
       )
     )
@@ -142,7 +145,7 @@ assert(arr(usize(1)) == i32(20), "should be 20");
 
 ### Generic Implementation
 
-For generic types like `ArrayList(T)`, use `generic` in the impl:
+For generic types like `ArrayList(T)`, use `generic` in the impl. std's buffers yield a raw pointer into the buffer (a `pragma(Pragma.AllowUnsafe)` file), and the `IndexMut` impl repeats the body with `self : &mut Self` and `-> &mut Self.Output`:
 
 ```yo
 impl(
@@ -150,7 +153,7 @@ impl(
   ArrayList(T),
   Index(usize)(
     Output : T,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)({
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)({
       assert(idx < self._length, "ArrayList: index out of bounds");
       match(
         self._ptr,
@@ -302,17 +305,17 @@ addr_of(d(usize(0))).* = i32(555); // mutate in place
 
 O(1) random access, correctly handles ring buffer wrapping.
 
-### String — no `Index(usize)`
+### String — `Index(usize)`, read-only
 
-`String` does not implement `Index`, so a runtime `s(i)` is E0606 ("s is not callable"). Read bytes by name instead:
+`String` implements `Index(usize)` with `Output : u8` and no `IndexMut`: `s(i)` reads the byte at offset `i` and panics past the end, like `byte_at(i)`.
 
 ```yo
 (s : String) = `Hello`;
-b := s.byte_at(usize(0)); // u8(72) — byte-level access ('H'); panics past the end
+b := s(usize(0)); // u8(72) — the byte ('H'); panics past the end
 c := s.get_byte(usize(9)); // .None — the checked form
 ```
 
-`index` returns a writable place: a write through it (`s(i) = b`) would change every string sharing the buffer, and it could leave invalid UTF-8 behind. Rust's `String` has no writable byte index either. Once the bundled std switches to the read/write split (see [Reads and writes](#reads-and-writes-index-and-indexmut)), `String` implements `Index(usize)` with `Output : u8` and no `IndexMut`: `s(i)` reads a byte, and `s(i) = b` is a compile error. For character-level access, use the `chars()` iterator. The range sugar `s(a..b)` is unaffected; it and every other string index (`substring`, `index_of`, …) are byte offsets — see [STRINGS.md](./STRINGS.md) for the full contract.
+`s(i) = b` is a compile error naming the missing `IndexMut`: a write would change every string sharing the buffer, and it could leave invalid UTF-8 behind. Rust's `String` has no writable byte index either. For character-level access, use the `chars()` iterator. The range sugar `s(a..b)` builds a new string; it and every other string index (`substring`, `index_of`, …) are byte offsets — see [STRINGS.md](./STRINGS.md) for the full contract.
 
 ## Error Handling
 

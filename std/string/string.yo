@@ -3362,10 +3362,14 @@ impl(
       match(
         self._bytes,
         .Some(b) => {
-          assert(idx < b.len(), "String: byte index out of bounds");
-          // SAFETY: `idx` is in bounds and the list `b` shares its buffer
-          // with `self._bytes`, which the `&Self` receiver keeps alive.
-          unsafe(addr_of(b(idx)))
+          if(idx >= b.len(), {
+            __yo_panic("String: byte index out of bounds");
+          });
+          // SAFETY: `idx` is in bounds, so the buffer is allocated, and the
+          // list `b` shares it with `self._bytes`, which the `&Self` receiver
+          // keeps alive. (A raw step: a match binding is not yet a projection
+          // root, plans/VALUES_BY_DEFAULT.md V2b.)
+          unsafe(b.ptr().unwrap().add(idx))
         },
         .None => __yo_panic("String: byte index out of bounds")
       )

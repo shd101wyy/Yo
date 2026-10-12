@@ -119,17 +119,15 @@ first := s.chars().next(); // Option(rune)
 和 `truncate_chars()` —— 已于 2026-08-26 移除；`len()` 加上面的惯用法就是
 全部词汇。）
 
-## 元素访问：用 `byte_at(i)`，不用 `s(i)`
+## 元素访问：`s(i)` 与 `byte_at(i)`
 
 `byte_at(i)` 返回偏移 `i` 处的**字节**（`u8`）—— 对 UTF-8 缓冲区的字节级访问，
 没有边界要求 —— 越界时 panic。`get_byte(i)` 是带检查的形式：越界返回 `.None`
 （对应 Rust 的 `s.as_bytes().get(i)`）。两者都就地读取字符串。解码用 `at(i)`。
 
-运行期的 `String` 没有 `s(i)`：它不实现 `Index(usize)`，所以 `s(usize(0))` 是
-E0606（"s is not callable"）。`Index` 交出的是一个可写的位置，通过它写入
-（`s(i) = b`）会影响所有共享该缓冲区的字符串，还可能留下非法的 UTF-8。等 `Index`
-把读和写分开之后，只读的 `s(i)` 会回来。区间语法糖 `s(a..b)` 不受影响：它构建
-一个新字符串。
+`s(i)` 读取同一个字节：`String` 实现 `Output : u8` 的 `Index(usize)`，且不实现
+`IndexMut`。`s(i) = b` 是编译错误：写入会影响所有共享该缓冲区的字符串，还可能
+留下非法的 UTF-8。区间语法糖 `s(a..b)` 构建一个新字符串。
 
 ```yo
 { String } :: import("std/string");

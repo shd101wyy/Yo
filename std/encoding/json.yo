@@ -440,9 +440,10 @@ impl(
             if(keys(i) == key, {
               // SAFETY: `i` is bounded by `keys.len()` and the
               // Object variant invariant says `values.len() ==
-              // keys.len()`, so `&(values(i))` (Index trait) yields a
-              // valid pointer into the Rc-managed values list.
-              return(unsafe(addr_of(values(i))));
+              // keys.len()`, so the buffer is allocated and slot `i` is
+              // live in the Rc-managed values list. (A raw step: a match
+              // binding is not yet a projection root.)
+              return(unsafe(values.ptr().unwrap().add(i)));
             });
           });
           __yo_panic("JsonValue: key not found in Object")
@@ -488,11 +489,11 @@ impl(
         self,
         .Array(items) => {
           assert(idx < items.len(), "JsonValue: Array index out of bounds");
-          // SAFETY: assert above bounds `idx`; `items` is the
-          // Rc-managed Array list whose storage outlives this call
-          // (`self : &mut Self` keeps `self` and therefore `items` alive);
-          // `&(items(idx))` (Index trait) yields the element pointer.
-          return(unsafe(addr_of(items(idx))));
+          // SAFETY: assert above bounds `idx`, so the buffer is
+          // allocated; `items` is the Rc-managed Array list, which the
+          // `&Self` receiver keeps alive. (A raw step: a match binding is
+          // not yet a projection root.)
+          return(unsafe(items.ptr().unwrap().add(idx)));
         },
         _ => __yo_panic("JsonValue: index by usize requires .Array variant")
       )
