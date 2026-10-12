@@ -787,3 +787,84 @@ test("a move inside an operator's operand moves once", {
   assert((i32(1) + _mo_take(e)) == i32(2), "inside an assert's condition");
   assert(g_mo_disposed == (before + i32(2)), "each value disposed once, by the callee");
 });
+// issues/fixed/a-method-call-on-a-move-only-element-disposes-a-copy-of-it.md:
+// Aliasing Stage 0 gave the element a caller-owned "+1" for a callee that is
+// not read-only, which for a move-only value was a bitwise copy whose drop
+// ran `Dispose` while the list still owned the element.
+(g_mo_seen : i32) = i32(0);
+impl(
+  _MoFd,
+  _mo_note : (fn(self : &Self) -> i32)({
+    g_mo_seen = (g_mo_seen + i32(1));
+    self.n
+  })
+);
+test("a method call on a move-only element borrows it: no copy is disposed", {
+  before := g_mo_disposed;
+  xs := ArrayList(_MoFd).new();
+  xs.push(_MoFd(n : i32(4)));
+  xs.push(_MoFd(n : i32(5)));
+  assert(xs(usize(0))._mo_note() == i32(4), "the first element");
+  assert(xs(usize(1))._mo_note() == i32(5), "the second element");
+  assert(g_mo_disposed == before, "the calls borrowed; nothing was disposed");
+  xs.clear();
+  assert(g_mo_disposed == (before + i32(2)), "the list disposed each element once");
+});
+// §3.13 A3 Generation B: `pop`, `swap`, `remove` and `reverse` move elements
+// bitwise (`__yo_ptr_read`/`__yo_ptr_write`), so a move-only element works.
+test("ArrayList pop/swap/remove/reverse move a move-only element", {
+  before := g_mo_disposed;
+  sum_before := g_mo_sum;
+  xs := ArrayList(_MoFd).new();
+  xs.push(_MoFd(n : i32(1)));
+  xs.push(_MoFd(n : i32(2)));
+  xs.push(_MoFd(n : i32(3)));
+  xs.push(_MoFd(n : i32(4)));
+  xs.swap(usize(0), usize(3));
+  assert(xs(usize(0)).n == i32(4), "swapped in");
+  assert(xs(usize(3)).n == i32(1), "swapped out");
+  xs.reverse();
+  assert(xs(usize(0)).n == i32(1), "reversed: first");
+  assert(xs(usize(3)).n == i32(4), "reversed: last");
+  r := xs.remove(usize(1));
+  assert(r.n == i32(2), "removed the second element");
+  assert(xs.len() == usize(3), "the tail closed the gap");
+  assert(xs(usize(1)).n == i32(3), "the tail moved left");
+  assert(g_mo_disposed == before, "no move disposed anything");
+  assert(_mo_take(r) == i32(2), "the removed element is owned");
+  match(
+    xs.pop(),
+    .Some(p) => assert(_mo_take(p) == i32(4), "pop moves the last element out"),
+    .None => assert(false, "pop of a non-empty list")
+  );
+  assert(xs.len() == usize(2), "pop shortened the list");
+  assert(g_mo_disposed == (before + i32(2)), "the two moved-out elements, each once");
+  xs.clear();
+  assert(g_mo_disposed == (before + i32(4)), "every element disposed exactly once");
+  assert(g_mo_sum == (sum_before + i32(10)), "and each one by its own value");
+});
+// decision 19's `take`/`replace`, built on the bitwise moves.
+test("Option take/replace move a move-only payload", {
+  before := g_mo_disposed;
+  o := Option(_MoFd).Some(_MoFd(n : i32(7)));
+  t := o.take();
+  assert(o.is_none(), "take leaves .None");
+  assert(g_mo_disposed == before, "take moved the payload; nothing was disposed");
+  old := o.replace(_MoFd(n : i32(8)));
+  assert(old.is_none(), "replace hands back the old option");
+  assert(o.is_some(), "replace stores the new payload");
+  again := o.replace(_MoFd(n : i32(9)));
+  match(
+    again,
+    .Some(f) => assert(_mo_take(f) == i32(8), "the replaced payload moves out"),
+    .None => assert(false, "replace of a .Some")
+  );
+  match(
+    t,
+    .Some(f) => assert(_mo_take(f) == i32(7), "the taken payload moves out"),
+    .None => assert(false, "take of a .Some")
+  );
+  assert(g_mo_disposed == (before + i32(2)), "the two moved-out payloads, by their callee");
+  o = Option(_MoFd).None;
+  assert(g_mo_disposed == (before + i32(3)), "the stored payload, by the reassignment");
+});

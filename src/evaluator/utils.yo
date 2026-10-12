@@ -2343,6 +2343,14 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
       if(!type_contains_rc_type(&ei.ty), {
         return(Option(AstExpr).None);
       });
+      // A move-only value has no +1 to take: its "dup" is a bitwise copy,
+      // and the copy's scope-end drop disposed the element the container
+      // still owns (a double `Dispose`;
+      // issues/fixed/a-method-call-on-a-move-only-element-disposes-a-copy-of-it.md).
+      // A borrow of it stays a borrow; exclusivity keeps the container alive.
+      if(type_is_move_only(&ei.ty), {
+        return(Option(AstExpr).None);
+      });
       match(
         find_variable_in_env(&ei.env, &variable_name),
         .None => (),
