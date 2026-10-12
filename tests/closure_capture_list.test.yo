@@ -430,7 +430,13 @@ test("escape: a callee cannot pass on, return or capture its `imm(f)` argument",
 test("escape: an `io.async` body and a thread body", {
   w := i32(1);
   (f : Impl(Fn() -> i32)) = ({ &w }() => w);
-  comptime_expect_error(io.async(e => f()), "cannot be captured by an `io.async` body");
+  // §3.13 A2: the body may capture `f`; its future then borrows `w` too, so
+  // it is awaited where it is made and never bound to a local.
+  assert(io.await(io.async(e => f()), io) == i32(1), "an awaited `io.async` body may capture a second-class closure");
+  comptime_expect_error({
+    fut := io.async(e => f());
+    ()
+  }, "would hold a borrowing future");
   comptime_expect_error(Thread(i32).spawn((tio : Io) => f()), "does not implement Send");
 });
 test("escape: a captured place cannot be moved while the closure lives", {

@@ -450,6 +450,9 @@ CaptureBorrow :: struct(
   root_id : usize,
   root_name : String,
   path : ArrayList(String),
+  /// The root is a `&T` parameter, which C receives by value: a future
+  /// that borrows it keeps its own copy (§3.13 A2, `_lent_param_capture_fields`).
+  root_is_value_param : bool,
   /// `module:row:col` of the entry, for diagnostics.
   site : String
 );
@@ -503,6 +506,30 @@ collect_type_borrows :: (fn(ty : &TypeValue, out : &mut ArrayList(CaptureBorrow)
 );
 _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(CaptureBorrow), depth : u32) -> unit)({
   ty := resolve_enum_shell(resolve_struct_shell(ty_in));
+  // A borrowing future (§3.13 A2): `io.async` registers its body's
+  // capture-list borrows under the future's per-call wrapper id, and a
+  // function returning it carries that future as its result's resolution. A
+  // future is a counted state machine, so this precedes the reference-type
+  // stop below.
+  match(
+    ty,
+    .SomeT({ id : st_id, resolution : f_res }) => if(is_future_value_type(&ty) && (depth <= u32(12)), {
+      match(
+        g_capture_borrows.get(&st_id),
+        .Some(bs) => {
+          (bi : usize) = usize(0);
+          while(bi < bs.len(), {
+            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
+            bi = (bi + usize(1));
+          });
+        },
+        .None => ()
+      );
+      match(f_res, .Some(concrete) => recur(&concrete, out, depth + u32(1)), .None => ());
+      return(());
+    }),
+    _ => ()
+  );
   if((depth > u32(12)) || is_rc_type(&ty), {
     return(());
   });
@@ -546,22 +573,7 @@ _collect_type_borrows_inner :: (fn(ty_in : &TypeValue, out : &mut ArrayList(Capt
         vi = (vi + usize(1));
       });
     },
-    .SomeT({ id : st_id, resolution : rc }) => {
-      // A borrowing future (§3.13 A2): `io.async` registers its body's
-      // capture-list borrows under the future's per-call wrapper id.
-      match(
-        g_capture_borrows.get(&st_id),
-        .Some(bs) => {
-          (bi : usize) = usize(0);
-          while(bi < bs.len(), {
-            match(bs.get(bi), .Some(b) => out.push(b), .None => ());
-            bi = (bi + usize(1));
-          });
-        },
-        .None => ()
-      );
-      match(rc, .Some(concrete) => recur(&concrete, out, depth + u32(1)), .None => ());
-    },
+    .SomeT({ resolution : rc }) => match(rc, .Some(concrete) => recur(&concrete, out, depth + u32(1)), .None => ()),
     _ => ()
   );
 });

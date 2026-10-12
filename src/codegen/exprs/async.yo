@@ -32,7 +32,7 @@
   is_reference_struct_type,
   is_rc_type
 } :: import("../../types/guards.yo");
-{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, capture_struct_borrows } :: import("../../types/utils.yo");
 {
   CapturedVariable,
   CapturedVariableKind,
@@ -608,6 +608,7 @@ emit_async_block_struct_definition :: (
           .None => ()
         );
       });
+      _emit_lent_param_slots(&cap_ty, context);
       em.emit_declaration_line("");
     },
     .None => ()
@@ -1157,6 +1158,76 @@ _owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))
   });
   out
 });
+/// §3.13 A2: the capture fields that borrow a `&T` parameter whole
+/// (`{ &p }`). C receives such a parameter by value, in the frame that made
+/// the future, and a returned future outlives that frame. The future keeps
+/// its own copy of the lent value (`_emit_lent_param_slots`) and points the
+/// capture at it (`_emit_lent_param_installs`). The caller's place stays
+/// frozen while the future lives, so the copy cannot go stale, and it owns
+/// nothing, so nothing drops it.
+_lent_param_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
+  out := ArrayList(TypeField).new();
+  struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => return(out));
+  borrows := match(capture_struct_borrows(&struct_id), .Some(bs) => bs, .None => return(out));
+  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  (i : usize) = usize(0);
+  while(i < fields.len(), i = (i + usize(1)), {
+    match(
+      fields.get(i),
+      .Some(f) => if(match(f.ty, .Pointer(_) => true, _ => false), {
+        (lent : bool) = false;
+        (bi : usize) = usize(0);
+        while(bi < borrows.len(), bi = (bi + usize(1)), {
+          if(match(borrows.get(bi), .Some(b) => (b.root_is_value_param && (b.path.len() == usize(0)) && (b.label == f.label)), .None => false), {
+            lent = true;
+          });
+        });
+        if(lent, {
+          out.push(f);
+        });
+      }),
+      .None => ()
+    );
+  });
+  out
+});
+/// The state machine's copy slot for each lent `&T` parameter
+/// (`_lent_param_capture_fields`).
+_emit_lent_param_slots :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  lent := _lent_param_capture_fields(capture_type);
+  (i : usize) = usize(0);
+  while(i < lent.len(), i = (i + usize(1)), {
+    match(
+      lent.get(i),
+      .Some(f) => match(
+        f.ty,
+        .Pointer(pointee) => em.emit_declaration_string_line(`  ${get_type_string(&pointee, &context.base)} __yo_lent_${sanitize_for_c_identifier(f.label.clone(), false)};  // the future's copy of the lent parameter ${f.label.clone()}`),
+        _ => ()
+      ),
+      .None => ()
+    );
+  });
+});
+/// Copy each lent `&T` parameter into the future `sm_ptr` (read through the
+/// capture while the parameter's frame is still live) and point the capture
+/// at the copy.
+_emit_lent_param_installs :: (fn(capture_type : &TypeValue, sm_ptr : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  lent := _lent_param_capture_fields(capture_type);
+  (i : usize) = usize(0);
+  while(i < lent.len(), i = (i + usize(1)), {
+    match(
+      lent.get(i),
+      .Some(f) => {
+        label := sanitize_for_c_identifier(f.label.clone(), false);
+        em.emit_string_line(`${indent.clone()}${sm_ptr.clone()}->__yo_lent_${label.clone()} = *(${sm_ptr.clone()}->__capture.${label.clone()});`);
+        em.emit_string_line(`${indent.clone()}${sm_ptr.clone()}->__capture.${label.clone()} = &${sm_ptr.clone()}->__yo_lent_${label.clone()};`);
+      },
+      .None => ()
+    );
+  });
+});
 /// Generate the state-machine dispose function for an async block: drops the
 /// capture struct, the result field (on normal completion, state == -1), and
 /// cross-boundary locals (on unwind/abort, state == -2). Called by `__yo_decr_rc`
@@ -1384,9 +1455,12 @@ generate_async_block_constructor :: (
   // Capture struct.
   match(
     capture_type,
-    .Some(_) => {
+    .Some(ctor_cap_ty) => {
       em.emit_line("  // Initialize captured variables");
       em.emit_line("  sm->__capture = __capture;");
+      lent_sm := String.from("sm");
+      lent_indent := String.from("  ");
+      _emit_lent_param_installs(&ctor_cap_ty, &lent_sm, &lent_indent, context);
       em.emit_line("");
     },
     .None => ()
@@ -3542,6 +3616,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     em.emit_declaration_string_line(`  ${result_type_c_name.clone()} result;`);
   });
   em.emit_declaration_string_line(`  ${ccn.clone()} __capture;`);
+  match(eff_capture_type, .Some(slot_cap_ty) => _emit_lent_param_slots(&slot_cap_ty, context), .None => ());
   (si : usize) = usize(0);
   while(si < sync_param_slots.len(), {
     match(sync_param_slots.get(si), .Some(slot) => em.emit_declaration_string_line(`  ${slot.c_type.clone()} ${slot.field_name.clone()};`), .None => ());
@@ -3871,6 +3946,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         .None => ()
       );
     });
+    match(eff_capture_type, .Some(inst_cap_ty) => _emit_lent_param_installs(&inst_cap_ty, &result_var, indent, context), .None => ());
   });
   // State 0 = not started (lazy); resume executes the closure.
   em.emit_string_line(`${indent.clone()}${result_var.clone()}->state = 0;`);
