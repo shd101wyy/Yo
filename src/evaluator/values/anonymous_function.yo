@@ -35,7 +35,6 @@ pragma(Pragma.AllowUnsafe);
   BK_MATCH,
   is_function_boundary_arrow,
   clone_expr_fresh_ids,
-  ast_expr_is_atom_of,
   ast_expr_is_capture_mode_entry,
   reject_old_mode_spelling,
   ast_expr_is_capture_list_params,
@@ -143,9 +142,9 @@ pragma(Pragma.AllowUnsafe);
 { create_function_body_evaluation_context, hard_swallow_diagnostic, forcing_depths, truncate_forcing_depths, publish_pending_member_phase_a, closure_literal_is_borrowed } :: import("../context.yo");
 { evaluated_body_contains_unwind } :: import("../../expr_traversal.yo");
 { get_all_some_types, type_is_control_bound, type_contains_rc_type, type_contains_some_type_deep, type_requires_explicit_copy, type_is_bitwise_copy } :: import("../../types/utils.yo");
-{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_escape } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, is_valid_variable_name, require_expr_not_consumed, set_expr_as_needs_to_call_dup, reject_second_class_escape, capture_place_crosses_cell } :: import("../utils.yo");
 { CaptureBorrow, register_capture_borrows, type_is_second_class } :: import("../../types/utils.yo");
-{ is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
+{ is_some_type, is_unit_type, is_void_type, is_never_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_fn_trait_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { synthesize_types, SynthesizeOptions, TypePair } :: import("../types/synthesizer.yo");
 {
@@ -842,31 +841,6 @@ _cap_place_root :: (fn(place : &AstExpr, fields : &mut ArrayList(String)) -> Opt
   });
   Option(AstExpr).Some(cur)
 });
-/// Decision 38 D: no hop of the evaluated place `ev` may pass through a cell
-/// (an `Rc`/`Arc`, any `ref` object, or a pointer dereference `p.*`). A borrow
-/// capture could not hold the cell's run-time mark: the closure may be copied,
-/// and a per-call mark would leave the pointer dangling between calls.
-_cap_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext) -> bool)({
-  (cur : AstExpr) = ev;
-  (walking : bool) = true;
-  while(walking, {
-    if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-      recv := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-      fld := match(cur, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(1)), .Some(b) => b, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-      if(ast_expr_is_atom_of(&fld, "*"), {
-        return(true);
-      });
-      recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => t_unit());
-      if(is_reference_struct_type(&recv_ty) || is_atomic_reference_struct_type(&recv_ty), {
-        return(true);
-      });
-      cur = recv;
-    }, {
-      walking = false;
-    });
-  });
-  false
-});
 /// Evaluate a closure's capture list `{ … }` (decision 35) in the scope that
 /// writes the literal. Each entry becomes one field of the capture struct:
 /// - `x` (or `x : e`) is by value: plain data copies, and a value that is
@@ -972,7 +946,7 @@ _evaluate_capture_list :: (
       if(is_unit_type(&place_ty), {
         _cap_list_error(ctx, exn, ast_expr_token(&place_e), `A borrow capture cannot name a unit-typed place: it has no runtime storage.`);
       });
-      if(_cap_place_crosses_cell(&ev_place, ctx), {
+      if(capture_place_crosses_cell(&ev_place, ctx), {
         _cap_list_error(
           ctx,
           exn,

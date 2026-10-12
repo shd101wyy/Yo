@@ -60,7 +60,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -164,7 +164,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, &nm)
 });
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
-{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, Repair, Span } :: import("../../diagnostics.yo");
+{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -2174,6 +2174,70 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
       .None => ()
     ),
     _ => ()
+  );
+});
+/// §3.13 A2 at an io builtin call: `io.async` registers its body's borrows
+/// on the future it returns (`_register_borrowing_future`), and `io.await`
+/// checks the places its operand's call lent (`_check_awaited_future_lends`).
+_note_borrowing_future_call :: (fn(expr : &AstExpr, ret_ty : &TypeValue, args : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)(
+  cond(
+    !capture_borrows_exist() => (),
+    is_io_async_call(expr) => _register_borrowing_future(ret_ty, args, ctx),
+    is_io_await_call(expr) => _check_awaited_future_lends(args, ctx, exn),
+    true => ()
+  )
+);
+/// Decision 38 D as amended for futures (§3.13 A2): the future `io.await` is
+/// given borrows the places its call lent to the parameters the future
+/// captures. A lent place reached through an `Rc`/`Arc` deref has no run-time
+/// mark held across the suspension (decision 28's marks are call-scoped), so
+/// a write through another handle while this task waits would go unseen.
+_check_awaited_future_lends :: (fn(args : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
+  operand := match(args.get(usize(0)), .Some(a) => _unlabeled_argument(&a), .None => return(()));
+  bs := ArrayList(CaptureBorrow).new();
+  match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&operand)), .Some(oi) => collect_type_borrows(&oi.ty, &mut bs), .None => ());
+  if(bs.len() == usize(0), {
+    return(());
+  });
+  match(
+    operand,
+    .FnCall(_, op_callee, op_args, _, _) => {
+      labels := match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
+        .Some(ci) => match(ci.ty, .Func({ meta : om }) => om.*.param_labels, _ => ArrayList(String).new()),
+        .None => ArrayList(String).new()
+      );
+      (ai : usize) = usize(0);
+      while(ai < op_args.len(), ai = (ai + usize(1)), {
+        label := match(labels.get(ai), .Some(l) => l, .None => String.new());
+        (captured : bool) = false;
+        (bi : usize) = usize(0);
+        while(bi < bs.len(), bi = (bi + usize(1)), {
+          if(match(bs.get(bi), .Some(b) => (b.root_name == label), .None => false), {
+            captured = true;
+          });
+        });
+        lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+        if(captured && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
+          place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+          if(capture_place_crosses_cell(&place, ctx), {
+            raise_flow_violation(
+              with_code(
+                format_error_message_with_help(
+                  ast_expr_token(&place),
+                  `This future borrows \`${ast_expr_to_string(&place)}\` across its suspension, and that place lives in a shared cell (\`Rc\`/\`Arc\`, or any \`ref\` object or pointer dereference): no run-time borrow mark is held while the task waits, so a write through another handle would go unseen (plans/VALUES_BY_DEFAULT.md §3.13 A2, decision 38 D).`,
+                  Option(String).Some(`pass the handle and derive the place inside the future (\`${label} : &Rc(...)\`, reading \`${label}.*.field\` at each use), or own the value in the task`)
+                ),
+                E_BORROW_ESCAPES
+              ),
+              ctx,
+              exn
+            );
+          });
+        });
+      });
+    },
+    .Atom(_, _) => ()
   );
 });
 /// Whether a call's result, resolved through the call's env
@@ -9229,7 +9293,6 @@ Fix: wrap the call:
           // shared id cross-poisoned sibling calls — item 7 of
           // issues/retired/yo-self-async-emission-cluster.md).
           ret_type_rt = _freshen_io_async_result(&ret_type_rt);
-          _register_borrowing_future(&ret_type_rt, &args, ctx);
           match(
             _future_output_some_id(&ret_type_rt),
             .Some(_) => match(
@@ -9282,6 +9345,7 @@ Fix: wrap the call:
         if(_adopt_deep_resolution(&ret_type_rt, &rt_rt_resolved), {
           ret_type_rt = rt_rt_resolved;
         });
+        _note_borrowing_future_call(expr, &ret_type_rt, &args, ctx, exn);
         out_rt := new_expr_info(&call_result_rt.caller_env, &ret_type_rt);
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(&ret_type_rt, env));
         out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
@@ -9914,7 +9978,6 @@ Fix: wrap the call:
             // (fresh wrapper FIRST, then the output takes the closure's
             // concrete result as its resolution).
             ret_type_none = _freshen_io_async_result(&ret_type_none);
-            _register_borrowing_future(&ret_type_none, &args, ctx);
             match(
               _future_output_some_id(&ret_type_none),
               .Some(_) => match(
@@ -9973,6 +10036,7 @@ Fix: wrap the call:
           if(_adopt_deep_resolution(&ret_type_none, &rt_none_resolved), {
             ret_type_none = rt_none_resolved;
           });
+          _note_borrowing_future_call(expr, &ret_type_none, &args, ctx, exn);
           out_none := new_expr_info(&call_result_none.caller_env, &ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(&ret_type_none, &callee_env));
           out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
