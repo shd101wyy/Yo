@@ -41,6 +41,77 @@ collection(idx) = val; // calls index(collection, idx), writes through pointer
 p := addr_of(collection(idx)); // calls index(collection, idx), no deref
 ```
 
+## Reads and writes: `Index` and `IndexMut`
+
+Values by default (V2b, decision 34) splits element access in two, as Rust does. A **read** goes through `index`, a read projection that borrows the container shared. A **write** goes through `index_mut`, a mutable projection that borrows it exclusively:
+
+```yo ignore
+Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index : (fn(self : &Self, idx : Idx) -> &Self.Output)
+  )
+);
+IndexMut :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)
+  )
+);
+```
+
+The compiler accepts these shapes today. The bundled std's `Index` switches to them, and gains `IndexMut`, with the next seed release: until then the prelude still declares the single `index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)` described in the next section, which serves reads and writes alike.
+
+- **Which method a subscript calls.** `x(i)` read as a value calls `index`. Every write calls `index_mut`: `x(i) = v`, a field of the element (`x(i).f = v`), a nested element (`grid(i)(j) = v`), a `self : &mut Self` method on the element (`x(i).push(v)`), a `&mut` argument (`f(&mut x(i))`), `addr_of(x(i))`, and a `&mut` local borrow of it. A read-modify-write such as `x(i) = (x(i) + 1)` is a read and then a write. Yo has no compound assignment operator.
+- **Read-only elements.** A type that implements `Index` without `IndexMut` has read-only elements, and a write through `x(i)` is a compile error naming the missing `IndexMut`.
+- **A writable receiver.** `index_mut` takes `self : &mut Self`, so writing `x(i)` through a read-only borrow of `x` (a `x : &T` parameter) is E0908.
+- **One `Output`.** `Index` and `IndexMut` of the same index type must agree on `Output`.
+
+### Projections
+
+`index` and `index_mut` are **projections** (decision 24): functions whose result is a borrow, `-> &T` or `-> &mut T`. A projection yields one place. Its result expression is that place written with the borrow sigil of its result type:
+
+```yo ignore
+Trio :: struct(a : i32, b : i32, c : i32);
+impl(
+  Trio,
+  Index(usize)(
+    Output : i32,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
+      cond(
+        (idx == usize(0)) => &self.a,
+        (idx == usize(1)) => &self.b,
+        true => &self.c
+      )
+    )
+  )
+);
+impl(
+  Trio,
+  IndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      cond(
+        (idx == usize(0)) => &mut self.a,
+        (idx == usize(1)) => &mut self.b,
+        true => &mut self.c
+      )
+    )
+  )
+);
+t := Trio(a : i32(1), b : i32(2), c : i32(3));
+t(usize(1)) = i32(20); // index_mut
+assert(t(usize(1)) == i32(20), "index");
+```
+
+The rules a projection follows:
+
+- **The place is reached from a borrow parameter.** The place is rooted at one of the projection's own `&`/`&mut` parameters, through field steps and element accesses. A local, a temporary, a by-value parameter or a module-level binding is rejected, because its storage ends with the call. A `-> &mut T` projection's place is rooted at a `&mut` parameter.
+- **The sigil matches the result.** A `-> &T` projection writes `&place`, and a `-> &mut T` one writes `&mut place`.
+- **Raw-pointer places.** In a `pragma(Pragma.AllowUnsafe)` file the place may be a raw-pointer dereference (`&(p &+ i).*`), and the result may be the raw pointer `*T` itself. This is the form std's buffers use.
+- **ABI.** A projection's `&T` parameters are passed by pointer (a `&T` parameter is passed by value elsewhere), so the place it returns is the caller's.
+- **Where a projection is called.** For now a projection is reached through the subscript its trait dispatches (`x(i)`). A direct call such as `t.index(i)` or `f(&x)` is a compile error until the rest of decision 24 lands: a projection result used as a receiver, an argument, an operand, or bound to a local.
+
 ## Implementing Index
 
 ### Basic Implementation
@@ -241,7 +312,7 @@ b := s.byte_at(usize(0)); // u8(72) — byte-level access ('H'); panics past the
 c := s.get_byte(usize(9)); // .None — the checked form
 ```
 
-`index` returns a writable place: a write through it (`s(i) = b`) would change every string sharing the buffer, and it could leave invalid UTF-8 behind. Rust's `String` has no writable byte index either. A read-only `s(i)` returns once `Index` separates reads from writes (a by-value read form beside the place form). For character-level access, use the `chars()` iterator. The range sugar `s(a..b)` is unaffected; it and every other string index (`substring`, `index_of`, …) are byte offsets — see [STRINGS.md](./STRINGS.md) for the full contract.
+`index` returns a writable place: a write through it (`s(i) = b`) would change every string sharing the buffer, and it could leave invalid UTF-8 behind. Rust's `String` has no writable byte index either. Once the bundled std switches to the read/write split (see [Reads and writes](#reads-and-writes-index-and-indexmut)), `String` implements `Index(usize)` with `Output : u8` and no `IndexMut`: `s(i)` reads a byte, and `s(i) = b` is a compile error. For character-level access, use the `chars()` iterator. The range sugar `s(a..b)` is unaffected; it and every other string index (`substring`, `index_of`, …) are byte offsets — see [STRINGS.md](./STRINGS.md) for the full contract.
 
 ## Error Handling
 

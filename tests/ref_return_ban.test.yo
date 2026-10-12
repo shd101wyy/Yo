@@ -1,32 +1,43 @@
-//! v4 (plans/archive/BORROW_EXCLUSIVITY.md): `inout` may not appear in
-//! return-type position — inout params are second-class and exist only as
-//! parameters. A returned inout would be a pointer into storage the caller
-//! can reallocate or free. (Renamed from `ref` — plans/reference/REF_REFERENCE_SEMANTICS.md.)
+//! v4 (plans/archive/BORROW_EXCLUSIVITY.md) banned a borrow in return-type
+//! position. Decision 24 (plans/VALUES_BY_DEFAULT.md V2b) lifts the ban for
+//! projections: `-> &T` / `-> &mut T` yields a place written with the sigil of
+//! the result's mode (`&mut p.x`), rooted at a borrow parameter. A body that
+//! yields a VALUE is still rejected, and a borrow is still not a type.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 
-// Unlabeled `-> &mut T` is rejected.
+// Unlabeled `-> &mut T` whose body yields a value, not `&mut p.x`, is rejected.
 comptime_expect_error(
   unlabeled_ref_return :: (fn(p : &mut Point) -> &mut i32)(
     p.x
   )
 );
 
-// Labeled `-> (name : &mut T)` is rejected.
+// Labeled `-> (name : &mut T)` yielding a value is rejected.
 comptime_expect_error(
   labeled_ref_return :: (fn(p : &mut Point) -> (out : &mut i32))(
     p.x
   )
 );
 
-// A trait method declaring `-> &mut T` is rejected.
-comptime_expect_error(
-  trait_method_ref_return :: trait(
-    Element : Type,
-    project_like : (fn(self : &mut Self, pos : usize) -> &mut Self.Element)
+// A trait method may declare `-> &mut T`: it is a projection (decision 24).
+trait_method_ref_return :: trait(
+  Element : Type,
+  project_like : (fn(self : &mut Self, pos : usize) -> &mut Self.Element)
+);
+impl(
+  Point,
+  trait_method_ref_return(
+    Element : i32,
+    project_like : (fn(self : &mut Self, pos : usize) -> &mut Self.Element)(
+      cond(
+        (pos == usize(0)) => &mut self.x,
+        true => &mut self.y
+      )
+    )
   )
 );
 

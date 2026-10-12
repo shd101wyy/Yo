@@ -263,13 +263,15 @@ comptime_expect_error(
   }),
   "is a borrow mode, not a type"
 );
+// A borrow result is a projection (decision 24): it yields a place spelled
+// with its sigil, never a value.
 comptime_expect_error(
   bs_result :: (fn(s : &String) -> &String)(s),
-  "A function cannot return a borrow"
+  "a projection (decision 24)"
 );
 comptime_expect_error(
   bs_mut_result :: (fn(s : &mut String) -> &mut String)(s),
-  "A function cannot return a borrow"
+  "a projection (decision 24)"
 );
 comptime_expect_error(
   bs_annotation_mismatch :: (fn() -> unit)({

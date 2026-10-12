@@ -86,7 +86,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy, fn_param_is_ptr_borrow } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -6070,6 +6070,30 @@ _evaluate_function_call_unanchored :: (
     .Some(once_ci) => _consume_fnonce_callee(&evaluated_callee, expr, &once_ci, env, ctx, exn),
     .None => ()
   );
+  // Decision 24, first cut: a projection (`-> &T` / `-> &mut T`) is reached
+  // through the subscript its trait dispatches (`x(i)` → `Index.index` /
+  // `IndexMut.index_mut`). Its result at any other call site (a receiver,
+  // an argument, an operand, a binding) is the rest of the decision, not
+  // yet built; the call is rejected rather than lowered as a by-value
+  // result of a function that returns a pointer.
+  match(
+    callee_info_opt,
+    .Some(pj_ci) => match(
+      pj_ci.ty,
+      .Func({ meta : pj_m }) => if(pj_m.*.result_is_ref, {
+        exn.throw(
+          dyn(
+            format_error_message(
+              ast_expr_token(expr),
+              String.from("A projection (a function returning `&T` or `&mut T`, decision 24) is reached through the subscript its trait dispatches: write `x(i)` for `Index.index` / `IndexMut.index_mut`. Calling one directly is not supported yet (plans/VALUES_BY_DEFAULT.md V2b).")
+            )
+          )
+        );
+      }),
+      _ => ()
+    ),
+    .None => ()
+  );
   // Resolve this call's io-builtin marker at the dispatch choke point —
   // BEFORE any arm-specific processing, so it fires for BOTH the concrete-
   // FuncVal arms AND the UnknownVal fallthrough (a def-time body eval sees
@@ -8427,7 +8451,7 @@ Fix: wrap the call:
           // String/struct/enum leaked
           // (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
           p_is_own := match(fv_param_is_owning.get(pi), .Some(o) => o, .None => false);
-          var_opt := bind_parameter(&fresh_env, &pname, &bind_ty, &bind_val, is_ct, p_is_ref, p_is_own, synthetic_token(&pname, &env.module_path));
+          var_opt := bind_parameter(&fresh_env, &pname, &bind_ty, &bind_val, is_ct, p_is_ref, p_is_own, synthetic_token(&pname, &env.module_path), match(callee_info_opt, .Some(ci) => fn_param_is_ptr_borrow(&ci.ty, pi), .None => false));
           match(
             var_opt,
             .Some(v) => {

@@ -976,6 +976,11 @@ evaluate_anonymous_module_begin_exprs :: (
   ) -> AnonModuleResult
 )({
   depths := forcing_depths();
+  // An impl abandoned in its field loop leaves its working-trait bindings
+  // (`Output : i32`) installed; the abort edge restores them with the forcing
+  // stacks (issues/fixed/an-abandoned-impl-leaks-its-working-trait-bindings.md).
+  wt_labels := ctx.current_impl_trait_field_labels;
+  wt_types := ctx.current_impl_trait_field_types;
   prev_mod_exprs := get_module_begin_exprs();
   prev_mod_idx := get_module_begin_expr_index();
   ___ca := _take_walk_abort();
@@ -990,6 +995,8 @@ evaluate_anonymous_module_begin_exprs :: (
     _take_walk_abort(),
     .Some(err) => {
       truncate_forcing_depths(depths);
+      ctx.current_impl_trait_field_labels = wt_labels;
+      ctx.current_impl_trait_field_types = wt_types;
       restore_module_walk(&prev_mod_exprs, prev_mod_idx);
       exn.throw(&err);
     },

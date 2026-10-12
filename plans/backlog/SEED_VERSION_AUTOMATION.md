@@ -307,6 +307,33 @@ to resolve in the tree's prelude.
   - delete the prelude `Box`/`box`;
   - delete the `Box` row from `shared_cell_names_at`.
 
+## Seed-gated follow-up (2026-10-13): the `Index`/`IndexMut` split (VALUES_BY_DEFAULT V2b)
+
+**Generation A** (feat/vbd-v2b-index-mut): the compiler accepts projection
+results (`-> &T` / `-> &mut T`, decision 24) and dispatches the subscript
+through either `index` shape. Writes go through `index_mut` when the read
+resolved to a projection. The as-built note is in `plans/VALUES_BY_DEFAULT.md`
+V2b.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
+v0.2.59 rejects `-> &T` ("A function cannot return a borrow"), and the seed
+evaluates `std/prelude.yo` when it builds `src/`, so none of this can land
+before then:
+- the prelude's `Index` becomes `index : (fn(self : &Self, idx : Idx) ->
+  &Self.Output)`;
+- `IndexMut(Idx)` is added (`Output : Type`, `index_mut : (fn(self : &mut
+  Self, idx : Idx) -> &mut Self.Output)`), and so is `IndexUncheckedMut`
+  (`index_unchecked_mut`), the unchecked-write twin, with `IndexUnchecked`
+  kept as the read half;
+- every impl splits: `Array(T, N)` (prelude), `ArrayList` (with its
+  `IndexUnchecked`), `Deque`, `LinkedList`, `HashMap`, `BTreeMap` and
+  `JsonValue` (`Index(String)`, `Index(usize)`);
+- `String` gains `Index(usize)` with `Output : u8` and no `IndexMut`;
+- the dispatch keys `index`/`index_mut` on the prelude traits instead of the
+  method names;
+- `tests/index.test.yo` moves its local `VIndex`/`VIndexMut` cases onto the
+  prelude traits.
+
 ## Seed-gated follow-up (2026-10-06): local borrows (VALUES_BY_DEFAULT V3)
 
 **Generation A DONE 2026-10-06** (feat/vbd-local-borrows): the compiler

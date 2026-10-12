@@ -226,6 +226,8 @@ import("std/fmt");
   ast_expr_is_local_borrow_mode_call,
   borrow_mode_not_a_type_message
 } :: import("../../expr.yo");
+{ projection_tail_mode } :: import("../../expr.yo");
+{ is_never_type } :: import("../../types/guards.yo");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
@@ -469,6 +471,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
   evaluate_yo_var_is_owning_the_rc_value
 } :: import("../builtins/var_fns.yo");
 { evaluate_function_call } :: import("../calls/function.yo");
+{ register_promote_index_places } :: import("../calls/index_trait.yo");
 { evaluate_iso_type_call } :: import("../calls/iso.yo");
 { evaluate_raw_pointer_call } :: import("../calls/pointer.yo");
 { panic, assert } :: import("std/assert");
@@ -1557,6 +1560,44 @@ _surfaces_raw_pointer :: (fn(ty : &TypeValue) -> bool)({
     _ => false
   )
 });
+/// A projection's result spine (decision 24): the marked `addr_of(place)` of
+/// a sigil result (`rewrite_projection_tails`), or a block, `cond` or `match`
+/// whose every result position is one (or never returns). Its `*(T)` is the
+/// projection's `T*` return, never a raw pointer the program holds, so the
+/// safe-code raw-pointer gate passes it.
+_is_projection_result_value :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
+  cond(
+    projection_tail_mode(e).is_some() => true,
+    ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => match(
+      e,
+      .FnCall(_, _, pr_args, _, _) => match(pr_args.last(), .Some(t) => _is_projection_result_value(&t, ctx), .None => false),
+      .Atom(_, _) => false
+    ),
+    (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => match(
+      e,
+      .FnCall(_, _, pr_args, _, _) => {
+        (all_arms : bool) = true;
+        (any_arm : bool) = false;
+        (k : usize) = usize(0);
+        while(k < pr_args.len(), {
+          a := pr_args(k);
+          if(ast_expr_is_fn_call_of(&a, "=>", Option(usize).Some(usize(2))), {
+            any_arm = true;
+            arm_body := match(a, .FnCall(_, _, ab_args, _, _) => match(ab_args.get(usize(1)), .Some(b) => b, .None => a), .Atom(_, _) => a);
+            arm_never := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&arm_body)), .Some(ai) => is_never_type(&ai.ty), .None => false);
+            if(!arm_never && !_is_projection_result_value(&arm_body, ctx), {
+              all_arms = false;
+            });
+          });
+          k = (k + usize(1));
+        });
+        any_arm && all_arms
+      },
+      .Atom(_, _) => false
+    ),
+    true => false
+  )
+);
 _evaluate_expression_raw_wrapper :: (
   fn(
     expr : &AstExpr,
@@ -1586,7 +1627,7 @@ _evaluate_expression_raw_wrapper :: (
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&result)),
       .Some(ri) => {
         is_runtime := match(ri.value, .Some(v) => is_unknown_val(&v), .None => true);
-        if(is_runtime && _surfaces_raw_pointer(&ri.ty), {
+        if(is_runtime && _surfaces_raw_pointer(&ri.ty) && !_is_projection_result_value(&result, ctx), {
           tok := ast_expr_token(&result);
           if(!is_pointer_value_capable_file(Option(String).Some(tok.module_path.clone()), ctx.std_path.clone()), {
             exn.throw(
@@ -1612,6 +1653,7 @@ register_evaluate_expression :: (fn() -> unit)({
   set_evaluate_expression_fn(_evaluate_expression_wrapper);
   set_evaluate_expression_raw_fn(_evaluate_expression_raw_wrapper);
   register_rerun_pending_def_evals();
+  register_promote_index_places();
   register_pending_definition_forcer();
   register_function_value_marker();
   ()

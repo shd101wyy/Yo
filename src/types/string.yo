@@ -218,7 +218,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
         ret_s := recur(&ret, _d + usize(1), visited);
         // A control function prints as written: `ctl(...)`, not `fn(...)`.
-        `${if(__fm1.*.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${if(__fm1.*.result_is_ref, `&mut ${ret_s}`, ret_s)}${using_suffix}`
+        `${if(__fm1.*.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${cond(!__fm1.*.result_is_ref => ret_s, __fm1.*.result_is_mut_ref => `&mut ${ret_s}`, true => `&${ret_s}`)}${using_suffix}`
       },
       .Struct({ id, name, field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns }) => cond(
         // Source-namespace structs (anonymous modules / imports) keep the

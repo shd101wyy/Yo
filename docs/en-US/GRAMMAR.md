@@ -322,10 +322,13 @@ Placement rules for `&` and `&mut`:
   borrow's place. `T :: &i32`, `ArrayList(&T)`, `Option(&T)`, a struct field
   `f : &T` and `&&T` are errors ("a borrow mode, not a type"). Decision 43
   (confirmed 2026-10-10) makes `&T`/`&mut T` second-class types, which lifts
-  these errors and the return-type ban; until its phase lands, they are a mode.
-- They are **rejected in return-type position** (`-> &T`, `-> &mut T`,
-  `-> (name : &mut T)`): a function cannot return a borrow until decision 43's
-  phase lands (projections, decision 24, are not implemented either).
+  these errors; until its phase lands, they are a mode.
+- In **return-type position** (`-> &T`, `-> &mut T`, `-> (name : &mut T)`)
+  they declare a **projection** (decision 24): the body yields a place written
+  with the result's sigil (`&self.a`, `&mut self.rows(i)`), rooted at one of
+  the function's borrow parameters. A projection is reached through the
+  subscript (`x(i)`); calling one directly is not supported yet
+  ([INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)).
 - `mut` is a reserved word: a binding or parameter named `mut` is an error.
 - The deleted mode-word spellings `imm(x) : T`, `mut(x) : T`, `inout(x) : T`,
   `comptime(imm(x)) : T`, `-> imm(T)`, `imm(y) := place`, `mut(cur) = place`,

@@ -98,7 +98,8 @@ pragma(Pragma.AllowUnsafe);
   type_is_bitwise_copy,
   type_contains_rc_type,
   type_has_no_open_some,
-  resolve_cell_chain
+  resolve_cell_chain,
+  fn_param_is_ptr_borrow
 } :: import("../../types/utils.yo");
 { is_some_type, is_function_type, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type, is_unit_type, is_type_0, is_void_type, is_type_hierarchy_type, is_fn_trait_type, is_never_type, is_pointer_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type_with_expected, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -176,6 +177,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_index_trait_ptr_type
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
+{ call_promote_index_places_for_write } :: import("../context.yo");
 {
   SynthesizeResult,
   SynthesizeOptions,
@@ -1426,7 +1428,10 @@ check_if_function_parameter_matches_argument :: (
     /// `argument_is_aliased_by_inout` for this argument.
     (aliased_by_inout : bool) ?= false,
     /// The parameter is declared `sink(x)`: the argument moves, never shared.
-    (param_is_sink : bool) ?= false
+    (param_is_sink : bool) ?= false,
+    /// A projection's `&T` parameter, passed by pointer
+    /// (`fn_param_is_ptr_borrow`): it binds as a non-reassignable reference.
+    (param_is_ptr_borrow : bool) ?= false
   ) -> CheckParamResult
 )({
   // Step 1: labels are readability-only (see `strip_argument_label`).
@@ -1468,6 +1473,11 @@ check_if_function_parameter_matches_argument :: (
   });
   evaled_arg := evaluate_expression_raw(&actual_arg, caller_env, ctx, exn);
   ctx.expected_type = saved_exp;
+  // A `&mut` argument or receiver writes the place it names: an element
+  // access on it dispatches `IndexMut` (decision 34, V2b).
+  if(param_is_ref, {
+    call_promote_index_places_for_write(&evaled_arg, caller_env, ctx, exn);
+  });
   // Extract ExprInfo for the evaluated arg.
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg));
   arg_info := match(
@@ -1706,7 +1716,7 @@ ${ast_expr_to_string(&actual_arg)}`
   // own(value) : V) -> Rc(V))(Rc(V)(value))`), so every boxed value and
   // every `AnyError` payload leaked
   // (issues/fixed/dyn-box-dispose-is-emitted-with-an-empty-body.md).
-  bound_param_opt := bind_parameter(&callee_env_r, param_label, &bind_pt, &arg_value, is_ct_only, param_is_ref, param_is_owning, &param_tok);
+  bound_param_opt := bind_parameter(&callee_env_r, param_label, &bind_pt, &arg_value, is_ct_only, param_is_ref, param_is_owning, &param_tok, param_is_ptr_borrow);
   bound_param_opt;
   CheckParamResult(
     callee_env : callee_env_r,
@@ -3548,8 +3558,14 @@ create_specialized_function_inline :: (
             ctx.captured_variables = Option(HashMap(String, CapturedVarInfo)).None;
           });
           ctx.is_evaluating_loop_body = Option(LoopBodyCtx).None;
+          // A projection's body yields its place's address (decision 24,
+          // `rewrite_projection_tails`), so a `cond`/`match` tail is typed
+          // against `*(T)`, not the `T` the result names.
           ctx.expected_type = Option(ExpectedTypeCtx).Some(
-            ExpectedTypeCtx(ty : spec_ret_ty.clone(), env : callee_env)
+            ExpectedTypeCtx(
+              ty : match(func_type, .Func({ meta : se_m }) => if(se_m.*.result_is_ref, t_ptr(&spec_ret_ty), spec_ret_ty.clone()), _ => spec_ret_ty.clone()),
+              env : callee_env
+            )
           );
           ctx.function_return_impl_concrete_type = Option(ArrayList(ImplConcreteTypeInfo)).Some(
             ArrayList(ImplConcreteTypeInfo).new()
@@ -4392,6 +4408,7 @@ create_specialized_function_inline :: (
               sp_pio := __fm5.*.param_is_owning;
               sp_pis := match(__fm5.*.param_is_sink, .Some(l) => l, .None => ArrayList(bool).new());
               sp_rir := __fm5.*.result_is_ref;
+              sp_rimr := __fm5.*.result_is_mut_ref;
               sp_hv := __fm5.*.has_variadic;
               sp_ie := __fm5.*.is_extern;
               sp_en := __fm5.*.extern_name;
@@ -4982,6 +4999,7 @@ create_specialized_function_inline :: (
                     param_is_ref : sp_pir_f,
                     param_is_owning : sp_pio_f,
                     result_is_ref : sp_rir,
+                    result_is_mut_ref : sp_rimr,
                     has_variadic : sp_hv,
                     is_extern : sp_ie,
                     extern_name : sp_en,
@@ -7861,7 +7879,8 @@ try_to_call_function_with_arguments :: (
           match(call_param_assigned.get(pi), .Some(a) => a, .None => Option(EvalValue).None),
           callee_is_extern,
           argument_is_aliased_by_inout(&parg, match(pref.get(pi), .Some(b) => b, .None => false), &s7_inout_roots),
-          p_sink
+          p_sink,
+          fn_param_is_ptr_borrow(&norm_func_type2, pi)
         );
         if(!(is_method_call && (pi == usize(0))), {
           if(!call_is_operator, {

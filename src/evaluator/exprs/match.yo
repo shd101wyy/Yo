@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
 { format_error_message, format_error_message_with_help, warning_diagnostic_of_token } :: import("../../error.yo");
 { emit_warning } :: import("../../diagnostics.yo");
 { merge_and_check_envs, reject_mixed_closure_arms, consume_case_body_temp_var, attach_temp_variable_to_expr, adopt_never_type, reset_sibling_flow_state, keep_last_arm_moves, audit_pending_copies_enabled, audit_note_match_binding, LocalBorrowInfo, local_borrows_active, local_borrow_scrutinee_source, local_borrow_note_pattern_binding } :: import("../utils.yo");
-{ set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, local_borrow_info_of_variable } :: import("../utils.yo");
+{ set_expr_as_consumed, drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, note_consuming_match_scrutinee, LocalBorrowPlace, LocalBorrowAccess, local_borrow_place_of, local_borrow_access, local_borrow_require_writable, variable_is_mut_borrow, variable_is_imm_borrow } :: import("../utils.yo");
 { evaluate_begin_expression, attach_consumed_binding_exit_drops } :: import("./begin.yo");
 { evaluate_expression, evaluate_expression_raw, evaluate_expression_guarded } :: import("./expr.yo");
 {
@@ -366,23 +366,10 @@ _scrutinee_is_projection :: (fn(scr : &AstExpr, env : &Environment) -> bool)(
     )
   )
 );
-/// A binding that holds a `mut` place: a `mut` parameter, a `mut(y) :=`
-/// local borrow, or a binding of a `mut` match.
-_variable_is_mut_borrow :: (fn(v : &Variable) -> bool)(
-  v.is_ref && match(local_borrow_info_of_variable(v), .Some(info) => info.is_mut, .None => true)
-);
-/// A binding that holds an `imm` borrow: an `imm` parameter, an `imm(y) :=`
-/// local borrow, or a binding of a borrowing match or a `for` loop.
-_variable_is_imm_borrow :: (fn(v : &Variable) -> bool)(
-  cond(
-    v.is_ref => !_variable_is_mut_borrow(v),
-    v.is_module_level => false,
-    v.is_parameter => !v.is_owning_the_rc_value,
-    // A pattern binding of a borrowing match, a `for` element: not
-    // reassignable and owning nothing (a plain local is reassignable).
-    true => (!v.is_owning_the_rc_value && !v.is_reassignable && !v.is_compile_time_only)
-  )
-);
+/// A binding that holds a `mut` place (`variable_is_mut_borrow`).
+_variable_is_mut_borrow :: (fn(v : &Variable) -> bool)(variable_is_mut_borrow(v));
+/// A binding that holds an `imm` borrow (`variable_is_imm_borrow`).
+_variable_is_imm_borrow :: (fn(v : &Variable) -> bool)(variable_is_imm_borrow(v));
 /// E0901 for a scrutinee a `match` would have to move but cannot: `why`
 /// says what owns it, and the help names the borrow that matches it in place.
 _throw_unmovable_scrutinee :: (fn(scr : &AstExpr, ty : &TypeValue, why : &String, ctx : &EvalContext, exn : Exception) -> unit)({
@@ -2101,8 +2088,8 @@ evaluate_match :: (
                     .Some(ft) => {
                       match(
                         ft,
-                        .Func({ result : result_box }) => {
-                          ret_type_em = Option(TypeValue).Some(result_box);
+                        .Func({ result : result_box, meta : rb_meta }) => {
+                          ret_type_em = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box));
                         },
                         _ => ()
                       );

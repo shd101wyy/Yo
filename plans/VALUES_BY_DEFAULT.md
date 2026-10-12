@@ -61,7 +61,9 @@ Progress:
 - **In progress:**
   - V3's remaining async work (§3.13): A2, A3 (Generation A landed with
     A1's PR; the prelude switch waits for the seed), A4, A5's remaining
-    lines, A6.
+    lines, A6;
+  - V2b: "Projections first", Generation A (feat/vbd-v2b-index-mut; the
+    prelude switch is Generation B).
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
@@ -4751,6 +4753,85 @@ compiler; the std shapes are plain structs the seed lowers):
   - `String`'s byte index stays read-only (`Index` only).
   - `plans/reference/INDEX_TRAIT.md` gets the amendment, dropping its
     "No `IndexMut`" position.
+  - **As built, Generation A (feat/vbd-v2b-index-mut, the compiler):**
+    - **Projections.** A function type may end `-> &T` or `-> &mut T`
+      (`FuncMeta.result_is_ref`, with `result_is_mut_ref` telling the
+      modes apart), labeled or not. Nesting one in `comptime(...)` or in
+      another borrow is an error. The body yields its place with the sigil
+      of the result's mode (`&self.a`, `&mut self.rows(i)`). Each result
+      position becomes a marked `addr_of(place)` before evaluation
+      (`rewrite_projection_tails`, `src/expr.yo`): the block tail, every
+      `cond`/`match` arm and every `return(...)`. The function then
+      returns `T*` through the pre-existing ref-return lowering.
+    - **The root rule (R3, first cut).** At the marker,
+      `evaluate_address_call` checks that the place is rooted at one of the
+      projection's own borrow parameters, through field steps, element
+      accesses and raw-pointer derefs. A `&mut` result needs a `&mut`
+      parameter, and a sigil whose mode differs from the result's is an
+      error. A raw `*T` result passes the type check, and only an
+      `AllowUnsafe` file can produce one; that is std's buffer form.
+      Re-pointing (decision 25's projection step) and pattern bindings of a
+      parameter are not roots yet.
+    - **ABI.** A projection's `&T` parameters are passed by pointer
+      (decision 34's `const T*` choice, `fn_param_is_ptr_borrow` /
+      `fn_abi_param_is_ptr` in `src/types/utils.yo`). They bind as
+      non-reassignable references, the shape of a `&` capture, so every
+      write through one is E0908. Without this, a `&Self` receiver holding
+      its element inline (`Array(T, N)`, a struct's fields) returned a
+      pointer into the callee's copy.
+    - **The split.** The subscript dispatch accepts both `index` shapes
+      (`_index_shape_of`). Every write position re-dispatches an element
+      access that resolved to a read projection to the receiver's
+      `index_mut` (`promote_index_places_for_write`). The write positions
+      are the `=` target and its field and nested-element steps, a `&mut`
+      argument or receiver, `addr_of`, a `&mut` local borrow, and a `&mut`
+      projection's result. The errors are a missing `index_mut`, a
+      read-only receiver (E0908), and an `Output` mismatch. The pre-V2b
+      `-> *Self.Output` method serves reads and writes as before. Yo has no
+      compound assignment: `x(i) = (x(i) + 1)` is a read dispatch and then
+      a write dispatch. A nested element receiver (`g(i)(j)`) is no longer
+      spilled to a temporary in codegen, so the outer write reaches the
+      container.
+    - **Generic projections.** A specialized projection body, its
+      `return(&place)` and an all-arms-return `cond`/`match` are typed
+      against `*(T)`, and so is a `return(...)` argument. The unwind,
+      escape-check and scope-result (`__yo_scope_ret`) paths in codegen
+      emit the `T*` result type. Three bugs surfaced on the way, each fixed
+      with a test in `tests/index.test.yo`:
+      `issues/fixed/a-swallowed-index-specialization-leaks-its-function-context.md`,
+      `issues/fixed/a-projections-scope-result-temporary-is-typed-as-its-element.md`
+      and `issues/fixed/an-abandoned-impl-leaks-its-working-trait-bindings.md`.
+    - **Safe code.** A projection's own `*(T)` result is not a raw-pointer
+      value for the safe-code gate, so a safe file may declare
+      projections.
+    - **`IndexUnchecked`.** The twin recorder accepts both result shapes.
+      A promoted write drops the read twin and looks for
+      `IndexUncheckedMut.index_unchecked_mut`.
+    - **Not yet built.** A projection called other than through the
+      subscript (`t.index(i)`, `f(&x)`, used as an operand, a receiver or
+      a binding) is rejected with an error naming V2b: decision 24's
+      remaining result positions. Method lookup stays by name until the
+      prelude traits exist.
+    - **Tests.** `tests/index.test.yo`, with local `VIndex`/`VIndexMut`
+      traits in the V2b shapes. `tests/ref_return_ban.test.yo` and
+      `tests/borrow_spelling.test.yo` now accept a projection and reject a
+      borrow result whose body yields a value.
+  - **Generation B (waits for a seed carrying Generation A; v0.2.59 bans
+    `-> &T`, so the prelude cannot declare it).** The prelude's `Index`
+    switches to `self : &Self -> &Self.Output`. `IndexMut` and
+    `IndexUncheckedMut` are added, and `IndexUnchecked` becomes the read
+    half. Every impl splits: `Array`, `ArrayList`, `Deque`, `LinkedList`,
+    `HashMap`, `BTreeMap` and `JsonValue`. `String` gains a read-only
+    `Index(usize)` with `Output : u8`, and the "String — no `Index(usize)`"
+    section of `docs/*/INDEX_TRAIT.md` and `tests/string/string.test.yo`'s
+    byte-place test move with it. Dispatch then keys on the prelude traits.
+    The draft is branch feat/vbd-v2b-index-mut-genb. Checking it with the
+    Generation A compiler found one prerequisite: `Clone.clone` and
+    `ToString.to_string` take `self : &mut Self`, so `xs(i).clone()` through
+    a `&` container becomes a write and E0908
+    (`issues/questions/clone-and-to-string-take-their-receiver-mutably.md`
+    recommends switching both to `&Self` first; that sweep is not
+    seed-gated).
 - **Unique buffers.**
   - `ArrayList(T)` owns a plain buffer, with `Dispose` (free) and `Trace`
     (visit each slot) on its private buffer type. The same goes for every

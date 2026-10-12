@@ -2083,3 +2083,184 @@ wrap_body_in_begin :: (fn(body : &AstExpr) -> AstExpr)({
   AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), begin_tok.clone()), args, false, begin_tok)
 });
 export(wrap_body_in_begin);
+// ---------------------------------------------------------------------------
+// Projections (plans/VALUES_BY_DEFAULT.md decision 24)
+// ---------------------------------------------------------------------------
+/// The marker module path of a projection's result node: `rewrite_projection_tails`
+/// turns a tail `&place` / `&mut place` into `addr_of(place)` whose call token
+/// carries one of these two paths. The mode rides the token, never an id-keyed
+/// table, because a specialization clones the body with fresh ids. The
+/// `auto-generated://` prefix exempts the synthesized `addr_of` from the
+/// safe-code raw-pointer gate: the address never reaches the program as a
+/// `*(T)`, it is the projection's `T*` return.
+PROJECTION_REF_TAIL_PATH :: "auto-generated://projection-ref";
+PROJECTION_MUT_TAIL_PATH :: "auto-generated://projection-mut";
+/// The sigil mode of a projection result node: `.Some(true)` for `&mut place`,
+/// `.Some(false)` for `&place`, `.None` for any other node.
+projection_tail_mode :: (fn(e : &AstExpr) -> Option(bool))(
+  match(
+    e,
+    .FnCall(_, _, _, _, ptm_tok) => cond(
+      (ptm_tok.module_path == PROJECTION_MUT_TAIL_PATH) => Option(bool).Some(true),
+      (ptm_tok.module_path == PROJECTION_REF_TAIL_PATH) => Option(bool).Some(false),
+      true => Option(bool).None
+    ),
+    .Atom(_, _) => Option(bool).None
+  )
+);
+/// `e` with argument `i` replaced.
+_with_arg :: (fn(e : &AstExpr, i : usize, a : &AstExpr) -> AstExpr)(
+  match(
+    e,
+    .FnCall(wa_id, wa_f, wa_args, wa_infix, wa_tok) => {
+      na := ArrayList(AstExpr).new();
+      (k : usize) = usize(0);
+      while(k < wa_args.len(), {
+        na.push(if(k == i, a, wa_args(k)));
+        k = (k + usize(1));
+      });
+      AstExpr.FnCall(wa_id, wa_f, na, wa_infix, wa_tok)
+    },
+    .Atom(_, _) => e
+  )
+);
+/// The `=>` arms of a `cond` / `match` (every argument of a `cond`, every
+/// argument after the scrutinee of a `match`).
+_is_arm :: (fn(e : &AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(e, "=>", Option(usize).Some(usize(2)))
+);
+/// Rewrite one result position of a projection body. A sigil becomes the
+/// marked `addr_of(place)`; a block, `cond`, `match` or `return` passes the
+/// position to its own results; any other expression stays (a diverging
+/// call, or in a `pragma(AllowUnsafe)` file a raw `*(T)` to the place) and
+/// is searched for a nested `return(...)`. A sigil whose mode differs from
+/// the declared result's is recorded in `mismatches`.
+_projection_tail :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList(Token)) -> AstExpr)(
+  match(
+    _borrow_sigil_of(e),
+    .Some(bs) => {
+      if(bs.is_mut != is_mut, {
+        mismatches.push(bs.tok);
+      });
+      mark := _synth_desugar_tok(TokenKind.Identifier, cond(bs.is_mut => PROJECTION_MUT_TAIL_PATH, true => PROJECTION_REF_TAIL_PATH), &bs.tok);
+      mark.module_path = mark.value;
+      head := _synth_desugar_tok(TokenKind.Identifier, BF_ADDR_OF, &bs.tok);
+      one := ArrayList(AstExpr).new();
+      one.push(bs.inner);
+      AstExpr.FnCall(alloc_global_expr_id(), AstExpr.Atom(alloc_global_expr_id(), head), one, false, mark)
+    },
+    .None => cond(
+      ast_expr_is_fn_call_of(e, BK_BEGIN, Option(usize).None) => match(
+        e,
+        .FnCall(_, _, pb_args, _, _) => if(pb_args.len() == usize(0), e, {
+          last := (pb_args.len() - usize(1));
+          out := e;
+          (k : usize) = usize(0);
+          while(k < last, {
+            stmt := pb_args(k);
+            match(
+              _projection_returns(&stmt, is_mut, mismatches),
+              .Some(r) => {
+                out = _with_arg(&out, k, &r);
+              },
+              .None => ()
+            );
+            k = (k + usize(1));
+          });
+          last_arg := pb_args(last);
+          new_last := _projection_tail(&last_arg, is_mut, mismatches);
+          _with_arg(&out, last, &new_last)
+        }),
+        .Atom(_, _) => e
+      ),
+      (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None)) => match(
+        e,
+        .FnCall(_, _, pc_args, _, _) => {
+          out := e;
+          (k : usize) = usize(0);
+          while(k < pc_args.len(), {
+            a := pc_args(k);
+            if(_is_arm(&a), {
+              arm_body := _bs_arg(&a, usize(1));
+              new_body := _projection_tail(&arm_body, is_mut, mismatches);
+              new_arm := _with_arg(&a, usize(1), &new_body);
+              out = _with_arg(&out, k, &new_arm);
+            }, {
+              match(
+                _projection_returns(&a, is_mut, mismatches),
+                .Some(r) => {
+                  out = _with_arg(&out, k, &r);
+                },
+                .None => ()
+              );
+            });
+            k = (k + usize(1));
+          });
+          out
+        },
+        .Atom(_, _) => e
+      ),
+      ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))) => {
+        ret_arg := _bs_arg(e, usize(0));
+        new_ret := _projection_tail(&ret_arg, is_mut, mismatches);
+        _with_arg(e, usize(0), &new_ret)
+      },
+      true => match(_projection_returns(e, is_mut, mismatches), .Some(r) => r, .None => e)
+    )
+  )
+);
+/// Rewrite every `return(x)` inside a non-result expression of a projection
+/// body (never crossing a nested function boundary); `.None` when there is none.
+_projection_returns :: (fn(e : &AstExpr, is_mut : bool, mismatches : &mut ArrayList(Token)) -> Option(AstExpr))(
+  cond(
+    is_function_boundary_arrow(e) => Option(AstExpr).None,
+    ast_expr_is_fn_call_of(e, BK_RETURN, Option(usize).Some(usize(1))) => Option(AstExpr).Some(_projection_tail(e, is_mut, mismatches)),
+    true => match(
+      e,
+      .FnCall(_, pr_f, pr_args, _, _) => {
+        // A `cond`/`match` arm is a branch, not a closure: walk its body.
+        in_branch := (ast_expr_is_fn_call_of(e, BK_COND, Option(usize).None) || ast_expr_is_fn_call_of(e, BK_MATCH, Option(usize).None));
+        (out : Option(AstExpr)) = match(
+          _projection_returns(&pr_f, is_mut, mismatches),
+          .Some(nf) => match(
+            e,
+            .FnCall(pf_id, _, pf_args, pf_infix, pf_tok) => Option(AstExpr).Some(AstExpr.FnCall(pf_id, nf, pf_args, pf_infix, pf_tok)),
+            .Atom(_, _) => Option(AstExpr).None
+          ),
+          .None => Option(AstExpr).None
+        );
+        (k : usize) = usize(0);
+        while(k < pr_args.len(), {
+          a := pr_args(k);
+          ra := if(in_branch && _is_arm(&a), {
+            arm_rhs := _bs_arg(&a, usize(1));
+            match(_projection_returns(&arm_rhs, is_mut, mismatches), .Some(rb) => Option(AstExpr).Some(_with_arg(&a, usize(1), &rb)), .None => Option(AstExpr).None)
+          }, _projection_returns(&a, is_mut, mismatches));
+          match(
+            ra,
+            .Some(r) => {
+              base := match(out, .Some(o) => o, .None => e);
+              out = Option(AstExpr).Some(_with_arg(&base, k, &r));
+            },
+            .None => ()
+          );
+          k = (k + usize(1));
+        });
+        out
+      },
+      .Atom(_, _) => Option(AstExpr).None
+    )
+  )
+);
+/// Decision 24: the body of a function whose result is `&T` / `&mut T`
+/// yields one place, written with the borrow sigil of the result's mode:
+/// `&self.items(i)` / `&mut self.items(i)`. Each result position (the
+/// block's tail, every `cond`/`match` arm, every `return(...)`) is rewritten
+/// to the marked `addr_of(place)`, so the function returns the place's
+/// address (`T*` at the C ABI) and the evaluator checks the place's root
+/// where it evaluates the marker (`evaluate_address_call`). Returns the new
+/// body and the sigils whose mode differs from the declared result's.
+rewrite_projection_tails :: (fn(body : &AstExpr, is_mut : bool, mismatches : &mut ArrayList(Token)) -> AstExpr)(
+  _projection_tail(body, is_mut, mismatches)
+);
+export(PROJECTION_REF_TAIL_PATH, PROJECTION_MUT_TAIL_PATH, projection_tail_mode, rewrite_projection_tails);

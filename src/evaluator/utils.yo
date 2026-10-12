@@ -4324,6 +4324,25 @@ local_borrow_info_of_variable :: (fn(v : &Variable) -> Option(LocalBorrowInfo))(
     true => Option(LocalBorrowInfo).None
   )
 );
+/// A binding that holds a `&mut` place: a `&mut` parameter, a `y := &mut`
+/// local borrow, or a binding of a `&mut` match. A projection's `&T`
+/// parameter is a reference too (`bind_parameter`'s `is_ptr_borrow`), but a
+/// shared one.
+variable_is_mut_borrow :: (fn(v : &Variable) -> bool)(
+  v.is_ref && !v.is_imm_borrow && match(local_borrow_info_of_variable(v), .Some(info) => info.is_mut, .None => true)
+);
+/// A binding that holds an `imm` borrow: an `imm` parameter, an `imm(y) :=`
+/// local borrow, or a binding of a borrowing match or a `for` loop.
+variable_is_imm_borrow :: (fn(v : &Variable) -> bool)(
+  cond(
+    v.is_ref => !variable_is_mut_borrow(v),
+    v.is_module_level => false,
+    v.is_parameter => !v.is_owning_the_rc_value,
+    // A pattern binding of a borrowing match, a `for` element: not
+    // reassignable and owning nothing (a plain local is reassignable).
+    true => (!v.is_owning_the_rc_value && !v.is_reassignable && !v.is_compile_time_only)
+  )
+);
 /// The local borrow a `match` binding named `name` (declared at `decl`) was
 /// reached from.
 local_borrow_pattern_source :: (fn(name : &String, decl : &Token) -> Option(LocalBorrowInfo))({
@@ -4931,6 +4950,8 @@ export(
   local_borrow_place_text,
   local_borrow_info_of,
   local_borrow_info_of_variable,
+  variable_is_mut_borrow,
+  variable_is_imm_borrow,
   local_borrow_info_placeholder,
   local_borrow_pattern_source,
   local_borrow_scrutinee_source,

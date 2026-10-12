@@ -677,7 +677,7 @@ bump :: (fn(x : &mut i32) -> unit)({
 
 唯一的例外是 `impl` 成员的接收者：trait 中声明为 `self : &mut Self` 的方法可以用 `self : Self` 实现，因为每个调用点都会按 impl 自己的签名适配。
 
-在这一代中，`&T` 与 `&mut T` 是位置所写的借用**模式**，而不是类型：它们加在参数、接收者（`self : &Self`、`self : &mut Self`）、闭包参数（`(v : &T) => ...`）或带标签的 `Fn` 位置（`Fn(v : &T) -> R`；不接受无标签的 `Fn(&T)`）的类型之前。在类型单独出现的任何地方（`T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T`、`&&T`），借用符号都是错误，"a borrow mode, not a type"。函数也不能返回借用（`-> &T` 需要投影，而投影尚未实现）。
+在这一代中，`&T` 与 `&mut T` 是位置所写的借用**模式**，而不是类型：它们加在参数、接收者（`self : &Self`、`self : &mut Self`）、闭包参数（`(v : &T) => ...`）或带标签的 `Fn` 位置（`Fn(v : &T) -> R`；不接受无标签的 `Fn(&T)`）的类型之前。在类型单独出现的任何地方（`T :: &i32`、`ArrayList(&T)`、`Option(&T)`、结构体字段 `f : &T`、`&&T`），借用符号都是错误，"a borrow mode, not a type"。借用结果（`-> &T` / `-> &mut T`）是投影（决策 24）：函数体产出用结果符号书写、以借用参数为根的位置，并通过下标（`x(i)`）到达（[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。
 
 旧的关键字写法（`imm(x) : T`、`mut(x) : T`、`inout(x) : T`、`imm(self) : Self`、`mut(self) : Self`、`imm(y) := place`、`for(xs, mut(x) => ...)`）已在[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的 Generation B 中删除（决定 42）：它是错误 E0009，错误信息给出借用符号写法；`yo fix <path> --migrate borrow-spelling` 会把整棵树改写为借用符号写法。`imm` 是普通标识符；`mut` 仍是保留字，只出现在 `&` 之后。
 

@@ -1431,8 +1431,8 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
         // `__yo_scope_ret` order
         // (issues/fixed/own-param-released-before-a-bare-expression-body-reads-it.md).
         ret_ty := match(context.current_function_type, .Some(ft) => match(ft, .Func({ result : r }) => r, _ => t_unit()), .None => t_unit());
-        ret_cty := match(context.override_return_type_str, .Some(s) => s, .None => get_type_string(&ret_ty, &context.base));
-        if(has_pending_emittable_drop(expr, context) && !is_unit_type(&ret_ty) && !(ret_cty == "void"), {
+        ret_cty := _current_c_result_type(&ret_ty, context);
+        if(has_pending_emittable_drop(expr, context) && (!is_unit_type(&ret_ty) || _current_result_is_ref(context)) && !(ret_cty == "void"), {
           em.emit_string_line(`${indent.clone()}${ret_cty} __yo_scope_ret = ${final_code};`);
           generate_deferred_drop_expressions(expr, indent.clone(), context);
           em.emit_string_line(`${indent.clone()}return __yo_scope_ret;`);
@@ -1469,6 +1469,26 @@ _emit_effect_handler_param_drops :: (fn(context : &FunctionGenerationContext, in
 /// observes `__yo_effect_escaped`).
 /// Returns "" (emits directly to avoid `return return` double-return from callers
 /// that also insert a `return` prefix).
+/// The current function's declared result returns a borrow (a projection,
+/// decision 24): its C result is `T*`, not `T`.
+_current_result_is_ref :: (fn(context : &FunctionGenerationContext) -> bool)(
+  match(context.current_function_type, .Some(ft) => match(ft, .Func({ meta : crr_m }) => crr_m.*.result_is_ref, _ => false), .None => false)
+);
+/// The C spelling of the current function's result: the override, else the
+/// declared result's type, as a pointer for a projection.
+_current_c_result_type :: (fn(rt : &TypeValue, context : &FunctionGenerationContext) -> String)(
+  match(
+    context.override_return_type_str,
+    .Some(s) => s,
+    .None => {
+      base := get_type_string(rt, &context.base);
+      if(_current_result_is_ref(context), {
+        base.push_str("*");
+      });
+      base
+    }
+  )
+);
 _unwind_dummy_return :: (fn(indent : &String, context : &FunctionGenerationContext) -> String)({
   rt := match(
     context.current_function_type,
@@ -1476,8 +1496,8 @@ _unwind_dummy_return :: (fn(indent : &String, context : &FunctionGenerationConte
     .None => t_unit()
   );
   em := context.base.emitter;
-  if(is_unit_type(&rt), em.emit_string_line(`${indent.clone()}return;`), {
-    rts := match(context.override_return_type_str, .Some(s) => s, .None => get_type_string(&rt, &context.base));
+  if(is_unit_type(&rt) && !_current_result_is_ref(context), em.emit_string_line(`${indent.clone()}return;`), {
+    rts := _current_c_result_type(&rt, context);
     if(rts == "void", em.emit_string_line(`${indent.clone()}return;`), {
       em.emit_string_line(`${indent.clone()}return (${rts}){0};`);
     })
@@ -1541,8 +1561,8 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationC
     ret_ty := match(context.current_function_type, .Some(ft) => match(ft, .Func({ result : r }) => r, _ => t_unit()), .None => t_unit());
     if(is_handler_installation, {
       em.emit_string_line(`${inner.clone()}__yo_effect_escaped = 0;`);
-      if(is_unit_type(&ret_ty), em.emit_string_line(`${inner.clone()}return;`), {
-        cty := match(context.override_return_type_str, .Some(s) => s, .None => get_type_string(&ret_ty, &context.base));
+      if(is_unit_type(&ret_ty) && !_current_result_is_ref(context), em.emit_string_line(`${inner.clone()}return;`), {
+        cty := _current_c_result_type(&ret_ty, context);
         if(cty == "void", em.emit_string_line(`${inner.clone()}return;`), {
           em.emit_string_line(`${inner.clone()}${cty.clone()} _unw_result;`);
           em.emit_string_line(`${inner.clone()}memcpy(&_unw_result, __yo_unwind_value, sizeof(${cty}));`);
@@ -1550,8 +1570,8 @@ emit_effect_unwind_check :: (fn(indent : &String, context : &FunctionGenerationC
         });
       });
     }, {
-      if(is_unit_type(&ret_ty), em.emit_string_line(`${inner.clone()}return;`), {
-        cty := match(context.override_return_type_str, .Some(s) => s, .None => get_type_string(&ret_ty, &context.base));
+      if(is_unit_type(&ret_ty) && !_current_result_is_ref(context), em.emit_string_line(`${inner.clone()}return;`), {
+        cty := _current_c_result_type(&ret_ty, context);
         if(
           cty == "void",
           em.emit_string_line(`${inner.clone()}return;`),
