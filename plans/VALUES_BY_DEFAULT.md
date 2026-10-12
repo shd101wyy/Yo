@@ -4794,10 +4794,12 @@ compiler; the std shapes are plain structs the seed lowers):
       container.
     - **Generic projections.** A specialized projection body, its
       `return(&place)` and an all-arms-return `cond`/`match` are typed
-      against `*(T)`. The unwind and escape-check return paths in codegen
-      emit the `T*` result type. Two bugs surfaced on the way, both fixed with
-      tests in `tests/index.test.yo`:
-      `issues/fixed/a-swallowed-index-specialization-leaks-its-function-context.md`
+      against `*(T)`, and so is a `return(...)` argument. The unwind,
+      escape-check and scope-result (`__yo_scope_ret`) paths in codegen
+      emit the `T*` result type. Three bugs surfaced on the way, each fixed
+      with a test in `tests/index.test.yo`:
+      `issues/fixed/a-swallowed-index-specialization-leaks-its-function-context.md`,
+      `issues/fixed/a-projections-scope-result-temporary-is-typed-as-its-element.md`
       and `issues/fixed/an-abandoned-impl-leaks-its-working-trait-bindings.md`.
     - **Safe code.** A projection's own `*(T)` result is not a raw-pointer
       value for the safe-code gate, so a safe file may declare
