@@ -179,7 +179,9 @@ note_sm_move_flag_field :: (fn(field : &String) -> unit)({
   g_sm_move_flag_fields.insert(field);
 });
 /// The move flag (`sm->__yo_mv_<field>`) of the slot `sm_code`
-/// (`sm-><field>`), or `.None` when the slot has none.
+/// (`sm-><field>`), or `.None` when the slot has none. A capture-list field
+/// `sm->__capture.<label>` has the flag `sm->__yo_mv___capture_<label>`
+/// (`sm_capture_move_flag_name`).
 sm_move_flag_of :: (fn(sm_code : &String) -> Option(String))({
   if(!sm_code.starts_with("sm->"), {
     return(Option(String).None);
@@ -188,8 +190,13 @@ sm_move_flag_of :: (fn(sm_code : &String) -> Option(String))({
   if(!g_sm_move_flag_fields.contains(field.clone()), {
     return(Option(String).None);
   });
+  if(field.starts_with("__capture."), {
+    return(Option(String).Some(`sm->${sm_capture_move_flag_name(field.substring(usize(10), field.len()))}`));
+  });
   Option(String).Some(`sm->__yo_mv_${field}`)
 });
+/// The struct field holding the move flag of the capture field `label`.
+sm_capture_move_flag_name :: (fn(label : String) -> String)(`__yo_mv___capture_${label}`);
 /// The task slot (`sm->…`) a minted temp named `temp_var` was stored into,
 /// found as `_store_temp_var_to_state_machine_if_needed` finds it: by id key,
 /// then by the captured variable's name.
@@ -217,4 +224,4 @@ sm_temp_slot_of :: (fn(temp_var : &String, smv : &HashMap(String, CapturedVariab
     .None => Option(String).None
   )
 });
-export(sm_storage_id, sm_slot_of, sm_slot_of_variable, sm_temp_slot_of, note_await_consumed_temp, is_await_consumed_temp, note_sm_move_flag_field, sm_move_flag_of);
+export(sm_storage_id, sm_slot_of, sm_slot_of_variable, sm_temp_slot_of, note_await_consumed_temp, is_await_consumed_temp, note_sm_move_flag_field, sm_move_flag_of, sm_capture_move_flag_name);

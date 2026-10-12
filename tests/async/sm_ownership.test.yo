@@ -783,15 +783,15 @@ test("an aborted task releases a local re-bound after its previous value moved",
 // typedef spells the field with the state machine, as its stores and reads do
 // (issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md).
 _FutHolder :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(T))));
-_hold_future :: (fn(generic(T : Type), x : &T) -> _FutHolder(T))(_FutHolder(T)(r : .Some(x)));
-test("an io.async future stored in a generic struct's Option field is awaited from it", {
+_hold_future :: (fn(generic(T : Type), sink(x) : T) -> _FutHolder(T))(_FutHolder(T)(r : .Some(x)));
+// A future is move-only (§3.13 A1), so awaiting it would move it out of the
+// field; that needs decision 19's `take`/`replace`, which have not landed.
+// The store, a borrowing read, and the drop of the cold future with its
+// holder are what the lowering bug broke.
+test("an io.async future stored in a generic struct's Option field is read from it", {
   h := _hold_future(io.async((io2 : Io) => i32(8)));
-  r := match(
-    h.r,
-    .Some(task) => io.await(task, io),
-    .None => i32(-1)
-  );
-  assert(r == i32(8), "the stored future's value");
+  st := match(&h.r, .Some(task) => io.state(&task), .None => FutureState.Aborted);
+  assert(st == FutureState.Cold, "the stored future is still cold");
 });
 _PtrHolder :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(*T))));
 _wrap_future :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)({
