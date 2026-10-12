@@ -15,37 +15,9 @@ v := list(usize(0)); // 42
 
 ## Index 特征定义
 
-`Index` 特征在 prelude 中定义，所有 Yo 程序都可以使用：
+`Index` 特征及其写入的一半 `IndexMut` 在 prelude 中定义，所有 Yo 程序都可以使用：
 
 ```yo
-Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
-  trait(
-    Output : Type,
-    index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)
-  )
-);
-```
-
-- **`Idx`**：索引类型（例如 `usize`，或自定义的键类型）。
-- **`Output`**：关联类型，指定返回的元素类型。
-- **`index`**：方法以 `&mut Self` 形式接收 `self`（这样它能返回指向调用者存储空间内部的指针）和索引，返回指向元素的**指针**。
-
-`index` 方法返回 `*(Output)`（指针），在值上下文中会自动解引用。这种设计使得读写操作都可以通过同一个特征实现：
-
-```yo
-// 读取：自动解引用
-v := collection(idx); // 调用 index(collection, idx).*
-// 写入：使用调用语法赋值（推荐）
-collection(idx) = val; // 调用 index(collection, idx)，通过指针写入
-// 取地址：直接返回指针
-p := addr_of(collection(idx)); // 调用 index(collection, idx)，不解引用
-```
-
-## 读与写：`Index` 与 `IndexMut`
-
-值语义默认化（V2b，决策 34）像 Rust 一样把元素访问一分为二。**读**经由 `index`：一个只读投影，以共享方式借用容器。**写**经由 `index_mut`：一个可变投影，以独占方式借用容器：
-
-```yo ignore
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
@@ -60,7 +32,23 @@ IndexMut :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 );
 ```
 
-编译器现在已经接受这两种形式。随附 std 的 `Index` 会在下一个种子版本发布时切换到它们，并新增 `IndexMut`；在那之前，prelude 仍然声明下一节所述的单一方法 `index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)`，读和写都走它。
+- **`Idx`**：索引类型（例如 `usize`，或自定义的键类型），按值传入。
+- **`Output`**：关联类型，指定元素类型。同一索引类型的 `Index` 与 `IndexMut` 的 `Output` 一致。
+- **`index`**：读投影：以共享方式借用容器，产出元素的位置。
+- **`index_mut`**：可变投影：以独占方式借用容器，产出可写入的元素位置。
+
+```yo
+// 读取：调用 index，然后读取该位置
+v := collection(idx);
+// 写入：使用调用语法赋值，调用 index_mut 并写入该位置
+collection(idx) = val;
+// 取地址：调用 index_mut，返回该位置的地址
+p := addr_of(collection(idx));
+```
+
+## 读与写：`Index` 与 `IndexMut`
+
+值语义默认化（V2b，决策 34）像 Rust 一样把元素访问一分为二。
 
 - **下标调用哪个方法。** 作为值读取的 `x(i)` 调用 `index`。每一次写都调用 `index_mut`：`x(i) = v`、元素的字段（`x(i).f = v`）、嵌套元素（`grid(i)(j) = v`）、元素上的 `self : &mut Self` 方法（`x(i).push(v)`）、`&mut` 实参（`f(&mut x(i))`）、`addr_of(x(i))`，以及对它的 `&mut` 局部借用。`x(i) = (x(i) + 1)` 这样的读-改-写先读后写。Yo 没有复合赋值运算符。
 - **只读元素。** 只实现 `Index` 而不实现 `IndexMut` 的类型，其元素是只读的；通过 `x(i)` 写入会得到一个指出缺少 `IndexMut` 的编译错误。
@@ -123,11 +111,26 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
       cond(
-        (idx == usize(0)) => addr_of(self.data0),
-        (idx == usize(1)) => addr_of(self.data1),
-        (idx == usize(2)) => addr_of(self.data2),
+        (idx == usize(0)) => &self.data0,
+        (idx == usize(1)) => &self.data1,
+        (idx == usize(2)) => &self.data2,
+        true => panic("MyArray: index out of bounds")
+      )
+    )
+  )
+);
+// 没有这个 impl 时，`arr(i)` 可以读取，但 `arr(i) = v` 是编译错误。
+impl(
+  MyArray,
+  IndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      cond(
+        (idx == usize(0)) => &mut self.data0,
+        (idx == usize(1)) => &mut self.data1,
+        (idx == usize(2)) => &mut self.data2,
         true => panic("MyArray: index out of bounds")
       )
     )
@@ -142,7 +145,7 @@ assert(arr(usize(1)) == i32(20), "应该是 20");
 
 ### 泛型实现
 
-对于泛型类型如 `ArrayList(T)`，在 impl 中使用 `generic`：
+对于泛型类型如 `ArrayList(T)`，在 impl 中使用 `generic`。std 的缓冲区产出指向缓冲区的裸指针（位于 `pragma(Pragma.AllowUnsafe)` 文件中），其 `IndexMut` impl 以 `self : &mut Self` 和 `-> &mut Self.Output` 重复同样的函数体：
 
 ```yo
 impl(
@@ -150,7 +153,7 @@ impl(
   ArrayList(T),
   Index(usize)(
     Output : T,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)({
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)({
       assert(idx < self._length, "ArrayList: index out of bounds");
       match(
         self._ptr,
@@ -302,17 +305,17 @@ addr_of(d(usize(0))).* = i32(555); // 原地修改
 
 O(1) 随机访问，正确处理环形缓冲区回绕。
 
-### String — 不实现 `Index(usize)`
+### String — 只读的 `Index(usize)`
 
-`String` 不实现 `Index`，所以运行期的 `s(i)` 是 E0606（"s is not callable"）。请改用具名方法读取字节：
+`String` 实现 `Output : u8` 的 `Index(usize)`，且不实现 `IndexMut`：`s(i)` 读取偏移 `i` 处的字节，越界时 panic，与 `byte_at(i)` 相同。
 
 ```yo
 (s : String) = `Hello`;
-b := s.byte_at(usize(0)); // u8(72) — 字节级访问（'H'）；越界时 panic
+b := s(usize(0)); // u8(72) — 该字节（'H'）；越界时 panic
 c := s.get_byte(usize(9)); // .None — 带检查的形式
 ```
 
-`index` 返回一个可写的位置：通过这个位置写入（`s(i) = b`）会改变所有共享该缓冲区的字符串，还可能留下非法的 UTF-8。Rust 的 `String` 同样没有可写的字节索引。随附 std 切换到读写分离之后（见[读与写](#读与写index-与-indexmut)），`String` 会实现 `Output : u8` 的 `Index(usize)`，且不实现 `IndexMut`：`s(i)` 读取一个字节，`s(i) = b` 是编译错误。如需字符级访问，请使用 `chars()` 迭代器。区间语法糖 `s(a..b)` 不受影响；它和其余所有字符串索引（`substring`、`index_of` 等）都是字节偏移 —— 完整契约见 [STRINGS.md](./STRINGS.md)。
+`s(i) = b` 是编译错误，并指出缺少 `IndexMut`：写入会改变所有共享该缓冲区的字符串，还可能留下非法的 UTF-8。Rust 的 `String` 同样没有可写的字节索引。如需字符级访问，请使用 `chars()` 迭代器。区间语法糖 `s(a..b)` 构建一个新字符串；它和其余所有字符串索引（`substring`、`index_of` 等）都是字节偏移 —— 完整契约见 [STRINGS.md](./STRINGS.md)。
 
 ## 错误处理
 
