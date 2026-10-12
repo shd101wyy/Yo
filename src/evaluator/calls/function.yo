@@ -2223,13 +2223,16 @@ _check_awaited_future_lends :: (fn(args : &ArrayList(AstExpr), ctx : &EvalContex
         .None => ()
       );
       // A method call `recv.m(args)`: the receiver is the first parameter,
-      // lent without a marker. Through an auto-deref (`k.m(io)` on an
-      // `Rc(T)` whose `Self` is `T`) the lent place is `k.*`.
+      // lent without a marker (an auto-deref is explicit by now: `k.m(io)` on
+      // an `Rc(T)` whose `Self` is `T` reads `k.*.m(io)`). A method value's
+      // type carries no labels; its receiver is `self`, and its other
+      // arguments are each checked.
+      labels_known := (labels.len() > usize(0));
       (arg_offset : usize) = usize(0);
-      if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))) && (labels.len() == (op_args.len() + usize(1))), {
+      if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))) && (!labels_known || (labels.len() == (op_args.len() + usize(1)))), {
         arg_offset = usize(1);
         recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-        self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.new());
+        self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
         recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => TypeValue.Unit);
         recv_is_cell := (is_reference_struct_type(&recv_ty) || is_atomic_reference_struct_type(&recv_ty));
         self_is_cell := match(self_ty, .Some(st) => (is_reference_struct_type(&st) || is_atomic_reference_struct_type(&st)), .None => false);
@@ -2241,7 +2244,7 @@ _check_awaited_future_lends :: (fn(args : &ArrayList(AstExpr), ctx : &EvalContex
       while(ai < op_args.len(), ai = (ai + usize(1)), {
         label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => String.new());
         lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
-        if(_borrows_root_named(&bs, &label) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
+        if((!labels_known || _borrows_root_named(&bs, &label)) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
           place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
           if(capture_place_crosses_cell(&place, ctx), {
             _reject_cell_lend_to_future(&place, &label, ctx, exn);

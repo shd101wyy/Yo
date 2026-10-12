@@ -14,7 +14,8 @@
   ast_expr_is_atom,
   ast_expr_is_fn_call_of,
   BK_BEGIN,
-  ast_call_args_unmarked
+  ast_call_args_unmarked,
+  make_err_expr
 } :: import("../../expr.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
 { stable_position_id, stable_label_id, debug_knob, is_temp_variable_name, is_any_temp_variable_name } :: import("../../utils.yo");
@@ -48,7 +49,7 @@
   get_closure_await_analysis
 } :: import("../../evaluator/async/await_analysis.yo");
 { get_func_type, mark_io_async_sm_closure, register_io_async_closure_fid, lookup_io_async_closure_fid, is_fnonce_capture_struct } :: import("../../function_value.yo");
-{ ExprInfo, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, CaptureFieldInit, expr_info_capture_field_inits, expr_info_table_set, lookup_macro_expansion, lookup_hollow_body_error, expr_info_closure_function_value, expr_info_async_state_machine_struct_name, expr_info_set_async_state_machine_struct_name, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_set_deferred_dup_expressions, some_resolution } :: import("../../expr_info.yo");
 {
   extract_future_trait_from_type,
   type_implements_future
@@ -1524,7 +1525,17 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
 /// field reaching the fallback emits a loud marker (it is never hit by capture-free
 /// async blocks, including the BASELINE fixture).
 _build_async_capture_struct_literal :: (
-  fn(expr : &AstExpr, dup_exprs : &ArrayList(AstExpr), capture_type : &TypeValue, capture_struct_name : &String, indent : &String, context : &FunctionGenerationContext) -> String
+  fn(
+    expr : &AstExpr,
+    dup_exprs : &ArrayList(AstExpr),
+    capture_type : &TypeValue,
+    capture_struct_name : &String,
+    indent : &String,
+    context : &FunctionGenerationContext,
+    /// A capture list's evaluated entries (decision 35): a borrow entry's
+    /// field stores the address of its place (§3.13 A2).
+    (field_inits : &Option(ArrayList(CaptureFieldInit))) ?= Option(ArrayList(CaptureFieldInit)).None
+  ) -> String
 )({
   in_special_context := (match(context.current_closure_captures, .Some(_) => true, .None => false) || match(context.in_async_state_machine, .Some(_) => true, .None => false));
   struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
@@ -1540,10 +1551,32 @@ _build_async_capture_struct_literal :: (
         label_c := sanitize_for_c_identifier(label.clone(), false);
         // A unit field is erased from the capture struct, so it takes no
         // initializer (issues/fixed/a-unit-parameter-captured-by-an-io-async-body-emits-an-initializer-for-an-erased-field.md).
+        borrow_init := match(
+          field_inits,
+          .Some(inits) => {
+            (found : Option(AstExpr)) = Option(AstExpr).None;
+            (fi : usize) = usize(0);
+            while(fi < inits.len(), fi = (fi + usize(1)), {
+              match(
+                inits.get(fi),
+                .Some(cfi) => if(cfi.is_borrow && (cfi.label == label), {
+                  found = Option(AstExpr).Some(cfi.init);
+                }),
+                .None => ()
+              );
+            });
+            found
+          },
+          .None => Option(AstExpr).None
+        );
         if(is_unit_type(&field.ty), {
           ();
         }, if(field.is_effect_param, {
           parts.push(`.${label_c} = NULL`);
+        }, if(borrow_init.is_some(), {
+          bi_expr := match(borrow_init, .Some(bi) => bi, .None => make_err_expr());
+          place_code := _call_generate_expr(&bi_expr, indent.clone(), context);
+          parts.push(`.${label_c} = (&(${place_code}))`);
         }, {
           // Find a matching deferred ___dup expression by variable name.
           (matched : Option(AstExpr)) = Option(AstExpr).None;
@@ -1626,7 +1659,7 @@ _build_async_capture_struct_literal :: (
               );
             }
           );
-        }));
+        })));
       },
       .None => ()
     );
@@ -2593,6 +2626,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   // repro's rc=139 on `sm->var_<id>-><field>`).
   (fsm_capture_type : Option(TypeValue)) = expr_info_capture_type(&ei);
   (fsm_capture_dups : Option(ArrayList(AstExpr))) = expr_info_deferred_dup_expressions(&ei);
+  (fsm_field_inits : Option(ArrayList(CaptureFieldInit))) = expr_info_capture_field_inits(&ei);
   if(is_io_async, {
     match(
       ei.runtime_arg_exprs_in_order,
@@ -2603,6 +2637,9 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
           .Some(cei) => {
             if(fsm_capture_type.is_none(), {
               fsm_capture_type = expr_info_capture_type(&cei);
+            });
+            if(fsm_field_inits.is_none(), {
+              fsm_field_inits = expr_info_capture_field_inits(&cei);
             });
             if(fsm_capture_dups.is_none(), {
               taken := expr_info_deferred_dup_expressions(&cei);
@@ -2850,7 +2887,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     .Some(cap_ty) => {
       capture_struct_name := _find_capture_type_c_name(&cap_ty, context);
       literal_dups := match(fsm_capture_dups, .Some(d) => d, .None => ArrayList(AstExpr).new());
-      literal := _build_async_capture_struct_literal(expr, &literal_dups, &cap_ty, &capture_struct_name, indent.clone(), context);
+      literal := _build_async_capture_struct_literal(expr, &literal_dups, &cap_ty, &capture_struct_name, indent.clone(), context, &fsm_field_inits);
       `${constructor_name.clone()}(${literal})`
     },
     .None => `${constructor_name.clone()}()`

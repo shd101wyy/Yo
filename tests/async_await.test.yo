@@ -7042,3 +7042,97 @@ test("a match or cond condition inside io.async takes the right branch when it a
   assert(io.await(_wrong_branch_if_match(io), io) == i32(1), "if(match(...), await)");
   assert(io.await(_wrong_branch_if_cond(io), io) == i32(1), "if(cond(...), await)");
 });
+// ---------------------------------------------------------------------------
+// §3.13 A2 (plans/VALUES_BY_DEFAULT.md): a future may borrow, and is then
+// second-class. It is awaited where it is made, and returned only when every
+// place it borrows is rooted at the returning function's `&`/`&mut`
+// parameters.
+// ---------------------------------------------------------------------------
+_A2Counter :: struct(n : i32);
+impl(
+  _A2Counter,
+  bump : (fn(self : &mut Self, io : Io) -> Impl(Future(unit, Io)))(
+    io.async({ &mut self }(io : Io) => {
+      self.n = (self.n + i32(1));
+    })
+  )
+);
+_a2_bump :: (fn(c : &mut _A2Counter, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut c }(io : Io) => {
+    c.n = (c.n + i32(1));
+  })
+);
+_a2_tenfold :: (fn(c : &_A2Counter, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &c }(io : Io) => (c.n * i32(10)))
+);
+/// Suspends before it reads its borrow, long after `_a2_tenfold_later`'s
+/// frame is gone: C passes `c` by value, so the future reads its own copy.
+_a2_tenfold_later :: (fn(c : &_A2Counter, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &c }(io : Io) => {
+    io.await(yield(io), io);
+    (c.n * i32(10))
+  })
+);
+_A2Shared :: struct(items : ArrayList(i32));
+_a2_count :: (fn(items : &ArrayList(i32), io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ &items }(io : Io) => items.len())
+);
+_a2_push :: (fn(items : &mut ArrayList(i32), io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut items }(io : Io) => items.push(i32(1)))
+);
+/// The handle spelling: the future borrows the `Rc` handle and re-derives
+/// `h.*.items` at each use, after its suspension too.
+_a2_count_through :: (fn(h : &Rc(_A2Shared), io : Io) -> Impl(Future(usize, Io)))(
+  io.async({ &h }(io : Io) => {
+    io.await(yield(io), io);
+    h.*.items.len()
+  })
+);
+test("a borrowing future: a function returns a future over its & or &mut parameter (§3.13 A2)", {
+  c := _A2Counter(n : i32(0));
+  io.await(_a2_bump(&mut c, io), io);
+  io.await(_a2_bump(&mut c, io), io);
+  assert(c.n == i32(2), "two awaits write through the lent &mut");
+  assert(io.await(_a2_tenfold(&c, io), io) == i32(20), "a & parameter is read through the future's own copy");
+  assert(io.await(_a2_tenfold_later(&c, io), io) == i32(20), "the copy outlives the frame that made the future, across a suspension");
+  io.await(c.bump(io), io);
+  assert(c.n == i32(3), "a &mut self method returns a borrowing future");
+  x := i32(5);
+  io.await(
+    io.async({ &mut x }(io : Io) => {
+      x = (x + i32(1));
+    }),
+    io
+  );
+  assert(x == i32(6), "an io.async body borrows a local for an await in place");
+});
+test("a borrowing future is awaited where it is made: never bound, spawned or carried out of its lender's scope", {
+  c := _A2Counter(n : i32(0));
+  comptime_expect_error({
+    f := _a2_bump(&mut c, io);
+    ()
+  }, "would hold a borrowing future");
+  comptime_expect_error(io.spawn(_a2_bump(&mut c, io), io), "spawned or moved into a by-value parameter");
+  comptime_expect_error({
+    y := i32(1);
+    io.async({ &y }(io : Io) => y)
+  }, "declared inside the block");
+});
+test("a borrowing future cannot hold a place lent through an Rc deref (decision 38 D, §3.13 A2)", {
+  r := rc(_A2Shared(items : ArrayList(i32).new()));
+  comptime_expect_error(io.await(_a2_count(&r.*.items, io), io), "lives in a shared cell");
+  comptime_expect_error(io.await(_a2_push(&mut r.*.items, io), io), "lives in a shared cell");
+  k := rc(_A2Counter(n : i32(0)));
+  comptime_expect_error(io.await(k.bump(io), io), "lives in a shared cell");
+  r.*.items.push(i32(1));
+  other := r;
+  pusher := io.spawn(
+    io.async({ other }(io : Io) => {
+      other.*.items.push(i32(2));
+    }),
+    io
+  );
+  n := io.await(_a2_count_through(&r, io), io);
+  pusher.await(io);
+  assert(n == usize(2), "the re-derived place reads the push another task made through its own handle");
+});
