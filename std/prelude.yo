@@ -409,30 +409,45 @@ Allocator :: struct(
 impl(Allocator, Send());
 impl(Allocator, Sync());
 export(AllocatorVTable, Allocator);
-/// Index trait — enables `container(idx)` subscript syntax at runtime.
-/// The `Idx` parameter is the index type (e.g., `usize`, `Range(usize)`),
-/// taken BY VALUE as an operator operand takes its operands (decision 34 as
-/// amended 2026-10-11; `issues/retired/index-trait-borrows-its-index-and-takes-self-mutably.md`).
-/// Implementations must define an `Output` associated type and an `index` method.
+/// Index trait — enables `container(idx)` subscript syntax at runtime: a read
+/// of `container(idx)` calls `index`, a read projection (decision 24) that
+/// borrows the container shared. Every write through the subscript calls
+/// `IndexMut.index_mut` instead (decision 34, V2b). The `Idx` parameter is
+/// the index type (e.g., `usize`, `String`), taken BY VALUE as an operator
+/// operand takes its operands (decision 34 as amended 2026-10-11).
 Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
   trait(
     Output : Type,
-    index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)
+    index : (fn(self : &Self, idx : Idx) -> &Self.Output)
   )
 );
-export(Index);
+/// IndexMut trait — the write half of `Index`: `container(idx) = v`, a field
+/// or nested element of it, a `&mut` receiver or argument, `addr_of`. A type
+/// with `Index` and no `IndexMut` has read-only elements. Its `Output` is
+/// its `Index`'s.
+IndexMut :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)
+  )
+);
+export(Index, IndexMut);
 /// IndexUnchecked — the bounds-check-free twin of `Index(usize)`.
 /// Codegen calls `index_unchecked` instead of `index` ONLY at a subscript the
 /// verifier proved in bounds, in a verify-mode file
-/// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md). It returns a raw
-/// pointer, so safe code cannot call it. An impl's body must be its `index`
-/// body minus the length test: anything weaker turns a proof into undefined
-/// behavior.
+/// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md). An impl's body
+/// must be its `index` body minus the length test: anything weaker turns a
+/// proof into undefined behavior. `IndexUncheckedMut` is the twin of
+/// `IndexMut(usize)`.
 IndexUnchecked :: trait(
   Output : Type,
-  index_unchecked : (fn(self : &mut Self, idx : usize) -> *Self.Output)
+  index_unchecked : (fn(self : &Self, idx : usize) -> &Self.Output)
 );
-export(IndexUnchecked);
+IndexUncheckedMut :: trait(
+  Output : Type,
+  index_unchecked_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)
+);
+export(IndexUnchecked, IndexUncheckedMut);
 /// ComptimeIndex — compile-time indexing trait for constant expressions.
 ComptimeIndex :: (fn(comptime(Idx) : Type, where(Idx <: Comptime)) -> comptime(Trait))(
   trait(
@@ -7202,7 +7217,17 @@ impl(
   Array(T, N),
   Index(usize)(
     Output : T,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
+      __yo_array_index(addr_of(self), idx)
+    )
+  )
+);
+impl(
+  generic(T : Type, N : usize),
+  Array(T, N),
+  IndexMut(usize)(
+    Output : T,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
       __yo_array_index(addr_of(self), idx)
     )
   )

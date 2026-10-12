@@ -1300,7 +1300,26 @@ impl(
   HashMap(K, V),
   Index(K)(
     Output : V,
-    index : (fn(self : &mut Self, idx : K, where(K <: (Eq(K), Hash))) -> *Self.Output)({
+    index : (fn(self : &Self, idx : K, where(K <: (Eq(K), Hash))) -> &Self.Output)({
+      hash := self._hash(&idx);
+      bucket_opt := Self._find_bucket(self, &idx, hash);
+      match(
+        bucket_opt,
+        .Some(i) => {
+          data_ptr := Self._data_ptr(self);
+          addr_of((data_ptr.add(i)).*.value)
+        },
+        .None => __yo_panic("HashMap: key not found")
+      )
+    })
+  )
+);
+impl(
+  generic(K : Type, V : Type),
+  HashMap(K, V),
+  IndexMut(K)(
+    Output : V,
+    index_mut : (fn(self : &mut Self, idx : K, where(K <: (Eq(K), Hash))) -> &mut Self.Output)({
       hash := self._hash(&idx);
       bucket_opt := Self._find_bucket(self, &idx, hash);
       match(

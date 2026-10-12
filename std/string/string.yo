@@ -3349,11 +3349,29 @@ impl(
     _parse_u64_radix_res(self, radix)
   )
 );
-// No `Index(usize)` impl: `Index.index` returns a writable place, and a
-// write through it (`s(i) = b`) would reach every string sharing the buffer
-// and could break UTF-8 (issues/fixed/a-string-byte-index-is-a-writable-place.md).
-// Read a byte with `byte_at(i)` / `get_byte(i)`. A read-only `s(i)` returns
-// with the Index read/write split (plans/VALUES_BY_DEFAULT.md §3.1).
+/// Byte index: `s(i)` reads the byte at offset `i` and panics out of bounds,
+/// like `byte_at(i)`. There is deliberately no `IndexMut`: a write through
+/// `s(i)` would reach every string sharing the buffer and could break UTF-8
+/// (issues/fixed/a-string-byte-index-is-a-writable-place.md), so `s(i) = b`
+/// is a compile error.
+impl(
+  String,
+  Index(usize)(
+    Output : u8,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
+      match(
+        self._bytes,
+        .Some(b) => {
+          assert(idx < b.len(), "String: byte index out of bounds");
+          // SAFETY: `idx` is in bounds and the list `b` shares its buffer
+          // with `self._bytes`, which the `&Self` receiver keeps alive.
+          unsafe(addr_of(b(idx)))
+        },
+        .None => __yo_panic("String: byte index out of bounds")
+      )
+    )
+  )
+);
 /// Default implementation — the empty string.
 impl(
   String,
