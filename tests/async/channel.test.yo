@@ -69,7 +69,7 @@ test("Test channel producer consumer", {
     });
     return(());
   });
-  h := io.spawn(&producer, io);
+  h := io.spawn(producer, io);
   (expected : i32) = i32(0);
   (receiving : bool) = true;
   while(receiving, {
@@ -109,7 +109,7 @@ test("Test channel recv waits for sender", {
     _s := io.await(ch.send(i32(99), io), io);
     return(());
   });
-  h := io.spawn(&late_sender, io);
+  h := io.spawn(late_sender, io);
   r := io.await(ch.recv(io), io);
   assert(match(r, .Some(v) => (v == i32(99)), .None => false), "recv should wake for the late send");
   _done := h.await(io);
@@ -227,7 +227,7 @@ test("async: dropping the last Sender resolves a SUSPENDED recv as Disconnected"
     );
     return(code);
   });
-  h := io.spawn(&consumer, io);
+  h := io.spawn(consumer, io);
   {
     tx := rx.sender();
     // Let the consumer reach its suspension point before the sender goes.
@@ -255,8 +255,8 @@ test("async: producer tasks with cloned Senders fan in, and the last one closes"
       _b := io.await(tx2.send(i32(20), io), io);
       return(());
     });
-    h1 := io.spawn(&p1, io);
-    h2 := io.spawn(&p2, io);
+    h1 := io.spawn(p1, io);
+    h2 := io.spawn(p2, io);
     _d1 := h1.await(io);
     _d2 := h2.await(io);
   };
@@ -348,7 +348,7 @@ test("Test a consumer loop over a channel fed by another task", {
     ch.close();
     ()
   });
-  h := io.spawn(&producer, io);
+  h := io.spawn(producer, io);
   seen := ArrayList(i32).new();
   (draining : bool) = true;
   while(draining, {
@@ -390,7 +390,7 @@ test("an await inside a macro expansion suspends the task", {
     _recv_one(io, ch);
     i32(1)
   });
-  h := io.spawn(&task, io);
+  h := io.spawn(task, io);
   _s := ch.try_send(i32(5));
   r := h.await(io);
   assert(match(r, .Some(v) => (v == i32(1)), .None => false), "the task resumed after the send");

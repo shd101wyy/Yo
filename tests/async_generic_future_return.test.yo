@@ -141,13 +141,13 @@ test("a future result containing a binder named T", {
 _call_it :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)(f());
 test("a generic T bound by a closure that returns an io.async future", {
   task := _call_it(() => io.async((io : Io) => i32(8)));
-  assert(io.await(&task, io) == i32(8), "the future's value");
+  assert(io.await(task, io) == i32(8), "the future's value");
   pair_task := _call_it(() => io.async((io : Io) => _Pair(lo : i32(2), hi : i32(5))));
-  p := io.await(&pair_task, io);
+  p := io.await(pair_task, io);
   assert((p.lo + p.hi) == i32(7), "a second T");
   // Annotating the binding names the same type and binds the same way.
   (annotated : Impl(Future(i32, Io))) = _call_it(() => io.async((io : Io) => i32(9)));
-  assert(io.await(&annotated, io) == i32(9), "an annotated binding");
+  assert(io.await(annotated, io) == i32(9), "an annotated binding");
 });
 // A generic caller that FORWARDS the closure (`arena.scoped(f)` calling
 // `with_allocator(a, f)`): inside the caller's specialization the inner call's
@@ -155,7 +155,7 @@ test("a generic T bound by a closure that returns an io.async future", {
 _forward_it :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)(_call_it(f));
 test("a generic T bound through a caller that forwards the closure", {
   task := _forward_it(() => io.async((io : Io) => i32(10)));
-  assert(io.await(&task, io) == i32(10), "the forwarded future's value");
+  assert(io.await(task, io) == i32(10), "the forwarded future's value");
   n := _forward_it(() => i32(11));
   assert(n == i32(11), "a value through the same caller");
 });
@@ -172,7 +172,7 @@ _call_with_local :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)({
 test("a tail temporary keeps each specialization's own return type", {
   p := _call_with_local(() => _ScopeLocal(n : i32(3)));
   task := _call_with_local(() => io.async((io : Io) => i32(8)));
-  assert((p.n + io.await(&task, io)) == i32(11), "both specializations");
+  assert((p.n + io.await(task, io)) == i32(11), "both specializations");
 });
 // A future stored as an enum payload (`Option(T)` at `T` = a future) emitted
 // the Future interface's on-demand forward declaration INSIDE the variant
@@ -185,7 +185,7 @@ _call_with_slot :: (fn(generic(T : Type), f : &Impl(Fn() -> T)) -> T)({
 });
 test("a future type as an enum payload declares the payload type first", {
   task := _call_with_slot(() => io.async((io : Io) => i32(12)));
-  assert(io.await(&task, io) == i32(12), "the future's value");
+  assert(io.await(task, io) == i32(12), "the future's value");
 });
 // ---------------------------------------------------------------------------
 // A generic function returning `Impl(Future(Result(T, E), Io))` or

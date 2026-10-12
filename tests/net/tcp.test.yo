@@ -680,7 +680,7 @@ test("a consumer loop over incoming serves each connection in turn", {
     });
     ()
   });
-  h := io.spawn(&server_task, io);
+  h := io.spawn(server_task, io);
   client1 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
   client2 := io.await(TcpStream.connect(bound, io), IoExn(io : io, exn : exn));
   r := io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io);

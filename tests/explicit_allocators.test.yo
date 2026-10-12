@@ -127,7 +127,7 @@ test("A task keeps its scope across a suspension", {
     })
   );
   outside := _Point(x : i32(0), y : i32(0));
-  p := io.await(&task, io);
+  p := io.await(task, io);
   assert(p.x == i32(8), "result");
   // The task's state machine and the point it built after resuming are the
   // arena's; the runtime's own `yield` future is not (Rule 2).
@@ -145,7 +145,7 @@ test("A task an explicit allocator placed goes back to it, never to the task poo
   arena := _arena();
   r := {
     task := arena.scoped(() => _pooled_task(io));
-    io.await(&task, io)
+    io.await(task, io)
   };
   assert(r == i32(3), "result");
   assert(arena.live_blocks() == usize(0), `the released task went back to the arena: ${arena.live_blocks()}`);
@@ -155,11 +155,11 @@ test("A task created in a scope never takes a pooled global block", {
   // A global task of the same type, released: its block may now sit in the pool.
   g := {
     task := _pooled_task(io);
-    io.await(&task, io)
+    io.await(task, io)
   };
   task := arena.scoped(() => _pooled_task(io));
   assert(arena.live_blocks() == usize(1), `the scoped task is the arena's: ${arena.live_blocks()}`);
-  assert((io.await(&task, io) + g) == i32(6), "results");
+  assert((io.await(task, io) + g) == i32(6), "results");
 });
 test("An unwind handled inside the scope keeps the scope, and the scope ends with the call", {
   arena := _arena();
