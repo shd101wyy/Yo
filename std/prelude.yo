@@ -12505,7 +12505,7 @@ Io :: struct(
   /// Create a `Future` from an async closure. The effect row goes by value
   /// (#1312's rule: `io : Io`, `e : E`, never `&`; the generic rows kept the
   /// borrow until 2026-10-11).
-  async : (fn(generic(T : Type, E : Type.Struct), action : &Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))),
   /// Await a `Future`, suspending until its result is ready.
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
   /// Inspect the current state of a `Future` without blocking.
@@ -12526,7 +12526,7 @@ impl(Io, !Sync());
 export(Io);
 extern(
   "Yo",
-  __yo_io_async : (fn(generic(T : Type, E : Type.Struct), action : &Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  __yo_io_async : (fn(generic(T : Type, E : Type.Struct), action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))),
   __yo_io_await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
   __yo_io_state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
   __yo_io_spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
