@@ -49,6 +49,8 @@
   BF_YO_PTR_LTE,
   BF_YO_PTR_GT,
   BF_YO_PTR_GTE,
+  BF_YO_PTR_READ,
+  BF_YO_PTR_WRITE,
   BF_YO_STR_LEN,
   BF_YO_STR_PTR,
   BF_YO_STR_BYTE,
@@ -563,6 +565,24 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
     (function_name == BF_YO_PTR_LTE) => _ptr_binop(args, "<="),
     (function_name == BF_YO_PTR_GT) => _ptr_binop(args, ">"),
     (function_name == BF_YO_PTR_GTE) => _ptr_binop(args, ">="),
+    // A bitwise move out of the pointee (Rust's `ptr::read`): no dup, so the
+    // pointee no longer owns the value — its storage must not drop it again.
+    (function_name == BF_YO_PTR_READ) => {
+      out := String.from("(*(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str("))");
+      out
+    },
+    // A bitwise move into the pointee (Rust's `ptr::write`): the old value is
+    // not dropped, so it must have been moved out (or never initialized).
+    (function_name == BF_YO_PTR_WRITE) => {
+      out := String.from("(*(");
+      out.push_string(_a(args, usize(0)));
+      out.push_str(") = (");
+      out.push_string(_a(args, usize(1)));
+      out.push_str("))");
+      out
+    },
     (function_name == BF_YO_STR_LEN) => {
       out := String.from("(");
       out.push_string(_a(args, usize(0)));
