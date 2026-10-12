@@ -54,7 +54,7 @@
   extract_future_trait_from_type,
   type_implements_future
 } :: import("../../evaluator/trait_checking.yo");
-{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions } :: import("./drop_dup.yo");
+{ get_drop_function_for_type, get_dup_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value, generate_deferred_drop_expressions, generate_arg_code_with_deferred_dups, arm_value_with_dups } :: import("./drop_dup.yo");
 { Emitter } :: import("../../emitter.yo");
 { generate_atom, _generate_sm_atom } :: import("./atom.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -2224,8 +2224,13 @@ _emit_fused_statements :: (fn(stmts : &ArrayList(AstExpr), indent : &String, con
     match(
       stmts.get(i),
       .Some(st) => {
-        code := _call_generate_expr(&st, indent.clone(), context);
-        if(i == (stmts.len() - usize(1)), {
+        is_tail := (i == (stmts.len() - usize(1)));
+        // The tail takes its deferred dups, as the state machine's own tail
+        // does: a borrowed tail (an implicit capture) is the capture's, and
+        // the capture is dropped once the value is read
+        // (issues/fixed/a-state-machine-returning-a-borrowed-capture-hands-out-the-captures-only-reference.md).
+        code := if(is_tail, match(arm_value_with_dups(&st, indent, context), .Some(c) => c, .None => _call_generate_expr(&st, indent.clone(), context)), _call_generate_expr(&st, indent.clone(), context));
+        if(is_tail, {
           tail = code;
         }, {
           skip := ((code.len() == usize(0)) || match(context.base.get_expr_info(&st), .Some(sei) => is_temp_variable_name(&sei.env.module_path, code.clone()), .None => true));
@@ -2286,12 +2291,15 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
       .None => ()
     )
   );
-  // 1. The call's arguments, evaluated in the caller as the call would.
+  // 1. The call's arguments, evaluated in the caller as the call would,
+  // each with its deferred dup: a by-value parameter is the wrapper's to
+  // drop, so a named local passed to one takes the caller's share
+  // (issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md).
   rargs := match(context.base.get_expr_info(&site.call), .Some(cei) => match(cei.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()), .None => ArrayList(AstExpr).new());
   arg_codes := ArrayList(String).new();
   (ai : usize) = usize(0);
   while(ai < rargs.len(), ai = (ai + usize(1)), {
-    match(rargs.get(ai), .Some(a) => arg_codes.push(_call_generate_expr(&a, indent.clone(), context)), .None => ());
+    match(rargs.get(ai), .Some(a) => arg_codes.push(generate_arg_code_with_deferred_dups(&a, indent, context)), .None => ());
   });
   // 2. The wrapper's parameters, prologue and capture construction, in a C
   // block of their own (their names are the wrapper's), with no

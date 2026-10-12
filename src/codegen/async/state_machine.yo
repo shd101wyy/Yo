@@ -30,7 +30,7 @@
 { eprintln } :: import("std/fmt");
 { codegen_fatal, codegen_user_error } :: import("../constants.yo");
 { declare_c_var_name, get_type_string, fresh_local_name, sanitize_for_c_identifier, get_variable_name_for_codegen, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
-{ get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_await_consumed_temp } :: import("./state_machine_naming.yo");
+{ get_state_machine_field_name, sm_local_field_name, register_sm_captured_names, note_await_consumed_temp, sm_slot_of } :: import("./state_machine_naming.yo");
 { is_fnonce_capture_struct } :: import("../../function_value.yo");
 { Emitter } :: import("../../emitter.yo");
 { awaited_future_c_type_override } :: import("../functions/declarations.yo");
@@ -1627,7 +1627,14 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   });
   low.emitted.insert(eid);
   // An await of a fusable wrapper call runs the wrapper here instead.
-  match(_call_emit_fused_await(expr, indent.clone(), context), .Some(fused_code) => return(fused_code), .None => ());
+  match(
+    _call_emit_fused_await(expr, indent.clone(), context),
+    .Some(fused_code) => {
+      _store_await_result_into_temp_slot(expr, &fused_code, indent, context);
+      return(fused_code);
+    },
+    .None => ()
+  );
   args := ast_call_args_unmarked(expr);
   future_arg := match(
     args.get(usize(0)),
@@ -1725,7 +1732,30 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   );
   em.emit_string_line(`${indent}__yo_decr_rc(sm->__yo_await_slot);`);
   em.emit_string_line(`${indent}sm->__yo_await_slot = NULL;`);
+  _store_await_result_into_temp_slot(expr, &out, indent, context);
   out
+});
+/// A result temp with a task slot is dropped through the slot, so the owned
+/// result goes there too, as `generate_join_handle_await` does: a consumer
+/// that does not take the value over (`(a, b) := io.await(f, io)` reads its
+/// fields and leaves the temp to drop it) otherwise leaves the slot empty and
+/// the value unreleased
+/// (issues/fixed/a-destructured-await-result-is-never-released.md).
+_store_await_result_into_temp_slot :: (fn(expr : &AstExpr, out : &String, indent : &String, context : &FunctionGenerationContext) -> unit)({
+  if(out.len() == usize(0), {
+    return(());
+  });
+  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(()));
+  vn := match(ei.variable_name, .Some(v) => v, .None => return(()));
+  smv := match(context.state_machine_variables, .Some(m) => m, .None => return(()));
+  match(
+    sm_slot_of(ast_expr_id(expr), &ei.env, &vn, &smv, &context.variable_id_remapping, &context.state_machine_field_aliases, &context.sm_capture_slot),
+    .Some(slot) => if(!(slot == out), {
+      em := context.base.emitter;
+      em.emit_string_line(`${indent}${slot} = ${out};`);
+    }),
+    .None => ()
+  );
 });
 
 /// The resume function of the single-pass lowering: the aborted-entry guard,
