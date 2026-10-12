@@ -122,14 +122,11 @@ test("Test a park is waited on once, and its waker outlives the wait", {
   w.wake();
   io.await(p.wait(io), io);
   assert(w.is_woken(), "the waker still reads the woken future after the wait");
-  comptime_expect_error(
-    {
-      q := Park.new();
-      io.await(q.wait(io), io);
-      io.await(q.wait(io), io);
-    },
-    "moved"
-  );
+  comptime_expect_error({
+    q := Park.new();
+    io.await(q.wait(io), io);
+    io.await(q.wait(io), io);
+  }, "moved");
 });
 
 // ---------------------------------------------------------------------------
