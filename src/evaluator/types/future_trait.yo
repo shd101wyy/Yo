@@ -27,6 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { create_type_value, is_type_value } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_future_trait } :: import("../../types/creators.yo");
+{ note_move_only_possible } :: import("../../types/utils.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message, format_eval_failure } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -208,6 +209,8 @@ evaluate_future_type :: (
   });
   // Build the FutureTraitT
   future_type := t_future_trait(String.from(BK_FUTURE), &output_type, &effect_labels, &effect_types);
+  // A future is move-only (decision 13): arm the move-only checks.
+  note_move_only_possible();
   // Set expr info
   out_info := new_expr_info(&env_mut, type_of_type(&future_type));
   out_info.value = .Some(create_type_value(&future_type));

@@ -1595,7 +1595,7 @@ test("ref_count: copies of a value holding RC data are counted in every position
   assert(f() >= usize(4), "a closure capture counts");
   task := _cow_task(&w, io);
   assert(ref_count(w.b) >= usize(5), "an async task slot counts");
-  assert(io.await(&task, io) >= usize(5), "and the task sees a shared count");
+  assert(io.await(task, io) >= usize(5), "and the task sees a shared count");
   assert((w3.n == i32(1)) && (h.len() == usize(1)), "all copies stay live to here");
 });
 // A borrowed value passed to an `own` parameter — a field place, or a borrowed

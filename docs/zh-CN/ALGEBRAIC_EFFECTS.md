@@ -212,11 +212,11 @@ result := run(pure_func, {});
 ```yo
 // 单个捆绑（最常见）
 fut1 : Impl(Future(i32, IoExn)); // IoExn = { io, exn }
-y := io.await(&fut1, { io, exn });
+y := io.await(fut1, { io, exn });
 
 // 单效应 future — 直接传递效应值
 fut2 : Impl(Future(i32, Io));
-x := io.await(&fut2, io);
+x := io.await(fut2, io);
 ```
 
 传给 `io.async` 的闭包必须显式标注 `e` 的类型 — 推断器无法从孤立
@@ -232,7 +232,7 @@ fut := io.async((e : type_of(effects)) => {
   e.log(`hello`);
 });
 
-result := io.await(&fut, effects);
+result := io.await(fut, effects);
 ```
 
 ```yo
@@ -449,7 +449,7 @@ standalone, not closures" 一节是同一条规则在实现层面的表述。）
     Result(String, String).Ok(raw)
   });
   // may_fail 抛出时得到 .Err("...")：错误按任务被捕获。
-  r := io.await(&guarded, e);
+  r := io.await(guarded, e);
   ```
 
   只是把处理器传下去的帧永远不会捕获它的 unwind，因此没有哪一帧会把另一帧的值当作
