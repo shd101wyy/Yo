@@ -317,9 +317,9 @@ export(main);
 
 ```yo
 Io :: struct(
-  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))),
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 ```
@@ -331,47 +331,23 @@ Io :: struct(
 
 这是一个实现选择，而非语义上的必要要求。
 
-### 多次 Await
+### Future 只 await 一次
 
-同一个 Future 可以被**多次** await。每次对同一 Future 调用 `io.await` 都会返回相同的结果：
+Future 是只能移动的值（`plans/VALUES_BY_DEFAULT.md` 决策 13）。`io.await(f, io)` 和 `io.spawn(f, io)` 会消耗 `f`，因此每个 Future 只能被 await 或 spawn 一次；`io.await` 把结果移出，所以结果类型也可以是只能移动的类型。第二次 await 是 E0901：
 
 ```yo
 { assert } :: import("std/assert");
 
 main :: (fn(io : Io) -> unit)({
-  task := io.async((io : Io) => {
-    return(i32(42));
-  });
-  result1 := io.await(task, io);
-  result2 := io.await(task, io);
-  result3 := io.await(task, io);
-  assert(result1 == i32(42), "first await returns 42");
-  assert(result2 == i32(42), "second await returns 42");
-  assert(result3 == i32(42), "third await returns 42");
+  task := io.async((io : Io) => i32(42));
+  result := io.await(task, io);
+  assert(result == i32(42), "the await moves the result out");
+  // io.await(task, io); // E0901：`task` 已被上面的 await 移走
 });
 export(main);
 ```
 
-Future 在完成后保留其结果。对于引用计数类型的结果，每次 `io.await` 调用会对结果进行 dup，使调用方获得自己的引用。Future 的 dispose 函数在状态机被释放时 drop 原始值。
-
-多个任务也可以**同时 await 同一个尚未完成的 Future**。每个等待方都会登记在该
-Future 上，Future 完成时它们按登记顺序全部恢复：
-
-```yo
-{ sleep } :: import("std/sys/timer");
-
-shared := io.async((io : Io) => {
-  io.await(sleep(u64(5)), io);
-  i32(7)
-});
-a := io.async((io : Io) => io.await(shared, io));
-b := io.async((io : Io) => io.await(shared, io));
-ha := io.spawn(a, io);
-hb := io.spawn(b, io);
-// 两者都读到 .Some(7)。
-ra := ha.await(io);
-rb := hb.await(io);
-```
+`io.state(&f)` 借用 Future，在它被消耗之前可以调用任意多次。多个任务都需要的结果只计算一次再共享：在一处 await，然后以 `Rc(T)` 共享该值，或通过 channel 发送。
 
 ### 中止的 Future
 
