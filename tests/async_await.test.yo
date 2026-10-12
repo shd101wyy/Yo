@@ -1544,14 +1544,14 @@ test("Test Future no effects backward compat", {
 test("Test Future with single effect row spread", {
   Raise :: (fn(msg : &String) -> i32);
   RaiseBundle :: struct(raise : Raise);
-  might_fail :: (fn(e : &RaiseBundle) -> i32)(
+  might_fail :: (fn(e : RaiseBundle) -> i32)(
     e.raise(`oops`)
   );
   run :: (
     fn(
       generic(T : Type, E : Type.Struct),
-      f : (fn(e : &E) -> T),
-      e : &E
+      f : (fn(e : E) -> T),
+      e : E
     ) -> T
   )(f(e));
   task := io.async((io : Io) => {
@@ -1626,19 +1626,19 @@ test("Test Future with multiple effect row spreads", {
   Log :: (fn(msg : &String) -> unit);
   RaiseBundle :: struct(raise : Raise);
   LogBundle :: struct(log : Log);
-  might_fail :: (fn(e : &RaiseBundle) -> i32)(
+  might_fail :: (fn(e : RaiseBundle) -> i32)(
     e.raise(`oops`)
   );
-  might_log :: (fn(e : &LogBundle) -> unit)(
+  might_log :: (fn(e : LogBundle) -> unit)(
     e.log(`logged something`)
   );
   run_both :: (
     fn(
       generic(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
-      f1 : (fn(e : &E1) -> T1),
-      f2 : (fn(e : &E2) -> T2),
-      e1 : &E1,
-      e2 : &E2
+      f1 : (fn(e : E1) -> T1),
+      f2 : (fn(e : E2) -> T2),
+      e1 : E1,
+      e2 : E2
     ) -> T1
   )({
     f2(e2);
@@ -1685,7 +1685,7 @@ test("Test Future with mixed individual effect and spread", {
       fn(
         generic(E : Type.Struct),
         my_raise : Raise,
-        e : &E
+        e : E
       ) -> i32
     )(
       my_raise(`mixed-effect`)

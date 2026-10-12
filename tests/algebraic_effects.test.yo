@@ -622,15 +622,15 @@ test("Test given variable shadowing (inner scope shadows outer) with unwind", {
 });
 test("Test effect polymorphism with using spread", {
   Raise :: (ctl(msg : &String) -> i32);
-  might_fail :: (fn(raise : &Raise) -> i32)(
+  might_fail :: (fn(raise : Raise) -> i32)(
     raise(`oops`)
   );
   // Effect-polymorphic function: forwards whatever effects f needs
   run :: (
     fn(
       generic(T : Type, E : Type.Struct),
-      f : (fn(e : &E) -> T),
-      e : &E
+      f : (fn(e : E) -> T),
+      e : E
     ) -> T
   )(f(e));
   (raise : Raise) = (
@@ -639,20 +639,20 @@ test("Test effect polymorphism with using spread", {
       return(i32(42));
     }
   );
-  result := run(might_fail, &raise);
+  result := run(might_fail, raise);
   assert(result == i32(42), "effect polymorphism: should be 42");
 });
 test("Test effect polymorphism with using spread and unwind", {
   Raise :: (ctl(msg : &String) -> i32);
-  might_fail :: (fn(raise : &Raise) -> i32)(
+  might_fail :: (fn(raise : Raise) -> i32)(
     raise(`oops`)
   );
   // Effect-polymorphic function: forwards whatever effects f needs
   run :: (
     fn(
       generic(T : Type, E : Type.Struct),
-      f : (fn(e : &E) -> T),
-      e : &E
+      f : (fn(e : E) -> T),
+      e : E
     ) -> T
   )(f(e));
   (raise : Raise) = (
@@ -661,14 +661,14 @@ test("Test effect polymorphism with using spread and unwind", {
       unwind(());
     }
   );
-  result := run(might_fail, &raise);
+  result := run(might_fail, raise);
   assert(false, "This line should not be reached since might_fail raises an error");
 });
 test("Test struct-record effect with unwind", {
   Raise :: struct(
     raise : (ctl(msg : &String) -> i32)
   );
-  safe_divide :: (fn(x : i32, y : i32, raise_mod : &Raise) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
@@ -683,14 +683,14 @@ test("Test struct-record effect with unwind", {
         }
       )
   );
-  result := safe_divide(10, 0, &raise_mod);
+  result := safe_divide(10, 0, raise_mod);
   assert(false, "Should not reach here after unwind");
 });
 test("Test struct-record effect with resume", {
   Raise :: struct(
     raise : (ctl(msg : &String) -> i32)
   );
-  safe_divide :: (fn(x : i32, y : i32, raise_mod : &Raise) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
@@ -705,9 +705,9 @@ test("Test struct-record effect with resume", {
         }
       )
   );
-  result := safe_divide(10, 0, &raise_mod);
+  result := safe_divide(10, 0, raise_mod);
   assert(result == 0, "struct-record effect with resume: should be 0");
-  result2 := safe_divide(10, 2, &raise_mod);
+  result2 := safe_divide(10, 2, raise_mod);
   assert(result2 == 5, "struct-record effect with resume: should be 5");
 });
 test("Test nested struct-record effect with unwind", {
@@ -717,7 +717,7 @@ test("Test nested struct-record effect with unwind", {
   Effects :: struct(
     errors : Errors
   );
-  safe_divide :: (fn(x : i32, y : i32, fx : &Effects) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, fx : Effects) -> i32)(
     cond(
       (y == 0) => fx.errors.raise(`div-by-zero`),
       true => (x / y)
@@ -734,7 +734,7 @@ test("Test nested struct-record effect with unwind", {
         )
     )
   );
-  result := safe_divide(10, 0, &fx);
+  result := safe_divide(10, 0, fx);
   assert(false, "Should not reach here after unwind");
 });
 test("Test nested struct-record effect with resume", {
@@ -744,7 +744,7 @@ test("Test nested struct-record effect with resume", {
   Effects :: struct(
     errors : Errors
   );
-  safe_divide :: (fn(x : i32, y : i32, fx : &Effects) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, fx : Effects) -> i32)(
     cond(
       (y == 0) => fx.errors.raise(`div-by-zero`),
       true => (x / y)
@@ -761,16 +761,16 @@ test("Test nested struct-record effect with resume", {
         )
     )
   );
-  result := safe_divide(10, 0, &fx);
+  result := safe_divide(10, 0, fx);
   assert(result == 0, "nested struct-record effect with resume: should be 0");
-  result2 := safe_divide(10, 2, &fx);
+  result2 := safe_divide(10, 2, fx);
   assert(result2 == 5, "nested struct-record effect with resume: should be 5");
 });
 test("Test struct record labeled name : Type with unwind", {
   Raise :: struct(
     raise : (ctl(msg : &String) -> i32)
   );
-  safe_divide :: (fn(x : i32, y : i32, raise_mod : &Raise) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
@@ -785,14 +785,14 @@ test("Test struct record labeled name : Type with unwind", {
         }
       )
   );
-  result := safe_divide(10, 0, &raise_mod);
+  result := safe_divide(10, 0, raise_mod);
   assert(false, "Should not reach here after unwind");
 });
 test("Test struct record labeled name : Type with resume", {
   Raise :: struct(
     raise : (ctl(msg : &String) -> i32)
   );
-  safe_divide :: (fn(x : i32, y : i32, raise_mod : &Raise) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
@@ -807,27 +807,27 @@ test("Test struct record labeled name : Type with resume", {
         }
       )
   );
-  result := safe_divide(10, 0, &raise_mod);
+  result := safe_divide(10, 0, raise_mod);
   assert(result == 0, "struct record labeled with resume: should be 0");
-  result2 := safe_divide(10, 2, &raise_mod);
+  result2 := safe_divide(10, 2, raise_mod);
   assert(result2 == 5, "struct record labeled with resume: should be 5");
 });
 test("Test multiple effect row spreads with resume", {
   Raise :: (ctl(msg : &String) -> i32);
   Log :: (fn(msg : &String) -> unit);
-  might_fail :: (fn(raise : &Raise) -> i32)(
+  might_fail :: (fn(raise : Raise) -> i32)(
     raise(`oops`)
   );
-  might_log :: (fn(log : &Log) -> unit)(
+  might_log :: (fn(log : Log) -> unit)(
     log(`logged something`)
   );
   run_both :: (
     fn(
       generic(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
-      f1 : (fn(e1 : &E1) -> T1),
-      f2 : (fn(e2 : &E2) -> T2),
-      e1 : &E1,
-      e2 : &E2
+      f1 : (fn(e1 : E1) -> T1),
+      f2 : (fn(e2 : E2) -> T2),
+      e1 : E1,
+      e2 : E2
     ) -> T1
   )({
     f2(e2);
@@ -845,25 +845,25 @@ test("Test multiple effect row spreads with resume", {
       return(());
     }
   );
-  result := run_both(might_fail, might_log, &raise, &log);
+  result := run_both(might_fail, might_log, raise, log);
   assert(result == i32(42), "multiple spreads resume: should be 42");
 });
 test("Test multiple effect row spreads with unwind", {
   Raise :: (ctl(msg : &String) -> i32);
   Log :: (fn(msg : &String) -> unit);
-  might_fail :: (fn(raise : &Raise) -> i32)(
+  might_fail :: (fn(raise : Raise) -> i32)(
     raise(`oops`)
   );
-  might_log :: (fn(log : &Log) -> unit)(
+  might_log :: (fn(log : Log) -> unit)(
     log(`logged something`)
   );
   run_both :: (
     fn(
       generic(T1 : Type, T2 : Type, E1 : Type.Struct, E2 : Type.Struct),
-      f1 : (fn(e1 : &E1) -> T1),
-      f2 : (fn(e2 : &E2) -> T2),
-      e1 : &E1,
-      e2 : &E2
+      f1 : (fn(e1 : E1) -> T1),
+      f2 : (fn(e2 : E2) -> T2),
+      e1 : E1,
+      e2 : E2
     ) -> T1
   )({
     f2(e2);
@@ -881,7 +881,7 @@ test("Test multiple effect row spreads with unwind", {
       return(());
     }
   );
-  run_both(might_fail, might_log, &raise, &log);
+  run_both(might_fail, might_log, raise, log);
   assert(false, "multiple spreads unwind: should not reach here");
 });
 test("Test closure with using() effect - resume", {
@@ -939,8 +939,8 @@ test("Effect row polymorphism with E : Type.Struct spread", {
     fn(
       generic(S : usize, E : Type.Struct),
       arr : Array(i32, S),
-      callback : &Impl(Fn(v : i32, e : &E) -> unit),
-      e : &E
+      callback : &Impl(Fn(v : i32, e : E) -> unit),
+      e : E
     ) -> unit
   )({
     i := usize(0);
@@ -963,6 +963,7 @@ test("Effect row polymorphism with E : Type.Struct spread", {
   sum := Rc(i32)(0);
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
   Eff :: struct(yield : Yield, log : Log);
+  derive(Eff, Copy, Clone);
   traverse(arr, (v : i32, e : Eff) => {
     e.log(v);
     result := e.yield(v);
@@ -978,8 +979,8 @@ test("Effect row inline typed declaration name : Type", {
     fn(
       generic(S : usize, E : Type.Struct),
       arr : Array(i32, S),
-      callback : &Impl(Fn(v : i32, e : &E) -> unit),
-      e : &E
+      callback : &Impl(Fn(v : i32, e : E) -> unit),
+      e : E
     ) -> unit
   )({
     i := usize(0);
@@ -1003,6 +1004,7 @@ test("Effect row inline typed declaration name : Type", {
   arr := Array(i32, 5)(0, 1, 2, 3, 4);
   // Closure declares effect row inline with types — no call-site using() needed
   Eff :: struct(yield : Yield, log : Log);
+  derive(Eff, Copy, Clone);
   traverse(arr, (v : i32, e : Eff) => {
     e.log(v);
     result := e.yield(v);
@@ -1018,7 +1020,7 @@ test("Mixed unwind and return in effect handler", {
     fn(
       generic(S : usize, E : Type.Struct),
       arr : Array(i32, S),
-      callback : &Impl(Fn(v : i32, e : &E) -> unit),
+      callback : &Impl(Fn(v : i32, e : E) -> unit),
       e : &E
     ) -> unit
   )({
@@ -1065,7 +1067,7 @@ test("Transitive SM while loop with break", {
     fn(
       generic(E : Type.Struct),
       limit : i32,
-      e : &E
+      e : E
     ) -> i32
   )({
     counter := Rc(i32)(0);
@@ -1099,7 +1101,7 @@ test("Transitive SM while loop with continue", {
   sum_even :: (
     fn(
       generic(E : Type.Struct),
-      e : &E
+      e : E
     ) -> i32
   )({
     counter := Rc(i32)(0);
@@ -1134,7 +1136,7 @@ test("Transitive SM while loop with mixed continue and break", {
   mixed_loop :: (
     fn(
       generic(E : Type.Struct),
-      e : &E
+      e : E
     ) -> i32
   )({
     counter := Rc(i32)(0);
@@ -1173,7 +1175,7 @@ test("Transitive SM while loop with step expr and continue", {
   sum_with_step :: (
     fn(
       generic(E : Type.Struct),
-      e : &E
+      e : E
     ) -> i32
   )({
     i := Rc(i32)(0);
@@ -1206,7 +1208,7 @@ test("Transitive SM while loop with early return", {
     fn(
       generic(E : Type.Struct),
       threshold : i32,
-      e : &E
+      e : E
     ) -> i32
   )({
     i := Rc(i32)(0);
@@ -1239,7 +1241,7 @@ test("Struct-record effect with generic handler — unwind in while loop", {
       throw : (ctl(generic(ResumeType : Type), error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
     )
   );
-  safe_divide :: (fn(x : i32, y : i32, exn : &MyException(i32)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, exn : MyException(i32)) -> i32)(
     cond(
       (y == 0) => exn.throw(&x, i32(666)),
       true => (x / y)
@@ -1249,8 +1251,8 @@ test("Struct-record effect with generic handler — unwind in while loop", {
     fn(
       generic(S : usize, E : Type.Struct),
       arr : Array(i32, S),
-      exn : &MyException(i32),
-      e : &E
+      exn : MyException(i32),
+      e : E
     ) -> unit
   )({
     i := usize(0);
@@ -1266,7 +1268,7 @@ test("Struct-record effect with generic handler — unwind in while loop", {
       }
     )
   );
-  traverse(arr, &exn, {});
+  traverse(arr, exn, {});
   assert(false, "Should not reach here after unwind");
 });
 test("Struct-record effect with generic handler — resume in while loop", {
@@ -1276,7 +1278,7 @@ test("Struct-record effect with generic handler — resume in while loop", {
       throw : (ctl(generic(ResumeType : Type), error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
     )
   );
-  safe_divide :: (fn(x : i32, y : i32, exn : &MyException(i32)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, exn : MyException(i32)) -> i32)(
     cond(
       (y == 0) => exn.throw(&x, i32(0)),
       true => (x / y)
@@ -1299,7 +1301,7 @@ test("Struct-record effect with generic handler — resume in while loop", {
         ((counter.* == i32(1)) || (counter.* == i32(3))) => i32(0),
         true => (counter.* + i32(1))
       );
-      result := safe_divide(i32(10), divisor, &exn);
+      result := safe_divide(i32(10), divisor, exn);
       sum.* = (sum.* + result);
       counter.* = (counter.* + 1);
     });
@@ -1315,7 +1317,7 @@ test("Struct-record effect with generic handler — break after resume in while 
       throw : (ctl(generic(ResumeType : Type), error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
     )
   );
-  safe_op :: (fn(x : i32, exn : &MyException(i32)) -> i32)(
+  safe_op :: (fn(x : i32, exn : MyException(i32)) -> i32)(
     cond(
       (x < 0) => exn.throw(&x, i32(0)),
       true => x
@@ -1331,7 +1333,7 @@ test("Struct-record effect with generic handler — break after resume in while 
       )
     );
     while(runtime(true), {
-      result := safe_op(counter.* - i32(2), &exn);
+      result := safe_op(counter.* - i32(2), exn);
       counter.* = (counter.* + 1);
       cond(
         (counter.* >= i32(5)) => {
@@ -1350,7 +1352,7 @@ test("Struct-record effect with generic handler — continue after resume in whi
       throw : (ctl(generic(ResumeType : Type), error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
     )
   );
-  safe_op :: (fn(x : i32, exn : &MyException(i32)) -> i32)(
+  safe_op :: (fn(x : i32, exn : MyException(i32)) -> i32)(
     cond(
       (x < 0) => exn.throw(&x, i32(0)),
       true => x
@@ -1369,7 +1371,7 @@ test("Struct-record effect with generic handler — continue after resume in whi
     while(runtime(counter.* < i32(6)), {
       i := counter.*;
       counter.* = (counter.* + 1);
-      result := safe_op(i - i32(2), &exn);
+      result := safe_op(i - i32(2), exn);
       // result: negative inputs → 0 (resumed), non-negative → identity
       // i=0→-2→0, i=1→-1→0, i=2→0, i=3→1, i=4→2, i=5→3
       cond(
@@ -1392,7 +1394,7 @@ test("Struct-record effect with generic handler — early return after resume in
       throw : (ctl(generic(ResumeType : Type), error : &ErrorType, resume_value : &ResumeType) -> ResumeType)
     )
   );
-  safe_op :: (fn(x : i32, exn : &MyException(i32)) -> i32)(
+  safe_op :: (fn(x : i32, exn : MyException(i32)) -> i32)(
     cond(
       (x < 0) => exn.throw(&x, i32(0)),
       true => x
@@ -1408,7 +1410,7 @@ test("Struct-record effect with generic handler — early return after resume in
       )
     );
     while(runtime(counter.* < i32(10)), {
-      result := safe_op(counter.* - i32(3), &exn);
+      result := safe_op(counter.* - i32(3), exn);
       counter.* = (counter.* + 1);
       cond(
         (result > i32(0)) => {
@@ -1597,7 +1599,7 @@ test("Test struct-record effect unwind with non-unit value", {
   Raise :: struct(
     raise : (ctl(msg : &String) -> i32)
   );
-  safe_divide :: (fn(x : i32, y : i32, raise_mod : &Raise) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
@@ -1612,7 +1614,7 @@ test("Test struct-record effect unwind with non-unit value", {
           }
         )
     );
-    safe_divide(10, 0, &raise_mod)
+    safe_divide(10, 0, raise_mod)
   });
   result := run_test();
   assert(result == i32(-1), "struct-record unwind non-unit: should get -1");
@@ -1671,7 +1673,7 @@ test("Test multiple struct-record effects in same scope", {
     log : (fn(msg : &String) -> i32)
   );
   derive(Log, Copy, Clone);
-  compute :: (fn(x : i32, y : i32, raise_mod : &Raise, log_mod : Log) -> i32)({
+  compute :: (fn(x : i32, y : i32, raise_mod : Raise, log_mod : Log) -> i32)({
     log_mod.log(`computing`);
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
@@ -1696,9 +1698,9 @@ test("Test multiple struct-record effects in same scope", {
         }
       )
   );
-  result := compute(10, 2, &raise_mod, log_mod);
+  result := compute(10, 2, raise_mod, log_mod);
   assert(result == 5, "multi-struct-record: 10/2 = 5");
-  result2 := compute(10, 0, &raise_mod, log_mod);
+  result2 := compute(10, 0, raise_mod, log_mod);
   assert(result2 == 0, "multi-struct-record: raise returns 0");
 });
 // ---------------------------------------------------------------------------
@@ -1820,14 +1822,14 @@ test("Test effect polymorphism with struct-record effect spread", {
   Raise :: struct(
     raise : (ctl(msg : &String) -> i32)
   );
-  might_fail :: (fn(raise_mod : &Raise) -> i32)(
+  might_fail :: (fn(raise_mod : Raise) -> i32)(
     raise_mod.raise(`oops`)
   );
   run :: (
     fn(
       generic(T : Type, E : Type.Struct),
-      f : (fn(e : &E) -> T),
-      e : &E
+      f : (fn(e : E) -> T),
+      e : E
     ) -> T
   )(f(e));
   (raise_mod : Raise) = Raise(
@@ -1838,7 +1840,7 @@ test("Test effect polymorphism with struct-record effect spread", {
         }
       )
   );
-  result := run(might_fail, &raise_mod);
+  result := run(might_fail, raise_mod);
   assert(result == i32(77), "struct-record effect polymorphism: should be 77");
 });
 // ---------------------------------------------------------------------------
@@ -1853,7 +1855,7 @@ test("Test transitive SM with struct-record effect in while loop", {
       generic(E : Type.Struct),
       limit : i32,
       counter : &Counter,
-      e : &E
+      e : E
     ) -> i32
   )({
     sum := Rc(i32)(0);
@@ -1894,7 +1896,7 @@ test("Test struct-based effect with unwind", {
   Raise :: struct(
     raise : (ctl(msg : &String) -> i32)
   );
-  safe_divide :: (fn(x : i32, y : i32, raise_mod : &Raise) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
@@ -1909,14 +1911,14 @@ test("Test struct-based effect with unwind", {
         }
       )
   );
-  result := safe_divide(10, 0, &raise_mod);
+  result := safe_divide(10, 0, raise_mod);
   assert(false, "Should not reach here after unwind");
 });
 test("Test struct-based effect with resume", {
   Raise :: struct(
     raise : (ctl(msg : &String) -> i32)
   );
-  safe_divide :: (fn(x : i32, y : i32, raise_mod : &Raise) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, raise_mod : Raise) -> i32)(
     cond(
       (y == 0) => raise_mod.raise(`div-by-zero`),
       true => (x / y)
@@ -1931,9 +1933,9 @@ test("Test struct-based effect with resume", {
         }
       )
   );
-  result := safe_divide(10, 0, &raise_mod);
+  result := safe_divide(10, 0, raise_mod);
   assert(result == 0, "struct-based effect with resume: should be 0");
-  result2 := safe_divide(10, 2, &raise_mod);
+  result2 := safe_divide(10, 2, raise_mod);
   assert(result2 == 5, "struct-based effect with resume: should be 5");
 });
 // Rule 1: `unwind` requires the enclosing function to be `ctl(...)`.

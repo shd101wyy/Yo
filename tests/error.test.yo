@@ -129,7 +129,7 @@ test("Test Exception with custom MathError enum", {
   assert(false, "Expected division by zero to throw an exception");
 });
 test("Test ResumableException throwing and catching with String", {
-  safe_divide :: (fn(x : i32, y : i32, exn : &ResumableException(i32)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
     cond(
       (y == i32(0)) => exn.throw(dyn(`division by zero`)),
       true => (x / y)
@@ -148,9 +148,9 @@ test("Test ResumableException throwing and catching with String", {
       }
     )
   );
-  result := safe_divide(6, 3, &exn);
+  result := safe_divide(6, 3, exn);
   assert(result == 2, "Expected 6 divided by 3 to equal 2");
-  result = safe_divide(10, 0, &exn);
+  result = safe_divide(10, 0, exn);
   assert(result == 666, "Expected division by zero to resume with value 666");
 });
 test("Test ResumableException with custom MathError enum", {
@@ -172,7 +172,7 @@ test("Test ResumableException with custom MathError enum", {
     )
   );
   impl(MathError, Error());
-  safe_divide :: (fn(x : i32, y : i32, exn : &ResumableException(i32)) -> i32)(
+  safe_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
     cond(
       (y == i32(0)) => exn.throw(dyn(MathError.DivisionByZero)),
       true => (x / y)
@@ -196,9 +196,9 @@ test("Test ResumableException with custom MathError enum", {
       }
     )
   );
-  result := safe_divide(6, 3, &exn);
+  result := safe_divide(6, 3, exn);
   assert(result == 2, "Expected 6 divided by 3 to equal 2");
-  result = safe_divide(10, 0, &exn);
+  result = safe_divide(10, 0, exn);
   assert(result == 888, "Expected division by zero to resume with value 888");
 });
 // Regression for issues/fixed/codegen-exn-throw-ref-self-while-hang.md:
@@ -358,7 +358,7 @@ test("a local moved out through the return value is released when a throw unwind
 // an ordinary identifier, the error was swallowed, the body got no ExprInfos,
 // and codegen shipped an `abort()` stub that killed the process on the first
 // throw with no diagnostic anywhere.
-_bare_arrow_divide :: (fn(x : i32, y : i32, exn : &ResumableException(i32)) -> i32)(
+_bare_arrow_divide :: (fn(x : i32, y : i32, exn : ResumableException(i32)) -> i32)(
   cond(
     (y == i32(0)) => exn.throw(dyn(`division by zero`)),
     true => (x / y)
@@ -373,14 +373,14 @@ test("a bare-arrow ResumableException handler resumes like the braced form", {
       }
     )
   );
-  assert(_bare_arrow_divide(6, 3, &bare) == 2, "the non-throwing path is unaffected");
-  assert(_bare_arrow_divide(10, 0, &bare) == 777, "the bare-arrow handler resumes with 777");
-  assert(_bare_arrow_divide(10, 0, &braced) == 777, "the braced handler resumes with 777");
+  assert(_bare_arrow_divide(6, 3, bare) == 2, "the non-throwing path is unaffected");
+  assert(_bare_arrow_divide(10, 0, bare) == 777, "the bare-arrow handler resumes with 777");
+  assert(_bare_arrow_divide(10, 0, braced) == 777, "the braced handler resumes with 777");
   // Resuming MORE THAN ONCE through the same bare-arrow handler must work.
   (i : i32) = i32(0);
   (sum : i32) = i32(0);
   while(i < i32(5), {
-    sum = (sum + _bare_arrow_divide(1, 0, &bare));
+    sum = (sum + _bare_arrow_divide(1, 0, bare));
     i = (i + i32(1));
   });
   assert(sum == i32(3885), "five resumes through the bare-arrow handler each yield 777");
@@ -390,7 +390,7 @@ test("a bare-arrow ResumableException handler resumes like the braced form", {
 test("a bare-arrow handler may compute its resume value from the error", {
   exn := ResumableException(i32)(throw : (err -> return(i32(err.to_string().len()))));
   // `division by zero` is 16 bytes.
-  assert(_bare_arrow_divide(10, 0, &exn) == i32(16), "the resume value is computed from the error");
+  assert(_bare_arrow_divide(10, 0, exn) == i32(16), "the resume value is computed from the error");
 });
 // Canary: a bare-arrow `unwind` handler (the shape the compiler tree itself
 // uses for its def-eval walls) keeps working — `unwind` HAS a dispatcher entry,

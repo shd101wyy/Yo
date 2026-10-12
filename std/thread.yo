@@ -61,8 +61,8 @@ extern(
   // (plans/VALUES_BY_DEFAULT.md decision 37), so a relay may move what it
   // captured out of its body.
   __yo_thread_spawn : (fn(sink(cb) : Impl(FnOnce(io : Io) -> unit, Send)) -> __yo_thread_t),
-  __yo_thread_join : (fn(t : &__yo_thread_t) -> unit),
-  __yo_thread_detach : (fn(t : &__yo_thread_t) -> unit)
+  __yo_thread_join : (fn(t : __yo_thread_t) -> unit),
+  __yo_thread_detach : (fn(t : __yo_thread_t) -> unit)
 );
 extern(
   "Yo",
@@ -121,7 +121,7 @@ impl(
   join : (fn(self : &Self) -> T)({
     assert(!self._joined, "Thread.join: this thread was already joined");
     self._joined = true;
-    __yo_thread_join(&self.handle);
+    __yo_thread_join(self.handle);
     // The body ran to completion, so its value is in the channel. A miss means
     // the body UNWOUND past the send, which is not a case `join` can answer
     // for: there is no value, and inventing one would hand the caller a
@@ -146,7 +146,7 @@ impl(
       cond(
         !self._joined => {
           self._joined = true;
-          __yo_thread_detach(&self.handle);
+          __yo_thread_detach(self.handle);
         },
         true => ()
       );
