@@ -1018,7 +1018,7 @@ Rules that follow:
 - **Diagnostic codes:** `E0607` not exhaustive, `E0608` unreachable arm,
   `E0609` invalid pattern (`yo explain E0607`).
 - **Inside an `io.async` arm that awaits, every pattern form is lowered**
-  (nested/or/guard/string/range/catch-all/`:=`/tuple/struct/`Rc`;
+  (nested/or/guard/string/range/catch-all/`:=`/tuple/struct/`Rc`/`Rc(p)`;
   `tests/match_async_arms.test.yo` is the spec). Bindings an arm reads after
   an await are routed through the state machine's fields. Since #1018's
   single-pass lowering, `io.await(...)` may appear anywhere in an arm —
@@ -1079,7 +1079,7 @@ Curly destructuring rules:
   (`match(p, { x, y } => ...)`). Nested sub-patterns otherwise compose
   freely: `.Foo({ a : .Some(x) })` (variant in a curly slot),
   `.V((0, y))` (tuple), `.V(Point(x : 0, y))` (named struct).
-- A struct SCRUTINEE takes struct patterns directly: `match(p, Point(x : 0, y) => …, {x, y} => …)` — the anonymous `{…}` form works like the variant curly form (bare field names bind, unlisted fields match anything). A tuple scrutinee takes `(a, b)` patterns with exact arity. A `Rc(T)` payload is looked through implicitly: `.Cons(h, .Cons(n, _))` matches through `tail : Rc(Self)` (a binding at an Rc position still binds the cell; use `b.*` on it).
+- A struct SCRUTINEE takes struct patterns directly: `match(p, Point(x : 0, y) => …, {x, y} => …)` — the anonymous `{…}` form works like the variant curly form (bare field names bind, unlisted fields match anything). A tuple scrutinee takes `(a, b)` patterns with exact arity. A wrapper pattern `Rc(p)` / `Arc(p)` names the cell it looks through (decision 31): `.Node(Rc(.Leaf(a)), _)` matches through `l : Rc(Self)`, `Rc(x)` binds the payload (a borrow), `(c := Rc(p))` binds the cell; it counts toward exhaustiveness and works in every emitter. An `Arc(T)` position takes ONLY the wrapper spelling. At an `Rc(T)` position the implicit look-through (`.Cons(h, .Cons(n, _))` through `tail : Rc(Self)`) still works until decision 31's Generation B; a bare binding there binds the cell (`b.*` on it). `src/` and `std/` must not spell `Rc(p)` until `SEED_VERSION` carries it.
 
 The parser rewrites `{...}` to `_(...)` and turns bare atoms into `(name: name)` pairs at parse time, so internally curly form is just a labeled-destructuring pattern wrapped in `_(...)`. The match evaluator unwraps that wrapper.
 

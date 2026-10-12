@@ -2456,6 +2456,7 @@ parentheses.
 | tuple | `(0, y)`, `(_, .Some(v))` | exact arity, one sub-pattern per element |
 | named struct | `Point(x : 0, y)`, `Person(name : "alice")` | labeled or bare-field, partial (unlisted fields match anything) |
 | anonymous struct | `{x : 0, y}` | at a struct position, like the variant curly form |
+| wrapper | `Rc(p)`, `Arc(p)` | looks through the cell at an `Rc(T)`/`Arc(T)` position; `p` matches the `T` inside, and its bindings borrow |
 
 ```yo
 classify :: (fn(r : Result(Option(i32), str)) -> i32)(
@@ -2486,8 +2487,15 @@ command :: (fn(s : String) -> i32)(
 
 A tuple scrutinee takes one sub-pattern per element; a struct scrutinee takes
 labeled sub-patterns (a bare field name binds that field; unlisted fields
-match anything). A `Rc(T)` payload is looked through implicitly — the
-sub-pattern matches `T`:
+match anything). A wrapper pattern `Rc(p)` or `Arc(p)` names the cell it
+looks through, as in Rust: `p` matches the `T` inside the `Rc(T)`/`Arc(T)` at
+its position, at any depth, and the cell's variants count toward
+exhaustiveness. A binding inside it borrows the payload, because other
+handles may share the cell; `(c := Rc(p))` binds the cell itself. An
+`Arc(T)` position takes only the wrapper spelling. At an `Rc(T)` position a
+structural pattern written without `Rc(…)` is still looked through
+implicitly, until every `src/` and `std/` arm spells the wrapper
+(`plans/VALUES_BY_DEFAULT.md` decision 31):
 
 ```yo
 axis :: (fn(t : Tuple(i32, i32)) -> i32)(
@@ -2507,14 +2515,23 @@ origin_only :: (fn(p : Point) -> bool)(
   )
 );
 
-// A recursive enum through Rc: the tail pattern matches the inner List.
+// A recursive enum through Rc: `Rc(p)` matches the inner List.
 List :: ref(enum(Nil, Cons(head : i32, tail : Rc(Self))));
 second :: (fn(l : List) -> i32)(
   match(
     l,
-    .Cons(_, .Cons(h, _)) => h,
+    .Cons(_, Rc(.Cons(h, _))) => h,
     .Cons(h, _) => h,
     .Nil => i32(-1)
+  )
+);
+Tree :: enum(Leaf(n : i32), Node(l : Rc(Self), r : Rc(Self)));
+leaves :: (fn(t : Tree) -> i32)(
+  match(
+    t,
+    .Node(Rc(.Leaf(a)), Rc(.Leaf(b))) => (a + b),
+    .Node(_, _) => i32(-1),
+    .Leaf(n) => n
   )
 );
 ```
@@ -2603,8 +2620,8 @@ The rules of a consuming `match`:
 - The parts an arm does not bind (`_`, a field it does not list) are dropped
   when the arm is entered. A binding the arm still owns at its end is dropped
   there; one it moves is gone.
-- Below a reference cell (an `Rc` payload the pattern looks through, a `ref`
-  value) the bindings borrow, and the handle lives until the arm ends.
+- Below a reference cell (an `Rc`/`Arc` payload the pattern looks through,
+  a `ref` value) the bindings borrow, and the handle lives until the arm ends.
 - A use of the scrutinee after a consuming `match` is E0901, whose help names
   `match(&x, …)`. Matching a module-level binding, a field (`x.f`), an element
   (`xs(i)`) or a dereference (`p.*`) by value is E0901 too (Yo has no partial

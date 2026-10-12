@@ -1459,6 +1459,33 @@ and in git, not a silent edit.
     - **Cost.** V4 rewrites the arms that destructure children. The rewrite
       is mechanical: each pattern position whose type is a wrapper gains
       the wrapper's constructor.
+    - **As built, Generation A (2026-10-13, `feat/vbd-v4-wrapper-patterns`).**
+      `Rc(p)` and `Arc(p)` are one evaluator rule
+      (`_wrapper_pattern_ctor` in `src/evaluator/exprs/pattern_compile.yo`:
+      a one-argument call whose callee is the `Rc`/`Arc` constructor in
+      scope, checked against the position's constructor id) that compiles
+      to the existing `Pattern.ThroughBox` node, and one codegen rule (its
+      arm in `src/codegen/exprs/match.yo`, which now also dereferences a
+      pointer to the cell first). Exhaustiveness and usefulness go through
+      the wrapper (`norm_position_type` presents an `Rc`/`Arc` column as
+      its payload); bindings inside borrow; `(c := Rc(p))` binds the cell
+      and `Rc((x := p))` the payload; the async emitter and the verifier
+      (outside the subset) take the node unchanged. Tests:
+      `tests/match_nested.test.yo`, `tests/match_async_arms.test.yo`.
+      - An `Arc(T)` position takes only the wrapper spelling: it was never
+        looked through implicitly, and a structural pattern there is E0609
+        naming `Arc(p)`.
+      - **Not yet:** the implicit look-through at an `Rc(T)` position stays
+        until Generation B, because `src/` and `std/` arms rely on it and
+        cannot spell `Rc(p)` before a `SEED_VERSION` carries this rule.
+        Generation B deletes it, rewrites those arms, and renders witnesses
+        with the wrapper (`.Cons(_, Rc(.Nil))`; today they print the payload
+        pattern alone). `Box(p)` joins `_is_wrapper_ctor_name` with V1
+        step 2's unique `Box`, which does not exist yet.
+      - The E0609 message that named the payload type (`Pattern
+        Rc(.Leaf(a)) cannot match a value of type T`) was not a separate
+        bug: the implicit look-through ran first and compiled `Rc(…)`
+        against the payload as a constant. The wrapper rule runs before it.
 
 32. **A member name both the wrapper and its payload have is an error;
     the wrapper's is spelled `Rc.clone(w)`.** Confirmed 2026-10-05 by the

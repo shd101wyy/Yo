@@ -45,6 +45,21 @@ throw crossing a recursion boundary was swallowed and the caller continued
 with the callee's `{0}` (`issues/fixed/at-pattern-subpattern-error-crashes-check.md`,
 fixed in `src/codegen/exprs/recur.yo`).
 
+**Wrapper patterns (plans/VALUES_BY_DEFAULT.md decision 31), Generation A,
+2026-10-13:** `Rc(p)` / `Arc(p)` name the cell a pattern looks through. The
+evaluator rule (`_wrapper_pattern_ctor`, `pattern_compile.yo`) recognises a
+one-argument call whose callee is the `Rc`/`Arc` constructor in scope and
+whose position is an instance of it (constructor id), and compiles it to the
+same `Pattern.ThroughBox` node the implicit look-through builds; codegen's
+`ThroughBox` arm also dereferences a pointer to the cell. Any pattern may sit
+under it (`Rc(x)` binds the payload as a borrow; `(c := Rc(p))` binds the
+cell). `norm_position_type` presents an `Arc` column as its payload as well,
+and an `Arc` position takes only the wrapper spelling. The implicit `Rc`
+look-through stays until decision 31's Generation B (a seed carrying the rule
+lets `src/`/`std/` spell `Rc(p)`); witnesses still render without the
+wrapper. `Box(p)` waits for V1 step 2's `Box`. Tests:
+`tests/match_nested.test.yo`, `tests/match_async_arms.test.yo`.
+
 **P1–P3 record:** on top of P0 (#672): the `Pattern` IR (`src/pattern.yo`) with its usefulness
 checker and per-match arm registry, the pattern compiler
 (`src/evaluator/exprs/pattern_compile.yo`), `evaluate_match` rewritten as ONE arm
@@ -556,7 +571,8 @@ bound as a C variable and the second arm's binds emitted after an unconditional
 | `"abc"` | `"abc"` | **new** for `str`/`String` scrutinees and payloads; exists for `comptime_str` | a `String` scrutinee against a `str` literal is exactly the existing heterogeneous `impl(String, Eq(str))` (`std/string/string.yo:1208-1215`), whose own doc comment calls `x == "literal"` "the dominant pattern" |
 | `1..=5`, `1..5` | `(1..=5)`, `(1..5)` | **new** | the `RangeOp` trait call yields a comptime `Range(T)`/`RangeInclusive(T)` value; lowered to `lo <= x && x < hi` |
 | `E::V`, `E::V(p, q)`, `E::V { a, b: c }` | `.V`, `.V(p, q)`, `.V(a : p)`, `.V({a, b : c})`, `.V({})` | exists | sub-patterns `p`, `q` may now be ANY pattern |
-| `E::V(Inner::W(x))` | `.V(.W(x))` | **new** | any depth; pointer/`ref`/`Box` payloads are looked through (top-level already auto-derefs one pointer) |
+| `E::V(Inner::W(x))` | `.V(.W(x))` | **new** | any depth; pointer/`ref` payloads are looked through (top-level already auto-derefs one pointer); an `Rc` payload implicitly until decision 31's Generation B |
+| `E::V(box Inner::W(x))` (`Box`/`Rc`/`Arc`) | `.V(Rc(.W(x)))`, `Arc(p)` | **new** (decision 31, 2026-10-13) | names the cell it looks through; `Box(p)` with V1 step 2 |
 | `(a, b)` | `(a, b)` | **new** | tuple scrutinee/sub-pattern; arity exact; `_` per element |
 | `S { x: 0, y }` | `S(x : 0, y : y)`, `{x : 0, y}` | **new** | struct scrutinee/sub-pattern; labeled, partial like curly variants |
 | `p \| q` | `(p \| q)`, `\|(p, q)` | exists for primitive literals; **new** for variants, nested, anywhere | alternatives must bind the same set of names with compatible types |

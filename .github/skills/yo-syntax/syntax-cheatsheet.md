@@ -311,10 +311,12 @@ text := match(
   parentheses. See "Pattern forms" below.
 - Tuple and struct scrutinees pattern directly: `match(t, (0, y) => …, _ => …)`
   on a tuple (exact arity) and `match(p, Point(x : 0, y) => …, {x, y} => …)`
-  on a struct (partial; a bare field name binds that field). A `Rc(T)`
-  payload is looked through implicitly: `.Cons(h, .Cons(n, _))` matches
-  through `tail : Rc(Self)`; a BINDING at an Rc position binds the cell
-  (deref with `b.*`).
+  on a struct (partial; a bare field name binds that field). A wrapper
+  pattern names the cell it crosses: `.Node(Rc(.Leaf(a)), _)` matches through
+  `l : Rc(Self)`, `Rc(x)` binds the payload (a borrow), `Arc(p)` likewise
+  (an `Arc` position needs the wrapper). An `Rc` position is still looked
+  through implicitly (`.Cons(h, .Cons(n, _))`) until decision 31's
+  Generation B; a BINDING at an Rc position binds the cell (`b.*`).
 
 Three destructuring shapes for arms (mix freely across arms):
 
