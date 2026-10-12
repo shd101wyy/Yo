@@ -27,7 +27,7 @@
 { expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_is_anonymous_function_definition, scope_variables, is_fnonce_capture_drop, is_fnonce_post_call_release } :: import("../../expr_info.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
-{ take_short_circuit_handled, FunctionGenerationContext } :: import("../functions/context.yo");
+{ take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { declare_c_var_name, get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
@@ -877,7 +877,7 @@ has_pending_emittable_drop :: (fn(expr : &AstExpr, context : &FunctionGeneration
         while((i < drops.len()) && !found, {
           match(
             drops.get(i),
-            .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&d)) && !is_deferred_drop_for_closure_capture(&d, &context.current_closure_captures), {
+            .Some(d) => if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&d)) && !is_deferred_drop_for_closure_capture(&d, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
               emittable := if(
                 _drop_target_is_parameter(&d, context),
                 true,
@@ -947,7 +947,7 @@ generate_deferred_drop_expressions :: (
               if(!context.emitted_deferred_drop_ids.contains(ast_expr_id(&drop_expr)), {
                 param_target := if(skip_param_drops || only_param_drops, _drop_target_is_parameter(&drop_expr, context), false);
                 param_filtered := ((skip_param_drops && param_target) || (only_param_drops && !param_target));
-                skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures));
+                skip_capture := (param_filtered || is_deferred_drop_for_closure_capture(&drop_expr, &context.current_closure_captures, sm_owns_fnonce_captures(context)));
                 // Skip a drop whose target TEMP was never emitted as a C declaration
                 // (declaration elided while its deferred-drop survived) — emitting
                 // `__yo_decr_rc(undeclared_temp)` is an undeclared-identifier error.

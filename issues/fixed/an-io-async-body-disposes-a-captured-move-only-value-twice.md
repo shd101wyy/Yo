@@ -64,10 +64,9 @@ owned `q`, the state machine held a bitwise copy, and both disposed it.
 
 A1 makes the slot by value, `action : Impl(FnOnce(e : E) -> T)` (decision 37),
 so the closure owns its captures. A move-only local moves into the state
-machine and only its teardown disposes it. A `sink` parameter moves the same
-way. A borrowed (by-value, pre-V3b) parameter cannot be moved into it, which
-is E0901 at the capture instead of a silent double dispose.
+machine and only its teardown disposes it. A by-value parameter and a `sink`
+parameter move the same way.
 
 Regression: `tests/async_await.test.yo`, "Test an io.async body disposes a
-captured move-only value once" (a local, a `sink` parameter, and the E0901 for
-a borrowed parameter).
+captured move-only value once" (a local, a `sink` parameter and a by-value
+parameter, each disposed once).

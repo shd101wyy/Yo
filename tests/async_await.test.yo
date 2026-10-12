@@ -1781,6 +1781,7 @@ _aw_read_local :: (fn(io : Io) -> i32)({
   (f : Impl(Future(i32, Io))) = io.async((e : Io) => q.n);
   io.await(f, io)
 });
+_aw_read_by_value :: (fn(q : _AwRes, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => q.n));
 _aw_read_sink :: (fn(sink(q) : _AwRes, io : Io) -> i32)({
   (f : Impl(Future(i32, Io))) = io.async((e : Io) => q.n);
   io.await(f, io)
@@ -1791,11 +1792,97 @@ test("Test an io.async body disposes a captured move-only value once", {
   assert(g_aw_disposed == (before + i32(1)), "the captured local is disposed once");
   assert(_aw_read_sink(_AwRes(n : i32(8)), io) == i32(8), "a captured sink parameter is read");
   assert(g_aw_disposed == (before + i32(2)), "the captured sink parameter is disposed once");
-  // A borrowed (by-value) parameter cannot move into the state machine.
-  comptime_expect_error(
-    (fn(q : _AwRes, io : Io) -> Impl(Future(i32, Io)))(io.async((e : Io) => q.n)),
-    "move-only"
-  );
+  // A by-value parameter moves into the state machine too.
+  assert(io.await(_aw_read_by_value(_AwRes(n : i32(9)), io), io) == i32(9), "a captured by-value parameter is read");
+  assert(g_aw_disposed == (before + i32(3)), "the captured by-value parameter is disposed once");
+});
+// issues/fixed/an-io-async-capture-list-disposes-its-captures-twice.md: the
+// state machine owns its capture list. A capture the body moved out sets a
+// move flag, and the dispose drops every other one, whether the body
+// completed, returned early, was aborted, or never ran.
+_aw_eat :: (fn(sink(x) : _AwRes) -> i32)(x.n);
+test("Test an io.async capture list disposes each capture once on every path", {
+  b0 := g_aw_disposed;
+  {
+    d := _AwRes(n : i32(1));
+    _r := io.await(io.async({ d }(io : Io) => d.n), io);
+  };
+  assert(g_aw_disposed == (b0 + i32(1)), "a sync body keeping its capture");
+  {
+    d := _AwRes(n : i32(1));
+    _r := io.await(io.async({ d }(io : Io) => _aw_eat(d)), io);
+  };
+  assert(g_aw_disposed == (b0 + i32(2)), "a sync body moving its capture");
+  {
+    d := _AwRes(n : i32(1));
+    _r := io.await(
+      io.async({ d }(io : Io) => {
+        io.await(yield(io), io);
+        d.n
+      }),
+      io
+    );
+  };
+  assert(g_aw_disposed == (b0 + i32(3)), "a state machine keeping its capture");
+  {
+    d := _AwRes(n : i32(1));
+    _r := io.await(
+      io.async({ d }(io : Io) => {
+        io.await(yield(io), io);
+        _aw_eat(d)
+      }),
+      io
+    );
+  };
+  assert(g_aw_disposed == (b0 + i32(4)), "a state machine moving its capture");
+  {
+    d := _AwRes(n : i32(1));
+    h := io.spawn(
+      io.async({ d }(io : Io) => {
+        x := _aw_eat(d);
+        io.await(sleep(u64(50)), io);
+        x
+      }),
+      io
+    );
+    io.await(yield(io), io);
+    h.abort();
+    _r := h.await(io);
+  };
+  assert(g_aw_disposed == (b0 + i32(5)), "moved, then aborted at a later await");
+  {
+    d := _AwRes(n : i32(1));
+    h := io.spawn(
+      io.async({ d }(io : Io) => {
+        io.await(sleep(u64(50)), io);
+        _aw_eat(d)
+      }),
+      io
+    );
+    io.await(yield(io), io);
+    h.abort();
+    _r := h.await(io);
+  };
+  assert(g_aw_disposed == (b0 + i32(6)), "aborted before the move");
+  {
+    d := _AwRes(n : i32(1));
+    _f := io.async({ d }(io : Io) => d.n);
+  };
+  assert(g_aw_disposed == (b0 + i32(7)), "a cold future dropped unrun");
+  {
+    d := _AwRes(n : i32(1));
+    _r := io.await(
+      io.async({ d }(io : Io) => {
+        io.await(yield(io), io);
+        if(d.n == i32(1), {
+          return(i32(5));
+        });
+        d.n
+      }),
+      io
+    );
+  };
+  assert(g_aw_disposed == (b0 + i32(8)), "an early return from a state machine");
 });
 // ---------------------------------------------------------------------------
 // 69. io.state — query a Future's state without awaiting
@@ -5982,7 +6069,7 @@ test("return(io.await(...)) inside io.async returns the awaited value", {
   inner := io.async((io : Io) => {
     return(i32(7));
   });
-  outer := io.async((io : Io) => {
+  outer := io.async({ inner }(io : Io) => {
     return(io.await(inner, io));
   });
   assert(io.await(outer, io) == i32(7), "the awaited value is returned");
@@ -5991,7 +6078,7 @@ test("return(io.await(...)) of an RC value inside io.async", {
   inner := io.async((io : Io) => {
     return(`seven`);
   });
-  outer := io.async((io : Io) => {
+  outer := io.async({ inner }(io : Io) => {
     return(io.await(inner, io));
   });
   s := io.await(outer, io);
@@ -6718,7 +6805,10 @@ test("an Impl(Fn) parameter captured inside a no-await io.async block", {
 // constructor and at a reassignment).
 // issues/fixed/impl-future-struct-field-emits-incompatible-pointer.md
 // ---------------------------------------------------------------------------
-_IfHolder :: ref(struct(fut : Impl(Future(i32, Io))));
+// A future is move-only (§3.13 A1): the holder is a value, and awaiting its
+// future consumes the whole holder.
+_IfHolder :: struct(fut : Impl(Future(i32, Io)));
+_if_await :: (fn(sink(h) : _IfHolder, io : Io) -> i32)(match(h, _IfHolder(fut : f) => io.await(f, io)));
 _if_mk :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))(io.async((io2 : Io) => v));
 _if_mk_awaiting :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((io2 : Io) => {
@@ -6728,9 +6818,10 @@ _if_mk_awaiting :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 test("an Impl(Future) struct field is stored, reassigned and awaited", {
   h := _IfHolder(fut : _if_mk(i32(41), io));
-  assert(io.await(h.fut, io) == i32(41), "a sync future through the field");
-  h.fut = _if_mk_awaiting(i32(1), io);
-  assert(io.await(h.fut, io) == i32(2), "a state machine through the field");
+  assert(_if_await(h, io) == i32(41), "a sync future through the field");
+  h2 := _IfHolder(fut : _if_mk(i32(0), io));
+  h2.fut = _if_mk_awaiting(i32(1), io);
+  assert(_if_await(h2, io) == i32(2), "a state machine through the field");
 });
 // ---------------------------------------------------------------------------
 // `inout` bindings in an io.async body that awaits. E0904 rejected them: the
@@ -6870,14 +6961,16 @@ test("a destructuring of an await result inside a task binds its slots", {
 // (issues/fixed/an-io-async-future-in-a-generic-struct-field-lowers-to-two-c-types.md).
 // ---------------------------------------------------------------------------
 _FutHolder :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(r : Option(T))));
-_hold_fut :: (fn(generic(T : Type), x : &T) -> _FutHolder(T))(_FutHolder(T)(r : .Some(x)));
+_hold_fut :: (fn(generic(T : Type), sink(x) : T) -> _FutHolder(T))(_FutHolder(T)(r : .Some(x)));
 test("an io.async future in a generic struct field and in an Option", {
+  // Awaiting the field's future would move it out of the field, which needs
+  // decision 19's `take` (not landed): the field is read through a borrow.
   h := _hold_fut(io.async((io : Io) => i32(8)));
-  a := match(h.r, .Some(task) => io.await(task, io), .None => i32(-1));
+  a := match(&h.r, .Some(task) => if(io.state(&task) == FutureState.Cold, i32(8), i32(-2)), .None => i32(-1));
   f := io.async((io : Io) => i32(9));
   o := Option(type_of(f)).Some(f);
   b := match(o, .Some(task) => io.await(task, io), .None => i32(-1));
-  assert((a == i32(8)) && (b == i32(9)), "both held futures are awaited");
+  assert((a == i32(8)) && (b == i32(9)), "the field's future is held cold, the Option's is awaited");
 });
 // ---------------------------------------------------------------------------
 // An io.async body's captures are fields of its capture struct and its state
