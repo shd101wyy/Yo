@@ -699,6 +699,26 @@ test("A borrowed idx no longer conforms to the by-value Index trait", {
     "but the trait requires"
   );
 });
+// A later impl's `Self.Output` must not see the abandoned impl's `Output`
+// (issues/fixed/an-abandoned-impl-leaks-its-working-trait-bindings.md): the
+// failed `BadBorrowIdx` impl above left `Output : i32` installed, and this
+// trait's second impl was rejected as needing `-> *(i32)`.
+AfterBadIdx :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
+  trait(
+    Output : Type,
+    index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)
+  )
+);
+AbiCell :: struct(v : i32);
+derive(AbiCell, Copy, Clone);
+impl(AbiCell, AfterBadIdx(usize)(Output : i32, index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(addr_of(self.v))));
+AbiBox :: struct(c : AbiCell);
+impl(AbiBox, AfterBadIdx(usize)(Output : AbiCell, index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(addr_of(self.c))));
+test("An impl abandoned under comptime_expect_error leaves no Output behind", {
+  b := AbiBox(c : AbiCell(v : i32(4)));
+  assert(b(usize(0)).v == i32(4), "AbiBox's Output is AbiCell");
+  assert(b(usize(0))(usize(0)) == i32(4), "and AbiCell's is i32");
+});
 // ============================================================
 // V2b: the read/write split (decision 34) over projections (decision 24).
 // The prelude's `Index` keeps its pre-V2b `-> *Self.Output` shape until a

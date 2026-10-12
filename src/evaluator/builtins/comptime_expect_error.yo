@@ -202,6 +202,11 @@ evaluate_comptime_expect_error :: (
   saved_gen_impl := ctx.is_evaluating_generic_impl_specialization;
   saved_spec := ctx.currently_specializing_function;
   saved_spec_stack := ctx.currently_specializing_function_stack;
+  // An impl abandoned in its field loop leaves its working-trait bindings
+  // (`Output : i32`) installed, and a later impl's `Self.Output` resolved
+  // against them (issues/fixed/an-abandoned-impl-leaks-its-working-trait-bindings.md).
+  saved_wt_labels := ctx.current_impl_trait_field_labels;
+  saved_wt_types := ctx.current_impl_trait_field_types;
   // The expected throw can strand cond.yo's branch-group entries (push
   // without pop) — truncate back to this depth after the arg eval.
   saved_branch_groups := branch_group_stack_len();
@@ -252,6 +257,8 @@ evaluate_comptime_expect_error :: (
   ctx.is_evaluating_generic_impl_specialization = saved_gen_impl;
   ctx.currently_specializing_function = saved_spec;
   ctx.currently_specializing_function_stack = saved_spec_stack;
+  ctx.current_impl_trait_field_labels = saved_wt_labels;
+  ctx.current_impl_trait_field_types = saved_wt_types;
   while(env.frames.len() > saved_frames_len, {
     env.pop_frame();
   });
