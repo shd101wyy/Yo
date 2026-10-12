@@ -12599,11 +12599,11 @@ impl(
   /// descriptor operations): the task and what it was waiting on are then
   /// released at once instead of when that operation would have completed.
   /// An operation with no cancel path still runs to completion and releases
-  /// the task then; the task stays `Aborted`. A child future the task is
-  /// awaiting is aborted with it when the task started it (an anonymous
-  /// `io.await(child(io), io)`, or a named future this await cold-started); a
-  /// named future someone else started may be shared and keeps running. A raw
-  /// `IoFuture` spawned directly is cancelled the same way.
+  /// the task then; the task stays `Aborted`. The future the task is
+  /// awaiting is aborted with it: an await owns the future it consumed
+  /// (§3.13 A1), so nothing else can be holding it. A task the aborted one
+  /// was joining through a handle keeps running. A raw `IoFuture` spawned
+  /// directly is cancelled the same way.
   abort : (fn(self : &JoinHandle(T)) -> unit)(
     __yo_join_handle_abort_raw((*void)(self.__future))
   )
