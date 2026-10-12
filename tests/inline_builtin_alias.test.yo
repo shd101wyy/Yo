@@ -15,12 +15,12 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 /// Computed argument: the `+ 1` is what used to disappear.
-add_with_bump :: (fn(a : i32, b : i32) -> i32)(__yo_op_add(&a, b + i32(1)));
+add_with_bump :: (fn(a : i32, b : i32) -> i32)(__yo_op_add(a, b + i32(1)));
 /// Reordered parameters: `b - a`, not `a - b`.
-sub_reversed :: (fn(a : i32, b : i32) -> i32)(__yo_op_sub(&b, &a));
+sub_reversed :: (fn(a : i32, b : i32) -> i32)(__yo_op_sub(b, a));
 /// The shape that MUST keep being inlined — a straight pass-through alias, the
 /// form all of prelude's operator aliases use.
-add_passthrough :: (fn(a : i32, b : i32) -> i32)(__yo_op_add(&a, &b));
+add_passthrough :: (fn(a : i32, b : i32) -> i32)(__yo_op_add(a, b));
 test("inline-builtin alias keeps a computed argument", {
   (x : i32) = i32(10);
   (y : i32) = i32(3);

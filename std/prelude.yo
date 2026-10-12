@@ -145,27 +145,27 @@ extern(
   __yo_as : (fn(generic(_Self : Type), self : &_Self, comptime(Target) : Type) -> Target),
   // Arithmetic Operators
   /// +
-  __yo_op_add : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_add : (fn(generic(T : Type), x : T, y : T) -> T),
   /// -
-  __yo_op_sub : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_sub : (fn(generic(T : Type), x : T, y : T) -> T),
   /// *
-  __yo_op_mul : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_mul : (fn(generic(T : Type), x : T, y : T) -> T),
   /// /
-  __yo_op_div : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_div : (fn(generic(T : Type), x : T, y : T) -> T),
   /// %
-  __yo_op_mod : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_mod : (fn(generic(T : Type), x : T, y : T) -> T),
   /// -
-  __yo_op_neg : (fn(generic(T : Type), x : &T) -> T),
+  __yo_op_neg : (fn(generic(T : Type), x : T) -> T),
   // Wrapping arithmetic (safe mode Phase 3a-i): two's-complement wrap for
   // signed (defined by -fwrapv), modular for unsigned. The escape hatch the
   // + - * overflow traps are built on — for arithmetic that wraps BY DESIGN
   // (hash mixing, counters, checksums).
   /// wrapping add
-  __yo_op_add_wrap : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_add_wrap : (fn(generic(T : Type), x : T, y : T) -> T),
   /// wrapping sub
-  __yo_op_sub_wrap : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_sub_wrap : (fn(generic(T : Type), x : T, y : T) -> T),
   /// wrapping mul
-  __yo_op_mul_wrap : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_mul_wrap : (fn(generic(T : Type), x : T, y : T) -> T),
   // Relational Operators
   /// ==
   __yo_op_eq : (fn(generic(T : Type), x : &T, y : &T) -> bool),
@@ -181,20 +181,20 @@ extern(
   __yo_op_gte : (fn(generic(T : Type), x : &T, y : &T) -> bool),
   // Logical Operators
   /// !
-  __yo_op_not : (fn(generic(T : Type), x : &T) -> bool),
+  __yo_op_not : (fn(generic(T : Type), x : T) -> bool),
   // Bitwise Operators
   /// &
-  __yo_op_bit_and : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_bit_and : (fn(generic(T : Type), x : T, y : T) -> T),
   /// |
-  __yo_op_bit_or : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_bit_or : (fn(generic(T : Type), x : T, y : T) -> T),
   /// ^
-  __yo_op_bit_xor : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_bit_xor : (fn(generic(T : Type), x : T, y : T) -> T),
   /// ~
-  __yo_op_bit_complement : (fn(generic(T : Type), x : &T) -> T),
+  __yo_op_bit_complement : (fn(generic(T : Type), x : T) -> T),
   /// <<
-  __yo_op_bit_left_shift : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_bit_left_shift : (fn(generic(T : Type), x : T, y : T) -> T),
   /// >>
-  __yo_op_bit_right_shift : (fn(generic(T : Type), x : &T, y : &T) -> T),
+  __yo_op_bit_right_shift : (fn(generic(T : Type), x : T, y : T) -> T),
   // Ptr related functions
   __yo_ptr_add :
     (fn(generic(T : Type), ptr : &T, offset : usize) -> T),
@@ -726,7 +726,7 @@ impl(
   LogicalNot(
     (!) : (
       self ->
-        __yo_op_not(&self)
+        __yo_op_not(self)
     )
   )
 );
@@ -1435,90 +1435,90 @@ impl(
   i8,
   Add(i8)(
     Output : i8,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   i8,
   Sub(i8)(
     Output : i8,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   i8,
   Mul(i8)(
     Output : i8,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   i8,
   Div(i8)(
     Output : i8,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   i8,
   Mod(i8)(
     Output : i8,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   i8,
   Negate(
     Output : i8,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   i8,
   BitLeftShift(i8)(
     Output : i8,
-    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(&lhs, &rhs))
+    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   i8,
   BitRightShift(i8)(
     Output : i8,
-    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(&lhs, &rhs))
+    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
 );
 impl(
   i8,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   i8,
   BitNot(
     Output : i8,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   i8,
   BitAnd(i8)(
     Output : i8,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   i8,
   BitOr(i8)(
     Output : i8,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   i8,
   BitXor(i8)(
     Output : i8,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -1731,90 +1731,90 @@ impl(
   i16,
   Add(i16)(
     Output : i16,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   i16,
   Sub(i16)(
     Output : i16,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   i16,
   Mul(i16)(
     Output : i16,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   i16,
   Div(i16)(
     Output : i16,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   i16,
   Mod(i16)(
     Output : i16,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   i16,
   Negate(
     Output : i16,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   i16,
   BitLeftShift(i16)(
     Output : i16,
-    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(&lhs, &rhs))
+    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   i16,
   BitRightShift(i16)(
     Output : i16,
-    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(&lhs, &rhs))
+    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
 );
 impl(
   i16,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   i16,
   BitNot(
     Output : i16,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   i16,
   BitAnd(i16)(
     Output : i16,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   i16,
   BitOr(i16)(
     Output : i16,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   i16,
   BitXor(i16)(
     Output : i16,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -2027,90 +2027,90 @@ impl(
   i32,
   Add(i32)(
     Output : i32,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   i32,
   Sub(i32)(
     Output : i32,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   i32,
   Mul(i32)(
     Output : i32,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   i32,
   Div(i32)(
     Output : i32,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   i32,
   Mod(i32)(
     Output : i32,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   i32,
   Negate(
     Output : i32,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   i32,
   BitLeftShift(i32)(
     Output : i32,
-    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(&lhs, &rhs))
+    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   i32,
   BitRightShift(i32)(
     Output : i32,
-    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(&lhs, &rhs))
+    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
 );
 impl(
   i32,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   i32,
   BitNot(
     Output : i32,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   i32,
   BitAnd(i32)(
     Output : i32,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   i32,
   BitOr(i32)(
     Output : i32,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   i32,
   BitXor(i32)(
     Output : i32,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -2326,90 +2326,90 @@ impl(
   i64,
   Add(i64)(
     Output : i64,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   i64,
   Sub(i64)(
     Output : i64,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   i64,
   Mul(i64)(
     Output : i64,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   i64,
   Div(i64)(
     Output : i64,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   i64,
   Mod(i64)(
     Output : i64,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   i64,
   Negate(
     Output : i64,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   i64,
   BitLeftShift(i64)(
     Output : i64,
-    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(&lhs, &rhs))
+    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   i64,
   BitRightShift(i64)(
     Output : i64,
-    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(&lhs, &rhs))
+    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
 );
 impl(
   i64,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   i64,
   BitNot(
     Output : i64,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   i64,
   BitAnd(i64)(
     Output : i64,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   i64,
   BitOr(i64)(
     Output : i64,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   i64,
   BitXor(i64)(
     Output : i64,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -2622,83 +2622,83 @@ impl(
   u8,
   Add(u8)(
     Output : u8,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   u8,
   Sub(u8)(
     Output : u8,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   u8,
   Mul(u8)(
     Output : u8,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   u8,
   Div(u8)(
     Output : u8,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   u8,
   Mod(u8)(
     Output : u8,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   u8,
   BitLeftShift(u8)(
     Output : u8,
-    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(&lhs, &rhs))
+    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   u8,
   BitRightShift(u8)(
     Output : u8,
-    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(&lhs, &rhs))
+    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
 );
 impl(
   u8,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   u8,
   BitNot(
     Output : u8,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   u8,
   BitAnd(u8)(
     Output : u8,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   u8,
   BitOr(u8)(
     Output : u8,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   u8,
   BitXor(u8)(
     Output : u8,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -2901,83 +2901,83 @@ impl(
   u16,
   Add(u16)(
     Output : u16,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   u16,
   Sub(u16)(
     Output : u16,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   u16,
   Mul(u16)(
     Output : u16,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   u16,
   Div(u16)(
     Output : u16,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   u16,
   Mod(u16)(
     Output : u16,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   u16,
   BitLeftShift(u16)(
     Output : u16,
-    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(&lhs, &rhs))
+    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   u16,
   BitRightShift(u16)(
     Output : u16,
-    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(&lhs, &rhs))
+    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
 );
 impl(
   u16,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   u16,
   BitNot(
     Output : u16,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   u16,
   BitAnd(u16)(
     Output : u16,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   u16,
   BitOr(u16)(
     Output : u16,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   u16,
   BitXor(u16)(
     Output : u16,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -3180,83 +3180,83 @@ impl(
   u32,
   Add(u32)(
     Output : u32,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   u32,
   Sub(u32)(
     Output : u32,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   u32,
   Mul(u32)(
     Output : u32,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   u32,
   Div(u32)(
     Output : u32,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   u32,
   Mod(u32)(
     Output : u32,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   u32,
   BitLeftShift(u32)(
     Output : u32,
-    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(&lhs, &rhs))
+    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   u32,
   BitRightShift(u32)(
     Output : u32,
-    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(&lhs, &rhs))
+    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
 );
 impl(
   u32,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   u32,
   BitNot(
     Output : u32,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   u32,
   BitAnd(u32)(
     Output : u32,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   u32,
   BitOr(u32)(
     Output : u32,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   u32,
   BitXor(u32)(
     Output : u32,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -3459,83 +3459,83 @@ impl(
   u64,
   Add(u64)(
     Output : u64,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   u64,
   Sub(u64)(
     Output : u64,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   u64,
   Mul(u64)(
     Output : u64,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   u64,
   Div(u64)(
     Output : u64,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   u64,
   Mod(u64)(
     Output : u64,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   u64,
   BitLeftShift(u64)(
     Output : u64,
-    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(&lhs, &rhs))
+    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   u64,
   BitRightShift(u64)(
     Output : u64,
-    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(&lhs, &rhs))
+    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
 );
 impl(
   u64,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   u64,
   BitNot(
     Output : u64,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   u64,
   BitAnd(u64)(
     Output : u64,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   u64,
   BitOr(u64)(
     Output : u64,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   u64,
   BitXor(u64)(
     Output : u64,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -3728,48 +3728,48 @@ impl(
   f32,
   Add(f32)(
     Output : f32,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   f32,
   Sub(f32)(
     Output : f32,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   f32,
   Mul(f32)(
     Output : f32,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   f32,
   Div(f32)(
     Output : f32,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   f32,
   Mod(f32)(
     Output : f32,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   f32,
   Negate(
     Output : f32,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   f32,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -3922,48 +3922,48 @@ impl(
   f64,
   Add(f64)(
     Output : f64,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   f64,
   Sub(f64)(
     Output : f64,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   f64,
   Mul(f64)(
     Output : f64,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   f64,
   Div(f64)(
     Output : f64,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   f64,
   Mod(f64)(
     Output : f64,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   f64,
   Negate(
     Output : f64,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   f64,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
@@ -4119,90 +4119,90 @@ impl(
   isize,
   Add(isize)(
     Output : isize,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   isize,
   Sub(isize)(
     Output : isize,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   isize,
   Mul(isize)(
     Output : isize,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   isize,
   Div(isize)(
     Output : isize,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   isize,
   Mod(isize)(
     Output : isize,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   isize,
   Negate(
     Output : isize,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   isize,
   BitLeftShift(isize)(
     Output : isize,
-    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(&lhs, &rhs))
+    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   isize,
   BitRightShift(isize)(
     Output : isize,
-    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(&lhs, &rhs))
+    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
 );
 impl(
   isize,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   isize,
   BitNot(
     Output : isize,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   isize,
   BitAnd(isize)(
     Output : isize,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   isize,
   BitOr(isize)(
     Output : isize,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   isize,
   BitXor(isize)(
     Output : isize,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -4414,83 +4414,83 @@ impl(
   usize,
   Add(usize)(
     Output : usize,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   usize,
   Sub(usize)(
     Output : usize,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   usize,
   Mul(usize)(
     Output : usize,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   usize,
   Div(usize)(
     Output : usize,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   usize,
   Mod(usize)(
     Output : usize,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   usize,
   BitLeftShift(usize)(
     Output : usize,
-    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(&lhs, &rhs))
+    (<<) : ((lhs, rhs) -> __yo_op_bit_left_shift(lhs, rhs))
   )
 );
 impl(
   usize,
   BitRightShift(usize)(
     Output : usize,
-    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(&lhs, &rhs))
+    (>>) : ((lhs, rhs) -> __yo_op_bit_right_shift(lhs, rhs))
   )
 );
 impl(
   usize,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   usize,
   BitNot(
     Output : usize,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   usize,
   BitAnd(usize)(
     Output : usize,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   usize,
   BitOr(usize)(
     Output : usize,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   usize,
   BitXor(usize)(
     Output : usize,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -5830,76 +5830,76 @@ impl(
   char,
   Add(char)(
     Output : char,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   char,
   Sub(char)(
     Output : char,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   char,
   Mul(char)(
     Output : char,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   char,
   Div(char)(
     Output : char,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   char,
   Mod(char)(
     Output : char,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   char,
   Negate(
     Output : char,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   char,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   char,
   BitNot(
     Output : char,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   char,
   BitAnd(char)(
     Output : char,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   char,
   BitOr(char)(
     Output : char,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   char,
   BitXor(char)(
     Output : char,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -5942,76 +5942,76 @@ impl(
   int,
   Add(int)(
     Output : int,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   int,
   Sub(int)(
     Output : int,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   int,
   Mul(int)(
     Output : int,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   int,
   Div(int)(
     Output : int,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   int,
   Mod(int)(
     Output : int,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   int,
   Negate(
     Output : int,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   int,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   int,
   BitNot(
     Output : int,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   int,
   BitAnd(int)(
     Output : int,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   int,
   BitOr(int)(
     Output : int,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   int,
   BitXor(int)(
     Output : int,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -6054,76 +6054,76 @@ impl(
   uint,
   Add(uint)(
     Output : uint,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   uint,
   Sub(uint)(
     Output : uint,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   uint,
   Mul(uint)(
     Output : uint,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   uint,
   Div(uint)(
     Output : uint,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   uint,
   Mod(uint)(
     Output : uint,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   uint,
   Negate(
     Output : uint,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   uint,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   uint,
   BitNot(
     Output : uint,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   uint,
   BitAnd(uint)(
     Output : uint,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   uint,
   BitOr(uint)(
     Output : uint,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   uint,
   BitXor(uint)(
     Output : uint,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -6166,76 +6166,76 @@ impl(
   short,
   Add(short)(
     Output : short,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   short,
   Sub(short)(
     Output : short,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   short,
   Mul(short)(
     Output : short,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   short,
   Div(short)(
     Output : short,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   short,
   Mod(short)(
     Output : short,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   short,
   Negate(
     Output : short,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   short,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   short,
   BitNot(
     Output : short,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   short,
   BitAnd(short)(
     Output : short,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   short,
   BitOr(short)(
     Output : short,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   short,
   BitXor(short)(
     Output : short,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -6278,76 +6278,76 @@ impl(
   ushort,
   Add(ushort)(
     Output : ushort,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   ushort,
   Sub(ushort)(
     Output : ushort,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   ushort,
   Mul(ushort)(
     Output : ushort,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   ushort,
   Div(ushort)(
     Output : ushort,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   ushort,
   Mod(ushort)(
     Output : ushort,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   ushort,
   Negate(
     Output : ushort,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   ushort,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   ushort,
   BitNot(
     Output : ushort,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   ushort,
   BitAnd(ushort)(
     Output : ushort,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   ushort,
   BitOr(ushort)(
     Output : ushort,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   ushort,
   BitXor(ushort)(
     Output : ushort,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -6390,76 +6390,76 @@ impl(
   long,
   Add(long)(
     Output : long,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   long,
   Sub(long)(
     Output : long,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   long,
   Mul(long)(
     Output : long,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   long,
   Div(long)(
     Output : long,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   long,
   Mod(long)(
     Output : long,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   long,
   Negate(
     Output : long,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   long,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   long,
   BitNot(
     Output : long,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   long,
   BitAnd(long)(
     Output : long,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   long,
   BitOr(long)(
     Output : long,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   long,
   BitXor(long)(
     Output : long,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -6502,76 +6502,76 @@ impl(
   ulong,
   Add(ulong)(
     Output : ulong,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   ulong,
   Sub(ulong)(
     Output : ulong,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   ulong,
   Mul(ulong)(
     Output : ulong,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   ulong,
   Div(ulong)(
     Output : ulong,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   ulong,
   Mod(ulong)(
     Output : ulong,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   ulong,
   Negate(
     Output : ulong,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   ulong,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   ulong,
   BitNot(
     Output : ulong,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   ulong,
   BitAnd(ulong)(
     Output : ulong,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   ulong,
   BitOr(ulong)(
     Output : ulong,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   ulong,
   BitXor(ulong)(
     Output : ulong,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -6614,76 +6614,76 @@ impl(
   longlong,
   Add(longlong)(
     Output : longlong,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   longlong,
   Sub(longlong)(
     Output : longlong,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   longlong,
   Mul(longlong)(
     Output : longlong,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   longlong,
   Div(longlong)(
     Output : longlong,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   longlong,
   Mod(longlong)(
     Output : longlong,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   longlong,
   Negate(
     Output : longlong,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   longlong,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   longlong,
   BitNot(
     Output : longlong,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   longlong,
   BitAnd(longlong)(
     Output : longlong,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   longlong,
   BitOr(longlong)(
     Output : longlong,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   longlong,
   BitXor(longlong)(
     Output : longlong,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -6726,76 +6726,76 @@ impl(
   ulonglong,
   Add(ulonglong)(
     Output : ulonglong,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   ulonglong,
   Sub(ulonglong)(
     Output : ulonglong,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   ulonglong,
   Mul(ulonglong)(
     Output : ulonglong,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   ulonglong,
   Div(ulonglong)(
     Output : ulonglong,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   ulonglong,
   Mod(ulonglong)(
     Output : ulonglong,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   ulonglong,
   Negate(
     Output : ulonglong,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   ulonglong,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   ulonglong,
   BitNot(
     Output : ulonglong,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   ulonglong,
   BitAnd(ulonglong)(
     Output : ulonglong,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   ulonglong,
   BitOr(ulonglong)(
     Output : ulonglong,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   ulonglong,
   BitXor(ulonglong)(
     Output : ulonglong,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
@@ -6838,76 +6838,76 @@ impl(
   longdouble,
   Add(longdouble)(
     Output : longdouble,
-    (+) : ((lhs, rhs) -> __yo_op_add(&lhs, &rhs))
+    (+) : ((lhs, rhs) -> __yo_op_add(lhs, rhs))
   )
 );
 impl(
   longdouble,
   Sub(longdouble)(
     Output : longdouble,
-    (-) : ((lhs, rhs) -> __yo_op_sub(&lhs, &rhs))
+    (-) : ((lhs, rhs) -> __yo_op_sub(lhs, rhs))
   )
 );
 impl(
   longdouble,
   Mul(longdouble)(
     Output : longdouble,
-    (*) : ((lhs, rhs) -> __yo_op_mul(&lhs, &rhs))
+    (*) : ((lhs, rhs) -> __yo_op_mul(lhs, rhs))
   )
 );
 impl(
   longdouble,
   Div(longdouble)(
     Output : longdouble,
-    (/) : ((lhs, rhs) -> __yo_op_div(&lhs, &rhs))
+    (/) : ((lhs, rhs) -> __yo_op_div(lhs, rhs))
   )
 );
 impl(
   longdouble,
   Mod(longdouble)(
     Output : longdouble,
-    (%) : ((lhs, rhs) -> __yo_op_mod(&lhs, &rhs))
+    (%) : ((lhs, rhs) -> __yo_op_mod(lhs, rhs))
   )
 );
 impl(
   longdouble,
   Negate(
     Output : longdouble,
-    neg : (self -> __yo_op_neg(&self))
+    neg : (self -> __yo_op_neg(self))
   )
 );
 impl(
   longdouble,
   LogicalNot(
-    (!) : (self -> __yo_op_not(&self))
+    (!) : (self -> __yo_op_not(self))
   )
 );
 impl(
   longdouble,
   BitNot(
     Output : longdouble,
-    (~) : (self -> __yo_op_bit_complement(&self))
+    (~) : (self -> __yo_op_bit_complement(self))
   )
 );
 impl(
   longdouble,
   BitAnd(longdouble)(
     Output : longdouble,
-    (&) : ((lhs, rhs) -> __yo_op_bit_and(&lhs, &rhs))
+    (&) : ((lhs, rhs) -> __yo_op_bit_and(lhs, rhs))
   )
 );
 impl(
   longdouble,
   BitOr(longdouble)(
     Output : longdouble,
-    (|) : ((lhs, rhs) -> __yo_op_bit_or(&lhs, &rhs))
+    (|) : ((lhs, rhs) -> __yo_op_bit_or(lhs, rhs))
   )
 );
 impl(
   longdouble,
   BitXor(longdouble)(
     Output : longdouble,
-    (^) : ((lhs, rhs) -> __yo_op_bit_xor(&lhs, &rhs))
+    (^) : ((lhs, rhs) -> __yo_op_bit_xor(lhs, rhs))
   )
 );
 impl(
