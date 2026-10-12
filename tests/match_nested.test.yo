@@ -303,7 +303,7 @@ test("a wrapper pattern must name the cell at its position", {
       )
     );
     bad(Tree.Leaf(1))
-  });
+  }, "looks through an `Rc`, and this position is not one");
   comptime_expect_error({
     bad2 :: (fn(a : &Arc(Signal)) -> i32)(
       match(
@@ -313,7 +313,7 @@ test("a wrapper pattern must name the cell at its position", {
       )
     );
     bad2(arc(Signal.Off))
-  });
+  }, "a pattern does not look through a cell implicitly");
   comptime_expect_error({
     bad3 :: (fn(t : &Tree) -> i32)(
       match(
@@ -323,5 +323,5 @@ test("a wrapper pattern must name the cell at its position", {
       )
     );
     bad3(Tree.Leaf(1))
-  });
+  }, "not exhaustive");
 });
