@@ -35,7 +35,7 @@
 { awaited_future_c_type_override } :: import("../functions/declarations.yo");
 { _call_emit_fused_await } :: import("./_fsm.yo");
 { emit_async_future_completion, emit_async_future_escape, emit_sm_unwind_catch } :: import("../exprs/async_completion.yo");
-{ get_dup_function_for_type, generate_dup_code_for_value, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
+{ generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 CLEANUP_SEGMENT :: usize.MAX;
 CrossBoundaryResult :: ref(
   struct(
@@ -1449,35 +1449,29 @@ _emit_await_suspension_core :: (
   em.emit_string_line(`${ind}__yo_future_add_waiter((void*)${acc}, ${resume_function_name}, (void*)sm);`);
   em.emit_string_line(`${ind}return;`);
 });
+/// Move an awaited future's result into `dest` (decision 13, §3.13 A1: the
+/// await consumes the future, so the result moves out with no dup). A result
+/// with a drop marks the future's result taken (state -3), so the future's
+/// dispose, which drops a Completed future's result, leaves it to `dest`.
 _emit_await_result_store :: (
-  fn(dest : &String, src : &String, rt : &TypeValue, is_reassign : bool, ind : &String, context : &FunctionGenerationContext) -> unit
+  fn(dest : &String, acc : &String, rt : &TypeValue, is_reassign : bool, ind : &String, context : &FunctionGenerationContext) -> unit
 )({
   em := context.base.emitter;
+  src := `${acc}->result`;
   if(!type_contains_rc_cell_or_move_only(rt), {
     em.emit_string_line(`${ind}${dest} = ${src};`);
     return();
   });
-  dup_expr := match(
-    get_dup_function_for_type(rt, context),
-    .Some(dup) => `${dup}(${src})`,
-    // No ___dup methods are synthesized, so this is the ordinary path: a
-    // shallow copy would hand `dest` a BORROWED reference that the future's
-    // dispose later frees (issues/fixed/self-built-compiler-uaf-in-report-and-build-paths.md).
-    .None => generate_dup_code_for_value(src.clone(), rt, context)
-  );
   if(!is_reassign, {
-    em.emit_string_line(`${ind}${dest} = ${dup_expr};`);
-    return();
+    em.emit_string_line(`${ind}${dest} = ${src};`);
+  }, {
+    drop_code := generate_drop_code_for_value(dest.clone(), rt, context);
+    if(drop_code.len() > usize(0), {
+      em.emit_string_line(`${ind}${drop_code};`);
+    });
+    em.emit_string_line(`${ind}${dest} = ${src};`);
   });
-  tmp := fresh_local_name(String.from("__yo_await_new_"), &context.base.current_function_name);
-  em.emit_string_line(`${ind}{`);
-  em.emit_string_line(`${ind}  ${get_type_string(rt, &context.base)} ${tmp} = ${dup_expr};`);
-  drop_code := generate_drop_code_for_value(dest.clone(), rt, context);
-  if(drop_code.len() > usize(0), {
-    em.emit_string_line(`${ind}  ${drop_code};`);
-  });
-  em.emit_string_line(`${ind}  ${dest} = ${tmp};`);
-  em.emit_string_line(`${ind}}`);
+  em.emit_string_line(`${ind}${acc}->state = -3;`);
 });
 _append_exprs :: (fn(dst : &mut ArrayList(AstExpr), src : &ArrayList(AstExpr)) -> unit)({
   (i : usize) = usize(0);
@@ -1658,7 +1652,6 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
   low.next_state = (k + usize(1));
   ks := k.to_string();
   label := `__yo_resume_${ks}`;
-  is_named := ast_expr_is_atom(&future_arg);
   future_code := _call_generate_expr(&future_arg, indent, context);
   (future_c_type : String) = get_type_string(&future_ty, &context.base);
   match(
@@ -1668,48 +1661,38 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
     },
     .None => ()
   );
-  acc := if(is_named, future_code.clone(), `((${future_c_type})sm->__yo_await_slot)`);
+  // The await consumes its future (decision 13, §3.13 A1), a named one
+  // too: the task's one slot owns it while the task is suspended, the abort
+  // hook cancels it with the task, and the await releases it.
+  acc := `((${future_c_type})sm->__yo_await_slot)`;
   em.emit_string_line(`${indent}// await (resumes in state ${ks})`);
-  if(!is_named, {
-    emit_future_store_into_slot(&future_arg, &future_code, String.from("__yo_await_slot"), indent, context);
-    // The slot owns the future now; the temp the evaluator minted for it
-    // (its scope-end drop is scheduled) holds nothing of its own.
-    match(
-      context.base.get_expr_info(&future_arg),
-      .Some(fei) => match(
-        fei.variable_name,
-        .Some(fvn) => {
-          low.moved_into_slot.insert(get_variable_name_for_codegen_at(ast_expr_id(&future_arg), &fvn, Option(Environment).Some(fei.env)));
-        },
-        .None => ()
-      ),
+  emit_future_store_into_slot(&future_arg, &future_code, String.from("__yo_await_slot"), indent, context);
+  // The slot owns the future now; the temp the evaluator minted for it
+  // (its scope-end drop is scheduled) holds nothing of its own.
+  match(
+    context.base.get_expr_info(&future_arg),
+    .Some(fei) => match(
+      fei.variable_name,
+      .Some(fvn) => {
+        low.moved_into_slot.insert(get_variable_name_for_codegen_at(ast_expr_id(&future_arg), &fvn, Option(Environment).Some(fei.env)));
+      },
       .None => ()
-    );
-  });
+    ),
+    .None => ()
+  );
   inner := indent.clone();
   inner.push_str("  ");
   em.emit_string_line(`${indent}{`);
-  // A named state-machine future this await cold-starts is the task's child:
-  // the abort hook cancels it with the task. (Decided before the core starts
-  // it, on the same `state == 0` test the core's cold start uses.)
-  if(is_named && !is_io, {
-    em.emit_string_line(`${inner}sm->__yo_started_child = (${acc}->state == 0) ? (void*)${acc} : NULL;`);
-  });
   _emit_await_suspension_core(acc.clone(), is_io, ks.clone(), low.resume_function_name.clone(), expr, inner.clone(), context, label.clone());
   em.emit_string_line(`${indent}}`);
   em.emit_string_line(`${indent}${label}: ;`);
-  if(is_named && !is_io, {
-    em.emit_string_line(`${indent}sm->__yo_started_child = NULL;`);
-  });
-  low.suspensions.push(InlineSuspension(state : k, in_slot : !is_named, is_io : is_io));
+  low.suspensions.push(InlineSuspension(state : k, in_slot : true, is_io : is_io));
   // The awaited future was aborted: this task takes over its unwind, and
   // catches it (its own handler) or escapes too.
   em.emit_string_line(`${indent}if (${acc}->state == -2) {`);
   em.emit_string_line(`${inner}__yo_task_abort_take_unwind((void*)${acc});`);
-  if(!is_named, {
-    em.emit_string_line(`${inner}__yo_decr_rc(sm->__yo_await_slot);`);
-    em.emit_string_line(`${inner}sm->__yo_await_slot = NULL;`);
-  });
+  em.emit_string_line(`${inner}__yo_decr_rc(sm->__yo_await_slot);`);
+  em.emit_string_line(`${inner}sm->__yo_await_slot = NULL;`);
   emit_sm_unwind_catch(&em, inner.clone(), &context.sm_unwind_catch);
   emit_async_future_escape(&em, inner.clone(), Option(String).None, Option(String).Some(low.async_block_id.clone()));
   em.emit_string_line(`${indent}}`);
@@ -1721,7 +1704,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
     inline_await_result_field_of(expr, inline_await_result_fields(&low.analysis, context)),
     .Some(rf) => {
       field := `sm->${rf.name}`;
-      _emit_await_result_store(field.clone(), `${acc}->result`, &rf.ty, false, indent.clone(), context);
+      _emit_await_result_store(field.clone(), &acc, &rf.ty, false, indent.clone(), context);
       out = field;
     },
     .None => match(
@@ -1731,7 +1714,7 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
         local := fresh_local_name(String.from("__yo_await_value"), context.base.current_function_name.clone());
         em.emit_string_line(`${indent}${get_type_string(&rty, &context.base)} ${local};`);
         declare_c_var_name(&context.base, local.clone());
-        _emit_await_result_store(local.clone(), `${acc}->result`, &rty, false, indent.clone(), context);
+        _emit_await_result_store(local.clone(), &acc, &rty, false, indent.clone(), context);
         out = local;
       },
       .None => if(!_inline_result_is_unit(_inline_await_result_type(expr, Option(AwaitAnalysisResult).Some(low.analysis), context)), {
@@ -1739,10 +1722,8 @@ emit_inline_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionG
       })
     )
   );
-  if(!is_named, {
-    em.emit_string_line(`${indent}__yo_decr_rc(sm->__yo_await_slot);`);
-    em.emit_string_line(`${indent}sm->__yo_await_slot = NULL;`);
-  });
+  em.emit_string_line(`${indent}__yo_decr_rc(sm->__yo_await_slot);`);
+  em.emit_string_line(`${indent}sm->__yo_await_slot = NULL;`);
   out
 });
 
@@ -1945,14 +1926,6 @@ generate_async_block_cancel_pending_function_inline :: (
           em.emit_string_line(`    case ${sp.state.to_string()}:`);
           em.emit_string_line(`      if (sm->__yo_await_slot != NULL) {`);
           em.emit_string_line(`        __yo_future_abort(sm->__yo_await_slot);  // structured cancellation`);
-          em.emit_string_line(`      }`);
-          em.emit_string_line(`      break;`);
-        },
-        !sp.is_io => {
-          // A named child this await started (see emit_inline_await).
-          em.emit_string_line(`    case ${sp.state.to_string()}:`);
-          em.emit_string_line(`      if (sm->__yo_started_child != NULL) {`);
-          em.emit_string_line(`        __yo_future_abort(sm->__yo_started_child);  // structured cancellation`);
           em.emit_string_line(`      }`);
           em.emit_string_line(`      break;`);
         },

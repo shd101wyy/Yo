@@ -117,10 +117,11 @@ impl(
 /// This is the primitive a waiter LIST wants — a `Mutex` or a `Channel` stores
 /// the waker in its queue and suspends — which is why it is exposed beside the
 /// closure-shaped `park` below.
-Park :: ref(
-  struct(
-    _future : IoFuture
-  )
+///
+/// A `Park` is a move-only value (its future is, decision 13): `wait`
+/// consumes it, so one park is waited on once.
+Park :: struct(
+  _future : IoFuture
 );
 impl(
   Park,
@@ -131,14 +132,13 @@ impl(
   waker : (fn(self : &Self) -> Waker)(
     Waker(_p : unsafe(__yo_waker_new(&self._future)))
   ),
-  /// Suspend the current task until one of this park's wakers fires. Resolves
-  /// immediately if a wake already arrived.
-  wait : (fn(self : &Self, io : Io) -> Impl(Future(unit, Io)))(
-    io.async((io : Io) => {
-      _r := io.await(self._future, io);
-      ()
-    })
-  )
+  /// The future that resolves once one of this park's wakers fires
+  /// (immediately if a wake already arrived). It consumes the park:
+  /// `io.await(p.wait(io), io)`.
+  wait : (fn(self : Self, _io : Io) -> IoFuture)({
+    { _future } := self;
+    _future
+  })
 );
 /// Suspend the current task until the waker handed to `register` is woken.
 ///
