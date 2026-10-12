@@ -20,6 +20,10 @@ sleepy :: (fn(value : i32, ms : u64, io : Io) -> Impl(Future(i32, Io)))({
     return(v.*);
   })
 });
+// A `JoinHandle` is move-only (plans/VALUES_BY_DEFAULT.md §3.13 A3): every
+// combinator takes its handles by value. `join_all`, `race_first`,
+// `any_first` and `timeout` consume them; `race` and `any` hand the list back
+// with the index.
 // ---------------------------------------------------------------------------
 // 1. join_all — results in spawn order, concurrent wall time
 // ---------------------------------------------------------------------------
@@ -28,11 +32,24 @@ test("Test join_all returns results in order", {
   handles.push(io.spawn(sleepy(i32(10), u64(15), io), io));
   handles.push(io.spawn(sleepy(i32(20), u64(5), io), io));
   handles.push(io.spawn(sleepy(i32(30), u64(10), io), io));
-  results := io.await(join_all(&handles, io), io);
+  results := io.await(join_all(handles, io), io);
   assert(results.len() == usize(3), "join_all should return one result per handle");
   assert(match(results(usize(0)), .Some(v) => (v == i32(10)), .None => false), "slot 0 should be 10");
   assert(match(results(usize(1)), .Some(v) => (v == i32(20)), .None => false), "slot 1 should be 20");
   assert(match(results(usize(2)), .Some(v) => (v == i32(30)), .None => false), "slot 2 should be 30");
+});
+test("Test join_all drains the list it takes", {
+  // An `ArrayList` is still a shared handle (it becomes explicit-copy at
+  // V2b), so the caller's binding sees the list `join_all` drained: every
+  // handle moved out and was consumed by its join.
+  handles := ArrayList(JoinHandle(Rc(i32))).new();
+  handles.push(io.spawn(io.async((io : Io) => Rc(i32)(4)), io));
+  handles.push(io.spawn(io.async((io : Io) => Rc(i32)(5)), io));
+  outs := io.await(join_all(handles, io), io);
+  assert(handles.len() == usize(0), "join_all drained the list");
+  // Each result moves out of its joined task.
+  assert(match(outs(usize(0)), .Some(r) => (r.* == i32(4)), .None => false), "slot 0 moved out");
+  assert(match(outs(usize(1)), .Some(r) => (r.* == i32(5)), .None => false), "slot 1 moved out");
 });
 // ---------------------------------------------------------------------------
 // 2. join_all — an aborted task's slot is .None, siblings unaffected
@@ -41,14 +58,14 @@ test("Test join_all with aborted member", {
   handles := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(1), u64(30), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
-  h0 := handles(usize(0));
-  h0.abort();
-  results := io.await(join_all(&handles, io), io);
+  handles(usize(0)).abort();
+  results := io.await(join_all(handles, io), io);
   assert(match(results(usize(0)), .Some(_) => false, .None => true), "aborted slot should be .None");
   assert(match(results(usize(1)), .Some(v) => (v == i32(2)), .None => false), "sibling should complete");
 });
 // ---------------------------------------------------------------------------
-// 3. race — first terminal handle wins; losers keep running and stay joinable
+// 3. race — first terminal handle wins; the list comes back, and the losers
+//    keep running and stay joinable
 // ---------------------------------------------------------------------------
 test("Test race picks the fastest", {
   handles := ArrayList(JoinHandle(i32)).new();
@@ -57,14 +74,30 @@ test("Test race picks the fastest", {
   // the 40ms/5ms version of this test failed on macos-latest (PR #341).
   handles.push(io.spawn(sleepy(i32(1), u64(500), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
-  w := io.await(race(&handles, io), io);
+  (w, back) := io.await(race(handles, io), io);
   assert(w == usize(1), "the 5ms task should win the race");
-  h0 := handles(usize(0));
-  h1 := handles(usize(1));
-  r1 := h1.await(io);
-  assert(match(r1, .Some(v) => (v == i32(2)), .None => false), "winner result should be intact");
-  r0 := h0.await(io);
-  assert(match(r0, .Some(v) => (v == i32(1)), .None => false), "loser should still complete normally");
+  assert(back.len() == usize(2), "race hands the whole list back");
+  assert(back(usize(1)).is_finished(), "the winner is terminal");
+  assert(!back(usize(0)).is_finished(), "the loser is still running");
+  outs := io.await(join_all(back, io), io);
+  assert(match(outs(usize(1)), .Some(v) => (v == i32(2)), .None => false), "winner result should be intact");
+  assert(match(outs(usize(0)), .Some(v) => (v == i32(1)), .None => false), "loser should still complete normally");
+});
+test("Test race hands the list back: the losers can still be aborted", {
+  handles := ArrayList(JoinHandle(i32)).new();
+  handles.push(io.spawn(sleepy(i32(1), u64(500), io), io));
+  handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
+  handles.push(io.spawn(sleepy(i32(3), u64(500), io), io));
+  (w, back) := io.await(race(handles, io), io);
+  assert(w == usize(1), "the 1 ms task wins");
+  back(usize(0)).abort();
+  back(usize(2)).abort();
+  assert(back(usize(0)).state() == FutureState.Aborted, "loser 0 aborted through the returned list");
+  assert(back(usize(2)).state() == FutureState.Aborted, "loser 2 aborted through the returned list");
+  outs := io.await(join_all(back, io), io);
+  assert(outs(usize(0)).is_none(), "an aborted loser joins as .None");
+  assert(match(outs(usize(1)), .Some(v) => (v == i32(2)), .None => false), "the winner's value");
+  assert(outs(usize(2)).is_none(), "the other aborted loser joins as .None");
 });
 // ---------------------------------------------------------------------------
 // 4. any — skips aborted handles, returns the first COMPLETION
@@ -73,13 +106,13 @@ test("Test any skips aborted handles", {
   handles := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(1), u64(30), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(10), io), io));
-  h0 := handles(usize(0));
-  h0.abort();
-  w := io.await(any(&handles, io), io);
+  handles(usize(0)).abort();
+  (w, back) := io.await(any(handles, io), io);
   assert(match(w, .Some(i) => (i == usize(1)), .None => false), "any should pick the completing task, not the aborted one");
-  h1 := handles(usize(1));
-  _r1 := h1.await(io);
-  _r0 := h0.await(io);
+  assert(back.len() == usize(2), "any hands the whole list back");
+  outs := io.await(join_all(back, io), io);
+  assert(outs(usize(0)).is_none(), "the aborted handle joins as .None");
+  assert(match(outs(usize(1)), .Some(v) => (v == i32(2)), .None => false), "the completed one keeps its value");
 });
 // ---------------------------------------------------------------------------
 // 5. any — all aborted gives .None
@@ -88,22 +121,33 @@ test("Test any with all aborted", {
   handles := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(1), u64(30), io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(30), io), io));
-  h0 := handles(usize(0));
-  h1 := handles(usize(1));
-  h0.abort();
-  h1.abort();
-  w := io.await(any(&handles, io), io);
+  handles(usize(0)).abort();
+  handles(usize(1)).abort();
+  (w, back) := io.await(any(handles, io), io);
   assert(match(w, .Some(_) => false, .None => true), "any over only-aborted handles should be .None");
-  _r0 := h0.await(io);
-  _r1 := h1.await(io);
+  assert(back(usize(0)).state() == FutureState.Aborted, "the returned handles are the aborted ones");
+  assert(back(usize(1)).state() == FutureState.Aborted, "both of them");
 });
 // ---------------------------------------------------------------------------
 // 6. timeout — completion inside the limit
 // ---------------------------------------------------------------------------
 test("Test timeout completes in time", {
   h := io.spawn(sleepy(i32(7), u64(5), io), io);
-  r := io.await(timeout(&h, Duration.from_millis(i64(200)), io), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
   assert(match(r, .Ok(v) => (v == i32(7)), .Err(_) => false), "task inside the limit should deliver its value");
+});
+test("Test timeout consumes its handle", {
+  comptime_expect_error(
+    _timeout_then_await :: (fn(io : Io) -> bool)({
+      h := io.spawn(sleepy(i32(1), u64(1), io), io);
+      _r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
+      h.await(io).is_some()
+    }),
+    "use of moved value"
+  );
+  h := io.spawn(sleepy(i32(8), u64(1), io), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
+  assert(match(r, .Ok(v) => (v == i32(8)), .Err(_) => false), "the consumed handle's value comes back");
 });
 // ---------------------------------------------------------------------------
 // 6b. timeout — repeated in-time calls against a long deadline.
@@ -118,7 +162,7 @@ test("Test timeout in a loop against a long deadline", {
   (i : usize) = usize(0);
   while(i < usize(200), i = (i + usize(1)), {
     h := io.spawn(sleepy(i32(3), u64(0), io), io);
-    r := io.await(timeout(&h, Duration.from_millis(i64(60000)), io), io);
+    r := io.await(timeout(h, Duration.from_millis(i64(60000)), io), io);
     assert(match(r, .Ok(v) => (v == i32(3)), .Err(_) => false), "every in-time call should deliver its value");
   });
 });
@@ -133,7 +177,7 @@ test("Test timeout distinguishes an aborted task from an elapsed deadline", {
   h := io.spawn(fut, io);
   // Cancel the task ourselves, well inside a generous deadline.
   h.abort();
-  r := io.await(timeout(&h, Duration.from_millis(i64(500)), io), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(500)), io), io);
   assert(
     match(r, .Ok(_) => false, .Err(e) => match(e, .Aborted => true, .Elapsed => false)),
     "a task cancelled before its deadline must report Aborted"
@@ -150,7 +194,7 @@ test("Test timeout aborts on deadline", {
     return(i32(1));
   });
   h := io.spawn(fut, io);
-  r := io.await(timeout(&h, Duration.from_millis(i64(10)), io), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(10)), io), io);
   assert(
     match(r, .Ok(_) => false, .Err(e) => match(e, .Elapsed => true, .Aborted => false)),
     "an over-deadline task should report Elapsed, not a bare .None"
@@ -164,34 +208,47 @@ test("Test timeout aborts on deadline", {
 //
 // `race`/`any` hand back an INDEX and leave the losers running (dropping a
 // `JoinHandle` DETACHES its task, exactly as dropping Tokio's does). These two
-// abort AND join each loser and resolve to the winner's result.
+// abort AND join each loser and resolve to the winner's result. They drain
+// the list, so a loser's fate is observed through what it captured.
 // ---------------------------------------------------------------------------
+/// A task that sleeps `ms`, then records that it ran past its sleep and
+/// returns `value`.
+sleepy_flag :: (fn(value : i32, ms : u64, ran : Rc(bool), io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ value, ms, ran }(io : Io) => {
+    io.await(sleep(ms), io);
+    ran.* = true;
+    value
+  })
+);
 test("Test race_first returns the fastest task's value", {
+  ran0 := Rc(bool)(false);
+  ran2 := Rc(bool)(false);
   handles := ArrayList(JoinHandle(i32)).new();
-  handles.push(io.spawn(sleepy(i32(10), u64(60), io), io));
+  handles.push(io.spawn(sleepy_flag(i32(10), u64(60), ran0, io), io));
   handles.push(io.spawn(sleepy(i32(20), u64(1), io), io));
-  handles.push(io.spawn(sleepy(i32(30), u64(60), io), io));
-  r := io.await(race_first(&handles, io), io);
+  handles.push(io.spawn(sleepy_flag(i32(30), u64(60), ran2, io), io));
+  r := io.await(race_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(20)), .None => false), "the 1 ms task wins");
-  // Both losers are terminal now: race_first aborted and joined them.
-  assert(handles(usize(0)).is_finished(), "loser 0 is terminal");
-  assert(handles(usize(2)).is_finished(), "loser 2 is terminal");
-  assert(handles(usize(0)).state() == FutureState.Aborted, "loser 0 was aborted, not left running");
-  assert(handles(usize(2)).state() == FutureState.Aborted, "loser 2 was aborted, not left running");
+  // Both losers were aborted and joined: neither runs past its sleep.
+  io.await(sleep(u64(100)), io);
+  assert(!(ran0.*), "loser 0 was aborted, not left running");
+  assert(!(ran2.*), "loser 2 was aborted, not left running");
 });
 test("Test race_first with a single handle", {
   handles := ArrayList(JoinHandle(i32)).new();
   handles.push(io.spawn(sleepy(i32(7), u64(1), io), io));
-  r := io.await(race_first(&handles, io), io);
+  r := io.await(race_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(7)), .None => false), "one handle wins by default");
 });
 test("Test any_first returns the first COMPLETED value and aborts the rest", {
+  ran0 := Rc(bool)(false);
   handles := ArrayList(JoinHandle(i32)).new();
-  handles.push(io.spawn(sleepy(i32(1), u64(60), io), io));
+  handles.push(io.spawn(sleepy_flag(i32(1), u64(60), ran0, io), io));
   handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
-  r := io.await(any_first(&handles, io), io);
+  r := io.await(any_first(handles, io), io);
   assert(match(r, .Some(v) => (v == i32(2)), .None => false), "the fast task's value comes back");
-  assert(handles(usize(0)).state() == FutureState.Aborted, "the loser was aborted");
+  io.await(sleep(u64(100)), io);
+  assert(!(ran0.*), "the loser was aborted");
 });
 test("Test any_first is None when every handle was aborted", {
   handles := ArrayList(JoinHandle(i32)).new();
@@ -199,7 +256,7 @@ test("Test any_first is None when every handle was aborted", {
   handles.push(io.spawn(sleepy(i32(2), u64(60), io), io));
   handles(usize(0)).abort();
   handles(usize(1)).abort();
-  r := io.await(any_first(&handles, io), io);
+  r := io.await(any_first(handles, io), io);
   assert(match(r, .Some(_) => false, .None => true), "no completion means .None");
 });
 // ---------------------------------------------------------------------------
@@ -218,14 +275,17 @@ join_in_task :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))({
       handles.push(io.spawn(sleepy(k, u64(5), io), io));
     });
     (sum : i32) = i32(0);
-    (i : usize) = usize(0);
-    while(i < handles.len(), i = (i + usize(1)), {
-      h := handles(i);
+    // Each join consumes its handle: pop them off the list.
+    while(handles.len() > usize(0), {
       match(
-        io.await(h.join(io), io),
-        .Some(v) => {
-          sum = (sum + v);
-        },
+        handles.pop(),
+        .Some(h) => match(
+          io.await(h.join(io), io),
+          .Some(v) => {
+            sum = (sum + v);
+          },
+          .None => ()
+        ),
         .None => ()
       );
     });
@@ -241,10 +301,9 @@ test("Test JoinHandle.join from main reads the same Option as await", {
   h := io.spawn(sleepy(i32(9), u64(5), io), io);
   r := io.await(h.join(io), io);
   assert(match(r, .Some(v) => (v == i32(9)), .None => false), "join resolves to the task's value");
-  again := io.await(h.join(io), io);
-  assert(match(again, .Some(v) => (v == i32(9)), .None => false), "a second join reads the same result");
-  r2 := h.await(io);
-  assert(match(r2, .Some(v) => (v == i32(9)), .None => false), "await after join reads it too");
+  h2 := io.spawn(sleepy(i32(9), u64(5), io), io);
+  r2 := h2.await(io);
+  assert(match(r2, .Some(v) => (v == i32(9)), .None => false), "await reads the same Option");
 });
 test("Test JoinHandle.join of an aborted task is None", {
   h := io.spawn(sleepy(i32(1), u64(50), io), io);
@@ -258,7 +317,7 @@ join_all_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
     handles := ArrayList(JoinHandle(i32)).new();
     handles.push(io.spawn(sleepy(i32(1), u64(10), io), io));
     handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
-    outs := io.await(join_all(&handles, io), io);
+    outs := io.await(join_all(handles, io), io);
     (sum : i32) = i32(0);
     (i : usize) = usize(0);
     while(i < outs.len(), i = (i + usize(1)), {
@@ -283,7 +342,7 @@ race_first_in_task :: (fn(io : Io) -> Impl(Future(Option(i32), Io)))(
     handles := ArrayList(JoinHandle(i32)).new();
     handles.push(io.spawn(sleepy(i32(1), u64(60), io), io));
     handles.push(io.spawn(sleepy(i32(2), u64(1), io), io));
-    io.await(race_first(&handles, io), io)
+    io.await(race_first(handles, io), io)
   })
 );
 test("Test race_first inside a task", {
@@ -295,8 +354,8 @@ timeouts_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((io : Io) => {
     slow := io.spawn(sleepy(i32(1), u64(200), io), io);
     fast := io.spawn(sleepy(i32(2), u64(1), io), io);
-    a := io.await(timeout(&slow, Duration.from_millis(i64(10)), io), io);
-    b := io.await(timeout(&fast, Duration.from_millis(i64(500)), io), io);
+    a := io.await(timeout(slow, Duration.from_millis(i64(10)), io), io);
+    b := io.await(timeout(fast, Duration.from_millis(i64(500)), io), io);
     (score : i32) = i32(0);
     match(
       a,
@@ -329,7 +388,7 @@ test("Test any inside a task skips an aborted handle", {
     handles.push(io.spawn(sleepy(i32(1), u64(30), io), io));
     handles.push(io.spawn(sleepy(i32(2), u64(5), io), io));
     handles(usize(0)).abort();
-    w := io.await(any(&handles, io), io);
+    (w, _back) := io.await(any(handles, io), io);
     match(w, .Some(i) => i32(i), .None => i32(-1))
   });
   r := io.await(fut, io);
@@ -343,7 +402,8 @@ test("Test aborting the joining task leaves the joined task running", {
     return(i32(1));
   });
   wh := io.spawn(worker, io);
-  joiner := io.async((io : Io) => {
+  // The joiner owns the handle; `join` consumes it.
+  joiner := io.async({ wh }(io : Io) => {
     _r := io.await(wh.join(io), io);
     return(i32(2));
   });
@@ -351,9 +411,9 @@ test("Test aborting the joining task leaves the joined task running", {
   jh.abort();
   r := jh.await(io);
   assert(match(r, .Some(_) => false, .None => true), "the joiner was aborted");
-  w := wh.await(io);
-  assert(match(w, .Some(v) => (v == i32(1)), .None => false), "the joined task still completed");
-  assert(done.*, "and its body ran to the end");
+  // The aborted join dropped the handle, which detached the worker.
+  io.await(sleep(u64(60)), io);
+  assert(done.*, "the joined task still ran to the end");
 });
 // ===========================================================================
 // Stream — the async analogue of `Iterator`
@@ -396,7 +456,7 @@ impl(
 _bounded :: (fn(generic(S : Type), s : &S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))({
   h := io.spawn(s.collect(io), io);
   match(
-    io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io),
+    io.await(timeout(h, Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
     .Err(_) => {
       assert(false, "stream collect did not finish inside the deadline");
@@ -610,7 +670,7 @@ test("Test Stream for_each inside a spawned task", {
     seen.push(x);
   }, io);
   h := io.spawn(drain, io);
-  r := io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "for_each finished inside the deadline");
   assert(seen.len() == usize(4), "every item reached the body");
 });
@@ -638,7 +698,7 @@ test("Test a hand-written consumer loop inside a spawned task", {
     seen.len()
   });
   h := io.spawn(task, io);
-  r := io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
   assert(match(r, .Ok(n) => (n == usize(3)), .Err(_) => false), "the task looped over every item");
   assert(seen(usize(0)) == i32(6), "and the body's effect is visible outside");
 });
@@ -688,7 +748,7 @@ test("Test for_await inside a spawned task, with continue and break", {
     });
   });
   h := io.spawn(task, io);
-  r := io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "for_await finished inside the deadline");
   assert(seen.len() == usize(3), "6, then 5 skipped, 4 and 3, then 2 breaks");
   assert((seen(usize(0)) == i32(6)) && ((seen(usize(1)) == i32(4)) && (seen(usize(2)) == i32(3))), "6 4 3");
@@ -744,7 +804,7 @@ test("Test for_await suspends its task between items", {
     io.await(yield(io), io);
     i = (i + i32(1));
   });
-  r := io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "the task finished");
   assert(seen.len() == usize(3), "one entry per item");
   // A blocking await would run the whole loop inside the spawn, before main
