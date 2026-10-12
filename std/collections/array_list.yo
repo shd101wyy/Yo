@@ -1346,8 +1346,9 @@ impl(
   ArrayList(T),
   /// Reverse the elements in place, O(n).
   ///
-  /// Exchanges raw slots, like `swap`, so no element is dup'd or dropped —
-  /// RC-neutral however `T` is refcounted.
+  /// Exchanges raw slots bitwise, like `swap`, so no element is copied or
+  /// dropped: RC-neutral however `T` is refcounted, and a move-only `T`
+  /// reverses too.
   reverse : (fn(self : &mut Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
@@ -1361,9 +1362,11 @@ impl(
               i = (i + usize(1));
               j = (j - usize(1));
             }, {
-              tmp := (_ptr.add(i)).*;
-              (_ptr.add(i)).* = (_ptr.add(j)).*;
-              (_ptr.add(j)).* = tmp;
+              pi := _ptr.add(i);
+              pj := _ptr.add(j);
+              tmp := __yo_ptr_read(pi);
+              __yo_ptr_write(pi, __yo_ptr_read(pj));
+              __yo_ptr_write(pj, tmp);
             });
           },
           .None => ()
