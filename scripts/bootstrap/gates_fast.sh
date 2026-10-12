@@ -61,24 +61,13 @@ echo "=== T1 GATE -1: S1 parses this tree ==="
 # the OTHER checkout's std (where the binary lives), not this one. CI is safe
 # by construction — S1 is the stage1 artifact built from this tree — so this
 # guard is for local batteries. One prelude parse turns the whole cascade
-# into a single named cause. When THIS checkout's own yo-out binary parses
-# the tree, fall back to it LOUDLY: the battery still tests this tree with
-# this tree's compiler (what a self-hosted gate battery means) and the WARN
-# keeps the mis-staging visible in every round's output — an automated
-# battery cannot read an abort and fix its own staging, but it can relay a
-# green run plus a WARN. With no usable fallback, abort: no gate below can
-# produce signal with such an S1.
+# into a single named cause. It never substitutes another binary: a battery
+# must test the S1 it was given, or none.
 if ! s1_probe="$("$S1" check "$PWD/std/prelude.yo" --std-path "$PWD/std" 2>&1)"; then
-  tree_bin="$(ls -d "$PWD"/yo-out/*/bin/yo 2>/dev/null | head -1)"
-  if [ -n "$tree_bin" ] && tree_probe="$("$tree_bin" check "$PWD/std/prelude.yo" --std-path "$PWD/std" 2>&1)"; then
-    echo "WARN: S1 $("$S1" --version 2>/dev/null | head -1) at $S1 cannot parse this tree's std/prelude.yo — continuing with THIS checkout's $tree_bin; fix the staging that supplied the stale binary"
-    S1="$tree_bin"
-  else
-    fail "S1 is unusable on this tree: $("$S1" --version 2>/dev/null | head -1) at $S1 cannot parse $PWD/std/prelude.yo — stage S1 from THIS checkout's yo-out"
-    printf '%s\n' "$s1_probe" | head -6 | sed 's/^/  /'
-    echo "T1_ABORTED (${P}): S1 cannot parse this tree"
-    exit 1
-  fi
+  fail "S1 is unusable on this tree: $("$S1" --version 2>/dev/null | head -1) at $S1 cannot parse $PWD/std/prelude.yo — stage S1 from THIS checkout's yo-out"
+  printf '%s\n' "$s1_probe" | head -6 | sed 's/^/  /'
+  echo "T1_ABORTED (${P}): S1 cannot parse this tree"
+  exit 1
 fi
 
 echo "=== T1 GATE 0: repros ==="

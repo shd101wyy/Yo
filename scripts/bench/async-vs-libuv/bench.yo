@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
 
 _env_count :: (fn(name : String, deflt : i64) -> i64)(
   match(
-    env.get(name),
+    env.get(&name),
     .Some(c) => match(
       c.parse(i64),
       .Ok(n) => n,
@@ -128,10 +128,10 @@ _run_pingpong :: (fn(io : Io) -> unit)({
     free(.Some((*void)(rbuf)));
     io.await(c.close(io), e);
   });
-  io.spawn(server, io);
-  io.spawn(client, io);
-  io.await(client, io);
-  io.await(server, io);
+  io.spawn(&server, io);
+  io.spawn(&client, io);
+  io.await(&client, io);
+  io.await(&server, io);
   {
     exn := Exception(
       throw : (
@@ -161,7 +161,7 @@ _run_timers :: (fn(io : Io) -> unit)({
       });
       match(done.try_send(()), .Ok(_) => (), .Err(_) => ());
     });
-    io.spawn(task, io);
+    io.spawn(&task, io);
     fi = (fi + i64(1));
   });
   exn := Exception(
@@ -290,8 +290,8 @@ _run_multi :: (fn(io : Io) -> unit)({
       io.await(c.close(io), e);
       match(done.try_send(()), .Ok(_) => (), .Err(_) => ());
     });
-    servers.push(io.spawn(server, io));
-    io.spawn(client, io);
+    servers.push(io.spawn(&server, io));
+    io.spawn(&client, io);
     pi = (pi + i64(1));
   });
   t0 := Instant.now();
