@@ -399,16 +399,11 @@ _generate_io_spawn :: (fn(expr : &AstExpr, indent : &String, context : &Function
     em.emit_string_line(`${indent.clone()}  ${spawn_var.clone()}->vt->resume((void*)${spawn_var.clone()});`);
     em.emit_string_line(`${indent.clone()}}`);
   });
-  // OWNERSHIP. The handle owns one reference to the future (JoinHandle is a
-  // `ref` struct in the prelude): it keeps the task and its result alive for
-  // as long as some copy of the handle exists, and its Dispose releases it —
-  // a dropped, never-awaited handle detaches the task. A borrowed view
-  // dangled whenever the future's owning binding died before the await (a
-  // loop body is such a scope: issues/fixed/io-spawn-in-loop-or-recursion-hangs.md),
-  // and keying the reference on a BOUND handle leaked every statement-level
-  // spawn, since the evaluator names every value
+  // OWNERSHIP. `io.spawn` consumes its future (decision 13, §3.13 A1): the
+  // caller's reference moves into the handle, which keeps the task and its
+  // result alive and releases it in its Dispose — a dropped, never-awaited
+  // handle detaches the task
   // (issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md).
-  em.emit_string_line(`${indent.clone()}__yo_incr_rc((void*)${spawn_var.clone()});  // the JoinHandle owns a reference`);
   match(
     join_handle_type_name,
     .Some(jh) => {
