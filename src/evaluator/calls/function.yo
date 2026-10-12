@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
   mark_dot_callee,
   unmark_dot_callee
 } :: import("../context.yo");
-{ is_pointer_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
+{ is_pointer_type, is_reference_struct_type, is_atomic_reference_struct_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows } :: import("../../types/utils.yo");
@@ -2208,37 +2208,43 @@ _check_awaited_future_lends :: (fn(args : &ArrayList(AstExpr), ctx : &EvalContex
   match(
     operand,
     .FnCall(_, op_callee, op_args, _, _) => {
-      labels := match(
+      (labels : ArrayList(String)) = ArrayList(String).new();
+      (self_ty : Option(TypeValue)) = Option(TypeValue).None;
+      match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
-        .Some(ci) => match(ci.ty, .Func({ meta : om }) => om.*.param_labels, _ => ArrayList(String).new()),
-        .None => ArrayList(String).new()
+        .Some(ci) => match(
+          ci.ty,
+          .Func({ param_types : opt, meta : om }) => {
+            labels = om.*.param_labels;
+            self_ty = opt.get(usize(0));
+          },
+          _ => ()
+        ),
+        .None => ()
       );
+      // A method call `recv.m(args)`: the receiver is the first parameter,
+      // lent without a marker. Through an auto-deref (`k.m(io)` on an
+      // `Rc(T)` whose `Self` is `T`) the lent place is `k.*`.
+      (arg_offset : usize) = usize(0);
+      if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))) && (labels.len() == (op_args.len() + usize(1))), {
+        arg_offset = usize(1);
+        recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+        self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.new());
+        recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => TypeValue.Unit);
+        recv_is_cell := (is_reference_struct_type(&recv_ty) || is_atomic_reference_struct_type(&recv_ty));
+        self_is_cell := match(self_ty, .Some(st) => (is_reference_struct_type(&st) || is_atomic_reference_struct_type(&st)), .None => false);
+        if(_borrows_root_named(&bs, &self_label) && (capture_place_crosses_cell(&recv, ctx) || (recv_is_cell && !self_is_cell)), {
+          _reject_cell_lend_to_future(&recv, &self_label, ctx, exn);
+        });
+      });
       (ai : usize) = usize(0);
       while(ai < op_args.len(), ai = (ai + usize(1)), {
-        label := match(labels.get(ai), .Some(l) => l, .None => String.new());
-        (captured : bool) = false;
-        (bi : usize) = usize(0);
-        while(bi < bs.len(), bi = (bi + usize(1)), {
-          if(match(bs.get(bi), .Some(b) => (b.root_name == label), .None => false), {
-            captured = true;
-          });
-        });
+        label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => String.new());
         lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
-        if(captured && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
+        if(_borrows_root_named(&bs, &label) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
           place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
           if(capture_place_crosses_cell(&place, ctx), {
-            raise_flow_violation(
-              with_code(
-                format_error_message_with_help(
-                  ast_expr_token(&place),
-                  `This future borrows \`${ast_expr_to_string(&place)}\` across its suspension, and that place lives in a shared cell (\`Rc\`/\`Arc\`, or any \`ref\` object or pointer dereference): no run-time borrow mark is held while the task waits, so a write through another handle would go unseen (plans/VALUES_BY_DEFAULT.md §3.13 A2, decision 38 D).`,
-                  Option(String).Some(`pass the handle and derive the place inside the future (\`${label} : &Rc(...)\`, reading \`${label}.*.field\` at each use), or own the value in the task`)
-                ),
-                E_BORROW_ESCAPES
-              ),
-              ctx,
-              exn
-            );
+            _reject_cell_lend_to_future(&place, &label, ctx, exn);
           });
         });
       });
@@ -2246,6 +2252,31 @@ _check_awaited_future_lends :: (fn(args : &ArrayList(AstExpr), ctx : &EvalContex
     .Atom(_, _) => ()
   );
 });
+/// Some borrow in `bs` is rooted at the binding named `name`.
+_borrows_root_named :: (fn(bs : &ArrayList(CaptureBorrow), name : &String) -> bool)({
+  (bi : usize) = usize(0);
+  while(bi < bs.len(), bi = (bi + usize(1)), {
+    if(match(bs.get(bi), .Some(b) => (b.root_name == name), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
+/// The E0909 for a place lent to a borrowing future through a cell.
+_reject_cell_lend_to_future :: (fn(place : &AstExpr, label : &String, ctx : &EvalContext, exn : Exception) -> unit)(
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        ast_expr_token(place),
+        `This future borrows \`${ast_expr_to_string(place)}\` across its suspension, and that place lives in a shared cell (\`Rc\`/\`Arc\`, or any \`ref\` object or pointer dereference): no run-time borrow mark is held while the task waits, so a write through another handle would go unseen (plans/VALUES_BY_DEFAULT.md §3.13 A2, decision 38 D).`,
+        Option(String).Some(`pass the handle and derive the place inside the future (\`${label} : &Rc(...)\`, reading \`${label}.*.field\` at each use), or own the value in the task`)
+      ),
+      E_BORROW_ESCAPES
+    ),
+    ctx,
+    exn
+  )
+);
 /// Whether a call's result, resolved through the call's env
 /// (`_resolve_some_types_deep`), replaces the result the call computed. A
 /// concrete resolution always does. A wrapper (`Impl(Future(Option(U), Io))`)
