@@ -504,3 +504,21 @@ test("A cycle closed through Box payloads is collected", {
   assert(g_bnode_disposed == i32(2), "both nodes of the Box-closed cycle were disposed");
   assert(Gc.tracked_count() == base, "and are no longer tracked");
 });
+// A declared `Acyclic` exempts a tree whose children are `Rc` cells
+// (plans/VALUES_BY_DEFAULT.md §3.12, decision 21's trees): its cells are not
+// cycle candidates, so the collector never tracks them.
+AcyTree :: enum(Leaf(n : i32), Node(l : Rc(Self), r : Rc(Self)));
+// SAFETY: an AcyTree is built bottom-up from values and no cell is written
+// after construction, so no cell can reach itself.
+impl(AcyTree, Acyclic());
+CycTree :: enum(Leaf(n : i32), Node(l : Rc(Self), r : Rc(Self)));
+test("a declared Acyclic tree's Rc cells are not cycle candidates", {
+  comptime_assert(!Type.can_form_rc_cycle(Rc(AcyTree)), "a declared Acyclic payload stops the cycle walk");
+  comptime_assert(Type.can_form_rc_cycle(Rc(CycTree)), "the same shape without the declaration can form a cycle");
+  before := Gc.tracked_count();
+  t := AcyTree.Node(rc(AcyTree.Leaf(1)), rc(AcyTree.Leaf(2)));
+  assert(Gc.tracked_count() == before, "an AcyTree cell is never registered with the collector");
+  c := CycTree.Node(rc(CycTree.Leaf(1)), rc(CycTree.Leaf(2)));
+  assert(Gc.tracked_count() > before, "a CycTree cell is registered");
+  assert(match(t, .Node(_, _) => true, .Leaf(_) => false) && match(c, .Node(_, _) => true, .Leaf(_) => false));
+});
