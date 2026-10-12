@@ -59,7 +59,9 @@ Progress:
     consume them, the `io.async` body slot is a by-value `FnOnce`, and
     `Park` is a move-only value whose `wait` consumes it (A5's `Park` line).
 - **In progress:**
-  - V3's remaining async work (§3.13): A2, A3, A4, A5's remaining lines, A6.
+  - V3's remaining async work (§3.13): A2, A3 (Generation A landed with
+    A1's PR; the prelude switch waits for the seed), A4, A5's remaining
+    lines, A6.
 - **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
@@ -942,13 +944,25 @@ instead.
     `h.await(self, io)`.
   - **Borrowing:** `state`, `is_finished`, `abort` and `as_ptr`
     (`self : &Self`).
-  - **Status (2026-10-05).** Not landed. V3's compiler PR (#1217) did not
-    carry it.
-    - Generation A codegen is on branch `async-handle-gena` (2026-10-03,
-      no PR). It lands in V3's async PR, rebased onto #1217's move-only
-      machinery.
-    - The prelude switch lands with V3's std half
-      (`issues/an-owning-join-handle-costs-an-allocation-per-spawn.md`).
+  - **As built, Generation A (2026-10-12).**
+    - **Codegen lowers both handle shapes:** today's `ref(struct(__future))`
+      and the value `struct(__future : *T)`
+      (`join_handle_is_value_struct`, `src/codegen/exprs/await.yo`).
+      `io.spawn` builds a value handle as `(JH){ .__future = … }`.
+    - **A value handle's await consumes it.** It moves the result out,
+      marks the future `-3` (result taken; `state()` reads it as
+      `Completed`) and releases the handle's reference
+      (`__yo_join_handle_release_raw`).
+    - **New builtins.** `__yo_ptr_read(p)` and `__yo_ptr_write(p, v)`, a
+      bitwise move out of and into a pointee, lowered inline as `(*(p))`
+      and `(*(p) = (v))`. Generation B uses them for the move-outs that
+      std's pointer reads cannot do today: `ArrayList.pop`/`swap`/`remove`
+      and `Option.take`/`replace` on a move-only payload. They are declared
+      in the prelude but unused in std until a seed carries them.
+    - **Generation B (needs a seed with the above):** the prelude switches
+      `JoinHandle` to the value struct with a releasing `Dispose`;
+      `await`/`join`/`timeout` consume it, and the multi-waiter tests that
+      share one handle join it once.
     - Branch `async-handle-genb` holds the `Impl(Future(T))` shape that
       "Why a pointer field" rejects. It is a record, not a candidate.
 - **A4. Combinators (`std/async/index.yo`) take handles by value, and two

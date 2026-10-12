@@ -92,7 +92,7 @@ Filed this cycle and still open:
 
 | Issue | Severity | Note |
 | --- | --- | --- |
-| `issues/an-io-async-body-disposes-a-captured-move-only-value-twice.md` | S1 | Async state machine double dispose; repro inside |
+| `issues/fixed/an-io-async-body-disposes-a-captured-move-only-value-twice.md` | S1 | Async state machine double dispose; repro inside |
 | `issues/a-generic-function-bound-with-colon-equals-is-called-through-an-undeclared-symbol.md` | S2 | |
 | `issues/a-named-closure-bound-to-an-impl-fn-annotation-keeps-its-own-signature.md` | S2 | Found by the escape-route audit |
 | `issues/dyn-of-a-named-function-value-emits-invalid-c.md` | S2 | Found by the escape-route audit |
