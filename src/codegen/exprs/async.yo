@@ -1157,7 +1157,9 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &Fu
       .Some(field) => if(!field.is_effect_param, {
         field_ref := `sm->__capture.${sanitize_for_c_identifier(field.label.clone(), false)}`;
         // An owned capture list's moved-out capture belongs to its new owner.
-        move_flag := sm_move_flag_of(field_ref.clone(), owns_captures);
+        // Only a counted or move-only capture has a flag
+        // (`_owned_capture_fields`).
+        move_flag := sm_move_flag_of(field_ref.clone(), owns_captures && type_contains_rc_cell_or_move_only(&field.ty));
         match(move_flag, .Some(flag) => em.emit_string_line(`  if (!${flag}) {`), .None => ());
         match(
           _rc_field_drop_line(field_ref.clone(), &field.ty, String.from("  "), context),

@@ -19,6 +19,7 @@
 { AstExpr, ExprId, ast_expr_id, ast_expr_is_atom, ast_expr_is_fn_call_of, ast_expr_token, ast_expr_to_string, BK_COLON, BK_COMPTIME, BF_DOT } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { is_array_type, is_unit_type } :: import("../../types/guards.yo");
+{ type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { CapturedVariable } :: import("../../evaluator/async/await_analysis_types.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -315,7 +316,7 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
       line.push_str(";");
       em.emit_string_line(&line);
       // The slot owns its new value: clear a move out of the old one.
-      if(is_sm_var, match(sm_move_flag_of(lhs_code.clone(), sm_owns_fnonce_captures(context)), .Some(flag) => em.emit_string_line(`${indent.clone()}${flag} = 0;`), .None => ()));
+      if(is_sm_var, match(sm_move_flag_of(lhs_code.clone(), sm_owns_fnonce_captures(context) && type_contains_rc_cell_or_move_only(&lhs_type)), .Some(flag) => em.emit_string_line(`${indent.clone()}${flag} = 0;`), .None => ()));
     });
   });
   context.current_assignment_save_temp = prev_save_temp;

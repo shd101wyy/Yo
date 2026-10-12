@@ -44,19 +44,25 @@ global set (`note_sm_move_flag_field`, `src/codegen/async/state_machine_naming.y
 because their field names carry the variable id, but a capture field is named
 by its label only. So once any state machine had declared the flag for
 `ms`, every other state machine with a capture named `ms` read and wrote a
-flag its own struct never declared: the abort dispose's inline capture drops
+flag its own struct never declared, including one that owns its capture list
+but whose `ms` is not counted (`ms : u64` there, `ms : Rc(u64)` in
+`timeout`), which declares no flag for it: the abort dispose's inline capture drops
 (`_emit_inline_capture_field_drops`) and the move site of a capture
 (`atom.yo`).
 
 ## Fix
 
-`sm_move_flag_of` takes whether the current state machine owns its capture
-list, and answers `.None` for a `__capture.` field otherwise. The move and
-store sites pass `sm_owns_fnonce_captures(context)`; the dispose passes
-`is_fnonce_capture_struct` of the capture struct it drops. A state machine
+`sm_move_flag_of` takes whether the current state machine declared a flag
+for the capture (it owns its capture list and the capture's type is counted
+or move-only, `_owned_capture_fields`), and answers `.None` for a `__capture.`
+field otherwise. The move and store sites pass
+`sm_owns_fnonce_captures(context)` and the value's type; the dispose passes
+`is_fnonce_capture_struct` of the capture struct it drops and the field's
+type. A state machine
 that does not own its captures takes the existing path: a move out of a
 capture empties the slot.
 
 Regression test: `tests/async/join_handle.test.yo`, "a capture list and a
-nested implicit capture of the same name compile", and every `std/async`
-combinator test (`join` and `timeout` take both shapes).
+nested implicit capture of the same name compile", and
+`tests/async/combinators.test.yo`, whose `sleepy_flag` owns an uncounted
+`ms` beside `timeout`'s counted one.
