@@ -4852,11 +4852,11 @@ impl(
   where(T <: Integer),
   T,
   /// `self + rhs` with two's-complement wrap on overflow.
-  wrapping_add : (fn(self : &T, rhs : &T) -> T)(__yo_op_add_wrap(self, rhs)),
+  wrapping_add : (fn(self : T, rhs : T) -> T)(__yo_op_add_wrap(self, rhs)),
   /// `self - rhs` with two's-complement wrap on overflow.
-  wrapping_sub : (fn(self : &T, rhs : &T) -> T)(__yo_op_sub_wrap(self, rhs)),
+  wrapping_sub : (fn(self : T, rhs : T) -> T)(__yo_op_sub_wrap(self, rhs)),
   /// `self * rhs` with two's-complement wrap on overflow.
-  wrapping_mul : (fn(self : &T, rhs : &T) -> T)(__yo_op_mul_wrap(self, rhs))
+  wrapping_mul : (fn(self : T, rhs : T) -> T)(__yo_op_mul_wrap(self, rhs))
 );
 /**
 * Overflow-aware integer arithmetic, Rust's shapes: `checked_*` reports
@@ -4874,7 +4874,7 @@ impl(
   where(T <: Integer),
   T,
   /// `self + rhs`, or `.None` if it would overflow.
-  checked_add : (fn(self : &T, rhs : &T) -> Option(T))(
+  checked_add : (fn(self : T, rhs : T) -> Option(T))(
     cond(
       ((rhs > T(0)) && (self > (T.MAX - rhs))) => Option(T).None,
       ((rhs < T(0)) && (self < (T.MIN - rhs))) => Option(T).None,
@@ -4882,7 +4882,7 @@ impl(
     )
   ),
   /// `self - rhs`, or `.None` if it would overflow.
-  checked_sub : (fn(self : &T, rhs : &T) -> Option(T))(
+  checked_sub : (fn(self : T, rhs : T) -> Option(T))(
     cond(
       ((rhs < T(0)) && (self > (T.MAX + rhs))) => Option(T).None,
       ((rhs > T(0)) && (self < (T.MIN + rhs))) => Option(T).None,
@@ -4890,7 +4890,7 @@ impl(
     )
   ),
   /// `self * rhs`, or `.None` if it would overflow.
-  checked_mul : (fn(self : &T, rhs : &T) -> Option(T))(
+  checked_mul : (fn(self : T, rhs : T) -> Option(T))(
     cond(
       ((self == T(0)) || (rhs == T(0))) => Option(T).Some(T(0)),
       ((self > T(0)) && (rhs > T(0))) =>
@@ -4908,7 +4908,7 @@ impl(
   /// `-1` is spelled `T(0) - rhs == T(1)` rather than `T(-1)`: a negative
   /// literal does not type-check at the unsigned specializations, and the
   /// `rhs < T(0)` guard short-circuits before the subtraction there.
-  checked_div : (fn(self : &T, rhs : &T) -> Option(T))(
+  checked_div : (fn(self : T, rhs : T) -> Option(T))(
     cond(
       (rhs == T(0)) => Option(T).None,
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
@@ -4916,7 +4916,7 @@ impl(
     )
   ),
   /// `self % rhs`, or `.None` on divide-by-zero and on `MIN % -1`.
-  checked_rem : (fn(self : &T, rhs : &T) -> Option(T))(
+  checked_rem : (fn(self : T, rhs : T) -> Option(T))(
     cond(
       (rhs == T(0)) => Option(T).None,
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
@@ -4924,7 +4924,7 @@ impl(
     )
   ),
   /// `self + rhs`, clamped to the type's bounds instead of overflowing.
-  saturating_add : (fn(self : &T, rhs : &T) -> T)(
+  saturating_add : (fn(self : T, rhs : T) -> T)(
     match(
       self.checked_add(rhs),
       .Some(v) => v,
@@ -4932,7 +4932,7 @@ impl(
     )
   ),
   /// `self - rhs`, clamped to the type's bounds instead of overflowing.
-  saturating_sub : (fn(self : &T, rhs : &T) -> T)(
+  saturating_sub : (fn(self : T, rhs : T) -> T)(
     match(
       self.checked_sub(rhs),
       .Some(v) => v,
@@ -4940,11 +4940,11 @@ impl(
     )
   ),
   /// `(wrapped sum, did it overflow)` — Rust's `overflowing_add`.
-  overflowing_add : (fn(self : &T, rhs : &T) -> Tuple(T, bool))(
+  overflowing_add : (fn(self : T, rhs : T) -> Tuple(T, bool))(
     match(self.checked_add(rhs), .Some(v) => (v, false), .None => (self.wrapping_add(rhs), true))
   ),
   /// `(wrapped difference, did it overflow)` — Rust's `overflowing_sub`.
-  overflowing_sub : (fn(self : &T, rhs : &T) -> Tuple(T, bool))(
+  overflowing_sub : (fn(self : T, rhs : T) -> Tuple(T, bool))(
     match(self.checked_sub(rhs), .Some(v) => (v, false), .None => (self.wrapping_sub(rhs), true))
   ),
   /// `|self|`, or `.None` for `MIN` — which has no positive counterpart in a
@@ -4985,7 +4985,7 @@ impl(
     cond((self < lo) => lo, (self > hi) => hi, true => self)
   ),
   /// `self * rhs`, clamped to the type's bounds instead of overflowing.
-  saturating_mul : (fn(self : &T, rhs : &T) -> T)(
+  saturating_mul : (fn(self : T, rhs : T) -> T)(
     match(
       self.checked_mul(rhs),
       .Some(v) => v,
@@ -5007,7 +5007,7 @@ impl(
     )
   ),
   /// `(wrapped product, did it overflow)` — Rust's `overflowing_mul`.
-  overflowing_mul : (fn(self : &T, rhs : &T) -> Tuple(T, bool))(
+  overflowing_mul : (fn(self : T, rhs : T) -> Tuple(T, bool))(
     match(self.checked_mul(rhs), .Some(v) => (v, false), .None => (self.wrapping_mul(rhs), true))
   ),
   /// `self` raised to `exp`. PANICS on overflow rather than wrapping — a
@@ -5039,7 +5039,7 @@ impl(
   /// the paired remainder is never negative. C's `/` truncates toward zero,
   /// which makes `(-7) / 2` equal `-3` and leaves `rem_euclid` no way to stay
   /// non-negative; Rust separates the two for exactly this reason.
-  div_euclid : (fn(self : &T, rhs : &T) -> T)({
+  div_euclid : (fn(self : T, rhs : T) -> T)({
     q := (self / rhs);
     cond(
       ((self % rhs) < T(0)) => cond((rhs > T(0)) => (q - T(1)), true => (q + T(1))),
@@ -5048,7 +5048,7 @@ impl(
   }),
   /// `self` modulo `rhs`, ALWAYS non-negative — Rust's `rem_euclid`. C's `%`
   /// keeps the sign of the dividend, so `(-7) % 2` is `-1`; this is `1`.
-  rem_euclid : (fn(self : &T, rhs : &T) -> T)({
+  rem_euclid : (fn(self : T, rhs : T) -> T)({
     r := (self % rhs);
     cond(
       (r < T(0)) => cond((rhs < T(0)) => (r - rhs), true => (r + rhs)),
@@ -5065,7 +5065,7 @@ impl(
   /// bits and the XOR the differing ones, whose half is exactly the rest of
   /// the average. `>>` on a signed type is arithmetic in Yo, so the rounding
   /// is toward NEGATIVE infinity — `i64.MIN.midpoint(i64.MAX)` is `-1`.
-  midpoint : (fn(self : &T, rhs : &T) -> T)(
+  midpoint : (fn(self : T, rhs : T) -> T)(
     (self & rhs) + ((self ^ rhs) >> T(1))
   ),
   /// The integer square root — the greatest `r` with `r * r <= self`. PANICS
@@ -5100,21 +5100,21 @@ impl(
   /// Exponentiation by squaring, every step through `wrapping_mul`, so no
   /// intermediate can leave the type (signed overflow is undefined behaviour
   /// in C, so the product must never be formed unchecked).
-  wrapping_pow : (fn(self : &T, exp : u32) -> T)({
+  wrapping_pow : (fn(self : T, exp : u32) -> T)({
     (acc : T) = T(1);
     (base : T) = self;
     (e : u32) = exp;
     while(e > u32(0), {
       cond(
         ((e & u32(1)) == u32(1)) => {
-          acc = acc.wrapping_mul(&base);
+          acc = acc.wrapping_mul(base);
         },
         true => ()
       );
       e = (e >> u32(1));
       cond(
         (e > u32(0)) => {
-          base = base.wrapping_mul(&base);
+          base = base.wrapping_mul(base);
         },
         true => ()
       );
@@ -5139,7 +5139,7 @@ impl(
   /// on an unsigned instantiation `T(0) - T(1)` is a comptime overflow and a
   /// HARD ERROR, while `rhs < T(0)` short-circuits before the subtraction is
   /// ever evaluated. `checked_div` above already uses that idiom.
-  wrapping_div : (fn(self : &T, rhs : &T) -> T)(
+  wrapping_div : (fn(self : T, rhs : T) -> T)(
     cond(
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => T.MIN,
       true => (self / rhs)
@@ -5171,7 +5171,7 @@ impl(
   ),
   /// Euclidean division, or `.None` when it does not fit — Rust's
   /// `checked_div_euclid`. `.None` for a zero divisor and for `T.MIN / -1`.
-  checked_div_euclid : (fn(self : &T, rhs : &T) -> Option(T))(
+  checked_div_euclid : (fn(self : T, rhs : T) -> Option(T))(
     cond(
       (rhs == T(0)) => Option(T).None,
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
@@ -5181,7 +5181,7 @@ impl(
   /// Euclidean remainder, or `.None` when it does not fit — Rust's
   /// `checked_rem_euclid`. Same two rejected inputs as
   /// `checked_div_euclid`: the pair is computed together.
-  checked_rem_euclid : (fn(self : &T, rhs : &T) -> Option(T))(
+  checked_rem_euclid : (fn(self : T, rhs : T) -> Option(T))(
     cond(
       (rhs == T(0)) => Option(T).None,
       ((self == T.MIN) && (rhs < T(0)) && ((T(0) - rhs) == T(1))) => Option(T).None,
@@ -5409,7 +5409,7 @@ _trailing_zeros_u64 :: (fn(x : u64) -> u32)(
     (x == u64(0)) => u32(64),
     // `x & -x` isolates the lowest set bit; `x-1` then has exactly that many
     // ones below it. The negation wraps by design (wrapping_sub).
-    true => _popcount_u64((x & u64(0).wrapping_sub(&x)) - u64(1))
+    true => _popcount_u64((x & u64(0).wrapping_sub(x)) - u64(1))
   )
 );
 /// Reverse all 64 bits.
@@ -5751,8 +5751,8 @@ impl(
   /// opposite sides of zero (`u64(1) - u64(-1)`).
   abs_diff : (fn(self : Self, other : Self) -> u8)(
     cond(
-      (self >= other) => u8(self.wrapping_sub(&other)),
-      true => u8(other.wrapping_sub(&self))
+      (self >= other) => u8(self.wrapping_sub(other)),
+      true => u8(other.wrapping_sub(self))
     )
   )
 );
@@ -5763,8 +5763,8 @@ impl(
   /// `i16.MAX.abs_diff(i16.MIN)`.
   abs_diff : (fn(self : Self, other : Self) -> u16)(
     cond(
-      (self >= other) => u16(self.wrapping_sub(&other)),
-      true => u16(other.wrapping_sub(&self))
+      (self >= other) => u16(self.wrapping_sub(other)),
+      true => u16(other.wrapping_sub(self))
     )
   )
 );
@@ -5775,8 +5775,8 @@ impl(
   /// `i32.MAX.abs_diff(i32.MIN)` (see the i8 impl for the wrapping_sub note).
   abs_diff : (fn(self : Self, other : Self) -> u32)(
     cond(
-      (self >= other) => u32(self.wrapping_sub(&other)),
-      true => u32(other.wrapping_sub(&self))
+      (self >= other) => u32(self.wrapping_sub(other)),
+      true => u32(other.wrapping_sub(self))
     )
   )
 );
@@ -5787,8 +5787,8 @@ impl(
   /// `i64.MAX.abs_diff(i64.MIN)`.
   abs_diff : (fn(self : Self, other : Self) -> u64)(
     cond(
-      (self >= other) => u64(self.wrapping_sub(&other)),
-      true => u64(other.wrapping_sub(&self))
+      (self >= other) => u64(self.wrapping_sub(other)),
+      true => u64(other.wrapping_sub(self))
     )
   )
 );
@@ -5816,8 +5816,8 @@ impl(
   /// impl for the wrapping_sub note).
   abs_diff : (fn(self : Self, other : Self) -> usize)(
     cond(
-      (self >= other) => usize(self.wrapping_sub(&other)),
-      true => usize(other.wrapping_sub(&self))
+      (self >= other) => usize(self.wrapping_sub(other)),
+      true => usize(other.wrapping_sub(self))
     )
   )
 );

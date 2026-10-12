@@ -193,8 +193,8 @@ _i64_op_wrapped :: (fn(a : i64, b : i64, op_s : &String) -> bool)(
     // The sign test detects the same wrap with wrapping_mul only: for
     // same-sign operands the wrapped product is negative exactly when the
     // exact product left the range, and for mixed signs it is non-negative.
-    ((a < i64(0)) == (b < i64(0))) => (a.wrapping_mul(&b) < i64(0)),
-    true => (a.wrapping_mul(&b) >= i64(0))
+    ((a < i64(0)) == (b < i64(0))) => (a.wrapping_mul(b) < i64(0)),
+    true => (a.wrapping_mul(b) >= i64(0))
   )
 );
 // ---------------------------------------------------------------------------
@@ -483,7 +483,7 @@ evaluate_yo_comptime_numeric_functions :: (
                         )
                       );
                     });
-                    make_int_val(i64(0).wrapping_sub(&n), &numeric_type)
+                    make_int_val(i64(0).wrapping_sub(n), &numeric_type)
                   },
                   .None => create_unknown_val(&numeric_type)
                 ),
@@ -706,9 +706,9 @@ evaluate_yo_comptime_numeric_functions :: (
                 // check_int_overflow below re-tests the pattern in the
                 // unsigned domain for u64/usize.
                 n_result := cond(
-                  (op_s == "add") => a.wrapping_add(&b),
-                  (op_s == "sub") => a.wrapping_sub(&b),
-                  true => a.wrapping_mul(&b)
+                  (op_s == "add") => a.wrapping_add(b),
+                  (op_s == "sub") => a.wrapping_sub(b),
+                  true => a.wrapping_mul(b)
                 );
                 // Check the EXACT result against the type's range before
                 // building the value; `make_int_val` below only CLAMPS.
