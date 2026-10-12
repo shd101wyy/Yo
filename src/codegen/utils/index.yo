@@ -2110,11 +2110,16 @@ get_deferred_drop_target_atom_name :: (fn(drop_expr : &AstExpr) -> Option(String
 /// closure: the closure, not its body, owns the capture. The one exception is
 /// a drop the evaluator scheduled for an `FnOnce` closure's own capture frame
 /// (`is_fnonce_capture_drop`): that body owns its captures and drops the ones
-/// it did not move (plans/VALUES_BY_DEFAULT.md decision 37).
+/// it did not move (plans/VALUES_BY_DEFAULT.md decision 37) — except in an
+/// `io.async` state machine that owns its capture list (`sm_owns_captures`,
+/// `InlineSmLowering.owns_fnonce_captures`): there the dispose drops them.
 is_deferred_drop_for_closure_capture :: (
-  fn(drop_expr : &AstExpr, current_closure_captures : &Option(ArrayList(String))) -> bool
+  fn(drop_expr : &AstExpr, current_closure_captures : &Option(ArrayList(String)), sm_owns_captures : bool) -> bool
 )({
-  if(is_fnonce_capture_drop(ast_expr_id(drop_expr)) || is_fnonce_post_call_release(ast_expr_id(drop_expr)), {
+  if(is_fnonce_capture_drop(ast_expr_id(drop_expr)), {
+    return(sm_owns_captures);
+  });
+  if(is_fnonce_post_call_release(ast_expr_id(drop_expr)), {
     return(false);
   });
   target := get_deferred_drop_target_atom_name(drop_expr);
