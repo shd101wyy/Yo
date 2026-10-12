@@ -2184,9 +2184,9 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers]`));
   });
-  (target_path : String) = String.new();
+  target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
   (migrate : String) = String.new();
   (target_triple : String) = String.new();
@@ -2225,16 +2225,16 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir> [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers]`));
       },
       true => {
-        target_path = a.clone();
+        target_paths.push(a.clone());
         ai = (ai + usize(1));
       }
     );
   });
-  if(target_path.len() == usize(0), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir> [--dry-run]`));
+  if(target_paths.len() == usize(0), {
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--dry-run]`));
   });
   // Evaluate for TARGET, as `compile --target` does: std's
   // `cond(platform == ...)` arms are selected during evaluation, so a repair
@@ -2249,7 +2249,27 @@ run_fix :: (
       .Err(e) => exn.throw(dyn(`fix: ${e}`))
     );
   });
-  files := collect_check_files(target_path.clone(), &excludes, io, exn);
+  // Several paths are evaluated in ONE session, so a migration also
+  // rewrites a site that only another path's code reaches: a generic std
+  // body is evaluated when a test instantiates it (`yo fix ./std ./tests`).
+  files := ArrayList(String).new();
+  seen_files := HashSet(String).new();
+  (target_path : String) = String.new();
+  (tpi : usize) = usize(0);
+  while(tpi < target_paths.len(), tpi = (tpi + usize(1)), {
+    if(tpi > usize(0), {
+      target_path.push_str(" ");
+    });
+    target_path.push_str(target_paths(tpi).as_str());
+    found := collect_check_files(target_paths(tpi), &excludes, io, exn);
+    (fdi : usize) = usize(0);
+    while(fdi < found.len(), fdi = (fdi + usize(1)), {
+      if(!seen_files.contains(&found(fdi)), {
+        seen_files.insert(found(fdi));
+        files.push(found(fdi));
+      });
+    });
+  });
   if(files.len() == usize(0), {
     exn.throw(dyn(`fix: no .yo files found at ${target_path}`));
   });
@@ -10136,7 +10156,7 @@ Examples:
     ),
     "fix" => Option(String).Some(
       tr(
-        `Usage: yo fix <file-or-dir> [options]
+        `Usage: yo fix <file-or-dir>... [options]
 
 Apply the mechanical repairs the compiler already computed. A repair is
 attached to a diagnostic only when exactly ONE edit fixes it, so 'fix' never
@@ -10162,8 +10182,9 @@ Options:
 
 Examples:
   $ yo fix ./src
-  $ yo fix main.yo --dry-run`,
-        `用法：yo fix <file-or-dir> [options]
+  $ yo fix main.yo --dry-run
+  $ yo fix ./std ./tests --migrate markers`,
+        `用法：yo fix <file-or-dir>... [options]
 
 应用编译器已经算出的机械修复。只有当恰好存在唯一一种修改能修复该诊断时，
 才会附带修复方案，因此 'fix' 从不在多种候选之间猜测；'--error-format json'
@@ -10185,7 +10206,8 @@ Examples:
 
 示例：
   $ yo fix ./src
-  $ yo fix main.yo --dry-run`
+  $ yo fix main.yo --dry-run
+  $ yo fix ./std ./tests --migrate markers`
       )
     ),
     "check" => Option(String).Some(
