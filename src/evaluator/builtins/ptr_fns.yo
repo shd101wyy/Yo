@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
-{ promote_index_places_for_write } :: import("../calls/index_trait.yo");
+{ call_promote_index_places_for_write } :: import("../context.yo");
 { Exception } :: import("std/error");
 /// A fresh single-element PtrVal cell.
 _cell1 :: (fn(v : &EvalValue) -> ArrayList(EvalValue))({
@@ -215,7 +215,7 @@ evaluate_address_call :: (
   // element accesses dispatch `IndexMut` (decision 34, V2b); a `&`
   // projection's result only reads it.
   if(match(projection_tail_mode(expr), .Some(ptm) => ptm, .None => true), {
-    promote_index_places_for_write(&eval_arg, env, ctx, exn);
+    call_promote_index_places_for_write(&eval_arg, env, ctx, exn);
   });
   // A projection's result (`rewrite_projection_tails`): the place must be
   // rooted at the projection's own borrow parameters.

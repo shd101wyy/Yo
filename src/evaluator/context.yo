@@ -901,6 +901,25 @@ call_rerun_pending_def_evals :: (fn(env : &Environment, ctx : &EvalContext) -> O
     .None => Option(YoError).None
   )
 );
+// --- write-position `Index` promotion hook (VALUES_BY_DEFAULT V2b) ----------
+// A write through `x(i)` re-dispatches the element access to `index_mut`
+// (calls/index_trait.yo's `promote_index_places_for_write`). The write
+// sites (assignment, `&mut` arguments, `addr_of`, `&mut` local borrows)
+// cannot import calls/index_trait.yo without a cycle, so they call through
+// this hook, installed by `register_evaluate_expression`.
+PromoteIndexPlacesFn :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit);
+(g_promote_index_places_fn : Option(PromoteIndexPlacesFn)) = Option(PromoteIndexPlacesFn).None;
+set_promote_index_places_fn :: (fn(f : PromoteIndexPlacesFn) -> unit)({
+  g_promote_index_places_fn = Option(PromoteIndexPlacesFn).Some(f);
+  ()
+});
+call_promote_index_places_for_write :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+  match(
+    g_promote_index_places_fn,
+    .Some(f) => f(place, env, ctx, exn),
+    .None => ()
+  )
+);
 // --- function-body evaluation hook -----------------------------------------
 // Evaluate an expression AS A FUNCTION BODY (through the begin machinery, so a
 // bare `return(...)` body resolves `return`), for modules that cannot import
@@ -3482,6 +3501,8 @@ export(
   call_rerun_pending_def_evals,
   set_evaluate_fn_body_fn,
   call_evaluate_fn_body,
+  set_promote_index_places_fn,
+  call_promote_index_places_for_write,
   in_def_time_trial,
   set_in_def_time_trial,
   set_module_walk,

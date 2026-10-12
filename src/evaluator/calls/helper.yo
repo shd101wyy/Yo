@@ -177,7 +177,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_index_trait_ptr_type
 } :: import("../../expr_info.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
-{ promote_index_places_for_write } :: import("./index_trait.yo");
+{ call_promote_index_places_for_write } :: import("../context.yo");
 {
   SynthesizeResult,
   SynthesizeOptions,
@@ -1476,7 +1476,7 @@ check_if_function_parameter_matches_argument :: (
   // A `&mut` argument or receiver writes the place it names: an element
   // access on it dispatches `IndexMut` (decision 34, V2b).
   if(param_is_ref, {
-    promote_index_places_for_write(&evaled_arg, caller_env, ctx, exn);
+    call_promote_index_places_for_write(&evaled_arg, caller_env, ctx, exn);
   });
   // Extract ExprInfo for the evaluated arg.
   arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg));

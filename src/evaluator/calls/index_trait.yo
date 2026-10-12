@@ -36,7 +36,8 @@ pragma(Pragma.AllowUnsafe);
   ExpectedTypeCtx,
   ArgEntry,
   ArgValues,
-  VarArgEntry
+  VarArgEntry,
+  set_promote_index_places_fn
 } :: import("../context.yo");
 {
   ExprInfo,
@@ -1951,5 +1952,10 @@ has_index_impl :: (
   methods := _find_all_index_methods(concrete_type, caller_env);
   methods.len() > usize(0)
 });
-export(try_to_call_with_index_trait, promote_index_places_for_write);
+/// Install `promote_index_places_for_write` behind context.yo's hook.
+register_promote_index_places :: (fn() -> unit)({
+  set_promote_index_places_fn(promote_index_places_for_write);
+  ()
+});
+export(try_to_call_with_index_trait, promote_index_places_for_write, register_promote_index_places);
 export(has_index_impl);

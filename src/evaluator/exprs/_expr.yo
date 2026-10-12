@@ -469,6 +469,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
   evaluate_yo_var_is_owning_the_rc_value
 } :: import("../builtins/var_fns.yo");
 { evaluate_function_call } :: import("../calls/function.yo");
+{ register_promote_index_places } :: import("../calls/index_trait.yo");
 { evaluate_iso_type_call } :: import("../calls/iso.yo");
 { evaluate_raw_pointer_call } :: import("../calls/pointer.yo");
 { panic, assert } :: import("std/assert");
@@ -1612,6 +1613,7 @@ register_evaluate_expression :: (fn() -> unit)({
   set_evaluate_expression_fn(_evaluate_expression_wrapper);
   set_evaluate_expression_raw_fn(_evaluate_expression_raw_wrapper);
   register_rerun_pending_def_evals();
+  register_promote_index_places();
   register_pending_definition_forcer();
   register_function_value_marker();
   ()
