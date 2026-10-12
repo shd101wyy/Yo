@@ -1004,3 +1004,33 @@ test("V2b: a projection returns a raw-pointer call", {
   assert(r(usize(0)) == i32(4), "r(0) is q.z through return(_quad_last(...))");
   assert(r(usize(1)) == i32(1), "r(1) is q.w");
 });
+// A projection whose body releases an owning local at scope end: the result
+// is materialized into the C `__yo_scope_ret` before the drops, typed `T*`
+// (it was `T`, a C error: the std `LinkedList`/`HashMap` index shapes).
+Chain :: struct(items : ArrayList(i32));
+impl(
+  Chain,
+  VIndex(usize)(
+    Output : i32,
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)({
+      label := String.from("Chain");
+      i := usize(0);
+      while(i < self.items.len(), {
+        if(i == idx, {
+          return(&self.items(i));
+        });
+        i = (i + usize(1));
+      });
+      assert(label.len() == usize(0), "Chain: index out of bounds");
+      &self.items(usize(0))
+    })
+  )
+);
+test("V2b: a projection that drops a local before yielding its place", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(5));
+  xs.push(i32(6));
+  c := Chain(items : xs);
+  assert(c(usize(1)) == i32(6), "c(1) through the loop's return(&...)");
+  assert(c(usize(0)) == i32(5), "c(0)");
+});

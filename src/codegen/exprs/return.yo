@@ -1431,8 +1431,8 @@ generate_implicit_return_statement :: (fn(expr : &AstExpr, indent : &String, con
         // `__yo_scope_ret` order
         // (issues/fixed/own-param-released-before-a-bare-expression-body-reads-it.md).
         ret_ty := match(context.current_function_type, .Some(ft) => match(ft, .Func({ result : r }) => r, _ => t_unit()), .None => t_unit());
-        ret_cty := match(context.override_return_type_str, .Some(s) => s, .None => get_type_string(&ret_ty, &context.base));
-        if(has_pending_emittable_drop(expr, context) && !is_unit_type(&ret_ty) && !(ret_cty == "void"), {
+        ret_cty := _current_c_result_type(&ret_ty, context);
+        if(has_pending_emittable_drop(expr, context) && (!is_unit_type(&ret_ty) || _current_result_is_ref(context)) && !(ret_cty == "void"), {
           em.emit_string_line(`${indent.clone()}${ret_cty} __yo_scope_ret = ${final_code};`);
           generate_deferred_drop_expressions(expr, indent.clone(), context);
           em.emit_string_line(`${indent.clone()}return __yo_scope_ret;`);
