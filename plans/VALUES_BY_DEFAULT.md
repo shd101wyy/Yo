@@ -4792,6 +4792,16 @@ compiler; the std shapes are plain structs the seed lowers):
       a write dispatch. A nested element receiver (`g(i)(j)`) is no longer
       spilled to a temporary in codegen, so the outer write reaches the
       container.
+    - **Generic projections.** A specialized projection body, its
+      `return(&place)` and an all-arms-return `cond`/`match` are typed
+      against `*(T)`. The unwind and escape-check return paths in codegen
+      emit the `T*` result type. Two bugs surfaced on the way, both fixed with
+      tests in `tests/index.test.yo`:
+      `issues/fixed/a-swallowed-index-specialization-leaks-its-function-context.md`
+      and `issues/fixed/an-abandoned-impl-leaks-its-working-trait-bindings.md`.
+    - **Safe code.** A projection's own `*(T)` result is not a raw-pointer
+      value for the safe-code gate, so a safe file may declare
+      projections.
     - **`IndexUnchecked`.** The twin recorder accepts both result shapes.
       A promoted write drops the read twin and looks for
       `IndexUncheckedMut.index_unchecked_mut`.
@@ -4801,15 +4811,19 @@ compiler; the std shapes are plain structs the seed lowers):
       remaining result positions. Method lookup stays by name until the
       prelude traits exist.
     - **Tests.** `tests/index.test.yo`, with local `VIndex`/`VIndexMut`
-      traits in the V2b shapes.
+      traits in the V2b shapes. `tests/ref_return_ban.test.yo` and
+      `tests/borrow_spelling.test.yo` now accept a projection and reject a
+      borrow result whose body yields a value.
   - **Generation B (waits for a seed carrying Generation A; v0.2.59 bans
     `-> &T`, so the prelude cannot declare it).** The prelude's `Index`
     switches to `self : &Self -> &Self.Output`. `IndexMut` and
     `IndexUncheckedMut` are added, and `IndexUnchecked` becomes the read
     half. Every impl splits: `Array`, `ArrayList`, `Deque`, `LinkedList`,
     `HashMap`, `BTreeMap` and `JsonValue`. `String` gains a read-only
-    `Index(usize)` with `Output : u8`. Dispatch then keys on the prelude
-    traits.
+    `Index(usize)` with `Output : u8`, and the "String — no `Index(usize)`"
+    section of `docs/*/INDEX_TRAIT.md` and `tests/string/string.test.yo`'s
+    byte-place test move with it. Dispatch then keys on the prelude traits.
+    The draft is branch feat/vbd-v2b-index-mut-genb.
 - **Unique buffers.**
   - `ArrayList(T)` owns a plain buffer, with `Dispose` (free) and `Trace`
     (visit each slot) on its private buffer type. The same goes for every
