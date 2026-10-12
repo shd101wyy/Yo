@@ -834,7 +834,7 @@ _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, co
   // A temporary's slot, read once, is emptied.
   marker := `/*yo_mv:${fresh_local_name(String.from("m"), context.base.current_function_name.clone())}*/`;
   stmts := match(
-    sm_move_flag_of(sm_code.clone()),
+    sm_move_flag_of(sm_code.clone(), sm_owns_fnonce_captures(context)),
     .Some(flag) => `${flag} = 1;  // moved out: the slot's value is its new owner's`,
     .None => `memset(&(${sm_code}), 0, sizeof(${sm_code}));  // moved out: the slot no longer owns it`
   );

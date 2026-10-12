@@ -853,3 +853,129 @@ test("an earlier argument's value survives a suspension in a later argument", {
   assert(r.items.len() == usize(2), "the moved list");
   assert(r.extra == i32(3), "the awaited argument");
 });
+
+// issues/fixed/a-state-machine-returning-a-borrowed-capture-hands-out-the-captures-only-reference.md
+// A body that awaits and then returns an implicit capture stored the capture
+// into the result without a +1, so the awaiter's moved-out result and the
+// capture the dispose drops were one reference: the value was freed while
+// the awaiter still held it.
+_give_back :: (fn(t : Thing, io : Io) -> Impl(Future(Thing, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    t
+  })
+);
+_give_back_string :: (fn(s : String, io : Io) -> Impl(Future(String, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    s
+  })
+);
+test("a state machine returning an implicit capture retains it for the result", {
+  before := g_disposed;
+  {
+    r := io.await(_give_back(Thing(n : i32(5)), io), io);
+    assert(g_disposed == before, "the result is alive while the awaiter holds it");
+    assert(r.n == i32(5), "the awaiter reads the captured value");
+  };
+  assert(g_disposed == (before + i32(1)), "disposed once, by the awaiter's scope");
+  out := ArrayList(String).new();
+  (i : i32) = i32(0);
+  while(runtime(i < i32(3)), {
+    out.push(io.await(_give_back_string(`s${i}`, io), io));
+    i = (i + i32(1));
+  });
+  assert(out(usize(2)) == `s2`, "every returned capture is intact");
+  // Inside a task the await is fused: the wrapper's body runs in the
+  // caller's state machine, and its tail takes the same dup.
+  before2 := g_disposed;
+  f := io.async((io : Io) => {
+    r := io.await(_give_back(Thing(n : i32(6)), io), io);
+    alive := (g_disposed == before2);
+    strs := ArrayList(String).new();
+    (j : i32) = i32(0);
+    while(runtime(j < i32(3)), {
+      strs.push(io.await(_give_back_string(`t${j}`, io), io));
+      _churn := ArrayList(String).with_capacity(usize(4));
+      j = (j + i32(1));
+    });
+    alive && (r.n == i32(6)) && (strs(usize(2)) == `t2`)
+  });
+  assert(io.await(f, io), "the fused tail's result is alive and intact");
+  assert(g_disposed == (before2 + i32(1)), "disposed once, by the task's scope");
+});
+
+// issues/fixed/a-destructured-await-result-is-never-released.md
+// `(a, b) := io.await(f, io)` inside a task reads the result's fields and
+// leaves the result temp to release it: the temp's task slot must hold it.
+// `_pair_later` is fused at the await site; `_pair_later_owned` (a capture
+// list) is not.
+_pair_later :: (fn(n : i32, io : Io) -> Impl(Future(Tuple(i32, Thing), Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    (n, Thing(n : n))
+  })
+);
+_pair_later_owned :: (fn(n : i32, io : Io) -> Impl(Future(Tuple(i32, Thing), Io)))(
+  io.async({ n }(io : Io) => {
+    io.await(yield(io), io);
+    (n, Thing(n : n))
+  })
+);
+test("a destructured await result is released", {
+  before := g_disposed;
+  f := io.async((io : Io) => {
+    (k, t) := io.await(_pair_later(i32(4), io), io);
+    (j, u) := io.await(_pair_later_owned(i32(5), io), io);
+    k + t.n + j + u.n
+  });
+  r := io.await(f, io);
+  assert(r == i32(18), "both destructured results are read");
+  assert(g_disposed == (before + i32(2)), "each destructured Thing is disposed once");
+});
+
+// issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md
+// The wrapper drops its by-value parameter, so a named local passed to it at
+// a fused await site needs the caller's +1, as an ordinary call gives it.
+_n_later :: (fn(t : Thing, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    io.await(yield(io), io);
+    t.n
+  })
+);
+test("a fused await keeps a named local passed by value alive", {
+  before := g_disposed;
+  f := io.async((io : Io) => {
+    (total : i32) = i32(0);
+    (i : i32) = i32(0);
+    (early : i32) = i32(0);
+    while(runtime(i < i32(3)), {
+      th := Thing(n : i);
+      at := g_disposed;
+      total = (total + io.await(_n_later(th, io), io));
+      if(g_disposed != at, {
+        early = (early + i32(1));
+      });
+      i = (i + i32(1));
+    });
+    (total * i32(10)) + early
+  });
+  r := io.await(f, io);
+  assert(r == i32(30), "the wrapper reads each value, and none is disposed under the caller");
+  assert(g_disposed == (before + i32(3)), "each local is disposed once");
+});
+
+// issues/fixed/a-capture-move-flag-is-read-in-a-state-machine-that-has-none.md:
+// a capture list that names `ms`, around a nested future that captures `ms`
+// implicitly, read a move flag the nested state machine never declared.
+test("a capture list and a nested implicit capture of the same name compile", {
+  ms := Rc(u64)(u64(5));
+  outer := io.async({ ms }(io : Io) => {
+    inner := io.async((io : Io) => {
+      io.await(sleep(ms.*), io);
+      i32(1)
+    });
+    io.await(inner, io) + i32(1)
+  });
+  assert(io.await(outer, io) == i32(2), "both state machines ran");
+});
