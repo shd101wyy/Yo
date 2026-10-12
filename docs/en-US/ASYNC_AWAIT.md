@@ -41,10 +41,10 @@ export(main);
 main :: (fn(io : Io) -> unit)({
   a := io.async((io : Io) => { /* ... */ });
   b := io.async((io : Io) => { /* ... */ });
-  io.spawn(a, io); // Start a without waiting (returns JoinHandle)
-  io.spawn(b, io); // Start b without waiting (returns JoinHandle)
-  io.await(a, io);
-  io.await(b, io);
+  ha := io.spawn(a, io); // Start a without waiting (consumes a, returns its JoinHandle)
+  hb := io.spawn(b, io); // Start b without waiting
+  _ra := ha.await(io);
+  _rb := hb.await(io);
 });
 
 // Parallelism: Different threads, true simultaneous execution
@@ -183,9 +183,9 @@ test("my test", {
 
 ```yo ignore
 io.async(fn)                  // Create a cold Future (lazy, doesn't start)
-io.await(future, e)           // Start if cold, wait for completion, return result
-io.state(future)              // Query the current state of a Future (returns FutureState)
-io.spawn(future, e)           // Start a cold Future without waiting, returns JoinHandle(T)
+io.await(future, e)           // Consume the Future: start it if cold, wait, return (move out) its result
+io.state(&future)             // Query the current state of a Future (returns FutureState); borrows it
+io.spawn(future, e)           // Consume a cold Future and start it without waiting, returns JoinHandle(T)
 handle.await(io)              // Wait for spawned task, returns Option(T) (.None on unwind); a BLOCKING wait for main / plain fns
 handle.join(io)               // The same Option(T) as a Future (std/async): the form for inside a task
 yield(io)                     // Create a pending Future completed by the next loop turn (yields control to the event loop)
@@ -199,14 +199,14 @@ yield(io)                     // Create a pending Future completed by the next l
 
 1. `io.async(fn)` creates a **lazy** Future — the function body does NOT execute until awaited or spawned
 2. `io.await(future)` starts a cold future and runs it sequentially to completion
-3. `io.state(future)` returns the current `FutureState` without blocking or starting the Future
-4. `io.spawn(future)` starts a cold future without waiting — returns `JoinHandle(T)` for later awaiting
+3. `io.state(&future)` returns the current `FutureState` without blocking or starting the Future
+4. `io.spawn(future)` consumes a cold future and starts it without waiting — returns `JoinHandle(T)` for later awaiting
 5. `handle.await(io)` waits for a spawned task and returns `Option(T)` — `.Some(result)` on completion, `.None` on unwind (abort)
-6. Spawning an already **aborted** Future starts nothing: its `JoinHandle` reads `.None`
+6. A Future is **move-only**: `io.await` and `io.spawn` consume it, so an aborted task is reachable only through its `JoinHandle`, which reads `.None`
 7. All async code runs on the **same thread** — no thread spawning
 8. `yield()` suspends the current task and yields to other ready tasks in the event loop
-9. `io.await(future)` can be called **multiple times** on the same Future — each call returns the same result
-10. Awaiting an **aborted** Future propagates the abort to the awaiter (see "Aborted Futures"), whether it was aborted before the await started or while it waited
+9. A Future is awaited **once**: a second `io.await` (or an await after `io.spawn`) is E0901. A result several tasks need is joined once and shared (`Rc(T)`, a channel), or each task joins the task's `JoinHandle`
+10. A Future aborted while a task awaits it propagates the abort to that task (see "Aborted Futures"), and aborting the task aborts the Future it awaits
 11. `io.spawn(future, e)` runs the task **inline up to its first suspension point** before returning; spawn is not itself a suspension point of the caller
 12. The effect bundle `e` is **copied into the future at its cold start** (the first `io.await` or `io.spawn`); that is the bundle the body runs under
 
@@ -445,15 +445,13 @@ f := io.async((io : Io) => {
   io.await(sleep(u64(50)), io);
   i32(7)
 });
-hf := io.spawn(f, io);
-a := io.async((io : Io) => io.await(f, io));
+// The awaiting task owns `f` (a capture list moves it in, §3.13 A1).
+a := io.async({ f }(io : Io) => io.await(f, io));
 ha := io.spawn(a, io);
 io.await(yield(io), io);
-hf.abort();
-// The awaiter was aborted with it.
-assert(ha.await(io).is_none(), "the awaiter reads .None");
-// So is the task itself.
-assert(hf.await(io).is_none(), "the aborted task reads .None");
+ha.abort();
+// Aborting the awaiter aborted the future it was awaiting, too.
+assert(ha.await(io).is_none(), "the aborted task reads .None");
 ```
 
 `timeout(handle, d, io)` from `std/async` is built on `abort`. When it times
@@ -497,10 +495,12 @@ main :: (fn(io : Io) -> unit)({
   // Before starting: Cold
   assert(io.state(&task) == FutureState.Cold, "cold future is Cold");
 
-  io.await(task, io);
+  // Spawning consumes the future; its handle reads the task's state from then on.
+  h := io.spawn(task, io);
+  _r := h.await(io);
 
   // After completion: Completed
-  assert(io.state(&task) == FutureState.Completed, "done future is Completed");
+  assert(h.state() == FutureState.Completed, "done task is Completed");
 });
 export(main);
 ```
@@ -917,14 +917,13 @@ main :: (fn(io : Io) -> unit)({
     /* work */
   });
   // task is cold (refcount=1), hasn't started yet
-  io.spawn(task, io);
-  // spawn starts the task: +1 for the running task (the event loop), and
-  // +1 for the JoinHandle it returns (dropped at once here: a statement-level
-  // spawn detaches)
-  io.await(task, io);
-  // Waits for completion, extracts result
+  h := io.spawn(task, io);
+  // spawn consumes `task`: its reference moves into the JoinHandle, and the
+  // running task (the event loop) takes +1 (refcount=2)
+  _r := h.await(io);
+  // Waits for completion and reads the result
   // Task completes, event loop drops its reference (refcount=1)
-  // task goes out of scope (refcount=0, freed)
+  // h goes out of scope (refcount=0, freed)
 });
 export(main);
 ```
@@ -932,19 +931,21 @@ export(main);
 **Refcount Lifecycle:**
 
 1. **Creation**: `io.async(fn)` allocates state machine, `refcount = 1`
-2. **Start (via await/spawn)**: `__yo_incr_rc()` before starting (refcount = 2)
-   - One reference for user code (the `task` variable)
-   - One reference for the running task (held by event loop)
-3. **User Drop**: When `task` goes out of scope, `__yo_decr_rc()` (refcount = 1)
+2. **Start (via await/spawn)**: the Future is consumed, so the caller's
+   reference moves into the await (or the `JoinHandle`), and
+   `__yo_incr_rc()` adds one for the running task (refcount = 2)
+3. **Await done**: the await moves the result out and releases its reference
+   (refcount = 1); a handle releases its reference when it is dropped
 4. **Task Completion**: State machine calls `__yo_decr_rc()` (refcount = 0, freed)
 
-**Key Insight**: Tasks stay alive until completion even if user code drops them early!
+**Key Insight**: Tasks stay alive until completion even if user code drops their handle early!
 
 **`JoinHandle(T)` owns a reference.** `io.spawn` returns a `ref` struct that
-holds one reference to the task's Future. The task and its result live as
-long as some copy of the handle does, and dropping the last copy releases that
-reference. Awaiting a handle does not consume it: awaiting it twice reads the
-same result. A handle that is dropped without being awaited **detaches** the
+holds one reference to the task's Future: `io.spawn` consumed the Future, and
+its reference moved into the handle. The task and its result live as long as
+some copy of the handle does, and dropping the last copy releases that
+reference. Awaiting a handle does not consume it yet (`plans/VALUES_BY_DEFAULT.md`
+§3.13 A3 makes it a move-only value): awaiting it twice reads the same result. A handle that is dropped without being awaited **detaches** the
 task. The task keeps running, and it frees itself when it finishes, so a
 fire-and-forget `io.spawn(task, io);` statement leaks nothing.
 
@@ -1528,7 +1529,7 @@ not reproduce — are gone. See `issues/fixed/async-while-3arg-form.md` and
 
 Yo's async/await provides:
 
-1. **Lazy execution** — `io.async(fn)` creates cold Futures that don't start until `io.await(f, e)` or `io.spawn(f, e)`
+1. **Lazy execution** — `io.async(fn)` creates cold Futures that don't start until `io.await(f, e)` or `io.spawn(f, e)`, either of which consumes the Future
 2. **Single-threaded concurrency** — all async runs on one thread
 3. **Concurrent spawn** — `io.spawn(f, e)` starts a cold Future without waiting, returns `JoinHandle(T)`
 4. **No thread safety concerns** — no data races possible

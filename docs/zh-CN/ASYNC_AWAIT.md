@@ -41,10 +41,10 @@ export(main);
 main :: (fn(io : Io) -> unit)({
   a := io.async((io : Io) => { /* ... */ });
   b := io.async((io : Io) => { /* ... */ });
-  io.spawn(a, io); // 启动 a 但不等待（返回 JoinHandle）
-  io.spawn(b, io); // 启动 b 但不等待（返回 JoinHandle）
-  io.await(a, io);
-  io.await(b, io);
+  ha := io.spawn(a, io); // 启动 a 但不等待（消耗 a，返回它的 JoinHandle）
+  hb := io.spawn(b, io); // 启动 b 但不等待
+  _ra := ha.await(io);
+  _rb := hb.await(io);
 });
 
 // 并行：不同线程，真正的同时执行
@@ -181,9 +181,9 @@ test("my test", {
 
 ```yo ignore
 io.async(fn)                  // 创建冷 Future（惰性，不会立即启动）
-io.await(future, io)              // 若为冷任务则启动，等待完成，返回结果
-io.state(future)              // 查询 Future 的当前状态（返回 FutureState）
-io.spawn(future, io)              // 启动冷 Future 但不等待，返回 JoinHandle(T)
+io.await(future, io)          // 消耗 Future：若为冷任务则启动，等待完成，返回（移出）结果
+io.state(&future)             // 查询 Future 的当前状态（返回 FutureState）；借用它
+io.spawn(future, io)          // 消耗冷 Future 并启动但不等待，返回 JoinHandle(T)
 handle.await(io)       // 等待已 spawn 的任务，返回 Option(T)（unwind 时返回 .None）；阻塞等待，用于 main / 普通 fn
 handle.join(io)        // 同样的 Option(T)，但作为 Future（std/async）：任务内部用这个
 yield()                       // 创建预完成的 Future（将控制权让给事件循环）
@@ -193,14 +193,14 @@ yield()                       // 创建预完成的 Future（将控制权让给�
 
 1. `io.async(fn)` 创建**惰性** Future——函数体在 await 或 spawn 之前不会执行
 2. `io.await(future)` 启动冷 Future 并顺序运行至完成
-3. `io.state(future)` 返回当前 `FutureState`，不会阻塞或启动 Future
-4. `io.spawn(future)` 启动冷 Future 但不等待——返回 `JoinHandle(T)` 以便后续 await
+3. `io.state(&future)` 返回当前 `FutureState`，不会阻塞或启动 Future
+4. `io.spawn(future)` 消耗冷 Future 并启动但不等待——返回 `JoinHandle(T)` 以便后续 await
 5. `handle.await(io)` 等待已 spawn 的任务，返回 `Option(T)`——完成时返回 `.Some(result)`，unwind（中止）时返回 `.None`
-6. 对已**中止**的 Future 进行 spawn 不会启动任何东西：它的 `JoinHandle` 读出 `.None`
+6. Future 是**只可移动**的值：`io.await` 和 `io.spawn` 消耗它，因此已中止的任务只能通过它的 `JoinHandle` 访问，读出 `.None`
 7. 所有异步代码运行在**同一线程**上——不会创建新线程
 8. `yield()` 挂起当前任务，将控制权让给事件循环中其他就绪的任务
-9. `io.await(future)` 可以对同一 Future **多次调用**——每次调用返回相同的结果
-10. await 一个**已中止**的 Future 会把中止传播给等待者（见"已中止的 Future"），无论它是在 await 开始之前还是等待期间被中止的
+9. Future 只 await **一次**：第二次 `io.await`（或 `io.spawn` 之后再 await）是 E0901。多个任务都需要的结果只 join 一次再共享（`Rc(T)`、channel），或由每个任务 join 该任务的 `JoinHandle`
+10. 任务 await 期间被中止的 Future 会把中止传播给该任务（见"已中止的 Future"），而中止任务也会中止它正在 await 的 Future
 11. `io.spawn(future, e)` 在返回之前会**内联运行任务直到它的第一个挂起点**；spawn 本身不是调用方的挂起点
 12. 效应包 `e` 在 Future **冷启动时被复制进 Future**（第一次 `io.await` 或 `io.spawn`）；函数体就运行在这个包之下
 
@@ -420,15 +420,13 @@ f := io.async((io : Io) => {
   io.await(sleep(u64(50)), io);
   i32(7)
 });
-hf := io.spawn(f, io);
-a := io.async((io : Io) => io.await(f, io));
+// 等待的任务拥有 `f`（捕获列表把它移入，§3.13 A1）。
+a := io.async({ f }(io : Io) => io.await(f, io));
 ha := io.spawn(a, io);
 io.await(yield(io), io);
-hf.abort();
-// 等待方随之被中止。
-assert(ha.await(io).is_none(), "the awaiter reads .None");
-// 被中止的任务本身也是。
-assert(hf.await(io).is_none(), "the aborted task reads .None");
+ha.abort();
+// 中止等待方，也中止了它正在 await 的 Future。
+assert(ha.await(io).is_none(), "the aborted task reads .None");
 ```
 
 `std/async` 的 `timeout(handle, d, io)` 建立在 `abort` 之上。超时时，任务以及
@@ -472,10 +470,12 @@ main :: (fn(io : Io) -> unit)({
   // 启动前：Cold
   assert(io.state(&task) == FutureState.Cold, "cold future is Cold");
 
-  io.await(task, io);
+  // spawn 消耗 Future；之后由它的句柄读取任务状态。
+  h := io.spawn(task, io);
+  _r := h.await(io);
 
   // 完成后：Completed
-  assert(io.state(&task) == FutureState.Completed, "done future is Completed");
+  assert(h.state() == FutureState.Completed, "done task is Completed");
 });
 export(main);
 ```
@@ -884,13 +884,13 @@ main :: (fn(io : Io) -> unit)({
     /* 工作 */
   });
   // task 为冷状态（refcount=1），尚未启动
-  io.spawn(task, io);
-  // spawn 启动任务：运行中的任务（事件循环）+1，返回的 JoinHandle 也 +1
-  // （这里立即被丢弃：语句级的 spawn 会分离任务）
-  io.await(task, io);
-  // 等待完成，提取结果
+  h := io.spawn(task, io);
+  // spawn 消耗 `task`：它的引用移入 JoinHandle，运行中的任务（事件循环）
+  // 再 +1（refcount=2）
+  _r := h.await(io);
+  // 等待完成，读出结果
   // 任务完成，事件循环释放引用（refcount=1）
-  // task 离开作用域（refcount=0，被释放）
+  // h 离开作用域（refcount=0，被释放）
 });
 export(main);
 ```
@@ -898,17 +898,19 @@ export(main);
 **引用计数生命周期：**
 
 1. **创建**：`io.async(fn)` 分配状态机，`refcount = 1`
-2. **启动（通过 await/spawn）**：启动前 `__yo_incr_rc()`（refcount = 2）
-   - 一个引用属于用户代码（`task` 变量）
-   - 一个引用属于运行中的任务（由事件循环持有）
-3. **用户释放**：当 `task` 离开作用域时，`__yo_decr_rc()`（refcount = 1）
+2. **启动（通过 await/spawn）**：Future 被消耗，调用方的引用移入 await（或
+   `JoinHandle`），`__yo_incr_rc()` 再为运行中的任务加一（refcount = 2）
+3. **await 结束**：await 移出结果并释放它的引用（refcount = 1）；句柄被丢弃时
+   释放它的引用
 4. **任务完成**：状态机调用 `__yo_decr_rc()`（refcount = 0，被释放）
 
-**核心洞察**：即使用户代码提前释放任务，任务也会保持存活直到完成！
+**核心洞察**：即使用户代码提前丢弃句柄，任务也会保持存活直到完成！
 
 **`JoinHandle(T)` 持有一个引用。** `io.spawn` 返回一个 `ref` 结构体，它持有任务
-Future 的一个引用。只要还有任何一个句柄副本存在，任务及其结果就保持存活；最后一个
-副本被丢弃时释放这个引用。await 句柄不会消耗它：await 两次读到同一个结果。一个未被
+Future 的一个引用：`io.spawn` 消耗了 Future，它的引用移入句柄。只要还有任何一个
+句柄副本存在，任务及其结果就保持存活；最后一个副本被丢弃时释放这个引用。await 句柄
+目前还不会消耗它（`plans/VALUES_BY_DEFAULT.md` §3.13 A3 会把它变成只可移动的值）：
+await 两次读到同一个结果。一个未被
 await 就被丢弃的句柄会**分离**任务：任务继续运行，并在结束时释放自己，因此一句
 即发即弃的 `io.spawn(task, io);` 不会泄漏任何东西。
 
@@ -1443,7 +1445,7 @@ handle.await(io);
 
 Yo 的 async/await 提供：
 
-1. **惰性执行** — `io.async(fn)` 创建冷 Future，在 `io.await` 或 `io.spawn` 之前不会启动
+1. **惰性执行** — `io.async(fn)` 创建冷 Future，在 `io.await` 或 `io.spawn` 之前不会启动；两者都会消耗 Future
 2. **单线程并发** — 所有异步代码运行在同一线程上
 3. **并发 spawn** — `io.spawn(f)` 启动冷 Future 但不等待，返回 `JoinHandle(T)`
 4. **无线程安全顾虑** — 不可能发生数据竞争

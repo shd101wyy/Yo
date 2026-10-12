@@ -36,7 +36,7 @@ test("a waker fired from another OS thread resumes its task on the owning loop",
   resumed_on := AtomicUsize.new(usize(0));
   main_tid := get_thread_id();
   h := io.spawn(
-    io.async((io : Io) => {
+    io.async({ p, resumed_on, stamped }(io : Io) => {
       io.await(p.wait(io), io);
       resumed_on.store(get_thread_id(), MemoryOrder.Release);
       _a := stamped.fetch_add(i32(100), MemoryOrder.AcqRel);
@@ -70,7 +70,7 @@ test("two parks woken from two different threads", {
   main_tid := get_thread_id();
   both_on_main := AtomicI32(i32(0));
   h1 := io.spawn(
-    io.async((io : Io) => {
+    io.async({ p1, main_tid, both_on_main, order }(io : Io) => {
       io.await(p1.wait(io), io);
       if(get_thread_id() == main_tid, {
         _x := both_on_main.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -81,7 +81,7 @@ test("two parks woken from two different threads", {
     io
   );
   h2 := io.spawn(
-    io.async((io : Io) => {
+    io.async({ p2, main_tid, both_on_main, order }(io : Io) => {
       io.await(p2.wait(io), io);
       if(get_thread_id() == main_tid, {
         _y := both_on_main.fetch_add(i32(1), MemoryOrder.AcqRel);
@@ -122,7 +122,7 @@ test("a wake that arrives BEFORE the task suspends is not lost", {
   t.join();
   ran := AtomicI32(i32(0));
   h := io.spawn(
-    io.async((io : Io) => {
+    io.async({ p, ran }(io : Io) => {
       io.await(p.wait(io), io);
       _a := ran.fetch_add(i32(1), MemoryOrder.AcqRel);
       i32(0)

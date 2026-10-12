@@ -3797,8 +3797,8 @@ export(main);
 关键特性：
 
 - `io.async(fn)` 创建一个**冷 Future** — 函数体在被等待或启动之前不会执行
-- `io.await(future, e)` 启动一个冷 Future 并运行至完成；可以对同一个 Future **多次调用**（`e` 是效应记录 —— 纯 `Io` 任务就是 `io`）
-- `io.spawn(future, e)` 启动一个冷 Future 而不等待，返回 `JoinHandle(T)`
+- `io.await(future, e)` 消耗一个 Future：若为冷则启动，运行至完成并移出结果；Future 只 await **一次**（`e` 是效应记录 —— 纯 `Io` 任务就是 `io`）
+- `io.spawn(future, e)` 消耗一个冷 Future 并启动而不等待，返回 `JoinHandle(T)`
 - `handle.await(io)` 等待一个已启动的任务，返回 `Option(T)` — 任务中止（unwind）时返回 `.None`
 - 所有异步代码运行在**同一线程**上（无线程创建，无数据竞争）
 

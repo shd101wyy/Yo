@@ -67,10 +67,10 @@ test("sleep suspends the task instead of blocking the loop", {
     order.* = (order.* + i32(1));
   });
   start := Instant.now();
-  io.spawn(slow, io);
-  io.spawn(fast, io);
-  io.await(slow, io);
-  io.await(fast, io);
+  hs := io.spawn(slow, io);
+  hf := io.spawn(fast, io);
+  _rs := hs.await(io);
+  _rf := hf.await(io);
   elapsed := start.elapsed();
   unsafe(printf("  overlapped sleeps took %lld ms (order=%d)\n", elapsed.as_millis(), order.*));
   assert(order.* == i32(111), "both tasks must have run, fast finishing mid-sleep");

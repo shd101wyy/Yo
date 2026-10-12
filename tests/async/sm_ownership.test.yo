@@ -34,39 +34,24 @@ _leaf :: (fn(v : i32, io : Io) -> Impl(Future(i32, Io)))(
 );
 
 // issues/fixed/async-second-cond-arm-await-of-a-field-future-frees-it.md
+// A future is awaited once and moved into the await (§3.13 A1), so a future
+// held in a field cannot be awaited through a borrow of its holder: that
+// would move it out of the field (Yo has no partial moves).
 Holder :: ref(struct(fut : IoFuture));
-_second_arm_await_of_field :: (fn(h : &Holder, io : Io) -> Impl(Future(i32, Io)))(
-  io.async((e : Io) => {
-    (out : i32) = i32(0);
-    cond(
-      (out == i32(0)) => {
-        a := e.await(_leaf(i32(1), e), e);
-        b := e.await(h.fut, e);
-        out = (a + b);
-      },
-      true => {
-        out = i32(5);
-      }
-    );
-    out
-  })
-);
-test("a cond arm's second await of a field-held future leaves the field's reference alone", {
-  h := Holder(fut : unsafe(__yo_async_yield_start()));
-  r := io.await(_second_arm_await_of_field(&h, io), io);
-  assert(r == i32(1), "the arm's awaits both ran");
-  // Read the field's future again: it used to be freed by the arm's await.
-  r2 := io.await(h.fut, io);
-  assert(r2 == i32(0), "the field's future is still alive");
+test("awaiting a field-held future through a borrow is E0901", {
+  comptime_expect_error(
+    (fn(h : &Holder, io : Io) -> i32)(io.await(h.fut, io)),
+    "partly moved"
+  );
 });
 
 // issues/fixed/named-future-awaited-in-a-while-emits-missing-await-future-field.md
 _named_future_in_loop :: (fn(n : i64, io : Io) -> Impl(Future(i64, Io)))(
   io.async((io : Io) => {
-    f := _leaf(i32(2), io);
     (acc : i64) = i64(0);
     (i : i64) = i64(0);
     while(runtime(i < n), {
+      f := _leaf(i32(2), io);
       v := io.await(f, io);
       acc = (acc + i64(v));
       i = (i + i64(1));
@@ -76,7 +61,7 @@ _named_future_in_loop :: (fn(n : i64, io : Io) -> Impl(Future(i64, Io)))(
 );
 test("a named future awaited inside a while loop", {
   r := io.await(_named_future_in_loop(i64(3), io), io);
-  assert(r == i64(6), "every iteration reads the same completed future");
+  assert(r == i64(6), "every iteration awaits its own named future");
 });
 
 // issues/fixed/awaiting-an-already-started-future-from-a-state-machine-leaks-it.md
@@ -88,13 +73,9 @@ test("awaiting an already-running future from a state machine releases it", {
       Thing(n : i32(7))
     });
     hf := io.spawn(f, io);
-    a := io.async((io : Io) => {
-      v := io.await(f, io);
-      v.n
-    });
+    a := io.async((io : Io) => match(io.await(hf.join(io), io), .Some(v) => v.n, .None => i32(-1)));
     r := io.await(a, io);
-    assert(r == i32(7), "the awaiter read the running future's result");
-    _rf := hf.await(io);
+    assert(r == i32(7), "the awaiter read the running task's result");
   };
   assert(g_disposed == (before + i32(1)), "the future (and its Thing result) is disposed");
 });
