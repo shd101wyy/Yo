@@ -1,0 +1,20 @@
+// issues/fixed/a-call-site-marker-types-the-callees-contract-params-as-the-marker.md:
+// a contracted callee reached through a call-site marker (`&c`, `&mut n`).
+// The call-site contract pass binds each parameter at the LENT PLACE's type;
+// it bound it at the marker node's, so `requires(!b)` found no `!` for it
+// and the call failed to type-check (E0610).
+pragma(Pragma.Verify);
+
+unset_flag :: (fn(b : &bool, requires(!b)) -> i32)(i32(0));
+
+bump :: (fn(n : &mut i32, requires((n >= i32(0)) && (n < i32(100)))) -> unit)({
+  n = (n + i32(1));
+});
+
+main :: (fn() -> unit)({
+  c := false;
+  _r := unset_flag(&c);
+  k := i32(1);
+  bump(&mut k);
+});
+export(main);

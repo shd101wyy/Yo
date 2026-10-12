@@ -40,6 +40,8 @@
   BF_PANIC,
   BF_RUNTIME,
   BK_COND,
+  BF_ADDRESS_OF,
+  BK_BORROW_MUT,
   alloc_global_expr_id,
   clone_expr_fresh_ids,
   make_err_expr
@@ -1899,7 +1901,9 @@ _prepare_callsite_contracts :: (
   );
   ()
 });
-/// The declared type of a call's `i`-th argument from its ExprInfo.
+/// The declared type of a call's `i`-th argument from its ExprInfo. A
+/// call-site marker (`&x`, `&mut x`, decision 33) lends the place `x`: the
+/// parameter is bound at the PLACE's type, not the marker node's.
 _callsite_arg_type :: (
   fn(ctx : &EvalContext, e : &AstExpr, i : usize) -> Option(TypeValue)
 )(
@@ -1908,7 +1912,19 @@ _callsite_arg_type :: (
     .FnCall(_, _, args, _, _) => match(
       args.get(i),
       .Some(a) => match(
-        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)),
+        expr_info_table_get(
+          &ctx.expr_info_table,
+          ast_expr_id(
+            &cond(
+              (ast_expr_is_fn_call_of(&a, BF_ADDRESS_OF, .Some(usize(1))) || ast_expr_is_fn_call_of(&a, BK_BORROW_MUT, .Some(usize(1)))) => match(
+                a,
+                .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(place) => place, .None => a.clone()),
+                .Atom(_, _) => a.clone()
+              ),
+              true => a.clone()
+            )
+          )
+        ),
         .Some(ai) => Option(TypeValue).Some(ai.ty.clone()),
         .None => Option(TypeValue).None
       ),
