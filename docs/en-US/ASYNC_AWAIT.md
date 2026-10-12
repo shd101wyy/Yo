@@ -326,9 +326,9 @@ provides:
 
 ```yo
 Io :: struct(
-  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(Fn(e : E) -> T)) -> Impl(Future(T, E))),
+  async : (fn(generic(T : Type, E : Type.Struct), action : Impl(FnOnce(e : E) -> T)) -> Impl(Future(T, E))),
   await : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> T),
-  state : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E))) -> FutureState),
+  state : (fn(generic(T : Type, E : Type.Struct), fut : &Impl(Future(T, E))) -> FutureState),
   spawn : (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), e : E) -> JoinHandle(T))
 );
 ```
@@ -340,48 +340,29 @@ Why heap allocation?
 
 This is an implementation choice, not a semantic requirement.
 
-### Multi-Await
+### A Future Is Awaited Once
 
-A Future can be awaited **multiple times**. Each `io.await` call on the same Future returns the same result:
+A Future is a move-only value (decision 13 of `plans/VALUES_BY_DEFAULT.md`).
+`io.await(f, io)` and `io.spawn(f, io)` consume `f`, so each Future is awaited
+or spawned exactly once, and `io.await` moves the result out, so a move-only
+result type works. A second await is E0901:
 
 ```yo
 { assert } :: import("std/assert");
 
 main :: (fn(io : Io) -> unit)({
-  task := io.async((io : Io) => {
-    return(i32(42));
-  });
-  result1 := io.await(task, io);
-  result2 := io.await(task, io);
-  result3 := io.await(task, io);
-  assert(result1 == i32(42), "first await returns 42");
-  assert(result2 == i32(42), "second await returns 42");
-  assert(result3 == i32(42), "third await returns 42");
+  task := io.async((io : Io) => i32(42));
+  result := io.await(task, io);
+  assert(result == i32(42), "the await moves the result out");
+  // io.await(task, io); // E0901: `task` was moved by the await above
 });
 export(main);
 ```
 
-The Future retains its result after completion. For reference-counted result types, each `io.await` call dups the result so the caller gets its own reference. The Future's dispose function drops the original when the state machine is freed.
-
-Several tasks may also await **one pending Future at the same time**. Every
-awaiter is registered on the Future and all of them resume, in registration
-order, when it completes:
-
-```yo
-{ sleep } :: import("std/sys/timer");
-
-shared := io.async((io : Io) => {
-  io.await(sleep(u64(5)), io);
-  i32(7)
-});
-a := io.async((io : Io) => io.await(shared, io));
-b := io.async((io : Io) => io.await(shared, io));
-ha := io.spawn(a, io);
-hb := io.spawn(b, io);
-// Both read .Some(7).
-ra := ha.await(io);
-rb := hb.await(io);
-```
+`io.state(&f)` borrows the Future and may be called any number of times
+before it is consumed. A result that several tasks need is computed once and
+shared: await it in one place and share the value as `Rc(T)`, or send it
+through a channel.
 
 ### Aborted Futures
 
