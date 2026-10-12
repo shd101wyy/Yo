@@ -853,3 +853,37 @@ test("an earlier argument's value survives a suspension in a later argument", {
   assert(r.items.len() == usize(2), "the moved list");
   assert(r.extra == i32(3), "the awaited argument");
 });
+
+// issues/fixed/a-state-machine-returning-a-borrowed-capture-hands-out-the-captures-only-reference.md
+// A body that awaits and then returns an implicit capture stored the capture
+// into the result without a +1, so the awaiter's moved-out result and the
+// capture the dispose drops were one reference: the value was freed while
+// the awaiter still held it.
+_give_back :: (fn(t : Thing, io : Io) -> Impl(Future(Thing, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    t
+  })
+);
+_give_back_string :: (fn(s : String, io : Io) -> Impl(Future(String, Io)))(
+  io.async((io2 : Io) => {
+    io2.await(yield(io2), io2);
+    s
+  })
+);
+test("a state machine returning an implicit capture retains it for the result", {
+  before := g_disposed;
+  {
+    r := io.await(_give_back(Thing(n : i32(5)), io), io);
+    assert(g_disposed == before, "the result is alive while the awaiter holds it");
+    assert(r.n == i32(5), "the awaiter reads the captured value");
+  };
+  assert(g_disposed == (before + i32(1)), "disposed once, by the awaiter's scope");
+  out := ArrayList(String).new();
+  (i : i32) = i32(0);
+  while(runtime(i < i32(3)), {
+    out.push(io.await(_give_back_string(`s${i}`, io), io));
+    i = (i + i32(1));
+  });
+  assert(out(usize(2)) == `s2`, "every returned capture is intact");
+});
