@@ -2182,17 +2182,59 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
     _ => ()
   );
 });
-/// §3.13 A2 at an io builtin call: `io.async` registers its body's borrows
-/// on the future it returns (`_register_borrowing_future`), and `io.await`
-/// checks the places its operand's call lent (`_check_awaited_future_lends`).
-_note_borrowing_future_call :: (fn(expr : &AstExpr, ret_ty : &TypeValue, args : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)(
+/// §3.13 at an io builtin call: `io.async` registers its body's borrows on
+/// the future it returns (A2, `_register_borrowing_future`), `io.await`
+/// checks the places its operand's call lent (A2,
+/// `_check_awaited_future_lends`), and `io.await`/`io.spawn` check the
+/// bundle they copy into the future (A6, `_check_bundle_fields_copy`).
+_note_io_builtin_call :: (fn(expr : &AstExpr, ret_ty : &TypeValue, args : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
+  _check_bundle_fields_copy(expr, args, ctx, exn);
+  if(!capture_borrows_exist(), {
+    return(());
+  });
   cond(
-    !capture_borrows_exist() => (),
     is_io_async_call(expr) => _register_borrowing_future(ret_ty, args, ctx),
     is_io_await_call(expr) => _check_awaited_future_lends(args, ctx, exn),
     true => ()
-  )
-);
+  );
+});
+/// §3.13 A6: `io.spawn` and a cold `io.await` copy the effect bundle into the
+/// future bitwise, since one bundle starts many futures. A field that is not
+/// implicitly copyable (move-only, or plain data without `Copy`) would be
+/// copied by that, so it is an error at the site; shared state goes in an
+/// `Rc` field.
+_check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ctx : &EvalContext, exn : Exception) -> unit)({
+  if(!(is_io_await_call(expr) || is_io_spawn_call(expr)), {
+    return(());
+  });
+  bundle := match(args.get(usize(1)), .Some(a) => _unlabeled_argument(&a), .None => return(()));
+  bundle_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&bundle)), .Some(bi) => bi.ty, .None => return(()));
+  match(
+    bundle_ty,
+    .Struct({ field_labels : labels, field_types : types }) => {
+      (fi : usize) = usize(0);
+      while(fi < types.len(), fi = (fi + usize(1)), {
+        fty := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        if(type_requires_explicit_copy(&fty), {
+          label := match(labels.get(fi), .Some(l) => l, .None => String.new());
+          raise_flow_violation(
+            with_code(
+              format_error_message_with_help(
+                ast_expr_token(&bundle),
+                `The effect bundle's field \`${label}\` (\`${type_to_string(&fty)}\`) is not implicitly copyable, and \`${if(is_io_spawn_call(expr), "io.spawn", "io.await")}\` copies the bundle into the future it starts (one bundle starts many futures, plans/VALUES_BY_DEFAULT.md §3.13 A6).`,
+                Option(String).Some(`keep shared state in an \`Rc\` field of the bundle, or pass the value to the task through its capture list instead`)
+              ),
+              E_USE_OF_MOVED_VALUE
+            ),
+            ctx,
+            exn
+          );
+        });
+      });
+    },
+    _ => ()
+  );
+});
 /// Decision 38 D as amended for futures (§3.13 A2): the future `io.await` is
 /// given borrows the places its call lent to the parameters the future
 /// captures. A lent place reached through an `Rc`/`Arc` deref has no run-time
@@ -9385,7 +9427,7 @@ Fix: wrap the call:
         if(_adopt_deep_resolution(&ret_type_rt, &rt_rt_resolved), {
           ret_type_rt = rt_rt_resolved;
         });
-        _note_borrowing_future_call(expr, &ret_type_rt, &args, ctx, exn);
+        _note_io_builtin_call(expr, &ret_type_rt, &args, ctx, exn);
         out_rt := new_expr_info(&call_result_rt.caller_env, &ret_type_rt);
         out_rt.value = Option(EvalValue).Some(_call_result_unknown(&ret_type_rt, env));
         out_rt.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_rt.runtime_arg_exprs_in_order);
@@ -10076,7 +10118,7 @@ Fix: wrap the call:
           if(_adopt_deep_resolution(&ret_type_none, &rt_none_resolved), {
             ret_type_none = rt_none_resolved;
           });
-          _note_borrowing_future_call(expr, &ret_type_none, &args, ctx, exn);
+          _note_io_builtin_call(expr, &ret_type_none, &args, ctx, exn);
           out_none := new_expr_info(&call_result_none.caller_env, &ret_type_none);
           out_none.value = Option(EvalValue).Some(_call_result_unknown(&ret_type_none, &callee_env));
           out_none.runtime_arg_exprs_in_order = Option(ArrayList(AstExpr)).Some(call_result_none.runtime_arg_exprs_in_order);
