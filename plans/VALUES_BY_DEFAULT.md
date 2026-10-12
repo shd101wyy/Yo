@@ -1037,6 +1037,17 @@ instead.
       copy), `issues/fixed/a-capture-move-flag-is-read-in-a-state-machine-that-has-none.md`
       and
       `issues/fixed/a-capture-in-a-generic-io-async-body-is-dropped-with-another-instantiations-type.md`.
+      Testing the combinators also found three async-lowering bugs that are
+      in v0.2.59 and have nothing to do with handles:
+      `issues/fixed/a-state-machine-returning-a-borrowed-capture-hands-out-the-captures-only-reference.md`
+      (a state machine's tail, fused or not, skipped its deferred dup),
+      `issues/fixed/a-fused-await-passes-a-named-local-without-the-callers-share.md`
+      and `issues/fixed/a-destructured-await-result-is-never-released.md`
+      (`race_first`'s `(w, hs) := io.await(race(…), io)` leaked the list).
+    - **Release order.** These are codegen fixes in `src/`, and the Gen B
+      std depends on them: a seed without them leaks `race_first`/`any_first`'s
+      list and miscompiles `join`'s and `timeout`'s capture lists. They ship
+      in a seed first (Generation A), then this std.
     - **Tests that shared one handle** were rewritten per A1: two waiters on
       one task wait through the join-wait primitive on `as_ptr()`
       (`tests/async/sm_protocol.test.yo`), and a "re-read the result" test
