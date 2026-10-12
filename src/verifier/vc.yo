@@ -1910,6 +1910,22 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
       // evaluation leaves its atoms untyped too. Two forms need no
       // ExprInfo: a name the walk already bound (its term carries its
       // sort), and `==` / `!=` over two terms of one UNINTERPRETED sort.
+      // A call-site marker (`f(&x)`, `f(&mut x)`, decision 33) is untyped
+      // too: the evaluator peels it and types the lent place, whose term the
+      // argument is.
+      if(ast_expr_is_fn_call_of(e, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(e, "&mut", .Some(usize(1))), {
+        match(
+          e,
+          .FnCall(_, _, m_args, _, _) => match(
+            m_args.get(usize(0)),
+            .Some(place) => {
+              return(_expr_term(ctx, &place));
+            },
+            .None => ()
+          ),
+          .Atom(_, _) => ()
+        );
+      });
       match(
         _untyped_opaque_term(ctx, e),
         .Some(ut) => {
