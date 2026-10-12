@@ -18,6 +18,7 @@
 //! Phase A.3.3: this file holds the TypeValue enum only. Type constructors
 //! (`t_unit`, `t_some_t`, …) and `type_value_tag` live in `creators.yo`.
 //! Variant-shape predicates (`is_int_type`, …) live in `guards.yo`.
+pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -480,6 +481,14 @@ impl(
     clone : (fn(self : &mut Self) -> Self)(self)
   )
 );
+// SAFETY: a TypeValue is rebuilt, never mutated (the audit above): its
+// children are filled when it is built and never written afterwards, so a
+// node only points at nodes older than itself and none reaches itself;
+// recursive types recur through ids and the self shell, not through pointers
+// (plans/VALUES_BY_DEFAULT.md decision 21). Declaring `Acyclic` keeps every
+// TypeValue node, and every `ArrayList(TypeValue)`, out of the cycle
+// collector (§3.12, V4).
+impl(TypeValue, Acyclic());
 // ---------------------------------------------------------------------------
 // Struct per-field compile-time-only flags — side-table (Gap 1).
 // ---------------------------------------------------------------------------
