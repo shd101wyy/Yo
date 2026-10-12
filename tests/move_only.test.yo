@@ -1038,12 +1038,13 @@ test("ArrayList pop/swap/remove/reverse move a move-only element", {
   xs.reverse();
   assert(xs(usize(0)).n == i32(1), "reversed: first");
   assert(xs(usize(3)).n == i32(4), "reversed: last");
+  // [1, 3, 2, 4]
   r := xs.remove(usize(1));
-  assert(r.n == i32(2), "removed the second element");
+  assert(r.n == i32(3), "removed the second element");
   assert(xs.len() == usize(3), "the tail closed the gap");
-  assert(xs(usize(1)).n == i32(3), "the tail moved left");
+  assert(xs(usize(1)).n == i32(2), "the tail moved left");
   assert(g_mo_disposed == before, "no move disposed anything");
-  assert(_mo_take(r) == i32(2), "the removed element is owned");
+  assert(_mo_take(r) == i32(3), "the removed element is owned");
   match(
     xs.pop(),
     .Some(p) => assert(_mo_take(p) == i32(4), "pop moves the last element out"),
