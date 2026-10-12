@@ -674,7 +674,13 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
     em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()} };`);
   }, {
     rt := match(result_type_opt, .Some(t) => t, .None => TypeValue.Unit);
-    if(type_contains_rc_cell_or_move_only(&rt), {
+    if(handle_is_value && type_contains_rc_cell_or_move_only(&rt), {
+      // A value handle is consumed (§3.13 A3): the result moves out of the
+      // task, which no longer drops it (`-3`, result taken; the same
+      // protocol as `io.await`).
+      em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${header_var.clone()}->result${some_close.clone()};`);
+      em.emit_string_line(`${indent.clone()}    ${header_var.clone()}->state = -3;  // result taken`);
+    }, if(type_contains_rc_cell_or_move_only(&rt), {
       match(
         get_dup_function_for_type(&rt, context),
         .Some(dup_fn) => em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${dup_fn}(${header_var.clone()}->result)${some_close.clone()};`),
@@ -695,7 +701,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
       );
     }, {
       em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${some_open.clone()}${header_var.clone()}->result${some_close.clone()};`);
-    });
+    }));
   });
   em.emit_string_line(`${indent.clone()}  } else {`);
   em.emit_string_line(`${indent.clone()}    __yo_effect_escaped = 0;`);
@@ -703,9 +709,12 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed(${fut_var.clone()});`);
   em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${none_code};`);
   em.emit_string_line(`${indent.clone()}  }`);
-  // The handle keeps the future referenced (its Dispose releases it), so
-  // awaiting neither consumes the handle nor releases the task: a handle
-  // awaited twice reads the same result.
+  // A `ref` handle keeps the future referenced (its Dispose releases it), so
+  // awaiting it neither consumes the handle nor releases the task. A value
+  // handle is consumed by the await, which releases its reference here.
+  if(handle_is_value, {
+    em.emit_string_line(`${indent.clone()}  __yo_join_handle_release_raw(${fut_var.clone()});  // the consumed handle's reference`);
+  });
   em.emit_string_line(`${indent.clone()}}`);
   // Rule 1: a result temp with a task slot is dropped through the slot, so
   // the owned result goes there too
