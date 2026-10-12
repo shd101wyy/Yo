@@ -2934,10 +2934,39 @@ and in git, not a silent edit.
     - **Borrowed form, with decision 43.** `&Dyn(Trait)` / `&mut Dyn(Trait)`
       are borrowed trait objects, Rust's `&dyn Trait`: a second-class fat
       reference (data pointer, vtable), with no allocation. It is made by
-      lending a concrete value to a slot typed `&Dyn(Trait)` (the one
-      unsizing conversion, at a typed slot only) or by lending an owned
-      `Dyn`'s payload. It follows every rule decision 43 gives a reference
-      (second-class, roots, exclusivity, no cell payload).
+      `dyn(&v)` / `dyn(&mut v)` over a borrow of a concrete value, or by
+      lending an owned `Dyn` (`&d`, `&mut d`), which lends its payload.
+      It follows every rule decision 43 gives a reference (second-class,
+      roots, exclusivity, no cell payload).
+      - **The erasure is spelled, never coerced** (amended 2026-10-12,
+        re-asked by the maintainer; the first draft made `&v → &Dyn(Trait)`
+        an implicit conversion at a typed slot). The owned form is already
+        explicit: `use_id(dyn(point))`, never `use_id(point)`. The borrowed
+        form matches it with the same keyword over a borrow: `dyn(&v)` is
+        `&Dyn(Trait)`, `dyn(&mut v)` is `&mut Dyn(Trait)`, each the
+        second-class value the borrow was. There is no unsizing coercion
+        anywhere in the language.
+      - **`&Dyn(Trait)` is the borrowed object, not a pointer to the
+        handle.** For every other `T`, `&T` points at the `T` value. For
+        `Dyn`, `&d` over an owned `d : Dyn(Trait)` is the fat pair over the
+        payload, Rust's `&dyn Trait`, not Rust's `&Box<dyn Trait>`; there
+        is no spelling of the latter. The one consequence is a whole-value
+        write: `r.* = dyn(other)` through `r : &mut Dyn(Trait)` has no
+        owning slot to write into and is an error, and a generic
+        `swap(a : &mut T, b : &mut T)` fails at the instantiation with
+        `T = Dyn(...)` (the per-instantiation check of decision 38). Writes
+        go through the owning slot (`d = dyn(other)`, `s.field = ...`,
+        `Option(Dyn(...))` with `take`). Reads through `.*` are already
+        E0901 for every explicit-copy type; `r.clone()` through the
+        vtable's `clone` slot is the owned copy. This is the only place
+        `Dyn` behaves like an unsized type, and Rust's `&mut dyn Trait`
+        has the identical hole (`*r = ...` does not compile).
+      - **Trait-set narrowing of a borrowed object is `upcast`.**
+        `&Dyn(A, B) → &Dyn(A)` changes the vtable layout exactly as the
+        owned case does (`docs/en-US/DYN_DESIGN.md`, "No implicit
+        upcasting"), so it is written `upcast(r, Dyn(A))` over the
+        reference and is never a coercion; the result is second-class like
+        its operand.
     - **No DST.** No unsized types and no `?Sized` bound: a `Dyn` only ever
       appears inside its own fat forms (`Dyn(...)`, `&Dyn(...)`,
       `&mut Dyn(...)`, and through `Rc`/`Arc`), so generics need no new
@@ -2962,7 +2991,13 @@ and in git, not a silent edit.
       owned `Dyn`; a `&Dyn` that escapes is E0909; `&mut Dyn(Trait)` is
       exclusive (E0911); `Dyn(Trait)` without `Clone` is move-only
       (E0901 on a second use); `Rc(Dyn(Trait))` counts one allocation once
-      the optimization lands.
+      the optimization lands; a bare `&point` into a `&Dyn(Trait)` slot is
+      a type error and `dyn(&point)` is accepted; `r.* = dyn(other)`
+      through a `&mut Dyn(Trait)` is an error, and the same write through
+      the owning slot is accepted; a generic `swap` instantiated at
+      `Dyn(...)` is rejected at that instantiation; `upcast(r, Dyn(A))`
+      over a `&Dyn(A, B)` calls `A`'s methods, and a bare `&Dyn(A, B)` into
+      a `&Dyn(A)` slot is a type error.
 
 ## 5. Prerequisites, gates and the seed
 
