@@ -199,3 +199,129 @@ test("an Rc scrutinee takes nested patterns directly", {
   assert(n(rc(List.Cons(7, rc(List.Nil)))) == i32(7));
   assert(n(rc(List.Nil)) == i32(-1));
 });
+// Wrapper patterns (plans/VALUES_BY_DEFAULT.md decision 31): `Rc(p)` and
+// `Arc(p)` name the cell a pattern looks through.
+Tree :: enum(Leaf(n : i32), Node(l : Rc(Self), r : Rc(Self)));
+test("Rc(p) looks through an Rc child at any depth", {
+  f :: (fn(t : &Tree) -> i32)(
+    match(
+      t,
+      .Node(Rc(.Leaf(a)), Rc(.Leaf(b))) => (a + b),
+      .Node(Rc(.Node(Rc(.Leaf(a)), _)), _) => (a * i32(10)),
+      .Node(_, _) => i32(-1),
+      .Leaf(n) => n
+    )
+  );
+  assert(f(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(2)))) == i32(3));
+  assert(f(Tree.Node(rc(Tree.Node(rc(Tree.Leaf(4)), rc(Tree.Leaf(0)))), rc(Tree.Leaf(9)))) == i32(40));
+  assert(f(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Node(rc(Tree.Leaf(4)), rc(Tree.Leaf(0)))))) == i32(-1));
+  assert(f(Tree.Leaf(7)) == i32(7));
+});
+test("Rc(p) at the scrutinee covers it with no catch-all", {
+  g :: (fn(b : &Rc(Tree)) -> i32)(
+    match(
+      b,
+      Rc(.Leaf(n)) => n,
+      Rc(.Node(_, _)) => i32(-1)
+    )
+  );
+  assert(g(rc(Tree.Leaf(5))) == i32(5));
+  assert(g(rc(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(2))))) == i32(-1));
+});
+test("exhaustiveness reaches through Rc(p) into the payload's variants", {
+  h :: (fn(t : &Tree) -> i32)(
+    match(
+      t,
+      .Node(Rc(.Leaf(_)), _) => i32(1),
+      .Node(Rc(.Node(_, _)), _) => i32(2),
+      .Leaf(_) => i32(0)
+    )
+  );
+  assert(h(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(2)))) == i32(1));
+  assert(h(Tree.Node(rc(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(2)))), rc(Tree.Leaf(2)))) == i32(2));
+  assert(h(Tree.Leaf(3)) == i32(0));
+});
+test("Rc(name) binds the payload, a borrow of the shared cell", {
+  k :: (fn(t : &Tree) -> i32)(
+    match(
+      t,
+      .Node(Rc(left), _) => match(left, .Leaf(n) => n, .Node(_, _) => i32(-2)),
+      .Leaf(_) => i32(0)
+    )
+  );
+  assert(k(Tree.Node(rc(Tree.Leaf(8)), rc(Tree.Leaf(2)))) == i32(8));
+  assert(k(Tree.Node(rc(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(1)))), rc(Tree.Leaf(2)))) == i32(-2));
+});
+test("(name := Rc(p)) binds the cell, Rc((name := p)) the payload", {
+  m :: (fn(t : &Tree) -> i32)(
+    match(
+      t,
+      .Node(cell := Rc(.Leaf(n)), _) => (n + i32(ref_count(cell))),
+      .Node(_, Rc(inner := .Leaf(n))) => match(inner, .Leaf(x) => (x + n), .Node(_, _) => i32(-3)),
+      _ => i32(0)
+    )
+  );
+  assert(m(Tree.Node(rc(Tree.Leaf(10)), rc(Tree.Leaf(0)))) >= i32(11));
+  assert(m(Tree.Node(rc(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(1)))), rc(Tree.Leaf(6)))) == i32(12));
+  assert(m(Tree.Leaf(1)) == i32(0));
+});
+test("Rc(p) with a literal and an or-pattern inside", {
+  Cell2 :: enum(Value(v : Rc(i32)), Empty);
+  q :: (fn(c : &Cell2) -> i32)(
+    match(
+      c,
+      .Value(Rc(1 | 2)) => i32(1),
+      .Value(Rc(42)) => i32(42),
+      .Value(Rc(n)) => (n * i32(2)),
+      .Empty => i32(0)
+    )
+  );
+  assert(q(Cell2.Value(rc(i32(2)))) == i32(1));
+  assert(q(Cell2.Value(rc(i32(42)))) == i32(42));
+  assert(q(Cell2.Value(rc(i32(5)))) == i32(10));
+  assert(q(Cell2.Empty) == i32(0));
+});
+Signal :: enum(Level(v : i32), Off);
+test("Arc(p) looks through an Arc", {
+  r :: (fn(a : &Arc(Signal)) -> i32)(
+    match(
+      a,
+      Arc(.Level(v)) => v,
+      Arc(.Off) => i32(-1)
+    )
+  );
+  assert(r(arc(Signal.Level(3))) == i32(3));
+  assert(r(arc(Signal.Off)) == i32(-1));
+});
+test("a wrapper pattern must name the cell at its position", {
+  comptime_expect_error({
+    bad :: (fn(t : &Tree) -> i32)(
+      match(
+        t,
+        Rc(.Leaf(n)) => n,
+        _ => i32(0)
+      )
+    );
+    bad(Tree.Leaf(1))
+  }, "looks through an `Rc`, and this position is not one");
+  comptime_expect_error({
+    bad2 :: (fn(a : &Arc(Signal)) -> i32)(
+      match(
+        a,
+        .Level(v) => v,
+        _ => i32(0)
+      )
+    );
+    bad2(arc(Signal.Off))
+  }, "a pattern does not look through a cell implicitly");
+  comptime_expect_error({
+    bad3 :: (fn(t : &Tree) -> i32)(
+      match(
+        t,
+        .Node(Rc(.Leaf(_)), _) => i32(1),
+        .Leaf(_) => i32(0)
+      )
+    );
+    bad3(Tree.Leaf(1))
+  }, "not exhaustive");
+});

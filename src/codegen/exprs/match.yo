@@ -2186,7 +2186,17 @@ _emit_pattern_chain :: (
         .Some(f) => sanitize_for_c_identifier(f.label.clone(), false),
         .None => String.from("_u42_")
       );
-      fcode := path.clone();
+      // A pointer to the cell (a wrapper pattern at a pointer position) is
+      // dereferenced first, as the tuple arm below does.
+      fcode := cond(
+        is_pointer_type(ty) => {
+          w := String.from("(*");
+          w.push_string(path.clone());
+          w.push_str(")");
+          w
+        },
+        true => path.clone()
+      );
       fcode.push_str("->");
       fcode.push_string(&label);
       recur(&sub, &fcode, &inner_ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, true);

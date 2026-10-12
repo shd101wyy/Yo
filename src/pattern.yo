@@ -12,7 +12,8 @@
 //! Exported symbols: Pattern, Arm, ArmReach, register_match_arms,
 //! lookup_match_arms, pattern_bindings, pattern_is_irrefutable,
 //! pattern_to_string, match_missing_witness, arm_reachability, gadt_branch_reachable,
-//! gadt_resolve_tca_entry, norm_position_type, variant_field_types
+//! gadt_resolve_tca_entry, norm_position_type, is_pattern_cell_type,
+//! variant_field_types
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -20,7 +21,7 @@
 { Token } :: import("./token.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { EvalValue, value_to_string } :: import("./value.yo");
-{ is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type } :: import("./types/guards.yo");
+{ is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("./types/guards.yo");
 { resolve_enum_shell } :: import("./types/creators.yo");
 { are_types_compatible } :: import("./types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
@@ -66,10 +67,14 @@ Pattern :: ref(
     Or(alts : ArrayList(Self)),
     /// `(name := p)` — bind the whole value AND match `p` against it.
     At(name : String, token : Token, atom : AstExpr, sub : Self),
-    /// A structural sub-pattern applied at a `Rc(T)` position: the box is
-    /// looked through, `sub` matches `T`, and the access path dereferences
-    /// the box (`path-><first field>`). `Bind`/`Wildcard`/`At` never sit
-    /// under one (they bind/ignore the box itself); every other form does.
+    /// A pattern that looks through the cell at an `Rc(T)`/`Arc(T)` position:
+    /// `sub` matches `T`, and the access path dereferences the cell
+    /// (`path-><first field>`). A wrapper pattern `Rc(p)`/`Arc(p)`
+    /// (plans/VALUES_BY_DEFAULT.md decision 31) compiles to one, so any form
+    /// may sit under it (`Rc(x)` binds the payload, a borrow). The implicit
+    /// look-through of a structural pattern at an `Rc` position builds one
+    /// too, until decision 31's Generation B deletes it; there `_`, a plain
+    /// binding and `:=` bind or ignore the cell itself and never sit under one.
     ThroughBox(box_ty : TypeValue, inner_ty : TypeValue, sub : Self),
     /// `(p, q)` — a tuple pattern, exact arity, one sub-pattern per element.
     Tuple(subs : ArrayList(Self), elem_tys : ArrayList(TypeValue)),
@@ -267,14 +272,20 @@ gadt_branch_reachable :: (fn(enum_id : &String, variant_idx : usize) -> bool)({
 // ---------------------------------------------------------------------------
 // Type helpers
 // ---------------------------------------------------------------------------
+/// A cell a wrapper pattern looks through (plans/VALUES_BY_DEFAULT.md
+/// decision 31): an `Rc(T)`, or an `Arc(T)` (the atomic cell of the same
+/// one-field `*` shape).
+is_pattern_cell_type :: (fn(t : &TypeValue) -> bool)(
+  is_box_type(t) || (is_atomic_reference_struct_type(t) && box_inner_type(t).is_some())
+);
 /// The type a pattern at a position is compiled against: one pointer level
-/// and one `Rc(T)` wrapper looked through, a leaked recursive-enum
-/// self-shell resolved. An Rc position is presented as its inner type to the
-/// constructor reasoning (the rc wrapper is transparent for coverage).
+/// and one `Rc(T)`/`Arc(T)` cell looked through, a leaked recursive-enum
+/// self-shell resolved. A cell position is presented as its inner type to the
+/// constructor reasoning (the wrapper is transparent for coverage).
 norm_position_type :: (fn(t : &TypeValue) -> TypeValue)({
   inner := match(t, .Pointer(p) => p, _ => t);
   inner2 := match(
-    is_box_type(&inner),
+    is_pattern_cell_type(&inner),
     true => match(box_inner_type(&inner), .Some(bi) => bi, .None => inner),
     false => inner
   );
@@ -2077,5 +2088,5 @@ export(Pattern, Arm, register_match_arms, lookup_match_arms, purge_match_arms, m
 export(MATCH_MODE_BORROW, MATCH_MODE_CONSUME, MATCH_MODE_MUT, register_match_mode, lookup_match_mode, register_arm_entry_drops, lookup_arm_entry_drops, pattern_position_is_cell, pattern_binding_atoms);
 export(pattern_bindings, pattern_is_irrefutable, pattern_to_string);
 export(match_missing_witness, ArmReach, arm_reachability, pattern_test_exprs, variant_group_covers);
-export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, variant_field_types);
+export(gadt_branch_reachable, gadt_resolve_tca_entry, norm_position_type, is_pattern_cell_type, variant_field_types);
 export(box_inner_type, _struct_field_tys, _struct_field_labels, _tuple_elem_tys);

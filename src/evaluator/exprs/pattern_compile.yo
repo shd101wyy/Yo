@@ -42,7 +42,7 @@
   BK_TUPLE
 } :: import("../../expr.yo");
 { Token, TokenKind } :: import("../../token.yo");
-{ new_expr_info, expr_info_table_get, expr_info_table_set } :: import("../../expr_info.yo");
+{ new_expr_info, expr_info_table_get, expr_info_table_set, struct_effective_ctor_fid } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, get_variables_from_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
@@ -61,6 +61,7 @@ _did_you_mean :: (fn(lbl : &String, labels : &ArrayList(String)) -> Option(Strin
 {
   Pattern,
   norm_position_type,
+  is_pattern_cell_type,
   variant_field_types,
   box_inner_type,
   _struct_field_tys,
@@ -1232,6 +1233,65 @@ _struct_type_name_text :: (fn(struct_ty : &TypeValue) -> String)(
     _ => String.new()
   )
 );
+/// The type constructor a wrapper pattern `W(p)` names: its source name and
+/// its function id.
+_WrapperCtor :: struct(name : String, func_id : String);
+/// The cells a pattern may look through (decision 31). `Box` joins this list
+/// with V1 step 2's unique cell.
+_is_wrapper_ctor_name :: (fn(name : &String) -> bool)(
+  (name == "Rc") || (name == "Arc")
+);
+/// `W(p)` with one argument, where `W` is a wrapper constructor name bound in
+/// scope to a compile-time function (so a local `Rc` struct or variable does
+/// not count): the constructor, else `.None`.
+_wrapper_pattern_ctor :: (fn(e : &AstExpr, env : &Environment) -> Option(_WrapperCtor))({
+  if(!ast_expr_is_fn_call(e) || (_args_of(e).len() != usize(1)), {
+    return(.None);
+  });
+  callee := match(_func_of(e), .Some(f) => f, .None => return(.None));
+  if(!ast_expr_is_atom(&callee) || _is_literal_atom(&callee), {
+    return(.None);
+  });
+  nm := _atom_name(&callee);
+  if(!_is_wrapper_ctor_name(&nm), {
+    return(.None);
+  });
+  vars := get_variables_from_env(env, &nm);
+  v := match(vars.last(), .Some(x) => x, .None => return(.None));
+  if(!v.is_compile_time_only, {
+    return(.None);
+  });
+  match(
+    v.value.last(),
+    .Some(.FuncVal(data, _)) => .Some(_WrapperCtor(name : nm, func_id : data.func_id.clone())),
+    _ => .None
+  )
+});
+/// Is `position_ty` an instance of the cell `ctor` constructs? The
+/// constructor id decides; a struct that carries none (a shell) falls back
+/// to its name.
+_wrapper_position_matches :: (fn(position_ty : &TypeValue, ctor : &_WrapperCtor) -> bool)({
+  if(box_inner_type(position_ty).is_none(), {
+    return(false);
+  });
+  fid := struct_effective_ctor_fid(position_ty);
+  if(fid.len() > usize(0), {
+    return(fid == ctor.func_id);
+  });
+  head := ctor.name.clone();
+  head.push_str("(");
+  match(
+    position_ty,
+    .Struct({ name : sn }) => sn.starts_with(&head),
+    _ => false
+  )
+});
+/// The constructor name of a cell type (`Arc(i32)` → `Arc`), for a
+/// diagnostic's suggested spelling.
+_cell_ctor_name :: (fn(t : &TypeValue) -> String)({
+  full := type_to_string(t);
+  match(full.index_of(String.from("(")), .Some(i) => full.substring(usize(0), i), .None => full)
+});
 /// Compile the pattern AST `e` against the type of its position.
 /// `value_opt` is the compile-time value at this position when the scrutinee
 /// is known (bindings then carry it, and constant tests fold).
@@ -1286,6 +1346,45 @@ compile_pattern :: (
       return(Pattern.Bind(name : nm, token : ast_expr_token(e), atom : e));
     });
   });
+  // `Rc(p)` / `Arc(p)` — a WRAPPER pattern (plans/VALUES_BY_DEFAULT.md
+  // decision 31): the callee names the type constructor of the cell at this
+  // position, `p` matches its payload, and the access path dereferences the
+  // cell. Checked before the implicit look-through below, which would
+  // otherwise compile `Rc(p)` itself against the payload type.
+  match(
+    _wrapper_pattern_ctor(e, env),
+    .Some(ctor) => {
+      // One pointer level is looked through first, as at every position.
+      cell_ty := match(position_ty, .Pointer(p) => p, _ => position_ty);
+      if(!_wrapper_position_matches(&cell_ty, &ctor), {
+        exn.throw(
+          dyn(
+            format_error_message_with_help(
+              ast_expr_token(e),
+              `Pattern ${ast_expr_to_string(e)} cannot match a value of type ${type_to_string(position_ty)}: \`${ctor.name}(p)\` looks through an \`${ctor.name}\`, and this position is not one.`,
+              Option(String).Some(`match the value itself, without \`${ctor.name}(…)\` around the pattern`)
+            )
+          )
+        );
+        return(Pattern.Wildcard);
+      });
+      inner := match(
+        box_inner_type(&cell_ty),
+        .Some(i) => resolve_enum_shell(&i),
+        .None => cell_ty
+      );
+      inner_val := match(
+        value_opt,
+        .Some(.StructVal(_, _, fvs)) => fvs.get(usize(0)),
+        .Some(_) => Option(EvalValue).None,
+        .None => Option(EvalValue).None
+      );
+      sub_expr := match(_args_of(e).get(usize(0)), .Some(a) => a, .None => make_err_expr());
+      sub := compile_pattern(&sub_expr, &inner, &inner_val, pc, env, ctx, exn);
+      return(Pattern.ThroughBox(box_ty : cell_ty, inner_ty : inner, sub : sub));
+    },
+    .None => ()
+  );
   // A STRUCTURAL pattern at a `Rc(T)` position looks through the box: the
   // sub-pattern compiles against `T`, and the access path dereferences the
   // box (`path-><first field>`, §4.8). `_`, a plain binding and the name of
@@ -1304,6 +1403,20 @@ compile_pattern :: (
     );
     sub := compile_pattern(e, &inner, &inner_val, pc, env, ctx, exn);
     return(Pattern.ThroughBox(box_ty : position_ty, inner_ty : inner, sub : sub));
+  });
+  // Any other cell (`Arc(T)`) is never looked through implicitly: the
+  // pattern spells the wrapper it crosses (decision 31).
+  if(is_pattern_cell_type(position_ty), {
+    exn.throw(
+      dyn(
+        format_error_message_with_help(
+          ast_expr_token(e),
+          `Pattern ${ast_expr_to_string(e)} cannot match a value of type ${type_to_string(position_ty)}: a pattern does not look through a cell implicitly.`,
+          Option(String).Some(`spell the wrapper the pattern crosses: ${_cell_ctor_name(position_ty)}(${ast_expr_to_string(e)})`)
+        )
+      )
+    );
+    return(Pattern.Wildcard);
   });
   // `(a, b)` — a tuple pattern (the parser's BK_TUPLE call).
   if(ast_expr_is_fn_call_of(e, BK_TUPLE, Option(usize).None), {
