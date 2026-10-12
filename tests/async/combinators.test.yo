@@ -130,7 +130,7 @@ test("Test timeout distinguishes an aborted task from an elapsed deadline", {
     io.await(sleep(u64(200)), io);
     return(i32(1));
   });
-  h := io.spawn(&fut, io);
+  h := io.spawn(fut, io);
   // Cancel the task ourselves, well inside a generous deadline.
   h.abort();
   r := io.await(timeout(&h, Duration.from_millis(i64(500)), io), io);
@@ -149,7 +149,7 @@ test("Test timeout aborts on deadline", {
     ran.* = true;
     return(i32(1));
   });
-  h := io.spawn(&fut, io);
+  h := io.spawn(fut, io);
   r := io.await(timeout(&h, Duration.from_millis(i64(10)), io), io);
   assert(
     match(r, .Ok(_) => false, .Err(e) => match(e, .Elapsed => true, .Aborted => false)),
@@ -332,7 +332,7 @@ test("Test any inside a task skips an aborted handle", {
     w := io.await(any(&handles, io), io);
     match(w, .Some(i) => i32(i), .None => i32(-1))
   });
-  r := io.await(&fut, io);
+  r := io.await(fut, io);
   assert(r == i32(1), "any resolves to the completing handle's index from inside a task");
 });
 test("Test aborting the joining task leaves the joined task running", {
@@ -342,12 +342,12 @@ test("Test aborting the joining task leaves the joined task running", {
     done.* = true;
     return(i32(1));
   });
-  wh := io.spawn(&worker, io);
+  wh := io.spawn(worker, io);
   joiner := io.async((io : Io) => {
     _r := io.await(wh.join(io), io);
     return(i32(2));
   });
-  jh := io.spawn(&joiner, io);
+  jh := io.spawn(joiner, io);
   jh.abort();
   r := jh.await(io);
   assert(match(r, .Some(_) => false, .None => true), "the joiner was aborted");
@@ -609,7 +609,7 @@ test("Test Stream for_each inside a spawned task", {
   drain := Countdown(_n : i32(4)).for_each(x => {
     seen.push(x);
   }, io);
-  h := io.spawn(&drain, io);
+  h := io.spawn(drain, io);
   r := io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "for_each finished inside the deadline");
   assert(seen.len() == usize(4), "every item reached the body");
@@ -637,7 +637,7 @@ test("Test a hand-written consumer loop inside a spawned task", {
     });
     seen.len()
   });
-  h := io.spawn(&task, io);
+  h := io.spawn(task, io);
   r := io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io);
   assert(match(r, .Ok(n) => (n == usize(3)), .Err(_) => false), "the task looped over every item");
   assert(seen(usize(0)) == i32(6), "and the body's effect is visible outside");
@@ -687,7 +687,7 @@ test("Test for_await inside a spawned task, with continue and break", {
       seen.push(x);
     });
   });
-  h := io.spawn(&task, io);
+  h := io.spawn(task, io);
   r := io.await(timeout(&h, Duration.from_millis(i64(5000)), io), io);
   assert(r.is_ok(), "for_await finished inside the deadline");
   assert(seen.len() == usize(3), "6, then 5 skipped, 4 and 3, then 2 breaks");
@@ -737,7 +737,7 @@ test("Test for_await suspends its task between items", {
       seen.push(ticks.*);
     });
   });
-  h := io.spawn(&task, io);
+  h := io.spawn(task, io);
   (i : i32) = i32(0);
   while(i < i32(20), {
     ticks.* = (ticks.* + i32(1));

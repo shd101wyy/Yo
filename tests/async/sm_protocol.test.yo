@@ -34,10 +34,10 @@ test("two tasks awaiting one pending future both resume", {
     io.await(sleep(u64(5)), io);
     i32(7)
   });
-  a := io.async((io : Io) => io.await(&shared, io));
-  b := io.async((io : Io) => io.await(&shared, io));
-  ha := io.spawn(&a, io);
-  hb := io.spawn(&b, io);
+  a := io.async((io : Io) => io.await(shared, io));
+  b := io.async((io : Io) => io.await(shared, io));
+  ha := io.spawn(a, io);
+  hb := io.spawn(b, io);
   ra := ha.await(io);
   rb := hb.await(io);
   assert(match(ra, .Some(v) => (v == i32(7)), .None => false), "the first waiter resumed");
@@ -50,9 +50,9 @@ test("aborting a task wakes the task awaiting it", {
     io.await(sleep(u64(50)), io);
     i32(7)
   });
-  hf := io.spawn(&f, io);
-  a := io.async((io : Io) => io.await(&f, io));
-  ha := io.spawn(&a, io);
+  hf := io.spawn(f, io);
+  a := io.async((io : Io) => io.await(f, io));
+  ha := io.spawn(a, io);
   io.await(yield(io), io);
   hf.abort();
   ra := ha.await(io);
@@ -68,14 +68,14 @@ test("a cancelled receiver does not consume the next message", {
     v := io.await(ch.recv(io), io);
     match(v, .Some(x) => x, .None => i32(-1))
   });
-  h := io.spawn(&f, io);
+  h := io.spawn(f, io);
   r := io.await(timeout(&h, Duration.from_millis(i64(5)), io), io);
   assert(r.is_err(), "the first receiver timed out");
   g := io.async((io : Io) => {
     v := io.await(ch.recv(io), io);
     match(v, .Some(x) => x, .None => i32(-1))
   });
-  hg := io.spawn(&g, io);
+  hg := io.spawn(g, io);
   io.await(sleep(u64(2)), io);
   _s := io.await(ch.send(i32(42), io), io);
   r2 := io.await(timeout(&hg, Duration.from_millis(i64(200)), io), io);
@@ -91,7 +91,7 @@ test("a cancelled locker neither takes the mutex nor swallows its wake", {
     m.unlock();
     i32(1)
   });
-  hb := io.spawn(&b, io);
+  hb := io.spawn(b, io);
   rb := io.await(timeout(&hb, Duration.from_millis(i64(5)), io), io);
   assert(rb.is_err(), "b timed out while parked on the lock");
   // c queues behind b's (now dead) waiter.
@@ -100,7 +100,7 @@ test("a cancelled locker neither takes the mutex nor swallows its wake", {
     m.unlock();
     i32(2)
   });
-  hc := io.spawn(&c, io);
+  hc := io.spawn(c, io);
   io.await(yield(io), io);
   m.unlock();
   res := io.await(timeout(&hc, Duration.from_millis(i64(200)), io), io);
@@ -118,7 +118,7 @@ test("cancelling a task blocked on a channel releases it", {
       v := io.await(ch.recv(io), io);
       t.n + match(v, .Some(x) => x, .None => i32(0))
     });
-    h := io.spawn(&f, io);
+    h := io.spawn(f, io);
     r := io.await(timeout(&h, Duration.from_millis(i64(2)), io), io);
     assert(r.is_err(), "the receiver timed out");
     i = (i + i32(1));

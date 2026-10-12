@@ -35,10 +35,10 @@ test("Test Io timer", {
     assert(value.* == 2); // yield() resumes before sleep(50ms), nobody changed it
     value.* = (value.* + 1); // 3
   });
-  io.spawn(&task1, io);
-  io.spawn(&task2, io);
-  io.await(&task1, io);
-  io.await(&task2, io);
+  io.spawn(task1, io);
+  io.spawn(task2, io);
+  io.await(task1, io);
+  io.await(task2, io);
 });
 test("Test zero-length sleep completes", {
   // sleep(0) must complete on the next loop turn on every runtime. Linux's
@@ -53,8 +53,8 @@ test("Test zero-length sleep completes", {
     assert(r1 >= i32(0), "sleep(0) awaited inside a task should complete without error");
     inner.* = true;
   });
-  io.spawn(&t, io);
-  io.await(&t, io);
+  io.spawn(t, io);
+  io.await(t, io);
   assert(inner.*, "the zero-sleep task body should have run to completion");
 });
 // io_uring submission is deferred to the loop's next poll, so a single tick

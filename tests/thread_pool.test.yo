@@ -178,7 +178,7 @@ test("ThreadPool tasks of several async shapes in one program", {
     task := io.async((io : Io) => {
       io.await(yield(io), io);
     });
-    io.await(&task, io);
+    io.await(task, io);
     out.fetch_add(i32(2), MemoryOrder.AcqRel);
     ()
   });
@@ -190,7 +190,7 @@ test("ThreadPool tasks of several async shapes in one program", {
       io.await(yield(io), io);
       return(x + y);
     });
-    result := io.await(&task, io);
+    result := io.await(task, io);
     assert(result == i32(30), "async result should be 30");
     out.fetch_add(i32(4), MemoryOrder.AcqRel);
     ()
@@ -205,7 +205,7 @@ test("ThreadPool tasks of several async shapes in one program", {
       });
       return(counter);
     });
-    result := io.await(&task, io);
+    result := io.await(task, io);
     assert(result == i32(3), "counter should be 3");
     out.fetch_add(i32(8), MemoryOrder.AcqRel);
     ()

@@ -69,7 +69,7 @@ test("Test mutex lock waits", {
     m.unlock();
     return(());
   });
-  h := io.spawn(&releaser, io);
+  h := io.spawn(releaser, io);
   io.await(m.lock(io), io);
   assert(m.get() == i64(1), "lock should only be acquired after the releaser ran");
   m.unlock();
@@ -144,7 +144,7 @@ test("Test an uncontended lock still costs no suspension", {
     });
     return(());
   });
-  h := io.spawn(&body, io);
+  h := io.spawn(body, io);
   _d := h.await(io);
   assert(m.get() == i64(100), `a hundred uncontended round trips, got ${m.get().to_string()}`);
   assert(m.waiter_count() == usize(0), "and nothing ever queued");
