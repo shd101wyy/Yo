@@ -2381,7 +2381,8 @@ jobs:
     needs: [changes, tree-hygiene, stage1]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    # Sharded 4-way (issues/fixed/selfhosted-differential-job-needs-sharding.md,
+    # Sharded (4-way at first, 6-way since 2026-10-13, see below;
+    # issues/fixed/selfhosted-differential-job-needs-sharding.md,
     # closed by this change) with the SAME selection the retired TS arm used:
     # the four heavy macro/reflection files go one per shard, the rest stripe
     # round-robin over the sorted glob. The unsharded job hit 88m50s of a
@@ -2395,11 +2396,17 @@ jobs:
     # 35835442735) and was cut off at 120 min mid-file on 5498dd70b (run
     # 35843866889) with every file passing — the tier grew into the budget.
     # 150 keeps a hang caught while giving the heaviest shard ~30% margin.
+    # 6-way, not 4 (issues/fixed/the-self-hosted-differential-shards-outgrew-their-150-minute-budget.md):
+    # by 2026-10-13 three of the four shards ran 128-144 min on green develop
+    # batteries and shard 0 hit the 150 min limit twice in two days (runs
+    # 38262413827 attempt 2 and 38333980990, both cut off in the verifier
+    # files at ~12 min each, every file before them passing). Six shards put
+    # each near 70-100 min; shards 4 and 5 carry no heavy file.
     timeout-minutes: 150
     strategy:
       fail-fast: false
       matrix:
-        shard: [0, 1, 2, 3]
+        shard: [0, 1, 2, 3, 4, 5]
 
     steps:
       - name: Checkout repository
@@ -2472,8 +2479,8 @@ jobs:
         run: |
           # Shard selection (same as the retired TS arm): the four heavy
           # macro/reflection files (each compiles the whole evaluator,
-          # ~6.5 GB peak) go one per shard; the rest stripe round-robin over
-          # the sorted glob order.
+          # ~6.5 GB peak) go one per shard (shards 0-3; 4 and 5 get none);
+          # the rest stripe round-robin over the sorted glob order.
           #
           # A shard number alone does not say WHICH file failed, and the job
           # log is unavailable until the whole run completes — so when four
@@ -2483,13 +2490,13 @@ jobs:
           # to get it WITHOUT waiting for CI, run the same selection locally:
           #
           #   heavies="tests/internal/ast_reflection.test.yo tests/internal/macro_expansion.test.yo tests/internal/macro_helpers.test.yo tests/internal/quote_macro_eval.test.yo"
-          #   for shard in 0 1 2 3; do
+          #   for shard in 0 1 2 3 4 5; do
           #     echo "== shard $shard =="
           #     echo "$heavies" | tr ' ' '\n' | sed -n "$((shard + 1))p"
           #     i=0
           #     for f in tests/internal/*.test.yo; do
           #       case " $heavies " in *" $f "*) continue ;; esac
-          #       [ $((i % 4)) -eq "$shard" ] && echo "$f"
+          #       [ $((i % 6)) -eq "$shard" ] && echo "$f"
           #       i=$((i + 1))
           #     done
           #   done
@@ -2503,7 +2510,7 @@ jobs:
           i=0
           for f in tests/internal/*.test.yo; do
             case " $heavies " in *" $f "*) continue ;; esac
-            if [ $((i % 4)) -eq "$shard" ]; then
+            if [ $((i % 6)) -eq "$shard" ]; then
               files="$files $f"
             fi
             i=$((i + 1))

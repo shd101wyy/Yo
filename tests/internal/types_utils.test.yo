@@ -5,6 +5,7 @@ import("std/fmt");
 { TypeValue } :: import("../../src/types/definitions.yo");
 { t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_usize, t_isize, t_bool, t_unit, t_f32, t_f64, t_comptime_int, t_comptime_float, t_comptime_string, t_some_t, t_array, t_iso, t_dyn_simple, t_future_trait_simple, t_ptr } :: import("../../src/types/creators.yo");
 { Environment } :: import("../../src/env.yo");
+{ type_memo_key } :: import("../../src/types/intern.yo");
 { ArrayList } :: import("std/collections/array_list");
 { assert, panic } :: import("std/assert");
 {
@@ -608,6 +609,18 @@ test("raw-ptr predicate: a Ptr 45 levels down is found", {
     i = (i + usize(1));
   });
   assert(type_representation_contains_raw_ptr(&deep), "45-deep chain ending in *(u8)");
+});
+// An empty id names nothing, so the structural key renders a nested empty-id
+// struct in full instead of as its token: `Nest(Nest(*u8))` and
+// `Nest(Nest(Nest(*u8)))` used to key alike, and the memos above took the
+// second level of the 45-deep chain for a cycle
+// (issues/fixed/the-structural-type-key-merges-nested-empty-id-types.md).
+test("type_memo_key: nested empty-id structs of different depth key apart", {
+  one := _trp_struct(String.from("Nest"), _trp_labels1(String.from("inner")), _trp_types1(t_ptr(t_u8())), false, false, false);
+  two := _trp_struct(String.from("Nest"), _trp_labels1(String.from("inner")), _trp_types1(&one), false, false, false);
+  three := _trp_struct(String.from("Nest"), _trp_labels1(String.from("inner")), _trp_types1(&two), false, false, false);
+  assert(type_memo_key(&two) != type_memo_key(&three), "Nest(Nest(*u8)) vs Nest(Nest(Nest(*u8)))");
+  assert(type_memo_key(&two) == type_memo_key(&two.clone()), "a type keys like its clone");
 });
 test("raw-ptr predicate: a type object that contains itself terminates", {
   labels := ArrayList(String).new();
