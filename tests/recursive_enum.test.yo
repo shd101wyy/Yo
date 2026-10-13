@@ -85,3 +85,112 @@ test("Recursive enum: deeply nested drop terminates", {
 // Note: derive(Clone) on Rc(Self) currently has a known codegen ordering
 // issue (issues/fixed/recursive-derive-clone-codegen-vtable.md). We skip the
 // derive call here and only test that the bare recursive enum works.
+// === Value-enum drops and dups through per-type functions ===
+// issues/fixed/value-enum-drops-are-emitted-inline-at-every-drop-site.md: a
+// tagged value enum's drop and dup are one C function per enum type, called at
+// every site, instead of the variant switch inlined at each one. Every payload
+// must still be released exactly once: the probes count their disposals.
+(g_holder_probe_disposed : i32) = i32(0);
+HolderProbe :: ref(struct(id : i32));
+impl(
+  HolderProbe,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g_holder_probe_disposed = (g_holder_probe_disposed + i32(1));
+    })
+  )
+);
+Holder :: enum(
+  HEmpty,
+  HOne(p : HolderProbe),
+  HPair(a : HolderProbe, b : HolderProbe),
+  HNest(inner : Rc(Self)),
+  HMany(xs : ArrayList(HolderProbe))
+);
+_holder_weight :: (fn(h : Holder, stop : bool) -> i32)({
+  if(stop, {
+    return(i32(1));
+  });
+  match(h, .HPair(_, _) => i32(2), .HNest(_) => i32(3), _ => i32(4))
+});
+_holder_sum_ids :: (fn(hs : &ArrayList(Holder)) -> i32)({
+  (total : i32) = i32(0);
+  (i : usize) = usize(0);
+  while(i < hs.len(), i = (i + usize(1)), {
+    match(
+      hs.get(i),
+      .Some(h) => match(
+        h,
+        .HOne(p) => {
+          total = (total + p.id);
+        },
+        .HPair(a, b) => {
+          total = (total + (a.id + b.id));
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+  });
+  total
+});
+test("Value enum: every payload is released once through the per-type drop and dup", {
+  before := g_holder_probe_disposed;
+  {
+    one := Holder.HOne(p : HolderProbe(id : i32(1)));
+    pair := Holder.HPair(a : HolderProbe(id : i32(2)), b : HolderProbe(id : i32(3)));
+    nest := Holder.HNest(inner : rc(Holder.HOne(p : HolderProbe(id : i32(4)))));
+    probes := ArrayList(HolderProbe).new();
+    probes.push(HolderProbe(id : i32(5)));
+    probes.push(HolderProbe(id : i32(6)));
+    many := Holder.HMany(xs : probes);
+    assert(_holder_weight(nest, true) == i32(1), "an early return drops its by-value Holder");
+    assert(_holder_weight(many, false) == i32(4), "a fall-through drops its by-value Holder");
+    hs := ArrayList(Holder).new();
+    hs.push(one);
+    hs.push(pair);
+    hs.push(Holder.HEmpty);
+    // `get` copies each element out (a dup); the copies are dropped per iteration.
+    assert(_holder_sum_ids(&hs) == i32(6), "1 + 2 + 3");
+    assert(_holder_sum_ids(&hs) == i32(6), "a second pass sees the same payloads");
+  };
+  assert((g_holder_probe_disposed - before) == i32(6), "the six probes are disposed exactly once");
+});
+// === One C type for Option(E) of a recursive value enum ===
+// issues/fixed/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md:
+// with an `ArrayList(Self)` and an `ArrayList(ArrayList(Self))` payload, the
+// `Option(ListTree)` that `ArrayList(Self).get` returns inside the enum's own
+// arms and the declared `Option(ListTree)` got two C types ("initializing
+// '__yo_t_A' with an expression of incompatible type '__yo_t_B'").
+ListTree :: enum(
+  LtLeaf(n : i32),
+  LtList(xs : ArrayList(Self)),
+  LtGrid(rows : ArrayList(ArrayList(Self)))
+);
+_list_tree_weight :: (fn(t : &ListTree) -> i32)(
+  match(
+    t,
+    .LtLeaf(n) => n,
+    .LtList(xs) => match(xs.get(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
+    .LtGrid(rows) => match(
+      rows.get(usize(0)),
+      .Some(row) => match(row.get(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
+      .None => i32(0)
+    )
+  )
+);
+_list_tree_first :: (fn(xs : &ArrayList(ListTree)) -> Option(ListTree))(xs.get(usize(0)));
+test("Recursive value enum: ArrayList(Self).get and a declared Option(Self) are one type", {
+  inner := ArrayList(ListTree).new();
+  inner.push(ListTree.LtLeaf(n : i32(7)));
+  xs := ArrayList(ListTree).new();
+  xs.push(ListTree.LtList(xs : inner));
+  w := match(_list_tree_first(&xs), .Some(f) => _list_tree_weight(&f), .None => i32(-1));
+  assert(w == i32(7), "the first element's first leaf");
+  row := ArrayList(ListTree).new();
+  row.push(ListTree.LtLeaf(n : i32(3)));
+  rows := ArrayList(ArrayList(ListTree)).new();
+  rows.push(row);
+  g := ListTree.LtGrid(rows : rows);
+  assert(_list_tree_weight(&g) == i32(3), "a grid's first cell");
+});

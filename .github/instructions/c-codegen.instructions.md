@@ -103,6 +103,19 @@ both learned the hard way:
    in `src/codegen/functions/declarations.yo` forward-declares
    `__yo_decr_rc`/`__yo_incr_rc` and their `_atomic` counterparts for exactly
    this reason).
+5. **A per-type helper generated on first use goes to side buffers, never
+   through `context.base.emitter`.** Such a helper needs the complete type
+   (so it cannot sit at the top of the declarations), and it is called from
+   bodies written into the declarations section mid-codegen (async disposes,
+   spawn wrappers), so it cannot be emitted at the first use either. Several
+   callers also swap `context.base.emitter` for a scratch emitter and splice
+   `scratch.print()` into a function body, so anything file-scope written
+   through it lands inside a function. The pattern is the value-enum
+   drop/dup functions (`_value_enum_rc_fn`, `src/codegen/exprs/drop_dup.yo`):
+   a `void*` prototype that names no type goes to a `CodeGenContext` buffer
+   that `compile_module` appends to the headers; the `static inline`
+   definition, built under a scratch emitter, goes to a second buffer that
+   closes the declarations section; the dedupe is keyed by C name.
 
 **Gate for any restructuring of an emitter literal:** extract every backtick
 literal from the function, concatenate, unescape, and diff against the same
