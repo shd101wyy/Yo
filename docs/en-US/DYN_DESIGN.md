@@ -248,17 +248,23 @@ error E0618, whose note names the spelling:
 
 ```yo
 run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
+nine :: (fn() -> i32)(i32(9));
 main :: (fn() -> unit)({
   n := i32(3);
   (f : Impl(Fn() -> i32)) = (() => n);
   _x := run(dyn(f)); // `run(f)` is E0618: write `dyn(f)`
+  _y := run(dyn(nine)); // a named `fn` too: `run(nine)` is E0618
 });
 export(main);
 ```
 
-`yo fix <path> --migrate dyn-spelling` wraps every bare site in a tree. An
-`Impl(Fn(...))` slot is the closure's own static type, not an erasure, so a
-closure flows into it bare.
+`dyn(f)` of a named `fn` boxes the function's code pointer, and the `Dyn`'s
+call goes through it: a top-level or imported function, a generic type's
+function instantiated at the site (`dyn(ArrayList(i32).new)`), or an
+`Impl(Fn(...))` parameter bound to one. It captures nothing, so nothing is
+copied into the box. `yo fix <path> --migrate dyn-spelling` wraps every bare
+site in a tree. An `Impl(Fn(...))` slot is the closure's own static type, not
+an erasure, so a closure flows into it bare.
 
 ## Method Dispatch
 

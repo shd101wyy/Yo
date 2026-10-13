@@ -95,7 +95,7 @@ Filed this cycle and still open:
 | `issues/fixed/an-io-async-body-disposes-a-captured-move-only-value-twice.md` | S1 | Async state machine double dispose; repro inside |
 | `issues/a-generic-function-bound-with-colon-equals-is-called-through-an-undeclared-symbol.md` | S2 | |
 | `issues/a-named-closure-bound-to-an-impl-fn-annotation-keeps-its-own-signature.md` | S2 | Found by the escape-route audit |
-| `issues/dyn-of-a-named-function-value-emits-invalid-c.md` | S2 | Found by the escape-route audit |
+| `issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md` | S2 | Found by the escape-route audit |
 | `issues/a-macro-that-duplicates-an-fnonce-call-calls-it-twice.md` | S2 | From FnOnce Gen A's review |
 | `issues/a-generic-derive-cannot-clone-a-field-whose-type-is-a-generic-container-of-its-parameter.md` | S2 | |
 | `issues/a-mut-match-place-binding-cannot-live-across-an-await.md` | S2 | From the consuming match (#1305) |

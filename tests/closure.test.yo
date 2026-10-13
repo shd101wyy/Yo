@@ -771,6 +771,18 @@ test("decision 44: dyn(f) at the binding, field, argument and result compiles an
   (s : i32) = (d() + h.f() + r + q());
   assert(s == i32(18), `sum ${s}`);
 });
+// A named `fn` takes the same spelling at every site, and `dyn(f)` boxes its
+// code pointer (issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md).
+_d44_ret_named :: (fn() -> Dyn(Fn() -> i32))(dyn(_d44_nine));
+test("decision 44: dyn(named_fn) at the binding, field, argument and result compiles and runs", {
+  (d : Dyn(Fn() -> i32)) = dyn(_d44_nine);
+  h := _d44_hold(f : dyn(_d44_nine));
+  v := _d44_value_hold(f : dyn(_d44_nine));
+  r := _d44_take(dyn(_d44_nine));
+  q := _d44_ret_named();
+  (s : i32) = (d() + h.f() + v.f() + r + q());
+  assert(s == i32(45), `sum ${s}`);
+});
 test("decision 44: an Impl(Fn) slot still takes a closure bare", {
   n := i32(5);
   (f : Impl(Fn() -> i32)) = (() => n);

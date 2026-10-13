@@ -102,8 +102,9 @@ help: write `dyn(f)`; `yo fix <path> --migrate dyn-spelling` wraps every such si
 
 `yo fix <path> --migrate dyn-spelling` wraps every bare site
 (cli-case `tests/cli-cases/fix-migrate-dyn-spelling`). No codegen change.
-A bare named `fn` is rejected the same way, but `dyn(named_fn)` still emits
-invalid C: `issues/dyn-of-a-named-function-value-emits-invalid-c.md`.
+A bare named `fn` is rejected the same way; `dyn(named_fn)` emitted invalid C
+until `issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md` was
+fixed.
 
 The reproducer's `assert(s == i32(23), ...)` is an arithmetic slip in this
 report: the four calls return 3, 3, 3 and 9, so the sum is 18, and the

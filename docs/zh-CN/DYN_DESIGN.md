@@ -227,16 +227,21 @@ __yo_dyn_trait_Printer result = {
 
 ```yo
 run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
+nine :: (fn() -> i32)(i32(9));
 main :: (fn() -> unit)({
   n := i32(3);
   (f : Impl(Fn() -> i32)) = (() => n);
   _x := run(dyn(f)); // `run(f)` 是 E0618：应写 `dyn(f)`
+  _y := run(dyn(nine)); // 具名 `fn` 也一样：`run(nine)` 是 E0618
 });
 export(main);
 ```
 
-`yo fix <path> --migrate dyn-spelling` 会给整棵树中每个裸传位置加上 `dyn(...)`。
-`Impl(Fn(...))` 位置是闭包自身的静态类型，不是擦除，闭包可以直接传入。
+对具名 `fn` 写 `dyn(f)` 会把该函数的代码指针装箱，`Dyn` 的调用经由它进行：
+顶层函数、导入的函数、在该处实例化的泛型类型的函数（`dyn(ArrayList(i32).new)`），
+或绑定到具名函数的 `Impl(Fn(...))` 形参都可以。它不捕获任何东西，所以不会有内容
+被复制进箱子。`yo fix <path> --migrate dyn-spelling` 会给整棵树中每个裸传位置加上
+`dyn(...)`。`Impl(Fn(...))` 位置是闭包自身的静态类型，不是擦除，闭包可以直接传入。
 
 ## 方法分派
 

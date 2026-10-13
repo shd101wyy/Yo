@@ -3225,11 +3225,13 @@ and in git, not a silent edit.
           runs before it and before decision 38's escape check. A bare atom
           carries a `yo fix` repair (`f` → `dyn(f)`); `yo fix <path>
           --migrate dyn-spelling` records every site instead of rejecting
-          it and wraps it. No codegen change. One gap stays open:
-          `dyn(named_fn)` itself emits invalid C
-          (`issues/dyn-of-a-named-function-value-emits-invalid-c.md`), so a
-          named `fn` is tested only for the rejection; write
-          `dyn(() => f())` until that issue is fixed. Seed gate: the sweep
+          it and wraps it. No codegen change. The one gap it left,
+          `dyn(named_fn)` emitting invalid C, closed on 2026-10-13: the box
+          holds the function's code pointer and the `call` slot calls it
+          through the function's own prototype, so `dyn(f)` is the spelling
+          for a named `fn` too
+          (`issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md`).
+          Seed gate: the sweep
           (`yo fix ./std ./src ./tests --exclude tests/cli-cases --migrate
           dyn-spelling`) found no bare site in std/ or src/ and none in
           tests/ outside the new tests' own `comptime_expect_error`
