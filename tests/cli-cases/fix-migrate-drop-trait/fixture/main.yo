@@ -1,7 +1,8 @@
 // `yo fix main.yo --migrate drop-trait` (plans/VALUES_BY_DEFAULT.md decision
-// 45): every `Dispose` becomes `Drop`, the impl entries' `dispose :` labels
-// become `drop :`, and the two explicit calls that end a named value become
-// `drop(x)`. The rewritten file checks.
+// 45): every `Dispose` becomes `Drop`, the impl entries' `dispose : (fn(self
+// : &Self)` becomes `drop : (fn(self : &mut Self)` (Drop's receiver), and the
+// two explicit calls that end a named value become `drop(x)`. The rewritten
+// file checks.
 { println } :: import("std/fmt");
 Fd :: struct(n : i32);
 impl(
