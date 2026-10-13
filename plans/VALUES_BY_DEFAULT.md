@@ -61,6 +61,9 @@ Progress:
   - V3 async A2 (§3.13): a future may borrow, and is then second-class.
   - V3 async A6's Generation A (§3.13): a bundle field that is not
     implicitly copyable is an error where the bundle is copied.
+  - V1 step 2 Generation A, the unique `Box(V)` (feat/vbd-v1-step2-box;
+    Step 2's "as built"). Generation B, `src/` moving back to `Box`, waits
+    for the seed.
 - **In progress:**
   - V3's remaining async work (§3.13): A3 (Generation A landed with A1's
     PR; the prelude switch waits for the seed), A4, A5's remaining lines,
