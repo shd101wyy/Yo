@@ -190,14 +190,18 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
   (host: a stage-1). Use it for debug-trace rounds; gate on a real
   `yo build --std-path ./std`.
 - **A `cond`/`if` guard `comptime_const && runtime` (or `comptime_const ||
-  runtime`) folds to the constant** when the constant does not short-circuit
-  (`true && x`, `false || x`): the arm is always taken, or never taken, and its
-  body silently becomes dead code
-  (`issues/comptime-identity-operand-folds-and-or-to-a-constant.md`). The
-  usual shape is `(size_of(T) == usize(0)) && rt` in a generic body. Until it
-  is fixed, nest a `cond` under the comptime test, as
-  `ArrayList.ensure_total_capacity` does. When an emitted `if/else` looks
-  empty, suspect this first.
+  runtime`) folded to the constant** in compilers up to v0.2.60 when the
+  constant does not short-circuit (`true && x`, `false || x`): the arm was
+  always taken, or never taken. FIXED in the tree
+  (`issues/fixed/comptime-identity-operand-folds-and-or-to-a-constant.md`):
+  `evaluate_and_or` keeps a compile-time value only for an all-constant
+  operand list or a short circuit that comes before every runtime operand
+  (`rt && false` stays runtime so `rt` still runs,
+  `issues/fixed/and-or-short-circuit-after-a-runtime-operand-drops-its-side-effects.md`).
+  std is still built by the seed until a release carries the fix, so a std
+  guard whose arm MUST run keeps the nested-`cond` form
+  (`ArrayList.ensure_total_capacity`). When a seed-built binary shows an empty
+  emitted `if/else`, suspect this first.
 - **Never `git stash` in a worktree.** Worktrees share the stash list with the
   main checkout, so a failed `stash push` followed by `stash pop` applies a peer
   session's stash. Compare before/after states with file copies (a copy of
