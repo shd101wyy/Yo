@@ -810,7 +810,7 @@ never `Send`, never spawned and never captured by an escaping closure.
 View :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(xs : &ArrayList(T), lo : usize, hi : usize)
 );
-StrArg :: enum(Borrowed(&String), Owned(String));
+StrArg :: enum(Borrowed(s : &String), Owned(s : String));
 ```
 
 Building a `View(T)(xs : &xs, lo : lo, hi : hi)` lends `xs` until the

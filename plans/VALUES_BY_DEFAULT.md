@@ -3135,7 +3135,7 @@ and in git, not a silent edit.
       pushed view is rooted in `self`). Elements rooted through an
       `Rc`/`Arc` deref are rejected (R5: a plain `Rc` holds no marks);
       `Rc(ArrayList(&T))` is E0909. Codegen is a buffer of pointers with no
-      count traffic and no element drops.
+      per-element retain/release and no element drops.
       - **Its tracker is new.** The closures' capture-borrow sets
         (`g_capture_borrows`, keyed by the capture struct's type id) cannot
         carry it: every closure literal has its own type, while two

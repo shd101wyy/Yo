@@ -65,7 +65,7 @@ payload of a **cell**. The containing type is then second-class.
 
 | Composite | Payload lives | May carry a `&` | Then |
 | --- | --- | --- | --- |
-| named `struct`, `enum` (payload per variant) | inline | yes: `xs : &ArrayList(T)`, `Borrowed(&String)` | the type is second-class |
+| named `struct`, `enum` (payload per variant) | inline | yes: `xs : &ArrayList(T)`, `Borrowed(s : &String)` | the type is second-class |
 | anonymous record `struct(...)` literal type (decision 35's capture record) | inline | yes | same as a named struct |
 | tuple `(A, B)` | inline | yes: `(&ArrayList(T), usize)`; `(a, n) := t` binds `a` as a reference; a consumed tuple re-borrows its `&` components (nothing moves out of a borrow) | second-class per instantiation |
 | `Array(T, N)` | inline | yes: `Array(&T, N)`; `Index` yields the element reference; all elements share one borrow set, the union of the literal's sources | second-class per instantiation |
@@ -83,15 +83,17 @@ Cursor :: (fn(comptime(T) : Type) -> comptime(Type))(
 Entry :: (fn(comptime(K) : Type, comptime(V) : Type) -> comptime(Type))(
   struct(map : &mut HashMap(K, V), key : K, hash : u64, slot : BucketProbe)
 );
-StrArg :: enum(Borrowed(&String), Owned(String));
+StrArg :: enum(Borrowed(s : &String), Owned(s : String));
 ```
 
 - **Closures may capture `&` and `&mut`.** A capture list that borrows
   (`{ y : &y, z : &mut z }() => …`, decision 35) makes the closure
   second-class, not illegal: it may be bound to a local, lent and called —
-  a literal argument to `for_each`, `with_lock` or a lent
+  a literal argument to `retain`, `with_lock` or a lent
   `Impl(Fn(...))` parameter is the common case
-  (`tests/closure_capture_list.test.yo`). What is E0909 is letting it
+  (`tests/closure_capture_list.test.yo`). (The `xs.for_each(...)` examples
+  below are illustrative: `ArrayList` has no `for_each`. Read them as any
+  lent-callback API, `retain`'s predicate included.) What is E0909 is letting it
   escape: a `Dyn(Fn(...))` or any other cell, a return, a by-value
   (escaping) `Impl(Fn(...))` slot, a spawn, an escaping closure's capture
   (decision 38 A). `Impl(Fn)` itself is not storage; only its by-value,
@@ -386,8 +388,8 @@ get2_mut :: (fn(generic(T : Type), self : &mut ArrayList(T), i : usize, j : usiz
   `Pragma.NoContracts` erases contracts entirely and `verify` mode keeps
   only `requires`' entry check (`docs/en-US/FORMAL_VERIFICATION.md`,
   "Modes"). The assert goes away only where codegen's proved-guard
-  elision proves the caller's side (CODEGEN_PERFORMANCE CP2g, SAFE_MODE
-  5b). A caller passing `i` and `i` fails to verify under
+  elision proves the caller's side (CODEGEN_PERFORMANCE CP2g,
+  `plans/backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md`). A caller passing `i` and `i` fails to verify under
   `Pragma.Verify` and panics otherwise.
 - **Sibling sub-loans.** The `&mut` components of one call result that
   share a source are sibling sub-loans of that one loan, disjoint from
@@ -457,8 +459,11 @@ each for the rest of the target's life:
    reference-holding place it carries: `s.emit()` with
    `s : Ser`, `Ser :: struct(out : &mut ArrayList(&String), prefix :
    &String)`, joins `prefix`'s roots into the list `s.out` points at,
-   because `emit` may run `self.out.push(self.prefix)`; the clause
-   narrows it (`depends(self : ())`). A closure passed to a
+   because `emit` may run `self.out.push(self.prefix)`. The clause
+   narrows it: an `emit` whose body carries `prefix` into `out` declares
+   `depends(self : self.*)`, which admits that internal flow and no root
+   from another argument; one whose body does not declares
+   `depends(self : ())`, under which the callee check rejects that push. A closure passed to a
    lent `Impl(Fn(...))` slot joins nothing by default, because a lent
    closure cannot be stored (decision 38 A) and R3's callee check rejects
    a body that stores something rooted in it (`dst.push(f())`) unless the
@@ -583,7 +588,7 @@ words :: (fn(self : &Doc) -> ArrayList(View(u8)))({
   because `x`'s roots are bound inside `for_each` and cannot be mapped at
   the literal. The borrowed `for` is the spelling for collecting
   (`for(&xs, x => out.push(x.*))`); §7 records the refinement.
-- Codegen: a buffer of `const T*` / `T*`, no count traffic, no element
+- Codegen: a buffer of `const T*` / `T*`, no per-element retain/release, no element
   drops.
 
 ## 3. What it unlocks, mapped to the catalog
@@ -596,7 +601,7 @@ words :: (fn(self : &Doc) -> ArrayList(View(u8)))({
 | §4.5 the entry API | `entry(self : &mut Self, k) -> Entry(K, V)` (R3), `or_insert(self, v) -> &mut V` | `Entry<'a, K, V>` |
 | §3.2 guards | `lock(self : &mut Self) -> LockGuard(T)` with `Dispose` unlocking; `with_lock` stays the recommended form | `MutexGuard<'a, T>` |
 | §3.5 sinks | `Serializer :: struct(out : &mut StringBuilder, depth : usize)` | `Serializer<'a, W>` |
-| §4.4 `Cow` | `StrArg :: enum(Borrowed(&String), Owned(String))` | `Cow<'a, str>` |
+| §4.4 `Cow` | `StrArg :: enum(Borrowed(s : &String), Owned(s : String))` | `Cow<'a, str>` |
 | §2.4 parser remainders | `-> (View(u8), T)` (R3) | nom's `IResult<&str, T>` |
 | §3.4 two-phase loans | `begin(self : &mut Self) -> Txn(S)` holding `store : &mut Store` | `Loan<'a>` |
 
