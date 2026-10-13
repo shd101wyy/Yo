@@ -3089,8 +3089,9 @@ and in git, not a silent edit.
       parser's `View(u8)` input) carries its roots out. `depends(self : ())` is the spelling
       every non-storing lookup (`remove(&k)`, `binary_search(&probe)`,
       `contains(&x)`) must carry, a std obligation checked by a test that
-      a probe key is usable after the call. A later refinement may derive
-      the joins from the mutation summaries instead.
+      a probe key is usable after the call. The declaration is the
+      contract: a call is checked from the callee's signature alone,
+      never from its body (`yo fix` may propose a missing clause).
       Joined roots keep their mode: a `&mut x` pushed in freezes `x`
       exclusively for the container's live range, so a second `&mut x` or
       a read of `x` while it lives is E0911; a `&x` freezes `x` against
@@ -3120,7 +3121,9 @@ and in git, not a silent edit.
       kind; derive rules see it; `type_of(&x)` is `&T`.
     - **Diagnostics.** The storage errors say "a `&T` cannot outlive its
       root, and this position has no root" and point at
-      `RUST_REFERENCE_PATTERNS.md`.
+      `RUST_REFERENCE_PATTERNS.md`. Every borrow error names the frozen
+      root place, the value holding it, where that value got the borrow
+      and its last use (`NON_ESCAPABLE_TYPES.md` §4).
     - **Rejected.** Named regions or origins (a comptime
       `generic(r : Region)` stays the growth path only if the residue in
       `RUST_REFERENCE_PATTERNS.md` §14 bites — and "bites" is measurable,

@@ -220,6 +220,14 @@ parse_int :: (fn(input : View(u8)) -> Result((View(u8), i64), ParseError))(...);
   without a clause, naming the place, and `dst.push(f())` with
   `f : &Impl(Fn() -> &T)` needs `depends(dst : f.*)`, which then makes
   the caller join `f`'s captures.
+- **Signatures, never bodies.** A call is checked from the callee's
+  signature alone — its parameter types, its `depends` clause or the
+  default — and the callee's body is checked against that signature, never
+  the other way round. Inferring a callee's borrow behaviour from its body
+  would make the contract invisible, let an edit inside one body break
+  its callers silently, force the incremental checker to re-check every
+  caller on every body edit, and still need declarations for the callees
+  with no body to read (`Dyn`, `Impl(Fn)` slots, `extern`).
 - **Std's obligations.** An iterator's `next`, `pop`, `take` and every
   copy or move of an element out of a buffer name `self.*` as the
   result's source; every lookup returning a projection names `self`
@@ -320,6 +328,30 @@ dispatches through `impl(&C, IntoIterator(…))`, Rust's shape
 (`issues/questions/borrowed-for-over-user-defined-collections.md`). A
 closure that writes a `&mut` capture is a `FnMut` (decision 37).
 
+**Disjoint element borrows are a contract, not a borrow-checker proof.**
+Two live `&mut` projections into one container (`&mut xs(i)` beside
+`&mut xs(j)`) are rejected: a `&mut` projection borrows its base
+exclusively (decision 24), and the checker reasons about places, never
+index arithmetic. The disjoint case is one call returning both, with the
+disjointness stated as a precondition:
+
+```yo
+get2_mut :: (fn(generic(T : Type), self : &mut ArrayList(T), i : usize, j : usize, requires(i != j, i < self.len(), j < self.len())) -> (&mut T, &mut T))(...);
+```
+
+- Without a verify pragma the `requires` lowers to a runtime assert (two
+  comparisons, no loop); under `Pragma.Verify` Z3 discharges it at each
+  call site, so a proved caller pays nothing, and a caller passing `i`
+  and `i` fails to verify.
+- The result is one value carrying `&mut self`; its two components are
+  disjoint by the callee's contract, so the tracker treats them as one
+  loan split in two, like sibling fields (decision 18, "siblings stay
+  free"): `(a, b) := xs.get2_mut(i, j)` lets `a` and `b` live and be
+  written together, and `xs` stays frozen until the last use of either.
+- The body is raw-pointer code (R3's trusted boundary), tested like every
+  such std clause. `get_disjoint_mut(self, idx : Array(usize, N))` is the
+  same shape for `N` indices, with a pairwise-distinct precondition.
+
 ### R5. Roots through `Rc`/`Arc`
 
 A `&` component whose place crosses an `Rc`/`Arc` deref is allowed only
@@ -411,9 +443,10 @@ so std narrows:
   other.*, other : ()))`, `swap(a : &mut T, b : &mut T, depends(a : b.*,
   b : a.*))` — tested by "`b` is usable after the call".
 
-A later refinement may derive the joins from the mutation summaries
-(§3.10's machinery) instead of the declaration; the clause stays the
-spelling. Joined roots keep their mode: a `&mut x` pushed in freezes `x`
+The declaration is the contract: a caller is never checked against a
+callee's body (R3, "Signatures, never bodies"). The mutation summaries
+(§3.10's machinery) may at most let `yo fix` propose a missing clause.
+Joined roots keep their mode: a `&mut x` pushed in freezes `x`
 exclusively for the container's live range, so a second `&mut x` or a read
 of `x` while it lives is E0911; a `&x` freezes `x` against writes only.
 Returning the container is R3 over the joined set:
@@ -516,6 +549,14 @@ keep their catalog answers (`RUST_REFERENCE_PATTERNS.md` §14).
 - **Docs.** The catalog's §2.2, §2.4, §3.2, §4.5, §5.1 are rewritten with
   the phase; decision 38 A's type-position bullet, decision 24 and decision
   39 already carry the final rule.
+- **Diagnostics name the borrowed place and the value holding it.** An
+  E0911 or R3/R7 error says which root place is frozen, which value keeps
+  it frozen, where that value got the borrow, and where its last use is:
+  "`x` is frozen: `out` holds `&x` (joined by `out.push(&x)` at line 12)
+  until `out`'s last use at line 30", or "the result borrows `self.buf`
+  but `depends(item : self.*)` allows only what `self` carries". The
+  tracker already records each root's place path and the join or
+  projection that added it, so the message costs no new analysis.
 - **Tooling.** The parser and `_clause_zone` learn the `depends` zone
   (after `where`), and `Fn(...)` types accept the clause — the first
   clause that is part of a function type; `yo fmt` lays it out like the
@@ -617,7 +658,11 @@ limitation, not a hole); `a.append(&mut b)`
 then a use of `b`; `dst.push(dst.pop())` under `depends(dst : ())`;
 `parse_int(input)` returning the remainder of a by-value `View(u8)`;
 `entry(k).or_insert(v)` with the `Entry` consumed; `m.get(&k)` then a
-write to `k` while the result lives; `for(&xs, x => out.push(x.*))`.
+write to `k` while the result lives; `for(&xs, x => out.push(x.*))`; `(a, b) := xs.get2_mut(i, j)` with
+both written while live. Negative: `&mut xs(i)` beside `&mut xs(j)`
+(E0911, even with `i != j` known); `xs.get2_mut(i, i)` under
+`Pragma.Verify` (fails to verify) and without it (the runtime assert
+fires); a use of `xs` while `a` or `b` lives.
 
 ## 6. Alternatives considered
 
@@ -628,6 +673,9 @@ write to `k` while the result lives; `for(&xs, x => out.push(x.*))`.
 | Austral's regions and linear types | regions are lexical names; linear "use exactly once" is heavier than Yo's affine moves plus `Dispose`, and ATS A2's must-use covers the useful part |
 | references as modes only (the pre-decision-43 design) | correct but confusing (a mode written in a type slot that is not a type) and it blocks `impl(&T, …)` and `FnMut`; the maintainer chose types |
 | keep only `Rc`/indices/closures | the measured copies and the catalogued gaps |
+| inferring a callee's borrow behaviour from its body (interprocedural summaries) | the contract would live in the body: an edit inside one function silently changes what its callers may do, every body edit re-checks every caller, and callees with no body (`Dyn`, `Impl(Fn)`, `extern`) need declarations anyway. A call is checked from the signature alone (R3) |
+| proving element disjointness inside the borrow checker (index arithmetic, loop bounds, guards) | a second, weaker prover beside the verifier; disjointness is a `requires` the verifier already discharges (R4's `get2_mut`) |
+| a shared-mutable reference kind (several live writers, no runtime flag) | sound only with a rule for every stored alias when its target's owner is dropped or reallocated, and for interior borrows taken through one alias while another writes; `Rc`/`RefCell` (decision 41), indices and arenas cover graphs and back-pointers |
 | lifetime names in types (`View<'a>`, lifetime-polymorphic types) | `depends(view : a)` does select among a signature's roots, but only as a narrowing of the inferred "depends on all of them" in one signature; a type never carries a root name, so no constraint crosses a frame |
 
 ## 7. Open questions, with positions
@@ -646,6 +694,13 @@ write to `k` while the result lives; `for(&xs, x => out.push(x.*))`.
   The carried source `p.*` reuses decision 43's deref: `p` is the
   reference (the lent place included), `p.*` the value behind it, whose
   roots are what the result keeps.
+- **Field-path sources.** `depends(item : self.buf)` would let a result
+  borrow one field, so `xs.len()` could be read while an element
+  projection lives (today the projection freezes all of `xs`, decision
+  24). Position: not now — it writes private field names into public
+  signatures, so a representation change becomes an API change; revisit
+  with a counted need, and then through a named, public view of the
+  fields rather than the fields themselves.
 - **`depends` in `yo doc`.** Whether `yo doc` prints the default clause
   on every reference-returning signature. Position: yes, so a reader sees
   the roots without reading the body.
