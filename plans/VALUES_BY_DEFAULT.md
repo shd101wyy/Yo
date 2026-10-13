@@ -5080,6 +5080,15 @@ compiler; the std shapes are plain structs the seed lowers):
     a `&` container became a write and E0908. Both now take `self : &Self`,
     as in Rust (`issues/fixed/clone-and-to-string-take-their-receiver-mutably.md`,
     landed 2026-10-13 ahead of the switch; the sweep was not seed-gated).
+    The audit of every other std trait receiver followed: `Hash.hash`,
+    `Hasher.finish`, `Debug.debug_string`, `Format.format`,
+    `ToJson.to_json` and `Error.source` only read their receiver and now
+    take `self : &Self`, and `hash_one`/`HashMap._hash` borrow their value
+    with `&`; `Hasher.write*`, `Iterator.next`/`next_back` and
+    `log.Sink.write_line` write and keep `&mut Self`, and `Index`,
+    `IndexUnchecked` and `ComptimeIndex` are this switch's own change
+    (`issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md`,
+    2026-10-13; not seed-gated either).
 - **Unique buffers.**
   - `ArrayList(T)` owns a plain buffer, with `Dispose` (free) and `Trace`
     (visit each slot) on its private buffer type. The same goes for every
