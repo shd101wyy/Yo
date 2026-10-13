@@ -6,7 +6,6 @@
 //! - Returns unknown if any unknown values are encountered without short-circuit.
 //! - Returns undefined (runtime) value if any runtime values are encountered.
 { String } :: import("std/string");
-{ eprintln } :: import("std/fmt");
 {
   AstExpr,
   ast_expr_token,
@@ -73,8 +72,6 @@ evaluate_and_or :: (
   (short_circuit : Option(bool)) = .None;
   (has_unknown : bool) = false;
   (has_runtime : bool) = false;
-  (__dbg_identity : bool) = false;
-  (__dbg_late : bool) = false;
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg_opt := args.get(i);
@@ -140,16 +137,10 @@ evaluate_and_or :: (
                 // a compile-time value only when no runtime operand came first
                 // (issues/fixed/and-or-short-circuit-after-a-runtime-operand-drops-its-side-effects.md).
                 if(bv != is_and, {
-                  if(has_runtime, {
-                    __dbg_late = true;
-                  }, {
+                  if(!has_runtime, {
                     short_circuit = .Some(bv);
                   });
                   i = args.len();
-                }, {
-                  if(!has_unknown && !has_runtime, {
-                    __dbg_identity = true;
-                  });
                 });
               }, {
                 // Runtime value.
@@ -172,10 +163,6 @@ evaluate_and_or :: (
       true => .Some(EvalValue.BoolVal(is_and))
     )
   );
-  if(short_circuit.is_none() && (__dbg_late || (__dbg_identity && (has_runtime || has_unknown))), {
-    __dbg_tok := ast_expr_token(expr);
-    eprintln(`[andor-fold] ${if(__dbg_late, String.from("late"), String.from("identity"))} ${if(has_runtime, String.from("runtime"), String.from("unknown"))} ${__dbg_tok.module_path}:${__dbg_tok.row.to_string()}:${__dbg_tok.column.to_string()} ${ast_expr_to_string(expr)}`);
-  });
   out_info := new_expr_info(&cur_env, t_bool());
   out_info.value = final_val;
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
