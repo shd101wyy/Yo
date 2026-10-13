@@ -104,7 +104,8 @@ Progress:
   - Decision 44's follow-up: a closure into a `Dyn(Fn)` slot is `dyn(f)`.
 - **Next:** the rest of V2b (direct projection calls, unique buffers, the
   explicit-copy kind), then the allocator interface version 2 (§6, after
-  V2b), V2c, decision 43, then V5.
+  V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
+  once the README's example projects are migrated (§6, after V5).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
@@ -5339,6 +5340,60 @@ stage-2 RSS):
     `ARC_TYPE.md`, `PARALLELISM_RULES.md` D2/D3 and `MEMORY_SAFETY.md`'s
     "RC-managed types" list.
 
+### After V5: retire the `yo fix` migrations
+
+Queued by the maintainer, 2026-10-13. Each `yo fix --migrate <name>` exists
+to carry code across one seed gate. Once every Yo codebase we own is across,
+the migrations are the backward-compatibility scaffolding AGENTS.md rules
+out ("no backward-compatibility scaffolding; the only gate is the seed").
+Each costs a record-instead-of-reject mode inside the evaluator's checks,
+state in `src/expr_info.yo`, CLI handling in `src/main.yo`, cli-cases and
+bilingual docs. The campaign's are `markers`, `borrow-spelling`, `params`,
+`addr-of`, `modes`, `match-scrutinee` and `dyn-spelling` (#1339), plus any
+that later phases add.
+
+- **Gate: the README's example projects are migrated first** (maintainer).
+  Each of the six projects in `README.md` "Example Projects" builds and
+  passes its own tests on the last release that ships every migration, with
+  its `.yo-version` pinned there and no `--migrate` rewrite left to apply:
+  - [raylib_yo](https://github.com/shd101wyy/raylib_yo)
+  - [tetris_yo](https://github.com/shd101wyy/tetris_yo), including its
+    online demo build
+  - [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo)
+  - [markdown_it_yo](https://github.com/shd101wyy/markdown_it_yo)
+  - [markdown_yo](https://github.com/shd101wyy/markdown_yo), the store
+    dependency this tree builds and tests, including its online demo build
+  - [yo_http_benchmark](https://github.com/shd101wyy/yo_http_benchmark)
+
+  The way to migrate them is the migrations themselves: in each project, run
+  `yo fix <path> --migrate <name>` for every migration, in phase order, and
+  fix what is left by hand. Whatever a migration misses in these projects is
+  a bug in that migration, fixed before it is deleted.
+- **The other gates.** V5 and every Generation B half have landed, so no
+  migration is still carrying this tree across a seed. This tree (`std/`,
+  `src/`, `tests/`, the docs' Yo blocks, the cli-case fixtures) has no
+  `--migrate` rewrite left to apply. A release containing every migration is
+  published, so `yo version install` can always fetch one.
+- **The change, one PR.**
+  - Delete every `--migrate` mode: the CLI flag values, the record-instead-of-
+    reject hooks, their `ExprInfo` state, the migration cli-cases.
+  - The errors stay hard errors (E0009, E0618, E0914 and the rest).
+  - The **per-diagnostic repairs** stay too. That is the one-step
+    `yo fix <path>` attached to a single diagnostic, such as E0618's `f` →
+    `dyn(f)`: it helps anyone writing new code, agents especially, and adds no
+    mode to the checker.
+  - `docs/{en-US,zh-CN}/ERROR_DIAGNOSTICS.md` gains a table naming each
+    retired migration and the last release that ships it. Each affected
+    error's `yo explain` text says how to upgrade older code:
+    `yo version install X.Y.Z && yo fix <path> --migrate <name>`, then step to
+    the next release.
+  - GRAMMAR and DESIGN (en-US and zh-CN) stop naming `--migrate` modes, and
+    §7's "Found by" column keeps them only as history.
+- **Exception.** If `yo fix --migrate` becomes how users outside this
+  repository upgrade their packages after a breaking change, keep the newest
+  one or two (Rust keeps edition migrations for that reason). Under the
+  single-user policy that is not the case today.
+
 ## 7. Migration recipes
 
 | Today | After | Found by |
@@ -5371,6 +5426,10 @@ stage-2 RSS):
 | a borrowing future through an `Rc` (`shared.s.next(io)`) | own the value in the task, or `Rc(Mutex(S))` | the A2 compile error |
 | a deadline on a borrowing future | `timeout(rx.recv(io), d, io)`, awaited directly | — |
 | a cursor loop cloning each node | `cur := &mut …; cur = &mut n.next` | review; the clone lint |
+
+The `--migrate` modes in the "Found by" column are retired after V5, once the
+README's example projects are migrated (§6, "After V5: retire the `yo fix`
+migrations").
 
 ## 8. Risks
 
