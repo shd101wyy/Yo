@@ -64,6 +64,9 @@ Progress:
   - V1 step 2 Generation A, the unique `Box(V)` (feat/vbd-v1-step2-box;
     Step 2's "as built"). Generation B, `src/` moving back to `Box`, waits
     for the seed.
+  - decision 45 Generation A, `Drop` beside `Dispose`, E0915, `drop(x)`
+    and `yo fix --migrate drop-trait` (feat/vbd-drop-trait-gena, for
+    v0.2.62). Generation B, the tree-wide rename, waits for the seed.
 - **In progress:**
   - V3's remaining async work (§3.13): A3 (Generation A landed with A1's
     PR; the prelude switch waits for the seed), A4, A5's remaining lines,
