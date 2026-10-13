@@ -44,7 +44,7 @@ The goal is unchanged: finish every phase in `plans/VALUES_BY_DEFAULT.md`. These
 
 ### 2.3 The v0.2.62 batch
 
-The integration branch `integ/v0262` (worktree `~/Workspace/Yo-wt/integ-v0262`) is develop plus every PR below. Its gate script is `~/Workspace/Yo-wt/integ-logs/gate.sh`: build, check src/std, every cli case (re-recording the goldens the combination shifts), fmt, issue refs, the language suite and `yo test ./std`.
+The integration branch `integ/v0262b` (worktree `~/Workspace/Yo-wt/integ-v0262`; rebuilt from develop on 2026-10-14 after #1343 was rebased) is develop plus every PR below except #1339. Its gate script is `~/Workspace/Yo-wt/integ-logs/gate2.sh`: build, check src/std, every cli case (re-recording the goldens the combination shifts), fmt, issue refs, the language suite and `yo test ./std`.
 
 | PR | What | State |
 | --- | --- | --- |
@@ -52,18 +52,17 @@ The integration branch `integ/v0262` (worktree `~/Workspace/Yo-wt/integ-v0262`) 
 | #1333 | `Clone`/`ToString`/`Hash`/`Debug`/`Format`/`ToJson`/`Error.source`/`Hasher.finish` take `&Self` (#1334 folded in) | gates green |
 | #1337 | allocator hand-off audit (ArrayList(ZST) double free, `String.clone`'s allocator), plus #1340's S1 `&&`/`\|\|` constant folds | gates green; goldens re-recorded |
 | #1341 | V4's codegen blockers: per-type value-enum drop functions, one `Option(E)` C type for a recursive enum (#1338 folded in) | gates green |
-| #1343 | decision 45 Generation A: `Drop` beside `Dispose`, E0915, `drop(x)`, `yo fix --migrate drop-trait` | being amended: `Drop.drop` takes `&mut Self` |
-| #1339 | decision 44 follow-up: a bare callable in a `Dyn(Fn)` slot is E0618, `yo fix --migrate dyn-spelling` | waits for the dyn-named-fn fix to fold in, then a rebase |
-| (branch `fix/later-arg-moves-lent-place`) | S1: a later argument moves a place an earlier argument lends | gates running |
+| #1343 | decision 45 Generation A: `Drop` beside `Dispose`, E0915, `drop(x)`, `yo fix --migrate drop-trait`; `Drop.drop` takes `self : &mut Self`, and any other receiver is rejected at the impl | gates green |
+| #1344 | decision 21 amended: `TypeValue` stays an `Rc` handle (the value enum measured 2.3x `check`, 2.6x emit) | plans only |
+| #1346 | S1: a later argument that moves a place an earlier argument lends to the call is E0910 | gates green |
+| #1339 | decision 44 follow-up: a bare callable in a `Dyn(Fn)` slot is E0618, `yo fix --migrate dyn-spelling` | waits for #1345 (the dyn-named-fn fix, stacked on it) to fold in, then a rebase; may slip to v0.2.63 |
 
 The order is: merge the batch, wait for develop's battery to be green on the exact tip, cut v0.2.62, then curate its notes.
 
 ### 2.4 In flight (agents, 2026-10-13)
 
 - **V4 `TypeValue`:** measuring a value enum against an `Rc` handle (`~/Workspace/Yo-wt/v4fix-logs/vh/`). The maintainer chose the handle if the measurements favor it.
-- **dyn-named-fn workflow:** fixes `dyn(named_fn)`'s invalid C and the dyn-spelling migration's rc=1, then folds into #1339.
-- **lend-move:** the S1 above.
-- **Drop:** the `&mut Self` amendment to #1343.
+- **dyn-named-fn workflow:** fixes `dyn(named_fn)`'s invalid C and the dyn-spelling migration's rc=1 (draft #1345, stacked on #1339), then folds into #1339.
 
 ## 3. The next steps, in order
 
@@ -94,7 +93,6 @@ These were filed since v0.2.59 and are still open at develop's tip:
 
 | Issue | Severity | Note |
 | --- | --- | --- |
-| `issues/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md` | S1 | Fix in flight (lend-move) |
 | `issues/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md` | S2 | Fixed by #1339 |
 | `issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md` | S2 | Pre-existing |
 | `issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md` | S2 | Needs V2b's non-copying access |
