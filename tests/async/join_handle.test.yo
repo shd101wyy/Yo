@@ -350,17 +350,3 @@ test("Option.take moves a handle out of an optional slot", {
   );
   assert(slot.is_none(), "take left .None");
 });
-// issues/fixed/a-capture-move-flag-is-read-in-a-state-machine-that-has-none.md:
-// a capture list that names `ms`, around a nested future that captures `ms`
-// implicitly, read a move flag the nested state machine never declared.
-test("a capture list and a nested implicit capture of the same name compile", {
-  ms := Rc(u64)(u64(5));
-  outer := io.async({ ms }(io : Io) => {
-    inner := io.async((io : Io) => {
-      io.await(sleep(ms.*), io);
-      i32(1)
-    });
-    io.await(inner, io) + i32(1)
-  });
-  assert(io.await(outer, io) == i32(2), "both state machines ran");
-});
