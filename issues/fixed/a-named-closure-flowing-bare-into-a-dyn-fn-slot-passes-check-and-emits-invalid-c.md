@@ -79,7 +79,7 @@ sites agree. No codegen change: the rejection is the fix.
 In `tests/closure.test.yo`: `comptime_expect_error` on the bare `f` at a
 `Dyn(Fn(...))` binding, field initializer, by-value argument and result
 (each naming `dyn(f)`), the same for a named `fn`, and the reproducer's
-`dyn(...)` version as a passing case summing to 23. The four bare cases
+`dyn(...)` version as a passing case summing to 18 (see the end). The bare cases
 fail today (no error is raised), and the `dyn` case passes before and
 after.
 
@@ -104,3 +104,8 @@ help: write `dyn(f)`; `yo fix <path> --migrate dyn-spelling` wraps every such si
 (cli-case `tests/cli-cases/fix-migrate-dyn-spelling`). No codegen change.
 A bare named `fn` is rejected the same way, but `dyn(named_fn)` still emits
 invalid C: `issues/dyn-of-a-named-function-value-emits-invalid-c.md`.
+
+The reproducer's `assert(s == i32(23), ...)` is an arithmetic slip in this
+report: the four calls return 3, 3, 3 and 9, so the sum is 18, and the
+`dyn(...)` version in `tests/closure.test.yo` asserts 18 (with 23 it aborts
+in the assert, which is how the slip was found).
