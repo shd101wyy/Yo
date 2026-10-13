@@ -156,3 +156,41 @@ test("Value enum: every payload is released once through the per-type drop and d
   };
   assert((g_holder_probe_disposed - before) == i32(6), "the six probes are disposed exactly once");
 });
+// === One C type for Option(E) of a recursive value enum ===
+// issues/fixed/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md:
+// with an `ArrayList(Self)` and an `ArrayList(ArrayList(Self))` payload, the
+// `Option(ListTree)` that `ArrayList(Self).get` returns inside the enum's own
+// arms and the declared `Option(ListTree)` got two C types ("initializing
+// '__yo_t_A' with an expression of incompatible type '__yo_t_B'").
+ListTree :: enum(
+  LtLeaf(n : i32),
+  LtList(xs : ArrayList(Self)),
+  LtGrid(rows : ArrayList(ArrayList(Self)))
+);
+_list_tree_weight :: (fn(t : &ListTree) -> i32)(
+  match(
+    t,
+    .LtLeaf(n) => n,
+    .LtList(xs) => match(xs.get(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
+    .LtGrid(rows) => match(
+      rows.get(usize(0)),
+      .Some(row) => match(row.get(usize(0)), .Some(x) => recur(&x), .None => i32(0)),
+      .None => i32(0)
+    )
+  )
+);
+_list_tree_first :: (fn(xs : &ArrayList(ListTree)) -> Option(ListTree))(xs.get(usize(0)));
+test("Recursive value enum: ArrayList(Self).get and a declared Option(Self) are one type", {
+  inner := ArrayList(ListTree).new();
+  inner.push(ListTree.LtLeaf(n : i32(7)));
+  xs := ArrayList(ListTree).new();
+  xs.push(ListTree.LtList(xs : inner));
+  w := match(_list_tree_first(&xs), .Some(f) => _list_tree_weight(&f), .None => i32(-1));
+  assert(w == i32(7), "the first element's first leaf");
+  row := ArrayList(ListTree).new();
+  row.push(ListTree.LtLeaf(n : i32(3)));
+  rows := ArrayList(ArrayList(ListTree)).new();
+  rows.push(row);
+  g := ListTree.LtGrid(rows : rows);
+  assert(_list_tree_weight(&g) == i32(3), "a grid's first cell");
+});
