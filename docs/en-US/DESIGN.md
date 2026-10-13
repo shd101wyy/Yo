@@ -1248,14 +1248,14 @@ A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copi
 
 #### `Drop`, the upcoming name of `Dispose`
 
-`Dispose` is being renamed `Drop`, and its method `dispose` becomes `drop`, with Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45). The meaning does not change: the destructor runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. The compiler already accepts both spellings; `std/` and these docs switch to `Drop` once the released seed knows it, and `yo fix <path> --migrate drop-trait` rewrites a project (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`).
+`Dispose` is being renamed `Drop`, and its method `dispose` becomes `drop`, with Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45). The meaning does not change: the destructor runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. Its receiver follows Rust's `drop(&mut self)`: `drop : (fn(self : &mut Self) -> unit)`, so a destructor may take a field out or reset it (`self.f = .None`) before the fields are dropped, and an impl that declares `self : &Self` does not conform. (`Dispose.dispose` keeps `self : &Self` until the rename.) The compiler already accepts both spellings; `std/` and these docs switch to `Drop` once the released seed knows it, and `yo fix <path> --migrate drop-trait` rewrites a project (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`).
 
 Calling the destructor by hand is error E0915, in both spellings, as in Rust: `x.drop()`, `Fd.drop(&x)`, `(Fd <: Drop).drop(&x)` and `x.dispose()` would run it a second time on a live value. A destructor does not call its fields' destructors either: they drop after it returns. To end a value early, pass it to the prelude's `drop(x)`, which moves it in and drops it when the call returns; a later use of `x` is E0901.
 
 ```yo
 { println } :: import("std/fmt");
 Fd :: struct(n : i32);
-impl(Fd, Drop(drop : (fn(self : &Self) -> unit)(println(`closing ${self.n}`))));
+impl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(println(`closing ${self.n}`))));
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));

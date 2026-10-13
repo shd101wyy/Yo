@@ -159,7 +159,9 @@ renames the destructor trait `Dispose` to `Drop` (its method `dispose` to
 `drop`) and makes an explicit destructor call E0915. It only parses each file:
 `Dispose` becomes `Drop` wherever it is an identifier (an `impl` entry, a `<:`
 bound or witness, an import), the impl entry's `dispose :` label and every
-`.dispose` member become `drop`, and an explicit call that ends a named value,
+`.dispose` member become `drop`, a written receiver `dispose : (fn(self :
+&Self)` becomes `drop : (fn(self : &mut Self)` (`Drop.drop` takes `&mut Self`,
+as Rust's `drop(&mut self)`; also in a `Dispose :: trait(...)` definition), and an explicit call that ends a named value,
 `x.dispose()` or `(T <: Dispose).dispose(&x)`, becomes `drop(x)`. That last row
 does change the program: `drop(x)` moves `x` in, so a later use of `x` is E0901
 and `check` says where. Any other explicit call (`self.dispose()`, a field's

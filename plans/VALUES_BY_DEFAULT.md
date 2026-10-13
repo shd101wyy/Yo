@@ -3294,9 +3294,20 @@ and in git, not a silent edit.
       `TlsStream.close_sync()` (Generation A) close the socket from plain
       code, and their `Drop`/`Dispose` impls delegate to them, as Rust's
       `TcpStream::shutdown` stands beside its `Drop`.
-    - **Open: the receiver.** It stays `self : &Self` (today's `dispose`
-      signature). Whether it becomes `&mut Self`, as Rust's `drop(&mut
-      self)` is, is decided with V2b's read-only-receiver sweep (§9).
+    - **The receiver is `self : &mut Self`, as Rust's `drop(&mut self)`
+      (maintainer, 2026-10-13).** A destructor may take a field out or
+      reset it (`self.inner = .None`), and the field drops that follow it
+      read what it left. An impl whose `drop` says `self : &Self` does not
+      conform to the trait (the mode is part of the fn type). `Dispose.dispose`
+      keeps `self : &Self` in Generation A, because the seed builds std with
+      it. The synthesized `___dispose` over a `Drop` impl takes
+      `self : &mut Self` too, so it is a pointer in C
+      (`fn_abi_param_is_ptr`), and every C caller passes the dropped
+      storage's address (`dispose_function_takes_pointer`,
+      `dispose_call_on_value` in `src/codegen/exprs/drop_dup.yo`; the
+      reference types' header thunk, `dispose_fn_thunk`, passes the address
+      of a local holding the handle). A `Dispose` one keeps today's by-value
+      ABI.
     - **Why.** VBD already took Rust's `Rc`/`Arc`/`Box`/`Clone`/`Copy`/
       `Send`/`Sync`/`FnOnce`/`Index`, and the compiler and the docs already
       say "drop" (`___drop`, "dropped at the end of its scope"). `Dispose`
@@ -3316,7 +3327,9 @@ and in git, not a silent edit.
         The prelude defines `Drop` beside `Dispose`, and `drop(x)`. E0915
         covers both spellings. `yo fix <path> --migrate drop-trait`
         rewrites `Dispose` → `Drop`, `dispose` → `drop` (impl entries,
-        bounds, witnesses, members) and `x.dispose()` /
+        bounds, witnesses, members, and the trait definition), a written
+        `dispose : (fn(self : &Self)` receiver → `drop : (fn(self : &mut
+        Self)`, and `x.dispose()` /
         `(T <: Dispose).dispose(&x)` → `drop(x)`, listing every other
         explicit call for a hand edit. std, src, tests and docs keep
         spelling `Dispose`. The std's three explicit calls (`std/crypto/
@@ -3329,7 +3342,10 @@ and in git, not a silent edit.
         (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
     - **Tests (Generation A).** `tests/move_only.test.yo`: a `Drop` impl
       runs once at the owner's drop, through a field and through a generic
-      impl; a `Drop` type and its holders are move-only; `drop(x)` runs
+      impl; a `Drop` impl that takes a field out runs once, and releases the
+      field once, through the scope end, `drop(x)`, an `Rc` payload, a `Box`
+      payload, a `Dyn` object, `ArrayList` elements and a reference type's
+      last handle; a `drop` declared `self : &Self` does not conform; a `Drop` type and its holders are move-only; `drop(x)` runs
       the destructor at once and moves `x` (a `Dispose` value too); each
       explicit-call form is E0915 in both spellings. `tests/rc.test.yo`:
       an `Rc(T)` with a `Drop` payload drops it once, with the last handle.
@@ -5389,7 +5405,4 @@ inside a settled design:
   not to work. Decided in V3's async work.
 - **§3.11:** whether the containers' `new_in`/`with_capacity_in` move to
   the constructors' `alloc` parameter. Decided after V2b.
-- **Decision 45:** whether `Drop.drop` takes `self : &mut Self` (Rust's
-  `drop(&mut self)`) instead of today's `&Self`. Decided with V2b's
-  read-only-receiver sweep.
 - *(Decided as decision 35, 2026-10-05: the capture list.)*

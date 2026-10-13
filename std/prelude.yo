@@ -323,8 +323,11 @@ Drop :: trait(
   id := "Drop",
   /// Release the resources `self` owns. Called automatically, exactly once,
   /// when the value's owner drops it or the last reference to it goes away;
-  /// never called directly (E0915).
-  drop : (fn(self : &Self) -> unit)
+  /// never called directly (E0915). The receiver is `self : &mut Self`, as
+  /// Rust's `drop(&mut self)`: the destructor may take a field out or reset
+  /// it (`self.f = .None`), and the field drops that follow it read what it
+  /// left there.
+  drop : (fn(self : &mut Self) -> unit)
 );
 export(Drop);
 /// End `x`'s life now: `x` is moved in and dropped when the call returns,

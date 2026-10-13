@@ -1300,7 +1300,11 @@ _run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, e
 ///     `impl` entry, a `<:` bound or witness, an import, a reflection
 ///     argument;
 ///   - the method label inside an `impl` entry, `Dispose(dispose : f)` →
-///     `Drop(drop : f)`, and a `.dispose` member → `.drop`;
+///     `Drop(drop : f)`, and a `.dispose` member → `.drop`; a written
+///     receiver `dispose : (fn(self : &Self)` → `drop : (fn(self : &mut
+///     Self)`, since `Drop.drop` takes `&mut Self` (decision 45), in an impl
+///     entry and in the `Dispose :: trait(...)` definition (whose `id` string
+///     is renamed too);
 ///   - an explicit call that ends a named value, `x.dispose()` and
 ///     `(T <: Dispose).dispose(&x)` (or `(x)`), → `drop(x)`, which moves `x`
 ///     in: a later use of `x` is then E0901, and the check says where.
@@ -1309,7 +1313,7 @@ _run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, e
 /// hand edit (`drop(x)`, or a `close_sync`-style inherent method for a
 /// resource that must be released while other references live). Each edit
 /// checks the text it replaces.
-_DtmCounts :: struct(names : usize, methods : usize, calls : usize);
+_DtmCounts :: struct(names : usize, methods : usize, receivers : usize, calls : usize);
 /// Is every byte of `line` ASCII (so a rune column is a byte offset)?
 _dtm_ascii :: (fn(line : &String) -> bool)({
   (n : usize) = usize(0);
@@ -1421,13 +1425,62 @@ _dtm_walk :: (
     }),
     .FnCall(_, callee, args, _, _) => {
       callee_word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
-      // `Dispose(dispose : f)`: the impl entry's method label.
+      // `Dispose(dispose : f)`: the impl entry's (or the trait
+      // definition's) method label, and its receiver: `Drop.drop` takes
+      // `self : &mut Self` where `Dispose.dispose` took `self : &Self`.
       if(in_impl_entry && (callee_word == ":") && (args.len() == usize(2)), {
         match(
           args.get(usize(0)),
           .Some(.Atom(_, lt)) => if(lt.value == "dispose", {
-            out.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : usize(7), replacement : String.from("drop"), description : String.from("dispose")));
+            lline := match(lines.get(usize(lt.row)), .Some(l) => l, .None => String.new());
+            sig := String.from("dispose : (fn(self : &Self)");
+            if(_rune_slice(&lline, usize(lt.column), sig.len()) == sig, {
+              out.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : sig.len(), replacement : String.from("drop : (fn(self : &mut Self)"), description : sig));
+              counts.receivers = (counts.receivers + usize(1));
+            }, {
+              out.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : usize(7), replacement : String.from("drop"), description : String.from("dispose")));
+            });
             counts.methods = (counts.methods + usize(1));
+          }),
+          _ => ()
+        );
+      });
+      // `Dispose :: trait(id := "Dispose", dispose : ...)`: the definition
+      // itself. Its entries are walked as an impl entry's, and its `id`
+      // string is renamed with it.
+      if((callee_word == "::") && (args.len() == usize(2)), {
+        is_def := match(args.get(usize(0)), .Some(.Atom(_, dn)) => (dn.value == "Dispose"), _ => false);
+        match(
+          args.get(usize(1)),
+          .Some(.FnCall(_, tc, targs, _, _)) => if(is_def && match(tc, .Atom(_, tt) => (tt.value == "trait"), _ => false), {
+            recur(&args(usize(0)), false, lines, out, counts, left);
+            (ti : usize) = usize(0);
+            while(ti < targs.len(), ti = (ti + usize(1)), {
+              match(
+                targs.get(ti),
+                .Some(ta) => {
+                  match(
+                    ta,
+                    .FnCall(_, ic, iargs, _, _) => if(match(ic, .Atom(_, it) => (it.value == ":="), _ => false) && (iargs.len() == usize(2)), {
+                      match(
+                        iargs.get(usize(1)),
+                        .Some(.Atom(_, st)) => {
+                          sline := match(lines.get(usize(st.row)), .Some(l) => l, .None => String.new());
+                          if(_rune_slice(&sline, usize(st.column), usize(9)) == "\"Dispose\"", {
+                            out.push(_PendingFix(row : usize(st.row), col : usize(st.column), len : usize(9), replacement : String.from("\"Drop\""), description : String.from("\"Dispose\"")));
+                          });
+                        },
+                        _ => ()
+                      );
+                    }),
+                    _ => ()
+                  );
+                  recur(&ta, true, lines, out, counts, left);
+                },
+                .None => ()
+              );
+            });
+            return(());
           }),
           _ => ()
         );
@@ -1510,7 +1563,7 @@ _dtm_walk :: (
   )
 );
 _run_migrate_drop_trait :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : Exception) -> unit)({
-  (counts : _DtmCounts) = _DtmCounts(names : usize(0), methods : usize(0), calls : usize(0));
+  (counts : _DtmCounts) = _DtmCounts(names : usize(0), methods : usize(0), receivers : usize(0), calls : usize(0));
   (n_stale : usize) = usize(0);
   (n_left : usize) = usize(0);
   (failed : usize) = usize(0);
@@ -1566,7 +1619,7 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), dry_run : bool, io : 
     );
   });
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
-  println(`fix: ${verb} ${counts.names.to_string()} Dispose to Drop, ${counts.methods.to_string()} dispose to drop, ${counts.calls.to_string()} explicit call(s) to drop(x); ${n_left.to_string()} explicit call(s) left for a hand edit; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse`);
+  println(`fix: ${verb} ${counts.names.to_string()} Dispose to Drop, ${counts.methods.to_string()} dispose to drop (${counts.receivers.to_string()} receiver(s) to self : &mut Self), ${counts.calls.to_string()} explicit call(s) to drop(x); ${n_left.to_string()} explicit call(s) left for a hand edit; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
   });

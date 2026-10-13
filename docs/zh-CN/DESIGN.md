@@ -1217,14 +1217,14 @@ export(main);
 
 #### `Drop`：`Dispose` 即将采用的新名字
 
-`Dispose` 正在更名为 `Drop`，其方法 `dispose` 改为 `drop`，并采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）。含义不变：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。编译器已经接受两种写法；等发布的种子编译器认识 `Drop` 后，`std/` 和本文档会改用 `Drop`，`yo fix <path> --migrate drop-trait` 会改写整个项目（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`）。
+`Dispose` 正在更名为 `Drop`，其方法 `dispose` 改为 `drop`，并采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）。含义不变：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。（在更名之前，`Dispose.dispose` 仍是 `self : &Self`。）编译器已经接受两种写法；等发布的种子编译器认识 `Drop` 后，`std/` 和本文档会改用 `Drop`，`yo fix <path> --migrate drop-trait` 会改写整个项目（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`）。
 
 手动调用析构函数是错误 E0915，两种写法都是，与 Rust 相同：`x.drop()`、`Fd.drop(&x)`、`(Fd <: Drop).drop(&x)` 和 `x.dispose()` 会在值仍然存活时再运行一次析构函数。析构函数也不调用其字段的析构函数：字段会在它返回后自行 drop。要提前结束一个值，请把它传给 prelude 的 `drop(x)`：它把值移入，并在调用返回时 drop 它；之后再使用 `x` 是 E0901。
 
 ```yo
 { println } :: import("std/fmt");
 Fd :: struct(n : i32);
-impl(Fd, Drop(drop : (fn(self : &Self) -> unit)(println(`closing ${self.n}`))));
+impl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(println(`closing ${self.n}`))));
 
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));

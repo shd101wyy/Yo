@@ -324,15 +324,21 @@ drops would stop, silently.
   the impl gate, the synthesized `___dispose` calling
   `(Self <: Drop).drop(self)`, `Rc`/`Box` payload drops, the Dyn vtable's
   reserved labels, the mutation summary's decrement heads);
-- the prelude defines `Drop` beside `Dispose`, and `drop(x)`; the v0.2.60
-  seed compiles both (it sees an ordinary trait and an ordinary function);
+- the prelude defines `Drop` (`drop : (fn(self : &mut Self) -> unit)`,
+  Rust's receiver) beside `Dispose` (`self : &Self`, kept for the seed), and
+  `drop(x)`; the seed compiles both (it sees an ordinary trait and an
+  ordinary function). The synthesized `___dispose` over a `Drop` impl takes
+  `&mut Self`, and its C callers pass the storage's address;
 - E0915 rejects an explicit destructor call in both spellings;
 - `yo fix <path> --migrate drop-trait`;
 - std, src, tests and docs keep spelling `Dispose`.
 
 **Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
-- run `yo fix ./std ./src ./tests --migrate drop-trait` (the prelude's own
-  `Dispose :: trait(...)` definition is deleted by hand, not migrated);
+- run `yo fix ./std ./src ./tests --migrate drop-trait`; it also rewrites
+  each written `dispose : (fn(self : &Self)` to `drop : (fn(self : &mut
+  Self)`, so a body that wrote through a reference type's `self` keeps
+  working (the prelude's own `Dispose :: trait(...)` definition is deleted
+  by hand, since the migrated copy would duplicate `Drop`);
 - delete the prelude `Dispose` trait, the `"Dispose"`/`"dispose"` rows of
   `is_drop_trait_name`/`is_drop_method_name`, and the `dispose` branch of
   `_destructor_method_name` / `_destructor_call_code`

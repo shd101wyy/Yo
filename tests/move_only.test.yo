@@ -844,7 +844,7 @@ _MoDropFd :: struct(n : i32);
 impl(
   _MoDropFd,
   Drop(
-    drop : (fn(self : &Self) -> unit)({
+    drop : (fn(self : &mut Self) -> unit)({
       g_mo_dropped = (g_mo_dropped + self.n);
     })
   )
@@ -853,7 +853,7 @@ _MoDropRef :: ref(struct(n : i32));
 impl(
   _MoDropRef,
   Drop(
-    drop : (fn(self : &Self) -> unit)({
+    drop : (fn(self : &mut Self) -> unit)({
       g_mo_dropped = (g_mo_dropped + self.n);
     })
   )
@@ -863,7 +863,7 @@ impl(
   generic(T : Type),
   _MoDropPair(T),
   Drop(
-    drop : (fn(self : &Self) -> unit)({
+    drop : (fn(self : &mut Self) -> unit)({
       g_mo_dropped = (g_mo_dropped + self.n);
     })
   )
@@ -903,7 +903,7 @@ test("Drop: a Drop value type is move-only", {
     comptime_expect_error(b.n, "use of moved value");
   };
   assert(g_mo_dropped == (before + i32(2)), "dropped once");
-  comptime_expect_error(impl(i32, Drop(drop : (fn(self : &Self) -> unit)(()))), "cannot implement \"Drop\"");
+  comptime_expect_error(impl(i32, Drop(drop : (fn(self : &mut Self) -> unit)(()))), "cannot implement \"Drop\"");
 });
 test("Drop: drop(x) ends a value now and moves it", {
   before := g_mo_dropped;
@@ -934,4 +934,92 @@ test("Drop: an explicit destructor call is E0915, in both spellings", {
   comptime_expect_error(d.dispose(), "Explicit call of the destructor");
   comptime_expect_error((_MoFd <: Dispose).dispose(&d), "Explicit call of the destructor");
   comptime_expect_error(_MoFd.dispose(&d), "Explicit call of the destructor");
+});
+// `Drop.drop` takes `self : &mut Self`, as Rust's `drop(&mut self)`
+// (decision 45, maintainer 2026-10-13): a destructor that takes a field out
+// (`self.inner = .None`) writes the dropped value's own storage, so the field
+// drops that follow it see `.None` and the inner value is released once, by
+// the destructor's assignment. `g_md_calls` counts the outer destructor's
+// runs and `g_md_inner` the inner value's; each path must add one to both.
+(g_md_calls : i32) = i32(0);
+(g_md_inner : i32) = i32(0);
+_MdInner :: struct(n : i32);
+impl(
+  _MdInner,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_md_inner = (g_md_inner + i32(1));
+    })
+  )
+);
+_MdOuter :: struct(inner : Option(_MdInner), n : i32);
+impl(
+  _MdOuter,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_md_calls = (g_md_calls + i32(1));
+      self.inner = Option(_MdInner).None;
+    })
+  )
+);
+_MdShow :: trait(n_of : (fn(self : &Self) -> i32));
+impl(_MdOuter, _MdShow(n_of : (fn(self : &Self) -> i32)(self.n)));
+_MdRef :: ref(struct(inner : Option(_MdInner), n : i32));
+impl(
+  _MdRef,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_md_calls = (g_md_calls + i32(1));
+      self.inner = Option(_MdInner).None;
+    })
+  )
+);
+_md_make :: (fn(n : i32) -> _MdOuter)(_MdOuter(inner : Option(_MdInner).Some(_MdInner(n : n)), n : n));
+_MdBad :: struct(n : i32);
+test("Drop: a destructor that takes a field out runs once on every drop path", {
+  c0 := g_md_calls;
+  i0 := g_md_inner;
+  {
+    o := _md_make(i32(1));
+    assert(o.n == i32(1), "scope end: live");
+  };
+  assert((g_md_calls == (c0 + i32(1))) && (g_md_inner == (i0 + i32(1))), "scope end: once");
+  {
+    o := _md_make(i32(2));
+    drop(o);
+    assert((g_md_calls == (c0 + i32(2))) && (g_md_inner == (i0 + i32(2))), "drop(x): at once");
+  };
+  assert((g_md_calls == (c0 + i32(2))) && (g_md_inner == (i0 + i32(2))), "drop(x): not again at the scope end");
+  {
+    r := rc(_md_make(i32(3)));
+    r2 := r;
+    assert(r2.n == i32(3), "Rc payload: live");
+  };
+  assert((g_md_calls == (c0 + i32(3))) && (g_md_inner == (i0 + i32(3))), "Rc payload: once, with the last handle");
+  {
+    b := box(_md_make(i32(4)));
+    assert(b.n == i32(4), "Box payload: live");
+  };
+  assert((g_md_calls == (c0 + i32(4))) && (g_md_inner == (i0 + i32(4))), "Box payload: once");
+  {
+    (d : Dyn(_MdShow)) = dyn(_md_make(i32(5)));
+    assert(d.n_of() == i32(5), "Dyn object: live");
+  };
+  assert((g_md_calls == (c0 + i32(5))) && (g_md_inner == (i0 + i32(5))), "Dyn object: once");
+  {
+    xs := ArrayList(_MdOuter).new();
+    xs.push(_md_make(i32(6)));
+    xs.push(_md_make(i32(7)));
+    assert(xs.len() == usize(2), "ArrayList elements: live");
+  };
+  assert((g_md_calls == (c0 + i32(7))) && (g_md_inner == (i0 + i32(7))), "ArrayList elements: once each");
+  {
+    h := _MdRef(inner : Option(_MdInner).Some(_MdInner(n : i32(8))), n : i32(8));
+    h2 := h;
+    assert(h2.n == i32(8), "reference type: live");
+  };
+  assert((g_md_calls == (c0 + i32(8))) && (g_md_inner == (i0 + i32(8))), "reference type: once, with the last handle");
+});
+test("Drop: a drop declared with `self : &Self` does not conform", {
+  comptime_expect_error(impl(_MdBad, Drop(drop : (fn(self : &Self) -> unit)(()))), "drop");
 });

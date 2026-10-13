@@ -1395,6 +1395,18 @@ _destructor_method_name :: (fn(ct : &TypeValue, module_env : &Environment) -> St
     true => String.new()
   )
 });
+/// The synthesized `___dispose`'s receiver: `self : &mut Self` over a `Drop`
+/// impl, whose `drop` takes it so (Rust's `drop(&mut self)`, decision 45), so
+/// what the destructor writes lands in the dropped value's own storage; `self
+/// : &Self` otherwise (a `Dispose` impl, or no user destructor). Every C
+/// caller of a pointer-receiver `___dispose` passes the storage's address
+/// (`dispose_function_takes_pointer`, codegen/exprs/drop_dup.yo).
+_destructor_receiver :: (fn(method : &String) -> String)(
+  cond(
+    (method == "drop") => String.from("self : &mut Self"),
+    true => String.from("self : &Self")
+  )
+);
 /// The synthesized `___dispose`'s call of the user destructor
 /// (`_destructor_method_name`'s answer). Its tokens are `auto-generated://`,
 /// so E0915 (an explicit destructor call) exempts it.
@@ -1521,7 +1533,7 @@ _synthesize_and_register_dispose :: (
   });
   body.push_str("()");
   // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
-  code := `(fn(self : &Self) -> unit)({ ${body} })`;
+  code := `(fn(${_destructor_receiver(&user_destructor)}) -> unit)({ ${body} })`;
   _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, &code, String.from("___dispose"));
 });
 /// Synthesize + register the auto-derived `___dispose` for a concrete reference-
@@ -1652,7 +1664,7 @@ _synthesize_and_register_enum_dispose :: (
   });
   body.push_str("()");
   // Synthesize + evaluate the dispose function with `Self` bound to `ct`.
-  code := `(fn(self : &Self) -> unit)({ ${body} })`;
+  code := `(fn(${_destructor_receiver(&user_destructor)}) -> unit)({ ${body} })`;
   _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, &code, String.from("___dispose"));
 });
 /// Register the `___dispose` of a move-only VALUE type with a user `Dispose`
@@ -1705,7 +1717,7 @@ _synthesize_and_register_value_dispose :: (
     (user_destructor == "drop") => String.from("(Self <: Drop).drop(self); "),
     true => String.from("(Self <: Dispose).dispose(self); ")
   );
-  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, `(fn(self : &Self) -> unit)({ ${qualified}() })`, String.from("___dispose"));
+  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, `(fn(${_destructor_receiver(&user_destructor)}) -> unit)({ ${qualified}() })`, String.from("___dispose"));
 });
 /// Codegen pass: auto-derive + register the `___dispose` method for every concrete RC
 /// struct and ref-enum type that lacks one (and the user destructor of every move-only
