@@ -3567,6 +3567,51 @@ dyn_upcast_note :: (fn(expected : &TypeValue, given : &TypeValue) -> String)(
     _ => String.new()
   )
 );
+/// A `Dyn` whose trait set carries a closure trait (`Dyn(Fn(...))`,
+/// `Dyn(FnOnce(...), Send)`).
+_dyn_carries_fn_trait :: (fn(t : &TypeValue) -> bool)(
+  match(
+    t,
+    .DynT({ required_trait_types : dct_rtt }) => {
+      (i : usize) = usize(0);
+      while(i < dct_rtt.len(), i = (i + usize(1)), {
+        if(match(dct_rtt.get(i), .Some(dct_t) => match(dct_t, .FnTraitT(base_name : _) => true, _ => false), .None => false), {
+          return(true);
+        });
+      });
+      false
+    },
+    _ => false
+  )
+);
+/// A callable that is not a `Dyn`: a named `fn` (a `Func`), a closure's
+/// capture struct, or an `Impl(Fn(...))` / `where(F <: Fn(...))` type, whose
+/// own trait list or resolution chain reaches one of those.
+_is_unerased_callable :: (fn(t : &TypeValue) -> bool)(
+  match(
+    t,
+    .Func({ result : _ }) => true,
+    .SomeT({ required_trait_types : uc_rtt }) => {
+      (i : usize) = usize(0);
+      while(i < uc_rtt.len(), i = (i + usize(1)), {
+        if(match(uc_rtt.get(i), .Some(uc_t) => match(uc_t, .FnTraitT(base_name : _) => true, _ => false), .None => false), {
+          return(true);
+        });
+      });
+      uc_term := resolve_cell_chain(t);
+      match(uc_term, .Func({ result : _ }) => true, _ => is_closure_capture_struct(&uc_term))
+    },
+    _ => is_closure_capture_struct(t)
+  )
+);
+/// Decision 44 (plans/VALUES_BY_DEFAULT.md): every erasure into a `Dyn` is
+/// spelled. A callable that is not already a `Dyn` (a named closure, a named
+/// `fn`, an `Impl(Fn(...))` parameter) flowing into a `Dyn(Fn(...))` slot is
+/// written `dyn(f)`; a bare `f` there is E0618. `Impl(Fn(...))` slots are
+/// not erasures and are untouched.
+is_bare_callable_into_dyn_fn :: (fn(expected : &TypeValue, given : &TypeValue) -> bool)(
+  _dyn_carries_fn_trait(expected) && !is_dyn_type(given) && _is_unerased_callable(given)
+);
 /// The declaration id of a struct / enum / union, for the note below.
 _decl_id_of :: (fn(t : &TypeValue) -> String)(
   match(
@@ -3667,7 +3712,7 @@ unknown_variant_message :: (fn(variant : &String, enum_ty : &TypeValue, variants
   });
   `Enum variant "${variant}" not found in enum ${type_to_string(enum_ty)}. Its variants: ${list}.`
 });
-export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_upcast_note, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
+export(dyn_member_is_method, dyn_member_unsafe_reason, dyn_type_has_vtable_slot, dyn_vtable_slot_param_is_ref, dyn_upcast_note, is_bare_callable_into_dyn_fn, same_name_note, unknown_field_message, unknown_field_code, unknown_variant_message, control_bound_field_message);
 export(deref_miss_note, unknown_field_through_deref_message);
 /// `err` with its primary diagnostic marked `generic_independent` when
 /// neither `a` nor `b` contains a type variable: a mismatch between two such

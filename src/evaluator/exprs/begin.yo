@@ -116,7 +116,8 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_is_binding_stmt,
   local_borrow_set_lookahead,
   local_borrow_result_borrow_of,
-  local_borrow_reject_result_borrow
+  local_borrow_reject_result_borrow,
+  reject_bare_callable_into_dyn_fn
 } :: import("../utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -2889,6 +2890,15 @@ _evaluate_begin_expression_impl :: (
                     // A projection's `return(&place)` yields the place's
                     // address (decision 24, `rewrite_projection_tails`).
                     expected_ret := if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box);
+                    // Decision 44: `return(f)` into a `Dyn(Fn(...))` result is
+                    // `return(dyn(f))`.
+                    if(!rb_meta.*.result_is_ref, {
+                      match(
+                        last_expr,
+                        .FnCall(_, _, rv_args, _, _) => match(rv_args.get(usize(0)), .Some(rv_value) => reject_bare_callable_into_dyn_fn(&expected_ret, &return_type, &rv_value, String.from("the result"), ctx, exn), .None => ()),
+                        .Atom(_, _) => ()
+                      );
+                    });
                     synth_ok := _try_synthesize_return_type(&expected_ret, &return_type, &env);
                     if(!synth_ok, {
                       compat := are_types_compatible(&return_type, &expected_ret);

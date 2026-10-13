@@ -52,6 +52,7 @@ json :: import("std/encoding/json");
   E_ARGUMENT_LABEL_MISMATCH,
   E_AMBIGUOUS_METHOD,
   E_DISCARDED_MUST_USE,
+  E_BARE_CALLABLE_INTO_DYN,
   E_NEVER_FULLY_EVALUATED,
   E_FORWARD_REFERENCE,
   E_MOVED_ON_SOME_PATHS,
@@ -872,6 +873,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "parse :: (fn(s : i32) -> Result(i32, i32))(cond((s > i32(0)) => .Ok(s), true => .Err(s)));\nmain :: (fn() -> unit)({\n  _ := parse(i32(1));\n  ()\n});\nexport(main);\n",
       "`_ := parse(i32(1));` says the result is dropped on purpose.",
       "`_ := parse(i32(1));` 表明结果是有意丢弃的。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_BARE_CALLABLE_INTO_DYN,
+      "a callable flows bare into a Dyn(Fn(...)) slot",
+      "可调用值被裸传入 Dyn(Fn(...)) 位置",
+      "A named closure, a named `fn` or a closure literal is used where a `Dyn(Fn(...))` is expected, without `dyn(...)`.",
+      "在需要 `Dyn(Fn(...))` 的位置直接使用了具名闭包、具名 `fn` 或闭包字面量，没有写 `dyn(...)`。",
+      "Every erasure into a `Dyn` is spelled (plans/VALUES_BY_DEFAULT.md decision 44): a value becomes a `Dyn` only where the program writes `dyn(...)`, which moves it into the `Dyn`'s heap cell. A trait object over a nominal value is already written `dyn(point)`; a callable follows the same rule, so a closure or a named `fn` in a `Dyn(Fn(...))` binding, field, argument or result is written `dyn(f)`. An `Impl(Fn(...))` slot is not an erasure: it is the closure's own static type, and a closure flows into it bare. `yo fix <path> --migrate dyn-spelling` wraps every bare site in a tree.",
+      "每一次擦除为 `Dyn` 都要写出来（plans/VALUES_BY_DEFAULT.md 决策 44）：只有程序写出 `dyn(...)` 的地方，值才会变成 `Dyn`，它把值移入 `Dyn` 的堆单元。名义类型值的 trait 对象已经写作 `dyn(point)`；可调用值遵循同一规则，因此 `Dyn(Fn(...))` 绑定、字段、实参或结果中的闭包或具名 `fn` 写作 `dyn(f)`。`Impl(Fn(...))` 位置不是擦除：它是闭包自身的静态类型，闭包可以直接流入。`yo fix <path> --migrate dyn-spelling` 会给整棵树中每个裸传位置加上 `dyn(...)`。",
+      "run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());\nmain :: (fn() -> unit)({\n  n := i32(3);\n  (f : Impl(Fn() -> i32)) = (() => n);\n  _x := run(f);\n});\nexport(main);\n",
+      "run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());\nmain :: (fn() -> unit)({\n  n := i32(3);\n  (f : Impl(Fn() -> i32)) = (() => n);\n  _x := run(dyn(f));\n});\nexport(main);\n",
+      "`dyn(f)` boxes the closure as the `Dyn(Fn() -> i32)` the parameter takes.",
+      "`dyn(f)` 把闭包装箱为形参所需的 `Dyn(Fn() -> i32)`。"
     )
   );
   // ── Internal codegen (E13xx) and CLI/build/deps (E15xx) ──────────────────
