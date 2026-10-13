@@ -134,14 +134,14 @@ test("Fnv1aHasher: FNV-1a 64 reference values", {
 test("hash_one: primitives feed their width; equal values agree", {
   assert(hash_one(u64(42)) == u64(8880661182590738257), "u64 through hash_one");
   x := i32(7);
-  assert(hash_one(&mut x) == hash_one(i32(7)), "runtime and comptime agree");
+  assert(hash_one(&x) == hash_one(i32(7)), "runtime and comptime agree");
   assert(hash_one(i32(7)) != hash_one(i64(7)), "i32 and i64 are different byte streams");
   assert(hash_one(true) != hash_one(false), "bools differ");
   assert(hash_one(hash_one(u8(1))) == hash_one(hash_one(u8(1))), "deterministic");
 });
 test("String: bytes then 0xFF, prefix-free", {
   s := String.from("hello");
-  assert(hash_one(&mut s) == u64(16156531084128653017), "\"hello\" + 0xFF");
+  assert(hash_one(&s) == u64(16156531084128653017), "\"hello\" + 0xFF");
   ab := String.from("ab");
   c := String.from("c");
   a := String.from("a");
@@ -154,17 +154,17 @@ test("String: bytes then 0xFF, prefix-free", {
   bc.hash(&mut h2);
   assert(h1.finish() != h2.finish(), "(ab, c) != (a, bc)");
   e := String.from("");
-  assert(hash_one(&mut e) != SipHasher13.new().finish(), "empty string still writes its terminator");
+  assert(hash_one(&e) != SipHasher13.new().finish(), "empty string still writes its terminator");
 });
 test("Option and Result: tag then payload", {
   o := Option(i32).Some(i32(7));
-  assert(hash_one(&mut o) == u64(17576287410326509158), "Some(7) = u64 1 then i32 7");
+  assert(hash_one(&o) == u64(17576287410326509158), "Some(7) = u64 1 then i32 7");
   n := Option(i32).None;
-  assert(hash_one(&mut n) != hash_one(&mut o), "None != Some");
+  assert(hash_one(&n) != hash_one(&o), "None != Some");
   ok := Result(i32, u8).Ok(i32(7));
-  assert(hash_one(&mut ok) == hash_one(&mut o), "Ok(7) and Some(7) feed the same bytes (tag 1, payload 7)");
+  assert(hash_one(&ok) == hash_one(&o), "Ok(7) and Some(7) feed the same bytes (tag 1, payload 7)");
   err := Result(i32, u8).Err(u8(7));
-  assert(hash_one(&mut err) != hash_one(&mut ok), "Err != Ok");
+  assert(hash_one(&err) != hash_one(&ok), "Err != Ok");
 });
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
@@ -179,21 +179,21 @@ test("derive(Hash): struct fields in order, enum tag then fields", {
   manual := DefaultHasher.new();
   manual.write_i32(i32(1));
   manual.write_i32(i32(2));
-  assert(hash_one(&mut p) == manual.finish(), "struct == its fields");
-  assert(hash_one(Point(i32(2), i32(1))) != hash_one(&mut p), "field order matters");
+  assert(hash_one(&p) == manual.finish(), "struct == its fields");
+  assert(hash_one(Point(i32(2), i32(1))) != hash_one(&p), "field order matters");
   r := Shape.Rect(i32(3), i32(4));
   manual2 := DefaultHasher.new();
   manual2.write_u64(u64(2));
   manual2.write_i32(i32(3));
   manual2.write_i32(i32(4));
-  assert(hash_one(&mut r) == manual2.finish(), "enum == tag then fields");
+  assert(hash_one(&r) == manual2.finish(), "enum == tag then fields");
   d := Shape.Dot;
   manual3 := DefaultHasher.new();
   manual3.write_u64(u64(0));
-  assert(hash_one(&mut d) == manual3.finish(), "unit variant == tag");
+  assert(hash_one(&d) == manual3.finish(), "unit variant == tag");
   assert(hash_one(Shape.Circle(i32(3))) != hash_one(Shape.Rect(i32(3), i32(4))), "variants differ");
   e := Empty();
-  assert(hash_one(&mut e) == SipHasher13.new().finish(), "empty struct writes nothing");
+  assert(hash_one(&e) == SipHasher13.new().finish(), "empty struct writes nothing");
 });
 // A custom Hasher: counts bytes and xors them — proves the trait's default
 // write_* methods route through `write`.
@@ -211,7 +211,7 @@ impl(
         self.count = (self.count + usize(1));
       });
     }),
-    finish : (fn(self : &mut Self) -> u64)(self.acc)
+    finish : (fn(self : &Self) -> u64)(self.acc)
   )
 );
 test("a user Hasher gets the default write_* methods through write", {
@@ -262,8 +262,8 @@ test("hash_one_with_keys matches a map's bucket hash inputs", {
   s := String.from("key");
   h := SipHasher13.new_with_keys(K0, K1);
   s.hash(&mut h);
-  assert(hash_one_with_keys(&mut s, K0, K1) == h.finish(), "same bytes, same keys");
-  assert(hash_one_with_keys(&mut s, K0, K1) != hash_one(&mut s), "keys change the hash");
+  assert(hash_one_with_keys(&s, K0, K1) == h.finish(), "same bytes, same keys");
+  assert(hash_one_with_keys(&s, K0, K1) != hash_one(&s), "keys change the hash");
 });
 test("Default on both hashers matches new()", {
   h := SipHasher13.default();

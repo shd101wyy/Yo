@@ -1412,7 +1412,7 @@ stringify_pretty :: (fn(value : &JsonValue, indent : usize) -> String)(
 impl(
   JsonValue,
   ToString(
-    to_string : (fn(self : &mut Self) -> String)(
+    to_string : (fn(self : &Self) -> String)(
       stringify(self)
     )
   )
@@ -1454,7 +1454,7 @@ _json_clone :: (fn(v : &JsonValue) -> JsonValue)(
 impl(
   JsonValue,
   Clone(
-    clone : (fn(self : &mut Self) -> Self)(
+    clone : (fn(self : &Self) -> Self)(
       _json_clone(self)
     )
   )
@@ -1552,7 +1552,7 @@ export(stringify, stringify_pretty);
 /// this to make a type encodable; the text form always goes through
 /// `stringify`, so formatting stays centralized.
 ToJson :: trait(
-  to_json : (fn(self : &mut Self) -> JsonValue)
+  to_json : (fn(self : &Self) -> JsonValue)
 );
 /// Deserialise a value from a `JsonValue` tree. Returns `Result` rather
 /// than throwing: decode failures are ordinary values a caller matches
@@ -1590,7 +1590,7 @@ _decode_int :: (fn(v : &JsonValue, lo : f64, hi : f64) -> Result(i64, JsonError)
 );
 impl(
   bool,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Bool(value : self))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Bool(value : self))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(v, .Bool(b) => .Ok(b), _ => .Err(.Other(`expected a bool`)))
@@ -1599,7 +1599,7 @@ impl(
 );
 impl(
   i8,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(i8.MIN), f64(i8.MAX)), .Ok(n) => .Ok(i8(n)), .Err(e) => .Err(e))
@@ -1608,7 +1608,7 @@ impl(
 );
 impl(
   i16,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(i16.MIN), f64(i16.MAX)), .Ok(n) => .Ok(i16(n)), .Err(e) => .Err(e))
@@ -1617,7 +1617,7 @@ impl(
 );
 impl(
   i32,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(i32.MIN), f64(i32.MAX)), .Ok(n) => .Ok(i32(n)), .Err(e) => .Err(e))
@@ -1626,7 +1626,7 @@ impl(
 );
 impl(
   i64,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(i64.MIN), f64(i64.MAX)), .Ok(n) => .Ok(n), .Err(e) => .Err(e))
@@ -1635,7 +1635,7 @@ impl(
 );
 impl(
   u8,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(0), f64(u8.MAX)), .Ok(n) => .Ok(u8(n)), .Err(e) => .Err(e))
@@ -1644,7 +1644,7 @@ impl(
 );
 impl(
   u16,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(0), f64(u16.MAX)), .Ok(n) => .Ok(u16(n)), .Err(e) => .Err(e))
@@ -1653,7 +1653,7 @@ impl(
 );
 impl(
   u32,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(0), f64(u32.MAX)), .Ok(n) => .Ok(u32(n)), .Err(e) => .Err(e))
@@ -1662,7 +1662,7 @@ impl(
 );
 impl(
   u64,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       // 2^53 is the last contiguous integer a double holds; larger u64s
@@ -1673,7 +1673,7 @@ impl(
 );
 impl(
   usize,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(0), f64(9007199254740992)), .Ok(n) => .Ok(usize(n)), .Err(e) => .Err(e))
@@ -1682,7 +1682,7 @@ impl(
 );
 impl(
   isize,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(_decode_int(v, f64(i64.MIN), f64(i64.MAX)), .Ok(n) => .Ok(isize(n)), .Err(e) => .Err(e))
@@ -1691,7 +1691,7 @@ impl(
 );
 impl(
   f32,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Number(value : f64(self)))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(v, .Number(n) => .Ok(f32(n)), .Int(i) => .Ok(f32(i)), _ => .Err(.Other(`expected a number`)))
@@ -1700,7 +1700,7 @@ impl(
 );
 impl(
   f64,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Number(value : self))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Number(value : self))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(v, .Number(n) => .Ok(n), .Int(i) => .Ok(f64(i)), _ => .Err(.Other(`expected a number`)))
@@ -1709,7 +1709,7 @@ impl(
 );
 impl(
   String,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Str(value : self.clone()))),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Str(value : self.clone()))),
   FromJson(
     from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(
       match(v, .Str(s) => .Ok(s.clone()), _ => .Err(.Other(`expected a string`)))
@@ -1719,12 +1719,12 @@ impl(
 // `str` is encode-only: a runtime String cannot become the static view.
 impl(
   str,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Str(value : String.from(self))))
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Str(value : String.from(self))))
 );
 // JsonValue round-trips through itself, so generic code can hold raw JSON.
 impl(
   JsonValue,
-  ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(self)),
+  ToJson(to_json : (fn(self : &Self) -> JsonValue)(self)),
   FromJson(from_json : (fn(v : &JsonValue) -> Result(Self, JsonError))(.Ok(v)))
 );
 impl(
@@ -1732,7 +1732,7 @@ impl(
   where(T <: ToJson),
   Option(T),
   ToJson(
-    to_json : (fn(self : &mut Self) -> JsonValue)(
+    to_json : (fn(self : &Self) -> JsonValue)(
       match(self, .Some(x) => x.to_json(), .None => JsonValue.Null)
     )
   )
@@ -1756,7 +1756,7 @@ impl(
   where(T <: ToJson),
   ArrayList(T),
   ToJson(
-    to_json : (fn(self : &mut Self) -> JsonValue)({
+    to_json : (fn(self : &Self) -> JsonValue)({
       items := ArrayList(JsonValue).new();
       (i : usize) = usize(0);
       while(i < self.len(), {
@@ -1812,7 +1812,7 @@ impl(
   where(V <: ToJson),
   HashMap(String, V),
   ToJson(
-    to_json : (fn(self : &mut Self) -> JsonValue)({
+    to_json : (fn(self : &Self) -> JsonValue)({
       keys := ArrayList(String).new();
       values := ArrayList(JsonValue).new();
       it := self.keys();
