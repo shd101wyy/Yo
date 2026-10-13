@@ -37,3 +37,11 @@ naming has no C name for a `Func` payload, and the `Fn`-trait vtable path
 (`issues/fixed/yo-self-dyn-fn-field.md`) handles only a dyn'd CLOSURE, whose capture struct is the
 boxed value. A `fn(...)` value needs either its own box (a code pointer) with a call slot that
 forwards to it, or lowering as a capture-less closure.
+
+## Note (2026-10-13)
+
+Decision 44's E0618 now rejects a named `fn` passed BARE into a `Dyn(Fn(...))`
+slot and names `dyn(f)` as the spelling
+(`issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md`),
+so this bug is now the one place that spelling still fails; `tests/closure.test.yo`
+tests a named `fn` for the rejection only until it is fixed.

@@ -3188,7 +3188,7 @@ and in git, not a silent edit.
         `dyn(...)` as the spelling, but a named `Impl(Fn(...))` value or a
         named `fn` flows bare into a `Dyn(Fn)` binding, field, argument or
         result today, and three of those four sites emit invalid C
-        (`issues/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md`).
+        (`issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md`).
         The rule: every site that erases a callable spells `dyn(f)`
         (owned, `Dyn(Fn(...))`) or `dyn(&f)` (borrowed, `&Dyn(Fn(...))`);
         a bare `f` in a `Dyn(Fn)` slot is a type error whose note names
@@ -3201,6 +3201,30 @@ and in git, not a silent edit.
         codegen, so it lands first, with `yo fix --migrate dyn-spelling`
         wrapping each bare site in the tree; `dyn(&f)` lands with `&Dyn`
         in decision 43's phase.
+        - **As built (2026-10-13, branch `feat/vbd-d44-dyn-fn-explicit`).**
+          E0618 ("a callable flows bare into a `Dyn(Fn(...))` slot", en and
+          zh-CN in `yo explain`) is raised by one helper,
+          `reject_bare_callable_into_dyn_fn` (src/evaluator/utils.yo), at
+          every flow site: a typed binding and a reassignment
+          (exprs/assignment.yo), a field write, a constructor field and a
+          variant payload (calls/type.yo), an argument
+          (`check_argument_for_parameter`), a function, specialized or
+          closure body tail and `return(f)`. A closure literal checked
+          against a `Dyn(Fn(...))` expected type raises it too, replacing
+          `Anonymous function: expected a Func or Impl(Fn(...)) type`. The
+          predicate (`is_bare_callable_into_dyn_fn`, src/types/utils.yo):
+          the slot is a `Dyn` carrying a closure trait, the value is not a
+          `Dyn` and is a `Func`, a capture struct, or a SomeT whose traits
+          or resolution reach one. The compatibility relation is untouched
+          (`SomeT` vs `DynT` still unify, which receivers need); the error
+          runs before it and before decision 38's escape check. A bare atom
+          carries a `yo fix` repair (`f` → `dyn(f)`); `yo fix <path>
+          --migrate dyn-spelling` records every site instead of rejecting
+          it and wraps it. No codegen change. One gap stays open:
+          `dyn(named_fn)` itself emits invalid C
+          (`issues/dyn-of-a-named-function-value-emits-invalid-c.md`), so a
+          named `fn` is tested only for the rejection; write
+          `dyn(() => f())` until that issue is fixed.
       - **`&Dyn(Trait)` is the borrowed object, not a pointer to the
         handle.** For every other `T`, `&T` points at the `T` value. For
         `Dyn`, `&d` over an owned `d : Dyn(Trait)` is the fat pair over the

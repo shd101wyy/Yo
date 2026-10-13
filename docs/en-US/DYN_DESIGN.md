@@ -236,6 +236,30 @@ __yo_dyn_trait_Printer result = {
 
 **Key Point**: Since `Dyn` is a value type, it's created on the stack. The `data` pointer's ownership is transferred (no dup at construction).
 
+### `dyn(...)` is the only way in
+
+A value becomes a `Dyn` only where the program writes `dyn(...)`
+(`plans/VALUES_BY_DEFAULT.md` decision 44). There is no implicit
+conversion at a typed slot: not for a nominal value (`use_id(point)` into a
+`Dyn(Id)` parameter is a type error; write `use_id(dyn(point))`), and not for
+a callable. A named closure, a named `fn`, an `Impl(Fn(...))` parameter or a
+closure literal in a `Dyn(Fn(...))` binding, field, argument or result is
+error E0618, whose note names the spelling:
+
+```yo
+run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
+main :: (fn() -> unit)({
+  n := i32(3);
+  (f : Impl(Fn() -> i32)) = (() => n);
+  _x := run(dyn(f)); // `run(f)` is E0618: write `dyn(f)`
+});
+export(main);
+```
+
+`yo fix <path> --migrate dyn-spelling` wraps every bare site in a tree. An
+`Impl(Fn(...))` slot is the closure's own static type, not an erasure, so a
+closure flows into it bare.
+
 ## Method Dispatch
 
 Method calls on `Dyn` go through the vtable. Since `Dyn` is a value type, `value` is the struct itself.
