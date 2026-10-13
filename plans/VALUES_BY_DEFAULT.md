@@ -72,9 +72,10 @@ Progress:
     prelude switch is Generation B).
   - V4: decision 31's wrapper patterns `Rc(p)` / `Arc(p)`, Generation A
     (feat/vbd-v4-wrapper-patterns; Generation B deletes the implicit `Rc`
-    look-through once a seed carries it). The `TypeValue` conversion is
-    blocked on two codegen issues, both fixed and waiting for a seed to
-    carry them: value-enum drops are per-type functions
+    look-through once a seed carries it). The `TypeValue` conversion to a
+    value enum was built and measured, and `TypeValue` stays an `Rc` handle
+    (decision 21, amended 2026-10-13). The two codegen bugs it found are
+    fixed: value-enum drops are per-type functions
     (`issues/fixed/value-enum-drops-are-emitted-inline-at-every-drop-site.md`),
     and a recursive enum's self-shell no longer splits `Option(E)` into two
     C types
