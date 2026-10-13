@@ -1148,11 +1148,14 @@ instead.
   into the future, because one bundle starts many futures.
   - An explicit-copy or move-only bundle field is an error at the site. A
     generated deep clone would be a hidden copy.
-  - Shared state goes in a handler that captures an `Rc` (V2c).
-  - **Decided 2026-10-13 (V2c):** an effect is always a value. A bundle
-    field must be implicitly copyable, so after V2c an `Rc` field is an
-    error, and shared state goes in a handler's capture list
-    (`{ st : Rc.clone(st) }`). V2c's design notes give the reasoning.
+  - **Decided 2026-10-13 (the maintainer): an effect bundle is a value.**
+    Its handlers are capture-free standalone functions
+    (`docs/en-US/ALGEBRAIC_EFFECTS.md`, "Handler Functions Are Not
+    Closures"), so the bundle is a `Copy` record once V2b and V2c have
+    run. Shared state reaches a handler as an argument at the effect call,
+    and reaches a task through its `io.async` capture list
+    (`io.async({ st : Rc.clone(st) }(e : Io) => …)`). See V2c's design
+    notes.
   - **As built (2026-10-12, A6).** With a borrowing future, A2 also requires
     the `io.await` bundle to be a place (see A2's "As built" note).
     `_check_bundle_fields_copy`
@@ -5246,32 +5249,41 @@ compiler; the std shapes are plain structs the seed lowers):
     after. Each explicit clone replaces an implicit dup that the optimizer
     used to cancel, so a rise in `___dup` calls in the self-build is the
     cost to report. It is not a reason to keep a fallback.
-  - **A6, the `Rc` bundle field. Decided 2026-10-13 (the maintainer):
-    an effect is always a value.** `io.await` and `io.spawn` keep taking
-    `e : E` by value (#1318), and an effect bundle is never lent.
-    - **The rule A6 already enforces stands.** A bundle field must be
-      implicitly copyable. Once V2c makes an `Rc`/`Arc` handle
-      explicit-copy, an `Rc` field in a bundle is an error at
-      `io.await`/`io.spawn`, as a move-only or non-`Copy` field already is
-      (`_check_bundle_fields_copy`). No std or test bundle has such a
-      field.
-    - **Shared state lives in a handler.** A handler is a closure, and it
-      takes its share through its capture list: `{ st : Rc.clone(st) }`.
-      The clone is spelled where the sharing happens, and copying the bundle
-      copies the handler, not a bare handle. The A6 note and its E0901
-      help text change from "keep shared state in an `Rc` field" to this.
+  - **A6, the bundle. Decided 2026-10-13 (the maintainer): an effect
+    bundle is a value.** `io.await` and `io.spawn` keep taking `e : E` by
+    value (#1312, #1318), and a bundle is never lent.
+    - **A bundle is a `Copy` record.** Its handlers are capture-free
+      standalone functions: a handler body cannot read a local of the
+      scope that installed it (`docs/en-US/ALGEBRAIC_EFFECTS.md`, "Handler
+      Functions Are Not Closures"; a `->` handler that names an outer
+      local is rejected, and a capture list does not parse there). A
+      handler field is therefore a function pointer, and copying the
+      bundle copies pointers and `Copy` data, with no hidden owner. This
+      is decision 36's implicit copy, the same as an `i32`'s.
+    - **The A6 check is unchanged.** `_check_bundle_fields_copy` rejects a
+      field that `type_requires_explicit_copy` reports. Today a `String`,
+      collection or `Rc` field still passes, because those kinds are still
+      implicitly shared. V2b makes `String` and the collections
+      explicit-copy, and V2c does the same for `Rc`/`Arc`. After both, the
+      check rejects exactly the non-`Copy` fields, and every bundle is a
+      `Copy` record. No std or test bundle has such a field.
+    - **Shared state:**
+      - It reaches a handler as an argument at the effect call, or as an
+        `Rc` the caller passes in (ALGEBRAIC_EFFECTS.md).
+      - It reaches a task through its `io.async` capture list:
+        `io.async({ st : Rc.clone(st) }(e : Io) => …)`. The clone is
+        spelled where the second owner appears. A probe on 2026-10-13 ran
+        this with one future awaited and one spawned, sharing one cell.
+      - V2c rewrites the A6 check's E0901 help text: it says "keep shared
+        state in an `Rc` field of the bundle" today, which is wrong once
+        an `Rc` field is rejected.
     - **Rejected:**
       - cloning a bundle's `Rc` fields implicitly at each copy, which makes
-        a hidden owner at every await;
-      - an explicit-copy bundle, which needs `io.await(f, b.clone())`
-        wherever `b` is used again;
-      - lending the bundle to `io.await` (`e : &E`), because an effect is a
-        value.
-    - **V2c's test:** a handler that captures an `Rc` through its capture
-      list passes the bundle check and shares the cell correctly across
-      several awaits and a spawn. If the closure's capture struct makes the
-      handler explicit-copy, V2c has to settle the closure's kind before
-      this rule can ship.
+        a hidden owner;
+      - an explicit-copy bundle (`io.await(f, b.clone())`), which is moot
+        because a bundle cannot hold owned state;
+      - lending the bundle (`e : &E`), because there is no borrowed state
+        to lend, and `&` would mark every effect parameter again.
 
 **After V2b: the allocator interface, version 2** (queued by the maintainer
 2026-10-13). Today's `AllocatorVTable(alloc, realloc, free)` is Zig's
@@ -5402,6 +5414,26 @@ stage-2 RSS.
    - Every whole-value read or write through a reference in `std/` and
      `src/` is rewritten to `.*`, by `yo fix <path> --migrate deref`, which
      reuses V3b's borrow-site tooling.
+
+**Open, not decided (noted 2026-10-13):**
+- **Handler (`ctl`) types could become structurally second-class.**
+  Decision 43 makes any type that contains a `&` second-class (no store,
+  no return, no escaping capture). Treating a `ctl` handler type the same
+  way would retire the special escape rules a handler needs today, because
+  its `unwind` targets the frame that installed it:
+  - `type_is_control_bound` and the definition-time check from
+    `issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md`;
+  - the `ref`-field fix from
+    `issues/fixed/ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md`;
+  - the module-level binding check from
+    `issues/fixed/module-level-control-bound-binding-not-rejected.md`.
+  - Each of these is one more escape route patched by hand. The
+    structural rule would cover every route, including ones not yet
+    found.
+  - This is independent of how a bundle is passed. A bundle holding a
+    second-class handler is itself second-class, so `io.spawn`'s copy needs
+    its own rule here (a task's `unwind` aborts the task, §3.13 A2).
+  - It is decided in step 2.
 
 **Decided 2026-10-13 (the maintainer):**
 - **`.*` on a whole-value read.** Decision 43 makes `n + 1` with
