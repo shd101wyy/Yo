@@ -3041,7 +3041,8 @@ and in git, not a silent edit.
       `RefCell(&T)`, a `Dyn` payload: E0909), it is never spawned, never
       captured by an escaping closure, never `Send`. Lifetimes are elided:
       a borrow set per value (R2), the single-root return with `depends`
-      (R3), `Rc` roots only through the pin (R5), async per A2 (R6).
+      (R3), no root through an `Rc`/`Arc` deref (R5, as decision 38 D),
+      async per A2 (R6).
     - **Root-joining containers (R7).** `ArrayList(&T)`, `HashMap(&K, V)`
       and every buffer-owning container over a `&` are legal and
       second-class, with a borrow set that **grows** (amended 2026-10-13
@@ -3098,7 +3099,7 @@ and in git, not a silent edit.
       writes only. The container is returned under R3 over the joined set
       (`words(self : &Doc) -> ArrayList(View(u8))` compiles when every
       pushed view is rooted in `self`). Elements rooted through an
-      `Rc`/`Arc` deref are rejected (one pin per element is not taken);
+      `Rc`/`Arc` deref are rejected (R5: a plain `Rc` holds no marks);
       `Rc(ArrayList(&T))` is E0909. Codegen is a buffer of pointers with no
       count traffic and no element drops.
       - **Its tracker is new.** The closures' capture-borrow sets
