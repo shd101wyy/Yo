@@ -9,8 +9,8 @@ feat/vbd-v2b-index-mut-genb).
 `ToString.to_string` take `self : &Self`, and the sweep landed with it:
 every impl in `std/`, `src/` and `tests/` that spelled the receiver, the
 `derive(Clone)` rule's `Deref`-field spelling (`(type_of(self.f) <:
-Clone).clone(&self.f)`), the call sites that lent `&mut` to an applied
-`Rc(i32).clone(...)`, and the instruction, cheatsheet and user docs. The
+Clone).clone(&self.f)`), and the instruction, cheatsheet and user docs (the
+applied `Rc(i32).clone(&b)` call sites were respelled by #1328). The
 `derive(Clone)`, `derive(ToString)` and `derive(Error)` rules write an
 unannotated `self -> ...` member, so they take the trait's new mode with no
 edit (the `Box` and `Rc` impls already spelled `self : &Self`, #1328); `x.clone()`
