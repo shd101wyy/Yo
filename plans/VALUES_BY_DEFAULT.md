@@ -3068,23 +3068,25 @@ and in git, not a silent edit.
       the list `ser.out` points at). The callee is checked against its
       clause or the default: every root it joins into a target reached
       through a `&mut` parameter must be that target's own carried root or
-      a declared source, so a lying `depends(dst :)` and a
+      a declared source, so a lying `depends(dst : ())` and a
       `dst.push(&local)` are both errors; a closure's `&mut` captures
       count as parameters, its literal's join summary applies where the
       capture is taken, and its own parameters never join a captured
-      target. The `depends` grammar is one clause in two positions
-      (`NON_ESCAPABLE_TYPES.md` R3/R7): `depends(a, b.*)` on a
-      reference-returning function names the result's sources;
-      `depends(dst : a, b.*)` names what flows into a `&mut`
-      reference-holding parameter, and `depends(dst :)` says nothing
-      does. `depends(p)` is `p`'s whole borrow set (for a lend, the
-      place itself); `depends(p.*)`, for a reference-typed `p`, only what
-      the referent carries:
-      `next(self : &mut Self, depends(self.*)) -> Option(&T)` is a
-      non-lending iterator, `pop` keeps the popped reference's roots
-      without borrowing the list, and a by-value reference-holding
-      parameter (`Entry`'s `or_insert(self, v)`, a parser's `View(u8)`
-      input) carries its roots out. `depends(dst :)` is the spelling
+      target. The `depends` clause (`NON_ESCAPABLE_TYPES.md` R3, decided
+      2026-10-13) is one clause whose every entry is `target : sources`,
+      written right after `where(...)`: a target is the return label
+      (named as `ensures` names it) or a `&mut` reference-holding
+      parameter, a source is a parameter `p` (its whole borrow set) or
+      `p.*` (only what a reference parameter's referent carries), `()`
+      says nothing flows in, and several sources form a tuple —
+      `pick(a, b, depends(view : a)) -> (view : View(u8))`,
+      `push(self, value, depends(self : value))`,
+      `append(self, other, depends(self : other.*, other : ()))`.
+      `next(self : &mut Self, depends(item : self.*)) -> (item :
+      Option(&T))` is a non-lending iterator, `pop` keeps the popped
+      reference's roots without borrowing the list, and a by-value
+      reference-holding parameter (`Entry`'s `or_insert(self, v)`, a
+      parser's `View(u8)` input) carries its roots out. `depends(self : ())` is the spelling
       every non-storing lookup (`remove(&k)`, `binary_search(&probe)`,
       `contains(&x)`) must carry, a std obligation checked by a test that
       a probe key is usable after the call. A later refinement may derive

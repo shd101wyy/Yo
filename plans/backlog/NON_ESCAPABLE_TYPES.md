@@ -14,7 +14,7 @@ Amended 2026-10-13 after the audit in issue #1330 (R7's join domain, the
 callee-side `depends` check, joins inside closures, joins on the root
 place, place writes as joins, the N1/N2 boundary) and a second pass the
 same day: R3 separates a parameter's place from the roots it carries
-(`depends(p)` / `depends(p.*)`) and admits by-value reference-holding
+(sources `p` / `p.*`) and admits by-value reference-holding
 parameters as roots, without which the entry API, parser remainders and
 non-lending iterators failed R3; joins target every `&mut`
 reference-holding argument, never the argument itself; the root place is
@@ -159,70 +159,51 @@ of a parameter's *place*; a reference-holding value can also carry roots
   module-level root or an owned by-value parameter (one whose type
   contains no reference) in the result is a compile error at the
   `return`, naming the place.
-- **Two kinds of dependency: a parameter's whole borrow set, or what its
-  referent carries.** `depends(p)` says the result may carry `p`'s whole
+- **Two kinds of source: a parameter's whole borrow set, or what its
+  referent carries.** A source `p` says the result may carry `p`'s whole
   borrow set: for `p : &X` or `&mut X`, the lent place itself (and,
   transitively, everything it carries) — a projection into `p`'s storage
   (`xs(i)` with `xs : &ArrayList(T)`, `&self.field`) needs this; for a
   by-value `v : View(T)` or `self : Entry(K, V)`, the roots `v` carries.
-  `depends(p.*)`, for a reference-typed `p` only, says the result carries
+  A source `p.*`, for a reference-typed `p` only, says the result carries
   only what the referent carries, never the referent itself — a `&` read
   out of a reference component, an element moved out of a buffer of
   references, a sub-view of a view `p` points at. A `&mut` is never
   carried out of a place that keeps it: a `&mut` component cannot be
   copied, so a `&mut` reached through `p`'s referent is a reborrow of
-  that referent, and `depends(p.*)` rejects it. `IterMut`'s `next` is
-  therefore a lending iterator (`depends(self)`), which keeps two live
+  that referent, and a `p.*` source rejects it. `IterMut`'s `next` is
+  therefore a lending iterator (source `self`), which keeps two live
   items from aliasing; the borrowed `for(&mut xs, …)` stays the spelling
   for mutation. Only `&` roots read out of components and values moved
   out (an element `pop`ped from a buffer) are carried.
 
 ```yo
-slice :: (fn(generic(T : Type), xs : &ArrayList(T), lo : usize, hi : usize) -> View(T))(...); // depends(xs), the default
-longest :: (fn(a : &ArrayList(u8), b : &ArrayList(u8)) -> View(u8))(...); // depends on a AND b
-pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(a)) -> View(u8))(...); // narrowed: a view of b is an error
+slice :: (fn(generic(T : Type), xs : &ArrayList(T), lo : usize, hi : usize) -> View(T))(...); // source xs, the default
+longest :: (fn(a : &ArrayList(u8), b : &ArrayList(u8)) -> View(u8))(...); // sources a AND b, the default
+pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(view : a)) -> (view : View(u8)))(...); // narrowed: a view of b is an error
 // The item borrows the list the cursor carries, not the cursor: two items may be live
 // across two `next` calls, and `out.push(x)` from `it.next()` leaves `it` usable.
-next :: (fn(generic(T : Type), self : &mut Cursor(T), depends(self.*)) -> Option(&T))(...);
+next :: (fn(generic(T : Type), self : &mut Cursor(T), depends(item : self.*)) -> (item : Option(&T)))(...);
 // With T = &U, the popped reference keeps U's roots, not a borrow of the list:
 // `x := stack.pop(); stack.push(y)` is accepted.
-pop :: (fn(generic(T : Type), self : &mut ArrayList(T), depends(self.*)) -> Option(T))(...);
+pop :: (fn(generic(T : Type), self : &mut ArrayList(T), depends(item : self.*)) -> (item : Option(T)))(...);
 // By-value reference-holding parameters carry their roots out: the parser remainder.
 parse_int :: (fn(input : View(u8)) -> Result((View(u8), i64), ParseError))(...);
 ```
 
-- **Defaults.** With no clause a result depends on every
-  reference-holding parameter `p` as `depends(p)`; a lent
+- **Defaults.** With no entry for the result, it has every
+  reference-holding parameter `p` as a source `p`; a lent
   `Impl(Fn(...))` parameter counts by its captures. This is the
-  conservative reading: without `depends(self.*)`, `next` is a *lending*
-  iterator (the item freezes the cursor). The dependency is defaulted
+  conservative reading: without `depends(item : self.*)`, `next` is a
+  *lending* iterator (the item freezes the cursor). The dependency is defaulted
   from the signature, never a lifetime name, and the clause only narrows.
-- **At the call site** the result carries, for each `depends(p)`, the
+- **At the call site** the result carries, for each source `p`, the
   argument's whole borrow set (for a lend `&x`, the place `x` in its
-  mode), and for each `depends(p.*)`, the argument's borrow set without
+  mode), and for each source `p.*`, the argument's borrow set without
   the lent place — each frozen until the result's last use (A2's
   caller-side mapping, extended). Result types
   may be composites over references (`-> Option(&T)`, `-> (View(T),
   usize)`, `-> Result((View(u8), T), E)`).
-- **The `depends` clause, one grammar.** It is a signature clause written
-  in the parameter list, exactly where `requires`/`ensures`/`assumed` go
-  (that *is* "beside the contract clauses" in Yo). Two positions:
-  `depends(a, b.*)` names the sources of a reference-holding **result**;
-  `depends(dst : a, b.*)` names what flows into a `&mut`
-  reference-holding **parameter** `dst` (R7), and `depends(dst :)` with an
-  empty list says nothing does. A source is any reference-holding
-  parameter other than `dst`. Absent, the defaults apply: a result as
-  above; for a target `dst`, every other reference-holding parameter
-  joins its whole borrow set, except a lent `Impl(Fn(...))` parameter,
-  which joins nothing. The clause is part of the function type: an
-  `Impl(Fn(…) -> &U)` slot with no clause means the default, a value with
-  a narrower clause coerces into it, a value with a wider one does not —
-  so two closures differing only in `depends` have distinct types,
-  ordered by subtyping (`p.*` is narrower than `p`); `p.*` on a
-  parameter whose type is not a reference is an error. A trait method's
-  clause binds every impl: the `Iterator` trait's `next` declares
-  `depends(self.*)`, so generic code sees an item's roots, not the
-  iterator's place.
 - **The callee is checked against its clause (or the default), in both
   positions; a clause is never trusted** — except in raw-pointer code
   (std's buffer internals, `RawSlice`), where the tracker sees no roots
@@ -230,8 +211,8 @@ parse_int :: (fn(input : View(u8)) -> Result((View(u8), i64), ParseError))(...);
   tests each such clause (below and R7). The tracker (R7) records, for
   every root, whether it is a parameter's place or a root that parameter
   carries. At each `return`, every root of the result must be covered by
-  the declared sources: a projection into `self`'s storage under
-  `depends(self.*)` is an error. At every join inside the body (R7), each
+  the declared sources: a projection into `self`'s storage under a
+  `self.*` source is an error. At every join inside the body (R7), each
   root joined into a target reached through a `&mut` parameter `dst`, or
   through a `&mut` component of a by-value parameter (`ser.out` with
   `ser : Serializer`), must be one of that target's own carried roots (`dst.push(dst.pop())` is fine) or
@@ -240,8 +221,9 @@ parse_int :: (fn(input : View(u8)) -> Result((View(u8), i64), ParseError))(...);
   `f : &Impl(Fn() -> &T)` needs `depends(dst : f.*)`, which then makes
   the caller join `f`'s captures.
 - **Std's obligations.** An iterator's `next`, `pop`, `take` and every
-  copy or move of an element out of a buffer declare `depends(self.*)`;
-  every lookup returning a projection declares `depends(self)`, so
+  copy or move of an element out of a buffer name `self.*` as the
+  result's source; every lookup returning a projection names `self`
+  (`get(self : &Self, k : &K, depends(v : self)) -> (v : Option(&V))`), so
   `m.get(&k)` does not keep `k` frozen while the result lives; the
   container-position obligations are in R7.
 - **Why the two defaults treat a lent closure differently.** A result
@@ -262,13 +244,77 @@ parse_int :: (fn(input : View(u8)) -> Result((View(u8), i64), ParseError))(...);
   signature, `depends` included, and the caller maps from the signature
   alone.
 
+#### The `depends` clause
+
+One clause, one grammar, fitted to the contract clauses' rules
+(`.github/instructions/yo-syntax.instructions.md`, "Design-by-contract
+clauses"; `_clause_zone` in `src/evaluator/types/function.yo`):
+
+```yo ignore
+// every entry is `target : sources`
+depends(target : source)
+depends(target : (source, source, ...))
+depends(target : ()) // nothing flows into target
+depends(t1 : sources, t2 : sources, ...) // several targets, ONE clause
+```
+
+- **A target** is the **return label** — the result is named the way
+  `ensures` names it, `-> (view : View(u8))`, with no magic `result`
+  identifier — or a parameter R7 can grow: one of type `&mut` over a
+  reference-holding type, or a by-value parameter with a `&mut`
+  component. Each target appears at most once, and a return label that
+  shadows a parameter name is an error (`depends(self : …)` must mean
+  the parameter).
+- **A source** is a reference-holding parameter `p`, or `p.*` when `p`'s
+  type is a reference (R3 above). A target never lists itself: its own
+  carried roots may always rejoin it.
+- **`()` says nothing flows in**: `depends(self : ())` on a lookup
+  (`remove(&k)`, `binary_search(&probe)`, `contains(&x)`). A single source
+  needs no parentheses; several form a tuple.
+- **A target the clause does not name keeps its default** — for the
+  result, every reference-holding parameter; for a `&mut` target, every
+  other reference-holding parameter, a lent `Impl(Fn(...))` excepted.
+  An entry replaces its target's default; the one source it can add is a
+  lent `Impl(Fn(...))` for a `&mut` target (`depends(dst : f.*)`, R3's
+  callee check).
+- **Clause-call rules, as for `requires`/`ensures`:** at most one
+  `depends(...)` per signature, several targets inside it; `depends()`
+  is a syntax error (omit the clause).
+- **Its zone is right after `where`:** `generic(...)`, parameters,
+  `where(...)`, `depends(...)`, `requires(...)`, `ensures(...)`,
+  `decreases(...)`, `assumed()`. It belongs to the function's type, like
+  `where`, and is not a contract — so the contracts that follow may
+  describe the result it scopes.
+- **It is part of the function type.** It may be written in `Fn(...)`
+  types and trait method signatures: an `Impl(Fn(a : &T) -> &U)` slot
+  with no clause means the default, a value with a narrower clause
+  coerces into it, a value with a wider one does not — so two closures
+  differing only in `depends` have distinct types, ordered by subtyping
+  (`p.*` is narrower than `p`, `()` narrowest). A trait method's clause
+  binds every impl: the `Iterator` trait's `next` declares
+  `depends(item : self.*)`, so generic code sees an item's roots, not
+  the iterator's place.
+
+```yo
+pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(view : a)) -> (view : View(u8)))(...);
+longest3 :: (fn(a : &String, b : &String, c : &String, depends(view : (a, b))) -> (view : View(u8)))(...);
+// std's ArrayList methods, written as free functions
+push :: (fn(generic(T : Type), self : &mut ArrayList(T), value : T, depends(self : value)) -> unit)(...);
+// nothing flows into self; the removed element keeps its roots, not the key's
+remove :: (fn(generic(T : Type), self : &mut ArrayList(T), key : &T, depends(self : (), item : self.*)) -> (item : Option(T)))(...);
+append :: (fn(generic(T : Type), self : &mut ArrayList(T), other : &mut ArrayList(T), depends(self : other.*, other : ())) -> unit)(...);
+// a result and a target in one clause
+pop_into :: (fn(generic(T : Type), self : &mut ArrayList(T), out : &mut ArrayList(T), depends(out : self.*, item : self.*)) -> (item : Option(T)))(...);
+swap :: (fn(generic(T : Type), a : &mut T, b : &mut T, depends(a : b.*, b : a.*)) -> unit)(...);
+```
+
 ### R4. Methods and iterators
 
 A reference-holding type has ordinary `&Self`, `&mut Self` and `Self`
 methods, `Dispose` (the scope-end drop is an access, decision 38 A, so a
 guard's `dispose` runs while its borrow is live), and trait impls. A
 borrowing iterator is `iter(self : &Self) -> Cursor(T)` (R3, root `self`)
-with `next(self : &mut Self, depends(self.*)) -> Option(&T)` (the item
+with `next(self : &mut Self, depends(item : self.*)) -> (item : Option(&T))` (the item
 carries the cursor's roots, not the cursor); the borrowed `for(&xs, …)`
 dispatches through `impl(&C, IntoIterator(…))`, Rust's shape
 (`issues/questions/borrowed-for-over-user-defined-collections.md`). A
@@ -356,14 +402,14 @@ and a drained container's place for the receiver's (`a.append(&mut b)`),
 so std narrows:
 
 - every non-storing method with a reference-holding parameter beside a
-  `&mut` target declares `depends(self :)` — tested by "the probe key is
+  `&mut` target declares `depends(self : ())` — tested by "the probe key is
   usable after the call";
 - a storing one names what it stores:
   `push(self : &mut Self, value : T, depends(self : value))`;
 - a draining or exchanging one names what the other side carries, not
   its place: `append(self : &mut Self, other : &mut Self, depends(self :
-  other.*), depends(other :))`, `swap(a : &mut T, b : &mut T, depends(a :
-  b.*), depends(b : a.*))` — tested by "`b` is usable after the call".
+  other.*, other : ()))`, `swap(a : &mut T, b : &mut T, depends(a : b.*,
+  b : a.*))` — tested by "`b` is usable after the call".
 
 A later refinement may derive the joins from the mutation summaries
 (§3.10's machinery) instead of the declaration; the clause stays the
@@ -433,7 +479,7 @@ words :: (fn(self : &Doc) -> ArrayList(View(u8)))({
 | --- | --- | --- |
 | §2.4 sub-range arguments, `RUST_ADOPTION_CANDIDATES.md` L1 | `View(T)` (or a builtin `[T]` over it): `&xs` + range, zero-copy, `len` + `Index` projections, a `for` source | `&[T]`, Swift `Span` |
 | §2.2 `fn words(&self) -> Vec<&str>` | `words(self : &Doc) -> ArrayList(View(u8))` (R7, root `self`), pass-local | `Vec<&'a str>` |
-| §5.1 borrowing iterators, adapter chains over a borrowed container | `iter(self : &Self) -> Cursor(T)`, `next(self : &mut Self, depends(self.*)) -> Option(&T)`, adapters as inline structs holding the cursor; `impl(&C, IntoIterator)` for the `for` | `impl Iterator<Item = &T> + 'a` |
+| §5.1 borrowing iterators, adapter chains over a borrowed container | `iter(self : &Self) -> Cursor(T)`, `next(self : &mut Self, depends(item : self.*)) -> (item : Option(&T))`, adapters as inline structs holding the cursor; `impl(&C, IntoIterator)` for the `for` | `impl Iterator<Item = &T> + 'a` |
 | §4.5 the entry API | `entry(self : &mut Self, k) -> Entry(K, V)` (R3), `or_insert(self, v) -> &mut V` | `Entry<'a, K, V>` |
 | §3.2 guards | `lock(self : &mut Self) -> LockGuard(T)` with `Dispose` unlocking; `with_lock` stays the recommended form | `MutexGuard<'a, T>` |
 | §3.5 sinks | `Serializer :: struct(out : &mut StringBuilder, depth : usize)` | `Serializer<'a, W>` |
@@ -470,8 +516,10 @@ keep their catalog answers (`RUST_REFERENCE_PATTERNS.md` §14).
 - **Docs.** The catalog's §2.2, §2.4, §3.2, §4.5, §5.1 are rewritten with
   the phase; decision 38 A's type-position bullet, decision 24 and decision
   39 already carry the final rule.
-- **Tooling.** `yo fmt` lays out the `depends` clause like the contract
-  clauses; LSP signature help and hover show it; `yo doc` prints the
+- **Tooling.** The parser and `_clause_zone` learn the `depends` zone
+  (after `where`), and `Fn(...)` types accept the clause — the first
+  clause that is part of a function type; `yo fmt` lays it out like the
+  contract clauses; LSP signature help and hover show it; `yo doc` prints the
   inferred default (§7). New error codes in the diagnostics registry, each
   with a `yo explain` entry: the R3 return of a non-parameter root, a
   return outside the declared sources (including a place under `p.*`),
@@ -502,7 +550,7 @@ already obey. The places a reference could escape, and what stops it:
    against its `depends` clause or the default (R3), so the declaration
    the caller trusts is never a lie (raw-pointer code excepted, where it
    is the tested trusted statement).
-4. **Through a carried result** — `depends(p.*)` maps to the argument's
+4. **Through a carried result** — a `p.*` source maps to the argument's
    roots, not its place, and is checked in the callee: a projection into
    `p`'s storage, or a reborrow of a `&mut` reached through `p`, under
    `p.*` is an error, so a carried result never points into the argument
@@ -531,7 +579,7 @@ of a container with a non-parameter root; an `Rc`-rooted element in a
 container; a `&mut T` through a `&` path written (error);
 `push_all(&mut out, &vals)` then `vals` dropped while `out` lives (E0911
 at the drop); `r := cell.get_mut()` (error naming `with_mut`); a bare
-`cur = v` with `v : T` (type error); a `depends(dst :)` callee that
+`cur = v` with `v : T` (type error); a `depends(dst : ())` callee that
 pushes its `&` argument into `dst` (container check); a callee pushing
 `&local` into a `&mut` parameter's container, with and without a clause;
 `out.push(local.view(r))` then a write to `local` while `out` lives (a
@@ -550,23 +598,23 @@ passed by value and `ser.out` the caller's list, then a write to `x`
 while the list lives (a carried `&mut` root is a target); `ser.out.push(&x)` with `ser.out` a `&mut`
 list, then `ser` dies and `x` is written while the list lives (the join
 follows the reference); `dst.push(f())` with `f : &Impl(Fn() -> &T)` and
-no `depends(dst : f.*)`; a result under `depends(self.*)` that projects
-into `self`; `IterMut`'s `next` under `depends(self.*)` (a `&mut`
+no `depends(dst : f.*)`; a result with a `self.*` source that projects
+into `self`; `IterMut`'s `next` with a `self.*` source (a `&mut`
 reborrow is never carried); `next` with no clause and two items live
 (the lending default, E0911); `xs.for_each(x => out.push(x))`. Positive
 controls: a local
 `Array(&T, 3)` from three lends; `(a, n) := t` re-borrowing;
 `-> Result((View(u8), T), E)`; `f(v)` copying an all-`&` view; `words`;
-`map.remove(&k)` followed by a use of `k` (the `depends(self :)`
+`map.remove(&k)` followed by a use of `k` (the `depends(self : ())`
 obligation); `out.retain(x => x.len() > n)` followed by a write to `n`
 (a lent closure joins nothing); `out.push(&x)` then `out.push(&y)` (the
-receiver never joins itself); `next` under `depends(self.*)` with two
+receiver never joins itself); `next` with a `self.*` source and two
 items live and `out.push(x)` from it followed by another `it.next()`;
 `x := stack.pop(); stack.push(y)` on `ArrayList(&T)` (on
 `ArrayList(&mut T)` a set never shrinks, so pushing a popped `&mut`
 back while it lives overlaps the receiver under decision 38 B — a stated
 limitation, not a hole); `a.append(&mut b)`
-then a use of `b`; `dst.push(dst.pop())` under `depends(dst :)`;
+then a use of `b`; `dst.push(dst.pop())` under `depends(dst : ())`;
 `parse_int(input)` returning the remainder of a by-value `View(u8)`;
 `entry(k).or_insert(v)` with the `Entry` consumed; `m.get(&k)` then a
 write to `k` while the result lives; `for(&xs, x => out.push(x.*))`.
@@ -580,7 +628,7 @@ write to `k` while the result lives; `for(&xs, x => out.push(x.*))`.
 | Austral's regions and linear types | regions are lexical names; linear "use exactly once" is heavier than Yo's affine moves plus `Dispose`, and ATS A2's must-use covers the useful part |
 | references as modes only (the pre-decision-43 design) | correct but confusing (a mode written in a type slot that is not a type) and it blocks `impl(&T, …)` and `FnMut`; the maintainer chose types |
 | keep only `Rc`/indices/closures | the measured copies and the catalogued gaps |
-| lifetime names in types (`View<'a>`, lifetime-polymorphic types) | `depends(a)` does select among a signature's roots, but only as a narrowing of the inferred "depends on all of them" in one signature; a type never carries a root name, so no constraint crosses a frame |
+| lifetime names in types (`View<'a>`, lifetime-polymorphic types) | `depends(view : a)` does select among a signature's roots, but only as a narrowing of the inferred "depends on all of them" in one signature; a type never carries a root name, so no constraint crosses a frame |
 
 ## 7. Open questions, with positions
 
@@ -588,21 +636,24 @@ write to `k` while the result lives; `for(&xs, x => out.push(x.*))`.
   builtin spelling only if the verifier or codegen needs a primitive.
   Decided in L1's PR. Related: whether `str` becomes the view of an owned
   `String`'s bytes in borrow position (L1).
-- **`depends` and type identity.** Settled above as a clause in the
-  parameter list with subtyping between narrower and wider clauses; what
-  remains open is whether `yo doc` prints the inferred default clause on
-  every reference-returning signature (position: yes, so a reader sees
-  the roots without reading the body).
-- **The spelling of the carried form.** `depends(p.*)` reuses decision
-  43's deref: `p` is the reference (the lent place included), `p.*` the
-  value behind it, whose roots are what the result keeps. Position: this spelling; it is the one
-  new piece of surface syntax in the second-pass amendment and needs the
-  maintainer's verdict.
+- **The `depends` spelling — decided 2026-10-13 by the maintainer.** One
+  clause whose every entry is `target : sources`, the result named by the
+  return label as in `ensures`, zone right after `where` (R3, "The
+  `depends` clause"). Chosen over a positional result entry
+  (`depends(a, self : b)`: mixes positional and named entries, and
+  `depends(self)` reads like `depends(self : x)`) and over a second
+  clause word for targets (`stores(self : value)`: two words, two zones).
+  The carried source `p.*` reuses decision 43's deref: `p` is the
+  reference (the lent place included), `p.*` the value behind it, whose
+  roots are what the result keeps.
+- **`depends` in `yo doc`.** Whether `yo doc` prints the default clause
+  on every reference-returning signature. Position: yes, so a reader sees
+  the roots without reading the body.
 - **Collecting through a lent closure's parameter.**
   `xs.for_each(x => out.push(x))` is rejected (R7). A refinement could
-  let a slot type state its parameter's roots (`Impl(Fn(x : T,
-  depends(x : self.*)))`-shaped), so the literal's summary maps through
-  the callee's signature. Position: not now; the borrowed `for` covers
+  let the callee's signature say where its slot's argument comes from
+  (here `self.*`), so the literal's summary maps through it; it would
+  need a source-side entry the clause grammar does not have yet. Position: not now; the borrowed `for` covers
   collecting, and the refinement waits for a counted need (decision 43's
   "bites" triggers).
 - **Whether a `&`-holding value may be a `match` scrutinee by value.**
