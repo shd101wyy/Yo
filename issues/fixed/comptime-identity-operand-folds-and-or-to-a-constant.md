@@ -100,7 +100,8 @@ this change, in the evaluator and in `generate_op_and`/`generate_op_or`
 Tests: `tests/comptime.test.yo`, "&& / || with a compile-time identity operand
 keep the runtime operand" (every reproducer shape above, plus `!`, chains and
 named constants) and "&& / || over compile-time operands only still fold".
-Both fail with v0.2.60.
+The first fails with v0.2.60; the second passes there too (it guards the
+folds that must survive).
 
 ## Sweep of the guards that became live
 
