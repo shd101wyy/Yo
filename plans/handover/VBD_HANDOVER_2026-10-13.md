@@ -49,7 +49,7 @@ The integration branch `integ/v0262b` (worktree `~/Workspace/Yo-wt/integ-v0262`;
 | PR | What | State |
 | --- | --- | --- |
 | #1331 | NON_ESCAPABLE R7 audit amendments, the `depends` grammar, this handover, the V2c and decision 43 design notes | plans only; closes issue #1330 |
-| #1333 | `Clone`/`ToString`/`Hash`/`Debug`/`Format`/`ToJson`/`Error.source`/`Hasher.finish` take `&Self` (#1334 folded in) | gates green |
+| #1347 | `Clone`/`ToString`/`Hash`/`Debug`/`Format`/`ToJson`/`Error.source`/`Hasher.finish` take `&Self` (#1334 folded in; reopened from #1333, which GitHub's stack link to #1334 blocked) | merged |
 | #1337 | allocator hand-off audit (ArrayList(ZST) double free, `String.clone`'s allocator), plus #1340's S1 `&&`/`\|\|` constant folds | gates green; goldens re-recorded |
 | #1341 | V4's codegen blockers: per-type value-enum drop functions, one `Option(E)` C type for a recursive enum (#1338 folded in) | gates green |
 | #1343 | decision 45 Generation A: `Drop` beside `Dispose`, E0915, `drop(x)`, `yo fix --migrate drop-trait`; `Drop.drop` takes `self : &mut Self`, and any other receiver is rejected at the impl | gates green |
