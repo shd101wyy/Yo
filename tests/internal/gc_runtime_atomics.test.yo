@@ -166,9 +166,12 @@ test("every full-GC visitor tests TRACKED through the prefix before a full-heade
 /// (issues/fixed/runtime-callbacks-are-called-through-an-incompatible-function-pointer-type.md).
 test("a dispose_fn slot holds a void* thunk, emitted once per dispose function", {
   ctx := mk_context(true);
-  first := dispose_fn_thunk(String.from("yo_id_7"), &ctx);
-  second := dispose_fn_thunk(String.from("yo_id_7"), &ctx);
-  other := dispose_fn_thunk(String.from("yo_id_8"), &ctx);
+  by_value := String.new();
+  id7 := String.from("yo_id_7");
+  id8 := String.from("yo_id_8");
+  first := dispose_fn_thunk(&id7, &by_value, &ctx);
+  second := dispose_fn_thunk(&id7, &by_value, &ctx);
+  other := dispose_fn_thunk(&id8, &by_value, &ctx);
   assert(first == "__yo_dispose_thunk_yo_id_7", "the thunk is named after its dispose function");
   assert(second == first, "a second request returns the same thunk");
   assert(other == "__yo_dispose_thunk_yo_id_8", "each dispose function gets its own thunk");
@@ -178,4 +181,16 @@ test("a dispose_fn slot holds a void* thunk, emitted once per dispose function",
   at := must_find(&c, thunk, usize(0));
   assert(match(c.index_of(&thunk, at + usize(1)), .Some(_) => false, .None => true), "the thunk is emitted exactly once");
   assert(c.contains("static inline void __yo_dispose_thunk_yo_id_8(void* ptr) { yo_id_8(ptr); }"), "the second thunk is emitted");
+});
+/// Pin: a `Drop` impl's `___dispose` takes `self : &mut Self`, so its thunk
+/// passes the address of a local holding the handle (decision 45, #1343).
+test("a pointer-receiver dispose_fn thunk passes the address of the handle", {
+  ctx := mk_context(true);
+  id9 := String.from("yo_id_9");
+  handle_c := String.from("struct yo_id_10*");
+  thunk := dispose_fn_thunk(&id9, &handle_c, &ctx);
+  assert(thunk == "__yo_dispose_thunk_yo_id_9", "the thunk is named after its dispose function");
+  em := ctx.base.emitter;
+  c := em.print();
+  assert(c.contains("static inline void __yo_dispose_thunk_yo_id_9(void* ptr) { struct yo_id_10* __yo_self = (struct yo_id_10*)ptr; yo_id_9(&__yo_self); }"), "the thunk passes the handle's address");
 });
