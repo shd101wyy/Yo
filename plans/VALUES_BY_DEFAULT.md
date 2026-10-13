@@ -1017,7 +1017,7 @@ instead.
       28's argument exclusivity
       (`issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-the-future.md`).
       A plain call has the move case too, with the borrow ending at the call
-      (`issues/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`).
+      (`issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`).
     - **Bindings** include a `match` arm's pattern bindings
       (`note_second_class_binding` runs for them), and `_ := f(&mut x, io)`
       is rejected by name: a borrowing future cannot be discarded.
@@ -1519,6 +1519,18 @@ and in git, not a silent edit.
         an `Rc`.
     - **Phase.** The value-root rule lands with V2b. The `Rc` arm is its own
       PR after V1 step 1.
+    - **As built (2026-10-13): a move inside a later argument.** The
+      arguments are evaluated in order, so a place an argument lends (`&x`,
+      `&mut x`, `&mut x.f`, a borrowed receiver) is borrowed while the later
+      arguments run. A later argument that moves the place's root binding,
+      in a nested call or a block (`f(&mut a, eat(a))`), is E0910
+      (`_check_call_lent_place_moves`, `src/evaluator/calls/function.yo`;
+      `issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`).
+      An overwrite or a `&mut` relend in a later argument stays accepted for
+      a plain call (the callee sees the new value); a borrowing future
+      rejects all three (§3.13 A2). Whether a plain call should reject them
+      too is
+      `issues/questions/a-later-argument-overwriting-a-place-lent-to-a-plain-call.md`.
 29. *(Superseded by decision 30, which needs no lowering rule.)* It
     recorded two facts that still hold:
     - **Hylo passes every parameter and result by pointer**, adding only

@@ -239,6 +239,18 @@ caller-owned `+1` until the call returns, like an overlapping field
 projection. A borrowed handle itself never releases the caller's count
 (forwarding it to a `sink` position dups first).
 
+The arguments are evaluated in order, so a place an argument lends (`&x`,
+`&mut x`, `&mut x.f`, or the receiver of a `&self`/`&mut self` method) is
+borrowed while the later arguments run. **A later argument may not move that
+place** (E0910): in `sync(&mut a, eat(a))` the callee would read and write
+`a` after `eat` moved it out and dropped it, and a move inside a nested call
+or a block is the same. Move a copy (`eat(a.clone())`) or split the call. An
+assignment to the place, or a `&mut` relend of it, in a later argument
+finishes before the call runs and the callee sees the new value, so a plain
+call accepts it; a call that makes a borrowing Future rejects that too,
+because the Future holds the borrow until it is awaited
+([ASYNC_AWAIT.md](./ASYNC_AWAIT.md)).
+
 With no local bindings there is nothing left to "invalidate": the old
 borrow-invalidation gates were deleted along with the binding form.
 Element handles from `get` survive any container operation — even
