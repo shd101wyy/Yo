@@ -46,7 +46,7 @@ first").
 1. **The guard never let the anchor arm run.** For `T = unit` the left operand
    of `&&` is compile-time `true` and the evaluator folds the whole guard to
    that `true` even though `self._ptr.is_some()` is a runtime `false`
-   (`issues/comptime-identity-operand-folds-and-or-to-a-constant.md`). The arm
+   (`issues/fixed/comptime-identity-operand-folds-and-or-to-a-constant.md`). The arm
    was emitted as taken; the emitted C body of `ensure_total_capacity` for
    `ArrayList(unit)` was `if (min_cap <= cap) {} else {}`.
 2. **The anchor arm was wrong anyway.** `anchor` is a whole `ArrayList`

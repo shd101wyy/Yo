@@ -866,9 +866,9 @@ impl(
       // stored straight into this list: copying it out of a `_zst_anchor()`
       // list left that list's dispose to free the buffer this one keeps
       // (issues/fixed/arraylist-zst-reserve-adopts-a-buffer-its-temporary-frees.md).
-      // A nested `cond`, not a `comptime && runtime` guard, which the
-      // evaluator folds to the comptime operand
-      // (issues/comptime-identity-operand-folds-and-or-to-a-constant.md).
+      // A nested `cond`, not a `comptime && runtime` guard: compilers up to
+      // v0.2.60 (seeds that build std) fold that guard to the comptime operand
+      // (issues/fixed/comptime-identity-operand-folds-and-or-to-a-constant.md).
       (size_of(T) == usize(0)) => cond(
         self._ptr.is_some() => (),
         true => {
