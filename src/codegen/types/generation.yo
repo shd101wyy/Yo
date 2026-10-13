@@ -22,6 +22,7 @@
   get_type_string,
   get_storage_type_string,
   dyn_slot_param_type_string,
+  dyn_concrete_c_name,
   get_runtime_struct_fields,
   sanitize_for_c_identifier,
   c_variant_member_name,
@@ -1716,7 +1717,7 @@ generate_dyn_box_types :: (fn(context : &CodeGenContext) -> unit)({
         // referenced `__yo_dyn_box_unknown_<id>` with no typedef (the
         // suspension_analysis batch "unknown type name").
         concrete := resolve_some_type_to_concrete(&impl_entry.concrete_type);
-        concrete_c_name := match(context.get_type_c_name(type_key(&concrete)), .Some(cn) => cn, .None => `unknown_${type_key(&concrete)}`);
+        concrete_c_name := match(dyn_concrete_c_name(&concrete, context), .Some(cn) => cn, .None => `unknown_${type_key(&concrete)}`);
         box_name := `__yo_dyn_box_${concrete_c_name}`;
         if(!generated.contains(box_name.clone()), {
           generated.insert(box_name.clone());
