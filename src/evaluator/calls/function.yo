@@ -66,7 +66,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -8566,6 +8566,18 @@ Fix: wrap the call:
                   fv_p_owning,
                   fv_p_is_ct,
                   env,
+                  ctx,
+                  exn
+                );
+              });
+              // Decision 44: E0618 for a callable bare in a `Dyn(Fn(...))`
+              // parameter, before the move and decision 38's escape check.
+              if(!fv_p_is_ct, {
+                reject_bare_callable_into_dyn_fn(
+                  match(resolved_param_types.get(ai), .Some(t) => t, .None => t_unit()),
+                  &arg_info.ty,
+                  _unlabeled_argument(match(fv_written_args.get(ai), .Some(w) => w, .None => arg_expr_eff)),
+                  `the argument for parameter "${match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new())}"`,
                   ctx,
                   exn
                 );
