@@ -9,10 +9,10 @@
   §9.
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
   (decision 42, #1310).
-- **Handover:** the campaign was handed over on 2026-10-06. Start with
-  [`plans/handover/VBD_HANDOVER_2026-10-06.md`](handover/VBD_HANDOVER_2026-10-06.md), which has the
-  open PRs, the pushed wave-2 branches, the release step and the
-  Generation B queue.
+- **Handover:** start with
+  [`plans/handover/VBD_HANDOVER_2026-10-13.md`](handover/VBD_HANDOVER_2026-10-13.md), which has the
+  releases, the open PRs, the branches in flight and the Generation B
+  queue.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of
@@ -55,35 +55,62 @@ Progress:
     borrows `x : &T` / `x : &mut T`; a source mode word is E0009, rewritten
     by `yo fix --migrate borrow-spelling`;
   - the §6 measurement (#1220). Its call-site pass is deferred.
+  - V3b Generation B: `yo fix --migrate params` and the parameter sweep
+    (#1285), the flip to by-value plain parameters with static drop flags
+    (#1296), and step 3, where `&x` is only a borrow, `addr_of(x)` makes a
+    pointer, and `inout`/`own` are deleted (#1302);
+  - decision 26, the consuming `match` (#1305);
+  - decision 33's call-site markers everywhere, with E0914 always on, and
+    effect rows by value (#1309, #1318);
+  - decision 34's amendment: `Index` takes its index by value (#1314);
+  - the integer helpers take `self` and the operand by value (#1322);
+  - `std/imm` deleted, to be revisited (#1289);
   - V3 async A1 (§3.13): futures are move-only, `io.await`/`io.spawn`
     consume them, the `io.async` body slot is a by-value `FnOnce`, and
-    `Park` is a move-only value whose `wait` consumes it (A5's `Park` line).
-  - V3 async A2 (§3.13): a future may borrow, and is then second-class.
-  - V3 async A6's Generation A (§3.13): a bundle field that is not
-    implicitly copyable is an error where the bundle is copied.
-  - V1 step 2 Generation A, the unique `Box(V)` (feat/vbd-v1-step2-box;
-    Step 2's "as built"). Generation B, `src/` moving back to `Box`, waits
-    for the seed.
-  - decision 45 Generation A, `Drop` beside `Dispose`, E0915, `drop(x)`
-    and `yo fix --migrate drop-trait` (feat/vbd-drop-trait-gena, for
-    v0.2.62). Generation B, the tree-wide rename, waits for the seed.
-- **In progress:**
-  - V3's remaining async work (§3.13): A3 (Generation A landed with A1's
-    PR; the prelude switch waits for the seed), A4, A5's remaining lines,
-    and A6's `Rc`-field half (V2c);
-  - V2b: "Projections first", Generation A (feat/vbd-v2b-index-mut; the
-    prelude switch is Generation B).
+    `Park` is a move-only value whose `wait` consumes it (A5's `Park` line);
+    with A3 Generation A, a value `JoinHandle` and
+    `__yo_ptr_read`/`__yo_ptr_write` (#1323);
+  - V3 async A2 (§3.13): a future may borrow, and is then second-class; and
+    A6's Generation A: a bundle field that is not implicitly copyable is an
+    error where the bundle is copied (#1326, after an adversarial review's
+    two fix rounds), together with the async-lowering fixes found on the way
+    (#1325);
+  - V1 step 2 Generation A, the unique `Box(V)` (#1328; Step 2's "as
+    built");
+  - V2b "Projections first", Generation A: `-> &T` / `-> &mut T`
+    projections, and subscript dispatch through `Index` / `IndexMut` (#1324);
   - V4: decision 31's wrapper patterns `Rc(p)` / `Arc(p)`, Generation A
-    (feat/vbd-v4-wrapper-patterns; Generation B deletes the implicit `Rc`
-    look-through once a seed carries it). The `TypeValue` conversion to a
-    value enum was built and measured, and `TypeValue` stays an `Rc` handle
-    (decision 21, amended 2026-10-13). The two codegen bugs it found are
-    fixed: value-enum drops are per-type functions
+    (#1327), and the `TypeValue` prep: key-based memos, the module-type
+    rebuild, and the `Acyclic` short-circuit (#1329).
+  - decision 45 Generation A, `Drop` beside `Dispose`, E0915, `drop(x)`
+    and `yo fix --migrate drop-trait` (#1343). Generation B, the
+    tree-wide rename, waits for the seed.
+- **In progress:**
+  - The Generation B halves that wait for the v0.2.61 seed:
+    - A3's prelude switch (std's `ArrayList`/`Option` on
+      `__yo_ptr_read`/`__yo_ptr_write`, and the value `JoinHandle`);
+    - V2b's prelude switch to the new `Index`/`IndexMut`/`IndexUnchecked`
+      shapes;
+    - V1 step 2's `src/` sites moving back to `Box`;
+    - decision 31's deletion of the implicit `Rc` look-through.
+  - V2b's prerequisite: `Clone.clone`, `ToString.to_string` and the other
+    read-only trait receivers take `self : &Self`
+    (#1333).
+  - V3's remaining async work (§3.13): A4, A5's remaining lines, and A6's
+    `Rc`-field half (V2c).
+  - V4's `TypeValue`: the value-enum conversion was built and measured,
+    and `TypeValue` stays an `Rc` handle (decision 21, amended
+    2026-10-13). The two codegen bugs it found are fixed: value-enum drops
+    are per-type functions
     (`issues/fixed/value-enum-drops-are-emitted-inline-at-every-drop-site.md`),
     and a recursive enum's self-shell no longer splits `Option(E)` into two
     C types
     (`issues/fixed/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md`).
-- **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
+  - Decision 44's follow-up: a closure into a `Dyn(Fn)` slot is `dyn(f)`.
+- **Next:** the rest of V2b (direct projection calls, unique buffers, the
+  explicit-copy kind), then the allocator interface version 2 (§6, after
+  V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
+  once the README's example projects are migrated (§6, after V5).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
@@ -124,7 +151,7 @@ Unique ownership removes the question instead of answering it.
 
 | Kind | Which types | A copy is | Example |
 | --- | --- | --- | --- |
-| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `char`, `unit`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy, Clone)` (`std/string/rune.yo`'s `rune` newtype is one) (`Copy` requires `Clone`); and tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy, Clone)` |
+| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `char`, `unit`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy, Clone)` (`std/string/rune.yo`'s `rune` newtype is one) (`Copy` requires `Clone`); and tuples, arrays, anonymous records and closures whose parts are all `Copy`. Exempt, copying implicitly without `Copy`: unions, C opaque types and control-bound records (`Exception`, effect bundles; a `ctl` handler cannot be `Clone`), per `type_lacks_copy_for_flip` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy, Clone)` |
 | **explicit-copy** | owns a buffer: `String`, the collections, `Box(T)`, `Dyn(Trait)`, `Rc(T)`/`Arc(T)` handles (decision 17), and any type containing one (unless it is move-only) | an error unless it is the value's last use (then a move); an independent copy is `x.clone()` | `t := s.clone()` |
 | **move-only** (§3.4) | implements neither `Copy` nor `Clone` (decision 36); a `Dispose` type is never `Copy` | an error unless it is the last use; with `Clone` it is explicit-copy instead (`Sender`) | `f2 := f` moves the `File` |
 
@@ -318,8 +345,8 @@ else does. A value's kind follows from what it owns (§0.2).
 **`Box` changes meaning.** Today's `Box` is a shared cell, and V1 step 1
 renames every use of it to `Rc`. The new `Box` is the unique, uncounted
 indirection:
-- A recursive type uses it: `Expr :: enum(Num(i32), Add(Box(Expr),
-  Box(Expr)))`.
+- A recursive type uses it: `Expr :: enum(Num(n : i32), Add(l : Box(Expr),
+  r : Box(Expr)))`.
 - So does a resource that needs a stable address: an OS handle that must
   not move lives in a `Box` of a move-only state.
 - `Box(T)` is move-only iff `T` is.
@@ -812,6 +839,9 @@ and every free routes through the owner prefix.
   per-container owner bits (the capacity word, `_tombstones`, the
   `std/imm` length words) may move to the buffer. That is a simplification to
   measure then.
+- **Interface version 2** (after V2b, §6): an alignment parameter on
+  `alloc`/`realloc`, and `free` told the block's size and alignment, so
+  Zig-style allocators (aligned, page, pool, slab) fit.
 
 ### 3.12 What gets simpler
 
@@ -1125,10 +1155,14 @@ instead.
   into the future, because one bundle starts many futures.
   - An explicit-copy or move-only bundle field is an error at the site. A
     generated deep clone would be a hidden copy.
-  - Shared state goes in an `Rc` field.
-  - **Open, decided in V2c:** what copying an `Rc` field means once `Rc`
-    copies are explicit. Either the bundle copy clones its `Rc`/`Arc`
-    fields, or bundles become explicit-copy (`io.spawn(b.clone(), …)`).
+  - **Decided 2026-10-13 (the maintainer): an effect bundle is a value.**
+    Its handlers are capture-free standalone functions
+    (`docs/en-US/ALGEBRAIC_EFFECTS.md`, "Handler Functions Are Not
+    Closures"), so once V2b and V2c have run, the bundle holds no owned
+    value and copies implicitly. Shared state reaches a handler as an argument at the effect call,
+    and reaches a task through its `io.async` capture list
+    (`io.async({ st : Rc.clone(st) }(e : Io) => …)`). See V2c's design
+    notes.
   - **As built (2026-10-12, A6).** With a borrowing future, A2 also requires
     the `io.await` bundle to be a place (see A2's "As built" note).
     `_check_bundle_fields_copy`
@@ -1195,8 +1229,11 @@ machinery.
 - **The RC runtime survives** for `Rc`/`Arc` cells, for the cycle collector
   (`Rc` only), for the compiler's trees, and for the futures' own counts
   until A1.
-- **The doc** is rescoped into an "ownership and moves" doc. It is edited at
-  each phase that changes it, and rewritten at V5. The same edits reach
+- **The doc** is replaced, not rescoped (2026-10-13): its successor is drafted
+  in [`OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](OWNERSHIP_AND_BORROWING_DOC_DRAFT.md),
+  kept current as each phase lands, and promoted to
+  `docs/en-US/OWNERSHIP_AND_BORROWING.md` and `docs/zh-CN/` at V5, when the
+  old page is deleted. The same edits reach
   `README.md`, `docs/zh-CN/README.md` and the debugging and c-codegen
   instruction files.
 
@@ -1350,9 +1387,10 @@ and in git, not a silent edit.
     kind follows its captures** (the structural rule of §0.2 applied to the
     capture struct).
     - A literal passed to an `f : &Impl(Fn(…))` parameter cannot outlive the call, so
-      it borrows its captures with no copy or move: `xs.for_each(x =>
-      print(s))`, `m.with_lock(v => …)`, a `for` body. This is Swift's
-      non-escaping closure.
+      it borrows its captures with no copy or move: a `for` body
+      (`for(&xs, x => println(&s))`), `m.with_lock(v => …)`. This is
+      Swift's non-escaping closure. (`ArrayList` has no `for_each`; the
+      examples below that use one are illustrative.)
     - An escaping closure moves its captures in at their last use, and
       otherwise needs an explicit copy: `s2 := s.clone(); h := () =>
       log(s2)`, or with a capture list `{ s2 : s.clone() }() => log(s2)`
@@ -2165,7 +2203,7 @@ and in git, not a silent edit.
       - `Copy` plus `Dispose` is an error;
       - a hand-written `Clone` on a concrete `Copy` type is an error naming
         `derive(T, Clone)`;
-      - `Pair(T)` with `derive(Clone)` and a conditional `Copy` works at
+      - `Pair(T)` with `derive(Pair, Clone)` and a conditional `Copy` works at
         both `i32` (implicit copy) and `String` (explicit `.clone()`);
       - the prelude `Option(i32)` stays `Copy` with its generic `Clone`;
       - a generic `where(T <: Copy)` operator impl;
@@ -3049,43 +3087,76 @@ and in git, not a silent edit.
       `RefCell(&T)`, a `Dyn` payload: E0909), it is never spawned, never
       captured by an escaping closure, never `Send`. Lifetimes are elided:
       a borrow set per value (R2), the single-root return with `depends`
-      (R3), `Rc` roots only through the pin (R5), async per A2 (R6).
+      (R3), no root through an `Rc`/`Arc` deref (R5, as decision 38 D),
+      async per A2 (R6).
     - **Root-joining containers (R7).** `ArrayList(&T)`, `HashMap(&K, V)`
       and every buffer-owning container over a `&` are legal and
-      second-class, with a borrow set that **grows**: every `&` lent into a
-      `&mut self` method of the container (`push`, `insert`, `extend`,
-      `set`, an `Index` place write) joins its roots — and the rule is stated over **every
-      call**, a method call being receiver sugar: at any call, each `&`
-      argument joins the borrow set of every `&mut`-lent argument whose
-      type is (or contains) a root-joining container, unless the callee's
-      `depends` clause says otherwise (`push_all(&mut out, &vals)` grows
-      `out`'s roots by `vals` at the caller; a `&self` method joins
-      nothing). The `depends` grammar is one clause with two forms
-      (`NON_ESCAPABLE_TYPES.md` R3/R7): `depends(a, b)` on a
-      reference-returning function names the result's roots;
-      `depends(dst : a, b)` names what flows into a `&mut` container
-      parameter, and `depends(dst :)` says nothing does — the spelling
+      second-class, with a borrow set that **grows** (amended 2026-10-13
+      after the audit in issue #1330 and a second pass;
+      `NON_ESCAPABLE_TYPES.md` R3 and R7 are the full statement). The join
+      rules hold for every reference-holding target — a container, but
+      also a struct, an `Option(&T)` or a `&mut &T` lent `&mut`. Two
+      triggers join: **every call**, a method call being receiver sugar —
+      each argument (a reference or a reference-holding value, either
+      mode, lent or by value: `&x`, `&mut x`, a `View(T)` by value) joins
+      its whole borrow set into every **other** argument that is
+      `&mut`-lent with a type containing a reference or carries a `&mut`
+      root to such a place (decision 38 B's rule, applied to joins), as
+      narrowed by the callee's `depends`
+      clause; an argument never joins itself, and a closure in a lent
+      `Impl(Fn)` slot joins nothing by default (`push`, `insert`,
+      `extend`, `set`; `push_all(&mut out, &vals)` grows `out`'s roots by
+      `vals` at the caller; a `&self` method joins nothing) — and **every
+      place write** of a reference-holding value through a `&mut`
+      (`dst.* = .Some(v)`) or into a component (`out(i) = &x`,
+      `v.xs = &y`). A join
+      lands on the root place, followed through reference components
+      (`r := &mut out; r.push(&x)` grows `out`; `ser.out.push(&x)` grows
+      the list `ser.out` points at). The callee is checked against its
+      clause or the default: every root it joins into a target reached
+      through a `&mut` parameter must be that target's own carried root or
+      a declared source, so a lying `depends(dst : ())` and a
+      `dst.push(&local)` are both errors; a closure's `&mut` captures
+      count as parameters, its literal's join summary applies where the
+      capture is taken, and its own parameters never join a captured
+      target. The `depends` clause (`NON_ESCAPABLE_TYPES.md` R3, decided
+      2026-10-13) is one clause whose every entry is `target : sources`,
+      written right after `where(...)`: a target is the return label
+      (named as `ensures` names it) or a `&mut` reference-holding
+      parameter, a source is a parameter `p` (its whole borrow set) or
+      `p.*` (only what a reference parameter's referent carries), `()`
+      says nothing flows in, and several sources form a tuple —
+      `pick(a, b, depends(view : a)) -> (view : View(u8))`,
+      `push(self, value, depends(self : value))`,
+      `append(self, other, depends(self : other.*, other : ()))`.
+      `next(self : &mut Self, depends(item : self.*)) -> (item :
+      Option(&T))` is a non-lending iterator, `pop` keeps the popped
+      reference's roots without borrowing the list, and a by-value
+      reference-holding parameter (`Entry`'s `or_insert(self, v)`, a
+      parser's `View(u8)` input) carries its roots out. `depends(self : ())` is the spelling
       every non-storing lookup (`remove(&k)`, `binary_search(&probe)`,
       `contains(&x)`) must carry, a std obligation checked by a test that
-      a probe key is usable after the call. A later refinement may derive
-      the joins from the mutation summaries instead.
+      a probe key is usable after the call. The declaration is the
+      contract: a call is checked from the callee's signature alone,
+      never from its body (`yo fix` may propose a missing clause).
       Joined roots keep their mode: a `&mut x` pushed in freezes `x`
       exclusively for the container's live range, so a second `&mut x` or
       a read of `x` while it lives is E0911; a `&x` freezes `x` against
       writes only. The container is returned under R3 over the joined set
       (`words(self : &Doc) -> ArrayList(View(u8))` compiles when every
       pushed view is rooted in `self`). Elements rooted through an
-      `Rc`/`Arc` deref are rejected (one pin per element is not taken);
+      `Rc`/`Arc` deref are rejected (R5: a plain `Rc` holds no marks);
       `Rc(ArrayList(&T))` is E0909. Codegen is a buffer of pointers with no
-      count traffic and no element drops.
+      per-element retain/release and no element drops.
       - **Its tracker is new.** The closures' capture-borrow sets
         (`g_capture_borrows`, keyed by the capture struct's type id) cannot
         carry it: every closure literal has its own type, while two
         `ArrayList(&T)` values share one type and hold different roots.
-        Root-joining is a per-value borrow set on the binding, extending
+        Root-joining is a per-value borrow set on the root place, extending
         the single local-borrow root `VariableRare.inout_borrow_root_id`
-        keeps today to a set of `(root, mode)` pairs, joined at each
-        `&mut self` call that receives a `&` argument, unioned over
+        keeps today to a set of `(root, mode)` pairs (a parameter's root
+        being its place or the roots it carries), joined at each call and
+        place write above, unioned over
         reaching definitions at control-flow joins (decision 38 A), and
         read by the freeze and exclusivity checks (decisions 18 and 28).
         Flow-sensitive and intraprocedural, like everything else here.
@@ -3097,7 +3168,9 @@ and in git, not a silent edit.
       kind; derive rules see it; `type_of(&x)` is `&T`.
     - **Diagnostics.** The storage errors say "a `&T` cannot outlive its
       root, and this position has no root" and point at
-      `RUST_REFERENCE_PATTERNS.md`.
+      `RUST_REFERENCE_PATTERNS.md`. Every borrow error names the frozen
+      root place, the value holding it, where that value got the borrow
+      and its last use (`NON_ESCAPABLE_TYPES.md` §4).
     - **Rejected.** Named regions or origins (a comptime
       `generic(r : Region)` stays the growth path only if the residue in
       `RUST_REFERENCE_PATTERNS.md` §14 bites — and "bites" is measurable,
@@ -3125,7 +3198,10 @@ and in git, not a silent edit.
       after V2b (root-joining is meaningful only once collections are
       uniquely owned values), timed by the VBD session. Generation A adds
       the types, `.*`, auto-deref and auto-borrow, `impl(&T, …)`,
-      root-joining, `FnMut` (decision 37) and the tests in user code;
+      root-joining, `FnMut` (decision 37) and the tests in user code
+      (root-joining containers in their own step, N2: until then a buffer
+      container over a type containing a reference is an error, so no
+      build accepts a join it cannot see);
       Generation B lets std adopt (`iter`, `slice`, `entry`, the borrowed
       `for` by `impl(&C, IntoIterator)`, the `FnMut` slots) and rewrites
       every whole-value read or write through a reference in `std/` and
@@ -3567,7 +3643,7 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     members win") and `tests/rc_cell.test.yo:129`. The probe ran on the
     tree just before #1232 landed; #1232's diff adds that one `.clone()`
     on a wrapper (read from the diff, not probed). Six more evaluations
-    are `derive(Clone)` bodies cloning a `Box` field
+    are `derive(T, Clone)` bodies cloning a `Box` field
     (`auto-generated://`): the derive rule, not a call site, has to spell
     `Box.clone(self.f)`.
   - **Other names:** `id` at `tests/impl.test.yo:19` (`value.id()` with
@@ -3597,7 +3673,7 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     `w : Rc(T)`. The specialized body cannot tell a written wrapper from a
     substituted one
     (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`, S3).
-  - **`derive(Clone)`** spells a `Deref` field's clone
+  - **`derive(T, Clone)`** spells a `Deref` field's clone
     `(typeof(self.f) <: Clone).clone(&self.f)` (struct fields and enum
     variant fields), so the six derive-generated sites need no user edit.
   - **Sites rewritten:** `tests/deref_auto.test.yo` (the "own members win"
@@ -3759,9 +3835,9 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     after the call (S1, also through `Rc`;
     `issues/fixed/a-borrowed-projection-of-a-move-only-value-is-disposed-twice.md`;
     the doc records what the fix trades and the §3.10 residual).
-    `derive(Hash)` on a type with an `Rc` or `Box` field was E0616. It now
+    `derive(T, Hash)` on a type with an `Rc` or `Box` field was E0616. It now
     hashes a `Deref` field through `(type_of(self.f) <: Hash).hash(...)`, as
-    `derive(Clone)` already did (S2,
+    `derive(T, Clone)` already did (S2,
     `issues/fixed/derive-hash-on-a-type-with-an-rc-field-is-e0616.md`).
     `Rc`'s `Clone` took the trait's `&mut Self` while `Box`'s takes `&Self`.
     Both now take `&Self`, so a hand-written `Clone` on `&Self` can clone its
@@ -3776,11 +3852,11 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     copy, one drop, the `Clone`/`Copy`/`Send` derivations, `Eq`/`Hash`/
     `Default`, the niche, `alloc` and an arena clone, a by-value consuming
     match through a `Box` scrutinee and through a `Box` field with exact
-    dispose counts, `derive(Clone, Eq, Hash)` over a `Box` field),
+    dispose counts, `derive(T, Clone, Eq, Hash)` over a `Box` field),
     `tests/deref_auto.test.yo`
     (field, method, place write through `Box`, `&Box`/`&mut Box` parameters,
     nested `Rc(Box(T))`/`Box(Rc(T))`/`Box(Box(T))`, the E0616 clash, the
-    miss message, `derive(Hash)` through an `Rc` field),
+    miss message, `derive(T, Hash)` through an `Rc` field),
     `tests/cycle_collector.test.yo`, `tests/iso.test.yo`.
 - **Generation B, seed-gated: the site moves and the non-last-use copies.**
   The v0.2.59 seed compiles `src/` against the tree's `std/`, and it rejects
@@ -5248,6 +5324,113 @@ compiler; the std shapes are plain structs the seed lowers):
 - **Bundles.** It also decides A6's `Rc` bundle fields.
 - **No fallback** (decision 17). Once V5 lands, the dup/drop pair optimizer
   has no implicit copy left to cancel.
+- **Design notes** (written and decided 2026-10-13):
+  - **The spelling the repair inserts is `Rc.clone(x)` / `Arc.clone(x)`.**
+    Decision 32 makes `x.clone()` on a wrapper E0616 when the payload has
+    `Clone`, and the unapplied-constructor form needs no payload type.
+    Inside a closure the copy becomes a capture-list entry,
+    `{ h : Rc.clone(h) }` (decision 35's form), so `yo fix` rewrites the
+    capture list and not the body. That covers most of the 640 `tests/`
+    sites, which are handles captured by a spawned closure.
+  - **What counts as a copy** is decision 30's rule, unchanged: a non-last
+    use of a named `Rc`/`Arc` that flows into an owning slot (a by-value
+    argument, a binding, a field, a capture, a return). The last use moves.
+    A `&`-lent handle is not a copy.
+  - **A struct with an `Rc`/`Arc` field becomes explicit-copy too**, by the
+    kind rule V2b gives `String` (a composite is implicitly copyable only
+    when every field is). `derive(T, Clone)` then clones each handle through
+    `Rc.clone`.
+  - **One PR, not two generations.** `Rc.clone(w)` has been in every seed
+    since #1241, so the rule in the compiler, `yo fix <path> --migrate
+    rc-clone` and the sweep of `std/`, `src/` and `tests/` can land together,
+    as decision 42 did. The seed builds a swept `src/` unchanged.
+  - **Measure** the dup/drop pair optimizer's emit diff on `src/` before and
+    after. Each explicit clone replaces an implicit dup that the optimizer
+    used to cancel, so a rise in `___dup` calls in the self-build is the
+    cost to report. It is not a reason to keep a fallback.
+  - **A6, the bundle. Decided 2026-10-13 (the maintainer): an effect
+    bundle is a value.** `io.await` and `io.spawn` keep taking `e : E` by
+    value (#1312, #1318), and a bundle is never lent.
+    - **A bundle holds no owned value, and it copies implicitly.**
+      - Its handlers are capture-free standalone functions. A handler body
+        cannot read a local of the scope that installed it: the compiler
+        rejects it, saying "handlers are capture-free by design"
+        (`docs/en-US/ALGEBRAIC_EFFECTS.md`, "Handler Functions Are Not
+        Closures").
+      - A bundle is not `Copy` in the trait sense. A `ctl` handler cannot
+        be `Clone`, so `Exception` and every record containing it cannot
+        derive `Copy` (`Io` does: `derive(Io, Copy, Clone)`).
+      - Decision 36's flip exempts control-bound records
+        (`type_lacks_copy_for_flip`, `src/evaluator/trait_checking.yo`),
+        as it does unions and C opaque types, so such a record still copies
+        implicitly everywhere, not only in the effect slot. A probe on
+        2026-10-13 copied one `IoExn` and one `Exception` several times
+        through bindings and by-value parameters.
+      - The copy duplicates handler references and `Copy` data: no owner,
+        no count. A6 keeps it that way.
+    - **The A6 check is unchanged.** `_check_bundle_fields_copy` rejects a
+      field that `type_requires_explicit_copy` reports. Today a `String`,
+      collection or `Rc` field still passes, because those kinds are still
+      implicitly shared. V2b makes `String` and the collections
+      explicit-copy, and V2c does the same for `Rc`/`Arc`. After both, the
+      check rejects every field that owns something, so a bundle copy can
+      never hide an owner. No std or test bundle has such a field.
+    - **Shared state:**
+      - It reaches a handler as an argument at the effect call, or as an
+        `Rc` the caller passes in (ALGEBRAIC_EFFECTS.md).
+      - It reaches a task through its `io.async` capture list:
+        `io.async({ st : Rc.clone(st) }(e : Io) => …)`. The clone is
+        spelled where the second owner appears. A probe on 2026-10-13 ran
+        this with one future awaited and one spawned, sharing one cell.
+      - V2c rewrites the A6 check's E0901 help text: it says "keep shared
+        state in an `Rc` field of the bundle" today, which is wrong once
+        an `Rc` field is rejected.
+    - **Rejected:**
+      - cloning a bundle's `Rc` fields implicitly at each copy, which makes
+        a hidden owner;
+      - an explicit-copy bundle (`io.await(f, b.clone())`), which is moot
+        because a bundle cannot hold owned state;
+      - lending the bundle (`e : &E`), because there is no borrowed state
+        to lend, and `&` would mark every effect parameter again.
+
+**After V2b: the allocator interface, version 2** (queued by the maintainer
+2026-10-13). Today's `AllocatorVTable(alloc, realloc, free)` is Zig's
+`std.mem.Allocator` shape, a context pointer plus a vtable, so any allocator
+plugs in. Two of its signatures stop Zig-style allocators from fitting.
+- **Alignment.** `alloc(ctx, size)` always returns 16-aligned memory. Zig
+  passes an alignment to every call. Without one, no allocator can serve
+  over-aligned data: 64-byte cache-line structs, page-aligned buffers,
+  SIMD types. The change: `alloc(ctx, size, align)` and
+  `realloc(ctx, ptr, old_size, new_size, align)`. The owner prefix then
+  occupies the `max(16, align)` bytes before the returned pointer, with
+  `{ctx, vtable}` in its last 16, so the raw block is recoverable from the
+  pointer and `align` alone.
+- **`free` knows the size.** `free(ctx, ptr, size, align)`, as Zig's `free`
+  receives its slice. A size-class allocator (pool, slab) then needs no
+  header of its own. The collections already know both values
+  (`capacity * size_of(T)`, `align_of(T)`), and after V2b each passes them
+  from one place, its private buffer type. That is why this item follows
+  V2b.
+- **What stays.** The per-block owner prefix: it is what lets a block
+  always go back to its allocator and keeps `ArrayList(T)` one type, with
+  no allocator parameter (Rust's `Vec<T, A>` puts it in the type; Zig's
+  unmanaged lists make every caller pass it, and a wrong one is undefined
+  behavior). Its cost is 16 bytes per explicitly allocated block; the global
+  heap's own blocks carry none.
+- **Documented, not changed:** a block can be freed on another thread (an
+  `Arc` dropped elsewhere), so an allocator shared across threads must make
+  its `free` thread-safe.
+- **Seed gate.** Codegen emits the same prefix (`__yo_alloc_prefix_t`) for
+  `Rc`/`Box` cells placed by an allocator, so the layout is a frozen
+  contract between the compiler and `std/allocator.yo`. Generation A
+  teaches the compiler the new layout and vtable behind a switch;
+  Generation B moves std once a seed carries it.
+- **Tests:** an over-aligned element type in an `ArrayList` through an
+  aligned allocator; a header-free pool allocator that frees by the size it
+  is given; and every existing arena and counting-allocator test.
+- **Then:** the allocators Zig ships become ordinary std additions, such as
+  a fixed-buffer allocator, a pool, a page allocator, and a debug allocator
+  that reports leaks and double frees.
 
 ### V4: the compiler's trees
 
@@ -5285,6 +5468,114 @@ stage-2 RSS):
     destructuring arms that reaches through a child, which a `yo fix`
     repair inserts mechanically from the pattern position's type.
 
+### Decision 43: references as types
+
+Decision 43 (§4) is the design, and `plans/backlog/NON_ESCAPABLE_TYPES.md`
+(R1–R7) the full statement. This section is the PR sequence (written
+2026-10-13). It follows V2b, because root-joining only means something once
+collections are uniquely owned values, and V4's `TypeValue` conversion,
+because step 1 adds a `TypeValue` variant and must not be written twice.
+Each step is its own PR, with its own measured `check ./src` time and
+stage-2 RSS.
+
+1. **A reference variant in `TypeValue`, no language change.**
+   `TypeValue.Reference(T, mutable : bool)` replaces the slot flags
+   `param_is_ref`, `call_param_is_ref` / `is_owning` in `FnTraitT` and the
+   `FuncParam` modes, through the evaluator, the specializer, the verifier
+   encoding and codegen.
+   - The gate is behavioral identity: every test, the fixpoint and an
+     emit-diff of the self-build with no C change.
+   - It is the largest refactor in the plan, which is why it ships alone.
+   - `TypeInfo` gains the `Reference` kind here too, because reflection
+     reads `TypeValue`.
+2. **Generation A: the types in user code.**
+   - `&T` / `&mut T` bound (`r := &x`), named (`IntRef :: &i32`), as
+     generic arguments (`&&T` accepted), and returned under R3.
+   - `&T` is `Copy`. `&mut T` reborrows into a `&mut T` slot and moves into
+     a generic `T` slot at its last use.
+   - `.*` for whole-value reads and writes. Field and method access
+     auto-derefs, receivers auto-borrow, and operators never auto-deref.
+   - `impl(&T, Trait(…))`, with resolution probing the exact type, then
+     `&`/`&mut` of it, then each deref.
+   - `FnMut` (decision 37).
+   - A buffer container over a type containing a reference is still an
+     error here (N2), so no build accepts a join it cannot see.
+   - The tests are decision 43's list, minus root-joining.
+   - The compiler needs no seed for any of this: it is Generation A by
+     construction.
+3. **Root-joining containers (R7, N2).**
+   - The per-value borrow set on the root place: `(root, mode)` pairs
+     extending `VariableRare.inout_borrow_root_id`, joined at every call and
+     every place write, and unioned at control-flow joins.
+   - The `depends` clause, parsed and checked against the callee's
+     signature.
+   - `ArrayList(&T)` and every buffer container over a reference become
+     legal.
+   - The tests are the root-joining rows of decision 43's list.
+4. **Generation B: std and `src/` adopt it** (once a seed carries steps 2
+   and 3).
+   - `iter`, `slice` and `entry`, and the borrowed `for` by
+     `impl(&C, IntoIterator)`.
+   - The `FnMut` slots.
+   - Every non-storing lookup gains `depends(self : ())`, with the test that
+     a probe key is usable after the call.
+   - Every whole-value read or write through a reference in `std/` and
+     `src/` is rewritten to `.*`, by `yo fix <path> --migrate deref`, which
+     reuses V3b's borrow-site tooling.
+
+**Open, not decided (noted 2026-10-13):**
+- **Handler (`ctl`) types could become structurally second-class.**
+  Decision 43 makes any type that contains a `&` second-class (no store,
+  no return, no escaping capture). Treating a `ctl` handler type the same
+  way would retire the special escape rules a handler needs today, because
+  its `unwind` targets the frame that installed it:
+  - `type_is_control_bound` and the definition-time check from
+    `issues/fixed/ctl-handler-escaping-its-defining-fn-is-untypeable.md`;
+  - the `ref`-field fix from
+    `issues/fixed/ctl-handler-stored-in-a-ref-struct-field-escapes-its-frame.md`;
+  - the module-level binding check from
+    `issues/fixed/module-level-control-bound-binding-not-rejected.md`.
+  - Each of these is one more escape route patched by hand. The
+    structural rule would cover every route, including ones not yet
+    found.
+  - This is independent of how a bundle is passed. A bundle holding a
+    second-class handler is itself second-class, and two paths store one
+    in a cell, which decision 43 forbids (E0909):
+    - **`io.await`:** a cold await injects the bundle into the future's
+      heap-allocated state machine. That needs the carve-out A2 already
+      gives borrowing futures, where the future is consumed where the bundle
+      goes in.
+    - **`io.spawn`:** a task outlives the call, so it needs its own rule
+      (a task's `unwind` aborts the task, §3.13 A2).
+  - **It also lets effect records opt in to `Copy`** (the maintainer,
+    2026-10-13: `derive(Exception, Copy, Clone)`, and the same for `IoExn`
+    and every effect record).
+    - Today that derive fails: "A function's result type cannot be
+      control-bound", because `Clone.clone` returns `Self` (probed
+      2026-10-13).
+    - Under R3, a result rooted at a parameter is legal, and `clone`'s
+      result is rooted at `self`. So once `ctl` types are second-class,
+      the derive is accepted, std derives `Copy` on its effect records
+      (Generation B, after a seed carries the rule), and
+      `type_lacks_copy_for_flip`'s control-bound exemption is deleted.
+    - Decision 43 checks a call from the callee's signature alone, so the
+      `clone` that `derive(Exception, Copy, Clone)` generates must state where its result's
+      roots come from: a `depends` clause naming `self.*`, or whatever
+      step 2 fixes as the default for a by-value return that carries a
+      reference. Without it, the derive is still rejected after `ctl`
+      becomes second-class.
+    - An effect bundle then copies because it is `Copy`, not by exemption.
+  - It is decided in step 2.
+
+**Decided 2026-10-13 (the maintainer):**
+- **`.*` on a whole-value read.** Decision 43 makes `n + 1` with
+  `n : &i32` an error (operators never auto-deref). This is the step that
+  breaks existing code; nothing else in Generation A does. The error lands
+  with `yo fix <path> --migrate deref` in step 2's PR, the way decision 42
+  landed E0009 with its migration. No release accepts both spellings.
+- **`str` in borrow position** stays parked with
+  `RUST_ADOPTION_CANDIDATES.md` L1. Nothing in steps 1–4 depends on it.
+
 ### V5: remove `ref(...)` and `atomic(...)`
 
 - **Generation A.** The parser accepts both, and the evaluator warns on each
@@ -5318,7 +5609,7 @@ stage-2 RSS):
   - DESIGN (§Types, §Type inference, §Reference-Semantics Types and Memory
     Management, §Closures with Reference-Semantics Types, §Testing with
     Reference-Semantics Types);
-  - MEMORY_SAFETY, COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS (rescoped,
+  - MEMORY_SAFETY, COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS (replaced,
     §3.14), CYCLE_COLLECTION, ISOLATED, ARC, THREAD_SAFETY, PARALLELISM,
     DYN_DESIGN, STRINGS, TYPE_REFLECTION and
     DERIVE_TRAITS;
@@ -5327,6 +5618,63 @@ stage-2 RSS):
   - a banner on `REF_REFERENCE_SEMANTICS.md`, and amendments to
     `ARC_TYPE.md`, `PARALLELISM_RULES.md` D2/D3 and `MEMORY_SAFETY.md`'s
     "RC-managed types" list.
+
+### After V5: retire the `yo fix` migrations
+
+Queued by the maintainer, 2026-10-13. Each `yo fix --migrate <name>` exists
+to carry code across one seed gate. Once every Yo codebase we own is across,
+the migrations are the backward-compatibility scaffolding AGENTS.md rules
+out ("no backward-compatibility scaffolding; the only gate is the seed").
+Each costs a record-instead-of-reject mode inside the evaluator's checks,
+state in `src/expr_info.yo`, CLI handling in `src/main.yo`, cli-cases and
+bilingual docs. The campaign's are `markers`, `borrow-spelling`, `params`,
+`addr-of`, `modes`, `match-scrutinee` and `dyn-spelling` (#1339), plus any
+that later phases add.
+
+- **Gate: the README's example projects are migrated first** (maintainer).
+  Each of the six projects in `README.md` "Example Projects" builds and
+  passes its own tests on the last release that ships every migration, with
+  its `.yo-version` pinned there and no `--migrate` rewrite left to apply:
+  - [raylib_yo](https://github.com/shd101wyy/raylib_yo)
+  - [tetris_yo](https://github.com/shd101wyy/tetris_yo), including its
+    online demo build
+  - [http_server_demo_yo](https://github.com/shd101wyy/http_server_demo_yo)
+  - [markdown_it_yo](https://github.com/shd101wyy/markdown_it_yo)
+  - [markdown_yo](https://github.com/shd101wyy/markdown_yo), the store
+    dependency this tree builds and tests, including its online demo build
+  - [yo_http_benchmark](https://github.com/shd101wyy/yo_http_benchmark)
+
+  The way to migrate them is the migrations themselves: in each project, run
+  `yo fix <path> --migrate <name>` for every migration, in phase order, and
+  fix what is left by hand. Whatever a migration misses in these projects is
+  a bug in that migration, fixed before it is deleted.
+- **The other gates.** V5 and every Generation B half have landed, so no
+  migration is still carrying this tree across a seed. The post-VBD docs sweep
+  (`plans/AGENT_KNOWLEDGE_CONSOLIDATION.md` K7) and the skills removal (K4) run
+  before this step. The docs keep naming `--migrate` modes until this step's PR
+  removes them. This tree (`std/`,
+  `src/`, `tests/`, the docs' Yo blocks, the cli-case fixtures) has no
+  `--migrate` rewrite left to apply. A release containing every migration is
+  published, so `yo version install` can always fetch one.
+- **The change, one PR.**
+  - Delete every `--migrate` mode: the CLI flag values, the record-instead-of-
+    reject hooks, their `ExprInfo` state, the migration cli-cases.
+  - The errors stay hard errors (E0009, E0618, E0914 and the rest).
+  - The **per-diagnostic repairs** stay too. That is the one-step
+    `yo fix <path>` attached to a single diagnostic, such as E0618's `f` →
+    `dyn(f)`: it helps anyone writing new code, agents especially, and adds no
+    mode to the checker.
+  - `docs/{en-US,zh-CN}/ERROR_DIAGNOSTICS.md` gains a table naming each
+    retired migration and the last release that ships it. Each affected
+    error's `yo explain` text says how to upgrade older code:
+    `yo version install X.Y.Z && yo fix <path> --migrate <name>`, then step to
+    the next release.
+  - GRAMMAR and DESIGN (en-US and zh-CN) stop naming `--migrate` modes, and
+    §7's "Found by" column keeps them only as history.
+- **Exception.** If `yo fix --migrate` becomes how users outside this
+  repository upgrade their packages after a breaking change, keep the newest
+  one or two (Rust keeps edition migrations for that reason). Under the
+  single-user policy that is not the case today.
 
 ## 7. Migration recipes
 
@@ -5360,6 +5708,10 @@ stage-2 RSS):
 | a borrowing future through an `Rc` (`shared.s.next(io)`) | own the value in the task, or `Rc(Mutex(S))` | the A2 compile error |
 | a deadline on a borrowing future | `timeout(rx.recv(io), d, io)`, awaited directly | — |
 | a cursor loop cloning each node | `cur := &mut …; cur = &mut n.next` | review; the clone lint |
+
+The `--migrate` modes in the "Found by" column are retired after V5, once the
+README's example projects are migrated (§6, "After V5: retire the `yo fix`
+migrations").
 
 ## 8. Risks
 
@@ -5409,8 +5761,6 @@ Decision 18 was also amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
 inside a settled design:
-- **A6:** what the bundle copy does with an `Rc`/`Arc` field: clone it,
-  or make bundles explicit-copy. Decided in V2c.
 - **§3.13 A1:** whether std adds a shared-future adapter (one task joins,
   the others wait on the result), now that `Rc(JoinHandle(T))` is known
   not to work. Decided in V3's async work.

@@ -1,6 +1,6 @@
 # VALUES_BY_DEFAULT handover — 2026-10-10
 
-**Status: ACTIVE handover, current as of 2026-10-11 after v0.2.59, amended later the same day.** The cycle's goal is done: decision 42 Generation B deleted `imm`/`mut` and shipped in v0.2.59, which is the seed. The marker sweep part 2, the always-on E0914 (§3 step 1.i and 1.iii) and the markdown_yo v0.0.16 bump (§3 step 1.ii) all landed on `feat/vbd-marker-sweep-part2`. Verify each branch with `git log origin/<branch>` and `gh pr list` before acting on it.
+**Status: SUPERSEDED by [`VBD_HANDOVER_2026-10-13.md`](VBD_HANDOVER_2026-10-13.md); this was current as of 2026-10-11 after v0.2.59.** The cycle's goal is done: decision 42 Generation B deleted `imm`/`mut` and shipped in v0.2.59, which is the seed. The marker sweep part 2, the always-on E0914 (§3 step 1.i and 1.iii) and the markdown_yo v0.0.16 bump (§3 step 1.ii) all landed on `feat/vbd-marker-sweep-part2`. Verify each branch with `git log origin/<branch>` and `gh pr list` before acting on it.
 - **Written:** 2026-10-10 by the agent that ran the campaign from 2026-10-08 through 2026-10-10. The maintainer's instruction (amended 2026-10-10): land what is in flight, cut v0.2.58, finish decision 42 Generation B (deleting `imm`/`mut`) and cut v0.2.59, then stop. All of that is done (§2).
 - **Who it is for:** an agent on another machine.
 - **What it covers:** what landed since the 2026-10-07 handover (v0.2.55 through v0.2.59), the branches in flight at hand-over time, the exact next steps in order, the open bugs, and the decisions recorded this cycle.
