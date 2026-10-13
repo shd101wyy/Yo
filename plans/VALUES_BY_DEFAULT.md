@@ -55,29 +55,55 @@ Progress:
     borrows `x : &T` / `x : &mut T`; a source mode word is E0009, rewritten
     by `yo fix --migrate borrow-spelling`;
   - the §6 measurement (#1220). Its call-site pass is deferred.
+  - V3b Generation B: `yo fix --migrate params` and the parameter sweep
+    (#1285), the flip to by-value plain parameters with static drop flags
+    (#1296), and step 3, where `&x` is only a borrow, `addr_of(x)` makes a
+    pointer, and `inout`/`own` are deleted (#1302);
+  - decision 26, the consuming `match` (#1305);
+  - decision 33's call-site markers everywhere, with E0914 always on, and
+    effect rows by value (#1309, #1318);
+  - decision 34's amendment: `Index` takes its index by value (#1314);
+  - the integer helpers take `self` and the operand by value (#1322);
+  - `std/imm` deleted, to be revisited (#1289);
   - V3 async A1 (§3.13): futures are move-only, `io.await`/`io.spawn`
     consume them, the `io.async` body slot is a by-value `FnOnce`, and
-    `Park` is a move-only value whose `wait` consumes it (A5's `Park` line).
-  - V3 async A2 (§3.13): a future may borrow, and is then second-class.
-  - V3 async A6's Generation A (§3.13): a bundle field that is not
-    implicitly copyable is an error where the bundle is copied.
-  - V1 step 2 Generation A, the unique `Box(V)` (feat/vbd-v1-step2-box;
-    Step 2's "as built"). Generation B, `src/` moving back to `Box`, waits
-    for the seed.
-- **In progress:**
-  - V3's remaining async work (§3.13): A3 (Generation A landed with A1's
-    PR; the prelude switch waits for the seed), A4, A5's remaining lines,
-    and A6's `Rc`-field half (V2c);
-  - V2b: "Projections first", Generation A (feat/vbd-v2b-index-mut; the
-    prelude switch is Generation B).
+    `Park` is a move-only value whose `wait` consumes it (A5's `Park` line);
+    with A3 Generation A, a value `JoinHandle` and
+    `__yo_ptr_read`/`__yo_ptr_write` (#1323);
+  - V3 async A2 (§3.13): a future may borrow, and is then second-class; and
+    A6's Generation A: a bundle field that is not implicitly copyable is an
+    error where the bundle is copied (#1326, after an adversarial review's
+    two fix rounds), together with the async-lowering fixes found on the way
+    (#1325);
+  - V1 step 2 Generation A, the unique `Box(V)` (#1328; Step 2's "as
+    built");
+  - V2b "Projections first", Generation A: `-> &T` / `-> &mut T`
+    projections, and subscript dispatch through `Index` / `IndexMut` (#1324);
   - V4: decision 31's wrapper patterns `Rc(p)` / `Arc(p)`, Generation A
-    (feat/vbd-v4-wrapper-patterns; Generation B deletes the implicit `Rc`
-    look-through once a seed carries it). The `TypeValue` conversion is
-    blocked on two codegen issues
+    (#1327), and the `TypeValue` prep: key-based memos, the module-type
+    rebuild, and the `Acyclic` short-circuit (#1329).
+- **In progress:**
+  - The Generation B halves that wait for the v0.2.61 seed:
+    - A3's prelude switch (std's `ArrayList`/`Option` on
+      `__yo_ptr_read`/`__yo_ptr_write`, and the value `JoinHandle`);
+    - V2b's prelude switch to the new `Index`/`IndexMut`/`IndexUnchecked`
+      shapes;
+    - V1 step 2's `src/` sites moving back to `Box`;
+    - decision 31's deletion of the implicit `Rc` look-through.
+  - V2b's prerequisite: `Clone.clone`, `ToString.to_string` and the other
+    read-only trait receivers take `self : &Self`
+    (#1333).
+  - V3's remaining async work (§3.13): A4, A5's remaining lines, and A6's
+    `Rc`-field half (V2c).
+  - V4's `TypeValue`, blocked on two codegen issues
     (`issues/value-enum-drops-are-emitted-inline-at-every-drop-site.md`,
-    `issues/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md`;
-    branch feat/vbd-v4-typevalue).
-- **Next:** the remaining Generation B sweeps (the V3b sweep and flip).
+    `issues/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md`).
+    Its shape is decided by measurement: a value enum (decision 21) or an
+    `Rc` handle (maintainer, 2026-10-13: the handle if the measurements
+    favor it).
+  - Decision 44's follow-up: a closure into a `Dyn(Fn)` slot is `dyn(f)`.
+- **Next:** the rest of V2b (direct projection calls, unique buffers, the
+  explicit-copy kind), V2c, decision 43, then V5.
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
@@ -312,8 +338,8 @@ else does. A value's kind follows from what it owns (§0.2).
 **`Box` changes meaning.** Today's `Box` is a shared cell, and V1 step 1
 renames every use of it to `Rc`. The new `Box` is the unique, uncounted
 indirection:
-- A recursive type uses it: `Expr :: enum(Num(i32), Add(Box(Expr),
-  Box(Expr)))`.
+- A recursive type uses it: `Expr :: enum(Num(n : i32), Add(l : Box(Expr),
+  r : Box(Expr)))`.
 - So does a resource that needs a stable address: an OS handle that must
   not move lives in a `Box` of a move-only state.
 - `Box(T)` is move-only iff `T` is.
@@ -1345,9 +1371,10 @@ and in git, not a silent edit.
     kind follows its captures** (the structural rule of §0.2 applied to the
     capture struct).
     - A literal passed to an `f : &Impl(Fn(…))` parameter cannot outlive the call, so
-      it borrows its captures with no copy or move: `xs.for_each(x =>
-      print(s))`, `m.with_lock(v => …)`, a `for` body. This is Swift's
-      non-escaping closure.
+      it borrows its captures with no copy or move: a `for` body
+      (`for(&xs, x => println(&s))`), `m.with_lock(v => …)`. This is
+      Swift's non-escaping closure. (`ArrayList` has no `for_each`; the
+      examples below that use one are illustrative.)
     - An escaping closure moves its captures in at their last use, and
       otherwise needs an explicit copy: `s2 := s.clone(); h := () =>
       log(s2)`, or with a capture list `{ s2 : s.clone() }() => log(s2)`
