@@ -346,7 +346,20 @@ CodeGenContext :: ref(
     /// definition side of split statics — typeid chars, dyn vtables, TLS
     /// unwind/effect buffers, the argv shim, module-level vars. Their extern
     /// declarations go to the declarations section (the shared header).
-    chunk_globals : String
+    chunk_globals : String,
+    /// C names of the per-type drop / dup functions of tagged value enums
+    /// already generated (`_value_enum_rc_fn`, exprs/drop_dup.yo). Keyed by
+    /// the function's C name, which is derived from the enum's C type name, so
+    /// two type keys aliasing onto one C type share one function.
+    value_enum_rc_fns : HashSet(String),
+    /// Their prototypes, `static inline void f(void*);` one per line. They
+    /// name no type, so `compile_module` appends them to the HEADERS section,
+    /// ahead of every use (function bodies in `code` and the async/spawn
+    /// bodies written into `declarations`).
+    value_enum_rc_protos : String,
+    /// Their definitions, in first-use order. They need the enum's complete
+    /// type, so `compile_module` appends them to the END of `declarations`.
+    value_enum_rc_defs : String
   )
 );
 impl(
@@ -414,7 +427,10 @@ impl(
       chunk_by_module : false,
       chunk_fn_ranges : ArrayList(ChunkRange).new(),
       chunk_header_ranges : ArrayList(ChunkRange).new(),
-      chunk_globals : String.new()
+      chunk_globals : String.new(),
+      value_enum_rc_fns : HashSet(String).new(),
+      value_enum_rc_protos : String.new(),
+      value_enum_rc_defs : String.new()
     )
   ),
   /// Emit a `__yo_typeid_*` static char whose ADDRESS is the runtime TypeId.

@@ -183,18 +183,29 @@ _tk_args_sig :: (fn(head : &String, tas : &ArrayList(TypeValue), depth : usize) 
 /// id alone reads the chain as a cycle); a SomeT by its id and its
 /// resolution's end; anything else by its spelling. Nested arguments stop at a
 /// fixed depth, which only a cycle through type arguments reaches.
-_tk_arg_id :: (fn(t : &TypeValue, depth : usize) -> String)(
+///
+/// A recursive type's self-shell and its final are ONE argument here, as they
+/// are one type everywhere else in the key (the Struct and EnumT arms resolve
+/// shells): `_patch_self_shell` patches only the first container of a given id
+/// it reaches, so one copy of a recursive enum can hold `ArrayList(final)` in
+/// one payload and `ArrayList(shell)` in another, and a second copy a
+/// different mix. With the shell spelled apart, the cycle guard saw a nested
+/// `ArrayList(ArrayList(Self))`'s inner list as new in one copy and as
+/// already expanded in the other, so `Option(E)` got two keys and two C types
+/// (issues/fixed/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md).
+_tk_arg_id :: (fn(t_in : &TypeValue, depth : usize) -> String)({
+  t := resolve_struct_shell(resolve_enum_shell(t_in));
   match(
     t,
     .Struct({ id : sh_sid, type_arguments : sh_tas }) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, &sh_tas, depth + usize(1)), `s:${sh_sid}`),
     .EnumT({ id : sh_eid, type_arguments : sh_etas }) => if(depth < usize(8), _tk_args_sig(`e:${sh_eid}(`, &sh_etas, depth + usize(1)), `e:${sh_eid}`),
     .SomeT({ id : sh_tid }) => {
-      sh_end := resolve_cell_chain(t);
+      sh_end := resolve_cell_chain(&t);
       match(sh_end, .SomeT({ id : _ }) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(&sh_end, depth)}`)
     },
-    _ => type_to_string(t)
+    _ => type_to_string(&t)
   )
-);
+});
 _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
   match(
     t,

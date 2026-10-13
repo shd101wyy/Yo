@@ -26,6 +26,7 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 { Exception, IoExn } :: import("std/error");
 { args, env, cwd } :: import("std/env");
 { exit } :: import("std/libc/stdlib");
@@ -161,4 +162,63 @@ test("the ASan DLL directory goes on PATH once, however many batches apply it", 
   later := `${base};${dll}`;
   assert(windows_path_with_dir_first(later.clone(), dll.clone()) == later, "an entry later in PATH is not duplicated");
   assert(windows_path_with_dir_first(String.from(""), dll.clone()) == dll, "an empty PATH becomes the directory alone");
+});
+// A tagged value enum's drop and dup are one C function per enum type, called
+// at every site. They used to be the variant switch inlined at each site: the
+// compiler's own `TypeValue` as a value enum (40 variants) grew the self-emit
+// from 147 MB to 726 MB of C
+// (issues/fixed/value-enum-drops-are-emitted-inline-at-every-drop-site.md).
+// The fixture never matches on `Ve`, so a `case` label of its `VeHold` variant
+// can only come from a drop or dup walk: one in the drop function and one in
+// the dup function, however many sites drop or copy a `Ve`.
+test("a value enum's drop and dup are one function each, not a switch per site", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error while compiling the value-enum fixture: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  scratch := `${cwd_str}/tmp-venum-drop-it`;
+  io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
+  fixture := String.from(
+    "{ ArrayList } :: import(\"std/collections/array_list\");\n{ println } :: import(\"std/fmt\");\nVe :: enum(VeNone, VeHold(p : Rc(i32)), VePair(a : Rc(i32), b : ArrayList(Self)));\nve_make :: (fn(n : i32) -> Ve)({\n  a := Ve.VeHold(p : rc(n));\n  b := Ve.VeHold(p : rc(n));\n  if(n > i32(3), { return(Ve.VeNone); });\n  Ve.VePair(a : rc(n), b : ArrayList(Ve).new())\n});\nve_count :: (fn(xs : &ArrayList(Ve)) -> usize)({\n  (k : usize) = usize(0);\n  (i : usize) = usize(0);\n  while(i < xs.len(), i = (i + usize(1)), {\n    e := xs.get(i);\n    k = (k + usize(1));\n  });\n  k\n});\nmain :: (fn() -> unit)({\n  xs := ArrayList(Ve).new();\n  xs.push(ve_make(i32(1)));\n  xs.push(ve_make(i32(5)));\n  y := ve_make(i32(2));\n  println(ve_count(&xs));\n});\nexport(main);\n"
+  );
+  io.await(write_string(Path.new(`${scratch}/fx.yo`), &fixture, io), IoExn(io : io, exn : exn));
+  compile_argv := ArrayList(String).new();
+  compile_argv.push(String.from("yo"));
+  compile_argv.push(String.from("compile"));
+  compile_argv.push(`${scratch}/fx.yo`);
+  compile_argv.push(String.from("--emit-c"));
+  compile_argv.push(String.from("--skip-c-compiler"));
+  compile_argv.push(String.from("-o"));
+  compile_argv.push(`${scratch}/fx`);
+  run_compile(&compile_argv, io, exn);
+  c_text := String.from_bytes(read_file_sync(`${scratch}/fx.c`, exn));
+  lines := c_text.split("\n");
+  (hold_cases : usize) = usize(0);
+  (drop_defs : usize) = usize(0);
+  (drop_names : HashSet(String)) = HashSet(String).new();
+  (li : usize) = usize(0);
+  while(li < lines.len(), li = (li + usize(1)), {
+    match(
+      lines.get(li),
+      .Some(l) => {
+        t := l.trim();
+        if(t.starts_with("case ") && t.ends_with("_VEHOLD: {"), {
+          hold_cases = (hold_cases + usize(1));
+        });
+        if(t.starts_with("static inline void __yo_venum_drop_") && t.ends_with("{"), {
+          drop_defs = (drop_defs + usize(1));
+          _ := drop_names.insert(t.clone());
+        });
+      },
+      .None => ()
+    );
+  });
+  assert(drop_defs >= usize(1), "the value enums' drop functions are emitted");
+  assert(drop_names.len() == drop_defs, `each drop function is defined once; got ${drop_defs.to_string()} definitions of ${drop_names.len().to_string()} functions`);
+  assert(hold_cases <= usize(2), `only the drop and dup functions walk the variants; got ${hold_cases.to_string()} case labels`);
 });
