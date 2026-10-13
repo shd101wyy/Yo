@@ -833,3 +833,105 @@ test("move-only: a projection through an Rc lent to a recursive call is disposed
   };
   assert(g_mo_disposed == (before + i32(3)), "a and the two cells' payloads, once each");
 });
+// ---------------------------------------------------------------------------
+// `Drop`, the new name of `Dispose` (plans/VALUES_BY_DEFAULT.md decision 45,
+// Generation A: the compiler treats both spellings as the destructor), the
+// prelude's `drop(x)`, and E0915 for an explicit destructor call.
+// `g_mo_dropped` adds up the `n` of every dropped `_MoDrop*` value.
+// ---------------------------------------------------------------------------
+(g_mo_dropped : i32) = i32(0);
+_MoDropFd :: struct(n : i32);
+impl(
+  _MoDropFd,
+  Drop(
+    drop : (fn(self : &Self) -> unit)({
+      g_mo_dropped = (g_mo_dropped + self.n);
+    })
+  )
+);
+_MoDropRef :: ref(struct(n : i32));
+impl(
+  _MoDropRef,
+  Drop(
+    drop : (fn(self : &Self) -> unit)({
+      g_mo_dropped = (g_mo_dropped + self.n);
+    })
+  )
+);
+_MoDropPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, n : i32));
+impl(
+  generic(T : Type),
+  _MoDropPair(T),
+  Drop(
+    drop : (fn(self : &Self) -> unit)({
+      g_mo_dropped = (g_mo_dropped + self.n);
+    })
+  )
+);
+_MoDropHolder :: struct(fd : _MoDropFd, tag : i32);
+_mo_drop_take :: (fn(sink(f) : _MoDropFd) -> i32)(f.n);
+test("Drop: a Drop impl runs once, when the owner drops the value", {
+  before := g_mo_dropped;
+  {
+    a := _MoDropFd(n : i32(1));
+    assert(a.n == i32(1), "a is live");
+  };
+  assert(g_mo_dropped == (before + i32(1)), "dropped at the end of its scope");
+  {
+    h := _MoDropHolder(fd : _MoDropFd(n : i32(10)), tag : i32(0));
+    assert(h.tag == i32(0), "the holder is live");
+  };
+  assert(g_mo_dropped == (before + i32(11)), "a field's Drop runs when its holder is dropped");
+  {
+    p := _MoDropPair(i32)(a : i32(7), n : i32(100));
+    assert(p.a == i32(7), "the pair is live");
+  };
+  assert(g_mo_dropped == (before + i32(111)), "a generic Drop impl runs too");
+});
+test("Drop: a Drop value type is move-only", {
+  comptime_assert(!Type.impls(_MoDropFd, Copy) && !Type.impls(_MoDropFd, Clone), "a Drop value type is neither Copy nor Clone");
+  comptime_assert(!Type.impls(_MoDropHolder, Copy) && !Type.impls(_MoDropHolder, Clone), "a struct holding one is move-only");
+  comptime_assert(!Type.impls(_MoDropPair(i32), Copy) && !Type.impls(_MoDropPair(i32), Clone), "a generic Drop impl's instance is move-only");
+  comptime_assert(Type.contains_rc_type(_MoDropFd), "a Drop value has a drop to run");
+  before := g_mo_dropped;
+  {
+    a := _MoDropFd(n : i32(2));
+    b := a;
+    comptime_expect_error(a.n, "use of moved value");
+    assert(_mo_drop_take(b) == i32(2), "moved into the callee");
+    assert(g_mo_dropped == (before + i32(2)), "the callee dropped it");
+    comptime_expect_error(b.n, "use of moved value");
+  };
+  assert(g_mo_dropped == (before + i32(2)), "dropped once");
+  comptime_expect_error(impl(i32, Drop(drop : (fn(self : &Self) -> unit)(()))), "cannot implement \"Drop\"");
+});
+test("Drop: drop(x) ends a value now and moves it", {
+  before := g_mo_dropped;
+  {
+    a := _MoDropFd(n : i32(3));
+    drop(a);
+    assert(g_mo_dropped == (before + i32(3)), "drop(a) ran the destructor immediately");
+    comptime_expect_error(a.n, "use of moved value");
+  };
+  assert(g_mo_dropped == (before + i32(3)), "and the scope end does not run it again");
+  {
+    d := _MoFd(n : i32(0));
+    d_before := g_mo_disposed;
+    drop(d);
+    assert(g_mo_disposed == (d_before + i32(1)), "drop(x) runs a Dispose impl too");
+  };
+});
+test("Drop: an explicit destructor call is E0915, in both spellings", {
+  a := _MoDropFd(n : i32(0));
+  comptime_expect_error(a.drop(), "Explicit call of the destructor");
+  comptime_expect_error(_MoDropFd.drop(&a), "Explicit call of the destructor");
+  comptime_expect_error((_MoDropFd <: Drop).drop(&a), "Explicit call of the destructor");
+  r := _MoDropRef(n : i32(0));
+  comptime_expect_error(r.drop(), "Explicit call of the destructor");
+  p := _MoDropPair(i32)(a : i32(0), n : i32(0));
+  comptime_expect_error(p.drop(), "Explicit call of the destructor");
+  d := _MoFd(n : i32(0));
+  comptime_expect_error(d.dispose(), "Explicit call of the destructor");
+  comptime_expect_error((_MoFd <: Dispose).dispose(&d), "Explicit call of the destructor");
+  comptime_expect_error(_MoFd.dispose(&d), "Explicit call of the destructor");
+});

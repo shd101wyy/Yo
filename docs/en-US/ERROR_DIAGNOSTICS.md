@@ -154,6 +154,20 @@ or dereference (`match(x.f, …)` → `match(&x.f, …)`). It leaves the argumen
 `comptime_expect_error` alone, since that error is the point. A second run
 records nothing.
 
+`yo fix <path> --migrate drop-trait` is the migration for decision 45, which
+renames the destructor trait `Dispose` to `Drop` (its method `dispose` to
+`drop`) and makes an explicit destructor call E0915. It only parses each file:
+`Dispose` becomes `Drop` wherever it is an identifier (an `impl` entry, a `<:`
+bound or witness, an import), the impl entry's `dispose :` label and every
+`.dispose` member become `drop`, and an explicit call that ends a named value,
+`x.dispose()` or `(T <: Dispose).dispose(&x)`, becomes `drop(x)`. That last row
+does change the program: `drop(x)` moves `x` in, so a later use of `x` is E0901
+and `check` says where. Any other explicit call (`self.dispose()`, a field's
+`s.f.dispose()`) is renamed, listed with its position and left for a hand edit:
+a destructor never calls a field's destructor (the fields drop after it
+returns), and a resource that must be released while other references live
+gets an ordinary method, such as `TcpStream.close_sync()`.
+
 ## Warnings
 
 `check`, `compile` and `build` also carry warning-severity diagnostics for

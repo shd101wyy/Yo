@@ -2167,3 +2167,29 @@ test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
     .B => assert(false, "variant kept")
   );
 });
+// `Drop` (plans/VALUES_BY_DEFAULT.md decision 45, the new name of `Dispose`)
+// on an `Rc` payload: the payload's destructor runs once, when the last
+// handle goes away, never while one is live; and `drop(h)` releases one
+// handle.
+(g_rc_drop_payload : i32) = i32(0);
+RcDropPayload :: struct(n : i32);
+impl(
+  RcDropPayload,
+  Drop(
+    drop : (fn(self : &Self) -> unit)({
+      g_rc_drop_payload = (g_rc_drop_payload + self.n);
+    })
+  )
+);
+test("Rc(T) with a Drop payload drops it once, with the last handle", {
+  before := g_rc_drop_payload;
+  {
+    a := rc(RcDropPayload(n : i32(5)));
+    b := a.clone();
+    assert(b.n == i32(5), "both handles see the payload");
+    drop(a);
+    assert(g_rc_drop_payload == before, "one handle is still live: nothing dropped");
+    assert(b.n == i32(5), "b still reads the payload");
+  };
+  assert(g_rc_drop_payload == (before + i32(5)), "the last handle dropped the payload once");
+});

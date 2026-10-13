@@ -1,0 +1,10 @@
+# `yo fix <path> --migrate drop-trait` (plans/VALUES_BY_DEFAULT.md decision
+# 45, Generation A) renames the destructor trait: `Dispose` -> `Drop` in an
+# impl entry, a concrete and a generic impl, a `where` bound and a witness;
+# the impl entries' `dispose :` labels -> `drop :`; and `x.dispose()` /
+# `(T <: Dispose).dispose(&x)` -> `drop(x)`. left.yo's dry run lists the
+# explicit calls it cannot rewrite (both on a field reached through `self`).
+# The expected_tree pins the rewritten main.yo, and the trailing `check`
+# proves the result evaluates.
+stdout_keep=^fix:
+timeout=240

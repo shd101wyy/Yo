@@ -62,6 +62,7 @@ json :: import("std/encoding/json");
   E_LOCAL_BORROW_ESCAPES,
   E_CLOSURE_MOVES_CAPTURE,
   E_BORROW_MARKER_MISMATCH,
+  E_EXPLICIT_DESTRUCTOR_CALL,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -632,6 +633,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "{ String } :: import(\"std/string\");\nshow :: (fn(s : &String) -> usize)(s.len());\nmain :: (fn() -> unit)({\n  s := String.from(\"hi\");\n  _n := show(&s);\n});\nexport(main);\n",
       "`show` borrows its parameter (`s : &String`), so the call lends `s` with `&s` and keeps it; a bare `s` would say the call takes it by value.",
       "`show` 借用它的形参（`s : &String`），因此调用以 `&s` 借出 `s` 并保留它；裸 `s` 表示调用按值取走它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_EXPLICIT_DESTRUCTOR_CALL,
+      "explicit call of a destructor",
+      "显式调用析构函数",
+      "A `Drop` (or `Dispose`) method is called by hand: `x.drop()`, `T.drop(&x)`, `(T <: Drop).drop(&x)`, or the old spelling's `x.dispose()`.",
+      "手动调用了 `Drop`（或 `Dispose`）方法：`x.drop()`、`T.drop(&x)`、`(T <: Drop).drop(&x)`，或旧写法的 `x.dispose()`。",
+      "A type's destructor runs automatically, exactly once: when the owner of a value type drops it (at the end of its scope, when it is overwritten, or when it is moved into a callee that drops it), and when the last `Rc`/`Arc` reference to a shared value goes away. A call by hand would run it a second time, on a value that is still live, so it is rejected, as Rust rejects it (its E0040). To end a value before its scope does, write `drop(x)`: the prelude function moves `x` in, and the value is dropped when the call returns; a later use of `x` is a use of a moved value (E0901). Inside a destructor, never call a field's destructor: the fields drop by themselves after the destructor returns. `Drop` is the new name of `Dispose` (plans/VALUES_BY_DEFAULT.md decision 45); both spellings are rejected here, and `yo fix <path> --migrate drop-trait` rewrites a project to `Drop`.",
+      "类型的析构函数会自动运行且恰好运行一次：值类型的所有者 drop 它时（作用域结束、被覆盖，或被移入一个会 drop 它的被调函数时），以及共享值的最后一个 `Rc`/`Arc` 引用消失时。手动调用会在值仍然存活时再运行一次，因此被拒绝，与 Rust 相同（其 E0040）。要在作用域结束之前结束一个值，请写 `drop(x)`：这个 prelude 函数把 `x` 移入，值在调用返回时被 drop；之后再使用 `x` 就是使用已移动的值（E0901）。在析构函数内部，不要调用字段的析构函数：析构函数返回后字段会自行 drop。`Drop` 是 `Dispose` 的新名字（plans/VALUES_BY_DEFAULT.md 决策 45）；这里两种写法都会被拒绝，`yo fix <path> --migrate drop-trait` 会把项目改写为 `Drop`。",
+      "Fd :: struct(n : i32);\nimpl(Fd, Dispose(dispose : (fn(self : &Self) -> unit)(())));\nmain :: (fn() -> unit)({\n  f := Fd(n : i32(3));\n  f.dispose();\n});\nexport(main);\n",
+      "Fd :: struct(n : i32);\nimpl(Fd, Dispose(dispose : (fn(self : &Self) -> unit)(())));\nmain :: (fn() -> unit)({\n  f := Fd(n : i32(3));\n  drop(f);\n});\nexport(main);\n",
+      "`f.dispose()` would run the destructor, and `f`'s scope end would run it again; `drop(f)` moves `f` in, so it is dropped once, now.",
+      "`f.dispose()` 会运行析构函数，而 `f` 的作用域结束时会再运行一次；`drop(f)` 把 `f` 移入，因此它现在被 drop，且只 drop 一次。"
     )
   );
   out.push(

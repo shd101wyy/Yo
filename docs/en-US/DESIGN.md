@@ -1246,6 +1246,28 @@ Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field 
 
 A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. `std/` does not use move-only types yet: its resources are still reference types, and they become move-only values in a later step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md).
 
+#### `Drop`, the upcoming name of `Dispose`
+
+`Dispose` is being renamed `Drop`, and its method `dispose` becomes `drop`, with Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45). The meaning does not change: the destructor runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. The compiler already accepts both spellings; `std/` and these docs switch to `Drop` once the released seed knows it, and `yo fix <path> --migrate drop-trait` rewrites a project (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`).
+
+Calling the destructor by hand is error E0915, in both spellings, as in Rust: `x.drop()`, `Fd.drop(&x)`, `(Fd <: Drop).drop(&x)` and `x.dispose()` would run it a second time on a live value. A destructor does not call its fields' destructors either: they drop after it returns. To end a value early, pass it to the prelude's `drop(x)`, which moves it in and drops it when the call returns; a later use of `x` is E0901.
+
+```yo
+{ println } :: import("std/fmt");
+Fd :: struct(n : i32);
+impl(Fd, Drop(drop : (fn(self : &Self) -> unit)(println(`closing ${self.n}`))));
+
+main :: (fn() -> unit)({
+  a := Fd(n : i32(3));
+  drop(a); // prints "closing 3" now
+  // a.drop()      // E0915: explicit call of the destructor
+  // a.n           // E0901: use of moved value: `a`
+});
+export(main);
+```
+
+A resource that must be released while other references to it may still be live gets an ordinary method its destructor delegates to, such as `TcpStream.close_sync()`.
+
 ## Pointers
 
 Yo uses pointers (`*(T)`) for direct memory access, similar to C. Operations that dereference or do arithmetic on raw pointers require an explicit `unsafe(...)` wrap — see [Memory Safety](#memory-safety) below.
@@ -4367,7 +4389,7 @@ test("Object disposal", {
   assert(b.* == 42);
   b.* = 100;
   assert(b.* == 100);
-  // dispose() called automatically here
+  // dispose() runs automatically here; calling it by hand is E0915
 });
 ```
 

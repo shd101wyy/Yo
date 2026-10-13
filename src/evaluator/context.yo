@@ -15,7 +15,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { TypeValue } :: import("../types/definitions.yo");
 { trial_flag_get, trial_flag_set, t_unit, t_ptr, type_binding_name } :: import("../types/creators.yo");
-{ note_move_only_possible } :: import("../types/utils.yo");
+{ note_move_only_possible, is_drop_trait_name } :: import("../types/utils.yo");
 { EvalValue } :: import("../value.yo");
 { Environment, Variable, Frame, _frame_first_position, snapshot_env, add_variable_to_env, get_variables_from_frame, invalidate_frame_index, new_frame, value_cell_of } :: import("../env.yo");
 {
@@ -1894,11 +1894,11 @@ set_copy_trait_blockers_fn :: (fn(f : CopyTraitBlockersFn) -> unit)({
 copy_trait_blockers_via_hook :: (fn(ty : &TypeValue, env : &Environment) -> ArrayList(String))(
   match(g_copy_trait_blockers_fn, .Some(f) => f(ty, env), .None => ArrayList(String).new())
 );
-/// Receiver head names of pending (unforced) impls that declare `Dispose`
+/// Receiver head names of pending (unforced) impls that declare `Drop` (or `Dispose`)
 /// (`""` for an un-nameable head): `force_pending_move_only_impls`
 /// forces them the first time a type's move-only status is asked.
 (g_pending_move_only_heads : HashMap(String, bool)) = HashMap(String, bool).new();
-/// An `impl(...)` statement with a `Dispose(...)` entry,
+/// An `impl(...)` statement with a `Drop(...)` or `Dispose(...)` entry,
 /// read off the syntax (the trait is resolved when the impl is forced).
 _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
   match(
@@ -1910,7 +1910,7 @@ _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
           iargs.get(i),
           .Some(arg) => match(
             arg,
-            .FnCall(_, callee, _, _, _) => if(ast_expr_is_atom(&callee) && (ast_expr_token(&callee).value == "Dispose"), {
+            .FnCall(_, callee, _, _, _) => if(ast_expr_is_atom(&callee) && is_drop_trait_name(&ast_expr_token(&callee).value), {
               return(true);
             }),
             .Atom(_, _) => ()

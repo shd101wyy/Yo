@@ -1215,6 +1215,28 @@ export(main);
 
 泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。`std/` 目前还没有使用只能移动的类型：它的资源仍是引用类型，会在[值语义计划](../../plans/VALUES_BY_DEFAULT.md)的后续步骤中变成只能移动的值。
 
+#### `Drop`：`Dispose` 即将采用的新名字
+
+`Dispose` 正在更名为 `Drop`，其方法 `dispose` 改为 `drop`，并采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）。含义不变：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。编译器已经接受两种写法；等发布的种子编译器认识 `Drop` 后，`std/` 和本文档会改用 `Drop`，`yo fix <path> --migrate drop-trait` 会改写整个项目（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`）。
+
+手动调用析构函数是错误 E0915，两种写法都是，与 Rust 相同：`x.drop()`、`Fd.drop(&x)`、`(Fd <: Drop).drop(&x)` 和 `x.dispose()` 会在值仍然存活时再运行一次析构函数。析构函数也不调用其字段的析构函数：字段会在它返回后自行 drop。要提前结束一个值，请把它传给 prelude 的 `drop(x)`：它把值移入，并在调用返回时 drop 它；之后再使用 `x` 是 E0901。
+
+```yo
+{ println } :: import("std/fmt");
+Fd :: struct(n : i32);
+impl(Fd, Drop(drop : (fn(self : &Self) -> unit)(println(`closing ${self.n}`))));
+
+main :: (fn() -> unit)({
+  a := Fd(n : i32(3));
+  drop(a); // 现在打印 "closing 3"
+  // a.drop()      // E0915：显式调用析构函数
+  // a.n           // E0901：使用已移动的值 `a`
+});
+export(main);
+```
+
+必须在其他引用可能仍然存活时就释放的资源，提供一个普通方法供析构函数委托，例如 `TcpStream.close_sync()`。
+
 ## 指针
 
 Yo 使用指针 (`*(T)`) 进行直接内存访问，类似 C。对原始指针的解引用、算术运算等危险操作需要显式 `unsafe(...)` 包装 — 详见下文 [内存安全](#内存安全)。
@@ -4179,7 +4201,7 @@ test("Object disposal", {
   assert(b.* == 42);
   b.* = 100;
   assert(b.* == 100);
-  // 此处自动调用 dispose()
+  // 此处自动调用 dispose()；手动调用它是 E0915
 });
 ```
 

@@ -1470,9 +1470,10 @@ _unseen_type_ids :: (fn(context : &CodeGenContext, seen : &mut HashSet(String)) 
   ids
 });
 /// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
-/// dispose are generated separately).
+/// dispose are generated separately; `drop`/`dispose` are the destructor
+/// trait's method under its two spellings, decision 45).
 _is_reserved_dyn_method :: (fn(label : &String) -> bool)(
-  (label == BF_DUP) || (label == BF_DROP) || (label == "___dispose") || (label == "dispose")
+  (label == BF_DUP) || (label == BF_DROP) || (label == "___dispose") || (label == "dispose") || (label == "drop")
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain

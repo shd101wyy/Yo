@@ -80,6 +80,8 @@ YO_COLOR=always yo build         # 通过环境变量设置
 
 `yo fix <path> --migrate match-scrutinee` 是决策 26 的迁移：在该决策下，`match` 按值接收拥有所有权的被匹配值。它用新规则对每个文件求值，凡是移动会出错的地方就在被匹配值前写上 `&`：在 `match` 之后仍被使用的局部变量（`match(x, …)` → `match(&x, …)`）、模块级绑定、闭包捕获，以及字段、元素或解引用（`match(x.f, …)` → `match(&x.f, …)`）。`comptime_expect_error` 的参数保持不变，因为那个错误正是它要检验的。再运行一次不会再记录任何改写。
 
+`yo fix <path> --migrate drop-trait` 是决策 45 的迁移：该决策把析构 trait `Dispose` 更名为 `Drop`（方法 `dispose` 改为 `drop`），并让显式调用析构函数成为 E0915。它只解析每个文件：`Dispose` 作为标识符出现的地方（`impl` 条目、`<:` 约束或见证、导入）都改为 `Drop`，impl 条目的 `dispose :` 标签和每个 `.dispose` 成员改为 `drop`，结束一个具名值的显式调用 `x.dispose()` 或 `(T <: Dispose).dispose(&x)` 改为 `drop(x)`。最后这一条确实会改变程序：`drop(x)` 会把 `x` 移入，因此之后再使用 `x` 是 E0901，`check` 会指出位置。其他显式调用（`self.dispose()`、字段的 `s.f.dispose()`）会被重命名、连同位置列出，留待手工修改：析构函数从不调用字段的析构函数（字段会在它返回后自行 drop），而必须在其他引用仍然存活时释放的资源应提供一个普通方法，例如 `TcpStream.close_sync()`。
+
 ## 警告
 
 `check`、`compile` 与 `build` 还会携带警告级别的诊断，针对能编译但看起来有问题的代码。第一个家族是**未使用的变量**：已初始化但没有任何读取的局部变量，会在其作用域结束时警告一次：
