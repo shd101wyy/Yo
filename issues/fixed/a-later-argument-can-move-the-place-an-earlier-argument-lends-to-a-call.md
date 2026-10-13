@@ -64,10 +64,15 @@ call lends:
   (`a.peek(eat(a))`); a by-value `self` moves the receiver itself, so a later
   use of it is already E0901.
 
-If the place's root binding was consumed once the arguments are evaluated, a
-later argument moved it (a move before the lend is E0901 at `&x`, and Yo has
-no partial moves, so moving `a` while `&mut a.f` is lent is a move of the
-lent place too). That is E0910 (`E_BORROW_CONFLICT`, "Call arguments are
+If the place's root binding was consumed once the arguments are evaluated,
+and was not before the call started (`_lent_roots_moved_before` reads each
+lent root's binding from the environment first), a later argument moved it.
+Yo has no partial moves, so moving `a` while `&mut a.f` is lent is a move of
+the lent place too. The before-snapshot matters for
+`yo fix --migrate match-scrutinee`, which evaluates past a by-value
+`match(t, …)` it is migrating to `match(&t, …)`: there `t` is consumed when a
+later `_id(&t)` lends it, and without the snapshot the
+`fix-migrate-match-scrutinee` CLI case failed to evaluate. That is E0910 (`E_BORROW_CONFLICT`, "Call arguments are
 exclusive", whose registry text now names this case), pointing at the move:
 "This argument moves `a`, which an earlier argument of the same call lends to
 it (`&mut a`) ...", with the help "move a copy instead (`a.clone()`), or split
