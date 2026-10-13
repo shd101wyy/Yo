@@ -3773,6 +3773,29 @@ _c3_eval_colon_pair :: (
         ),
         .None => ()
       );
+      // `Drop.drop` takes `self : &mut Self` (plans/VALUES_BY_DEFAULT.md
+      // decision 45, Rust's `drop(&mut self)`): the synthesized `___dispose`
+      // passes the dropped storage's address so the destructor's writes are
+      // what the field drops then read. The receiver's mode is otherwise
+      // adopted from the trait (`_with_receiver_mode_of`), so the destructor
+      // is checked here.
+      match(
+        current_trait_ty,
+        .Some(dr_tt) => if((method_name == "drop") && (move_only_declaring_trait_name(&dr_tt, &st.env) == "Drop"), {
+          dr_mut := match(fi.ty, .Func({ meta : dr_m }) => match(dr_m.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => true);
+          if(!dr_mut, {
+            exn.throw(
+              dyn(
+                format_error_message(
+                  &name_tok,
+                  `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "Drop" as written: member "drop" has type ${type_to_string(&fi.ty)}, but the trait requires the receiver \`self : &mut Self\` (Rust's \`drop(&mut self)\`, plans/VALUES_BY_DEFAULT.md decision 45): the destructor may write the value it drops.`
+                )
+              )
+            );
+          });
+        }),
+        .None => ()
+      );
       // Adopt a private copy: the in-flight env is pushed/popped on later
       // and a recorded snapshot is shared between ExprInfos.
       st.env = expr_info_adopt_env(&fi);
