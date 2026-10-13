@@ -1148,12 +1148,11 @@ instead.
   into the future, because one bundle starts many futures.
   - An explicit-copy or move-only bundle field is an error at the site. A
     generated deep clone would be a hidden copy.
-  - Shared state goes in an `Rc` field.
-  - **Decided 2026-10-13, lands in V2c:** what happens to an `Rc` field
-    once `Rc` copies are explicit. `io.await` lends the bundle
-    (`e : &E`, no copy), and `io.spawn` takes it by value, so the caller
-    spells `b.clone()` when it uses `b` again. V2c's design notes give the
-    reasoning and the alternatives that were rejected.
+  - Shared state goes in a handler that captures an `Rc` (V2c).
+  - **Decided 2026-10-13 (V2c):** an effect is always a value. A bundle
+    field must be implicitly copyable, so after V2c an `Rc` field is an
+    error, and shared state goes in a handler's capture list
+    (`{ st : Rc.clone(st) }`). V2c's design notes give the reasoning.
   - **As built (2026-10-12, A6).** With a borrowing future, A2 also requires
     the `io.await` bundle to be a place (see A2's "As built" note).
     `_check_bundle_fields_copy`
@@ -5223,8 +5222,7 @@ compiler; the std shapes are plain structs the seed lowers):
 - **Bundles.** It also decides A6's `Rc` bundle fields.
 - **No fallback** (decision 17). Once V5 lands, the dup/drop pair optimizer
   has no implicit copy left to cancel.
-- **Design notes** (written 2026-10-13; the maintainer accepted both
-  recommendations the same day):
+- **Design notes** (written and decided 2026-10-13):
   - **The spelling the repair inserts is `Rc.clone(x)` / `Arc.clone(x)`.**
     Decision 32 makes `x.clone()` on a wrapper E0616 when the payload has
     `Clone`, and the unapplied-constructor form needs no payload type.
@@ -5248,36 +5246,32 @@ compiler; the std shapes are plain structs the seed lowers):
     after. Each explicit clone replaces an implicit dup that the optimizer
     used to cancel, so a rise in `___dup` calls in the self-build is the
     cost to report. It is not a reason to keep a fallback.
-  - **A6's open question, the `Rc` bundle field.** Today `io.await` and
-    `io.spawn` take `e : E` by value (#1318), and a cold `io.await` copies
-    the bundle into the future. Once an `Rc` field is explicit-copy, three
-    answers are possible:
-    1. **The bundle copy clones its `Rc`/`Arc` fields implicitly.** No
-       site changes. But it is a hidden owner made at every await, the one
-       thing decision 17 removes.
-    2. **The bundle follows the kind rule with no special case.** A bundle
-       with an `Rc` field is explicit-copy, and `io.await(f, b.clone())` is
-       needed wherever `b` is used again. That is nearly every await of
-       the recommended shared-state pattern. It is a clone on the hot path
-       where nothing is shared longer than the call.
-    3. **`io.await` lends the bundle, and `io.spawn` takes it.** A cold
-       future started by `io.await` finishes before the await returns, so
-       the caller's bundle outlives it and the future can borrow it, as A2's
-       borrowing futures already require of a bundle place (E0910). The
-       slot becomes `e : &E`. `io.spawn` keeps `e : E`: a task outlives the
-       call, so it needs its own owner, which is `b.clone()` when `b` is
-       used again, or a move at its last use.
-    - **Decided: 3** (the maintainer, 2026-10-13). It is the only answer with no hidden owner and
-      no clone where nothing is shared. Sharing is spelled exactly where a
-      second owner appears, at the ~350 `io.spawn` sites. It reverses
-      #1318 for `io.await` only: the ~5,150 await sites (316 in `std/`,
-      480 in `src/`, 4,183 in `tests/`, 172 in docs) gain the `&` marker
-      through `yo fix --migrate markers`. The A6 check
-      (`_check_bundle_fields_copy`) then applies to `io.spawn` alone, and
-      E0901 at a non-last-use bundle argument replaces it there.
-    - It lands in V2c's PR, with the same release as the `Rc` rule. Until
-      then, A6 keeps rejecting a bundle field that
-      `type_requires_explicit_copy` reports.
+  - **A6, the `Rc` bundle field. Decided 2026-10-13 (the maintainer):
+    an effect is always a value.** `io.await` and `io.spawn` keep taking
+    `e : E` by value (#1318), and an effect bundle is never lent.
+    - **The rule A6 already enforces stands.** A bundle field must be
+      implicitly copyable. Once V2c makes an `Rc`/`Arc` handle
+      explicit-copy, an `Rc` field in a bundle is an error at
+      `io.await`/`io.spawn`, as a move-only or non-`Copy` field already is
+      (`_check_bundle_fields_copy`). No std or test bundle has such a
+      field.
+    - **Shared state lives in a handler.** A handler is a closure, and it
+      takes its share through its capture list: `{ st : Rc.clone(st) }`.
+      The clone is spelled where the sharing happens, and copying the bundle
+      copies the handler, not a bare handle. The A6 note and its E0901
+      help text change from "keep shared state in an `Rc` field" to this.
+    - **Rejected:**
+      - cloning a bundle's `Rc` fields implicitly at each copy, which makes
+        a hidden owner at every await;
+      - an explicit-copy bundle, which needs `io.await(f, b.clone())`
+        wherever `b` is used again;
+      - lending the bundle to `io.await` (`e : &E`), because an effect is a
+        value.
+    - **V2c's test:** a handler that captures an `Rc` through its capture
+      list passes the bundle check and shares the cell correctly across
+      several awaits and a spawn. If the closure's capture struct makes the
+      handler explicit-copy, V2c has to settle the closure's kind before
+      this rule can ship.
 
 **After V2b: the allocator interface, version 2** (queued by the maintainer
 2026-10-13). Today's `AllocatorVTable(alloc, realloc, free)` is Zig's
