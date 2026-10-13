@@ -22,8 +22,9 @@
 >   - The runtime borrow flag narrows to `Rc`/`Arc` cells.
 >   - Module-level roots keep a static check.
 >
-> This page is edited as each phase lands, and becomes an "ownership and
-> moves" page when `ref(...)` is removed.
+> This page is edited as each phase lands. At V5 it is replaced by an
+> "Ownership and Borrowing" page, drafted in
+> [`plans/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](../../plans/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md).
 
 Yo uses non-atomic reference counting for heap-allocated objects, and employs compile-time **ownership analysis** and **lifetime analysis** to eliminate unnecessary reference counting operations.
 

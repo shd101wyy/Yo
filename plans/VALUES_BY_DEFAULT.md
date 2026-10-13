@@ -1187,8 +1187,11 @@ machinery.
 - **The RC runtime survives** for `Rc`/`Arc` cells, for the cycle collector
   (`Rc` only), for the compiler's trees, and for the futures' own counts
   until A1.
-- **The doc** is rescoped into an "ownership and moves" doc. It is edited at
-  each phase that changes it, and rewritten at V5. The same edits reach
+- **The doc** is replaced, not rescoped (2026-10-13): its successor is drafted
+  in [`OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](OWNERSHIP_AND_BORROWING_DOC_DRAFT.md),
+  kept current as each phase lands, and promoted to
+  `docs/en-US/OWNERSHIP_AND_BORROWING.md` and `docs/zh-CN/` at V5, when the
+  old page is deleted. The same edits reach
   `README.md`, `docs/zh-CN/README.md` and the debugging and c-codegen
   instruction files.
 
@@ -5256,7 +5259,7 @@ stage-2 RSS):
   - DESIGN (§Types, §Type inference, §Reference-Semantics Types and Memory
     Management, §Closures with Reference-Semantics Types, §Testing with
     Reference-Semantics Types);
-  - MEMORY_SAFETY, COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS (rescoped,
+  - MEMORY_SAFETY, COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS (replaced,
     §3.14), CYCLE_COLLECTION, ISOLATED, ARC, THREAD_SAFETY, PARALLELISM,
     DYN_DESIGN, STRINGS, TYPE_REFLECTION and
     DERIVE_TRAITS;
