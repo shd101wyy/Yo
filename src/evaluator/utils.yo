@@ -553,7 +553,7 @@ move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
   match(
     move_only_reason(ty),
     .Some(why) => Option(String).Some(
-      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).`
+      `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
     ),
     .None => cond(
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
@@ -567,6 +567,16 @@ move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
       ),
       true => Option(String).None
     )
+  )
+);
+/// The explicit copy a move-only type that implements `Clone` offers
+/// (`Sender`, the unique `Box(T)` of a cloneable `T`): `" It implements
+/// \`Clone\`: \`Box.clone(b)\` copies it."`, spelled through the type
+/// constructor so a `Deref` wrapper's clone is not E0616; `""` otherwise.
+_clone_hint :: (fn(name : &String, ty : &TypeValue) -> String)(
+  cond(
+    type_lacks_clone(ty) => String.new(),
+    true => ` It implements \`Clone\`: \`${_copy_derive_target(ty)}.clone(${name})\` copies it.`
   )
 );
 /// The E0901 note for a value that has no name of its own (a field, an

@@ -21,7 +21,7 @@
 { Token } :: import("./token.yo");
 { TypeValue } :: import("./types/definitions.yo");
 { EvalValue, value_to_string } :: import("./value.yo");
-{ is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("./types/guards.yo");
+{ is_bool_type, is_enum_type, is_pointer_type, is_some_type, is_box_type, is_unique_box_type, unique_box_payload_type, is_struct_type, is_tuple_type, is_reference_enum_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("./types/guards.yo");
 { resolve_enum_shell } :: import("./types/creators.yo");
 { are_types_compatible } :: import("./types/compatibility.yo");
 { get_gadt_variant_args, get_gadt_type_constructor_args } :: import("./evaluator/types/gadt_registry.yo");
@@ -273,10 +273,10 @@ gadt_branch_reachable :: (fn(enum_id : &String, variant_idx : usize) -> bool)({
 // Type helpers
 // ---------------------------------------------------------------------------
 /// A cell a wrapper pattern looks through (plans/VALUES_BY_DEFAULT.md
-/// decision 31): an `Rc(T)`, or an `Arc(T)` (the atomic cell of the same
-/// one-field `*` shape).
+/// decision 31): an `Rc(T)`, an `Arc(T)` (the atomic cell of the same
+/// one-field `*` shape), or a unique `Box(T)` (V1 step 2).
 is_pattern_cell_type :: (fn(t : &TypeValue) -> bool)(
-  is_box_type(t) || (is_atomic_reference_struct_type(t) && box_inner_type(t).is_some())
+  is_box_type(t) || is_unique_box_type(t) || (is_atomic_reference_struct_type(t) && box_inner_type(t).is_some())
 );
 /// The type a pattern at a position is compiled against: one pointer level
 /// and one `Rc(T)`/`Arc(T)` cell looked through, a leaked recursive-enum
@@ -299,10 +299,18 @@ _box_shaped :: (fn(fls : &ArrayList(String), fts : &ArrayList(TypeValue)) -> boo
     .None => false
   )
 );
-/// `Rc(T)` → `T` (the field the `*` label names); anything else → `.None`.
+/// `Rc(T)` → `T` (the field the `*` label names), the unique `Box(T)` → `T`
+/// (its cell's pointee); anything else → `.None`.
 /// NOTE: a case whose pattern carries a curly `{…}` destructuring cannot
 /// take a brace-block body (E0007) — the body stays an expression.
 box_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
+  match(
+    unique_box_payload_type(t),
+    .Some(p) => Option(TypeValue).Some(p),
+    .None => _rc_inner_type(t)
+  )
+);
+_rc_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
     .Struct({ field_labels : fls, field_types : fts }) => cond(

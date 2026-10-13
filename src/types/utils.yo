@@ -58,7 +58,8 @@ pragma(Pragma.AllowUnsafe);
   type_decl_module,
   is_module_type,
   is_future_trait_type,
-  can_optimize_as_nullable_pointer
+  can_optimize_as_nullable_pointer,
+  unique_box_payload_type
 }
 :: import("./guards.yo");
 { Token } :: import("../token.yo");
@@ -1230,6 +1231,15 @@ _reaches_non_atomic_cell_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)(
   if(depth > u32(8), {
     return(false);
   });
+  // The unique `Box` owns its payload inline (V1 step 2): it reaches what
+  // its payload reaches.
+  match(
+    unique_box_payload_type(&ty),
+    .Some(payload) => {
+      return(recur(&payload, depth + u32(1)));
+    },
+    .None => ()
+  );
   match(
     ty,
     .Struct({ field_types : fields, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => cond(
@@ -1486,6 +1496,17 @@ _type_refs_back_to_cyclic :: (
             });
           });
           found
+        }
+      ),
+      // The unique `Box` (V1 step 2): its payload is part of its owner's
+      // value, so a cycle closes through it like through an inline field.
+      // A recursive payload (`Option(Box(Self))`) is cut by the Box's id.
+      unique_box_payload_type(ty).is_some() => cond(
+        _id_already_visited(visited, &sid) => false,
+        true => {
+          v2 := visited.clone();
+          v2.push(sid);
+          match(unique_box_payload_type(ty), .Some(payload) => recur(&payload, original_id, &v2), .None => false)
         }
       ),
       // Value-type struct (struct / newtype): stored inline but may hold RC
@@ -3015,6 +3036,9 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
     },
     is_reference_struct_type(ty) => false,
     is_dyn_type(ty) => false,
+    // The unique `Box`'s cell pointer is an owned cell, not a raw view: it
+    // carries what its payload carries.
+    unique_box_payload_type(ty).is_some() => match(unique_box_payload_type(ty), .Some(payload) => recur(&payload, depth - usize(1)), .None => false),
     true => match(
       ty,
       .Pointer(_) => true,

@@ -5,6 +5,9 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { yield } :: import("std/async");
+{ Arena } :: import("std/arena");
+{ with_allocator } :: import("std/allocator");
+{ hash_one } :: import("std/hash");
 Point :: struct(x : i32, y : i32);
 derive(Point, Copy, Clone);
 Wrapper :: struct(v : Rc(i32));
@@ -1964,5 +1967,203 @@ test("a named tuple binding pushed into a container is disposed exactly once", {
   assert(
     g_tuple_elem_disposed == (before + i32(1)),
     "the named-binding path still releases exactly once"
+  );
+});
+// ===========================================================================
+// The unique `Box` (plans/VALUES_BY_DEFAULT.md §3.2, V1 step 2): a uniquely
+// owned cell with no count. Explicit-copy: a copy point moves it, any other
+// copy is E0901, and `Box.clone(b)` is a deep copy. `g_ubox_disposed` counts
+// the disposes of `UBoxProbe` payloads.
+// ===========================================================================
+(g_ubox_disposed : i32) = i32(0);
+UBoxProbe :: struct(n : i32);
+impl(
+  UBoxProbe,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g_ubox_disposed = (g_ubox_disposed + i32(1));
+    })
+  )
+);
+impl(UBoxProbe, Clone(clone : (fn(self : &Self) -> Self)(UBoxProbe(n : self.n))));
+UBoxPoint :: struct(x : i32, y : i32);
+derive(UBoxPoint, Copy, Clone, Eq(UBoxPoint), Hash);
+UBoxTree :: enum(
+  Leaf(v : i32),
+  Node(l : Box(Self), r : Box(Self))
+);
+ubox_sum :: (fn(t : &UBoxTree) -> i32)(
+  match(
+    t,
+    .Leaf(v) => v,
+    .Node(l, r) => (ubox_sum(&l.*) + ubox_sum(&r.*))
+  )
+);
+// Deep clone for the tree: each `Box` is cloned through its payload.
+impl(
+  UBoxTree,
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      match(
+        self,
+        .Leaf(v) => UBoxTree.Leaf(v),
+        .Node(l, r) => UBoxTree.Node(Box.clone(l), Box.clone(r))
+      )
+    )
+  )
+);
+test("unique Box: box(v) holds the payload, and b.* is its place", {
+  b := box(UBoxPoint(x : i32(1), y : i32(2)));
+  assert(b.*.x == i32(1), "b.* is the payload");
+  assert(b.y == i32(2), "auto-dereference reads a field");
+  b.* = UBoxPoint(x : i32(5), y : i32(6));
+  assert(b.x == i32(5), "a write to b.* replaces the payload");
+  b.y = i32(9);
+  assert(b.*.y == i32(9), "a field write goes through the box");
+});
+test("unique Box: Box.clone is an independent, deep copy", {
+  a := box(UBoxPoint(x : i32(1), y : i32(2)));
+  c := Box.clone(a);
+  c.x = i32(100);
+  assert(a.x == i32(1), "the source is untouched");
+  assert(c.x == i32(100), "the clone has its own cell");
+  assert(a.* == UBoxPoint(x : i32(1), y : i32(2)), "the source payload");
+});
+test("unique Box: a tree copied with clone and edited on one side", {
+  t := UBoxTree.Node(box(UBoxTree.Leaf(i32(1))), box(UBoxTree.Node(box(UBoxTree.Leaf(i32(2))), box(UBoxTree.Leaf(i32(3))))));
+  assert(ubox_sum(&t) == i32(6), "the tree sums its leaves");
+  u := t.clone();
+  match(
+    &mut u,
+    .Node(l, _) => {
+      l.* = UBoxTree.Leaf(i32(40));
+    },
+    .Leaf(_) => ()
+  );
+  assert(ubox_sum(&u) == i32(45), "the copy is edited");
+  assert(ubox_sum(&t) == i32(6), "the original is not");
+});
+test("unique Box: an implicit copy that is not the last use is E0901", {
+  a := box(i32(1));
+  b := a;
+  assert(b.* == i32(1), "the last use moved the box");
+  comptime_expect_error(a.*, "use of moved value");
+  comptime_expect_error(c := a, "use of moved value");
+});
+test("unique Box: the payload is dropped exactly once, by its one owner", {
+  before := g_ubox_disposed;
+  {
+    a := box(UBoxProbe(n : i32(1)));
+    b := a;
+    assert(b.n == i32(1), "moved");
+    c := Box.clone(b);
+    assert(c.n == i32(1), "cloned");
+  };
+  assert(g_ubox_disposed == (before + i32(2)), "the moved box once, the clone once");
+});
+test("unique Box: Box(T) is explicit-copy, and move-only when T is", {
+  comptime_assert(!Type.impls(Box(i32), Copy), "a Box is never Copy");
+  comptime_assert(Type.impls(Box(i32), Clone), "a Box of a Clone payload is Clone");
+  comptime_assert(Type.impls(Box(UBoxProbe), Clone), "including a Dispose payload with Clone");
+  comptime_assert(!Type.impls(Box(_UBoxToken), Clone), "a Box of a move-only payload is move-only");
+  comptime_assert(Type.impls(Box(i32), Send), "a Box is Send when its payload is");
+  comptime_assert(!Type.impls(Box(Rc(i32)), Send), "and not when it is not");
+});
+_UBoxToken :: struct(id : i32);
+test("unique Box: Eq, Hash and Default by payload; no count", {
+  a := box(UBoxPoint(x : i32(1), y : i32(2)));
+  b := Box.clone(a);
+  assert(a == b, "equal payloads");
+  b.x = i32(3);
+  assert(!(a == b), "compared by payload");
+  // A `HashMap(Box(K), V)` cannot be built yet: its probes copy buckets
+  // (issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md).
+  h1 := box(UBoxPoint(x : i32(7), y : i32(8)));
+  h2 := box(UBoxPoint(x : i32(7), y : i32(8)));
+  p := UBoxPoint(x : i32(7), y : i32(8));
+  assert(hash_one(&mut h1) == hash_one(&mut h2), "equal payloads hash alike");
+  assert(hash_one(&mut h1) == hash_one(&mut p), "a box hashes as its payload");
+  (z : Box(i32)) = (Box(i32) <: Default).default();
+  assert(z.* == i32(0), "the default box holds the payload's default");
+  comptime_expect_error(ref_count(a), "a uniquely owned cell with no count");
+});
+test("unique Box: Option(Box(T)) is one pointer", {
+  comptime_assert(size_of(Option(Box(UBoxPoint))) == size_of(*u8), "the NULL niche");
+  (o : Option(Box(i32))) = .Some(box(i32(4)));
+  match(
+    o,
+    .Some(b) => assert(b.* == i32(4), "the payload through the niche"),
+    .None => assert(false, "unreachable")
+  );
+  (n : Option(Box(i32))) = .None;
+  assert(n.is_none(), "None is NULL");
+});
+test("unique Box: alloc places the cell, and a clone stays where its source lives", {
+  arena := Arena.new(usize(4096));
+  {
+    a := box(i32(7), alloc : .Some(arena.allocator()));
+    assert(Allocator.owner_of((*void)(addr_of(a.*))).same(arena.allocator()), "the cell's owner prefix names the arena");
+    match(Box.allocator(a), .Some(o) => assert(o.same(arena.allocator()), "Box.allocator reads it back"), .None => assert(false, "placed"));
+    c := Box.clone(a);
+    match(Box.allocator(c), .Some(o) => assert(o.same(arena.allocator()), "the clone is in the arena too"), .None => assert(false, "the clone is placed"));
+    g := box(i32(1));
+    assert(Box.allocator(g).is_none(), "a default box is on the global allocator");
+    s := with_allocator(arena.allocator(), () => box(i32(2)));
+    assert(match(Box.allocator(s), .Some(o) => o.same(arena.allocator()), .None => false), "the with_allocator scope places a default box");
+  };
+  arena.deinit();
+});
+UBoxProbeTree :: enum(
+  Leaf(p : UBoxProbe),
+  Node(l : Box(Self), r : Box(Self))
+);
+test("unique Box: a consuming match looks through the box, and drops it once", {
+  before := g_ubox_disposed;
+  {
+    v := match(box(UBoxProbe(n : i32(3))), UBoxProbe(n : k) => k);
+    assert(v == i32(3), "the struct pattern matched through the box");
+  };
+  assert(g_ubox_disposed == (before + i32(1)), "the scrutinee box dropped its payload once");
+  {
+    t := UBoxProbeTree.Node(box(UBoxProbeTree.Leaf(UBoxProbe(n : i32(1)))), box(UBoxProbeTree.Leaf(UBoxProbe(n : i32(2)))));
+    w := match(
+      t,
+      .Node(.Leaf(a), r) => {
+        keep := r;
+        a.n
+      },
+      .Node(_, _) => i32(0),
+      .Leaf(_) => i32(-1)
+    );
+    assert(w == i32(1), "a look-through on the left, the box itself bound on the right");
+  };
+  assert(g_ubox_disposed == (before + i32(3)), "both leaves dropped exactly once");
+});
+UBoxHolder :: struct(b : Box(UBoxPoint), k : i32);
+derive(UBoxHolder, Clone, Eq(UBoxHolder), Hash);
+UBoxChoice :: enum(A(b : Box(i32)), B);
+derive(UBoxChoice, Clone);
+test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
+  x := UBoxHolder(b : box(UBoxPoint(x : i32(1), y : i32(2))), k : i32(3));
+  y := x.clone();
+  assert(x == y, "the derived Eq compares the payloads");
+  y.b.x = i32(9);
+  assert(x.b.x == i32(1), "the derived clone made a new cell");
+  assert(!(x == y), "and the payloads now differ");
+  z := x.clone();
+  assert(hash_one(&mut x) == hash_one(&mut z), "the derived Hash hashes the payload");
+  e := UBoxChoice.A(b : box(i32(6)));
+  f := e.clone();
+  match(
+    &mut f,
+    .A(b) => {
+      b.* = i32(7);
+    },
+    .B => ()
+  );
+  match(
+    e,
+    .A(b) => assert(b.* == i32(6), "the enum variant's box cloned"),
+    .B => assert(false, "variant kept")
   );
 });

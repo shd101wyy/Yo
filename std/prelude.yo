@@ -8674,11 +8674,11 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
         "",
         (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
           fname :: fields.get(fi).name;
-          // A `Deref` wrapper field (`Rc`, `Arc`) clones through its own
+          // A `Deref` wrapper field (`Box`, `Rc`, `Arc`) clones through its own
           // `Clone` impl by name: `self.f.clone()` would be decision 32's
           // wrapper/payload clash (E0616) when the payload is `Clone` too.
           part :: cond(
-            Type.impls(fields.get(fi).field_type, Deref) => __s5("(type_of(self.", fname, ") <: Clone).clone(&mut self.", fname, ")"),
+            Type.impls(fields.get(fi).field_type, Deref) => __s5("(type_of(self.", fname, ") <: Clone).clone(&self.", fname, ")"),
             true => __s3("self.", fname, ".clone()")
           );
           cond(
@@ -8728,7 +8728,7 @@ __derive_clone :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptim
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   part :: cond(
-                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(type_of(__v_", fname, ") <: Clone).clone(&mut __v_", fname, ")"),
+                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5("(type_of(__v_", fname, ") <: Clone).clone(&__v_", fname, ")"),
                     true => __s3("__v_", fname, ".clone()")
                   );
                   cond(
@@ -8799,7 +8799,13 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
             "",
             (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
               fname :: fields.get(fi).name;
-              __s4(a, "\n    self.", fname, ".hash(hasher);")
+              // A `Deref` wrapper field hashes through its own `Hash` impl by
+              // name, as `__derive_clone` does: `self.f.hash(...)` is
+              // decision 32's wrapper/payload clash (E0616).
+              cond(
+                Type.impls(fields.get(fi).field_type, Deref) => __s5(a, "\n    (type_of(self.", fname, __s3(") <: Hash).hash(&mut self.", fname, ", hasher);"), ""),
+                true => __s4(a, "\n    self.", fname, ".hash(hasher);")
+              )
             })
           );
           __s3("{", hash_stmts, "\n  }")
@@ -8834,7 +8840,10 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
                 __s3("hasher.write_u64(u64(", vi_str, "));"),
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
-                  __s4(a, " __v_", fname, ".hash(hasher);")
+                  cond(
+                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5(a, " (type_of(__v_", fname, __s3(") <: Hash).hash(&mut __v_", fname, ", hasher);"), ""),
+                    true => __s4(a, " __v_", fname, ".hash(hasher);")
+                  )
                 })
               );
               __s5(
@@ -9745,7 +9754,7 @@ impl(
   where(T <: Clone),
   Rc(T),
   Clone(
-    clone : (self -> rc(self.*.clone()))
+    clone : (fn(self : &Self) -> Self)(rc(self.*.clone()))
   )
 );
 /// `Default` — a cell holding `T`'s default.
@@ -9762,6 +9771,174 @@ impl(
 export(
   Rc,
   rc
+);
+/// === Box ===
+/// Box — a uniquely owned heap cell for a single value, with no count: Rust's
+/// `Box<T>` (plans/VALUES_BY_DEFAULT.md §3.2, V1 step 2). A recursive type
+/// uses it (`Expr :: enum(Num(i32), Add(Box(Self), Box(Self)))`), and so does
+/// a value that needs a stable address.
+///
+/// A `Box` has one owner. It is explicit-copy: a copy point moves it when it
+/// is the box's last use, any other copy is E0901, and `b.clone()` is a deep
+/// copy, a new cell holding a clone of the payload. Dropping the box drops its
+/// payload and frees the cell. `Box(T)` is move-only when `T` is (no `Clone`).
+/// `w.*` names the payload, and `w.field` / `w.method()` reach it through
+/// auto-dereference (`Deref`). Sharing is `Rc`; a `Box` is never counted, so
+/// `ref_count` rejects it.
+///
+/// The cell is one allocation: a 16-byte owner prefix, then the payload. The
+/// prefix records the allocator that placed the cell (the `alloc` argument,
+/// else the current `with_allocator` scope), or the global allocator, and the
+/// drop frees the cell through it (§3.11). A placed cell's prefix is the one
+/// `std/allocator.yo`'s `Allocator.alloc` writes, so `Allocator.owner_of`
+/// reads it.
+///
+/// ```yo
+/// a := box(i32(41));
+/// b := a.clone(); // an independent cell
+/// b.* = i32(42);
+/// assert(a.* == i32(41), "the clone is a new cell");
+/// ```
+Box :: (fn(comptime(V) : Type) -> comptime(Type))(
+  newtype(_cell : *V)
+);
+// The allocator hooks a `Box` cell uses, which `std/allocator.yo` uses too
+// (the prelude cannot import it).
+extern(
+  "Yo",
+  __yo_malloc :
+    (fn(size : usize) -> ?*void),
+  __yo_free :
+    (fn(ptr : ?*void) -> unit),
+  __yo_scope_ctx :
+    (fn() -> ?*void),
+  __yo_scope_vtable :
+    (fn() -> ?*void)
+);
+// A `Box` cell's owner prefix: `{ctx, vtable}`, the layout of
+// `std/allocator.yo`'s `_AllocPrefix` and codegen's `__yo_alloc_prefix_t`,
+// with a `.None` vtable for the global allocator (codegen's scope
+// convention).
+_BoxOwner :: struct(
+  ctx : ?*void,
+  vtable : ?*AllocatorVTable
+);
+derive(_BoxOwner, Copy, Clone);
+_BOX_PREFIX_SIZE :: usize(16);
+// The owner prefix in front of a `Box` cell's payload.
+_box_owner_of :: (fn(cell : *void) -> *_BoxOwner)(
+  // SAFETY: every `Box` cell is a `box` block plus `_BOX_PREFIX_SIZE`.
+  (*_BoxOwner)(unsafe((*u8)(cell).sub(_BOX_PREFIX_SIZE)))
+);
+/// Move `value` into a new uniquely owned cell. `alloc : .Some(a)` places the
+/// cell in `a`; the default, `.None`, places it in the current
+/// `with_allocator` scope, else the global allocator. The cell is freed
+/// through that allocator when the box is dropped. Panics when the allocator
+/// is out of memory.
+///
+/// ```yo
+/// e := box(i32(1));
+/// assert(e.* == i32(1), "the payload");
+/// ```
+box :: (fn(generic(V : Type), value : V, (alloc : Option(Allocator)) ?= .None) -> Box(V))({
+  owner := match(
+    alloc,
+    .Some(a) => _BoxOwner(ctx : a.ctx, vtable : .Some(a.vtable)),
+    .None => _BoxOwner(
+      ctx : __yo_scope_ctx(),
+      vtable : match(__yo_scope_vtable(), .Some(vt) => .Some((*AllocatorVTable)(vt)), .None => .None)
+    )
+  );
+  size := (size_of(V) + _BOX_PREFIX_SIZE);
+  block := match(
+    match(owner.vtable, .Some(vt) => vt.*.alloc(owner.ctx, size), .None => __yo_malloc(size)),
+    .Some(b) => b,
+    .None => __yo_panic("box: out of memory")
+  );
+  // SAFETY: `block` is a fresh, 16-aligned allocation of `size` bytes.
+  unsafe(consume((*_BoxOwner)(block).* = owner));
+  cell := (*V)(unsafe((*u8)(block).add(_BOX_PREFIX_SIZE)));
+  unsafe(consume(cell.* = value));
+  Box(V)(cell)
+});
+impl(
+  generic(T : Type),
+  Box(T),
+  /// The allocator the cell belongs to: the one `box` placed it in, or
+  /// `.None` for the global allocator. Spelled `Box.allocator(b)`: a payload
+  /// with its own `allocator` makes `b.allocator()` ambiguous (E0616).
+  allocator : (fn(self : &Self) -> Option(Allocator))({
+    // SAFETY: `_cell` is a live `Box` cell.
+    owner := unsafe(_box_owner_of((*void)(self._cell)).*);
+    match(owner.vtable, .Some(vt) => .Some(Allocator(ctx : owner.ctx, vtable : vt)), .None => .None)
+  })
+);
+impl(
+  generic(T : Type),
+  Box(T),
+  Dispose(
+    /// Drops the payload, then frees the cell through its owner prefix.
+    dispose : (fn(self : &Self) -> unit)({
+      // SAFETY: the box is the cell's only owner, and this runs once.
+      unsafe.drop(unsafe(self._cell.*));
+      block := _box_owner_of((*void)(self._cell));
+      owner := unsafe(block.*);
+      match(
+        owner.vtable,
+        .Some(vt) => vt.*.free(owner.ctx, .Some((*void)(block))),
+        .None => __yo_free(.Some((*void)(block)))
+      );
+    })
+  )
+);
+/// `Clone` — a new cell holding a clone of the payload, placed where the
+/// source lives (decision 12): an arena box's clone stays in the arena.
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  Box(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      box(unsafe(self._cell.*).clone(), alloc : Box(T).allocator(self))
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Hash),
+  Box(T),
+  Hash(
+    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(unsafe(self._cell.*).hash(hasher))
+  )
+);
+impl(
+  generic(T : Type),
+  where(T <: Eq(T)),
+  Box(T),
+  Eq(Box(T))(
+    // SAFETY: both cells are live for the comparison.
+    (==) : ((lhs, rhs) -> unsafe(lhs._cell.* == rhs._cell.*))
+  )
+);
+/// `Default` — a cell holding `T`'s default.
+impl(
+  generic(T : Type),
+  where(T <: Default),
+  Box(T),
+  Default(
+    default : (fn() -> Self)(
+      box((T <: Default).default())
+    )
+  )
+);
+// The box is its payload's only owner, so moving the box moves the payload
+// (§3.8): it is `Send`/`Sync` exactly when the payload is. The raw `_cell`
+// field derives neither (decision 38 E); `Acyclic` derives from the pointee.
+impl(generic(T : Type), where(T <: Send), Box(T), Send());
+impl(generic(T : Type), where(T <: Sync), Box(T), Sync());
+export(
+  Box,
+  box
 );
 /// Iso — an isolated reference-counted value that can be sent across threads.
 // SAFETY (rule D2, plans/reference/PARALLELISM_RULES.md): Iso(T) is
@@ -9886,7 +10063,7 @@ export(Arc, arc);
 /// nested wrappers. A name both have is E0616 (decision 32): `Rc.clone(b)`
 /// is the `Rc`'s `clone`, `b.*.clone()` the payload's. `w.*` is the payload.
 ///
-/// Implemented by `Rc` and `Arc` only; any other `impl(..., Deref(...))` is
+/// Implemented by `Box`, `Rc` and `Arc` only; any other `impl(..., Deref(...))` is
 /// a compile error, so every auto-dereference goes through one of the
 /// prelude's cells.
 ///
@@ -9903,6 +10080,7 @@ Deref :: trait(
 );
 export(Deref);
 impl(generic(T : Type), Rc(T), Deref(Target : T));
+impl(generic(T : Type), Box(T), Deref(Target : T));
 impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), Arc(T), Deref(Target : T));
 /// === MaybeUninit ===
 extern(

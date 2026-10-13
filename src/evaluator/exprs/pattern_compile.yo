@@ -48,7 +48,7 @@
 { EvalValue, is_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_bool, resolve_enum_shell } :: import("../../types/creators.yo");
-{ is_enum_type, is_pointer_type, is_tuple_type, is_box_type, is_struct_type } :: import("../../types/guards.yo");
+{ is_enum_type, is_pointer_type, is_tuple_type, is_box_type, is_unique_box_type, is_struct_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { format_error_message, format_error_message_with_help, with_code } :: import("../../error.yo");
@@ -1389,15 +1389,19 @@ compile_pattern :: (
   // sub-pattern compiles against `T`, and the access path dereferences the
   // box (`path-><first field>`, §4.8). `_`, a plain binding and the name of
   // `:=` bind/ignore the box itself and never reach here.
-  if(is_box_type(position_ty), {
+  // The unique `Box(T)` is looked through the same way (its payload is the
+  // cell pointer's pointee).
+  if(is_box_type(position_ty) || is_unique_box_type(position_ty), {
     inner := match(
       box_inner_type(position_ty),
       .Some(i) => resolve_enum_shell(&i),
       .None => position_ty
     );
+    // A `Box`'s one field is its cell pointer, not the payload: its payload
+    // has no compile-time value here.
     inner_val := match(
       value_opt,
-      .Some(.StructVal(_, _, fvs)) => fvs.get(usize(0)),
+      .Some(.StructVal(_, _, fvs)) => if(is_unique_box_type(position_ty), Option(EvalValue).None, fvs.get(usize(0))),
       .Some(_) => Option(EvalValue).None,
       .None => Option(EvalValue).None
     );

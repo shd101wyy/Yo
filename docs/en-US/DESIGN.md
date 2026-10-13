@@ -116,6 +116,7 @@ Our goal is to be a practical language that is easy to use and easy to learn.
   - [Closure Capture Semantics](#closure-capture-semantics)
   - [Closure Type Restrictions](#closure-type-restrictions)
   - [Closures with Reference-Semantics Types](#closures-with-reference-semantics-types)
+- [Box: the Uniquely Owned Cell](#box-the-uniquely-owned-cell)
 - [Rc and Reference-Counted Cells](#rc-and-reference-counted-cells)
   - [Rc Type](#rc-type)
   - [Usage Examples](#usage-examples)
@@ -3365,6 +3366,53 @@ test :: (fn() -> unit)({
 
 For more examples, see [closure.test.yo](../tests/closure.test.yo).
 
+## Box: the Uniquely Owned Cell
+
+`Box(T)` is a heap cell with exactly one owner and no reference count, like
+Rust's `Box<T>`. Use it for a recursive type and for a value that needs a
+stable address; use `Rc` when the value is shared.
+
+```yo
+Tree :: enum(
+  Leaf(v : i32),
+  Node(l : Box(Self), r : Box(Self))
+);
+sum :: (fn(t : &Tree) -> i32)(
+  match(
+    t,
+    .Leaf(v) => v,
+    .Node(l, r) => (sum(&l.*) + sum(&r.*))
+  )
+);
+t := Tree.Node(box(Tree.Leaf(1)), box(Tree.Leaf(2)));
+assert(sum(&t) == 3);
+```
+
+- **`box(v)`** moves `v` into a new cell. `b.*` is the payload place, in safe
+  code too: `b.* = v` replaces it, and `b.field` / `b.method()` reach it by
+  auto-dereference. A pattern looks through a `Box` payload, as through an
+  `Rc`'s.
+- **Explicit copies.** A `Box` is never `Copy`. `c := b` moves `b` when it is
+  `b`'s last use; any other copy is E0901. `Box.clone(b)` is a deep copy: a
+  new cell holding a clone of the payload (`b.clone()` is E0616, because the
+  payload may have a `clone` of its own). `Box(T)` implements `Clone` when `T`
+  does, so a `Box` of a move-only value is move-only.
+- **One drop.** Dropping a `Box` drops its payload and frees the cell.
+  `ref_count(b)` is a compile error: there is no count.
+- **`Eq`, `Hash` and `Default`** compare, hash and build the payload.
+  `Box(T)` is `Send`/`Sync` exactly when `T` is.
+- **Layout.** The `Box` value is one pointer, and `Option(Box(T))` is one
+  pointer too (`NULL` is `.None`). The cell carries a 16-byte owner prefix in
+  front of the payload, recording the allocator that placed it.
+- **Allocators.** `box(v, alloc : .Some(a))` places the cell in `a`;
+  without `alloc`, the current `with_allocator` scope places it, else the
+  global allocator. The cell is freed through its owner, and `Box.clone(b)`
+  lands where `b` lives (an arena box's clone stays in the arena).
+  `Box.allocator(b)` reads the owner back (`.None` for the global allocator).
+- **Cycles.** A `Box` is part of its owner's value: the cycle collector and
+  `^`'s uniqueness walk trace its payload in place, so an `Rc` cycle closed
+  through a `Box` is collected like any other.
+
 ## Rc and Reference-Counted Cells
 
 Yo provides `Rc` and `rc` for heap-allocating value types with automatic reference counting.
@@ -3391,10 +3439,9 @@ Yo provides `Rc` and `rc` for heap-allocating value types with automatic referen
 > broken (Rust's `Box` cannot form one), and `ref_count(b)` / `Iso` are how you ask
 > about uniqueness.
 >
-> The cell used to be spelled `Box(V)` / `box(v)`; that spelling is gone.
-> Values-by-default V1 step 2
-> (`plans/VALUES_BY_DEFAULT.md`) then reintroduces `Box` as a different,
-> uniquely owned, uncounted cell, like Rust's `Box<T>`.
+> The shared cell used to be spelled `Box(V)` / `box(v)`. `Box` is now a
+> different type: the uniquely owned, uncounted cell, like Rust's `Box<T>`
+> ([Box: the Uniquely Owned Cell](#box-the-uniquely-owned-cell)).
 
 `Rc(T)` is a generic reference-semantics type that wraps any value type:
 
@@ -3435,7 +3482,7 @@ assert(m.* == 20);
 
 ### Auto-dereference
 
-`Rc` and `Arc` implement the prelude's `Deref` marker trait
+`Box`, `Rc` and `Arc` implement the prelude's `Deref` marker trait
 (`Deref :: trait(Target : Type)`, `Target` is the payload). On a `Deref`
 type, a field or method the wrapper does not have is looked up on the
 payload: `w.field` means `w.*.field` and `w.method()` means `w.*.method()`.
@@ -3463,7 +3510,7 @@ assert(pp.y == 2); // nested wrappers: pp.*.*.y
   `pragma(Pragma.AllowUnsafe)`, a write through an `Arc` is still rejected
   (`a.n = v`, `a.bump()` with `self : &mut Self`): mutate an `Arc`'s payload
   through a `Mutex` or an atomic.
-- **Only `Rc` and `Arc` implement `Deref`.** `impl(MyWrapper, Deref(...))`
+- **Only `Box`, `Rc` and `Arc` implement `Deref`.** `impl(MyWrapper, Deref(...))`
   is a compile error: a user wrapper exposes its payload through its own
   fields and methods.
 - When neither the wrapper nor its payload has the name, the error says so:
@@ -3508,7 +3555,7 @@ test("Rc reference counting", {
 - **Heap allocation**: When you need a value type on the heap
 - **Shared mutability**: Multiple references to the same mutable value
 - **Dynamic dispatch**: Wrapping value types for use with `Dyn` (`dyn(v)` on a value type does this for you: it wraps `v` in `rc(v)`)
-- **Recursive types**: Breaking cycles in type definitions
+- **Recursive types**: only when the nodes are shared; a tree of uniquely owned nodes uses `Box`
 
 ```yo
 // Dynamic dispatch requires reference-semantics types

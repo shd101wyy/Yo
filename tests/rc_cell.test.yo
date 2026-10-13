@@ -40,13 +40,15 @@ test("rc(v) builds an Rc(T) whose handles share one cell", {
   c := Rc(i32)(i32(3));
   assert(c.* == i32(3), "the type constructor builds the same cell");
 });
-test("the legacy Box spelling is gone (Generation B part 2)", {
+// The shared cell's legacy `Box` spelling is gone (Generation B part 2);
+// `Box` is now the unique cell (V1 step 2), a different type from `Rc`.
+test("Box is the unique cell, a different type from Rc", {
   comptime_expect_error({
     (b : Box(i32)) = rc(i32(1));
   }, "Box");
   comptime_expect_error({
-    _r := box(i32(1));
-  }, "box");
+    (r : Rc(i32)) = box(i32(1));
+  }, "Rc");
 });
 test("ref_count reads an Rc's count", {
   a := rc(i32(5));

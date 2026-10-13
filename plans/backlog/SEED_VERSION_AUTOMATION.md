@@ -334,6 +334,31 @@ before then:
 - `tests/index.test.yo` moves its local `VIndex`/`VIndexMut` cases onto the
   prelude traits.
 
+## Seed-gated follow-up (2026-10-12): `src/` moves back to the unique `Box`
+
+`plans/VALUES_BY_DEFAULT.md` §6 V1 step 2. Generation A
+(`feat/vbd-v1-step2-box`) added the unique `Box(V)` to the prelude and the
+compiler support behind it: `b.*` as the payload place, patterns through it,
+the GC/`Iso` walk, the niche. The prelude half is plain std Yo the v0.2.59
+seed lowers, but the seed rejects `b.*` on a `Box` (E0406), so `src/` cannot
+use one yet.
+
+**Generation B (once `SEED_VERSION` carries Generation A):**
+- move `Option(Rc(Self))` → `Option(Box(Self))` for
+  `is_owning_the_same_rc_value_as` on `Variable`, `CapturedVariable`,
+  `SuspensionCapturedVariable` and `EffectCapturedVariable`;
+  `Option(Rc(Token))` → `Option(Box(Token))` for `consumed_at_token`;
+  `Rc(FuncMeta)` → `Box(FuncMeta)`; `ArrayList(Rc(Self))` in
+  `src/doc/model.yo`; the verifier's local cells (`src/verifier/vc.yo`).
+  `Rc(FuncValData)` stays `Rc` (`strip_proved_ensures_asserts` writes through
+  it);
+- give each non-last-use copy of those fields a `Box.clone(...)` or a move:
+  `src/env.yo`, `evaluator/exprs/assignment.yo`,
+  `evaluator/builtins/va_start.yo`, `codegen/exprs/async.yo`,
+  `evaluator/types/synthesizer.yo`; the hop loop in
+  `evaluator/exprs/runtime.yo` (and its twin in
+  `evaluator/effects/mutation_summary.yo`) gets a re-pointed borrow.
+
 ## Seed-gated follow-up (2026-10-06): local borrows (VALUES_BY_DEFAULT V3)
 
 **Generation A DONE 2026-10-06** (feat/vbd-local-borrows): the compiler

@@ -155,3 +155,25 @@ test("Var introspection answers about a variable and rejects anything else", {
   comptime_expect_error(Var.has_other_aliases(i32(1) + i32(2)), "expects a variable");
   comptime_expect_error(Var.is_owning_the_rc_value(_no_such_variable), "not found");
 });
+// The unique `Box` (V1 step 2) owns its payload inline, so `^`'s uniqueness
+// walk must descend through it: an `Rc` aliased from inside a `Box` is a
+// shared interior like any other.
+_IsoBoxWrap :: ref(struct(inner : Box(Rc(i32))));
+test("^ answers .None when a Box payload holds a shared Rc", {
+  shared := rc(i32(5));
+  w := _IsoBoxWrap(inner : box(shared)); // an implicit Rc copy shares the cell
+  r := ^w;
+  assert(r.is_none(), "an Rc aliased through a Box is not isolated");
+  assert(shared.* == i32(5), "the shared cell is untouched");
+});
+test("^ isolates a value whose Box payload is uniquely owned", {
+  w := _IsoBoxWrap(inner : box(rc(i32(6))));
+  match(
+    ^w,
+    .Some(iso) => {
+      got := iso.extract();
+      assert(got.inner.*.* == i32(6), "the payload crossed intact");
+    },
+    .None => assert(false, "a uniquely owned graph isolates")
+  );
+});

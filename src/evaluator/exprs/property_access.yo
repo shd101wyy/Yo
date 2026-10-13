@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_type, t_some_t, resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
-{ is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type, type_decl_module } :: import("../../types/guards.yo");
+{ is_pointer_type, is_enum_type, is_reference_enum_type, is_struct_type, is_union_type, is_module_type, is_trait_type, is_tuple_type, is_some_type, is_type_0, is_function_type, type_decl_module, unique_box_payload_type } :: import("../../types/guards.yo");
 { private_member_blocked, is_private_member_name, debug_knob } :: import("../../utils.yo");
 { get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -719,10 +719,14 @@ evaluate_property_access :: (
     match(
       obj_ty_deref,
       .Some(ot) => {
-        if(is_pointer_type(&ot), {
+        // `b.*` on the unique `Box` (V1 step 2) names its payload place: the
+        // box is a newtype over its cell pointer, so this is that pointer's
+        // dereference. It is safe: the box owns a live cell.
+        deref_box_payload := unique_box_payload_type(&ot);
+        if(is_pointer_type(&ot) || deref_box_payload.is_some(), {
           // Memory-safety gate: pointer dereference requires `unsafe(...)`.
           // Files under std/ and src/ are implicitly unsafe-capable.
-          if(!ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&property_expr).module_path.clone())), {
+          if(deref_box_payload.is_none() && !ctx.unsafe_context && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&property_expr).module_path.clone())), {
             exn.throw(
               dyn(
                 format_error_message(
@@ -736,7 +740,7 @@ Raw pointer operations may dereference invalid memory.`
               )
             );
           });
-          base_ty_deref := match(ot, .Pointer(pt) => pt, _ => t_unit());
+          base_ty_deref := match(deref_box_payload, .Some(bp) => bp, .None => match(ot, .Pointer(pt) => pt, _ => t_unit()));
           // Resolve SomeType from env if needed.
           (resolved_base : TypeValue) = cond(
             is_some_type(&base_ty_deref) => get_value_of_some_type_from_env(&env, &base_ty_deref),
@@ -1772,7 +1776,7 @@ Raw pointer operations may dereference invalid memory.`
               return(expr);
             });
             // Auto-dereference (plans/VALUES_BY_DEFAULT.md §3.3): on a
-            // `Deref` wrapper (`Rc`, `Arc`) whose own fields lack the label,
+            // `Deref` wrapper (`Box`, `Rc`, `Arc`) whose own fields lack the label,
             // `w.field` means `w.*.field`. The object argument is replaced
             // IN PLACE by `w.*` and the access re-evaluated, so every later
             // reader — codegen, the root-of-place walks (D3, E0908, inout),

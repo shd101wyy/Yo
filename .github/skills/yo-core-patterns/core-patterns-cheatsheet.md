@@ -205,7 +205,9 @@ counter.* = (counter.* + i32(1));
 (ptr : Option(*u8)) = .None;
 ```
 
-- Use `Rc(T)` or `rc(value)` for owned heap allocation
+- Use `box(value)` (a `Box(T)`) for a uniquely owned heap cell: recursive value types,
+  stable addresses. It is move-only; copy it with `Box.clone(b)`. Use `rc(value)` (an
+  `Rc(T)`) only when the cell is shared
 - Use `*(T)` for raw pointers
 - Model nullable pointers as `?*T` (= `?(*(T))`) or the explicit `Option(*T)`, not sentinel integers
 - Constructor syntax: `Rc(T)(value)` — NOT `Rc(T).new(value)`
@@ -213,9 +215,10 @@ counter.* = (counter.* + i32(1));
   This is a value payload accessor for reference-semantics values, while pointer dereference
   still applies when the receiver has pointer type.
 - For self-referential `ref(struct(...))` / `ref(enum(...))` types, use a DIRECT `Self` field —
-  NO `Rc(Self)` needed. A reference-semantics value is already a heap pointer, so the
-  recursion terminates at the handle. (`Rc(Self)` is only for self-referential VALUE
-  `struct(...)` / `enum(...)` types, where it breaks the recursive cycle.)
+  NO `Box(Self)` needed. A reference-semantics value is already a heap pointer, so the
+  recursion terminates at the handle. (`Box(Self)` is for self-referential VALUE
+  `struct(...)` / `enum(...)` types, where it breaks the recursive cycle; `Rc(Self)` when
+  the nodes are shared.)
 
 ```yo
 Node :: ref(

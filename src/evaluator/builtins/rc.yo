@@ -4,7 +4,7 @@
 //! For RC types: returns an unknown runtime `usize`.
 //! For value types: always returns `1` as a compile-time `usize`.
 { String } :: import("std/string");
-{ AstExpr, ast_expr_token, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ast_expr_token, ast_expr_id, ast_expr_to_string } :: import("../../expr.yo");
 {
   ExprInfo,
   new_expr_info,
@@ -17,8 +17,9 @@
 { EvalValue, create_unknown_val } :: import("../../value.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_usize } :: import("../../types/creators.yo");
-{ is_rc_type } :: import("../../types/guards.yo");
-{ format_error_message } :: import("../../error.yo");
+{ is_rc_type, is_unique_box_type } :: import("../../types/guards.yo");
+{ type_to_string } :: import("../../types/string.yo");
+{ format_error_message, format_error_message_with_help } :: import("../../error.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { attach_temp_variable_to_expr } :: import("../utils.yo");
 { Exception } :: import("std/error");
@@ -60,6 +61,20 @@ evaluate_ref_count :: (
       new_expr_info(env, t_usize())
     }
   );
+  // The unique `Box` has no count (plans/VALUES_BY_DEFAULT.md §3.2: only
+  // `Rc` and `Arc` are counted).
+  if(is_unique_box_type(&arg_info.ty), {
+    exn.throw(
+      dyn(
+        format_error_message_with_help(
+          ast_expr_token(&arg_ast),
+          `ref_count: \`${ast_expr_to_string(&arg_ast)}\` is a ${type_to_string(&arg_info.ty)}, a uniquely owned cell with no count.`,
+          Option(String).Some(String.from("only `Rc` and `Arc` are counted; a `Box` always has exactly one owner"))
+        )
+      )
+    );
+    return(expr);
+  });
   cur_env := expr_info_adopt_env(&arg_info);
   out_info := new_expr_info(&cur_env, t_usize());
   if(is_rc_type(&arg_info.ty), {
