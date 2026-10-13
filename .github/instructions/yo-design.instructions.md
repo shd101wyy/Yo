@@ -122,7 +122,7 @@ accessed with `value.*`. Treat this as a value payload accessor for reference-se
 not automatically as a pointer dereference; pointer dereference still applies
 when the receiver itself has pointer type.
 
-**Auto-dereference (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3, V1).** `Box`, `Rc` and `Arc` implement the prelude marker `Deref :: trait(Target : Type)` (`Target := V`). On a `Deref` type, a member the wrapper lacks is looked up on the payload: `w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively through nested wrappers. A name the wrapper AND its payload both have is E0616 (decision 32 Gen B: `_reject_wrapper_payload_clash` in calls/function.yo for methods, the callee arm of `evaluate_property_access` for a wrapper method against a payload field), naming `Rc.m(w)` and `w.*.m()`; its `yo fix` repair is `Rc.m(w)`, the old meaning. The check is off while a generic function or impl is specialized (`x.clone()` under `T <: Clone` with `T := Rc(i32)` is the bound's method), so a generic body that WRITES `w : Rc(T)` is not checked yet (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`). `derive(Clone)` spells a `Deref` field's clone `(type_of(self.f) <: Clone).clone(self.f)`. Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it REPLACES the object argument in place with a `w.*` node from `make_deref_expr` and re-evaluates, so codegen and the root-of-place walks see the explicit chain; in callee position — `w.items(i)`, `w.f(x)` — only when the wrapper has no METHOD of that name); the method hook is `_try_find_receiver_method`'s miss path (retries with receiver `w.*`, and on a hit rewrites the callee's receiver argument in place). `deref_target_type` (`trait_checking.yo`) is the one predicate. Only the prelude may `impl(..., Deref(...))` (`_throw_if_deref_impl_outside_prelude`, impl.yo). **`std/` and `src/` keep writing `.*`** until `SEED_VERSION` carries auto-deref (Generation B).
+**Auto-dereference (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3, V1).** `Box`, `Rc` and `Arc` implement the prelude marker `Deref :: trait(Target : Type)` (`Target := V`). On a `Deref` type, a member the wrapper lacks is looked up on the payload: `w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively through nested wrappers. A name the wrapper AND its payload both have is E0616 (decision 32 Gen B: `_reject_wrapper_payload_clash` in calls/function.yo for methods, the callee arm of `evaluate_property_access` for a wrapper method against a payload field), naming `Rc.m(w)` and `w.*.m()`; its `yo fix` repair is `Rc.m(w)`, the old meaning. The check is off while a generic function or impl is specialized (`x.clone()` under `T <: Clone` with `T := Rc(i32)` is the bound's method), so a generic body that WRITES `w : Rc(T)` is not checked yet (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`). `derive(T, Clone)` spells a `Deref` field's clone `(type_of(self.f) <: Clone).clone(&self.f)`. Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it REPLACES the object argument in place with a `w.*` node from `make_deref_expr` and re-evaluates, so codegen and the root-of-place walks see the explicit chain; in callee position — `w.items(i)`, `w.f(x)` — only when the wrapper has no METHOD of that name); the method hook is `_try_find_receiver_method`'s miss path (retries with receiver `w.*`, and on a hit rewrites the callee's receiver argument in place). `deref_target_type` (`trait_checking.yo`) is the one predicate. Only the prelude may `impl(..., Deref(...))` (`_throw_if_deref_impl_outside_prelude`, impl.yo). **`std/` and `src/` keep writing `.*`** until `SEED_VERSION` carries auto-deref (Generation B).
 
 `ref_count(x)` reads the reference count of the cell `x` holds (`1` for a value type,
 an atomic load for `Arc`/`atomic(ref(...))`/`Iso`); it is the only count builtin
@@ -736,7 +736,7 @@ Rules that follow from it:
   error at the `dyn(...)` token (it used to fail inside the C compiler, naming a
   generated `__yo_wrap_…` symbol — see
   `issues/fixed/dyn-does-not-check-that-the-value-implements-the-traits.md`).
-- **Spell an error enum with `derive(Error)`, not two hand-written impls.**
+- **Spell an error enum with `derive(T, Error)`, not two hand-written impls.**
   One message per variant, in DECLARATION ORDER, emits `ToString` and `Error`
   together; each message is checked against the variant it lands on, so a
   renamed/added/removed/reordered variant is a compile error.
@@ -805,12 +805,12 @@ Two conventions that are easy to miss:
 - **Traits are the API.** An inherent method that duplicates a trait method
   becomes a trait impl, so generic code can dispatch on it. Types that should
   compose get `Eq` / `Ord` / `Hash` / `Clone` / `ToString`.
-- **Hashing is Rust-shaped (plans/reference/HASHER_REDESIGN.md).** `Hash.hash(self,
+- **Hashing is Rust-shaped (plans/reference/HASHER_REDESIGN.md).** `Hash.hash(self : &Self,
   hasher : &mut H)` FEEDS bytes; a `Hasher` (`std/hash`: `SipHasher13` =
   `DefaultHasher`, `Fnv1aHasher`) turns them into the `u64`. Never write a
   `-> u64` hash method or fold hashes with `* 31`; a new type's impl calls
-  `hasher.write_*` per field (or `derive(Hash)`), variable-length data writes a
-  terminator/length, and `hash_one(v)` is the one-value helper. Maps use FIXED
+  `hasher.write_*` per field (or `derive(T, Hash)`), variable-length data writes a
+  terminator/length, and `hash_one(&v)` is the one-value helper. Maps use FIXED
   default keys so emitted C and printed maps are reproducible (the fixpoint
   gate compares C byte for byte); `HashMap.with_keys` is the per-instance opt-in.
 

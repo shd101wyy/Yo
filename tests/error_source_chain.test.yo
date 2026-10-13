@@ -60,10 +60,10 @@ _Node :: trait(
 );
 _AnyNode :: Dyn(_Node);
 _Root :: struct(tag : String);
-impl(_Root, ToString(to_string : (fn(self : &mut Self) -> String)(`root(${self.tag})`)));
+impl(_Root, ToString(to_string : (fn(self : &Self) -> String)(`root(${self.tag})`)));
 impl(_Root, _Node());
 _Child :: ref(struct(tag : String, up : _AnyNode));
-impl(_Child, ToString(to_string : (fn(self : &mut Self) -> String)(`child(${self.tag})`)));
+impl(_Child, ToString(to_string : (fn(self : &Self) -> String)(`child(${self.tag})`)));
 impl(_Child, _Node(parent : (fn(self : &mut Self) -> Option(_AnyNode))(Option(_AnyNode).Some(self.up))));
 _handle :: (fn(n : &_AnyNode) -> String)(n.to_string());
 test("a user trait's Dyn(SelfTrait) payload binds and passes as Dyn(ThatTrait)", {

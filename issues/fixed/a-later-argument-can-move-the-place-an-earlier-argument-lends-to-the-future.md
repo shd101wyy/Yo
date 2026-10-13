@@ -67,7 +67,7 @@ concern: a later argument that is itself a place overlapping one lent `&mut`
 The help names the fix: compute the argument before the statement. Recorded in
 `plans/VALUES_BY_DEFAULT.md` §3.13 A2's "As built" note. The plain-call case
 (the borrow ends with the call) is
-`issues/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`.
+`issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`.
 
 Regression test: `tests/async_await.test.yo`, "a later argument cannot move,
 overwrite or lend &mut what an earlier one lends to the call's future".

@@ -22,8 +22,9 @@
 >   - The runtime borrow flag narrows to `Rc`/`Arc` cells.
 >   - Module-level roots keep a static check.
 >
-> This page is edited as each phase lands, and becomes an "ownership and
-> moves" page when `ref(...)` is removed.
+> This page is edited as each phase lands. At V5 it is replaced by an
+> "Ownership and Borrowing" page, drafted in
+> [`plans/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md`](../../plans/OWNERSHIP_AND_BORROWING_DOC_DRAFT.md).
 
 Yo uses non-atomic reference counting for heap-allocated objects, and employs compile-time **ownership analysis** and **lifetime analysis** to eliminate unnecessary reference counting operations.
 
@@ -98,7 +99,7 @@ collection, an `Rc`, …) cannot be written through it, because the write would 
 the caller still holds (E0908). The same holds for a `match` or `for` binding, and for
 passing such a place to a `&mut` parameter the callee may write, including calling a
 `&mut self` method such as `push_str` on it: the write would land in the borrowed copy
-alone. Read-only `&mut self` methods (`clone`, `to_string`) and indexing stay allowed.
+alone. Read-only `&self` methods (`clone`, `to_string`) and indexing stay allowed.
 Take the parameter as `sink(p) : T` or `p : &mut T`, or copy it into a local first:
 
 ```yo

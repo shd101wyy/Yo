@@ -30,6 +30,7 @@
 { take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { should_skip_function_codegen } :: import("../functions/declarations.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ Emitter } :: import("../../emitter.yo");
 { declare_c_var_name, get_type_string, is_self_named_atom, get_variable_type_string, get_variable_name_for_codegen, get_deferred_drop_target_atom_name, get_deferred_dup_target_atom_name, is_deferred_drop_for_closure_capture, get_enum_variant_c_name, sanitize_for_c_identifier, c_variant_member_name, can_optimize_as_nullable_pointer, get_runtime_struct_fields, type_key, fresh_local_name, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_enum_shell, resolve_struct_shell } :: import("../../types/creators.yo");
 { Environment, get_variables_from_env } :: import("../../env.yo");
@@ -211,6 +212,131 @@ _closure_value_type :: (fn(t : &TypeValue) -> TypeValue)({
   cvt_r := resolve_cell_chain(t);
   if(is_closure_capture_struct(&cvt_r), cvt_r, t)
 });
+/// The C name of the per-type drop (`is_drop`) or dup function of a TAGGED
+/// value enum, generating it on first use.
+///
+/// The function switches on the discriminant and releases (drop) or retains
+/// in place (dup) each reference-counted field of the active variant — the
+/// walk every drop/dup site used to emit inline. A large enum (the compiler's
+/// own `TypeValue` as a value enum: 40 variants, ~60 counted fields) made each
+/// site ~120 lines across ~51 000 sites, 726 MB of C instead of 147 MB
+/// (issues/fixed/value-enum-drops-are-emitted-inline-at-every-drop-site.md).
+///
+/// It takes the value BY ADDRESS through `void*`, so its prototype names no
+/// type and can sit in the headers section, ahead of every caller — including
+/// the async dispose and spawn-wrapper bodies written into the declarations
+/// section mid-codegen. The definition needs the complete enum type, so it is
+/// appended to the END of the declarations section (`compile_module`). Both go
+/// to side buffers on the base context, never through `context.base.emitter`:
+/// callers swap that emitter for a scratch one and splice its text into a
+/// function body. The body is generated under a scratch emitter too, so the
+/// nested field walks (array loops, tuple temps) land in the function.
+_value_enum_rc_fn :: (fn(concrete_type : &TypeValue, is_drop : bool, context : &FunctionGenerationContext) -> String)({
+  c_type := get_type_string(concrete_type, &context.base);
+  fn_name := String.from(if(is_drop, "__yo_venum_drop_", "__yo_venum_dup_"));
+  fn_name.push_string(sanitize_for_c_identifier(&c_type, false));
+  cg := context.base;
+  if(cg.value_enum_rc_fns.contains(fn_name.clone()), {
+    return(fn_name);
+  });
+  // Registered before the body is generated: a field walk that reaches this
+  // type again only needs the name.
+  cg.value_enum_rc_fns.insert(fn_name.clone());
+  saved := context.base.emitter;
+  scratch := Emitter.new();
+  context.base.emitter = scratch;
+  value_code := String.from("(*__yo_v)");
+  match(
+    concrete_type,
+    .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+      scratch.emit_string_line(`switch (${value_code.clone()}.tag) {`);
+      nv := variant_names.len();
+      (vi : usize) = usize(0);
+      while(vi < nv, {
+        vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
+        fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
+        labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
+        nf := fields.len();
+        (has_rc : bool) = false;
+        (ci : usize) = usize(0);
+        while(ci < nf, {
+          match(
+            fields.get(ci),
+            .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
+              has_rc = true;
+            }),
+            .None => ()
+          );
+          ci = (ci + usize(1));
+        });
+        if(has_rc, {
+          tag_c := get_enum_variant_c_name(concrete_type, vname.clone(), &context.base);
+          scratch.emit_string_line(`  case ${tag_c}: {`);
+          (fi : usize) = usize(0);
+          while(fi < nf, {
+            match(
+              fields.get(fi),
+              .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
+                flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
+                fname := sanitize_for_c_identifier(&flabel, false);
+                access := `${value_code.clone()}.data.${c_variant_member_name(vname.clone())}.${fname}`;
+                if(is_drop, {
+                  fd := generate_drop_code_for_value(&access, &ft, context);
+                  if(fd.len() > usize(0), {
+                    scratch.emit_string_line(`    ${fd};`);
+                  });
+                }, {
+                  fu := generate_dup_code_for_value(&access, &ft, context);
+                  if((fu.len() > usize(0)) && !(fu == access), {
+                    scratch.emit_string_line(`    ${access} = ${fu};`);
+                  });
+                });
+              }),
+              .None => ()
+            );
+            fi = (fi + usize(1));
+          });
+          scratch.emit_string_line(String.from("    break;"));
+          scratch.emit_string_line(String.from("  }"));
+        });
+        vi = (vi + usize(1));
+      });
+      scratch.emit_string_line(String.from("  default: break;"));
+      scratch.emit_string_line(String.from("}"));
+    },
+    _ => ()
+  );
+  context.base.emitter = saved;
+  // Anything the walk declared or included goes where it went before the
+  // walk was outlined: the emitter that was current.
+  if(scratch.headers.len() > usize(0), {
+    saved.emit_header_string(&scratch.headers);
+  });
+  if(scratch.declarations.len() > usize(0), {
+    saved.emit_declaration_string(&scratch.declarations);
+  });
+  cg.value_enum_rc_protos.push_string(`static inline void ${fn_name.clone()}(void* __yo_p);\n`);
+  def := `static inline void ${fn_name.clone()}(void* __yo_p) {\n  ${c_type}* __yo_v = (${c_type}*)__yo_p;\n`;
+  // Indent the body one level: emitted C closes a file-scope body with `}`
+  // at column 0 and indents everything inside it (chunk assembly relies on it).
+  body_lines := scratch.code.split("\n");
+  (bi : usize) = usize(0);
+  while(bi < body_lines.len(), {
+    match(
+      body_lines.get(bi),
+      .Some(bl) => if(bl.len() > usize(0), {
+        def.push_str("  ");
+        def.push_string(&bl);
+        def.push_str("\n");
+      }),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+  def.push_str("}\n");
+  cg.value_enum_rc_defs.push_string(&def);
+  fn_name
+});
 /// Generate drop code for a value of any type (recursive for arrays/tuples).
 /// Note: emits at column 0 (no indent).
 generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValue, context : &FunctionGenerationContext) -> String)({
@@ -350,12 +476,13 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
       out.push_str("))");
       out
     },
-    // Value enum carrying RC fields: drop the active variant's RC fields INLINE —
-    // RC operations lower directly rather than via a side-registry method (same
+    // Value enum carrying RC fields: drop the active variant's RC fields. RC
+    // operations lower directly rather than via a side-registry method (same
     // rationale as the reference-enum branch above; registering a ___drop method
     // instead makes
-    // `(___drop)(x)` resolve via method dispatch, which mis-lowers). Per-variant
-    // walk over a value (not a handle).
+    // `(___drop)(x)` resolve via method dispatch, which mis-lowers). The tagged
+    // representation's per-variant walk is a codegen-synthesized C function per
+    // enum type (`_value_enum_rc_fn`), called at each site.
     is_enum_type(&concrete_type) => match(
       can_optimize_as_nullable_pointer(&concrete_type),
       // Nullable-pointer enum: the value IS the inner pointer (NULL = the empty variant).
@@ -381,64 +508,13 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
         });
         String.from("")
       }),
-      // Tagged representation: switch on the discriminant, drop each RC field of the arm.
-      .None => match(
-        concrete_type,
-        .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
-          em.emit_string_line(`switch ((${value_code.clone()}).tag) {`);
-          nv := variant_names.len();
-          (vi : usize) = usize(0);
-          while(vi < nv, {
-            vname := match(variant_names.get(vi), .Some(v) => v, .None => String.from(""));
-            fields := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-            labels := match(variant_field_labels.get(vi), .Some(l) => l, .None => ArrayList(String).new());
-            nf := fields.len();
-            (has_rc : bool) = false;
-            (ci : usize) = usize(0);
-            while(ci < nf, {
-              match(
-                fields.get(ci),
-                .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
-                  has_rc = true;
-                }),
-                .None => ()
-              );
-              ci = (ci + usize(1));
-            });
-            if(has_rc, {
-              tag_c := get_enum_variant_c_name(&concrete_type, vname.clone(), &context.base);
-              em.emit_string_line(`  case ${tag_c}: {`);
-              (fi : usize) = usize(0);
-              while(fi < nf, {
-                match(
-                  fields.get(fi),
-                  .Some(ft) => if(type_contains_rc_cell_or_move_only(&ft), {
-                    flabel := match(labels.get(fi), .Some(l) => l, .None => String.from(""));
-                    fname := sanitize_for_c_identifier(&flabel, false);
-                    access := `(${value_code.clone()}).data.${c_variant_member_name(vname.clone())}.${fname}`;
-                    fd := recur(&access, &ft, context);
-                    if(fd.len() > usize(0), {
-                      line := String.from("    ");
-                      line.push_string(&fd);
-                      line.push_str(";");
-                      em.emit_string_line(&line);
-                    });
-                  }),
-                  .None => ()
-                );
-                fi = (fi + usize(1));
-              });
-              em.emit_string_line(String.from("    break;"));
-              em.emit_string_line(String.from("  }"));
-            });
-            vi = (vi + usize(1));
-          });
-          em.emit_string_line(String.from("  default: break;"));
-          em.emit_string_line(String.from("}"));
-          String.from("")
-        },
-        _ => String.from("")
-      )
+      // Tagged representation: one per-type drop function switches on the
+      // discriminant and drops each RC field of the active arm; every site
+      // calls it (issues/fixed/value-enum-drops-are-emitted-inline-at-every-drop-site.md).
+      .None => {
+        vd_name := _value_enum_rc_fn(&concrete_type, true, context);
+        `${vd_name}((void*)&(${value_code.clone()}))`
+      }
     ),
     // Newtype (`newtype(_f : Inner)`): a TRANSPARENT typedef to `Inner` at
     // the C ABI (no struct wrapper, no `._f` member) — drop the inner value
@@ -761,76 +837,22 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
           em.emit_string_line(&np_line);
           value_code.clone()
         }),
-        // Tagged representation: copy to a temp, dup each RC field of the
-        // active variant IN PLACE, return the temp (the enum mirror of the
-        // value-struct dup temp pattern below).
-        .None => match(
-          concrete_type,
-          .EnumT({ variant_names : ed_vns, variant_fields : ed_vfs, variant_field_labels : ed_vls }) => {
-            ed_temp := fresh_local_name(String.from("temp_dup_enum_"), &context.base.current_function_name);
-            ed_decl := get_type_string(&concrete_type, &context.base);
-            ed_decl.push_str(" ");
-            ed_decl.push_string(ed_temp.clone());
-            ed_decl.push_str(" = ");
-            ed_decl.push_string(value_code.clone());
-            ed_decl.push_str(";");
-            em.emit_string_line(&ed_decl);
-            em.emit_string_line(`switch ((${ed_temp.clone()}).tag) {`);
-            ed_nv := ed_vns.len();
-            (ed_vi : usize) = usize(0);
-            while(ed_vi < ed_nv, {
-              ed_vname := match(ed_vns.get(ed_vi), .Some(v) => v, .None => String.from(""));
-              ed_fields := match(ed_vfs.get(ed_vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
-              ed_labels := match(ed_vls.get(ed_vi), .Some(l) => l, .None => ArrayList(String).new());
-              ed_nf := ed_fields.len();
-              (ed_has_rc : bool) = false;
-              (ed_ci : usize) = usize(0);
-              while(ed_ci < ed_nf, {
-                match(
-                  ed_fields.get(ed_ci),
-                  .Some(ed_ft0) => if(type_contains_rc_cell_or_move_only(&ed_ft0), {
-                    ed_has_rc = true;
-                  }),
-                  .None => ()
-                );
-                ed_ci = (ed_ci + usize(1));
-              });
-              if(ed_has_rc, {
-                ed_tag := get_enum_variant_c_name(&concrete_type, ed_vname.clone(), &context.base);
-                em.emit_string_line(`  case ${ed_tag}: {`);
-                (ed_fi : usize) = usize(0);
-                while(ed_fi < ed_nf, {
-                  match(
-                    ed_fields.get(ed_fi),
-                    .Some(ed_ft) => if(type_contains_rc_cell_or_move_only(&ed_ft), {
-                      ed_flabel := match(ed_labels.get(ed_fi), .Some(l) => l, .None => String.from(""));
-                      ed_fname := sanitize_for_c_identifier(&ed_flabel, false);
-                      ed_access := `(${ed_temp.clone()}).data.${c_variant_member_name(ed_vname.clone())}.${ed_fname}`;
-                      ed_fd := recur(ed_access.clone(), &ed_ft, context);
-                      if((ed_fd.len() > usize(0)) && !(ed_fd == ed_access), {
-                        ed_line := String.from("    ");
-                        ed_line.push_string(&ed_access);
-                        ed_line.push_str(" = ");
-                        ed_line.push_string(&ed_fd);
-                        ed_line.push_str(";");
-                        em.emit_string_line(&ed_line);
-                      });
-                    }),
-                    .None => ()
-                  );
-                  ed_fi = (ed_fi + usize(1));
-                });
-                em.emit_string_line(String.from("    break;"));
-                em.emit_string_line(String.from("  }"));
-              });
-              ed_vi = (ed_vi + usize(1));
-            });
-            em.emit_string_line(String.from("  default: break;"));
-            em.emit_string_line(String.from("}"));
-            ed_temp
-          },
-          _ => value_code.clone()
-        )
+        // Tagged representation: copy to a temp and dup each RC field of the
+        // active variant IN PLACE through the per-type dup function, return
+        // the temp (the enum mirror of the value-struct dup temp pattern below).
+        .None => {
+          ed_temp := fresh_local_name(String.from("temp_dup_enum_"), &context.base.current_function_name);
+          ed_decl := get_type_string(&concrete_type, &context.base);
+          ed_decl.push_str(" ");
+          ed_decl.push_string(ed_temp.clone());
+          ed_decl.push_str(" = ");
+          ed_decl.push_string(value_code.clone());
+          ed_decl.push_str(";");
+          em.emit_string_line(&ed_decl);
+          vu_name := _value_enum_rc_fn(&concrete_type, false, context);
+          em.emit_string_line(`${vu_name}((void*)&(${ed_temp.clone()}));`);
+          ed_temp
+        }
       )
     ),
     true => value_code.clone()

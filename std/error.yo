@@ -40,7 +40,7 @@ Error :: trait(
   /// `Error` trait on an erased receiver, so a caller could print one link but
   /// not follow it (#521,
   /// `issues/fixed/self-trait-in-a-return-type-loses-the-trait-on-an-erased-receiver.md`).
-  (source : (fn(self : &mut Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
+  (source : (fn(self : &Self) -> Option(Dyn(SelfTrait)))) ?= (self -> .None),
   where(Self <: ToString)
 );
 export(Error);
@@ -226,7 +226,7 @@ impl(
 impl(
   Context,
   ToString(
-    to_string : (fn(self : &mut Self) -> String)({
+    to_string : (fn(self : &Self) -> String)({
       out := self.message.clone();
       out.push_str(": ");
       out.push_string(self.cause.to_string());
@@ -237,7 +237,7 @@ impl(
 impl(
   Context,
   Error(
-    source : (fn(self : &mut Self) -> Option(AnyError))(
+    source : (fn(self : &Self) -> Option(AnyError))(
       Option(AnyError).Some(self.cause)
     )
   )

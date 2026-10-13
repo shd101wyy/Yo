@@ -203,10 +203,10 @@ derive(_HashEnumRc, Hash);
 test("auto-deref: derive(Hash) hashes an Rc field as its payload", {
   x := _HashRc(r : rc(i32(1)), k : i32(2));
   y := _HashPlain(r : i32(1), k : i32(2));
-  assert(hash_one(&mut x) == hash_one(&mut y), "an Rc field hashes as its payload");
+  assert(hash_one(&x) == hash_one(&y), "an Rc field hashes as its payload");
   e := _HashEnumRc.A(r : rc(i32(3)));
   f := _HashEnumRc.A(r : rc(i32(3)));
-  assert(hash_one(&mut e) == hash_one(&mut f), "the enum variant's Rc field hashes by payload");
+  assert(hash_one(&e) == hash_one(&f), "the enum variant's Rc field hashes by payload");
 });
 // The unique `Box` (V1 step 2) auto-dereferences like the shared cells, and
 // its `.*` needs no `unsafe` (this file is not pragma'd): the box owns a live

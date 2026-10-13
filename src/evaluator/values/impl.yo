@@ -121,7 +121,8 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../context.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_anonymous_module_begin_exprs } :: import("./anonymous_module.yo");
-{ format_error_message, render_any_error, reanchor_primary_at, YoError } :: import("../../error.yo");
+{ format_error_message, render_any_error, reanchor_primary_at, YoError, with_code } :: import("../../error.yo");
+{ E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { propagate_def_time_errors } :: import("../../types/flowability.yo");
 { Token } :: import("../../token.yo");
 { get_value_of_some_type_from_env, get_trait_type_from_env } :: import("../../types/env_lookup.yo");
@@ -3569,6 +3570,27 @@ _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue,
     _ => false
   )
 );
+/// True when an impl member writes its receiver (`self : &mut Self`) where
+/// the trait lends it read-only (`self : &Self`). Receiver forms are otherwise
+/// free (`_with_receiver_mode_of`): a direct call adapts to the impl's own
+/// signature. A call through the trait does not: a `&Dyn(Trait)` or a generic
+/// `T <: Trait` body passes the read-only borrow the trait promises, and the
+/// vtable wrapper hands it to a member that writes it
+/// (issues/fixed/an-impl-may-write-a-receiver-its-trait-lends-read-only.md).
+_receiver_writes_where_trait_reads :: (fn(actual : &TypeValue, expected : &TypeValue) -> bool)(
+  match(
+    actual,
+    .Func({ meta : ameta }) => match(
+      expected,
+      .Func({ meta : emeta }) => (
+        match(ameta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(emeta.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) &&
+          (match(ameta.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false) && !match(emeta.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false) && !match(emeta.*.param_is_owning.get(usize(0)), .Some(b) => b, .None => false))
+      ),
+      _ => false
+    ),
+    _ => false
+  )
+);
 _with_receiver_mode_of :: (fn(actual : &TypeValue, expected : &TypeValue) -> TypeValue)(
   match(
     actual,
@@ -3723,16 +3745,31 @@ _c3_eval_colon_pair :: (
         .Some(conf_tt) => match(
           expected_method_ty_resolved,
           .None => (),
-          .Some(conf_exp) => if((get_all_some_types(&conf_exp).len() == usize(0)) && (get_all_some_types(&fi.ty).len() == usize(0)) && !is_type_hierarchy_type(&conf_exp) && !are_types_compatible(_with_receiver_mode_of(&fi.ty, &conf_exp), &conf_exp) && !(migrate_param_modes_on() && _migrate_imm_for_trait_mismatch(&val_expr, &fi.ty, &conf_exp)), {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  &name_tok,
-                  `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}" has type ${type_to_string(&fi.ty)}, but the trait requires ${type_to_string(&conf_exp)}`
+          .Some(conf_exp) => {
+            if((get_all_some_types(&conf_exp).len() == usize(0)) && (get_all_some_types(&fi.ty).len() == usize(0)) && !is_type_hierarchy_type(&conf_exp) && !are_types_compatible(_with_receiver_mode_of(&fi.ty, &conf_exp), &conf_exp) && !(migrate_param_modes_on() && _migrate_imm_for_trait_mismatch(&val_expr, &fi.ty, &conf_exp)), {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    &name_tok,
+                    `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}" has type ${type_to_string(&fi.ty)}, but the trait requires ${type_to_string(&conf_exp)}`
+                  )
                 )
-              )
-            );
-          })
+              );
+            });
+            if(_receiver_writes_where_trait_reads(&fi.ty, &conf_exp), {
+              exn.throw(
+                dyn(
+                  with_code(
+                    format_error_message(
+                      &name_tok,
+                      `Type "${type_to_string(&st.receiver_ty)}" does not implement required trait "${type_to_string(&conf_tt)}" as written: member "${method_name}" takes \`self : &mut Self\`, but the trait lends its receiver read-only (\`self : &Self\`). A call through the trait (a \`Dyn\`, or a generic \`T <: ${type_to_string(&conf_tt)}\` body) passes a read-only borrow, so the member may not write it: declare \`self : &Self\`.`
+                    ),
+                    E_WRITE_THROUGH_BORROW
+                  )
+                )
+              );
+            });
+          }
         ),
         .None => ()
       );

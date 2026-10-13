@@ -927,7 +927,7 @@ Hasher :: trait(
   /// Feed `size` bytes starting at `buf`.
   write : (fn(self : &mut Self, buf : *u8, size : usize) -> unit),
   /// The hash of everything written so far.
-  finish : (fn(self : &mut Self) -> u64),
+  finish : (fn(self : &Self) -> u64),
   (write_u8 : (fn(self : &mut Self, v : u8) -> unit)) ?=
     (
       (self, v) -> {
@@ -983,7 +983,7 @@ export(Hasher);
 */
 Hash :: trait(
   /// Feed this value's identity into `hasher`.
-  hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)
+  hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)
 );
 export(Hash);
 /// Clone trait — deep-copy a value.
@@ -991,7 +991,7 @@ Clone :: trait(
   /// Create an independent clone of `self`.
   clone :
     (
-      fn(self : &mut Self) -> Self
+      fn(self : &Self) -> Self
     )
 );
 export(Clone);
@@ -1102,7 +1102,7 @@ impl(
 impl(
   unit,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(())
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(())
   )
 );
 impl(unit, Clone(clone : (fn(self : &Self) -> Self)(())));
@@ -1420,8 +1420,7 @@ impl(
   bool,
   Clone(
     clone : (
-      self ->
-        __yo_return_self(self)
+      self -> self
     )
   )
 );
@@ -1429,7 +1428,7 @@ impl(bool, Copy());
 impl(
   bool,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u8(cond(self => u8(1), true => u8(0))))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u8(cond(self => u8(1), true => u8(0))))
   )
 );
 impl(
@@ -1577,13 +1576,13 @@ impl(
 impl(
   i8,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i8(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i8(self))
   )
 );
 impl(
   i8,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(i8, Copy());
@@ -1873,13 +1872,13 @@ impl(
 impl(
   i16,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i16(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i16(self))
   )
 );
 impl(
   i16,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(i16, Copy());
@@ -2229,15 +2228,14 @@ impl(
 impl(
   i32,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(self))
   )
 );
 impl(
   i32,
   Clone(
     clone : (
-      self ->
-        __yo_return_self(self)
+      self -> self
     )
   )
 );
@@ -2468,13 +2466,13 @@ impl(
 impl(
   i64,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(self))
   )
 );
 impl(
   i64,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(i64, Copy());
@@ -2757,13 +2755,13 @@ impl(
 impl(
   u8,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u8(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u8(self))
   )
 );
 impl(
   u8,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(u8, Copy());
@@ -3036,13 +3034,13 @@ impl(
 impl(
   u16,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u16(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u16(self))
   )
 );
 impl(
   u16,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(u16, Copy());
@@ -3315,13 +3313,13 @@ impl(
 impl(
   u32,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(self))
   )
 );
 impl(
   u32,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(u32, Copy());
@@ -3594,13 +3592,13 @@ impl(
 impl(
   u64,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(self))
   )
 );
 impl(
   u64,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(u64, Copy());
@@ -3853,7 +3851,7 @@ impl(
 impl(
   f32,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(f32, Copy());
@@ -4039,7 +4037,7 @@ impl(
 impl(
   f64,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(f64, Copy());
@@ -4261,13 +4259,13 @@ impl(
 impl(
   isize,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_isize(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_isize(self))
   )
 );
 impl(
   isize,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(isize, Copy());
@@ -4549,13 +4547,13 @@ impl(
 impl(
   usize,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_usize(self))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_usize(self))
   )
 );
 impl(
   usize,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(usize, Copy());
@@ -5958,13 +5956,13 @@ impl(
 impl(
   char,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
   )
 );
 impl(
   char,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(char, Copy());
@@ -6070,13 +6068,13 @@ impl(
 impl(
   int,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(i32(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(i32(self)))
   )
 );
 impl(
   int,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(int, Copy());
@@ -6182,13 +6180,13 @@ impl(
 impl(
   uint,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u32(u32(self)))
   )
 );
 impl(
   uint,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(uint, Copy());
@@ -6294,13 +6292,13 @@ impl(
 impl(
   short,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i16(i16(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i16(i16(self)))
   )
 );
 impl(
   short,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(short, Copy());
@@ -6406,13 +6404,13 @@ impl(
 impl(
   ushort,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u16(u16(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u16(u16(self)))
   )
 );
 impl(
   ushort,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(ushort, Copy());
@@ -6518,13 +6516,13 @@ impl(
 impl(
   long,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
   long,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(long, Copy());
@@ -6630,13 +6628,13 @@ impl(
 impl(
   ulong,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
   )
 );
 impl(
   ulong,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(ulong, Copy());
@@ -6742,13 +6740,13 @@ impl(
 impl(
   longlong,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
   longlong,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(longlong, Copy());
@@ -6854,13 +6852,13 @@ impl(
 impl(
   ulonglong,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_u64(u64(self)))
   )
 );
 impl(
   ulonglong,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(ulonglong, Copy());
@@ -6966,13 +6964,13 @@ impl(
 impl(
   longdouble,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i64(i64(self)))
   )
 );
 impl(
   longdouble,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(longdouble, Copy());
@@ -7038,7 +7036,7 @@ impl(
 );
 /// A raw pointer clones as itself: the address is copied, never the
 /// pointee. With its `Copy` impl (decision 36), which requires this `Clone`.
-impl(generic(T : Type), *T, Clone(clone : (self -> __yo_return_self(self))));
+impl(generic(T : Type), *T, Clone(clone : (self -> self)));
 impl(generic(T : Type), *T, Copy());
 impl(
   generic(T : Type),
@@ -7308,7 +7306,7 @@ impl(
   where(T <: Clone),
   Array(T, U),
   Clone(
-    clone : (fn(self : &mut Self) -> Self)({
+    clone : (fn(self : &Self) -> Self)({
       out := self;
       i := usize(0);
       while(runtime(i < U), {
@@ -7425,7 +7423,7 @@ impl(
   where(T <: Hash),
   Array(T, U),
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
       i := usize(0);
       while(runtime(i < U), {
         self(i).hash(hasher);
@@ -7540,7 +7538,7 @@ impl(
 impl(
   str,
   Clone(
-    clone : (self -> __yo_return_self(self))
+    clone : (self -> self)
   )
 );
 impl(str, Copy());
@@ -8830,7 +8828,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
               // name, as `__derive_clone` does: `self.f.hash(...)` is
               // decision 32's wrapper/payload clash (E0616).
               cond(
-                Type.impls(fields.get(fi).field_type, Deref) => __s5(a, "\n    (type_of(self.", fname, __s3(") <: Hash).hash(&mut self.", fname, ", hasher);"), ""),
+                Type.impls(fields.get(fi).field_type, Deref) => __s5(a, "\n    (type_of(self.", fname, __s3(") <: Hash).hash(&self.", fname, ", hasher);"), ""),
                 true => __s4(a, "\n    self.", fname, ".hash(hasher);")
               )
             })
@@ -8868,7 +8866,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
                 (fn(comptime(a) : comptime_str, comptime(fi) : usize) -> comptime(comptime_str))({
                   fname :: v.fields.get(fi).name;
                   cond(
-                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5(a, " (type_of(__v_", fname, __s3(") <: Hash).hash(&mut __v_", fname, ", hasher);"), ""),
+                    Type.impls(v.fields.get(fi).field_type, Deref) => __s5(a, " (type_of(__v_", fname, __s3(") <: Hash).hash(&__v_", fname, ", hasher);"), ""),
                     true => __s4(a, " __v_", fname, ".hash(hasher);")
                   )
                 })
@@ -8895,7 +8893,7 @@ __derive_hash :: (fn(comptime(T) : Type, comptime(ctx) : DeriveContext, comptime
   ctx.make_impl(
     quote(
       Hash(
-        hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(unquote(body.to_expr()))
+        hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(unquote(body.to_expr()))
       )
     )
   )
@@ -9548,7 +9546,7 @@ impl(
   where(T <: Hash),
   Option(T),
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
       match(
         self,
         .None => hasher.write_u64(u64(0)),
@@ -9696,7 +9694,7 @@ impl(
   where(T <: Hash, E <: Hash),
   Result(T, E),
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
       match(
         self,
         .Ok(v) => {
@@ -9760,7 +9758,7 @@ impl(
   where(T <: Hash),
   Rc(T),
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(self.*.hash(hasher))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(self.*.hash(hasher))
   )
 );
 impl(
@@ -9935,7 +9933,7 @@ impl(
   where(T <: Hash),
   Box(T),
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(unsafe(self._cell.*).hash(hasher))
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(unsafe(self._cell.*).hash(hasher))
   )
 );
 impl(

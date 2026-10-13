@@ -1451,6 +1451,27 @@ test("try_push reports an exhausted arena as OutOfMemory", {
   assert(full, "the arena runs out");
   assert(list.len() < usize(1000), "the elements pushed so far survive");
 });
+// `reserve` on an empty zero-sized-element list takes the one anchor buffer.
+// It copied the anchor out of a temporary `_zst_anchor()` list whose dispose
+// then freed it, so the list kept a freed buffer and freed it again on drop;
+// a `comptime && runtime` guard the evaluator folded to `true` kept the arm
+// from running at all (`reserve` was a no-op, `spare_capacity` stayed
+// `.None`).
+// issues/fixed/arraylist-zst-reserve-adopts-a-buffer-its-temporary-frees.md
+test("reserve on an empty zero-sized-element list takes the anchor and drops it once", {
+  {
+    xs := ArrayList(unit).new();
+    xs.reserve(usize(5));
+    assert(xs.spare_capacity().is_some(), "reserve allocated the anchor");
+    assert(xs.allocator().is_none(), "a global anchor is untagged");
+    xs.push(());
+    xs.reserve(usize(100));
+    assert(xs.len() == usize(1), "len");
+  };
+  ys := ArrayList(unit).new();
+  ys.resize_with_byte(usize(3), int(0));
+  assert(ys.len() == usize(3), "resize_with_byte goes through the same arm");
+});
 test("A zero-sized element list in an arena", {
   arena := Arena.new(usize(1024));
   list := ArrayList(unit).new_in(arena.allocator());

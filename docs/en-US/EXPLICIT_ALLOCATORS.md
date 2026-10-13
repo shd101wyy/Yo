@@ -121,7 +121,10 @@ constructors:
 A container remembers its allocator. Every growth, shrink and final release of
 its buffer goes back to the allocator it was created with, whichever scope is
 current at the time. `xs.allocator()` returns that allocator, or `.None` for a
-container on the global allocator.
+container on the global allocator. A `clone()` lands where its source lives:
+the clone of a list, map or `String` in an arena is in the same arena, even
+when no scope is active. The clone of a global container follows the current
+scope, as `new()` does.
 
 The container's own size does not change: the allocator is recorded in the
 owner prefix of its buffer, with one bit of an existing word marking it.

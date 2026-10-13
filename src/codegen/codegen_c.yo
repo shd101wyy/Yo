@@ -626,6 +626,16 @@ static Slice_uint8_t_u42_ __yo_args;
   emit_dispose_dispatch(&base);
   emit_sm_pools(&base, ctx.uses_async);
   raise_codegen_error(exn);
+  // Per-type value-enum drop/dup functions (exprs/drop_dup.yo
+  // `_value_enum_rc_fn`): the prototypes name no type, so they go to the
+  // headers, ahead of every caller; the definitions need the complete enum
+  // types, so they close the declarations section. Both are `static inline`:
+  // in chunked emission they stay in the shared header as per-TU copies, like
+  // the other RC helpers.
+  if(base.value_enum_rc_protos.len() > usize(0), {
+    base.emitter.emit_header_string(&base.value_enum_rc_protos);
+    base.emitter.emit_declaration_string(&base.value_enum_rc_defs);
+  });
   profile_memory_mark("emit: dispose dispatch");
   // Chunked emission (plans/reference/CHUNKED_C_EMISSION.md step 2): assemble the
   // shared header + N linkable translation units from the recorded ranges;

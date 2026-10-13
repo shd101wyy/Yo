@@ -182,7 +182,7 @@ impl(
     write_i32 : (fn(self : &mut Self, v : i32) -> unit)(self.write_u32(u32(v))),
     write_i64 : (fn(self : &mut Self, v : i64) -> unit)(self.write_u64(u64(v))),
     write_isize : (fn(self : &mut Self, v : isize) -> unit)(self.write_u64(u64(v))),
-    finish : (fn(self : &mut Self) -> u64)({
+    finish : (fn(self : &Self) -> u64)({
       b := (((u64(self.length) & u64(255)) << u64(56)) | self.tail);
       v0 := self.v0;
       v1 := self.v1;
@@ -222,7 +222,7 @@ impl(
         self.state = (self.state ^ u64(unsafe((buf.add(i)).*))).wrapping_mul(u64(1099511628211));
       });
     }),
-    finish : (fn(self : &mut Self) -> u64)(self.state)
+    finish : (fn(self : &Self) -> u64)(self.state)
   )
 );
 /// The hasher `HashMap`/`HashSet`/`hash_one` use.
@@ -233,14 +233,14 @@ DefaultHasher :: SipHasher13;
 /// h := hash_one(String.from("key"));
 /// assert(hash_one(i32(1)) == hash_one(i32(1)), "deterministic");
 /// ```
-hash_one :: (fn(generic(T : Type), value : &mut T, where(T <: Hash)) -> u64)({
+hash_one :: (fn(generic(T : Type), value : &T, where(T <: Hash)) -> u64)({
   h := DefaultHasher.new();
   value.hash(&mut h);
   h.finish()
 });
 /// Hash one value with `DefaultHasher` keyed by `k0`, `k1` — what a
 /// `HashMap.with_keys(k0, k1)` computes for its keys.
-hash_one_with_keys :: (fn(generic(T : Type), value : &mut T, k0 : u64, k1 : u64, where(T <: Hash)) -> u64)({
+hash_one_with_keys :: (fn(generic(T : Type), value : &T, k0 : u64, k1 : u64, where(T <: Hash)) -> u64)({
   h := DefaultHasher.new_with_keys(k0, k1);
   value.hash(&mut h);
   h.finish()
