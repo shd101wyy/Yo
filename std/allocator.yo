@@ -58,26 +58,20 @@ size_would_overflow ::
   });
 extern(
   "Yo",
-  __yo_malloc :
-    (fn(size : usize) -> ?*void),
+  // `__yo_malloc` and `__yo_free` are declared in the prelude (`box`).
   __yo_calloc :
     (fn(nmemb : usize, size : usize) -> ?*void),
   __yo_realloc :
     (fn(ptr : ?*void, size : usize) -> ?*void),
-  __yo_free :
-    (fn(ptr : ?*void) -> unit),
   __yo_aligned_alloc :
     (
       fn(alignment : usize, size : usize) -> ?*void
     ),
   __yo_aligned_free :
     (fn(ptr : ?*void) -> unit),
-  // The thread's allocation scope (codegen's `__yo_current_allocator`); read
-  // and written only by `with_allocator` below.
-  __yo_scope_ctx :
-    (fn() -> ?*void),
-  __yo_scope_vtable :
-    (fn() -> ?*void),
+  // The thread's allocation scope (codegen's `__yo_current_allocator`):
+  // `with_allocator` below sets it. `__yo_scope_ctx` and `__yo_scope_vtable`,
+  // which read it, are declared in the prelude, whose `box` reads it too.
   __yo_scope_set :
     (fn(ctx : ?*void, vtable : ?*void) -> unit)
 );

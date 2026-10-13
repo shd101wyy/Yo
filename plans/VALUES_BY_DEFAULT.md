@@ -3603,6 +3603,98 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   precedence, place write through `Rc`, D3 through `Arc`). `alloc :
   .Some(a)` places the cell in `a`, read back with `Allocator.owner_of`.
   An explicit `clone()` of an arena `Box` stays in the arena.
+- **As built, Generation A (2026-10-12, `feat/vbd-v1-step2-box`).**
+  - **The type is plain std Yo.** `Box :: (fn(comptime(V) : Type) ->
+    comptime(Type))(newtype(_cell : *V))` in the prelude, so a `Box` is one
+    pointer in C. Its impls: `Dispose` (drop the payload, free the cell),
+    `Clone` where `T <: Clone` (a new cell placed where the source lives,
+    decision 12), `Eq`/`Hash`/`Default` by payload, `Deref(Target : T)`,
+    `Send`/`Sync` bounded on `T` (a raw field derives neither; `Acyclic`
+    derives from the pointee), and `Box.allocator(b)`. Being a `Dispose`
+    value, it is move-only to the move checker, so every copy point moves it
+    and a non-last-use copy is E0901; with a `Clone` payload it is
+    explicit-copy, and the E0901 note names `Box.clone(b)`. `Box(T)` lacks
+    `Clone` exactly when `T` does, which is "move-only iff `T` is" under
+    decision 36. `b.clone()` is decision 32's E0616 (the payload may have a
+    `clone`), so the copy is spelled `Box.clone(b)`.
+  - **The free route: a prefix on every `Box` cell.** Each cell is a 16-byte
+    owner prefix `{ctx, vtable}` followed by the payload. `box(v, alloc :
+    .Some(a))` stamps `a`; the default stamps the current `with_allocator`
+    scope, which is `{_, .None}` with no scope (codegen's convention for the
+    global allocator). The drop disposes the payload and frees the block
+    through the prefix: `vtable.free(ctx, block)`, or `__yo_free(block)` for a
+    `.None` vtable. A placed cell's prefix is byte-for-byte an
+    `Allocator.alloc` block's, so `Allocator.owner_of(addr_of(b.*))` reads `a`
+    back.
+    - **Why.** A headerless one-pointer `Box` has two places for "this cell
+      was placed": the pointer's low bits or the block. A pointer tag puts a
+      mask on every dereference in every emitter (CTFE, codegen field access,
+      patterns, the GC walk, `addr_of`), which is neither strict nor cheap. A
+      prefix only on placed cells still needs a bit somewhere, and there is
+      none. A prefix on every cell needs no bit, reuses the existing layout
+      and `Allocator.owner_of`, and costs 16 bytes per cell, no more than the
+      RC header the sites that move back to `Box` carry today as `Rc`.
+      Rejected: pointer tagging, and a prefix only on placed cells.
+  - **One compiler predicate**, `unique_box_payload_type`
+    (`src/types/guards.yo`): a newtype with one pointer field `_cell` whose
+    name the comptime-fn call stamps `Box(V)` (`comptime_fn.yo`; a prelude
+    name cannot be shadowed). It is not on `shared_cell_names_at`. Its
+    readers:
+    - `b.*` is the payload place, in safe code (`property_access.yo`;
+      codegen emits `(*b)`); auto-dereference needed nothing more;
+    - patterns look through it (`Pattern.ThroughBox`). A consuming match keeps
+      the box to the arm's end and binds the payload's parts as borrows, as
+      through an `Rc`. Moving a part out of a box is not offered;
+    - the cycle collector and `^`'s uniqueness walk trace the payload in place
+      (`__yo_traverse_box_<C>`, a function because `Option(Box(Self))`
+      recurses), and `_type_refs_back_to_cyclic` and
+      `type_reaches_non_atomic_cell` see through it, so an `Rc` cycle closed
+      through `Box` payloads is collected and `^` rejects an `Rc` aliased
+      from inside a `Box`;
+    - `Option(Box(T))` keeps the NULL niche (its drop tests NULL around the
+      box's dispose);
+    - a `Box` in a safe file's parameter type is not a raw view (it carries
+      what its payload carries);
+    - `ref_count(b)` is an error.
+  - **Fixed on the way.** A value type's generated `___dispose` called
+    `self.dispose()`, which is decision 32's E0616 for a `Deref` wrapper whose
+    payload has a `dispose`; it now calls `(Self <: Dispose).dispose(self)`.
+    Aliasing Stage 0 gave a projection of a move-only value lent to a callee
+    with no summary (a recursive call) a "+1" that was a bit copy, disposed
+    after the call (S1, also through `Rc`;
+    `issues/fixed/a-borrowed-projection-of-a-move-only-value-is-disposed-twice.md`;
+    the doc records what the fix trades and the §3.10 residual).
+    `derive(Hash)` on a type with an `Rc` or `Box` field was E0616. It now
+    hashes a `Deref` field through `(type_of(self.f) <: Hash).hash(...)`, as
+    `derive(Clone)` already did (S2,
+    `issues/fixed/derive-hash-on-a-type-with-an-rc-field-is-e0616.md`).
+    `Rc`'s `Clone` took the trait's `&mut Self` while `Box`'s takes `&Self`.
+    Both now take `&Self`, so a hand-written `Clone` on `&Self` can clone its
+    `Box`/`Rc` fields, and the derive lends `&self.f`.
+  - **Filed, open:** a `HashMap` of a move-only key or value does not compile
+    (`issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`, V2b's
+    non-copying access), so `HashMap(Box(K), V)` waits; a plain-data field
+    write through any `&T` is accepted and lost
+    (`issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`).
+  - **Tests:** `tests/rc.test.yo` (the unique-`Box` section: payload place,
+    deep clone, a tree cloned and edited on one side, E0901 on an implicit
+    copy, one drop, the `Clone`/`Copy`/`Send` derivations, `Eq`/`Hash`/
+    `Default`, the niche, `alloc` and an arena clone, a by-value consuming
+    match through a `Box` scrutinee and through a `Box` field with exact
+    dispose counts, `derive(Clone, Eq, Hash)` over a `Box` field),
+    `tests/deref_auto.test.yo`
+    (field, method, place write through `Box`, `&Box`/`&mut Box` parameters,
+    nested `Rc(Box(T))`/`Box(Rc(T))`/`Box(Box(T))`, the E0616 clash, the
+    miss message, `derive(Hash)` through an `Rc` field),
+    `tests/cycle_collector.test.yo`, `tests/iso.test.yo`.
+- **Generation B, seed-gated: the site moves and the non-last-use copies.**
+  The v0.2.59 seed compiles `src/` against the tree's `std/`, and it rejects
+  `b.*` on the new `Box` (E0406, measured 2026-10-12: `yo check --std-path
+  ./std` on a file reading `c.*.n` for `c := box(P(n : 1))`). Every listed
+  site reads its cell through `.*`, auto-dereference or a pattern, so the
+  moves back to `Box` and their `.clone()`/move fixes wait for a
+  `SEED_VERSION` carrying Generation A
+  (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
 
 ### V3: move-only, `Dispose`, resources
 

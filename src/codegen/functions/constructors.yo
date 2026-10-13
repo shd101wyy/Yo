@@ -15,8 +15,8 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
-{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type, is_iso_type } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_contains_rc_cell_or_move_only, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic } :: import("../../types/utils.yo");
+{ is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type, is_iso_type, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
+{ type_contains_some_type, type_contains_rc_cell_or_move_only, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic, type_reaches_non_atomic_cell } :: import("../../types/utils.yo");
 { get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField, type_key } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type, get_trace_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
@@ -46,6 +46,29 @@ _traversal_fn_name :: (fn(ty : &TypeValue, c_name : &String) -> Option(String))(
     (is_reference_struct_type(ty) && !is_atomic_reference_struct_type(ty)) => if(_has_generic_fields(get_runtime_struct_fields(ty)), Option(String).None, Option(String).Some(`__yo_traverse_${c_name}`)),
     (is_reference_enum_type(ty) && !is_atomic_reference_enum_type(ty)) => if(type_contains_some_type(ty), Option(String).None, Option(String).Some(`__yo_traverse_${c_name}`)),
     true => Option(String).None
+  )
+);
+/// The unique `Box` (V1 step 2) is not a managed handle: its payload is part
+/// of its owner's value and is traced inline. A `Box` whose payload holds a
+/// counted cell gets `__yo_traverse_box_<C>(cell, visit)`, which traces the
+/// payload at the cell pointer; a function (not an inline expansion) because
+/// a recursive payload (`Option(Box(Self))`) reaches the same `Box` again.
+_box_trace_fn_name :: (fn(ty : &TypeValue, c_name : &String) -> Option(String))(
+  match(
+    unique_box_payload_type(ty),
+    .Some(payload) => cond(
+      (type_contains_some_type(&payload) || !type_reaches_non_atomic_cell(&payload)) => Option(String).None,
+      true => Option(String).Some(`__yo_traverse_box_${c_name}`)
+    ),
+    .None => Option(String).None
+  )
+);
+/// The `__yo_traverse_box_<C>` of a `Box` type, `.None` when it has none.
+_box_trace_fn_of :: (fn(ty : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
+  match(
+    context.base.types.get(type_key(ty)),
+    .Some(entry) => _box_trace_fn_name(&entry.ty, entry.c_name.clone()),
+    .None => Option(String).None
   )
 );
 /// Traversal functions are emitted when the cycle collector needs them OR the
@@ -95,11 +118,18 @@ _emit_traversal_prototypes :: (fn(context : &FunctionGenerationContext) -> unit)
   while(go, {
     match(
       vals.next(),
-      .Some(entry) => match(
-        _traversal_fn_name(&entry.ty, entry.c_name.clone()),
-        .Some(n) => em.emit_string_line(`static void ${n}(void* ptr, void (*visit)(void*, void*));`),
-        .None => ()
-      ),
+      .Some(entry) => {
+        match(
+          _traversal_fn_name(&entry.ty, entry.c_name.clone()),
+          .Some(n) => em.emit_string_line(`static void ${n}(void* ptr, void (*visit)(void*, void*));`),
+          .None => ()
+        );
+        match(
+          _box_trace_fn_name(&entry.ty, entry.c_name.clone()),
+          .Some(n) => em.emit_string_line(`static void ${n}(void* ptr, void (*visit)(void*, void*));`),
+          .None => ()
+        );
+      },
       .None => {
         go = false;
       }
@@ -288,6 +318,16 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
   if(!type_contains_rc_cell_or_move_only(ty), {
     return();
   });
+  // The unique `Box`: its payload is traced in place, through its trace
+  // function (the C value is the cell pointer, never NULL).
+  if(is_unique_box_type(ty), {
+    match(
+      _box_trace_fn_of(ty, context),
+      .Some(bf) => em.emit_string_line(`  ${bf}((void*)${access}, (void(*)(void*, void*))${g_traverse_visit_expr});`),
+      .None => ()
+    );
+    return();
+  });
   // Managed handle (ref(struct)/ref(enum)) — one graph edge. Atomic (Iso) RC types
   // do not participate in cycle collection.
   if(is_reference_struct_type(ty) || is_reference_enum_type(ty), {
@@ -303,8 +343,18 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
     // payload) → visit the pointer directly.
     is_enum_type(ty) => {
       is_nullable := match(can_optimize_as_nullable_pointer(ty), .Some(_) => true, .None => false);
+      nullable_box := match(can_optimize_as_nullable_pointer(ty), .Some(np) => if(is_unique_box_type(&np), Option(TypeValue).Some(np), Option(TypeValue).None), .None => Option(TypeValue).None);
       if(is_nullable, {
-        em.emit_string_line(`  if (${access}) { ((void(*)(void*, void*))${g_traverse_visit_expr})(${access}, ${_nullable_payload_traverse_fn_expr(ty, context)}); }`);
+        match(
+          nullable_box,
+          // `Option(Box(T))`: a non-NULL cell's payload is traced in place.
+          .Some(nb) => match(
+            _box_trace_fn_of(&nb, context),
+            .Some(bf) => em.emit_string_line(`  if (${access}) { ${bf}((void*)${access}, (void(*)(void*, void*))${g_traverse_visit_expr}); }`),
+            .None => ()
+          ),
+          .None => em.emit_string_line(`  if (${access}) { ((void(*)(void*, void*))${g_traverse_visit_expr})(${access}, ${_nullable_payload_traverse_fn_expr(ty, context)}); }`)
+        );
       }, {
         if(!can_optimize_as_simple_enum(ty), {
           match(
@@ -459,8 +509,20 @@ _generate_one_ref_struct_traversal :: (fn(type : &TypeValue, c_name : &String, c
   em.emit_string_line(`}`);
   em.emit_string_line(``);
 });
+/// Emit `__yo_traverse_box_<C>` for ONE `Box` type: trace the payload at the
+/// cell pointer, inline (`_traverse_value`).
+_generate_one_box_traversal :: (fn(type : &TypeValue, fn_name : &String, context : &FunctionGenerationContext) -> unit)({
+  em := context.base.emitter;
+  payload := match(unique_box_payload_type(type), .Some(p) => p, .None => return());
+  em.emit_string_line(`static void ${fn_name}(void* ptr, void (*visit)(void*, void*)) {`);
+  em.emit_string_line(`  ${get_type_string(&payload, &context.base)}* cell = (${get_type_string(&payload, &context.base)}*)ptr;`);
+  g_traverse_visit_expr = String.from("visit");
+  _traverse_value(String.from("(*cell)"), &payload, context);
+  em.emit_string_line(`}`);
+  em.emit_string_line(``);
+});
 /// Generate cycle-GC traversal functions for every concrete, non-atomic
-/// reference-semantics struct.
+/// reference-semantics struct, and the trace functions of the `Box` types.
 generate_ref_struct_traversal_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
   vals := context.base.types.values();
   (go : bool) = true;
@@ -473,6 +535,11 @@ generate_ref_struct_traversal_functions :: (fn(context : &FunctionGenerationCont
         if(is_reference_struct_type(&ty) && _traversal_fn_name(&ty, entry.c_name.clone()).is_some(), {
           _generate_one_ref_struct_traversal(&ty, entry.c_name.clone(), context);
         });
+        match(
+          _box_trace_fn_name(&ty, entry.c_name.clone()),
+          .Some(bn) => _generate_one_box_traversal(&ty, &bn, context),
+          .None => ()
+        );
       },
       .None => {
         go = false;

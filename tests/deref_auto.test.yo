@@ -7,6 +7,7 @@
 // fire through the auto-dereference.
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
+{ hash_one } :: import("std/hash");
 _P :: struct(n : i32, items : ArrayList(i32));
 impl(
   _P,
@@ -189,4 +190,78 @@ test("auto-deref: derive(Clone) clones an Rc field through the Rc's Clone", {
     .A(r) => assert(r.* == i32(6), "the enum variant's Rc field cloned"),
     .B => assert(false, "variant kept")
   );
+});
+// derive(Hash) hashes a wrapper field through its own Hash impl by name, so a
+// type holding an `Rc` derives Hash with no E0616 clash
+// (issues/fixed/derive-hash-on-a-type-with-an-rc-field-is-e0616.md).
+_HashRc :: struct(r : Rc(i32), k : i32);
+derive(_HashRc, Hash);
+_HashPlain :: struct(r : i32, k : i32);
+derive(_HashPlain, Hash);
+_HashEnumRc :: enum(A(r : Rc(i32)), B);
+derive(_HashEnumRc, Hash);
+test("auto-deref: derive(Hash) hashes an Rc field as its payload", {
+  x := _HashRc(r : rc(i32(1)), k : i32(2));
+  y := _HashPlain(r : i32(1), k : i32(2));
+  assert(hash_one(&mut x) == hash_one(&mut y), "an Rc field hashes as its payload");
+  e := _HashEnumRc.A(r : rc(i32(3)));
+  f := _HashEnumRc.A(r : rc(i32(3)));
+  assert(hash_one(&mut e) == hash_one(&mut f), "the enum variant's Rc field hashes by payload");
+});
+// The unique `Box` (V1 step 2) auto-dereferences like the shared cells, and
+// its `.*` needs no `unsafe` (this file is not pragma'd): the box owns a live
+// cell. Unlike an `Rc`, a write goes to the box's own payload.
+_box_n :: (fn(b : &Box(_P)) -> i32)(b.n);
+_box_write :: (fn(b : &mut Box(_P)) -> unit)({
+  b.n = i32(11);
+});
+test("auto-deref: field, method and place write through Box", {
+  b := box(_mk(i32(1)));
+  assert(b.n == i32(1), "b.n reads b.*.n");
+  assert(b.get() == i32(1), "b.get() calls b.*.get()");
+  b.bump();
+  assert(b.*.n == i32(2), "a &mut self method writes the payload");
+  b.n = i32(5);
+  assert(b.*.n == i32(5), "b.n = v writes b.*.n");
+  b.items.push(i32(3));
+  assert(b.items(usize(0)) == i32(3), "a forwarded field's method and index");
+  assert(_box_n(&b) == i32(5), "read through a &Box parameter");
+  _box_write(&mut b);
+  assert(b.n == i32(11), "written through a &mut Box parameter");
+});
+// A whole-payload write through a `&Box` is E0908. (A plain-data field
+// write through any `&T` is not caught yet:
+// issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md.)
+_box_replace :: (fn(b : &Box(_P)) -> unit)({
+  comptime_expect_error(b.* = _mk(i32(1)), "Cannot write");
+});
+test("auto-deref: a &Box parameter's payload cannot be replaced", {
+  b := box(_mk(i32(1)));
+  _box_replace(&b);
+  assert(b.n == i32(1), "unchanged");
+});
+test("auto-deref: nested Box and Rc reach the innermost payload", {
+  rb := rc(box(_mk(i32(2))));
+  assert(rb.n == i32(2), "Rc(Box(T)) field");
+  assert(rb.get() == i32(2), "Rc(Box(T)) method");
+  br := box(rc(_mk(i32(3))));
+  assert(br.n == i32(3), "Box(Rc(T)) field");
+  br.n = i32(4);
+  assert(br.*.*.n == i32(4), "written through Box(Rc(T))");
+  bb := box(box(_mk(i32(5))));
+  assert(bb.get() == i32(5), "Box(Box(T)) method");
+});
+test("auto-deref: Box's own clone against its payload's is E0616", {
+  b := box(_mk(i32(5)));
+  comptime_expect_error(b.clone(), "is a method of Box(_P) and of its payload _P");
+  (c : Box(_P)) = Box.clone(b);
+  c.n = i32(6);
+  assert(b.n == i32(5), "Box.clone is a new cell");
+  (d : _P) = b.*.clone();
+  assert(d.n == i32(5), "the payload's clone is a _P");
+  comptime_assert(Type.impls(Box(_P), Deref), "Box implements Deref");
+});
+test("auto-deref: a miss through Box names the payload", {
+  b := box(_mk(i32(1)));
+  comptime_expect_error(b.nn, "has no field \"nn\" either");
 });

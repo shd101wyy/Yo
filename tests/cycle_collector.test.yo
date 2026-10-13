@@ -472,3 +472,35 @@ test("A resurrected pair is reclaimed once unreachable again", {
   Gc.collect();
   assert(Gc.tracked_count() == (base + u64(1)), "only the keeper remains after the pair became unreachable again");
 });
+// A cycle closed only through unique `Box` payloads (V1 step 2): a `Box` is
+// part of its owner's value, so the collector must trace its payload in
+// place. Before `Box` tracing, `BNode` did not count as cycle-capable and the
+// pair leaked (its disposes never ran).
+(g_bnode_disposed : i32) = i32(0);
+BNode :: ref(
+  struct(
+    value : i32,
+    hold : Box(Option(Self))
+  )
+);
+impl(
+  BNode,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g_bnode_disposed = (g_bnode_disposed + i32(1));
+    })
+  )
+);
+test("A cycle closed through Box payloads is collected", {
+  base := Gc.tracked_count();
+  do_test :: (fn() -> unit)({
+    a := BNode(1, box(Option(BNode).None));
+    b := BNode(2, box(Option(BNode).None));
+    a.hold.* = .Some(b); // a -> Box -> b
+    b.hold.* = .Some(a); // b -> Box -> a : a cycle
+  });
+  do_test();
+  Gc.collect();
+  assert(g_bnode_disposed == i32(2), "both nodes of the Box-closed cycle were disposed");
+  assert(Gc.tracked_count() == base, "and are no longer tracked");
+});

@@ -812,3 +812,24 @@ test("a method call on a move-only element borrows it: no copy is disposed", {
   xs.clear();
   assert(g_mo_disposed == (before + i32(2)), "the list disposed each element once");
 });
+// A projection through an `Rc` lent to a callee with no mutation summary (a
+// recursive call) used to take Aliasing Stage 0's +1: a bit copy of the
+// move-only value, disposed after the call
+// (issues/fixed/a-borrowed-projection-of-a-move-only-value-is-disposed-twice.md).
+_mo_rec :: (fn(x : &_MoFd, n : i32) -> i32)(
+  cond(
+    (n == i32(0)) => x.n,
+    true => {
+      r := rc(_MoFd(n : x.n));
+      _mo_rec(&r.*, n - i32(1))
+    }
+  )
+);
+test("move-only: a projection through an Rc lent to a recursive call is disposed once", {
+  before := g_mo_disposed;
+  {
+    a := _MoFd(n : i32(0));
+    assert(_mo_rec(&a, i32(2)) == i32(0), "the value reaches the base case");
+  };
+  assert(g_mo_disposed == (before + i32(3)), "a and the two cells' payloads, once each");
+});

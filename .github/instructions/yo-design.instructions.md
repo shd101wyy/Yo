@@ -100,17 +100,29 @@ Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
 rc :: (fn(generic(V : Type), sink(value) : V) -> Rc(V))(Rc(V)(value));
 ```
 
-The old spelling `Box(V)` / `box(v)` is deleted (V1 step 1 Generation B part 2); V1
-step 2 reintroduces `Box` as the unique, uncounted cell.
-Generation B part 2 deletes them, and V1 step 2 later reintroduces `Box` as a
-different, uniquely owned, uncounted cell (Rust's `Box<T>`).
+The old shared spelling `Box(V)` / `box(v)` was deleted (V1 step 1 Generation B part 2).
+**`Box(V)` is now the unique, uncounted cell** (V1 step 2, Rust's `Box<T>`):
+`Box :: (fn(comptime(V) : Type) -> comptime(Type))(newtype(_cell : *V))` in the prelude,
+`box(v, (alloc : Option(Allocator)) ?= .None)`. It is plain std Yo: a `Dispose` (drop
+the payload, free the cell through its 16-byte owner prefix: `{ctx, vtable}`, a `.None`
+vtable = the global allocator), `Clone` where `T <: Clone` (placed where the source lives),
+`Eq`/`Hash`/`Default` by payload, `Deref`, `Send`/`Sync` bounded on `T`, and
+`Box.allocator(b)`. So it is move-only, explicit-copy when `T` is `Clone`: a non-last-use
+copy is E0901 and the copy is `Box.clone(b)` (`b.clone()` is E0616). The compiler knows it
+through ONE guard, `unique_box_payload_type` (`src/types/guards.yo`: the stamped
+name `Box(` + the newtype shape; it is NOT on `shared_cell_names_at`): `b.*` is the safe
+payload place (`(*b)` in C), a pattern looks through it (`Pattern.ThroughBox`, bindings
+below it borrow), the GC/`Iso` walk traces its payload in place
+(`__yo_traverse_box_<C>`), the cycle predicates see through it, `Option(Box(T))` keeps
+the NULL niche, and `ref_count(b)` is an error. `src/` cannot use it until
+`SEED_VERSION` carries this (the v0.2.59 seed rejects `b.*` on it, E0406).
 
 Single-payload reference-semantics types can use the payload field syntax `(*) : T` and are
 accessed with `value.*`. Treat this as a value payload accessor for reference-semantics values,
 not automatically as a pointer dereference; pointer dereference still applies
 when the receiver itself has pointer type.
 
-**Auto-dereference (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3, V1).** `Rc` and `Arc` implement the prelude marker `Deref :: trait(Target : Type)` (`Target := V`). On a `Deref` type, a member the wrapper lacks is looked up on the payload: `w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively through nested wrappers. A name the wrapper AND its payload both have is E0616 (decision 32 Gen B: `_reject_wrapper_payload_clash` in calls/function.yo for methods, the callee arm of `evaluate_property_access` for a wrapper method against a payload field), naming `Rc.m(w)` and `w.*.m()`; its `yo fix` repair is `Rc.m(w)`, the old meaning. The check is off while a generic function or impl is specialized (`x.clone()` under `T <: Clone` with `T := Rc(i32)` is the bound's method), so a generic body that WRITES `w : Rc(T)` is not checked yet (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`). `derive(Clone)` spells a `Deref` field's clone `(type_of(self.f) <: Clone).clone(self.f)`. Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it REPLACES the object argument in place with a `w.*` node from `make_deref_expr` and re-evaluates, so codegen and the root-of-place walks see the explicit chain; in callee position — `w.items(i)`, `w.f(x)` — only when the wrapper has no METHOD of that name); the method hook is `_try_find_receiver_method`'s miss path (retries with receiver `w.*`, and on a hit rewrites the callee's receiver argument in place). `deref_target_type` (`trait_checking.yo`) is the one predicate. Only the prelude may `impl(..., Deref(...))` (`_throw_if_deref_impl_outside_prelude`, impl.yo). **`std/` and `src/` keep writing `.*`** until `SEED_VERSION` carries auto-deref (Generation B).
+**Auto-dereference (`Deref`, plans/VALUES_BY_DEFAULT.md §3.3, V1).** `Box`, `Rc` and `Arc` implement the prelude marker `Deref :: trait(Target : Type)` (`Target := V`). On a `Deref` type, a member the wrapper lacks is looked up on the payload: `w.f` is `w.*.f`, `w.m()` is `w.*.m()`, recursively through nested wrappers. A name the wrapper AND its payload both have is E0616 (decision 32 Gen B: `_reject_wrapper_payload_clash` in calls/function.yo for methods, the callee arm of `evaluate_property_access` for a wrapper method against a payload field), naming `Rc.m(w)` and `w.*.m()`; its `yo fix` repair is `Rc.m(w)`, the old meaning. The check is off while a generic function or impl is specialized (`x.clone()` under `T <: Clone` with `T := Rc(i32)` is the bound's method), so a generic body that WRITES `w : Rc(T)` is not checked yet (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`). `derive(Clone)` spells a `Deref` field's clone `(type_of(self.f) <: Clone).clone(self.f)`. Implementation: the field hook is the label-miss arm of `evaluate_property_access` (it REPLACES the object argument in place with a `w.*` node from `make_deref_expr` and re-evaluates, so codegen and the root-of-place walks see the explicit chain; in callee position — `w.items(i)`, `w.f(x)` — only when the wrapper has no METHOD of that name); the method hook is `_try_find_receiver_method`'s miss path (retries with receiver `w.*`, and on a hit rewrites the callee's receiver argument in place). `deref_target_type` (`trait_checking.yo`) is the one predicate. Only the prelude may `impl(..., Deref(...))` (`_throw_if_deref_impl_outside_prelude`, impl.yo). **`std/` and `src/` keep writing `.*`** until `SEED_VERSION` carries auto-deref (Generation B).
 
 `ref_count(x)` reads the reference count of the cell `x` holds (`1` for a value type,
 an atomic load for `Arc`/`atomic(ref(...))`/`Iso`); it is the only count builtin

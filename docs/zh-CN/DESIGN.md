@@ -116,6 +116,7 @@ Yo 追求**简洁**与**高效**（性能约为 C 语言的 0% - 15% 以内）�
   - [闭包捕获语义](#闭包捕获语义)
   - [闭包类型限制](#闭包类型限制)
   - [闭包与引用语义类型](#闭包与引用语义类型)
+- [Box：唯一所有的单元](#box唯一所有的单元)
 - [Rc 和引用计数单元](#rc-和引用计数单元)
   - [Rc 类型](#rc-类型)
   - [使用示例](#使用示例)
@@ -3222,6 +3223,47 @@ test :: (fn() -> unit)({
 
 更多示例请参阅 [closure.test.yo](../tests/closure.test.yo)。
 
+## Box：唯一所有的单元
+
+`Box(T)` 是只有一个所有者、没有引用计数的堆单元，类似 Rust 的 `Box<T>`。递归类型和
+需要稳定地址的值使用它；值需要共享时使用 `Rc`。
+
+```yo
+Tree :: enum(
+  Leaf(v : i32),
+  Node(l : Box(Self), r : Box(Self))
+);
+sum :: (fn(t : &Tree) -> i32)(
+  match(
+    t,
+    .Leaf(v) => v,
+    .Node(l, r) => (sum(&l.*) + sum(&r.*))
+  )
+);
+t := Tree.Node(box(Tree.Leaf(1)), box(Tree.Leaf(2)));
+assert(sum(&t) == 3);
+```
+
+- **`box(v)`** 把 `v` 移入一个新单元。`b.*` 是载荷的位置，在安全代码中同样可用：
+  `b.* = v` 替换载荷，`b.field` / `b.method()` 通过自动解引用访问载荷。模式会穿过
+  `Box` 的载荷进行匹配，与穿过 `Rc` 相同。
+- **显式复制。** `Box` 永远不是 `Copy`。当 `c := b` 是 `b` 的最后一次使用时，它移动
+  `b`；其他任何复制都是 E0901。`Box.clone(b)` 是深拷贝：一个持有载荷克隆的新单元
+  （`b.clone()` 是 E0616，因为载荷可能有自己的 `clone`）。`T` 实现 `Clone` 时
+  `Box(T)` 才实现 `Clone`，所以装着仅可移动值的 `Box` 也是仅可移动的。
+- **一次释放。** 丢弃 `Box` 时会丢弃其载荷并释放单元。`ref_count(b)` 是编译错误：
+  它没有计数。
+- **`Eq`、`Hash` 和 `Default`** 比较、哈希和构造的都是载荷。`T` 是 `Send`/`Sync`
+  时 `Box(T)` 才是。
+- **布局。** `Box` 值是一个指针，`Option(Box(T))` 也是一个指针（`NULL` 即
+  `.None`）。单元在载荷前带有 16 字节的所有者前缀，记录放置它的分配器。
+- **分配器。** `box(v, alloc : .Some(a))` 把单元放在 `a` 中；不传 `alloc` 时由当前
+  `with_allocator` 作用域放置，没有作用域时使用全局分配器。单元通过其所有者释放，
+  `Box.clone(b)` 落在 `b` 所在的位置（arena 中的 box 的克隆仍在该 arena 中）。
+  `Box.allocator(b)` 读回所有者（全局分配器为 `.None`）。
+- **环。** `Box` 是其所有者的值的一部分：环收集器和 `^` 的唯一性遍历会原地追踪它的
+  载荷，所以经由 `Box` 闭合的 `Rc` 环与其他环一样会被回收。
+
 ## Rc 和引用计数单元
 
 Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计数。
@@ -3245,9 +3287,8 @@ Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计�
 > 实际影响：共享是隐式的；`Rc` 形成的环若不打破就会泄漏（Rust 的 `Box` 根本无法
 > 形成环）；用 `ref_count(b)` / `Iso` 来询问唯一性。
 >
-> 这个单元以前写作 `Box(V)` / `box(v)`，该写法已被删除。之后「默认值语义」V1 第 2 步
-> （`plans/VALUES_BY_DEFAULT.md`）会重新引入 `Box`，作为另一种唯一所有、不计数的单元，
-> 类似 Rust 的 `Box<T>`。
+> 这个共享单元以前写作 `Box(V)` / `box(v)`。`Box` 现在是另一种类型：唯一所有、
+> 不计数的单元，类似 Rust 的 `Box<T>`（[Box：唯一所有的单元](#box唯一所有的单元)）。
 
 `Rc(T)` 是一个泛型引用语义类型，可以包装任何值类型：
 
@@ -3288,7 +3329,7 @@ assert(m.* == 20);
 
 ### 自动解引用
 
-`Rc` 和 `Arc` 实现了 prelude 中的 `Deref` 标记 trait
+`Box`、`Rc` 和 `Arc` 实现了 prelude 中的 `Deref` 标记 trait
 （`Deref :: trait(Target : Type)`，`Target` 即载荷类型）。对 `Deref` 类型，
 包装器自身没有的字段或方法会到载荷上查找：`w.field` 即 `w.*.field`，
 `w.method()` 即 `w.*.method()`。
@@ -3314,7 +3355,7 @@ assert(pp.y == 2); // 嵌套包装器：pp.*.*.y
   （如 `p.items.push(v)`）都写入载荷。在没有 `pragma(Pragma.AllowUnsafe)`
   的文件中，通过 `Arc` 写入仍会被拒绝（`a.n = v`，或 `self : &mut Self` 的
   `a.bump()`）：请通过 `Mutex` 或原子类型修改 `Arc` 的载荷。
-- **只有 `Rc` 和 `Arc` 实现 `Deref`。** `impl(MyWrapper, Deref(...))` 是
+- **只有 `Box`、`Rc` 和 `Arc` 实现 `Deref`。** `impl(MyWrapper, Deref(...))` 是
   编译错误：用户自定义的包装器应通过自己的字段和方法暴露载荷。
 - 当包装器和载荷都没有这个名字时，错误信息会说明这一点：
   ``No field "z" on Rc(Point). `p` is a Rc(Point); its payload Point has no
@@ -3357,7 +3398,7 @@ test("Rc reference counting", {
 - **堆分配**：当你需要将值类型放在堆上时
 - **共享可变性**：对同一可变值的多个引用
 - **动态分发**：将值类型包装起来以便与 `Dyn` 一起使用（对值类型调用 `dyn(v)` 会自动完成这一步：把 `v` 包装成 `rc(v)`）
-- **递归类型**：打破类型定义中的循环
+- **递归类型**：仅当节点被共享时；唯一所有的节点组成的树使用 `Box`
 
 ```yo
 // 动态分发需要引用语义类型

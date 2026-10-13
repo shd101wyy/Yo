@@ -1318,7 +1318,10 @@ evaluate_comptime_fn_call :: (
   // (issues/fixed/a-send-dyn-shares-a-non-atomic-box-across-threads.md). It is
   // equally unambiguous: `atomic(ref(struct((*) : V)))`.
   ctfe_fn_name := match(function_callee_expr, .Some(ce) => ast_expr_token(&ce).value, .None => String.from(""));
-  ctfe_box_name := if(!(is_shared_cell_type_name(&ctfe_fn_name) || (ctfe_fn_name == "Arc")), String.from(""), {
+  // The unique `Box` (V1 step 2) is stamped too: `unique_box_payload_type`
+  // (types/guards.yo) identifies it by this name plus its newtype shape, and
+  // a prelude name cannot be shadowed, so a `Box` callee is always it.
+  ctfe_box_name := if(!(is_shared_cell_type_name(&ctfe_fn_name) || (ctfe_fn_name == "Arc") || (ctfe_fn_name == "Box")), String.from(""), {
     nm := ctfe_fn_name.clone();
     nm.push_str("(");
     (cni : usize) = usize(0);
