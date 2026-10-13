@@ -598,7 +598,7 @@ impl(_PmLbl, ToString(to_string : (fn(self : &Self) -> String)(self.s.clone())))
 _pm_copy_of :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());
 _pm_render :: (fn(generic(T : Type), x : &T, where(T <: ToString)) -> String)(x.to_string());
 _PmReadM :: trait(read_m : (fn(self : &Self) -> i32));
-_PmCounter :: struct(n : i32);
+_PmTally :: struct(n : i32);
 test("Clone and ToString read a & borrow", {
   l := _PmLbl(s : String.from("x"));
   c := _pm_copy_of(&l);
@@ -609,7 +609,7 @@ test("Clone and ToString read a & borrow", {
 test("an impl member may not write a receiver its trait lends read-only", {
   comptime_expect_error(
     impl(
-      _PmCounter,
+      _PmTally,
       _PmReadM(
         read_m : (fn(self : &mut Self) -> i32)({
           self.n = (self.n + i32(1));
@@ -619,5 +619,5 @@ test("an impl member may not write a receiver its trait lends read-only", {
     ),
     "lends its receiver read-only"
   );
-  comptime_expect_error(impl(_PmCounter, Clone(clone : (fn(self : &mut Self) -> Self)(_PmCounter(n : self.n)))), "lends its receiver read-only");
+  comptime_expect_error(impl(_PmTally, Clone(clone : (fn(self : &mut Self) -> Self)(_PmTally(n : self.n)))), "lends its receiver read-only");
 });
