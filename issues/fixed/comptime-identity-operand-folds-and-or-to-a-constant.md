@@ -5,8 +5,9 @@
 > Found 2026-10-13 by the std allocator hand-off audit, through
 > `ArrayList(unit).ensure_total_capacity`
 > (`issues/fixed/arraylist-zst-reserve-adopts-a-buffer-its-temporary-frees.md`).
-> **OPEN**: the fix is in the self-hosted evaluator and is split from the std
-> PR that found it.
+> **FIXED** on `fix/comptime-and-or-fold`, split from the std PR that found
+> it. Compilers up to v0.2.60 still fold; std keeps the nested-`cond` form
+> while a seed without the fix builds it.
 
 ## Reproducer
 
@@ -79,3 +80,40 @@ always taken, or never taken, starts to run. The ZST arm in
 `ArrayList.ensure_total_capacity` was one: it double-freed once it could run,
 and it is fixed in std now. The evaluator fix needs a sweep of those guards and
 the bootstrap fixpoint, so it is its own change.
+
+## Fix
+
+`evaluate_and_or` no longer keeps a tentative constant. It records the
+short-circuiting operand (`false` for `&&`, `true` for `||`) only when it
+comes before every runtime operand, and derives the result from that:
+
+- a short circuit before any runtime operand: that constant;
+- otherwise any runtime operand: a runtime value (`.None`);
+- otherwise any compile-time unknown: the unknown;
+- otherwise (every operand a compile-time identity): `BoolVal(is_and)`.
+
+The same pass found that a short circuit AFTER a runtime operand dropped that
+operand's side effects (`f() && false` never called `f`); it is fixed with
+this change, in the evaluator and in `generate_op_and`/`generate_op_or`
+(`issues/fixed/and-or-short-circuit-after-a-runtime-operand-drops-its-side-effects.md`).
+
+Tests: `tests/comptime.test.yo`, "&& / || with a compile-time identity operand
+keep the runtime operand" (every reproducer shape above, plus `!`, chains and
+named constants) and "&& / || over compile-time operands only still fold".
+Both fail with v0.2.60.
+
+## Sweep of the guards that became live
+
+The fix was instrumented to log every `&&`/`||` whose value changed, and the
+instrumented compiler checked `./src`, `./std` and `./tests` and ran the
+language suite and `yo test ./std`:
+
+- `src/evaluator/calls/function.yo`,
+  `fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(…))`:
+  `MACRO_DISPATCH_ENABLED` is `true`. A let-bound value position, which
+  codegen always emitted as the call (the seed-built stage-1 C reads
+  `bool fv_is_macro = <is_macro_fn result>`), so behaviour is unchanged.
+- std: no site. The one std guard of this shape,
+  `ArrayList.ensure_total_capacity`, was already rewritten as a nested `cond`
+  by `issues/fixed/arraylist-zst-reserve-adopts-a-buffer-its-temporary-frees.md`.
+
