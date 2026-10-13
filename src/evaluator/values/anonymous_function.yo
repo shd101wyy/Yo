@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -421,8 +421,8 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
       });
       match(ss_bound, .Some(bt) => recur(&bt, env2, allow.clone()), .None => ty)
     },
-    .Pointer(ss_in) => .Pointer(recur(&ss_in, env2, allow.clone())),
-    .Array(ss_ain, ss_alen, ss_alv) => .Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv),
+    .Pointer(ss_in) => rc(TypeValueNode.Pointer(recur(&ss_in, env2, allow.clone()))),
+    .Array(ss_ain, ss_alen, ss_alv) => rc(TypeValueNode.Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv)),
     .Func({ forall_types : ss_fts, param_types : ss_pts, implicit_types : ss_its, where_types : ss_wts, result : ss_ret, meta : ss_fm }) => {
       ss_new_pts := ArrayList(TypeValue).new();
       (ss_pi : usize) = usize(0);

@@ -8,7 +8,7 @@
 //! regressions in storage / lookup shape are caught in isolation.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue, FuncMeta } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta } :: import("../../src/types/definitions.yo");
 { t_i32, t_comptime_int, t_comptime_float, t_comptime_string } :: import("../../src/types/creators.yo");
 { EvalValue } :: import("../../src/value.yo");
 { assert, panic } :: import("std/assert");
@@ -30,18 +30,20 @@
   type_id_or_empty
 } :: import("../../src/evaluator/values/type_trait_methods.yo");
 _synth_struct :: (fn(id : &String, name : &String) -> TypeValue)(
-  rc(TypeValueNode.Struct(
-    id : id,
-    name : name,
-    field_labels : ArrayList(String).new(),
-    field_types : ArrayList(TypeValue).new(),
-    is_reference_semantics : false,
-    is_atomic_rc : false,
-    is_newtype : false,
-    constructor_func_id : String.from(""),
-    type_arguments : ArrayList(TypeValue).new(),
-    is_source_namespace : false
-  ))
+  rc(
+    TypeValueNode.Struct(
+      id : id,
+      name : name,
+      field_labels : ArrayList(String).new(),
+      field_types : ArrayList(TypeValue).new(),
+      is_reference_semantics : false,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.from(""),
+      type_arguments : ArrayList(TypeValue).new(),
+      is_source_namespace : false
+    )
+  )
 );
 _entry :: (fn(label : &String) -> MethodEntry)(
   MethodEntry(
@@ -222,64 +224,70 @@ test("get_receiver_methods_by_name_from_env: SomeT with required trait", {
   param_labels.push(String.from("x"));
   param_types := ArrayList(TypeValue).new();
   param_types.push(t_i32());
-  fn_ty := rc(TypeValueNode.Func(
-    ArrayList(TypeValue).new(),
-    param_types,
-    ArrayList(TypeValue).new(),
-    ArrayList(TypeValue).new(),
-    t_i32(),
-    rc(
-      FuncMeta(
-        forall_labels : ArrayList(String).new(),
-        param_labels : param_labels,
-        implicit_labels : ArrayList(String).new(),
-        result_is_comptime_only : false,
-        param_is_ref : ArrayList(bool).new(),
-        param_is_owning : ArrayList(bool).new(),
-        result_is_ref : false,
-        has_variadic : false,
-        is_extern : Option(String).None,
-        extern_name : Option(String).None,
-        is_control : false,
-        variadic_label : Option(String).None,
-        variadic_comptime : false
-      )
-    ),
-    ArrayList(TypeValue).new()
-  ));
+  fn_ty := rc(
+    TypeValueNode.Func(
+      ArrayList(TypeValue).new(),
+      param_types,
+      ArrayList(TypeValue).new(),
+      ArrayList(TypeValue).new(),
+      t_i32(),
+      rc(
+        FuncMeta(
+          forall_labels : ArrayList(String).new(),
+          param_labels : param_labels,
+          implicit_labels : ArrayList(String).new(),
+          result_is_comptime_only : false,
+          param_is_ref : ArrayList(bool).new(),
+          param_is_owning : ArrayList(bool).new(),
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          extern_name : Option(String).None,
+          is_control : false,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      ArrayList(TypeValue).new()
+    )
+  );
   trait_field_labels := ArrayList(String).new();
   trait_field_labels.push(String.from("greet"));
   trait_field_types := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
-  greeter_trait := rc(TypeValueNode.TraitT(
-    name : String.from("Greeter"),
-    assoc_type_names : ArrayList(String).new(),
-    field_labels : trait_field_labels,
-    field_types : trait_field_types,
-    id : String.from("trait_greeter"),
-    is_concrete : Option(TypeValue).None,
-    self_constraints : ArrayList(TypeValue).new(),
-    neg_self_constraints : ArrayList(TypeValue).new(),
-    assoc_constraint_labels : ArrayList(String).new(),
-    assoc_constraint_types : ArrayList(TypeValue).new()
-  ));
+  greeter_trait := rc(
+    TypeValueNode.TraitT(
+      name : String.from("Greeter"),
+      assoc_type_names : ArrayList(String).new(),
+      field_labels : trait_field_labels,
+      field_types : trait_field_types,
+      id : String.from("trait_greeter"),
+      is_concrete : Option(TypeValue).None,
+      self_constraints : ArrayList(TypeValue).new(),
+      neg_self_constraints : ArrayList(TypeValue).new(),
+      assoc_constraint_labels : ArrayList(String).new(),
+      assoc_constraint_types : ArrayList(TypeValue).new()
+    )
+  );
   // SomeT requiring the Greeter trait.
   required_traits := ArrayList(TypeValue).new();
   required_traits.push(greeter_trait);
   required_levels := ArrayList(usize).new();
   required_levels.push(usize(0));
-  some_t := rc(TypeValueNode.SomeT(
-    id : String.from("st_t"),
-    name : String.from("T"),
-    frame_level : usize(0),
-    parent_type : rc(TypeValueNode.TypeUni(usize(0))),
-    required_trait_types : required_traits,
-    required_trait_levels : required_levels,
-    negative_trait_types : ArrayList(TypeValue).new(),
-    negative_trait_levels : ArrayList(usize).new(),
-    kind_function_type : Option(TypeValue).None,
-    resolution : Option(TypeValue).None
-  ));
+  some_t := rc(
+    TypeValueNode.SomeT(
+      id : String.from("st_t"),
+      name : String.from("T"),
+      frame_level : usize(0),
+      parent_type : rc(TypeValueNode.TypeUni(usize(0))),
+      required_trait_types : required_traits,
+      required_trait_levels : required_levels,
+      negative_trait_types : ArrayList(TypeValue).new(),
+      negative_trait_levels : ArrayList(usize).new(),
+      kind_function_type : Option(TypeValue).None,
+      resolution : Option(TypeValue).None
+    )
+  );
   env := Environment.new(String.from(""));
   hits := get_receiver_methods_by_name_from_env(
     &env,
@@ -305,57 +313,63 @@ test("get_receiver_methods_by_name_from_env: Dyn vtable dispatch", {
   param_labels.push(String.from("x"));
   param_types := ArrayList(TypeValue).new();
   param_types.push(t_i32());
-  fn_ty := rc(TypeValueNode.Func(
-    ArrayList(TypeValue).new(),
-    param_types,
-    ArrayList(TypeValue).new(),
-    ArrayList(TypeValue).new(),
-    t_i32(),
-    rc(
-      FuncMeta(
-        forall_labels : ArrayList(String).new(),
-        param_labels : param_labels,
-        implicit_labels : ArrayList(String).new(),
-        result_is_comptime_only : false,
-        param_is_ref : ArrayList(bool).new(),
-        param_is_owning : ArrayList(bool).new(),
-        result_is_ref : false,
-        has_variadic : false,
-        is_extern : Option(String).None,
-        extern_name : Option(String).None,
-        is_control : false,
-        variadic_label : Option(String).None,
-        variadic_comptime : false
-      )
-    ),
-    ArrayList(TypeValue).new()
-  ));
+  fn_ty := rc(
+    TypeValueNode.Func(
+      ArrayList(TypeValue).new(),
+      param_types,
+      ArrayList(TypeValue).new(),
+      ArrayList(TypeValue).new(),
+      t_i32(),
+      rc(
+        FuncMeta(
+          forall_labels : ArrayList(String).new(),
+          param_labels : param_labels,
+          implicit_labels : ArrayList(String).new(),
+          result_is_comptime_only : false,
+          param_is_ref : ArrayList(bool).new(),
+          param_is_owning : ArrayList(bool).new(),
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          extern_name : Option(String).None,
+          is_control : false,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      ArrayList(TypeValue).new()
+    )
+  );
   trait_field_labels := ArrayList(String).new();
   trait_field_labels.push(String.from("greet"));
   trait_field_types := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
-  greeter_trait := rc(TypeValueNode.TraitT(
-    name : String.from("Greeter"),
-    assoc_type_names : ArrayList(String).new(),
-    field_labels : trait_field_labels,
-    field_types : trait_field_types,
-    id : String.from("trait_greeter_dyn"),
-    is_concrete : Option(TypeValue).None,
-    self_constraints : ArrayList(TypeValue).new(),
-    neg_self_constraints : ArrayList(TypeValue).new(),
-    assoc_constraint_labels : ArrayList(String).new(),
-    assoc_constraint_types : ArrayList(TypeValue).new()
-  ));
+  greeter_trait := rc(
+    TypeValueNode.TraitT(
+      name : String.from("Greeter"),
+      assoc_type_names : ArrayList(String).new(),
+      field_labels : trait_field_labels,
+      field_types : trait_field_types,
+      id : String.from("trait_greeter_dyn"),
+      is_concrete : Option(TypeValue).None,
+      self_constraints : ArrayList(TypeValue).new(),
+      neg_self_constraints : ArrayList(TypeValue).new(),
+      assoc_constraint_labels : ArrayList(String).new(),
+      assoc_constraint_types : ArrayList(TypeValue).new()
+    )
+  );
   required_traits := ArrayList(TypeValue).new();
   required_traits.push(greeter_trait);
   required_levels := ArrayList(usize).new();
   required_levels.push(usize(0));
-  dyn_ty := rc(TypeValueNode.DynT(
-    required_trait_types : required_traits,
-    required_trait_levels : required_levels,
-    negative_trait_types : ArrayList(TypeValue).new(),
-    negative_trait_levels : ArrayList(usize).new()
-  ));
+  dyn_ty := rc(
+    TypeValueNode.DynT(
+      required_trait_types : required_traits,
+      required_trait_levels : required_levels,
+      negative_trait_types : ArrayList(TypeValue).new(),
+      negative_trait_levels : ArrayList(usize).new()
+    )
+  );
   env := Environment.new(String.from(""));
   hits := get_receiver_methods_by_name_from_env(
     &env,
@@ -380,79 +394,89 @@ test("get_receiver_methods_by_name_from_env: TypeApplication HKT walk", {
   param_labels.push(String.from("x"));
   param_types := ArrayList(TypeValue).new();
   param_types.push(t_i32());
-  fn_ty := rc(TypeValueNode.Func(
-    ArrayList(TypeValue).new(),
-    param_types,
-    ArrayList(TypeValue).new(),
-    ArrayList(TypeValue).new(),
-    t_i32(),
-    rc(
-      FuncMeta(
-        forall_labels : ArrayList(String).new(),
-        param_labels : param_labels,
-        implicit_labels : ArrayList(String).new(),
-        result_is_comptime_only : false,
-        param_is_ref : ArrayList(bool).new(),
-        param_is_owning : ArrayList(bool).new(),
-        result_is_ref : false,
-        has_variadic : false,
-        is_extern : Option(String).None,
-        extern_name : Option(String).None,
-        is_control : false,
-        variadic_label : Option(String).None,
-        variadic_comptime : false
-      )
-    ),
-    ArrayList(TypeValue).new()
-  ));
+  fn_ty := rc(
+    TypeValueNode.Func(
+      ArrayList(TypeValue).new(),
+      param_types,
+      ArrayList(TypeValue).new(),
+      ArrayList(TypeValue).new(),
+      t_i32(),
+      rc(
+        FuncMeta(
+          forall_labels : ArrayList(String).new(),
+          param_labels : param_labels,
+          implicit_labels : ArrayList(String).new(),
+          result_is_comptime_only : false,
+          param_is_ref : ArrayList(bool).new(),
+          param_is_owning : ArrayList(bool).new(),
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          extern_name : Option(String).None,
+          is_control : false,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      ArrayList(TypeValue).new()
+    )
+  );
   // Trait `Functor` with `fmap` method.
   trait_field_labels := ArrayList(String).new();
   trait_field_labels.push(String.from("fmap"));
   trait_field_types := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
-  functor_trait := rc(TypeValueNode.TraitT(
-    name : String.from("Functor"),
-    assoc_type_names : ArrayList(String).new(),
-    field_labels : trait_field_labels,
-    field_types : trait_field_types,
-    id : String.from("trait_functor"),
-    is_concrete : Option(TypeValue).None,
-    self_constraints : ArrayList(TypeValue).new(),
-    neg_self_constraints : ArrayList(TypeValue).new(),
-    assoc_constraint_labels : ArrayList(String).new(),
-    assoc_constraint_types : ArrayList(TypeValue).new()
-  ));
+  functor_trait := rc(
+    TypeValueNode.TraitT(
+      name : String.from("Functor"),
+      assoc_type_names : ArrayList(String).new(),
+      field_labels : trait_field_labels,
+      field_types : trait_field_types,
+      id : String.from("trait_functor"),
+      is_concrete : Option(TypeValue).None,
+      self_constraints : ArrayList(TypeValue).new(),
+      neg_self_constraints : ArrayList(TypeValue).new(),
+      assoc_constraint_labels : ArrayList(String).new(),
+      assoc_constraint_types : ArrayList(TypeValue).new()
+    )
+  );
   // SomeT constructor `F` and arg `A`.
-  ctor_some_t := rc(TypeValueNode.SomeT(
-    id : String.from("st_f"),
-    name : String.from("F"),
-    frame_level : usize(0),
-    parent_type : rc(TypeValueNode.TypeUni(usize(0))),
-    required_trait_types : ArrayList(TypeValue).new(),
-    required_trait_levels : ArrayList(usize).new(),
-    negative_trait_types : ArrayList(TypeValue).new(),
-    negative_trait_levels : ArrayList(usize).new(),
-    kind_function_type : Option(TypeValue).None,
-    resolution : Option(TypeValue).None
-  ));
-  arg_some_t := rc(TypeValueNode.SomeT(
-    id : String.from("st_a"),
-    name : String.from("A"),
-    frame_level : usize(0),
-    parent_type : rc(TypeValueNode.TypeUni(usize(0))),
-    required_trait_types : ArrayList(TypeValue).new(),
-    required_trait_levels : ArrayList(usize).new(),
-    negative_trait_types : ArrayList(TypeValue).new(),
-    negative_trait_levels : ArrayList(usize).new(),
-    kind_function_type : Option(TypeValue).None,
-    resolution : Option(TypeValue).None
-  ));
+  ctor_some_t := rc(
+    TypeValueNode.SomeT(
+      id : String.from("st_f"),
+      name : String.from("F"),
+      frame_level : usize(0),
+      parent_type : rc(TypeValueNode.TypeUni(usize(0))),
+      required_trait_types : ArrayList(TypeValue).new(),
+      required_trait_levels : ArrayList(usize).new(),
+      negative_trait_types : ArrayList(TypeValue).new(),
+      negative_trait_levels : ArrayList(usize).new(),
+      kind_function_type : Option(TypeValue).None,
+      resolution : Option(TypeValue).None
+    )
+  );
+  arg_some_t := rc(
+    TypeValueNode.SomeT(
+      id : String.from("st_a"),
+      name : String.from("A"),
+      frame_level : usize(0),
+      parent_type : rc(TypeValueNode.TypeUni(usize(0))),
+      required_trait_types : ArrayList(TypeValue).new(),
+      required_trait_levels : ArrayList(usize).new(),
+      negative_trait_types : ArrayList(TypeValue).new(),
+      negative_trait_levels : ArrayList(usize).new(),
+      kind_function_type : Option(TypeValue).None,
+      resolution : Option(TypeValue).None
+    )
+  );
   args_list := ArrayList(TypeValue).new();
   args_list.push(arg_some_t);
-  type_app := rc(TypeValueNode.TypeAppT(
-    constructor : ctor_some_t,
-    args : args_list
-  ));
+  type_app := rc(
+    TypeValueNode.TypeAppT(
+      constructor : ctor_some_t,
+      args : args_list
+    )
+  );
   // Push a frame so the where-clause-constraint setter has somewhere
   // to record the entry, then register the constraint
   // `F(A) <: Functor`.
@@ -492,31 +516,33 @@ test("get_receiver_methods_by_name_from_env: infix call keeps *(Self)-first-para
   param_types := ArrayList(TypeValue).new();
   param_types.push(rc(TypeValueNode.Pointer(s)));
   param_types.push(s);
-  fn_ty := rc(TypeValueNode.Func(
-    ArrayList(TypeValue).new(),
-    param_types,
-    ArrayList(TypeValue).new(),
-    ArrayList(TypeValue).new(),
-    t_i32(),
-    rc(
-      FuncMeta(
-        forall_labels : ArrayList(String).new(),
-        param_labels : param_labels,
-        implicit_labels : ArrayList(String).new(),
-        result_is_comptime_only : false,
-        param_is_ref : ArrayList(bool).new(),
-        param_is_owning : ArrayList(bool).new(),
-        result_is_ref : false,
-        has_variadic : false,
-        is_extern : Option(String).None,
-        extern_name : Option(String).None,
-        is_control : false,
-        variadic_label : Option(String).None,
-        variadic_comptime : false
-      )
-    ),
-    ArrayList(TypeValue).new()
-  ));
+  fn_ty := rc(
+    TypeValueNode.Func(
+      ArrayList(TypeValue).new(),
+      param_types,
+      ArrayList(TypeValue).new(),
+      ArrayList(TypeValue).new(),
+      t_i32(),
+      rc(
+        FuncMeta(
+          forall_labels : ArrayList(String).new(),
+          param_labels : param_labels,
+          implicit_labels : ArrayList(String).new(),
+          result_is_comptime_only : false,
+          param_is_ref : ArrayList(bool).new(),
+          param_is_owning : ArrayList(bool).new(),
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          extern_name : Option(String).None,
+          is_control : false,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      ArrayList(TypeValue).new()
+    )
+  );
   register_type_trait_method(
     String.from("ty_infix"),
     MethodEntry(
@@ -562,31 +588,33 @@ test("get_receiver_methods_by_name_from_env: non-infix call sets needs_pointer_c
   param_labels.push(String.from("self"));
   param_types := ArrayList(TypeValue).new();
   param_types.push(rc(TypeValueNode.Pointer(s)));
-  fn_ty := rc(TypeValueNode.Func(
-    ArrayList(TypeValue).new(),
-    param_types,
-    ArrayList(TypeValue).new(),
-    ArrayList(TypeValue).new(),
-    t_i32(),
-    rc(
-      FuncMeta(
-        forall_labels : ArrayList(String).new(),
-        param_labels : param_labels,
-        implicit_labels : ArrayList(String).new(),
-        result_is_comptime_only : false,
-        param_is_ref : ArrayList(bool).new(),
-        param_is_owning : ArrayList(bool).new(),
-        result_is_ref : false,
-        has_variadic : false,
-        is_extern : Option(String).None,
-        extern_name : Option(String).None,
-        is_control : false,
-        variadic_label : Option(String).None,
-        variadic_comptime : false
-      )
-    ),
-    ArrayList(TypeValue).new()
-  ));
+  fn_ty := rc(
+    TypeValueNode.Func(
+      ArrayList(TypeValue).new(),
+      param_types,
+      ArrayList(TypeValue).new(),
+      ArrayList(TypeValue).new(),
+      t_i32(),
+      rc(
+        FuncMeta(
+          forall_labels : ArrayList(String).new(),
+          param_labels : param_labels,
+          implicit_labels : ArrayList(String).new(),
+          result_is_comptime_only : false,
+          param_is_ref : ArrayList(bool).new(),
+          param_is_owning : ArrayList(bool).new(),
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          extern_name : Option(String).None,
+          is_control : false,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      ArrayList(TypeValue).new()
+    )
+  );
   register_type_trait_method(
     String.from("ty_ptrconv"),
     MethodEntry(
@@ -621,77 +649,85 @@ test("get_receiver_methods_by_name_from_env: env-frames compatible-SomeType scan
   param_labels.push(String.from("x"));
   param_types := ArrayList(TypeValue).new();
   param_types.push(t_i32());
-  fn_ty := rc(TypeValueNode.Func(
-    ArrayList(TypeValue).new(),
-    param_types,
-    ArrayList(TypeValue).new(),
-    ArrayList(TypeValue).new(),
-    t_i32(),
-    rc(
-      FuncMeta(
-        forall_labels : ArrayList(String).new(),
-        param_labels : param_labels,
-        implicit_labels : ArrayList(String).new(),
-        result_is_comptime_only : false,
-        param_is_ref : ArrayList(bool).new(),
-        param_is_owning : ArrayList(bool).new(),
-        result_is_ref : false,
-        has_variadic : false,
-        is_extern : Option(String).None,
-        extern_name : Option(String).None,
-        is_control : false,
-        variadic_label : Option(String).None,
-        variadic_comptime : false
-      )
-    ),
-    ArrayList(TypeValue).new()
-  ));
+  fn_ty := rc(
+    TypeValueNode.Func(
+      ArrayList(TypeValue).new(),
+      param_types,
+      ArrayList(TypeValue).new(),
+      ArrayList(TypeValue).new(),
+      t_i32(),
+      rc(
+        FuncMeta(
+          forall_labels : ArrayList(String).new(),
+          param_labels : param_labels,
+          implicit_labels : ArrayList(String).new(),
+          result_is_comptime_only : false,
+          param_is_ref : ArrayList(bool).new(),
+          param_is_owning : ArrayList(bool).new(),
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          extern_name : Option(String).None,
+          is_control : false,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      ArrayList(TypeValue).new()
+    )
+  );
   trait_field_labels := ArrayList(String).new();
   trait_field_labels.push(String.from("greet"));
   trait_field_types := ArrayList(TypeValue).new();
   trait_field_types.push(fn_ty);
-  greeter_trait := rc(TypeValueNode.TraitT(
-    name : String.from("Greeter"),
-    assoc_type_names : ArrayList(String).new(),
-    field_labels : trait_field_labels,
-    field_types : trait_field_types,
-    id : String.from("trait_greeter_envscan"),
-    is_concrete : Option(TypeValue).None,
-    self_constraints : ArrayList(TypeValue).new(),
-    neg_self_constraints : ArrayList(TypeValue).new(),
-    assoc_constraint_labels : ArrayList(String).new(),
-    assoc_constraint_types : ArrayList(TypeValue).new()
-  ));
+  greeter_trait := rc(
+    TypeValueNode.TraitT(
+      name : String.from("Greeter"),
+      assoc_type_names : ArrayList(String).new(),
+      field_labels : trait_field_labels,
+      field_types : trait_field_types,
+      id : String.from("trait_greeter_envscan"),
+      is_concrete : Option(TypeValue).None,
+      self_constraints : ArrayList(TypeValue).new(),
+      neg_self_constraints : ArrayList(TypeValue).new(),
+      assoc_constraint_labels : ArrayList(String).new(),
+      assoc_constraint_types : ArrayList(TypeValue).new()
+    )
+  );
   // Two SomeTypes sharing the SAME id — under
   // `are_types_compatible` they unify (SomeT compat = id
   // equality). A `where(_Self <: Greeter)` registered against
   // `_self_t` should still surface when the call site queries
   // `output_t` (same id, different name — like Output aliased
   // to _Self during overload resolution).
-  _self_t := rc(TypeValueNode.SomeT(
-    id : String.from("st_shared"),
-    name : String.from("_Self"),
-    frame_level : usize(0),
-    parent_type : rc(TypeValueNode.TypeUni(usize(0))),
-    required_trait_types : ArrayList(TypeValue).new(),
-    required_trait_levels : ArrayList(usize).new(),
-    negative_trait_types : ArrayList(TypeValue).new(),
-    negative_trait_levels : ArrayList(usize).new(),
-    kind_function_type : Option(TypeValue).None,
-    resolution : Option(TypeValue).None
-  ));
-  output_t := rc(TypeValueNode.SomeT(
-    id : String.from("st_shared"),
-    name : String.from("Output"),
-    frame_level : usize(0),
-    parent_type : rc(TypeValueNode.TypeUni(usize(0))),
-    required_trait_types : ArrayList(TypeValue).new(),
-    required_trait_levels : ArrayList(usize).new(),
-    negative_trait_types : ArrayList(TypeValue).new(),
-    negative_trait_levels : ArrayList(usize).new(),
-    kind_function_type : Option(TypeValue).None,
-    resolution : Option(TypeValue).None
-  ));
+  _self_t := rc(
+    TypeValueNode.SomeT(
+      id : String.from("st_shared"),
+      name : String.from("_Self"),
+      frame_level : usize(0),
+      parent_type : rc(TypeValueNode.TypeUni(usize(0))),
+      required_trait_types : ArrayList(TypeValue).new(),
+      required_trait_levels : ArrayList(usize).new(),
+      negative_trait_types : ArrayList(TypeValue).new(),
+      negative_trait_levels : ArrayList(usize).new(),
+      kind_function_type : Option(TypeValue).None,
+      resolution : Option(TypeValue).None
+    )
+  );
+  output_t := rc(
+    TypeValueNode.SomeT(
+      id : String.from("st_shared"),
+      name : String.from("Output"),
+      frame_level : usize(0),
+      parent_type : rc(TypeValueNode.TypeUni(usize(0))),
+      required_trait_types : ArrayList(TypeValue).new(),
+      required_trait_levels : ArrayList(usize).new(),
+      negative_trait_types : ArrayList(TypeValue).new(),
+      negative_trait_levels : ArrayList(usize).new(),
+      kind_function_type : Option(TypeValue).None,
+      resolution : Option(TypeValue).None
+    )
+  );
   env := Environment.new(String.from(""));
   add_where_clause_constraint_to_env(&env, &_self_t, &greeter_trait, false);
   hits := get_receiver_methods_by_name_from_env(

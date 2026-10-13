@@ -33,7 +33,7 @@
   Environment,
   get_variables_from_env
 } :: import("../../env.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -1139,18 +1139,20 @@ create_capture_type_and_value :: (
         .None => ()
       );
       // Build the capture struct TypeValue.
-      capture_ty := rc(TypeValueNode.Struct(
-        struct_id.clone(),
-        String.from(""),
-        field_labels,
-        field_types,
-        false,
-        false,
-        false,
-        String.from(""),
-        ArrayList(TypeValue).new(),
-        false
-      ));
+      capture_ty := rc(
+        TypeValueNode.Struct(
+          struct_id.clone(),
+          String.from(""),
+          field_labels,
+          field_types,
+          false,
+          false,
+          false,
+          String.from(""),
+          ArrayList(TypeValue).new(),
+          false
+        )
+      );
       // Auto-derive trait markers for the capture struct.
       auto_derive_traits_for_struct_type(
         struct_id.clone(),

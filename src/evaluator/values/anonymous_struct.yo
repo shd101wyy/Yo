@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, add_variable_to_env, snapshot_env } :: import("../../env.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { register_type_decl_module } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
@@ -91,18 +91,20 @@ evaluate_anonymous_struct_value :: (
   // Member visibility: an anonymous struct literal is declared where it is written.
   register_type_decl_module(struct_id.clone(), as_tok.module_path.clone());
   // Preliminary struct type (empty fields) for SelfType during field evaluation.
-  prelim_ty := rc(TypeValueNode.Struct(
-    struct_id.clone(),
-    String.from(""),
-    ArrayList(String).new(),
-    ArrayList(TypeValue).new(),
-    false,
-    false,
-    false,
-    String.from(""),
-    ArrayList(TypeValue).new(),
-    false
-  ));
+  prelim_ty := rc(
+    TypeValueNode.Struct(
+      struct_id.clone(),
+      String.from(""),
+      ArrayList(String).new(),
+      ArrayList(TypeValue).new(),
+      false,
+      false,
+      false,
+      String.from(""),
+      ArrayList(TypeValue).new(),
+      false
+    )
+  );
   // Collect field labels, types, values
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
@@ -213,18 +215,20 @@ evaluate_anonymous_struct_value :: (
   });
   // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForStructType — no-op stub.
   // Build final struct TypeValue
-  struct_ty := rc(TypeValueNode.Struct(
-    struct_id.clone(),
-    String.from(""),
-    field_labels,
-    field_types,
-    false,
-    false,
-    false,
-    String.from(""),
-    ArrayList(TypeValue).new(),
-    false
-  ));
+  struct_ty := rc(
+    TypeValueNode.Struct(
+      struct_id.clone(),
+      String.from(""),
+      field_labels,
+      field_types,
+      false,
+      false,
+      false,
+      String.from(""),
+      ArrayList(TypeValue).new(),
+      false
+    )
+  );
   // Register struct fields in global registry
   register_struct_fields(struct_id.clone(), &all_type_fields);
   // Build struct value if all fields are comptime-known

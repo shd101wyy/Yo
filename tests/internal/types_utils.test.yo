@@ -2,10 +2,11 @@
 /// integer range, and comptime cast checks.
 { String } :: import("std/string");
 import("std/fmt");
-{ TypeValue } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
 { t_i8, t_i16, t_i32, t_i64, t_u8, t_u16, t_u32, t_u64, t_usize, t_isize, t_bool, t_unit, t_f32, t_f64, t_comptime_int, t_comptime_float, t_comptime_string, t_some_t, t_array, t_iso, t_dyn_simple, t_future_trait_simple, t_ptr } :: import("../../src/types/creators.yo");
 { Environment } :: import("../../src/env.yo");
-{ type_memo_key } :: import("../../src/types/intern.yo");
+{ type_intern_key } :: import("../../src/types/intern.yo");
+{ HashSet } :: import("std/collections/hash_set");
 { ArrayList } :: import("std/collections/array_list");
 { assert, panic } :: import("std/assert");
 {
@@ -244,14 +245,14 @@ test("can_comptime_int_cast_to: integer types return(true)", {
   assert(can_comptime_int_cast_to(t_u64()), "u64");
   assert(can_comptime_int_cast_to(t_usize()), "usize");
   assert(can_comptime_int_cast_to(t_isize()), "isize");
-  assert(can_comptime_int_cast_to(.ComptimeInt), "comptime_int self");
+  assert(can_comptime_int_cast_to(rc(TypeValueNode.ComptimeInt)), "comptime_int self");
 });
 test("can_comptime_int_cast_to: non-integer types return(false)", {
   assert(!can_comptime_int_cast_to(t_f32()), "f32");
   assert(!can_comptime_int_cast_to(t_f64()), "f64");
   assert(!can_comptime_int_cast_to(t_bool()), "bool");
   assert(!can_comptime_int_cast_to(t_unit()), "unit");
-  assert(!can_comptime_int_cast_to(.ComptimeFloat), "comptime_float");
+  assert(!can_comptime_int_cast_to(rc(TypeValueNode.ComptimeFloat)), "comptime_float");
 });
 // ---------------------------------------------------------------------------
 // can_comptime_float_cast_to
@@ -259,14 +260,14 @@ test("can_comptime_int_cast_to: non-integer types return(false)", {
 test("can_comptime_float_cast_to: float types return(true)", {
   assert(can_comptime_float_cast_to(t_f32()), "f32");
   assert(can_comptime_float_cast_to(t_f64()), "f64");
-  assert(can_comptime_float_cast_to(.ComptimeFloat), "comptime_float self");
+  assert(can_comptime_float_cast_to(rc(TypeValueNode.ComptimeFloat)), "comptime_float self");
 });
 test("can_comptime_float_cast_to: non-float types return(false)", {
   assert(!can_comptime_float_cast_to(t_i32()), "i32");
   assert(!can_comptime_float_cast_to(t_u64()), "u64");
   assert(!can_comptime_float_cast_to(t_bool()), "bool");
   assert(!can_comptime_float_cast_to(t_unit()), "unit");
-  assert(!can_comptime_float_cast_to(.ComptimeInt), "comptime_int");
+  assert(!can_comptime_float_cast_to(rc(TypeValueNode.ComptimeInt)), "comptime_int");
 });
 // ---------------------------------------------------------------------------
 // type_implements_runtime / type_is_comptime_only (Phase 2as)
@@ -400,35 +401,39 @@ test("type_contains_rc_type: array of i32 returns false", {
 test("type_contains_rc_type: object struct is RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  obj := rc(TypeValueNode.Struct(
-    id : String.from("id1"),
-    name : String.from("Obj"),
-    field_labels : labels,
-    field_types : types,
-    is_reference_semantics : true,
-    is_atomic_rc : false,
-    is_newtype : false,
-    constructor_func_id : String.from(""),
-    type_arguments : ArrayList(TypeValue).new(),
-    is_source_namespace : false
-  ));
+  obj := rc(
+    TypeValueNode.Struct(
+      id : String.from("id1"),
+      name : String.from("Obj"),
+      field_labels : labels,
+      field_types : types,
+      is_reference_semantics : true,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.from(""),
+      type_arguments : ArrayList(TypeValue).new(),
+      is_source_namespace : false
+    )
+  );
   assert(type_contains_rc_type(&obj), "object → true");
 });
 test("type_contains_rc_type: plain struct returns false", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  s := rc(TypeValueNode.Struct(
-    id : String.from("id2"),
-    name : String.from("Point"),
-    field_labels : labels,
-    field_types : types,
-    is_reference_semantics : false,
-    is_atomic_rc : false,
-    is_newtype : false,
-    constructor_func_id : String.from(""),
-    type_arguments : ArrayList(TypeValue).new(),
-    is_source_namespace : false
-  ));
+  s := rc(
+    TypeValueNode.Struct(
+      id : String.from("id2"),
+      name : String.from("Point"),
+      field_labels : labels,
+      field_types : types,
+      is_reference_semantics : false,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.from(""),
+      type_arguments : ArrayList(TypeValue).new(),
+      is_source_namespace : false
+    )
+  );
   assert(!type_contains_rc_type(&s), "plain struct → false");
 });
 test("type_contains_rc_type: struct containing object field returns true", {
@@ -436,31 +441,35 @@ test("type_contains_rc_type: struct containing object field returns true", {
   field_labels.push(String.from("inner"));
   inner_types := ArrayList(TypeValue).new();
   inner_types.push(
-    rc(TypeValueNode.Struct(
-      id : String.from("id3"),
-      name : String.from("Inner"),
-      field_labels : ArrayList(String).new(),
-      field_types : ArrayList(TypeValue).new(),
-      is_reference_semantics : true,
+    rc(
+      TypeValueNode.Struct(
+        id : String.from("id3"),
+        name : String.from("Inner"),
+        field_labels : ArrayList(String).new(),
+        field_types : ArrayList(TypeValue).new(),
+        is_reference_semantics : true,
+        is_atomic_rc : false,
+        is_newtype : false,
+        constructor_func_id : String.from(""),
+        type_arguments : ArrayList(TypeValue).new(),
+        is_source_namespace : false
+      )
+    )
+  );
+  outer := rc(
+    TypeValueNode.Struct(
+      id : String.from("id4"),
+      name : String.from("Outer"),
+      field_labels : field_labels,
+      field_types : inner_types,
+      is_reference_semantics : false,
       is_atomic_rc : false,
       is_newtype : false,
       constructor_func_id : String.from(""),
       type_arguments : ArrayList(TypeValue).new(),
       is_source_namespace : false
-    ))
+    )
   );
-  outer := rc(TypeValueNode.Struct(
-    id : String.from("id4"),
-    name : String.from("Outer"),
-    field_labels : field_labels,
-    field_types : inner_types,
-    is_reference_semantics : false,
-    is_atomic_rc : false,
-    is_newtype : false,
-    constructor_func_id : String.from(""),
-    type_arguments : ArrayList(TypeValue).new(),
-    is_source_namespace : false
-  ));
   assert(type_contains_rc_type(&outer), "Struct(object field) → true");
 });
 test("type_contains_rc_type: IsoT returns true", {
@@ -612,15 +621,16 @@ test("raw-ptr predicate: a Ptr 45 levels down is found", {
 });
 // An empty id names nothing, so the structural key renders a nested empty-id
 // struct in full instead of as its token: `Nest(Nest(*u8))` and
-// `Nest(Nest(Nest(*u8)))` used to key alike, and the memos above took the
-// second level of the 45-deep chain for a cycle
-// (issues/fixed/the-structural-type-key-merges-nested-empty-id-types.md).
-test("type_memo_key: nested empty-id structs of different depth key apart", {
+// `Nest(Nest(Nest(*u8)))` used to key alike, so `intern_type` merged them
+// (and #1329's key-based memos took the second level of the 45-deep chain
+// for a cycle; issues/fixed/the-structural-type-key-merges-nested-empty-id-types.md).
+_tk :: (fn(t : &TypeValue) -> String)(type_intern_key(t, usize(0), HashSet(String).new()));
+test("type_intern_key: nested empty-id structs of different depth key apart", {
   one := _trp_struct(String.from("Nest"), _trp_labels1(String.from("inner")), _trp_types1(t_ptr(t_u8())), false, false, false);
   two := _trp_struct(String.from("Nest"), _trp_labels1(String.from("inner")), _trp_types1(&one), false, false, false);
   three := _trp_struct(String.from("Nest"), _trp_labels1(String.from("inner")), _trp_types1(&two), false, false, false);
-  assert(type_memo_key(&two) != type_memo_key(&three), "Nest(Nest(*u8)) vs Nest(Nest(Nest(*u8)))");
-  assert(type_memo_key(&two) == type_memo_key(&two.clone()), "a type keys like its clone");
+  assert(_tk(&two) != _tk(&three), "Nest(Nest(*u8)) vs Nest(Nest(Nest(*u8)))");
+  assert(_tk(&two) == _tk(&two.clone()), "a type keys like its clone");
 });
 test("raw-ptr predicate: a type object that contains itself terminates", {
   labels := ArrayList(String).new();

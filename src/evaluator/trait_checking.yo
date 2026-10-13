@@ -19,7 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
-{ TypeValue, FuncMeta, t_refine_inner } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner } :: import("../types/definitions.yo");
 {
   is_function_type,
   is_some_type,
@@ -1296,34 +1296,36 @@ _type_implements_trait_one :: (
   if(is_fn_trait_type(trait_type) && is_function_type(&target), {
     fn_trait_call_ty := match(
       trait_type,
-      .FnTraitT(_, param_labels, param_types, result, _, _, ft_refs, ft_owns) => rc(TypeValueNode.Func(
-        ArrayList(TypeValue).new(),
-        param_types,
-        ArrayList(TypeValue).new(),
-        ArrayList(TypeValue).new(),
-        result,
-        rc(
-          FuncMeta(
-            forall_labels : ArrayList(String).new(),
-            param_labels : param_labels,
-            implicit_labels : ArrayList(String).new(),
-            result_is_comptime_only : false,
-            // Fn-trait call type (runtime)
-            param_is_ref : ft_refs,
-            param_is_owning : ft_owns,
-            result_is_ref : false,
-            has_variadic : false,
-            is_extern : Option(String).None,
-            // Fn-trait call type is not FFI
-            extern_name : Option(String).None,
-            is_control : false // Fn-trait call type is `fn`, not `ctl`
-            ,
-            variadic_label : Option(String).None,
-            variadic_comptime : false
-          )
-        ),
-        ArrayList(TypeValue).new()
-      )),
+      .FnTraitT(_, param_labels, param_types, result, _, _, ft_refs, ft_owns) => rc(
+        TypeValueNode.Func(
+          ArrayList(TypeValue).new(),
+          param_types,
+          ArrayList(TypeValue).new(),
+          ArrayList(TypeValue).new(),
+          result,
+          rc(
+            FuncMeta(
+              forall_labels : ArrayList(String).new(),
+              param_labels : param_labels,
+              implicit_labels : ArrayList(String).new(),
+              result_is_comptime_only : false,
+              // Fn-trait call type (runtime)
+              param_is_ref : ft_refs,
+              param_is_owning : ft_owns,
+              result_is_ref : false,
+              has_variadic : false,
+              is_extern : Option(String).None,
+              // Fn-trait call type is not FFI
+              extern_name : Option(String).None,
+              is_control : false // Fn-trait call type is `fn`, not `ctl`
+              ,
+              variadic_label : Option(String).None,
+              variadic_comptime : false
+            )
+          ),
+          ArrayList(TypeValue).new()
+        )
+      ),
       _ => {
         return(TraitCheckResult(implemented : false, env : env));
       }

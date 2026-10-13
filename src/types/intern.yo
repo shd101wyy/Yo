@@ -53,7 +53,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
-{ TypeValue, FuncMeta } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta } :: import("./definitions.yo");
 { fnv1a64, debug_knob, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take } :: import("../utils.yo");
 { ToString } :: import("std/fmt");
 _append_b :: (fn(sb : &mut StringBuilder, x : bool) -> unit)(
@@ -669,14 +669,6 @@ type_intern_key :: (fn(t : &TypeValue, depth : usize, visited : &mut HashSet(Str
   _intern_key_into(t, &mut sb, depth, visited);
   sb.to_string()
 });
-/// The structural key a per-walk memo compares two same-id types by
-/// (`types/hierarchy.yo`, `types/utils.yo`, `types/substitution.yo`): equal
-/// keys mean interchangeable types, the property `intern_type` relies on. A
-/// `TypeValue` is a value (plans/VALUES_BY_DEFAULT.md V4), so these memos
-/// cannot key on object identity.
-type_memo_key :: (fn(t : &TypeValue) -> String)(
-  type_intern_key(t, usize(0), HashSet(String).new())
-);
 /// `YO_TYPE_INTERN_PROBE=1`: how much structural DUPLICATION the live
 /// `TypeValue` population carries — the number that decides whether interning
 /// at the constructors is worth building (§0.4′: `TypeValue` plus its two list
@@ -848,4 +840,4 @@ intern_type :: (fn(t : &TypeValue) -> TypeValue)({
     }
   )
 });
-export(intern_type, type_intern_key, type_memo_key, type_intern_probe_record, type_intern_probe_report, purge_type_intern_owned_by, type_intern_entry_count);
+export(intern_type, type_intern_key, type_intern_probe_record, type_intern_probe_report, purge_type_intern_owned_by, type_intern_entry_count);

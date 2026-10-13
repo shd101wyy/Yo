@@ -82,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ FuncMeta, TypeValue } :: import("../../types/definitions.yo");
+{ FuncMeta, TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
@@ -3235,33 +3235,35 @@ _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> Type
       if(rw_m.*.param_labels.len() != fv_params.len(), {
         return(ty);
       });
-      rc(TypeValueNode.Func(
-        rw_fts,
-        rw_pts,
-        rw_its,
-        rw_wts,
-        rw_res,
-        rc(
-          FuncMeta(
-            forall_labels : rw_m.*.forall_labels,
-            param_labels : fv_params,
-            implicit_labels : rw_m.*.implicit_labels,
-            result_is_comptime_only : rw_m.*.result_is_comptime_only,
-            param_is_ref : rw_m.*.param_is_ref,
-            param_is_owning : rw_m.*.param_is_owning,
-            param_is_sink : rw_m.*.param_is_sink,
-            result_is_ref : rw_m.*.result_is_ref,
-            result_is_mut_ref : rw_m.*.result_is_mut_ref,
-            has_variadic : rw_m.*.has_variadic,
-            is_extern : rw_m.*.is_extern,
-            extern_name : rw_m.*.extern_name,
-            is_control : rw_m.*.is_control,
-            variadic_label : rw_m.*.variadic_label,
-            variadic_comptime : rw_m.*.variadic_comptime
-          )
-        ),
-        rw_vts
-      ))
+      rc(
+        TypeValueNode.Func(
+          rw_fts,
+          rw_pts,
+          rw_its,
+          rw_wts,
+          rw_res,
+          rc(
+            FuncMeta(
+              forall_labels : rw_m.*.forall_labels,
+              param_labels : fv_params,
+              implicit_labels : rw_m.*.implicit_labels,
+              result_is_comptime_only : rw_m.*.result_is_comptime_only,
+              param_is_ref : rw_m.*.param_is_ref,
+              param_is_owning : rw_m.*.param_is_owning,
+              param_is_sink : rw_m.*.param_is_sink,
+              result_is_ref : rw_m.*.result_is_ref,
+              result_is_mut_ref : rw_m.*.result_is_mut_ref,
+              has_variadic : rw_m.*.has_variadic,
+              is_extern : rw_m.*.is_extern,
+              extern_name : rw_m.*.extern_name,
+              is_control : rw_m.*.is_control,
+              variadic_label : rw_m.*.variadic_label,
+              variadic_comptime : rw_m.*.variadic_comptime
+            )
+          ),
+          rw_vts
+        )
+      )
     },
     _ => ty
   )
@@ -3345,18 +3347,20 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
                   &fs,
                   r_nm.clone(),
                   r_lvl,
-                  rc(TypeValueNode.SomeT(
-                    generate_some_type_id(),
-                    r_nm.clone(),
-                    r_lvl,
-                    r_pt.clone(),
-                    r_rtt.clone(),
-                    r_rtl.clone(),
-                    r_ntt.clone(),
-                    r_ntl.clone(),
-                    r_kft.clone(),
-                    Option(TypeValue).None
-                  ))
+                  rc(
+                    TypeValueNode.SomeT(
+                      generate_some_type_id(),
+                      r_nm.clone(),
+                      r_lvl,
+                      r_pt.clone(),
+                      r_rtt.clone(),
+                      r_rtl.clone(),
+                      r_ntt.clone(),
+                      r_ntl.clone(),
+                      r_kft.clone(),
+                      Option(TypeValue).None
+                    )
+                  )
                 );
                 added = (added + usize(1));
               });
@@ -3370,15 +3374,17 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
       if(added == usize(0), {
         return(method_ty);
       });
-      rc(TypeValueNode.Func(
-        fr_fts,
-        fr_pts,
-        fr_its,
-        fr_wts,
-        substitute(&fs, &fr_res),
-        fr_m,
-        fr_vts
-      ))
+      rc(
+        TypeValueNode.Func(
+          fr_fts,
+          fr_pts,
+          fr_its,
+          fr_wts,
+          substitute(&fs, &fr_res),
+          fr_m,
+          fr_vts
+        )
+      )
     },
     _ => method_ty
   )

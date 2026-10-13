@@ -12,7 +12,7 @@
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { Emitter } :: import("../../emitter.yo");
 { should_skip_function_codegen, generate_function_prototype } :: import("./declarations.yo");
 { EvalValue, is_func_val } :: import("../../value.yo");
@@ -300,7 +300,7 @@ _resolve_box_payload :: (fn(t : &TypeValue) -> TypeValue)(
         rbp_new_ta.push(rbp_r2);
         rbp_j = (rbp_j + usize(1));
       });
-      .Struct(rbp_id, rbp_nm, rbp_fl, rbp_new_ft, rbp_irs, rbp_iar, rbp_inw, rbp_cfid, rbp_new_ta, rbp_isn)
+      rc(TypeValueNode.Struct(rbp_id, rbp_nm, rbp_fl, rbp_new_ft, rbp_irs, rbp_iar, rbp_inw, rbp_cfid, rbp_new_ta, rbp_isn))
     },
     _ => t
   )
