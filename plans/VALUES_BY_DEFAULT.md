@@ -9,10 +9,10 @@
   §9.
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
   (decision 42, #1310).
-- **Handover:** the campaign was handed over on 2026-10-06. Start with
-  [`plans/handover/VBD_HANDOVER_2026-10-06.md`](handover/VBD_HANDOVER_2026-10-06.md), which has the
-  open PRs, the pushed wave-2 branches, the release step and the
-  Generation B queue.
+- **Handover:** start with
+  [`plans/handover/VBD_HANDOVER_2026-10-13.md`](handover/VBD_HANDOVER_2026-10-13.md), which has the
+  releases, the open PRs, the branches in flight and the Generation B
+  queue.
 
 Consolidated 2026-10-05: this document states the current design only. The
 copy-on-write design, the superseded decision texts and the analyses of
@@ -5221,6 +5221,61 @@ compiler; the std shapes are plain structs the seed lowers):
 - **Bundles.** It also decides A6's `Rc` bundle fields.
 - **No fallback** (decision 17). Once V5 lands, the dup/drop pair optimizer
   has no implicit copy left to cancel.
+- **Design notes** (written 2026-10-13, for the maintainer's verdict before
+  V2c starts):
+  - **The spelling the repair inserts is `Rc.clone(x)` / `Arc.clone(x)`.**
+    Decision 32 makes `x.clone()` on a wrapper E0616 when the payload has
+    `Clone`, and the unapplied-constructor form needs no payload type.
+    Inside a closure the copy becomes a capture-list entry,
+    `{ h : Rc.clone(h) }` (decision 35's form), so `yo fix` rewrites the
+    capture list and not the body. That covers most of the 640 `tests/`
+    sites, which are handles captured by a spawned closure.
+  - **What counts as a copy** is decision 30's rule, unchanged: a non-last
+    use of a named `Rc`/`Arc` that flows into an owning slot (a by-value
+    argument, a binding, a field, a capture, a return). The last use moves.
+    A `&`-lent handle is not a copy.
+  - **A struct with an `Rc`/`Arc` field becomes explicit-copy too**, by the
+    kind rule V2b gives `String` (a composite is implicitly copyable only
+    when every field is). `derive(Clone)` then clones each handle through
+    `Rc.clone`.
+  - **One PR, not two generations.** `Rc.clone(w)` has been in every seed
+    since #1241, so the rule in the compiler, `yo fix <path> --migrate
+    rc-clone` and the sweep of `std/`, `src/` and `tests/` can land together,
+    as decision 42 did. The seed builds a swept `src/` unchanged.
+  - **Measure** the dup/drop pair optimizer's emit diff on `src/` before and
+    after. Each explicit clone replaces an implicit dup that the optimizer
+    used to cancel, so a rise in `___dup` calls in the self-build is the
+    cost to report. It is not a reason to keep a fallback.
+  - **A6's open question, the `Rc` bundle field.** Today `io.await` and
+    `io.spawn` take `e : E` by value (#1318), and a cold `io.await` copies
+    the bundle into the future. Once an `Rc` field is explicit-copy, three
+    answers are possible:
+    1. **The bundle copy clones its `Rc`/`Arc` fields implicitly.** No
+       site changes. But it is a hidden owner made at every await, the one
+       thing decision 17 removes.
+    2. **The bundle follows the kind rule with no special case.** A bundle
+       with an `Rc` field is explicit-copy, and `io.await(f, b.clone())` is
+       needed wherever `b` is used again. That is nearly every await of
+       the recommended shared-state pattern. It is a clone on the hot path
+       where nothing is shared longer than the call.
+    3. **`io.await` lends the bundle, and `io.spawn` takes it.** A cold
+       future started by `io.await` finishes before the await returns, so
+       the caller's bundle outlives it and the future can borrow it, as A2's
+       borrowing futures already require of a bundle place (E0910). The
+       slot becomes `e : &E`. `io.spawn` keeps `e : E`: a task outlives the
+       call, so it needs its own owner, which is `b.clone()` when `b` is
+       used again, or a move at its last use.
+    - **Recommendation: 3.** It is the only answer with no hidden owner and
+      no clone where nothing is shared. Sharing is spelled exactly where a
+      second owner appears, at the ~350 `io.spawn` sites. It reverses
+      #1318 for `io.await` only: the ~5,150 await sites (316 in `std/`,
+      480 in `src/`, 4,183 in `tests/`, 172 in docs) gain the `&` marker
+      through `yo fix --migrate markers`. The A6 check
+      (`_check_bundle_fields_copy`) then applies to `io.spawn` alone, and
+      E0901 at a non-last-use bundle argument replaces it there.
+    - Until the maintainer decides, A6 keeps rejecting a bundle field that
+      `type_requires_explicit_copy` reports, which an `Rc` field becomes at
+      V2c.
 
 **After V2b: the allocator interface, version 2** (queued by the maintainer
 2026-10-13). Today's `AllocatorVTable(alloc, realloc, free)` is Zig's
@@ -5296,6 +5351,71 @@ stage-2 RSS):
     90 `AstExpr.` constructions are rewritten. So is each of the ~3,500
     destructuring arms that reaches through a child, which a `yo fix`
     repair inserts mechanically from the pattern position's type.
+
+### Decision 43: references as types
+
+Decision 43 (§4) is the design, and `plans/backlog/NON_ESCAPABLE_TYPES.md`
+(R1–R7) the full statement. This section is the PR sequence (written
+2026-10-13). It follows V2b, because root-joining only means something once
+collections are uniquely owned values, and V4's `TypeValue` conversion,
+because step 1 adds a `TypeValue` variant and must not be written twice.
+Each step is its own PR, with its own measured `check ./src` time and
+stage-2 RSS.
+
+1. **A reference variant in `TypeValue`, no language change.**
+   `TypeValue.Reference(T, mutable : bool)` replaces the slot flags
+   `param_is_ref`, `call_param_is_ref` / `is_owning` in `FnTraitT` and the
+   `FuncParam` modes, through the evaluator, the specializer, the verifier
+   encoding and codegen.
+   - The gate is behavioral identity: every test, the fixpoint and an
+     emit-diff of the self-build with no C change.
+   - It is the largest refactor in the plan, which is why it ships alone.
+   - `TypeInfo` gains the `Reference` kind here too, because reflection
+     reads `TypeValue`.
+2. **Generation A: the types in user code.**
+   - `&T` / `&mut T` bound (`r := &x`), named (`IntRef :: &i32`), as
+     generic arguments (`&&T` accepted), and returned under R3.
+   - `&T` is `Copy`. `&mut T` reborrows into a `&mut T` slot and moves into
+     a generic `T` slot at its last use.
+   - `.*` for whole-value reads and writes. Field and method access
+     auto-derefs, receivers auto-borrow, and operators never auto-deref.
+   - `impl(&T, Trait(…))`, with resolution probing the exact type, then
+     `&`/`&mut` of it, then each deref.
+   - `FnMut` (decision 37).
+   - A buffer container over a type containing a reference is still an
+     error here (N2), so no build accepts a join it cannot see.
+   - The tests are decision 43's list, minus root-joining.
+   - The compiler needs no seed for any of this: it is Generation A by
+     construction.
+3. **Root-joining containers (R7, N2).**
+   - The per-value borrow set on the root place: `(root, mode)` pairs
+     extending `VariableRare.inout_borrow_root_id`, joined at every call and
+     every place write, and unioned at control-flow joins.
+   - The `depends` clause, parsed and checked against the callee's
+     signature.
+   - `ArrayList(&T)` and every buffer container over a reference become
+     legal.
+   - The tests are the root-joining rows of decision 43's list.
+4. **Generation B: std and `src/` adopt it** (once a seed carries steps 2
+   and 3).
+   - `iter`, `slice` and `entry`, and the borrowed `for` by
+     `impl(&C, IntoIterator)`.
+   - The `FnMut` slots.
+   - Every non-storing lookup gains `depends(self : ())`, with the test that
+     a probe key is usable after the call.
+   - Every whole-value read or write through a reference in `std/` and
+     `src/` is rewritten to `.*`, by `yo fix <path> --migrate deref`, which
+     reuses V3b's borrow-site tooling.
+
+**Open, for the maintainer before step 2:**
+- **`.*` on a whole-value read.** Decision 43 makes `n + 1` with
+  `n : &i32` an error (operators never auto-deref). This is the step that
+  breaks existing code; nothing else in Generation A does.
+  - **Recommendation:** land the error with `yo fix --migrate deref` in
+    step 2's PR, the way decision 42 landed E0009 with its migration. Do not
+    accept both spellings for a release, because of the single-user rule.
+- **`str` in borrow position** stays parked with
+  `RUST_ADOPTION_CANDIDATES.md` L1. Nothing in steps 1–4 depends on it.
 
 ### V5: remove `ref(...)` and `atomic(...)`
 
@@ -5482,8 +5602,9 @@ Decision 18 was also amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
 inside a settled design:
-- **A6:** what the bundle copy does with an `Rc`/`Arc` field: clone it,
-  or make bundles explicit-copy. Decided in V2c.
+- **A6:** what the bundle copy does with an `Rc`/`Arc` field. Decided in
+  V2c. V2c's design notes recommend that `io.await` lend the bundle while
+  `io.spawn` takes it (written 2026-10-13, awaiting the maintainer).
 - **§3.13 A1:** whether std adds a shared-future adapter (one task joins,
   the others wait on the result), now that `Rc(JoinHandle(T))` is known
   not to work. Decided in V3's async work.
