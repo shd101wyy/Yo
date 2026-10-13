@@ -1149,9 +1149,11 @@ instead.
   - An explicit-copy or move-only bundle field is an error at the site. A
     generated deep clone would be a hidden copy.
   - Shared state goes in an `Rc` field.
-  - **Open, decided in V2c:** what copying an `Rc` field means once `Rc`
-    copies are explicit. Either the bundle copy clones its `Rc`/`Arc`
-    fields, or bundles become explicit-copy (`io.spawn(b.clone(), …)`).
+  - **Decided 2026-10-13, lands in V2c:** what happens to an `Rc` field
+    once `Rc` copies are explicit. `io.await` lends the bundle
+    (`e : &E`, no copy), and `io.spawn` takes it by value, so the caller
+    spells `b.clone()` when it uses `b` again. V2c's design notes give the
+    reasoning and the alternatives that were rejected.
   - **As built (2026-10-12, A6).** With a borrowing future, A2 also requires
     the `io.await` bundle to be a place (see A2's "As built" note).
     `_check_bundle_fields_copy`
@@ -5221,8 +5223,8 @@ compiler; the std shapes are plain structs the seed lowers):
 - **Bundles.** It also decides A6's `Rc` bundle fields.
 - **No fallback** (decision 17). Once V5 lands, the dup/drop pair optimizer
   has no implicit copy left to cancel.
-- **Design notes** (written 2026-10-13, for the maintainer's verdict before
-  V2c starts):
+- **Design notes** (written 2026-10-13; the maintainer accepted both
+  recommendations the same day):
   - **The spelling the repair inserts is `Rc.clone(x)` / `Arc.clone(x)`.**
     Decision 32 makes `x.clone()` on a wrapper E0616 when the payload has
     `Clone`, and the unapplied-constructor form needs no payload type.
@@ -5265,7 +5267,7 @@ compiler; the std shapes are plain structs the seed lowers):
        slot becomes `e : &E`. `io.spawn` keeps `e : E`: a task outlives the
        call, so it needs its own owner, which is `b.clone()` when `b` is
        used again, or a move at its last use.
-    - **Recommendation: 3.** It is the only answer with no hidden owner and
+    - **Decided: 3** (the maintainer, 2026-10-13). It is the only answer with no hidden owner and
       no clone where nothing is shared. Sharing is spelled exactly where a
       second owner appears, at the ~350 `io.spawn` sites. It reverses
       #1318 for `io.await` only: the ~5,150 await sites (316 in `std/`,
@@ -5273,9 +5275,9 @@ compiler; the std shapes are plain structs the seed lowers):
       through `yo fix --migrate markers`. The A6 check
       (`_check_bundle_fields_copy`) then applies to `io.spawn` alone, and
       E0901 at a non-last-use bundle argument replaces it there.
-    - Until the maintainer decides, A6 keeps rejecting a bundle field that
-      `type_requires_explicit_copy` reports, which an `Rc` field becomes at
-      V2c.
+    - It lands in V2c's PR, with the same release as the `Rc` rule. Until
+      then, A6 keeps rejecting a bundle field that
+      `type_requires_explicit_copy` reports.
 
 **After V2b: the allocator interface, version 2** (queued by the maintainer
 2026-10-13). Today's `AllocatorVTable(alloc, realloc, free)` is Zig's
@@ -5407,13 +5409,12 @@ stage-2 RSS.
      `src/` is rewritten to `.*`, by `yo fix <path> --migrate deref`, which
      reuses V3b's borrow-site tooling.
 
-**Open, for the maintainer before step 2:**
+**Decided 2026-10-13 (the maintainer):**
 - **`.*` on a whole-value read.** Decision 43 makes `n + 1` with
   `n : &i32` an error (operators never auto-deref). This is the step that
-  breaks existing code; nothing else in Generation A does.
-  - **Recommendation:** land the error with `yo fix --migrate deref` in
-    step 2's PR, the way decision 42 landed E0009 with its migration. Do not
-    accept both spellings for a release, because of the single-user rule.
+  breaks existing code; nothing else in Generation A does. The error lands
+  with `yo fix <path> --migrate deref` in step 2's PR, the way decision 42
+  landed E0009 with its migration. No release accepts both spellings.
 - **`str` in borrow position** stays parked with
   `RUST_ADOPTION_CANDIDATES.md` L1. Nothing in steps 1–4 depends on it.
 
@@ -5602,9 +5603,6 @@ Decision 18 was also amended to place-based exclusivity.
 
 **Parked with the phase that decides them.** These are smaller choices
 inside a settled design:
-- **A6:** what the bundle copy does with an `Rc`/`Arc` field. Decided in
-  V2c. V2c's design notes recommend that `io.await` lend the bundle while
-  `io.spawn` takes it (written 2026-10-13, awaiting the maintainer).
 - **§3.13 A1:** whether std adds a shared-future adapter (one task joins,
   the others wait on the result), now that `Rc(JoinHandle(T))` is known
   not to work. Decided in V3's async work.
