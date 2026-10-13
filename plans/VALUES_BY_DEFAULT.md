@@ -3045,30 +3045,43 @@ and in git, not a silent edit.
     - **Root-joining containers (R7).** `ArrayList(&T)`, `HashMap(&K, V)`
       and every buffer-owning container over a `&` are legal and
       second-class, with a borrow set that **grows** (amended 2026-10-13
-      after the audit in issue #1330; `NON_ESCAPABLE_TYPES.md` R7 is the
-      full statement). Two triggers join: **every call**, a method call
-      being receiver sugar — every argument whose borrow set is nonempty
-      (a reference or a reference-holding value, either mode, lent or by
-      value: `&x`, `&mut x`, a `View(T)` by value), except a closure in a
-      lent `Impl(Fn)` slot, joins its whole borrow set into every
-      `&mut`-lent argument whose type is (or contains) a root-joining
-      container, unless the callee's `depends` clause says otherwise
-      (`push`, `insert`, `extend`, `set`; `push_all(&mut out, &vals)`
-      grows `out`'s roots by `vals` at the caller; a `&self` method joins
-      nothing) — and **every place write** of a reference-holding value
-      into a place rooted in the container (`out(i) = &x`, a `.*` write
-      through a `&mut` element). A join lands on the root place, not on
-      the binding that performed it (`r := &mut out; r.push(&x)` grows
-      `out`). The callee is checked against its clause: every root it
-      joins into a `&mut` parameter's container must be a parameter in
-      the declared or default set, so a lying `depends(dst :)` and a
+      after the audit in issue #1330 and a second pass;
+      `NON_ESCAPABLE_TYPES.md` R3 and R7 are the full statement). The join
+      rules hold for every reference-holding target — a container, but
+      also a struct, an `Option(&T)` or a `&mut &T` lent `&mut`. Two
+      triggers join: **every call**, a method call being receiver sugar —
+      each argument (a reference or a reference-holding value, either
+      mode, lent or by value: `&x`, `&mut x`, a `View(T)` by value) joins
+      its whole borrow set into every **other** `&mut`-lent argument whose
+      type contains a reference, as narrowed by the callee's `depends`
+      clause; an argument never joins itself, and a closure in a lent
+      `Impl(Fn)` slot joins nothing by default (`push`, `insert`,
+      `extend`, `set`; `push_all(&mut out, &vals)` grows `out`'s roots by
+      `vals` at the caller; a `&self` method joins nothing) — and **every
+      place write** of a reference-holding value into a component (`out(i)
+      = &x`, `v.xs = &y`, a `.*` write through a `&mut` element). A join
+      lands on the root place, followed through reference components
+      (`r := &mut out; r.push(&x)` grows `out`; `ser.out.push(&x)` grows
+      the list `ser.out` points at). The callee is checked against its
+      clause or the default: every root it joins into a target reached
+      through a `&mut` parameter must be that target's own carried root or
+      a declared source, so a lying `depends(dst :)` and a
       `dst.push(&local)` are both errors; a closure's `&mut` captures
-      count as parameters, and its literal's join summary applies where
-      the capture is taken. The `depends` grammar is one clause with two forms
-      (`NON_ESCAPABLE_TYPES.md` R3/R7): `depends(a, b)` on a
-      reference-returning function names the result's roots;
-      `depends(dst : a, b)` names what flows into a `&mut` container
-      parameter, and `depends(dst :)` says nothing does — the spelling
+      count as parameters, its literal's join summary applies where the
+      capture is taken, and its own parameters never join a captured
+      target. The `depends` grammar is one clause in two positions
+      (`NON_ESCAPABLE_TYPES.md` R3/R7): `depends(a, b.*)` on a
+      reference-returning function names the result's sources;
+      `depends(dst : a, b.*)` names what flows into a `&mut`
+      reference-holding parameter, and `depends(dst :)` says nothing
+      does. `depends(p)` is `p`'s whole borrow set (for a lend, the
+      place itself); `depends(p.*)`, for a reference-typed `p`, only what
+      the referent carries:
+      `next(self : &mut Self, depends(self.*)) -> Option(&T)` is a
+      non-lending iterator, `pop` keeps the popped reference's roots
+      without borrowing the list, and a by-value reference-holding
+      parameter (`Entry`'s `or_insert(self, v)`, a parser's `View(u8)`
+      input) carries its roots out. `depends(dst :)` is the spelling
       every non-storing lookup (`remove(&k)`, `binary_search(&probe)`,
       `contains(&x)`) must carry, a std obligation checked by a test that
       a probe key is usable after the call. A later refinement may derive
@@ -3088,8 +3101,9 @@ and in git, not a silent edit.
         `ArrayList(&T)` values share one type and hold different roots.
         Root-joining is a per-value borrow set on the root place, extending
         the single local-borrow root `VariableRare.inout_borrow_root_id`
-        keeps today to a set of `(root, mode)` pairs, joined at each
-        `&mut self` call that receives a `&` argument, unioned over
+        keeps today to a set of `(root, mode)` pairs (a parameter's root
+        being its place or the roots it carries), joined at each call and
+        place write above, unioned over
         reaching definitions at control-flow joins (decision 38 A), and
         read by the freeze and exclusivity checks (decisions 18 and 28).
         Flow-sensitive and intraprocedural, like everything else here.
@@ -3130,9 +3144,9 @@ and in git, not a silent edit.
       uniquely owned values), timed by the VBD session. Generation A adds
       the types, `.*`, auto-deref and auto-borrow, `impl(&T, …)`,
       root-joining, `FnMut` (decision 37) and the tests in user code
-      (root-joining in its own step, N2: until the tracker lands a buffer
-      container over a `&` is an error, so no build accepts a join it
-      cannot see);
+      (root-joining containers in their own step, N2: until then a buffer
+      container over a type containing a reference is an error, so no
+      build accepts a join it cannot see);
       Generation B lets std adopt (`iter`, `slice`, `entry`, the borrowed
       `for` by `impl(&C, IntoIterator)`, the `FnMut` slots) and rewrites
       every whole-value read or write through a reference in `std/` and
