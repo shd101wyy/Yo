@@ -66,7 +66,7 @@ Progress:
     for the seed.
   - decision 44's spelled closure erasure: a callable bare in a
     `Dyn(Fn(...))` slot is E0618, and `yo fix --migrate dyn-spelling`
-    wraps it (feat/vbd-d44-dyn-fn-explicit). One PR: the tree had no bare
+    wraps it (#1339). One PR: the tree had no bare
     site, so there is no Generation B sweep; `dyn(&f)` waits for decision
     43's phase.
 - **In progress:**
@@ -3206,7 +3206,7 @@ and in git, not a silent edit.
         codegen, so it lands first, with `yo fix --migrate dyn-spelling`
         wrapping each bare site in the tree; `dyn(&f)` lands with `&Dyn`
         in decision 43's phase.
-        - **As built (2026-10-13, branch `feat/vbd-d44-dyn-fn-explicit`).**
+        - **As built (2026-10-13, #1339).**
           E0618 ("a callable flows bare into a `Dyn(Fn(...))` slot", en and
           zh-CN in `yo explain`) is raised by one helper,
           `reject_bare_callable_into_dyn_fn` (src/evaluator/utils.yo), at
