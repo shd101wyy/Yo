@@ -3282,7 +3282,10 @@ and in git, not a silent edit.
     - **`drop(x)` in the prelude**, Rust's `mem::drop`: `drop :: (fn(
       generic(T : Type), sink(x) : T) -> unit)(())` moves its argument in,
       and the value drops when the call returns. It is the explicit way to
-      end a value early; a later use of `x` is E0901.
+      end a value early; a later use of `x` is E0901. A prelude name cannot be
+      shadowed, so a local named `drop` is now an error ("variable
+      shadowing is not allowed"); the one in `src/`
+      (`src/evaluator/builtins/contracts.yo`) was renamed.
     - **A resource released while other references live gets an inherent
       method,** not a destructor call: `TcpStream.close_sync()` and
       `TlsStream.close_sync()` (Generation A) close the socket from plain
