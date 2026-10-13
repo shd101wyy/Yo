@@ -579,6 +579,68 @@ test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
   assert(xs(usize(0)) == i32(1), "nothing was written");
 });
 
+// Decision 28's argument exclusivity across the argument list: the arguments
+// are evaluated in order, so a place an earlier argument lends is borrowed
+// while a later one runs, and a later argument may not move it
+// (issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md).
+_PmLentPair :: struct(f : _PmRes, k : i32);
+impl(_PmRes, plus : (fn(self : &Self, k : i32) -> i32)(self.n + k));
+_pm_sync :: (fn(c : &mut _PmRes, k : i32) -> i32)({
+  c.n = (c.n + k);
+  c.n
+});
+_pm_peek :: (fn(c : &_PmRes, k : i32) -> i32)(c.n + k);
+_pm_take_pair :: (fn(p : _PmLentPair) -> i32)(p.k);
+_pm_reset :: (fn(c : &mut _PmRes) -> i32)({
+  c.n = i32(20);
+  i32(2)
+});
+test("a later argument cannot move the place an earlier argument lends to the call", {
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
+    _pm_sync(&mut a, _pm_consume(a))
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
+    _pm_peek(&a, _pm_add1(_pm_consume(a)))
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
+    _pm_peek(&a, {
+      k := _pm_consume(a);
+      k
+    })
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    p := _PmLentPair(f : _PmRes(n : i32(1)), k : i32(2));
+    _pm_sync(&mut p.f, _pm_take_pair(p))
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
+    a.plus(_pm_consume(a))
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
+    (g : Impl(Fn(c : &mut _PmRes, k : i32) -> i32)) = ((c : &mut _PmRes, k : i32) => (c.n + k));
+    g(&mut a, _pm_consume(a))
+  }, "an earlier argument of the same call lends to it");
+  // An overwrite or a `&mut` relend in a later argument finishes before the
+  // call runs, and the callee sees the new value
+  // (issues/questions/a-later-argument-overwriting-a-place-lent-to-a-plain-call.md).
+  a := _PmRes(n : i32(1));
+  assert(
+    _pm_sync(&mut a, {
+      a = _PmRes(n : i32(10));
+      i32(1)
+    }) == i32(11),
+    "the callee sees the overwritten value"
+  );
+  assert(_pm_sync(&mut a, _pm_reset(&mut a)) == i32(22), "the callee sees the value a &mut relend wrote");
+  o := _PmRes(n : i32(3));
+  assert(_pm_sync(&mut a, _pm_consume(o)) == i32(25), "a later argument may move another binding");
+  assert(a.plus(i32(1)) == i32(26), "the lent place is intact");
+});
+
 test("imm is an ordinary identifier", {
   (imm : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + i32(1)));
   assert(imm(i32(1)) == i32(2), "a closure named imm is called");
