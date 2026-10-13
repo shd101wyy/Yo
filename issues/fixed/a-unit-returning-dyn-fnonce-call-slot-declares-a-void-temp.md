@@ -12,8 +12,12 @@ branch predates it.
 
 ```yo
 { println } :: import("std/fmt");
-say :: (fn() -> unit)({ println("said"); });
-bump :: (fn(x : &mut i32) -> unit)({ x = (x + i32(1)); });
+say :: (fn() -> unit)({
+  println("said");
+});
+bump :: (fn(x : &mut i32) -> unit)({
+  x = (x + i32(1));
+});
 main :: (fn() -> unit)({
   (a : Dyn(FnOnce() -> unit)) = dyn(say);
   a();
