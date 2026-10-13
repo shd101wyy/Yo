@@ -1326,7 +1326,7 @@ _dtm_ascii :: (fn(line : &String) -> bool)({
       }
     );
   });
-  (n == line.len())
+  n == line.len()
 });
 /// The plain identifier `e` names (an `x`, or the `x` of `&x`), else `""`.
 _dtm_ident_arg :: (fn(e : &AstExpr) -> String)(
@@ -1504,7 +1504,7 @@ _dtm_walk :: (
       recur(&callee, false, lines, out, counts, left);
       (i : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
-        match(args.get(i), .Some(a) => recur(&a, (callee_word == "Dispose"), lines, out, counts, left), .None => ());
+        match(args.get(i), .Some(a) => recur(&a, callee_word == "Dispose", lines, out, counts, left), .None => ());
       });
     }
   )
