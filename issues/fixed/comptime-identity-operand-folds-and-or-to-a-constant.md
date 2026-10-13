@@ -113,7 +113,13 @@ language suite and `yo test ./std`:
   `MACRO_DISPATCH_ENABLED` is `true`. A let-bound value position, which
   codegen always emitted as the call (the seed-built stage-1 C reads
   `bool fv_is_macro = <is_macro_fn result>`), so behaviour is unchanged.
-- std: no site. The one std guard of this shape,
+- `std/prelude.yo`, `checked_abs`:
+  `((self == T.MIN) && (T.MIN < T(0))) => Option(T).None`. For an unsigned
+  `T` the right operand is a compile-time `false` after a runtime operand
+  (the side-effect half of this fix): the guard is now emitted as
+  `(self == 0) && false` instead of being pruned. Same value, no side effect
+  in `self == T.MIN`; the arm still never runs. Correct under both compilers.
+- No other std site. The one std guard of the identity shape,
   `ArrayList.ensure_total_capacity`, was already rewritten as a nested `cond`
-  by `issues/fixed/arraylist-zst-reserve-adopts-a-buffer-its-temporary-frees.md`.
-
+  by `issues/fixed/arraylist-zst-reserve-adopts-a-buffer-its-temporary-frees.md`,
+  and it stays nested while a seed without this fix builds std.
