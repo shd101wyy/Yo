@@ -75,7 +75,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -4163,7 +4163,9 @@ create_specialized_function_inline :: (
                 reject_second_class_return(&sb_ty, ast_expr_token(&cloned_body), callee_env, ctx, exn);
               });
               sb_skip := (has_any_control_flow(sb_info.control_flow) || is_void_type(&spec_ret_ty) || is_type_hierarchy_type(&spec_ret_ty) || (get_all_some_types(&spec_ret_ty).len() > usize(0)) || (get_all_some_types(&sb_ty).len() > usize(0)) || sb_ret_is_ref);
-              if(!sb_skip && !are_types_compatible(&sb_ty, &spec_ret_ty), {
+              // A tail `yo fix --migrate dyn-spelling` recorded stands for the
+              // rewrite's `dyn(value)`, which the result takes.
+              if(!sb_skip && !bare_callable_recorded_into_dyn_fn(&spec_ret_ty, &sb_ty) && !are_types_compatible(&sb_ty, &spec_ret_ty), {
                 sb_inst := String.new();
                 (sbi : usize) = usize(0);
                 while((sbi < forall_names.len()) && (sbi < arg_values.forall_args.len()), {

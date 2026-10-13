@@ -117,7 +117,8 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_set_lookahead,
   local_borrow_result_borrow_of,
   local_borrow_reject_result_borrow,
-  reject_bare_callable_into_dyn_fn
+  reject_bare_callable_into_dyn_fn,
+  bare_callable_recorded_into_dyn_fn
 } :: import("../utils.yo");
 { Token } :: import("../../token.yo");
 { Exception } :: import("std/error");
@@ -2901,7 +2902,9 @@ _evaluate_begin_expression_impl :: (
                     });
                     synth_ok := _try_synthesize_return_type(&expected_ret, &return_type, &env);
                     if(!synth_ok, {
-                      compat := are_types_compatible(&return_type, &expected_ret);
+                      // A `return(f)` `yo fix --migrate dyn-spelling` recorded
+                      // stands for the rewrite's `return(dyn(f))`.
+                      compat := (!rb_meta.*.result_is_ref && bare_callable_recorded_into_dyn_fn(&expected_ret, &return_type)) || are_types_compatible(&return_type, &expected_ret);
                       if(!is_some_type(&expected_ret) && !compat, {
                         exn.throw(
                           dyn(

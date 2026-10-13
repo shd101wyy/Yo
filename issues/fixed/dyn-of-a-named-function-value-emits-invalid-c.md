@@ -28,11 +28,9 @@ error: expected ')'
   } __yo_dyn_box_unknown_fn(s : &String) -> usize;
 ```
 
-The same shape fails for every way to name a function value: an imported
-function, a generic type's function instantiated at the site
-(`dyn(ArrayList(i32).new)`), and an `Impl(Fn(...))` parameter bound to a named
-`fn` and boxed in the callee (`dyn(f)` there sees a `SomeT` resolving to the
-`fn(...)` type).
+The same shape fails for an imported function and for an `Impl(Fn(...))`
+parameter bound to a named `fn` and boxed in the callee (`dyn(f)` there sees a
+`SomeT` resolving to the `fn(...)` type).
 
 ## Root cause
 
@@ -84,6 +82,9 @@ before the fix.
 
 ## Not covered
 
+A generic type's function taken as a value (`_Cell(i32).make`,
+`ArrayList(i32).new`) is not emitted with or without `dyn`:
+`issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`.
 A generic function is not a first-class value: `dyn(identity)` for
 `identity :: (fn(generic(T : Type), x : T) -> T)` is rejected at `check`
 (E0601), as the same function is in a `fn(x : i32) -> i32` or an

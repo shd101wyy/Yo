@@ -1152,6 +1152,16 @@ reject_bare_callable_into_dyn_fn :: (
     _bare_callable_into_dyn_fn(slot_ty, `has type \`${type_to_string(value_ty)}\``, value, site, ctx, exn);
   });
 });
+/// Under `yo fix --migrate dyn-spelling`, whether `value_ty` flowing into
+/// `slot_ty` is a site `reject_bare_callable_into_dyn_fn` recorded instead of
+/// rejecting. The value then stands for the rewrite's `dyn(value)`, which the
+/// slot takes, so the slot's own compatibility check passes it: a `fn(...)`
+/// value never unified with a `Dyn`, and evaluation stopped at the first such
+/// site
+/// (issues/fixed/yo-fix-migrate-dyn-spelling-stops-at-the-first-site-that-is-not-a-named-closure.md).
+bare_callable_recorded_into_dyn_fn :: (fn(slot_ty : &TypeValue, value_ty : &TypeValue) -> bool)(
+  migrate_dyn_spelling_on() && !propagate_def_time_errors() && is_bare_callable_into_dyn_fn(slot_ty, value_ty)
+);
 /// A closure (`=>`) or function (`->`) literal checked against a
 /// `Dyn(Fn(...))` slot (its expected type): the same error as a named
 /// callable. A literal inside `dyn(...)` is
@@ -4228,7 +4238,7 @@ export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_bindin
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(variable_is_borrow_parameter, variable_id_in_scope);
-export(capture_place_crosses_cell, reject_bare_callable_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
+export(capture_place_crosses_cell, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
 export(doc_comment_lookup_key_from_token);
 export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow);
 export(are_values_equal);

@@ -1540,10 +1540,13 @@ dyn-spelling` wraps every site in a tree. An `Impl(Fn(...))` slot is the
 closure's own type, not an erasure, and still takes it bare. Until 2026-10-13 a
 named closure flowed bare and three of the four sites emitted invalid C
 (`issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md`).
-`dyn(nine)` of a named `fn` (top-level, imported, a generic type's
-`ArrayList(i32).new`, or an `Impl(Fn(...))` parameter bound to one) boxes the
-function's code pointer, and the `Dyn`'s call goes through it; no closure
-wrapper is needed (`issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md`).
+`dyn(nine)` of a named `fn` (top-level, imported, or an `Impl(Fn(...))`
+parameter bound to one) boxes the function's code pointer, and the `Dyn`'s
+call goes through it; no closure wrapper is needed
+(`issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md`). A generic
+type's function taken as a value (`ArrayList(i32).new`) is not emitted yet,
+with or without `dyn` (`issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`):
+wrap it in a closure, `dyn(() => ArrayList(i32).new())`.
 
 ## A bare `fn(...)` slot type never mentions `Impl(Fn(...))`
 

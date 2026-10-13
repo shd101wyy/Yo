@@ -1,9 +1,11 @@
 //! `yo fix --migrate dyn-spelling`: every callable passed bare into a
-//! `Dyn(Fn(...))` binding, field, argument or result becomes `dyn(...)`;
+//! `Dyn(Fn(...))` binding, field, argument or result becomes `dyn(...)`
+//! (a named closure, a named `fn`, a `->` function literal);
 //! `Impl(Fn(...))` slots and values already spelled `dyn(...)` stay.
 Hold :: ref(struct(f : Dyn(Fn() -> i32)));
 run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
 keep :: (fn(f : Impl(Fn() -> i32)) -> i32)(f());
+nine :: (fn() -> i32)(i32(9));
 make :: (fn() -> Dyn(Fn() -> i32))({
   (g : Impl(Fn() -> i32)) = (() => i32(9));
   g
@@ -19,6 +21,8 @@ main :: (fn() -> unit)({
   r := run(f3);
   k := keep(f4);
   e := run(dyn(() => i32(1)));
-  _s := (d() + h.f() + r + make()() + (k + e));
+  (g : Dyn(Fn() -> i32)) = nine;
+  (l : Dyn(Fn() -> i32)) = (() -> i32(5));
+  _s := (d() + h.f() + r + make()() + (k + e) + (g() + l()));
 });
 export(main);

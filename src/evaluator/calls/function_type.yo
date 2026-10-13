@@ -48,7 +48,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
-{ adopt_never_type, reject_second_class_return, reject_bare_callable_result } :: import("../utils.yo");
+{ adopt_never_type, reject_second_class_return, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn } :: import("../utils.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
 {
   wrap_function_body_with_contracts,
@@ -2037,7 +2037,9 @@ Result type: ${type_to_string(&result_box)}`
                     )
                   );
                 });
-                if(!ub_skip && !result_is_ref && !are_types_compatible(&ub_ty, &result_box), {
+                // A tail `yo fix --migrate dyn-spelling` recorded stands for
+                // the rewrite's `dyn(value)`, which the result takes.
+                if(!ub_skip && !result_is_ref && !bare_callable_recorded_into_dyn_fn(&result_box, &ub_ty) && !are_types_compatible(&ub_ty, &result_box), {
                   // The registration above already happened; a definition
                   // rejected here must not be emitted (its callers were
                   // discarded with the throw — a `comptime_expect_error`
