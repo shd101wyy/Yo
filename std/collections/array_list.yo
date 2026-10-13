@@ -319,14 +319,17 @@ impl(
   /// which frees `p` and returns NULL on glibc and the Windows CRT — and the
   /// list would report "allocation failed" on its second growth.
   _zst_anchor : (fn() -> Self)(
+    Self(
+      _ptr : .Some(Self._zst_anchor_buf()),
+      _length : usize(0),
+      _capacity : _CAP_MASK
+    )
+  ),
+  // The one-byte global block `_zst_anchor` wraps.
+  _zst_anchor_buf : (fn() -> *T)(
     match(
       malloc(usize(1)),
-      .Some(anchor) =>
-        Self(
-          _ptr : .Some((*T)(anchor)),
-          _length : usize(0),
-          _capacity : _CAP_MASK
-        ),
+      .Some(anchor) => (*T)(anchor),
       .None => __yo_panic("malloc returned None")
     )
   ),
@@ -856,22 +859,29 @@ impl(
   ensure_total_capacity : (fn(self : &mut Self, min_cap : usize) -> unit)({
     cond(
       (min_cap <= self._cap()) => (),
-      // A zero-sized element type's anchor satisfies every capacity.
-      ((size_of(T) == usize(0)) && self._ptr.is_some()) => (),
+      // Zero-sized element type: the anchor buffer satisfies every capacity
+      // (see `_zst_anchor`). A list without one yet takes a global anchor, so
+      // the capacity word is the untagged `_CAP_MASK`; an owned list always
+      // has its anchor (`with_capacity_in` allocates it). The anchor is
+      // stored straight into this list: copying it out of a `_zst_anchor()`
+      // list left that list's dispose to free the buffer this one keeps
+      // (issues/fixed/arraylist-zst-reserve-adopts-a-buffer-its-temporary-frees.md).
+      // A nested `cond`, not a `comptime && runtime` guard: compilers up to
+      // v0.2.60 (seeds that build std) fold that guard to the comptime operand
+      // (issues/fixed/comptime-identity-operand-folds-and-or-to-a-constant.md).
+      (size_of(T) == usize(0)) => cond(
+        self._ptr.is_some() => (),
+        true => {
+          self._ptr = .Some(Self._zst_anchor_buf());
+          self._capacity = _CAP_MASK;
+        }
+      ),
       // Same wrap as `with_capacity` — and the doubling loop below has a second
       // face: once `cap * 2` wraps to 0 the loop can never reach `min_cap`, so
       // an oversized request SPINS FOREVER instead of failing
       // (issues/fixed/collection-capacity-overflow-unchecked.md).
       (size_would_overflow(T, min_cap) || (min_cap > _CAP_MASK)) =>
         __yo_panic("ArrayList.ensure_total_capacity: capacity overflow"),
-      // Zero-sized element type: the anchor buffer satisfies every capacity
-      // (see `_zst_anchor`); the arm above catches it once the anchor is in
-      // place.
-      (size_of(T) == usize(0)) => {
-        anchor := Self._zst_anchor();
-        self._ptr = anchor._ptr;
-        self._capacity = anchor._capacity;
-      },
       true => {
         new_capacity := cond(
           (self._cap() == usize(0)) => min_cap,

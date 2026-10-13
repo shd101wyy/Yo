@@ -3363,7 +3363,8 @@ impl(
     )
   )
 );
-/// Clone implementation — produces an independent byte-level copy.
+/// Clone implementation — produces an independent byte-level copy, placed
+/// where the source's buffer lives (an arena string's clone stays in the arena).
 impl(
   String,
   Clone(
@@ -3376,7 +3377,13 @@ impl(
           cond(
             (n == usize(0)) => Self(_bytes : .None),
             true => {
-              buf := ArrayList(u8).with_capacity(n);
+              // The copy lives where the source's buffer lives, as
+              // `ArrayList.clone` and `to_bytes` place theirs (decision 12).
+              buf := match(
+                al.allocator(),
+                .Some(a) => ArrayList(u8).with_capacity_in(a, n),
+                .None => ArrayList(u8).with_capacity(n)
+              );
               match(
                 al.ptr(),
                 .Some(ptr) => buf.extend_from_ptr(ptr, n),
