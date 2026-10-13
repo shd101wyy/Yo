@@ -11,9 +11,18 @@ every impl in `std/`, `src/` and `tests/` that spelled the receiver, the
 `derive(Clone)` rule's `Deref`-field spelling (`(type_of(self.f) <:
 Clone).clone(&self.f)`), the call sites that lent `&mut` to an applied
 `Rc(i32).clone(...)`, and the instruction, cheatsheet and user docs. The
-`derive(Clone)`, `derive(ToString)`, `derive(Error)` and `Rc` impls write an
+`derive(Clone)`, `derive(ToString)` and `derive(Error)` rules write an
 unannotated `self -> ...` member, so they take the trait's new mode with no
-edit; `x.clone()` on a `Copy` type expands to `x` and has no receiver. No body
+edit (the `Box` and `Rc` impls already spelled `self : &Self`, #1328); `x.clone()`
+on a `Copy` type expands to `x` and has no receiver. The prelude's primitive,
+`str` and raw-pointer clones were `self -> __yo_return_self(self)`. That
+builtin is inlined as `(*arg)`: it assumes the receiver arrives as a pointer,
+which a `&mut Self` receiver did and a `&Self` receiver of a scalar does not
+(it is passed by value). The v0.2.59 seed compiled the compiler to C that
+dereferenced a `u8`/`usize` (`(*__yo_v_item)` in `ArrayList(u8).clone`,
+`(*__yo_v_self.__yo_v_row)` in a derived clone), so those bodies are now
+`self -> self`, a plain copy out of the borrow, and `__yo_return_self` has no
+caller left. No body
 mutated its receiver: the two channel `Sender` clones count a new sender in
 the shared channel record behind `self._ch`, which is not a write of the
 receiver. `StringBuilder.to_string`, which does detach the buffer, is an
