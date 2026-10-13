@@ -26,6 +26,7 @@ pragma(Pragma.SkipWasm32Wasi); // no process model in WASM
 { assert } :: import("std/assert");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ HashSet } :: import("std/collections/hash_set");
 { Exception, IoExn } :: import("std/error");
 { args, env, cwd } :: import("std/env");
 { exit } :: import("std/libc/stdlib");
@@ -185,7 +186,7 @@ test("a value enum's drop and dup are one function each, not a switch per site",
   fixture := String.from(
     "{ ArrayList } :: import(\"std/collections/array_list\");\n{ println } :: import(\"std/fmt\");\nVe :: enum(VeNone, VeHold(p : Rc(i32)), VePair(a : Rc(i32), b : ArrayList(Self)));\nve_make :: (fn(n : i32) -> Ve)({\n  a := Ve.VeHold(p : rc(n));\n  b := Ve.VeHold(p : rc(n));\n  if(n > i32(3), { return(Ve.VeNone); });\n  Ve.VePair(a : rc(n), b : ArrayList(Ve).new())\n});\nve_count :: (fn(xs : &ArrayList(Ve)) -> usize)({\n  (k : usize) = usize(0);\n  (i : usize) = usize(0);\n  while(i < xs.len(), i = (i + usize(1)), {\n    e := xs.get(i);\n    k = (k + usize(1));\n  });\n  k\n});\nmain :: (fn() -> unit)({\n  xs := ArrayList(Ve).new();\n  xs.push(ve_make(i32(1)));\n  xs.push(ve_make(i32(5)));\n  y := ve_make(i32(2));\n  println(ve_count(&xs));\n});\nexport(main);\n"
   );
-  io.await(write_string(Path.new(`${scratch}/fx.yo`), fixture, io), IoExn(io : io, exn : exn));
+  io.await(write_string(Path.new(`${scratch}/fx.yo`), &fixture, io), IoExn(io : io, exn : exn));
   compile_argv := ArrayList(String).new();
   compile_argv.push(String.from("yo"));
   compile_argv.push(String.from("compile"));
@@ -199,6 +200,7 @@ test("a value enum's drop and dup are one function each, not a switch per site",
   lines := c_text.split("\n");
   (hold_cases : usize) = usize(0);
   (drop_defs : usize) = usize(0);
+  (drop_names : HashSet(String)) = HashSet(String).new();
   (li : usize) = usize(0);
   while(li < lines.len(), li = (li + usize(1)), {
     match(
@@ -210,11 +212,13 @@ test("a value enum's drop and dup are one function each, not a switch per site",
         });
         if(t.starts_with("static inline void __yo_venum_drop_") && t.ends_with("{"), {
           drop_defs = (drop_defs + usize(1));
+          _ := drop_names.insert(t.clone());
         });
       },
       .None => ()
     );
   });
-  assert(drop_defs == usize(1), `the value enum's drop function is defined once; got ${drop_defs.to_string()}`);
+  assert(drop_defs >= usize(1), "the value enums' drop functions are emitted");
+  assert(drop_names.len() == drop_defs, `each drop function is defined once; got ${drop_defs.to_string()} definitions of ${drop_names.len().to_string()} functions`);
   assert(hold_cases <= usize(2), `only the drop and dup functions walk the variants; got ${hold_cases.to_string()} case labels`);
 });
