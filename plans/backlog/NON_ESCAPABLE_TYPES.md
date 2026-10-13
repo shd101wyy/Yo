@@ -42,7 +42,7 @@ whole answer.
 | second-classness is structural: anything containing a borrow is second-class; where it may not go | decision 38 A | the rule set for every type containing a `&` |
 | a borrowing future may be returned when every borrowed place is rooted at the callee's own parameters; at the call site the result borrows the argument places | §3.13 A2 | **R3**, generalized to every type |
 | transitive freezes until last use; borrow sets join over reaching definitions | decision 38 A | a reference-holding value's lifetime |
-| local borrows and their live ranges; re-pointing | decisions 18, 25 | binding and re-assigning reference-holding locals |
+| local borrows and their live ranges; re-pointing | decisions 18, 25 | binding and re-pointing local borrows (`cur = &place`); component writes are R7's place writes |
 | the call-site sigils `&x` / `&mut x`; argument overlap (E0901/E0911) | decisions 33, 28 | constructing values; exclusivity of `&mut` components |
 | projections `-> &T` / `-> &mut T` | decision 24 | element access on views; the entry API's `or_insert` |
 | the borrowed `for`; the pin on an `Rc`-rooted container | §3.10, decision 39 | iteration over a view; the `Rc` root rule (R5) |
@@ -232,8 +232,9 @@ parse_int :: (fn(input : View(u8)) -> Result((View(u8), i64), ParseError))(...);
   carries. At each `return`, every root of the result must be covered by
   the declared sources: a projection into `self`'s storage under
   `depends(self.*)` is an error. At every join inside the body (R7), each
-  root joined into a target reached through a `&mut` parameter `dst` must
-  be one of `dst`'s own carried roots (`dst.push(dst.pop())` is fine) or
+  root joined into a target reached through a `&mut` parameter `dst`, or
+  through a `&mut` component of a by-value parameter (`ser.out` with
+  `ser : Serializer`), must be one of that target's own carried roots (`dst.push(dst.pop())` is fine) or
   come from a declared source. So `dst.push(&local)` is an error with or
   without a clause, naming the place, and `dst.push(f())` with
   `f : &Impl(Fn() -> &T)` needs `depends(dst : f.*)`, which then makes
@@ -243,6 +244,12 @@ parse_int :: (fn(input : View(u8)) -> Result((View(u8), i64), ParseError))(...);
   every lookup returning a projection declares `depends(self)`, so
   `m.get(&k)` does not keep `k` frozen while the result lives; the
   container-position obligations are in R7.
+- **Why the two defaults treat a lent closure differently.** A result
+  may be computed by calling a lent `Impl(Fn)` parameter, so the result
+  default includes its captures; storing into a target is rarer and
+  conservative-by-default would freeze every closure's captures for the
+  target's life, so the target default excludes it and the callee check
+  turns the rare storing body into an error that names `f.*`.
 - **Effect handlers and `Dyn` dispatch.** A handler's `return(expr)`
   resumes the operation's call site with `expr`, so a handler is checked
   by R3 against the operation's signature like any function: a
@@ -292,7 +299,8 @@ A buffer container instantiated over a type containing a `&` is legal
 borrow set **grows**: every element pushed in brings its roots. The join
 rules below are stated for every **reference-holding target** — any
 place whose type contains a reference, reached by the caller through a
-`&mut` lend or written in place. A root-joining container is the case
+`&mut` lend, through a `&mut` root that an argument carries, or written
+in place. A root-joining container is the case
 where the growth is unbounded, but a struct, an `Option(&T)` or a
 `&mut &T` lent `&mut` grows the same way:
 `set(dst : &mut Option(&T), v : &T)` writing `.Some(v)` leaves the
@@ -303,9 +311,13 @@ each for the rest of the target's life:
    receiver sugar: at any call, each argument joins its whole borrow set
    — a reference or a reference-holding value, in either mode, lent or by
    value (`&x`, `&mut x`, a `View(T)` passed by value, a consumed
-   `ArrayList(&mut T)`) — into every **other** `&mut`-lent argument whose
-   type contains a reference, as narrowed by the callee's `depends`
-   clause (R3). An argument never joins itself: in `out.push(&x)` only
+   `ArrayList(&mut T)`) — into every **other** argument that is a target:
+   one `&mut`-lent whose type contains a reference, or one that carries a
+   `&mut` root to such a place (a `Serializer` passed by value whose
+   `out : &mut ArrayList(&T)` points at the caller's list — decision 38
+   B already counts a value carrying a `&mut` borrow as a `&mut`
+   argument; this is that rule applied to joins). The join lands on the
+   carried root, as narrowed by the callee's `depends` clause (R3). An argument never joins itself: in `out.push(&x)` only
    `&x` joins `out`, and the receiver `&mut out` joins nothing. A closure passed to a
    lent `Impl(Fn(...))` slot joins nothing by default, because a lent
    closure cannot be stored (decision 38 A) and R3's callee check rejects
@@ -316,12 +328,14 @@ each for the rest of the target's life:
    the join is recorded at the call, not inside the callee (R3 checks the
    callee against the same clause). A `&self` method, or a call with no
    `&mut` reference-holding argument, joins nothing.
-2. **A place write.** Writing a reference-holding value into a component
-   of a reference-holding value — an element (`out(i) = &x`), a field
-   (`v.xs = &y`, `out(i).xs = &y`), a payload, the referent of a `&mut`
-   component (`e.slot.* = &z`) — unions the right-hand side's borrow set
-   into that value's root place. Only a whole-value assignment to a local
-   replaces its set (decision 38 A's reaching definitions). A projection
+2. **A place write.** Writing a reference-holding value through a `&mut`
+   (`dst.* = .Some(v)`, `e.slot.* = &z`) or into a component of a
+   reference-holding value — an element (`out(i) = &x`), a field
+   (`v.xs = &y`, `out(i).xs = &y`), a payload — unions the right-hand
+   side's borrow set into the root place the write reaches. Only a
+   whole-value assignment to a local binding replaces its set (decision
+   38 A's reaching definitions); a write through a reference never does,
+   since the referent may hold roots the writer cannot see. A projection
    write is not a call that receives the value, so it is its own trigger.
 
 A join lands on the **root place**, never on the binding that performed
@@ -531,7 +545,9 @@ reference-holding module-level binding; an `extern` signature with a
 `ArrayList(&T)` before N2 (error naming N2); `set(&mut o, &x)` with
 `set(dst : &mut Option(&T), v : &T)` then a write to `x` while `o` lives
 (a non-container target joins); `v.xs = &y` with `y` scoped inside `v`'s
-life (E0911 at `y`'s drop); `ser.out.push(&x)` with `ser.out` a `&mut`
+life (E0911 at `y`'s drop); `write(ser, &x)` with `ser : Serializer`
+passed by value and `ser.out` the caller's list, then a write to `x`
+while the list lives (a carried `&mut` root is a target); `ser.out.push(&x)` with `ser.out` a `&mut`
 list, then `ser` dies and `x` is written while the list lives (the join
 follows the reference); `dst.push(f())` with `f : &Impl(Fn() -> &T)` and
 no `depends(dst : f.*)`; a result under `depends(self.*)` that projects
@@ -546,7 +562,10 @@ obligation); `out.retain(x => x.len() > n)` followed by a write to `n`
 (a lent closure joins nothing); `out.push(&x)` then `out.push(&y)` (the
 receiver never joins itself); `next` under `depends(self.*)` with two
 items live and `out.push(x)` from it followed by another `it.next()`;
-`x := stack.pop(); stack.push(y)` on `ArrayList(&T)`; `a.append(&mut b)`
+`x := stack.pop(); stack.push(y)` on `ArrayList(&T)` (on
+`ArrayList(&mut T)` a set never shrinks, so pushing a popped `&mut`
+back while it lives overlaps the receiver under decision 38 B — a stated
+limitation, not a hole); `a.append(&mut b)`
 then a use of `b`; `dst.push(dst.pop())` under `depends(dst :)`;
 `parse_int(input)` returning the remainder of a by-value `View(u8)`;
 `entry(k).or_insert(v)` with the `Entry` consumed; `m.get(&k)` then a

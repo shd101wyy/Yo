@@ -3052,14 +3052,17 @@ and in git, not a silent edit.
       triggers join: **every call**, a method call being receiver sugar —
       each argument (a reference or a reference-holding value, either
       mode, lent or by value: `&x`, `&mut x`, a `View(T)` by value) joins
-      its whole borrow set into every **other** `&mut`-lent argument whose
-      type contains a reference, as narrowed by the callee's `depends`
+      its whole borrow set into every **other** argument that is
+      `&mut`-lent with a type containing a reference or carries a `&mut`
+      root to such a place (decision 38 B's rule, applied to joins), as
+      narrowed by the callee's `depends`
       clause; an argument never joins itself, and a closure in a lent
       `Impl(Fn)` slot joins nothing by default (`push`, `insert`,
       `extend`, `set`; `push_all(&mut out, &vals)` grows `out`'s roots by
       `vals` at the caller; a `&self` method joins nothing) — and **every
-      place write** of a reference-holding value into a component (`out(i)
-      = &x`, `v.xs = &y`, a `.*` write through a `&mut` element). A join
+      place write** of a reference-holding value through a `&mut`
+      (`dst.* = .Some(v)`) or into a component (`out(i) = &x`,
+      `v.xs = &y`). A join
       lands on the root place, followed through reference components
       (`r := &mut out; r.push(&x)` grows `out`; `ser.out.push(&x)` grows
       the list `ser.out` points at). The callee is checked against its
