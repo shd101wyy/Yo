@@ -17,10 +17,15 @@ mode-mismatch error". It did not get one.
 { println } :: import("std/fmt");
 Foo :: struct(n : i32);
 M :: trait(m : (fn(self : &Self) -> i32));
-impl(Foo, M(m : (fn(self : &mut Self) -> i32)({
-  self.n = (self.n + i32(1));
-  self.n
-})));
+impl(
+  Foo,
+  M(
+    m : (fn(self : &mut Self) -> i32)({
+      self.n = (self.n + i32(1));
+      self.n
+    })
+  )
+);
 read_only :: (fn(f : &Dyn(M)) -> i32)(f.m());
 main :: (fn() -> unit)({
   a := Foo(n : i32(1));
@@ -64,6 +69,12 @@ Type "Foo" does not implement required trait "M" as written: member "m" takes `s
 
 Every other receiver form stays free: a by-value `self : Self` member, a
 `&Self` member of a `&mut Self` trait method, and so on.
+
+Not covered (`issues/a-generic-impl-that-writes-a-read-only-receiver-is-reported-at-the-dyn-not-the-impl.md`): a GENERIC impl (`impl(generic(T : Type), Wrap(T), M(...))`)
+reaches this check with no resolved trait member type, so it is not
+rejected at the impl. It is not a hole there: forming the `Dyn(M)` (or
+instantiating a `T <: M` body) is E0908, but the diagnostic names the
+synthesized `__yo_dyn_receiver_m` binding at line 1, not the impl.
 
 Regression test: `tests/parameter_modes.test.yo`, "an impl member may not
 write a receiver its trait lends read-only" (a user trait, and `Clone`).

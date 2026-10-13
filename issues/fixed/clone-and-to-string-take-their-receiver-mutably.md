@@ -22,7 +22,7 @@ which a `&mut Self` receiver did and a `&Self` receiver of a scalar does not
 dereferenced a `u8`/`usize` (`(*__yo_v_item)` in `ArrayList(u8).clone`,
 `(*__yo_v_self.__yo_v_row)` in a derived clone), so those bodies are now
 `self -> self`, a plain copy out of the borrow, and `__yo_return_self` has no
-caller left. No body
+caller left (`issues/fixed/yo-return-self-dereferences-a-by-value-receiver.md`). No body
 mutated its receiver: the two channel `Sender` clones count a new sender in
 the shared channel record behind `self._ch`, which is not a write of the
 receiver. `StringBuilder.to_string`, which does detach the buffer, is an
@@ -32,8 +32,9 @@ did NOT get a mode-mismatch error, since receiver forms are free in trait
 conformance. That gap let a call through `&Dyn(Trait)` write through a
 read-only borrow; it is now an error at the impl
 (`issues/fixed/an-impl-may-write-a-receiver-its-trait-lends-read-only.md`).
-`Hash.hash` also takes `self : &mut Self` while only reading it, so it has
-the same hole after the `Index` split; it is not part of this decision.
+`Hash.hash` and `Debug.debug_string` also take `self : &mut Self` while only
+reading it, so they have the same hole after the `Index` split; they are not
+part of this decision.
 
 ## The hole
 
