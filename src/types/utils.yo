@@ -38,9 +38,11 @@ pragma(Pragma.AllowUnsafe);
 { debug_knob } :: import("../utils.yo");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : HashMap(String, ArrayList(CaptureBorrow))) = HashMap(String, ArrayList(CaptureBorrow)).new();
 { TypeValue, t_refine_inner } :: import("./definitions.yo");
+{ type_memo_key } :: import("./intern.yo");
 { type_to_string } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
@@ -1448,10 +1450,30 @@ buffer_element_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
     _ => Option(TypeValue).None
   )
 );
+/// Type ids an explicit `impl(T, Acyclic())` declares (recorded by
+/// `values/impl.yo` when the impl is checked). A declared `Acyclic` exempts
+/// the type from cycle collection (plans/VALUES_BY_DEFAULT.md §3.12): the
+/// compiler's `Rc`-child trees (decision 21) have no back edges, and
+/// `can_type_form_rc_cycle`'s codegen callers have no Environment to ask the
+/// trait registry, so the declaration is kept here.
+(g_declared_acyclic_ids : HashSet(String)) = HashSet(String).new();
+declare_acyclic_type_id :: (fn(id : &String) -> unit)({
+  _ := g_declared_acyclic_ids.insert(id.clone());
+});
+/// Is `ty` a struct or enum whose `Acyclic` impl is declared?
+_declared_acyclic :: (fn(ty : &TypeValue) -> bool)(
+  match(
+    ty,
+    .Struct({ id : sid }) => ((sid.len() > usize(0)) && g_declared_acyclic_ids.contains(&sid)),
+    .EnumT({ id : eid }) => ((eid.len() > usize(0)) && g_declared_acyclic_ids.contains(&eid)),
+    _ => false
+  )
+);
 _type_refs_back_to_cyclic :: (
   fn(ty : &TypeValue, original_id : &String, visited : &ArrayList(String)) -> bool
 )(
-  match(
+  // A declared-`Acyclic` type reaches no cycle, whatever its fields hold.
+  !_declared_acyclic(ty) && match(
     ty,
     .Struct({ id : sid, field_types : sfields, is_reference_semantics : sref }) => cond(
       // Direct self-reference back to the current root.
@@ -1615,14 +1637,15 @@ _type_refs_back_to_cyclic :: (
 );
 /// Return `true` if `ty` can form an RC reference cycle — used to decide which
 /// reference-semantics types need cycle-collecting GC. Structural DFS with an
-/// id-keyed visited set, EXCEPT an `Acyclic`-trait short-circuit: that needs an
-/// `Environment` (to look up the `Acyclic` trait), which codegen call sites do
-/// not carry — `TypeValue` stores no `env`. Omitting it
-/// is conservative (an explicitly-`Acyclic`-marked but structurally-cyclic type
-/// is still GC-tracked — safe, just not optimized away) and keeps the evaluator
-/// and codegen call sites consistent.
+/// id-keyed visited set. A type with a DECLARED `impl(T, Acyclic())` is not a
+/// cycle root and stops the walk (`g_declared_acyclic_ids`, recorded when the
+/// impl is checked, since the codegen call sites carry no `Environment`); a
+/// derived `Acyclic` changes nothing here, because it is derived from this
+/// very walk.
 can_type_form_rc_cycle :: (fn(ty : &TypeValue) -> bool)(
   cond(
+    // A declared `Acyclic` (§3.12) is not a cycle root.
+    _declared_acyclic(ty) => false,
     is_reference_struct_type(ty) => match(
       ty,
       .Struct({ id : sid, field_types : fields }) => {
@@ -2968,42 +2991,81 @@ g_alignment_of_type_fn = Option(SizeFn).Some(get_alignment_of_type);
 // Raw-pointer / slice-source representation predicates (for flow analysis)
 // ---------------------------------------------------------------------------
 /// One memoized named aggregate of a representation predicate walk: the type
-/// object walked and the predicate's answer for it.
-_ReprMemoEntry :: struct(ty : TypeValue, answer : bool);
+/// walked, its structural key (`type_memo_key`; `""` until a same-id type
+/// needs it) and the predicate's answer for it.
+_ReprMemoEntry :: struct(ty : TypeValue, key : String, answer : bool);
 /// The memo of the current top-level predicate call, bucketed by
-/// `<predicate>:struct:<id>` / `<predicate>:enum:<id>`. A hit requires the SAME
-/// type object (a same-id copy rebuilt by substitution can differ). Without
-/// it a struct DAG (`S(i) :: struct(a : S(i-1), b : S(i-1))`) is walked once
-/// per path through its 2^depth leaf tree
+/// `<predicate>:struct:<id>` / `<predicate>:enum:<id>`. A hit requires the same
+/// TYPE (a same-id copy rebuilt by substitution can differ), compared by
+/// structural key within the bucket: a `TypeValue` is a value
+/// (plans/VALUES_BY_DEFAULT.md V4), so there is no object identity to compare.
+/// Without the memo a struct DAG (`S(i) :: struct(a : S(i-1), b : S(i-1))`) is
+/// walked once per path through its 2^depth leaf tree
 /// (issues/fixed/defining-a-deep-struct-dag-is-exponential.md).
 (g_repr_memo : HashMap(String, ArrayList(_ReprMemoEntry))) = HashMap(String, ArrayList(_ReprMemoEntry)).new();
-/// The aggregate type objects on the current path: the same object reached
-/// again is a cycle, answered `false` there. By identity, not by id: two
-/// different types can share an id (an empty id, or a substituted copy).
-(g_repr_path : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+/// One aggregate on the current path: its memo bucket, the type, and its
+/// structural key (`""` until compared).
+_ReprPathEntry :: struct(bucket : String, ty : TypeValue, key : String);
+/// The aggregate types on the current path: the same type reached again is
+/// a cycle, answered `false` there. By bucket and structural key, not by id
+/// alone: two different types can share an id (an empty id, or a
+/// substituted copy).
+(g_repr_path : ArrayList(_ReprPathEntry)) = ArrayList(_ReprPathEntry).new();
 /// Set when the walk was cut, by a cycle or by the depth backstop: a `false`
 /// computed under a cut depends on the path, so it is not memoized. A `true`
 /// is exact either way.
 (g_repr_cut : bool) = false;
-_repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
+_repr_path_contains :: (fn(bucket : &String, ty : &TypeValue) -> bool)({
+  (probe : String) = String.new();
   (i : usize) = usize(0);
   while(i < g_repr_path.len(), {
-    if(match(g_repr_path.get(i), .Some(p) => __yo_ptr_eq(&p, ty), .None => false), {
-      return(true);
-    });
+    match(
+      g_repr_path.get(i),
+      .Some(p) => if(p.bucket == bucket, {
+        if(probe.len() == usize(0), {
+          probe = type_memo_key(ty);
+        });
+        pk := cond(
+          (p.key.len() > usize(0)) => p.key,
+          true => {
+            k := type_memo_key(&p.ty);
+            g_repr_path(i) = _ReprPathEntry(bucket : p.bucket, ty : p.ty, key : k.clone());
+            k
+          }
+        );
+        if(pk == probe, {
+          return(true);
+        });
+      }),
+      .None => ()
+    );
     i = (i + usize(1));
   });
   false
 });
+_repr_path_push :: (fn(bucket : &String, ty : &TypeValue) -> unit)(
+  g_repr_path.push(_ReprPathEntry(bucket : bucket, ty : ty, key : String.new()))
+);
 _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
   bucket := match(g_repr_memo.get(key), .Some(b) => b, .None => return(Option(bool).None));
+  probe := type_memo_key(ty);
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
       bucket.get(i),
-      .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
-        return(Option(bool).Some(e.answer));
-      }),
+      .Some(e) => {
+        ek := cond(
+          (e.key.len() > usize(0)) => e.key,
+          true => {
+            k := type_memo_key(&e.ty);
+            bucket(i) = _ReprMemoEntry(ty : e.ty, key : k.clone(), answer : e.answer);
+            k
+          }
+        );
+        if(ek == probe, {
+          return(Option(bool).Some(e.answer));
+        });
+      },
       .None => ()
     );
     i = (i + usize(1));
@@ -3012,7 +3074,7 @@ _repr_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(bool))({
 });
 _repr_memo_store :: (fn(key : &String, ty : &TypeValue, answer : bool) -> unit)({
   bucket := match(g_repr_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_ReprMemoEntry).new());
-  bucket.push(_ReprMemoEntry(ty : ty, answer : answer));
+  bucket.push(_ReprMemoEntry(ty : ty, key : String.new(), answer : answer));
   _ := g_repr_memo.insert(key, bucket);
 });
 /// Start a top-level predicate call: an empty memo, no cut.
@@ -3051,13 +3113,13 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(ty), {
+            if(_repr_path_contains(&key, ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            _repr_path_push(&key, ty);
             (i : usize) = usize(0);
             (found : bool) = false;
             while((i < fts.len()) && !found, {
@@ -3106,13 +3168,13 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(ty), {
+            if(_repr_path_contains(&key, ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            _repr_path_push(&key, ty);
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
@@ -3167,13 +3229,13 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(ty), {
+            if(_repr_path_contains(&key, ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            _repr_path_push(&key, ty);
             (i : usize) = usize(0);
             (found : bool) = false;
             while((i < fts.len()) && !found, {
@@ -3222,13 +3284,13 @@ _type_provides_slice_source :: (fn(ty : &TypeValue, depth : usize) -> bool)(
           _repr_memo_lookup(key.clone(), ty),
           .Some(memo) => memo,
           .None => {
-            if(_repr_path_contains(ty), {
+            if(_repr_path_contains(&key, ty), {
               g_repr_cut = true;
               return(false);
             });
             outer_cut := g_repr_cut;
             g_repr_cut = false;
-            g_repr_path.push(ty);
+            _repr_path_push(&key, ty);
             (vi : usize) = usize(0);
             (found : bool) = false;
             while((vi < vfs.len()) && !found, {
@@ -3283,7 +3345,7 @@ export(type_requires_comptime_modifier, type_prohibits_comptime_modifier);
 export(type_implements_runtime_builtin, type_implements_runtime, type_is_comptime_only);
 export(type_contains_rc_type, type_reaches_non_atomic_cell, type_is_move_only, type_requires_explicit_copy, type_contains_rc_cell_or_move_only, set_type_lacks_copy_fn, set_type_lacks_clone_fn, type_lacks_clone, bump_trait_impl_epoch, trait_impl_epoch, move_only_reason, move_only_declarations_exist, note_move_only_possible, is_value_nominal_type, MoveOnlyNominalFn, set_move_only_nominal_fn);
 export(type_is_control_bound);
-export(can_type_form_rc_cycle, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
+export(can_type_form_rc_cycle, declare_acyclic_type_id, type_uses_small_rc_header, buffer_element_type, _type_refs_back_to_cyclic);
 export(type_requires_inference);
 export(type_contains_some_type);
 export(get_all_some_types, type_mentions_some_type, type_is_bitwise_copy);
