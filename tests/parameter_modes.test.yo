@@ -621,7 +621,7 @@ test("a later argument cannot move the place an earlier argument lends to the ca
   }, "an earlier argument of the same call lends to it");
   comptime_expect_error({
     a := _PmRes(n : i32(1));
-    g := ((c : &mut _PmRes, k : i32) => (c.n + k));
+    (g : Impl(Fn(c : &mut _PmRes, k : i32) -> i32)) = ((c : &mut _PmRes, k : i32) => (c.n + k));
     g(&mut a, _pm_consume(a))
   }, "an earlier argument of the same call lends to it");
   // An overwrite or a `&mut` relend in a later argument finishes before the
