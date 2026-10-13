@@ -30,7 +30,7 @@ main :: (fn() -> unit)({
   h := _hold(f : f);
   r := _take(f);
   q := _ret();
-  (s : i32) = (((d() + h.f()) + r) + q());
+  (s : i32) = (d() + h.f() + r + q());
   assert(s == i32(23), "sum");
 });
 export(main);

@@ -64,6 +64,11 @@ Progress:
   - V1 step 2 Generation A, the unique `Box(V)` (feat/vbd-v1-step2-box;
     Step 2's "as built"). Generation B, `src/` moving back to `Box`, waits
     for the seed.
+  - decision 44's spelled closure erasure: a callable bare in a
+    `Dyn(Fn(...))` slot is E0618, and `yo fix --migrate dyn-spelling`
+    wraps it (feat/vbd-d44-dyn-fn-explicit). One PR: the tree had no bare
+    site, so there is no Generation B sweep; `dyn(&f)` waits for decision
+    43's phase.
 - **In progress:**
   - V3's remaining async work (§3.13): A3 (Generation A landed with A1's
     PR; the prelude switch waits for the seed), A4, A5's remaining lines,
@@ -3224,7 +3229,14 @@ and in git, not a silent edit.
           `dyn(named_fn)` itself emits invalid C
           (`issues/dyn-of-a-named-function-value-emits-invalid-c.md`), so a
           named `fn` is tested only for the rejection; write
-          `dyn(() => f())` until that issue is fixed.
+          `dyn(() => f())` until that issue is fixed. Seed gate: the sweep
+          (`yo fix ./std ./src ./tests --exclude tests/cli-cases --migrate
+          dyn-spelling`) found no bare site in std/ or src/ and none in
+          tests/ outside the new tests' own `comptime_expect_error`
+          arguments, and the store's `markdown_yo` names no `Dyn(Fn(...))`,
+          so the rule landed whole (an error at once, no warning-level
+          Generation A): the released seed v0.2.60 builds the tree, and it
+          already accepts `dyn(f)` over a closure.
       - **`&Dyn(Trait)` is the borrowed object, not a pointer to the
         handle.** For every other `T`, `&T` points at the `T` value. For
         `Dyn`, `&d` over an owned `d : Dyn(Trait)` is the fat pair over the
