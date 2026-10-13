@@ -802,6 +802,27 @@ test("dyn of a named function calls the function", {
   fs.push(dyn(() => i32(1)));
   assert((fs(usize(0))() + fs(usize(1))()) == i32(10), "a named fn and a closure share one Dyn type");
 });
+// A `unit` result lowers to C `void`: a `Dyn(FnOnce(...) -> unit)` call slot
+// calls the payload without keeping its result, for a named fn's code pointer
+// and for a closure's capture struct alike. Before the fix both declared a
+// `void __yo_once_r` temp and failed in the C compiler
+// (issues/fixed/a-unit-returning-dyn-fnonce-call-slot-declares-a-void-temp.md).
+_dnf_noop :: (fn() -> unit)(());
+test("a unit-returning Dyn(FnOnce) of a named fn and of a closure", {
+  (n : Dyn(FnOnce() -> unit)) = dyn(_dnf_noop);
+  n();
+  (x : i32) = i32(1);
+  (b : Dyn(FnOnce(x : &mut i32) -> unit)) = dyn(_dnf_bump);
+  b(&mut x);
+  assert(x == i32(2), "a unit-returning named fn called once through a Dyn");
+  (c : Dyn(FnOnce(x : &mut i32) -> unit)) = dyn(x => {
+    x = (x + i32(10));
+  });
+  c(&mut x);
+  assert(x == i32(12), "a unit-returning closure called once through a Dyn");
+  (d : Dyn(FnOnce() -> unit)) = dyn(() => _dnf_noop());
+  d();
+});
 test("dyn of another module's function and of an Impl(Fn) parameter", {
   (pj : Dyn(Fn(base : &String, name : &String) -> String)) = dyn(path_join);
   base := String.from("a");

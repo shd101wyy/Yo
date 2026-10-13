@@ -386,7 +386,11 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                   params := _wrapper_params(call_param_types.clone(), call_param_is_ref.clone(), usize(0), context);
                   em.emit_declaration_string_line(`static ${return_str} ${wrapper}(${params}) {`);
                   ncp := call_param_types.len();
-                  is_void := is_void_type(&call_result);
+                  // A `unit` result lowers to C `void` too: the call is a
+                  // statement and nothing holds its result (a `void
+                  // __yo_once_r` temp is not C,
+                  // issues/fixed/a-unit-returning-dyn-fnonce-call-slot-declares-a-void-temp.md).
+                  is_void := (is_void_type(&call_result) || (return_str == "void"));
                   // Dyn'd CLOSURE: the boxed payload is the closure's CAPTURE
                   // STRUCT — resolve the closure C fn via impl_closure_call_map
                   // (capture-struct id → fn name) and call it directly with
@@ -533,9 +537,8 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                       em.emit_declaration_string_line(`  (void)arg${(ai2 + usize(1)).to_string()};`);
                       ai2 = (ai2 + usize(1));
                     });
-                    // A `unit` result lowers to C `void` too, and `void zero` is
-                    // not C (the stub's only job is to compile).
-                    if(is_void || (return_str == "void"), {
+                    // `void zero` is not C (the stub's only job is to compile).
+                    if(is_void, {
                       em.emit_declaration_line("  return;");
                     }, {
                       em.emit_declaration_string_line(`  ${return_str} zero = (${return_str})0;`);
