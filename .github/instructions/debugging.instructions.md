@@ -210,6 +210,22 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
   the id and mints a new body. Key anything memoized per function by the body's
   `ExprId` too (`issues/fixed/mutation-summary-memos-answer-for-a-re-evaluated-body.md`).
 
+## Two C types for one Yo type: diff the two `type_key`s
+
+`type_key` (`src/types/type_key.yo`) is history-dependent. Its cycle guard
+(`g_tk_visited`, reset per top-level call) renders an already-seen node
+id-only, and `g_struct_cfid_keys` poisons a shared struct id to `!AMBIG`.
+So the same Yo type can key two ways, depending on the copy and the moment.
+When clang reports `initializing '__yo_t_A' with an expression of
+incompatible type '__yo_t_B'` for two structs with one layout, print the
+`type_key` of each collected type whose `type_to_string` matches (a
+temporary `eprintln` gated by a `debug_knob`, at the top of `collect_type`)
+and diff the two keys token by token. The differing token names the nested
+type whose rendering split. For example, a recursive enum's
+`ArrayList(ArrayList(Self))` keyed once expanded and once id-only, because
+`_tk_arg_id` spelled the self-shell apart from its final
+(issues/fixed/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md).
+
 ## Naming `yo_id_…` frames: `YO_DEBUG_FN_ORIGIN=1`
 
 Emitted C function names are position hashes (`yo_id_<hash><occurrence>`), so a
