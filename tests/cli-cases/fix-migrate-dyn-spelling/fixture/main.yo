@@ -1,7 +1,10 @@
 //! `yo fix --migrate dyn-spelling`: every callable passed bare into a
 //! `Dyn(Fn(...))` binding, field, argument or result becomes `dyn(...)`
 //! (a named closure, a named `fn`, a `->` function literal);
-//! `Impl(Fn(...))` slots and values already spelled `dyn(...)` stay.
+//! `Impl(Fn(...))` slots and values already spelled `dyn(...)` stay. A
+//! generic method's `T` argument (`ArrayList(Dyn(Fn() -> i32)).push`) is a
+//! `Dyn(Fn(...))` slot too.
+{ ArrayList } :: import("std/collections/array_list");
 Hold :: ref(struct(f : Dyn(Fn() -> i32)));
 run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
 keep :: (fn(f : Impl(Fn() -> i32)) -> i32)(f());
@@ -23,6 +26,8 @@ main :: (fn() -> unit)({
   e := run(dyn(() => i32(1)));
   (g : Dyn(Fn() -> i32)) = nine;
   (l : Dyn(Fn() -> i32)) = (() -> i32(5));
-  _s := (d() + h.f() + r + make()() + (k + e) + (g() + l()));
+  fs := ArrayList(Dyn(Fn() -> i32)).new();
+  fs.push(nine);
+  _s := (d() + h.f() + r + make()() + (k + e) + (g() + l()) + fs(usize(0))());
 });
 export(main);
