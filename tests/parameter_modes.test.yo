@@ -12,6 +12,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
 { DefaultHasher } :: import("std/hash");
+{ ToString } :: import("std/fmt");
 
 _pm_len :: (fn(s : &String) -> usize)(s.len());
 _pm_plain_len :: (fn(s : &String) -> usize)(s.len());
@@ -582,4 +583,41 @@ test("the deleted mode words imm and mut are E0009 naming the sigil spelling", {
 test("imm is an ordinary identifier", {
   (imm : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + i32(1)));
   assert(imm(i32(1)) == i32(2), "a closure named imm is called");
+});
+
+// `Clone` and `ToString` only read their receiver, so they take
+// `self : &Self`, as Rust's do
+// (issues/fixed/clone-and-to-string-take-their-receiver-mutably.md): a `&T`
+// borrow, a generic one included, can clone and render. An impl member that
+// writes a receiver its trait lends read-only is rejected at the impl, since a
+// call through the trait would hand it the read-only borrow
+// (issues/fixed/an-impl-may-write-a-receiver-its-trait-lends-read-only.md).
+_PmLbl :: struct(s : String);
+impl(_PmLbl, Clone(clone : (fn(self : &Self) -> Self)(_PmLbl(s : self.s.clone()))));
+impl(_PmLbl, ToString(to_string : (fn(self : &Self) -> String)(self.s.clone())));
+_pm_copy_of :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());
+_pm_render :: (fn(generic(T : Type), x : &T, where(T <: ToString)) -> String)(x.to_string());
+_PmReadM :: trait(read_m : (fn(self : &Self) -> i32));
+_PmCounter :: struct(n : i32);
+test("Clone and ToString read a & borrow", {
+  l := _PmLbl(s : String.from("x"));
+  c := _pm_copy_of(&l);
+  assert(c.s == "x", "cloned through a generic &T");
+  assert(_pm_render(&l) == "x", "rendered through a generic &T");
+  assert(l.s == "x", "the source is unchanged");
+});
+test("an impl member may not write a receiver its trait lends read-only", {
+  comptime_expect_error(
+    impl(
+      _PmCounter,
+      _PmReadM(
+        read_m : (fn(self : &mut Self) -> i32)({
+          self.n = (self.n + i32(1));
+          self.n
+        })
+      )
+    ),
+    "lends its receiver read-only"
+  );
+  comptime_expect_error(impl(_PmCounter, Clone(clone : (fn(self : &mut Self) -> Self)(_PmCounter(n : self.n)))), "lends its receiver read-only");
 });

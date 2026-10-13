@@ -1,9 +1,30 @@
-# `Clone.clone` and `ToString.to_string` take `self : &mut Self`, so an element read through `&` cannot call them after the `Index` split
+# `Clone.clone` and `ToString.to_string` take `self : &mut Self`, so an element read through `&` cannot call them after the `Index` split (DECIDED)
 
 **Kind:** design question: an open decision, not a defect. Filed 2026-10-13
 by the V2b "Projections first" work (`plans/VALUES_BY_DEFAULT.md` V2b,
 branch feat/vbd-v2b-index-mut, Generation B draft
 feat/vbd-v2b-index-mut-genb).
+
+**Verdict (2026-10-13):** Option 1, as recommended. `Clone.clone` and
+`ToString.to_string` take `self : &Self`, and the sweep landed with it:
+every impl in `std/`, `src/` and `tests/` that spelled the receiver, the
+`derive(Clone)` rule's `Deref`-field spelling (`(type_of(self.f) <:
+Clone).clone(&self.f)`), the call sites that lent `&mut` to an applied
+`Rc(i32).clone(...)`, and the instruction, cheatsheet and user docs. The
+`derive(Clone)`, `derive(ToString)`, `derive(Error)` and `Rc` impls write an
+unannotated `self -> ...` member, so they take the trait's new mode with no
+edit; `x.clone()` on a `Copy` type expands to `x` and has no receiver. No body
+mutated its receiver: the two channel `Sender` clones count a new sender in
+the shared channel record behind `self._ch`, which is not a write of the
+receiver. `StringBuilder.to_string`, which does detach the buffer, is an
+inherent method rather than the `ToString` member, and keeps `self : &mut
+Self`. One premise below was wrong: a user impl that keeps `self : &mut Self`
+did NOT get a mode-mismatch error, since receiver forms are free in trait
+conformance. That gap let a call through `&Dyn(Trait)` write through a
+read-only borrow; it is now an error at the impl
+(`issues/fixed/an-impl-may-write-a-receiver-its-trait-lends-read-only.md`).
+`Hash.hash` also takes `self : &mut Self` while only reading it, so it has
+the same hole after the `Index` split; it is not part of this decision.
 
 ## The hole
 
