@@ -2,6 +2,8 @@ pragma(Pragma.AllowUnsafe);
 { assert, assert_approx } :: import("std/assert");
 { rune, String, ParseFloatError } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
+{ Arena } :: import("std/arena");
+{ with_allocator } :: import("std/allocator");
 // ===== Construction Tests =====
 test("String.new creates empty string", {
   s := String.new();
@@ -2541,6 +2543,26 @@ test("clone copies the bytes into a buffer of its own", {
   before := u.ptr();
   u.push_str("!");
   assert(u.ptr() == before, "a mutator writes in place");
+});
+// A clone lives where its source's buffer lives (decision 12), as
+// `ArrayList.clone` and `to_bytes` already placed theirs; it used to land in
+// the caller's current scope, so an arena string cloned outside any scope
+// came back on the global heap.
+// issues/fixed/string-clone-ignores-the-source-buffers-allocator.md
+test("clone of an arena string stays in the arena", {
+  arena := Arena.new(usize(1) << usize(16));
+  {
+    s := with_allocator(arena.allocator(), () => String.from("arena text"));
+    before := arena.live_blocks();
+    t := s.clone();
+    assert(arena.live_blocks() == (before + usize(1)), `the clone's buffer is an arena block: ${arena.live_blocks()}`);
+    t.push_str(" grown past its first buffer so the growth goes through the arena too");
+    assert(t.to_bytes().allocator().unwrap().same(arena.allocator()), "the clone's buffer is owned by the arena");
+    g := String.from("global text");
+    h := with_allocator(arena.allocator(), () => g.clone());
+    assert(h.to_bytes().allocator().is_some(), "a global source cloned inside a scope follows the scope, as ArrayList.clone does");
+  };
+  assert(arena.live_blocks() == usize(0), `released: ${arena.live_blocks()}`);
 });
 test("every mutator writes only its own clone", {
   base := String.from("héllo");
