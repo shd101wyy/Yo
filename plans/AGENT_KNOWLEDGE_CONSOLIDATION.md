@@ -1,11 +1,29 @@
-# Agent knowledge consolidation: thin skills, one home per rule
+# Agent knowledge consolidation: no shipped skills, one home per rule
 
-**Status: APPROVED 2026-10-02, starts after v0.2.49.** No phase has landed.
-The audit numbers in §2 were measured on develop `c24ba33a1`. This plan extends
-[`reference/YO_CONTEXT.md`](reference/YO_CONTEXT.md) C6 ("pack for rules,
-skills for workflow"), which reconciled the skills only lightly. **No compiler
-or std change** except K4's `yo skills install` pruning, so there is no seed
-gate.
+**Status: APPROVED 2026-10-02; AMENDED 2026-10-13 (maintainer).**
+
+- **Landed:** K0 (#1138) and K1 (#1139–#1142).
+- **The rest waits for VALUES_BY_DEFAULT V5** (§4 "Order"). VBD is still
+  rewriting the language these documents describe, so a sweep before V5 would
+  have to be redone.
+
+The 2026-10-13 amendment:
+
+- **D1 reversed.** User projects get no skill files. `yo init` writes
+  `AGENTS.md` and a one-line `CLAUDE.md`, and `yo skills install` is deleted
+  (K4).
+- **K5** checks ` ```yo ` blocks, building on #1288.
+- **A post-VBD docs sweep** is added (K7).
+
+The audit numbers in §2 were measured on develop `c24ba33a1`; on 2026-10-13
+the skills were still 4,416 lines and the pack 17.5 KB.
+
+This plan extends [`reference/YO_CONTEXT.md`](reference/YO_CONTEXT.md) C6
+("pack for rules, skills for workflow"). After the amendment, the pack and the
+manuals carry the rules, and `AGENTS.md` carries the trigger.
+
+**Compiler change:** K4 only (`yo init`, and deleting `yo skills install`).
+Neither touches std, so there is no seed gate.
 
 ---
 
@@ -85,14 +103,32 @@ Three more findings shape the plan:
 
 ## 3. Decisions
 
-- **D1. Skills stay a separate artifact, but thin.** Their value is the
-  trigger: an agent auto-loads a skill whose `description` matches the task,
-  and `yo context` only helps once the agent knows to run it. Each `SKILL.md`
-  keeps its frontmatter, the handful of rules that matter most, and pointers
-  (`yo context`, `yo context <module>`, `yo context --doc GRAMMAR`). The
-  cheatsheets go away. Skills do not move into `docs/`: `docs/` is bilingual
-  user documentation, and agents discover skills in `.agents/`, `.claude/`,
-  `.cursor/` and `.github/`.
+- **D1. No skills in user projects (revised 2026-10-13, maintainer).**
+  - **What the original D1 said:** skills stay a separate, thin artifact. Their
+    value was the trigger: an agent auto-loads a skill whose `description`
+    matches the task, and `yo context` only helps once the agent knows to run
+    it.
+  - **Why the trigger no longer needs a skill tree:**
+    - The `AGENTS.md` that `yo init` writes already opens its command block
+      with "`yo context` — the language pack + API index — read this first".
+    - Codex, Cursor, Copilot and Gemini read `AGENTS.md` natively. Claude Code
+      reads `CLAUDE.md`, so `yo init` also writes a one-line `CLAUDE.md`
+      holding `@AGENTS.md`, as this repository does.
+    - Those two small files trigger every major agent. The content an agent
+      then needs is `yo context`, which is version-matched.
+  - **What the skill tree costs:**
+    - The copy goes stale by construction: `yo skills install` copies one
+      release's files, and the next upgrade makes them wrong.
+    - Keeping it right would take the pruning installer the original K4
+      planned, which is more code to maintain a copy that only says "run
+      `yo context`".
+    - It costs `src/skills_command.yo` (433 lines, copying into six agent
+      directories), three skills cli-cases, the `init`/`skills` goldens that
+      hash the skill tree (re-recorded twice on 2026-10-13, #1334 and #1339,
+      for cheatsheet edits), and a copy in every release bundle.
+  - **The accepted loss:** an agent that never reads `AGENTS.md`, working on a
+    Yo file inside an unrelated repository, no longer gets Yo knowledge pushed
+    to it. `yo context` stays one command away.
 - **D2. One home per fact.**
 
   | Kind | Home | Why |
@@ -100,21 +136,37 @@ Three more findings shape the plan:
   | Language rules and sharp edges an agent needs before writing code | `pack/context.md` | version-matched, always one command away; 24 KB cap |
   | Depth, tutorials, rationale | `docs/en-US` + `docs/zh-CN` manuals | served by `yo context --doc` |
   | Compiler-development knowledge | `.github/instructions/` | never shipped to users |
-  | Workflow ("how to work in a Yo project") | `SKILL.md` | the trigger surface |
+  | Workflow and the trigger ("how to work in a Yo project", "run `yo context` first") | the `AGENTS.md` that `yo init` writes | read natively by most agents; `CLAUDE.md` imports it |
 
-- **D3. A thin skill contains nothing version-specific.** Anything that changes
-  between releases is reached through `yo context`, so a project's installed
-  skill copy stays correct when the user upgrades `yo`.
-- **D4. Code blocks in the pack, skills and manuals are checked.** A gate
-  extracts them and compiles them (K5), so a removed form fails CI instead of
-  surviving in prose.
+- **D3. The generated `AGENTS.md` contains nothing version-specific.** It holds
+  the commands and the pointer to `yo context`; anything that changes between
+  releases is reached through `yo context`. A project's `AGENTS.md` then stays
+  correct when the user upgrades `yo`. (This was D3's rule for thin skills,
+  which D1 now removes.)
+- **D4. Code blocks in the pack and the manuals are checked.** A gate type-checks
+  them (K5), so a removed form fails CI instead of surviving in prose.
 
 ## 4. Phases
 
 Each phase is one PR, merged on local gates. Every phase runs `yo fmt` on any
 touched `.yo` and keeps `docs/en-US` and `docs/zh-CN` in step.
 
-### K0 — Fix what is wrong (correctness first)
+**Order (amended 2026-10-13).** K0 and K1 have landed. Everything else waits
+until VALUES_BY_DEFAULT V5 has landed, along with every Generation B half:
+VBD is still changing the language these documents describe. After that:
+
+1. K2 and K3: move the compiler-dev content out, and condense the pack.
+2. K5: the snippet gate. Its first run is the inventory for K7.
+3. K7: the post-VBD docs sweep.
+4. K4: delete the skills and `yo skills install`.
+5. K6: point the rules at the new layout.
+
+Then VALUES_BY_DEFAULT §6 "After V5: retire the `yo fix` migrations" runs: the
+six README example projects are migrated, then the `--migrate` modes are
+deleted. The docs keep naming `--migrate` modes until that PR, which removes
+them.
+
+### K0 — Fix what is wrong (correctness first) — LANDED (#1138)
 
 Re-verify each stale claim in §2 against the current compiler with a
 `tmp/fixme.yo` probe, then correct it where it stands, before anything moves.
@@ -124,7 +176,7 @@ turns out true while a manual says otherwise is a docs bug. A claim that
 reveals broken code is a compiler bug: it gets an `issues/` entry with a
 severity and a failing test, as usual.
 
-### K1 — Give homes to the unique facts
+### K1 — Give homes to the unique facts — LANDED (#1139–#1142)
 
 Write the §2 "no manual today" facts into their manual. Each takes a few lines
 and is added in both languages:
@@ -144,12 +196,17 @@ and is added in both languages:
 
 ### K2 — Move compiler-dev content out of the shipped skills
 
+(After V5. Re-audit first: VBD will have outdated part of the ~250 lines.)
+
 Move the ~250 lines into `c-codegen`, `testing`, `debugging` and
 `yo-syntax.instructions.md`, dropping anything those files already say. Seed
 gates go to `plans/backlog/SEED_VERSION_AUTOMATION.md` when still live, and are
 deleted when lifted.
 
 ### K3 — Pack: trim ~60 lines, add ~50–60
+
+(After V5. The line numbers below are from the 2026-10-02 audit; re-read the
+pack before editing.)
 
 - **Trim:** shorten Verification (319–336) to a pointer to `--doc
   FORMAL_VERIFICATION` once K1 has moved its caveat. Remove the duplicate
@@ -162,64 +219,136 @@ deleted when lifted.
 - **Limit:** stays under 24 KB (`wc -c` in the PR). If the adds would overflow
   it, the overflow goes to a manual, not the pack.
 
-### K4 — Slim the skills; `yo skills install` prunes
+### K4 — Delete the shipped skills and `yo skills install` (amended 2026-10-13)
 
-- Each `SKILL.md` becomes ≤ 80 lines: frontmatter `description` (the trigger,
-  unchanged unless wrong), "run `yo context` first", the top rules for that
-  area, and a pointer table to the manuals.
-- Delete the six cheatsheets. `yo-wasm-integration` becomes a pointer to `yo
-  context --doc WASM`.
-- **`yo skills install` removes files a bundled `yo-*` skill no longer ships**,
-  inside those skill directories only, and journals each removal as `remove`.
-  Today it only overwrites, so a user upgrading after this plan would keep the
-  stale cheatsheets forever. This is the plan's one code change
-  (`src/skills_command.yo`). It needs a cli-case: install an old skill tree,
-  reinstall the new one, and expect the removed file gone and other files kept.
-- Re-record the `init-*` and `skills-*` goldens: the skill tree is in their
-  `expected_tree`.
+The original K4 slimmed each `SKILL.md` and made `yo skills install` prune.
+With D1 reversed:
 
-### K5 — The snippet gate
+- **First, verify nothing unique is left.** K1 and K2 have rehomed the
+  skills' unique facts. Diff each cheatsheet against the pack and the manuals
+  one last time, and move anything still unique into its D2 home.
+- **Delete** `.github/skills/` (all six skills and their cheatsheets).
+- **Delete `yo skills install`**:
+  - `src/skills_command.yo` and its dispatch and help text in `src/main.yo`,
+    in both CLI languages;
+  - the `skills-install`, `skills-install-zh` and `skills-unknown-action`
+    cli-cases;
+  - `yo init --no-skills` and the `init-no-skills` case.
+  - `src/context_command.yo`'s pack lookup stays. Its comments describe it as
+    mirroring the skills lookup, so they are rewritten to stand alone.
+  - `scripts/bootstrap/gates_fast.sh` and `scripts/install.sh` stop pinning
+    and installing `.github/skills`.
+- **`yo init`** writes `AGENTS.md` and a one-line `CLAUDE.md` containing
+  `@AGENTS.md`, and copies no skill tree.
+  - The generated `AGENTS.md` drops its "Yo agent skills" section and its
+    "refresh the skills" footer. It keeps the command block that starts with
+    `yo context`.
+  - An existing `AGENTS.md` or `CLAUDE.md` is left alone, as `AGENTS.md` is
+    today.
+  - Re-record the `init*` goldens. They no longer contain a skill tree, so
+    later documentation edits stop touching them.
+- **Release bundles** stop carrying `.github/skills` (`release.yml`'s seed
+  and native bundles).
+- **Docs, en-US and zh-CN:**
+  - `README.md` "AI Agent Skills" becomes a short "AI agents" section: `yo init`
+    writes `AGENTS.md`, and `yo context` is the version-matched language pack.
+  - `BUILD_SYSTEM.md`'s project tree drops `.agents/skills/`.
+  - `CONTEXT.md` says the same as the new README section.
+- **Existing projects.** There is no compatibility shim (single-user policy).
+  The six README example projects delete any committed skill copies during the
+  migration that VALUES_BY_DEFAULT's "retire the migrations" step gates on.
 
-Add a gate (GATE 8's extractor generalised, or a new GATE 9) that compiles
-every ` ```rust ` block in `pack/context.md`, `.github/skills/*/SKILL.md` and
-`docs/en-US/*.md`. A block marked as non-compiling (fragment, error example)
-opts out with an explicit tag, and the tag form is decided in K5. The gate
-runs in `gates_fast.sh` and in CI. Expect K0-style fixes the first time it
-runs on the manuals. That size of fix decides whether K5 lands before or
-after K4.
+### K5 — The snippet gate (amended 2026-10-13)
+
+#1288 already makes `yo fmt` format ` ```yo ` blocks in `docs/`, `.github/` and
+`README.md`, and CI checks that they parse. A fragment or an intentionally
+invalid example is fenced ` ```yo ignore `. (The original text named
+` ```rust ` blocks, but since 2026-10-10 every Yo block is fenced ` ```yo `.)
+
+K5 upgrades that parse check to a **type-check**.
+
+- **Scope:** each ` ```yo ` block (not `ignore`) in `pack/context.md`,
+  `docs/en-US/*.md`, `docs/zh-CN/*.md` and `README.md` is extracted and run
+  through `yo check`.
+- **Running it:** the gate runs in `gates_fast.sh` and in CI. A block that is a
+  fragment and cannot type-check on its own is fenced ` ```yo ignore `.
+- **Its first run is K7's inventory.** Every block still written in a pre-VBD
+  form fails.
+- **The opt-out risk (§6) stands:** K5 reports the `ignore` count, and a
+  rising count gets questioned in review.
 
 ### K6 — Rules that point at the old layout
 
 - `AGENTS.md` "update the cheatsheets … immediately" becomes "update the pack,
   the manual, or `.github/instructions/`, whichever is the fact's home (§D2)".
+  Its "skill files (`.github/skills/`)" check-after-a-change line, its
+  `src/skills_command.yo` row and its `yo skills install` command go.
 - Fix the references to the removed files: `.github/instructions/` (the
   `yo-syntax` cheatsheet's string-indexing pointer, the `yo-design` "keep …
   cheatsheets in step" lines, the `testing` golden note), `docs/en-US` and
   `zh-CN` `CONTEXT.md`, and `reference/YO_CONTEXT.md` (an addendum linking
-  here).
+  here: C6's "skills for workflow" is superseded by D1).
+
+### K7 — The post-VBD docs sweep (added 2026-10-13, maintainer)
+
+Once V5 has landed, the docs still describe the language as VBD found it. K7
+removes that old content in one pass, after K5's gate has listed what no
+longer checks.
+
+- **Scope:** `docs/en-US` and `docs/zh-CN` (every manual), `README.md`,
+  `pack/context.md`, `.github/instructions/`, and the doc comments in `std/`
+  that `yo doc` publishes. `plans/`, `issues/` and `code-reviews/` are
+  historical records and stay as they are (`AGENTS.md`, "Reading historical
+  documents").
+- **What goes:**
+  - Every pre-VBD form: `ref(...)`/`atomic(...)` types, the old parameter
+    words (`own`, `sink`, `inout`, `imm(x)`, `mut(x)`), `Dispose` (after the
+    Drop rename), implicit copies of owning values, a bare closure into a
+    `Dyn(Fn)` slot, and the pre-A1 future and handle forms.
+  - **History narration in user docs** ("used to be", "since vX.Y.Z", "was
+    renamed from", "before #NNN"): a manual describes the language as it is,
+    and the record of how it got there belongs in `plans/` and `issues/`. A
+    migration note may stay only where a migration still exists, until
+    VALUES_BY_DEFAULT's "retire the migrations" step removes it.
+  - Manuals and sections whose subject was deleted, such as
+    `COMPILE_TIME_RC_WITH_OWNERSHIP_ANALYSIS.md` (replaced,
+    VALUES_BY_DEFAULT §3.14), and the links that point to them.
+- **How:**
+  - K5's failures are the work list for code.
+  - A grep list of the removed spellings, plus the history phrases above, is
+    the work list for prose.
+  - Each manual's en-US and zh-CN pages are swept in the same PR.
+  - Split by manual if a PR gets large.
+- **Exit:**
+  - K5 is green over every manual with no new `ignore` tags.
+  - The grep list finds nothing outside `plans/`, `issues/` and
+    `code-reviews/`.
+  - Each manual's zh-CN page matches its en-US page section by section.
 
 ## 5. Exit criteria
 
-1. No rule is stated in two of {pack, skills, manuals}. A spot-check of the
-   §2 duplicate sections finds each in exactly one home.
-2. `.github/skills/` totals ≤ ~500 lines (from ~4,400), and no skill file
-   contains compiler-dev content or a version-specific API listing.
-3. Every §2 stale claim is fixed or deleted. The snippet gate is green over
-   the pack, the skills and the manuals.
+1. No rule is stated in both the pack and a manual. A spot-check of the §2
+   duplicate sections finds each in exactly one home.
+2. `.github/skills/`, `src/skills_command.yo` and `yo skills install` are
+   gone. `yo init` writes `AGENTS.md` and `CLAUDE.md` and copies no skill
+   tree. Release bundles carry no skills.
+3. Every §2 stale claim is fixed or deleted. The snippet gate (K5) type-checks
+   the pack and every manual, and is green.
 4. The pack stays under 24 KB.
-5. Reinstalling the skills in a project that has the old tree leaves no
-   cheatsheet behind (K4's cli-case).
+5. K7's grep list of pre-VBD forms and history phrases finds nothing in the
+   user docs.
 
 ## 6. Risks and open questions
 
 - **Translation volume.** K1 adds roughly 400 lines to the manuals, and every
   one needs a zh-CN counterpart. It is the slowest part of the plan, so split
   K1 by manual if one PR gets too large.
-- **Does a thin skill trigger as well?** The trigger is the `description`,
-  which K4 keeps, so loading behaviour does not change. What changes is that
-  the loaded skill sends the agent to `yo context` for depth: one extra tool
-  call, in exchange for version-matched answers. Measuring it waits for the
-  BEND B4 evals harness, as `YO_CONTEXT.md` exit criterion 3 does.
+- **Does `AGENTS.md` trigger as well as a skill did?** For agents that read
+  `AGENTS.md` (or `CLAUDE.md`), it is loaded at session start, which is
+  earlier and more reliable than a skill matching on its `description`. The
+  loss is an agent that reads neither, working on Yo code inside an unrelated
+  repository (D1). Measuring it waits for the BEND B4 evals harness, as
+  `YO_CONTEXT.md` exit criterion 3 does.
 - **The snippet gate's opt-out tag.** It must not become a way to hide stale
   examples. K5 reports the opt-out count, and a rising count gets questioned
   in review.
