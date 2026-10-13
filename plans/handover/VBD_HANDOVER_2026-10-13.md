@@ -80,7 +80,7 @@ The order is: merge the batch, wait for develop's battery to be green on the exa
 5. **The rest of V3 async** (§3.13): A5's remaining lines (wakers, channels, mutexes, streams), and A6's `Rc`-field half with V2c.
 6. **The rest of V2b:** direct projection calls, unique buffers, the explicit-copy kind, and decision 39's iterators.
 7. **The allocator interface, version 2** (§6, after V2b).
-8. **V2c** (§6, with design notes). Decided 2026-10-13: an effect bundle stays a value. Its handlers are capture-free, so after V2b and V2c it is a `Copy` record, and A6's check is unchanged. Shared state reaches a task through its `io.async` capture list. V2c also rewrites A6's E0901 help text.
+8. **V2c** (§6, with design notes). Decided 2026-10-13: an effect bundle stays a value. Its handlers are capture-free, and a control-bound record copies implicitly by decision 36's exemption, so after V2b and V2c a bundle copy can hide no owner. A6's check is unchanged. Shared state reaches a task through its `io.async` capture list. V2c also rewrites A6's E0901 help text.
 9. **Decision 43** (§6 "Decision 43: references as types", four PRs, after V4's `TypeValue`). Decided 2026-10-13: step 2 lands the `.*` error together with `yo fix --migrate deref`.
 10. **V5:** remove `ref(...)`/`atomic(...)`.
 11. **After V5:**
@@ -116,7 +116,7 @@ The 2026-10-10 handover's §4 lists the older ones. For the full list, run `pyth
   - Generation A is in v0.2.62; Generation B renames the tree.
 - **V4 `TypeValue`:** a value enum or an `Rc` handle, decided by measurement. The maintainer prefers the handle if the numbers favor it.
 - **The allocator interface, version 2,** is queued after V2b (§6).
-- **A6 / V2c's bundle (2026-10-13):** an effect bundle is a value, a `Copy` record of capture-free handlers. It is never lent.
+- **A6 / V2c's bundle (2026-10-13):** an effect bundle is a value: capture-free handlers plus `Copy` data, copied implicitly through the control-bound exemption. It is never lent.
 - **Decision 43's `.*` (2026-10-13):** the error and `yo fix --migrate deref` land in one PR. Still open, for step 2: whether `ctl` handler types become structurally second-class.
 - **No shipped skills** ([`AGENT_KNOWLEDGE_CONSOLIDATION.md`](../AGENT_KNOWLEDGE_CONSOLIDATION.md), amended 2026-10-13).
   - `yo init` writes `AGENTS.md` and a one-line `CLAUDE.md`.

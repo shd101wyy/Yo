@@ -146,7 +146,7 @@ Unique ownership removes the question instead of answering it.
 
 | Kind | Which types | A copy is | Example |
 | --- | --- | --- | --- |
-| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `char`, `unit`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy, Clone)` (`std/string/rune.yo`'s `rune` newtype is one) (`Copy` requires `Clone`); and tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy, Clone)` |
+| **implicitly copyable** (`Copy`, decision 36) | implements `Copy`: integers, floats, `bool`, `char`, `unit`, raw pointers, `str` views and `fn` pointers (prelude impls); a struct, enum or newtype that opts in with `derive(T, Copy, Clone)` (`std/string/rune.yo`'s `rune` newtype is one) (`Copy` requires `Clone`); and tuples, arrays, anonymous records and closures whose parts are all `Copy`. Exempt, copying implicitly without `Copy`: unions, C opaque types and control-bound records (`Exception`, effect bundles; a `ctl` handler cannot be `Clone`), per `type_lacks_copy_for_flip` | a bitwise copy | `p2 := p` for `p : Point` with `derive(Point, Copy, Clone)` |
 | **explicit-copy** | owns a buffer: `String`, the collections, `Box(T)`, `Dyn(Trait)`, `Rc(T)`/`Arc(T)` handles (decision 17), and any type containing one (unless it is move-only) | an error unless it is the value's last use (then a move); an independent copy is `x.clone()` | `t := s.clone()` |
 | **move-only** (§3.4) | implements neither `Copy` nor `Clone` (decision 36); a `Dispose` type is never `Copy` | an error unless it is the last use; with `Clone` it is explicit-copy instead (`Sender`) | `f2 := f` moves the `File` |
 
@@ -1151,8 +1151,8 @@ instead.
   - **Decided 2026-10-13 (the maintainer): an effect bundle is a value.**
     Its handlers are capture-free standalone functions
     (`docs/en-US/ALGEBRAIC_EFFECTS.md`, "Handler Functions Are Not
-    Closures"), so the bundle is a `Copy` record once V2b and V2c have
-    run. Shared state reaches a handler as an argument at the effect call,
+    Closures"), so once V2b and V2c have run, the bundle holds no owned
+    value and copies implicitly. Shared state reaches a handler as an argument at the effect call,
     and reaches a task through its `io.async` capture list
     (`io.async({ st : Rc.clone(st) }(e : Io) => …)`). See V2c's design
     notes.
@@ -5252,21 +5252,30 @@ compiler; the std shapes are plain structs the seed lowers):
   - **A6, the bundle. Decided 2026-10-13 (the maintainer): an effect
     bundle is a value.** `io.await` and `io.spawn` keep taking `e : E` by
     value (#1312, #1318), and a bundle is never lent.
-    - **A bundle is a `Copy` record.** Its handlers are capture-free
-      standalone functions: a handler body cannot read a local of the
-      scope that installed it (`docs/en-US/ALGEBRAIC_EFFECTS.md`, "Handler
-      Functions Are Not Closures"; a `->` handler that names an outer
-      local is rejected, and a capture list does not parse there). A
-      handler field is therefore a function pointer, and copying the
-      bundle copies pointers and `Copy` data, with no hidden owner. This
-      is decision 36's implicit copy, the same as an `i32`'s.
+    - **A bundle holds no owned value, and it copies implicitly.**
+      - Its handlers are capture-free standalone functions. A handler body
+        cannot read a local of the scope that installed it: the compiler
+        rejects it, saying "handlers are capture-free by design"
+        (`docs/en-US/ALGEBRAIC_EFFECTS.md`, "Handler Functions Are Not
+        Closures").
+      - A bundle is not `Copy` in the trait sense. A `ctl` handler cannot
+        be `Clone`, so `Exception` and every record containing it cannot
+        derive `Copy` (`Io` does: `derive(Io, Copy, Clone)`).
+      - Decision 36's flip exempts control-bound records
+        (`type_lacks_copy_for_flip`, `src/evaluator/trait_checking.yo`),
+        as it does unions and C opaque types, so such a record still copies
+        implicitly everywhere, not only in the effect slot. A probe on
+        2026-10-13 copied one `IoExn` and one `Exception` several times
+        through bindings and by-value parameters.
+      - The copy duplicates handler references and `Copy` data: no owner,
+        no count. A6 keeps it that way.
     - **The A6 check is unchanged.** `_check_bundle_fields_copy` rejects a
       field that `type_requires_explicit_copy` reports. Today a `String`,
       collection or `Rc` field still passes, because those kinds are still
       implicitly shared. V2b makes `String` and the collections
       explicit-copy, and V2c does the same for `Rc`/`Arc`. After both, the
-      check rejects exactly the non-`Copy` fields, and every bundle is a
-      `Copy` record. No std or test bundle has such a field.
+      check rejects every field that owns something, so a bundle copy can
+      never hide an owner. No std or test bundle has such a field.
     - **Shared state:**
       - It reaches a handler as an argument at the effect call, or as an
         `Rc` the caller passes in (ALGEBRAIC_EFFECTS.md).
@@ -5431,8 +5440,14 @@ stage-2 RSS.
     structural rule would cover every route, including ones not yet
     found.
   - This is independent of how a bundle is passed. A bundle holding a
-    second-class handler is itself second-class, so `io.spawn`'s copy needs
-    its own rule here (a task's `unwind` aborts the task, §3.13 A2).
+    second-class handler is itself second-class, and two paths store one
+    in a cell, which decision 43 forbids (E0909):
+    - **`io.await`:** a cold await injects the bundle into the future's
+      heap-allocated state machine. That needs the carve-out A2 already
+      gives borrowing futures, where the future is consumed where the bundle
+      goes in.
+    - **`io.spawn`:** a task outlives the call, so it needs its own rule
+      (a task's `unwind` aborts the task, §3.13 A2).
   - It is decided in step 2.
 
 **Decided 2026-10-13 (the maintainer):**
