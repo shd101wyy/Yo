@@ -49,7 +49,14 @@ impl(
   _BorrowCell,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(__yo_array_index(addr_of(self.items), idx))
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(__yo_array_index(addr_of(self.items), idx))
+  )
+);
+impl(
+  _BorrowCell,
+  IndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(__yo_array_index(addr_of(self.items), idx))
   )
 );
 _PlainCell :: ref(struct(items : Array(i32, 4)));
@@ -57,7 +64,14 @@ impl(
   _PlainCell,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(__yo_array_index(addr_of(self.items), idx))
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(__yo_array_index(addr_of(self.items), idx))
+  )
+);
+impl(
+  _PlainCell,
+  IndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(__yo_array_index(addr_of(self.items), idx))
   )
 );
 _read_through :: (fn(x : &mut i32) -> i32)(x);

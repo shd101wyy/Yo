@@ -85,6 +85,10 @@ Progress:
     built");
   - V2b "Projections first", Generation A: `-> &T` / `-> &mut T`
     projections, and subscript dispatch through `Index` / `IndexMut` (#1324);
+    and Generation B, the prelude switch: `Index`/`IndexMut` and
+    `IndexUnchecked`/`IndexUncheckedMut` in the projection shapes, every std
+    impl split, and `String`'s read-only byte index (2026-10-14, branch
+    `feat/vbd-v2b-genb-r2`);
   - decision 45 Generation A: `Drop` beside `Dispose`, E0915 for an
     explicit destructor call, `drop(x)`, and `yo fix --migrate drop-trait`
     (#1343). Generation B, the tree-wide rename, waits for the seed.
@@ -99,8 +103,6 @@ Progress:
     lends to the call is E0910 (#1346).
 - **In progress:**
   - The Generation B halves that wait for the v0.2.61 seed:
-    - V2b's prelude switch to the new `Index`/`IndexMut`/`IndexUnchecked`
-      shapes;
     - V1 step 2's `src/` sites moving back to `Box`;
     - decision 31's deletion of the implicit `Rc` look-through.
   - V3's remaining async work (§3.13): A4's future operands, A5's remaining
@@ -5354,6 +5356,34 @@ compiler; the std shapes are plain structs the seed lowers):
     `IndexUnchecked` and `ComptimeIndex` are this switch's own change
     (`issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md`,
     2026-10-13; not seed-gated either).
+  - **As built, Generation B (2026-10-14, branch `feat/vbd-v2b-genb-r2`,
+    after the v0.2.61 seed).**
+    - **The prelude.** `Index(Idx)` is
+      `index : (fn(self : &Self, idx : Idx) -> &Self.Output)`, `IndexMut(Idx)`
+      is `index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)`,
+      and `IndexUnchecked` / `IndexUncheckedMut` are the read and write twins
+      of `Index(usize)` / `IndexMut(usize)`. `Array(T, N)` implements both.
+    - **std.** `ArrayList`, `Deque`, `LinkedList`, `HashMap`, `BTreeMap` and
+      `JsonValue` (by `String` key and by `usize`) implement `Index` and
+      `IndexMut`; `ArrayList` also the two unchecked twins. The bodies stay
+      std's buffer form (a raw `*T` result under `AllowUnsafe`). `HashMap`'s
+      two halves hash with `_hash(&idx)`, the `&Self` hasher.
+    - **`String`** implements `Index(usize)` with `Output : u8` and no
+      `IndexMut`: `s(i)` reads a byte and panics past the end, and
+      `s(i) = b` is an error naming `IndexMut`. `String`'s and `JsonValue`'s
+      read halves reach the buffer through its pointer, because a `match`
+      binding is not yet a projection root.
+    - **Users.** A user `Index` impl in the pre-V2b shape
+      (`self : &mut Self -> *Self.Output`) no longer conforms (E0602). The
+      tests' impls moved to the split (`tests/index.test.yo`,
+      `tests/unsafe_cast_rc_borrow.test.yo`,
+      `tests/deferred_dup_return_single_eval.test.yo`): a type that is
+      written through the subscript needs an `IndexMut` impl.
+    - **Not in this step.** The dispatch still looks `index` / `index_mut`
+      up by name; keying it on the prelude traits waits for the direct
+      projection calls (decision 24's remaining result positions). Once a
+      projection can be called directly, `index_unchecked` must stay out of
+      safe code's reach (today the subscript is its only path).
 - **Unique buffers.**
   - `ArrayList(T)` owns a plain buffer, with `Dispose` (free) and `Trace`
     (visit each slot) on its private buffer type. The same goes for every

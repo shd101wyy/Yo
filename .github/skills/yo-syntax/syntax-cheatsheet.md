@@ -1915,10 +1915,11 @@ Comptime `s(i)` yields the RUNE starting at byte `i` as a 1-rune `comptime_str`
 result-type split is deliberate), and a mid-rune offset is a compile error where
 the runtime `substring` would panic.
 
-**A runtime `String` has no `s(i)`** (String S3): it does not implement
-`Index(usize)`, so `s(usize(0))` is E0606 ("s is not callable") — a writable
-byte place would reach every string sharing the buffer and could break UTF-8. Read bytes with
-`byte_at(i)` (panics past the end) or `get_byte(i) -> Option(u8)`. `as_bytes`
+**A runtime `String`'s `s(i)` is read-only** (V2b): `String` implements
+`Index(usize)` with `Output : u8` and no `IndexMut`, so `s(usize(0))` reads the
+byte (panics past the end, like `byte_at(i)`) and `s(usize(0)) = b` is a compile
+error naming `IndexMut` — a writable byte place would reach every string sharing
+the buffer and could break UTF-8. `get_byte(i) -> Option(u8)` reads without panicking. `as_bytes`
 is gone: `to_bytes()` returns an independent `ArrayList(u8)`, `into_bytes()`
 (`sink(self)`) moves the buffer out with no copy when unique, and
 `String.from_bytes(sink(bytes))` / `from_utf8(sink(bytes))` take the list over.
