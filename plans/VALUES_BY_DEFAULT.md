@@ -3044,15 +3044,27 @@ and in git, not a silent edit.
       (R3), `Rc` roots only through the pin (R5), async per A2 (R6).
     - **Root-joining containers (R7).** `ArrayList(&T)`, `HashMap(&K, V)`
       and every buffer-owning container over a `&` are legal and
-      second-class, with a borrow set that **grows**: every `&` lent into a
-      `&mut self` method of the container (`push`, `insert`, `extend`,
-      `set`, an `Index` place write) joins its roots — and the rule is stated over **every
-      call**, a method call being receiver sugar: at any call, each `&`
-      argument joins the borrow set of every `&mut`-lent argument whose
-      type is (or contains) a root-joining container, unless the callee's
-      `depends` clause says otherwise (`push_all(&mut out, &vals)` grows
-      `out`'s roots by `vals` at the caller; a `&self` method joins
-      nothing). The `depends` grammar is one clause with two forms
+      second-class, with a borrow set that **grows** (amended 2026-10-13
+      after the audit in issue #1330; `NON_ESCAPABLE_TYPES.md` R7 is the
+      full statement). Two triggers join: **every call**, a method call
+      being receiver sugar — every argument whose borrow set is nonempty
+      (a reference or a reference-holding value, either mode, lent or by
+      value: `&x`, `&mut x`, a `View(T)` by value), except a closure in a
+      lent `Impl(Fn)` slot, joins its whole borrow set into every
+      `&mut`-lent argument whose type is (or contains) a root-joining
+      container, unless the callee's `depends` clause says otherwise
+      (`push`, `insert`, `extend`, `set`; `push_all(&mut out, &vals)`
+      grows `out`'s roots by `vals` at the caller; a `&self` method joins
+      nothing) — and **every place write** of a reference-holding value
+      into a place rooted in the container (`out(i) = &x`, a `.*` write
+      through a `&mut` element). A join lands on the root place, not on
+      the binding that performed it (`r := &mut out; r.push(&x)` grows
+      `out`). The callee is checked against its clause: every root it
+      joins into a `&mut` parameter's container must be a parameter in
+      the declared or default set, so a lying `depends(dst :)` and a
+      `dst.push(&local)` are both errors; a closure's `&mut` captures
+      count as parameters, and its literal's join summary applies where
+      the capture is taken. The `depends` grammar is one clause with two forms
       (`NON_ESCAPABLE_TYPES.md` R3/R7): `depends(a, b)` on a
       reference-returning function names the result's roots;
       `depends(dst : a, b)` names what flows into a `&mut` container
@@ -3074,7 +3086,7 @@ and in git, not a silent edit.
         (`g_capture_borrows`, keyed by the capture struct's type id) cannot
         carry it: every closure literal has its own type, while two
         `ArrayList(&T)` values share one type and hold different roots.
-        Root-joining is a per-value borrow set on the binding, extending
+        Root-joining is a per-value borrow set on the root place, extending
         the single local-borrow root `VariableRare.inout_borrow_root_id`
         keeps today to a set of `(root, mode)` pairs, joined at each
         `&mut self` call that receives a `&` argument, unioned over
@@ -3117,7 +3129,10 @@ and in git, not a silent edit.
       after V2b (root-joining is meaningful only once collections are
       uniquely owned values), timed by the VBD session. Generation A adds
       the types, `.*`, auto-deref and auto-borrow, `impl(&T, …)`,
-      root-joining, `FnMut` (decision 37) and the tests in user code;
+      root-joining, `FnMut` (decision 37) and the tests in user code
+      (root-joining in its own step, N2: until the tracker lands a buffer
+      container over a `&` is an error, so no build accepts a join it
+      cannot see);
       Generation B lets std adopt (`iter`, `slice`, `entry`, the borrowed
       `for` by `impl(&C, IntoIterator)`, the `FnMut` slots) and rewrites
       every whole-value read or write through a reference in `std/` and
