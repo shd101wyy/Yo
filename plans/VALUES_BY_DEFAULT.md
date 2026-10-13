@@ -830,6 +830,9 @@ and every free routes through the owner prefix.
   per-container owner bits (the capacity word, `_tombstones`, the
   `std/imm` length words) may move to the buffer. That is a simplification to
   measure then.
+- **Interface version 2** (after V2b, §6): an alignment parameter on
+  `alloc`/`realloc`, and `free` told the block's size and alignment, so
+  Zig-style allocators (aligned, page, pool, slab) fit.
 
 ### 3.12 What gets simpler
 
@@ -5216,6 +5219,45 @@ compiler; the std shapes are plain structs the seed lowers):
 - **Bundles.** It also decides A6's `Rc` bundle fields.
 - **No fallback** (decision 17). Once V5 lands, the dup/drop pair optimizer
   has no implicit copy left to cancel.
+
+**After V2b: the allocator interface, version 2** (queued by the maintainer
+2026-10-13). Today's `AllocatorVTable(alloc, realloc, free)` is Zig's
+`std.mem.Allocator` shape, a context pointer plus a vtable, so any allocator
+plugs in. Two of its signatures stop Zig-style allocators from fitting.
+- **Alignment.** `alloc(ctx, size)` always returns 16-aligned memory. Zig
+  passes an alignment to every call. Without one, no allocator can serve
+  over-aligned data: 64-byte cache-line structs, page-aligned buffers,
+  SIMD types. The change: `alloc(ctx, size, align)` and
+  `realloc(ctx, ptr, old_size, new_size, align)`. The owner prefix then
+  occupies the `max(16, align)` bytes before the returned pointer, with
+  `{ctx, vtable}` in its last 16, so the raw block is recoverable from the
+  pointer and `align` alone.
+- **`free` knows the size.** `free(ctx, ptr, size, align)`, as Zig's `free`
+  receives its slice. A size-class allocator (pool, slab) then needs no
+  header of its own. The collections already know both values
+  (`capacity * size_of(T)`, `align_of(T)`), and after V2b each passes them
+  from one place, its private buffer type. That is why this item follows
+  V2b.
+- **What stays.** The per-block owner prefix: it is what lets a block
+  always go back to its allocator and keeps `ArrayList(T)` one type, with
+  no allocator parameter (Rust's `Vec<T, A>` puts it in the type; Zig's
+  unmanaged lists make every caller pass it, and a wrong one is undefined
+  behavior). Its cost is 16 bytes per explicitly allocated block; the global
+  heap's own blocks carry none.
+- **Documented, not changed:** a block can be freed on another thread (an
+  `Arc` dropped elsewhere), so an allocator shared across threads must make
+  its `free` thread-safe.
+- **Seed gate.** Codegen emits the same prefix (`__yo_alloc_prefix_t`) for
+  `Rc`/`Box` cells placed by an allocator, so the layout is a frozen
+  contract between the compiler and `std/allocator.yo`. Generation A
+  teaches the compiler the new layout and vtable behind a switch;
+  Generation B moves std once a seed carries it.
+- **Tests:** an over-aligned element type in an `ArrayList` through an
+  aligned allocator; a header-free pool allocator that frees by the size it
+  is given; and every existing arena and counting-allocator test.
+- **Then:** the allocators Zig ships become ordinary std additions, such as
+  a fixed-buffer allocator, a pool, a page allocator, and a debug allocator
+  that reports leaks and double frees.
 
 ### V4: the compiler's trees
 
