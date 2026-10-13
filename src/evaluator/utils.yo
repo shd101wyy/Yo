@@ -1165,7 +1165,9 @@ _bare_callable_into_dyn_fn :: (
 )({
   bc_tok := _written_leftmost_token(value);
   bc_text := ast_expr_to_string(value);
-  if(migrate_dyn_spelling_on(), {
+  // A `comptime_expect_error` argument keeps its error: that error is the
+  // point, so the migration neither records nor accepts it.
+  if(migrate_dyn_spelling_on() && !propagate_def_time_errors(), {
     if(!ctx.is_in_function_call_checking_phase, {
       record_dyn_spelling_site(&bc_tok, &bc_text);
     });

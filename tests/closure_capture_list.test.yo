@@ -355,10 +355,10 @@ comptime_expect_error(
 comptime_expect_error(
   _cl_esc_dyn :: (fn(x : i32) -> Dyn(Fn() -> i32))({
     (f : Impl(Fn() -> i32)) = ({ &x }() => x);
-    (d : Dyn(Fn() -> i32)) = f;
+    (d : Dyn(Fn() -> i32)) = dyn(f);
     d
   }),
-  "cannot be returned"
+  "second-class"
 );
 test("escape: a named type over `type_of(f)`: a field, `Option`, `Rc`, an outer value's field", {
   w := i32(1);
@@ -402,20 +402,24 @@ test("escape: an implicit capture by an escaping closure", {
   (g : Impl(Fn() -> usize)) = ({ &y }() => y.len());
   assert(g() == usize(2), "a capture list may borrow a local borrow");
 });
-test("escape: every coercion to `Dyn` keeps the value second-class", {
+// Every route into a `Dyn` is `dyn(...)` (decision 44): a bare closure in a
+// `Dyn(Fn(...))` slot is E0618 before the escape check runs, and `dyn(f)`
+// over a second-class closure is the escape (decision 38 A).
+test("escape: every route into a `Dyn` keeps the value second-class", {
   w := i32(1);
   (f : Impl(Fn() -> i32)) = ({ &w }() => w);
-  comptime_expect_error(_cl_keep_dyn(f), "second-class");
+  comptime_expect_error(_cl_keep_dyn(f), "Write `dyn(f)`");
+  comptime_expect_error(_cl_keep_dyn(dyn(f)), "second-class");
   comptime_expect_error({
-    (d : Dyn(Fn() -> i32)) = f;
+    (d : Dyn(Fn() -> i32)) = dyn(f);
     _cl_keep_dyn(d)
   }, "second-class");
   (outer : Dyn(Fn() -> i32)) = dyn({}() => i32(0));
   comptime_expect_error({
     v := i32(1);
     (g : Impl(Fn() -> i32)) = ({ &v }() => v);
-    outer = g;
-  }, "would outlive");
+    outer = dyn(g);
+  }, "second-class");
   assert(outer() == i32(0), "outer keeps its first closure");
 });
 test("escape: a callee cannot pass on, return or capture its `imm(f)` argument", {

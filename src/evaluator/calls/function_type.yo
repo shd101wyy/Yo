@@ -1995,7 +1995,7 @@ Result type: ${type_to_string(&result_box)}`
                   // Decision 44: a callable result into `Dyn(Fn(...))` is
                   // `dyn(f)`; a definition rejected here is not emitted.
                   if(!result_is_ref, {
-                    if(is_bare_callable_into_dyn_fn(&result_box, &ub_ty) && !migrate_dyn_spelling_on(), {
+                    if(is_bare_callable_into_dyn_fn(&result_box, &ub_ty) && (!migrate_dyn_spelling_on() || propagate_def_time_errors()), {
                       mark_fn_unemittable(fn_val_id.clone());
                     });
                     reject_bare_callable_result(&result_box, &ub_ty, &fb, ctx, exn);
