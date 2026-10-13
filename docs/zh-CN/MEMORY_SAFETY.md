@@ -110,7 +110,7 @@ main :: (fn() -> unit)({
 
 使用场景：
 
-- 标准库中带变异的 trait 方法（`Hasher.write`、`Iterator.next`）接收 `self : &mut Self`；只读的方法（`Clone.clone`、`ToString.to_string`）与 Rust 一样接收 `self : &Self`。你写 `hasher.write_u64(v)`、`it.next()` —— 接收者直接写；传给 `&mut T` 参数的实参用 `&mut` 借出，例如 `value.hash(&mut hasher)`。
+- 标准库中带变异的 trait 方法（`Hasher.write`、`Iterator.next`）接收 `self : &mut Self`；只读的方法（`Clone.clone`、`ToString.to_string`、`Hash.hash`、`Debug.debug_string`、`Format.format`、`ToJson.to_json`、`Error.source`）与 Rust 一样接收 `self : &Self`。你写 `hasher.write_u64(v)`、`it.next()` —— 接收者直接写；传给 `&mut T` 参数的实参用 `&mut` 借出，例如 `value.hash(&mut hasher)`。
 - 你自己的变异辅助函数（`swap`、`increment`、`clear` 等）使用 `name : &mut T`。
 - 在一个作用域内出借值的回调 API：`Mutex.with_lock(body : Impl(Fn(v : &mut T) -> R))`。
 

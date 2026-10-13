@@ -624,8 +624,8 @@ test("an impl member may not write a receiver its trait lends read-only", {
   comptime_expect_error(impl(_PmTally, Clone(clone : (fn(self : &mut Self) -> Self)(_PmTally(n : self.n)))), "lends its receiver read-only");
 });
 
-// `Hash.hash`, `Debug.debug_string`, `Format.format`, `ToJson.to_json` and
-// `Error.source` only read their receiver too, so they take `self : &Self`
+// `Hash.hash`, `Hasher.finish`, `Debug.debug_string`, `Format.format`,
+// `ToJson.to_json` and `Error.source` only read their receiver too, so they take `self : &Self`
 // as well (issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md):
 // a `&T` borrow reaches them, and an impl member that spells
 // `self : &mut Self` is rejected at the impl.
@@ -640,6 +640,7 @@ _pm_hash_of :: (fn(generic(T : Type), x : &T, where(T <: Hash)) -> u64)({
   x.hash(&mut h);
   h.finish()
 });
+_pm_finish_of :: (fn(generic(H : Type), h : &H, where(H <: Hasher)) -> u64)(h.finish());
 _pm_debug_of :: (fn(generic(T : Type), x : &T, where(T <: Debug)) -> String)(x.debug_string());
 _pm_format_of :: (fn(generic(T : Type), x : &T, where(T <: Format)) -> String)(x.format(">4"));
 _pm_json_of :: (fn(generic(T : Type), x : &T, where(T <: ToJson)) -> JsonValue)(x.to_json());
@@ -651,6 +652,7 @@ test("Hash, Debug, Format, ToJson and Error.source read a & borrow", {
   h := DefaultHasher.new();
   k.hash(&mut h);
   assert(_pm_hash_of(&k) == h.finish(), "hashed through a generic &T");
+  assert(_pm_finish_of(&h) == h.finish(), "a hasher finished through a generic &H");
   assert(_pm_debug_of(&k) == "_PmKey(7)", "debug-rendered through a generic &T");
   assert(_pm_format_of(&k) == "   7", "formatted through a generic &T");
   assert(match(_pm_json_of(&k), .Int(v) => (v == i64(7)), _ => false), "encoded through a generic &T");

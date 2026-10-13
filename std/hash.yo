@@ -182,7 +182,7 @@ impl(
     write_i32 : (fn(self : &mut Self, v : i32) -> unit)(self.write_u32(u32(v))),
     write_i64 : (fn(self : &mut Self, v : i64) -> unit)(self.write_u64(u64(v))),
     write_isize : (fn(self : &mut Self, v : isize) -> unit)(self.write_u64(u64(v))),
-    finish : (fn(self : &mut Self) -> u64)({
+    finish : (fn(self : &Self) -> u64)({
       b := (((u64(self.length) & u64(255)) << u64(56)) | self.tail);
       v0 := self.v0;
       v1 := self.v1;
@@ -222,7 +222,7 @@ impl(
         self.state = (self.state ^ u64(unsafe((buf.add(i)).*))).wrapping_mul(u64(1099511628211));
       });
     }),
-    finish : (fn(self : &mut Self) -> u64)(self.state)
+    finish : (fn(self : &Self) -> u64)(self.state)
   )
 );
 /// The hasher `HashMap`/`HashSet`/`hash_one` use.

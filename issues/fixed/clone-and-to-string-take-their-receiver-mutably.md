@@ -34,7 +34,9 @@ read-only borrow; it is now an error at the impl
 (`issues/fixed/an-impl-may-write-a-receiver-its-trait-lends-read-only.md`).
 `Hash.hash` and `Debug.debug_string` also take `self : &mut Self` while only
 reading it, so they have the same hole after the `Index` split; they are not
-part of this decision.
+part of this decision (the follow-up audit switched them, with `Format.format`,
+`ToJson.to_json`, `Error.source` and `Hasher.finish`:
+`issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md`).
 
 ## The hole
 
