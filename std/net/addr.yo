@@ -756,7 +756,7 @@ impl(
     /// Feeds a one-byte family tag and then the address bytes, so a V4
     /// address and a V6 address that happen to share a byte pattern do not
     /// collide by construction.
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)(
       match(
         self,
         .V4(a, b, c, d) => {
@@ -959,7 +959,7 @@ impl(
 impl(
   SocketAddr,
   Hash(
-    hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
+    hash : (fn(generic(H : Type), self : &Self, hasher : &mut H, where(H <: Hasher)) -> unit)({
       self.ip.hash(hasher);
       self.port.hash(hasher);
     })

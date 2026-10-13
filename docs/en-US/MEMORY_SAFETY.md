@@ -110,7 +110,7 @@ A borrow is **second-class** and exists in parameter position (`name : &mut T`, 
 
 Use cases:
 
-- Stdlib trait methods that mutate (`Hasher.write`, `Clone.clone`, `Iterator.next`) all take `self : &mut Self`. You write `hasher.write_u64(v)`, `it.next()` — a receiver is written bare; an argument to a `&mut T` parameter is lent with `&mut`, as in `value.hash(&mut hasher)`.
+- Stdlib trait methods that mutate (`Hasher.write`, `Iterator.next`) take `self : &mut Self`; the ones that only read (`Clone.clone`, `ToString.to_string`, `Hash.hash`, `Debug.debug_string`, `Format.format`, `ToJson.to_json`, `Error.source`) take `self : &Self`, as in Rust. You write `hasher.write_u64(v)`, `it.next()` — a receiver is written bare; an argument to a `&mut T` parameter is lent with `&mut`, as in `value.hash(&mut hasher)`.
 - Your own mutation helpers (`swap`, `increment`, `clear`, ...) take `name : &mut T`.
 - Callback APIs that lend a value for a scope: `Mutex.with_lock(body : Impl(Fn(v : &mut T) -> R))`.
 
