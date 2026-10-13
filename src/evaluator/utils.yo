@@ -338,7 +338,7 @@ find_rc_value_owner_relationship :: (
             visited.insert(cand.id);
             candidate_opt = match(
               cand.is_owning_the_same_rc_value_as,
-              .Some(next_box) => Option(Variable).Some(next_box.*),
+              .Some(next_box) => Option(Variable).Some(next_box),
               .None => Option(Variable).None
             );
           },
@@ -482,14 +482,14 @@ require_expr_not_consumed :: (
           // reported 'use of moved value' with BOTH carets on the same
           // token (tests/imm_vec arms 14/17, surfaced by the Step-4a port).
           same_site := (
-            (consumed_tok.*.row == ast_expr_token(rhs).row)
-            && (consumed_tok.*.column == ast_expr_token(rhs).column)
-            && (consumed_tok.*.module_path == ast_expr_token(rhs).module_path)
+            (consumed_tok.row == ast_expr_token(rhs).row)
+            && (consumed_tok.column == ast_expr_token(rhs).column)
+            && (consumed_tok.module_path == ast_expr_token(rhs).module_path)
           );
-          if(same_site || migrate_borrowed_match_at(&consumed_tok.*), {
+          if(same_site || migrate_borrowed_match_at(&consumed_tok), {
             return(());
           });
-          exn.throw(dyn(use_of_moved_value_error(&var_name, &v.ty, ast_expr_token(rhs), variable_move_note(&v, &consumed_tok.*))));
+          exn.throw(dyn(use_of_moved_value_error(&var_name, &v.ty, ast_expr_token(rhs), variable_move_note(&v, &consumed_tok))));
         }
       );
     }
@@ -735,7 +735,7 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
   tok := ast_expr_token(callee);
   same_site := match(
     v.consumed_at_token,
-    .Some(moved_at) => ((moved_at.*.row == tok.row) && ((moved_at.*.column == tok.column) && (moved_at.*.module_path == tok.module_path))),
+    .Some(moved_at) => ((moved_at.row == tok.row) && ((moved_at.column == tok.column) && (moved_at.module_path == tok.module_path))),
     .None => false
   );
   if(same_site, {
@@ -800,9 +800,9 @@ consume_called_fnonce_closure :: (fn(callee : &AstExpr, v : &Variable, env : &En
         // shadow for a sibling arm as it does the owner.
         o := match(owner, .Some(x) => x, .None => v);
         _log_user_move(&o, &tok, env);
-        o.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
+        o.consumed_at_token = Option(Token).Some(tok.clone());
         _log_user_move(v, &tok, env);
-        v.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
+        v.consumed_at_token = Option(Token).Some(tok.clone());
       },
       true => set_expr_as_consumed(callee, env, false, ctx, exn)
     )
@@ -857,9 +857,9 @@ move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &
   match(
     v.consumed_at_token,
     .Some(ct) => {
-      same_site := ((ct.*.row == tok.row) && ((ct.*.column == tok.column) && (ct.*.module_path == tok.module_path)));
+      same_site := ((ct.row == tok.row) && ((ct.column == tok.column) && (ct.module_path == tok.module_path)));
       if(!same_site, {
-        raise_flow_violation(use_of_moved_value_error(v.name.clone(), &v.ty, tok, variable_move_note(v, &ct.*)), ctx, exn);
+        raise_flow_violation(use_of_moved_value_error(v.name.clone(), &v.ty, tok, variable_move_note(v, &ct)), ctx, exn);
       });
     },
     .None => {
@@ -881,12 +881,12 @@ move_captured_explicit_copy_variable :: (fn(v : &Variable, tok : &Token, env : &
         .None => v
       );
       _log_user_move(&moved, tok, env);
-      moved.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
+      moved.consumed_at_token = Option(Token).Some(tok.clone());
       // Mark the shadow too, so a re-evaluation of the same site against the
       // same bindings takes the `same_site` branch instead of finding every
       // owning binding consumed and raising E0901.
       if(owner.is_some(), {
-        v.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
+        v.consumed_at_token = Option(Token).Some(tok.clone());
       });
     }
   );
@@ -1021,9 +1021,9 @@ _move_through_sink_shadow :: (fn(v : &Variable, rhs : &AstExpr, env : &Environme
     .Some(o) => {
       tok := ast_expr_token(rhs);
       _log_user_move(&o, &tok, env);
-      o.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
+      o.consumed_at_token = Option(Token).Some(tok.clone());
       _log_user_move(v, &tok, env);
-      v.consumed_at_token = Option(Rc(Token)).Some(rc(tok.clone()));
+      v.consumed_at_token = Option(Token).Some(tok.clone());
       true
     },
     .None => false
@@ -1063,7 +1063,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
       is_temp_variable_name(&ei.env.module_path, variable_name) => {
         if(v.is_owning_the_rc_value, {
           if(v.consumed_at_token.is_none(), {
-            v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(rhs)));
+            v.consumed_at_token = Option(Token).Some(ast_expr_token(rhs));
           });
         }, {
           what := cond(
@@ -1092,7 +1092,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
 /// compiler temp's "consumed" mark is ownership bookkeeping, not a move.
 _log_user_move :: (fn(v : &Variable, tok : &Token, env : &Environment) -> unit)({
   if(!is_temp_variable_name(&env.module_path, &v.name), {
-    record_branch_consume(v.id, tok, &v.initialized_at_token, match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct.*), .None => Option(Token).None));
+    record_branch_consume(v.id, tok, &v.initialized_at_token, match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None));
   });
 });
 /// Mark the variable backing `expr` as consumed in `env`:
@@ -1718,18 +1718,18 @@ set_expr_as_consumed :: (
             // full-env scan on the hot consumed-marking path (see consume.yo).
             .None => {
               _log_user_move(&v, ast_expr_token(expr), env);
-              v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(expr)));
+              v.consumed_at_token = Option(Token).Some(ast_expr_token(expr));
             },
             .Some(consumed_tok) => cond(
               // Allowed to re-consume — overwrite the consumption point.
               allow_consume_again => {
                 _log_user_move(&v, ast_expr_token(expr), env);
-                v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(expr)));
+                v.consumed_at_token = Option(Token).Some(ast_expr_token(expr));
               },
               // Step 4: throw `use of moved value`.
-              migrate_borrowed_match_at(&consumed_tok.*) => (),
+              migrate_borrowed_match_at(&consumed_tok) => (),
               true => {
-                exn.throw(dyn(use_of_moved_value_error(&name, &v.ty, ast_expr_token(expr), variable_move_note(&v, &consumed_tok.*))));
+                exn.throw(dyn(use_of_moved_value_error(&name, &v.ty, ast_expr_token(expr), variable_move_note(&v, &consumed_tok))));
               }
             )
           );
@@ -2291,7 +2291,7 @@ set_expr_as_needs_to_call_dup :: (
             find_variable_in_env(&ei.env, &variable_name),
             .Some(v) => {
               if(v.is_owning_the_rc_value && v.consumed_at_token.is_none(), {
-                v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(rhs)));
+                v.consumed_at_token = Option(Token).Some(ast_expr_token(rhs));
               });
               // Non-owning RC temp (e.g. index-trait result): codegen does not
               // dup inline for these, so fall through to generate the dup.
@@ -2319,7 +2319,7 @@ set_expr_as_needs_to_call_dup :: (
             .Some(v) => {
               if(v.is_owning_the_rc_value, {
                 if(v.consumed_at_token.is_none(), {
-                  v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(rhs)));
+                  v.consumed_at_token = Option(Token).Some(ast_expr_token(rhs));
                 });
                 return(());
               });
@@ -2354,7 +2354,7 @@ set_expr_as_needs_to_call_dup :: (
           if(dvars.len() > usize(0), {
             dv := match(dvars.last(), .Some(x) => x, .None => make_err_variable(&ei.env));
             if(dv.consumed_at_token.is_none(), {
-              dv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(&evaluated_dup)));
+              dv.consumed_at_token = Option(Token).Some(ast_expr_token(&evaluated_dup));
             });
           });
         }
@@ -2489,7 +2489,7 @@ set_expr_as_needs_to_call_dup_for_borrowed_projection :: (
           match(
             reg_var,
             .Some(rv) => {
-              rv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(rhs)));
+              rv.consumed_at_token = Option(Token).Some(ast_expr_token(rhs));
             },
             .None => ()
           );
@@ -2660,7 +2660,7 @@ consume_case_body_temp_var :: (
       v := match(vars.last(), .Some(x) => x, .None => make_err_variable(env));
       if(v.consumed_at_token.is_none(), {
         // Variable is an RC object; mutation is in-place and visible through env.
-        v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(evaluated_body)));
+        v.consumed_at_token = Option(Token).Some(ast_expr_token(evaluated_body));
       });
     }
   );
@@ -2709,7 +2709,7 @@ reset_sibling_flow_state :: (fn(env : &Environment, prev_arm : &Option(AstExpr))
         .Some(v) => {
           match(prev_arm, .Some(pa) => _keep_undone_move(&v, &r.before_consumed, &pa), .None => ());
           v.initialized_at_token = r.before_init;
-          v.consumed_at_token = match(r.before_consumed, .Some(bc) => Option(Rc(Token)).Some(rc(bc)), .None => Option(Rc(Token)).None);
+          v.consumed_at_token = match(r.before_consumed, .Some(bc) => Option(Token).Some(bc), .None => Option(Token).None);
         },
         .None => ()
       ),
@@ -2852,9 +2852,9 @@ _keep_undone_move :: (fn(v : &Variable, before : &Option(Token), arm : &AstExpr)
   match(
     v.consumed_at_token,
     .Some(ct) => {
-      same := match(before, .Some(b) => ((b.module_path == ct.*.module_path) && (b.character == ct.*.character)), .None => false);
+      same := match(before, .Some(b) => ((b.module_path == ct.module_path) && (b.character == ct.character)), .None => false);
       if(!same, {
-        variable_record_undone_move(v, UndoneMove(moved_at : ct.*.clone(), until : _last_token_of(arm, &ct.*), inclusive : true));
+        variable_record_undone_move(v, UndoneMove(moved_at : ct.clone(), until : _last_token_of(arm, &ct), inclusive : true));
       });
     },
     .None => ()
@@ -2894,7 +2894,7 @@ snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, into : &mut ArrayList(LoopFlowSnaps
         find_variable_by_id(env, r.var_id),
         .Some(v) => if(v.frame_level < lc.entry_frame_count, {
           ids.push(v.id);
-          states.push(match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct.*), .None => Option(Token).None));
+          states.push(match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None));
         }),
         .None => ()
       ),
@@ -2941,7 +2941,7 @@ check_loop_flow :: (
         find_variable_by_id(env, r.var_id),
         .Some(v) => if(v.frame_level < lc.entry_frame_count, {
           pre := r.before_consumed;
-          body_end := match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct.*), .None => Option(Token).None);
+          body_end := match(v.consumed_at_token, .Some(ct) => Option(Token).Some(ct), .None => Option(Token).None);
           // Back edges.
           back_moved := ArrayList(Token).new();
           back_live := ArrayList(Token).new();
@@ -3007,9 +3007,9 @@ check_loop_flow :: (
           });
           final := match(exit_moved.get(usize(0)), .Some(t) => Option(Token).Some(t), .None => Option(Token).None);
           if((exit_moved.len() > usize(0)) || (exit_live.len() > usize(0)), {
-            v.consumed_at_token = match(final, .Some(ft) => Option(Rc(Token)).Some(rc(ft)), .None => Option(Rc(Token)).None);
+            v.consumed_at_token = match(final, .Some(ft) => Option(Token).Some(ft), .None => Option(Token).None);
           });
-          record_flow_event(v.id, TypeValue.Unit, Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token, match(v.consumed_at_token, .Some(jc) => Option(Token).Some(jc.*), .None => Option(Token).None));
+          record_flow_event(v.id, TypeValue.Unit, Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token, match(v.consumed_at_token, .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
         }),
         .None => ()
       ),
@@ -3132,7 +3132,7 @@ _drop_in_arms_that_keep :: (
   // The drop is evaluated with the value still owned, as the scope-end drop
   // of an unmoved local is; the join marks it moved afterwards.
   saved_consumed := v.consumed_at_token;
-  v.consumed_at_token = Option(Rc(Token)).None;
+  v.consumed_at_token = Option(Token).None;
   (i : usize) = usize(0);
   while(i < bodies.len(), {
     keeps := match(consumed_at_tokens.get(i), .Some(.Some(_)) => false, _ => true);
@@ -3144,7 +3144,7 @@ _drop_in_arms_that_keep :: (
           .Some(bi) => {
             drop_expr := generate_expr_from_code(`${BF_DROP}(${v.name})`, exn);
             evaluated := evaluate_expression_raw(&drop_expr, env, ctx, exn);
-            v.consumed_at_token = Option(Rc(Token)).None;
+            v.consumed_at_token = Option(Token).None;
             drops := match(bi.deferred_drop_expressions, .Some(l) => l, .None => ArrayList(AstExpr).new());
             drops.push(evaluated);
             bi.deferred_drop_expressions = Option(ArrayList(AstExpr)).Some(drops);
@@ -3462,7 +3462,7 @@ merge_and_check_envs :: (
               initialized_at_tokens.push(case_var.initialized_at_token);
             };
             {
-              consumed_at_tokens.push(match(case_var.consumed_at_token, .Some(b) => Option(Token).Some(b.*), .None => Option(Token).None));
+              consumed_at_tokens.push(match(case_var.consumed_at_token, .Some(b) => Option(Token).Some(b), .None => Option(Token).None));
             };
             owning_token := cond(
               case_var.is_owning_the_rc_value => Option(Token).Some(case_var.token),
@@ -3640,7 +3640,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               });
               // The joined state is decided below from the pre-branch state.
               base_var.initialized_at_token = flow_pre_init;
-              base_var.consumed_at_token = match(flow_pre_consumed, .Some(pc) => Option(Rc(Token)).Some(rc(pc)), .None => Option(Rc(Token)).None);
+              base_var.consumed_at_token = match(flow_pre_consumed, .Some(pc) => Option(Token).Some(pc), .None => Option(Token).None);
             },
             .None => ()
           );
@@ -3715,7 +3715,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
                 match(
                   base_var.consumed_at_token,
                   .None => {
-                    base_var.consumed_at_token = Option(Rc(Token)).Some(rc(ct.clone()));
+                    base_var.consumed_at_token = Option(Token).Some(ct.clone());
                   },
                   .Some(_) => ()
                 );
@@ -3756,7 +3756,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               match(
                 end_tok,
                 .Some(t) => {
-                  base_var.consumed_at_token = Option(Rc(Token)).Some(rc(t.clone()));
+                  base_var.consumed_at_token = Option(Token).Some(t.clone());
                   variable_note_arm_move(&base_var, &t, &first_tok);
                 },
                 .None => ()
@@ -3784,7 +3784,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               match(
                 end_ct,
                 .Some(t) => {
-                  base_var.consumed_at_token = Option(Rc(Token)).Some(rc(t.clone()));
+                  base_var.consumed_at_token = Option(Token).Some(t.clone());
                   variable_note_arm_move(&base_var, &t, &first_ct);
                 },
                 .None => ()
@@ -3821,7 +3821,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
               &flow_pre_init,
               &flow_pre_consumed,
               &base_var.initialized_at_token,
-              match(base_var.consumed_at_token, .Some(jc) => Option(Token).Some(jc.*), .None => Option(Token).None)
+              match(base_var.consumed_at_token, .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None)
             );
           });
           // ---- Check is_owning_the_rc_value ----
@@ -3844,7 +3844,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
           });
           if(all_owning && !base_var.is_owning_the_rc_value, {
             base_var.is_owning_the_rc_value = true;
-            base_var.is_owning_the_same_rc_value_as = Option(Rc(Variable)).None;
+            base_var.is_owning_the_same_rc_value_as = Option(Variable).None;
           });
           // Partial ownership → error
           if(any_owning && !all_owning && !base_var.is_owning_the_rc_value, {
@@ -3882,7 +3882,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
             new_id := generate_variable_id(&env.module_path, &var_name);
             base_var.id = new_id;
             base_var.value = value_cell_of(Option(EvalValue).None);
-            base_var.is_owning_the_same_rc_value_as = Option(Rc(Variable)).None;
+            base_var.is_owning_the_same_rc_value_as = Option(Variable).None;
           });
           var_j = (var_j + usize(1));
         });

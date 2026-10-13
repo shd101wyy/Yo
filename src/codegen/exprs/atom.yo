@@ -234,8 +234,8 @@ _generate_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Functio
           .Some(variable2) => match(
             variable2.is_owning_the_same_rc_value_as,
             .Some(owner_box2) => {
-              owner_name := owner_box2.*.name.clone();
-              owner_id := owner_box2.*.id.to_string();
+              owner_name := owner_box2.name.clone();
+              owner_id := owner_box2.id.to_string();
               it3 := smv.into_iter();
               (go3 : bool) = true;
               while(go3, {
@@ -407,7 +407,7 @@ _emit_loop_body_drops_before_exit :: (fn(context : &FunctionGenerationContext, i
                   moved_here := match(
                     match(exit_vars, .Some(xv) => xv.last(), .None => Option(Variable).None),
                     .Some(mv) => (
-                      match(mv.consumed_at_token, .Some(ct) => ((ct.*.module_path == exit_tok.module_path) && (ct.*.character <= exit_tok.character)), .None => false) || variable_moved_at_cleanup_point(&mv, &exit_tok)
+                      match(mv.consumed_at_token, .Some(ct) => ((ct.module_path == exit_tok.module_path) && (ct.character <= exit_tok.character)), .None => false) || variable_moved_at_cleanup_point(&mv, &exit_tok)
                     ),
                     .None => false
                   );
@@ -815,7 +815,7 @@ _sm_consuming_read :: (fn(expr : &AstExpr, name : &String, sm_code : &String, co
   vs := scope_variables(eid, &ei.env, name);
   v := match(vs.last(), .Some(x) => x, .None => return(sm_code));
   tok := ast_expr_token(expr);
-  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.*.module_path == tok.module_path) && (ct.*.row == tok.row) && (ct.*.column == tok.column)), .None => false);
+  is_move := match(v.consumed_at_token, .Some(ct) => ((ct.module_path == tok.module_path) && (ct.row == tok.row) && (ct.column == tok.column)), .None => false);
   if(!is_move || !type_contains_rc_cell_or_move_only(&ei.ty), {
     return(sm_code);
   });
