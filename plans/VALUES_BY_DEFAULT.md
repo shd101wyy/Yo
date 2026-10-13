@@ -103,7 +103,8 @@ Progress:
     favor it).
   - Decision 44's follow-up: a closure into a `Dyn(Fn)` slot is `dyn(f)`.
 - **Next:** the rest of V2b (direct projection calls, unique buffers, the
-  explicit-copy kind), V2c, decision 43, then V5.
+  explicit-copy kind), then the allocator interface version 2 (§6, after
+  V2b), V2c, decision 43, then V5.
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
 
