@@ -12,7 +12,9 @@
 { ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
 { DefaultHasher } :: import("std/hash");
-{ ToString } :: import("std/fmt");
+{ ToString, Debug, Format } :: import("std/fmt");
+{ ToJson, JsonValue } :: import("std/encoding/json");
+{ Error, AnyError } :: import("std/error");
 
 _pm_len :: (fn(s : &String) -> usize)(s.len());
 _pm_plain_len :: (fn(s : &String) -> usize)(s.len());
@@ -620,4 +622,44 @@ test("an impl member may not write a receiver its trait lends read-only", {
     "lends its receiver read-only"
   );
   comptime_expect_error(impl(_PmTally, Clone(clone : (fn(self : &mut Self) -> Self)(_PmTally(n : self.n)))), "lends its receiver read-only");
+});
+
+// `Hash.hash`, `Debug.debug_string`, `Format.format`, `ToJson.to_json` and
+// `Error.source` only read their receiver too, so they take `self : &Self`
+// as well (issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md):
+// a `&T` borrow reaches them, and an impl member that spells
+// `self : &mut Self` is rejected at the impl.
+_PmKey :: struct(n : i32);
+derive(_PmKey, Hash, Debug);
+impl(_PmKey, ToString(to_string : (fn(self : &Self) -> String)(self.n.to_string())));
+impl(_PmKey, Format());
+impl(_PmKey, ToJson(to_json : (fn(self : &Self) -> JsonValue)(JsonValue.Int(value : i64(self.n)))));
+impl(_PmKey, Error(source : (fn(self : &Self) -> Option(AnyError))(.None)));
+_pm_hash_of :: (fn(generic(T : Type), x : &T, where(T <: Hash)) -> u64)({
+  h := DefaultHasher.new();
+  x.hash(&mut h);
+  h.finish()
+});
+_pm_debug_of :: (fn(generic(T : Type), x : &T, where(T <: Debug)) -> String)(x.debug_string());
+_pm_format_of :: (fn(generic(T : Type), x : &T, where(T <: Format)) -> String)(x.format(">4"));
+_pm_json_of :: (fn(generic(T : Type), x : &T, where(T <: ToJson)) -> JsonValue)(x.to_json());
+_pm_has_source :: (fn(generic(T : Type), x : &T, where(T <: Error)) -> bool)(x.source().is_some());
+_PmReadOnly :: struct(n : i32);
+impl(_PmReadOnly, ToString(to_string : (fn(self : &Self) -> String)(self.n.to_string())));
+test("Hash, Debug, Format, ToJson and Error.source read a & borrow", {
+  k := _PmKey(n : i32(7));
+  h := DefaultHasher.new();
+  k.hash(&mut h);
+  assert(_pm_hash_of(&k) == h.finish(), "hashed through a generic &T");
+  assert(_pm_debug_of(&k) == "_PmKey(7)", "debug-rendered through a generic &T");
+  assert(_pm_format_of(&k) == "   7", "formatted through a generic &T");
+  assert(match(_pm_json_of(&k), .Int(v) => (v == i64(7)), _ => false), "encoded through a generic &T");
+  assert(!_pm_has_source(&k), "source read through a generic &T");
+  assert(k.n == i32(7), "the source is unchanged");
+});
+test("Hash, Debug, Format, ToJson and Error impls may not take self : &mut Self", {
+  comptime_expect_error(impl(_PmReadOnly, Debug(debug_string : (fn(self : &mut Self) -> String)(self.n.to_string()))), "lends its receiver read-only");
+  comptime_expect_error(impl(_PmReadOnly, ToJson(to_json : (fn(self : &mut Self) -> JsonValue)(JsonValue.Null))), "lends its receiver read-only");
+  comptime_expect_error(impl(_PmReadOnly, Error(source : (fn(self : &mut Self) -> Option(AnyError))(.None))), "lends its receiver read-only");
+  comptime_expect_error(impl(_PmReadOnly, Hash(hash : (fn(generic(H : Type), self : &mut Self, hasher : &mut H, where(H <: Hasher)) -> unit)(hasher.write_i32(self.n)))), "lends its receiver read-only");
 });

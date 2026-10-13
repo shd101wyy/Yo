@@ -233,14 +233,14 @@ DefaultHasher :: SipHasher13;
 /// h := hash_one(String.from("key"));
 /// assert(hash_one(i32(1)) == hash_one(i32(1)), "deterministic");
 /// ```
-hash_one :: (fn(generic(T : Type), value : &mut T, where(T <: Hash)) -> u64)({
+hash_one :: (fn(generic(T : Type), value : &T, where(T <: Hash)) -> u64)({
   h := DefaultHasher.new();
   value.hash(&mut h);
   h.finish()
 });
 /// Hash one value with `DefaultHasher` keyed by `k0`, `k1` — what a
 /// `HashMap.with_keys(k0, k1)` computes for its keys.
-hash_one_with_keys :: (fn(generic(T : Type), value : &mut T, k0 : u64, k1 : u64, where(T <: Hash)) -> u64)({
+hash_one_with_keys :: (fn(generic(T : Type), value : &T, k0 : u64, k1 : u64, where(T <: Hash)) -> u64)({
   h := DefaultHasher.new_with_keys(k0, k1);
   value.hash(&mut h);
   h.finish()

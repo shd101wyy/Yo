@@ -230,7 +230,7 @@ impl(
     )
   }),
   /// The bucket hash of `key` under this map's keys.
-  _hash : (fn(self : &Self, key : &mut K) -> u64)({
+  _hash : (fn(self : &Self, key : &K) -> u64)({
     h := DefaultHasher.new_with_keys(self.k0, self.k1);
     key.hash(&mut h);
     h.finish()
@@ -500,7 +500,7 @@ impl(
         cond(
           ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
             bucket := (data_ptr.add(i)).*;
-            hash := self._hash(&mut bucket.key);
+            hash := self._hash(&bucket.key);
             h2 := h2_hash(hash);
             new_index := Self._find_insert_bucket(&new_map, hash);
             new_ctrl_ptr := Self._ctrl_ptr(&new_map);
@@ -564,7 +564,7 @@ impl(
   /// insertion that crosses the load factor rehashes the table first, which
   /// INVALIDATES every entry pointer previously handed out.
   try_insert : (fn(self : &mut Self, key : K, value : V) -> Result(Option(V), HashMapError))({
-    hash := self._hash(&mut key);
+    hash := self._hash(&key);
     bucket_opt := Self._find_bucket(self, &key, hash);
     match(
       bucket_opt,
@@ -1301,7 +1301,7 @@ impl(
   Index(K)(
     Output : V,
     index : (fn(self : &mut Self, idx : K, where(K <: (Eq(K), Hash))) -> *Self.Output)({
-      hash := self._hash(&mut idx);
+      hash := self._hash(&idx);
       bucket_opt := Self._find_bucket(self, &idx, hash);
       match(
         bucket_opt,
