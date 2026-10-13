@@ -875,7 +875,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
                 context.has_function(_func_val_id(&fv)) => (),
                 (expr_contains_unknown_value(_func_val_body(&fv), info) && _func_has_some_param(_func_val_id(&fv))) => (),
                 true => {
-                  context.register_function(_func_val_id(&fv), &fv, c_symbol_name(_func_val_id(&fv)));
+                  context.register_function(_func_val_id(&fv), &fv, function_c_name(_func_val_id(&fv)));
                   recur(_func_val_body(&fv), context, info);
                 }
               ),
@@ -921,7 +921,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           v_is_control => {
             mark_as_effect_record_member(_func_val_id(&v));
             if(!context.has_function(_func_val_id(&v)), {
-              context.register_function(_func_val_id(&v), &v, c_symbol_name(_func_val_id(&v)));
+              context.register_function(_func_val_id(&v), &v, function_c_name(_func_val_id(&v)));
             });
             recur(_func_val_body(&v), context, info);
           },
@@ -929,7 +929,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
           context.has_function(_func_val_id(&v)) => (),
           (expr_contains_unknown_value(_func_val_body(&v), info) && _func_has_some_param(_func_val_id(&v))) => (),
           true => {
-            context.register_function(_func_val_id(&v), &v, c_symbol_name(_func_val_id(&v)));
+            context.register_function(_func_val_id(&v), &v, function_c_name(_func_val_id(&v)));
             recur(_func_val_body(&v), context, info);
           }
         );
