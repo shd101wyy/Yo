@@ -2519,9 +2519,16 @@ jobs:
           # `rc_all`, not `status` — `status` is read-only in some shells.
           rc_all=0
           failed=""
+          # --compile-timeout-ms: the runner's default batch deadline is
+          # 600 s, and a file that compiles the whole compiler (compile.test)
+          # needs about that on these runners. It passed on run 38333980990
+          # and hit the deadline at 624 s on 38360830023
+          # (issues/fixed/compile-test-hits-the-600-second-batch-deadline-in-the-differential-job.md).
+          # 20 min keeps a real evaluator hang caught well inside the job's
+          # 150 min limit.
           for f in $files; do
             echo "::group::$f"
-            if /tmp/yo-stage1 test "$f" --parallel 1 --verbose; then
+            if /tmp/yo-stage1 test "$f" --parallel 1 --verbose --compile-timeout-ms 1200000; then
               echo "::endgroup::"
             else
               echo "::endgroup::"
