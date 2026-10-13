@@ -5448,6 +5448,18 @@ stage-2 RSS.
       goes in.
     - **`io.spawn`:** a task outlives the call, so it needs its own rule
       (a task's `unwind` aborts the task, §3.13 A2).
+  - **It also lets effect records opt in to `Copy`** (the maintainer,
+    2026-10-13: `derive(Exception, Copy, Clone)`, and the same for `IoExn`
+    and every effect record).
+    - Today that derive fails: "A function's result type cannot be
+      control-bound", because `Clone.clone` returns `Self` (probed
+      2026-10-13).
+    - Under R3, a result rooted at a parameter is legal, and `clone`'s
+      result is rooted at `self`. So once `ctl` types are second-class,
+      the derive is accepted, std derives `Copy` on its effect records
+      (Generation B, after a seed carries the rule), and
+      `type_lacks_copy_for_flip`'s control-bound exemption is deleted.
+    - An effect bundle then copies because it is `Copy`, not by exemption.
   - It is decided in step 2.
 
 **Decided 2026-10-13 (the maintainer):**
