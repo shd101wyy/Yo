@@ -8061,14 +8061,12 @@ Fix: wrap the call:
         // from the macro registry keyed by this FuncVal's id (registered at
         // fn-type evaluation, re-keyed by
         // `try_to_implement_function_by_function_type`).
-        // Macro DISPATCH is part of the def-eval propagation experiment
-        // layer, NOT enabled in committed builds: executing macro bodies
-        // intermittently corrupts the heap (allocator SIGTRAPs at innocent
-        // sites; ~50%% on heavy files) — the underlying Rc/copy issue is
-        // tracked in issues/fixed/codegen-continue-in-while-heap-corruption.md
-        // and issues/fixed/yo-self-macro-dispatch-corruption.md. The REGISTRY
-        // (quoted params / unquote returns) stays populated so the
-        // experiment patch only has to flip this constant.
+        // Macro DISPATCH runs a call to a macro fn through its macro body.
+        // MACRO_DISPATCH_ENABLED has been ON since 2026-06-11: the heap
+        // corruption that kept it off was two early-return RC bugs, both
+        // fixed (issues/fixed/codegen-continue-in-while-heap-corruption.md,
+        // issues/fixed/yo-self-macro-dispatch-corruption.md). `is_macro_fn`
+        // reads the REGISTRY (quoted params / unquote returns).
         fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
         // Early generic synthesis from the expected return type. When this call has an expected type, the function has
         // `generic` parameters, and there is NO explicit `generic(...)` argument,
