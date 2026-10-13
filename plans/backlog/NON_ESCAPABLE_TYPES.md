@@ -694,13 +694,37 @@ fires); a use of `xs` while `a` or `b` lives.
   The carried source `p.*` reuses decision 43's deref: `p` is the
   reference (the lent place included), `p.*` the value behind it, whose
   roots are what the result keeps.
-- **Field-path sources.** `depends(item : self.buf)` would let a result
-  borrow one field, so `xs.len()` could be read while an element
-  projection lives (today the projection freezes all of `xs`, decision
-  24). Position: not now — it writes private field names into public
-  signatures, so a representation change becomes an API change; revisit
-  with a counted need, and then through a named, public view of the
-  fields rather than the fields themselves.
+- **Field-path sources.** `depends(item : self._buf)` lets a result
+  borrow one field instead of the whole value. Position (maintainer,
+  2026-10-13):
+  - **Who may write one.** A field-path source is legal exactly where the
+    path itself is: a private (`_`-prefixed) field only inside its type's
+    private scope — the declaring module and its same-directory siblings,
+    E0405's scope (`plans/reference/MEMBER_VISIBILITY.md`,
+    `private_member_blocked`), the scope in-file `test(...)` declarations
+    and sibling `*.test.yo` files already use. Code outside that scope
+    can never write a clause that depends on another type's
+    representation. A trait method cannot name fields of `Self`, so
+    field-path sources appear only on a concrete type's own methods and
+    free functions over it.
+  - **What callers outside see.** A public method may carry the clause;
+    to a caller that cannot name `_buf` the path is an opaque part of the
+    argument, which the checker tracks without the caller's source
+    mentioning it. Renaming the field breaks no caller; changing which
+    fields a method borrows withdraws a promise, like widening any
+    `depends` entry.
+  - **The companion, without which outside callers gain nothing.**
+    `e := xs.get_mut(0)` borrowing only `xs._buf` still conflicts with
+    `xs.len()`, because `len(self : &Self)` reads all of `xs`. The payoff
+    needs a second, declared clause stating which fields a method
+    accesses (`len` reads only `self._len`) — a statement about access,
+    not flow, so a separate clause from `depends`, and declared, never
+    inferred ("Signatures, never bodies", R3). Inside the private scope
+    the code reads `xs._len` directly and needs no companion.
+  - **Phasing.** The scoping rule alone is cheap and serves module-
+    internal code; it may land after N2. The access clause is designed
+    and built together with any outside-facing use, once a counted need
+    appears (decision 43's "bites" triggers).
 - **`depends` in `yo doc`.** Whether `yo doc` prints the default clause
   on every reference-returning signature. Position: yes, so a reader sees
   the roots without reading the body.
