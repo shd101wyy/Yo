@@ -1353,9 +1353,11 @@ and in git, not a silent edit.
       | `TypeValue` a handle (`ref(enum)`, today) | 190.6 s, 1.27 GB | 406.3 s, 3.25 GB | 138.0 MB | 73.2 M / 87.6 M |
       | `TypeValue` a value enum, `Rc(Self)` children | 432.9 s, 1.46 GB | 1044.7 s, 4.22 GB | 143.1 MB | 73.3 M / 87.7 M |
 
-      Check is 2.3× slower and emit 2.6× slower, with 15–30 % more RSS. No
-      collector work is saved: the handle already leaves the collector
-      through its declared `Acyclic` (§3.12, #1329). The converted tree
+      Check is 2.3× slower and emit 2.6× slower, with 15–30 % more RSS. The
+      value form saves no collector work either: the registration counts
+      are identical in both forms, and were already about the same before
+      #1329 declared `TypeValue` `Acyclic` (72.1 M on an earlier develop),
+      so `TypeValue` nodes are not what the collector tracks. The converted tree
       itself is correct: it self-builds, and its stage 2 equals stage 3.
       Branch `feat/vbd-v4-typevalue-2` keeps it as the record. At V5,
       `TypeValue`'s `ref(enum)` becomes an `Rc` handle at the type level
