@@ -127,7 +127,7 @@ try_to_implement_closure_by_fn_module_type :: (
   );
   result_type := match(
     fn_module_type,
-    .FnTraitT(_, _, _, rt_box, _, _, _, _) => rt_box,
+    .FnTraitT(_, _, _, rt_box, _, _, _, _) => rt_box.*,
     _ => t_unit()
   );
   param_is_ref_flags := match(
@@ -195,7 +195,7 @@ try_to_implement_closure_by_fn_module_type :: (
     // implicit_types
     ArrayList(TypeValue).new(),
     // where_types
-    result_type_copy,
+    rc(result_type_copy),
     rc(
       FuncMeta(
         forall_labels : ArrayList(String).new(),

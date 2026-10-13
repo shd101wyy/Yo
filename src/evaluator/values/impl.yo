@@ -82,7 +82,7 @@ pragma(Pragma.AllowUnsafe);
   visibility_report_enabled
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
-{ FuncMeta, TypeValue } :: import("../../types/definitions.yo");
+{ FuncMeta, TypeValue, tv_opt_rc } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
@@ -1042,7 +1042,7 @@ _bind_forall_from_type_args :: (
                     match(
                       cell_rc,
                       .Some(cell_nx) => {
-                        cell_cur = cell_nx;
+                        cell_cur = cell_nx.*;
                       },
                       .None => {
                         cell_walk = false;
@@ -2746,7 +2746,7 @@ _format_generic_impl_signature :: (fn(entry : &GenericImplEntry) -> String)({
         entry.forall_some_types.get(fi),
         .Some(s) => match(
           s,
-          .SomeT({ parent_type }) => type_to_string(&parent_type),
+          .SomeT({ parent_type }) => type_to_string(&parent_type.*),
           _ => type_to_string(&s)
         ),
         .None => String.from("")
@@ -3217,7 +3217,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
   match(
     method_ty,
     .Func({ forall_types : fr_fts, param_types : fr_pts, implicit_types : fr_its, where_types : fr_wts, result : fr_res, meta : fr_m, variadic_types : fr_vts }) => {
-      res_somes := get_all_some_types(&fr_res);
+      res_somes := get_all_some_types(&fr_res.*);
       if(res_somes.len() == usize(0), {
         return(method_ty);
       });
@@ -3283,13 +3283,13 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
                     generate_some_type_id(),
                     r_nm.clone(),
                     r_lvl,
-                    r_pt.clone(),
+                    rc(r_pt.*.clone()),
                     r_rtt.clone(),
                     r_rtl.clone(),
                     r_ntt.clone(),
                     r_ntl.clone(),
                     r_kft.clone(),
-                    Option(TypeValue).None
+                    Option(Rc(TypeValue)).None
                   )
                 );
                 added = (added + usize(1));
@@ -3309,7 +3309,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
         fr_pts,
         fr_its,
         fr_wts,
-        substitute(&fs, &fr_res),
+        rc(substitute(&fs, &fr_res.*)),
         fr_m,
         fr_vts
       )

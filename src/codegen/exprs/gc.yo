@@ -37,7 +37,7 @@ generate_yo_gc_trace_child :: (fn(expr : &AstExpr, indent : &String, context : &
           if(!is_pointer_type(&slot_ty), {
             return(codegen_fatal_expr(String.from("__yo_gc_trace_child slot must be a pointer")));
           });
-          pointee := match(slot_ty, .Pointer(p) => p, _ => TypeValue.Unit);
+          pointee := match(slot_ty, .Pointer(p) => p.*, _ => TypeValue.Unit);
           // DIVERGENCE (deliberate): traverse the type the enclosing
           // function's C SIGNATURE resolves to — NOT the slot expr's own
           // ExprInfo type. The two are different TypeValue COPIES of the same
@@ -65,7 +65,7 @@ generate_yo_gc_trace_child :: (fn(expr : &AstExpr, indent : &String, context : &
                 pts.len() > usize(0),
                 match(
                   pts.last(),
-                  .Some(pt) => match(pt, .Pointer(p2) => p2, _ => pointee),
+                  .Some(pt) => match(pt, .Pointer(p2) => p2.*, _ => pointee),
                   .None => pointee
                 ),
                 pointee

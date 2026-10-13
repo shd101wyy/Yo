@@ -765,7 +765,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
         // entry (updated in place at impl.yo:2322) and is never otherwise
         // collected → "call to undeclared function". Deref to the pointee for the
         // id, the same deref idiom as match.yo:1153 / property_access.yo:524.
-        recv_ty_for_id := match(recv_ty, .Pointer(inner) => inner, _ => recv_ty);
+        recv_ty_for_id := match(recv_ty, .Pointer(inner) => inner.*, _ => recv_ty);
         ctid := if(recv_static_id.len() > usize(0), recv_static_id, type_id_or_empty(&recv_ty_for_id));
         if((ctid.len() > usize(0)) && (cmname.len() > usize(0)), {
           ments := get_type_trait_methods_by_name(&ctid, &cmname);

@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, FuncMeta, tv_opt_rc } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -421,8 +421,8 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
       });
       match(ss_bound, .Some(bt) => recur(&bt, env2, allow.clone()), .None => ty)
     },
-    .Pointer(ss_in) => .Pointer(recur(&ss_in, env2, allow.clone())),
-    .Array(ss_ain, ss_alen, ss_alv) => .Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv),
+    .Pointer(ss_in) => .Pointer(rc(recur(&ss_in.*, env2, allow.clone()))),
+    .Array(ss_ain, ss_alen, ss_alv) => .Array(rc(recur(&ss_ain.*, env2, allow.clone())), ss_alen, ss_alv),
     .Func({ forall_types : ss_fts, param_types : ss_pts, implicit_types : ss_its, where_types : ss_wts, result : ss_ret, meta : ss_fm }) => {
       ss_new_pts := ArrayList(TypeValue).new();
       (ss_pi : usize) = usize(0);
@@ -431,7 +431,7 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
         ss_new_pts.push(recur(&ss_elem, env2, allow.clone()));
         ss_pi = (ss_pi + usize(1));
       });
-      TypeValue.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(&ss_ret, env2, allow.clone()), rc(ss_fm.*.clone()), ArrayList(TypeValue).new())
+      TypeValue.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), rc(recur(&ss_ret.*, env2, allow.clone())), rc(ss_fm.*.clone()), ArrayList(TypeValue).new())
     },
     _ => ty
   )
@@ -1284,7 +1284,7 @@ evaluate_anonymous_function_implementation :: (
   );
   result_box := match(
     function_type,
-    .Func({ result : rb }) => rb,
+    .Func({ result : rb }) => rb.*,
     _ => TypeValue.Unit
   );
   // -------------------------------------------------------------------------
@@ -1630,13 +1630,13 @@ evaluate_anonymous_function_implementation :: (
       fl_name.clone(),
       fl_name.clone(),
       env.frame_count(),
-      TypeValue.TypeUni(usize(0)),
+      rc(TypeValue.TypeUni(usize(0))),
       ArrayList(TypeValue).new(),
       ArrayList(usize).new(),
       ArrayList(TypeValue).new(),
       ArrayList(usize).new(),
-      Option(TypeValue).None,
-      Option(TypeValue).None
+      Option(Rc(TypeValue)).None,
+      Option(Rc(TypeValue)).None
     );
     fl_tok := synthetic_token(fl_name.clone(), &env.module_path);
     _fa_v := add_variable_to_env(
@@ -1888,7 +1888,7 @@ evaluate_anonymous_function_implementation :: (
     .Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m, _) => {
       _l3nm := _l3m.*.clone();
       _l3nm.param_labels = actual_param_labels.clone();
-      TypeValue.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), rc(_l3nm), ArrayList(TypeValue).new())
+      TypeValue.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), rc(_l3r.*.clone()), rc(_l3nm), ArrayList(TypeValue).new())
     },
     _ => function_type.clone()
   );
@@ -1967,7 +1967,7 @@ evaluate_anonymous_function_implementation :: (
         .Some(enclosing_func_ty) => {
           enclosing_return_ty := match(
             enclosing_func_ty,
-            .Func({ result : rb }) => rb,
+            .Func({ result : rb }) => rb.*,
             _ => TypeValue.Unit
           );
           register_definition_site_return(func_id.clone(), &enclosing_return_ty);
@@ -2087,7 +2087,7 @@ evaluate_anonymous_function_implementation :: (
   // DOWN into the still-live throw frame. SomeT results are conservatively
   // not control-bound, so generic/async (`Impl(Future(...))`) results pass.
   if(!ctl_force, {
-    decl_result_ty := match(function_type, .Func({ result : __rr }) => __rr, _ => t_unit());
+    decl_result_ty := match(function_type, .Func({ result : __rr }) => __rr.*, _ => t_unit());
     if(type_is_control_bound(&decl_result_ty), {
       exn.throw(
         dyn(
@@ -2153,7 +2153,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // body types as SomeT and the concrete result-refine is skipped (closure return
     // + future result then lower to void*). Clear the expected type so the body
     // types naturally (the closure's result is inferred from the body anyway).
-    ret_ty_for_body := match(function_type, .Func({ result : brt }) => brt, _ => t_unit());
+    ret_ty_for_body := match(function_type, .Func({ result : brt }) => brt.*, _ => t_unit());
     // (`mark_closure_for_codegen` is every `=>` closure — this clear is what
     // makes the def-time body type CONCRETELY instead of being coerced to
     // the SomeT, which feeds the closure-body-type registration below.)
@@ -2299,7 +2299,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
             if(!has_any_control_flow(cr_info.control_flow), {
               reject_second_class_return(&cr_body_ty, ast_expr_token(&anon_eb), env, ctx, exn);
             });
-            cr_ret_ty := match(function_type, .Func({ result : cr_r }) => cr_r, _ => t_unit());
+            cr_ret_ty := match(function_type, .Func({ result : cr_r }) => cr_r.*, _ => t_unit());
             cr_skip := (has_any_control_flow(cr_info.control_flow) || is_void_type(&cr_ret_ty) || is_type_hierarchy_type(&cr_ret_ty) || (get_all_some_types(&cr_ret_ty).len() > usize(0)) || (get_all_some_types(&cr_body_ty).len() > usize(0)));
             if(!cr_skip && !are_types_compatible(&cr_body_ty, &cr_ret_ty), {
               cr_hint := cond(
@@ -2327,7 +2327,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         // That is parametricity, as the deferred trial checks for a closure
         // against its own forall
         // (issues/fixed/a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md).
-        rv_ret := match(function_type, .Func({ result : rv_r }) => rv_r, _ => t_unit());
+        rv_ret := match(function_type, .Func({ result : rv_r }) => rv_r.*, _ => t_unit());
         rv_generic := match(
           rv_ret,
           .SomeT({ name : rv_name }) => {
@@ -2394,7 +2394,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
           .Some(nrs_info) => {
             nrs_body_ty := nrs_info.ty;
-            nrs_ret_ty := match(function_type, .Func({ result : nrs_r }) => nrs_r, _ => t_unit());
+            nrs_ret_ty := match(function_type, .Func({ result : nrs_r }) => nrs_r.*, _ => t_unit());
             nrs_ret_nested := (!is_some_type(&nrs_ret_ty) && (get_all_some_types(&nrs_ret_ty).len() > usize(0)));
             // BARE-SomeT declared return (`-> B`, map's output forall): the
             // env-channel binding must handle it here or `B` never binds
@@ -2439,7 +2439,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 .Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt) => {
                   nrs_nm := nrs_m.*.clone();
                   nrs_nm.param_labels = actual_param_labels.clone();
-                  TypeValue.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, rc(nrs_nm), nrs_vt)
+                  TypeValue.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, rc(nrs_body_ty), rc(nrs_nm), nrs_vt)
                 },
                 _ => function_type
               );
@@ -2494,7 +2494,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 .SomeT({ resolution : bt_cell }) => match(
                   bt_cell,
                   .Some(bt_rc) => {
-                    body_ty = bt_rc;
+                    body_ty = bt_rc.*;
                   },
                   .None => ()
                 ),
@@ -2530,7 +2530,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     // which codegen then lowered to `void*` once the id-keyed
                     // registry stopped carrying binder resolutions
                     // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
-                    TypeValue.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), rc(_l4nm), ArrayList(TypeValue).new())
+                    TypeValue.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), rc(body_ty.clone()), rc(_l4nm), ArrayList(TypeValue).new())
                   },
                   _ => t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone())
                 );
@@ -2631,7 +2631,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
   // degenerating to unit cannot convict, and an expected bare SomeT that is
   // not this fn's own forall is bound by the call site.
   if(should_defer_body, {
-    dgc_ret := match(function_type, .Func({ result : dgc_r }) => dgc_r, _ => t_unit());
+    dgc_ret := match(function_type, .Func({ result : dgc_r }) => dgc_r.*, _ => t_unit());
     // Every deferred generic closure body is trialled (Phase 6 step 2, the
     // twin of the named-fn deferred trial); the result comparison below
     // stays limited to a result that mentions a type variable.
@@ -2990,8 +2990,8 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   // (issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md).
                   match(
                     w_rt,
-                    .FnTraitT({ call_result : w_cr }) => if(!is_some_type(&w_cr) || (
-                      match(w_cr, .SomeT({ name : w_cr_nm }) => (w_cr_nm == "Impl"), _ => false) && _is_unresolved_impl_fn_type(&w_cr)
+                    .FnTraitT({ call_result : w_cr }) => if(!is_some_type(&w_cr.*) || (
+                      match(w_cr.*, .SomeT({ name : w_cr_nm }) => (w_cr_nm == "Impl"), _ => false) && _is_unresolved_impl_fn_type(&w_cr.*)
                     ), {
                       w_has_concrete_fn = true;
                     }),
@@ -3036,13 +3036,13 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     generate_some_type_id(),
                     String.from("__impl_fn"),
                     usize(0),
-                    TypeValue.TypeUni(usize(0)),
+                    rc(TypeValue.TypeUni(usize(0))),
                     impl_rtt,
                     impl_rtl,
                     ArrayList(TypeValue).new(),
                     ArrayList(usize).new(),
-                    Option(TypeValue).None,
-                    Option(TypeValue).Some(cap_t)
+                    Option(Rc(TypeValue)).None,
+                    Option(Rc(TypeValue)).Some(rc(cap_t))
                   );
                   // PER-CALL identity: the `F` here is ONE SomeT across
                   // every call of the generic fn, so recording the capture on
@@ -3063,7 +3063,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     w_ntt,
                     w_ntl,
                     w_kft,
-                    Option(TypeValue).Some(impl_fn_wrapper)
+                    Option(Rc(TypeValue)).Some(rc(impl_fn_wrapper))
                   );
                 },
                 .None => ()
@@ -3079,7 +3079,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   w_ntt,
                   w_ntl,
                   w_kft,
-                  Option(TypeValue).Some(cap_t)
+                  Option(Rc(TypeValue)).Some(rc(cap_t))
                 );
               },
               true => ()

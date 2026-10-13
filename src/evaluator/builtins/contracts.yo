@@ -555,7 +555,7 @@ ${ast_expr_to_string(expr)}`
   // registration reads it onto the fn's FuncVal id for the verifier. The
   // ERASURE happens at the binding (env.yo unwraps to `inner`) and in the
   // guards/tag/sizes, so runtime cost stays zero.
-  refined := TypeValue.RefineT(inner : inner_ty, predicate_func_id : pred_fid.clone());
+  refined := TypeValue.RefineT(inner : rc(inner_ty.clone()), predicate_func_id : pred_fid.clone());
   // Composition (FORMAL_VERIFICATION.md §7): refine(refine(T, p), q) acts
   // as the CONJUNCTION p(x) && q(x). The nested shape stays distinct at the
   // type level (no flattening — that would need a synthesized conjunction
@@ -1683,7 +1683,7 @@ register_impl_inheritance_task :: (
             );
             pih = (pih + usize(1));
           });
-          ret_ty = __ihres.clone();
+          ret_ty = __ihres.*.clone();
         },
         _ => ()
       );
@@ -2270,7 +2270,7 @@ register_impl_variance_task :: (
         );
         pi = (pi + usize(1));
       });
-      ret_ty = __vres.clone();
+      ret_ty = __vres.*.clone();
     },
     _ => ()
   );
@@ -3176,7 +3176,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
         );
         pi = (pi + usize(1));
       });
-      ret_is_unit = match(__lres, .Unit => true, _ => false);
+      ret_is_unit = match(__lres.*, .Unit => true, _ => false);
       match(
         __lm.*.origin_id,
         .Some(oid) => {

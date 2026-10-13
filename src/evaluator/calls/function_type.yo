@@ -45,7 +45,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   find_variable_in_env
 } :: import("../../env.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, tv_opt_rc } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_ptr, resolve_some_binder_kind, t_with_resolution, t_with_func_result, resolve_enum_shell, register_ctor_phantom_positions } :: import("../../types/creators.yo");
 { is_type_0, is_some_type, is_unit_type, is_void_type, is_function_type, is_type_hierarchy_type, is_comptime_int_type, is_never_type } :: import("../../types/guards.yo");
 { adopt_never_type, reject_second_class_return } :: import("../utils.yo");
@@ -1148,14 +1148,14 @@ try_to_implement_function_by_function_type :: (
       // conservatively not control-bound, so generic and async
       // (`Impl(Future(...))`) results pass. The `->`/`=>` literal path has
       // the same check (values/anonymous_function.yo).
-      if(!(__fm2.*.is_control) && type_is_control_bound(&result_box), {
+      if(!(__fm2.*.is_control) && type_is_control_bound(&result_box.*), {
         exn.throw(
           dyn(
             format_error_message(
               &tok,
               `A function's result type cannot be control-bound (transitively contain a \`ctl(...) -> ret\` function type). A \`ctl\` handler unwinds the frame it is installed in at the throw site; returning one out of its defining function would let it be invoked after that frame is gone. Pass the handler (or the record holding it) downward as a parameter instead.
 
-Result type: ${type_to_string(&result_box)}`
+Result type: ${type_to_string(&result_box.*)}`
             )
           )
         );
@@ -1239,7 +1239,7 @@ Result type: ${type_to_string(&result_box)}`
         &ck_ensures,
         get_func_return_label(contract_key.clone()),
         result_is_comptime_only,
-        is_unit_type(&result_box),
+        is_unit_type(&result_box.*),
         ctx.is_ghost_context,
         &ck_requires_checkable,
         &ck_ensures_checkable
@@ -1553,8 +1553,8 @@ Result type: ${type_to_string(&result_box)}`
               add_variable_to_env(
                 &pred_env,
                 rl.clone(),
-                result_box.clone(),
-                Option(EvalValue).Some(create_unknown_val(result_box.clone())),
+                result_box.*.clone(),
+                Option(EvalValue).Some(create_unknown_val(result_box.*.clone())),
                 false,
                 false,
                 false,
@@ -1649,7 +1649,7 @@ Result type: ${type_to_string(&result_box)}`
               body : body_expr_raw.clone(),
               param_names : param_labels.clone(),
               param_types : param_types.clone(),
-              result_type : result_box.clone(),
+              result_type : result_box.*.clone(),
               requires_exprs : evd_reqs,
               ensures_exprs : evd_enss,
               decreases_expr : match(
@@ -1673,7 +1673,7 @@ Result type: ${type_to_string(&result_box)}`
           ()
         });
       });
-      result_box;
+      result_box.*;
       // If we are in CTFE analysis mode OR actually EXECUTING a CTFE function
       // (`force_compile_time_bindings`), analyse this NESTED function for CTFE
       // capability too, and prefer the comptime version — this allows nested
@@ -1732,7 +1732,7 @@ Result type: ${type_to_string(&result_box)}`
             &param_is_ref,
             &param_is_owning,
             &def_ct_flags,
-            &result_box,
+            &result_box.*,
             &def_where_entries,
             function_type,
             ctx.is_evaluating_function_body_or_async_block.is_some()
@@ -1815,7 +1815,7 @@ Result type: ${type_to_string(&result_box)}`
           // batch main's own trial resolve abstractly
           // (tests/collections/btree_map.test.yo lost `for(m.iter())`'s
           // closure-arg ExprInfo under the wip synthesis loosenings).
-          flow_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&flow_env, &forall_labels, &param_labels), ArrayList(String).new());
+          flow_binders := if(is_type_hierarchy_type(&result_box.*), _ctor_binder_some_ids(&flow_env, &forall_labels, &param_labels), ArrayList(String).new());
           flow_depths := forcing_depths();
           _trial_eval_fn_body(&fb, &flow_env, &flow_ctx, &mut flow_out);
           truncate_forcing_depths(flow_depths);
@@ -1890,7 +1890,7 @@ Result type: ${type_to_string(&result_box)}`
                 param_is_ref : param_is_ref,
                 param_is_owning : param_is_owning,
                 param_is_comptime : def_ct_flags,
-                result_ty : result_box,
+                result_ty : result_box.*,
                 where_entries : def_where_entries,
                 function_type : function_type,
                 strip_outer : ctx.is_evaluating_function_body_or_async_block.is_some(),
@@ -1986,7 +1986,7 @@ Result type: ${type_to_string(&result_box)}`
                 // to a `-> never` function) adopts the declared result, so
                 // codegen can type its unreachable placeholder (Phase 3.6).
                 if(is_never_type(&ub_ty), {
-                  adopt_never_type(&ub_body, if(result_is_ref, t_ptr(&result_box), result_box), ctx);
+                  adopt_never_type(&ub_body, if(result_is_ref, t_ptr(&result_box.*), result_box.*), ctx);
                 });
                 // An `Impl(Trait)` result is judged by its traits, not by
                 // compatibility (issues/fixed/impl-trait-return-bound-is-not-checked.md);
@@ -1996,40 +1996,40 @@ Result type: ${type_to_string(&result_box)}`
                   reject_second_class_return(&ub_ty, ast_expr_token(&fb), &flow_env, ctx, exn);
                   // A FUNCTION result's marker traits come from the returned
                   // value (rules D4 + D1, `judge_function_argument_markers`).
-                  ub_fam := judge_function_argument_markers(&result_box, &ub_ty, &ub_info.value, &flow_env, ctx);
+                  ub_fam := judge_function_argument_markers(&result_box.*, &ub_ty, &ub_info.value, &flow_env, ctx);
                   match(
                     ub_fam.offense,
                     .Some(ub_fo) => {
                       mark_fn_unemittable(fn_val_id.clone());
-                      exn.throw(dyn(format_error_message(ast_expr_token(&fb), `The body's value (type ${type_to_string(&ub_ty)}) cannot be returned as ${type_to_string(&result_box)}: ${ub_fo}.`)));
+                      exn.throw(dyn(format_error_message(ast_expr_token(&fb), `The body's value (type ${type_to_string(&ub_ty)}) cannot be returned as ${type_to_string(&result_box.*)}: ${ub_fo}.`)));
                     },
                     .None => ()
                   );
                   match(
-                    impl_param_unmet_trait(&result_box, &ub_ty, &flow_env, ub_fam.judged),
+                    impl_param_unmet_trait(&result_box.*, &ub_ty, &flow_env, ub_fam.judged),
                     .Some(ub_rt) => {
                       mark_fn_unemittable(fn_val_id.clone());
-                      exn.throw(dyn(format_error_message(ast_expr_token(&fb), _impl_result_unmet_message(&ub_ty, &ub_rt, &result_box))));
+                      exn.throw(dyn(format_error_message(ast_expr_token(&fb), _impl_result_unmet_message(&ub_ty, &ub_rt, &result_box.*))));
                     },
                     .None => ()
                   );
                 });
-                ub_skip := (has_any_control_flow(ub_info.control_flow) || is_void_type(&result_box) || is_type_hierarchy_type(&result_box) || type_contains_some_type_for_codegen_param(&result_box, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(&ub_ty, ArrayList(String).new()));
+                ub_skip := (has_any_control_flow(ub_info.control_flow) || is_void_type(&result_box.*) || is_type_hierarchy_type(&result_box.*) || type_contains_some_type_for_codegen_param(&result_box.*, ArrayList(String).new()) || type_contains_some_type_for_codegen_param(&ub_ty, ArrayList(String).new()));
                 // A projection's body yields the place's address
                 // (`rewrite_projection_tails`): `&place` / `&mut place`.
-                ub_place_ptr := t_ptr(&result_box);
+                ub_place_ptr := t_ptr(&result_box.*);
                 if(!ub_skip && result_is_ref && !are_types_compatible(&ub_ty, &ub_place_ptr), {
                   mark_fn_unemittable(fn_val_id.clone());
                   exn.throw(
                     dyn(
                       format_error_message(
                         ast_expr_token(&fb),
-                        `This function returns \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}${type_to_string(&result_box)}\`, a projection (decision 24): its result is a place of type \`${type_to_string(&result_box)}\` written \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}place\`, and this body has type \`${type_to_string(&ub_ty)}\`.`
+                        `This function returns \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}${type_to_string(&result_box.*)}\`, a projection (decision 24): its result is a place of type \`${type_to_string(&result_box.*)}\` written \`${if(__fm2.*.result_is_mut_ref, "&mut ", "&")}place\`, and this body has type \`${type_to_string(&ub_ty)}\`.`
                       )
                     )
                   );
                 });
-                if(!ub_skip && !result_is_ref && !are_types_compatible(&ub_ty, &result_box), {
+                if(!ub_skip && !result_is_ref && !are_types_compatible(&ub_ty, &result_box.*), {
                   // The registration above already happened; a definition
                   // rejected here must not be emitted (its callers were
                   // discarded with the throw — a `comptime_expect_error`
@@ -2043,7 +2043,7 @@ Result type: ${type_to_string(&result_box)}`
                     dyn(
                       format_error_message(
                         ast_expr_token(&fb),
-                        `Function body has type \`${type_to_string(&ub_ty)}\`, but the declared result type is \`${type_to_string(&result_box)}\`.${ub_hint}`
+                        `Function body has type \`${type_to_string(&ub_ty)}\`, but the declared result type is \`${type_to_string(&result_box.*)}\`.${ub_hint}`
                       )
                     )
                   );
@@ -2053,7 +2053,7 @@ Result type: ${type_to_string(&result_box)}`
                 // value-blind (issues/fixed/context-typed-integer-literal-is-not-range-checked.md).
                 if(!ub_skip && !result_is_ref && is_comptime_int_type(&ub_ty), {
                   match(
-                    match(ub_info.value, .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(&ub_raw, &result_box), _ => Option(String).None), .None => Option(String).None),
+                    match(ub_info.value, .Some(ub_v) => match(ub_v, .IntLit(ub_raw) => comptime_int_value_misfit(&ub_raw, &result_box.*), _ => Option(String).None), .None => Option(String).None),
                     .Some(ub_fit_msg) => {
                       mark_fn_unemittable(fn_val_id.clone());
                       exn.throw(dyn(format_error_message(ast_expr_token(&fb), &ub_fit_msg)));
@@ -2087,7 +2087,7 @@ Result type: ${type_to_string(&result_box)}`
           // (Ref-returning functions are banned at signature evaluation —
           // see types/function.yo — so only the raw-pointer-representation
           // rooting check remains.)
-          if(type_representation_contains_raw_ptr(&result_box) && !result_is_comptime_only
+          if(type_representation_contains_raw_ptr(&result_box.*) && !result_is_comptime_only
           && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&fb).module_path.clone())), {
             seb := match(
               flow_out.get(usize(0)),
@@ -2105,7 +2105,7 @@ Result type: ${type_to_string(&result_box)}`
                 dyn(
                   format_error_message(
                     ast_expr_token(&seb),
-                    `Function returning '${type_to_string(&result_box)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(&seb)}`
+                    `Function returning '${type_to_string(&result_box.*)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The body's final expression is not flowable:\n  ${ast_expr_to_string(&seb)}`
                   )
                 )
               );
@@ -2120,9 +2120,9 @@ Result type: ${type_to_string(&result_box)}`
           // type is re-registered with a result SomeT CARRYING it (a SomeT's
           // resolution is an immutable value, types/definitions.yo).
           match(
-            result_box,
+            result_box.*,
             .SomeT({ id : _ }) => if(
-              some_resolution(&result_box).is_none(),
+              some_resolution(&result_box.*).is_none(),
               match(
                 flow_out.get(usize(0)),
                 .Some(dts_body) => match(
@@ -2136,7 +2136,7 @@ Result type: ${type_to_string(&result_box)}`
                     match(
                       dts_hidden,
                       .Some(dts_h) => {
-                        dts_res := t_with_resolution(&result_box, &dts_h);
+                        dts_res := t_with_resolution(&result_box.*, &dts_h);
                         register_func_type(fn_val_id.clone(), t_with_func_result(get_func_type(fn_val_id.clone()), dts_res.clone()));
                         // The definition expression's own type carries it
                         // too. A module-level callee is reached through its
@@ -2175,12 +2175,12 @@ Result type: ${type_to_string(&result_box)}`
           // generic otherwise never reported. The RESULT-type comparison
           // below still runs only when the result mentions a type variable,
           // the case it was written for.
-          dg_check_result := type_contains_some_type_for_codegen_param(&result_box, ArrayList(String).new());
+          dg_check_result := type_contains_some_type_for_codegen_param(&result_box.*, ArrayList(String).new());
           // A trial kept only for its diagnostics (no result comparison, no
           // binder stamps: it runs on a fresh-id clone and writes nothing a
           // reader needs) that already ran clean for this exact definition
           // is not re-run.
-          dg_memo_eligible := (!dg_check_result && !is_type_hierarchy_type(&result_box));
+          dg_memo_eligible := (!dg_check_result && !is_type_hierarchy_type(&result_box.*));
           dg_memo_key := if(dg_memo_eligible, `${tok.module_path}:${tok.row}:${tok.column}|${type_to_string(function_type)}|${ast_expr_to_string(&body_expr)}`, String.new());
           if(!(dg_memo_eligible && g_deferred_trial_clean.contains(&dg_memo_key)), {
             dg_where := match(
@@ -2200,7 +2200,7 @@ Result type: ${type_to_string(&result_box)}`
               &param_is_ref,
               &param_is_owning,
               &dg_ct_flags,
-              &result_box,
+              &result_box.*,
               &dg_where,
               function_type,
               ctx.is_evaluating_function_body_or_async_block.is_some()
@@ -2259,7 +2259,7 @@ Result type: ${type_to_string(&result_box)}`
             // clone writes the trial's abstract-typed ExprInfos onto the real
             // body's nodes, which codegen reads for an `io.async` closure in
             // it (`R` lowered to `void*`, tests/async_generic_future_return).
-            dg_binders := if(is_type_hierarchy_type(&result_box), _ctor_binder_some_ids(&dg_env, &forall_labels, &param_labels), ArrayList(String).new());
+            dg_binders := if(is_type_hierarchy_type(&result_box.*), _ctor_binder_some_ids(&dg_env, &forall_labels, &param_labels), ArrayList(String).new());
             _trial_eval_fn_body(if(dg_check_result, body_expr.clone(), clone_expr_fresh_ids(&body_expr)), &dg_env, &dg_ctx, &mut dg_out);
             truncate_forcing_depths(dg_depths);
             if(dg_binders.len() > usize(0), {
@@ -2364,8 +2364,8 @@ Result type: ${type_to_string(&result_box)}`
                     // continuation — no return type to check.
                     dg_skip_cf := (has_control_flow(dg_info.control_flow, .Unwind) && !has_control_flow(dg_info.control_flow, .Return));
                     dg_expected := cond(
-                      result_is_ref => t_ptr(&result_box),
-                      true => result_box
+                      result_is_ref => t_ptr(&result_box.*),
+                      true => result_box.*
                     );
                     // Expected bare SomeT that is NOT this fn's own forall: the
                     // generic var is bound by the CALL SITE (e.g. effect-handler

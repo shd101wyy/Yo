@@ -2510,7 +2510,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   // Dereference pointer / ref-semantics one level to the enum type.
   is_ptr := is_pointer_type(&match_value_type);
   is_ref_sem := (!is_ptr && (is_reference_struct_type(&match_value_type) || is_reference_enum_type(&match_value_type)));
-  enum_type0 := if(is_ptr, match(match_value_type, .Pointer(p) => p, _ => match_value_type), match_value_type);
+  enum_type0 := if(is_ptr, match(match_value_type, .Pointer(p) => p.*, _ => match_value_type), match_value_type);
   // The general test-chain lowering: any arm outside the classic switch
   // shapes, or a scrutinee that is neither a primitive nor an enum (a string
   // matched against literals).

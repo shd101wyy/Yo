@@ -981,7 +981,7 @@ evaluate_match :: (
   (matched_type : TypeValue) = scrutinee_type;
   (is_ptr_match : bool) = false;
   if(is_pointer_type(&scrutinee_type), {
-    matched_type = match(scrutinee_type, .Pointer(inner) => inner, _ => scrutinee_type);
+    matched_type = match(scrutinee_type, .Pointer(inner) => inner.*, _ => scrutinee_type);
     is_ptr_match = true;
   });
   // Resolve a leaked recursive-enum SELF-SHELL (an empty-variant EnumT whose id
@@ -2095,7 +2095,7 @@ evaluate_match :: (
                       match(
                         ft,
                         .Func({ result : result_box, meta : rb_meta }) => {
-                          ret_type_em = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box));
+                          ret_type_em = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box.*), result_box.*));
                         },
                         _ => ()
                       );

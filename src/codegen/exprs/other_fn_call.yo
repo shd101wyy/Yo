@@ -2152,7 +2152,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
         // `Array(unit, N)`: the wrapper has no `data` member (the element is
         // zero-sized) and the element value is `unit`, which emits no C. The
         // index expression still runs for its side effects.
-        if(match(function_type, .Array(ae, _, _) => is_unit_type(&ae), _ => false), {
+        if(match(function_type, .Array(ae, _, _) => is_unit_type(&ae.*), _ => false), {
           idx_code := _call_generate_expr(&idx_expr, indent.clone(), context);
           if(idx_code.len() > usize(0), {
             idx_stmt := indent.clone();
@@ -2276,7 +2276,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           if(is_builtin_yo_inline_function(name.clone()), {
             return(Option(String).Some(generate_yo_inline_function_call(&name, &args2, expr, context, indent.clone())));
           });
-          if(is_unit_type(&r), {
+          if(is_unit_type(&r.*), {
             line := indent.clone();
             line.push_string(&name);
             line.push_str("(");
@@ -2303,12 +2303,12 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           // no owner (issues/fixed/a-raw-extern-io-future-awaited-synchronously-as-a-temporary-is-never-released.md).
           match(
             ei.variable_name,
-            .Some(tv) => if(type_contains_rc_cell_or_move_only(&r), {
+            .Some(tv) => if(type_contains_rc_cell_or_move_only(&r.*), {
               already := match(context.declared_temp_vars, .Some(s) => s.contains(tv.clone()), .None => false);
               if(!already, {
                 record_declared_temp_var(context, tv.clone());
                 declare_c_var_name(&context.base, tv.clone());
-                em.emit_string_line(`${indent}${get_type_string(&r, &context.base)} ${tv} = ${out};`);
+                em.emit_string_line(`${indent}${get_type_string(&r.*, &context.base)} ${tv} = ${out};`);
                 _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
               });
               return(Option(String).Some(tv));
@@ -2322,7 +2322,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     },
     _ => ()
   );
-  (result_type : TypeValue) = match(function_type, .Func({ result : r }) => r, _ => TypeValue.Unit);
+  (result_type : TypeValue) = match(function_type, .Func({ result : r }) => r.*, _ => TypeValue.Unit);
   // A SHARED field-fn type's declared result can be an unresolved per-call
   // generic SomeT (Exception.throw's ResumeType) — the CALL's ExprInfo carries
   // the per-call resolution (try_to_call rebuilds the result SomeT with

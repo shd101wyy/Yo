@@ -1963,7 +1963,7 @@ _enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
       fb_ctx.kind,
       .FunctionBody => match(
         fb_ctx.func_type,
-        .Some(.Func({ result : ret_box })) => Option(TypeValue).Some(ret_box),
+        .Some(.Func({ result : ret_box })) => Option(TypeValue).Some(ret_box.*),
         .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
@@ -2009,7 +2009,7 @@ _variant_local_hint :: (
   if(rhs_is_async, {
     async_out_concrete := match(
       extract_future_trait_from_type(&result_ty),
-      .Some(.FutureTraitT({ output : ao_out })) => !is_some_type(&ao_out),
+      .Some(.FutureTraitT({ output : ao_out })) => !is_some_type(&ao_out.*),
       _ => false
     );
     if(!async_out_concrete, {
@@ -2355,7 +2355,7 @@ _evaluate_begin_expression_impl :: (
               .FunctionBody => match(
                 fb_ctx.func_type,
                 // A projection returns its place's address (decision 24).
-                .Some(.Func({ result : ret_box, meta : ret_meta })) => Option(TypeValue).Some(if(ret_meta.*.result_is_ref, t_ptr(&ret_box), ret_box)),
+                .Some(.Func({ result : ret_box, meta : ret_meta })) => Option(TypeValue).Some(if(ret_meta.*.result_is_ref, t_ptr(&ret_box.*), ret_box.*)),
                 .Some(_) => Option(TypeValue).None,
                 .None => Option(TypeValue).None
               ),
@@ -2414,7 +2414,7 @@ _evaluate_begin_expression_impl :: (
                   rft,
                   .Func({ result : rfb, meta : __fm1 }) => {
                     rfco := __fm1.*.result_is_comptime_only;
-                    if(!rfco && type_representation_contains_raw_ptr(&rfb)
+                    if(!rfco && type_representation_contains_raw_ptr(&rfb.*)
                     && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&ret_arg).module_path.clone())), {
                       ret_slice_opts := FlowOptions(
                         allow_same_frame_local : false,
@@ -2427,7 +2427,7 @@ _evaluate_begin_expression_impl :: (
                           dyn(
                             format_error_message(
                               ast_expr_token(&ret_arg),
-                              `'return(...)' from a function returning '${type_to_string(&rfb)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(&ret_arg)}`
+                              `'return(...)' from a function returning '${type_to_string(&rfb.*)}' carries a raw pointer in its representation; the returned value must be rooted in caller-owned storage. The returned expression is not flowable:\n  ${ast_expr_to_string(&ret_arg)}`
                             )
                           )
                         );
@@ -2456,7 +2456,7 @@ _evaluate_begin_expression_impl :: (
               ir_fb.kind,
               .FunctionBody => match(
                 ir_fb.func_type,
-                .Some(.Func({ result : ir_ret })) => is_some_type(&ir_ret),
+                .Some(.Func({ result : ir_ret })) => is_some_type(&ir_ret.*),
                 .Some(_) => false,
                 .None => false
               ),
@@ -2888,7 +2888,7 @@ _evaluate_begin_expression_impl :: (
                   .Func({ result : result_box, meta : rb_meta }) => {
                     // A projection's `return(&place)` yields the place's
                     // address (decision 24, `rewrite_projection_tails`).
-                    expected_ret := if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box);
+                    expected_ret := if(rb_meta.*.result_is_ref, t_ptr(&result_box.*), result_box.*);
                     synth_ok := _try_synthesize_return_type(&expected_ret, &return_type, &env);
                     if(!synth_ok, {
                       compat := are_types_compatible(&return_type, &expected_ret);

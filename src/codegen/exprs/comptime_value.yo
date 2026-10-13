@@ -435,7 +435,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
       ty,
       // `Array(unit, N)` is zero-sized: its wrapper has no `data` member
       // (types/generation.yo), so the literal is the empty struct.
-      .Array({ element }) => if(is_unit_type(&element), {
+      .Array({ element }) => if(is_unit_type(&element.*), {
         out := String.from("(");
         out.push_string(get_type_string(ty, context));
         out.push_str("){ }");
@@ -450,7 +450,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
           if(i > usize(0), {
             out.push_str(", ");
           });
-          match(elements.get(i), .Some(ev) => out.push_string(recur(&ev, &element, context)), .None => ());
+          match(elements.get(i), .Some(ev) => out.push_string(recur(&ev, &element.*, context)), .None => ());
           i = (i + usize(1));
         });
         out.push_str(" } }");
@@ -611,8 +611,8 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
           // A whole value. An element list with no recorded aggregate type
           // cannot be told apart from its siblings: keep the placeholder.
           .None => cond(
-            (match(target, .ArrayVal(_) => true, .ComptimeListVal(_) => true, _ => false) && !is_array_type(&pointee)) => String.from("/* skip generating value */"),
-            true => _static_address(&target, &pointee, String.new(), context)
+            (match(target, .ArrayVal(_) => true, .ComptimeListVal(_) => true, _ => false) && !is_array_type(&pointee.*)) => String.from("/* skip generating value */"),
+            true => _static_address(&target, &pointee.*, String.new(), context)
           ),
           .Some(agg_ty) => {
             parts := match(target, .ArrayVal(elems) => Option(ArrayList(EvalValue)).Some(elems), .ComptimeListVal(elems) => .Some(elems), _ => .None);

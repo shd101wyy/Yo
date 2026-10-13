@@ -162,7 +162,7 @@ _iso_function_offense :: (
         ti = (ti + usize(1));
       });
     },
-    .Pointer(pointee) => children.push(pointee),
+    .Pointer(pointee) => children.push(pointee.*),
     _ => ()
   );
   (ci : usize) = usize(0);
@@ -437,7 +437,7 @@ evaluate_iso_value_call :: (
   });
   iso_child_type := match(
     iso_type,
-    .IsoT(child_box) => child_box,
+    .IsoT(child_box) => child_box.*,
     _ => TypeValue.Unit
   );
   arg_exprs := match(

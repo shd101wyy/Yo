@@ -132,11 +132,11 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         (level == usize(0)) => `Type`,
         true => `Type(${level})`
       ),
-      .Pointer(inner) => `*(${recur(&inner, _d + usize(1), visited)})`,
+      .Pointer(inner) => `*(${recur(&inner.*, _d + usize(1), visited)})`,
       .Str => String.from("str"),
       .Array(inner, n, lv) => cond(
-        (lv.len() > usize(0)) => `Array(${recur(&inner, _d + usize(1), visited)}, ${lv})`,
-        true => `Array(${recur(&inner, _d + usize(1), visited)}, ${n})`
+        (lv.len() > usize(0)) => `Array(${recur(&inner.*, _d + usize(1), visited)}, ${lv})`,
+        true => `Array(${recur(&inner.*, _d + usize(1), visited)}, ${n})`
       ),
       .Tuple(labels, types) => {
         body := String.from("");
@@ -216,7 +216,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           ii = (ii + usize(1));
         });
         using_suffix := if(ibody.len() > usize(0), ` ${ibody}`, String.from(""));
-        ret_s := recur(&ret, _d + usize(1), visited);
+        ret_s := recur(&ret.*, _d + usize(1), visited);
         // A control function prints as written: `ctl(...)`, not `fn(...)`.
         `${if(__fm1.*.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${cond(!__fm1.*.result_is_ref => ret_s, __fm1.*.result_is_mut_ref => `&mut ${ret_s}`, true => `&${ret_s}`)}${using_suffix}`
       },
@@ -334,7 +334,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         )
       },
       .ExprT => `Expr`,
-      .ComptimeListT(child) => `ComptimeList(${recur(&child, _d + usize(1), visited)})`,
+      .ComptimeListT(child) => `ComptimeList(${recur(&child.*, _d + usize(1), visited)})`,
       .TypeAppT(constructor, args) => {
         body := String.from("");
         i := usize(0);
@@ -346,9 +346,9 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
-        `TypeApp(${recur(&constructor, _d + usize(1), visited)}, [${body}])`
+        `TypeApp(${recur(&constructor.*, _d + usize(1), visited)}, [${body}])`
       },
-      .IsoT(child) => `iso(${recur(&child, _d + usize(1), visited)})`,
+      .IsoT(child) => `iso(${recur(&child.*, _d + usize(1), visited)})`,
       .DynT(required_trait_types : rtt, required_trait_levels : _, negative_trait_types : ntt, negative_trait_levels : _) => {
         body := String.from("");
         i := usize(0);
@@ -382,11 +382,11 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           body = `${body}${ts}`;
           i = (i + usize(1));
         });
-        `${bn}(${body}) -> ${recur(&cr, _d + usize(1), visited)}`
+        `${bn}(${body}) -> ${recur(&cr.*, _d + usize(1), visited)}`
       },
       // As written: `Future(T, E)` — the output, then the effect types.
       .FutureTraitT(base_name : bn, output : out, effect_labels : _, effect_types : ets) => {
-        body := recur(&out, _d + usize(1), visited);
+        body := recur(&out.*, _d + usize(1), visited);
         i := usize(0);
         while(i < ets.len(), {
           ts := match(ets.get(i), .Some(t2) => recur(&t2, _d + usize(1), visited), .None => `?`);
@@ -406,7 +406,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           (slen > usize(8)) => tag.push_string(pfid.substring(slen - usize(8), slen)),
           true => tag.push_string(pfid.clone())
         );
-        `refine(${recur(&inner, _d + usize(1), visited)}, ${tag})`
+        `refine(${recur(&inner.*, _d + usize(1), visited)}, ${tag})`
       },
       .ExternOpaqueT(eo_nm, _) => eo_nm.clone()
     )

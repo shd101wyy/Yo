@@ -3092,7 +3092,7 @@ type_head_name_for_impl_forcing :: (fn(ty : &TypeValue) -> String)({
     ),
     .Union(un, _, _) => un.clone(),
     .TraitT(tn, _, _, _, _, _, _, _, _, _) => tn.clone(),
-    .Pointer(pointee) => recur(&pointee),
+    .Pointer(pointee) => recur(&pointee.*),
     _ => String.new()
   );
   match(
@@ -3343,7 +3343,7 @@ create_function_body_evaluation_context :: (
       block.kind,
       .FunctionBody => match(
         block.func_type,
-        .Some(.Func({ result : ret_box })) => Option(TypeValue).Some(ret_box),
+        .Some(.Func({ result : ret_box })) => Option(TypeValue).Some(ret_box.*),
         .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
@@ -3358,8 +3358,8 @@ create_function_body_evaluation_context :: (
   return_type := match(
     function_type,
     .Func({ result : ret_box, meta : __fm1 }) => cond(
-      __fm1.*.result_is_ref => t_ptr(&ret_box),
-      true => ret_box
+      __fm1.*.result_is_ref => t_ptr(&ret_box.*),
+      true => ret_box.*
     ),
     _ => t_unit()
   );

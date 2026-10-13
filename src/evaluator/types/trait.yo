@@ -1086,7 +1086,7 @@ evaluate_trait_type :: (
     field_labels,
     field_types,
     trait_id,
-    Option(TypeValue).None,
+    Option(Rc(TypeValue)).None,
     self_constraints,
     neg_self_constraints,
     ArrayList(String).new(),
@@ -1330,9 +1330,9 @@ evaluate_trait_type :: (
           // SHALLOW (bare SomeT / TypeAppT only) — `*(Output)` walks right
           // past it. The deep equivalent here is get_all_some_types (whose
           // collector descends Pointer/Array/Func/...).
-          if(vf_meta.*.result_is_comptime_only && (get_all_some_types(&vf_ret).len() > usize(0)), {
+          if(vf_meta.*.result_is_comptime_only && (get_all_some_types(&vf_ret.*).len() > usize(0)), {
             match(
-              find_some_type_missing_comptime_constraint(&vf_ret, &env_mut),
+              find_some_type_missing_comptime_constraint(&vf_ret.*, &env_mut),
               .Some(vf_missing) => {
                 vf_label := match(field_labels.get(vf_i), .Some(l) => l, .None => String.from("?"));
                 vf_missing_name := match(
@@ -1344,7 +1344,7 @@ evaluate_trait_type :: (
                   dyn(
                     format_error_message(
                       ast_expr_token(expr),
-                      `Return type "${type_to_string(&vf_ret)}" in trait field "${vf_label}" is used with "comptime" but type parameter "${type_to_string(&vf_missing)}" does not implement the Comptime trait. Add "${vf_missing_name} <: Comptime" to the where clause.`
+                      `Return type "${type_to_string(&vf_ret.*)}" in trait field "${vf_label}" is used with "comptime" but type parameter "${type_to_string(&vf_missing)}" does not implement the Comptime trait. Add "${vf_missing_name} <: Comptime" to the where clause.`
                     )
                   )
                 );

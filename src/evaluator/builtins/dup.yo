@@ -80,7 +80,7 @@ evaluate_dup :: (
       .SomeT({ resolution : dup_rc_cell }) => match(
         dup_rc_cell,
         .Some(dup_rc_inner) => {
-          concrete_type = dup_rc_inner;
+          concrete_type = dup_rc_inner.*;
         },
         .None => ()
       ),
@@ -119,7 +119,7 @@ evaluate_dup :: (
       if(is_array_type(&concrete_type), {
         (arr_elem, arr_len, arr_lvar) := match(
           concrete_type,
-          .Array(e, l, lv) => (e, l, lv),
+          .Array(e, l, lv) => (e.*, l, lv),
           _ => (TypeValue.Unit, usize(0), String.new())
         );
         // Only compile-time-known lengths; a

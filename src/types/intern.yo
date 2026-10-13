@@ -175,7 +175,7 @@ _ik_arg_id :: (fn(t : &TypeValue, depth : usize, abs_depth : usize, visited : &m
     }, `E:${a_eid}`),
     .SomeT({ id : a_tid, resolution : a_res }) => match(
       a_res,
-      .Some(a_r) => if(depth < usize(8), `T:${a_tid}>${_ik_arg_id(&a_r, depth + usize(1), abs_depth + usize(1), visited)}`, `T:${a_tid}`),
+      .Some(a_r) => if(depth < usize(8), `T:${a_tid}>${_ik_arg_id(&a_r.*, depth + usize(1), abs_depth + usize(1), visited)}`, `T:${a_tid}`),
       .None => `T:${a_tid}`
     ),
     _ => type_intern_key(t, abs_depth, visited)
@@ -226,19 +226,19 @@ _intern_key_into :: (
       },
       .Pointer(pointee) => {
         sb.write_str("P");
-        recur(&pointee, sb, depth + usize(1), visited);
+        recur(&pointee.*, sb, depth + usize(1), visited);
       },
       .ComptimeListT(child) => {
         sb.write_str("CL");
-        recur(&child, sb, depth + usize(1), visited);
+        recur(&child.*, sb, depth + usize(1), visited);
       },
       .IsoT(child) => {
         sb.write_str("Is");
-        recur(&child, sb, depth + usize(1), visited);
+        recur(&child.*, sb, depth + usize(1), visited);
       },
       .Array(element, length, length_var) => {
         sb.write_str("A");
-        recur(&element, sb, depth + usize(1), visited);
+        recur(&element.*, sb, depth + usize(1), visited);
         sb.write_str("#");
         sb.write_string(length.to_string());
         sb.write_str("#");
@@ -291,7 +291,7 @@ _intern_key_into :: (
           kw = (kw + usize(1));
         });
         sb.write_str("|");
-        recur(&res, sb, depth + usize(1), visited);
+        recur(&res.*, sb, depth + usize(1), visited);
         sb.write_str("|");
         _append_meta_key(sb, &m.*);
         sb.write_str("|");
@@ -438,7 +438,7 @@ _intern_key_into :: (
           sb.write_str("|");
           match(
             tisc,
-            .Some(c) => recur(&c, sb, depth + usize(1), visited),
+            .Some(c) => recur(&c.*, sb, depth + usize(1), visited),
             .None => sb.write_str("n")
           );
           sb.write_str("|");
@@ -493,7 +493,7 @@ _intern_key_into :: (
           sb.write_str("|");
           sb.write_string(smfl.to_string());
           sb.write_str("|");
-          recur(&smpt, sb, depth + usize(1), visited);
+          recur(&smpt.*, sb, depth + usize(1), visited);
           sb.write_str("|");
           nrt := smrtt.len();
           (irt : usize) = usize(0);
@@ -529,7 +529,7 @@ _intern_key_into :: (
           sb.write_str("|");
           match(
             smkft,
-            .Some(k) => recur(&k, sb, depth + usize(1), visited),
+            .Some(k) => recur(&k.*, sb, depth + usize(1), visited),
             .None => sb.write_str("n")
           );
           // resolved_concrete is resolution METADATA, not identity — but the
@@ -541,7 +541,7 @@ _intern_key_into :: (
           sb.write_str("|");
           match(
             smrcp,
-            .Some(resolved) => recur(&resolved, sb, depth + usize(1), visited),
+            .Some(resolved) => recur(&resolved.*, sb, depth + usize(1), visited),
             .None => sb.write_str("n")
           );
           sb.write_str("}");
@@ -564,7 +564,7 @@ _intern_key_into :: (
       },
       .TypeAppT(tac, taa) => {
         sb.write_str("TA");
-        recur(&tac, sb, depth + usize(1), visited);
+        recur(&tac.*, sb, depth + usize(1), visited);
         sb.write_str("[");
         nta := taa.len();
         (ita : usize) = usize(0);
@@ -612,7 +612,7 @@ _intern_key_into :: (
           icp = (icp + usize(1));
         });
         sb.write_str("|");
-        recur(&fncr, sb, depth + usize(1), visited);
+        recur(&fncr.*, sb, depth + usize(1), visited);
         sb.write_str("|");
         _append_strings(sb, &fnil);
         sb.write_str("|");
@@ -633,7 +633,7 @@ _intern_key_into :: (
         sb.write_str("FuT:");
         sb.write_string(&ftbn);
         sb.write_str("[");
-        recur(&ftout, sb, depth + usize(1), visited);
+        recur(&ftout.*, sb, depth + usize(1), visited);
         sb.write_str("|");
         _append_strings(sb, &ftel);
         sb.write_str("|");
@@ -651,7 +651,7 @@ _intern_key_into :: (
       // level, so the key carries the predicate's func_id.
       .RefineT(inner, pfid) => {
         sb.write_str("R:");
-        recur(&inner, sb, depth + usize(1), visited);
+        recur(&inner.*, sb, depth + usize(1), visited);
         sb.write_str("|");
         sb.write_string(&pfid);
       },
@@ -735,7 +735,7 @@ _ti_walk :: (fn(t : &TypeValue, depth : usize) -> unit)({
       _ti_list(wt.len());
       _ti_list(vt.len());
       _ti_walk_list(&pt, depth);
-      _ti_walk(&rs, depth + usize(1));
+      _ti_walk(&rs.*, depth + usize(1));
     },
     .Struct({ field_types : fts, type_arguments : ta }) => {
       g_ti_struct = (g_ti_struct + usize(1));

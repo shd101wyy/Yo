@@ -478,14 +478,14 @@ _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Optio
         cond(
           !p1_compatible => Option(_IndexShape).None,
           // A projection: `&Self` for `index`, `&mut Self` for `index_mut`.
-          __fm1.*.result_is_ref => Option(_IndexShape).Some(_IndexShape(is_projection : true, is_mut : __fm1.*.result_is_mut_ref, output : result_box)),
+          __fm1.*.result_is_ref => Option(_IndexShape).Some(_IndexShape(is_projection : true, is_mut : __fm1.*.result_is_mut_ref, output : result_box.*)),
           // The pre-V2b shape: self must be a pointer type OR a `&mut`
           // parameter, and the result a raw pointer to the element.
-          ((p0_is_ptr || p0_is_ref) && is_pointer_type(&result_box)) => Option(_IndexShape).Some(
+          ((p0_is_ptr || p0_is_ref) && is_pointer_type(&result_box.*)) => Option(_IndexShape).Some(
             _IndexShape(
               is_projection : false,
               is_mut : true,
-              output : match(result_box, .Pointer(et) => et, _ => result_box)
+              output : match(result_box.*, .Pointer(et) => et.*, _ => result_box.*)
             )
           ),
           true => Option(_IndexShape).None
@@ -562,7 +562,7 @@ _try_comptime_element_access :: (
 )({
   elem_ty := match(
     value_type,
-    .Array(et, _, _) => et,
+    .Array(et, _, _) => et.*,
     _ => t_unit()
   );
   match(
@@ -1140,7 +1140,7 @@ _find_comptime_index_method :: (
                       // while `Range(comptime_int)` and `Range(usize)` share one and stay
                       // compatible. Only fires when both sides carry a constructor id.
                       p1_compatible := (_ctor_ids_agree(arg_type, &p1) && are_types_compatible(arg_type, &p1));
-                      ret_is_ptr := is_pointer_type(&ci_result);
+                      ret_is_ptr := is_pointer_type(&ci_result.*);
                       if((p0_is_ptr || p0_is_ref) && p1_compatible && ret_is_ptr, {
                         // Comptime-parameter gate.
                         ci_flags := match(
@@ -1259,11 +1259,11 @@ _try_comptime_custom_type_index :: (
     return(Option(IndexCallResult).None);
   });
   // The return type must be `*(Output)`.
-  ct_ret_type := match(ct_fn_type, .Func({ result : ct_r }) => ct_r, _ => t_unit());
+  ct_ret_type := match(ct_fn_type, .Func({ result : ct_r }) => ct_r.*, _ => t_unit());
   if(!is_pointer_type(&ct_ret_type), {
     return(Option(IndexCallResult).None);
   });
-  output_ty := match(ct_ret_type, .Pointer(ct_pt) => ct_pt, _ => ct_ret_type);
+  output_ty := match(ct_ret_type, .Pointer(ct_pt) => ct_pt.*, _ => ct_ret_type);
   // Comptime pointer to self for the first argument.
   self_ptr_type := t_ptr(value_type);
   // Fresh 1-elem cell around self.
@@ -1602,7 +1602,7 @@ try_to_call_with_index_trait :: (
   if(is_arr_or_slice_ty, {
     elem_ty := match(
       value_type,
-      .Array(et, _, _) => et,
+      .Array(et, _, _) => et.*,
       _ => t_unit()
     );
     result_val := create_unknown_val(&elem_ty);
@@ -1766,8 +1766,8 @@ _record_index_unchecked_twin :: (
       same_output := match(
         c.ty,
         .Func({ result : twin_ret, meta : twin_m }) => {
-          twin_out := if(twin_m.*.result_is_ref, twin_ret, match(twin_ret, .Pointer(tp) => tp, _ => t_unit()));
-          (twin_m.*.result_is_ref || is_pointer_type(&twin_ret)) && are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)
+          twin_out := if(twin_m.*.result_is_ref, twin_ret.*, match(twin_ret.*, .Pointer(tp) => tp.*, _ => t_unit()));
+          (twin_m.*.result_is_ref || is_pointer_type(&twin_ret.*)) && are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)
         },
         _ => false
       );

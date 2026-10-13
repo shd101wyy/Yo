@@ -539,7 +539,7 @@ evaluate_cond :: (
                     is_ptr_relaxed_match := cond(
                       (is_pointer_type(&et.ty) && !is_pointer_type(&body_einfo.ty)) => match(
                         et.ty,
-                        .Pointer(child_box) => are_types_compatible(&body_einfo.ty, &child_box),
+                        .Pointer(child_box) => are_types_compatible(&body_einfo.ty, &child_box.*),
                         _ => false
                       ),
                       true => false
@@ -767,7 +767,7 @@ evaluate_cond :: (
                           match(
                             ft,
                             .Func({ result : result_box, meta : rb_meta }) => {
-                              return_type = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box));
+                              return_type = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box.*), result_box.*));
                             },
                             _ => ()
                           );

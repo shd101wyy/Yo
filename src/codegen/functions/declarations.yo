@@ -139,7 +139,7 @@ generate_function_prototype :: (
         override_return_type,
         .Some(s) => s,
         .None => {
-          base := get_type_string(&result, context);
+          base := get_type_string(&result.*, context);
           if(result_is_ref, {
             base.push_str("*");
           });
@@ -388,7 +388,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
 });
 /// The result (return) type of a Func TypeValue, or Unit for non-functions.
 _func_result_type :: (fn(ft : &TypeValue) -> TypeValue)(
-  match(ft, .Func({ result }) => result, _ => TypeValue.Unit)
+  match(ft, .Func({ result }) => result.*, _ => TypeValue.Unit)
 );
 /// True when the Func's declared return is `comptime(...)` (compile-time-only
 /// function).
@@ -540,10 +540,10 @@ should_skip_function_codegen :: (fn(func_id : &String, c_name : &String, value :
       rl_t,
       .Array(rl_elem, _, rl_var) => cond(
         (rl_var.len() > usize(0)) => true,
-        true => recur(&rl_elem)
+        true => recur(&rl_elem.*)
       ),
-      .Pointer(rl_p) => recur(&rl_p),
-      .IsoT(rl_i) => recur(&rl_i),
+      .Pointer(rl_p) => recur(&rl_p.*),
+      .IsoT(rl_i) => recur(&rl_i.*),
       _ => false
     )
   );
@@ -794,7 +794,7 @@ emitted_return_type_string :: (
               .None => match(
                 ft,
                 .Func({ result : r, meta : __erm }) => {
-                  base := get_type_string(&r, context);
+                  base := get_type_string(&r.*, context);
                   if(__erm.*.result_is_ref, {
                     base.push_str("*");
                   });

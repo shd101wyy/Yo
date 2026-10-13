@@ -1249,7 +1249,7 @@ _emit_lent_param_slots :: (fn(capture_type : &TypeValue, context : &FunctionGene
       lent.get(i),
       .Some(f) => match(
         f.ty,
-        .Pointer(pointee) => em.emit_declaration_string_line(`  ${get_type_string(&pointee, &context.base)} __yo_lent_${sanitize_for_c_identifier(f.label.clone(), false)};  // the future's copy of the lent parameter ${f.label.clone()}`),
+        .Pointer(pointee) => em.emit_declaration_string_line(`  ${get_type_string(&pointee.*, &context.base)} __yo_lent_${sanitize_for_c_identifier(f.label.clone(), false)};  // the future's copy of the lent parameter ${f.label.clone()}`),
         _ => ()
       ),
       .None => ()
@@ -2823,7 +2823,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     .None => ()
   );
   // Result type (T in Future(T)); resolve an unresolved SomeType output.
-  (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.clone(), _ => future_type);
+  (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.*.clone(), _ => future_type);
   // Per-closure composite key for some-resolved-concrete: append the unique
   // async_block_id so different closures sharing the same Future(T) trait
   // do NOT cross-contaminate each other's registered result type.
@@ -2849,8 +2849,8 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
           lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
           .Some(res_fid) => match(
             get_func_type(res_fid.clone()),
-            .Func({ result : frr }) => if(!is_some_type(&frr) && !type_implements_future(&frr), {
-              result_type = frr.clone();
+            .Func({ result : frr }) => if(!is_some_type(&frr.*) && !type_implements_future(&frr.*), {
+              result_type = frr.*.clone();
               resolved_via_fn_ret = true;
             }),
             _ => ()
@@ -3572,7 +3572,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     .Some(fv) => Option(EvalValue).Some(fv),
     .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
-  (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.clone(), _ => future_type);
+  (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.*.clone(), _ => future_type);
   // Capture the future-trait output SomeType id BEFORE resolution. Once we resolve
   // it to a concrete type below, we record it under this id (with the block id,
   // `g_async_block_result_types`) so this block's later emission agrees with it
@@ -3642,8 +3642,8 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         fv,
         .FuncVal(__fvd5, _) => match(
           get_func_type(&__fvd5.*.func_id),
-          .Func({ result : rb }) => if(!is_some_type(&rb), {
-            result_type = rb.clone();
+          .Func({ result : rb }) => if(!is_some_type(&rb.*), {
+            result_type = rb.*.clone();
           }),
           _ => ()
         ),

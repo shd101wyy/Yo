@@ -457,7 +457,7 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
       ty,
       .Array({ element }) => {
         em.emit_string_line(`  for (size_t __yo_ti = 0; __yo_ti < (sizeof(${access}.data) / sizeof(${access}.data[0])); __yo_ti++) {`);
-        recur(`${access}.data[__yo_ti]`, &element, context);
+        recur(`${access}.data[__yo_ti]`, &element.*, context);
         em.emit_string_line(`  }`);
       },
       _ => ()
@@ -912,10 +912,10 @@ static bool __yo_iso_uq_run(void* root, void* root_traverse) {
         .Some(info) => match(
           info.iso_type,
           .IsoT(child) => {
-            child_c := get_type_string(&child, &context.base);
-            if(is_reference_struct_type(&child) || is_reference_enum_type(&child), {
+            child_c := get_type_string(&child.*, &context.base);
+            if(is_reference_struct_type(&child.*) || is_reference_enum_type(&child.*), {
               em.emit_string_line(`static bool __yo_iso_unique_${iso_name}(${child_c} value) {`);
-              em.emit_string_line(`  return __yo_iso_uq_run((void*)value, ${_child_traverse_fn_expr(&child, context)});`);
+              em.emit_string_line(`  return __yo_iso_uq_run((void*)value, ${_child_traverse_fn_expr(&child.*, context)});`);
               em.emit_string_line(`}`);
             }, {
               // A VALUE child (plans/VALUES_BY_DEFAULT.md §3.6): the walk's
@@ -926,7 +926,7 @@ static bool __yo_iso_uq_run(void* root, void* root_traverse) {
               em.emit_string_line(`  ${child_c} value = *(${child_c}*)__yo_p;`);
               saved_visit := g_traverse_visit_expr.clone();
               g_traverse_visit_expr = String.from("__yo_iso_uq_visit");
-              _traverse_value(String.from("value"), &child, context);
+              _traverse_value(String.from("value"), &child.*, context);
               g_traverse_visit_expr = saved_visit;
               em.emit_string_line(`}`);
               em.emit_string_line(`static bool __yo_iso_unique_${iso_name}(${child_c} value) {`);
@@ -937,7 +937,7 @@ static bool __yo_iso_uq_run(void* root, void* root_traverse) {
               if(!info.dispose_generated, {
                 em.emit_string_line(`static void __yo_iso_dispose_${iso_name}(${iso_name} iso) {`);
                 em.emit_string_line(String.from("  if (!atomic_load(&iso->extracted)) {"));
-                drop_tail := generate_drop_code_for_value(String.from("iso->value"), &child, context);
+                drop_tail := generate_drop_code_for_value(String.from("iso->value"), &child.*, context);
                 if(drop_tail.len() > usize(0), {
                   em.emit_string_line(`    ${drop_tail};`);
                 });
