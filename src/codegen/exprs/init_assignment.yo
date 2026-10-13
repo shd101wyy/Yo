@@ -432,7 +432,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
   match(
     expr_info_runtime_destructurings(&ei),
     .Some(destructurings) => {
-      rhs_type := match(context.base.get_expr_info(&rhs), .Some(rei) => rei.ty, .None => TypeValue.Unit);
+      rhs_type := match(context.base.get_expr_info(&rhs), .Some(rei) => rei.ty, .None => rc(TypeValueNode.Unit));
       _emit_destructurings(&destructurings, &rhs, &lhs, &rhs_type, &ei.env, indent.clone(), context);
       return(Option(String).Some(String.from("")));
     },

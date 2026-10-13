@@ -255,8 +255,8 @@ gadt_branch_reachable :: (fn(enum_id : &String, variant_idx : usize) -> bool)({
         (reachable : bool) = true;
         (k : usize) = usize(0);
         while((k < tca.len()) && reachable, {
-          tk := gadt_resolve_tca_entry(match(tca.get(k), .Some(t) => t, .None => TypeValue.Unit));
-          gk := match(gra.get(k), .Some(g) => g, .None => TypeValue.Unit);
+          tk := gadt_resolve_tca_entry(match(tca.get(k), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
+          gk := match(gra.get(k), .Some(g) => g, .None => rc(TypeValueNode.Unit));
           if(!is_some_type(&tk), {
             if(!are_types_compatible(&tk, &gk), {
               reachable = false;
@@ -1596,7 +1596,7 @@ _useful_at :: (
   head0 := match(q.get(usize(0)), .Some(h) => h, .None => Pattern.Wildcard);
   q_rest := _tail_patterns(q);
   tys_rest := _tail_types(tys);
-  ty0 := norm_position_type(match(tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit));
+  ty0 := norm_position_type(match(tys.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
   // An integer column: intervals decide it exactly.
   if(match(
     head0,

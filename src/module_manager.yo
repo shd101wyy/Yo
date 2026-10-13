@@ -175,7 +175,7 @@ _failed_outcome :: (fn() -> ModuleLoadOutcome)(
   ModuleLoadOutcome(
     ok : false,
     module_value : EvalValue.UnitVal,
-    module_type : TypeValue.Unit,
+    module_type : rc(TypeValueNode.Unit),
     env : Environment.new(String.from("")),
     ctx : eval_context_new(String.from(""), String.from(""))
   )
@@ -2398,7 +2398,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   match(
     out_vals.get(usize(0)),
     .Some(mv) => {
-      reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
+      reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       register_module(abs.clone(), &mv, &reg_ty);
       module_load_end(abs, touch_mark);
       Option(String).None
@@ -2493,7 +2493,7 @@ demand_load_module :: (fn(path : &String) -> LoadModuleResult)({
       return(
         LoadModuleResult(
           module_value : _build_module_val_from_env(&env),
-          module_type : TypeValue.Unit,
+          module_type : rc(TypeValueNode.Unit),
           module_error : Option(String).None
         )
       );
@@ -2506,7 +2506,7 @@ demand_load_module :: (fn(path : &String) -> LoadModuleResult)({
       return(
         LoadModuleResult(
           module_value : EvalValue.UnitVal,
-          module_type : TypeValue.Unit,
+          module_type : rc(TypeValueNode.Unit),
           module_error : Option(String).Some(load_err)
         )
       );
@@ -2806,7 +2806,7 @@ mm_eval_entry_exprs :: (
       ModuleLoadOutcome(
         ok : true,
         module_value : mv,
-        module_type : match(out_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit),
+        module_type : match(out_tys.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit)),
         env : env,
         ctx : ctx
       )
@@ -2820,7 +2820,7 @@ mm_eval_entry_exprs :: (
     .None => ModuleLoadOutcome(
       ok : false,
       module_value : EvalValue.UnitVal,
-      module_type : TypeValue.Unit,
+      module_type : rc(TypeValueNode.Unit),
       env : env,
       ctx : ctx
     )

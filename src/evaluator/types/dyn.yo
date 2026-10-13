@@ -70,7 +70,7 @@ _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
     .TraitT({ field_labels : fls, field_types : fts }) => {
       (i : usize) = usize(0);
       while(i < fls.len(), {
-        ft := match(fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        ft := match(fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
           match(fls.get(i), .Some(l) => out.push(l), .None => ());
         });
@@ -87,7 +87,7 @@ _reject_dyn_slot_name_clash :: (fn(traits : &ArrayList(TypeValue), tok : &Token,
   seen_owner := ArrayList(String).new();
   (ti : usize) = usize(0);
   while(ti < traits.len(), {
-    tt := match(traits.get(ti), .Some(x) => x, .None => TypeValue.Unit);
+    tt := match(traits.get(ti), .Some(x) => x, .None => rc(TypeValueNode.Unit));
     names := _dyn_trait_slot_names(&tt);
     (ni : usize) = usize(0);
     while(ni < names.len(), {

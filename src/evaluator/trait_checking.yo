@@ -190,7 +190,7 @@ is_type_registered_as_trait :: (fn(type_id : &String, query_trait : &TypeValue, 
       (found : bool) = false;
       query_id := _trait_type_id(query_trait);
       while((i < n) && !found, {
-        reg := match(list.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        reg := match(list.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(query_id == _trait_type_id(&reg), {
           found = true;
         });
@@ -564,7 +564,7 @@ _check_associated_type_constraints :: (
   (ci : usize) = usize(0);
   while((ci < n_atc) && ok, {
     label := match(atc_labels.get(ci), .Some(l) => l, .None => String.from(""));
-    constraint_ty := match(atc_types.get(ci), .Some(t) => t, .None => TypeValue.Unit);
+    constraint_ty := match(atc_types.get(ci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     // Step 1: the target's OWN registrations (a CONCRETE impl's
     // `Item : i32`). The equivalent store is the
     // type-trait-methods registry: impl-provided associated types are
@@ -705,7 +705,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
       (i : usize) = usize(0);
       while(i < nc_fields.len(), {
         labels.push(`its field \`${match(nc_labels.get(i), .Some(l) => l, .None => String.new())}\``);
-        parts.push(match(nc_fields.get(i), .Some(f) => f, .None => TypeValue.Unit));
+        parts.push(match(nc_fields.get(i), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
         i = (i + usize(1));
       });
     },
@@ -717,7 +717,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
         (fi : usize) = usize(0);
         while(fi < vf.len(), {
           labels.push(`its variant \`${vn}\``);
-          parts.push(match(vf.get(fi), .Some(f) => f, .None => TypeValue.Unit));
+          parts.push(match(vf.get(fi), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
           fi = (fi + usize(1));
         });
         vi = (vi + usize(1));
@@ -727,7 +727,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
   );
   (pi : usize) = usize(0);
   while(pi < parts.len(), {
-    part := match(parts.get(pi), .Some(p) => p, .None => TypeValue.Unit);
+    part := match(parts.get(pi), .Some(p) => p, .None => rc(TypeValueNode.Unit));
     (part_is_copy : bool) = type_implements_trait(&part, copy_tt, env).implemented;
     // The part's own `impl(P, Copy())` may sit later in its module
     // (plans/reference/LAZY_TOPLEVEL_BINDINGS.md §4.4): force it first.
@@ -1025,7 +1025,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
       .Struct({ field_types : bl_fields }) => {
         (i : usize) = usize(0);
         while(i < bl_fields.len(), {
-          parts.push(match(bl_fields.get(i), .Some(f) => f, .None => TypeValue.Unit));
+          parts.push(match(bl_fields.get(i), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
           i = (i + usize(1));
         });
       },
@@ -1035,7 +1035,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
           vf := match(bl_vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
           (fi : usize) = usize(0);
           while(fi < vf.len(), {
-            parts.push(match(vf.get(fi), .Some(f) => f, .None => TypeValue.Unit));
+            parts.push(match(vf.get(fi), .Some(f) => f, .None => rc(TypeValueNode.Unit)));
             fi = (fi + usize(1));
           });
           vi = (vi + usize(1));
@@ -1052,7 +1052,7 @@ _copy_blockers_into :: (fn(ty_in : &TypeValue, copy_tt : &TypeValue, env : &Envi
   });
   (pi : usize) = usize(0);
   while(pi < parts.len(), {
-    recur(match(parts.get(pi), .Some(p) => p, .None => TypeValue.Unit), copy_tt, env, depth + u32(1), out);
+    recur(match(parts.get(pi), .Some(p) => p, .None => rc(TypeValueNode.Unit)), copy_tt, env, depth + u32(1), out);
     pi = (pi + usize(1));
   });
 });
@@ -1073,7 +1073,7 @@ _trait_or_supertrait_is :: (fn(bound : &TypeValue, wanted : &TypeValue, depth : 
     .TraitT({ self_constraints : st_scs }) => {
       (si : usize) = usize(0);
       while(si < st_scs.len(), {
-        if(recur(match(st_scs.get(si), .Some(sc) => sc, .None => TypeValue.Unit), wanted, depth + u32(1)), {
+        if(recur(match(st_scs.get(si), .Some(sc) => sc, .None => rc(TypeValueNode.Unit)), wanted, depth + u32(1)), {
           return(true);
         });
         si = (si + usize(1));
@@ -1206,7 +1206,7 @@ _type_implements_trait_one :: (
         });
         (cp_i : usize) = usize(0);
         while(cp_i < cp_parts.len(), {
-          if(!recur(match(cp_parts.get(cp_i), .Some(p) => p, .None => TypeValue.Unit), trait_type, env).implemented, {
+          if(!recur(match(cp_parts.get(cp_i), .Some(p) => p, .None => rc(TypeValueNode.Unit)), trait_type, env).implemented, {
             return(TraitCheckResult(implemented : false, env : env));
           });
           cp_i = (cp_i + usize(1));
@@ -1296,7 +1296,7 @@ _type_implements_trait_one :: (
   if(is_fn_trait_type(trait_type) && is_function_type(&target), {
     fn_trait_call_ty := match(
       trait_type,
-      .FnTraitT(_, param_labels, param_types, result, _, _, ft_refs, ft_owns) => TypeValue.Func(
+      .FnTraitT(_, param_labels, param_types, result, _, _, ft_refs, ft_owns) => rc(TypeValueNode.Func(
         ArrayList(TypeValue).new(),
         param_types,
         ArrayList(TypeValue).new(),
@@ -1323,7 +1323,7 @@ _type_implements_trait_one :: (
           )
         ),
         ArrayList(TypeValue).new()
-      ),
+      )),
       _ => {
         return(TraitCheckResult(implemented : false, env : env));
       }
@@ -1455,7 +1455,7 @@ _type_implements_trait_one :: (
             vf := match(vfs.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
             (vj : usize) = usize(0);
             while(vj < vf.len(), {
-              flat.push(match(vf.get(vj), .Some(t) => t, .None => TypeValue.Unit));
+              flat.push(match(vf.get(vj), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
               vj = (vj + usize(1));
             });
             vi = (vi + usize(1));
@@ -1524,7 +1524,7 @@ _type_implements_trait_one :: (
           (all_pass : bool) = true;
           (fi : usize) = usize(0);
           while((fi < fields.len()) && all_pass, {
-            fty := match(fields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+            fty := match(fields.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             // Self-recurse via `recur` (Yo cannot reference the enclosing
             // function by name inside its own body).
             if(!recur(&fty, &field_trait, env).implemented, {
@@ -2150,7 +2150,7 @@ type_implements_fn :: (fn(ty : &TypeValue) -> bool)(
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < n) && !found, {
-        t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
+        t := match(required_trait_types.get(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
         match(
           t,
           .FnTraitT(base_name : _) => {
@@ -2167,7 +2167,7 @@ type_implements_fn :: (fn(ty : &TypeValue) -> bool)(
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < n) && !found, {
-        t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
+        t := match(required_trait_types.get(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
         match(
           t,
           .FnTraitT(base_name : _) => {
@@ -2561,7 +2561,7 @@ type_implements_future :: (fn(ty : &TypeValue) -> bool)(
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < n) && !found, {
-        t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
+        t := match(required_trait_types.get(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
         match(
           t,
           .FutureTraitT(base_name : _) => {
@@ -2578,7 +2578,7 @@ type_implements_future :: (fn(ty : &TypeValue) -> bool)(
       (i : usize) = usize(0);
       (found : bool) = false;
       while((i < n) && !found, {
-        t := match(required_trait_types.get(i), .Some(v) => v, .None => TypeValue.Unit);
+        t := match(required_trait_types.get(i), .Some(v) => v, .None => rc(TypeValueNode.Unit));
         match(
           t,
           .FutureTraitT(base_name : _) => {
@@ -2687,7 +2687,7 @@ type_contains_some_type_for_codegen_param :: (
       (found : bool) = false;
       (i : usize) = usize(0);
       while((i < field_types.len()) && !found, {
-        ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(recur(&ft, checked_ids), {
           found = true;
         });
@@ -2705,7 +2705,7 @@ type_contains_some_type_for_codegen_param :: (
       (found : bool) = false;
       (i : usize) = usize(0);
       while((i < field_types.len()) && !found, {
-        ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(!is_function_type(&ft) && recur(&ft, checked_ids), {
           found = true;
         });
@@ -2736,7 +2736,7 @@ type_contains_some_type_for_codegen_param :: (
         vf := match(variant_fields.get(vi), .Some(f) => f, .None => ArrayList(TypeValue).new());
         (vj : usize) = usize(0);
         while((vj < vf.len()) && !found, {
-          ft := match(vf.get(vj), .Some(t) => t, .None => TypeValue.Unit);
+          ft := match(vf.get(vj), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(recur(&ft, checked_ids), {
             found = true;
           });
@@ -2764,7 +2764,7 @@ type_contains_some_type_for_codegen_param :: (
       (found : bool) = false;
       (i : usize) = usize(0);
       while((i < field_types.len()) && !found, {
-        ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(recur(&ft, checked_ids), {
           found = true;
         });
@@ -2777,7 +2777,7 @@ type_contains_some_type_for_codegen_param :: (
       (found : bool) = (forall_labels.len() > usize(0));
       (i : usize) = usize(0);
       while((i < param_types.len()) && !found, {
-        pt := match(param_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        pt := match(param_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(recur(&pt, checked_ids), {
           found = true;
         });

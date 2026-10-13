@@ -316,7 +316,7 @@ handle_member_destructuring :: (
     (rhs_field_type : TypeValue) = match(
       rhs_field_types.get(field_index),
       .Some(t) => t,
-      .None => TypeValue.Unit
+      .None => rc(TypeValueNode.Unit)
     );
     (variable_name_opt : Option(String)) = Option(String).None;
     (variable_token_opt : Option(AstExpr)) = Option(AstExpr).None; // token carried via lhs_field
@@ -358,7 +358,7 @@ handle_member_destructuring :: (
       (j : usize) = usize(0);
       while(j < rhs_field_labels.len(), {
         flab := match(rhs_field_labels.get(j), .Some(l) => l, .None => String.from(""));
-        fty := match(rhs_field_types.get(j), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(rhs_field_types.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(!_label_already_seen(&seen_labels, flab.clone()), {
           {
             seen_labels.push(flab.clone());
@@ -455,7 +455,7 @@ handle_member_destructuring :: (
           .Some(fi) => {
             field_index = fi;
             rhs_field_label = match(rhs_field_labels.get(fi), .Some(l) => l, .None => String.from(""));
-            rhs_field_type = match(rhs_field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+            rhs_field_type = match(rhs_field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           }
         );
         // Get field value at the resolved index.
@@ -685,7 +685,7 @@ evaluate_destructuring_assignment :: (
       )
     );
   });
-  rhs_info := match(rhs_info_opt, .Some(ri) => ri, .None => new_expr_info(env, TypeValue.Unit));
+  rhs_info := match(rhs_info_opt, .Some(ri) => ri, .None => new_expr_info(env, rc(TypeValueNode.Unit)));
   rhs_type := rhs_info.ty;
   rhs_value := rhs_info.value;
   is_rhs_atom := ast_expr_is_atom(rhs);

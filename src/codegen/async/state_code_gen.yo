@@ -62,7 +62,7 @@ is_io_future_type :: (fn(ty : &TypeValue) -> bool)({
   rts := match(ty, .SomeT({ required_trait_types }) => required_trait_types, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < rts.len(), {
-    rt := match(rts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    rt := match(rts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_concrete_trait_type(&rt), {
       return(true);
     });

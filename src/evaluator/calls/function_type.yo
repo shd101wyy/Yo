@@ -471,7 +471,7 @@ _type_binder_env_value :: (
       });
       stamped := match(
         fresh_some,
-        .SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2) => TypeValue.SomeT(fs_id, fs_name, fs_level, fs_parent, fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1, fs_r2),
+        .SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2) => rc(TypeValueNode.SomeT(fs_id, fs_name, fs_level, fs_parent, fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1, fs_r2)),
         other => other
       );
       Option(EvalValue).Some(create_type_value(&stamped))
@@ -530,10 +530,10 @@ _record_ctor_phantom_positions :: (
     out.get(usize(0)),
     .Some(b) => match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)),
-      .Some(bi) => match(bi.value, .Some(.TypeVal(t)) => resolve_enum_shell(&t), _ => TypeValue.Unit),
-      .None => TypeValue.Unit
+      .Some(bi) => match(bi.value, .Some(.TypeVal(t)) => resolve_enum_shell(&t), _ => rc(TypeValueNode.Unit)),
+      .None => rc(TypeValueNode.Unit)
     ),
-    .None => TypeValue.Unit
+    .None => rc(TypeValueNode.Unit)
   );
   match(
     body_ty,

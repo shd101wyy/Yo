@@ -1293,7 +1293,7 @@ evaluate_comptime_fn_call :: (
             inst_type_args.push(tb);
           },
           _ => {
-            inst_type_args.push(TypeValue.Unit);
+            inst_type_args.push(rc(TypeValueNode.Unit));
           }
         );
       },
@@ -1403,7 +1403,7 @@ evaluate_comptime_fn_call :: (
         register_struct_ctor_fid(sid.clone(), func_id_str.clone());
         stamped_name := if((sname.len() == usize(0)) && (ctfe_box_name.len() > usize(0)), ctfe_box_name.clone(), sname.clone());
         EvalValue.TypeVal(
-          TypeValue.Struct(sid, stamped_name, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false)
+          rc(TypeValueNode.Struct(sid, stamped_name, slabels, stypes, sref, satomic, snt, func_id_str, inst_type_args, false))
         )
       }, return_value),
       // An enum instantiation's type arguments, the twin of the Struct stamp
@@ -1416,7 +1416,7 @@ evaluate_comptime_fn_call :: (
       // instance that reports the same arguments.
       .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas) => if((etas.len() == usize(0)) && ((inst_type_args.len() > usize(0)) && !eid.starts_with("enum_decl_")), {
         stamp_enum_final_type_arguments(eid.clone(), inst_type_args.clone(), ctor_phantom_flags(func_id_str.clone(), inst_type_args.len()));
-        EvalValue.TypeVal(TypeValue.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, inst_type_args))
+        EvalValue.TypeVal(rc(TypeValueNode.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, inst_type_args)))
       }, return_value),
       // Trait returns: record the constructor funcId so the generic-impl
       // registry can key `Eq(Rc(i32))` and `Eq(Rc(T))` into ONE bucket.

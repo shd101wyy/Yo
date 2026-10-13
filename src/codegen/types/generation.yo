@@ -247,7 +247,7 @@ generate_struct_declaration :: (fn(struct_type : &TypeValue, c_name : &String, c
     .Struct({ name, field_types, is_reference_semantics, is_atomic_rc, is_newtype }) => {
       // Newtype: zero-cost typedef over the single underlying type.
       if(is_newtype && (field_types.len() == usize(1)), {
-        underlying := match(field_types.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
+        underlying := match(field_types.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         uts := get_type_string(&underlying, context);
         // `get_type_string` renders a type that has no C form as the LINE
         // COMMENT `// Unknown type: …` (utils/index.yo). Interpolated into
@@ -1281,7 +1281,7 @@ _walk_struct_some_only :: (fn(type : &TypeValue, visited : &mut HashSet(String))
       n := field_types.len();
       (i : usize) = usize(0);
       while((i < n) && ok, {
-        ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         cond(
           is_function_type(&ft) => (),
           (is_struct_type(&ft) && recur(&ft, visited)) => (),
@@ -1315,7 +1315,7 @@ _walk_enum_some_only :: (fn(type : &TypeValue, visited : &mut HashSet(String)) -
         nf := fields.len();
         (fi : usize) = usize(0);
         while((fi < nf) && ok, {
-          ft := match(fields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+          ft := match(fields.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           cond(
             is_function_type(&ft) => (),
             (is_struct_type(&ft) && _walk_struct_some_only(&ft, visited)) => (),
@@ -1595,7 +1595,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
       nt := required_trait_types.len();
       (ti : usize) = usize(0);
       while(ti < nt, {
-        tt := match(required_trait_types.get(ti), .Some(x) => x, .None => TypeValue.Unit);
+        tt := match(required_trait_types.get(ti), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         cond(
           is_fn_trait_type(&tt) => match(
             tt,
@@ -1628,7 +1628,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
               (fi : usize) = usize(0);
               while(fi < nf, {
                 flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
-                fty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+                fty := match(field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 if(!is_destructor_trait_member(&tt, &flabel), {
                   match(
                     _dyn_vtable_method_line(&flabel, &fty, &mut processed, context),

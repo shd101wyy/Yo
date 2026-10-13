@@ -450,7 +450,7 @@ _ptr_binop :: (fn(args : &ArrayList(String), op : str) -> String)({
 /// The expr's result type (Unit if it has no ExprInfo — the metadata-aware
 /// builtins need the guard).
 ei_ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue)(
-  match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => TypeValue.Unit)
+  match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => rc(TypeValueNode.Unit))
 );
 /// Whether `__yo_as`'s source operand is a tagged (non-simple) enum.
 _as_source_is_tagged_enum :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(

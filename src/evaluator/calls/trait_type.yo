@@ -217,10 +217,10 @@ try_to_specialize_trait_type :: (
       evaluated_info_opt,
       .Some(info) => match(
         info.value,
-        .Some(v) => match(v, .TypeVal(tv) => tv, _ => TypeValue.Unit),
-        .None => TypeValue.Unit
+        .Some(v) => match(v, .TypeVal(tv) => tv, _ => rc(TypeValueNode.Unit)),
+        .None => rc(TypeValueNode.Unit)
       ),
-      .None => TypeValue.Unit
+      .None => rc(TypeValueNode.Unit)
     );
     atc_labels.push(label_tok.clone());
     atc_types.push(constraint_ty);
@@ -230,7 +230,7 @@ try_to_specialize_trait_type :: (
   specialized_trait_type := match(
     trait_type,
     .TraitT(n, atns, fls, fts, tid, ic, sc, nsc, _, _) =>
-      TypeValue.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, atc_labels, atc_types),
+      rc(TypeValueNode.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, atc_labels, atc_types)),
     _ => trait_type
   );
   TraitSpecializationResult(specialized_trait_type : specialized_trait_type, caller_env : caller_env)
@@ -310,7 +310,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   receiver_ty_pv := match(
     ctx.receiver_type,
     .Some(rt) => rt,
-    .None => TypeValue.Unit
+    .None => rc(TypeValueNode.Unit)
   );
   pv_type_id := type_id_or_empty(&receiver_ty_pv);
   trait_tid_pv := match(
@@ -322,7 +322,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     (pvi : usize) = usize(0);
     while(pvi < n_fields, {
       pv_lbl := match(field_labels.get(pvi), .Some(l) => l, .None => String.from(""));
-      pv_ty := match(field_types.get(pvi), .Some(t) => t, .None => TypeValue.Unit);
+      pv_ty := match(field_types.get(pvi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       if((pv_lbl != "") && is_function_type(&pv_ty), {
         register_provisional_trait_method(
           pv_type_id.clone(),
@@ -347,7 +347,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
     field_label_opt := field_labels.get(i);
     field_type_opt := field_types.get(i);
     field_label := match(field_label_opt, .Some(s) => s, .None => String.from(""));
-    field_type := match(field_type_opt, .Some(t) => t, .None => TypeValue.Unit);
+    field_type := match(field_type_opt, .Some(t) => t, .None => rc(TypeValueNode.Unit));
     (found_arg : bool) = false;
     (j : usize) = usize(0);
     while(j < n_args, {

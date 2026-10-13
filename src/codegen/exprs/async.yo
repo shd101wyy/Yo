@@ -196,7 +196,7 @@ _find_capture_field :: (fn(capture_type : &TypeValue, label : &String, field_typ
   (k : usize) = usize(0);
   while(k < clabels.len(), {
     lbl := match(clabels.get(k), .Some(l) => l, .None => String.from(""));
-    t := match(ctypes.get(k), .Some(t) => t, .None => TypeValue.Unit);
+    t := match(ctypes.get(k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(type_key(&t) == fk, {
       return(Option(String).Some(lbl));
     });
@@ -215,7 +215,7 @@ _visit_effect_struct_fields :: (
   (i : usize) = usize(0);
   while(i < flabels.len(), {
     flabel := match(flabels.get(i), .Some(l) => l, .None => String.from(""));
-    ftype := match(ftypes.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    ftype := match(ftypes.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_function_type(&ftype), {
       el := if(base_label.len() > usize(0), `${base_label}.${flabel}`, flabel.clone());
       ap := `${base_path}.${sanitize_for_c_identifier(flabel.clone(), false)}`;
@@ -316,7 +316,7 @@ get_injectable_future_effect_field_mappings :: (
   (ei : usize) = usize(0);
   while(ei < eff_labels.len(), {
     elabel := match(eff_labels.get(ei), .Some(l) => l, .None => String.from(""));
-    etype := match(eff_types.get(ei), .Some(t) => t, .None => TypeValue.Unit);
+    etype := match(eff_types.get(ei), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_function_type(&etype), {
       // Function-typed effect → matching capture field.
       match(
@@ -335,7 +335,7 @@ get_injectable_future_effect_field_mappings :: (
             (fi : usize) = usize(0);
             while(fi < ef_labels.len(), {
               flabel := match(ef_labels.get(fi), .Some(l) => l, .None => String.from(""));
-              ftype := match(ef_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+              ftype := match(ef_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               if(is_function_type(&ftype), {
                 match(_find_capture_field(&ct, &flabel, &ftype), .Some(cf) => _add_mapping(&mut mappings, &flabel, `__capture.${sanitize_for_c_identifier(&cf, false)}`), .None => ());
               });
@@ -1930,7 +1930,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   if(slots.len() != usize(1), {
     return(_fusion_not_lowered(await_expr, String.from("the block does not take exactly one bundle parameter"), report));
   });
-  bundle_ty := match(slots.get(usize(0)), .Some(sl) => sl.param_type, .None => TypeValue.Unit);
+  bundle_ty := match(slots.get(usize(0)), .Some(sl) => sl.param_type, .None => rc(TypeValueNode.Unit));
   effects_ty := match(
     await_args.get(usize(1)),
     .Some(ea) => match(context.base.get_expr_info(&ea), .Some(eei) => Option(TypeValue).Some(eei.ty), .None => Option(TypeValue).None),
@@ -2368,7 +2368,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
     .Func({ param_types : wpts, meta : wmeta }) => {
       (pi : usize) = usize(0);
       while(pi < wpts.len(), pi = (pi + usize(1)), {
-        pt := match(wpts.get(pi), .Some(t) => t, .None => TypeValue.Unit);
+        pt := match(wpts.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         label := match(wmeta.*.param_labels.get(pi), .Some(l) => l, .None => `param${pi.to_string()}`);
         cname := sanitize_for_c_identifier(&label, false);
         code := match(arg_codes.get(pi), .Some(c) => c, .None => String.from("0"));
@@ -2927,7 +2927,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
           pls := __fm1.*.param_labels;
           (i : usize) = usize(0);
           while(i < pts.len(), {
-            pt := match(pts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+            pt := match(pts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             // Slot 0 (the bundle param) must render THIS call's effect. The
             // registry type's param-0 can be the io.async builtin's SHARED
             // forall E — its global fallback resolves to whichever
@@ -3720,7 +3720,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     .Func({ param_types : pts }) => {
       (i : usize) = usize(0);
       while(i < pts.len(), {
-        pt := match(pts.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        pt := match(pts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         // Same per-call rule as the FSM slot collection above: slot 0 is the
         // bundle param; when the closure's recorded Func type still carries
         // the io.async builtin's SHARED forall E, render THIS call's Future

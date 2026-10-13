@@ -416,7 +416,7 @@ _by_value_self_slot :: (fn(tys : &ArrayList(TypeValue)) -> Option(String))({
         .TraitT({ name : tn, field_labels : fls, field_types : fts }) => {
           (j : usize) = usize(0);
           while(j < fts.len(), {
-            ft := match(fts.get(j), .Some(f) => f, .None => TypeValue.Unit);
+            ft := match(fts.get(j), .Some(f) => f, .None => rc(TypeValueNode.Unit));
             if(dyn_member_is_method(&ft) && dyn_member_unsafe_reason(&ft).is_none(), {
               owned := match(ft, .Func({ meta : m }) => match(m.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => false), _ => false);
               if(owned, {
@@ -544,13 +544,13 @@ _reject_dyn_borrowing_future_methods :: (
           // The method's result type, and its body's evaluated type: the
           // borrows ride on the body's `io.async` wrapper, which the declared
           // `Impl(Future(...))` result reaches only through its resolution.
-          (res_ty : TypeValue) = TypeValue.Unit;
-          (body_ty : TypeValue) = TypeValue.Unit;
+          (res_ty : TypeValue) = rc(TypeValueNode.Unit);
+          (body_ty : TypeValue) = rc(TypeValueNode.Unit);
           match(
             fvals.get(fi),
             .Some(.Some(.FuncVal(fvd, _))) => {
-              res_ty = match(get_func_type(fvd.*.func_id.clone()), .Func({ result : r }) => r, _ => TypeValue.Unit);
-              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => bi.ty, .None => TypeValue.Unit);
+              res_ty = match(get_func_type(fvd.*.func_id.clone()), .Func({ result : r }) => r, _ => rc(TypeValueNode.Unit));
+              body_ty = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&fvd.*.body)), .Some(bi) => bi.ty, .None => rc(TypeValueNode.Unit));
             },
             _ => ()
           );
@@ -873,12 +873,12 @@ _dyn_type_from_payload_or_throw :: (
           )
         );
       });
-      TypeValue.DynT(
+      rc(TypeValueNode.DynT(
         required_trait_types : ArrayList(TypeValue).new(),
         required_trait_levels : ArrayList(usize).new(),
         negative_trait_types : ArrayList(TypeValue).new(),
         negative_trait_levels : ArrayList(usize).new()
-      )
+      ))
     }
   )
 );
@@ -1056,12 +1056,12 @@ evaluate_dyn_value :: (
           negative_trait_types : ntt,
           negative_trait_levels : ntl
         ) =>
-          TypeValue.DynT(
+          rc(TypeValueNode.DynT(
             required_trait_types : rtt,
             required_trait_levels : rtl,
             negative_trait_types : ntt,
             negative_trait_levels : ntl
-          ),
+          )),
         _ => _dyn_type_from_payload_or_throw(ne_value_type.clone(), &expr_tok, Option(TypeValue).Some(et.ty), ne_have_inner_ty, exn)
       ),
       .None => _dyn_type_from_payload_or_throw(ne_value_type.clone(), &expr_tok, Option(TypeValue).None, ne_have_inner_ty, exn)
@@ -1102,7 +1102,7 @@ evaluate_dyn_value :: (
               .Some(iec) => match(
                 iec.ty,
                 .SomeT(bx_id, bx_nm, bx_fl, bx_pt, bx_rtt, bx_rtl, bx_ntt, bx_ntl, bx_kft, _) => {
-                  ne_box_inner_ty = TypeValue.SomeT(
+                  ne_box_inner_ty = rc(TypeValueNode.SomeT(
                     bx_id,
                     bx_nm,
                     bx_fl,
@@ -1113,7 +1113,7 @@ evaluate_dyn_value :: (
                     bx_ntl,
                     bx_kft,
                     Option(TypeValue).Some(cci.capture_type)
-                  );
+                  ));
                 },
                 _ => ()
               ),
@@ -1278,12 +1278,12 @@ evaluate_dyn_value :: (
         negative_trait_levels : ntl
       ) =>
         Option(TypeValue).Some(
-          TypeValue.DynT(
+          rc(TypeValueNode.DynT(
             required_trait_types : rtt,
             required_trait_levels : rtl,
             negative_trait_types : ntt,
             negative_trait_levels : ntl
-          )
+          ))
         ),
       _ => Option(TypeValue).None
     ),
@@ -1300,12 +1300,12 @@ evaluate_dyn_value :: (
         negative_trait_types : ntt,
         negative_trait_levels : ntl
       ) =>
-        TypeValue.DynT(
+        rc(TypeValueNode.DynT(
           required_trait_types : rtt,
           required_trait_levels : rtl,
           negative_trait_types : ntt,
           negative_trait_levels : ntl
-        ),
+        )),
       .SomeT(
         required_trait_types : rtt,
         required_trait_levels : rtl,
@@ -1322,12 +1322,12 @@ evaluate_dyn_value :: (
             )
           )
         );
-        TypeValue.DynT(
+        rc(TypeValueNode.DynT(
           required_trait_types : ArrayList(TypeValue).new(),
           required_trait_levels : ArrayList(usize).new(),
           negative_trait_types : ArrayList(TypeValue).new(),
           negative_trait_levels : ArrayList(usize).new()
-        )
+        ))
       }
     )
   );

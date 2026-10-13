@@ -59,7 +59,7 @@ try_to_implement_array_by_array_type :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   expected_len := match(
@@ -173,7 +173,7 @@ try_to_implement_array_by_array_type :: (
   });
   // Store result in expr_info_table.
   // Re-use array_type but with refined element type (may have been updated from first element).
-  final_array_type := TypeValue.Array(expected_element_type, eff_len, String.from(""));
+  final_array_type := rc(TypeValueNode.Array(expected_element_type, eff_len, String.from("")));
   out_info := new_expr_info(&env, &final_array_type);
   // Only a FULLY compile-time array gets a compile-time value. Stamping one
   // with manufactured `UnknownVal` placeholders (as this used to) told codegen

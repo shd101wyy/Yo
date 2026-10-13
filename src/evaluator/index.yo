@@ -58,18 +58,18 @@ _evaluator_ctx_load_module :: (fn(path : &String) -> LoadModuleResult)(
         f(path.clone()),
         .Some(v) => LoadModuleResult(
           module_value : v,
-          module_type : TypeValue.Unit,
+          module_type : rc(TypeValueNode.Unit),
           module_error : Option(String).None
         ),
         .None => LoadModuleResult(
           module_value : EvalValue.UnitVal,
-          module_type : TypeValue.Unit,
+          module_type : rc(TypeValueNode.Unit),
           module_error : Option(String).Some(`Module not found: ${path}`)
         )
       ),
     .None => LoadModuleResult(
       module_value : EvalValue.UnitVal,
-      module_type : TypeValue.Unit,
+      module_type : rc(TypeValueNode.Unit),
       module_error : Option(String).Some(String.from("No module loader registered"))
     )
   )
@@ -198,7 +198,7 @@ impl(
                     match(
                       pvalues.get(pi),
                       .Some(pval_item) => {
-                        env.define_val(&pname, TypeValue.Unit, true, .Some(pval_item));
+                        env.define_val(&pname, rc(TypeValueNode.Unit), true, .Some(pval_item));
                         ()
                       },
                       .None => ()

@@ -64,7 +64,7 @@ collect_evidence_from_record :: (
       (i : usize) = usize(0);
       while(i < n, {
         field_label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
-        field_ty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        field_ty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         cond(
           is_function_type(&field_ty) => {
             // Forall function fields are passed as void* and cast at each call site.
@@ -153,7 +153,7 @@ generate_function_prototype :: (
         if(i > usize(0), {
           params.push_str(", ");
         });
-        pt := match(param_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        pt := match(param_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         // Use the source parameter label (sanitized) so the C signature matches
         // the body's references to that parameter (the atom emitter emits the
         // source name). Falls back to
@@ -388,7 +388,7 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
 });
 /// The result (return) type of a Func TypeValue, or Unit for non-functions.
 _func_result_type :: (fn(ft : &TypeValue) -> TypeValue)(
-  match(ft, .Func({ result }) => result, _ => TypeValue.Unit)
+  match(ft, .Func({ result }) => result, _ => rc(TypeValueNode.Unit))
 );
 /// True when the Func's declared return is `comptime(...)` (compile-time-only
 /// function).

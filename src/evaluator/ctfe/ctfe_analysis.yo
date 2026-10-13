@@ -67,13 +67,13 @@ CtfeComptimeFn :: struct(value : EvalValue, ty : TypeValue);
 _to_comptime_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
-    .Int(_, _) => .Some(TypeValue.ComptimeInt),
-    .Usize => .Some(TypeValue.ComptimeInt),
-    .Isize => .Some(TypeValue.ComptimeInt),
-    .Float(_) => .Some(TypeValue.ComptimeFloat),
-    .ComptimeInt => .Some(TypeValue.ComptimeInt),
-    .ComptimeFloat => .Some(TypeValue.ComptimeFloat),
-    .ComptimeString => .Some(TypeValue.ComptimeString),
+    .Int(_, _) => .Some(rc(TypeValueNode.ComptimeInt)),
+    .Usize => .Some(rc(TypeValueNode.ComptimeInt)),
+    .Isize => .Some(rc(TypeValueNode.ComptimeInt)),
+    .Float(_) => .Some(rc(TypeValueNode.ComptimeFloat)),
+    .ComptimeInt => .Some(rc(TypeValueNode.ComptimeInt)),
+    .ComptimeFloat => .Some(rc(TypeValueNode.ComptimeFloat)),
+    .ComptimeString => .Some(rc(TypeValueNode.ComptimeString)),
     _ => Option(TypeValue).None
   )
 );
@@ -99,7 +99,7 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
     _to_comptime_type(&result_box),
     .None => Option(TypeValue).None,
     .Some(comptime_result_ty) => .Some(
-      TypeValue.Func(
+      rc(TypeValueNode.Func(
         forall_types,
         param_types,
         implicit_types,
@@ -124,7 +124,7 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
           )
         ),
         ArrayList(TypeValue).new()
-      )
+      ))
     )
   )
 });

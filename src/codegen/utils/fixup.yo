@@ -28,13 +28,13 @@ _upcast_trait_values :: (fn(entry : &DynImplEntry, tgt : &TypeValue) -> ArrayLis
   tgt_req := match(tgt, .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
   (ti : usize) = usize(0);
   while(ti < tgt_req.len(), {
-    tt := match(tgt_req.get(ti), .Some(t) => t, .None => TypeValue.Unit);
+    tt := match(tgt_req.get(ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(_carries_trait_value(tt.clone()), {
       (si : usize) = usize(0);
       (vi : usize) = usize(0);
       (found : bool) = false;
       while((si < src_req.len()) && !found, {
-        st := match(src_req.get(si), .Some(t) => t, .None => TypeValue.Unit);
+        st := match(src_req.get(si), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(_carries_trait_value(st.clone()), {
           if(are_types_compatible_exact(&st, tt.clone()), {
             match(entry.trait_values.get(vi), .Some(v) => out.push(v), .None => ());
@@ -86,7 +86,7 @@ register_dyn_upcast_targets :: (fn(context : &CodeGenContext) -> unit)({
           targets := context.dyn_upcast_targets(entry.dyn_type.clone());
           (t : usize) = usize(0);
           while(t < targets.len(), {
-            tgt := match(targets.get(t), .Some(x) => x, .None => TypeValue.Unit);
+            tgt := match(targets.get(t), .Some(x) => x, .None => rc(TypeValueNode.Unit));
             tkey := `${type_key(entry.concrete_type.clone())}_${type_key(tgt.clone())}`;
             if(context.dyn_impls.get(tkey.clone()).is_none(), {
               context.register_dyn_impl(

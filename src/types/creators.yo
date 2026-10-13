@@ -53,38 +53,38 @@ UNFRAMED_BINDER_LEVEL :: usize(1000000000);
 // keeps its own +1 forever, so the singleton is never freed). Nothing
 // mutates a leaf in place (they have no mutable fields), and all TypeValue
 // comparisons in the compiler are structural, so sharing is unobservable.
-(g_t_unit : TypeValue) = TypeValue.Unit;
-(g_t_str : TypeValue) = TypeValue.Str;
-(g_t_bool : TypeValue) = TypeValue.BoolT;
-(g_t_void : TypeValue) = TypeValue.Void;
-(g_t_never : TypeValue) = TypeValue.Never;
-(g_t_i8 : TypeValue) = TypeValue.Int(u8(8), true);
-(g_t_i16 : TypeValue) = TypeValue.Int(u8(16), true);
-(g_t_i32 : TypeValue) = TypeValue.Int(u8(32), true);
-(g_t_i64 : TypeValue) = TypeValue.Int(u8(64), true);
-(g_t_u8 : TypeValue) = TypeValue.Int(u8(8), false);
-(g_t_u16 : TypeValue) = TypeValue.Int(u8(16), false);
-(g_t_u32 : TypeValue) = TypeValue.Int(u8(32), false);
-(g_t_u64 : TypeValue) = TypeValue.Int(u8(64), false);
-(g_t_f32 : TypeValue) = TypeValue.Float(u8(32));
-(g_t_f64 : TypeValue) = TypeValue.Float(u8(64));
-(g_t_usize : TypeValue) = TypeValue.Usize;
-(g_t_isize : TypeValue) = TypeValue.Isize;
-(g_t_comptime_int : TypeValue) = TypeValue.ComptimeInt;
-(g_t_comptime_float : TypeValue) = TypeValue.ComptimeFloat;
-(g_t_comptime_string : TypeValue) = TypeValue.ComptimeString;
-(g_t_type : TypeValue) = TypeValue.TypeUni(usize(0));
-(g_t_type_1 : TypeValue) = TypeValue.TypeUni(usize(1));
-(g_t_c_char : TypeValue) = TypeValue.CChar;
-(g_t_c_short : TypeValue) = TypeValue.CShort;
-(g_t_c_ushort : TypeValue) = TypeValue.CUShort;
-(g_t_c_int : TypeValue) = TypeValue.CInt;
-(g_t_c_uint : TypeValue) = TypeValue.CUInt;
-(g_t_c_long : TypeValue) = TypeValue.CLong;
-(g_t_c_ulong : TypeValue) = TypeValue.CULong;
-(g_t_c_longlong : TypeValue) = TypeValue.CLongLong;
-(g_t_c_ulonglong : TypeValue) = TypeValue.CULongLong;
-(g_t_c_longdouble : TypeValue) = TypeValue.CLongDouble;
+(g_t_unit : TypeValue) = rc(TypeValueNode.Unit);
+(g_t_str : TypeValue) = rc(TypeValueNode.Str);
+(g_t_bool : TypeValue) = rc(TypeValueNode.BoolT);
+(g_t_void : TypeValue) = rc(TypeValueNode.Void);
+(g_t_never : TypeValue) = rc(TypeValueNode.Never);
+(g_t_i8 : TypeValue) = rc(TypeValueNode.Int(u8(8), true));
+(g_t_i16 : TypeValue) = rc(TypeValueNode.Int(u8(16), true));
+(g_t_i32 : TypeValue) = rc(TypeValueNode.Int(u8(32), true));
+(g_t_i64 : TypeValue) = rc(TypeValueNode.Int(u8(64), true));
+(g_t_u8 : TypeValue) = rc(TypeValueNode.Int(u8(8), false));
+(g_t_u16 : TypeValue) = rc(TypeValueNode.Int(u8(16), false));
+(g_t_u32 : TypeValue) = rc(TypeValueNode.Int(u8(32), false));
+(g_t_u64 : TypeValue) = rc(TypeValueNode.Int(u8(64), false));
+(g_t_f32 : TypeValue) = rc(TypeValueNode.Float(u8(32)));
+(g_t_f64 : TypeValue) = rc(TypeValueNode.Float(u8(64)));
+(g_t_usize : TypeValue) = rc(TypeValueNode.Usize);
+(g_t_isize : TypeValue) = rc(TypeValueNode.Isize);
+(g_t_comptime_int : TypeValue) = rc(TypeValueNode.ComptimeInt);
+(g_t_comptime_float : TypeValue) = rc(TypeValueNode.ComptimeFloat);
+(g_t_comptime_string : TypeValue) = rc(TypeValueNode.ComptimeString);
+(g_t_type : TypeValue) = rc(TypeValueNode.TypeUni(usize(0)));
+(g_t_type_1 : TypeValue) = rc(TypeValueNode.TypeUni(usize(1)));
+(g_t_c_char : TypeValue) = rc(TypeValueNode.CChar);
+(g_t_c_short : TypeValue) = rc(TypeValueNode.CShort);
+(g_t_c_ushort : TypeValue) = rc(TypeValueNode.CUShort);
+(g_t_c_int : TypeValue) = rc(TypeValueNode.CInt);
+(g_t_c_uint : TypeValue) = rc(TypeValueNode.CUInt);
+(g_t_c_long : TypeValue) = rc(TypeValueNode.CLong);
+(g_t_c_ulong : TypeValue) = rc(TypeValueNode.CULong);
+(g_t_c_longlong : TypeValue) = rc(TypeValueNode.CLongLong);
+(g_t_c_ulonglong : TypeValue) = rc(TypeValueNode.CULongLong);
+(g_t_c_longdouble : TypeValue) = rc(TypeValueNode.CLongDouble);
 t_unit :: (fn() -> TypeValue)(g_t_unit);
 /// `str` — the builtin static string view (a
 /// dedicated fieldless tag; impl registry keys it by id "str").
@@ -464,7 +464,7 @@ t_dyn_payload_wrapper :: (fn(dyn_ty : &TypeValue, frame_level : usize) -> Option
 t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
   match(
     t,
-    .SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _) => TypeValue.SomeT(
+    .SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _) => rc(TypeValueNode.SomeT(
       wr_id,
       wr_nm,
       wr_fl,
@@ -475,7 +475,7 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
       wr_ntl,
       wr_kft,
       Option(TypeValue).Some(concrete)
-    ),
+    )),
     _ => t
   )
 );
@@ -484,7 +484,7 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
 t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ft,
-    .Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt) => TypeValue.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt),
+    .Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt) => rc(TypeValueNode.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt)),
     _ => ft
   )
 );
@@ -492,7 +492,7 @@ t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
 /// (types/definitions.yo `ExternOpaqueT`). `c_name` is its C spelling; the
 /// label is its own spelling when no `c_type("...")` is given.
 t_extern_opaque :: (fn(name : &String, c_name : &String) -> TypeValue)(
-  TypeValue.ExternOpaqueT(name, cond((c_name.len() > usize(0)) => c_name, true => name.clone()))
+  rc(TypeValueNode.ExternOpaqueT(name, cond((c_name.len() > usize(0)) => c_name, true => name.clone())))
 );
 /// Per-call SomeT minting (§7 step 3's cure, issues/fixed/
 /// warm-test-batches-doc-stability-genericimplentry.md): rebuild `s` with a
@@ -938,7 +938,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &ArrayList(Type
           .EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas) => if(ftas.len() == usize(0), {
             _register_enum_phantom_positions(fid.clone(), phantom.clone());
             _old := g_enum_finals.remove(i);
-            g_enum_finals.insert(i, EnumFinalEntry(enum_id : shell_key, ty : TypeValue.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args)));
+            g_enum_finals.insert(i, EnumFinalEntry(enum_id : shell_key, ty : rc(TypeValueNode.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args))));
           }),
           _ => ()
         );

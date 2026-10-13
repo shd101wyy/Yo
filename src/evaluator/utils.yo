@@ -1270,7 +1270,7 @@ capture_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext) -> bool)({
       if(ast_expr_is_atom_of(&fld, "*"), {
         return(true);
       });
-      recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => TypeValue.Unit);
+      recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit));
       if(is_reference_struct_type(&recv_ty) || is_atomic_reference_struct_type(&recv_ty), {
         return(true);
       });
@@ -1286,7 +1286,7 @@ capture_place_crosses_cell :: (fn(ev : &AstExpr, ctx : &EvalContext) -> bool)({
         base,
         .Some(b) => {
           via_index_trait := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cur)), .Some(ci) => expr_info_index_trait_ptr_type(&ci).is_some(), .None => false);
-          base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)), .Some(bi) => bi.ty, .None => TypeValue.Unit);
+          base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&b)), .Some(bi) => bi.ty, .None => rc(TypeValueNode.Unit));
           cond(
             is_array_type(&base_ty) => {
               cur = b;
@@ -3113,7 +3113,7 @@ check_loop_flow :: (
           if((exit_moved.len() > usize(0)) || (exit_live.len() > usize(0)), {
             v.consumed_at_token = match(final, .Some(ft) => Option(Token).Some(ft), .None => Option(Token).None);
           });
-          record_flow_event(v.id, TypeValue.Unit, Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token, match(v.consumed_at_token, .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
+          record_flow_event(v.id, rc(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Join, &v.token, &r.before_init, &pre, &v.initialized_at_token, match(v.consumed_at_token, .Some(jc) => Option(Token).Some(jc), .None => Option(Token).None));
         }),
         .None => ()
       ),
@@ -3626,11 +3626,11 @@ merge_and_check_envs :: (
               cb_i = (cb_i + usize(1));
             });
             if(cb_tys.len() > usize(1), {
-              cb_first_ty := match(cb_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
+              cb_first_ty := match(cb_tys.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               cb_first_cap := match(cb_caps.get(usize(0)), .Some(c) => c, .None => Option(TypeValue).None);
               (cb_k : usize) = usize(1);
               while(cb_k < cb_tys.len(), {
-                cb_cur_ty := match(cb_tys.get(cb_k), .Some(t) => t, .None => TypeValue.Unit);
+                cb_cur_ty := match(cb_tys.get(cb_k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 cb_cur_cap := match(cb_caps.get(cb_k), .Some(c) => c, .None => Option(TypeValue).None);
                 cb_tok := match(
                   bodies.get(match(cb_body_idx.get(usize(0)), .Some(x) => x, .None => usize(0))),
@@ -3918,7 +3918,7 @@ Conflicting initialization: ${type_to_string(&cb_cur_ty)}`
           if(flow_joined, {
             record_flow_event(
               base_var.id,
-              TypeValue.Unit,
+              rc(TypeValueNode.Unit),
               Option(TypeValue).None,
               FlowEventKind.Join,
               &base_var.token,

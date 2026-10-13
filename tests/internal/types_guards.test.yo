@@ -195,8 +195,8 @@ test("is_union_type", {
   assert(!is_union_type(t_i32()), "i32 not union");
 });
 test("is_struct_type / is_enum_type / is_function_type / is_trait_type / is_module_type / is_some_type", {
-  s := TypeValue.Struct(id : String.from(""), name : String.from("S"), field_labels : ArrayList(String).new(), field_types : ArrayList(TypeValue).new(), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false);
-  e := TypeValue.EnumT(String.from(""), String.from("E"), ArrayList(String).new(), ArrayList(ArrayList(TypeValue)).new(), Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new(), false, false, ArrayList(TypeValue).new());
+  s := rc(TypeValueNode.Struct(id : String.from(""), name : String.from("S"), field_labels : ArrayList(String).new(), field_types : ArrayList(TypeValue).new(), is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false));
+  e := rc(TypeValueNode.EnumT(String.from(""), String.from("E"), ArrayList(String).new(), ArrayList(ArrayList(TypeValue)).new(), Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new(), false, false, ArrayList(TypeValue).new()));
   f := t_func_simple(ArrayList(String).new(), ArrayList(TypeValue).new(), t_unit());
   tr := t_trait_simple(String.from("T"));
   m := t_module_simple(String.from("M"));
@@ -333,8 +333,8 @@ test("is_function_type_generic: generic func is generic", {
   fl := ArrayList(String).new();
   ft := ArrayList(TypeValue).new();
   fl.push(String.from("T"));
-  ft.push(TypeValue.TypeUni(usize(0)));
-  f := TypeValue.Func(
+  ft.push(rc(TypeValueNode.TypeUni(usize(0))));
+  f := rc(TypeValueNode.Func(
     ft,
     ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new(),
@@ -358,7 +358,7 @@ test("is_function_type_generic: generic func is generic", {
       )
     ),
     ArrayList(TypeValue).new()
-  );
+  ));
   assert(is_function_type_generic(&f), "generic func generic");
   assert(is_function_type_hard_generic(&f), "generic func hard generic");
 });
@@ -368,7 +368,7 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
   it_ := ArrayList(TypeValue).new();
   il.push(String.from("io"));
   it_.push(t_module_simple(String.from("Io")));
-  f := TypeValue.Func(
+  f := rc(TypeValueNode.Func(
     ArrayList(TypeValue).new(),
     ArrayList(TypeValue).new(),
     it_,
@@ -392,7 +392,7 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
       )
     ),
     ArrayList(TypeValue).new()
-  );
+  ));
   assert(is_function_type_generic(&f), "implicit func generic");
   assert(!is_function_type_hard_generic(&f), "implicit func NOT hard generic");
 });
@@ -409,7 +409,7 @@ test("re-exported guards from type.yo still work", {
   assert(is_signed_int_type(t_i32()), "is_signed_int_type i32");
   assert(!is_signed_int_type(t_u32()), "u32 not signed");
   assert(is_pointer_type(t_ptr(t_i32())), "pointer");
-  assert(is_str_type(TypeValue.Str), "str");
+  assert(is_str_type(rc(TypeValueNode.Str)), "str");
   assert(is_array_type(t_array(t_u8(), usize(4))), "array");
 });
 // ---------------------------------------------------------------------------
@@ -467,7 +467,7 @@ test("is_rc_type: i32 and primitives are not RC", {
 test("is_rc_type: struct (not object) is not RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  struct_ty := TypeValue.Struct(
+  struct_ty := rc(TypeValueNode.Struct(
     id : String.from("id1"),
     name : String.from("Point"),
     field_labels : labels,
@@ -478,13 +478,13 @@ test("is_rc_type: struct (not object) is not RC", {
     constructor_func_id : String.from(""),
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
-  );
+  ));
   assert(!is_rc_type(&struct_ty), "struct → false");
 });
 test("is_rc_type: object (is_reference_semantics=true) is RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  obj_ty := TypeValue.Struct(
+  obj_ty := rc(TypeValueNode.Struct(
     id : String.from("id2"),
     name : String.from("MyObj"),
     field_labels : labels,
@@ -495,7 +495,7 @@ test("is_rc_type: object (is_reference_semantics=true) is RC", {
     constructor_func_id : String.from(""),
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
-  );
+  ));
   assert(is_rc_type(&obj_ty), "object → true");
 });
 test("is_rc_type: DynT is RC", {
@@ -515,17 +515,17 @@ test("is_rc_type: SomeT with Future trait constraint is RC", {
   // A SomeT with a Future trait in required_trait_types
   req := ArrayList(TypeValue).new();
   req.push(t_future_trait_simple(String.from("Io"), t_unit()));
-  some_ty := TypeValue.SomeT(
+  some_ty := rc(TypeValueNode.SomeT(
     String.from("id3"),
     String.from("T"),
     usize(0),
-    TypeValue.TypeUni(usize(0)),
+    rc(TypeValueNode.TypeUni(usize(0))),
     req,
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     Option(TypeValue).None,
     Option(TypeValue).None
-  );
+  ));
   assert(is_rc_type(&some_ty), "SomeT with Future → true");
 });

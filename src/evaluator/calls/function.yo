@@ -380,7 +380,7 @@ _reject_dyn_uncallable_method_call :: (
               (j : usize) = usize(0);
               while(j < fls.len(), {
                 if(match(fls.get(j), .Some(l) => (l == name_tok.value), .None => false), {
-                  ft := match(fts.get(j), .Some(t) => t, .None => TypeValue.Unit);
+                  ft := match(fts.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                   if(dyn_member_is_method(&ft), {
                     match(
                       dyn_member_unsafe_reason(&ft),
@@ -1509,13 +1509,13 @@ _resolve_array_length_vars_from_self :: (
         resolve := ((lvar.len() > usize(0)) && (s_lvar.len() == usize(0)));
         new_len := cond(resolve => s_len, true => len);
         new_lvar := cond(resolve => String.from(""), true => lvar);
-        TypeValue.Array(new_elem, new_len, new_lvar)
+        rc(TypeValueNode.Array(new_elem, new_len, new_lvar))
       },
       _ => ty
     ),
     .Pointer(inner) => match(
       self_ty,
-      .Pointer(s_inner) => TypeValue.Pointer(recur(&inner, &s_inner)),
+      .Pointer(s_inner) => rc(TypeValueNode.Pointer(recur(&inner, &s_inner))),
       _ => ty
     ),
     _ => ty
@@ -2280,7 +2280,7 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
               rt,
               .FutureTraitT(fb, fo, fel, fet) => match(
                 fo,
-                .SomeT({ id : _ }) => TypeValue.FutureTraitT(fb, t_with_resolution(&fo, concrete), fel, fet),
+                .SomeT({ id : _ }) => rc(TypeValueNode.FutureTraitT(fb, t_with_resolution(&fo, concrete), fel, fet)),
                 _ => rt
               ),
               _ => rt
@@ -2290,7 +2290,7 @@ _with_future_output_resolution :: (fn(wrapper : &TypeValue, concrete : &TypeValu
         );
         i = (i + usize(1));
       });
-      TypeValue.SomeT(fw_id, fw_nm, fw_fl, fw_pt, new_rtt, fw_rtl, fw_ntt, fw_ntl, fw_kft, fw_rc)
+      rc(TypeValueNode.SomeT(fw_id, fw_nm, fw_fl, fw_pt, new_rtt, fw_rtl, fw_ntt, fw_ntl, fw_kft, fw_rc))
     },
     _ => wrapper
   )
@@ -2341,7 +2341,7 @@ _future_output_some_id :: (fn(t : &TypeValue) -> Option(String))(
 _freshen_io_async_result :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft }) => TypeValue.SomeT(
+    .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft }) => rc(TypeValueNode.SomeT(
       generate_some_type_id(),
       sn.clone(),
       sfl,
@@ -2352,7 +2352,7 @@ _freshen_io_async_result :: (fn(t : &TypeValue) -> TypeValue)(
       sntl.clone(),
       skft.clone(),
       Option(TypeValue).None
-    ),
+    )),
     _ => t
   )
 );
@@ -2404,7 +2404,7 @@ _register_borrowing_future :: (fn(fut_ty : &TypeValue, args : &ArrayList(AstExpr
       );
       (fi : usize) = usize(0);
       while(fi < cap_types.len(), fi = (fi + usize(1)), {
-        f_ty := match(cap_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        f_ty := match(cap_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         f_bs := ArrayList(CaptureBorrow).new();
         collect_type_borrows(&f_ty, &mut f_bs);
         if(f_bs.len() > usize(0), {
@@ -2485,7 +2485,7 @@ _check_bundle_fields_copy :: (fn(expr : &AstExpr, args : &ArrayList(AstExpr), ct
     .Struct({ field_labels : labels, field_types : types }) => {
       (fi : usize) = usize(0);
       while(fi < types.len(), fi = (fi + usize(1)), {
-        fty := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(type_requires_explicit_copy(&fty), {
           label := match(labels.get(fi), .Some(l) => l, .None => String.new());
           raise_flow_violation(
@@ -2689,7 +2689,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     // codegen lowers it as before), carries the assumed borrows.
     assumed_ty := match(
       info.ty,
-      .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft }) => TypeValue.SomeT(
+      .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft }) => rc(TypeValueNode.SomeT(
         generate_some_type_id(),
         sn.clone(),
         sfl,
@@ -2700,7 +2700,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
         sntl.clone(),
         skft.clone(),
         Option(TypeValue).Some(info.ty.clone())
-      ),
+      )),
       _ => return(())
     );
     match(assumed_ty, .SomeT({ id : a_id }) => register_capture_borrows(&a_id, &bs), _ => ());
@@ -2777,7 +2777,7 @@ _check_future_call_lends :: (fn(call : &AstExpr, op_callee : &AstExpr, op_args :
     arg_offset = usize(1);
     recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
     self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
-    recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => TypeValue.Unit);
+    recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit));
     recv_is_cell := (is_reference_struct_type(&recv_ty) || is_atomic_reference_struct_type(&recv_ty));
     self_is_cell := match(self_ty, .Some(st) => (is_reference_struct_type(&st) || is_atomic_reference_struct_type(&st)), .None => false);
     if(_borrows_root_named(bs, &self_label) && (capture_place_crosses_cell(&recv, ctx) || (recv_is_cell && !self_is_cell)), {
@@ -3171,7 +3171,7 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
                 &fbs,
                 fbn.clone(),
                 fbl,
-                TypeValue.SomeT(
+                rc(TypeValueNode.SomeT(
                   generate_some_type_id(),
                   fbn.clone(),
                   UNFRAMED_BINDER_LEVEL,
@@ -3182,7 +3182,7 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
                   fbntl.clone(),
                   fbkft.clone(),
                   Option(TypeValue).None
-                )
+                ))
               );
             },
             _ => ()
@@ -3272,7 +3272,7 @@ _gc_collect_binder_sites :: (
   (steps : usize) = usize(0);
   while((work.len() > usize(0)) && (steps < usize(4096)), {
     steps = (steps + usize(1));
-    cur := match(work.pop(), .Some(c) => c, .None => TypeValue.Unit);
+    cur := match(work.pop(), .Some(c) => c, .None => rc(TypeValueNode.Unit));
     somes := get_all_some_types(&cur);
     match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
     (si : usize) = usize(0);
@@ -3392,10 +3392,10 @@ _gc_freshen_all_sites :: (
       // Dropping `required_trait_types` would silently discard a
       // `where(R <: (Send, Acyclic))` bound — the freshened binder must be the
       // same type variable, only with a per-call identity.
-      g_proto := match(site_protos.get(gi), .Some(pv) => pv, .None => TypeValue.Unit);
+      g_proto := match(site_protos.get(gi), .Some(pv) => pv, .None => rc(TypeValueNode.Unit));
       g_made := match(
         g_proto,
-        .SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, required_trait_types : g_prtt, required_trait_levels : g_prtl, negative_trait_types : g_pntt, negative_trait_levels : g_pntl, kind_function_type : g_pkft }) => TypeValue.SomeT(
+        .SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, required_trait_types : g_prtt, required_trait_levels : g_prtl, negative_trait_types : g_pntt, negative_trait_levels : g_pntl, kind_function_type : g_pkft }) => rc(TypeValueNode.SomeT(
           generate_some_type_id(),
           g_pn.clone(),
           g_pl,
@@ -3406,7 +3406,7 @@ _gc_freshen_all_sites :: (
           g_pntl.clone(),
           g_pkft.clone(),
           Option(TypeValue).None
-        ),
+        )),
         _ => g_proto
       );
       fresh_ids.push(g_id.clone());
@@ -3607,7 +3607,7 @@ _fv_fn_trait_with_result :: (fn(ftt : &TypeValue, result : &TypeValue) -> TypeVa
     ftt,
     .FnTraitT(bn, cpl, cpt, cr, il, it, cpr, cpo) => if(
       is_some_type(&cr) || (get_all_some_types(&cr).len() > usize(0)),
-      TypeValue.FnTraitT(bn, cpl, cpt, result, il, it, cpr, cpo),
+      rc(TypeValueNode.FnTraitT(bn, cpl, cpt, result, il, it, cpr, cpo)),
       ftt
     ),
     _ => ftt
@@ -3642,7 +3642,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
           meta : cb_meta
         }) => if(
           is_some_type(&cb_res) || (get_all_some_types(&cb_res).len() > usize(0)),
-          TypeValue.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, ArrayList(TypeValue).new()),
+          rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, body, cb_meta, ArrayList(TypeValue).new())),
           info.ty
         ),
         .SomeT(rf_id, rf_nm, rf_fl, rf_pt, rf_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc) => {
@@ -3652,7 +3652,7 @@ _fv_closure_arg_synth_type :: (fn(info : &ExprInfo) -> TypeValue)({
             match(rf_rtt.get(rf_i), .Some(rt) => new_rtt.push(_fv_fn_trait_with_result(&rt, &body)), .None => ());
             rf_i = (rf_i + usize(1));
           });
-          TypeValue.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)
+          rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
         },
         .FnTraitT(_, _, _, _, _, _, _, _) => _fv_fn_trait_with_result(&info.ty, &body),
         _ => info.ty
@@ -3711,7 +3711,7 @@ _fv_synthesize_arg_into :: (fn(declared_pt : &TypeValue, scratch_env : &Environm
 ///   with a void*/void payload — the Dyn(Fn) family).
 _funcval_infer_forall_ty :: (fn(arg_ty : &TypeValue, exp_pt : &TypeValue, param_is_ct : bool, env : &Environment) -> TypeValue)(
   cond(
-    is_comptime_string_type(arg_ty) => TypeValue.Str,
+    is_comptime_string_type(arg_ty) => rc(TypeValueNode.Str),
     (!param_is_ct && (is_comptime_int_type(arg_ty) || is_comptime_float_type(arg_ty))) => convert_comptime_type_to_runtime_type(arg_ty, env),
     ((is_function_type(arg_ty) || is_fn_trait_type(arg_ty) || is_unit_type(arg_ty)) && is_some_type(exp_pt)) => exp_pt,
     true => arg_ty
@@ -4117,7 +4117,7 @@ _fv_bind_unbound_forall_placeholders :: (
     .Func({ where_types : wts }) => {
       (wi : usize) = usize(0);
       while(wi < wts.len(), {
-        wsomes := collect_somes_with_fn_sigs(match(wts.get(wi), .Some(t) => t, .None => TypeValue.Unit));
+        wsomes := collect_somes_with_fn_sigs(match(wts.get(wi), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
         (wj : usize) = usize(0);
         while(wj < wsomes.len(), {
           match(wsomes.get(wj), .Some(x) => sig_somes.push(x), .None => ());
@@ -4164,7 +4164,7 @@ _fv_bind_unbound_forall_placeholders :: (
     // path's Step-6 marker loop does, so two calls never share a lineage.
     if(sig_st.is_none(), {
       sig_st = Option(TypeValue).Some(
-        TypeValue.SomeT(
+        rc(TypeValueNode.SomeT(
           `${fname}_wcforall_${ast_expr_id(call_expr).to_string()}`,
           fname.clone(),
           usize(0),
@@ -4175,7 +4175,7 @@ _fv_bind_unbound_forall_placeholders :: (
           ArrayList(usize).new(),
           Option(TypeValue).None,
           Option(TypeValue).None
-        )
+        ))
       );
     });
     match(
@@ -4184,7 +4184,7 @@ _fv_bind_unbound_forall_placeholders :: (
         _add_ph := add_variable_to_env(
           fresh_env,
           fname.clone(),
-          TypeValue.TypeUni(usize(0)),
+          rc(TypeValueNode.TypeUni(usize(0))),
           Option(EvalValue).Some(EvalValue.TypeVal(st)),
           true,
           false,
@@ -4298,7 +4298,7 @@ _funcval_bind_foralls :: (
           // A TYPE argument binds as a `TypeVal` at `Type` (the same shape the
           // name-match arm below produces); a VALUE argument for a
           // value-generic (`generic(N : usize)`) keeps its own declared type.
-          pf_decl_ty := match(pf_val, .TypeVal(_) => TypeValue.TypeUni(usize(0)), _ => pf_ty.clone());
+          pf_decl_ty := match(pf_val, .TypeVal(_) => rc(TypeValueNode.TypeUni(usize(0))), _ => pf_ty.clone());
           pf_bound_ty := match(pf_val, .TypeVal(pf_tb) => pf_tb, _ => pf_ty.clone());
           _add_pre_forall := add_variable_to_env(
             fresh_env,
@@ -4365,7 +4365,7 @@ _funcval_bind_foralls :: (
         _add_forall := add_variable_to_env(
           fresh_env,
           &fa_name,
-          TypeValue.TypeUni(usize(0)),
+          rc(TypeValueNode.TypeUni(usize(0))),
           Option(EvalValue).Some(EvalValue.TypeVal(fa_infer_ty.clone())),
           true,
           false,
@@ -4523,7 +4523,7 @@ _funcval_bind_foralls :: (
                   _add_forall_sy := add_variable_to_env(
                     fresh_env,
                     &fa_name,
-                    TypeValue.TypeUni(usize(0)),
+                    rc(TypeValueNode.TypeUni(usize(0))),
                     Option(EvalValue).Some(EvalValue.TypeVal(se_tb.clone())),
                     true,
                     false,
@@ -4645,7 +4645,7 @@ _funcval_bind_foralls :: (
                   _add_forall_cap := add_variable_to_env(
                     fresh_env,
                     &fa_name,
-                    TypeValue.TypeUni(usize(0)),
+                    rc(TypeValueNode.TypeUni(usize(0))),
                     Option(EvalValue).Some(EvalValue.TypeVal(cap_ty)),
                     true,
                     false,
@@ -4681,7 +4681,7 @@ _funcval_bind_foralls :: (
           _add_forall_rt := add_variable_to_env(
             fresh_env,
             &fa_name,
-            TypeValue.TypeUni(usize(0)),
+            rc(TypeValueNode.TypeUni(usize(0))),
             Option(EvalValue).Some(EvalValue.TypeVal(rta)),
             true,
             false,
@@ -4775,7 +4775,7 @@ _rre_binder_ids :: (
   (steps : usize) = usize(0);
   while((work.len() > usize(0)) && (steps < usize(4096)), {
     steps = (steps + usize(1));
-    cur := match(work.pop(), .Some(c) => c, .None => TypeValue.Unit);
+    cur := match(work.pop(), .Some(c) => c, .None => rc(TypeValueNode.Unit));
     somes := get_all_some_types(&cur);
     match(cur, .SomeT(_, _, _, _, _, _, _, _, _, _) => (), _ => somes.push(cur));
     (si : usize) = usize(0);
@@ -4862,7 +4862,7 @@ _rre_mentions_binder :: (fn(t : &TypeValue, ids : &ArrayList(String)) -> bool)({
   (found : bool) = false;
   while((work.len() > usize(0)) && !found && (steps < usize(4096)), {
     steps = (steps + usize(1));
-    cur := match(work.pop(), .Some(c) => c, .None => TypeValue.Unit);
+    cur := match(work.pop(), .Some(c) => c, .None => rc(TypeValueNode.Unit));
     // The structural walk first: a binder reached through a struct field, an
     // array element or a pointee is collected here, and each collected SomeT
     // is re-examined below.
@@ -5617,7 +5617,7 @@ _evaluate_funcval_runtime_call :: (
       spec_forall_args.push(
         ArgEntry(
           value : Option(EvalValue).Some(fbv),
-          parameter_type : TypeValue.TypeUni(usize(0)),
+          parameter_type : rc(TypeValueNode.TypeUni(usize(0))),
           arg_type : fbt
         )
       );
@@ -5753,7 +5753,7 @@ _evaluate_funcval_runtime_call :: (
         implicit_types : fx_it,
         where_types : fx_wt,
         meta : fx_meta
-      }) => TypeValue.Func(
+      }) => rc(TypeValueNode.Func(
         fx_ft,
         fx_pt,
         fx_it,
@@ -5761,7 +5761,7 @@ _evaluate_funcval_runtime_call :: (
         resolved_ret.clone(),
         fx_meta,
         ArrayList(TypeValue).new()
-      ),
+      )),
       _ => base_spec_ty
     );
     // Never REGRESS the registered return: create_specialized's declared-
@@ -7371,8 +7371,8 @@ Fix: wrap the call:
                   ta_info := match(ta_info_opt, .Some(ii) => ii, .None => new_expr_info(env, t_unit()));
                   ta_ty := match(
                     ta_info.value,
-                    .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-                    .None => TypeValue.Unit
+                    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+                    .None => rc(TypeValueNode.Unit)
                   );
                   ta_args.push(ta_ty);
                   tai = (tai + usize(1));
@@ -7498,7 +7498,7 @@ Fix: wrap the call:
                 (tfi : usize) = usize(0);
                 while(tfi < struct_field_labels.len(), {
                   sf_lbl := match(struct_field_labels.get(tfi), .Some(l) => l.clone(), .None => String.new());
-                  sf_ty := match(struct_field_types.get(tfi), .Some(t) => t, .None => TypeValue.Unit);
+                  sf_ty := match(struct_field_types.get(tfi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                   tf.push(
                     TypeField(
                       label : sf_lbl,
@@ -7728,7 +7728,7 @@ Fix: wrap the call:
             tf_e := ArrayList(TypeField).new();
             (tfi_e : usize) = usize(0);
             while(tfi_e < fields_for_var.len(), {
-              vf_ty := match(fields_for_var.get(tfi_e), .Some(t) => t, .None => TypeValue.Unit);
+              vf_ty := match(fields_for_var.get(tfi_e), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               vf_lbl := match(labels_for_var.get(tfi_e), .Some(l) => l.clone(), .None => String.new());
               tf_e.push(
                 TypeField(
@@ -7807,7 +7807,7 @@ Fix: wrap the call:
             (tfi_u : usize) = usize(0);
             while(tfi_u < union_labels.len(), {
               u_lbl := match(union_labels.get(tfi_u), .Some(l) => l.clone(), .None => String.new());
-              u_ty := match(union_types.get(tfi_u), .Some(t) => t, .None => TypeValue.Unit);
+              u_ty := match(union_types.get(tfi_u), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               tf_u.push(
                 TypeField(
                   label : u_lbl,
@@ -8101,7 +8101,7 @@ Fix: wrap the call:
               false,
               tok.clone()
             );
-            pa_new_ty := TypeValue.Func(
+            pa_new_ty := rc(TypeValueNode.Func(
               ArrayList(TypeValue).new(),
               pa_new_types,
               ArrayList(TypeValue).new(),
@@ -8125,7 +8125,7 @@ Fix: wrap the call:
                 )
               ),
               ArrayList(TypeValue).new()
-            );
+            ));
             pa_fid := `partial_${pa_id}`;
             register_func_type(pa_fid.clone(), &pa_new_ty);
             register_func_param_comptime(pa_fid.clone(), &pa_new_ct);
@@ -8732,7 +8732,7 @@ Fix: wrap the call:
                             add_variable_to_env(
                               env,
                               lp_fn.clone(),
-                              TypeValue.TypeUni(usize(0)),
+                              rc(TypeValueNode.TypeUni(usize(0))),
                               Option(EvalValue).Some(EvalValue.TypeVal(lp_tb.clone())),
                               true,
                               false,
@@ -9247,7 +9247,7 @@ Fix: wrap the call:
             _add_forall_exp := add_variable_to_env(
               &fresh_env,
               fve_name.clone(),
-              TypeValue.TypeUni(usize(0)),
+              rc(TypeValueNode.TypeUni(usize(0))),
               Option(EvalValue).Some(EvalValue.TypeVal(fve_ty.clone())),
               true,
               false,
@@ -9939,7 +9939,7 @@ Fix: wrap the call:
                               .IntLit(rl_raw) => match(
                                 parse_raw_int(&rl_raw),
                                 .Some(rl_n) => {
-                                  rl_out = TypeValue.Array(recur(&rl_elem, rl_labels, rl_infos), usize(rl_n), String.from(""));
+                                  rl_out = rc(TypeValueNode.Array(recur(&rl_elem, rl_labels, rl_infos), usize(rl_n), String.from("")));
                                 },
                                 .None => ()
                               ),
@@ -9954,7 +9954,7 @@ Fix: wrap the call:
                     });
                     rl_out
                   },
-                  true => TypeValue.Array(recur(&rl_elem, rl_labels, rl_infos), rl_len, rl_var)
+                  true => rc(TypeValueNode.Array(recur(&rl_elem, rl_labels, rl_infos), rl_len, rl_var))
                 ),
                 _ => rl_t
               )

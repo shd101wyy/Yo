@@ -332,7 +332,7 @@ test("type_requires_comptime_modifier: comptime-only types require comptime", {
   assert(type_requires_comptime_modifier(t_comptime_int()), "comptime_int needs comptime");
   assert(type_requires_comptime_modifier(t_comptime_float()), "comptime_float needs comptime");
   assert(type_requires_comptime_modifier(t_comptime_string()), "comptime_str needs comptime");
-  assert(type_requires_comptime_modifier(TypeValue.TypeUni(usize(0))), "TypeUni(0) needs comptime");
+  assert(type_requires_comptime_modifier(rc(TypeValueNode.TypeUni(usize(0)))), "TypeUni(0) needs comptime");
 });
 test("type_requires_comptime_modifier: runtime types do not require comptime", {
   env := Environment.new(String.from(""));
@@ -343,9 +343,9 @@ test("type_requires_comptime_modifier: runtime types do not require comptime", {
 });
 test("type_prohibits_comptime_modifier: runtime-only types prohibit comptime", {
   env := Environment.new(String.from(""));
-  assert(type_prohibits_comptime_modifier(TypeValue.Void), "Void prohibits comptime");
-  assert(type_prohibits_comptime_modifier(TypeValue.CInt), "CInt prohibits comptime");
-  assert(type_prohibits_comptime_modifier(TypeValue.CChar), "CChar prohibits comptime");
+  assert(type_prohibits_comptime_modifier(rc(TypeValueNode.Void)), "Void prohibits comptime");
+  assert(type_prohibits_comptime_modifier(rc(TypeValueNode.CInt)), "CInt prohibits comptime");
+  assert(type_prohibits_comptime_modifier(rc(TypeValueNode.CChar)), "CChar prohibits comptime");
 });
 test("type_prohibits_comptime_modifier: primitives and comptime types do not prohibit", {
   env := Environment.new(String.from(""));
@@ -400,7 +400,7 @@ test("type_contains_rc_type: array of i32 returns false", {
 test("type_contains_rc_type: object struct is RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  obj := TypeValue.Struct(
+  obj := rc(TypeValueNode.Struct(
     id : String.from("id1"),
     name : String.from("Obj"),
     field_labels : labels,
@@ -411,13 +411,13 @@ test("type_contains_rc_type: object struct is RC", {
     constructor_func_id : String.from(""),
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
-  );
+  ));
   assert(type_contains_rc_type(&obj), "object → true");
 });
 test("type_contains_rc_type: plain struct returns false", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  s := TypeValue.Struct(
+  s := rc(TypeValueNode.Struct(
     id : String.from("id2"),
     name : String.from("Point"),
     field_labels : labels,
@@ -428,7 +428,7 @@ test("type_contains_rc_type: plain struct returns false", {
     constructor_func_id : String.from(""),
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
-  );
+  ));
   assert(!type_contains_rc_type(&s), "plain struct → false");
 });
 test("type_contains_rc_type: struct containing object field returns true", {
@@ -436,7 +436,7 @@ test("type_contains_rc_type: struct containing object field returns true", {
   field_labels.push(String.from("inner"));
   inner_types := ArrayList(TypeValue).new();
   inner_types.push(
-    TypeValue.Struct(
+    rc(TypeValueNode.Struct(
       id : String.from("id3"),
       name : String.from("Inner"),
       field_labels : ArrayList(String).new(),
@@ -447,9 +447,9 @@ test("type_contains_rc_type: struct containing object field returns true", {
       constructor_func_id : String.from(""),
       type_arguments : ArrayList(TypeValue).new(),
       is_source_namespace : false
-    )
+    ))
   );
-  outer := TypeValue.Struct(
+  outer := rc(TypeValueNode.Struct(
     id : String.from("id4"),
     name : String.from("Outer"),
     field_labels : field_labels,
@@ -460,7 +460,7 @@ test("type_contains_rc_type: struct containing object field returns true", {
     constructor_func_id : String.from(""),
     type_arguments : ArrayList(TypeValue).new(),
     is_source_namespace : false
-  );
+  ));
   assert(type_contains_rc_type(&outer), "Struct(object field) → true");
 });
 test("type_contains_rc_type: IsoT returns true", {
@@ -487,7 +487,7 @@ test("type_contains_rc_type: unresolved SomeT is conservatively true", {
 // rather than TS's visited set.
 // ---------------------------------------------------------------------------
 _trp_struct :: (fn(name : &String, labels : &ArrayList(String), types : &ArrayList(TypeValue), is_ref : bool, is_atomic : bool, is_newtype : bool) -> TypeValue)(
-  TypeValue.Struct(String.from(""), name, labels, types, is_ref, is_atomic, is_newtype, String.from(""), ArrayList(TypeValue).new(), false)
+  rc(TypeValueNode.Struct(String.from(""), name, labels, types, is_ref, is_atomic, is_newtype, String.from(""), ArrayList(TypeValue).new(), false))
 );
 _trp_labels1 :: (fn(a : &String) -> ArrayList(String))({
   l := ArrayList(String).new();
@@ -541,7 +541,7 @@ test("raw-ptr predicate: tuple with a Ptr field is true", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(t_ptr(t_u8()));
-  assert(type_representation_contains_raw_ptr(TypeValue.Tuple(labels, types)), "(i32, *(u8))");
+  assert(type_representation_contains_raw_ptr(rc(TypeValueNode.Tuple(labels, types))), "(i32, *(u8))");
 });
 test("raw-ptr predicate: tuple of primitives is false", {
   labels := ArrayList(String).new();
@@ -550,7 +550,7 @@ test("raw-ptr predicate: tuple of primitives is false", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(t_bool());
-  assert(!type_representation_contains_raw_ptr(TypeValue.Tuple(labels, types)), "(i32, bool)");
+  assert(!type_representation_contains_raw_ptr(rc(TypeValueNode.Tuple(labels, types))), "(i32, bool)");
 });
 test("raw-ptr predicate: enum with a variant carrying a Ptr field is true", {
   vnames := ArrayList(String).new();
@@ -565,7 +565,7 @@ test("raw-ptr predicate: enum with a variant carrying a Ptr field is true", {
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
-  e := TypeValue.EnumT(String.from(""), String.from("OptPtr"), vnames, vfields, Option(String).None, vlabels, discs, false, false, ArrayList(TypeValue).new());
+  e := rc(TypeValueNode.EnumT(String.from(""), String.from("OptPtr"), vnames, vfields, Option(String).None, vlabels, discs, false, false, ArrayList(TypeValue).new()));
   assert(type_representation_contains_raw_ptr(&e), "enum(None, Some(*(u8)))");
 });
 test("raw-ptr predicate: enum with only primitive variants is false", {
@@ -581,7 +581,7 @@ test("raw-ptr predicate: enum with only primitive variants is false", {
   discs := ArrayList(i64).new();
   discs.push(i64(0));
   discs.push(i64(1));
-  e := TypeValue.EnumT(String.from(""), String.from("Prim"), vnames, vfields, Option(String).None, vlabels, discs, false, false, ArrayList(TypeValue).new());
+  e := rc(TypeValueNode.EnumT(String.from(""), String.from("Prim"), vnames, vfields, Option(String).None, vlabels, discs, false, false, ArrayList(TypeValue).new()));
   assert(!type_representation_contains_raw_ptr(&e), "enum(A, B(i32))");
 });
 test("raw-ptr predicate: union with a Ptr field is true", {
@@ -591,7 +591,7 @@ test("raw-ptr predicate: union with a Ptr field is true", {
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
   types.push(t_ptr(t_u8()));
-  assert(type_representation_contains_raw_ptr(TypeValue.Union(String.from("U"), labels, types)), "union(i : i32, p : *(u8))");
+  assert(type_representation_contains_raw_ptr(rc(TypeValueNode.Union(String.from("U"), labels, types))), "union(i : i32, p : *(u8))");
 });
 test("raw-ptr predicate: nested struct wrapping a newtype with an inner Ptr is true", {
   inner := _trp_struct(String.from("Inner"), _trp_labels1(String.from("p")), _trp_types1(t_ptr(t_u8())), false, false, true);

@@ -144,7 +144,7 @@ _type_value_cycle_step :: (
           vfs := match(e_vfs.get(i), .Some(l) => l, .None => ArrayList(TypeValue).new());
           (j : usize) = usize(0);
           while((j < vfs.len()) && !hit, {
-            ft := match(vfs.get(j), .Some(x) => x, .None => TypeValue.Unit);
+            ft := match(vfs.get(j), .Some(x) => x, .None => rc(TypeValueNode.Unit));
             if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
               hit = true;
             });
@@ -167,7 +167,7 @@ _type_value_cycle_step :: (
         (hit : bool) = false;
         (i : usize) = usize(0);
         while((i < s_fts.len()) && !hit, {
-          ft := match(s_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+          ft := match(s_fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
           if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
             hit = true;
           });
@@ -180,7 +180,7 @@ _type_value_cycle_step :: (
       (hit : bool) = false;
       (i : usize) = usize(0);
       while((i < t_fts.len()) && !hit, {
-        ft := match(t_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        ft := match(t_fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
@@ -192,7 +192,7 @@ _type_value_cycle_step :: (
       (hit : bool) = false;
       (i : usize) = usize(0);
       while((i < u_fts.len()) && !hit, {
-        ft := match(u_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        ft := match(u_fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
@@ -227,7 +227,7 @@ _evaluate_discriminant :: (
           )
         )
       );
-      new_expr_info(env_in, TypeValue.Unit)
+      new_expr_info(env_in, rc(TypeValueNode.Unit))
     }
   );
   if(disc_info.value.is_none(), {
@@ -336,7 +336,7 @@ evaluate_enum_type :: (
   // def-time instantiations that captured the empty shell were returned
   // for post-definition lookups of the real enum (std/encoding/json.yo).
   shell_id := `${enum_id}__self_shell`;
-  prelim_ty := TypeValue.EnumT(
+  prelim_ty := rc(TypeValueNode.EnumT(
     shell_id.clone(),
     String.from(""),
     ArrayList(String).new(),
@@ -347,7 +347,7 @@ evaluate_enum_type :: (
     force_reference_semantics,
     is_atomic_rc,
     ArrayList(TypeValue).new()
-  );
+  ));
   // Temporarily set SelfType in context for field evaluation.
   old_self_type := ctx.self_type;
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
@@ -632,7 +632,7 @@ evaluate_enum_type :: (
           ra := match(recur_args.get(gi), .Some(a) => a, .None => make_err_expr());
           evaluated_ra := evaluate_expression_raw(&ra, &env, ctx, exn);
           ra_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ra));
-          ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(&env, TypeValue.Unit));
+          ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
           if(!is_type_value(&ra_info.value), {
             exn.throw(
               dyn(
@@ -645,8 +645,8 @@ evaluate_enum_type :: (
           });
           ra_ty := match(
             ra_info.value,
-            .Some(v) => match(v, .TypeVal(inner) => inner, _ => TypeValue.Unit),
-            .None => TypeValue.Unit
+            .Some(v) => match(v, .TypeVal(inner) => inner, _ => rc(TypeValueNode.Unit)),
+            .None => rc(TypeValueNode.Unit)
           );
           this_variant_args.push(ra_ty);
           gi = (gi + usize(1));
@@ -685,7 +685,7 @@ evaluate_enum_type :: (
               n_tcp := fc_plabels.len();
               while(tci < n_tcp, {
                 p_lbl := match(fc_plabels.get(tci), .Some(l) => l, .None => String.from(""));
-                p_ty := match(fc_ptypes.get(tci), .Some(t) => t, .None => TypeValue.Unit);
+                p_ty := match(fc_ptypes.get(tci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 // Comptime type param ≈ declared type is the `Type` universe.
                 if(is_type_0(&p_ty), {
                   vars := get_variables_from_env(&env, &p_lbl);
@@ -747,7 +747,7 @@ evaluate_enum_type :: (
       vfs := match(variant_fields.get(vi2), .Some(l) => l, .None => ArrayList(TypeValue).new());
       (fi2 : usize) = usize(0);
       while(fi2 < vfs.len(), {
-        ft := match(vfs.get(fi2), .Some(x) => x, .None => TypeValue.Unit);
+        ft := match(vfs.get(fi2), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         visited := ArrayList(String).new();
         if(_type_reaches_root_by_value(&ft, enum_id.clone(), shell_id.clone(), &mut visited), {
           exn.throw(
@@ -768,7 +768,7 @@ evaluate_enum_type :: (
   ctx.self_type = old_self_type;
   // Build the final EnumT in two steps: an UNPATCHED pre-final used as the
   // replacement target, then the real final with shell-patched fields.
-  pre_final_ty := TypeValue.EnumT(
+  pre_final_ty := rc(TypeValueNode.EnumT(
     enum_id.clone(),
     String.from(""),
     variant_names,
@@ -779,7 +779,7 @@ evaluate_enum_type :: (
     force_reference_semantics,
     is_atomic_rc,
     ArrayList(TypeValue).new()
-  );
+  ));
   // Patch the SELF SHELL out of the variant fields: during field
   // evaluation `Self` was the empty prelim (same id), and instantiations
   // like `ArrayList(Self)` captured it — `.Array(items)` bindings then
@@ -801,7 +801,7 @@ evaluate_enum_type :: (
     patched_fields.push(new_list);
     pf_i = (pf_i + usize(1));
   });
-  enum_ty := TypeValue.EnumT(
+  enum_ty := rc(TypeValueNode.EnumT(
     enum_id.clone(),
     String.from(""),
     variant_names,
@@ -812,7 +812,7 @@ evaluate_enum_type :: (
     force_reference_semantics,
     is_atomic_rc,
     ArrayList(TypeValue).new()
-  );
+  ));
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.
   register_enum_final(shell_id.clone(), &enum_ty);

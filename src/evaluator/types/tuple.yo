@@ -113,8 +113,8 @@ evaluate_tuple_type :: (
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
   // Empty tuple → unit type.
   if(args.len() == usize(0), {
-    unit_val := create_type_value(TypeValue.Unit);
-    meta_ty := type_of_type(TypeValue.Unit);
+    unit_val := create_type_value(rc(TypeValueNode.Unit));
+    meta_ty := type_of_type(rc(TypeValueNode.Unit));
     out_info := new_expr_info(&env, &meta_ty);
     out_info.value = Option(EvalValue).Some(unit_val);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
@@ -136,7 +136,7 @@ evaluate_tuple_type :: (
       .Some(f) => f,
       .None => TypeField(
         label : String.from(""),
-        ty : TypeValue.Unit,
+        ty : rc(TypeValueNode.Unit),
         is_comptime : false,
         default_value : Option(EvalValue).None,
         assigned_value : Option(EvalValue).None,
@@ -158,7 +158,7 @@ evaluate_tuple_type :: (
     j = (j + usize(1));
   });
   // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForTupleType stub — no-op for now.
-  tuple_ty := TypeValue.Tuple(result.field_labels, result.field_types);
+  tuple_ty := rc(TypeValueNode.Tuple(result.field_labels, result.field_types));
   tuple_val := create_type_value(&tuple_ty);
   meta_ty := type_of_type(&tuple_ty);
   out_info := new_expr_info(&env, &meta_ty);

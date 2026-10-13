@@ -108,8 +108,8 @@ _resolve_effect_arg :: (
           });
           effect_type := match(
             info.value,
-            .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-            .None => TypeValue.Unit
+            .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+            .None => rc(TypeValueNode.Unit)
           );
           label := _effect_label_for(&effect_type, effect_expr);
           out_labels.push(label);
@@ -172,7 +172,7 @@ evaluate_future_type :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.Unit)
+      new_expr_info(env, rc(TypeValueNode.Unit))
     }
   );
   (env_mut : Environment) = expr_info_adopt_env(&elem_info);
@@ -188,8 +188,8 @@ evaluate_future_type :: (
   });
   output_type := match(
     elem_info.value,
-    .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-    .None => TypeValue.Unit
+    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+    .None => rc(TypeValueNode.Unit)
   );
   // Process effect arguments (args 1..N)
   effect_labels := ArrayList(String).new();
