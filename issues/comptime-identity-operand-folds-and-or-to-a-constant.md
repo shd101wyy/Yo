@@ -28,7 +28,7 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-With v0.2.60 (`yo compile … --allocator system`):
+With the v0.2.60 seed and with a compiler built from develop `c2fe7d0e1` (`yo compile … --allocator system`), the same output:
 
 ```text
 a=2 b=3 c=3 d=false e=3 f=2 (want 3 3 3 false 3 3)
