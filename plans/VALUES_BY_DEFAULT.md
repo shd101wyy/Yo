@@ -75,6 +75,12 @@ Progress:
     error where the bundle is copied (#1326, after an adversarial review's
     two fix rounds), together with the async-lowering fixes found on the way
     (#1325);
+  - V3 async A3 Generation B and A4's handle half (§3.13; 2026-10-14, branch
+    `feat/vbd-v3-genb-r2`, after the v0.2.61 seed): `JoinHandle(T)` is a
+    move-only value struct whose `await`/`join`/`timeout` consume it, the
+    `std/async` combinators take handle lists by value, and
+    `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
+    move bitwise through `__yo_ptr_read`/`__yo_ptr_write`;
   - V1 step 2 Generation A, the unique `Box(V)` (#1328; Step 2's "as
     built");
   - V2b "Projections first", Generation A: `-> &T` / `-> &mut T`
@@ -93,14 +99,12 @@ Progress:
     lends to the call is E0910 (#1346).
 - **In progress:**
   - The Generation B halves that wait for the v0.2.61 seed:
-    - A3's prelude switch (std's `ArrayList`/`Option` on
-      `__yo_ptr_read`/`__yo_ptr_write`, and the value `JoinHandle`);
     - V2b's prelude switch to the new `Index`/`IndexMut`/`IndexUnchecked`
       shapes;
     - V1 step 2's `src/` sites moving back to `Box`;
     - decision 31's deletion of the implicit `Rc` look-through.
-  - V3's remaining async work (§3.13): A4, A5's remaining lines, and A6's
-    `Rc`-field half (V2c).
+  - V3's remaining async work (§3.13): A4's future operands, A5's remaining
+    lines, and A6's `Rc`-field half (V2c).
   - V4's `TypeValue`: the value-enum conversion was built and measured,
     and `TypeValue` stays an `Rc` handle (decision 21, amended
     2026-10-13). The two codegen bugs it found are fixed
@@ -1126,7 +1130,8 @@ instead.
       share one handle join it once.
     - Branch `async-handle-genb` holds the `Impl(Future(T))` shape that
       "Why a pointer field" rejects. It is a record, not a candidate.
-  - **As built, Generation B (2026-10-12, branch `feat/vbd-v3-genb`).**
+  - **As built, Generation B (built 2026-10-12 on `feat/vbd-v3-genb`; landed
+    from `feat/vbd-v3-genb-r2` after the v0.2.61 seed).**
     - **The prelude switch.** `JoinHandle(T)` is `struct(__future : *T)`, a
       value struct whose `Dispose` releases the task's reference. It has no
       `Clone`, so it is move-only, and stays `!Send`/`!Sync`.
