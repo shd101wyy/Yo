@@ -1457,7 +1457,7 @@ _dtm_walk :: (
           obj_word := match(obj, .Atom(_, ot) => cond((ot.kind == TokenKind.Identifier) => ot.value.clone(), true => String.new()), _ => String.new());
           is_witness := match(
             obj,
-            .FnCall(_, wc, wargs, _, _) => match(wc, .Atom(_, wt) => (wt.value == "<:"), _ => false) && match(wargs.get(usize(1)), .Some(.Atom(_, wn)) => (wn.value == "Dispose"), _ => false),
+            .FnCall(_, wc, wargs, _, _) => (match(wc, .Atom(_, wt) => (wt.value == "<:"), _ => false) && match(wargs.get(usize(1)), .Some(.Atom(_, wn)) => (wn.value == "Dispose"), _ => false)),
             _ => false
           );
           // `x.dispose()` → `drop(x)`.
