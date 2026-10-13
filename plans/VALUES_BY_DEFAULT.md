@@ -2196,7 +2196,7 @@ and in git, not a silent edit.
       - `Copy` plus `Dispose` is an error;
       - a hand-written `Clone` on a concrete `Copy` type is an error naming
         `derive(T, Clone)`;
-      - `Pair(T)` with `derive(Clone)` and a conditional `Copy` works at
+      - `Pair(T)` with `derive(Pair, Clone)` and a conditional `Copy` works at
         both `i32` (implicit copy) and `String` (explicit `.clone()`);
       - the prelude `Option(i32)` stays `Copy` with its generic `Clone`;
       - a generic `where(T <: Copy)` operator impl;
@@ -3552,7 +3552,7 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     members win") and `tests/rc_cell.test.yo:129`. The probe ran on the
     tree just before #1232 landed; #1232's diff adds that one `.clone()`
     on a wrapper (read from the diff, not probed). Six more evaluations
-    are `derive(Clone)` bodies cloning a `Box` field
+    are `derive(T, Clone)` bodies cloning a `Box` field
     (`auto-generated://`): the derive rule, not a call site, has to spell
     `Box.clone(self.f)`.
   - **Other names:** `id` at `tests/impl.test.yo:19` (`value.id()` with
@@ -3582,7 +3582,7 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     `w : Rc(T)`. The specialized body cannot tell a written wrapper from a
     substituted one
     (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`, S3).
-  - **`derive(Clone)`** spells a `Deref` field's clone
+  - **`derive(T, Clone)`** spells a `Deref` field's clone
     `(typeof(self.f) <: Clone).clone(self.f)` (struct fields and enum
     variant fields), so the six derive-generated sites need no user edit.
   - **Sites rewritten:** `tests/deref_auto.test.yo` (the "own members win"
@@ -3744,9 +3744,9 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     after the call (S1, also through `Rc`;
     `issues/fixed/a-borrowed-projection-of-a-move-only-value-is-disposed-twice.md`;
     the doc records what the fix trades and the §3.10 residual).
-    `derive(Hash)` on a type with an `Rc` or `Box` field was E0616. It now
+    `derive(T, Hash)` on a type with an `Rc` or `Box` field was E0616. It now
     hashes a `Deref` field through `(type_of(self.f) <: Hash).hash(...)`, as
-    `derive(Clone)` already did (S2,
+    `derive(T, Clone)` already did (S2,
     `issues/fixed/derive-hash-on-a-type-with-an-rc-field-is-e0616.md`).
     `Rc`'s `Clone` took the trait's `&mut Self` while `Box`'s takes `&Self`.
     Both now take `&Self`, so a hand-written `Clone` on `&Self` can clone its
@@ -3761,11 +3761,11 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     copy, one drop, the `Clone`/`Copy`/`Send` derivations, `Eq`/`Hash`/
     `Default`, the niche, `alloc` and an arena clone, a by-value consuming
     match through a `Box` scrutinee and through a `Box` field with exact
-    dispose counts, `derive(Clone, Eq, Hash)` over a `Box` field),
+    dispose counts, `derive(T, Clone, Eq, Hash)` over a `Box` field),
     `tests/deref_auto.test.yo`
     (field, method, place write through `Box`, `&Box`/`&mut Box` parameters,
     nested `Rc(Box(T))`/`Box(Rc(T))`/`Box(Box(T))`, the E0616 clash, the
-    miss message, `derive(Hash)` through an `Rc` field),
+    miss message, `derive(T, Hash)` through an `Rc` field),
     `tests/cycle_collector.test.yo`, `tests/iso.test.yo`.
 - **Generation B, seed-gated: the site moves and the non-last-use copies.**
   The v0.2.59 seed compiles `src/` against the tree's `std/`, and it rejects
@@ -5239,7 +5239,7 @@ compiler; the std shapes are plain structs the seed lowers):
     A `&`-lent handle is not a copy.
   - **A struct with an `Rc`/`Arc` field becomes explicit-copy too**, by the
     kind rule V2b gives `String` (a composite is implicitly copyable only
-    when every field is). `derive(Clone)` then clones each handle through
+    when every field is). `derive(T, Clone)` then clones each handle through
     `Rc.clone`.
   - **One PR, not two generations.** `Rc.clone(w)` has been in every seed
     since #1241, so the rule in the compiler, `yo fix <path> --migrate
@@ -5460,7 +5460,7 @@ stage-2 RSS.
       (Generation B, after a seed carries the rule), and
       `type_lacks_copy_for_flip`'s control-bound exemption is deleted.
     - Decision 43 checks a call from the callee's signature alone, so the
-      `clone` that `derive(Clone)` generates must state where its result's
+      `clone` that `derive(Exception, Copy, Clone)` generates must state where its result's
       roots come from: a `depends` clause naming `self.*`, or whatever
       step 2 fixes as the default for a by-value return that carries a
       reference. Without it, the derive is still rejected after `ctl`
