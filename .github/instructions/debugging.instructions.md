@@ -189,6 +189,19 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
   `yo compile src/main.yo --emit-chunks auto --jobs 16 --optimize 1 -o /tmp/yo-dbg`
   (host: a stage-1). Use it for debug-trace rounds; gate on a real
   `yo build --std-path ./std`.
+- **A `cond`/`if` guard `comptime_const && runtime` (or `comptime_const ||
+  runtime`) folds to the constant** when the constant does not short-circuit
+  (`true && x`, `false || x`): the arm is always taken, or never taken, and its
+  body silently becomes dead code
+  (`issues/comptime-identity-operand-folds-and-or-to-a-constant.md`). The
+  usual shape is `(size_of(T) == usize(0)) && rt` in a generic body. Until it
+  is fixed, nest a `cond` under the comptime test, as
+  `ArrayList.ensure_total_capacity` does. When an emitted `if/else` looks
+  empty, suspect this first.
+- **Never `git stash` in a worktree.** Worktrees share the stash list with the
+  main checkout, so a failed `stash push` followed by `stash pop` applies a peer
+  session's stash. Compare before/after states with file copies (a copy of
+  `std/` must sit in a directory named `std`, or the prelude is not recognized).
 
 ## `check`-only rejections from a body in another module (2026-10-01)
 
