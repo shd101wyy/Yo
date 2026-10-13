@@ -186,7 +186,7 @@ emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_t
   (i : usize) = usize(0);
   while(i < field_labels.len(), {
     flbl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
-    fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_function_type(&fty), {
       (member_code : Option(String)) = Option(String).None;
       // Inside SM: member captured in state-machine variables.
@@ -673,7 +673,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   if(is_result_unit, {
     em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()} };`);
   }, {
-    rt := match(result_type_opt, .Some(t) => t, .None => TypeValue.Unit);
+    rt := match(result_type_opt, .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(handle_is_value && type_contains_rc_cell_or_move_only(&rt), {
       // A value handle is consumed (§3.13 A3): the result moves out of the
       // task, which no longer drops it (`-3`, result taken; the same

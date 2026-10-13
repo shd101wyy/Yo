@@ -730,7 +730,7 @@ get_runtime_struct_fields :: (fn(struct_type : &TypeValue) -> ArrayList(RuntimeS
         );
         if(!is_comptime, {
           label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
-          ty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+          ty := match(field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           result.push(RuntimeStructField(label : label, ty : ty));
         });
         fi = (fi + usize(1));

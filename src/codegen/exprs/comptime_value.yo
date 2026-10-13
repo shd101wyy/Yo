@@ -349,7 +349,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
                 nf := fields.len();
                 (fi : usize) = usize(0);
                 while(fi < nf, {
-                  fty := match(vftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+                  fty := match(vftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                   if(!is_unit_type(&fty), {
                     fcode := match(fields.get(fi), .Some(fv) => recur(&fv, &fty, context), .None => String.from(""));
                     if(any_field, {
@@ -411,7 +411,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
         (i : usize) = usize(0);
         (any_elem : bool) = false;
         while(i < n, {
-          fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+          fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           // A `unit` element is zero-sized and has no `_N` member
           // (types/generation.yo): no initializer.
           if(!is_unit_type(&fty), {
@@ -476,7 +476,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
         ct_flags := get_struct_field_comptime_flags(id.clone());
         cond(
           (is_newtype && (field_types.len() == usize(1)) && (field_values.len() == usize(1))) => {
-            uty := match(field_types.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
+            uty := match(field_types.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             uval := match(field_values.get(usize(0)), .Some(v) => v, .None => EvalValue.UnitVal);
             out := String.from("((");
             out.push_string(&c_name);
@@ -498,7 +498,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
                 .Some(flags) => match(flags.get(i), .Some(f) => f, .None => false),
                 .None => false
               );
-              fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+              fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               // A `unit` field is zero-sized: the ctor has no parameter for it
               // (functions/constructors.yo).
               if(!field_is_ct && !is_unit_type(&fty), {
@@ -521,7 +521,7 @@ generate_comptime_value :: (fn(value : &EvalValue, ty : &TypeValue, context : &C
             (i : usize) = usize(0);
             (any : bool) = false;
             while(i < n, {
-              fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+              fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               field_is_ct2 := match(
                 ct_flags,
                 .Some(flags) => match(flags.get(i), .Some(f) => f, .None => false),

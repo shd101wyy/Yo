@@ -234,7 +234,7 @@ evaluate_iso_type_call :: (
       )
     );
   });
-  arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, TypeValue.Unit));
+  arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
   env.frames = arg_info.env.frames;
   env.module_path = arg_info.env.module_path;
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;
@@ -255,8 +255,8 @@ evaluate_iso_type_call :: (
   child_type := match(
     eval_val_opt,
     .Some(.TypeVal(ty_box)) => ty_box,
-    .Some(_) => TypeValue.Unit,
-    .None => TypeValue.Unit
+    .Some(_) => rc(TypeValueNode.Unit),
+    .None => rc(TypeValueNode.Unit)
   );
   // Phase H: Ban Iso(Arc(T)) — Iso's uniqueness is about the Iso wrapper's
   // rc, not the inner Arc cell. After extract() you get the Arc back; Iso adds
@@ -438,7 +438,7 @@ evaluate_iso_value_call :: (
   iso_child_type := match(
     iso_type,
     .IsoT(child_box) => child_box,
-    _ => TypeValue.Unit
+    _ => rc(TypeValueNode.Unit)
   );
   arg_exprs := match(
     expr,
@@ -479,7 +479,7 @@ evaluate_iso_value_call :: (
       )
     );
   });
-  arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, TypeValue.Unit));
+  arg_info := match(arg_info_opt, .Some(it) => it, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
   env.frames = arg_info.env.frames;
   env.module_path = arg_info.env.module_path;
   env.function_declaration_frame_level = arg_info.env.function_declaration_frame_level;

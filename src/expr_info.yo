@@ -2051,7 +2051,7 @@ record_branch_init :: (
 );
 /// A move of a user-named variable.
 record_branch_consume :: (fn(var_id : usize, token : &Token, before_init : &Option(Token), before_consumed : &Option(Token)) -> unit)(
-  record_flow_event(var_id, TypeValue.Unit, Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token))
+  record_flow_event(var_id, rc(TypeValueNode.Unit), Option(TypeValue).None, FlowEventKind.Consume, token.clone(), before_init.clone(), before_consumed, before_init, Option(Token).Some(token))
 );
 branch_init_log_len :: (fn() -> usize)(g_branch_init_log.len());
 get_branch_init_record :: (fn(i : usize) -> Option(BranchInitRecord))(g_branch_init_log.get(i));
@@ -2331,7 +2331,7 @@ struct_fully_concrete_instance :: (fn(ty : &TypeValue) -> bool)({
     .Struct({ type_arguments : fc_tas }) => {
       (fci : usize) = usize(0);
       while(fci < fc_tas.len(), {
-        ta := match(fc_tas.get(fci), .Some(t) => t, .None => TypeValue.Unit);
+        ta := match(fc_tas.get(fci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(is_some_type(&ta) || (get_all_some_types(&ta).len() > usize(0)), {
           return(false);
         });
@@ -2377,8 +2377,8 @@ adopt_receiver_struct_instance :: (
     });
     (ai_ti : usize) = usize(0);
     while(ai_ti < ret_tas.len(), {
-      (rta : TypeValue) = match(ret_tas.get(ai_ti), .Some(t) => t, .None => TypeValue.Unit);
-      vta := match(recv_tas.get(ai_ti), .Some(t) => t, .None => TypeValue.Unit);
+      (rta : TypeValue) = match(ret_tas.get(ai_ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+      vta := match(recv_tas.get(ai_ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       if(is_some_type(&rta), {
         match(
           rta,

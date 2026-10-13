@@ -119,8 +119,8 @@ evaluate_fn_trait_type :: (
       });
       match(
         info.value,
-        .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-        .None => TypeValue.Unit
+        .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+        .None => rc(TypeValueNode.Unit)
       )
     },
     .None => {
@@ -132,7 +132,7 @@ evaluate_fn_trait_type :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   // Pop the parameters frame

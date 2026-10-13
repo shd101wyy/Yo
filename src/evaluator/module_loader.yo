@@ -309,13 +309,13 @@ load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
       module_type : match(
         g_module_cache_types.get(i),
         .Some(t) => t,
-        .None => TypeValue.Unit
+        .None => rc(TypeValueNode.Unit)
       ),
       module_error : Option(String).None
     ),
     .None => LoadModuleResult(
       module_value : EvalValue.UnitVal,
-      module_type : TypeValue.Unit,
+      module_type : rc(TypeValueNode.Unit),
       module_error : Option(String).Some(`module not preloaded: ${path}`)
     )
   )
@@ -330,7 +330,7 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
       (found : bool) = false;
       (ti : usize) = usize(0);
       while(ti < ttypes.len(), {
-        ft := match(ttypes.get(ti), .Some(t) => t, .None => TypeValue.Unit);
+        ft := match(ttypes.get(ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(match(tlabels.get(ti), .Some(t) => (t == name), .None => false), {
           new_types.push(ty);
           found = true;
@@ -341,7 +341,7 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
       });
       cond(
         found => Option(TypeValue).Some(
-          TypeValue.Struct(
+          rc(TypeValueNode.Struct(
             id : sid,
             name : sname,
             field_labels : tlabels,
@@ -352,7 +352,7 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
             constructor_func_id : scfid,
             type_arguments : stas,
             is_source_namespace : ssns
-          )
+          ))
         ),
         true => Option(TypeValue).None
       )

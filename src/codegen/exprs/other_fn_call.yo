@@ -1005,7 +1005,7 @@ _generate_runtime_enum_construct :: (
             n := rt_args.len();
             (i : usize) = usize(0);
             while(i < n, {
-              fty := match(vftys.get(i), .Some(t) => t, .None => TypeValue.Unit);
+              fty := match(vftys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               if(!is_unit_type(&fty), {
                 fcode := match(rt_args.get(i), .Some(a) => emit_deferred_dup_or_code(&a, _call_generate_expr(&a, indent.clone(), context), indent.clone(), context), .None => String.from(""));
                 if(any_field, {
@@ -1431,7 +1431,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
           .Some(rv) => match(rv, .TypeVal(inner) => inner, _ => rdi.ty),
           .None => rdi.ty
         ),
-        .None => match(dm_runtime.get(usize(0)), .Some(rv) => match(context.base.get_expr_info(&rv), .Some(rvi) => rvi.ty, .None => TypeValue.Unit), .None => TypeValue.Unit)
+        .None => match(dm_runtime.get(usize(0)), .Some(rv) => match(context.base.get_expr_info(&rv), .Some(rvi) => rvi.ty, .None => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit))
       );
       tid := type_id_or_empty(&recv_ty);
       // Enter the dispatch when we have EITHER a registry type-id OR a recorded
@@ -1563,7 +1563,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             // Resolved BEFORE the argument loop (they only need `method_fv`)
             // so the loop can tell whether an empty — i.e. `unit` — argument
             // has a real C parameter slot to fill with the dead byte.
-            cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(&mv)), .None => TypeValue.Unit);
+            cm_mft := match(method_fv, .Some(mv) => get_func_type(_func_val_id(&mv)), .None => rc(TypeValueNode.Unit));
             cm_ptypes := match(cm_mft, .Func({ param_types : cpt }) => cpt, _ => ArrayList(TypeValue).new());
             cm_arg_list := ArrayList(String).new();
             cnma := dm_runtime.len();
@@ -1782,7 +1782,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
       extract_fn_trait_from_type(&func_ei.ty),
       .Some(ftt) => match(
         ftt,
-        .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => TypeValue.Func(
+        .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => rc(TypeValueNode.Func(
           ArrayList(TypeValue).new(),
           cpt,
           ArrayList(TypeValue).new(),
@@ -1806,7 +1806,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             )
           ),
           ArrayList(TypeValue).new()
-        ),
+        )),
         _ => func_ei.ty
       ),
       .None => func_ei.ty
@@ -2322,7 +2322,7 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
     },
     _ => ()
   );
-  (result_type : TypeValue) = match(function_type, .Func({ result : r }) => r, _ => TypeValue.Unit);
+  (result_type : TypeValue) = match(function_type, .Func({ result : r }) => r, _ => rc(TypeValueNode.Unit));
   // A SHARED field-fn type's declared result can be an unresolved per-call
   // generic SomeT (Exception.throw's ResumeType) — the CALL's ExprInfo carries
   // the per-call resolution (try_to_call rebuilds the result SomeT with

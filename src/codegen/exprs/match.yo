@@ -131,7 +131,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         match(subs.get(i), .Some(sub) => recur(&sub, &fty, cell, out), .None => ());
         i = (i + usize(1));
       });
@@ -142,7 +142,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
       cell := (in_cell || is_pointer_type(ty));
       (i : usize) = usize(0);
       while(i < subs.len(), {
-        ety := match(elem_tys.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         match(subs.get(i), .Some(sub) => recur(&sub, &ety, cell, out), .None => ());
         i = (i + usize(1));
       });
@@ -153,7 +153,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         match(subs.get(i), .Some(sub) => recur(&sub, &fty, cell, out), .None => ());
         i = (i + usize(1));
       });
@@ -1435,7 +1435,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
                       lk = (lk + usize(1));
                     });
                     if(fi < labels.len(), {
-                      ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+                      ftype := match(types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                       if(!is_unit_type(&ftype), {
                         init := matched_value_code.clone();
                         init.push_str(access);
@@ -1470,7 +1470,7 @@ _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, p
               dparams.get(fi),
               .Some(var_expr) => if(ast_expr_is_atom(&var_expr) && !(ast_expr_token(&var_expr).value == "_") && !pattern_param_is_literal(&var_expr), {
                 field_label := match(labels.get(fi), .Some(fl) => fl, .None => String.from(""));
-                ftype := match(types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+                ftype := match(types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 if(!is_unit_type(&ftype), {
                   init := matched_value_code.clone();
                   init.push_str(access);
@@ -1896,7 +1896,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         match(
           subs.get(i),
           .Some(sub) => {
@@ -1927,7 +1927,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
     .Tuple(subs, elem_tys) => {
       (i : usize) = usize(0);
       while(i < subs.len(), {
-        ety := match(elem_tys.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         match(
           subs.get(i),
           .Some(sub) => {
@@ -1943,7 +1943,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         match(
           subs.get(i),
           .Some(sub) => {
@@ -2061,7 +2061,7 @@ _emit_pattern_chain :: (
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         flabel := match(labels_v.get(fi), .Some(l) => l, .None => String.from(""));
         fcode := _variant_field_code(&enum_ty, vname.clone(), &flabel, path.clone(), ptrish, is_raw_ptr);
         match(
@@ -2094,7 +2094,7 @@ _emit_pattern_chain :: (
         (ni : usize) = usize(0);
         while(ni < names.len(), {
           nm := match(names.get(ni), .Some(n) => n, .None => String.from(""));
-          nt := match(types.get(ni), .Some(t) => t, .None => TypeValue.Unit);
+          nt := match(types.get(ni), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(!is_unit_type(&nt), {
             decl := indent.clone();
             decl.push_string(get_type_string(cond(_list_has(&place_names, nm.clone()) => t_ptr(&nt), true => nt), &context.base));
@@ -2224,7 +2224,7 @@ _emit_pattern_chain :: (
       });
       (i : usize) = usize(0);
       while(i < subs.len(), {
-        ety := match(elem_tys.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         fcode := base.clone();
         fcode.push_str("._");
         fcode.push_string(i.to_string());
@@ -2248,7 +2248,7 @@ _emit_pattern_chain :: (
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         flabel := match(flabels.get(fi), .Some(l) => l, .None => String.from(""));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         fcode := path.clone();
         fcode.push_str(cond(ptrish => "->", true => "."));
         fcode.push_string(c_field_name(&struct_ty, flabel.clone()));

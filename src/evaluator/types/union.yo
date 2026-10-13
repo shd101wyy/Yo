@@ -65,11 +65,11 @@ evaluate_union_type :: (
   register_type_decl_module(union_id.clone(), decl_tok.module_path.clone());
   // Temporarily set SelfType so fields can reference Self.
   old_self_type := ctx.self_type;
-  prelim_ty := TypeValue.Union(
+  prelim_ty := rc(TypeValueNode.Union(
     union_id.clone(),
     ArrayList(String).new(),
     ArrayList(TypeValue).new()
-  );
+  ));
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
   // Collect fields.
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
@@ -154,11 +154,11 @@ evaluate_union_type :: (
   // Restore SelfType.
   ctx.self_type = old_self_type;
   // Build final Union TypeValue.
-  union_ty := TypeValue.Union(
+  union_ty := rc(TypeValueNode.Union(
     union_id.clone(),
     field_labels,
     field_types
-  );
+  ));
   union_val := create_type_value(&union_ty);
   meta_ty := type_of_type(&union_ty);
   out_info := new_expr_info(&env_mut, &meta_ty);

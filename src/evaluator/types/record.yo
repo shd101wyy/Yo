@@ -124,7 +124,7 @@ evaluate_module_field :: (
   // Evaluate type expression
   evaluated_te := evaluate_expression_raw(&type_expr, &env_mut, ctx, exn);
   te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
-  te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env_mut, TypeValue.Unit));
+  te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env_mut, rc(TypeValueNode.Unit)));
   env_mut.frames = te_info.env.frames;
   env_mut.module_path = te_info.env.module_path;
   env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
@@ -142,15 +142,15 @@ evaluate_module_field :: (
   field_type := match(
     te_info.value,
     .Some(.TypeVal(inner)) => inner,
-    .Some(_) => TypeValue.Unit,
-    .None => TypeValue.Unit
+    .Some(_) => rc(TypeValueNode.Unit),
+    .None => rc(TypeValueNode.Unit)
   );
   // Set expr info on label_expr
   label_info := new_expr_info(&env_mut, &field_type);
   label_info.value = Option(EvalValue).Some(create_unknown_val(&field_type));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&label_expr), &label_info);
   // Set expr info on the field expr itself
-  unit_info := new_expr_info(&env_mut, TypeValue.Unit);
+  unit_info := new_expr_info(&env_mut, rc(TypeValueNode.Unit));
   unit_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
   EvalModuleFieldResult(label, field_type, env_mut)

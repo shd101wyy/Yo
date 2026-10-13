@@ -345,63 +345,63 @@ evaluate_yo_comptime_numeric_functions :: (
     _ => String.new()
   );
   // ---- 2. Determine the numeric type and prefix length. ------------------
-  (numeric_type : TypeValue) = TypeValue.ComptimeInt;
+  (numeric_type : TypeValue) = rc(TypeValueNode.ComptimeInt);
   (prefix_len : usize) = usize(0);
   cond(
     fn_name.starts_with(`__yo_comptime_usize_`) => {
-      numeric_type = TypeValue.Usize;
+      numeric_type = rc(TypeValueNode.Usize);
       prefix_len = usize(20);
     },
     fn_name.starts_with(`__yo_comptime_isize_`) => {
-      numeric_type = TypeValue.Isize;
+      numeric_type = rc(TypeValueNode.Isize);
       prefix_len = usize(20);
     },
     fn_name.starts_with(`__yo_comptime_float_`) => {
-      numeric_type = TypeValue.ComptimeFloat;
+      numeric_type = rc(TypeValueNode.ComptimeFloat);
       prefix_len = usize(20);
     },
     fn_name.starts_with(`__yo_comptime_u16_`) => {
-      numeric_type = TypeValue.Int(u8(16), false);
+      numeric_type = rc(TypeValueNode.Int(u8(16), false));
       prefix_len = usize(18);
     },
     fn_name.starts_with(`__yo_comptime_i16_`) => {
-      numeric_type = TypeValue.Int(u8(16), true);
+      numeric_type = rc(TypeValueNode.Int(u8(16), true));
       prefix_len = usize(18);
     },
     fn_name.starts_with(`__yo_comptime_u32_`) => {
-      numeric_type = TypeValue.Int(u8(32), false);
+      numeric_type = rc(TypeValueNode.Int(u8(32), false));
       prefix_len = usize(18);
     },
     fn_name.starts_with(`__yo_comptime_i32_`) => {
-      numeric_type = TypeValue.Int(u8(32), true);
+      numeric_type = rc(TypeValueNode.Int(u8(32), true));
       prefix_len = usize(18);
     },
     fn_name.starts_with(`__yo_comptime_u64_`) => {
-      numeric_type = TypeValue.Int(u8(64), false);
+      numeric_type = rc(TypeValueNode.Int(u8(64), false));
       prefix_len = usize(18);
     },
     fn_name.starts_with(`__yo_comptime_i64_`) => {
-      numeric_type = TypeValue.Int(u8(64), true);
+      numeric_type = rc(TypeValueNode.Int(u8(64), true));
       prefix_len = usize(18);
     },
     fn_name.starts_with(`__yo_comptime_int_`) => {
-      numeric_type = TypeValue.ComptimeInt;
+      numeric_type = rc(TypeValueNode.ComptimeInt);
       prefix_len = usize(18);
     },
     fn_name.starts_with(`__yo_comptime_f32_`) => {
-      numeric_type = TypeValue.Float(u8(32));
+      numeric_type = rc(TypeValueNode.Float(u8(32)));
       prefix_len = usize(18);
     },
     fn_name.starts_with(`__yo_comptime_f64_`) => {
-      numeric_type = TypeValue.Float(u8(64));
+      numeric_type = rc(TypeValueNode.Float(u8(64)));
       prefix_len = usize(18);
     },
     fn_name.starts_with(`__yo_comptime_u8_`) => {
-      numeric_type = TypeValue.Int(u8(8), false);
+      numeric_type = rc(TypeValueNode.Int(u8(8), false));
       prefix_len = usize(17);
     },
     fn_name.starts_with(`__yo_comptime_i8_`) => {
-      numeric_type = TypeValue.Int(u8(8), true);
+      numeric_type = rc(TypeValueNode.Int(u8(8), true));
       prefix_len = usize(17);
     },
     true => ()

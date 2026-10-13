@@ -108,7 +108,7 @@ evaluate_impl_constraint :: (
                 )
               )
             );
-            new_expr_info(&cur_env, TypeValue.TypeUni(usize(0)))
+            new_expr_info(&cur_env, rc(TypeValueNode.TypeUni(usize(0))))
           }
         );
         cur_env = expr_info_adopt_env(&mod_info);
@@ -126,8 +126,8 @@ evaluate_impl_constraint :: (
         trait_tv := match(
           mod_info.value,
           .Some(.TypeVal(tv_box)) => tv_box,
-          .Some(_) => TypeValue.TypeUni(usize(0)),
-          .None => TypeValue.TypeUni(usize(0))
+          .Some(_) => rc(TypeValueNode.TypeUni(usize(0))),
+          .None => rc(TypeValueNode.TypeUni(usize(0)))
         );
         if(!is_trait_type(&trait_tv), {
           exn.throw(
@@ -185,20 +185,20 @@ evaluate_impl_constraint :: (
   );
   // Create the SomeT with required and negative trait constraints. A
   // `Concrete(T)` specifier builds it with T as its resolution.
-  some_type := TypeValue.SomeT(
+  some_type := rc(TypeValueNode.SomeT(
     generate_some_type_id(),
     String.from("Impl"),
     fl,
-    TypeValue.TypeUni(usize(0)),
+    rc(TypeValueNode.TypeUni(usize(0))),
     required_trait_types,
     required_trait_levels,
     negative_trait_types,
     negative_trait_levels,
     Option(TypeValue).None,
     concrete_type
-  );
+  ));
   type_val := create_type_value(&some_type);
-  out_info := new_expr_info(&cur_env, TypeValue.TypeUni(usize(0)));
+  out_info := new_expr_info(&cur_env, rc(TypeValueNode.TypeUni(usize(0))));
   out_info.value = Option(EvalValue).Some(type_val);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr

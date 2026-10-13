@@ -124,7 +124,7 @@ _struct_some_type_is_only_in_function_fields :: (
       n := field_types.len();
       (i : usize) = usize(0);
       while((i < n) && ok, {
-        ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         cond(
           is_function_type(&ft) => (),
           // fn-ptr field — fine
@@ -162,7 +162,7 @@ _enum_some_type_is_only_in_function_fields :: (
         nf := fields.len();
         (fi : usize) = usize(0);
         while((fi < nf) && ok, {
-          ft := match(fields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+          ft := match(fields.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           cond(
             is_function_type(&ft) => (),
             (is_struct_type(&ft) && _struct_some_type_is_only_in_function_fields(&ft, visited)) => (),

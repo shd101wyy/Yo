@@ -210,7 +210,7 @@ User code should normally call stdlib wrappers (e.g. functions in
         where_types : wts,
         result : ret,
         meta : m
-      }) => TypeValue.Func(
+      }) => rc(TypeValueNode.Func(
         fts,
         pts,
         its,
@@ -235,7 +235,7 @@ User code should normally call stdlib wrappers (e.g. functions in
           )
         ),
         ArrayList(TypeValue).new()
-      ),
+      )),
       _ => result.field_type
     );
     field_labels.push(result.label.clone());
@@ -281,7 +281,7 @@ User code should normally call stdlib wrappers (e.g. functions in
   // module is not recorded as a c_include module: its globals are not
   // extern-C globals (no header, no reserved-name exemption).
   sns_id := stable_module_id(`source_namespace_extern_${fnv1a64(env.module_path.clone()).to_string()}_`, env.module_path.clone());
-  module_type := TypeValue.Struct(
+  module_type := rc(TypeValueNode.Struct(
     sns_id.clone(),
     String.from(""),
     field_labels.clone(),
@@ -297,7 +297,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     ArrayList(TypeValue).new(),
     // type_arguments
     true // is_source_namespace
-  );
+  ));
   mod_info := new_expr_info(&env, &module_type);
   mod_info.value = .Some(EvalValue.StructVal(sns_id, field_labels, field_vals));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &mod_info);

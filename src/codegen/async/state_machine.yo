@@ -920,7 +920,7 @@ compute_overlapping_slots :: (
           field_name := String.from("slot_");
           field_name.push_string(next_slot_index.to_string());
           var_names := ArrayList(String).new();
-          (slot_ty : TypeValue) = TypeValue.Unit;
+          (slot_ty : TypeValue) = rc(TypeValueNode.Unit);
           (vni : usize) = usize(0);
           while(vni < group_var_ids.len(), {
             gid := match(group_var_ids.get(vni), .Some(x) => x, .None => String.new());
@@ -1103,7 +1103,7 @@ _build_combined_sm_variables :: (
       (j : usize) = usize(0);
       while(j < flabels.len(), {
         lbl := match(flabels.get(j), .Some(l) => l, .None => String.from(""));
-        ty := match(ftypes.get(j), .Some(t) => t, .None => TypeValue.Unit);
+        ty := match(ftypes.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         cv := CapturedVariable(
           base : SuspensionCapturedVariable(
             id : lbl.clone(),
@@ -1208,7 +1208,7 @@ emit_effect_record_injection_for_sm :: (
   (fi : usize) = usize(0);
   while(fi < field_labels.len(), {
     flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
-    ftype := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+    ftype := match(field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_function_type(&ftype), {
       (member_code : Option(String)) = Option(String).None;
       // 1. Captured outer SM variable matching the field label.
@@ -1379,7 +1379,7 @@ emit_effect_injection_for_sm :: (
             (i : usize) = usize(0);
             while(i < eff_labels.len(), {
               elabel := match(eff_labels.get(i), .Some(l) => l, .None => String.from(""));
-              etype := match(eff_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+              etype := match(eff_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               if(is_function_type(&etype), {
                 has_forall := match(etype, .Func({ meta : __fm1 }) => (__fm1.*.forall_labels.len() > usize(0)), _ => false);
                 if(!has_forall, {
@@ -1572,7 +1572,7 @@ _inline_await_result_type :: (fn(expr : &AstExpr, analysis : &Option(AwaitAnalys
     },
     .None => ()
   );
-  match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => TypeValue.Unit)
+  match(context.base.get_expr_info(expr), .Some(ei) => ei.ty, .None => rc(TypeValueNode.Unit))
 });
 
 /// Whether `t` is a unit result (or an unresolved Future SomeType): no field.

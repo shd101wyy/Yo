@@ -251,7 +251,7 @@ _variant_name_eq :: (fn(stored : &String, arm_name : &String) -> bool)(
 _select_variant :: (fn(enum_ty : &TypeValue, name : &String) -> TypeValue)(
   match(
     enum_ty,
-    .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(name), vfl, discs, eirs, eiar, etas),
+    .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas) => rc(TypeValueNode.EnumT(id, n, vn, vf, Option(String).Some(name), vfl, discs, eirs, eiar, etas)),
     _ => enum_ty
   )
 );
@@ -879,7 +879,7 @@ _compile_variant :: (
       expr_info_table_set(
         &ctx.expr_info_table,
         ast_expr_id(&label_expr),
-        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => TypeValue.Unit))
+        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => rc(TypeValueNode.Unit)))
       );
     }, {
       if(is_curly, {
@@ -942,7 +942,7 @@ _compile_variant :: (
         });
       });
     });
-    fty := match(field_tys.get(fidx), .Some(t) => t, .None => TypeValue.Unit);
+    fty := match(field_tys.get(fidx), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     fval := match(
       field_vals,
       .Some(fvs) => fvs.get(fidx),
@@ -1040,7 +1040,7 @@ _compile_tuple :: (
   (i : usize) = usize(0);
   while(i < args.len(), {
     arg := match(args.get(i), .Some(a) => a, .None => make_err_expr());
-    ety := match(elem_tys.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     ev := match(
       elem_vals,
       .Some(evs) => evs.get(i),
@@ -1137,7 +1137,7 @@ _compile_struct :: (
       expr_info_table_set(
         &ctx.expr_info_table,
         ast_expr_id(&label_expr),
-        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => TypeValue.Unit))
+        new_expr_info(env, match(field_tys.get(fidx), .Some(t) => t, .None => rc(TypeValueNode.Unit)))
       );
     }, {
       // A bare `_` argument contributes nothing (a struct pattern is partial
@@ -1195,7 +1195,7 @@ _compile_struct :: (
         return(Pattern.Wildcard);
       });
     });
-    fty := match(field_tys.get(fidx), .Some(t) => t, .None => TypeValue.Unit);
+    fty := match(field_tys.get(fidx), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     fval := match(
       field_vals,
       .Some(fvs) => fvs.get(fidx),

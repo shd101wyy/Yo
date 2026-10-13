@@ -143,8 +143,8 @@ _synthesize_phantom_type_args :: (
     (j : usize) = usize(0);
     while(j < exp_tas.len(), {
       if(match(flags.get(j), .Some(b) => b, .None => false), {
-        et := match(exp_tas.get(j), .Some(t) => t, .None => TypeValue.Unit);
-        gt := match(giv_tas.get(j), .Some(t) => t, .None => TypeValue.Unit);
+        et := match(exp_tas.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        gt := match(giv_tas.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         r := _synthesize_types_impl(&et, &pe, &gt, &pg, checked, opts, exn);
         pe = r.expected_env;
         pg = r.given_env;
@@ -828,13 +828,13 @@ _synthesize_fn_traits :: (
     expected_ty,
     .FnTraitT(_, _, _, r, _, _, _, _) => r,
     .Func({ result : r }) => r,
-    _ => TypeValue.Unit
+    _ => rc(TypeValueNode.Unit)
   );
   giv_result := match(
     given_ty,
     .FnTraitT(_, _, _, r, _, _, _, _) => r,
     .Func({ result : r }) => r,
-    _ => TypeValue.Unit
+    _ => rc(TypeValueNode.Unit)
   );
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
@@ -881,8 +881,8 @@ _synthesize_future_traits :: (
     exn : Exception
   ) -> SynthesizeResult
 )({
-  exp_out := match(expected_ty, .FutureTraitT(_, out, _, _) => out, _ => TypeValue.Unit);
-  giv_out := match(given_ty, .FutureTraitT(_, out, _, _) => out, _ => TypeValue.Unit);
+  exp_out := match(expected_ty, .FutureTraitT(_, out, _, _) => out, _ => rc(TypeValueNode.Unit));
+  giv_out := match(given_ty, .FutureTraitT(_, out, _, _) => out, _ => rc(TypeValueNode.Unit));
   (ee : Environment) = expected_env;
   (ge : Environment) = given_env;
   res := _synthesize_types_impl(&exp_out, &ee, &giv_out, &ge, checked, opts, exn);
@@ -1464,8 +1464,8 @@ _synthesize_types_impl :: (
       );
       (tci_sy : usize) = usize(0);
       while(tci_sy < tca_n_sy, {
-        et_sy := match(exp_tca_sy.get(tci_sy), .Some(t) => t, .None => TypeValue.Unit);
-        gt_sy := match(giv_tca_sy.get(tci_sy), .Some(t) => t, .None => TypeValue.Unit);
+        et_sy := match(exp_tca_sy.get(tci_sy), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+        gt_sy := match(giv_tca_sy.get(tci_sy), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         res_sy := _synthesize_types_impl(&et_sy, &ee, &gt_sy, &ge, checked, opts, exn);
         ee = res_sy.expected_env;
         ge = res_sy.given_env;
@@ -1574,8 +1574,8 @@ _synthesize_types_impl :: (
   });
   // Case: Pointer + Pointer
   if(is_pointer_type(expected_ty) && is_pointer_type(given_ty), {
-    exp_child := match(expected_ty, .Pointer(c) => c, _ => TypeValue.Unit);
-    giv_child := match(given_ty, .Pointer(c) => c, _ => TypeValue.Unit);
+    exp_child := match(expected_ty, .Pointer(c) => c, _ => rc(TypeValueNode.Unit));
+    giv_child := match(given_ty, .Pointer(c) => c, _ => rc(TypeValueNode.Unit));
     res := _synthesize_types_impl(&exp_child, &ee, &giv_child, &ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1583,8 +1583,8 @@ _synthesize_types_impl :: (
   });
   // Case: Iso + Iso
   if(is_iso_type(expected_ty) && is_iso_type(given_ty), {
-    exp_child := match(expected_ty, .IsoT(c) => c, _ => TypeValue.Unit);
-    giv_child := match(given_ty, .IsoT(c) => c, _ => TypeValue.Unit);
+    exp_child := match(expected_ty, .IsoT(c) => c, _ => rc(TypeValueNode.Unit));
+    giv_child := match(given_ty, .IsoT(c) => c, _ => rc(TypeValueNode.Unit));
     res := _synthesize_types_impl(&exp_child, &ee, &giv_child, &ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1601,12 +1601,12 @@ _synthesize_types_impl :: (
     giv_dts := match(given_ty, .DynT(rts, _, _, _) => rts, _ => ArrayList(TypeValue).new());
     (di : usize) = usize(0);
     while(di < exp_dts.len(), {
-      et := match(exp_dts.get(di), .Some(t) => t, .None => TypeValue.Unit);
+      et := match(exp_dts.get(di), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       di = (di + usize(1));
       (gj : usize) = usize(0);
       (paired : bool) = false;
       while((gj < giv_dts.len()) && !paired, {
-        gt := match(giv_dts.get(gj), .Some(t) => t, .None => TypeValue.Unit);
+        gt := match(giv_dts.get(gj), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         gj = (gj + usize(1));
         same_kind := match(
           et,
@@ -1627,8 +1627,8 @@ _synthesize_types_impl :: (
   });
   // Case: Array + Array
   if(is_array_type(expected_ty) && is_array_type(given_ty), {
-    exp_elem := match(expected_ty, .Array(e, _, _) => e, _ => TypeValue.Unit);
-    giv_elem := match(given_ty, .Array(e, _, _) => e, _ => TypeValue.Unit);
+    exp_elem := match(expected_ty, .Array(e, _, _) => e, _ => rc(TypeValueNode.Unit));
+    giv_elem := match(given_ty, .Array(e, _, _) => e, _ => rc(TypeValueNode.Unit));
     res := _synthesize_types_impl(&exp_elem, &ee, &giv_elem, &ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1670,8 +1670,8 @@ _synthesize_types_impl :: (
   });
   // Case: ComptimeList + ComptimeList
   if(is_comptime_list_type(expected_ty) && is_comptime_list_type(given_ty), {
-    exp_elem := match(expected_ty, .ComptimeListT(e) => e, _ => TypeValue.Unit);
-    giv_elem := match(given_ty, .ComptimeListT(e) => e, _ => TypeValue.Unit);
+    exp_elem := match(expected_ty, .ComptimeListT(e) => e, _ => rc(TypeValueNode.Unit));
+    giv_elem := match(given_ty, .ComptimeListT(e) => e, _ => rc(TypeValueNode.Unit));
     res := _synthesize_types_impl(&exp_elem, &ee, &giv_elem, &ge, checked, opts, exn);
     ee = res.expected_env;
     ge = res.given_env;
@@ -1685,8 +1685,8 @@ _synthesize_types_impl :: (
     giv_pt := match(given_ty, .Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
     exp_it := match(expected_ty, .Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
     giv_it := match(given_ty, .Func({ implicit_types : its }) => its, _ => ArrayList(TypeValue).new());
-    exp_ret := match(expected_ty, .Func({ result : r }) => r, _ => TypeValue.Unit);
-    giv_ret := match(given_ty, .Func({ result : r }) => r, _ => TypeValue.Unit);
+    exp_ret := match(expected_ty, .Func({ result : r }) => r, _ => rc(TypeValueNode.Unit));
+    giv_ret := match(given_ty, .Func({ result : r }) => r, _ => rc(TypeValueNode.Unit));
     if((exp_fa.len() == giv_fa.len()) && (exp_pt.len() == giv_pt.len()), {
       // Synthesize generic type params
       n_fa := exp_fa.len();
@@ -1754,7 +1754,7 @@ _synthesize_types_impl :: (
   // x : F(A)) -> F(A)` left `F` unbound and the result `TypeApp(F, [A])`
   // (issues/fixed/higher-kinded-return-type-is-never-applied-at-the-call-site.md).
   if(is_type_application_type(expected_ty) && !is_type_application_type(given_ty), {
-    hk_con := match(expected_ty, .TypeAppT(c, _) => c, _ => TypeValue.Unit);
+    hk_con := match(expected_ty, .TypeAppT(c, _) => c, _ => rc(TypeValueNode.Unit));
     hk_args := match(expected_ty, .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     hk_cfid := match(
       given_ty,
@@ -1777,12 +1777,12 @@ _synthesize_types_impl :: (
       .SomeT({ id : hk_id, name : hk_name, kind_function_type : hk_kind }) => match(
         hk_ctor,
         .Some(hk_cv) => if(hk_targs.len() == hk_args.len(), {
-          hk_kind_ty := match(hk_kind, .Some(k) => k, .None => TypeValue.Unit);
+          hk_kind_ty := match(hk_kind, .Some(k) => k, .None => rc(TypeValueNode.Unit));
           _bind_some_type(&ee, &hk_name, &hk_id, &hk_cv, &hk_kind_ty, opts_token(opts, &ee), exn);
           (hk_i : usize) = usize(0);
           while(hk_i < hk_args.len(), {
-            hk_e := match(hk_args.get(hk_i), .Some(t) => t, .None => TypeValue.Unit);
-            hk_g := match(hk_targs.get(hk_i), .Some(t) => t, .None => TypeValue.Unit);
+            hk_e := match(hk_args.get(hk_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+            hk_g := match(hk_targs.get(hk_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             hk_res := _synthesize_types_impl(&hk_e, &ee, &hk_g, &ge, checked, opts, exn);
             ee = hk_res.expected_env;
             ge = hk_res.given_env;
@@ -1797,8 +1797,8 @@ _synthesize_types_impl :: (
   });
   // Case: TypeApplication + TypeApplication
   if(is_type_application_type(expected_ty) && is_type_application_type(given_ty), {
-    exp_con := match(expected_ty, .TypeAppT(c, _) => c, _ => TypeValue.Unit);
-    giv_con := match(given_ty, .TypeAppT(c, _) => c, _ => TypeValue.Unit);
+    exp_con := match(expected_ty, .TypeAppT(c, _) => c, _ => rc(TypeValueNode.Unit));
+    giv_con := match(given_ty, .TypeAppT(c, _) => c, _ => rc(TypeValueNode.Unit));
     exp_args := match(expected_ty, .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     giv_args := match(given_ty, .TypeAppT(_, args) => args, _ => ArrayList(TypeValue).new());
     res := _synthesize_types_impl(&exp_con, &ee, &giv_con, &ge, checked, opts, exn);

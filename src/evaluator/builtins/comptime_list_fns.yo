@@ -67,7 +67,7 @@ evaluate_yo_comptime_list_car :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.Unit)
+      new_expr_info(env, rc(TypeValueNode.Unit))
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&info);
@@ -81,7 +81,7 @@ evaluate_yo_comptime_list_car :: (
       )
     );
   });
-  child_ty := match(info.ty, .ComptimeListT(cb) => cb, _ => TypeValue.Unit);
+  child_ty := match(info.ty, .ComptimeListT(cb) => cb, _ => rc(TypeValueNode.Unit));
   list_val := match(
     info.value,
     .Some(v) => v,
@@ -169,7 +169,7 @@ evaluate_yo_comptime_list_cdr :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.Unit)
+      new_expr_info(env, rc(TypeValueNode.Unit))
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&info);
@@ -277,7 +277,7 @@ evaluate_yo_comptime_list_cons :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.Unit)
+      new_expr_info(env, rc(TypeValueNode.Unit))
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&car_info);
@@ -309,7 +309,7 @@ evaluate_yo_comptime_list_cons :: (
           )
         )
       );
-      new_expr_info(&cur_env, TypeValue.Unit)
+      new_expr_info(&cur_env, rc(TypeValueNode.Unit))
     }
   );
   cur_env = expr_info_adopt_env(&cdr_info);
@@ -338,7 +338,7 @@ evaluate_yo_comptime_list_cons :: (
       EvalValue.UnitVal
     }
   );
-  child_ty := match(cdr_info.ty, .ComptimeListT(cb) => cb, _ => TypeValue.Unit);
+  child_ty := match(cdr_info.ty, .ComptimeListT(cb) => cb, _ => rc(TypeValueNode.Unit));
   list_ty := cdr_info.ty;
   if(!are_types_compatible(&car_info.ty, &child_ty), {
     exn.throw(
@@ -418,7 +418,7 @@ evaluate_yo_comptime_list_append :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.Unit)
+      new_expr_info(env, rc(TypeValueNode.Unit))
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&first_info);
@@ -460,7 +460,7 @@ evaluate_yo_comptime_list_append :: (
           )
         )
       );
-      new_expr_info(&cur_env, TypeValue.Unit)
+      new_expr_info(&cur_env, rc(TypeValueNode.Unit))
     }
   );
   cur_env = expr_info_adopt_env(&second_info);
@@ -576,7 +576,7 @@ evaluate_yo_comptime_list_length :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.Unit)
+      new_expr_info(env, rc(TypeValueNode.Unit))
     }
   );
   if(!is_comptime_list_type(&info.ty), {
@@ -651,7 +651,7 @@ evaluate_yo_comptime_list_element_type :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.Unit)
+      new_expr_info(env, rc(TypeValueNode.Unit))
     }
   );
   // The argument must be a TypeVal wrapping a ComptimeList type.
@@ -669,7 +669,7 @@ evaluate_yo_comptime_list_element_type :: (
             )
           )
         );
-        TypeValue.Unit
+        rc(TypeValueNode.Unit)
       }
     ),
     .None => {
@@ -681,7 +681,7 @@ evaluate_yo_comptime_list_element_type :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   if(!is_comptime_list_type(&inner_ty), {
@@ -694,7 +694,7 @@ evaluate_yo_comptime_list_element_type :: (
       )
     );
   });
-  child_ty := match(inner_ty, .ComptimeListT(cb) => cb, _ => TypeValue.Unit);
+  child_ty := match(inner_ty, .ComptimeListT(cb) => cb, _ => rc(TypeValueNode.Unit));
   out_info := new_expr_info(&info.env, t_type());
   out_info.value = .Some(EvalValue.TypeVal(child_ty));
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
@@ -735,7 +735,7 @@ evaluate_yo_comptime_list_get :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.Unit)
+      new_expr_info(env, rc(TypeValueNode.Unit))
     }
   );
   if(!is_comptime_list_type(&list_info.ty), {
@@ -748,7 +748,7 @@ evaluate_yo_comptime_list_get :: (
       )
     );
   });
-  child_ty := match(list_info.ty, .ComptimeListT(cb) => cb, _ => TypeValue.Unit);
+  child_ty := match(list_info.ty, .ComptimeListT(cb) => cb, _ => rc(TypeValueNode.Unit));
   (cur_env : Environment) = expr_info_adopt_env(&list_info);
   // Same named promotion as the car builtin above.
   get_unk_name := String.from("__comptime_list_get_");

@@ -373,7 +373,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           )
                         );
                       });
-                      ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(&env, TypeValue.Unit));
+                      ext_info := match(ext_info_opt, .Some(it) => it, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
                       env.frames = ext_info.env.frames;
                       env.module_path = ext_info.env.module_path;
                       env.function_declaration_frame_level = ext_info.env.function_declaration_frame_level;
@@ -526,7 +526,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                           nk := efls.len();
                           while((k < nk) && !should_stop, {
                             ext_label := match(efls.get(k), .Some(l) => l, .None => String.from(""));
-                            ext_type := match(efts.get(k), .Some(t) => t, .None => TypeValue.Unit);
+                            ext_type := match(efts.get(k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                             if(!_is_excluded_label(&excluded_labels, ext_label.clone()), {
                               match(
                                 ext_mod_path,
@@ -678,7 +678,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
                             return(
                               AnonModuleResult(
                                 module_value : EvalValue.UnitVal,
-                                module_type : TypeValue.Unit,
+                                module_type : rc(TypeValueNode.Unit),
                                 env : env,
                                 partial_module_error : Option(String).None
                               )
@@ -879,7 +879,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
   sns_id := stable_sns_module_id(env.module_path.clone());
   register_sns_module(sns_id.clone(), env.module_path.clone());
-  module_type := TypeValue.Struct(
+  module_type := rc(TypeValueNode.Struct(
     sns_id.clone(),
     String.from(""),
     field_labels,
@@ -895,7 +895,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
     ArrayList(TypeValue).new(),
     // type_arguments
     true // is_source_namespace
-  );
+  ));
   module_val := EvalValue.StructVal(sns_id.clone(), module_names, module_vals);
   AnonModuleResult(
     module_value : module_val,
@@ -939,7 +939,7 @@ _run_module_walk :: (
         unwind(
           AnonModuleResult(
             module_value : EvalValue.UnitVal,
-            module_type : TypeValue.Unit,
+            module_type : rc(TypeValueNode.Unit),
             env : Environment.new(String.new()),
             partial_module_error : Option(String).None
           )

@@ -129,7 +129,7 @@ _get_or_create_some_ty_for_trait :: (
               )
             )
           );
-          return(_SomeTyResolvedResult(TypeValue.Unit, false));
+          return(_SomeTyResolvedResult(rc(TypeValueNode.Unit), false));
         }
       );
       match(
@@ -159,7 +159,7 @@ _get_or_create_some_ty_for_trait :: (
           )
         )
       );
-      return(_SomeTyResolvedResult(TypeValue.Unit, false));
+      return(_SomeTyResolvedResult(rc(TypeValueNode.Unit), false));
     });
     new_some_ty := t_some_t(&var_name, top_frame - usize(1));
     tv := create_type_value(&new_some_ty);
@@ -204,7 +204,7 @@ _get_or_create_some_ty_for_trait :: (
           )
         )
       );
-      new_expr_info(env_mut, TypeValue.Unit)
+      new_expr_info(env_mut, rc(TypeValueNode.Unit))
     }
   );
   if(!is_type_value(&lhs_info.value), {
@@ -223,8 +223,8 @@ _get_or_create_some_ty_for_trait :: (
   env_mut.input_string = lhs_info.env.input_string;
   lhs_tv := match(
     lhs_info.value,
-    .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-    .None => TypeValue.Unit
+    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+    .None => rc(TypeValueNode.Unit)
   );
   if(!is_some_type(&lhs_tv), {
     exn.throw(
@@ -295,7 +295,7 @@ _apply_single_constraint_for_trait :: (
     }
   );
   // Evaluate trait expression (use outer exn — hard failure).
-  (trait_ty2 : TypeValue) = TypeValue.Unit;
+  (trait_ty2 : TypeValue) = rc(TypeValueNode.Unit);
   old_self_type := ctx.self_type;
   ctx.self_type = .Some(self_type);
   evaluated_te := evaluate_expression_raw(&unwrapped_te, env_mut, ctx, exn);
@@ -317,8 +317,8 @@ _apply_single_constraint_for_trait :: (
   env_mut.input_string = te_info.env.input_string;
   trait_ty2 = match(
     te_info.value,
-    .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-    .None => TypeValue.Unit
+    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+    .None => rc(TypeValueNode.Unit)
   );
   if(!is_trait_type(&trait_ty2), {
     // Hard error — we got a value but it's not a trait
@@ -432,7 +432,7 @@ _parse_trait_where_clauses :: (
       });
       // Evaluate trait expression
       // Note: errors propagate via outer exn (collect_pending fallback simplified)
-      (trait_ty2 : TypeValue) = TypeValue.Unit;
+      (trait_ty2 : TypeValue) = rc(TypeValueNode.Unit);
       old_self_type := ctx.self_type;
       old_self_trait_type := ctx.self_trait_type;
       ctx.self_type = .Some(self_type);
@@ -458,7 +458,7 @@ _parse_trait_where_clauses :: (
               )
             );
           });
-          new_expr_info(env_mut, TypeValue.Unit)
+          new_expr_info(env_mut, rc(TypeValueNode.Unit))
         }
       );
       if(!is_type_value(&te_info.value), {
@@ -482,8 +482,8 @@ _parse_trait_where_clauses :: (
       env_mut.input_string = te_info.env.input_string;
       trait_ty2 = match(
         te_info.value,
-        .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-        .None => TypeValue.Unit
+        .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+        .None => rc(TypeValueNode.Unit)
       );
       if(!is_trait_type(&trait_ty2), {
         exn.throw(
@@ -736,7 +736,7 @@ _evaluate_trait_field :: (
       ctx.self_type = old_self_type;
       ctx.self_trait_type = old_self_trait_type;
       te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
-      te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env_mut, TypeValue.Unit));
+      te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(env_mut, rc(TypeValueNode.Unit)));
       env_mut.frames = te_info.env.frames;
       env_mut.module_path = te_info.env.module_path;
       env_mut.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
@@ -753,8 +753,8 @@ _evaluate_trait_field :: (
       });
       ty := match(
         te_info.value,
-        .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-        .None => TypeValue.Unit
+        .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+        .None => rc(TypeValueNode.Unit)
       );
       field_ty_opt = .Some(ty);
       // V6 task 1 (FORMAL_VERIFICATION.md): a trait-field fn-type's
@@ -825,7 +825,7 @@ _evaluate_trait_field :: (
               )
             )
           );
-          new_expr_info(env_mut, TypeValue.Unit)
+          new_expr_info(env_mut, rc(TypeValueNode.Unit))
         }
       );
       env_mut.frames = av_info.env.frames;
@@ -916,7 +916,7 @@ _evaluate_trait_field :: (
               )
             )
           );
-          new_expr_info(env_mut, TypeValue.Unit)
+          new_expr_info(env_mut, rc(TypeValueNode.Unit))
         }
       );
       env_mut.frames = dv_info.env.frames;
@@ -976,7 +976,7 @@ _evaluate_trait_field :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   // Set expr info on label_expr
@@ -991,7 +991,7 @@ _evaluate_trait_field :: (
     .None => ()
   );
   // Set expr info on the field expr itself (unit value)
-  unit_info := new_expr_info(env_mut, TypeValue.Unit);
+  unit_info := new_expr_info(env_mut, rc(TypeValueNode.Unit));
   unit_info.value = .Some(EvalValue.UnitVal);
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
   // Phase 7: detect associated type (TypeUni(0) + !assignedValue + isForEvaluatingTraitType)
@@ -1080,7 +1080,7 @@ evaluate_trait_type :: (
   neg_self_constraints := ArrayList(TypeValue).new();
   // Mutable trait type value — ArrayList fields are RC objects, so in-place
   // push() calls on self_constraints/neg_self_constraints reflect into trait_ty.
-  (trait_ty : TypeValue) = TypeValue.TraitT(
+  (trait_ty : TypeValue) = rc(TypeValueNode.TraitT(
     trait_name_str,
     assoc_type_names,
     field_labels,
@@ -1091,7 +1091,7 @@ evaluate_trait_type :: (
     neg_self_constraints,
     ArrayList(String).new(),
     ArrayList(TypeValue).new()
-  );
+  ));
   // Push a scoped env frame for trait evaluation
   env_mut.push_frame(false);
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());

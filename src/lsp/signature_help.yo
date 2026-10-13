@@ -167,7 +167,7 @@ handle_signature_help :: (
       params := ArrayList(JsonValue).new();
       (pi : usize) = usize(0);
       while(pi < param_types.len(), {
-        pt := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
+        pt := match(param_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         plabel := match(meta.*.param_labels.get(pi), .Some(l) => l, .None => `arg${pi}`);
         // Spelled as the signature label spells it (decision 42), so the
         // client finds the parameter inside the signature.

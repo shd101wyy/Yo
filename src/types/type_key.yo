@@ -524,7 +524,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
           e_some_phantoms := enum_phantom_type_args_masked(&rs, &e_mask);
           (pti : usize) = usize(0);
           while(pti < e_targs.len(), {
-            pt := match(e_targs.get(pti), .Some(x) => x, .None => TypeValue.Unit);
+            pt := match(e_targs.get(pti), .Some(x) => x, .None => rc(TypeValueNode.Unit));
             pt_masked := match(e_mask.get(pti), .Some(b) => b, .None => false);
             pt_free_var := match(
               pt,
@@ -760,7 +760,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       out.push_string(&sid);
       (i : usize) = usize(0);
       while(i < sfts.len(), {
-        ft := match(sfts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        ft := match(sfts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         fl := match(sfls.get(i), .Some(x) => x, .None => String.from(""));
         out.push_str("_");
         out.push_string(&fl);
@@ -804,7 +804,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
           .Some(fields) => {
             (fi : usize) = usize(0);
             while(fi < fields.len(), {
-              ft := match(fields.get(fi), .Some(x) => x, .None => TypeValue.Unit);
+              ft := match(fields.get(fi), .Some(x) => x, .None => rc(TypeValueNode.Unit));
               out.push_str(":");
               out.push_string(recur(&ft, depth + usize(1)));
               fi = (fi + usize(1));

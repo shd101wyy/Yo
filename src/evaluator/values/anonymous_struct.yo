@@ -91,7 +91,7 @@ evaluate_anonymous_struct_value :: (
   // Member visibility: an anonymous struct literal is declared where it is written.
   register_type_decl_module(struct_id.clone(), as_tok.module_path.clone());
   // Preliminary struct type (empty fields) for SelfType during field evaluation.
-  prelim_ty := TypeValue.Struct(
+  prelim_ty := rc(TypeValueNode.Struct(
     struct_id.clone(),
     String.from(""),
     ArrayList(String).new(),
@@ -102,7 +102,7 @@ evaluate_anonymous_struct_value :: (
     String.from(""),
     ArrayList(TypeValue).new(),
     false
-  );
+  ));
   // Collect field labels, types, values
   field_labels := ArrayList(String).new();
   field_types := ArrayList(TypeValue).new();
@@ -176,7 +176,7 @@ evaluate_anonymous_struct_value :: (
             )
           )
         );
-        new_expr_info(&cur_env, TypeValue.Unit)
+        new_expr_info(&cur_env, rc(TypeValueNode.Unit))
       }
     );
     cur_env = expr_info_adopt_env(&arg_info);
@@ -213,7 +213,7 @@ evaluate_anonymous_struct_value :: (
   });
   // TODO (Phase 3): autoDeriveTraitsAndAddRcFunctionsForStructType — no-op stub.
   // Build final struct TypeValue
-  struct_ty := TypeValue.Struct(
+  struct_ty := rc(TypeValueNode.Struct(
     struct_id.clone(),
     String.from(""),
     field_labels,
@@ -224,7 +224,7 @@ evaluate_anonymous_struct_value :: (
     String.from(""),
     ArrayList(TypeValue).new(),
     false
-  );
+  ));
   // Register struct fields in global registry
   register_struct_fields(struct_id.clone(), &all_type_fields);
   // Build struct value if all fields are comptime-known

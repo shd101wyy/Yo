@@ -187,7 +187,7 @@ try_to_implement_closure_by_fn_module_type :: (
   // This is needed because create_function_body_evaluation_context expects a Func type
   // to extract the return type for the expected-type context.
   result_type_copy := result_type.clone();
-  synthetic_func_ty := TypeValue.Func(
+  synthetic_func_ty := rc(TypeValueNode.Func(
     ArrayList(TypeValue).new(),
     // forall_types
     param_types.clone(),
@@ -218,7 +218,7 @@ try_to_implement_closure_by_fn_module_type :: (
       )
     ),
     ArrayList(TypeValue).new()
-  );
+  ));
   // Build a preliminary FuncVal for the evaluation context.
   closure_id := stable_func_id(String.from("closure_"), &tok.module_path, usize(tok.row), usize(tok.column));
   func_val_pre := EvalValue.FuncVal(

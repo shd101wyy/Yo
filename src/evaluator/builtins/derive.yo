@@ -629,11 +629,11 @@ _evaluate_derive_executing :: (
         // A Type-universe slot promotes to `TypeVal(SomeType(name))` so the target
         // type expression (e.g. `DRPair(T1, T2)`) instantiates a real struct
         // instead of failing on a bare `UnknownVal(Type)`.
-        unknown_val := create_unknown_val_with_name(TypeValue.TypeUni(usize(0)), &fp_name);
+        unknown_val := create_unknown_val_with_name(rc(TypeValueNode.TypeUni(usize(0))), &fp_name);
         _add_fp := add_variable_to_env(
           env,
           &fp_name,
-          TypeValue.TypeUni(usize(0)),
+          rc(TypeValueNode.TypeUni(usize(0))),
           Option(EvalValue).Some(unknown_val),
           true,
           false,
@@ -702,7 +702,7 @@ _evaluate_derive_executing :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     },
     .None => {
       exn.throw(
@@ -713,7 +713,7 @@ _evaluate_derive_executing :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   // Verify the target is a Struct or EnumT.

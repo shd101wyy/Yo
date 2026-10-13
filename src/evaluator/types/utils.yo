@@ -47,7 +47,7 @@ _all_fields_implement_send :: (fn(field_types : &ArrayList(TypeValue), env : &En
   (i : usize) = usize(0);
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
-    ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(!type_implements_send(&ft, env), {
       all_ok = false;
     });
@@ -60,7 +60,7 @@ _all_fields_implement_sync :: (fn(field_types : &ArrayList(TypeValue), env : &En
   (i : usize) = usize(0);
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
-    ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(!type_implements_sync(&ft, env), {
       all_ok = false;
     });
@@ -73,7 +73,7 @@ _all_fields_implement_acyclic :: (fn(field_types : &ArrayList(TypeValue), env : 
   (i : usize) = usize(0);
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
-    ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(!type_implements_acyclic(&ft, env), {
       all_ok = false;
     });
@@ -91,7 +91,7 @@ _all_buffer_elements_acyclic :: (fn(field_types : &ArrayList(TypeValue), env : &
   (i : usize) = usize(0);
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
-    ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     match(
       buffer_element_type(&ft),
       .Some(elem) => if(!type_implements_acyclic(&elem, env), {
@@ -108,7 +108,7 @@ _all_fields_implement_comptime :: (fn(field_types : &ArrayList(TypeValue), env :
   (i : usize) = usize(0);
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
-    ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(!type_implements_comptime(&ft, env), {
       all_ok = false;
     });
@@ -121,7 +121,7 @@ _all_fields_implement_runtime :: (fn(field_types : &ArrayList(TypeValue), env : 
   (i : usize) = usize(0);
   (all_ok : bool) = true;
   while((i < n) && all_ok, {
-    ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(!type_implements_runtime_full(&ft, env), {
       all_ok = false;
     });
@@ -205,7 +205,7 @@ _flatten_variant_fields :: (fn(variant_fields : &ArrayList(ArrayList(TypeValue))
     m := vf.len();
     (j : usize) = usize(0);
     while(j < m, {
-      ft := match(vf.get(j), .Some(t) => t, .None => TypeValue.Unit);
+      ft := match(vf.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       result.push(ft);
       j = (j + usize(1));
     });
@@ -321,7 +321,7 @@ enforce_atomic_object_send :: (
     (i : usize) = usize(0);
     while(i < n, {
       fl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
-      ft := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+      ft := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       // Only a fully CONCRETE (SomeT-free) field counts as a violation. A
       // generic type-constructor body (`Atomic(T)`'s `_v : T` with
       // `where(T <: Sync)`) is trial-evaluated with T an unresolved SomeT,

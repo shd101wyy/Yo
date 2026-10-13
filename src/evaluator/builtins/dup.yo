@@ -109,7 +109,7 @@ evaluate_dup :: (
         tup_fts := match(concrete_type, .Tuple(_, fts) => fts, _ => ArrayList(TypeValue).new());
         (dti : usize) = usize(0);
         while(dti < tup_fts.len(), {
-          ft := match(tup_fts.get(dti), .Some(t) => t, .None => TypeValue.Unit);
+          ft := match(tup_fts.get(dti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(type_contains_rc_type(&ft), {
             dup_calls.push(`${BF_YO_DUP_TUPLE_ELEMENT}(${dup_var_name}, ${dti.to_string()})`);
           });
@@ -120,7 +120,7 @@ evaluate_dup :: (
         (arr_elem, arr_len, arr_lvar) := match(
           concrete_type,
           .Array(e, l, lv) => (e, l, lv),
-          _ => (TypeValue.Unit, usize(0), String.new())
+          _ => (rc(TypeValueNode.Unit), usize(0), String.new())
         );
         // Only compile-time-known lengths; a
         // pattern-era `length_var` means the length is not concrete — skip.

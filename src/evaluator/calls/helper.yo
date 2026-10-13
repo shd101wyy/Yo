@@ -276,7 +276,7 @@ _module_type_contains_ctl_field :: (
         (fi : usize) = usize(0);
         (found : bool) = false;
         while((fi < n) && !found, {
-          field_ty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+          field_ty := match(field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           (field_val_opt : Option(EvalValue)) = match(
             module_val,
             .None => Option(EvalValue).None,
@@ -632,7 +632,7 @@ _refine_one_fn_trait_result :: (fn(ftt : &TypeValue, new_result : &TypeValue) ->
   match(
     ftt,
     .FnTraitT(rw_bn, rw_cpl, rw_cpt, rw_cr, rw_il, rw_it, rw_cpr, rw_cpo) => cond(
-      (!is_some_type(&rw_cr) && (get_all_some_types(&rw_cr).len() > usize(0))) => TypeValue.FnTraitT(
+      (!is_some_type(&rw_cr) && (get_all_some_types(&rw_cr).len() > usize(0))) => rc(TypeValueNode.FnTraitT(
         rw_bn,
         rw_cpl,
         rw_cpt,
@@ -641,7 +641,7 @@ _refine_one_fn_trait_result :: (fn(ftt : &TypeValue, new_result : &TypeValue) ->
         rw_it,
         rw_cpr,
         rw_cpo
-      ),
+      )),
       true => ftt
     ),
     _ => ftt
@@ -676,7 +676,7 @@ _refine_wrapper_fn_result :: (fn(ty : &TypeValue, new_result : &TypeValue) -> Ty
         );
         rf_i = (rf_i + usize(1));
       });
-      TypeValue.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc)
+      rc(TypeValueNode.SomeT(rf_id, rf_nm, rf_fl, rf_pt, new_rtt, rf_rtl, rf_ntt, rf_ntl, rf_kft, rf_rc))
     },
     .FnTraitT(_, _, _, _, _, _, _, _) => _refine_one_fn_trait_result(ty, new_result),
     _ => ty
@@ -1641,7 +1641,7 @@ ${ast_expr_to_string(&actual_arg)}`
           match(
             get_closure_body_type(cb_fvd.*.func_id.clone()),
             .Some(cb_body_ty) => {
-              arg_type_for_synth = TypeValue.Func(cb_ft, cb_pt, cb_it, cb_wt, cb_body_ty, cb_meta, ArrayList(TypeValue).new());
+              arg_type_for_synth = rc(TypeValueNode.Func(cb_ft, cb_pt, cb_it, cb_wt, cb_body_ty, cb_meta, ArrayList(TypeValue).new()));
             },
             .None => ()
           );
@@ -2519,7 +2519,7 @@ _bake_record_slots :: (fn(ty : &TypeValue) -> TypeValue)(
       bk_new_tas := ArrayList(TypeValue).new();
       (bk_i : usize) = usize(0);
       while(bk_i < bk_tas.len(), {
-        bk_t := match(bk_tas.get(bk_i), .Some(t) => t, .None => TypeValue.Unit);
+        bk_t := match(bk_tas.get(bk_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         (bk_r : TypeValue) = bk_t;
         if(is_some_type(&bk_t), {
           bk_r = _spec_resolve_slot_cell(&bk_t);
@@ -2538,7 +2538,7 @@ _bake_record_slots :: (fn(ty : &TypeValue) -> TypeValue)(
       bk_new_ft := ArrayList(TypeValue).new();
       (bk_j : usize) = usize(0);
       while(bk_j < bk_ft.len(), {
-        bk_f := match(bk_ft.get(bk_j), .Some(t) => t, .None => TypeValue.Unit);
+        bk_f := match(bk_ft.get(bk_j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         (bk_fr : TypeValue) = bk_f;
         if(is_some_type(&bk_f), {
           bk_fr = _spec_resolve_slot_cell(&bk_f);
@@ -2549,7 +2549,7 @@ _bake_record_slots :: (fn(ty : &TypeValue) -> TypeValue)(
         bk_new_ft.push(bk_fr);
         bk_j = (bk_j + usize(1));
       });
-      TypeValue.Struct(
+      rc(TypeValueNode.Struct(
         id : bk_id,
         name : bk_nm,
         field_labels : bk_fl,
@@ -2560,7 +2560,7 @@ _bake_record_slots :: (fn(ty : &TypeValue) -> TypeValue)(
         constructor_func_id : bk_cfid,
         type_arguments : bk_new_tas,
         is_source_namespace : bk_ns
-      )
+      ))
     },
     _ => ty
   )
@@ -2896,7 +2896,7 @@ create_specialized_function_inline :: (
               .Some(ectp_ae) => match(
                 ectp_ae.value,
                 .Some(ectp_v) => {
-                  ectp_ty := match(ectp_v, .TypeVal(_) => TypeValue.TypeUni(usize(0)), _ => ectp_ae.arg_type);
+                  ectp_ty := match(ectp_v, .TypeVal(_) => rc(TypeValueNode.TypeUni(usize(0))), _ => ectp_ae.arg_type);
                   _ectp := add_variable_to_env(
                     callee_env,
                     &ectp_label,
@@ -3084,7 +3084,7 @@ create_specialized_function_inline :: (
                       _zb := add_variable_to_env(
                         callee_env,
                         &zb_name,
-                        TypeValue.TypeUni(usize(0)),
+                        rc(TypeValueNode.TypeUni(usize(0))),
                         Option(EvalValue).Some(EvalValue.TypeVal(zb_tb.clone())),
                         true,
                         false,
@@ -3154,7 +3154,7 @@ create_specialized_function_inline :: (
                                 _zb2 := add_variable_to_env(
                                   callee_env,
                                   &zb_name,
-                                  TypeValue.TypeUni(usize(0)),
+                                  rc(TypeValueNode.TypeUni(usize(0))),
                                   Option(EvalValue).Some(EvalValue.TypeVal(zb_ct.clone())),
                                   true,
                                   false,
@@ -3181,7 +3181,7 @@ create_specialized_function_inline :: (
                           _zb3 := add_variable_to_env(
                             callee_env,
                             &zb_name,
-                            TypeValue.TypeUni(usize(0)),
+                            rc(TypeValueNode.TypeUni(usize(0))),
                             Option(EvalValue).Some(EvalValue.TypeVal(zb_tb.clone())),
                             true,
                             false,
@@ -3507,7 +3507,7 @@ create_specialized_function_inline :: (
               implicit_types : ft_it,
               where_types : ft_wt,
               meta : ft_meta
-            }) => TypeValue.Func(
+            }) => rc(TypeValueNode.Func(
               ft_ft,
               ft_pt,
               ft_it,
@@ -3515,7 +3515,7 @@ create_specialized_function_inline :: (
               spec_ret_ty.clone(),
               ft_meta,
               ArrayList(TypeValue).new()
-            ),
+            )),
             _ => func_type
           );
           // Override the evaluation context for the body. The
@@ -3651,7 +3651,7 @@ create_specialized_function_inline :: (
             // below would otherwise skip them). Register the capture struct as the
             // SomeT's resolved concrete so get_type_string(SomeT) lowers to it
             // (utils/index.yo:760).
-            decl_pt := match(decl_param_types.get(rbp_i), .Some(t) => t, .None => TypeValue.Unit);
+            decl_pt := match(decl_param_types.get(rbp_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             // Prefer the CALL's resolved parameter type over the pristine
             // declared one. The declared type stays def-era (there is no
             // shared parameter object for the closure's return rewrite to
@@ -3711,7 +3711,7 @@ create_specialized_function_inline :: (
                           _
                         ) => {
                           fw_rebind = Option(TypeValue).Some(
-                            TypeValue.SomeT(
+                            rc(TypeValueNode.SomeT(
                               `${fw_id}_fwbind_${type_key(&fw_arg)}`,
                               fw_nm,
                               fw_fl,
@@ -3722,7 +3722,7 @@ create_specialized_function_inline :: (
                               fw_ntl,
                               fw_kft,
                               Option(TypeValue).Some(fw_arg.clone())
-                            )
+                            ))
                           );
                         },
                         _ => ()
@@ -3828,7 +3828,7 @@ create_specialized_function_inline :: (
                       sp_kft_c,
                       _
                     ) => {
-                      bind_pt_cl = TypeValue.SomeT(
+                      bind_pt_cl = rc(TypeValueNode.SomeT(
                         fresh_some_id.clone(),
                         sp_nm_c,
                         sp_fl_c,
@@ -3839,7 +3839,7 @@ create_specialized_function_inline :: (
                         sp_ntl_c,
                         sp_kft_c,
                         Option(TypeValue).Some(cap_ty)
-                      );
+                      ));
                     },
                     _ => ()
                   );
@@ -4590,7 +4590,7 @@ create_specialized_function_inline :: (
                                     }) => {
                                       register_func_type(
                                         cw_fid.clone(),
-                                        TypeValue.Func(cw_fts, cw_new_pts, cw_its, cw_wts, cw_ret_res, cw_fm, ArrayList(TypeValue).new())
+                                        rc(TypeValueNode.Func(cw_fts, cw_new_pts, cw_its, cw_wts, cw_ret_res, cw_fm, ArrayList(TypeValue).new()))
                                       );
                                     },
                                     _ => ()
@@ -4991,7 +4991,7 @@ create_specialized_function_inline :: (
                   sp_mi = (sp_mi + usize(1));
                 });
               };
-              spec_type := TypeValue.Func(
+              spec_type := rc(TypeValueNode.Func(
                 ArrayList(TypeValue).new(),
                 spec_param_types,
                 sp_it,
@@ -5017,7 +5017,7 @@ create_specialized_function_inline :: (
                   )
                 ),
                 ArrayList(TypeValue).new()
-              );
+              ));
               register_func_type(&specialized_func_id, &spec_type);
             },
             _ => ()
@@ -5228,13 +5228,13 @@ evaluate_ctl_function_body_inline :: (
         .Some(enclosing_ty) => match(
           enclosing_ty,
           .Func({ result : rb }) => rb,
-          _ => match(func_type, .Func({ result : rb }) => rb, _ => TypeValue.Unit)
+          _ => match(func_type, .Func({ result : rb }) => rb, _ => rc(TypeValueNode.Unit))
         ),
-        .None => match(func_type, .Func({ result : rb }) => rb, _ => TypeValue.Unit)
+        .None => match(func_type, .Func({ result : rb }) => rb, _ => rc(TypeValueNode.Unit))
       ),
-      _ => match(func_type, .Func({ result : rb }) => rb, _ => TypeValue.Unit)
+      _ => match(func_type, .Func({ result : rb }) => rb, _ => rc(TypeValueNode.Unit))
     ),
-    .None => match(func_type, .Func({ result : rb }) => rb, _ => TypeValue.Unit)
+    .None => match(func_type, .Func({ result : rb }) => rb, _ => rc(TypeValueNode.Unit))
   );
   // -------------------------------------------------------------------------
   // Determine enclosing return type from definition-site registry
@@ -5352,7 +5352,7 @@ evaluate_ctl_function_body_inline :: (
   (fi2 : usize) = usize(0);
   while(fi2 < n_forall, {
     fl_label := match(forall_labels.get(fi2), .Some(s) => s, .None => String.from(""));
-    fl_ty := match(forall_types_list.get(fi2), .Some(t) => t, .None => TypeValue.Unit);
+    fl_ty := match(forall_types_list.get(fi2), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     ctl_tok := synthetic_token(fl_label.clone(), &specialized_env.module_path);
     _add_forall_var_res := add_variable_to_env(
       &specialized_env,
@@ -5464,7 +5464,7 @@ evaluate_ctl_function_body_inline :: (
   (fi3 : usize) = usize(0);
   while(fi3 < n_forall, {
     fl3 := match(forall_labels.get(fi3), .Some(s) => s, .None => String.new());
-    ft3 := match(forall_types_list.get(fi3), .Some(t) => t, .None => TypeValue.Unit);
+    ft3 := match(forall_types_list.get(fi3), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(!ctl_aligned, {
       ctl_cap_names.push(fl3.clone());
       ctl_cap_tys.push(ft3);
@@ -6532,7 +6532,7 @@ try_to_call_function_with_arguments :: (
       extract_fn_trait_from_type(func_type),
       .Some(ftt) => match(
         ftt,
-        .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => TypeValue.Func(
+        .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => rc(TypeValueNode.Func(
           ArrayList(TypeValue).new(),
           cpt,
           ArrayList(TypeValue).new(),
@@ -6556,7 +6556,7 @@ try_to_call_function_with_arguments :: (
             )
           ),
           ArrayList(TypeValue).new()
-        ),
+        )),
         _ => func_type
       ),
       .None => func_type
@@ -7114,7 +7114,7 @@ try_to_call_function_with_arguments :: (
               // per-call SomeT here — id keyed by the call expr so two calls
               // never share a lineage.
               forall_val = create_type_value(
-                TypeValue.SomeT(
+                rc(TypeValueNode.SomeT(
                   `${flabel}_wcforall_${ast_expr_id(expr).to_string()}`,
                   flabel.clone(),
                   usize(0),
@@ -7125,7 +7125,7 @@ try_to_call_function_with_arguments :: (
                   ArrayList(usize).new(),
                   Option(TypeValue).None,
                   Option(TypeValue).None
-                )
+                ))
               );
             }
           );
@@ -8564,7 +8564,7 @@ try_to_call_function_with_arguments :: (
         (ctl_rt_conc : TypeValue) = match(
           ctx.expected_type,
           .Some(cet) => cet.ty,
-          .None => TypeValue.Unit
+          .None => rc(TypeValueNode.Unit)
         );
         if(is_some_type(&ctl_rt_conc) || is_unit_type(&ctl_rt_conc), {
           ctl_rt_conc = match(
@@ -8573,19 +8573,19 @@ try_to_call_function_with_arguments :: (
               cfb.kind,
               .FunctionBody => match(
                 cfb.func_type,
-                .Some(cfty) => match(cfty, .Func({ result : crb }) => crb, _ => TypeValue.Unit),
-                .None => TypeValue.Unit
+                .Some(cfty) => match(cfty, .Func({ result : crb }) => crb, _ => rc(TypeValueNode.Unit)),
+                .None => rc(TypeValueNode.Unit)
               ),
-              _ => TypeValue.Unit
+              _ => rc(TypeValueNode.Unit)
             ),
-            .None => TypeValue.Unit
+            .None => rc(TypeValueNode.Unit)
           );
         });
         if(!is_some_type(&ctl_rt_conc) && !is_unit_type(&ctl_rt_conc), {
           match(
             return_type,
             .SomeT(ct_id, ct_nm, ct_fl, ct_pt, ct_rtt, ct_rtl, ct_ntt, ct_ntl, ct_kft, _) => {
-              return_type = TypeValue.SomeT(
+              return_type = rc(TypeValueNode.SomeT(
                 ct_id,
                 ct_nm,
                 ct_fl,
@@ -8596,7 +8596,7 @@ try_to_call_function_with_arguments :: (
                 ct_ntl,
                 ct_kft,
                 Option(TypeValue).Some(ctl_rt_conc)
-              );
+              ));
             },
             _ => ()
           );
@@ -8971,19 +8971,19 @@ try_to_call_function_with_arguments :: (
                     .Some(enclosing_ty2) => match(
                       enclosing_ty2,
                       .Func({ result : rb2 }) => rb2,
-                      _ => match(func_type, .Func({ result : rb2b }) => rb2b, _ => TypeValue.Unit)
+                      _ => match(func_type, .Func({ result : rb2b }) => rb2b, _ => rc(TypeValueNode.Unit))
                     ),
-                    .None => match(func_type, .Func({ result : rb2c }) => rb2c, _ => TypeValue.Unit)
+                    .None => match(func_type, .Func({ result : rb2c }) => rb2c, _ => rc(TypeValueNode.Unit))
                   ),
-                  _ => match(func_type, .Func({ result : rb2d }) => rb2d, _ => TypeValue.Unit)
+                  _ => match(func_type, .Func({ result : rb2d }) => rb2d, _ => rc(TypeValueNode.Unit))
                 ),
-                .None => match(func_type, .Func({ result : rb2e }) => rb2e, _ => TypeValue.Unit)
+                .None => match(func_type, .Func({ result : rb2e }) => rb2e, _ => rc(TypeValueNode.Unit))
               );
               if(!is_some_type(&ctl_res_conc) && !is_unit_type(&ctl_res_conc), {
                 match(
                   return_type,
                   .SomeT(cr_id, cr_nm, cr_fl, cr_pt, cr_rtt, cr_rtl, cr_ntt, cr_ntl, cr_kft, _) => {
-                    return_type = TypeValue.SomeT(
+                    return_type = rc(TypeValueNode.SomeT(
                       cr_id,
                       cr_nm,
                       cr_fl,
@@ -8994,7 +8994,7 @@ try_to_call_function_with_arguments :: (
                       cr_ntl,
                       cr_kft,
                       Option(TypeValue).Some(ctl_res_conc)
-                    );
+                    ));
                   },
                   _ => ()
                 );

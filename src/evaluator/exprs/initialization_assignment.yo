@@ -1352,7 +1352,7 @@ ${rhs_str}`
                 register_type_display_name(st_id.clone(), binding_name.clone());
                 register_type_binding_name(st_id.clone(), binding_name.clone());
                 Option(TypeValue).Some(
-                  TypeValue.Struct(st_id, binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid, st_ta, st_sns)
+                  rc(TypeValueNode.Struct(st_id, binding_name, st_fls, st_fts, st_ref, st_at, st_nt, st_cfid, st_ta, st_sns))
                 )
               },
               true => Option(TypeValue).None
@@ -1364,14 +1364,14 @@ ${rhs_str}`
                 register_type_binding_name(en_id.clone(), binding_name.clone());
                 register_type_binding_name(`${en_id}__self_shell`, binding_name.clone());
                 Option(TypeValue).Some(
-                  TypeValue.EnumT(en_id, binding_name, en_vns, en_vfs, en_sel, en_vfl, en_vd, en_irs, en_iar, en_tas)
+                  rc(TypeValueNode.EnumT(en_id, binding_name, en_vns, en_vfs, en_sel, en_vfl, en_vd, en_irs, en_iar, en_tas))
                 )
               },
               true => Option(TypeValue).None
             ),
             .Union(un_name, un_fls, un_fts) => cond(
               (un_name.len() == usize(0)) => Option(TypeValue).Some(
-                TypeValue.Union(binding_name, un_fls, un_fts)
+                rc(TypeValueNode.Union(binding_name, un_fls, un_fts))
               ),
               // A union's `name` is its identity (`union_<module>_<binding>_r…`),
               // so it is never renamed. The FIRST binding becomes its display
@@ -1392,7 +1392,7 @@ ${rhs_str}`
             // the where-clause "does not implement required trait" error.
             .TraitT(tr_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct) => cond(
               (tr_name.len() == usize(0)) => Option(TypeValue).Some(
-                TypeValue.TraitT(binding_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct)
+                rc(TypeValueNode.TraitT(binding_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct))
               ),
               true => Option(TypeValue).None
             ),

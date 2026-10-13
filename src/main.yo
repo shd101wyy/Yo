@@ -8525,7 +8525,7 @@ run_effects :: (
     (li : usize) = usize(0);
     while(li < labels.len(), {
       name := match(labels.get(li), .Some(l) => l, .None => String.new());
-      ty := match(types.get(li), .Some(t) => t, .None => TypeValue.Unit);
+      ty := match(types.get(li), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       li = (li + usize(1));
       match(
         ty,
@@ -8538,7 +8538,7 @@ run_effects :: (
           (pi : usize) = usize(0);
           while((pi < param_labels.len()) && (pi < param_types.len()), {
             plabel := match(param_labels.get(pi), .Some(l) => l, .None => String.new());
-            pty := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
+            pty := match(param_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             pi = (pi + usize(1));
             kinds := _effect_kinds_of_type(&pty, usize(0));
             if(kinds.len() > usize(0), {
@@ -8550,7 +8550,7 @@ run_effects :: (
           (ii : usize) = usize(0);
           while((ii < implicit_labels.len()) && (ii < implicit_types.len()), {
             ilabel := match(implicit_labels.get(ii), .Some(l) => l, .None => String.new());
-            ity := match(implicit_types.get(ii), .Some(t) => t, .None => TypeValue.Unit);
+            ity := match(implicit_types.get(ii), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             ii = (ii + usize(1));
             // An implicit (`using`) parameter is an effect by construction.
             kinds := _effect_kinds_of_type(&ity, usize(0));
@@ -8569,7 +8569,7 @@ run_effects :: (
           (ei : usize) = usize(0);
           while((ei < fut_labels.len()) && (ei < fut_types.len()), {
             elabel := match(fut_labels.get(ei), .Some(l) => l, .None => String.new());
-            ety := match(fut_types.get(ei), .Some(t) => t, .None => TypeValue.Unit);
+            ety := match(fut_types.get(ei), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             ei = (ei + usize(1));
             kinds := _effect_kinds_of_type(&ety, usize(0));
             // The row label of an `Impl(Future(T, E))` is E's own name; say
@@ -8621,7 +8621,7 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
       (fi : usize) = usize(0);
       while(fi < field_types.len(), {
         flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.new());
-        fty := match(field_types.get(fi), .Some(x) => x, .None => TypeValue.Unit);
+        fty := match(field_types.get(fi), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         fi = (fi + usize(1));
         match(
           fty,

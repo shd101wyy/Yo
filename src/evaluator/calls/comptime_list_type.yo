@@ -39,7 +39,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
   expected_element_type := match(
     comptime_list_type,
     .ComptimeListT(child) => child,
-    _ => TypeValue.Unit
+    _ => rc(TypeValueNode.Unit)
   );
   (env : Environment) = caller_env;
   elements := ArrayList(EvalValue).new();
@@ -72,7 +72,7 @@ try_to_implement_comptime_list_by_comptime_list_type :: (
             )
           )
         );
-        new_expr_info(&env, TypeValue.Unit)
+        new_expr_info(&env, rc(TypeValueNode.Unit))
       }
     );
     set_expr_as_needs_to_call_dup(&evaluated_arg, ctx, exn, "element");

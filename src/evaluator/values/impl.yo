@@ -2459,7 +2459,7 @@ find_methods_from_generic_impls :: (
               ftype := match(
                 entry.field_types.get(fi),
                 .Some(t) => t,
-                .None => TypeValue.Unit
+                .None => rc(TypeValueNode.Unit)
               );
               fvalue := entry.field_values.get(fi);
               // Specialize the method TYPE with the impl's generic bindings:
@@ -3170,7 +3170,7 @@ _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> Type
       if(rw_m.*.param_labels.len() != fv_params.len(), {
         return(ty);
       });
-      TypeValue.Func(
+      rc(TypeValueNode.Func(
         rw_fts,
         rw_pts,
         rw_its,
@@ -3196,7 +3196,7 @@ _retype_with_value_param_labels :: (fn(ty : &TypeValue, fv : &EvalValue) -> Type
           )
         ),
         rw_vts
-      )
+      ))
     },
     _ => ty
   )
@@ -3280,7 +3280,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
                   &fs,
                   r_nm.clone(),
                   r_lvl,
-                  TypeValue.SomeT(
+                  rc(TypeValueNode.SomeT(
                     generate_some_type_id(),
                     r_nm.clone(),
                     r_lvl,
@@ -3291,7 +3291,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
                     r_ntl.clone(),
                     r_kft.clone(),
                     Option(TypeValue).None
-                  )
+                  ))
                 );
                 added = (added + usize(1));
               });
@@ -3305,7 +3305,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
       if(added == usize(0), {
         return(method_ty);
       });
-      TypeValue.Func(
+      rc(TypeValueNode.Func(
         fr_fts,
         fr_pts,
         fr_its,
@@ -3313,7 +3313,7 @@ _freshen_return_only_somes :: (fn(method_ty : &TypeValue) -> TypeValue)(
         substitute(&fs, &fr_res),
         fr_m,
         fr_vts
-      )
+      ))
     },
     _ => method_ty
   )
@@ -3535,7 +3535,7 @@ _migrate_imm_for_trait_mismatch :: (fn(val_expr : &AstExpr, actual : &TypeValue,
           return(false);
         });
         fixed.param_is_owning = owns;
-        if(!are_types_compatible(_with_receiver_mode_of(TypeValue.Func(afts, apts, aits, awts, aret, rc(fixed), avts), expected), expected), {
+        if(!are_types_compatible(_with_receiver_mode_of(rc(TypeValueNode.Func(afts, apts, aits, awts, aret, rc(fixed), avts)), expected), expected), {
           return(false);
         });
         params := match(
@@ -3610,7 +3610,7 @@ _with_receiver_mode_of :: (fn(actual : &TypeValue, expected : &TypeValue) -> Typ
           });
           m.param_is_ref = refs;
           m.param_is_owning = owns;
-          TypeValue.Func(afts, apts, aits, awts, aret, rc(m), avts)
+          rc(TypeValueNode.Func(afts, apts, aits, awts, aret, rc(m), avts))
         },
         true => actual
       ),
@@ -4874,7 +4874,7 @@ evaluate_module_value :: (
             (gdi : usize) = usize(0);
             while(gdi < gd_labels.len(), {
               gd_label := match(gd_labels.get(gdi), .Some(l) => l, .None => String.from(""));
-              gd_ty := match(gd_types.get(gdi), .Some(t) => t, .None => TypeValue.Unit);
+              gd_ty := match(gd_types.get(gdi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               (gd_provided : bool) = false;
               (gpi : usize) = usize(0);
               while((gpi < g_method_names.len()) && !gd_provided, {
@@ -5379,7 +5379,7 @@ evaluate_module_value :: (
               (pvfi : usize) = usize(0);
               while(pvfi < pv_labels.len(), {
                 pv_lbl := match(pv_labels.get(pvfi), .Some(l) => l, .None => String.from(""));
-                pv_fty := match(pv_types.get(pvfi), .Some(t) => t, .None => TypeValue.Unit);
+                pv_fty := match(pv_types.get(pvfi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 if((pv_lbl != "") && is_function_type(&pv_fty), {
                   register_provisional_trait_method(
                     receiver_type_id.clone(),
@@ -5486,7 +5486,7 @@ evaluate_module_value :: (
               (dfi : usize) = usize(0);
               while(dfi < dtf_labels.len(), {
                 d_label := match(dtf_labels.get(dfi), .Some(l) => l, .None => String.from(""));
-                d_ty := match(dtf_types.get(dfi), .Some(t) => t, .None => TypeValue.Unit);
+                d_ty := match(dtf_types.get(dfi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 // Did the impl provide this field?
                 (d_provided : bool) = false;
                 (dmi : usize) = usize(0);

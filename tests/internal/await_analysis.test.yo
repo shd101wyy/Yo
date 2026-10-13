@@ -97,30 +97,30 @@ make_future_some_type :: (fn() -> TypeValue)({
   required_trait_types.push(future_trait);
   required_trait_levels := ArrayList(usize).new();
   required_trait_levels.push(usize(0));
-  TypeValue.SomeT(
+  rc(TypeValueNode.SomeT(
     generate_some_type_id(),
     String.from("SomeFuture"),
     usize(0),
-    TypeValue.TypeUni(usize(0)),
+    rc(TypeValueNode.TypeUni(usize(0))),
     required_trait_types,
     required_trait_levels,
     ArrayList(TypeValue).new(),
     ArrayList(usize).new(),
     Option(TypeValue).None,
     Option(TypeValue).None
-  )
+  ))
 });
 // A DynT with FutureTraitT(output: bool)
 make_future_dyn_type :: (fn() -> TypeValue)({
   future_trait := t_future_trait_simple(String.from("Future"), t_bool());
   required_trait_types := ArrayList(TypeValue).new();
   required_trait_types.push(future_trait);
-  TypeValue.DynT(
+  rc(TypeValueNode.DynT(
     required_trait_types,
     ArrayList(usize).new(),
     ArrayList(TypeValue).new(),
     ArrayList(usize).new()
-  )
+  ))
 });
 get_info_none :: (fn(e : &AstExpr) -> Option(ExprInfo))(
   Option(ExprInfo).None

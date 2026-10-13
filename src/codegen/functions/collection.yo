@@ -746,7 +746,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
       // trait-value methods).
       if(ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2))), {
         cdot_args := match(callee, .FnCall(_, _, da, _, _) => da, .Atom(_, _) => ArrayList(AstExpr).new());
-        recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.ty, .None => TypeValue.Unit), .None => TypeValue.Unit);
+        recv_ty := match(cdot_args.get(usize(0)), .Some(r) => match(expr_info_table_get(info, ast_expr_id(&r)), .Some(ri) => ri.ty, .None => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
         cmname := match(cdot_args.get(usize(1)), .Some(m) => if(ast_expr_is_atom(&m), ast_expr_token(&m).value, String.from("")), .None => String.from(""));
         // A STATIC receiver (`Self.method` / `P.method`, no instance — e.g. a
         // forward-referenced `Self.callee`) evaluates to a TypeValue, so recv_ty
@@ -1071,7 +1071,7 @@ _specialize_and_register_trace :: (
               _bv := add_variable_to_env(
                 &fresh,
                 cn.clone(),
-                TypeValue.TypeUni(usize(0)),
+                rc(TypeValueNode.TypeUni(usize(0))),
                 Option(EvalValue).Some(EvalValue.TypeVal(ctb)),
                 true,
                 false,
@@ -1100,7 +1100,7 @@ _specialize_and_register_trace :: (
   (pi : usize) = usize(0);
   while(pi < p_labels.len(), {
     plabel := match(p_labels.get(pi), .Some(l) => l, .None => String.from(""));
-    pty := if(pi == usize(0), ct.clone(), match(p_types.get(pi), .Some(t) => t, .None => TypeValue.Unit));
+    pty := if(pi == usize(0), ct.clone(), match(p_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit)));
     _bp := add_variable_to_env(
       &fresh,
       plabel.clone(),
@@ -1117,8 +1117,8 @@ _specialize_and_register_trace :: (
   // The tracer (2nd) parameter type from the trace signature.
   tracer_ty := match(
     method_ty,
-    .Func({ param_types }) => match(param_types.get(usize(1)), .Some(t) => t, .None => TypeValue.Unit),
-    _ => TypeValue.Unit
+    .Func({ param_types }) => match(param_types.get(usize(1)), .Some(t) => t, .None => rc(TypeValueNode.Unit)),
+    _ => rc(TypeValueNode.Unit)
   );
   // ArgValues for `trace(self : ct, tracer : GcTracer)`. The regular args drive
   // only the runtime-param-type cache key + param binding (create_specialized
@@ -1240,7 +1240,7 @@ collect_trace_methods_from_generic_impls :: (
   nt := type_list.len();
   (ti : usize) = usize(0);
   while(ti < nt, {
-    ct := match(type_list.get(ti), .Some(t) => t, .None => TypeValue.Unit);
+    ct := match(type_list.get(ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     // Only types carrying a generic Trace impl produce a candidate; all others
     // (auto-derived structs/enums) return [] and keep their field-walk traversal.
     candidates := find_methods_from_generic_impls(&ct, String.from("trace"), module_env);
@@ -1497,7 +1497,7 @@ _synthesize_and_register_dispose :: (
   (fi : usize) = usize(0);
   while(fi < nf, {
     lbl := match(flabels.get(fi), .Some(l) => l, .None => String.from(""));
-    fty := match(ftypes.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+    fty := match(ftypes.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(type_contains_rc_cell_or_move_only(&fty), {
       // Index-based alias (the field label may not be a valid identifier — e.g. the
       // newtype/box `*` field — so it must not be interpolated into the binding name).
@@ -1766,7 +1766,7 @@ collect_dispose_methods :: (
   nt := type_list.len();
   (ti : usize) = usize(0);
   while(ti < nt, {
-    ct := match(type_list.get(ti), .Some(t) => t, .None => TypeValue.Unit);
+    ct := match(type_list.get(ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     cond(
       is_value_nominal_type(&ct) => _synthesize_and_register_value_dispose(base, ctx, module_env, info, exn, &ct),
       is_reference_enum_type(&ct) => _synthesize_and_register_enum_dispose(base, ctx, module_env, info, exn, &ct),

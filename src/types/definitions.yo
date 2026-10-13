@@ -103,15 +103,14 @@ FuncMeta :: struct(
   (result_is_mut_ref : bool) ?= false
 );
 derive(FuncMeta, Clone);
-/// The Yo type universe.
+/// One node of the Yo type universe: the payload behind a `TypeValue` handle.
 ///
-/// Reference-semantics enum (`ref(enum(…))`, plans/reference/REF_REFERENCE_SEMANTICS.md
-/// Phase 4): `TypeValue` is self-referential (`Self` / `ArrayList(Self)`),
-/// so a value enum needs the self-shell workaround. As a `ref(enum)` its `Self`
-/// fields are heap-pointer handles — the recursion is broken by indirection,
-/// no shell is needed, and clones share the handle instead of deep-copying.
-TypeValue :: ref(
-  enum(
+/// `TypeValue` is `Rc(TypeValueNode)` (plans/VALUES_BY_DEFAULT.md decision
+/// 21, as built 2026-10-13): every child is an `Rc(Self)` handle, so a node
+/// is never copied and a clone is one count bump. Build a type with
+/// `rc(TypeValueNode.X(...))`; a `match` on a `TypeValue` looks through the
+/// handle, so arms name the variants directly.
+TypeValueNode :: enum(
     // Primitive value types ---------------------------------------------------
     Unit,
     BoolT,
@@ -155,16 +154,16 @@ TypeValue :: ref(
     /// `Type`, `Type(1)`, `Type(2)`, …  `level` ∈ {0,1,2,…}.
     TypeUni(level : usize),
     // Compound types ---------------------------------------------------------
-    Pointer(pointee : Self),
+    Pointer(pointee : Rc(Self)),
     /// `length_var` carries the VALUE-ness of the declared length:
     /// "" = `length` is the concrete element count; non-empty = the length is
     /// an unresolved generic VARIABLE of that name (e.g. the `U` in
     /// `impl(generic(T : Type, U : usize), Array(T, U), ...)`) and `length`
     /// is a meaningless placeholder; the variable is bound during synthesis.
-    Array(element : Self, length : usize, length_var : String),
+    Array(element : Rc(Self), length : usize, length_var : String),
     /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
     /// field (empty `String` means positional). `field_types(i)` is the type.
-    Tuple(field_labels : ArrayList(String), field_types : ArrayList(Self)),
+    Tuple(field_labels : ArrayList(String), field_types : ArrayList(Rc(Self))),
     /// Function type. Phase 2b: generic type-vars, implicit (using) params,
     /// and where-clause constraint types.
     /// Self-typed (recursive) fields stay inline; the non-recursive metadata
@@ -173,18 +172,18 @@ TypeValue :: ref(
     /// ~150 B. `forall_types`/`param_types`/`implicit_types`/`where_types` are
     /// parallel to the label arrays in `meta`; `result` is the return type.
     Func(
-      forall_types : ArrayList(Self),
-      param_types : ArrayList(Self),
-      implicit_types : ArrayList(Self),
-      where_types : ArrayList(Self),
-      result : Self,
+      forall_types : ArrayList(Rc(Self)),
+      param_types : ArrayList(Rc(Self)),
+      implicit_types : ArrayList(Rc(Self)),
+      where_types : ArrayList(Rc(Self)),
+      result : Rc(Self),
       meta : Rc(FuncMeta),
       /// The variadic parameter's TYPE (0 or 1 elements — the ArrayList is a
       /// poor man's Option(Self) since Self-typed Options are unavailable in
       /// a variant position).
       /// the label/comptime flags live in `FuncMeta.variadic_label` /
       /// `variadic_comptime` (FuncMeta cannot reference TypeValue).
-      variadic_types : ArrayList(Self)
+      variadic_types : ArrayList(Rc(Self))
     ),
     // Named user-defined types ------------------------------------------------
     /// `id` uniquely identifies this struct definition.
@@ -206,7 +205,7 @@ TypeValue :: ref(
       id : String,
       name : String,
       field_labels : ArrayList(String),
-      field_types : ArrayList(Self),
+      field_types : ArrayList(Rc(Self)),
       is_reference_semantics : bool,
       is_atomic_rc : bool,
       is_newtype : bool,
@@ -217,7 +216,7 @@ TypeValue :: ref(
       /// carried instantiation env: a method dispatched
       /// on this struct binds its `generic` params positionally from here. See
       /// plans/archive/STRUCT_TYPE_ARGUMENTS.md.
-      type_arguments : ArrayList(Self),
+      type_arguments : ArrayList(Rc(Self)),
       /// True for source-namespace structs — anonymous modules (`impl({...})`,
       /// extern blocks) and imported modules. There is NO separate module type;
       /// modules ARE structs with this marker. See
@@ -241,7 +240,7 @@ TypeValue :: ref(
       id : String,
       name : String,
       variant_names : ArrayList(String),
-      variant_fields : ArrayList(ArrayList(Self)),
+      variant_fields : ArrayList(ArrayList(Rc(Self))),
       selected_variant_name : Option(String),
       variant_field_labels : ArrayList(ArrayList(String)),
       variant_discriminants : ArrayList(i64),
@@ -260,12 +259,12 @@ TypeValue :: ref(
       /// index, a GADT index only `-> recur(...)` names) are structurally
       /// identical
       /// (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
-      type_arguments : ArrayList(Self)
+      type_arguments : ArrayList(Rc(Self))
     ),
     Union(
       name : String,
       field_labels : ArrayList(String),
-      field_types : ArrayList(Self)
+      field_types : ArrayList(Rc(Self))
     ),
     // Traits / modules --------------------------------------------------------
     /// Named trait type. Phase 2b: associated type names and method/field list.
@@ -278,19 +277,19 @@ TypeValue :: ref(
       // names of associated type members
       field_labels : ArrayList(String),
       // method / field names
-      field_types : ArrayList(Self),
+      field_types : ArrayList(Rc(Self)),
       // method / field types
       id : String,
       // unique identity string
-      is_concrete : Option(Self),
+      is_concrete : Option(Rc(Self)),
       // Some(T) when this is `Concrete(T)`
-      self_constraints : ArrayList(Self),
+      self_constraints : ArrayList(Rc(Self)),
       // where-clause constraints on Self
-      neg_self_constraints : ArrayList(Self),
+      neg_self_constraints : ArrayList(Rc(Self)),
       // negative where-clause constraints on Self
       assoc_constraint_labels : ArrayList(String),
       // labels of `Item := X` associated-type constraints
-      assoc_constraint_types : ArrayList(Self) // constraint types
+      assoc_constraint_types : ArrayList(Rc(Self)) // constraint types
     ),
     // Generic / unresolved ----------------------------------------------------
     /// A `SomeType` introduced by `generic` or by a yet-to-be-resolved generic
@@ -303,20 +302,20 @@ TypeValue :: ref(
       // unique identity string
       name : String,
       frame_level : usize,
-      parent_type : Self,
+      parent_type : Rc(Self),
       // meta-type (TypeUni(0) by default)
-      required_trait_types : ArrayList(Self),
+      required_trait_types : ArrayList(Rc(Self)),
       // required trait constraints
       required_trait_levels : ArrayList(usize),
       // frame-level of each constraint
-      negative_trait_types : ArrayList(Self),
+      negative_trait_types : ArrayList(Rc(Self)),
       // negative trait constraints
       negative_trait_levels : ArrayList(usize),
       // frame-level of each negative constraint
       // When present, this SomeT represents a higher-kinded type variable
       // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
       // captures the kind so `F(A)` can be evaluated as a TypeApplication.
-      kind_function_type : Option(Self),
+      kind_function_type : Option(Rc(Self)),
       // The concrete type this SomeType stands for, when it is known where the
       // SomeT is built: an opaque `Impl(...)` return's hidden type, a closure
       // wrapper's capture struct, a call's per-call resolution
@@ -329,36 +328,36 @@ TypeValue :: ref(
       // compatibility identity except where they hop to it explicitly; the
       // intern key renders it, so two SomeTs that differ only here stay two
       // instances.
-      resolution : Option(Self)
+      resolution : Option(Rc(Self))
     ),
     // Phase 2f: advanced type variants ----------------------------------------
     /// The Yo `Expr` type (a quoted expression node).
     ExprT,
     /// A compile-time homogeneous list. `child` is the element type.
-    ComptimeListT(child : Self),
+    ComptimeListT(child : Rc(Self)),
     /// Application of a generic type constructor to arguments.
     /// `constructor` is always a `SomeT` (the type-constructor variable).
     TypeAppT(
-      constructor : Self,
-      args : ArrayList(Self)
+      constructor : Rc(Self),
+      args : ArrayList(Rc(Self))
     ),
     /// Iso-wrapped type (linear / unique reference).
-    IsoT(child : Self),
+    IsoT(child : Rc(Self)),
     /// Dynamic-dispatch type with trait bounds.
     DynT(
-      required_trait_types : ArrayList(Self),
+      required_trait_types : ArrayList(Rc(Self)),
       required_trait_levels : ArrayList(usize),
-      negative_trait_types : ArrayList(Self),
+      negative_trait_types : ArrayList(Rc(Self)),
       negative_trait_levels : ArrayList(usize)
     ),
     /// Fn-trait type (Fn / FnMut / FnOnce).
     FnTraitT(
       base_name : String,
       call_param_labels : ArrayList(String),
-      call_param_types : ArrayList(Self),
-      call_result : Self,
+      call_param_types : ArrayList(Rc(Self)),
+      call_result : Rc(Self),
       implicit_labels : ArrayList(String),
-      implicit_types : ArrayList(Self),
+      implicit_types : ArrayList(Rc(Self)),
       /// Per-call-param `inout` flags, parallel to `call_param_labels`. The
       /// call signature is FLATTENED into the variant, and dropping this
       /// flag made a closure typed against
@@ -374,9 +373,9 @@ TypeValue :: ref(
     /// Future-trait type with associated output and effects.
     FutureTraitT(
       base_name : String,
-      output : Self,
+      output : Rc(Self),
       effect_labels : ArrayList(String),
-      effect_types : ArrayList(Self)
+      effect_types : ArrayList(Rc(Self))
     ),
     /// V6 task 3 (FORMAL_VERIFICATION.md §7): `refine(T, p)` — "a `T` that
     /// satisfies `p`". Distinct at the type level (two predicates over the
@@ -392,7 +391,7 @@ TypeValue :: ref(
     /// (`refine#N`) for an argument at a call site. `""` = no predicate
     /// (a pure alias — no obligation).
     RefineT(
-      inner : Self,
+      inner : Rc(Self),
       predicate_func_id : String
     ),
     /// An opaque C type declared by `extern("Yo", X : Type)` or a `c_include`
@@ -409,8 +408,9 @@ TypeValue :: ref(
       name : String,
       c_name : String
     )
-  )
 );
+/// The Yo type universe: a shared, immutable handle to a `TypeValueNode`.
+TypeValue :: Rc(TypeValueNode);
 /// V6 task 3: unwrap ONE refinement wrapper — `refine(T, p)` reads as `T`
 /// for every runtime surface (the erasure rule). Lives HERE (not in
 /// guards.yo) because guards.yo imports creators.yo, whose
@@ -515,4 +515,4 @@ get_struct_field_comptime_flags :: (
 )(
   g_struct_field_comptime_flags.get(struct_id.clone())
 );
-export(TypeValue, FuncMeta, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);
+export(TypeValue, TypeValueNode, FuncMeta, t_refine_inner, register_struct_field_comptime_flags, get_struct_field_comptime_flags);

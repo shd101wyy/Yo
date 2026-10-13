@@ -12,11 +12,11 @@
 // Primitive types → TypeUni(0)
 // ---------------------------------------------------------------------------
 test("Unit → TypeUni(0)", {
-  result := type_of_type(TypeValue.Unit);
+  result := type_of_type(rc(TypeValueNode.Unit));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "Unit should be TypeUni(0)");
 });
 test("BoolT → TypeUni(0)", {
-  result := type_of_type(TypeValue.BoolT);
+  result := type_of_type(rc(TypeValueNode.BoolT));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "BoolT should be TypeUni(0)");
 });
 test("i32 → TypeUni(0)", {
@@ -24,72 +24,72 @@ test("i32 → TypeUni(0)", {
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "i32 should be TypeUni(0)");
 });
 test("Usize → TypeUni(0)", {
-  result := type_of_type(TypeValue.Usize);
+  result := type_of_type(rc(TypeValueNode.Usize));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "Usize should be TypeUni(0)");
 });
 test("ComptimeInt → TypeUni(0)", {
-  result := type_of_type(TypeValue.ComptimeInt);
+  result := type_of_type(rc(TypeValueNode.ComptimeInt));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "ComptimeInt should be TypeUni(0)");
 });
 test("Void → TypeUni(0)", {
-  result := type_of_type(TypeValue.Void);
+  result := type_of_type(rc(TypeValueNode.Void));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "Void should be TypeUni(0)");
 });
 // ---------------------------------------------------------------------------
 // TypeUni(n) → TypeUni(n+1)
 // ---------------------------------------------------------------------------
 test("TypeUni(0) → TypeUni(1)", {
-  result := type_of_type(TypeValue.TypeUni(usize(0)));
+  result := type_of_type(rc(TypeValueNode.TypeUni(usize(0))));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(1)), _ => false), "TypeUni(0) should give TypeUni(1)");
 });
 test("TypeUni(1) → TypeUni(2)", {
-  result := type_of_type(TypeValue.TypeUni(usize(1)));
+  result := type_of_type(rc(TypeValueNode.TypeUni(usize(1))));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(2)), _ => false), "TypeUni(1) should give TypeUni(2)");
 });
 test("TypeUni(2) → TypeUni(3)", {
-  result := type_of_type(TypeValue.TypeUni(usize(2)));
+  result := type_of_type(rc(TypeValueNode.TypeUni(usize(2))));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(3)), _ => false), "TypeUni(2) should give TypeUni(3)");
 });
 // ---------------------------------------------------------------------------
 // Compound types
 // ---------------------------------------------------------------------------
 test("Pointer → TypeUni(0)", {
-  result := type_of_type(TypeValue.Pointer(TypeValue.Unit));
+  result := type_of_type(rc(TypeValueNode.Pointer(rc(TypeValueNode.Unit))));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "Pointer should be TypeUni(0)");
 });
 test("str → TypeUni(0)", {
-  result := type_of_type(TypeValue.Str);
+  result := type_of_type(rc(TypeValueNode.Str));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "str should be TypeUni(0)");
 });
 test("Array of i32 → TypeUni(0)", {
-  result := type_of_type(TypeValue.Array(t_i32(), usize(4), String.from("")));
+  result := type_of_type(rc(TypeValueNode.Array(t_i32(), usize(4), String.from(""))));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "Array(i32) should be TypeUni(0)");
 });
 test("Array of TypeUni(0) → TypeUni(1)", {
-  result := type_of_type(TypeValue.Array(TypeValue.TypeUni(usize(0)), usize(4), String.from("")));
+  result := type_of_type(rc(TypeValueNode.Array(rc(TypeValueNode.TypeUni(usize(0))), usize(4), String.from(""))));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(1)), _ => false), "Array(TypeUni(0)) should give TypeUni(1)");
 });
 // ---------------------------------------------------------------------------
 // Tuple
 // ---------------------------------------------------------------------------
 test("empty Tuple → TypeUni(0)", {
-  result := type_of_type(TypeValue.Tuple(ArrayList(String).new(), ArrayList(TypeValue).new()));
+  result := type_of_type(rc(TypeValueNode.Tuple(ArrayList(String).new(), ArrayList(TypeValue).new())));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "empty Tuple should be TypeUni(0)");
 });
 test("Tuple of primitives → TypeUni(0)", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
-  types.push(TypeValue.BoolT);
-  result := type_of_type(TypeValue.Tuple(labels, types));
+  types.push(rc(TypeValueNode.BoolT));
+  result := type_of_type(rc(TypeValueNode.Tuple(labels, types)));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "Tuple of primitives should be TypeUni(0)");
 });
 test("Tuple containing TypeUni(0) → TypeUni(1)", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  types.push(TypeValue.TypeUni(usize(0)));
+  types.push(rc(TypeValueNode.TypeUni(usize(0))));
   types.push(t_i32());
-  result := type_of_type(TypeValue.Tuple(labels, types));
+  result := type_of_type(rc(TypeValueNode.Tuple(labels, types)));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(1)), _ => false), "Tuple with TypeUni(0) field should give TypeUni(1)");
 });
 // ---------------------------------------------------------------------------
@@ -101,16 +101,16 @@ test("Struct with primitive fields → TypeUni(0)", {
   labels.push(String.from("y"));
   types := ArrayList(TypeValue).new();
   types.push(t_i32());
-  types.push(TypeValue.BoolT);
-  result := type_of_type(TypeValue.Struct(id : String.from(""), name : String.from("Point"), field_labels : labels, field_types : types, is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false));
+  types.push(rc(TypeValueNode.BoolT));
+  result := type_of_type(rc(TypeValueNode.Struct(id : String.from(""), name : String.from("Point"), field_labels : labels, field_types : types, is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false)));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "Struct with primitive fields → TypeUni(0)");
 });
 test("Struct with TypeUni(0) field → TypeUni(1)", {
   labels := ArrayList(String).new();
   labels.push(String.from("ty"));
   types := ArrayList(TypeValue).new();
-  types.push(TypeValue.TypeUni(usize(0)));
-  result := type_of_type(TypeValue.Struct(id : String.from(""), name : String.from("TypeBox"), field_labels : labels, field_types : types, is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false));
+  types.push(rc(TypeValueNode.TypeUni(usize(0))));
+  result := type_of_type(rc(TypeValueNode.Struct(id : String.from(""), name : String.from("TypeBox"), field_labels : labels, field_types : types, is_reference_semantics : false, is_atomic_rc : false, is_newtype : false, constructor_func_id : String.from(""), type_arguments : ArrayList(TypeValue).new(), is_source_namespace : false)));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(1)), _ => false), "Struct with TypeUni(0) field → TypeUni(1)");
 });
 // ---------------------------------------------------------------------------
@@ -126,7 +126,7 @@ test("EnumT with primitive variants → TypeUni(0)", {
   vfields := ArrayList(ArrayList(TypeValue)).new();
   vfields.push(none_fields);
   vfields.push(some_fields);
-  result := type_of_type(TypeValue.EnumT(String.from(""), String.from("Option"), vnames, vfields, Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new(), false, false, ArrayList(TypeValue).new()));
+  result := type_of_type(rc(TypeValueNode.EnumT(String.from(""), String.from("Option"), vnames, vfields, Option(String).None, ArrayList(ArrayList(String)).new(), ArrayList(i64).new(), false, false, ArrayList(TypeValue).new())));
   assert(match(result, .TypeUni(lvl) => (lvl == usize(0)), _ => false), "EnumT with i32 variant → TypeUni(0)");
 });
 // ---------------------------------------------------------------------------
@@ -134,7 +134,7 @@ test("EnumT with primitive variants → TypeUni(0)", {
 // ---------------------------------------------------------------------------
 test("TraitT → TypeUni(1)", {
   result := type_of_type(
-    TypeValue.TraitT(
+    rc(TypeValueNode.TraitT(
       String.from("Clone"),
       ArrayList(String).new(),
       ArrayList(String).new(),
@@ -145,7 +145,7 @@ test("TraitT → TypeUni(1)", {
       ArrayList(TypeValue).new(),
       ArrayList(String).new(),
       ArrayList(TypeValue).new()
-    )
+    ))
   );
   assert(match(result, .TypeUni(lvl) => (lvl == usize(1)), _ => false), "TraitT should be TypeUni(1)");
 });
@@ -153,7 +153,7 @@ test("source-namespace Struct (module) → TypeUni(1)", {
   // Modules ARE structs with the source-namespace marker (TS has no
   // separate module type) — they always live one universe up.
   result := type_of_type(
-    TypeValue.Struct(
+    rc(TypeValueNode.Struct(
       id : String.from(""),
       name : String.from("std/fmt"),
       field_labels : ArrayList(String).new(),
@@ -164,7 +164,7 @@ test("source-namespace Struct (module) → TypeUni(1)", {
       constructor_func_id : String.from(""),
       type_arguments : ArrayList(TypeValue).new(),
       is_source_namespace : true
-    )
+    ))
   );
   assert(match(result, .TypeUni(lvl) => (lvl == usize(1)), _ => false), "module struct should be TypeUni(1)");
 });

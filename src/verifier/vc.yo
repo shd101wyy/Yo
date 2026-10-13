@@ -2070,7 +2070,7 @@ _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
               sb.write_byte(u8(0x28));
               (fi : usize) = usize(0);
               while(fi < vfs.len(), {
-                fty := match(vfs.get(fi), .Some(x) => x, .None => TypeValue.Unit);
+                fty := match(vfs.get(fi), .Some(x) => x, .None => rc(TypeValueNode.Unit));
                 flabel := match(
                   vls.get(fi),
                   .Some(fl) => fl.clone(),
@@ -2326,7 +2326,7 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
   // The scrutinee's TYPE names the datatype's CONSTRUCTORS and ACCESSORS
   // (SMT-unique across enums): every Test/Proj the walk builds must use
   // the same spellings the declare-datatypes block declares.
-  e_ty := match(scrut_info, .Some(si) => si.ty, .None => TypeValue.Unit);
+  e_ty := match(scrut_info, .Some(si) => si.ty, .None => rc(TypeValueNode.Unit));
   match(
     scrut,
     .Some(s) => {

@@ -284,7 +284,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
   field_name := ast_expr_token(&field_expr).value;
   object_code := _call_generate_expr(&object_expr, indent.clone(), context);
   obj_ei_opt := context.base.get_expr_info(&object_expr);
-  object_type := match(obj_ei_opt, .Some(oei) => oei.ty, .None => TypeValue.Unit);
+  object_type := match(obj_ei_opt, .Some(oei) => oei.ty, .None => rc(TypeValueNode.Unit));
   object_value := match(obj_ei_opt, .Some(oei) => oei.value, .None => Option(EvalValue).None);
   // Dyn method access takes PRIORITY over static method resolution: even when
   // the evaluator resolved `obj.method` to a concrete impl FuncVal, a dyn
