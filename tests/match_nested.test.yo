@@ -325,3 +325,59 @@ test("a wrapper pattern must name the cell at its position", {
     bad3(Tree.Leaf(1))
   }, "not exhaustive");
 });
+// Decision 31, Generation B: an `Rc(T)` position is never looked through
+// implicitly, and a missing case is printed through the wrapper.
+test("a structural pattern at an Rc position must spell Rc(p)", {
+  comptime_expect_error({
+    bad4 :: (fn(t : &Tree) -> i32)(
+      match(
+        t,
+        .Node(.Leaf(a), _) => a,
+        _ => i32(0)
+      )
+    );
+    bad4(Tree.Leaf(1))
+  }, "a pattern does not look through a cell implicitly");
+  comptime_expect_error({
+    bad5 :: (fn(b : &Rc(Tree)) -> i32)(
+      match(
+        b,
+        .Leaf(n) => n,
+        _ => i32(0)
+      )
+    );
+    bad5(rc(Tree.Leaf(1)))
+  }, "a pattern does not look through a cell implicitly");
+  comptime_expect_error({
+    Cell3 :: enum(Value(v : Rc(i32)), Empty);
+    bad6 :: (fn(c : &Cell3) -> i32)(
+      match(
+        c,
+        .Value(42) => i32(1),
+        _ => i32(0)
+      )
+    );
+    bad6(Cell3.Empty)
+  }, "a pattern does not look through a cell implicitly");
+});
+test("a missing case is printed through the Rc wrapper", {
+  comptime_expect_error({
+    bad7 :: (fn(t : &Tree) -> i32)(
+      match(
+        t,
+        .Node(Rc(.Leaf(_)), _) => i32(1),
+        .Leaf(_) => i32(0)
+      )
+    );
+    bad7(Tree.Leaf(1))
+  }, "Missing case: .Node(Rc(.Node(_, _)), _)");
+  comptime_expect_error({
+    bad8 :: (fn(b : &Rc(Tree)) -> i32)(
+      match(
+        b,
+        Rc(.Node(_, _)) => i32(1)
+      )
+    );
+    bad8(rc(Tree.Leaf(1)))
+  }, "Missing case: Rc(.Leaf(_))");
+});

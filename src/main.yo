@@ -139,7 +139,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites } :: import("./expr_info.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -2500,6 +2500,195 @@ _run_migrate_markers :: (
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated arguments were not migrated`));
   });
 });
+/// `yo fix <path> --migrate rc-pattern` — decision 31, Generation B
+/// (plans/VALUES_BY_DEFAULT.md): a pattern at an `Rc(T)` position spells the
+/// wrapper it crosses, `Rc(p)`. Semantic, not syntactic: only the evaluator
+/// knows a position's type. Every file is evaluated with the recorder on
+/// (`record_rc_pattern_site`): the implicit look-through, which is otherwise
+/// an error, records the pattern and looks through. Each recorded pattern is
+/// found in the source from its leftmost token (it may span lines; a
+/// parenthesized infix pattern starts at its `(`) and wrapped in `Rc(…)`. A
+/// site whose source text no longer prints as the evaluated pattern (a
+/// synthetic token, a macro expansion) is listed and left as written. Nested
+/// sites compose, because each edit is two insertions. Code that evaluation
+/// never reaches (an uninstantiated generic body) is not seen.
+_run_migrate_rc_pattern :: (
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
+)({
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    if(!outcome.ok, {
+      _drop := _take_load_error();
+      _drop_diags := take_error_diagnostics();
+      failed = (failed + usize(1));
+      println(`fix: ${file} does not evaluate; its patterns are migrated only as far as evaluation reached`);
+    });
+  });
+  set_migrate_rc_pattern(false);
+  sites := take_rc_pattern_sites();
+  site_paths := ArrayList(String).new();
+  (spi : usize) = usize(0);
+  while(spi < sites.len(), spi = (spi + usize(1)), {
+    site_paths.push(canonical_module_path(sites(spi).path.clone()));
+  });
+  (n_wrapped : usize) = usize(0);
+  (n_skipped : usize) = usize(0);
+  (ti : usize) = usize(0);
+  while(ti < files.len(), ti = (ti + usize(1)), {
+    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    canon := canonical_module_path(file.clone());
+    // One position can be recorded under both spellings of its module path
+    // and by several evaluations: keep one per position.
+    mine := ArrayList(RcPatternSite).new();
+    seen := HashSet(String).new();
+    (si : usize) = usize(0);
+    while(si < sites.len(), si = (si + usize(1)), {
+      if(site_paths(si) == canon, {
+        st := sites(si);
+        if(seen.insert(`${st.row.to_string()}:${st.col.to_string()}`), {
+          mine.push(st);
+        });
+      });
+    });
+    if(mine.len() == usize(0), {
+      continue;
+    });
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    // The whole file as runes, with each line's first rune index: a pattern
+    // may span lines.
+    runes := ArrayList(rune).new();
+    line_starts := ArrayList(usize).new();
+    line_starts.push(usize(0));
+    sit := src.chars();
+    (sgo : bool) = true;
+    while(sgo, {
+      match(
+        sit.next(),
+        .Some(r) => {
+          runes.push(r);
+          if(r.char == u32(0x0A), {
+            line_starts.push(runes.len());
+          });
+        },
+        .None => {
+          sgo = false;
+        }
+      );
+    });
+    // Insertions as (rune index, `Rc(` or `)`).
+    at_idx := ArrayList(usize).new();
+    at_open := ArrayList(bool).new();
+    (mi : usize) = usize(0);
+    while(mi < mine.len(), mi = (mi + usize(1)), {
+      st := mine(mi);
+      at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      start_opt := match(line_starts.get(st.row), .Some(ls) => Option(usize).Some(ls + st.col), .None => Option(usize).None);
+      (span_s : usize) = usize(0);
+      (span_e : Option(usize)) = Option(usize).None;
+      match(
+        start_opt,
+        .Some(start) => if(start < runes.len(), {
+          // A parenthesized pattern (`(a | b)`): its leftmost token is the
+          // first operand, after a grouping `(` (one no callee precedes), so
+          // the span starts at that `(` and the wrapper goes outside it.
+          (b : usize) = start;
+          while((b > usize(0)) && runes(b - usize(1)).is_whitespace(), b = (b - usize(1)), ());
+          (grouping : bool) = ((b > usize(0)) && (runes(b - usize(1)).char == u32(0x28)));
+          if(grouping && (b > usize(1)), {
+            before := runes(b - usize(2));
+            grouping = !(_is_word_rune(before) || (before.char == u32(0x29)) || (before.char == u32(0x5D)));
+          });
+          if(grouping, {
+            lp := (b - usize(1));
+            match(
+              _expr_span_end(&runes, lp, lp, &st.expect, &file),
+              .Some(end_p) => {
+                span_s = lp;
+                span_e = .Some(end_p);
+              },
+              .None => ()
+            );
+          });
+          if(span_e.is_none(), {
+            match(
+              _expr_span_end(&runes, start, start, &st.expect, &file),
+              .Some(end) => {
+                span_s = start;
+                span_e = .Some(end);
+              },
+              .None => ()
+            );
+          });
+        }),
+        .None => ()
+      );
+      match(
+        span_e,
+        .Some(e0) => {
+          n_wrapped = (n_wrapped + usize(1));
+          at_idx.push(span_s);
+          at_open.push(true);
+          at_idx.push(e0);
+          at_open.push(false);
+        },
+        .None => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: the source text does not print as \`${st.expect}\`; left as written`);
+        }
+      );
+    });
+    if(dry_run || (at_idx.len() == usize(0)), {
+      continue;
+    });
+    // Order the insertions by ascending index; at one index the order does
+    // not matter (an `Rc(` never shares an index with a `)`).
+    (n : usize) = at_idx.len();
+    (oi : usize) = usize(0);
+    while(oi < n, oi = (oi + usize(1)), {
+      (best : usize) = oi;
+      (bi : usize) = (oi + usize(1));
+      while(bi < n, bi = (bi + usize(1)), {
+        if(at_idx(bi) < at_idx(best), {
+          best = bi;
+        });
+      });
+      if(best != oi, {
+        ti_a := at_idx(oi);
+        at_idx(oi) = at_idx(best);
+        at_idx(best) = ti_a;
+        to_a := at_open(oi);
+        at_open(oi) = at_open(best);
+        at_open(best) = to_a;
+      });
+    });
+    // Walk forward, emitting each insertion before the rune at its index.
+    out := String.new();
+    (nx : usize) = usize(0);
+    (k : usize) = usize(0);
+    while(k <= runes.len(), k = (k + usize(1)), {
+      while((nx < n) && (at_idx(nx) == k), nx = (nx + usize(1)), {
+        out.push_str(if(at_open(nx), "Rc(", ")"));
+      });
+      if(k < runes.len(), {
+        out.push_rune(runes(k));
+      });
+    });
+    io.await(write_string(Path.new(file.clone()), out, io), IoExn(io : io, exn : exn));
+    fmt_argv := ArrayList(String).new();
+    fmt_argv.push(String.from("yo"));
+    fmt_argv.push(String.from("fmt"));
+    fmt_argv.push(file.clone());
+    run_fmt(&fmt_argv, io, exn);
+  });
+  verb := if(dry_run, String.from("would wrap"), String.from("wrapped"));
+  println(`fix: ${verb} ${n_wrapped.to_string()} pattern(s) in Rc(…); ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated patterns were not migrated`));
+  });
+});
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
 /// already computed (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 ///
@@ -2517,7 +2706,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -2542,8 +2731,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers or drop-trait`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait or rc-pattern`));
         });
         migrate = argv(next_m);
         ai = (ai + usize(2));
@@ -2558,7 +2747,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -2639,6 +2828,9 @@ run_fix :: (
   if(migrate == "markers", {
     set_migrate_markers(true);
   });
+  if(migrate == "rc-pattern", {
+    set_migrate_rc_pattern(true);
+  });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
   // env: the reload then failed before reaching the target file, so the only
@@ -2662,6 +2854,10 @@ run_fix :: (
   });
   if(migrate == "markers", {
     _run_migrate_markers(&files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "rc-pattern", {
+    _run_migrate_rc_pattern(&files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -10511,8 +10707,10 @@ Options:
                             (own -> sink), addr-of (an address-of &x ->
                             addr_of(x)), params, markers (&x / &mut x
                             on a named place passed to a &T / &mut T
-                            parameter), or drop-trait (Dispose -> Drop,
-                            dispose -> drop, x.dispose() -> drop(x))
+                            parameter), drop-trait (Dispose -> Drop,
+                            dispose -> drop, x.dispose() -> drop(x)), or
+                            rc-pattern (a pattern at an Rc(T) position
+                            p -> Rc(p))
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -10537,8 +10735,9 @@ Examples:
                             y := &mut p 等）、modes（own -> sink）、
                             addr-of（取址的 &x -> addr_of(x)）、params、
                             markers（传给 &T / &mut T 形参的具名位置
-                            加上 &x / &mut x），或 drop-trait（Dispose ->
-                            Drop、dispose -> drop、x.dispose() -> drop(x)）
+                            加上 &x / &mut x）、drop-trait（Dispose ->
+                            Drop、dispose -> drop、x.dispose() -> drop(x)），
+                            或 rc-pattern（Rc(T) 位置上的模式 p -> Rc(p)）
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录

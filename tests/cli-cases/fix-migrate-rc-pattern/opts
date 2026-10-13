@@ -1,0 +1,10 @@
+# `yo fix <path> --migrate rc-pattern` (plans/VALUES_BY_DEFAULT.md decision
+# 31, Generation B) wraps every structural pattern at an `Rc(T)` position in
+# `Rc(…)`: a nested variant child, one nested inside another (both wrap), a
+# multi-line pattern, a parenthesized or-pattern, a literal through
+# `Rc(i32)`, the payload of `(c := p)`, and a pattern at an `Rc` scrutinee.
+# A binding and `_` at an `Rc` position bind or ignore the cell and stay. The
+# expected_tree pins the rewritten main.yo, and the trailing `check` proves
+# no implicit look-through is left.
+stdout_keep=^fix:
+timeout=240
