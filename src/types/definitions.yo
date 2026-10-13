@@ -111,303 +111,303 @@ derive(FuncMeta, Clone);
 /// `rc(TypeValueNode.X(...))`; a `match` on a `TypeValue` looks through the
 /// handle, so arms name the variants directly.
 TypeValueNode :: enum(
-    // Primitive value types ---------------------------------------------------
-    Unit,
-    BoolT,
-    Void,
-    /// `never` — the bottom type: the type of an expression that does not
-    /// complete (`__yo_panic`, a call to a `-> never` function such as
-    /// `std/assert`'s `panic` or `std/process`'s `exit`). It flows into every
-    /// type and is the identity of a `cond`/`match` arm join, so a diverging
-    /// arm does not constrain the result (plans/TYPE_SYSTEM_SOUNDNESS.md
-    /// Phase 3.6). No value of it exists; C lowers it to `void`.
-    Never,
-    /// `str` — builtin immutable fat-pointer view of STATIC string bytes.
-    /// C lowering:
-    /// `typedef struct { const uint8_t* ptr; size_t len; } __yo_str;`
-    Str,
-    /// Fixed-width integer. `bits` ∈ {8, 16, 32, 64}; `signed` distinguishes
-    /// `iN` vs `uN`.
-    Int(bits : u8, signed : bool),
-    /// Floating-point. `bits` ∈ {32, 64}.
-    Float(bits : u8),
-    /// Pointer-sized unsigned integer.
-    Usize,
-    /// Pointer-sized signed integer.
-    Isize,
-    // Compile-time numeric / string types -------------------------------------
-    ComptimeInt,
-    ComptimeFloat,
-    ComptimeString,
-    // C-compatible types (platform-dependent width) ---------------------------
-    CChar,
-    CShort,
-    CUShort,
-    CInt,
-    CUInt,
-    CLong,
-    CULong,
-    CLongLong,
-    CULongLong,
-    CLongDouble,
-    // Type universes ---------------------------------------------------------
-    /// `Type`, `Type(1)`, `Type(2)`, …  `level` ∈ {0,1,2,…}.
-    TypeUni(level : usize),
-    // Compound types ---------------------------------------------------------
-    Pointer(pointee : Rc(Self)),
-    /// `length_var` carries the VALUE-ness of the declared length:
-    /// "" = `length` is the concrete element count; non-empty = the length is
-    /// an unresolved generic VARIABLE of that name (e.g. the `U` in
-    /// `impl(generic(T : Type, U : usize), Array(T, U), ...)`) and `length`
-    /// is a meaningless placeholder; the variable is bound during synthesis.
-    Array(element : Rc(Self), length : usize, length_var : String),
-    /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
-    /// field (empty `String` means positional). `field_types(i)` is the type.
-    Tuple(field_labels : ArrayList(String), field_types : ArrayList(Rc(Self))),
-    /// Function type. Phase 2b: generic type-vars, implicit (using) params,
-    /// and where-clause constraint types.
-    /// Self-typed (recursive) fields stay inline; the non-recursive metadata
-    /// (labels, ref/own/variadic/extern/control flags) lives in `meta`
-    /// (`Rc(FuncMeta)`) so this variant no longer sets `sizeof(TypeValue)` to
-    /// ~150 B. `forall_types`/`param_types`/`implicit_types`/`where_types` are
-    /// parallel to the label arrays in `meta`; `result` is the return type.
-    Func(
-      forall_types : ArrayList(Rc(Self)),
-      param_types : ArrayList(Rc(Self)),
-      implicit_types : ArrayList(Rc(Self)),
-      where_types : ArrayList(Rc(Self)),
-      result : Rc(Self),
-      meta : Rc(FuncMeta),
-      /// The variadic parameter's TYPE (0 or 1 elements — the ArrayList is a
-      /// poor man's Option(Self) since Self-typed Options are unavailable in
-      /// a variant position).
-      /// the label/comptime flags live in `FuncMeta.variadic_label` /
-      /// `variadic_comptime` (FuncMeta cannot reference TypeValue).
-      variadic_types : ArrayList(Rc(Self))
-    ),
-    // Named user-defined types ------------------------------------------------
-    /// `id` uniquely identifies this struct definition.
-    /// Set to `""` for types reconstructed
-    /// from runtime values via `type_of_eval_value`.
-    /// `is_reference_semantics` = true for `object(...)`, false for `struct(...)`.
-    /// `is_atomic_rc` = true for `atomic object(...)`.
-    /// `is_newtype` = true for `newtype(...)`.
-    /// `constructor_func_id` is the func id of the comptime
-    /// type-constructor that produced this type (set at the comptime-fn call
-    /// site, `evaluator/calls/comptime_fn.yo`). The synthesizer uses
-    /// it to unify two instantiations of the SAME generic constructor
-    /// (`evaluator/types/synthesizer.yo` compares constructor ids).
-    /// `""` = unknown origin.
-    /// Only the id is stored, not the whole function value, because
-    /// `TypeValue` (this module) cannot import `EvalValue` (`value.yo`) without
-    /// a cycle — and the id is the only part the synthesizer reads.
-    Struct(
-      id : String,
-      name : String,
-      field_labels : ArrayList(String),
-      field_types : ArrayList(Rc(Self)),
-      is_reference_semantics : bool,
-      is_atomic_rc : bool,
-      is_newtype : bool,
-      constructor_func_id : String,
-      /// Concrete type arguments of a generic instantiation, in constructor-
-      /// parameter order (`HashMap(String, String)` → `[String, String]`). Empty
-      /// for non-generic or not-yet-instantiated structs. Stands in for a
-      /// carried instantiation env: a method dispatched
-      /// on this struct binds its `generic` params positionally from here. See
-      /// plans/archive/STRUCT_TYPE_ARGUMENTS.md.
-      type_arguments : ArrayList(Rc(Self)),
-      /// True for source-namespace structs — anonymous modules (`impl({...})`,
-      /// extern blocks) and imported modules. There is NO separate module type;
-      /// modules ARE structs with this marker. See
-      /// plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
-      is_source_namespace : bool
-    ),
-    /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
-    /// Each variant has a name and an `ArrayList` of field types (possibly empty).
-    /// `selected_variant_name` is set when the type has been narrowed to a specific
-    /// variant (e.g. after pattern matching or destructuring).
-    ///
-    /// `variant_field_labels` holds the per-variant label names in declaration
-    /// order — used by labeled destructuring and match (Phase 2ae+).
-    /// `id` uniquely identifies this enum definition.
-    /// `variant_discriminants` holds one discriminant value per variant (in order).
-    ///
-    /// `is_reference_semantics` = true for `ref(enum(...))`, false for `enum(...)`.
-    /// `is_atomic_rc` = true for `atomic(ref(enum(...)))`.
-    /// plans/reference/REF_REFERENCE_SEMANTICS.md Phase 3.
-    EnumT(
-      id : String,
-      name : String,
-      variant_names : ArrayList(String),
-      variant_fields : ArrayList(ArrayList(Rc(Self))),
-      selected_variant_name : Option(String),
-      variant_field_labels : ArrayList(ArrayList(String)),
-      variant_discriminants : ArrayList(i64),
-      is_reference_semantics : bool,
-      is_atomic_rc : bool,
-      /// Type arguments of the generic constructor call that minted this
-      /// instantiation, in constructor-parameter order (`P(i32)` -> `[i32]`;
-      /// a non-type argument records `Unit`). The enum twin of
-      /// `Struct.type_arguments`, stamped at the comptime-fn call site
-      /// (`evaluator/calls/comptime_fn.yo`). `substitute` rewrites an argument
-      /// that is a type variable, so a phantom `Tag(K)` at `K := i32` reports
-      /// `[i32]`; a compound argument (`*(T)`) keeps its definition-era
-      /// spelling, and the payloads are what say `*(u8)`. Empty for a
-      /// non-generic enum or a copy that predates the stamp. Without it, two
-      /// instantiations whose payloads do not mention a parameter (a phantom
-      /// index, a GADT index only `-> recur(...)` names) are structurally
-      /// identical
-      /// (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
-      type_arguments : ArrayList(Rc(Self))
-    ),
-    Union(
-      name : String,
-      field_labels : ArrayList(String),
-      field_types : ArrayList(Rc(Self))
-    ),
-    // Traits / modules --------------------------------------------------------
-    /// Named trait type. Phase 2b: associated type names and method/field list.
-    /// Phase 2aq: `id` for unique identity, `is_concrete` for `Concrete(T)` marker.
-    /// Phase 2az: `self_constraints` and `neg_self_constraints` for
-    /// where-clause / negative where-clause constraints on Self.
-    TraitT(
-      name : String,
-      assoc_type_names : ArrayList(String),
-      // names of associated type members
-      field_labels : ArrayList(String),
-      // method / field names
-      field_types : ArrayList(Rc(Self)),
-      // method / field types
-      id : String,
-      // unique identity string
-      is_concrete : Option(Rc(Self)),
-      // Some(T) when this is `Concrete(T)`
-      self_constraints : ArrayList(Rc(Self)),
-      // where-clause constraints on Self
-      neg_self_constraints : ArrayList(Rc(Self)),
-      // negative where-clause constraints on Self
-      assoc_constraint_labels : ArrayList(String),
-      // labels of `Item := X` associated-type constraints
-      assoc_constraint_types : ArrayList(Rc(Self)) // constraint types
-    ),
-    // Generic / unresolved ----------------------------------------------------
-    /// A `SomeType` introduced by `generic` or by a yet-to-be-resolved generic
-    /// parameter. `frame_level` is the env frame at which it was introduced.
-    /// Phase 2b: required and negative trait constraint lists.
-    /// Phase 2d: `id` for unique identity.
-    /// Phase 2e: `parent_type` — the meta-type of this type variable (usually TypeUni(0)).
-    SomeT(
-      id : String,
-      // unique identity string
-      name : String,
-      frame_level : usize,
-      parent_type : Rc(Self),
-      // meta-type (TypeUni(0) by default)
-      required_trait_types : ArrayList(Rc(Self)),
-      // required trait constraints
-      required_trait_levels : ArrayList(usize),
-      // frame-level of each constraint
-      negative_trait_types : ArrayList(Rc(Self)),
-      // negative trait constraints
-      negative_trait_levels : ArrayList(usize),
-      // frame-level of each negative constraint
-      // When present, this SomeT represents a higher-kinded type variable
-      // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
-      // captures the kind so `F(A)` can be evaluated as a TypeApplication.
-      kind_function_type : Option(Rc(Self)),
-      // The concrete type this SomeType stands for, when it is known where the
-      // SomeT is built: an opaque `Impl(...)` return's hidden type, a closure
-      // wrapper's capture struct, a call's per-call resolution
-      // (`_with_resolved_concrete`). An immutable VALUE: a copy carries it,
-      // and nothing writes it after construction, so two SomeTs never share a
-      // resolution they could change under each other (plans/
-      // TYPE_SYSTEM_SOUNDNESS.md Phase 3.7; until then this was a one-element
-      // ArrayList used as a shared mutable cell). A resolution learned later
-      // builds a new SomeT carrying it. EXCLUDED from type_key and
-      // compatibility identity except where they hop to it explicitly; the
-      // intern key renders it, so two SomeTs that differ only here stay two
-      // instances.
-      resolution : Option(Rc(Self))
-    ),
-    // Phase 2f: advanced type variants ----------------------------------------
-    /// The Yo `Expr` type (a quoted expression node).
-    ExprT,
-    /// A compile-time homogeneous list. `child` is the element type.
-    ComptimeListT(child : Rc(Self)),
-    /// Application of a generic type constructor to arguments.
-    /// `constructor` is always a `SomeT` (the type-constructor variable).
-    TypeAppT(
-      constructor : Rc(Self),
-      args : ArrayList(Rc(Self))
-    ),
-    /// Iso-wrapped type (linear / unique reference).
-    IsoT(child : Rc(Self)),
-    /// Dynamic-dispatch type with trait bounds.
-    DynT(
-      required_trait_types : ArrayList(Rc(Self)),
-      required_trait_levels : ArrayList(usize),
-      negative_trait_types : ArrayList(Rc(Self)),
-      negative_trait_levels : ArrayList(usize)
-    ),
-    /// Fn-trait type (Fn / FnMut / FnOnce).
-    FnTraitT(
-      base_name : String,
-      call_param_labels : ArrayList(String),
-      call_param_types : ArrayList(Rc(Self)),
-      call_result : Rc(Self),
-      implicit_labels : ArrayList(String),
-      implicit_types : ArrayList(Rc(Self)),
-      /// Per-call-param `inout` flags, parallel to `call_param_labels`. The
-      /// call signature is FLATTENED into the variant, and dropping this
-      /// flag made a closure typed against
-      /// `Impl(Fn(v : &mut T) -> R)` bind `v` BY VALUE (the sync/mutex
-      /// `with_lock` write-through failure). Empty = all by-value.
-      call_param_is_ref : ArrayList(bool),
-      /// Per-call-param BY-VALUE flags (V3b's flip, decision 30): a plain
-      /// `Fn(x : T)` parameter is by value, `Fn(x : &T)` borrows, like a
-      /// `fn` type's `param_is_owning`. Empty = none by value (a closure type
-      /// synthesized without a written `Fn(...)`).
-      call_param_is_owning : ArrayList(bool)
-    ),
-    /// Future-trait type with associated output and effects.
-    FutureTraitT(
-      base_name : String,
-      output : Rc(Self),
-      effect_labels : ArrayList(String),
-      effect_types : ArrayList(Rc(Self))
-    ),
-    /// V6 task 3 (FORMAL_VERIFICATION.md §7): `refine(T, p)` — "a `T` that
-    /// satisfies `p`". Distinct at the type level (two predicates over the
-    /// same `T` are different types), ERASED to `T` at every runtime
-    /// surface: the guard predicates and `type_value_tag` unwrap to
-    /// `inner`, variable bindings store `inner` (env.yo), and codegen
-    /// therefore emits `T`'s representation unchanged (zero runtime cost —
-    /// the plan's erasure rule). The predicate is a ghost_fn VALUE carried
-    /// by its `func_id` (TypeValue cannot import EvalValue — the
-    /// `Struct.constructor_func_id` precedent); the verifier resolves the
-    /// body through the ghost-fn def registry (contracts.yo) and discharges
-    /// it: ASSUMED for a refined parameter at the callee entry, PROVED
-    /// (`refine#N`) for an argument at a call site. `""` = no predicate
-    /// (a pure alias — no obligation).
-    RefineT(
-      inner : Rc(Self),
-      predicate_func_id : String
-    ),
-    /// An opaque C type declared by `extern("Yo", X : Type)` or a `c_include`
-    /// `X : Type`: a concrete type whose layout only the C compiler knows. It
-    /// is NOMINAL: two are the same type exactly when they lower to the same
-    /// C spelling (`c_name`, e.g. `struct stat` for `stat_buf :
-    /// c_type("struct stat")`); it is never a type variable and satisfies no
-    /// bound it was not given (plans/reference/TYPE_IDENTITY.md). `name` is
-    /// the Yo label, for diagnostics. It used to be a SomeT recorded in a
-    /// name registry, which made it unify with every `Dyn` and made any SomeT
-    /// that happened to share its name extern
-    /// (issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md).
-    ExternOpaqueT(
-      name : String,
-      c_name : String
-    )
+  // Primitive value types ---------------------------------------------------
+  Unit,
+  BoolT,
+  Void,
+  /// `never` — the bottom type: the type of an expression that does not
+  /// complete (`__yo_panic`, a call to a `-> never` function such as
+  /// `std/assert`'s `panic` or `std/process`'s `exit`). It flows into every
+  /// type and is the identity of a `cond`/`match` arm join, so a diverging
+  /// arm does not constrain the result (plans/TYPE_SYSTEM_SOUNDNESS.md
+  /// Phase 3.6). No value of it exists; C lowers it to `void`.
+  Never,
+  /// `str` — builtin immutable fat-pointer view of STATIC string bytes.
+  /// C lowering:
+  /// `typedef struct { const uint8_t* ptr; size_t len; } __yo_str;`
+  Str,
+  /// Fixed-width integer. `bits` ∈ {8, 16, 32, 64}; `signed` distinguishes
+  /// `iN` vs `uN`.
+  Int(bits : u8, signed : bool),
+  /// Floating-point. `bits` ∈ {32, 64}.
+  Float(bits : u8),
+  /// Pointer-sized unsigned integer.
+  Usize,
+  /// Pointer-sized signed integer.
+  Isize,
+  // Compile-time numeric / string types -------------------------------------
+  ComptimeInt,
+  ComptimeFloat,
+  ComptimeString,
+  // C-compatible types (platform-dependent width) ---------------------------
+  CChar,
+  CShort,
+  CUShort,
+  CInt,
+  CUInt,
+  CLong,
+  CULong,
+  CLongLong,
+  CULongLong,
+  CLongDouble,
+  // Type universes ---------------------------------------------------------
+  /// `Type`, `Type(1)`, `Type(2)`, …  `level` ∈ {0,1,2,…}.
+  TypeUni(level : usize),
+  // Compound types ---------------------------------------------------------
+  Pointer(pointee : Rc(Self)),
+  /// `length_var` carries the VALUE-ness of the declared length:
+  /// "" = `length` is the concrete element count; non-empty = the length is
+  /// an unresolved generic VARIABLE of that name (e.g. the `U` in
+  /// `impl(generic(T : Type, U : usize), Array(T, U), ...)`) and `length`
+  /// is a meaningless placeholder; the variable is bound during synthesis.
+  Array(element : Rc(Self), length : usize, length_var : String),
+  /// Anonymous tuple. `field_labels(i)` is the optional label for the i-th
+  /// field (empty `String` means positional). `field_types(i)` is the type.
+  Tuple(field_labels : ArrayList(String), field_types : ArrayList(Rc(Self))),
+  /// Function type. Phase 2b: generic type-vars, implicit (using) params,
+  /// and where-clause constraint types.
+  /// Self-typed (recursive) fields stay inline; the non-recursive metadata
+  /// (labels, ref/own/variadic/extern/control flags) lives in `meta`
+  /// (`Rc(FuncMeta)`) so this variant no longer sets `sizeof(TypeValue)` to
+  /// ~150 B. `forall_types`/`param_types`/`implicit_types`/`where_types` are
+  /// parallel to the label arrays in `meta`; `result` is the return type.
+  Func(
+    forall_types : ArrayList(Rc(Self)),
+    param_types : ArrayList(Rc(Self)),
+    implicit_types : ArrayList(Rc(Self)),
+    where_types : ArrayList(Rc(Self)),
+    result : Rc(Self),
+    meta : Rc(FuncMeta),
+    /// The variadic parameter's TYPE (0 or 1 elements — the ArrayList is a
+    /// poor man's Option(Self) since Self-typed Options are unavailable in
+    /// a variant position).
+    /// the label/comptime flags live in `FuncMeta.variadic_label` /
+    /// `variadic_comptime` (FuncMeta cannot reference TypeValue).
+    variadic_types : ArrayList(Rc(Self))
+  ),
+  // Named user-defined types ------------------------------------------------
+  /// `id` uniquely identifies this struct definition.
+  /// Set to `""` for types reconstructed
+  /// from runtime values via `type_of_eval_value`.
+  /// `is_reference_semantics` = true for `object(...)`, false for `struct(...)`.
+  /// `is_atomic_rc` = true for `atomic object(...)`.
+  /// `is_newtype` = true for `newtype(...)`.
+  /// `constructor_func_id` is the func id of the comptime
+  /// type-constructor that produced this type (set at the comptime-fn call
+  /// site, `evaluator/calls/comptime_fn.yo`). The synthesizer uses
+  /// it to unify two instantiations of the SAME generic constructor
+  /// (`evaluator/types/synthesizer.yo` compares constructor ids).
+  /// `""` = unknown origin.
+  /// Only the id is stored, not the whole function value, because
+  /// `TypeValue` (this module) cannot import `EvalValue` (`value.yo`) without
+  /// a cycle — and the id is the only part the synthesizer reads.
+  Struct(
+    id : String,
+    name : String,
+    field_labels : ArrayList(String),
+    field_types : ArrayList(Rc(Self)),
+    is_reference_semantics : bool,
+    is_atomic_rc : bool,
+    is_newtype : bool,
+    constructor_func_id : String,
+    /// Concrete type arguments of a generic instantiation, in constructor-
+    /// parameter order (`HashMap(String, String)` → `[String, String]`). Empty
+    /// for non-generic or not-yet-instantiated structs. Stands in for a
+    /// carried instantiation env: a method dispatched
+    /// on this struct binds its `generic` params positionally from here. See
+    /// plans/archive/STRUCT_TYPE_ARGUMENTS.md.
+    type_arguments : ArrayList(Rc(Self)),
+    /// True for source-namespace structs — anonymous modules (`impl({...})`,
+    /// extern blocks) and imported modules. There is NO separate module type;
+    /// modules ARE structs with this marker. See
+    /// plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
+    is_source_namespace : bool
+  ),
+  /// `EnumT` rather than `Enum` to avoid clashing with the keyword.
+  /// Each variant has a name and an `ArrayList` of field types (possibly empty).
+  /// `selected_variant_name` is set when the type has been narrowed to a specific
+  /// variant (e.g. after pattern matching or destructuring).
+  ///
+  /// `variant_field_labels` holds the per-variant label names in declaration
+  /// order — used by labeled destructuring and match (Phase 2ae+).
+  /// `id` uniquely identifies this enum definition.
+  /// `variant_discriminants` holds one discriminant value per variant (in order).
+  ///
+  /// `is_reference_semantics` = true for `ref(enum(...))`, false for `enum(...)`.
+  /// `is_atomic_rc` = true for `atomic(ref(enum(...)))`.
+  /// plans/reference/REF_REFERENCE_SEMANTICS.md Phase 3.
+  EnumT(
+    id : String,
+    name : String,
+    variant_names : ArrayList(String),
+    variant_fields : ArrayList(ArrayList(Rc(Self))),
+    selected_variant_name : Option(String),
+    variant_field_labels : ArrayList(ArrayList(String)),
+    variant_discriminants : ArrayList(i64),
+    is_reference_semantics : bool,
+    is_atomic_rc : bool,
+    /// Type arguments of the generic constructor call that minted this
+    /// instantiation, in constructor-parameter order (`P(i32)` -> `[i32]`;
+    /// a non-type argument records `Unit`). The enum twin of
+    /// `Struct.type_arguments`, stamped at the comptime-fn call site
+    /// (`evaluator/calls/comptime_fn.yo`). `substitute` rewrites an argument
+    /// that is a type variable, so a phantom `Tag(K)` at `K := i32` reports
+    /// `[i32]`; a compound argument (`*(T)`) keeps its definition-era
+    /// spelling, and the payloads are what say `*(u8)`. Empty for a
+    /// non-generic enum or a copy that predates the stamp. Without it, two
+    /// instantiations whose payloads do not mention a parameter (a phantom
+    /// index, a GADT index only `-> recur(...)` names) are structurally
+    /// identical
+    /// (issues/fixed/enum-type-constructor-arguments-are-ignored-by-type-compatibility.md).
+    type_arguments : ArrayList(Rc(Self))
+  ),
+  Union(
+    name : String,
+    field_labels : ArrayList(String),
+    field_types : ArrayList(Rc(Self))
+  ),
+  // Traits / modules --------------------------------------------------------
+  /// Named trait type. Phase 2b: associated type names and method/field list.
+  /// Phase 2aq: `id` for unique identity, `is_concrete` for `Concrete(T)` marker.
+  /// Phase 2az: `self_constraints` and `neg_self_constraints` for
+  /// where-clause / negative where-clause constraints on Self.
+  TraitT(
+    name : String,
+    assoc_type_names : ArrayList(String),
+    // names of associated type members
+    field_labels : ArrayList(String),
+    // method / field names
+    field_types : ArrayList(Rc(Self)),
+    // method / field types
+    id : String,
+    // unique identity string
+    is_concrete : Option(Rc(Self)),
+    // Some(T) when this is `Concrete(T)`
+    self_constraints : ArrayList(Rc(Self)),
+    // where-clause constraints on Self
+    neg_self_constraints : ArrayList(Rc(Self)),
+    // negative where-clause constraints on Self
+    assoc_constraint_labels : ArrayList(String),
+    // labels of `Item := X` associated-type constraints
+    assoc_constraint_types : ArrayList(Rc(Self)) // constraint types
+  ),
+  // Generic / unresolved ----------------------------------------------------
+  /// A `SomeType` introduced by `generic` or by a yet-to-be-resolved generic
+  /// parameter. `frame_level` is the env frame at which it was introduced.
+  /// Phase 2b: required and negative trait constraint lists.
+  /// Phase 2d: `id` for unique identity.
+  /// Phase 2e: `parent_type` — the meta-type of this type variable (usually TypeUni(0)).
+  SomeT(
+    id : String,
+    // unique identity string
+    name : String,
+    frame_level : usize,
+    parent_type : Rc(Self),
+    // meta-type (TypeUni(0) by default)
+    required_trait_types : ArrayList(Rc(Self)),
+    // required trait constraints
+    required_trait_levels : ArrayList(usize),
+    // frame-level of each constraint
+    negative_trait_types : ArrayList(Rc(Self)),
+    // negative trait constraints
+    negative_trait_levels : ArrayList(usize),
+    // frame-level of each negative constraint
+    // When present, this SomeT represents a higher-kinded type variable
+    // (e.g. `F : (fn(T : Type) -> Type)`). The boxed `Func` TypeValue
+    // captures the kind so `F(A)` can be evaluated as a TypeApplication.
+    kind_function_type : Option(Rc(Self)),
+    // The concrete type this SomeType stands for, when it is known where the
+    // SomeT is built: an opaque `Impl(...)` return's hidden type, a closure
+    // wrapper's capture struct, a call's per-call resolution
+    // (`_with_resolved_concrete`). An immutable VALUE: a copy carries it,
+    // and nothing writes it after construction, so two SomeTs never share a
+    // resolution they could change under each other (plans/
+    // TYPE_SYSTEM_SOUNDNESS.md Phase 3.7; until then this was a one-element
+    // ArrayList used as a shared mutable cell). A resolution learned later
+    // builds a new SomeT carrying it. EXCLUDED from type_key and
+    // compatibility identity except where they hop to it explicitly; the
+    // intern key renders it, so two SomeTs that differ only here stay two
+    // instances.
+    resolution : Option(Rc(Self))
+  ),
+  // Phase 2f: advanced type variants ----------------------------------------
+  /// The Yo `Expr` type (a quoted expression node).
+  ExprT,
+  /// A compile-time homogeneous list. `child` is the element type.
+  ComptimeListT(child : Rc(Self)),
+  /// Application of a generic type constructor to arguments.
+  /// `constructor` is always a `SomeT` (the type-constructor variable).
+  TypeAppT(
+    constructor : Rc(Self),
+    args : ArrayList(Rc(Self))
+  ),
+  /// Iso-wrapped type (linear / unique reference).
+  IsoT(child : Rc(Self)),
+  /// Dynamic-dispatch type with trait bounds.
+  DynT(
+    required_trait_types : ArrayList(Rc(Self)),
+    required_trait_levels : ArrayList(usize),
+    negative_trait_types : ArrayList(Rc(Self)),
+    negative_trait_levels : ArrayList(usize)
+  ),
+  /// Fn-trait type (Fn / FnMut / FnOnce).
+  FnTraitT(
+    base_name : String,
+    call_param_labels : ArrayList(String),
+    call_param_types : ArrayList(Rc(Self)),
+    call_result : Rc(Self),
+    implicit_labels : ArrayList(String),
+    implicit_types : ArrayList(Rc(Self)),
+    /// Per-call-param `inout` flags, parallel to `call_param_labels`. The
+    /// call signature is FLATTENED into the variant, and dropping this
+    /// flag made a closure typed against
+    /// `Impl(Fn(v : &mut T) -> R)` bind `v` BY VALUE (the sync/mutex
+    /// `with_lock` write-through failure). Empty = all by-value.
+    call_param_is_ref : ArrayList(bool),
+    /// Per-call-param BY-VALUE flags (V3b's flip, decision 30): a plain
+    /// `Fn(x : T)` parameter is by value, `Fn(x : &T)` borrows, like a
+    /// `fn` type's `param_is_owning`. Empty = none by value (a closure type
+    /// synthesized without a written `Fn(...)`).
+    call_param_is_owning : ArrayList(bool)
+  ),
+  /// Future-trait type with associated output and effects.
+  FutureTraitT(
+    base_name : String,
+    output : Rc(Self),
+    effect_labels : ArrayList(String),
+    effect_types : ArrayList(Rc(Self))
+  ),
+  /// V6 task 3 (FORMAL_VERIFICATION.md §7): `refine(T, p)` — "a `T` that
+  /// satisfies `p`". Distinct at the type level (two predicates over the
+  /// same `T` are different types), ERASED to `T` at every runtime
+  /// surface: the guard predicates and `type_value_tag` unwrap to
+  /// `inner`, variable bindings store `inner` (env.yo), and codegen
+  /// therefore emits `T`'s representation unchanged (zero runtime cost —
+  /// the plan's erasure rule). The predicate is a ghost_fn VALUE carried
+  /// by its `func_id` (TypeValue cannot import EvalValue — the
+  /// `Struct.constructor_func_id` precedent); the verifier resolves the
+  /// body through the ghost-fn def registry (contracts.yo) and discharges
+  /// it: ASSUMED for a refined parameter at the callee entry, PROVED
+  /// (`refine#N`) for an argument at a call site. `""` = no predicate
+  /// (a pure alias — no obligation).
+  RefineT(
+    inner : Rc(Self),
+    predicate_func_id : String
+  ),
+  /// An opaque C type declared by `extern("Yo", X : Type)` or a `c_include`
+  /// `X : Type`: a concrete type whose layout only the C compiler knows. It
+  /// is NOMINAL: two are the same type exactly when they lower to the same
+  /// C spelling (`c_name`, e.g. `struct stat` for `stat_buf :
+  /// c_type("struct stat")`); it is never a type variable and satisfies no
+  /// bound it was not given (plans/reference/TYPE_IDENTITY.md). `name` is
+  /// the Yo label, for diagnostics. It used to be a SomeT recorded in a
+  /// name registry, which made it unify with every `Dyn` and made any SomeT
+  /// that happened to share its name extern
+  /// (issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md).
+  ExternOpaqueT(
+    name : String,
+    c_name : String
+  )
 );
 /// The Yo type universe: a shared, immutable handle to a `TypeValueNode`.
 TypeValue :: Rc(TypeValueNode);
@@ -426,58 +426,17 @@ t_refine_inner :: (fn(t : &TypeValue) -> TypeValue)(
   )
 );
 
-// Cycle-aware, SHARE-on-recursion Clone for TypeValue (replaces
-// `derive(TypeValue, Clone)`).
-//
-// The compiler's own `TypeValue` enum is SELF-REFERENTIAL (its variants hold
-// `Self` / `ArrayList(Self)`), so a naive deep clone recurses forever on a
-// cyclic value (e.g. a `TypeValue` reached via capture analysis), overflowing the
-// stack. It is also ruinously expensive even when finite: during the self-compile,
-// the def-time body eval of the compiler's own giant functions stores each expr's
-// type into ExprInfo via a clone, and those types are frequently the ~40-variant
-// `TypeValue` / `AstExpr` enums — deep-cloning all their variant field types
-// thousands of times peaked the unified `main.yo` self-compile at ~10 GB and then
-// OOM-killed it (Phase-6 P2; see plans/archive/BOOTSTRAPPING_CODEGEN.md).
-//
-// Both problems have the SAME fix: EVERY `TypeValue`-typed field — whether a
-// direct `Self` (e.g. `Pointer.pointee`, `Func.result`, `SomeT.parent_type`), an
-// `ArrayList(Self)` (`field_types`, `param_types`, `variant_fields`, …), or an
-// `Option(Self)` (`TraitT.is_concrete`, `SomeT.kind_function_type`) — is SHARED
-// (RC-bump) rather than deep-cloned. Now that `TypeValue` is a `ref(enum)`, each
-// such field is itself an RC handle (or an RC `ArrayList` of them), so passing the
-// matched binding straight through bumps a refcount instead of deep-copying. Only
-// the non-`TypeValue` scalar/label fields (`String`, `ArrayList(String)`,
-// `ArrayList(usize)`, `ArrayList(i64)`, `ArrayList(bool)`, and `Rc(FuncMeta)`) are
-// `.clone()`d (cheap, terminating).
-//
-// This is REQUIRED, not just an optimization: a deep clone would recurse forever.
-// `types.clone()` on a `Tuple`/`Func`/… `ArrayList(Self)` field calls
-// `item.clone()` on each element, which re-enters THIS clone, which clones its
-// `ArrayList(Self)` fields, … With the old value-enum `TypeValue` the def-time
-// self-shell (an empty placeholder enum) terminated this recursion; a `ref(enum)`
-// has no shell (its `Self` fields are pointers), so the def-time body eval of this
-// clone would blow the stack (`Maximum call stack size exceeded`). Sharing breaks
-// the recursion UNCONDITIONALLY (the clone never re-enters itself) and is sound
-// because TypeValues are rebuilt-not-mutated: `substitute` and every other consumer
-// constructs FRESH values, and a codebase-wide audit found NO in-place mutation of
-// these fields. `EvalValue` clones are fixed TRANSITIVELY (its clone delegates here
-// for `TypeValue` fields).
+// `TypeValue.clone()` is one count bump: it returns the handle, sharing the
+// whole node. A `TypeValue` is rebuilt, never mutated (`substitute` and every
+// other consumer construct FRESH nodes; a codebase-wide audit found no
+// in-place write to a node's fields), so sharing is sound, and the
+// self-compile calls this millions of times (ExprInfo / `Variable.ty`).
+// The prelude's `Rc(T)` clone (for a `T <: Clone`) would copy the payload
+// into a new cell; `TypeValueNode` does not implement `Clone`, so this impl
+// is the only one (plans/backlog/TYPEVALUE_HASH_CONSING.md §5).
 impl(
   TypeValue,
   Clone(
-    // RC-bump the WHOLE node (return `self`) — like `Token.clone`. `TypeValue`
-    // is a `ref(enum)`, so `self` is an RC handle; returning it shares the entire
-    // node (top node + all children) instead of allocating a fresh top node.
-    // This SUPERSEDES the former share-children/rebuild-top-node clone: that still
-    // allocated one new ~176 B top node per call (the self-compile calls
-    // `TypeValue.clone` millions of times storing expr types into ExprInfo /
-    // Variable.ty), which was the dominant residual TypeValue-count source after
-    // the `substitute` interning win. Sound for the same reason (TypeValues are
-    // rebuilt-not-mutated — a codebase-wide audit found NO in-place mutation of
-    // any TypeValue field; every consumer, e.g. `substitute`, constructs FRESH
-    // values) and it equally breaks the infinite-recursion problem the manual
-    // clone existed to solve (returning a handle never re-enters clone). Verified
-    // corpus-neutral (96/96). See plans/backlog/TYPEVALUE_HASH_CONSING.md §5.
     clone : (fn(self : &Self) -> Self)(self)
   )
 );

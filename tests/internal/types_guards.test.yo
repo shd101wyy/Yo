@@ -4,7 +4,7 @@
 //! Phase 2b stubs (returning false) are tested to confirm they return false —
 //! so a future implementation landing out of order gets caught.
 { String } :: import("std/string");
-{ TypeValue, FuncMeta } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_void, t_i32, t_u8, t_i8, t_u16, t_i16, t_u32, t_u64, t_i64, t_f32, t_f64, t_usize, t_isize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_func_simple, t_trait_simple, t_module_simple, t_some_t, t_expr_t, t_comptime_list, t_iso, t_dyn_simple, t_fn_trait_simple, t_future_trait_simple } :: import("../../src/types/creators.yo");
 { is_int_type, is_float_type } :: import("../../src/types/guards.yo");
 { ArrayList } :: import("std/collections/array_list");
@@ -80,23 +80,23 @@
   is_comptime_only_type_simple
 } :: import("../../src/types/guards.yo");
 // Helper constructors for types not exposed by type.yo
-t_cchar :: (fn() -> TypeValue)(.CChar);
-t_cshort :: (fn() -> TypeValue)(.CShort);
-t_cushort :: (fn() -> TypeValue)(.CUShort);
-t_cint :: (fn() -> TypeValue)(.CInt);
-t_cuint :: (fn() -> TypeValue)(.CUInt);
-t_clong :: (fn() -> TypeValue)(.CLong);
-t_culong :: (fn() -> TypeValue)(.CULong);
-t_clonglong :: (fn() -> TypeValue)(.CLongLong);
-t_culonglong :: (fn() -> TypeValue)(.CULongLong);
-t_clongdouble :: (fn() -> TypeValue)(.CLongDouble);
-t_typeuni0 :: (fn() -> TypeValue)(.TypeUni(usize(0)));
-t_typeuni1 :: (fn() -> TypeValue)(.TypeUni(usize(1)));
+t_cchar :: (fn() -> TypeValue)(rc(TypeValueNode.CChar));
+t_cshort :: (fn() -> TypeValue)(rc(TypeValueNode.CShort));
+t_cushort :: (fn() -> TypeValue)(rc(TypeValueNode.CUShort));
+t_cint :: (fn() -> TypeValue)(rc(TypeValueNode.CInt));
+t_cuint :: (fn() -> TypeValue)(rc(TypeValueNode.CUInt));
+t_clong :: (fn() -> TypeValue)(rc(TypeValueNode.CLong));
+t_culong :: (fn() -> TypeValue)(rc(TypeValueNode.CULong));
+t_clonglong :: (fn() -> TypeValue)(rc(TypeValueNode.CLongLong));
+t_culonglong :: (fn() -> TypeValue)(rc(TypeValueNode.CULongLong));
+t_clongdouble :: (fn() -> TypeValue)(rc(TypeValueNode.CLongDouble));
+t_typeuni0 :: (fn() -> TypeValue)(rc(TypeValueNode.TypeUni(usize(0))));
+t_typeuni1 :: (fn() -> TypeValue)(rc(TypeValueNode.TypeUni(usize(1))));
 t_tuple_empty :: (fn() -> TypeValue)(
-  .Tuple(ArrayList(String).new(), ArrayList(TypeValue).new())
+  rc(TypeValueNode.Tuple(ArrayList(String).new(), ArrayList(TypeValue).new()))
 );
 t_union_empty :: (fn() -> TypeValue)(
-  .Union(String.from("U"), ArrayList(String).new(), ArrayList(TypeValue).new())
+  rc(TypeValueNode.Union(String.from("U"), ArrayList(String).new(), ArrayList(TypeValue).new()))
 );
 // ---------------------------------------------------------------------------
 // Primitive guards
@@ -334,31 +334,33 @@ test("is_function_type_generic: generic func is generic", {
   ft := ArrayList(TypeValue).new();
   fl.push(String.from("T"));
   ft.push(rc(TypeValueNode.TypeUni(usize(0))));
-  f := rc(TypeValueNode.Func(
-    ft,
-    ArrayList(TypeValue).new(),
-    ArrayList(TypeValue).new(),
-    ArrayList(TypeValue).new(),
-    t_unit(),
-    rc(
-      FuncMeta(
-        forall_labels : fl,
-        param_labels : ArrayList(String).new(),
-        implicit_labels : ArrayList(String).new(),
-        result_is_comptime_only : false,
-        param_is_ref : ArrayList(bool).new(),
-        param_is_owning : ArrayList(bool).new(),
-        result_is_ref : false,
-        has_variadic : false,
-        is_extern : Option(String).None,
-        extern_name : Option(String).None,
-        is_control : false,
-        variadic_label : Option(String).None,
-        variadic_comptime : false
-      )
-    ),
-    ArrayList(TypeValue).new()
-  ));
+  f := rc(
+    TypeValueNode.Func(
+      ft,
+      ArrayList(TypeValue).new(),
+      ArrayList(TypeValue).new(),
+      ArrayList(TypeValue).new(),
+      t_unit(),
+      rc(
+        FuncMeta(
+          forall_labels : fl,
+          param_labels : ArrayList(String).new(),
+          implicit_labels : ArrayList(String).new(),
+          result_is_comptime_only : false,
+          param_is_ref : ArrayList(bool).new(),
+          param_is_owning : ArrayList(bool).new(),
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          extern_name : Option(String).None,
+          is_control : false,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      ArrayList(TypeValue).new()
+    )
+  );
   assert(is_function_type_generic(&f), "generic func generic");
   assert(is_function_type_hard_generic(&f), "generic func hard generic");
 });
@@ -368,31 +370,33 @@ test("is_function_type_generic: implicit params make generic (but not hard)", {
   it_ := ArrayList(TypeValue).new();
   il.push(String.from("io"));
   it_.push(t_module_simple(String.from("Io")));
-  f := rc(TypeValueNode.Func(
-    ArrayList(TypeValue).new(),
-    ArrayList(TypeValue).new(),
-    it_,
-    ArrayList(TypeValue).new(),
-    t_unit(),
-    rc(
-      FuncMeta(
-        forall_labels : ArrayList(String).new(),
-        param_labels : ArrayList(String).new(),
-        implicit_labels : il,
-        result_is_comptime_only : false,
-        param_is_ref : ArrayList(bool).new(),
-        param_is_owning : ArrayList(bool).new(),
-        result_is_ref : false,
-        has_variadic : false,
-        is_extern : Option(String).None,
-        extern_name : Option(String).None,
-        is_control : false,
-        variadic_label : Option(String).None,
-        variadic_comptime : false
-      )
-    ),
-    ArrayList(TypeValue).new()
-  ));
+  f := rc(
+    TypeValueNode.Func(
+      ArrayList(TypeValue).new(),
+      ArrayList(TypeValue).new(),
+      it_,
+      ArrayList(TypeValue).new(),
+      t_unit(),
+      rc(
+        FuncMeta(
+          forall_labels : ArrayList(String).new(),
+          param_labels : ArrayList(String).new(),
+          implicit_labels : il,
+          result_is_comptime_only : false,
+          param_is_ref : ArrayList(bool).new(),
+          param_is_owning : ArrayList(bool).new(),
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          extern_name : Option(String).None,
+          is_control : false,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      ArrayList(TypeValue).new()
+    )
+  );
   assert(is_function_type_generic(&f), "implicit func generic");
   assert(!is_function_type_hard_generic(&f), "implicit func NOT hard generic");
 });
@@ -467,35 +471,39 @@ test("is_rc_type: i32 and primitives are not RC", {
 test("is_rc_type: struct (not object) is not RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  struct_ty := rc(TypeValueNode.Struct(
-    id : String.from("id1"),
-    name : String.from("Point"),
-    field_labels : labels,
-    field_types : types,
-    is_reference_semantics : false,
-    is_atomic_rc : false,
-    is_newtype : false,
-    constructor_func_id : String.from(""),
-    type_arguments : ArrayList(TypeValue).new(),
-    is_source_namespace : false
-  ));
+  struct_ty := rc(
+    TypeValueNode.Struct(
+      id : String.from("id1"),
+      name : String.from("Point"),
+      field_labels : labels,
+      field_types : types,
+      is_reference_semantics : false,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.from(""),
+      type_arguments : ArrayList(TypeValue).new(),
+      is_source_namespace : false
+    )
+  );
   assert(!is_rc_type(&struct_ty), "struct → false");
 });
 test("is_rc_type: object (is_reference_semantics=true) is RC", {
   labels := ArrayList(String).new();
   types := ArrayList(TypeValue).new();
-  obj_ty := rc(TypeValueNode.Struct(
-    id : String.from("id2"),
-    name : String.from("MyObj"),
-    field_labels : labels,
-    field_types : types,
-    is_reference_semantics : true,
-    is_atomic_rc : false,
-    is_newtype : false,
-    constructor_func_id : String.from(""),
-    type_arguments : ArrayList(TypeValue).new(),
-    is_source_namespace : false
-  ));
+  obj_ty := rc(
+    TypeValueNode.Struct(
+      id : String.from("id2"),
+      name : String.from("MyObj"),
+      field_labels : labels,
+      field_types : types,
+      is_reference_semantics : true,
+      is_atomic_rc : false,
+      is_newtype : false,
+      constructor_func_id : String.from(""),
+      type_arguments : ArrayList(TypeValue).new(),
+      is_source_namespace : false
+    )
+  );
   assert(is_rc_type(&obj_ty), "object → true");
 });
 test("is_rc_type: DynT is RC", {
@@ -515,17 +523,19 @@ test("is_rc_type: SomeT with Future trait constraint is RC", {
   // A SomeT with a Future trait in required_trait_types
   req := ArrayList(TypeValue).new();
   req.push(t_future_trait_simple(String.from("Io"), t_unit()));
-  some_ty := rc(TypeValueNode.SomeT(
-    String.from("id3"),
-    String.from("T"),
-    usize(0),
-    rc(TypeValueNode.TypeUni(usize(0))),
-    req,
-    ArrayList(usize).new(),
-    ArrayList(TypeValue).new(),
-    ArrayList(usize).new(),
-    Option(TypeValue).None,
-    Option(TypeValue).None
-  ));
+  some_ty := rc(
+    TypeValueNode.SomeT(
+      String.from("id3"),
+      String.from("T"),
+      usize(0),
+      rc(TypeValueNode.TypeUni(usize(0))),
+      req,
+      ArrayList(usize).new(),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
+      Option(TypeValue).None,
+      Option(TypeValue).None
+    )
+  );
   assert(is_rc_type(&some_ty), "SomeT with Future → true");
 });

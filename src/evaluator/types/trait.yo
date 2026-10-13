@@ -41,7 +41,7 @@ import("std/fmt");
 { Environment, get_variables_from_env, add_variable_to_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_some_t, generate_some_type_id } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -1080,18 +1080,20 @@ evaluate_trait_type :: (
   neg_self_constraints := ArrayList(TypeValue).new();
   // Mutable trait type value — ArrayList fields are RC objects, so in-place
   // push() calls on self_constraints/neg_self_constraints reflect into trait_ty.
-  (trait_ty : TypeValue) = rc(TypeValueNode.TraitT(
-    trait_name_str,
-    assoc_type_names,
-    field_labels,
-    field_types,
-    trait_id,
-    Option(TypeValue).None,
-    self_constraints,
-    neg_self_constraints,
-    ArrayList(String).new(),
-    ArrayList(TypeValue).new()
-  ));
+  (trait_ty : TypeValue) = rc(
+    TypeValueNode.TraitT(
+      trait_name_str,
+      assoc_type_names,
+      field_labels,
+      field_types,
+      trait_id,
+      Option(TypeValue).None,
+      self_constraints,
+      neg_self_constraints,
+      ArrayList(String).new(),
+      ArrayList(TypeValue).new()
+    )
+  );
   // Push a scoped env frame for trait evaluation
   env_mut.push_frame(false);
   args := match(expr, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());

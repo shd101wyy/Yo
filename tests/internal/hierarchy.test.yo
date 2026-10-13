@@ -4,7 +4,7 @@
 //! universe level) of any TypeValue.  Mirrors `src/types/hierarchy.ts`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_i32, t_usize, t_some_t } :: import("../../src/types/creators.yo");
 { type_of_type } :: import("../../src/types/hierarchy.yo");
 { assert, panic } :: import("std/assert");
@@ -134,18 +134,20 @@ test("EnumT with primitive variants → TypeUni(0)", {
 // ---------------------------------------------------------------------------
 test("TraitT → TypeUni(1)", {
   result := type_of_type(
-    rc(TypeValueNode.TraitT(
-      String.from("Clone"),
-      ArrayList(String).new(),
-      ArrayList(String).new(),
-      ArrayList(TypeValue).new(),
-      String.from(""),
-      Option(TypeValue).None,
-      ArrayList(TypeValue).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(String).new(),
-      ArrayList(TypeValue).new()
-    ))
+    rc(
+      TypeValueNode.TraitT(
+        String.from("Clone"),
+        ArrayList(String).new(),
+        ArrayList(String).new(),
+        ArrayList(TypeValue).new(),
+        String.from(""),
+        Option(TypeValue).None,
+        ArrayList(TypeValue).new(),
+        ArrayList(TypeValue).new(),
+        ArrayList(String).new(),
+        ArrayList(TypeValue).new()
+      )
+    )
   );
   assert(match(result, .TypeUni(lvl) => (lvl == usize(1)), _ => false), "TraitT should be TypeUni(1)");
 });
@@ -153,18 +155,20 @@ test("source-namespace Struct (module) → TypeUni(1)", {
   // Modules ARE structs with the source-namespace marker (TS has no
   // separate module type) — they always live one universe up.
   result := type_of_type(
-    rc(TypeValueNode.Struct(
-      id : String.from(""),
-      name : String.from("std/fmt"),
-      field_labels : ArrayList(String).new(),
-      field_types : ArrayList(TypeValue).new(),
-      is_reference_semantics : false,
-      is_atomic_rc : false,
-      is_newtype : false,
-      constructor_func_id : String.from(""),
-      type_arguments : ArrayList(TypeValue).new(),
-      is_source_namespace : true
-    ))
+    rc(
+      TypeValueNode.Struct(
+        id : String.from(""),
+        name : String.from("std/fmt"),
+        field_labels : ArrayList(String).new(),
+        field_types : ArrayList(TypeValue).new(),
+        is_reference_semantics : false,
+        is_atomic_rc : false,
+        is_newtype : false,
+        constructor_func_id : String.from(""),
+        type_arguments : ArrayList(TypeValue).new(),
+        is_source_namespace : true
+      )
+    )
   );
   assert(match(result, .TypeUni(lvl) => (lvl == usize(1)), _ => false), "module struct should be TypeUni(1)");
 });

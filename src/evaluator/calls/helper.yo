@@ -77,7 +77,7 @@ pragma(Pragma.AllowUnsafe);
 // imports nothing from calls/, so this is acyclic.
 { set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
-{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
@@ -632,16 +632,18 @@ _refine_one_fn_trait_result :: (fn(ftt : &TypeValue, new_result : &TypeValue) ->
   match(
     ftt,
     .FnTraitT(rw_bn, rw_cpl, rw_cpt, rw_cr, rw_il, rw_it, rw_cpr, rw_cpo) => cond(
-      (!is_some_type(&rw_cr) && (get_all_some_types(&rw_cr).len() > usize(0))) => rc(TypeValueNode.FnTraitT(
-        rw_bn,
-        rw_cpl,
-        rw_cpt,
-        new_result,
-        rw_il,
-        rw_it,
-        rw_cpr,
-        rw_cpo
-      )),
+      (!is_some_type(&rw_cr) && (get_all_some_types(&rw_cr).len() > usize(0))) => rc(
+        TypeValueNode.FnTraitT(
+          rw_bn,
+          rw_cpl,
+          rw_cpt,
+          new_result,
+          rw_il,
+          rw_it,
+          rw_cpr,
+          rw_cpo
+        )
+      ),
       true => ftt
     ),
     _ => ftt
@@ -2549,18 +2551,20 @@ _bake_record_slots :: (fn(ty : &TypeValue) -> TypeValue)(
         bk_new_ft.push(bk_fr);
         bk_j = (bk_j + usize(1));
       });
-      rc(TypeValueNode.Struct(
-        id : bk_id,
-        name : bk_nm,
-        field_labels : bk_fl,
-        field_types : bk_new_ft,
-        is_reference_semantics : bk_ref,
-        is_atomic_rc : bk_arc,
-        is_newtype : bk_nt,
-        constructor_func_id : bk_cfid,
-        type_arguments : bk_new_tas,
-        is_source_namespace : bk_ns
-      ))
+      rc(
+        TypeValueNode.Struct(
+          id : bk_id,
+          name : bk_nm,
+          field_labels : bk_fl,
+          field_types : bk_new_ft,
+          is_reference_semantics : bk_ref,
+          is_atomic_rc : bk_arc,
+          is_newtype : bk_nt,
+          constructor_func_id : bk_cfid,
+          type_arguments : bk_new_tas,
+          is_source_namespace : bk_ns
+        )
+      )
     },
     _ => ty
   )
@@ -3507,15 +3511,17 @@ create_specialized_function_inline :: (
               implicit_types : ft_it,
               where_types : ft_wt,
               meta : ft_meta
-            }) => rc(TypeValueNode.Func(
-              ft_ft,
-              ft_pt,
-              ft_it,
-              ft_wt,
-              spec_ret_ty.clone(),
-              ft_meta,
-              ArrayList(TypeValue).new()
-            )),
+            }) => rc(
+              TypeValueNode.Func(
+                ft_ft,
+                ft_pt,
+                ft_it,
+                ft_wt,
+                spec_ret_ty.clone(),
+                ft_meta,
+                ArrayList(TypeValue).new()
+              )
+            ),
             _ => func_type
           );
           // Override the evaluation context for the body. The
@@ -3711,18 +3717,20 @@ create_specialized_function_inline :: (
                           _
                         ) => {
                           fw_rebind = Option(TypeValue).Some(
-                            rc(TypeValueNode.SomeT(
-                              `${fw_id}_fwbind_${type_key(&fw_arg)}`,
-                              fw_nm,
-                              fw_fl,
-                              fw_pt,
-                              fw_rtt,
-                              fw_rtl,
-                              fw_ntt,
-                              fw_ntl,
-                              fw_kft,
-                              Option(TypeValue).Some(fw_arg.clone())
-                            ))
+                            rc(
+                              TypeValueNode.SomeT(
+                                `${fw_id}_fwbind_${type_key(&fw_arg)}`,
+                                fw_nm,
+                                fw_fl,
+                                fw_pt,
+                                fw_rtt,
+                                fw_rtl,
+                                fw_ntt,
+                                fw_ntl,
+                                fw_kft,
+                                Option(TypeValue).Some(fw_arg.clone())
+                              )
+                            )
                           );
                         },
                         _ => ()
@@ -3828,18 +3836,20 @@ create_specialized_function_inline :: (
                       sp_kft_c,
                       _
                     ) => {
-                      bind_pt_cl = rc(TypeValueNode.SomeT(
-                        fresh_some_id.clone(),
-                        sp_nm_c,
-                        sp_fl_c,
-                        sp_pt_c,
-                        sp_rtt_c,
-                        sp_rtl_c,
-                        sp_ntt_c,
-                        sp_ntl_c,
-                        sp_kft_c,
-                        Option(TypeValue).Some(cap_ty)
-                      ));
+                      bind_pt_cl = rc(
+                        TypeValueNode.SomeT(
+                          fresh_some_id.clone(),
+                          sp_nm_c,
+                          sp_fl_c,
+                          sp_pt_c,
+                          sp_rtt_c,
+                          sp_rtl_c,
+                          sp_ntt_c,
+                          sp_ntl_c,
+                          sp_kft_c,
+                          Option(TypeValue).Some(cap_ty)
+                        )
+                      );
                     },
                     _ => ()
                   );
@@ -4991,33 +5001,35 @@ create_specialized_function_inline :: (
                   sp_mi = (sp_mi + usize(1));
                 });
               };
-              spec_type := rc(TypeValueNode.Func(
-                ArrayList(TypeValue).new(),
-                spec_param_types,
-                sp_it,
-                sp_wt,
-                spec_result,
-                rc(
-                  FuncMeta(
-                    forall_labels : ArrayList(String).new(),
-                    param_labels : sp_pl_f,
-                    implicit_labels : sp_il,
-                    result_is_comptime_only : sp_rico,
-                    param_is_ref : sp_pir_f,
-                    param_is_owning : sp_pio_f,
-                    result_is_ref : sp_rir,
-                    result_is_mut_ref : sp_rimr,
-                    has_variadic : sp_hv,
-                    is_extern : sp_ie,
-                    extern_name : sp_en,
-                    is_control : sp_ic,
-                    variadic_label : Option(String).None,
-                    variadic_comptime : false,
-                    param_is_sink : Option(ArrayList(bool)).Some(sp_pis_f)
-                  )
-                ),
-                ArrayList(TypeValue).new()
-              ));
+              spec_type := rc(
+                TypeValueNode.Func(
+                  ArrayList(TypeValue).new(),
+                  spec_param_types,
+                  sp_it,
+                  sp_wt,
+                  spec_result,
+                  rc(
+                    FuncMeta(
+                      forall_labels : ArrayList(String).new(),
+                      param_labels : sp_pl_f,
+                      implicit_labels : sp_il,
+                      result_is_comptime_only : sp_rico,
+                      param_is_ref : sp_pir_f,
+                      param_is_owning : sp_pio_f,
+                      result_is_ref : sp_rir,
+                      result_is_mut_ref : sp_rimr,
+                      has_variadic : sp_hv,
+                      is_extern : sp_ie,
+                      extern_name : sp_en,
+                      is_control : sp_ic,
+                      variadic_label : Option(String).None,
+                      variadic_comptime : false,
+                      param_is_sink : Option(ArrayList(bool)).Some(sp_pis_f)
+                    )
+                  ),
+                  ArrayList(TypeValue).new()
+                )
+              );
               register_func_type(&specialized_func_id, &spec_type);
             },
             _ => ()
@@ -6532,31 +6544,33 @@ try_to_call_function_with_arguments :: (
       extract_fn_trait_from_type(func_type),
       .Some(ftt) => match(
         ftt,
-        .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => rc(TypeValueNode.Func(
-          ArrayList(TypeValue).new(),
-          cpt,
-          ArrayList(TypeValue).new(),
-          ArrayList(TypeValue).new(),
-          _impl_fn_callee_result(func_type, &cr_box),
-          rc(
-            FuncMeta(
-              forall_labels : ArrayList(String).new(),
-              param_labels : cpl,
-              implicit_labels : ArrayList(String).new(),
-              result_is_comptime_only : false,
-              param_is_ref : cprf,
-              param_is_owning : cpof,
-              result_is_ref : false,
-              has_variadic : false,
-              is_extern : Option(String).None,
-              extern_name : Option(String).None,
-              is_control : false,
-              variadic_label : Option(String).None,
-              variadic_comptime : false
-            )
-          ),
-          ArrayList(TypeValue).new()
-        )),
+        .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => rc(
+          TypeValueNode.Func(
+            ArrayList(TypeValue).new(),
+            cpt,
+            ArrayList(TypeValue).new(),
+            ArrayList(TypeValue).new(),
+            _impl_fn_callee_result(func_type, &cr_box),
+            rc(
+              FuncMeta(
+                forall_labels : ArrayList(String).new(),
+                param_labels : cpl,
+                implicit_labels : ArrayList(String).new(),
+                result_is_comptime_only : false,
+                param_is_ref : cprf,
+                param_is_owning : cpof,
+                result_is_ref : false,
+                has_variadic : false,
+                is_extern : Option(String).None,
+                extern_name : Option(String).None,
+                is_control : false,
+                variadic_label : Option(String).None,
+                variadic_comptime : false
+              )
+            ),
+            ArrayList(TypeValue).new()
+          )
+        ),
         _ => func_type
       ),
       .None => func_type
@@ -7114,18 +7128,20 @@ try_to_call_function_with_arguments :: (
               // per-call SomeT here — id keyed by the call expr so two calls
               // never share a lineage.
               forall_val = create_type_value(
-                rc(TypeValueNode.SomeT(
-                  `${flabel}_wcforall_${ast_expr_id(expr).to_string()}`,
-                  flabel.clone(),
-                  usize(0),
-                  t_type(),
-                  ArrayList(TypeValue).new(),
-                  ArrayList(usize).new(),
-                  ArrayList(TypeValue).new(),
-                  ArrayList(usize).new(),
-                  Option(TypeValue).None,
-                  Option(TypeValue).None
-                ))
+                rc(
+                  TypeValueNode.SomeT(
+                    `${flabel}_wcforall_${ast_expr_id(expr).to_string()}`,
+                    flabel.clone(),
+                    usize(0),
+                    t_type(),
+                    ArrayList(TypeValue).new(),
+                    ArrayList(usize).new(),
+                    ArrayList(TypeValue).new(),
+                    ArrayList(usize).new(),
+                    Option(TypeValue).None,
+                    Option(TypeValue).None
+                  )
+                )
               );
             }
           );
@@ -8585,18 +8601,20 @@ try_to_call_function_with_arguments :: (
           match(
             return_type,
             .SomeT(ct_id, ct_nm, ct_fl, ct_pt, ct_rtt, ct_rtl, ct_ntt, ct_ntl, ct_kft, _) => {
-              return_type = rc(TypeValueNode.SomeT(
-                ct_id,
-                ct_nm,
-                ct_fl,
-                ct_pt,
-                ct_rtt,
-                ct_rtl,
-                ct_ntt,
-                ct_ntl,
-                ct_kft,
-                Option(TypeValue).Some(ctl_rt_conc)
-              ));
+              return_type = rc(
+                TypeValueNode.SomeT(
+                  ct_id,
+                  ct_nm,
+                  ct_fl,
+                  ct_pt,
+                  ct_rtt,
+                  ct_rtl,
+                  ct_ntt,
+                  ct_ntl,
+                  ct_kft,
+                  Option(TypeValue).Some(ctl_rt_conc)
+                )
+              );
             },
             _ => ()
           );
@@ -8983,18 +9001,20 @@ try_to_call_function_with_arguments :: (
                 match(
                   return_type,
                   .SomeT(cr_id, cr_nm, cr_fl, cr_pt, cr_rtt, cr_rtl, cr_ntt, cr_ntl, cr_kft, _) => {
-                    return_type = rc(TypeValueNode.SomeT(
-                      cr_id,
-                      cr_nm,
-                      cr_fl,
-                      cr_pt,
-                      cr_rtt,
-                      cr_rtl,
-                      cr_ntt,
-                      cr_ntl,
-                      cr_kft,
-                      Option(TypeValue).Some(ctl_res_conc)
-                    ));
+                    return_type = rc(
+                      TypeValueNode.SomeT(
+                        cr_id,
+                        cr_nm,
+                        cr_fl,
+                        cr_pt,
+                        cr_rtt,
+                        cr_rtl,
+                        cr_ntt,
+                        cr_ntl,
+                        cr_kft,
+                        Option(TypeValue).Some(ctl_res_conc)
+                      )
+                    );
                   },
                   _ => ()
                 );

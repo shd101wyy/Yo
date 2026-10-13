@@ -39,7 +39,7 @@ pragma(Pragma.AllowUnsafe);
 /// (a per-variable "module-level" flag would be unreliable for imported
 /// modules under loader-frame evaluation, so detection goes by recorded name).
 (g_module_level_static_names : HashSet(String)) = HashSet(String).new();
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_module_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { EvalValue } :: import("../../value.yo");
@@ -879,23 +879,25 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
   sns_id := stable_sns_module_id(env.module_path.clone());
   register_sns_module(sns_id.clone(), env.module_path.clone());
-  module_type := rc(TypeValueNode.Struct(
-    sns_id.clone(),
-    String.from(""),
-    field_labels,
-    field_types,
-    false,
-    // is_reference_semantics
-    false,
-    // is_atomic_rc
-    false,
-    // is_newtype
-    String.from(""),
-    // constructor_func_id
-    ArrayList(TypeValue).new(),
-    // type_arguments
-    true // is_source_namespace
-  ));
+  module_type := rc(
+    TypeValueNode.Struct(
+      sns_id.clone(),
+      String.from(""),
+      field_labels,
+      field_types,
+      false,
+      // is_reference_semantics
+      false,
+      // is_atomic_rc
+      false,
+      // is_newtype
+      String.from(""),
+      // constructor_func_id
+      ArrayList(TypeValue).new(),
+      // type_arguments
+      true // is_source_namespace
+    )
+  );
   module_val := EvalValue.StructVal(sns_id.clone(), module_names, module_vals);
   AnonModuleResult(
     module_value : module_val,

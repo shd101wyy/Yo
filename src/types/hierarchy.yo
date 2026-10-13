@@ -17,8 +17,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue } :: import("./definitions.yo");
-{ type_memo_key } :: import("./intern.yo");
+{ TypeValue, TypeValueNode } :: import("./definitions.yo");
 // ---------------------------------------------------------------------------
 // Forward reference slot for _universe_of
 // (needed by _determine_type_universe which is defined before the function)
@@ -83,43 +82,28 @@ _determine_type_universe :: (
 // ---------------------------------------------------------------------------
 // _universe_of — the recursive core
 // ---------------------------------------------------------------------------
-/// One memoized named aggregate: the type walked, its structural key
-/// (`type_memo_key`; `""` until a second same-id type needs it) and its
-/// universe.
-_UniverseMemoEntry :: struct(ty : TypeValue, key : String, universe : TypeValue);
+/// One memoized named aggregate: the type object walked and its universe.
+_UniverseMemoEntry :: struct(ty : TypeValue, universe : TypeValue);
 /// The memo of the current top-level walk, bucketed by `struct:<id>` /
-/// `enum:<id>`. A hit requires the same TYPE, not just the same id:
+/// `enum:<id>`. A hit requires the SAME type object, not just the same id:
 /// substitution and SomeT resolution rebuild a struct under its id with
 /// different field types (`src/types/substitution.yo`,
 /// `evaluator/calls/helper.yo`), and those copies can have different
-/// universes. Within a bucket the types are told apart by their structural
-/// key, rendered only when a bucket already holds an entry
-/// (plans/VALUES_BY_DEFAULT.md V4: a `TypeValue` is a value, so object
-/// identity is not available).
+/// universes. Nothing mutates a type object during one walk, so an identity
+/// hit is exact.
 (g_universe_memo : HashMap(String, ArrayList(_UniverseMemoEntry))) = HashMap(String, ArrayList(_UniverseMemoEntry)).new();
 /// Set when the name-cycle guard answered for a type on the current path:
 /// a result computed under it depends on that path, so it is not memoized.
 (g_universe_guard_fired : bool) = false;
 _universe_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(TypeValue))({
   bucket := match(g_universe_memo.get(key), .Some(b) => b, .None => return(Option(TypeValue).None));
-  probe := type_memo_key(ty);
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
       bucket.get(i),
-      .Some(e) => {
-        ek := cond(
-          (e.key.len() > usize(0)) => e.key,
-          true => {
-            k := type_memo_key(&e.ty);
-            bucket(i) = _UniverseMemoEntry(ty : e.ty, key : k.clone(), universe : e.universe);
-            k
-          }
-        );
-        if(ek == probe, {
-          return(Option(TypeValue).Some(e.universe));
-        });
-      },
+      .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
+        return(Option(TypeValue).Some(e.universe));
+      }),
       .None => ()
     );
     i = (i + usize(1));
@@ -140,7 +124,7 @@ _universe_memo_compute :: (
   r := _determine_type_universe(fields, &new_visited);
   if(!g_universe_guard_fired, {
     bucket := match(g_universe_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_UniverseMemoEntry).new());
-    bucket.push(_UniverseMemoEntry(ty : ty, key : String.new(), universe : r));
+    bucket.push(_UniverseMemoEntry(ty : ty, universe : r));
     _ := g_universe_memo.insert(key, bucket);
   });
   g_universe_guard_fired = (g_universe_guard_fired || outer_fired);

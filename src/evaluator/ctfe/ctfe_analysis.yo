@@ -49,7 +49,7 @@ pragma(Pragma.AllowUnsafe);
   copy_func_where_constraints,
   copy_func_contract_exprs
 } :: import("../types/function.yo");
-{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { type_prohibits_comptime_modifier } :: import("../../types/utils.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
@@ -99,32 +99,34 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
     _to_comptime_type(&result_box),
     .None => Option(TypeValue).None,
     .Some(comptime_result_ty) => .Some(
-      rc(TypeValueNode.Func(
-        forall_types,
-        param_types,
-        implicit_types,
-        where_types,
-        comptime_result_ty,
-        rc(
-          FuncMeta(
-            forall_labels : forall_labels,
-            param_labels : param_labels,
-            implicit_labels : implicit_labels,
-            result_is_comptime_only : true,
-            param_is_ref : ArrayList(bool).new(),
-            // preserve the original's metadata below
-            param_is_owning : match(func_type, .Func({ meta : m }) => m.*.param_is_owning, _ => ArrayList(bool).new()),
-            result_is_ref : false,
-            has_variadic : match(func_type, .Func({ meta : m }) => m.*.has_variadic, _ => false),
-            is_extern : match(func_type, .Func({ meta : m }) => m.*.is_extern, _ => Option(String).None),
-            extern_name : match(func_type, .Func({ meta : m }) => m.*.extern_name, _ => Option(String).None),
-            is_control : match(func_type, .Func({ meta : m }) => m.*.is_control, _ => false),
-            variadic_label : Option(String).None,
-            variadic_comptime : false
-          )
-        ),
-        ArrayList(TypeValue).new()
-      ))
+      rc(
+        TypeValueNode.Func(
+          forall_types,
+          param_types,
+          implicit_types,
+          where_types,
+          comptime_result_ty,
+          rc(
+            FuncMeta(
+              forall_labels : forall_labels,
+              param_labels : param_labels,
+              implicit_labels : implicit_labels,
+              result_is_comptime_only : true,
+              param_is_ref : ArrayList(bool).new(),
+              // preserve the original's metadata below
+              param_is_owning : match(func_type, .Func({ meta : m }) => m.*.param_is_owning, _ => ArrayList(bool).new()),
+              result_is_ref : false,
+              has_variadic : match(func_type, .Func({ meta : m }) => m.*.has_variadic, _ => false),
+              is_extern : match(func_type, .Func({ meta : m }) => m.*.is_extern, _ => Option(String).None),
+              extern_name : match(func_type, .Func({ meta : m }) => m.*.extern_name, _ => Option(String).None),
+              is_control : match(func_type, .Func({ meta : m }) => m.*.is_control, _ => false),
+              variadic_label : Option(String).None,
+              variadic_comptime : false
+            )
+          ),
+          ArrayList(TypeValue).new()
+        )
+      )
     )
   )
 });

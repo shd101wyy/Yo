@@ -57,7 +57,7 @@ pragma(Pragma.AllowUnsafe);
   bind_parameter,
   generate_variable_id
 } :: import("../../env.yo");
-{ TypeValue, FuncMeta, t_refine_inner } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner } :: import("../../types/definitions.yo");
 { get_func_param_defaults, get_func_param_default_exprs, default_param_eval_env, get_func_param_comptime, register_func_param_comptime, is_param_quoted, is_macro_fn, macro_return_is_unquote, evaluate_function_return_type_again, get_func_return_type_expr, get_func_variadic_param, get_func_param_type_exprs, get_func_where_clause_exprs, evaluate_function_parameter_type_again, _collect_type_arg_somes, _resolve_some_types_deep, collect_wrapper_trait_somes } :: import("../types/function.yo");
 { is_io_async_call, is_io_await_call, is_io_state_call, is_io_spawn_call, is_join_handle_await_call, IO_BUILTIN_NONE } :: import("../async/await_analysis.yo");
 { subst_new, subst_add, substitute } :: import("../../types/substitution.yo");
@@ -2274,18 +2274,20 @@ _future_output_some_id :: (fn(t : &TypeValue) -> Option(String))(
 _freshen_io_async_result :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft }) => rc(TypeValueNode.SomeT(
-      generate_some_type_id(),
-      sn.clone(),
-      sfl,
-      spt.clone(),
-      srtt.clone(),
-      srtl.clone(),
-      sntt.clone(),
-      sntl.clone(),
-      skft.clone(),
-      Option(TypeValue).None
-    )),
+    .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft }) => rc(
+      TypeValueNode.SomeT(
+        generate_some_type_id(),
+        sn.clone(),
+        sfl,
+        spt.clone(),
+        srtt.clone(),
+        srtl.clone(),
+        sntt.clone(),
+        sntl.clone(),
+        skft.clone(),
+        Option(TypeValue).None
+      )
+    ),
     _ => t
   )
 );
@@ -2622,18 +2624,20 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
     // codegen lowers it as before), carries the assumed borrows.
     assumed_ty := match(
       info.ty,
-      .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft }) => rc(TypeValueNode.SomeT(
-        generate_some_type_id(),
-        sn.clone(),
-        sfl,
-        spt.clone(),
-        srtt.clone(),
-        srtl.clone(),
-        sntt.clone(),
-        sntl.clone(),
-        skft.clone(),
-        Option(TypeValue).Some(info.ty.clone())
-      )),
+      .SomeT({ name : sn, frame_level : sfl, parent_type : spt, required_trait_types : srtt, required_trait_levels : srtl, negative_trait_types : sntt, negative_trait_levels : sntl, kind_function_type : skft }) => rc(
+        TypeValueNode.SomeT(
+          generate_some_type_id(),
+          sn.clone(),
+          sfl,
+          spt.clone(),
+          srtt.clone(),
+          srtl.clone(),
+          sntt.clone(),
+          sntl.clone(),
+          skft.clone(),
+          Option(TypeValue).Some(info.ty.clone())
+        )
+      ),
       _ => return(())
     );
     match(assumed_ty, .SomeT({ id : a_id }) => register_capture_borrows(&a_id, &bs), _ => ());
@@ -3104,18 +3108,20 @@ _freshen_io_builtin_callee :: (fn(ft : &TypeValue) -> TypeValue)(
                 &fbs,
                 fbn.clone(),
                 fbl,
-                rc(TypeValueNode.SomeT(
-                  generate_some_type_id(),
-                  fbn.clone(),
-                  UNFRAMED_BINDER_LEVEL,
-                  fbpt.clone(),
-                  fbrtt.clone(),
-                  fbrtl.clone(),
-                  fbntt.clone(),
-                  fbntl.clone(),
-                  fbkft.clone(),
-                  Option(TypeValue).None
-                ))
+                rc(
+                  TypeValueNode.SomeT(
+                    generate_some_type_id(),
+                    fbn.clone(),
+                    UNFRAMED_BINDER_LEVEL,
+                    fbpt.clone(),
+                    fbrtt.clone(),
+                    fbrtl.clone(),
+                    fbntt.clone(),
+                    fbntl.clone(),
+                    fbkft.clone(),
+                    Option(TypeValue).None
+                  )
+                )
               );
             },
             _ => ()
@@ -3328,18 +3334,20 @@ _gc_freshen_all_sites :: (
       g_proto := match(site_protos.get(gi), .Some(pv) => pv, .None => rc(TypeValueNode.Unit));
       g_made := match(
         g_proto,
-        .SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, required_trait_types : g_prtt, required_trait_levels : g_prtl, negative_trait_types : g_pntt, negative_trait_levels : g_pntl, kind_function_type : g_pkft }) => rc(TypeValueNode.SomeT(
-          generate_some_type_id(),
-          g_pn.clone(),
-          g_pl,
-          g_ppt.clone(),
-          g_prtt.clone(),
-          g_prtl.clone(),
-          g_pntt.clone(),
-          g_pntl.clone(),
-          g_pkft.clone(),
-          Option(TypeValue).None
-        )),
+        .SomeT({ name : g_pn, frame_level : g_pl, parent_type : g_ppt, required_trait_types : g_prtt, required_trait_levels : g_prtl, negative_trait_types : g_pntt, negative_trait_levels : g_pntl, kind_function_type : g_pkft }) => rc(
+          TypeValueNode.SomeT(
+            generate_some_type_id(),
+            g_pn.clone(),
+            g_pl,
+            g_ppt.clone(),
+            g_prtt.clone(),
+            g_prtl.clone(),
+            g_pntt.clone(),
+            g_pntl.clone(),
+            g_pkft.clone(),
+            Option(TypeValue).None
+          )
+        ),
         _ => g_proto
       );
       fresh_ids.push(g_id.clone());
@@ -4097,18 +4105,20 @@ _fv_bind_unbound_forall_placeholders :: (
     // path's Step-6 marker loop does, so two calls never share a lineage.
     if(sig_st.is_none(), {
       sig_st = Option(TypeValue).Some(
-        rc(TypeValueNode.SomeT(
-          `${fname}_wcforall_${ast_expr_id(call_expr).to_string()}`,
-          fname.clone(),
-          usize(0),
-          t_type(),
-          ArrayList(TypeValue).new(),
-          ArrayList(usize).new(),
-          ArrayList(TypeValue).new(),
-          ArrayList(usize).new(),
-          Option(TypeValue).None,
-          Option(TypeValue).None
-        ))
+        rc(
+          TypeValueNode.SomeT(
+            `${fname}_wcforall_${ast_expr_id(call_expr).to_string()}`,
+            fname.clone(),
+            usize(0),
+            t_type(),
+            ArrayList(TypeValue).new(),
+            ArrayList(usize).new(),
+            ArrayList(TypeValue).new(),
+            ArrayList(usize).new(),
+            Option(TypeValue).None,
+            Option(TypeValue).None
+          )
+        )
       );
     });
     match(
@@ -5682,15 +5692,17 @@ _evaluate_funcval_runtime_call :: (
         implicit_types : fx_it,
         where_types : fx_wt,
         meta : fx_meta
-      }) => rc(TypeValueNode.Func(
-        fx_ft,
-        fx_pt,
-        fx_it,
-        fx_wt,
-        resolved_ret.clone(),
-        fx_meta,
-        ArrayList(TypeValue).new()
-      )),
+      }) => rc(
+        TypeValueNode.Func(
+          fx_ft,
+          fx_pt,
+          fx_it,
+          fx_wt,
+          resolved_ret.clone(),
+          fx_meta,
+          ArrayList(TypeValue).new()
+        )
+      ),
       _ => base_spec_ty
     );
     // Never REGRESS the registered return: create_specialized's declared-
@@ -6123,7 +6135,7 @@ _instantiate_struct_over_closure_args :: (
       if(rep_ids.len() == usize(0), {
         return(st);
       });
-      .Struct(ic_id, ic_nm, ic_labels, _replace_some_ids(&ic_fts, &rep_ids, &rep_tys), ic_ref, ic_at, ic_nt, ic_cfid, _replace_some_ids(&ic_tas, &rep_ids, &rep_tys), ic_sns)
+      rc(TypeValueNode.Struct(ic_id, ic_nm, ic_labels, _replace_some_ids(&ic_fts, &rep_ids, &rep_tys), ic_ref, ic_at, ic_nt, ic_cfid, _replace_some_ids(&ic_tas, &rep_ids, &rep_tys), ic_sns))
     },
     _ => st
   )
@@ -8030,31 +8042,33 @@ Fix: wrap the call:
               false,
               tok.clone()
             );
-            pa_new_ty := rc(TypeValueNode.Func(
-              ArrayList(TypeValue).new(),
-              pa_new_types,
-              ArrayList(TypeValue).new(),
-              ArrayList(TypeValue).new(),
-              pa_res,
-              rc(
-                FuncMeta(
-                  forall_labels : ArrayList(String).new(),
-                  param_labels : pa_new_labels,
-                  implicit_labels : ArrayList(String).new(),
-                  result_is_comptime_only : true,
-                  param_is_ref : pa_new_flags,
-                  param_is_owning : pa_new_own,
-                  result_is_ref : false,
-                  has_variadic : false,
-                  is_extern : Option(String).None,
-                  extern_name : Option(String).None,
-                  is_control : false,
-                  variadic_label : Option(String).None,
-                  variadic_comptime : false
-                )
-              ),
-              ArrayList(TypeValue).new()
-            ));
+            pa_new_ty := rc(
+              TypeValueNode.Func(
+                ArrayList(TypeValue).new(),
+                pa_new_types,
+                ArrayList(TypeValue).new(),
+                ArrayList(TypeValue).new(),
+                pa_res,
+                rc(
+                  FuncMeta(
+                    forall_labels : ArrayList(String).new(),
+                    param_labels : pa_new_labels,
+                    implicit_labels : ArrayList(String).new(),
+                    result_is_comptime_only : true,
+                    param_is_ref : pa_new_flags,
+                    param_is_owning : pa_new_own,
+                    result_is_ref : false,
+                    has_variadic : false,
+                    is_extern : Option(String).None,
+                    extern_name : Option(String).None,
+                    is_control : false,
+                    variadic_label : Option(String).None,
+                    variadic_comptime : false
+                  )
+                ),
+                ArrayList(TypeValue).new()
+              )
+            );
             pa_fid := `partial_${pa_id}`;
             register_func_type(pa_fid.clone(), &pa_new_ty);
             register_func_param_comptime(pa_fid.clone(), &pa_new_ct);

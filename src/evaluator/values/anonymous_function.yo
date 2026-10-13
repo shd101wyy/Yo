@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -332,39 +332,41 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
 _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
   match(
     ftt,
-    .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => rc(TypeValueNode.Func(
-      ArrayList(TypeValue).new(),
-      // no generic types
-      cpt,
-      ArrayList(TypeValue).new(),
-      // no implicit types
-      ArrayList(TypeValue).new(),
-      // no where types
-      cr_box,
-      rc(
-        FuncMeta(
-          forall_labels : ArrayList(String).new(),
-          param_labels : cpl,
-          implicit_labels : ArrayList(String).new(),
-          result_is_comptime_only : false,
-          // Fn-trait-derived closure type (runtime); `inout` call params
-          // carry through (the with_lock write-through closure).
-          param_is_ref : cprf,
-          // A plain `Fn(x : T)` parameter is by value (V3b's flip).
-          param_is_owning : cpof,
-          result_is_ref : false,
-          has_variadic : false,
-          is_extern : Option(String).None,
-          // Fn-trait-derived closure type is not FFI
-          extern_name : Option(String).None,
-          is_control : false // Fn-trait-derived closure type is `fn`, not `ctl`
-          ,
-          variadic_label : Option(String).None,
-          variadic_comptime : false
-        )
-      ),
-      ArrayList(TypeValue).new()
-    )),
+    .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => rc(
+      TypeValueNode.Func(
+        ArrayList(TypeValue).new(),
+        // no generic types
+        cpt,
+        ArrayList(TypeValue).new(),
+        // no implicit types
+        ArrayList(TypeValue).new(),
+        // no where types
+        cr_box,
+        rc(
+          FuncMeta(
+            forall_labels : ArrayList(String).new(),
+            param_labels : cpl,
+            implicit_labels : ArrayList(String).new(),
+            result_is_comptime_only : false,
+            // Fn-trait-derived closure type (runtime); `inout` call params
+            // carry through (the with_lock write-through closure).
+            param_is_ref : cprf,
+            // A plain `Fn(x : T)` parameter is by value (V3b's flip).
+            param_is_owning : cpof,
+            result_is_ref : false,
+            has_variadic : false,
+            is_extern : Option(String).None,
+            // Fn-trait-derived closure type is not FFI
+            extern_name : Option(String).None,
+            is_control : false // Fn-trait-derived closure type is `fn`, not `ctl`
+            ,
+            variadic_label : Option(String).None,
+            variadic_comptime : false
+          )
+        ),
+        ArrayList(TypeValue).new()
+      )
+    ),
     _ => rc(TypeValueNode.Unit)
   )
 );
@@ -421,8 +423,8 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
       });
       match(ss_bound, .Some(bt) => recur(&bt, env2, allow.clone()), .None => ty)
     },
-    .Pointer(ss_in) => .Pointer(recur(&ss_in, env2, allow.clone())),
-    .Array(ss_ain, ss_alen, ss_alv) => .Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv),
+    .Pointer(ss_in) => rc(TypeValueNode.Pointer(recur(&ss_in, env2, allow.clone()))),
+    .Array(ss_ain, ss_alen, ss_alv) => rc(TypeValueNode.Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv)),
     .Func({ forall_types : ss_fts, param_types : ss_pts, implicit_types : ss_its, where_types : ss_wts, result : ss_ret, meta : ss_fm }) => {
       ss_new_pts := ArrayList(TypeValue).new();
       (ss_pi : usize) = usize(0);
@@ -1626,18 +1628,20 @@ evaluate_anonymous_function_implementation :: (
   (fa_env_i : usize) = usize(0);
   while(fa_env_i < forall_labels.len(), {
     fl_name := match(forall_labels.get(fa_env_i), .Some(n) => n, .None => String.from(""));
-    fl_ty := rc(TypeValueNode.SomeT(
-      fl_name.clone(),
-      fl_name.clone(),
-      env.frame_count(),
-      rc(TypeValueNode.TypeUni(usize(0))),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
-      Option(TypeValue).None,
-      Option(TypeValue).None
-    ));
+    fl_ty := rc(
+      TypeValueNode.SomeT(
+        fl_name.clone(),
+        fl_name.clone(),
+        env.frame_count(),
+        rc(TypeValueNode.TypeUni(usize(0))),
+        ArrayList(TypeValue).new(),
+        ArrayList(usize).new(),
+        ArrayList(TypeValue).new(),
+        ArrayList(usize).new(),
+        Option(TypeValue).None,
+        Option(TypeValue).None
+      )
+    );
     fl_tok := synthetic_token(fl_name.clone(), &env.module_path);
     _fa_v := add_variable_to_env(
       env,
@@ -3032,18 +3036,20 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   impl_rtt.push(eft.clone());
                   impl_rtl := ArrayList(usize).new();
                   impl_rtl.push(usize(0));
-                  impl_fn_wrapper := rc(TypeValueNode.SomeT(
-                    generate_some_type_id(),
-                    String.from("__impl_fn"),
-                    usize(0),
-                    rc(TypeValueNode.TypeUni(usize(0))),
-                    impl_rtt,
-                    impl_rtl,
-                    ArrayList(TypeValue).new(),
-                    ArrayList(usize).new(),
-                    Option(TypeValue).None,
-                    Option(TypeValue).Some(cap_t)
-                  ));
+                  impl_fn_wrapper := rc(
+                    TypeValueNode.SomeT(
+                      generate_some_type_id(),
+                      String.from("__impl_fn"),
+                      usize(0),
+                      rc(TypeValueNode.TypeUni(usize(0))),
+                      impl_rtt,
+                      impl_rtl,
+                      ArrayList(TypeValue).new(),
+                      ArrayList(usize).new(),
+                      Option(TypeValue).None,
+                      Option(TypeValue).Some(cap_t)
+                    )
+                  );
                   // PER-CALL identity: the `F` here is ONE SomeT across
                   // every call of the generic fn, so recording the capture on
                   // it (once an in-place stamp of a shared resolution cell)
@@ -3053,7 +3059,26 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   // its own resolution instead — the arg's recorded type feeds
                   // `fa_bound`, so the caller's return-type substitution and
                   // the body specialization both see THIS call's `__impl_fn`.
-                  final_lambda_ty = rc(TypeValueNode.SomeT(
+                  final_lambda_ty = rc(
+                    TypeValueNode.SomeT(
+                      w_id,
+                      w_nm,
+                      w_fl,
+                      w_pt,
+                      w_rtt,
+                      w_rtl,
+                      w_ntt,
+                      w_ntl,
+                      w_kft,
+                      Option(TypeValue).Some(impl_fn_wrapper)
+                    )
+                  );
+                },
+                .None => ()
+              ),
+              w_has_concrete_fn => {
+                final_lambda_ty = rc(
+                  TypeValueNode.SomeT(
                     w_id,
                     w_nm,
                     w_fl,
@@ -3063,24 +3088,9 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     w_ntt,
                     w_ntl,
                     w_kft,
-                    Option(TypeValue).Some(impl_fn_wrapper)
-                  ));
-                },
-                .None => ()
-              ),
-              w_has_concrete_fn => {
-                final_lambda_ty = rc(TypeValueNode.SomeT(
-                  w_id,
-                  w_nm,
-                  w_fl,
-                  w_pt,
-                  w_rtt,
-                  w_rtl,
-                  w_ntt,
-                  w_ntl,
-                  w_kft,
-                  Option(TypeValue).Some(cap_t)
-                ));
+                    Option(TypeValue).Some(cap_t)
+                  )
+                );
               },
               true => ()
             );

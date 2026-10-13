@@ -25,7 +25,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { EvalValue } :: import("../value.yo");
-{ TypeValue } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../types/definitions.yo");
 { Environment, Variable } :: import("../env.yo");
 { LoadModuleResult } :: import("./context.yo");
 { set_registration_owner, set_import_closure_fn } :: import("./values/type_trait_methods.yo");
@@ -341,18 +341,20 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
       });
       cond(
         found => Option(TypeValue).Some(
-          rc(TypeValueNode.Struct(
-            id : sid,
-            name : sname,
-            field_labels : tlabels,
-            field_types : new_types,
-            is_reference_semantics : sref,
-            is_atomic_rc : satomic,
-            is_newtype : snt,
-            constructor_func_id : scfid,
-            type_arguments : stas,
-            is_source_namespace : ssns
-          ))
+          rc(
+            TypeValueNode.Struct(
+              id : sid,
+              name : sname,
+              field_labels : tlabels,
+              field_types : new_types,
+              is_reference_semantics : sref,
+              is_atomic_rc : satomic,
+              is_newtype : snt,
+              constructor_func_id : scfid,
+              type_arguments : stas,
+              is_source_namespace : ssns
+            )
+          )
         ),
         true => Option(TypeValue).None
       )

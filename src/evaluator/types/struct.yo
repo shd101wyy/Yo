@@ -22,7 +22,7 @@ import("std/fmt");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value } :: import("../../value.yo");
-{ TypeValue, register_struct_field_comptime_flags } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, register_struct_field_comptime_flags } :: import("../../types/definitions.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { format_error_message } :: import("../../error.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -92,20 +92,22 @@ evaluate_struct_type :: (
   // same type for free, so only FIELD-reading sites need resolution. The shell
   // is distinguished from the final purely by its EMPTY field list, which is
   // exactly how `resolve_struct_shell`/`_patch_self_shell` detect it.
-  prelim_ty := rc(TypeValueNode.Struct(
-    struct_id.clone(),
-    String.from(""),
-    ArrayList(String).new(),
-    ArrayList(TypeValue).new(),
-    is_reference_semantics,
-    is_atomic_rc,
-    is_newtype,
-    String.from(""),
-    // constructor_func_id — set later at the comptime-fn call site
-    ArrayList(TypeValue).new(),
-    // type_arguments — set later at the comptime-fn call site
-    false // is_source_namespace
-  ));
+  prelim_ty := rc(
+    TypeValueNode.Struct(
+      struct_id.clone(),
+      String.from(""),
+      ArrayList(String).new(),
+      ArrayList(TypeValue).new(),
+      is_reference_semantics,
+      is_atomic_rc,
+      is_newtype,
+      String.from(""),
+      // constructor_func_id — set later at the comptime-fn call site
+      ArrayList(TypeValue).new(),
+      // type_arguments — set later at the comptime-fn call site
+      false // is_source_namespace
+    )
+  );
   // Temporarily set SelfType in context for field evaluation.
   old_self_type := ctx.self_type;
   ctx.self_type = Option(TypeValue).Some(prelim_ty);
@@ -279,18 +281,20 @@ evaluate_struct_type :: (
   // self-shell patched out of the field types one level. Deeper self-nesting
   // resolves through the struct-final registry (resolve_struct_shell) at use
   // sites.
-  pre_final_ty := rc(TypeValueNode.Struct(
-    struct_id.clone(),
-    String.from(""),
-    field_labels,
-    field_types,
-    is_reference_semantics,
-    is_atomic_rc,
-    is_newtype,
-    String.from(""),
-    ArrayList(TypeValue).new(),
-    false
-  ));
+  pre_final_ty := rc(
+    TypeValueNode.Struct(
+      struct_id.clone(),
+      String.from(""),
+      field_labels,
+      field_types,
+      is_reference_semantics,
+      is_atomic_rc,
+      is_newtype,
+      String.from(""),
+      ArrayList(TypeValue).new(),
+      false
+    )
+  );
   patched_types := ArrayList(TypeValue).new();
   (pt_i : usize) = usize(0);
   while(pt_i < field_types.len(), {
@@ -328,20 +332,22 @@ evaluate_struct_type :: (
   });
   // Build final struct TypeValue with all fields populated (shell-patched).
   // (Built before auto-derive so the completed TypeValue can be passed as self_type.)
-  struct_ty := rc(TypeValueNode.Struct(
-    struct_id.clone(),
-    String.from(""),
-    field_labels,
-    patched_types,
-    is_reference_semantics,
-    is_atomic_rc,
-    is_newtype,
-    String.from(""),
-    // constructor_func_id — set later at the comptime-fn call site
-    ArrayList(TypeValue).new(),
-    // type_arguments — set later at the comptime-fn call site
-    false // is_source_namespace
-  ));
+  struct_ty := rc(
+    TypeValueNode.Struct(
+      struct_id.clone(),
+      String.from(""),
+      field_labels,
+      patched_types,
+      is_reference_semantics,
+      is_atomic_rc,
+      is_newtype,
+      String.from(""),
+      // constructor_func_id — set later at the comptime-fn call site
+      ArrayList(TypeValue).new(),
+      // type_arguments — set later at the comptime-fn call site
+      false // is_source_namespace
+    )
+  );
   // Record the finalized form under the struct id so leaked empty-field shells
   // resolve at field-read use sites — see resolve_struct_shell (creators.yo).
   register_struct_final(struct_id.clone(), &struct_ty);
