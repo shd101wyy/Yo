@@ -757,6 +757,7 @@ test("decision 44: a named fn or a closure literal bare in a Dyn(Fn) slot is E06
   comptime_expect_error((d : Dyn(Fn() -> i32)) = _d44_nine, "Write `dyn(_d44_nine)`");
   comptime_expect_error(_d44_take(() => i32(4)), "is a closure literal");
   comptime_expect_error(_d44_hold(f : (() => i32(4))), "is a closure literal");
+  comptime_expect_error(_d44_take(() -> i32(4)), "is a function literal");
 });
 test("decision 44: dyn(f) at the binding, field, argument and result compiles and runs", {
   n := i32(3);

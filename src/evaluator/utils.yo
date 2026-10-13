@@ -1152,13 +1152,14 @@ reject_bare_callable_into_dyn_fn :: (
     _bare_callable_into_dyn_fn(slot_ty, `has type \`${type_to_string(value_ty)}\``, value, site, ctx, exn);
   });
 });
-/// A closure literal checked against a `Dyn(Fn(...))` slot (its expected
-/// type): the same error as a named callable. A literal inside `dyn(...)` is
+/// A closure (`=>`) or function (`->`) literal checked against a
+/// `Dyn(Fn(...))` slot (its expected type): the same error as a named
+/// callable. A literal inside `dyn(...)` is
 /// checked against the closure's own `Impl(Fn(...))`, never against the
 /// `Dyn`, so every literal that reaches this is bare. Returns under `yo fix
 /// --migrate dyn-spelling` (the site is recorded); throws otherwise.
-reject_closure_literal_into_dyn_fn :: (fn(slot_ty : &TypeValue, literal : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)(
-  _bare_callable_into_dyn_fn(slot_ty, String.from("is a closure literal"), literal, String.from("a slot"), ctx, exn)
+reject_closure_literal_into_dyn_fn :: (fn(slot_ty : &TypeValue, literal : &AstExpr, is_closure : bool, ctx : &EvalContext, exn : Exception) -> unit)(
+  _bare_callable_into_dyn_fn(slot_ty, if(is_closure, String.from("is a closure literal"), String.from("is a function literal")), literal, String.from("a slot"), ctx, exn)
 );
 _bare_callable_into_dyn_fn :: (
   fn(slot_ty : &TypeValue, given : &String, value : &AstExpr, site : &String, ctx : &EvalContext, exn : Exception) -> unit
