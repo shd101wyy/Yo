@@ -5459,6 +5459,12 @@ stage-2 RSS.
       the derive is accepted, std derives `Copy` on its effect records
       (Generation B, after a seed carries the rule), and
       `type_lacks_copy_for_flip`'s control-bound exemption is deleted.
+    - Decision 43 checks a call from the callee's signature alone, so the
+      `clone` that `derive(Clone)` generates must state where its result's
+      roots come from: a `depends` clause naming `self.*`, or whatever
+      step 2 fixes as the default for a by-value return that carries a
+      reference. Without it, the derive is still rejected after `ctl`
+      becomes second-class.
     - An effect bundle then copies because it is `Copy`, not by exemption.
   - It is decided in step 2.
 
