@@ -35,6 +35,7 @@
 {
   get_drop_function_for_type,
   get_dispose_function_for_type,
+  dispose_call_on_value,
   generate_drop_code_for_value
 } :: import("./drop_dup.yo");
 { HashSet } :: import("std/collections/hash_set");
@@ -161,11 +162,7 @@ _emit_capture_dispose_lines :: (
     match(
       get_dispose_function_for_type(&concrete, context),
       .Some(df) => {
-        line := df;
-        line.push_str("(");
-        line.push_string(ref_code.clone());
-        line.push_str(");");
-        em.emit_string_line(&line);
+        em.emit_string_line(dispose_call_on_value(&df, ref_code, &concrete));
         return();
       },
       .None => ()

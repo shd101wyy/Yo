@@ -1,0 +1,29 @@
+// `yo fix main.yo --migrate drop-trait` (plans/VALUES_BY_DEFAULT.md decision
+// 45): every `Dispose` becomes `Drop`, the impl entries' `dispose : (fn(self
+// : &Self)` becomes `drop : (fn(self : &mut Self)` (Drop's receiver), and the
+// two explicit calls that end a named value become `drop(x)`. The rewritten
+// file checks.
+{ println } :: import("std/fmt");
+Fd :: struct(n : i32);
+impl(
+  Fd,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)(println(`closing ${self.n}`))
+  )
+);
+Handle :: ref(struct(n : i32));
+impl(Handle, Dispose(dispose : (fn(self : &Self) -> unit)(())));
+Pair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, n : i32));
+impl(generic(T : Type), Pair(T), Dispose(dispose : (fn(self : &Self) -> unit)(())));
+peek :: (fn(generic(T : Type), x : &T, where(T <: Dispose)) -> unit)(());
+main :: (fn() -> unit)({
+  a := Fd(n : i32(1));
+  a.dispose();
+  b := Fd(n : i32(2));
+  (Fd <: Dispose).dispose(&b);
+  h := Handle(n : i32(3));
+  peek(&h);
+  p := Pair(i32)(a : i32(4), n : i32(5));
+  peek(&p);
+});
+export(main);

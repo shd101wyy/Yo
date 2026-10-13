@@ -92,7 +92,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type } :: import("../../types/utils.yo");
+{ is_drop_method_name, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -170,7 +170,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, &nm)
 });
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
-{ E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
+{ E_EXPLICIT_DESTRUCTOR_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -408,6 +408,141 @@ _reject_dyn_uncallable_method_call :: (
       });
     },
     _ => ()
+  );
+});
+/// `"Drop"` / `"Dispose"` when `tid` (a method entry's `source_trait_id`, or a
+/// trait's own id) is the prelude destructor trait under that name, else `""`.
+_destructor_trait_name_of_id :: (fn(tid : &String, env : &Environment) -> String)({
+  if(tid.is_empty(), {
+    return(String.new());
+  });
+  (names : ArrayList(String)) = ArrayList(String).new();
+  names.push(String.from("Drop"));
+  names.push(String.from("Dispose"));
+  (ni : usize) = usize(0);
+  while(ni < names.len(), ni = (ni + usize(1)), {
+    nm := match(names.get(ni), .Some(n) => n, .None => String.new());
+    match(
+      get_trait_type_from_env(env, nm.clone()),
+      .Some(.TraitT(_, _, _, _, d_id, _, _, _, _, _)) => if(d_id == tid, {
+        return(nm);
+      }),
+      _ => ()
+    );
+  });
+  String.new()
+});
+/// E0915 (plans/VALUES_BY_DEFAULT.md decision 45): the destructor runs when
+/// the value's owner drops it, or when the last `Rc`/`Arc` reference goes
+/// away, so a call by hand — `x.drop()`, `T.drop(&x)`, `(T <: Drop).drop(&x)`,
+/// and the old spelling's `x.dispose()` — would run it a second time. Rust
+/// rejects the same call (its E0040). Checked on the dot callee once it is
+/// evaluated, before either call path: a destructor-trait method of that name
+/// found on the receiver (or one of its auto-dereference payloads) before any
+/// inherent method of it, or a member of the destructor trait's witness. The
+/// compiler's own synthesized `___dispose` (`auto-generated://` tokens) is
+/// the one caller allowed.
+_reject_explicit_destructor_call :: (fn(callee : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  dot_args := match(
+    callee,
+    .FnCall(_, _, pargs, _, _) => pargs,
+    _ => {
+      return(());
+    }
+  );
+  obj := match(
+    dot_args.get(usize(0)),
+    .Some(o) => o,
+    .None => {
+      return(());
+    }
+  );
+  name_expr := match(
+    dot_args.get(usize(1)),
+    .Some(n) => n,
+    .None => {
+      return(());
+    }
+  );
+  name_tok := ast_expr_token(&name_expr);
+  name := name_tok.value.clone();
+  if(!is_drop_method_name(&name) || name_tok.module_path.starts_with(String.from("auto-generated://")), {
+    return(());
+  });
+  oi := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&obj)),
+    .Some(i) => i,
+    .None => {
+      return(());
+    }
+  );
+  wanted := cond((name == "drop") => String.from("Drop"), true => String.from("Dispose"));
+  (found : String) = String.new();
+  (recv_ty : Option(TypeValue)) = Option(TypeValue).Some(resolve_enum_shell(&oi.ty));
+  match(
+    oi.value,
+    .Some(.TypeVal(tv)) => match(
+      tv,
+      .TraitT(_, _, _, _, w_id, _, _, _, _, _) => {
+        // `(T <: Drop).drop`: the witness names the trait itself.
+        if(_destructor_trait_name_of_id(&w_id, env) == wanted, {
+          found = wanted.clone();
+        });
+        recv_ty = Option(TypeValue).None;
+      },
+      _ => {
+        recv_ty = Option(TypeValue).Some(tv);
+      }
+    ),
+    _ => ()
+  );
+  (depth : u32) = u32(0);
+  while(found.is_empty() && recv_ty.is_some() && (depth < u32(8)), depth = (depth + u32(1)), {
+    cur := match(recv_ty, .Some(t) => t, .None => TypeValue.Unit);
+    recv_ty = Option(TypeValue).None;
+    if(!is_pointer_type(&cur), {
+      hits := get_receiver_methods_by_name_from_env(env, name.clone(), &cur, false);
+      if(hits.len() > usize(0), {
+        (inherent : bool) = false;
+        (hi : usize) = usize(0);
+        while(hi < hits.len(), hi = (hi + usize(1)), {
+          match(
+            hits.get(hi),
+            .Some(h) => cond(
+              h.source_trait_id.is_empty() => {
+                inherent = true;
+              },
+              (_destructor_trait_name_of_id(&h.source_trait_id, env) == wanted) => {
+                found = wanted.clone();
+              },
+              true => ()
+            ),
+            .None => ()
+          );
+        });
+        if(inherent, {
+          found = String.new();
+        });
+      }, {
+        recv_ty = deref_target_type(resolve_struct_shell(&cur), env);
+      });
+    });
+  });
+  if(found.is_empty(), {
+    return(());
+  });
+  recv_s := ast_expr_to_string(&obj);
+  exn.throw(
+    dyn(
+      with_code(
+        format_error_message_with_help(
+          &name_tok,
+          `Explicit call of the destructor "${name}": ${found} runs it automatically, exactly once, when the value's owner drops it or the last Rc/Arc reference to it goes away, so a call by hand would run it twice (plans/VALUES_BY_DEFAULT.md decision 45).`,
+          Option(String).Some(`to end the value now, write drop(${recv_s}): it moves the value in and drops it there. Inside a destructor, the fields drop by themselves after it returns.`)
+        ),
+        E_EXPLICIT_DESTRUCTOR_CALL
+      )
+    )
   );
 });
 /// Decision 32 (plans/VALUES_BY_DEFAULT.md): `w.m(...)` where the `Deref`
@@ -6843,6 +6978,7 @@ _evaluate_function_call_unanchored :: (
   );
   if(callee_is_marked_dot, {
     unmark_dot_callee();
+    _reject_explicit_destructor_call(&evaluated_callee, env, ctx, exn);
   });
   ctx.expected_type = callee_saved_expected;
   // Call-overload expansion: when the callee is a source-namespace struct

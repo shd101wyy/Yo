@@ -307,6 +307,46 @@ to resolve in the tree's prelude.
   - delete the prelude `Box`/`box`;
   - delete the `Box` row from `shared_cell_names_at`.
 
+## Seed-gated follow-up (2026-10-13): rename `Dispose` to `Drop` (VALUES_BY_DEFAULT decision 45)
+
+The compiler finds the destructor trait by its name string (`id :=
+"Dispose"` in `std/prelude.yo`; the move-only declaration, the impl-site
+receiver gate, the synthesized `___dispose` and the lazy-impl forcing in
+`src/` read the name or the method label `dispose`). Develop CI builds `src/`
+with the released seed against the tree's `std/`. A std that spelled the
+trait `Drop` before the seed knew it would get a seed-built stage 1 that no
+longer sees destructors: every resource type would turn copyable and its
+drops would stop, silently.
+
+**Generation A (feat/vbd-drop-trait-gena, for v0.2.62):**
+- `is_drop_trait_name` / `is_drop_method_name` (`src/types/utils.yo`): the
+  compiler treats a trait with id `"Drop"` exactly as `"Dispose"` (move-only,
+  the impl gate, the synthesized `___dispose` calling
+  `(Self <: Drop).drop(self)`, `Rc`/`Box` payload drops, the Dyn vtable's
+  reserved labels, the mutation summary's decrement heads);
+- the prelude defines `Drop` (`drop : (fn(self : &mut Self) -> unit)`,
+  Rust's receiver) beside `Dispose` (`self : &Self`, kept for the seed), and
+  `drop(x)`; the seed compiles both (it sees an ordinary trait and an
+  ordinary function). The synthesized `___dispose` over a `Drop` impl takes
+  `&mut Self`, and its C callers pass the storage's address;
+- E0915 rejects an explicit destructor call in both spellings;
+- `yo fix <path> --migrate drop-trait`;
+- std, src, tests and docs keep spelling `Dispose`.
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
+- run `yo fix ./std ./src ./tests --migrate drop-trait`; it also rewrites
+  each written `dispose : (fn(self : &Self)` to `drop : (fn(self : &mut
+  Self)`, so a body that wrote through a reference type's `self` keeps
+  working (the prelude's own `Dispose :: trait(...)` definition is deleted
+  by hand, since the migrated copy would duplicate `Drop`);
+- delete the prelude `Dispose` trait, the `"Dispose"`/`"dispose"` rows of
+  `is_drop_trait_name`/`is_drop_method_name`, and the `dispose` branch of
+  `_destructor_method_name` / `_destructor_call_code`
+  (`src/codegen/functions/collection.yo`);
+- rename the docs (`docs/en-US`, `docs/zh-CN`), the skills and the
+  instruction files to `Drop`; keep E0915's text naming `dispose` only as
+  the migrated spelling.
+
 ## Seed-gated follow-up (2026-10-13): the `Index`/`IndexMut` split (VALUES_BY_DEFAULT V2b)
 
 **Generation A** (feat/vbd-v2b-index-mut): the compiler accepts projection

@@ -79,6 +79,9 @@ Progress:
     built");
   - V2b "Projections first", Generation A: `-> &T` / `-> &mut T`
     projections, and subscript dispatch through `Index` / `IndexMut` (#1324);
+  - decision 45 Generation A: `Drop` beside `Dispose`, E0915 for an
+    explicit destructor call, `drop(x)`, and `yo fix --migrate drop-trait`
+    (#1343). Generation B, the tree-wide rename, waits for the seed.
   - V4: decision 31's wrapper patterns `Rc(p)` / `Arc(p)`, Generation A
     (#1327), and the `TypeValue` prep: key-based memos, the module-type
     rebuild, and the `Acyclic` short-circuit (#1329);
@@ -498,6 +501,8 @@ cannot be copied.
 - **`Dispose` implies move-only.** It runs once, when the single owner's
   drop runs: the drop calls `dispose` first, then drops the fields. Rust
   has the same rule: `Drop` types are not `Copy`.
+  Decision 45 (2026-10-13) renames the trait `Drop` and its method `drop`,
+  makes an explicit call E0915, and adds the prelude's `drop(x)`.
 - **Explicit copies.** A move-only type may implement `Clone`, and then
   `x.clone()` is the copy (`Sender.clone`).
 - **OS handles do not move.** A resource that owns a `pthread_mutex_t` or a
@@ -3378,6 +3383,90 @@ and in git, not a silent edit.
       allocation, `r := &dyn(v)` is an error naming the temporary, and `v`
       is still usable after `use(dyn(&v))` and consumed after
       `use(dyn(v))`.
+
+45. **`Dispose` is renamed `Drop`, with Rust's semantics, not just its
+    name.** Decided 2026-10-13 by the maintainer.
+    - **The trait.** `Drop` replaces `Dispose`; its method `drop`
+      replaces `dispose`. The semantics are unchanged: it runs
+      automatically, exactly once, when the owner drops the value (a value
+      type) or the last `Rc`/`Arc` reference goes away (a reference type),
+      and a `Drop` value type is move-only (decision 36). Only those
+      types may implement it (the impl-site gate of §3.4).
+    - **An explicit call is an error, as in Rust (its E0040).**
+      `x.drop()`, `T.drop(&x)`, `(T <: Drop).drop(&x)` and today's
+      `x.dispose()` are E0915: the destructor would run a second time, on a
+      value that is still live. A destructor never calls a field's
+      destructor either; the fields drop after it returns. The compiler's
+      own synthesized `___dispose` is the one caller (its code is
+      `auto-generated://`).
+    - **`drop(x)` in the prelude**, Rust's `mem::drop`: `drop :: (fn(
+      generic(T : Type), sink(x) : T) -> unit)(())` moves its argument in,
+      and the value drops when the call returns. It is the explicit way to
+      end a value early; a later use of `x` is E0901. A prelude name cannot be
+      shadowed, so a local named `drop` is now an error ("variable
+      shadowing is not allowed"); the one in `src/`
+      (`src/evaluator/builtins/contracts.yo`) was renamed.
+    - **A resource released while other references live gets an inherent
+      method,** not a destructor call: `TcpStream.close_sync()` and
+      `TlsStream.close_sync()` (Generation A) close the socket from plain
+      code, and their `Drop`/`Dispose` impls delegate to them, as Rust's
+      `TcpStream::shutdown` stands beside its `Drop`.
+    - **The receiver is `self : &mut Self`, as Rust's `drop(&mut self)`
+      (maintainer, 2026-10-13).** A destructor may take a field out or
+      reset it (`self.inner = .None`), and the field drops that follow it
+      read what it left. An impl whose `drop` says `self : &Self` does not
+      conform to the trait (the mode is part of the fn type). `Dispose.dispose`
+      keeps `self : &Self` in Generation A, because the seed builds std with
+      it. The synthesized `___dispose` over a `Drop` impl takes
+      `self : &mut Self` too, so it is a pointer in C
+      (`fn_abi_param_is_ptr`), and every C caller passes the dropped
+      storage's address (`dispose_function_takes_pointer`,
+      `dispose_call_on_value` in `src/codegen/exprs/drop_dup.yo`; the
+      reference types' header thunk, `dispose_fn_thunk`, passes the address
+      of a local holding the handle). A `Dispose` one keeps today's by-value
+      ABI.
+    - **Why.** VBD already took Rust's `Rc`/`Arc`/`Box`/`Clone`/`Copy`/
+      `Send`/`Sync`/`FnOnce`/`Index`, and the compiler and the docs already
+      say "drop" (`___drop`, "dropped at the end of its scope"). `Dispose`
+      reads like C#'s `IDisposable`, which a program calls explicitly; the
+      maintainer's principle is to prefer the explicit spelling, and the
+      migration cost does not decide the design.
+    - **The seed forces two generations.** The compiler finds the trait by
+      its name string, and develop CI builds `src/` with the released seed
+      against the tree's `std/`: a std spelling `Drop` before the seed
+      knows it would make the seed-built stage 1 blind to destructors
+      (resource types copyable, drops silently gone).
+      - **Generation A (v0.2.62):** the compiler treats a trait with id
+        `"Drop"` exactly as `"Dispose"` (`is_drop_trait_name`,
+        `src/types/utils.yo`): move-only status, the impl gate, the
+        synthesized `___dispose` (`(Self <: Drop).drop(self)` for a `Drop`
+        impl), `Rc`/`Box` payload drops, the Dyn vtable's reserved labels.
+        The prelude defines `Drop` beside `Dispose`, and `drop(x)`. E0915
+        covers both spellings. `yo fix <path> --migrate drop-trait`
+        rewrites `Dispose` → `Drop`, `dispose` → `drop` (impl entries,
+        bounds, witnesses, members, and the trait definition), a written
+        `dispose : (fn(self : &Self)` receiver → `drop : (fn(self : &mut
+        Self)`, and `x.dispose()` /
+        `(T <: Dispose).dispose(&x)` → `drop(x)`, listing every other
+        explicit call for a hand edit. std, src, tests and docs keep
+        spelling `Dispose`. The std's three explicit calls (`std/crypto/
+        tls.yo`, `std/http/client.yo`) became `close_sync()` calls.
+      - **Generation B (once `SEED_VERSION` carries Generation A):** the
+        tree-wide rename through the repair, then delete the prelude
+        `Dispose`, the second name in `is_drop_trait_name` /
+        `is_drop_method_name` and the `dispose` branch of the synthesized
+        call, and rename the docs, skills and instruction files
+        (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+    - **Tests (Generation A).** `tests/move_only.test.yo`: a `Drop` impl
+      runs once at the owner's drop, through a field and through a generic
+      impl; a `Drop` impl that takes a field out runs once, and releases the
+      field once, through the scope end, `drop(x)`, an `Rc` payload, a `Box`
+      payload, a `Dyn` object, `ArrayList` elements and a reference type's
+      last handle; a `drop` declared `self : &Self` does not conform; a `Drop` type and its holders are move-only; `drop(x)` runs
+      the destructor at once and moves `x` (a `Dispose` value too); each
+      explicit-call form is E0915 in both spellings. `tests/rc.test.yo`:
+      an `Rc(T)` with a `Drop` payload drops it once, with the last handle.
+      `tests/cli-cases/fix-migrate-drop-trait`: the repair.
 
 ## 5. Prerequisites, gates and the seed
 

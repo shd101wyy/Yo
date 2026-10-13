@@ -308,6 +308,33 @@ Dispose :: trait(
   dispose : (fn(self : &Self) -> unit)
 );
 export(Dispose);
+/// Drop trait — the destructor, Rust's `Drop` (plans/VALUES_BY_DEFAULT.md
+/// decision 45). It is `Dispose` under its new name and with the same
+/// meaning: `drop` runs automatically when the value's owner drops it (a value
+/// type, which a `Drop` impl makes move-only) or the last reference to it goes
+/// away (a reference type), and only those types may implement it. Calling
+/// `drop` by hand — `x.drop()`, `(T <: Drop).drop(&x)` — is error E0915, as
+/// it is in Rust; the free function `drop(x)` ends a value early.
+///
+/// Generation A: the compiler recognizes both spellings, and std keeps
+/// `Dispose` until the seed knows `Drop` (`yo fix <path> --migrate
+/// drop-trait` rewrites a project).
+Drop :: trait(
+  id := "Drop",
+  /// Release the resources `self` owns. Called automatically, exactly once,
+  /// when the value's owner drops it or the last reference to it goes away;
+  /// never called directly (E0915). The receiver is `self : &mut Self`, as
+  /// Rust's `drop(&mut self)`: the destructor may take a field out or reset
+  /// it (`self.f = .None`), and the field drops that follow it read what it
+  /// left there.
+  drop : (fn(self : &mut Self) -> unit)
+);
+export(Drop);
+/// End `x`'s life now: `x` is moved in and dropped when the call returns,
+/// running its `Drop` (or `Dispose`) impl and releasing what it owns — Rust's
+/// `mem::drop`. A use of `x` afterwards is a use of a moved value (E0901).
+drop :: (fn(generic(T : Type), sink(x) : T) -> unit)(());
+export(drop);
 /// === Cycle-GC tracing ===
 /// `GcTracer` carries the cycle collector's edge-registration callback (an opaque
 /// raw pointer). A `Trace` impl calls `tracer.visit(slot)` once per outgoing edge,

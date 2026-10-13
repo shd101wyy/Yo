@@ -1291,6 +1291,339 @@ _run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, e
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
   });
 });
+/// `yo fix <path> --migrate drop-trait` — decision 45
+/// (plans/VALUES_BY_DEFAULT.md): the destructor trait `Dispose` is renamed
+/// `Drop`, its method `dispose` `drop`, and an explicit call of it is E0915.
+/// The rename is an exact synonym, so the sweep is syntactic: each file is
+/// parsed, never evaluated. The rows:
+///   - the trait name `Dispose` → `Drop` wherever it is an identifier: an
+///     `impl` entry, a `<:` bound or witness, an import, a reflection
+///     argument;
+///   - the method label inside an `impl` entry, `Dispose(dispose : f)` →
+///     `Drop(drop : f)`, and a `.dispose` member → `.drop`; a written
+///     receiver `dispose : (fn(self : &Self)` → `drop : (fn(self : &mut
+///     Self)`, since `Drop.drop` takes `&mut Self` (decision 45), in an impl
+///     entry and in the `Dispose :: trait(...)` definition (whose `id` string
+///     is renamed too);
+///   - an explicit call that ends a named value, `x.dispose()` and
+///     `(T <: Dispose).dispose(&x)` (or `(x)`), → `drop(x)`, which moves `x`
+///     in: a later use of `x` is then E0901, and the check says where.
+/// Any other explicit call (`self.dispose()`, a field `s.f.dispose()`) is
+/// renamed to `.drop` and listed with its position: it is E0915 and needs a
+/// hand edit (`drop(x)`, or a `close_sync`-style inherent method for a
+/// resource that must be released while other references live). Each edit
+/// checks the text it replaces.
+_DtmCounts :: struct(names : usize, methods : usize, receivers : usize, calls : usize);
+/// Is every byte of `line` ASCII (so a rune column is a byte offset)?
+_dtm_ascii :: (fn(line : &String) -> bool)({
+  (n : usize) = usize(0);
+  it := line.chars();
+  (go : bool) = true;
+  while(go, {
+    match(
+      it.next(),
+      .Some(_) => {
+        n = (n + usize(1));
+      },
+      .None => {
+        go = false;
+      }
+    );
+  });
+  n == line.len()
+});
+/// The plain identifier `e` names (an `x`, or the `x` of `&x`), else `""`.
+_dtm_ident_arg :: (fn(e : &AstExpr) -> String)(
+  match(
+    e,
+    .Atom(_, t) => cond((t.kind == TokenKind.Identifier) => t.value.clone(), true => String.new()),
+    .FnCall(_, c, cargs, _, _) => match(
+      c,
+      .Atom(_, ct) => cond(
+        ((ct.value == "&") && (cargs.len() == usize(1))) => match(
+          cargs.get(usize(0)),
+          .Some(.Atom(_, it)) => cond((it.kind == TokenKind.Identifier) => it.value.clone(), true => String.new()),
+          _ => String.new()
+        ),
+        true => String.new()
+      ),
+      _ => String.new()
+    )
+  )
+);
+/// The `drop(x)` rewrite of a whole explicit call written on one ASCII line,
+/// `(T <: Dispose).dispose(&x)`: the span runs from the witness's `(` to the
+/// call's `)`. `.None` when the text is not that shape.
+_dtm_witness_call_fix :: (fn(line : &String, row : usize, member_col : usize, x : &String) -> Option(_PendingFix))({
+  if(!_dtm_ascii(line) || (member_col < usize(2)), {
+    return(Option(_PendingFix).None);
+  });
+  if(line.substring(member_col - usize(2), member_col) != ").", {
+    return(Option(_PendingFix).None);
+  });
+  // Back from the witness's `)` to its `(`.
+  (depth : usize) = usize(0);
+  (i : usize) = (member_col - usize(2));
+  (start : Option(usize)) = Option(usize).None;
+  (scanning : bool) = true;
+  while(scanning, {
+    ch := line.substring(i, i + usize(1));
+    cond(
+      (ch == ")") => {
+        depth = (depth + usize(1));
+      },
+      (ch == "(") => {
+        depth = (depth - usize(1));
+        if(depth == usize(0), {
+          start = Option(usize).Some(i);
+          scanning = false;
+        });
+      },
+      true => ()
+    );
+    if(scanning, {
+      if(i == usize(0), {
+        scanning = false;
+      }, {
+        i = (i - usize(1));
+      });
+    });
+  });
+  s0 := match(
+    start,
+    .Some(v) => v,
+    .None => {
+      return(Option(_PendingFix).None);
+    }
+  );
+  open_at := (member_col + usize(7));
+  if(line.substring(open_at, open_at + usize(1)) != "(", {
+    return(Option(_PendingFix).None);
+  });
+  close_at := match(
+    line.index_of(String.from(")"), open_at),
+    .Some(c) => c,
+    .None => {
+      return(Option(_PendingFix).None);
+    }
+  );
+  arg_text := line.substring(open_at + usize(1), close_at);
+  if((arg_text != x) && (arg_text != `&${x}`), {
+    return(Option(_PendingFix).None);
+  });
+  whole := line.substring(s0, close_at + usize(1));
+  Option(_PendingFix).Some(_PendingFix(row : row, col : s0, len : whole.len(), replacement : `drop(${x})`, description : whole))
+});
+_dtm_walk :: (
+  fn(e : &AstExpr, in_impl_entry : bool, lines : &ArrayList(String), out : &mut ArrayList(_PendingFix), counts : &mut _DtmCounts, left : &mut ArrayList(String)) -> unit
+)(
+  match(
+    e,
+    .Atom(_, tok) => if((tok.kind == TokenKind.Identifier) && (tok.value == "Dispose"), {
+      out.push(_PendingFix(row : usize(tok.row), col : usize(tok.column), len : usize(7), replacement : String.from("Drop"), description : String.from("Dispose")));
+      counts.names = (counts.names + usize(1));
+    }),
+    .FnCall(_, callee, args, _, _) => {
+      callee_word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
+      // `Dispose(dispose : f)`: the impl entry's (or the trait
+      // definition's) method label, and its receiver: `Drop.drop` takes
+      // `self : &mut Self` where `Dispose.dispose` took `self : &Self`.
+      if(in_impl_entry && (callee_word == ":") && (args.len() == usize(2)), {
+        match(
+          args.get(usize(0)),
+          .Some(.Atom(_, lt)) => if(lt.value == "dispose", {
+            lline := match(lines.get(usize(lt.row)), .Some(l) => l, .None => String.new());
+            sig := String.from("dispose : (fn(self : &Self)");
+            if(_rune_slice(&lline, usize(lt.column), sig.len()) == sig, {
+              out.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : sig.len(), replacement : String.from("drop : (fn(self : &mut Self)"), description : sig));
+              counts.receivers = (counts.receivers + usize(1));
+            }, {
+              out.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : usize(7), replacement : String.from("drop"), description : String.from("dispose")));
+            });
+            counts.methods = (counts.methods + usize(1));
+          }),
+          _ => ()
+        );
+      });
+      // `Dispose :: trait(id := "Dispose", dispose : ...)`: the definition
+      // itself. Its entries are walked as an impl entry's, and its `id`
+      // string is renamed with it.
+      if((callee_word == "::") && (args.len() == usize(2)), {
+        is_def := match(args.get(usize(0)), .Some(.Atom(_, dn)) => (dn.value == "Dispose"), _ => false);
+        match(
+          args.get(usize(1)),
+          .Some(.FnCall(_, tc, targs, _, _)) => if(is_def && match(tc, .Atom(_, tt) => (tt.value == "trait"), _ => false), {
+            recur(&args(usize(0)), false, lines, out, counts, left);
+            (ti : usize) = usize(0);
+            while(ti < targs.len(), ti = (ti + usize(1)), {
+              match(
+                targs.get(ti),
+                .Some(ta) => {
+                  match(
+                    ta,
+                    .FnCall(_, ic, iargs, _, _) => if(match(ic, .Atom(_, it) => (it.value == ":="), _ => false) && (iargs.len() == usize(2)), {
+                      match(
+                        iargs.get(usize(1)),
+                        .Some(.Atom(_, st)) => {
+                          sline := match(lines.get(usize(st.row)), .Some(l) => l, .None => String.new());
+                          if(_rune_slice(&sline, usize(st.column), usize(9)) == "\"Dispose\"", {
+                            out.push(_PendingFix(row : usize(st.row), col : usize(st.column), len : usize(9), replacement : String.from("\"Drop\""), description : String.from("\"Dispose\"")));
+                          });
+                        },
+                        _ => ()
+                      );
+                    }),
+                    _ => ()
+                  );
+                  recur(&ta, true, lines, out, counts, left);
+                },
+                .None => ()
+              );
+            });
+            return(());
+          }),
+          _ => ()
+        );
+      });
+      // `.dispose` member: `obj.dispose`, as a callee or not.
+      (member : Option(Token)) = Option(Token).None;
+      (dot_obj : Option(AstExpr)) = Option(AstExpr).None;
+      match(
+        callee,
+        .FnCall(_, dc, dargs, _, _) => if(match(dc, .Atom(_, dt) => (dt.value == "."), _ => false) && (dargs.len() == usize(2)), {
+          match(
+            dargs.get(usize(1)),
+            .Some(.Atom(_, mt)) => if(mt.value == "dispose", {
+              member = Option(Token).Some(mt);
+              dot_obj = dargs.get(usize(0));
+            }),
+            _ => ()
+          );
+        }),
+        _ => ()
+      );
+      match(
+        member,
+        .Some(mt) => {
+          line := match(lines.get(usize(mt.row)), .Some(l) => l, .None => String.new());
+          obj := match(dot_obj, .Some(o) => o, .None => make_err_expr());
+          obj_word := match(obj, .Atom(_, ot) => cond((ot.kind == TokenKind.Identifier) => ot.value.clone(), true => String.new()), _ => String.new());
+          is_witness := match(
+            obj,
+            .FnCall(_, wc, wargs, _, _) => (match(wc, .Atom(_, wt) => (wt.value == "<:"), _ => false) && match(wargs.get(usize(1)), .Some(.Atom(_, wn)) => (wn.value == "Dispose"), _ => false)),
+            _ => false
+          );
+          // `x.dispose()` → `drop(x)`.
+          (fix : Option(_PendingFix)) = Option(_PendingFix).None;
+          if((args.len() == usize(0)) && !obj_word.is_empty() && (obj_word != "self"), {
+            ot := ast_expr_token(&obj);
+            text := `${obj_word}.dispose()`;
+            if(_rune_slice(&line, usize(ot.column), text.len()) == text, {
+              fix = Option(_PendingFix).Some(_PendingFix(row : usize(ot.row), col : usize(ot.column), len : text.len(), replacement : `drop(${obj_word})`, description : text));
+            });
+          });
+          // `(T <: Dispose).dispose(&x)` → `drop(x)`.
+          if(fix.is_none() && is_witness && (args.len() == usize(1)), {
+            x := match(args.get(usize(0)), .Some(a) => _dtm_ident_arg(&a), .None => String.new());
+            if(!x.is_empty() && (x != "self"), {
+              fix = _dtm_witness_call_fix(&line, usize(mt.row), usize(mt.column), &x);
+            });
+          });
+          match(
+            fix,
+            .Some(f) => {
+              out.push(f);
+              counts.calls = (counts.calls + usize(1));
+              return(());
+            },
+            .None => {
+              left.push(`${(usize(mt.row) + usize(1)).to_string()}:${(usize(mt.column) + usize(1)).to_string()} ${ast_expr_to_string(e)}`);
+            }
+          );
+        },
+        .None => ()
+      );
+      // A bare `obj.dispose` member (here as the node itself).
+      if((callee_word == ".") && (args.len() == usize(2)), {
+        match(
+          args.get(usize(1)),
+          .Some(.Atom(_, mt2)) => if(mt2.value == "dispose", {
+            out.push(_PendingFix(row : usize(mt2.row), col : usize(mt2.column), len : usize(7), replacement : String.from("drop"), description : String.from("dispose")));
+            counts.methods = (counts.methods + usize(1));
+          }),
+          _ => ()
+        );
+      });
+      recur(&callee, false, lines, out, counts, left);
+      (i : usize) = usize(0);
+      while(i < args.len(), i = (i + usize(1)), {
+        match(args.get(i), .Some(a) => recur(&a, callee_word == "Dispose", lines, out, counts, left), .None => ());
+      });
+    }
+  )
+);
+_run_migrate_drop_trait :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : Exception) -> unit)({
+  (counts : _DtmCounts) = _DtmCounts(names : usize(0), methods : usize(0), receivers : usize(0), calls : usize(0));
+  (n_stale : usize) = usize(0);
+  (n_left : usize) = usize(0);
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    match(
+      _parse_or_none(&src, file.clone()),
+      .None => {
+        failed = (failed + usize(1));
+        println(`fix: ${file} does not parse; skipped`);
+      },
+      .Some(asts) => {
+        lines := src.split(String.from("\n"));
+        pending := ArrayList(_PendingFix).new();
+        left := ArrayList(String).new();
+        (ai : usize) = usize(0);
+        while(ai < asts.len(), ai = (ai + usize(1)), {
+          match(asts.get(ai), .Some(a) => _dtm_walk(&a, false, &lines, &mut pending, &mut counts, &mut left), .None => ());
+        });
+        (lj : usize) = usize(0);
+        while(lj < left.len(), lj = (lj + usize(1)), {
+          println(`fix: ${file}:${left(lj)} is an explicit destructor call (E0915): renamed to drop, left for a hand edit`);
+        });
+        n_left = (n_left + left.len());
+        checked := ArrayList(_PendingFix).new();
+        seen := HashSet(String).new();
+        (pi : usize) = usize(0);
+        while(pi < pending.len(), pi = (pi + usize(1)), {
+          p := match(pending.get(pi), .Some(x) => x, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
+          key := `${p.row.to_string()}:${p.col.to_string()}`;
+          if(seen.contains(&key), {
+            continue;
+          });
+          seen.insert(key);
+          line := match(lines.get(p.row), .Some(l) => l, .None => String.new());
+          if(_rune_slice(&line, p.col, p.len) != p.description, {
+            n_stale = (n_stale + usize(1));
+            continue;
+          });
+          checked.push(p);
+        });
+        if(!dry_run && (checked.len() > usize(0)), {
+          _apply_fixes_to_file(file.clone(), &mut checked, io, exn);
+          fmt_argv := ArrayList(String).new();
+          fmt_argv.push(String.from("yo"));
+          fmt_argv.push(String.from("fmt"));
+          fmt_argv.push(file.clone());
+          run_fmt(&fmt_argv, io, exn);
+        });
+      }
+    );
+  });
+  verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
+  println(`fix: ${verb} ${counts.names.to_string()} Dispose to Drop, ${counts.methods.to_string()} dispose to drop (${counts.receivers.to_string()} receiver(s) to self : &mut Self), ${counts.calls.to_string()} explicit call(s) to drop(x); ${n_left.to_string()} explicit call(s) left for a hand edit; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
+  });
+});
 /// `yo fix <path> --migrate borrow-spelling` — decision 42
 /// (plans/VALUES_BY_DEFAULT.md): every borrow spelled with a mode word is
 /// rewritten to the sigil spelling. Each rewrite is an exact synonym (the
@@ -2184,7 +2517,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -2209,8 +2542,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling or markers`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers or drop-trait`));
         });
         migrate = argv(next_m);
         ai = (ai + usize(2));
@@ -2225,7 +2558,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -2285,6 +2618,10 @@ run_fix :: (
   });
   if(migrate == "borrow-spelling", {
     _run_migrate_borrow_spelling(&files, dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "drop-trait", {
+    _run_migrate_drop_trait(&files, dry_run, io, exn);
     return(());
   });
   // A migration records from the first evaluated parameter on, the
@@ -10172,9 +10509,10 @@ Options:
                             borrow-spelling (imm(x) : T -> x : &T,
                             mut(y) := p -> y := &mut p, ...), modes
                             (own -> sink), addr-of (an address-of &x ->
-                            addr_of(x)), params, or markers (&x / &mut x
+                            addr_of(x)), params, markers (&x / &mut x
                             on a named place passed to a &T / &mut T
-                            parameter)
+                            parameter), or drop-trait (Dispose -> Drop,
+                            dispose -> drop, x.dispose() -> drop(x))
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -10197,9 +10535,10 @@ Examples:
   --migrate <name>          运行迁移而不是修复：borrow-spelling
                             （imm(x) : T -> x : &T、mut(y) := p ->
                             y := &mut p 等）、modes（own -> sink）、
-                            addr-of（取址的 &x -> addr_of(x)）、params，
-                            或 markers（传给 &T / &mut T 形参的具名位置
-                            加上 &x / &mut x）
+                            addr-of（取址的 &x -> addr_of(x)）、params、
+                            markers（传给 &T / &mut T 形参的具名位置
+                            加上 &x / &mut x），或 drop-trait（Dispose ->
+                            Drop、dispose -> drop、x.dispose() -> drop(x)）
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录

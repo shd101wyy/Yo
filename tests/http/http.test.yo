@@ -1397,18 +1397,14 @@ test("HttpClient: dispose closes every idle connection", {
   assert(a.body == `n=1`, `first response: ${a.body}`);
   assert(b.body == `n=2`, `second response: ${b.body}`);
   assert(client.idle_count() == usize(2), `two connections are idle, got ${client.idle_count()}`);
-  // `dispose` is what a DROPPED client runs, and calling it by hand is the
-  // only way to observe it today: a `ref` value passed as a parameter to an
-  // `io.async` future is never released
-  // (issues/fixed/a-ref-value-passed-to-an-async-future-is-never-released.md), so
-  // a client that has made a request never reaches reference count zero and
-  // the scope-exit path cannot fire. The body being tested is the same one
-  // either way — `dispose` delegates to `close_idle`.
-  (HttpClient <: Dispose).dispose(&client);
-  assert(client.idle_count() == usize(0), "the idle set is empty");
-  // …and, the part `idle_count` cannot tell you, both sockets are shut: each
-  // server read its EOF and returned. Without the `dispose` above, both of
-  // these report `Elapsed`.
+  // `dispose` is what a DROPPED client runs; it is never called by hand
+  // (E0915, plans/VALUES_BY_DEFAULT.md decision 45), so `drop(client)` ends
+  // the client here and its `dispose` closes the idle set. A `ref` value
+  // passed to an `io.async` future used to be leaked, which kept the count
+  // above zero (issues/fixed/a-ref-value-passed-to-an-async-future-is-never-released.md).
+  drop(client);
+  // Both sockets are shut: each server read its EOF and returned. Without the
+  // drop above, both of these report `Elapsed`.
   match(
     io.await(timeout(&t1, Duration.from_secs(i64(10)), io), io),
     .Ok(_) => (),

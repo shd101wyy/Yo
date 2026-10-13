@@ -1,0 +1,17 @@
+// Explicit destructor calls the repair cannot turn into `drop(x)`: each
+// reaches a field through `self` (a borrow). Each is renamed to `drop` and
+// listed with its position for a hand edit (E0915): a destructor never calls
+// a field's destructor, since the fields drop after it returns.
+Fd :: struct(n : i32);
+impl(Fd, Dispose(dispose : (fn(self : &Self) -> unit)(())));
+Holder :: struct(fd : Fd);
+impl(
+  Holder,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      self.fd.dispose();
+      (Fd <: Dispose).dispose(&self.fd);
+    })
+  )
+);
+export(Holder);
