@@ -541,6 +541,21 @@ impl(
       );
     })
   }),
+  /// Close the socket now, without the event loop: what `Dispose` runs, for
+  /// a caller that must release the descriptor from plain code while other
+  /// references to the stream may still be live (a TLS stream's teardown, a
+  /// connection pool's eviction). A no-op once the stream is closed. The
+  /// destructor itself is never called by hand (E0915).
+  close_sync : (fn(self : &Self) -> unit)({
+    cond(
+      !self._is_closed => {
+        { close_sync } :: import("../sys/file");
+        close_sync(self._fd);
+        self._is_closed = true;
+      },
+      true => ()
+    );
+  }),
   /// Get the remote peer's socket address.
   peer_addr : (fn(self : &Self) -> SocketAddr)(
     self._peer_addr
@@ -590,16 +605,9 @@ impl(
 impl(
   TcpStream,
   Dispose(
-    dispose : (fn(self : &Self) -> unit)({
-      cond(
-        !self._is_closed => {
-          { close_sync } :: import("../sys/file");
-          close_sync(self._fd);
-          self._is_closed = true;
-        },
-        true => ()
-      );
-    })
+    dispose : (fn(self : &Self) -> unit)(
+      self.close_sync()
+    )
   )
 );
 export(TcpStream);

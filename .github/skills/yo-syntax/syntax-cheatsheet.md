@@ -1046,6 +1046,24 @@ process_map(counts);
 // counts now has "key" => 42
 ```
 
+### The destructor is `Drop` (formerly `Dispose`) and is never called by hand
+
+`Drop` is the new name of `Dispose` (`plans/VALUES_BY_DEFAULT.md` decision 45): the compiler accepts both, and the tree keeps spelling `Dispose` until the seed knows `Drop`. The destructor runs automatically, once, when the owner drops the value or the last `Rc`/`Arc` handle goes away. `drop` takes `self : &mut Self` (Rust's `drop(&mut self)`), so it may take a field out (`self.f = .None`) before the fields drop; `self : &Self` does not conform (`Dispose.dispose` keeps `&Self` until the rename). Calling it yourself is E0915, in both spellings; end a value early with the prelude's `drop(x)`.
+
+```yo
+{ println } :: import("std/fmt");
+Fd :: struct(n : i32);
+impl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(println(`closing ${self.n}`))));
+main :: (fn() -> unit)({
+  a := Fd(n : i32(3));
+  // a.drop();   // WRONG: E0915, explicit call of the destructor (so is a.dispose())
+  drop(a); // CORRECT: moves `a` in and drops it now; a later `a.n` is E0901
+});
+export(main);
+```
+
+Inside a destructor, never call a field's destructor: the fields drop after it returns. A resource that must close while other references may still be live gets an ordinary method (`TcpStream.close_sync()`). `yo fix <path> --migrate drop-trait` rewrites `Dispose` → `Drop` and `x.dispose()` → `drop(x)`.
+
 ### `String` out-parameters take `&mut`
 
 `clone()` is a `String`'s independent copy (`plans/STRING_VALUE_SEMANTICS.md` §0): it copies the bytes, empty or not. A plain copy still shares a non-empty buffer until VALUES_BY_DEFAULT V2b, so write only through a clone. A by-value `String` parameter BORROWS the caller's value, so writing it (`push_str`, passing it to a `&mut` parameter) is **E0908**. Before String S1 this compiled and the write was silently lost when the string was empty — an emitter buffer once vanished from the chunked-C output that way, with only a far-downstream `unknown type name` as the symptom. This is the opposite of `ArrayList`/`HashMap`/`HashSet` (RC `ref` types, until `plans/VALUES_BY_DEFAULT.md` V2), where mutations through a by-value parameter DO propagate.

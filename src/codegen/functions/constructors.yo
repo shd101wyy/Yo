@@ -19,7 +19,7 @@
 { type_contains_some_type, type_contains_rc_cell_or_move_only, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic, type_reaches_non_atomic_cell } :: import("../../types/utils.yo");
 { get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField, type_key } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
-{ get_dispose_function_for_type, get_trace_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
+{ get_dispose_function_for_type, dispose_function_takes_pointer, get_trace_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
 /// True if any runtime field of `struct_type` contains a SomeType (generic).
 _has_generic_fields :: (fn(fields : &ArrayList(RuntimeStructField)) -> bool)({
   n := fields.len();
@@ -149,13 +149,22 @@ _emit_traversal_prototypes :: (fn(context : &FunctionGenerationContext) -> unit)
 /// The constructor block is one contiguous region (copied verbatim into the
 /// shared header in chunk mode), so emission order is first-use order. Call it
 /// BEFORE the constructor's signature line.
-dispose_fn_thunk :: (fn(dispose_c_name : &String, context : &FunctionGenerationContext) -> String)({
+///
+/// `self_c_type` is the handle's C type when the `___dispose` takes its
+/// receiver through a pointer (a `Drop` impl's `self : &mut Self`,
+/// `dispose_function_takes_pointer`): the thunk then passes the address of a
+/// local holding the handle. Empty for a by-value receiver.
+dispose_fn_thunk :: (fn(dispose_c_name : &String, self_c_type : &String, context : &FunctionGenerationContext) -> String)({
   thunk := `__yo_dispose_thunk_${dispose_c_name}`;
   if(!context.base.dispose_thunks.contains(thunk.clone()), {
     cg_base := context.base;
     cg_base.dispose_thunks.insert(thunk.clone());
     em := context.base.emitter;
-    em.emit_string_line(`static inline void ${thunk}(void* ptr) { ${dispose_c_name}(ptr); }`);
+    if(self_c_type.is_empty(), {
+      em.emit_string_line(`static inline void ${thunk}(void* ptr) { ${dispose_c_name}(ptr); }`);
+    }, {
+      em.emit_string_line(`static inline void ${thunk}(void* ptr) { ${self_c_type} __yo_self = (${self_c_type})ptr; ${dispose_c_name}(&__yo_self); }`);
+    });
   });
   thunk
 });
@@ -192,9 +201,13 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
     pi = (pi + usize(1));
   });
   dispose_opt := get_dispose_function_for_type(type, context);
+  // A `Drop` impl's `___dispose` takes `&mut Self` (a pointer): it is always
+  // reached through a thunk that passes the handle's address.
+  dispose_ptr := dispose_function_takes_pointer(type);
+  dispose_self_c := if(dispose_ptr, get_type_string(type, &context.base), String.new());
   (dispose_thunk : String) = match(
     dispose_opt,
-    .Some(dn) => if(context.base.needs_cycle_gc, dispose_fn_thunk(&dn, context), String.new()),
+    .Some(dn) => if(context.base.needs_cycle_gc || dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
     .None => String.new()
   );
   // Signature + malloc.
@@ -240,7 +253,7 @@ _generate_one_constructor :: (fn(type : &TypeValue, c_name : &String, context : 
     .Some(dispose_c_name) => if(context.base.needs_cycle_gc, {
       em.emit_string_line(`  obj->header.dispose_fn = ${dispose_thunk};`);
     }, {
-      dispose_id := context.base.dispose_type_id_for(dispose_c_name.clone());
+      dispose_id := context.base.dispose_type_id_for(if(dispose_ptr, dispose_thunk.clone(), dispose_c_name.clone()));
       line := String.from("  obj->header.type_id = ");
       line.push_string(dispose_id.to_string());
       line.push_str(";");
@@ -676,9 +689,13 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
   });
   // Dispose dispatch is shared across all variants (depends on the type).
   dispose_opt := get_dispose_function_for_type(type, context);
+  // A `Drop` impl's `___dispose` takes `&mut Self` (a pointer): it is always
+  // reached through a thunk that passes the handle's address.
+  dispose_ptr := dispose_function_takes_pointer(type);
+  dispose_self_c := if(dispose_ptr, get_type_string(type, &context.base), String.new());
   (dispose_thunk : String) = match(
     dispose_opt,
-    .Some(dn) => if(context.base.needs_cycle_gc, dispose_fn_thunk(&dn, context), String.new()),
+    .Some(dn) => if(context.base.needs_cycle_gc || dispose_ptr, dispose_fn_thunk(&dn, &dispose_self_c, context), String.new()),
     .None => String.new()
   );
   is_atomic := is_atomic_reference_enum_type(type);
@@ -757,7 +774,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
           .Some(dispose_c_name) => if(context.base.needs_cycle_gc, {
             em.emit_string_line(`  obj->header.dispose_fn = ${dispose_thunk};`);
           }, {
-            dispose_id := context.base.dispose_type_id_for(dispose_c_name.clone());
+            dispose_id := context.base.dispose_type_id_for(if(dispose_ptr, dispose_thunk.clone(), dispose_c_name.clone()));
             em.emit_string_line(`  obj->header.type_id = ${dispose_id.to_string()};`);
           }),
           .None => if(context.base.needs_cycle_gc, {

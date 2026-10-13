@@ -26,9 +26,10 @@
 _func_val_id :: (fn(v : &EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
 );
-/// True for the reserved dyn-method labels (___dup/___drop/___dispose/dispose).
+/// True for the reserved dyn-method labels (___dup/___drop/___dispose and the
+/// destructor's `drop`/`dispose`, decision 45).
 _is_reserved_dyn_label :: (fn(label : &String) -> bool)(
-  (label == "___dup") || (label == "___drop") || (label == "___dispose") || (label == "dispose")
+  (label == "___dup") || (label == "___drop") || (label == "___dispose") || (label == "dispose") || (label == "drop")
 );
 /// Sanitized C field name of the single field of an Rc(T) data type ("*").
 _box_field_name :: (fn(data_type : &TypeValue) -> String)(

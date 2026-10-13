@@ -188,15 +188,15 @@ impl(
     })
   ),
   /// Close without the event loop, by delegating to the stream's own
-  /// `Dispose`. This is what the pool uses: eviction, expiry and
-  /// `HttpClient`'s `dispose` all run in plain (non-async) code, and the
-  /// connection being closed there is either dead or unwanted — there is
-  /// nobody left to send a TLS `close_notify` to.
+  /// `close_sync` (what its `Dispose` runs). This is what the pool uses:
+  /// eviction, expiry and `HttpClient`'s `dispose` all run in plain
+  /// (non-async) code, and the connection being closed there is either dead
+  /// or unwanted — there is nobody left to send a TLS `close_notify` to.
   close_sync : (fn(self : &Self) -> unit)(
     match(
       self,
-      .Plain(stream) => (TcpStream <: Dispose).dispose(&stream),
-      .Secure(stream) => (TlsStream <: Dispose).dispose(&stream)
+      .Plain(stream) => stream.close_sync(),
+      .Secure(stream) => stream.close_sync()
     )
   )
 );

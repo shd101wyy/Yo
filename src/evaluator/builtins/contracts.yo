@@ -2527,7 +2527,7 @@ strip_proved_ensures_asserts :: (
           (stripped : usize) = usize(0);
           (i : usize) = usize(0);
           while(i < args.len(), {
-            drop := match(
+            strip_it := match(
               args.get(i),
               .Some(arg) => {
                 is_ens_assert := _is_contract_assert_call(&arg, String.from("ensures failed:"));
@@ -2543,7 +2543,7 @@ strip_proved_ensures_asserts :: (
               },
               .None => false
             );
-            if(!drop, {
+            if(!strip_it, {
               match(
                 args.get(i),
                 .Some(arg) => {

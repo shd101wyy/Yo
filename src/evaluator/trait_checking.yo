@@ -61,7 +61,8 @@ pragma(Pragma.AllowUnsafe);
   set_type_lacks_clone_fn,
   type_is_control_bound,
   bump_trait_impl_epoch,
-  trait_impl_epoch
+  trait_impl_epoch,
+  is_drop_trait_name
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -784,7 +785,7 @@ _copy_impl_violation_msg :: (fn(target_type : &TypeValue, target : &TypeValue, c
   match(
     move_only_reason(target),
     .Some(mo_reason) => {
-      return(Option(String).Some(`Type "${shown}" cannot implement "Copy": ${mo_reason}, so it is move-only. A copy is bitwise, so a Dispose would run once per copy; a type that releases a resource is moved, never copied.`));
+      return(Option(String).Some(`Type "${shown}" cannot implement "Copy": ${mo_reason}, so it is move-only. A copy is bitwise, so its destructor would run once per copy; a type that releases a resource is moved, never copied.`));
     },
     .None => ()
   );
@@ -1783,6 +1784,7 @@ receiver_kind_trait_violation_msg :: (
   ) -> Option(String)
 )({
   trait_name := cond(
+    _is_prelude_trait_named(trait_type, "Drop", env) => String.from("Drop"),
     _is_prelude_trait_named(trait_type, "Dispose", env) => String.from("Dispose"),
     _is_prelude_trait_named(trait_type, "Trace", env) => String.from("Trace"),
     is_copy_trait(trait_type, env) => String.from("Copy"),
@@ -1801,8 +1803,8 @@ receiver_kind_trait_violation_msg :: (
     return(_copy_impl_violation_msg(target_type, &target, trait_type, env));
   });
   // A Copy type is never move-only (decision 36): the other direction of
-  // the impl check, for a `Dispose` impl registered after `Copy`.
-  if(is_value_nominal && (trait_name == "Dispose"), {
+  // the impl check, for a `Drop` (`Dispose`) impl registered after `Copy`.
+  if(is_value_nominal && is_drop_trait_name(&trait_name), {
     match(
       get_trait_type_from_env(env, String.from("Copy")),
       .Some(dm_copy_tt) => if(type_implements_trait(&target, &dm_copy_tt, env).implemented, {
@@ -1819,7 +1821,7 @@ receiver_kind_trait_violation_msg :: (
     ),
     (is_value_nominal || is_reference) => Option(String).None,
     true => Option(String).Some(
-      `Type "${type_to_string(target_type)}" cannot implement "Dispose": only a value type (struct, enum, newtype), which Dispose makes move-only, or a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it.`
+      `Type "${type_to_string(target_type)}" cannot implement "${trait_name}": only a value type (struct, enum, newtype), which ${trait_name} makes move-only, or a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it.`
     )
   )
 });
@@ -2041,11 +2043,14 @@ _type_implements_thread_marker :: (fn(ty : &TypeValue, marker : str, env : &Envi
 // ---------------------------------------------------------------------------
 // type_implements_dispose
 // ---------------------------------------------------------------------------
-/// Check if a type implements the Dispose trait.
-///
-///
+/// Check if a type implements the destructor trait: `Drop`, or `Dispose`
+/// (its old spelling, recognized until decision 45's Generation B).
 type_implements_dispose :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   match(
+    get_trait_type_from_env(env, String.from("Drop")),
+    .Some(drop_trait) => type_implements_trait_bool(ty, &drop_trait, env),
+    .None => false
+  ) || match(
     get_trait_type_from_env(env, String.from("Dispose")),
     .None => false,
     .Some(dispose_trait) => type_implements_trait_bool(ty, &dispose_trait, env)
