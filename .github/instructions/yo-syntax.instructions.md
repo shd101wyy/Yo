@@ -875,7 +875,7 @@ Rules:
 
 A bare named place to a `&T`/`&mut T` parameter is E0914, always on (std included). An unannotated lambda param (`(lhs, rhs) => …`) takes its mode from the expected `Fn` type; an annotated one spells it (`(v : &mut i32) => …`). A borrow result `-> &T` / `-> &mut T` is a projection (decision 24), reached through the subscript. Not yet: unlabeled fn-type params: `fn` and `Fn` parameters always need labels (`Fn(s : &String) -> usize`, never `Fn(&String)`), so the mode prefixes the labelled parameter's type.
 
-`&mut` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated to `(self : &mut Self)` — Hash, Index, ComptimeIndex, Writer, Reader, and `Iterator`; `Clone`, `ToString`, `Hash`, `Debug`, `Format`, `ToJson` and `Error.source` then moved on to `(self : &Self)`, since they only read their receiver (Writer and Reader had already), (the for-loop redesign documented in `plans/archive/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/reference/MEMORY_SAFETY.md`).
+`&mut` is the safe in-place-mutation primitive for user code. Stdlib trait methods that previously took `(self : *(Self))` have all been migrated: the ones that write their receiver take `(self : &mut Self)` — `Hasher.write*`, `Index`, `ComptimeIndex`, `Iterator`; the ones that only read it take `(self : &Self)` — `Clone`, `ToString`, `Hash`, `Hasher.finish`, `Debug`, `Format`, `ToJson`, `Error.source`, `Reader`, `Writer` (the for-loop redesign documented in `plans/archive/ITERATOR_REDESIGN.md` shipped alongside Phase D of `plans/reference/MEMORY_SAFETY.md`).
 
 ### Public stdlib boundary — no raw pointer leaks
 
