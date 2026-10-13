@@ -5370,7 +5370,10 @@ that later phases add.
   fix what is left by hand. Whatever a migration misses in these projects is
   a bug in that migration, fixed before it is deleted.
 - **The other gates.** V5 and every Generation B half have landed, so no
-  migration is still carrying this tree across a seed. This tree (`std/`,
+  migration is still carrying this tree across a seed. The post-VBD docs sweep
+  (`plans/AGENT_KNOWLEDGE_CONSOLIDATION.md` K7) and the skills removal (K4) run
+  before this step. The docs keep naming `--migrate` modes until this step's PR
+  removes them. This tree (`std/`,
   `src/`, `tests/`, the docs' Yo blocks, the cli-case fixtures) has no
   `--migrate` rewrite left to apply. A release containing every migration is
   published, so `yo version install` can always fetch one.
