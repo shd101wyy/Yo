@@ -1518,13 +1518,13 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
               });
               // Apply the method's per-param ref-amp (`&`) to the inline args, as
               // the registered-call path does for `args2`. A `self : &mut Self` inline
-              // method — e.g. a primitive's derived `clone :
-              // ((self) -> __yo_return_self(self))` — must receive its receiver
-              // BY ADDRESS so `__yo_return_self` emits `(*(&recv))`, not `(*recv)`
-              // (which dereferences a value). Without this, a derived clone of a
-              // primitive STRUCT FIELD (`self.row.clone()`) emitted
-              // `(*((*self).row))` and failed to compile. Same ref-`&` handling
-              // as the main arg loop.
+              // method whose body is one builtin that dereferences its receiver
+              // must receive the receiver BY ADDRESS, so the builtin emits
+              // `(*(&recv))`, not `(*recv)` (which dereferences a value). The
+              // primitive clones were such methods while `Clone.clone` took
+              // `self : &mut Self`: a derived clone of a primitive STRUCT FIELD
+              // (`self.row.clone()`) emitted `(*((*self).row))` and failed to
+              // compile. Same ref-`&` handling as the main arg loop.
               inline_args_amped := _apply_ref_amp(&inline_args, &ia_pir, &dm_runtime, indent.clone(), context);
               return(Option(String).Some(generate_yo_inline_function_call(&op, &inline_args_amped, expr, context, indent.clone())));
             },

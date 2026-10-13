@@ -280,7 +280,7 @@ struct Serializer<'a, W: Write> { out: &'a mut W, depth: usize }
 
 `Formatter` is a struct wrapping `&mut dyn Write`, handed down a call
 tree. Yo's `ToString` (`std/fmt/to_string.yo`) **returns the text**
-instead: `to_string : (fn(self : &mut Self) -> String)`, so there is no
+instead: `to_string : (fn(self : &Self) -> String)`, so there is no
 sink to borrow and the trait object is the returned `String`. A real
 streaming serializer takes its sink per call (shape 4):
 

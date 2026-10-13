@@ -2081,8 +2081,8 @@ test("unique Box: Eq, Hash and Default by payload; no count", {
   h1 := box(UBoxPoint(x : i32(7), y : i32(8)));
   h2 := box(UBoxPoint(x : i32(7), y : i32(8)));
   p := UBoxPoint(x : i32(7), y : i32(8));
-  assert(hash_one(&mut h1) == hash_one(&mut h2), "equal payloads hash alike");
-  assert(hash_one(&mut h1) == hash_one(&mut p), "a box hashes as its payload");
+  assert(hash_one(&h1) == hash_one(&h2), "equal payloads hash alike");
+  assert(hash_one(&h1) == hash_one(&p), "a box hashes as its payload");
   (z : Box(i32)) = (Box(i32) <: Default).default();
   assert(z.* == i32(0), "the default box holds the payload's default");
   comptime_expect_error(ref_count(a), "a uniquely owned cell with no count");
@@ -2151,7 +2151,7 @@ test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
   assert(x.b.x == i32(1), "the derived clone made a new cell");
   assert(!(x == y), "and the payloads now differ");
   z := x.clone();
-  assert(hash_one(&mut x) == hash_one(&mut z), "the derived Hash hashes the payload");
+  assert(hash_one(&x) == hash_one(&z), "the derived Hash hashes the payload");
   e := UBoxChoice.A(b : box(i32(6)));
   f := e.clone();
   match(

@@ -81,7 +81,13 @@ Progress:
     projections, and subscript dispatch through `Index` / `IndexMut` (#1324);
   - V4: decision 31's wrapper patterns `Rc(p)` / `Arc(p)`, Generation A
     (#1327), and the `TypeValue` prep: key-based memos, the module-type
-    rebuild, and the `Acyclic` short-circuit (#1329).
+    rebuild, and the `Acyclic` short-circuit (#1329);
+  - V2b's prerequisite: `Clone.clone`, `ToString.to_string` and the other
+    read-only trait receivers take `self : &Self` (#1347);
+  - two V4 `TypeValue` codegen blockers: value-enum drops are per-type
+    functions, and a recursive enum's `Option(E)` is one C type (#1341);
+  - an S1 fix: a later argument that moves a place an earlier argument
+    lends to the call is E0910 (#1346).
 - **In progress:**
   - The Generation B halves that wait for the v0.2.61 seed:
     - A3's prelude switch (std's `ArrayList`/`Option` on
@@ -90,17 +96,13 @@ Progress:
       shapes;
     - V1 step 2's `src/` sites moving back to `Box`;
     - decision 31's deletion of the implicit `Rc` look-through.
-  - V2b's prerequisite: `Clone.clone`, `ToString.to_string` and the other
-    read-only trait receivers take `self : &Self`
-    (#1333).
   - V3's remaining async work (§3.13): A4, A5's remaining lines, and A6's
     `Rc`-field half (V2c).
-  - V4's `TypeValue`, blocked on two codegen issues
-    (`issues/value-enum-drops-are-emitted-inline-at-every-drop-site.md`,
-    `issues/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md`).
-    Its shape is decided by measurement: a value enum (decision 21) or an
-    `Rc` handle (maintainer, 2026-10-13: the handle if the measurements
-    favor it).
+  - V4's `TypeValue`: the value-enum conversion was built and measured,
+    and `TypeValue` stays an `Rc` handle (decision 21, amended
+    2026-10-13). The two codegen bugs it found are fixed
+    (`issues/fixed/value-enum-drops-are-emitted-inline-at-every-drop-site.md`,
+    `issues/fixed/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md`).
   - Decision 44's follow-up: a closure into a `Dyn(Fn)` slot is `dyn(f)`.
 - **Next:** the rest of V2b (direct projection calls, unique buffers, the
   explicit-copy kind), then the allocator interface version 2 (§6, after
@@ -1048,7 +1050,7 @@ instead.
       28's argument exclusivity
       (`issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-the-future.md`).
       A plain call has the move case too, with the borrow ending at the call
-      (`issues/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`).
+      (`issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`).
     - **Bindings** include a `match` arm's pattern bindings
       (`note_second_class_binding` runs for them), and `_ := f(&mut x, io)`
       is rejected by name: a borrowing future cannot be discarded.
@@ -1558,6 +1560,18 @@ and in git, not a silent edit.
         an `Rc`.
     - **Phase.** The value-root rule lands with V2b. The `Rc` arm is its own
       PR after V1 step 1.
+    - **As built (2026-10-13): a move inside a later argument.** The
+      arguments are evaluated in order, so a place an argument lends (`&x`,
+      `&mut x`, `&mut x.f`, a borrowed receiver) is borrowed while the later
+      arguments run. A later argument that moves the place's root binding,
+      in a nested call or a block (`f(&mut a, eat(a))`), is E0910
+      (`_check_call_lent_place_moves`, `src/evaluator/calls/function.yo`;
+      `issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`).
+      An overwrite or a `&mut` relend in a later argument stays accepted for
+      a plain call (the callee sees the new value); a borrowing future
+      rejects all three (§3.13 A2). Whether a plain call should reject them
+      too is
+      `issues/questions/a-later-argument-overwriting-a-place-lent-to-a-plain-call.md`.
 29. *(Superseded by decision 30, which needs no lowering rule.)* It
     recorded two facts that still hold:
     - **Hylo passes every parameter and result by pointer**, adding only
@@ -3583,7 +3597,7 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     substituted one
     (`issues/the-wrapper-payload-clash-is-not-reported-inside-a-generic-body.md`, S3).
   - **`derive(T, Clone)`** spells a `Deref` field's clone
-    `(typeof(self.f) <: Clone).clone(self.f)` (struct fields and enum
+    `(typeof(self.f) <: Clone).clone(&self.f)` (struct fields and enum
     variant fields), so the six derive-generated sites need no user edit.
   - **Sites rewritten:** `tests/deref_auto.test.yo` (the "own members win"
     test became the clash test) and `tests/rc_cell.test.yo`; `src/` and
@@ -5153,11 +5167,19 @@ compiler; the std shapes are plain structs the seed lowers):
     byte-place test move with it. Dispatch then keys on the prelude traits.
     The draft is branch feat/vbd-v2b-index-mut-genb. Checking it with the
     Generation A compiler found one prerequisite: `Clone.clone` and
-    `ToString.to_string` take `self : &mut Self`, so `xs(i).clone()` through
-    a `&` container becomes a write and E0908
-    (`issues/questions/clone-and-to-string-take-their-receiver-mutably.md`
-    recommends switching both to `&Self` first; that sweep is not
-    seed-gated).
+    `ToString.to_string` took `self : &mut Self`, so `xs(i).clone()` through
+    a `&` container became a write and E0908. Both now take `self : &Self`,
+    as in Rust (`issues/fixed/clone-and-to-string-take-their-receiver-mutably.md`,
+    landed 2026-10-13 ahead of the switch; the sweep was not seed-gated).
+    The audit of every other std trait receiver followed: `Hash.hash`,
+    `Hasher.finish`, `Debug.debug_string`, `Format.format`,
+    `ToJson.to_json` and `Error.source` only read their receiver and now
+    take `self : &Self`, and `hash_one`/`HashMap._hash` borrow their value
+    with `&`; `Hasher.write*`, `Iterator.next`/`next_back` and
+    `log.Sink.write_line` write and keep `&mut Self`, and `Index`,
+    `IndexUnchecked` and `ComptimeIndex` are this switch's own change
+    (`issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md`,
+    2026-10-13; not seed-gated either).
 - **Unique buffers.**
   - `ArrayList(T)` owns a plain buffer, with `Dispose` (free) and `Trace`
     (visit each slot) on its private buffer type. The same goes for every

@@ -3665,3 +3665,89 @@ test("compile-time locals in a compile-time function body stay mutable", {
   comptime_assert(ct_factorial(i32(5)) == 120);
   assert(_rt_factorial(i32(4)) == i32(24), "the runtime function is unchanged");
 });
+// `&&` / `||` with a compile-time operand and a runtime operand. A compile-time
+// identity operand (`true &&`, `false ||`) decides nothing, so the result is
+// the runtime operand, never the constant
+// (issues/fixed/comptime-identity-operand-folds-and-or-to-a-constant.md).
+_ao_and_left :: (fn(flag : bool) -> i32)(cond((true && flag) => i32(2), true => i32(3)));
+_ao_and_right :: (fn(flag : bool) -> i32)(cond((flag && true) => i32(2), true => i32(3)));
+_ao_or_left :: (fn(flag : bool) -> i32)(cond((false || flag) => i32(2), true => i32(3)));
+_ao_or_right :: (fn(flag : bool) -> i32)(cond((flag || false) => i32(2), true => i32(3)));
+_ao_value :: (fn(flag : bool) -> bool)(true && flag);
+_ao_let :: (fn(flag : bool) -> i32)({
+  x := (true && flag);
+  cond(x => i32(2), true => i32(3))
+});
+_ao_if :: (fn(flag : bool) -> i32)(if(true && flag, i32(2), i32(3)));
+_ao_nested :: (fn(a : bool, b : bool) -> i32)(cond(((true && a) || (false || b)) => i32(2), true => i32(3)));
+_ao_not :: (fn(flag : bool) -> i32)(cond(!(true && flag) => i32(2), true => i32(3)));
+_ao_chain :: (fn(a : bool, b : bool) -> i32)(cond((true && a && true && b) => i32(2), true => i32(3)));
+_AO_ON :: true;
+_AO_OFF :: false;
+_ao_named :: (fn(flag : bool) -> i32)(cond((_AO_ON && flag) => i32(2), (_AO_OFF || flag) => i32(4), true => i32(3)));
+test("&& / || with a compile-time identity operand keep the runtime operand", {
+  assert(_ao_and_left(false) == i32(3), "true && false");
+  assert(_ao_and_left(true) == i32(2), "true && true (runtime)");
+  assert(_ao_and_right(false) == i32(3), "false && true");
+  assert(_ao_and_right(true) == i32(2), "true && true (runtime first)");
+  assert(_ao_or_left(false) == i32(3), "false || false");
+  assert(_ao_or_left(true) == i32(2), "false || true");
+  assert(_ao_or_right(false) == i32(3), "false || false (runtime first)");
+  assert(_ao_or_right(true) == i32(2), "true || false (runtime first)");
+  assert(!_ao_value(false), "value position");
+  assert(_ao_value(true), "value position, true");
+  assert(_ao_let(false) == i32(3), "let-bound guard");
+  assert(_ao_let(true) == i32(2), "let-bound guard, true");
+  assert(_ao_if(false) == i32(3), "if guard");
+  assert(_ao_if(true) == i32(2), "if guard, true");
+  assert(_ao_nested(false, false) == i32(3), "nested, both false");
+  assert(_ao_nested(true, false) == i32(2), "nested, left true");
+  assert(_ao_nested(false, true) == i32(2), "nested, right true");
+  assert(_ao_not(false) == i32(2), "negated guard");
+  assert(_ao_not(true) == i32(3), "negated guard, true");
+  assert(_ao_chain(true, false) == i32(3), "chain with identities");
+  assert(_ao_chain(true, true) == i32(2), "chain with identities, both true");
+  assert(_ao_named(false) == i32(3), "named constants");
+  assert(_ao_named(true) == i32(2), "named constants, true");
+});
+test("&& / || over compile-time operands only still fold", {
+  comptime_assert(true && true);
+  comptime_assert(!(true && false));
+  comptime_assert(!(false || false));
+  comptime_assert(false || true);
+  comptime_assert(_AO_ON && _AO_ON && true);
+  comptime_assert(_AO_OFF || _AO_ON);
+  // The last cond guard must be compile-time `true`, so these only compile
+  // when the identity-only operands still fold.
+  x := cond((false || false) => i32(1), (true && true) => i32(2));
+  assert(x == i32(2), "cond over folded guards");
+  y := cond((_AO_OFF || _AO_OFF) => i32(1), (_AO_ON && _AO_ON) => i32(2));
+  assert(y == i32(2), "cond over named constants");
+});
+// A short circuit AFTER a runtime operand still evaluates that operand: the
+// value is known, the side effect is not optional
+// (issues/fixed/and-or-short-circuit-after-a-runtime-operand-drops-its-side-effects.md).
+_AoHits :: ref(struct(n : i32));
+_ao_hit :: (fn(h : _AoHits, v : bool) -> bool)({
+  h.n = (h.n + i32(1));
+  v
+});
+_ao_hit_and_false :: (fn(h : _AoHits) -> i32)(cond((_ao_hit(h, true) && false) => i32(2), true => i32(3)));
+_ao_hit_or_true :: (fn(h : _AoHits) -> i32)(cond((_ao_hit(h, false) || true) => i32(2), true => i32(3)));
+_ao_hit_value :: (fn(h : _AoHits) -> bool)(_ao_hit(h, true) && false);
+_ao_hit_if :: (fn(h : _AoHits) -> i32)(if(_ao_hit(h, false) || true, i32(2), i32(3)));
+test("&& / || short-circuiting after a runtime operand still run it", {
+  h := _AoHits(n : i32(0));
+  assert(_ao_hit_and_false(h) == i32(3), "rt && false is false");
+  assert(h.n == i32(1), "rt && false evaluates rt");
+  assert(_ao_hit_or_true(h) == i32(2), "rt || true is true");
+  assert(h.n == i32(2), "rt || true evaluates rt");
+  assert(!_ao_hit_value(h), "rt && false value");
+  assert(h.n == i32(3), "rt && false value evaluates rt");
+  assert(_ao_hit_if(h) == i32(2), "if(rt || true)");
+  assert(h.n == i32(4), "if(rt || true) evaluates rt");
+  // A compile-time short circuit BEFORE the runtime operand skips it.
+  z := (false && _ao_hit(h, true));
+  assert(!z, "false && rt");
+  assert(h.n == i32(4), "false && rt does not evaluate rt");
+});

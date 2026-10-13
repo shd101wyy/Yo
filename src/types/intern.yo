@@ -312,7 +312,13 @@ _intern_key_into :: (
         // alike and interned to ONE type, so a third `map` in a chain returned
         // the second's type (issues/fixed/a-stream-combinator-used-twice-in-one-chain-emits-two-c-types.md).
         tok := _ik_node_token("S:", &sid, &sta, usize(0), depth, visited);
-        if(visited.contains(&tok), {
+        // Only a token with an id names a type already rendered. An empty id
+        // (comptime struct values, source namespaces, hand-built types) names
+        // nothing, so its token would merge every empty-id type nested in
+        // another: render it in full (the depth cap ends a real cycle). The
+        // other three arms follow the same rule
+        // (issues/fixed/the-structural-type-key-merges-nested-empty-id-types.md).
+        if((sid.len() > usize(0)) && visited.contains(&tok), {
           sb.write_string(&tok);
         }, {
           visited.insert(tok.clone());
@@ -355,7 +361,7 @@ _intern_key_into :: (
         // `wrap(wrap(String))` keyed alike
         // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
         tok := _ik_node_token("E:", &eid, &etas, usize(0), depth, visited);
-        if(visited.contains(&tok), {
+        if((eid.len() > usize(0)) && visited.contains(&tok), {
           sb.write_string(&tok);
         }, {
           visited.insert(tok.clone());
@@ -410,7 +416,7 @@ _intern_key_into :: (
       .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc, tatcl, tatct) => {
         tok := String.from("Tr:");
         tok.push_string(&tid);
-        if(visited.contains(&tok), {
+        if((tid.len() > usize(0)) && visited.contains(&tok), {
           sb.write_string(&tok);
         }, {
           visited.insert(tok.clone());
@@ -477,7 +483,7 @@ _intern_key_into :: (
       .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smkft, smrcp) => {
         tok := String.from("So:");
         tok.push_string(&smid);
-        if(visited.contains(&tok), {
+        if((smid.len() > usize(0)) && visited.contains(&tok), {
           sb.write_string(&tok);
         }, {
           visited.insert(tok.clone());

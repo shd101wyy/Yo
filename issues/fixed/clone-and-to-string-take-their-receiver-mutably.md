@@ -1,9 +1,42 @@
-# `Clone.clone` and `ToString.to_string` take `self : &mut Self`, so an element read through `&` cannot call them after the `Index` split
+# `Clone.clone` and `ToString.to_string` take `self : &mut Self`, so an element read through `&` cannot call them after the `Index` split (DECIDED)
 
 **Kind:** design question: an open decision, not a defect. Filed 2026-10-13
 by the V2b "Projections first" work (`plans/VALUES_BY_DEFAULT.md` V2b,
 branch feat/vbd-v2b-index-mut, Generation B draft
 feat/vbd-v2b-index-mut-genb).
+
+**Verdict (2026-10-13):** Option 1, as recommended. `Clone.clone` and
+`ToString.to_string` take `self : &Self`, and the sweep landed with it:
+every impl in `std/`, `src/` and `tests/` that spelled the receiver, the
+`derive(Clone)` rule's `Deref`-field spelling (`(type_of(self.f) <:
+Clone).clone(&self.f)`), and the instruction, cheatsheet and user docs (the
+applied `Rc(i32).clone(&b)` call sites were respelled by #1328). The
+`derive(Clone)`, `derive(ToString)` and `derive(Error)` rules write an
+unannotated `self -> ...` member, so they take the trait's new mode with no
+edit (the `Box` and `Rc` impls already spelled `self : &Self`, #1328); `x.clone()`
+on a `Copy` type expands to `x` and has no receiver. The prelude's primitive,
+`str` and raw-pointer clones were `self -> __yo_return_self(self)`. That
+builtin is inlined as `(*arg)`: it assumes the receiver arrives as a pointer,
+which a `&mut Self` receiver did and a `&Self` receiver of a scalar does not
+(it is passed by value). The v0.2.59 seed compiled the compiler to C that
+dereferenced a `u8`/`usize` (`(*__yo_v_item)` in `ArrayList(u8).clone`,
+`(*__yo_v_self.__yo_v_row)` in a derived clone), so those bodies are now
+`self -> self`, a plain copy out of the borrow, and `__yo_return_self` has no
+caller left (`issues/fixed/yo-return-self-dereferences-a-by-value-receiver.md`). No body
+mutated its receiver: the two channel `Sender` clones count a new sender in
+the shared channel record behind `self._ch`, which is not a write of the
+receiver. `StringBuilder.to_string`, which does detach the buffer, is an
+inherent method rather than the `ToString` member, and keeps `self : &mut
+Self`. One premise below was wrong: a user impl that keeps `self : &mut Self`
+did NOT get a mode-mismatch error, since receiver forms are free in trait
+conformance. That gap let a call through `&Dyn(Trait)` write through a
+read-only borrow; it is now an error at the impl
+(`issues/fixed/an-impl-may-write-a-receiver-its-trait-lends-read-only.md`).
+`Hash.hash` and `Debug.debug_string` also take `self : &mut Self` while only
+reading it, so they have the same hole after the `Index` split; they are not
+part of this decision (the follow-up audit switched them, with `Format.format`,
+`ToJson.to_json`, `Error.source` and `Hasher.finish`:
+`issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md`).
 
 ## The hole
 

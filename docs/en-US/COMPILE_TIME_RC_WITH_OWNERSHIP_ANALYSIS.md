@@ -99,7 +99,7 @@ collection, an `Rc`, …) cannot be written through it, because the write would 
 the caller still holds (E0908). The same holds for a `match` or `for` binding, and for
 passing such a place to a `&mut` parameter the callee may write, including calling a
 `&mut self` method such as `push_str` on it: the write would land in the borrowed copy
-alone. Read-only `&mut self` methods (`clone`, `to_string`) and indexing stay allowed.
+alone. Read-only `&self` methods (`clone`, `to_string`) and indexing stay allowed.
 Take the parameter as `sink(p) : T` or `p : &mut T`, or copy it into a local first:
 
 ```yo

@@ -2761,19 +2761,9 @@ _reject_lent_place_conflict :: (fn(at : &AstExpr, what : &String, lp : &_LentPla
 /// overwritten or lent `&mut` by `args` from `from` on.
 _check_lent_place_untouched_after :: (fn(place : &AstExpr, lent_arg : &AstExpr, args : &ArrayList(AstExpr), from : usize, ctx : &EvalContext, exn : Exception) -> unit)({
   lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
-  // A move: the root binding is consumed once the call's arguments are
-  // evaluated. It was not before (`&x` of a moved binding is E0901), so a
-  // later argument moved it.
   match(
-    _lent_root_variable(&lp.root, ctx),
-    .Some(rv) => match(
-      rv.consumed_at_token,
-      .Some(moved_at) => {
-        moved_atom := AstExpr.Atom(alloc_global_expr_id(), moved_at.*.clone());
-        _reject_lent_place_conflict(&moved_atom, &String.from("argument moves"), &lp, lent_arg, ctx, exn);
-      },
-      .None => ()
-    ),
+    _lent_place_moved_at(&lp, ctx),
+    .Some(moved_atom) => _reject_lent_place_conflict(&moved_atom, &String.from("argument moves"), &lp, lent_arg, ctx, exn),
     .None => ()
   );
   (ai : usize) = from;
@@ -2788,6 +2778,132 @@ _check_lent_place_untouched_after :: (fn(place : &AstExpr, lent_arg : &AstExpr, 
       .None => ()
     );
   });
+});
+/// Where the root binding of `lp`, a place an argument of the call just
+/// evaluated lends, was moved. The root is consumed once the call's arguments
+/// are evaluated; it was not before (`&x` of a moved binding is E0901), so a
+/// later argument moved it.
+_lent_place_moved_at :: (fn(lp : &_LentPlace, ctx : &EvalContext) -> Option(AstExpr))(
+  match(
+    _lent_root_variable(&lp.root, ctx),
+    .Some(rv) => match(rv.consumed_at_token, .Some(moved_at) => Option(AstExpr).Some(AstExpr.Atom(alloc_global_expr_id(), moved_at.*.clone())), .None => Option(AstExpr).None),
+    .None => Option(AstExpr).None
+  )
+);
+/// Decision 28's argument exclusivity across a whole argument list: the
+/// arguments are evaluated in order, so a place an argument lends (`&x`,
+/// `&mut x`, `&mut x.f`, or the receiver of a method that borrows `self`) is
+/// borrowed while the later arguments run. A later argument that moves the
+/// place's root binding (`f(&mut a, eat(a))`, a move inside a nested call or
+/// a block) leaves the callee reading and writing a moved-out, disposed
+/// place. An overwrite or a `&mut` relend in a later argument finishes before
+/// the call runs, and the callee sees the new value, so it stays accepted
+/// (issues/questions/a-later-argument-overwriting-a-place-lent-to-a-plain-call.md).
+/// A call that makes a borrowing future checks its captured places first,
+/// with the stricter §3.13 A2 rule (`_check_future_call_argument_conflicts`).
+/// A root in `moved_before` was already moved when the call started
+/// (`_lent_roots_moved_before`), so no argument of this call moved it.
+_check_call_lent_place_moves :: (fn(call : &AstExpr, moved_before : &ArrayList(String), ctx : &EvalContext, exn : Exception) -> unit)({
+  op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(()));
+  // The receiver of a method whose `self` is a borrow (`self : &Self`,
+  // `self : &mut Self`): `recv.m(args)` lends a place named by the receiver.
+  // A by-value `self` moves the receiver itself, and a later use of it is
+  // E0901.
+  match(
+    _call_receiver_place(call),
+    .Some(recv) => {
+      recv_borrowed := match(
+        lookup_method_callee_value(ast_expr_id(call)),
+        .Some(.FuncVal(mfv, _)) => match(
+          get_func_type(&mfv.*.func_id),
+          .Func({ param_types : mpt, meta : mm }) => ((mpt.len() == (op_args.len() + usize(1))) && !match(mm.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => true)),
+          _ => false
+        ),
+        _ => false
+      );
+      if(recv_borrowed, {
+        _check_lent_place_not_moved(&recv, &recv, moved_before, ctx, exn);
+      });
+    },
+    .None => ()
+  );
+  (ai : usize) = usize(0);
+  while(ai < op_args.len(), ai = (ai + usize(1)), {
+    lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+    match(_lent_argument_place(&lent), .Some(place) => _check_lent_place_not_moved(&place, &lent, moved_before, ctx, exn), .None => ());
+  });
+});
+/// The receiver of `call` when it is a method call `recv.m(args)` on a
+/// receiver that is a name or a field chain on one.
+_call_receiver_place :: (fn(call : &AstExpr) -> Option(AstExpr))({
+  (op_callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(Option(AstExpr).None));
+  if(!ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))), {
+    return(Option(AstExpr).None);
+  });
+  recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(Option(AstExpr).None)), .Atom(_, _) => return(Option(AstExpr).None));
+  if(_is_plain_place_expr(&recv), Option(AstExpr).Some(recv), Option(AstExpr).None)
+});
+/// The place an argument `&x`/`&mut x` lends.
+_lent_argument_place :: (fn(lent : &AstExpr) -> Option(AstExpr))(
+  if(ast_expr_is_fn_call_of(lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(lent, "&mut", .Some(usize(1))), match(lent, .FnCall(_, _, m_args, _, _) => m_args.get(usize(0)), .Atom(_, _) => Option(AstExpr).None), Option(AstExpr).None)
+);
+/// The root names of the places `call` may lend (its `&x`/`&mut x` arguments
+/// and its receiver) whose binding is already moved before the call's
+/// arguments are evaluated. Only `yo fix --migrate match-scrutinee` reads
+/// such a binding (it evaluates past a by-value `match` it is migrating to
+/// `match(&x, …)`); everywhere else `&x` of a moved binding is E0901.
+_lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(out));
+  places := ArrayList(AstExpr).new();
+  match(_call_receiver_place(call), .Some(r) => places.push(r), .None => ());
+  (ai : usize) = usize(0);
+  while(ai < op_args.len(), ai = (ai + usize(1)), {
+    lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+    match(_lent_argument_place(&lent), .Some(p) => places.push(p), .None => ());
+  });
+  (pi : usize) = usize(0);
+  while(pi < places.len(), pi = (pi + usize(1)), {
+    match(
+      places.get(pi),
+      .Some(p) => match(
+        _lent_place_of(&p),
+        .Some(lp) => {
+          name := ast_expr_token(&lp.root).value.clone();
+          if(match(get_variables_from_env(env, &name).last(), .Some(v) => v.consumed_at_token.is_some(), .None => false), {
+            out.push(name);
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
+  out
+});
+/// `place`, lent to a call by `lent_arg`, was not moved by a later argument.
+_check_lent_place_not_moved :: (fn(place : &AstExpr, lent_arg : &AstExpr, moved_before : &ArrayList(String), ctx : &EvalContext, exn : Exception) -> unit)({
+  lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
+  (mi : usize) = usize(0);
+  while(mi < moved_before.len(), mi = (mi + usize(1)), {
+    if(match(moved_before.get(mi), .Some(n) => (n == ast_expr_token(&lp.root).value), .None => false), {
+      return(());
+    });
+  });
+  moved_atom := match(_lent_place_moved_at(&lp, ctx), .Some(m) => m, .None => return(()));
+  root := ast_expr_to_string(&lp.root);
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        ast_expr_token(&moved_atom),
+        `This argument moves \`${root}\`, which an earlier argument of the same call lends to it (\`${ast_expr_to_string(lent_arg)}\`): the arguments are evaluated in order, so the callee would read and write a place whose value was already moved out and dropped (decision 28's argument exclusivity, plans/VALUES_BY_DEFAULT.md).`,
+        Option(String).Some(`move a copy instead (\`${root}.clone()\`), or split the call so the move comes after it`)
+      ),
+      E_BORROW_CONFLICT
+    ),
+    ctx,
+    exn
+  );
 });
 /// Some borrow in `bs` is rooted at the binding named `name`.
 _borrows_root_named :: (fn(bs : &ArrayList(CaptureBorrow), name : &String) -> bool)({
@@ -5924,10 +6040,12 @@ evaluate_function_call :: (
 )({
   call_tok := ast_expr_token(expr);
   call_mp := call_tok.module_path.clone();
+  moved_before := _lent_roots_moved_before(expr, env);
   if(is_auto_generated_expansion(Option(String).Some(call_mp.clone())) || is_std_module_path(&call_mp, ctx.std_path.clone()), {
     std_r := _evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn);
     _attach_fnonce_callee_release(expr, &std_r, ctx);
     _note_future_producing_call(expr, &std_r, ctx, exn);
+    _check_call_lent_place_moves(expr, &moved_before, ctx, exn);
     return(std_r);
   });
   out := ArrayList(AstExpr).new();
@@ -5941,6 +6059,7 @@ evaluate_function_call :: (
       r := match(out.get(usize(0)), .Some(e) => e, .None => expr);
       _attach_fnonce_callee_release(expr, &r, ctx);
       _note_future_producing_call(expr, &r, ctx, exn);
+      _check_call_lent_place_moves(expr, &moved_before, ctx, exn);
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
       });
@@ -8061,14 +8180,12 @@ Fix: wrap the call:
         // from the macro registry keyed by this FuncVal's id (registered at
         // fn-type evaluation, re-keyed by
         // `try_to_implement_function_by_function_type`).
-        // Macro DISPATCH is part of the def-eval propagation experiment
-        // layer, NOT enabled in committed builds: executing macro bodies
-        // intermittently corrupts the heap (allocator SIGTRAPs at innocent
-        // sites; ~50%% on heavy files) — the underlying Rc/copy issue is
-        // tracked in issues/fixed/codegen-continue-in-while-heap-corruption.md
-        // and issues/fixed/yo-self-macro-dispatch-corruption.md. The REGISTRY
-        // (quoted params / unquote returns) stays populated so the
-        // experiment patch only has to flip this constant.
+        // Macro DISPATCH runs a call to a macro fn through its macro body.
+        // MACRO_DISPATCH_ENABLED has been ON since 2026-06-11: the heap
+        // corruption that kept it off was two early-return RC bugs, both
+        // fixed (issues/fixed/codegen-continue-in-while-heap-corruption.md,
+        // issues/fixed/yo-self-macro-dispatch-corruption.md). `is_macro_fn`
+        // reads the REGISTRY (quoted params / unquote returns).
         fv_is_macro := (MACRO_DISPATCH_ENABLED && is_macro_fn(func_id_fv.clone()));
         // Early generic synthesis from the expected return type. When this call has an expected type, the function has
         // `generic` parameters, and there is NO explicit `generic(...)` argument,

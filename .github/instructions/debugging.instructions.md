@@ -189,6 +189,23 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
   `yo compile src/main.yo --emit-chunks auto --jobs 16 --optimize 1 -o /tmp/yo-dbg`
   (host: a stage-1). Use it for debug-trace rounds; gate on a real
   `yo build --std-path ./std`.
+- **A `cond`/`if` guard `comptime_const && runtime` (or `comptime_const ||
+  runtime`) folded to the constant** in compilers up to v0.2.60 when the
+  constant does not short-circuit (`true && x`, `false || x`): the arm was
+  always taken, or never taken. FIXED in the tree
+  (`issues/fixed/comptime-identity-operand-folds-and-or-to-a-constant.md`):
+  `evaluate_and_or` keeps a compile-time value only for an all-constant
+  operand list or a short circuit that comes before every runtime operand
+  (`rt && false` stays runtime so `rt` still runs,
+  `issues/fixed/and-or-short-circuit-after-a-runtime-operand-drops-its-side-effects.md`).
+  std is still built by the seed until a release carries the fix, so a std
+  guard whose arm MUST run keeps the nested-`cond` form
+  (`ArrayList.ensure_total_capacity`). When a seed-built binary shows an empty
+  emitted `if/else`, suspect this first.
+- **Never `git stash` in a worktree.** Worktrees share the stash list with the
+  main checkout, so a failed `stash push` followed by `stash pop` applies a peer
+  session's stash. Compare before/after states with file copies (a copy of
+  `std/` must sit in a directory named `std`, or the prelude is not recognized).
 
 ## `check`-only rejections from a body in another module (2026-10-01)
 
@@ -209,6 +226,22 @@ binder means Step 7's re-evaluation lost a binding that Step 6 made
   `stable_func_id(module, row, column)`; a `--watch` / LSP re-evaluation keeps
   the id and mints a new body. Key anything memoized per function by the body's
   `ExprId` too (`issues/fixed/mutation-summary-memos-answer-for-a-re-evaluated-body.md`).
+
+## Two C types for one Yo type: diff the two `type_key`s
+
+`type_key` (`src/types/type_key.yo`) is history-dependent. Its cycle guard
+(`g_tk_visited`, reset per top-level call) renders an already-seen node
+id-only, and `g_struct_cfid_keys` poisons a shared struct id to `!AMBIG`.
+So the same Yo type can key two ways, depending on the copy and the moment.
+When clang reports `initializing '__yo_t_A' with an expression of
+incompatible type '__yo_t_B'` for two structs with one layout, print the
+`type_key` of each collected type whose `type_to_string` matches (a
+temporary `eprintln` gated by a `debug_knob`, at the top of `collect_type`)
+and diff the two keys token by token. The differing token names the nested
+type whose rendering split. For example, a recursive enum's
+`ArrayList(ArrayList(Self))` keyed once expanded and once id-only, because
+`_tk_arg_id` spelled the self-shell apart from its final
+(issues/fixed/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md).
 
 ## Naming `yo_id_…` frames: `YO_DEBUG_FN_ORIGIN=1`
 

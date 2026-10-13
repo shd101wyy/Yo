@@ -355,6 +355,9 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
     return(_call_generate_expr(match(args.get(usize(0)), .Some(a) => a, .None => expr), indent.clone(), context));
   });
   // Fold compile-time operands: a `false` short-circuits, a `true` is dropped.
+  // A short circuit AFTER a runtime operand still runs that operand, so the
+  // constant becomes the last operand instead of the whole result
+  // (issues/fixed/and-or-short-circuit-after-a-runtime-operand-drops-its-side-effects.md).
   runtime_args := ArrayList(AstExpr).new();
   n := args.len();
   (i : usize) = usize(0);
@@ -364,7 +367,11 @@ generate_op_and :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGen
       .Some(arg) => match(
         _comptime_bool(&arg, context),
         .Some(b) => if(!b, {
-          return(String.from("false"));
+          if(runtime_args.len() == usize(0), {
+            return(String.from("false"));
+          });
+          runtime_args.push(arg);
+          i = n;
         }),
         .None => {
           runtime_args.push(arg);
@@ -509,6 +516,7 @@ generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     return(_call_generate_expr(match(args.get(usize(0)), .Some(a) => a, .None => expr), indent.clone(), context));
   });
   // Fold compile-time operands: a `true` short-circuits, a `false` is dropped.
+  // A short circuit after a runtime operand stays the last operand (see `&&`).
   runtime_args := ArrayList(AstExpr).new();
   n := args.len();
   (i : usize) = usize(0);
@@ -518,7 +526,11 @@ generate_op_or :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       .Some(arg) => match(
         _comptime_bool(&arg, context),
         .Some(b) => if(b, {
-          return(String.from("true"));
+          if(runtime_args.len() == usize(0), {
+            return(String.from("true"));
+          });
+          runtime_args.push(arg);
+          i = n;
         }),
         .None => {
           runtime_args.push(arg);

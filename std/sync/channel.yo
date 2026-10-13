@@ -126,7 +126,7 @@ export(TryRecvError);
 impl(
   TryRecvError,
   ToString(
-    to_string : (fn(self : &mut Self) -> String)(
+    to_string : (fn(self : &Self) -> String)(
       match(
         self,
         .Empty => String.from("channel empty"),
@@ -466,7 +466,7 @@ impl(
   where(T <: (Send, Acyclic)),
   /// Another producer over the same queue, counted.
   Clone(
-    clone : (fn(self : &mut Self) -> Self)({
+    clone : (fn(self : &Self) -> Self)({
       _prev := self._ch._senders.fetch_add(usize(1), MemoryOrder.Relaxed);
       Self(_ch : self._ch)
     })
