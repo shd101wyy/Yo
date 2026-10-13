@@ -36,6 +36,11 @@ No container grew a field: the owner bit lives in a word each already had.
   `Send`, never reference counted. The vtable is `alloc`, `realloc`, `free`,
   context first; frozen. Global vtables are module-level `:=` values
   (D9).
+  - **Version 2 is queued after V2b** (maintainer, 2026-10-13): an
+    alignment parameter on `alloc`/`realloc`, and `free` told the block's
+    size and alignment, so Zig-style allocators (aligned, page, pool, slab)
+    fit. The design is in `plans/VALUES_BY_DEFAULT.md` §6 ("After V2b: the
+    allocator interface, version 2"). This page is amended when it lands.
 - `with_allocator(a, f)` — a std function, not a keyword (D2). It makes `a`
   current on this thread while `f` runs; an RAII guard (a plain `ref`
   struct, not generic in `T`) restores the previous scope on every exit. The six user-visible RC constructor sites (`ref`
