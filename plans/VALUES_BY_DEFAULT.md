@@ -1338,6 +1338,30 @@ and in git, not a silent edit.
     immutable after construction, so `Rc` shares them honestly. The small
     trees (`Pattern`, `VcSort`, `VcTerm`, `Z3Sexpr`) take `Box`. `EvalValue`
     is decided and measured in its own V4 PR.
+    - **Amended 2026-10-13 (maintainer verdict: "Rc handle when the
+      measurements favor it"): `TypeValue` stays an `Rc` handle.** The value
+      enum with `Rc(Self)` children was built and measured, and lost. A
+      value `TypeValue` is 88 B, and every copy is a memcpy plus one count
+      bump per counted child (its per-type dup function) and the matching
+      drop walk. The handle is 8 B, and a copy is one count bump. Measured on
+      macOS arm64, both trees built by the same tree compiler (develop
+      967cbd441 + #1338 + #1341), stage-2 binaries with a GC-registration
+      probe:
+
+      | stage-2 compiler | `check ./src` | self-emit (`src/main.yo`) | emitted C | GC registrations (check / emit) |
+      | --- | --- | --- | --- | --- |
+      | `TypeValue` a handle (`ref(enum)`, today) | 190.6 s, 1.27 GB | 406.3 s, 3.25 GB | 138.0 MB | 73.2 M / 87.6 M |
+      | `TypeValue` a value enum, `Rc(Self)` children | 432.9 s, 1.46 GB | 1044.7 s, 4.22 GB | 143.1 MB | 73.3 M / 87.7 M |
+
+      Check is 2.3× slower and emit 2.6× slower, with 15–30 % more RSS. No
+      collector work is saved: the handle already leaves the collector
+      through its declared `Acyclic` (§3.12, #1329). The converted tree
+      itself is correct: it self-builds, and its stage 2 equals stage 3.
+      Branch `feat/vbd-v4-typevalue-2` keeps it as the record. At V5,
+      `TypeValue`'s `ref(enum)` becomes an `Rc` handle at the type level
+      (the enum with `Self` children behind one `Rc`, so its children are
+      handles too), not a value enum. `AstExpr` and `EvalValue` are measured
+      the same way before either converts.
 22. **Non-escaping closures borrow, escaping closures own, and a closure's
     kind follows its captures** (the structural rule of §0.2 applied to the
     capture struct).
@@ -5154,10 +5178,13 @@ compiler; the std shapes are plain structs the seed lowers):
 Per type, in this order, each its own measured PR (`check ./src` time,
 stage-2 RSS):
 
-- **`TypeValue`:** `ref(enum)` → `enum` with `Rc(Self)` children (decision
-  21). It is near value-ready: `clone` returns `self`, there are no pointer
-  cycles, and recursion goes through `__self_shell` and id-keyed
-  registries.
+- **`TypeValue`: stays an `Rc` handle** (decision 21 as amended
+  2026-10-13: the value enum with `Rc(Self)` children was measured 2.3×
+  slower in `check ./src` and 2.6× slower in the self-emit). The four
+  representation-independent items below landed in #1329 and stay. The
+  conversion found two codegen bugs that any large recursive value enum
+  hits, and they are fixed (#1338, #1341). At V5 the `ref(enum)` becomes
+  an `Rc` handle at the type level.
   - Replace the three `__yo_ptr_eq` memo and cycle-path checks
     (`src/types/hierarchy.yo`, `src/types/utils.yo`) with key-based ones.
   - Rebuild the module type in `update_module_cache_slot`
@@ -5239,7 +5266,7 @@ stage-2 RSS):
 | `T :: ref(struct(...))` mutated through one handle only | `T :: struct(...)`, mutators `self : &mut Self` | E0908 audit |
 | `T :: ref(struct(...))` held in two places on purpose | `struct(...)` plus `Rc(T)` at the sharing site | E0908 audit, `__yo_ptr_eq` sites |
 | `T :: atomic(ref(struct(...)))` shared across threads | `Arc(T)` over a value `T` (requires `T <: (Send, Sync)`) | E0602 at the `Arc` |
-| `T :: ref(enum(... Self ...))` | `enum(... Box(Self) ...)`, or `Rc(Self)` for the large compiler trees | V4 list |
+| `T :: ref(enum(... Self ...))` | `enum(... Box(Self) ...)`, or `Rc(Self)` children for the large compiler trees; `TypeValue` stays an `Rc` handle at the type level (decision 21, amended 2026-10-13) | V4 list |
 | `Box(T)` whose copies must alias | `Rc(T)` | V1 step 1 renames all; step 2 moves recursion back |
 | an implicit copy of a `String`, collection, `Box` or `Dyn` whose source lives on | `x.clone()`, a move, or `y := &x` | E0901 + note (V2b) |
 | an implicit `Rc`/`Arc` copy | `r.clone()` | E0901 (V2c) |
@@ -5284,7 +5311,9 @@ stage-2 RSS):
   - The PR carries negative tests: re-pointing to a sibling root, and to a
     place a callee could reach.
 - **The compiler's trees (decision 21).** With `Rc` children, `check ./src`
-  time and RSS should stay flat. V4 measures each tree.
+  time and RSS should stay flat. V4 measures each tree. `TypeValue` did not
+  stay flat as a value enum (2.3× the check time), so it stays a handle
+  (decision 21's 2026-10-13 amendment).
 - **Auto-dereference precedence.** Decision 32 makes a wrapper/payload name
   clash an error. So the risk is the error's text: it must name both
   spellings, and `yo fix` must offer them.
