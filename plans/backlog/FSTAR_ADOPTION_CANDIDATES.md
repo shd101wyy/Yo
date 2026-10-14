@@ -424,7 +424,8 @@ brings the definitional axiom into scope.
 
 **Verdict: adopt when measured, size S.** Trigger: SELF_VERIFICATION M2
 obligations whose contexts carry more than N transparent definitions, or
-the 20× escalation firing on goals whose core (F4) uses none of them.
+the 20× escalation firing on goals whose core (F4, once it names the
+assumptions) uses none of them.
 
 ### F7 Fuel: bounded unfolding of recursive spec functions
 
@@ -445,9 +446,8 @@ A spec-transparent runtime function (A3) uses the same encoding
 uninterpreted application plus its definitional axiom, and E-matching
 unfolds it (`sum_to(i32(3)) == i32(6)` is a solver query today).
 `_fold_term` (`vc.yo:1077`) folds operator applications only, and the
-evaluator does not CTFE a runtime-typed `ghost_fn` call. A `ghost_fn`
-without `decreases` is inlined, so a closed application of one does fold
-(`sq(i32(3)) == i32(9)` reports `PROVED (folded)`).
+evaluator does not CTFE a runtime-typed `ghost_fn` call. The inlined
+kind does fold: `sq(i32(3)) == i32(9)` reports `PROVED (folded)`.
 
 **Proposal.** (i) Fold closed ghost terms through the evaluator before
 encoding — Yo's normalizer is CTFE, and `count(seq_unit(1), 1) == 1`
@@ -502,7 +502,7 @@ not the conjunct. Loop-invariant conjuncts are already walked in order
 **Proposal.** Split a clause's top-level `&&` into `ensures#N.k`
 obligations with the same ordered-conjunct rule; FV §Diagnostics'
 "smallest violated clause" then falls out by construction instead of from
-the core. Pairs with F4's stable ids.
+the core (which is empty today, F4). Pairs with F4's stable ids.
 
 **Verdict: adopt, size S.** No trigger needed.
 
