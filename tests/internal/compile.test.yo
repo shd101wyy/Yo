@@ -267,7 +267,9 @@ test("a specialization reached through a call gets the hashed C name, not its ra
     cond(
       is_ident => {
         if(run_len == usize(0), {
-          in_yo_id = (((i + usize(6)) <= n) && (c_text.substring(i, i + usize(6)) == String.from("yo_id_")));
+          // Byte compares: the C carries UTF-8 comments, so a `substring`
+          // could split a code point.
+          in_yo_id = (((i + usize(6)) <= n) && ((c_text.byte_at(i) == u8(121)) && ((c_text.byte_at(i + usize(1)) == u8(111)) && ((c_text.byte_at(i + usize(2)) == u8(95)) && ((c_text.byte_at(i + usize(3)) == u8(105)) && ((c_text.byte_at(i + usize(4)) == u8(100)) && (c_text.byte_at(i + usize(5)) == u8(95))))))));
         });
         run_len = (run_len + usize(1));
       },
