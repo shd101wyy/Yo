@@ -2,7 +2,11 @@
 
 **Severity:** S1 — copy + address-of + return emits a double drop — ASan-confirmed heap-use-after-free for valid code
 
-**Status:** OPEN
+## Resolution (2026-10-14)
+
+Fixed (2026-10-14), with a corrected diagnosis. The 2026-10-14 triage found the doc's mechanism correct on seed v0.2.62: copy, then take the address, then return, in a generic fn. `_bb` over `String`, and over a newtype wrapping `Option(ArrayList(u8))`, balances under MallocScribble/MallocGuardEdges for 20000 iterations. The doc's own repro still crashed, but through `runtime(...)`. `evaluate_runtime` (`src/evaluator/exprs/runtime.yo`) gave the outer `runtime(x)` node a fresh `ExprInfo` that dropped the owning temp attached to the inner node. A binding of `runtime(f())` therefore found no owner link (`find_rc_value_owner_relationship`) and became an independent owner, one release too many. The wrapper now keeps the inner node's `variable_name` and `source_variable`. Test: "a binding of runtime(call) releases the result once" in `tests/rc.test.yo`, which crashes (rc=138) on seed v0.2.62.
+
+**Status:** FIXED (moved 2026-10-14, see Resolution)
 **Found:** 2026-09-08 by CI's `test (ubuntu-24.04-arm)` ASan leg, on the first
 cut of `std/testing/bench.yo`'s `black_box`.
 

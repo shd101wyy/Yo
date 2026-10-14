@@ -2,7 +2,11 @@
 
 **Severity:** S1 — an accepted comptime payload assignment is silently discarded — derived constants run with the old values
 
-**Status: OPEN. Not fixed — see "Why it is not obviously small".**
+## Resolution (2026-10-14)
+
+Fixed (2026-10-14). The variant name never matched: `EnumT.variant_names` holds bare names ("Circle"), while an `EnumVal` stores the dotted form (".Circle"). The lookup in `src/evaluator/exprs/assignment.yo` therefore always missed, and the two fall-through arms discarded the write. The comparison now accepts the dotted form. A lookup miss on an accepted compile-time payload assignment now throws instead of falling through. `tests/comptime.test.yo` restores `c1.radius == 10.0` and adds the two-field (`Rectangle.width`) and single-variant (`One.Only.v`) cases. All three fail on seed v0.2.62.
+
+**Status: FIXED** (moved 2026-10-14, see Resolution; the analysis below predates the fix).
 
 **Severity: silent wrong value at compile time.** `c1 :: Shape.Circle(5.0);`
 followed by `c1.radius = 10.0;` is ACCEPTED and does nothing: `c1.radius` is

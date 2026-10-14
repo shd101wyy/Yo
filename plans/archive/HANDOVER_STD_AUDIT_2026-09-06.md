@@ -244,7 +244,7 @@ bodies — 1559 dormant assertions), #441 (json trailing junk),
 
 ## 5. D6 — Windows TLS (Schannel) re-land — ROOT CAUSE FOUND, FIX PUSHED
 
-Record: `issues/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`
+Record: `issues/fixed/d6-schannel-hangs-the-windows-test-legs-for-four-hours.md`
 (read its "Root cause" section). Plan: `plans/archive/D6_TLS_PLAN.md`. Worktree
 `/private/tmp/yo-d6`, branch `d6/step2-unskip` (PR #443, base = #442's branch).
 

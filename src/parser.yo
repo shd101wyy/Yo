@@ -442,6 +442,13 @@ impl(
       c := ts_bytes.byte_at(i);
       nc := cond(((i + usize(1)) < n) => ts_bytes.byte_at(i + usize(1)), true => u8(0));
       cond(
+        // A literal backslash: the lexer doubles every one, so `\$` below is
+        // always an escaped dollar, never a backslash followed by `${`
+        // (issues/fixed/template-string-backslash-before-interpolation-eats-both.md).
+        ((c == u8(0x5C)) && (nc == u8(0x5C))) => {
+          cur_sb.write_str("\\\\");
+          i = (i + usize(2));
+        },
         // Escaped dollar: \$  →  $
         ((c == u8(0x5C)) && (nc == u8(0x24))) => {
           cur_sb.write_byte(u8(0x24));

@@ -3006,22 +3006,19 @@ test("Test mutation", {
     c1.radius = 10.0;
     // comptime_print("c1 ", c1);
     // comptime_print("c2 ", c2);
-    // ASSIGNING TO A COMPTIME ENUM PAYLOAD FIELD IS A SILENT NO-OP. This pins
-    // what the evaluator actually does, not what it should. The correct answer
-    // is 10.0 -- the assignment above is ACCEPTED and discarded. The struct,
-    // array and tuple blocks above this one all mutate correctly, and the same
-    // assignment on a RUNTIME enum value works, so it is specific to enum
-    // payload fields at compile time.
-    //
-    // Filed as
-    // issues/comptime-enum-payload-field-assignment-is-a-silent-no-op.md.
-    // It stays a LIVE assertion deliberately: when the assignment works this
-    // goes red, and that red is the reminder to restore 10.0. It was written
-    // as `== 10.0` and never ran -- `comptime_assert` was inert inside a
-    // `test(...)` body until 2026-09-05
-    // (issues/fixed/comptime-assert-never-fires-inside-a-function-body.md).
-    comptime_assert(c1.radius == 5.0);
+    // issues/fixed/comptime-enum-payload-field-assignment-is-a-silent-no-op.md:
+    // the assignment used to be accepted and discarded.
+    comptime_assert(c1.radius == 10.0);
     comptime_assert(c2.radius == 5.0); // c2 should remain unchanged with value semantics
+    r1 :: Shape.Rectangle(1.0, 2.0);
+    r1.width = 7.0;
+    comptime_assert(r1.width == 7.0);
+    comptime_assert(r1.height == 2.0);
+    One :: enum(Only(v : i32));
+    derive(One, Copy, Clone);
+    o1 :: One.Only(3);
+    o1.v = 9;
+    comptime_assert(o1.v == 9);
   };
   // Refernce semantics are not allowed to be used in compile-time context
   {

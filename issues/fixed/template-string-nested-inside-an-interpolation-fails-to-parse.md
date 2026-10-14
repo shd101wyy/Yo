@@ -15,7 +15,7 @@
 
 **Status: FIXED.** (stale header read OPEN; the doc sits in fixed/) Found 2026-09-05 while writing a `std/path` reproducer
 (`issues/fixed/path-drops-dotdot-and-destroys-unc-prefix.md`). Sibling of
-`issues/template-string-backslash-before-interpolation-eats-both.md` — the same
+`issues/fixed/template-string-backslash-before-interpolation-eats-both.md` — the same
 "the template-string lexer stops looking at the right place" family.
 
 ## Symptom
