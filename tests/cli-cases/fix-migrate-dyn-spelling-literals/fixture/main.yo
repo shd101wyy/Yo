@@ -1,0 +1,17 @@
+//! `yo fix --migrate dyn-spelling` over closure literals only: each literal
+//! passed bare into a `Dyn(Fn(...))` binding, field, argument or result
+//! becomes `dyn(...)` in one run, a generic method's `T` argument
+//! (`ArrayList(Dyn(Fn() -> i32)).push`) included.
+{ ArrayList } :: import("std/collections/array_list");
+Hold :: ref(struct(f : Dyn(Fn() -> i32)));
+run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
+make :: (fn() -> Dyn(Fn() -> i32))(() => i32(4));
+main :: (fn() -> unit)({
+  (d : Dyn(Fn() -> i32)) = (() => i32(1));
+  h := Hold(f : (() => i32(2)));
+  r := run(() => i32(3));
+  fs := ArrayList(Dyn(Fn() -> i32)).new();
+  fs.push(() => i32(5));
+  _s := (d() + h.f() + r + make()() + fs(usize(0))());
+});
+export(main);

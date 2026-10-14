@@ -1532,6 +1532,26 @@ A closure's body is checked against the `Fn(...) -> R` it adopts (E0604 when it 
 match), and a `comptime(x) : T` parameter needs a compile-time argument (E1101 for a runtime
 value such as `c(i32.default())`).
 
+## A callable into a `Dyn(Fn(...))` slot is always `dyn(f)` (E0618)
+
+Every erasure into a `Dyn` is spelled (`plans/VALUES_BY_DEFAULT.md` decision 44,
+amended 2026-10-12): a named closure, a named `fn`, an `Impl(Fn(...))` parameter
+or a closure literal passed BARE into a `Dyn(Fn(...))` binding, reassignment,
+field (constructor or write), argument, variant payload or result (a body tail or
+`return(f)`) is `error[E0618]`, whose help names `dyn(f)`. Write `dyn(f)`
+(`dyn` moves `f`, so one closure fills one slot); `yo fix <path> --migrate
+dyn-spelling` wraps every site in a tree. An `Impl(Fn(...))` slot is the
+closure's own type, not an erasure, and still takes it bare. Until 2026-10-13 a
+named closure flowed bare and three of the four sites emitted invalid C
+(`issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md`).
+`dyn(nine)` of a named `fn` (top-level, imported, or an `Impl(Fn(...))`
+parameter bound to one) boxes the function's code pointer, and the `Dyn`'s
+call goes through it; no closure wrapper is needed
+(`issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md`). A generic
+type's function taken as a value (`ArrayList(i32).new`) is not emitted yet,
+with or without `dyn` (`issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`):
+wrap it in a closure, `dyn(() => ArrayList(i32).new())`.
+
 ## A bare `fn(...)` slot type never mentions `Impl(Fn(...))`
 
 A runtime parameter, a struct/enum/tuple/union field or a function result typed

@@ -22,7 +22,7 @@
 { Environment } :: import("../../env.yo");
 { record_declared_temp_var, FunctionGenerationContext } :: import("../functions/context.yo");
 { DynImplEntry } :: import("../utils/index.yo");
-{ type_key, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
+{ type_key, get_variable_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, get_variable_name_for_codegen_at, dyn_concrete_c_name } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { generate_deferred_dup_expressions } :: import("./drop_dup.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
@@ -60,11 +60,11 @@ _dyn_c_name :: (fn(dyn_type : &TypeValue, context : &FunctionGenerationContext) 
     }
   )
 );
-/// The C name for the concrete impl type (registered, else the Fn-trait's C
-/// name, else `unknown_<id>`).
+/// The C name for the concrete impl type (registered or a `fn(...)` payload's,
+/// `dyn_concrete_c_name`; else the Fn-trait's C name, else `unknown_<id>`).
 _concrete_c_name :: (fn(concrete_type : &TypeValue, context : &FunctionGenerationContext) -> String)(
   match(
-    context.base.get_type_c_name(type_key(concrete_type)),
+    dyn_concrete_c_name(concrete_type, &context.base),
     .Some(cn) => cn,
     .None => match(
       extract_fn_trait_from_type(concrete_type),

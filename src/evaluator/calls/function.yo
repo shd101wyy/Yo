@@ -66,7 +66,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -5032,7 +5032,11 @@ _evaluate_funcval_runtime_call :: (
                     is_comptime_int_type(&_ac_aty) || is_comptime_float_type(&_ac_aty)
                     || is_comptime_string_type(&_ac_aty)
                   );
+                  // An argument `yo fix --migrate dyn-spelling` recorded (a
+                  // closure literal's capture struct, here) stands for the
+                  // rewrite's `dyn(value)`, which the parameter takes.
                   if(!_ac_p_generic && !_ac_a_generic && !_ac_a_comptime
+                  && !bare_callable_recorded_into_dyn_fn(&_ac_pty, &_ac_ai.ty)
                   && !are_types_compatible(&_ac_aty, &_ac_pty), {
                     // C19: a concrete/concrete argument-type mismatch (e.g. C
                     // `int` where `i32` is declared) is ALWAYS a hard error.
@@ -8890,6 +8894,18 @@ Fix: wrap the call:
                   exn
                 );
               });
+              // Decision 44: E0618 for a callable bare in a `Dyn(Fn(...))`
+              // parameter, before the move and decision 38's escape check.
+              if(!fv_p_is_ct, {
+                reject_bare_callable_into_dyn_fn(
+                  match(resolved_param_types.get(ai), .Some(t) => t, .None => t_unit()),
+                  &arg_info.ty,
+                  _unlabeled_argument(match(fv_written_args.get(ai), .Some(w) => w, .None => arg_expr_eff)),
+                  `the argument for parameter "${match(fv_param_labels.get(ai), .Some(l) => l, .None => String.new())}"`,
+                  ctx,
+                  exn
+                );
+              });
               match(
                 consume_argument_for_parameter(
                   &evaled_arg,
@@ -9374,6 +9390,7 @@ Fix: wrap the call:
               &arg_info.ty,
               &arg_info,
               ast_expr_token(match(fv_args.get(pi), .Some(ae) => ae, .None => expr)),
+              match(fv_args.get(pi), .Some(ae) => ae, .None => expr),
               env,
               ctx,
               exn

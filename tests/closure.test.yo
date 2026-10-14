@@ -768,3 +768,100 @@ test("a closure's clone outlives the original", {
   };
   assert(g() == usize(4), "the clone keeps its own String after the original's scope dropped it");
 });
+// Decision 44 (plans/VALUES_BY_DEFAULT.md, amended 2026-10-12): every
+// erasure into a `Dyn` is spelled. A callable that is not already a `Dyn`
+// flows into a `Dyn(Fn(...))` binding, field, argument or result only as
+// `dyn(f)`; bare it is E0618, whose note names `dyn(f)`. Before the rule a
+// named closure passed `check` at all four sites and three emitted invalid C
+// (issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md).
+_d44_hold :: ref(struct(f : Dyn(Fn() -> i32)));
+_d44_value_hold :: struct(f : Dyn(Fn() -> i32));
+_d44_take :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
+_d44_nine :: (fn() -> i32)(i32(9));
+_d44_ret :: (fn() -> Dyn(Fn() -> i32))({
+  (g : Impl(Fn() -> i32)) = (() => i32(9));
+  dyn(g)
+});
+// Each case has its own closure: a rejected site may still have moved it.
+test("decision 44: a named closure bare in a Dyn(Fn) slot is E0618 naming dyn(f)", {
+  n := i32(3);
+  (f1 : Impl(Fn() -> i32)) = (() => n);
+  (f2 : Impl(Fn() -> i32)) = (() => n);
+  (f3 : Impl(Fn() -> i32)) = (() => n);
+  (f4 : Impl(Fn() -> i32)) = (() => n);
+  (f5 : Impl(Fn() -> i32)) = (() => n);
+  comptime_expect_error((d : Dyn(Fn() -> i32)) = f1, "Write `dyn(f1)`");
+  comptime_expect_error(_d44_hold(f : f2), "Write `dyn(f2)`");
+  comptime_expect_error(_d44_value_hold(f : f3), "Write `dyn(f3)`");
+  comptime_expect_error(_d44_take(f4), "Write `dyn(f4)`");
+  comptime_expect_error(Option(Dyn(Fn() -> i32)).Some(f5), "Write `dyn(f5)`");
+  comptime_expect_error(
+    (fn() -> Dyn(Fn() -> i32))({
+      (g : Impl(Fn() -> i32)) = (() => i32(9));
+      g
+    }),
+    "Write `dyn(g)`"
+  );
+  comptime_expect_error(
+    (fn(b : bool) -> Dyn(Fn() -> i32))({
+      (g : Impl(Fn() -> i32)) = (() => i32(9));
+      if(b, return(g));
+      dyn(() => i32(1))
+    }),
+    "Write `dyn(g)`"
+  );
+  comptime_expect_error(
+    (fn() -> Impl(Fn() -> Dyn(Fn() -> i32)))(() => {
+      (g : Impl(Fn() -> i32)) = (() => i32(9));
+      g
+    }),
+    "Write `dyn(g)`"
+  );
+});
+test("decision 44: a reassignment or field write of a bare closure into Dyn(Fn) is E0618", {
+  n := i32(3);
+  (f1 : Impl(Fn() -> i32)) = (() => n);
+  (f2 : Impl(Fn() -> i32)) = (() => n);
+  (d : Dyn(Fn() -> i32)) = dyn(() => i32(1));
+  comptime_expect_error(d = f1, "Write `dyn(f1)`");
+  h := _d44_hold(f : dyn(() => i32(1)));
+  comptime_expect_error(h.f = f2, "Write `dyn(f2)`");
+  assert((d() + h.f()) == i32(2), "the Dyn slots keep their values");
+});
+test("decision 44: a named fn or a closure literal bare in a Dyn(Fn) slot is E0618", {
+  comptime_expect_error(_d44_take(_d44_nine), "Write `dyn(_d44_nine)`");
+  comptime_expect_error((d : Dyn(Fn() -> i32)) = _d44_nine, "Write `dyn(_d44_nine)`");
+  comptime_expect_error(_d44_take(() => i32(4)), "is a closure literal");
+  comptime_expect_error(_d44_hold(f : (() => i32(4))), "is a closure literal");
+  comptime_expect_error(_d44_take(() -> i32(4)), "is a function literal");
+});
+test("decision 44: dyn(f) at the binding, field, argument and result compiles and runs", {
+  n := i32(3);
+  (f1 : Impl(Fn() -> i32)) = (() => n);
+  (f2 : Impl(Fn() -> i32)) = (() => n);
+  (f3 : Impl(Fn() -> i32)) = (() => n);
+  (d : Dyn(Fn() -> i32)) = dyn(f1);
+  h := _d44_hold(f : dyn(f2));
+  r := _d44_take(dyn(f3));
+  q := _d44_ret();
+  (s : i32) = (d() + h.f() + r + q());
+  assert(s == i32(18), `sum ${s}`);
+});
+// A named `fn` takes the same spelling at every site, and `dyn(f)` boxes its
+// code pointer (issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md).
+_d44_ret_named :: (fn() -> Dyn(Fn() -> i32))(dyn(_d44_nine));
+test("decision 44: dyn(named_fn) at the binding, field, argument and result compiles and runs", {
+  (d : Dyn(Fn() -> i32)) = dyn(_d44_nine);
+  h := _d44_hold(f : dyn(_d44_nine));
+  v := _d44_value_hold(f : dyn(_d44_nine));
+  r := _d44_take(dyn(_d44_nine));
+  q := _d44_ret_named();
+  (s : i32) = (d() + h.f() + v.f() + r + q());
+  assert(s == i32(45), `sum ${s}`);
+});
+test("decision 44: an Impl(Fn) slot still takes a closure bare", {
+  n := i32(5);
+  (f : Impl(Fn() -> i32)) = (() => n);
+  (g : Impl(Fn() -> i32)) = f;
+  assert(g() == i32(5), "Impl(Fn) binding");
+});

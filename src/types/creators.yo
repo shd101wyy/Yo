@@ -426,6 +426,37 @@ t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
     Option(TypeValue).None
   )
 );
+/// The type a `dyn(...)` payload is evaluated against when its target is
+/// `dyn_ty`: a fresh, nameless type variable carrying the `Dyn`'s required and
+/// negative traits, which the payload binds and whose bounds it is checked
+/// against (`evaluate_dyn_value`). `.None` when `dyn_ty` is not a `Dyn`. A
+/// closure literal checked against it is the closure `dyn(<literal>)` boxes.
+t_dyn_payload_wrapper :: (fn(dyn_ty : &TypeValue, frame_level : usize) -> Option(TypeValue))(
+  match(
+    dyn_ty,
+    .DynT(
+      required_trait_types : dpw_rtt,
+      required_trait_levels : dpw_rtl,
+      negative_trait_types : dpw_ntt,
+      negative_trait_levels : dpw_ntl
+    ) =>
+      Option(TypeValue).Some(
+        TypeValue.SomeT(
+          generate_some_type_id(),
+          String.from(""),
+          frame_level,
+          TypeValue.TypeUni(usize(0)),
+          dpw_rtt,
+          dpw_rtl,
+          dpw_ntt,
+          dpw_ntl,
+          Option(TypeValue).None,
+          Option(TypeValue).None
+        )
+      ),
+    _ => Option(TypeValue).None
+  )
+);
 /// `t` (a SomeT) with the SAME identity carrying the resolution `concrete`
 /// (types/definitions.yo `resolution`): a resolution learned after a SomeT is
 /// built makes a new SomeT, and the original is untouched. Non-SomeT input
@@ -1042,6 +1073,7 @@ export(register_struct_final, resolve_struct_shell);
 export(register_type_binding_name, type_binding_name, clear_type_binding_names);
 export(
   generate_some_type_id,
+  t_dyn_payload_wrapper,
   t_unit,
   t_str,
   t_bool,

@@ -217,6 +217,31 @@ __yo_dyn_trait_Printer result = {
 
 **要点**：由于 `Dyn` 是值类型，它在栈上创建。`data` 指针的所有权被转移（构造时不执行 dup）。
 
+### `dyn(...)` 是唯一入口
+
+只有程序写出 `dyn(...)` 的地方，值才会变成 `Dyn`（`plans/VALUES_BY_DEFAULT.md`
+决策 44）。带类型的位置不做隐式转换：名义类型的值不会（把 `point` 传给
+`Dyn(Id)` 形参 `use_id(point)` 是类型错误，应写 `use_id(dyn(point))`），可调用值
+也不会。在 `Dyn(Fn(...))` 绑定、字段、实参或结果中直接使用具名闭包、具名 `fn`、
+`Impl(Fn(...))` 形参或闭包字面量是错误 E0618，其提示会给出写法：
+
+```yo
+run :: (fn(d : Dyn(Fn() -> i32)) -> i32)(d());
+nine :: (fn() -> i32)(i32(9));
+main :: (fn() -> unit)({
+  n := i32(3);
+  (f : Impl(Fn() -> i32)) = (() => n);
+  _x := run(dyn(f)); // `run(f)` 是 E0618：应写 `dyn(f)`
+  _y := run(dyn(nine)); // 具名 `fn` 也一样：`run(nine)` 是 E0618
+});
+export(main);
+```
+
+对具名 `fn` 写 `dyn(f)` 会把该函数的代码指针装箱，`Dyn` 的调用经由它进行：
+顶层函数、导入的函数，或绑定到具名函数的 `Impl(Fn(...))` 形参都可以。它不捕获任何东西，所以不会有内容
+被复制进箱子。`yo fix <path> --migrate dyn-spelling` 会给整棵树中每个裸传位置加上
+`dyn(...)`。`Impl(Fn(...))` 位置是闭包自身的静态类型，不是擦除，闭包可以直接传入。
+
 ## 方法分派
 
 对 `Dyn` 的方法调用通过虚表进行。由于 `Dyn` 是值类型，`value` 是结构体本身。

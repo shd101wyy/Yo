@@ -128,7 +128,7 @@ modes:
   writes it.
 
 Found while probing, filed separately: `dyn(f)` of a named function value emits invalid C
-(`issues/dyn-of-a-named-function-value-emits-invalid-c.md`, pre-existing), and a named closure bound
+(`issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md`, pre-existing), and a named closure bound
 to an `Impl(Fn(...))` annotation of another parameter TYPE or result is accepted, the annotation
 ignored (`issues/a-named-closure-bound-to-an-impl-fn-annotation-keeps-its-own-signature.md`; the
 modes half is fixed here).

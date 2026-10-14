@@ -95,6 +95,7 @@ The repairs the compiler computes today:
 | E0401 name not found, one close candidate in scope | rename the token (`countr` → `counter`) |
 | E0401 name not found, exported by exactly one std module | insert `{ name } :: import("std/…");` above the first non-comment line (the help names the module; two exporting modules, or a rename candidate as well, give help only) |
 | E0007 `{ f(x) }` — one expression between braces, no `;` | insert `;` before the `}` (two or more comma-separated items give the message only) |
+| E0618 a named callable passed bare into a `Dyn(Fn(...))` slot | wrap the name: `run(f)` → `run(dyn(f))` (a longer value gives help only; `--migrate dyn-spelling` wraps it) |
 
 `yo fix <path> --migrate <name>` runs a migration rather than a repair, for
 the parameter-convention change (VALUES_BY_DEFAULT V3b) and the borrow
@@ -174,6 +175,15 @@ method, another trait's method or a field, so the migration first evaluates
 each file and rewrites only the members that resolve to the destructor; any
 other `.dispose` member (or one in code evaluation never reached) is listed
 and left as written.
+
+`yo fix <path> --migrate dyn-spelling` is the migration for decision 44, under
+which every erasure into a `Dyn` is spelled. It evaluates each file and wraps
+each callable passed bare into a `Dyn(Fn(...))` binding, field, argument or
+result in `dyn(...)`: a named closure, a named `fn`, an `Impl(Fn(...))`
+parameter, a closure literal (`run(f)` → `run(dyn(f))`, `S(cb : f)` →
+`S(cb : dyn(f))`, a body ending in `g` → `dyn(g)`). The rejection it stands
+in for is E0618. A value whose text no longer prints as the evaluated
+expression on one line is listed with its position and left as written.
 
 ## Warnings
 

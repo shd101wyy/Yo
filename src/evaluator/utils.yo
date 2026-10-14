@@ -86,6 +86,7 @@ pragma(Pragma.AllowUnsafe);
 {
   format_error_message,
   format_error_message_with_help,
+  format_error_message_with_repair,
   format_error_messages,
   format_error_messages_with_help,
   TokenAndError,
@@ -93,7 +94,7 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -104,8 +105,8 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit } :: import("../expr_info.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn } :: import("../types/utils.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -1137,6 +1138,93 @@ _capture_borrow_note :: (fn(b : &CaptureBorrow) -> String)({
     return(`the place lent to \`${b.label}\` (\`${sig}\` at ${b.site}: the call goes through a function value, whose future may keep what it is lent)`);
   });
   `\`${capture_borrow_place_string(b)}\` (the capture \`${b.label} : ${sig}${capture_borrow_place_string(b)}\` at ${b.site})`
+});
+/// The first token of `e` as written: the receiver of a `.` access or the
+/// left operand of an infix call, the callee of a prefix call.
+_written_leftmost_token :: (fn(e : &AstExpr) -> Token)(
+  match(
+    e,
+    .Atom(_, wl_tok) => wl_tok,
+    .FnCall(_, wl_callee, wl_args, wl_infix, wl_tok) => cond(
+      wl_infix => match(wl_args.get(usize(0)), .Some(wl_a0) => recur(&wl_a0), .None => wl_tok),
+      true => recur(&wl_callee)
+    )
+  )
+);
+/// Decision 44 (plans/VALUES_BY_DEFAULT.md, amended 2026-10-12): every
+/// erasure into a `Dyn` is spelled. `value` (as written) has type `value_ty`
+/// and flows into a slot of type `slot_ty`, `site` naming the slot ("the
+/// binding `d`", "field \"f\"", ...). A callable that is not already a `Dyn`
+/// (a named closure, a named `fn`, an `Impl(Fn(...))` parameter, a closure
+/// literal) in a `Dyn(Fn(...))` slot is E0618 with a note naming `dyn(f)`;
+/// an atom carries the repair `yo fix` applies. Under `yo fix --migrate
+/// dyn-spelling` the site is recorded instead and the value flows on as
+/// before. Runs before the slot's compatibility check and before decision
+/// 38's escape check, so the bare form is this error at every site.
+reject_bare_callable_into_dyn_fn :: (
+  fn(slot_ty : &TypeValue, value_ty : &TypeValue, value : &AstExpr, site : &String, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  if(is_bare_callable_into_dyn_fn(slot_ty, value_ty), {
+    _bare_callable_into_dyn_fn(slot_ty, `has type \`${type_to_string(value_ty)}\``, value, site, ctx, exn);
+  });
+});
+/// Under `yo fix --migrate dyn-spelling`, whether `value_ty` flowing into
+/// `slot_ty` is a site `reject_bare_callable_into_dyn_fn` recorded instead of
+/// rejecting. The value then stands for the rewrite's `dyn(value)`, which the
+/// slot takes, so the slot's own compatibility check passes it: a `fn(...)`
+/// value never unified with a `Dyn`, and evaluation stopped at the first such
+/// site
+/// (issues/fixed/yo-fix-migrate-dyn-spelling-stops-at-the-first-site-that-is-not-a-named-closure.md).
+bare_callable_recorded_into_dyn_fn :: (fn(slot_ty : &TypeValue, value_ty : &TypeValue) -> bool)(
+  migrate_dyn_spelling_on() && !propagate_def_time_errors() && is_bare_callable_into_dyn_fn(slot_ty, value_ty)
+);
+/// A closure (`=>`) or function (`->`) literal checked against a
+/// `Dyn(Fn(...))` slot (its expected type): the same error as a named
+/// callable. A literal inside `dyn(...)` is
+/// checked against the closure's own `Impl(Fn(...))`, never against the
+/// `Dyn`, so every literal that reaches this is bare. Returns under `yo fix
+/// --migrate dyn-spelling` (the site is recorded); throws otherwise.
+reject_closure_literal_into_dyn_fn :: (fn(slot_ty : &TypeValue, literal : &AstExpr, is_closure : bool, ctx : &EvalContext, exn : Exception) -> unit)(
+  _bare_callable_into_dyn_fn(slot_ty, if(is_closure, String.from("is a closure literal"), String.from("is a function literal")), literal, String.from("a slot"), ctx, exn)
+);
+_bare_callable_into_dyn_fn :: (
+  fn(slot_ty : &TypeValue, given : &String, value : &AstExpr, site : &String, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  bc_tok := _written_leftmost_token(value);
+  bc_text := ast_expr_to_string(value);
+  // A `comptime_expect_error` argument keeps its error: that error is the
+  // point, so the migration neither records nor accepts it.
+  if(migrate_dyn_spelling_on() && !propagate_def_time_errors(), {
+    if(!ctx.is_in_function_call_checking_phase, {
+      record_dyn_spelling_site(&bc_tok, &bc_text);
+    });
+    return(());
+  });
+  bc_msg := `A callable flows bare into ${site} of type \`${type_to_string(slot_ty)}\`: \`${bc_text}\` ${given}, and a value becomes a \`Dyn\` only where the program says so (plans/VALUES_BY_DEFAULT.md decision 44). Write \`dyn(${bc_text})\`, which moves the callable into the \`Dyn\`'s heap cell. An \`Impl(Fn(...))\` slot takes the closure as it is.`;
+  bc_help := Option(String).Some(`write \`dyn(${bc_text})\`; \`yo fix <path> --migrate dyn-spelling\` wraps every such site`);
+  bc_err := match(
+    value,
+    .Atom(_, bc_atom_tok) => format_error_message_with_repair(&bc_atom_tok, &bc_msg, &bc_help, `dyn(${bc_atom_tok.value})`, String.from("wrap the callable in `dyn(...)`")),
+    _ => format_error_message_with_help(&bc_tok, &bc_msg, &bc_help)
+  );
+  raise_flow_violation(with_code(&bc_err, E_BARE_CALLABLE_INTO_DYN), ctx, exn);
+});
+/// `reject_bare_callable_into_dyn_fn` for a function or closure body of type
+/// `body_ty` against its declared result `result_ty`: the value is the
+/// body's tail, through nested `{ ... }` blocks.
+reject_bare_callable_result :: (fn(result_ty : &TypeValue, body_ty : &TypeValue, body : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+  (br_tail : AstExpr) = body;
+  while(ast_expr_is_fn_call_of(&br_tail, BK_BEGIN, .None), {
+    br_next := match(br_tail, .FnCall(_, _, br_args, _, _) => br_args.last(), _ => Option(AstExpr).None);
+    match(
+      br_next,
+      .Some(br_n) => {
+        br_tail = br_n;
+      },
+      .None => break
+    );
+  });
+  reject_bare_callable_into_dyn_fn(result_ty, body_ty, &br_tail, String.from("the result"), ctx, exn);
 });
 /// Decision 38 A: a second-class value (one holding a capture-list borrow,
 /// transitively) may not be `how` — returned, stored in a field or a `Dyn`,
@@ -4166,7 +4254,7 @@ export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_bindin
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(variable_is_borrow_parameter, variable_id_in_scope);
-export(capture_place_crosses_cell, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
+export(capture_place_crosses_cell, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, reject_closure_literal_into_dyn_fn, reject_bare_callable_result, reject_second_class_escape, reject_second_class_return, note_second_class_binding, reject_second_class_result_outliving, check_capture_freeze_access, require_capture_borrow_exclusivity);
 export(doc_comment_lookup_key_from_token);
 export(consume_case_body_temp_var, merge_and_check_envs, reject_mixed_closure_arms, reset_sibling_flow_state, keep_last_arm_moves, snapshot_loop_flow, check_loop_flow);
 export(are_values_equal);
