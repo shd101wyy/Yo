@@ -1,6 +1,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { printf } :: import("std/libc/stdio");
+{ malloc, free } :: import("std/libc/stdlib");
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
@@ -1412,6 +1413,68 @@ test("a match/cond argument arm that returns a borrowed value does not over-rele
     assert(ref_count(keep) == 1, "the kept value is untouched by the fresh arms");
   };
   assert(g_at_disposed == (before + i32(3)), "the caller's value is disposed once, at its scope end");
+});
+// Regression (issues/fixed/2026-10-14-a-block-result-that-is-not-moved-is-never-released.md): a
+// value-producing begin block declared its result temp bare, like the match
+// and cond above did before #893, so a block result that was not moved (a call
+// argument, a receiver, a discarded statement) was never released. The outer
+// local and the bound block are the over-release canaries.
+test("a block result that is not moved is released once", {
+  before := g_at_disposed;
+  {
+    _n := at_read({
+      t := ArgTemp(n : i32(20));
+      t
+    });
+  };
+  assert(g_at_disposed == (before + i32(1)), "a block as a call argument");
+  {
+    {
+      t := ArgTemp(n : i32(21));
+      t
+    };
+  };
+  assert(g_at_disposed == (before + i32(2)), "a block as a discarded statement");
+  {
+    _m := {
+      t := ArgTemp(n : i32(22));
+      t
+    }.n;
+  };
+  assert(g_at_disposed == (before + i32(3)), "a block as a receiver");
+});
+test("a block that yields an outer local or is bound does not over-release", {
+  before := g_at_disposed;
+  {
+    keep := ArgTemp(n : i32(23));
+    _k := at_read({
+      _z := i32(0);
+      keep
+    });
+    assert(g_at_disposed == before, "the outer local is still alive");
+    assert(ref_count(keep) == 1, "and holds exactly its own reference");
+  };
+  assert(g_at_disposed == (before + i32(1)), "the outer local is released once, at its scope end");
+  {
+    b := {
+      t := ArgTemp(n : i32(24));
+      t
+    };
+    assert(b.n == i32(24), "the bound block's value");
+  };
+  assert(g_at_disposed == (before + i32(2)), "the bound block's value is released once");
+});
+// Regression (issues/fixed/an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md):
+// every assignment saves the old value for its deferred drop, and a typed
+// load of an uninitialized `bool` slot is undefined behavior. The save now
+// copies bytes. Under UBSan (ubsan.yml) with MallocScribble this failed with
+// "load of value 170, which is not a valid value for type 'bool'".
+test("a plain store into fresh memory never loads the uninitialized old value", {
+  raw := unsafe(malloc(usize(64)));
+  p := (*bool)(raw.unwrap());
+  unsafe(p.* = true);
+  assert(unsafe(p.*), "the store landed");
+  unsafe(free(raw));
 });
 at_sink_plus :: (fn(sink(a) : ArgTemp) -> i32)(a.n + i32(1));
 test("an own parameter read by a bare-expression body is released after the read", {

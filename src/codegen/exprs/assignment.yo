@@ -129,10 +129,6 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     });
   });
   lhs_type := lhs_ei.ty;
-  // Read and clear at once: only THIS assignment is the consumed one, never
-  // one nested in its operands.
-  save_by_bytes := context.consume_assignment_saves_by_bytes;
-  context.consume_assignment_saves_by_bytes = false;
   lhs_code := _call_generate_expr(&lhs, indent.clone(), context);
   em := context.base.emitter;
   // In a state machine the save is written AFTER the RHS, right before the
@@ -151,21 +147,22 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
         if(!is_unit_type(&lhs_type), {
           save := indent.clone();
           save.push_string(get_variable_type_string(&lhs_type, temp_var_name.clone(), &context.base));
-          if(save_by_bytes, {
-            // `consume(p.* = v)`: copy the bytes, never a typed load of a slot
-            // that may be uninitialized (see consume_assignment_saves_by_bytes).
-            save.push_str("; memcpy(&");
-            save.push_string(temp_var_name.clone());
-            save.push_str(", &(");
-            save.push_string(lhs_code.clone());
-            save.push_str("), sizeof(");
-            save.push_string(temp_var_name.clone());
-            save.push_str(")); // Save old value by bytes (consumed assignment)");
-          }, {
-            save.push_str(" = ");
-            save.push_string(lhs_code.clone());
-            save.push_str("; // Save old value for later use");
-          });
+          // Copy the bytes, never a typed load: the destination may be
+          // uninitialized (a container's next slot, an `unsafe(p.* = v)` into
+          // fresh memory), and a typed load of it is undefined behavior for a
+          // `bool` or an enum. Copying indeterminate bytes is defined, and the
+          // temp is read only by the drop of an RC-bearing old value or by a
+          // consuming parent, both of which see an initialized slot. At -O1
+          // and above the copy is the same load
+          // (issues/fixed/consume-assignment-loads-the-uninitialized-old-value.md,
+          // issues/fixed/an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md).
+          save.push_str("; memcpy(&");
+          save.push_string(temp_var_name.clone());
+          save.push_str(", &(");
+          save.push_string(lhs_code.clone());
+          save.push_str("), sizeof(");
+          save.push_string(temp_var_name.clone());
+          save.push_str(")); // Save old value by bytes");
           em.emit_string_line(&save);
         }),
         // The LHS is an sm-> slot. When the old-value temp was itself lowered
