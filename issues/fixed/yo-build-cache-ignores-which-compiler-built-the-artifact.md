@@ -27,7 +27,7 @@ compiler binary. A compiler built from a tree reports that tree's
 the seed's recorded stamp matched. The header comment's claim "the compiler
 version + argv covers the yo side" holds only for published binaries.
 
-Related, but a different trigger: `issues/yo-build-artifact-cache-serves-a-stale-binary.md`
+Related, but a different trigger: `issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md`
 (an edit landing during a compile).
 
 ## Fix

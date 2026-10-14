@@ -28,6 +28,8 @@
 { String } :: import("std/string");
 { Path } :: import("std/path");
 { ArrayList } :: import("std/collections/array_list");
+{ HashMap } :: import("std/collections/hash_map");
+{ HashSet } :: import("std/collections/hash_set");
 { cwd } :: import("std/env");
 (g_input_files : ArrayList(String)) = ArrayList(String).new();
 /// Parallel to `g_input_files`: the sha256 of each input's bytes AS READ.
@@ -38,7 +40,7 @@
 /// edit landing during the compile (the window is minutes for a large artifact)
 /// was recorded as though it had been compiled, and every later build matched
 /// that stamp and served the stale artifact forever
-/// (issues/yo-build-artifact-cache-serves-a-stale-binary.md). Only the reader
+/// (issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md). Only the reader
 /// knows what it read, so the reader records it.
 ///
 /// Empty string when hashing is off — see `set_input_hashing`.
@@ -47,6 +49,16 @@
 /// child compiles pass `--emit-deps` and enable it; `yo check`, `yo test` and
 /// the LSP never pay for it.
 (g_input_hashing : bool) = false;
+// The module touch log (see "What a cached module's load read" below).
+/// Every record and every module hit this compile, in call order, WITHOUT
+/// dedup: one module's load is a slice of it.
+(g_touches : ArrayList(String)) = ArrayList(String).new();
+/// Module key -> what its last load touched (persists across compiles).
+(g_module_touches : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
+/// The modules already replayed into this compile's record.
+(g_replayed_modules : HashSet(String)) = HashSet(String).new();
+/// True while a hit is being replayed.
+(g_replaying : bool) = false;
 set_input_hashing :: (fn(enabled : bool) -> unit)({
   g_input_hashing = enabled;
 });
@@ -79,6 +91,11 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
   if(fs.len() == usize(0), {
     return(());
   });
+  // A replay's records are already named by the `@<key>` entry that
+  // triggered it.
+  if(g_input_hashing && !g_replaying, {
+    g_touches.push(`${_hash_marker(content_sha256)} ${fs}`);
+  });
   (i : usize) = usize(0);
   while(i < g_input_files.len(), {
     match(
@@ -98,6 +115,102 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
 reset_input_files :: (fn() -> unit)({
   g_input_files = ArrayList(String).new();
   g_input_hashes = ArrayList(String).new();
+  g_touches = ArrayList(String).new();
+  g_replayed_modules = HashSet(String).new();
+});
+// ── What a cached module's load read
+//
+// A module-cache hit neither re-reads the module nor re-imports what it
+// imports, so a compile that finds a module already loaded, as every warm
+// `yo build --watch` round does, recorded only the files it read itself. Its
+// depfile then named a subset, the next cold build re-hashed only that
+// subset, matched, and served a stale binary after an edit to a module the
+// warm round had not re-read
+// (issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md).
+//
+// So each module load remembers what it touched: every input recorded during
+// it, as `<hash> <path>` (hash `-` when hashing was off), plus `@<key>` for each
+// module it found cached. A later hit replays that list, once per compile and
+// recursively through the `@` entries, with the hashes taken when the bytes
+// were READ. A cached module whose load was never observed records its path
+// with no hash, which makes the stamp unusable and forces a recompile.
+_hash_marker :: (fn(h : &String) -> String)(
+  cond(
+    (h.len() > usize(0)) => h.clone(),
+    true => String.from("-")
+  )
+);
+/// Start observing a module load; pass the result to `module_load_end`.
+module_load_begin :: (fn() -> usize)(g_touches.len());
+/// Remember what the load of `key` touched since `mark`.
+module_load_end :: (fn(key : &String, mark : usize) -> unit)({
+  // Only a compile that writes a depfile (hashing on) needs the log; `check`,
+  // `test` and the LSP would only accumulate it.
+  if(!g_input_hashing, {
+    return(());
+  });
+  out := ArrayList(String).new();
+  (i : usize) = mark;
+  while(i < g_touches.len(), {
+    match(
+      g_touches.get(i),
+      .Some(t) => out.push(t),
+      .None => ()
+    );
+    i = (i + usize(1));
+  });
+  g_module_touches.insert(key.clone(), out);
+});
+/// Module `key` was found in the module cache: note it in the touch log (so an
+/// enclosing load's slice names it) and replay its inputs into this compile's
+/// record the first time.
+module_cache_hit :: (fn(key : &String) -> unit)({
+  if(!g_input_hashing, {
+    return(());
+  });
+  g_touches.push(`@${key}`);
+  g_replaying = true;
+  _replay_module(key);
+  g_replaying = false;
+});
+_replay_module :: (fn(key : &String) -> unit)({
+  if(g_replayed_modules.contains(key), {
+    return(());
+  });
+  g_replayed_modules.insert(key.clone());
+  match(
+    g_module_touches.get(key),
+    .Some(list) => {
+      (i : usize) = usize(0);
+      while(i < list.len(), {
+        match(
+          list.get(i),
+          .Some(t) => _replay_touch(&t),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+    },
+    .None => {
+      // Never observed: name it with no hash, so the stamp cannot match.
+      record_input_file(key, &String.new());
+    }
+  );
+});
+_replay_touch :: (fn(t : &String) -> unit)({
+  if(t.starts_with("@"), {
+    _replay_module(&t.substring(usize(1), t.len()));
+    return(());
+  });
+  match(
+    t.index_of(" ", usize(0)),
+    .Some(sp) => {
+      h := t.substring(usize(0), sp);
+      p := t.substring(sp + usize(1), t.len());
+      record_input_file(&p, &cond((h == "-") => String.new(), true => h));
+    },
+    .None => ()
+  );
 });
 /// The files read so far, in first-open order.
 input_files :: (fn() -> ArrayList(String))(g_input_files);
@@ -154,6 +267,9 @@ env_reads :: (fn() -> ArrayList(String))(g_env_reads);
 export(
   record_input_file,
   reset_input_files,
+  module_load_begin,
+  module_load_end,
+  module_cache_hit,
   input_files,
   input_file_entries,
   set_input_hashing,

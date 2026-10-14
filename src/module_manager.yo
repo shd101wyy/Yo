@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
 { getenv } :: import("std/libc/stdlib");
 { current_exe, cwd } :: import("std/env");
 env_mod :: import("std/env");
-{ record_input_file, input_hashing_enabled } :: import("./input_record.yo");
+{ record_input_file, input_hashing_enabled, module_load_begin, module_load_end, module_cache_hit } :: import("./input_record.yo");
 { sha256_hex } :: import("std/crypto/sha256");
 { Instant } :: import("std/time/instant");
 { profile_record_module } :: import("./utils.yo");
@@ -2295,11 +2295,16 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
     return(Option(String).None);
   });
   if(module_cache_has(abs.clone()), {
+    // A hit reads nothing: replay what the module's load read, so this
+    // compile's input record is the same as a cold compile's
+    // (issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md).
+    module_cache_hit(abs);
     return(Option(String).None);
   });
   if(env_mod.env.get(`YO_DEBUG_WARM`).is_some(), {
     eprintln(`[warmload] MISS path=${abs.clone()}`);
   });
+  touch_mark := module_load_begin();
   std_path := match(g_loader_std_path, .Some(s) => s, .None => String.from(""));
   fs_path := abs.replace(String.from("file://"), String.new());
   // Phase 0: this load's read+parse / evaluation walls. `prof_t0` spans the
@@ -2318,7 +2323,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   // Record the hash of the bytes just read, NOT a re-read later: the artifact
   // stamp is built from this, and a re-read after the compile would absorb any
   // edit made during it
-  // (issues/yo-build-artifact-cache-serves-a-stale-binary.md). The DISK bytes
+  // (issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md). The DISK bytes
   // are hashed deliberately — the open-buffer overlay applied below is the
   // editor's text, while the next build hashes the disk.
   record_input_file(
@@ -2395,6 +2400,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
     .Some(mv) => {
       reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
       register_module(abs.clone(), &mv, &reg_ty);
+      module_load_end(abs, touch_mark);
       Option(String).None
     },
     // Root-cause detail printed by the helper's handler (and stashed).
@@ -2923,6 +2929,7 @@ mm_load_file :: (
   // module was first pulled in as a dependency — GATE 3's `check ./std`).
   mm_hit_abs := mm_resolve_entry_abs(input_path.clone(), std_path.clone());
   if(module_cache_has(mm_hit_abs.clone()), {
+    module_cache_hit(&mm_hit_abs);
     if(verbose, {
       emit_chatter(`check: ${input_path} — evaluator OK`);
     });
@@ -2944,6 +2951,7 @@ mm_load_file :: (
   // a module runs inside the evaluator, and under `yo build` inside
   // run_build's async task, where the async read's blocking poll loop would
   // nest the event loop (C37/C42).
+  entry_touch_mark := module_load_begin();
   src_bytes := read_file_sync(input_path.clone(), exn);
   record_input_file(
     input_path.clone(),
@@ -2982,6 +2990,9 @@ mm_load_file :: (
   // The demand loader must use the LOCAL exn: a nested import's failure has to
   // unwind this file's handler, not the driver's.
   outcome := mm_eval_entry_exprs(&entry_abs, std_path.clone(), &exprs, local_exn);
+  if(outcome.ok, {
+    module_load_end(&entry_abs, entry_touch_mark);
+  });
   if(outcome.ok && verbose, {
     emit_chatter(`check: ${input_path} — evaluator OK`);
   });

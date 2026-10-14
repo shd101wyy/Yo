@@ -5887,7 +5887,7 @@ run_compile :: (
       // The hash is recorded AS EACH FILE IS READ (input_record.yo), which is
       // what makes the build runner's recorded stamp describe the bytes this
       // compile consumed rather than whatever is on disk when it finishes
-      // (issues/yo-build-artifact-cache-serves-a-stale-binary.md). Hashing is
+      // (issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md). Hashing is
       // enabled only here, so `check`, `test` and the LSP never pay for it.
       (a_name == "--emit-deps") => {
         emit_deps_to = _opt_value(argv, ai, a_name.clone(), a_val.clone(), exn);
@@ -9700,6 +9700,10 @@ run_build_cmd :: (
   // recorded in issues/warm-compile-selfcheck.md and
   // issues/fixed/warm-in-process-array-fill-call-stops-matching.md.
   if(watch, {
+    // Hash from the start: the build-file evaluation loads modules the
+    // in-process artifact compiles then find cached, and a cached module
+    // replays the hashes its load recorded (input_record.yo).
+    set_input_hashing(true);
     set_in_process_compile_fn(
       (fn(argv : &ArrayList(String), io : Io, exn : Exception) -> bool)({
         g_compile_watch_failed = false;
