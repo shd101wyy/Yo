@@ -5936,6 +5936,16 @@ compiler; the std shapes are plain structs the seed lowers):
           destination is written after the copy is listed, not rewritten.
           The writes that escape the function (a stored, passed or returned
           copy) remain invisible to it.
+          `--dry-run` on the tree (2026-10-15, A2 on develop fceb684a1):
+
+          | tree | inserted | `return` | `field-store` | `param` | `binding` | `assign` | left as written (written after) |
+          | --- | --- | --- | --- | --- | --- | --- | --- |
+          | `src/` | 3,761 | 1,931 | 1,120 | 330 | 282 | 98 | 644 (629) |
+          | `std/` | 205 | 94 | 47 | 18 | 37 | 9 | 97 (88) |
+
+          A run of `src/` takes 3 min 25 s. The 717 written-after sites are
+          Generation B's hand edits, with the flip's E0901 naming any the
+          migration could not see.
       - **Generation B** (on a seed carrying Generation A, after v0.2.63;
         the seed compiles `src/` against the tree's std, so the sweep lands
         with the flip): first `ArrayList` and `String` together, since
