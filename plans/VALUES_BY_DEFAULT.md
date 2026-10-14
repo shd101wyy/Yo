@@ -1047,7 +1047,12 @@ instead.
       payload is never written through a handle in safe code (D3, which
       checks every hop of a written place since this amendment), so no
       concurrent write can invalidate the borrow, and the task's own handle
-      keeps the payload alive. A `&mut` borrow through an `Arc` stays
+      keeps the payload alive. The premise held only once D3 judged every
+      callee by its mutation mask instead of trusting every mutator defined
+      in a pragma'd file (`a.*.o.take()` wrote an `Arc` payload in safe
+      code:
+      `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`).
+      A `&mut` borrow through an `Arc` stays
       rejected, as does a path that also crosses an `Rc`, a `ref` object, a
       pointer or an index (`rc(arc(m))`). `Rc` joins when `Rc` becomes
       read-only (decision 46): that flips the predicate and nothing else.

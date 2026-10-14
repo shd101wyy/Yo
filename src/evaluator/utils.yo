@@ -1297,7 +1297,10 @@ reject_second_class_escape :: (fn(ty : &TypeValue, how : &String, tok : &Token, 
 /// `h.*` of a handle of type `t` reaches a place no other handle can write in
 /// safe code. True for the prelude's `Arc` only: D3 rejects every write
 /// through an atomic object outside a `pragma(Pragma.AllowUnsafe)` file, and
-/// its payload changes only through a `Mutex` or an atomic inside it, as in
+/// every call whose callee may write through one, judged by the callee's
+/// mutation mask wherever it is defined (`Option.take` included:
+/// issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md),
+/// so its payload changes only through a `Mutex` or an atomic inside it, as in
 /// Rust. The `Arc` is identified as `Box` is (`unique_box_payload_type`): the
 /// comptime-fn call stamps its name `Arc(V)` (`evaluator/calls/comptime_fn.yo`)
 /// and a prelude name cannot be shadowed, so the stamped name plus the

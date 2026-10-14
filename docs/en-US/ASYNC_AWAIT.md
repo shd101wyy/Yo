@@ -435,10 +435,11 @@ the handle instead (`h : &Rc(S)`) and read `h.*.items` inside the Future at
 each use, or own the value in the task. An element of a fixed-size array is
 part of the array's own storage and may be lent.
 
-An `Arc` dereference is the exception for a shared borrow: no handle ever
-writes an `Arc`'s payload in safe code (its state changes only through a
-`Mutex` or an atomic inside it, as in Rust), and the task's own handle keeps
-the payload alive, so `io.await(a.*.lock(io), io)` with `a : Arc(Mutex(T))` is
+An `Arc` dereference is the exception for a shared borrow: no handle writes
+an `Arc`'s payload in safe code (its state changes only through a `Mutex` or
+an atomic inside it, as in Rust; a std mutator such as `a.*.o.take()` is
+rejected like a direct write, since D3 judges every callee by what it writes),
+and the task's own handle keeps the payload alive, so `io.await(a.*.lock(io), io)` with `a : Arc(Mutex(T))` is
 accepted, as is a path that crosses only `Arc` dereferences. A `&mut` borrow
 through an `Arc` is still E0909, and so is any path that also crosses an `Rc`
 (`rc(arc(m))`). An `Rc` joins `Arc` once its payload is read-only through the
