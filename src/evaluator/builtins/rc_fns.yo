@@ -273,7 +273,7 @@ evaluate_yo_iso_extract :: (
   // declared return (T) → the `(iso.extract)()` call failed to transpile. Set the
   // expr type to the inner T; value stays `.None` (a runtime value, not a comptime
   // Option).
-  inner_type := match(arg_type, .IsoT(child_box) => child_box, _ => t_unit());
+  inner_type := match(arg_type, Rc(.IsoT(child_box)) => child_box, _ => t_unit());
   out := new_expr_info(&info.env, &inner_type);
   out.value = .None;
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
@@ -379,7 +379,7 @@ evaluate_yo_dup_array_element :: (
       )
     );
   });
-  element_type := match(array_type, .Array(child_box, _, _) => child_box, _ => t_unit());
+  element_type := match(array_type, Rc(.Array(child_box, _, _)) => child_box, _ => t_unit());
   out := new_expr_info(&info0.env, &element_type);
   out.value = .None;
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
@@ -415,7 +415,7 @@ evaluate_yo_dup_tuple_element :: (
   );
   index_i64 := match(index_raw.parse_i64(), .Some(v) => v, .None => i64(0));
   index_usize := usize(index_i64);
-  field_types := match(tuple_type, .Tuple(_, fts) => fts, _ => ArrayList(TypeValue).new());
+  field_types := match(tuple_type, Rc(.Tuple(_, fts)) => fts, _ => ArrayList(TypeValue).new());
   element_type := match(
     field_types.get(index_usize),
     .Some(ft) => ft,

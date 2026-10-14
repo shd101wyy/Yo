@@ -573,7 +573,7 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
         em := context.base.emitter;
         child_type := match(
           extract_future_trait_from_type(&iasm.future_type),
-          .Some(ftt) => match(ftt, .FutureTraitT({ output : o }) => o, _ => t_unit()),
+          .Some(ftt) => match(ftt, Rc(.FutureTraitT({ output : o })) => o, _ => t_unit()),
           .None => t_unit()
         );
         is_unit_result := is_unit_type(&child_type);

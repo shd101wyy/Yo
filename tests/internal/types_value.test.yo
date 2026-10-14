@@ -42,11 +42,11 @@ test("compound types — pointer / str / array", {
   ppi32 := t_ptr(t_ptr(t_i32()));
   match(
     ppi32,
-    .Pointer(p1) => match(
+    Rc(.Pointer(p1)) => match(
       p1,
-      .Pointer(p2) => match(
+      Rc(.Pointer(p2)) => match(
         p2,
-        .Int(bits, signed) => {
+        Rc(.Int(bits, signed)) => {
           assert(bits == u8(32), "inner i32 width");
           assert(signed, "inner i32 signed");
         },
@@ -59,7 +59,7 @@ test("compound types — pointer / str / array", {
   // Array length stored
   match(
     ai32,
-    .Array(_, len, _) => assert(len == usize(8), "array length 8"),
+    Rc(.Array(_, len, _)) => assert(len == usize(8), "array length 8"),
     _ => assert(false, "expected Array")
   );
 });

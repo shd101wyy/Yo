@@ -427,7 +427,7 @@ _type_name_is :: (fn(sname : &String, head : str) -> bool)(
 _is_v2_value_collection_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
-    .Struct({ id : sid, name : sname0, is_reference_semantics : is_ref }) => (
+    Rc(.Struct({ id : sid, name : sname0, is_reference_semantics : is_ref })) => (
       is_ref
       && match(
         type_decl_module(sid.clone()),
@@ -1328,7 +1328,7 @@ evaluate_assignment :: (
                 (struct_fi : i64) = i64(-1);
                 match(
                   pc_var.ty,
-                  .Struct({ field_labels : s_flabels }) => {
+                  Rc(.Struct({ field_labels : s_flabels })) => {
                     n_sf := s_flabels.len();
                     (k_sf : usize) = usize(0);
                     while(k_sf < n_sf, {
@@ -1341,7 +1341,7 @@ evaluate_assignment :: (
                       });
                     });
                   },
-                  .Tuple(t_flabels, _) => {
+                  Rc(.Tuple(t_flabels, _)) => {
                     n_tf := t_flabels.len();
                     (k_tf : usize) = usize(0);
                     while(k_tf < n_tf, {
@@ -1361,7 +1361,7 @@ evaluate_assignment :: (
                   fi_us := usize(struct_fi);
                   is_ref_sem := match(
                     pc_var.ty,
-                    .Struct({ is_reference_semantics : is_ref }) => is_ref,
+                    Rc(.Struct({ is_reference_semantics : is_ref })) => is_ref,
                     _ => false
                   );
                   if(is_ref_sem, {
@@ -1443,7 +1443,7 @@ evaluate_assignment :: (
                     (ev_fi : i64) = i64(-1);
                     match(
                       pc_var.ty,
-                      .EnumT(_, _, ev_vnames, _, _, ev_vf_labels, _, _, _, _) => {
+                      Rc(.EnumT(_, _, ev_vnames, _, _, ev_vf_labels, _, _, _, _)) => {
                         n_vn := ev_vnames.len();
                         (k_vn : usize) = usize(0);
                         (vi : usize) = n_vn; // sentinel: not found

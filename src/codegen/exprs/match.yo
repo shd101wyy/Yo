@@ -128,7 +128,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
     },
     .Variant(_, vidx, field_idx, subs, enum_ty, through_ptr, _) => {
       cell := (in_cell || through_ptr || pattern_position_is_cell(ty));
-      ftys := match(resolve_enum_shell(&enum_ty), .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      ftys := match(resolve_enum_shell(&enum_ty), Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -1364,7 +1364,7 @@ _remove_arm_shadows :: (fn(params : &ArrayList(AstExpr), context : &FunctionGene
 _emit_destructure_binds :: (fn(enum_type : &TypeValue, variant_name : &String, params : &ArrayList(AstExpr), matched_value_code : &String, access : str, body_indent : &String, context : &FunctionGenerationContext) -> unit)(
   match(
     enum_type,
-    .EnumT({ variant_names : vns, variant_fields : vfs, variant_field_labels : vfls }) => {
+    Rc(.EnumT({ variant_names : vns, variant_fields : vfs, variant_field_labels : vfls })) => {
       em := context.base.emitter;
       // A match-arm variant pattern carries the leading `.` of `.Variant`; the
       // EnumT's variant_names are clean. Strip it so the lookup matches (else no
@@ -1550,6 +1550,16 @@ _emit_variant_arm_body :: (
   });
 });
 /// Tagged-union enum match → C switch on the tag with per-arm destructuring.
+/// The variant pattern under an explicit `Rc(p)` wrapper arm (decision 31),
+/// or the arm's pattern itself. The switch emitter reaches a wrapper arm only
+/// through `_lookthrough_switch_cell`, which admitted it as a classic variant
+/// shape under one `Rc` cell; `_case_executed` still reads the outer node.
+_unwrap_rc_pattern :: (fn(cv : &AstExpr) -> AstExpr)(
+  cond(
+    ast_expr_is_fn_call_of(cv, "Rc", Option(usize).Some(usize(1))) => match(_args(cv).get(usize(0)), .Some(x) => x, .None => cv.clone()),
+    true => cv.clone()
+  )
+);
 _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext, matched_value_code : &String, match_value_type : &TypeValue, enum_type : &TypeValue, is_ref_or_ptr : bool, temp_var_opt : &Option(String), is_unit : bool) -> String)({
   em := context.base.emitter;
   saved := context.base.inside_match;
@@ -1591,7 +1601,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
         cv_g := match(_args(&ce).get(usize(0)), .Some(x) => x, .None => make_err_expr());
         if(_case_executed(&cv_g, context), {
           match(
-            arm_variant_name(&cv_g),
+            arm_variant_name(&_unwrap_rc_pattern(&cv_g)),
             .Some(vname) => {
               (found_at : Option(usize)) = Option(usize).None;
               (si : usize) = usize(0);
@@ -1658,7 +1668,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                 cl.push_str("}");
                 em.emit_string_line(&cl);
               }, match(
-                arm_variant_name(&cv),
+                arm_variant_name(&_unwrap_rc_pattern(&cv)),
                 .Some(variant_name) => {
                   // First arm of this variant's group? Find the group index.
                   (group_idx : Option(usize)) = Option(usize).None;
@@ -1699,7 +1709,7 @@ _gen_tagged_union_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
                                       arm_cargs := _args(&arm_ce);
                                       arm_cv := match(arm_cargs.get(usize(0)), .Some(x) => x, .None => make_err_expr());
                                       arm_cb := match(arm_cargs.get(usize(1)), .Some(x) => x, .None => make_err_expr());
-                                      arm_ps := arm_params(&arm_cv);
+                                      arm_ps := arm_params(&_unwrap_rc_pattern(&arm_cv));
                                       guards := pattern_literal_arm_guards(enum_type, &variant_name, &arm_ps, matched_value_code.clone(), access);
                                       _emit_variant_arm_body(&arm_cb, &arm_ps, &variant_name, &guards, enum_type, matched_value_code.clone(), access, indent.clone(), body_indent.clone(), temp_var_opt, is_unit, context);
                                     }),
@@ -1813,7 +1823,7 @@ _variant_test_code :: (fn(enum_ty : &TypeValue, vidx : usize, vname : &String, p
     can_optimize_as_nullable_pointer(enum_ty),
     .Some(_) => {
       // The enum IS the pointer: the fieldless variant is NULL.
-      fields := match(enum_ty, .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      fields := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
       v := _enum_value_code(path, is_raw_ptr);
       t := String.from("(");
       t.push_string(&v);
@@ -1868,7 +1878,7 @@ _variant_field_code :: (fn(enum_ty : &TypeValue, vname : &String, label : &Strin
 _struct_pattern_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
   match(
     t,
-    .Struct({ field_labels : fls }) => fls,
+    Rc(.Struct({ field_labels : fls })) => fls,
     _ => ArrayList(String).new()
   )
 );
@@ -1876,7 +1886,7 @@ _struct_pattern_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
 _struct_pattern_field_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
   match(
     t,
-    .Struct({ field_types : fts }) => fts,
+    Rc(.Struct({ field_types : fts })) => fts,
     _ => ArrayList(TypeValue).new()
   )
 );
@@ -1893,7 +1903,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
     .Const(_, _, _, _, _) => (),
     .Range(_, _, _, _, _, _, _) => (),
     .Variant(_, vidx, field_idx, subs, enum_ty, _, _) => {
-      ftys := match(enum_ty, .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
@@ -2056,8 +2066,8 @@ _emit_pattern_chain :: (
         line.push_str(";");
         em.emit_string_line(&line);
       });
-      labels_v := match(enum_ty, .EnumT({ variant_field_labels : vfls }) => match(vfls.get(vidx), .Some(l) => l, .None => ArrayList(String).new()), _ => ArrayList(String).new());
-      ftys := match(enum_ty, .EnumT({ variant_fields : vfs }) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
+      labels_v := match(enum_ty, Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(vidx), .Some(l) => l, .None => ArrayList(String).new()), _ => ArrayList(String).new());
+      ftys := match(enum_ty, Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(vidx), .Some(f) => f, .None => ArrayList(TypeValue).new()), _ => ArrayList(TypeValue).new());
       v_cell := (in_cell || pattern_position_is_cell(ty));
       (i : usize) = usize(0);
       while(i < subs.len(), {
@@ -2305,7 +2315,8 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
           },
           _ => false
         );
-        if(!simple || !arm_is_classic(&arm.pattern_expr, &sub, false, false), {
+        // An explicit `Rc(p)` arm (decision 31) is classified by its `p`.
+        if(!simple || !arm_is_classic(&_unwrap_rc_pattern(&arm.pattern_expr), &sub, false, false), {
           return(.None);
         });
         k := type_key(&bt);
@@ -2583,7 +2594,8 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
             .Some(f) => {
               matched_value_code = `${cell_base}->${sanitize_for_c_identifier(f.label.clone(), false)}`;
               match_value_type = resolve_enum_shell(&f.ty);
-              through_switch = is_enum_type(&match_value_type);
+              // Only the tagged-union switch reads through a wrapper arm.
+              through_switch = (is_enum_type(&match_value_type) && can_optimize_as_nullable_pointer(&match_value_type).is_none() && !can_optimize_as_simple_enum(&match_value_type));
             },
             .None => ()
           );
@@ -2596,7 +2608,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   // Dereference pointer / ref-semantics one level to the enum type.
   is_ptr := is_pointer_type(&match_value_type);
   is_ref_sem := (!is_ptr && (is_reference_struct_type(&match_value_type) || is_reference_enum_type(&match_value_type)));
-  enum_type0 := if(is_ptr, match(match_value_type, .Pointer(p) => p, _ => match_value_type), match_value_type);
+  enum_type0 := if(is_ptr, match(match_value_type, Rc(.Pointer(p)) => p, _ => match_value_type), match_value_type);
   // The general test-chain lowering: any arm outside the classic switch
   // shapes, or a scrutinee that is neither a primitive nor an enum (a string
   // matched against literals).

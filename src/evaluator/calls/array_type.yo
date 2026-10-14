@@ -49,7 +49,7 @@ try_to_implement_array_by_array_type :: (
   // Extract element type and concrete length from TypeValue.Array.
   elem_type := match(
     array_type,
-    .Array(elem_box, _, _) => elem_box,
+    Rc(.Array(elem_box, _, _)) => elem_box,
     _ => {
       exn.throw(
         dyn(
@@ -64,7 +64,7 @@ try_to_implement_array_by_array_type :: (
   );
   expected_len := match(
     array_type,
-    .Array(_, len, _) => len,
+    Rc(.Array(_, len, _)) => len,
     _ => usize(0)
   );
   // A non-empty `length_var` means the length is an UNRESOLVED inference
@@ -73,7 +73,7 @@ try_to_implement_array_by_array_type :: (
   // resolve the result type to the concrete count below.
   arr_len_var := match(
     array_type,
-    .Array(_, _, lv) => lv,
+    Rc(.Array(_, _, lv)) => lv,
     _ => String.from("")
   );
   // Validate argument count matches array length.

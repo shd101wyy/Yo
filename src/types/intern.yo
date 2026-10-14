@@ -163,17 +163,17 @@ _ik_node_token :: (fn(tag : str, sid : &String, tas : &ArrayList(TypeValue), dep
 _ik_arg_id :: (fn(t : &TypeValue, depth : usize, abs_depth : usize, visited : &mut HashSet(String)) -> String)(
   match(
     t,
-    .Struct({ id : a_sid, type_arguments : a_tas }) => if(depth < usize(8), {
+    Rc(.Struct({ id : a_sid, type_arguments : a_tas })) => if(depth < usize(8), {
       o := _ik_node_token("S:", &a_sid, &a_tas, depth + usize(1), abs_depth, visited);
       o.push_str(")");
       o
     }, `S:${a_sid}`),
-    .EnumT({ id : a_eid, type_arguments : a_etas }) => if(depth < usize(8), {
+    Rc(.EnumT({ id : a_eid, type_arguments : a_etas })) => if(depth < usize(8), {
       o := _ik_node_token("E:", &a_eid, &a_etas, depth + usize(1), abs_depth, visited);
       o.push_str(")");
       o
     }, `E:${a_eid}`),
-    .SomeT({ id : a_tid, resolution : a_res }) => match(
+    Rc(.SomeT({ id : a_tid, resolution : a_res })) => match(
       a_res,
       .Some(a_r) => if(depth < usize(8), `T:${a_tid}>${_ik_arg_id(&a_r, depth + usize(1), abs_depth + usize(1), visited)}`, `T:${a_tid}`),
       .None => `T:${a_tid}`
@@ -190,53 +190,53 @@ _intern_key_into :: (
     sb.write_str("~"),
     match(
       t,
-      .Unit => sb.write_str("u"),
-      .BoolT => sb.write_str("b"),
-      .Void => sb.write_str("v"),
-      .Never => sb.write_str("NV"),
-      .Str => sb.write_str("s"),
-      .Usize => sb.write_str("z"),
-      .Isize => sb.write_str("Z"),
-      .ComptimeInt => sb.write_str("ci"),
-      .ComptimeFloat => sb.write_str("cf"),
-      .ComptimeString => sb.write_str("cs"),
-      .CChar => sb.write_str("cc"),
-      .CShort => sb.write_str("csh"),
-      .CUShort => sb.write_str("cush"),
-      .CInt => sb.write_str("cin"),
-      .CUInt => sb.write_str("cuin"),
-      .CLong => sb.write_str("cl"),
-      .CULong => sb.write_str("cul"),
-      .CLongLong => sb.write_str("cll"),
-      .CULongLong => sb.write_str("cull"),
-      .CLongDouble => sb.write_str("cld"),
-      .ExprT => sb.write_str("X"),
-      .Int(bits, signed) => {
+      Rc(.Unit) => sb.write_str("u"),
+      Rc(.BoolT) => sb.write_str("b"),
+      Rc(.Void) => sb.write_str("v"),
+      Rc(.Never) => sb.write_str("NV"),
+      Rc(.Str) => sb.write_str("s"),
+      Rc(.Usize) => sb.write_str("z"),
+      Rc(.Isize) => sb.write_str("Z"),
+      Rc(.ComptimeInt) => sb.write_str("ci"),
+      Rc(.ComptimeFloat) => sb.write_str("cf"),
+      Rc(.ComptimeString) => sb.write_str("cs"),
+      Rc(.CChar) => sb.write_str("cc"),
+      Rc(.CShort) => sb.write_str("csh"),
+      Rc(.CUShort) => sb.write_str("cush"),
+      Rc(.CInt) => sb.write_str("cin"),
+      Rc(.CUInt) => sb.write_str("cuin"),
+      Rc(.CLong) => sb.write_str("cl"),
+      Rc(.CULong) => sb.write_str("cul"),
+      Rc(.CLongLong) => sb.write_str("cll"),
+      Rc(.CULongLong) => sb.write_str("cull"),
+      Rc(.CLongDouble) => sb.write_str("cld"),
+      Rc(.ExprT) => sb.write_str("X"),
+      Rc(.Int(bits, signed)) => {
         sb.write_str("I");
         sb.write_string(bits.to_string());
         _append_b(sb, signed);
       },
-      .Float(bits) => {
+      Rc(.Float(bits)) => {
         sb.write_str("F");
         sb.write_string(bits.to_string());
       },
-      .TypeUni(level) => {
+      Rc(.TypeUni(level)) => {
         sb.write_str("T");
         sb.write_string(level.to_string());
       },
-      .Pointer(pointee) => {
+      Rc(.Pointer(pointee)) => {
         sb.write_str("P");
         recur(&pointee, sb, depth + usize(1), visited);
       },
-      .ComptimeListT(child) => {
+      Rc(.ComptimeListT(child)) => {
         sb.write_str("CL");
         recur(&child, sb, depth + usize(1), visited);
       },
-      .IsoT(child) => {
+      Rc(.IsoT(child)) => {
         sb.write_str("Is");
         recur(&child, sb, depth + usize(1), visited);
       },
-      .Array(element, length, length_var) => {
+      Rc(.Array(element, length, length_var)) => {
         sb.write_str("A");
         recur(&element, sb, depth + usize(1), visited);
         sb.write_str("#");
@@ -244,7 +244,7 @@ _intern_key_into :: (
         sb.write_str("#");
         sb.write_string(&length_var);
       },
-      .Tuple(field_labels, field_types) => {
+      Rc(.Tuple(field_labels, field_types)) => {
         sb.write_str("Tup[");
         _append_strings(sb, &field_labels);
         sb.write_str("|");
@@ -257,7 +257,7 @@ _intern_key_into :: (
         });
         sb.write_str("]");
       },
-      .Func({ forall_types : fa, param_types : pp, implicit_types : ii, where_types : ww, result : res, meta : m, variadic_types : vv }) => {
+      Rc(.Func({ forall_types : fa, param_types : pp, implicit_types : ii, where_types : ww, result : res, meta : m, variadic_types : vv })) => {
         sb.write_str("Fn[");
         na := fa.len();
         (ia : usize) = usize(0);
@@ -304,7 +304,7 @@ _intern_key_into :: (
         });
         sb.write_str("]");
       },
-      .Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns }) => {
+      Rc(.Struct({ id : sid, name : snm, field_labels : sfl, field_types : sft, is_reference_semantics : irs, is_atomic_rc : iar, is_newtype : isnt, constructor_func_id : cfid, type_arguments : sta, is_source_namespace : isns })) => {
         // The cycle token is the id AND the type arguments' identities: a
         // substituted instance keeps its def-era id, so `StreamMap(StreamMap(
         // …))` nests two instances under one id, and an id-only token cut the
@@ -353,7 +353,7 @@ _intern_key_into :: (
           sb.write_str("}");
         });
       },
-      .EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas) => {
+      Rc(.EnumT(eid, enm, evns, evfs, esvn, evfl, edis, eirs, eiar, etas)) => {
         // The cycle token carries the type arguments, as the Struct arm's: a
         // generic fn applied to its own result (`wrap(wrap(x))`) nests one
         // `Option(U)` instance inside another under one id, and an id-only
@@ -413,7 +413,7 @@ _intern_key_into :: (
           sb.write_str("}");
         });
       },
-      .TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc, tatcl, tatct) => {
+      Rc(.TraitT(tnm, tatn, tfl, tft, tid, tisc, tsc, tnsc, tatcl, tatct)) => {
         tok := String.from("Tr:");
         tok.push_string(&tid);
         if((tid.len() > usize(0)) && visited.contains(&tok), {
@@ -480,7 +480,7 @@ _intern_key_into :: (
       // FIRST interned variant — the stage-2 statx cluster (single-effect
       // closure param typed IoExn). Render the full distinguishing content,
       // same shape as the TraitT/EnumT arms (visited-guarded for cycles).
-      .SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smkft, smrcp) => {
+      Rc(.SomeT(smid, smnm, smfl, smpt, smrtt, smrtl, smntt, smntl, smkft, smrcp)) => {
         tok := String.from("So:");
         tok.push_string(&smid);
         if((smid.len() > usize(0)) && visited.contains(&tok), {
@@ -547,7 +547,7 @@ _intern_key_into :: (
           sb.write_str("}");
         });
       },
-      .Union(unm, ufl, uft) => {
+      Rc(.Union(unm, ufl, uft)) => {
         sb.write_str("Un:");
         sb.write_string(&unm);
         sb.write_str("[");
@@ -562,7 +562,7 @@ _intern_key_into :: (
         });
         sb.write_str("]");
       },
-      .TypeAppT(tac, taa) => {
+      Rc(.TypeAppT(tac, taa)) => {
         sb.write_str("TA");
         recur(&tac, sb, depth + usize(1), visited);
         sb.write_str("[");
@@ -575,7 +575,7 @@ _intern_key_into :: (
         });
         sb.write_str("]");
       },
-      .DynT(drtt, drtl, dntt, dntl) => {
+      Rc(.DynT(drtt, drtl, dntt, dntl)) => {
         sb.write_str("Dy[");
         nr := drtt.len();
         (ir : usize) = usize(0);
@@ -598,7 +598,7 @@ _intern_key_into :: (
         _append_usizes(sb, &dntl);
         sb.write_str("]");
       },
-      .FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, call_param_is_ref : fncprf, call_param_is_owning : fncpo }) => {
+      Rc(.FnTraitT({ base_name : fnbn, call_param_labels : fncpl, call_param_types : fncpt, call_result : fncr, implicit_labels : fnil, implicit_types : fnit, call_param_is_ref : fncprf, call_param_is_owning : fncpo })) => {
         sb.write_str("FT:");
         sb.write_string(&fnbn);
         sb.write_str("[");
@@ -629,7 +629,7 @@ _intern_key_into :: (
         _append_bools(sb, &fncpo);
         sb.write_str("]");
       },
-      .FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet }) => {
+      Rc(.FutureTraitT({ base_name : ftbn, output : ftout, effect_labels : ftel, effect_types : ftet })) => {
         sb.write_str("FuT:");
         sb.write_string(&ftbn);
         sb.write_str("[");
@@ -649,13 +649,13 @@ _intern_key_into :: (
       // V6 task 3: the intern key distinguishes predicates — two
       // refinements over the same inner are DIFFERENT types at the type
       // level, so the key carries the predicate's func_id.
-      .RefineT(inner, pfid) => {
+      Rc(.RefineT(inner, pfid)) => {
         sb.write_str("R:");
         recur(&inner, sb, depth + usize(1), visited);
         sb.write_str("|");
         sb.write_string(&pfid);
       },
-      .ExternOpaqueT(_, eo_c) => {
+      Rc(.ExternOpaqueT(_, eo_c)) => {
         sb.write_str("Ex:");
         sb.write_string(&eo_c);
       }
@@ -719,7 +719,7 @@ _ti_walk :: (fn(t : &TypeValue, depth : usize) -> unit)({
   g_ti_nodes = (g_ti_nodes + usize(1));
   match(
     t,
-    .Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : rs, variadic_types : vt }) => {
+    Rc(.Func({ forall_types : ft, param_types : pt, implicit_types : it, where_types : wt, result : rs, variadic_types : vt })) => {
       g_ti_func = (g_ti_func + usize(1));
       _ti_list(ft.len());
       _ti_list(pt.len());
@@ -729,13 +729,13 @@ _ti_walk :: (fn(t : &TypeValue, depth : usize) -> unit)({
       _ti_walk_list(&pt, depth);
       _ti_walk(&rs, depth + usize(1));
     },
-    .Struct({ field_types : fts, type_arguments : ta }) => {
+    Rc(.Struct({ field_types : fts, type_arguments : ta })) => {
       g_ti_struct = (g_ti_struct + usize(1));
       _ti_list(fts.len());
       _ti_list(ta.len());
       _ti_walk_list(&ta, depth);
     },
-    .EnumT({ variant_names : vns, variant_fields : vfs }) => {
+    Rc(.EnumT({ variant_names : vns, variant_fields : vfs })) => {
       g_ti_enum = (g_ti_enum + usize(1));
       // `variant_fields` is a list OF LISTS — one per variant — so an enum
       // carries 1 + N of the 80 B list objects, not 2.
@@ -754,7 +754,7 @@ _ti_walk :: (fn(t : &TypeValue, depth : usize) -> unit)({
         i_vf = (i_vf + usize(1));
       });
     },
-    .SomeT({ required_trait_types : rtt }) => {
+    Rc(.SomeT({ required_trait_types : rtt })) => {
       g_ti_some = (g_ti_some + usize(1));
       _ti_list(rtt.len());
     },

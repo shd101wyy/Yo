@@ -1350,7 +1350,7 @@ ${rhs_str}`
             // still has no name — a recursive type's self-shell, which an
             // enum marks with a `__self_shell` id suffix — prints as the
             // type, not as its internal id.
-            .Struct({ id : st_id, name : st_name, field_labels : st_fls, field_types : st_fts, is_reference_semantics : st_ref, is_atomic_rc : st_at, is_newtype : st_nt, constructor_func_id : st_cfid, type_arguments : st_ta, is_source_namespace : st_sns }) => cond(
+            Rc(.Struct({ id : st_id, name : st_name, field_labels : st_fls, field_types : st_fts, is_reference_semantics : st_ref, is_atomic_rc : st_at, is_newtype : st_nt, constructor_func_id : st_cfid, type_arguments : st_ta, is_source_namespace : st_sns })) => cond(
               (st_name.len() == usize(0)) => {
                 register_type_display_name(st_id.clone(), binding_name.clone());
                 register_type_binding_name(st_id.clone(), binding_name.clone());
@@ -1360,7 +1360,7 @@ ${rhs_str}`
               },
               true => Option(TypeValue).None
             ),
-            .EnumT(en_id, en_name, en_vns, en_vfs, en_sel, en_vfl, en_vd, en_irs, en_iar, en_tas) => cond(
+            Rc(.EnumT(en_id, en_name, en_vns, en_vfs, en_sel, en_vfl, en_vd, en_irs, en_iar, en_tas)) => cond(
               (en_name.len() == usize(0)) => {
                 register_type_display_name(en_id.clone(), binding_name.clone());
                 register_type_display_name(`${en_id}__self_shell`, binding_name.clone());
@@ -1372,7 +1372,7 @@ ${rhs_str}`
               },
               true => Option(TypeValue).None
             ),
-            .Union(un_name, un_fls, un_fts) => cond(
+            Rc(.Union(un_name, un_fls, un_fts)) => cond(
               (un_name.len() == usize(0)) => Option(TypeValue).Some(
                 rc(TypeValueNode.Union(binding_name, un_fls, un_fts))
               ),
@@ -1393,7 +1393,7 @@ ${rhs_str}`
             // preserved. Without this, diagnostics render the trait as its
             // field dump (`(id : comptime_str)` instead of `Send`), e.g.
             // the where-clause "does not implement required trait" error.
-            .TraitT(tr_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct) => cond(
+            Rc(.TraitT(tr_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct)) => cond(
               (tr_name.len() == usize(0)) => Option(TypeValue).Some(
                 rc(TypeValueNode.TraitT(binding_name, tr_atns, tr_fls, tr_fts, tr_id, tr_conc, tr_sc, tr_nsc, tr_atcl, tr_atct))
               ),

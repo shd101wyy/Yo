@@ -372,7 +372,7 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
         if(!can_optimize_as_simple_enum(ty), {
           match(
             ty,
-            .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+            Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
               em.emit_string_line(`  switch (${access}.tag) {`);
               nv := variant_names.len();
               (vi : usize) = usize(0);
@@ -446,7 +446,7 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
     // Tuple: fields are emitted as `._0`, `._1`, …
     is_tuple_type(ty) => match(
       ty,
-      .Tuple({ field_types }) => {
+      Rc(.Tuple({ field_types })) => {
         ntf := field_types.len();
         (ti : usize) = usize(0);
         while(ti < ntf, {
@@ -468,7 +468,7 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
     // shape that ever needed a generated tracer.
     is_array_type(ty) => match(
       ty,
-      .Array({ element }) => {
+      Rc(.Array({ element })) => {
         em.emit_string_line(`  for (size_t __yo_ti = 0; __yo_ti < (sizeof(${access}.data) / sizeof(${access}.data[0])); __yo_ti++) {`);
         recur(`${access}.data[__yo_ti]`, &element, context);
         em.emit_string_line(`  }`);
@@ -606,7 +606,7 @@ _generate_one_ref_enum_traversal :: (fn(type : &TypeValue, c_name : &String, con
   em.emit_string_line(`  switch (obj->tag) {`);
   match(
     type,
-    .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+    Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
@@ -703,7 +703,7 @@ _generate_one_ref_enum_constructor_set :: (fn(type : &TypeValue, c_name : &Strin
   enum_small_header := type_uses_small_rc_header(type, context.base.needs_cycle_gc, is_atomic);
   match(
     type,
-    .EnumT({ id : enum_id, variant_names, variant_fields, variant_field_labels }) => {
+    Rc(.EnumT({ id : enum_id, variant_names, variant_fields, variant_field_labels })) => {
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
@@ -928,7 +928,7 @@ static bool __yo_iso_uq_run(void* root, void* root_traverse) {
         context.base.iso_types.get(iso_name.clone()),
         .Some(info) => match(
           info.iso_type,
-          .IsoT(child) => {
+          Rc(.IsoT(child)) => {
             child_c := get_type_string(&child, &context.base);
             if(is_reference_struct_type(&child) || is_reference_enum_type(&child), {
               em.emit_string_line(`static bool __yo_iso_unique_${iso_name}(${child_c} value) {`);

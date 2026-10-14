@@ -1171,27 +1171,27 @@ evaluate_yo_type_get_info :: (
   // Build code string for each TypeValue variant.
   code := match(
     type_val,
-    .Unit => String.from("TypeInfo.Unit"),
-    .BoolT => String.from("TypeInfo.Bool"),
-    .Void => String.from("TypeInfo.Void"),
-    .Usize => String.from("TypeInfo.Usize"),
-    .Isize => String.from("TypeInfo.Isize"),
-    .ComptimeInt => String.from("TypeInfo.ComptimeInt"),
-    .ComptimeFloat => String.from("TypeInfo.ComptimeFloat"),
-    .ComptimeString => String.from("TypeInfo.ComptimeStr"),
-    .CChar => String.from("TypeInfo.Char"),
-    .CShort => String.from("TypeInfo.Short"),
-    .CUShort => String.from("TypeInfo.UShort"),
-    .CInt => String.from("TypeInfo.Int"),
-    .CUInt => String.from("TypeInfo.UInt"),
-    .CLong => String.from("TypeInfo.Long"),
-    .CULong => String.from("TypeInfo.ULong"),
-    .CLongLong => String.from("TypeInfo.LongLong"),
-    .CULongLong => String.from("TypeInfo.ULongLong"),
-    .CLongDouble => String.from("TypeInfo.LongDouble"),
-    .ExprT => String.from("TypeInfo.Expr"),
-    .TypeAppT(_, _) => String.from("TypeInfo.TypeApplication"),
-    .Int(bits, signed) => cond(
+    Rc(.Unit) => String.from("TypeInfo.Unit"),
+    Rc(.BoolT) => String.from("TypeInfo.Bool"),
+    Rc(.Void) => String.from("TypeInfo.Void"),
+    Rc(.Usize) => String.from("TypeInfo.Usize"),
+    Rc(.Isize) => String.from("TypeInfo.Isize"),
+    Rc(.ComptimeInt) => String.from("TypeInfo.ComptimeInt"),
+    Rc(.ComptimeFloat) => String.from("TypeInfo.ComptimeFloat"),
+    Rc(.ComptimeString) => String.from("TypeInfo.ComptimeStr"),
+    Rc(.CChar) => String.from("TypeInfo.Char"),
+    Rc(.CShort) => String.from("TypeInfo.Short"),
+    Rc(.CUShort) => String.from("TypeInfo.UShort"),
+    Rc(.CInt) => String.from("TypeInfo.Int"),
+    Rc(.CUInt) => String.from("TypeInfo.UInt"),
+    Rc(.CLong) => String.from("TypeInfo.Long"),
+    Rc(.CULong) => String.from("TypeInfo.ULong"),
+    Rc(.CLongLong) => String.from("TypeInfo.LongLong"),
+    Rc(.CULongLong) => String.from("TypeInfo.ULongLong"),
+    Rc(.CLongDouble) => String.from("TypeInfo.LongDouble"),
+    Rc(.ExprT) => String.from("TypeInfo.Expr"),
+    Rc(.TypeAppT(_, _)) => String.from("TypeInfo.TypeApplication"),
+    Rc(.Int(bits, signed)) => cond(
       (signed && (bits == u8(8))) => String.from("TypeInfo.I8"),
       (signed && (bits == u8(16))) => String.from("TypeInfo.I16"),
       (signed && (bits == u8(32))) => String.from("TypeInfo.I32"),
@@ -1212,30 +1212,30 @@ evaluate_yo_type_get_info :: (
         String.from("TypeInfo.Unit")
       }
     ),
-    .Float(bits) => if(bits == u8(32), String.from("TypeInfo.F32"), String.from("TypeInfo.F64")),
-    .TypeUni(level) => (String.from("TypeInfo.Type(") + level.to_string() + String.from(")")),
-    .Pointer(pointee_box) => {
+    Rc(.Float(bits)) => if(bits == u8(32), String.from("TypeInfo.F32"), String.from("TypeInfo.F64")),
+    Rc(.TypeUni(level)) => (String.from("TypeInfo.Type(") + level.to_string() + String.from(")")),
+    Rc(.Pointer(pointee_box)) => {
       cn := _ti_bind_type(&local_env, &pointee_box, ctx);
       String.from("TypeInfo.Ptr(") + cn + String.from(")")
     },
-    .Array(element_box, length, _) => {
+    Rc(.Array(element_box, length, _)) => {
       cn := _ti_bind_type(&local_env, &element_box, ctx);
       String.from("TypeInfo.Array(") + cn + String.from(", ") + length.to_string() + String.from(")")
     },
-    .IsoT(child_box) => {
+    Rc(.IsoT(child_box)) => {
       cn := _ti_bind_type(&local_env, &child_box, ctx);
       String.from("TypeInfo.Iso(") + cn + String.from(")")
     },
-    .ComptimeListT(child_box) => {
+    Rc(.ComptimeListT(child_box)) => {
       cn := _ti_bind_type(&local_env, &child_box, ctx);
       String.from("TypeInfo.ComptimeList(") + cn + String.from(")")
     },
-    .Tuple(labels, types) => {
+    Rc(.Tuple(labels, types)) => {
       fl_name := _ti_bind_type_field_list(&local_env, &labels, &types, ctx, exn);
       String.from("TypeInfo.Tuple(") + fl_name + String.from(")")
     },
-    .Str => String.from("TypeInfo.Str"),
-    .Struct({ field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype }) => {
+    Rc(.Str) => String.from("TypeInfo.Str"),
+    Rc(.Struct({ field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype })) => {
       fl_name := _ti_bind_type_field_list(&local_env, &labels, &types, ctx, exn);
       kind_str := cond(
         is_newtype => String.from("StructKind.NewType"),
@@ -1245,17 +1245,17 @@ evaluate_yo_type_get_info :: (
       );
       String.from("TypeInfo.Struct(") + fl_name + String.from(", ") + kind_str + String.from(")")
     },
-    .EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _, _, _, _) => {
+    Rc(.EnumT(_, _, variant_names, variant_fields, _, variant_field_labels, _, _, _, _)) => {
       vl_name := _ti_bind_variant_info_list(&local_env, &type_val, &variant_names, &variant_fields, &variant_field_labels, ctx, exn);
       String.from("TypeInfo.Enum(") + vl_name + String.from(")")
     },
-    .Union(_, labels, types) => {
+    Rc(.Union(_, labels, types)) => {
       fl_name := _ti_bind_type_field_list(&local_env, &labels, &types, ctx, exn);
       String.from("TypeInfo.Union(") + fl_name + String.from(")")
     },
     // === SomeType(name, required_traits, negative_traits, resolved_type) ===
     //
-    .SomeT({ name : st_name, required_trait_types : st_req, negative_trait_types : st_neg, resolution : st_res }) => {
+    Rc(.SomeT({ name : st_name, required_trait_types : st_req, negative_trait_types : st_neg, resolution : st_res })) => {
       req_name := _ti_bind_trait_info_list(&local_env, &st_req, String.from("req"), ctx, exn);
       neg_name := _ti_bind_trait_info_list(&local_env, &st_neg, String.from("neg"), ctx, exn);
       res_name := match(
@@ -1277,7 +1277,7 @@ evaluate_yo_type_get_info :: (
       }
     },
     // === Dyn(required_traits, negative_traits) ===
-    .DynT(dt_req, _, dt_neg, _) => {
+    Rc(.DynT(dt_req, _, dt_neg, _)) => {
       req_name := _ti_bind_trait_info_list(&local_env, &dt_req, String.from("req"), ctx, exn);
       neg_name := _ti_bind_trait_info_list(&local_env, &dt_neg, String.from("neg"), ctx, exn);
       {
@@ -1291,7 +1291,7 @@ evaluate_yo_type_get_info :: (
     },
     // === Trait(fields, kind) ===. Traits split into
     // TraitT / FnTraitT / FutureTraitT — one arm each.
-    .TraitT(_, tt_assoc_names, tt_flabels, tt_ftypes, _, _, _, _, _, _) => {
+    Rc(.TraitT(_, tt_assoc_names, tt_flabels, tt_ftypes, _, _, _, _, _, _)) => {
       fl_name := _ti_bind_trait_field_info_list(&local_env, &tt_flabels, &tt_ftypes, &tt_assoc_names, ctx, exn);
       {
         tc := String.from("TypeInfo.Trait(");
@@ -1300,7 +1300,7 @@ evaluate_yo_type_get_info :: (
         tc
       }
     },
-    .FnTraitT(_, ft_plabels, ft_ptypes, ft_result, ft_ilabels, ft_itypes, _, _) => {
+    Rc(.FnTraitT(_, ft_plabels, ft_ptypes, ft_result, ft_ilabels, ft_itypes, _, _)) => {
       fni_name := _ti_bind_function_info(
         &local_env,
         &ft_plabels,
@@ -1326,7 +1326,7 @@ evaluate_yo_type_get_info :: (
         fc
       }
     },
-    .FutureTraitT(_, fut_output, _, fut_etypes) => {
+    Rc(.FutureTraitT(_, fut_output, _, fut_etypes)) => {
       out_name := _ti_bind_type(&local_env, &fut_output, ctx);
       eff_name := _ti_bind_trait_info_list(&local_env, &fut_etypes, String.from("eff"), ctx, exn);
       empty_fields := _ti_bind_comptime_list(&local_env, ArrayList(EvalValue).new(), String.from("TraitFieldInfo"), String.from("tfl"), ctx, exn);
@@ -1342,7 +1342,7 @@ evaluate_yo_type_get_info :: (
       }
     },
     // === Function(info) ===
-    .Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta, variadic_types : fn_vts }) => {
+    Rc(.Func({ forall_types : fn_fts, param_types : fn_pts, implicit_types : fn_its, result : fn_res, meta : fn_meta, variadic_types : fn_vts })) => {
       fni_name := _ti_bind_function_info(
         &local_env,
         &fn_meta.*.param_labels,
@@ -1768,12 +1768,12 @@ evaluate_type_join_fields :: (
   // Collect struct field label/type lists.
   struct_labels := match(
     target_type,
-    .Struct({ field_labels : ls }) => ls,
+    Rc(.Struct({ field_labels : ls })) => ls,
     _ => ArrayList(String).new()
   );
   struct_types := match(
     target_type,
-    .Struct({ field_types : ts }) => ts,
+    Rc(.Struct({ field_types : ts })) => ts,
     _ => ArrayList(TypeValue).new()
   );
   n_fields := struct_labels.len();
@@ -2017,9 +2017,9 @@ evaluate_type_map_variants :: (
     synthetic_token(mapper_name.clone(), &local_env.module_path)
   );
   // Extract enum variant data.
-  variant_names := match(target_type, .EnumT(_, _, vn, _, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
-  variant_fields := match(target_type, .EnumT(_, _, _, vf, _, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
-  variant_field_labels := match(target_type, .EnumT(_, _, _, _, _, vfl, _, _, _, _) => vfl, _ => ArrayList(ArrayList(String)).new());
+  variant_names := match(target_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => ArrayList(String).new());
+  variant_fields := match(target_type, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  variant_field_labels := match(target_type, Rc(.EnumT(_, _, _, _, _, vfl, _, _, _, _)) => vfl, _ => ArrayList(ArrayList(String)).new());
   // Resolve the DECLARED `VariantInfo` struct type from the env once — the
   // type each per-variant temp var is bound with. EvalValues do not carry
   // their evaluated type, and the `type_of_eval_value(vi_val)` stand-in

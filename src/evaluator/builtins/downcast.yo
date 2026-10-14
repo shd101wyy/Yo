@@ -256,10 +256,10 @@ evaluate_upcast :: (
       )
     );
   });
-  src_req := match(src_type, .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
-  src_neg := match(src_type, .DynT({ negative_trait_types : n }) => n, _ => ArrayList(TypeValue).new());
-  tgt_req := match(target_type, .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
-  tgt_neg := match(target_type, .DynT({ negative_trait_types : n }) => n, _ => ArrayList(TypeValue).new());
+  src_req := match(src_type, Rc(.DynT({ required_trait_types : r })) => r, _ => ArrayList(TypeValue).new());
+  src_neg := match(src_type, Rc(.DynT({ negative_trait_types : n })) => n, _ => ArrayList(TypeValue).new());
+  tgt_req := match(target_type, Rc(.DynT({ required_trait_types : r })) => r, _ => ArrayList(TypeValue).new());
+  tgt_neg := match(target_type, Rc(.DynT({ negative_trait_types : n })) => n, _ => ArrayList(TypeValue).new());
   (ri : usize) = usize(0);
   while(ri < tgt_req.len(), {
     rt := match(tgt_req.get(ri), .Some(t) => t, .None => rc(TypeValueNode.Unit));

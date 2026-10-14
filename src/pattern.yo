@@ -283,7 +283,7 @@ is_pattern_cell_type :: (fn(t : &TypeValue) -> bool)(
 /// self-shell resolved. A cell position is presented as its inner type to the
 /// constructor reasoning (the wrapper is transparent for coverage).
 norm_position_type :: (fn(t : &TypeValue) -> TypeValue)({
-  inner := match(t, .Pointer(p) => p, _ => t);
+  inner := match(t, Rc(.Pointer(p)) => p, _ => t);
   inner2 := match(
     is_pattern_cell_type(&inner),
     true => match(box_inner_type(&inner), .Some(bi) => bi, .None => inner),
@@ -313,7 +313,7 @@ box_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
 _rc_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
-    .Struct({ field_labels : fls, field_types : fts }) => cond(
+    Rc(.Struct({ field_labels : fls, field_types : fts })) => cond(
       _box_shaped(&fls, &fts) => match(
         fts.get(usize(0)),
         .Some(ft) => Option(TypeValue).Some(ft),
@@ -328,7 +328,7 @@ _rc_inner_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
 variant_field_types :: (fn(enum_ty : &TypeValue, idx : usize) -> ArrayList(TypeValue))(
   match(
     enum_ty,
-    .EnumT({ variant_fields : vfs }) => match(vfs.get(idx), .Some(f) => f, .None => ArrayList(TypeValue).new()),
+    Rc(.EnumT({ variant_fields : vfs })) => match(vfs.get(idx), .Some(f) => f, .None => ArrayList(TypeValue).new()),
     _ => ArrayList(TypeValue).new()
   )
 );
@@ -338,7 +338,7 @@ variant_field_types :: (fn(enum_ty : &TypeValue, idx : usize) -> ArrayList(TypeV
 _struct_field_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
   match(
     t,
-    .Struct({ field_types : fts }) => fts,
+    Rc(.Struct({ field_types : fts })) => fts,
     _ => ArrayList(TypeValue).new()
   )
 );
@@ -346,7 +346,7 @@ _struct_field_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
 _struct_field_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
   match(
     t,
-    .Struct({ field_labels : fls }) => fls,
+    Rc(.Struct({ field_labels : fls })) => fls,
     _ => ArrayList(String).new()
   )
 );
@@ -354,7 +354,7 @@ _struct_field_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
 _struct_type_name :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    .Struct({ name : n }) => n.clone(),
+    Rc(.Struct({ name : n })) => n.clone(),
     _ => String.from("{…}")
   )
 );
@@ -362,15 +362,15 @@ _struct_type_name :: (fn(t : &TypeValue) -> String)(
 _tuple_elem_tys :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
   match(
     t,
-    .Tuple({ field_types : fts }) => fts,
+    Rc(.Tuple({ field_types : fts })) => fts,
     _ => ArrayList(TypeValue).new()
   )
 );
 _enum_variant_names :: (fn(enum_ty : &TypeValue) -> ArrayList(String))(
-  match(enum_ty, .EnumT({ variant_names : vns }) => vns, _ => ArrayList(String).new())
+  match(enum_ty, Rc(.EnumT({ variant_names : vns })) => vns, _ => ArrayList(String).new())
 );
 _enum_id :: (fn(enum_ty : &TypeValue) -> String)(
-  match(enum_ty, .EnumT({ id : eid }) => eid, _ => String.new())
+  match(enum_ty, Rc(.EnumT({ id : eid })) => eid, _ => String.new())
 );
 // ---------------------------------------------------------------------------
 // Walkers
@@ -1281,7 +1281,7 @@ _int_domain :: (fn(ty : &TypeValue) -> Option(_IntDomain))(
           lo : cond(signed => (u64(r.min) ^ _KEY_SIGN), true => u64(0)),
           hi : cond(signed => (r.max ^ _KEY_SIGN), true => r.max),
           signed : signed,
-          unbounded : match(ty, .Usize => true, .Isize => true, _ => false)
+          unbounded : match(ty, Rc(.Usize) => true, Rc(.Isize) => true, _ => false)
         )
       )
     },
@@ -1549,7 +1549,7 @@ _useful :: (
 /// 31): `Rc` or `Arc` for a cell a pattern must name, else `.None`. A unique
 /// `Box` is still looked through implicitly, so its witness stays bare.
 _witness_cell_name :: (fn(t : &TypeValue) -> Option(String))({
-  inner := match(t, .Pointer(p) => p, _ => t);
+  inner := match(t, Rc(.Pointer(p)) => p, _ => t);
   cond(
     is_box_type(&inner) => Option(String).Some(String.from("Rc")),
     (is_atomic_reference_struct_type(&inner) && box_inner_type(&inner).is_some()) => Option(String).Some(String.from("Arc")),

@@ -2007,7 +2007,7 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
     // By the PRINTED name: an instantiation (`ArrayList(i32)`) carries an
     // empty `name` (only `Rc(...)` is stamped) and renders through the
     // display-name side table (types/string.yo).
-    .Struct({ field_types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => match(
+    Rc(.Struct({ field_types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => match(
       _implicit_copy_collection_name(display.clone()),
       .Some(collection) => collection,
       .None => cond(
@@ -2019,7 +2019,7 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
         true => _implicit_copy_via(_implicit_copy_first_member(&field_types, depth))
       )
     ),
-    .EnumT({ variant_fields, is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) => {
+    Rc(.EnumT({ variant_fields, is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) => {
       all_fields := ArrayList(TypeValue).new();
       (vi : usize) = usize(0);
       while(vi < variant_fields.len(), {
@@ -2043,17 +2043,17 @@ _implicit_copy_category_at :: (fn(ty : &TypeValue, depth : u32) -> String)({
         true => _implicit_copy_via(_implicit_copy_first_member(&all_fields, depth))
       )
     },
-    .Tuple(field_labels : _, field_types : tfs) => _implicit_copy_via(_implicit_copy_first_member(&tfs, depth)),
-    .Union(name : _, field_labels : _, field_types : ufs) => _implicit_copy_via(_implicit_copy_first_member(&ufs, depth)),
-    .Array(element : el, length : _, length_var : _) => {
+    Rc(.Tuple(field_labels : _, field_types : tfs)) => _implicit_copy_via(_implicit_copy_first_member(&tfs, depth)),
+    Rc(.Union(name : _, field_labels : _, field_types : ufs)) => _implicit_copy_via(_implicit_copy_first_member(&ufs, depth)),
+    Rc(.Array(element : el, length : _, length_var : _)) => {
       els := ArrayList(TypeValue).new();
       els.push(el);
       _implicit_copy_via(_implicit_copy_first_member(&els, depth))
     },
-    .Func({ result : _ }) => String.from("closure"),
+    Rc(.Func({ result : _ })) => String.from("closure"),
     // An open type parameter in a definition-time trial: each instantiation
     // reports its concrete type, so this is the generic body itself.
-    .SomeT({ required_trait_types : st_traits }) => {
+    Rc(.SomeT({ required_trait_types : st_traits })) => {
       (sti : usize) = usize(0);
       (is_future : bool) = false;
       while(sti < st_traits.len(), {
@@ -3197,7 +3197,7 @@ _drop_in_arms_that_keep :: (
   });
   if(match(
     v.ty,
-    .SomeT({ required_trait_types : s_rtt, resolution : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
     _ => false
   ), {
     return(false);
@@ -3304,7 +3304,7 @@ reject_mixed_closure_arms :: (
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&body)),
         .Some(info) => match(
           _arm_closure_capture_struct(&info),
-          .Some(.Struct({ id : cid })) => if(cid.len() > usize(0), {
+          .Some(Rc(.Struct({ id : cid }))) => if(cid.len() > usize(0), {
             if(first_id.len() == usize(0), {
               first_id = cid;
             }, if(cid != first_id, {
@@ -3652,9 +3652,9 @@ merge_and_check_envs :: (
                       // structural compat check wrongly accepts them.
                       cb_id_conflict := match(
                         cb_fc,
-                        .Struct({ id : cb_fid2 }) => match(
+                        Rc(.Struct({ id : cb_fid2 })) => match(
                           cb_cc,
-                          .Struct({ id : cb_cid2 }) => ((cb_fid2.len() > usize(0)) && (cb_fid2 != cb_cid2)),
+                          Rc(.Struct({ id : cb_cid2 })) => ((cb_fid2.len() > usize(0)) && (cb_fid2 != cb_cid2)),
                           _ => false
                         ),
                         _ => false
@@ -4423,8 +4423,8 @@ _lb_contains :: (fn(xs : &ArrayList(String), x : &String) -> bool)({
 _lb_is_value_field_step :: (fn(recv_ty : &TypeValue, step : &String) -> bool)(
   match(
     t_refine_inner(recv_ty),
-    .Struct({ field_labels : fl, is_reference_semantics : r, is_source_namespace : sns }) => (!r && (!sns && _lb_contains(&fl, step))),
-    .Tuple(_, _) => true,
+    Rc(.Struct({ field_labels : fl, is_reference_semantics : r, is_source_namespace : sns })) => (!r && (!sns && _lb_contains(&fl, step))),
+    Rc(.Tuple(_, _)) => true,
     _ => false
   )
 );

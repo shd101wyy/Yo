@@ -332,7 +332,7 @@ _apply_single_constraint_for_trait :: (
   if(res.is_self, {
     match(
       trait_ty,
-      .TraitT(_, _, _, _, _, _, sc, nc, _, _) => {
+      Rc(.TraitT(_, _, _, _, _, _, sc, nc, _, _)) => {
         if(is_negated, {
           nc.push(trait_ty2);
         }, {
@@ -509,7 +509,7 @@ _parse_trait_where_clauses :: (
       if(res.is_self, {
         match(
           trait_ty,
-          .TraitT(_, _, _, _, _, _, sc, nc, _, _) => {
+          Rc(.TraitT(_, _, _, _, _, _, sc, nc, _, _)) => {
             if(is_neg, {
               nc.push(trait_ty2);
             }, {
@@ -692,7 +692,7 @@ _evaluate_trait_field :: (
     .Some(expected_tt) => {
       match(
         expected_tt,
-        .TraitT(_, _, _, fts, _, _, _, _, _, _) => {
+        Rc(.TraitT(_, _, _, fts, _, _, _, _, _, _)) => {
           match(
             fts.get(trait_field_index),
             .Some(ft) => {
@@ -766,7 +766,7 @@ _evaluate_trait_field :: (
       __enss := get_func_ensures_exprs(ast_expr_id(&type_expr).to_string());
       __trait_id := match(
         trait_ty,
-        .TraitT(_, _, _, _, tid, _, _, _, _, _) => tid.clone(),
+        Rc(.TraitT(_, _, _, _, tid, _, _, _, _, _)) => tid.clone(),
         _ => String.new()
       );
       if(((__reqs.len() > usize(0)) || (__enss.len() > usize(0))) && (__trait_id.len() > usize(0)), {
@@ -996,7 +996,7 @@ _evaluate_trait_field :: (
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &unit_info);
   // Phase 7: detect associated type (TypeUni(0) + !assignedValue + isForEvaluatingTraitType)
   (assoc_some_ty_opt : Option(TypeValue)) = Option(TypeValue).None;
-  is_type_uni_0 := match(field_ty, .TypeUni(lvl) => (lvl == usize(0)), _ => false);
+  is_type_uni_0 := match(field_ty, Rc(.TypeUni(lvl)) => (lvl == usize(0)), _ => false);
   if(is_for_evaluating_trait_ty && assigned_val_opt.is_none() && is_type_uni_0, {
     // Check if a SomeType for this label already exists in env
     existing_vars := get_variables_from_env(env_mut, &label_str);
@@ -1170,7 +1170,7 @@ evaluate_trait_type :: (
       ctx.expected_type,
       .Some(et) => match(
         et.ty,
-        .TraitT(_, _, _, _, _, _, _, _, _, _) => Option(TypeValue).Some(et.ty),
+        Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => Option(TypeValue).Some(et.ty),
         _ => Option(TypeValue).None
       ),
       .None => Option(TypeValue).None
@@ -1327,7 +1327,7 @@ evaluate_trait_type :: (
     if(is_function_type(&vf_ty), {
       match(
         vf_ty,
-        .Func(_, _, _, _, vf_ret, vf_meta, _) => {
+        Rc(.Func(_, _, _, _, vf_ret, vf_meta, _)) => {
           // Deep contains-SomeT check: `type_contains_some_type` is
           // SHALLOW (bare SomeT / TypeAppT only) — `*(Output)` walks right
           // past it. The deep equivalent here is get_all_some_types (whose
@@ -1339,7 +1339,7 @@ evaluate_trait_type :: (
                 vf_label := match(field_labels.get(vf_i), .Some(l) => l, .None => String.from("?"));
                 vf_missing_name := match(
                   vf_missing,
-                  .SomeT(id : _, name : vf_mn) => vf_mn,
+                  Rc(.SomeT(id : _, name : vf_mn)) => vf_mn,
                   _ => type_to_string(&vf_missing)
                 );
                 exn.throw(

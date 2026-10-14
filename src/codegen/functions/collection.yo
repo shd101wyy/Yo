@@ -81,7 +81,7 @@ _call_find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenCont
 );
 /// True if `t` is an extern function type (any language).
 _type_is_extern :: (fn(t : &TypeValue) -> bool)(
-  match(t, .Func({ meta : __fm1 }) => __fm1.*.is_extern.is_some(), _ => false)
+  match(t, Rc(.Func({ meta : __fm1 })) => __fm1.*.is_extern.is_some(), _ => false)
 );
 /// Whether an expression's evaluated value is an UnknownValue (not fully
 /// evaluated), recursing through calls / macro expansions / deferred drops.
@@ -268,7 +268,7 @@ _register_extern_fn_callee :: (
 )({
   match(
     cei_ty,
-    .Func({ meta : __fm4 }) => match(
+    Rc(.Func({ meta : __fm4 })) => match(
       __fm4.*.is_extern,
       .Some(lang) => {
         is_internal := match(__fm4.*.extern_name, .Some(en) => en.clone().starts_with(String.from("__yo_")), .None => false);
@@ -417,7 +417,7 @@ _is_generic_unspecialized_func :: (fn(v : &EvalValue) -> bool)({
   });
   match(
     get_func_type(_func_val_id(v)),
-    .Func({ param_types, meta : __fm2 }) => {
+    Rc(.Func({ param_types, meta : __fm2 })) => {
       // TYPE-level half of the same rule: a param whose TYPE is the type
       // universe (`comptime(K) : Type` whose comptime flag never reached
       // the sparse side table — e.g. a nested helper minted during
@@ -427,7 +427,7 @@ _is_generic_unspecialized_func :: (fn(v : &EvalValue) -> bool)({
       while(tp_i < param_types.len(), {
         match(
           param_types.get(tp_i),
-          .Some(.TypeUni(_)) => {
+          .Some(Rc(.TypeUni(_))) => {
             has_type_param = true;
           },
           .Some(_) => (),
@@ -461,7 +461,7 @@ _is_generic_unspecialized_func :: (fn(v : &EvalValue) -> bool)({
 _func_has_some_param :: (fn(fid : &String) -> bool)(
   match(
     get_func_type(fid),
-    .Func({ param_types }) => {
+    Rc(.Func({ param_types })) => {
       n := param_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -766,7 +766,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
         // entry (updated in place at impl.yo:2322) and is never otherwise
         // collected → "call to undeclared function". Deref to the pointee for the
         // id, the same deref idiom as match.yo:1153 / property_access.yo:524.
-        recv_ty_for_id := match(recv_ty, .Pointer(inner) => inner, _ => recv_ty);
+        recv_ty_for_id := match(recv_ty, Rc(.Pointer(inner)) => inner, _ => recv_ty);
         ctid := if(recv_static_id.len() > usize(0), recv_static_id, type_id_or_empty(&recv_ty_for_id));
         if((ctid.len() > usize(0)) && (cmname.len() > usize(0)), {
           ments := get_type_trait_methods_by_name(&ctid, &cmname);
@@ -860,7 +860,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
       match(
         expr_info_table_get(info, ast_expr_id(&callee)),
         .Some(cei) => if(is_function_type(&cei.ty), {
-          is_comptime_only := match(cei.ty, .Func({ meta : __fm3 }) => __fm3.*.result_is_comptime_only, _ => false);
+          is_comptime_only := match(cei.ty, Rc(.Func({ meta : __fm3 })) => __fm3.*.result_is_comptime_only, _ => false);
           match(
             cei.value,
             .Some(fv) => cond(
@@ -914,8 +914,8 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
         // use-site type carrying `is_control`.
         v_is_control := (
           is_control_fn(_func_val_id(&v)) ||
-            match(get_func_type(_func_val_id(&v)), .Func({ meta : __fm5 }) => __fm5.*.is_control, _ => false) ||
-              match(ei.ty, .Func({ meta : __fm6 }) => __fm6.*.is_control, _ => false)
+            match(get_func_type(_func_val_id(&v)), Rc(.Func({ meta : __fm5 })) => __fm5.*.is_control, _ => false) ||
+              match(ei.ty, Rc(.Func({ meta : __fm6 })) => __fm6.*.is_control, _ => false)
         );
         cond(
           v_is_control => {
@@ -1028,7 +1028,7 @@ find_function_calls_in_expr :: (fn(expr : &AstExpr, context : &CodeGenContext, i
                   .Some(vei) => {
                     vty := vei.ty;
                     if(is_reference_struct_type(&vty) || is_boxed_type(&vty), {
-                      concrete := if(is_boxed_type(&vty), match(vty, .Struct({ field_types }) => match(field_types.get(usize(0)), .Some(ft) => ft, .None => vty), _ => vty), vty);
+                      concrete := if(is_boxed_type(&vty), match(vty, Rc(.Struct({ field_types })) => match(field_types.get(usize(0)), .Some(ft) => ft, .None => vty), _ => vty), vty);
                       // Build the impl key in a FRESH string. `type_key` can
                       // return a String sharing its buffer with the canonical
                       // key stored in g_enum_sig_keys / g_struct_cfid_keys (a
@@ -1111,8 +1111,8 @@ _specialize_and_register_trace :: (
   // them as runtime UnknownVals here. The receiver param binds to the CONCRETE
   // container `ct` (its declared type is the still-unresolved `Self`); subsequent
   // params use their post-substitution declared types.
-  p_labels := match(method_ty, .Func({ meta : __mfm }) => __mfm.*.param_labels, _ => ArrayList(String).new());
-  p_types := match(method_ty, .Func({ param_types : __mpt }) => __mpt, _ => ArrayList(TypeValue).new());
+  p_labels := match(method_ty, Rc(.Func({ meta : __mfm })) => __mfm.*.param_labels, _ => ArrayList(String).new());
+  p_types := match(method_ty, Rc(.Func({ param_types : __mpt })) => __mpt, _ => ArrayList(TypeValue).new());
   (pi : usize) = usize(0);
   while(pi < p_labels.len(), {
     plabel := match(p_labels.get(pi), .Some(l) => l, .None => String.from(""));
@@ -1133,7 +1133,7 @@ _specialize_and_register_trace :: (
   // The tracer (2nd) parameter type from the trace signature.
   tracer_ty := match(
     method_ty,
-    .Func({ param_types }) => match(param_types.get(usize(1)), .Some(t) => t, .None => rc(TypeValueNode.Unit)),
+    Rc(.Func({ param_types })) => match(param_types.get(usize(1)), .Some(t) => t, .None => rc(TypeValueNode.Unit)),
     _ => rc(TypeValueNode.Unit)
   );
   // ArgValues for `trace(self : ct, tracer : GcTracer)`. The regular args drive
@@ -1503,8 +1503,8 @@ _synthesize_and_register_dispose :: (
   // `find_function_calls_in_expr` collects it for emission.
   user_destructor := _destructor_method_name(ct, module_env);
   has_user_dispose := !user_destructor.is_empty();
-  flabels := match(ct, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
-  ftypes := match(ct, .Struct({ field_types : ftys }) => ftys, _ => ArrayList(TypeValue).new());
+  flabels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+  ftypes := match(ct, Rc(.Struct({ field_types : ftys })) => ftys, _ => ArrayList(TypeValue).new());
   // Destructuring + `___drop` calls over the RC-containing fields.
   destructs := String.from("");
   calls := String.from("");
@@ -1602,8 +1602,8 @@ _synthesize_and_register_enum_dispose :: (
   // `self.dispose()` call in the synthesized body is that call site).
   user_destructor := _destructor_method_name(ct, module_env);
   has_user_dispose := !user_destructor.is_empty();
-  variant_names := match(ct, .EnumT({ variant_names : vn }) => vn, _ => ArrayList(String).new());
-  variant_fields := match(ct, .EnumT({ variant_fields : vf }) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+  variant_names := match(ct, Rc(.EnumT({ variant_names : vn })) => vn, _ => ArrayList(String).new());
+  variant_fields := match(ct, Rc(.EnumT({ variant_fields : vf })) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
   // One match arm per variant with RC-containing fields: bind every field
   // positionally under an index alias (labels may not be valid identifiers),
   // drop the RC-containing ones.

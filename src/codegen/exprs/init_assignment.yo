@@ -59,7 +59,7 @@ _last_is_module_level :: (fn(key : ExprId, env : &Environment, name : &String) -
 _tuple_index_of :: (fn(rhs_type : &TypeValue, label : &String) -> Option(usize))(
   match(
     rhs_type,
-    .Tuple({ field_labels : fls }) => {
+    Rc(.Tuple({ field_labels : fls })) => {
       n := fls.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -79,7 +79,7 @@ _tuple_index_of :: (fn(rhs_type : &TypeValue, label : &String) -> Option(usize))
 );
 /// Newtype single-field label, if `rhs_type` is a 1-field newtype.
 _newtype_single_label :: (fn(rhs_type : &TypeValue) -> Option(String))(
-  if(is_newtype_type(rhs_type), match(rhs_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), fls.get(usize(0)), Option(String).None), _ => Option(String).None), Option(String).None)
+  if(is_newtype_type(rhs_type), match(rhs_type, Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), fls.get(usize(0)), Option(String).None), _ => Option(String).None), Option(String).None)
 );
 /// The task slot (`sm->…`) a binding of `name` writes to in an `io.async`
 /// state machine, or `.None` when it has none (outside one, or a C local).

@@ -717,7 +717,7 @@ RuntimeStructField :: ref(struct(label : String, ty : TypeValue));
 get_runtime_struct_fields :: (fn(struct_type : &TypeValue) -> ArrayList(RuntimeStructField))(
   match(
     struct_type,
-    .Struct({ id, field_labels, field_types }) => {
+    Rc(.Struct({ id, field_labels, field_types })) => {
       result := ArrayList(RuntimeStructField).new();
       flags_opt := get_struct_field_comptime_flags(id.clone());
       n := field_types.len();
@@ -926,7 +926,7 @@ pattern_literal_arm_guards :: (
   out := String.new();
   match(
     enum_type,
-    .EnumT({ variant_names : vns, variant_field_labels : vfls }) => {
+    Rc(.EnumT({ variant_names : vns, variant_field_labels : vfls })) => {
       cvariant := if(variant_name.starts_with("."), variant_name.substring(usize(1), variant_name.len()), variant_name.clone());
       (vi : usize) = vns.len();
       (vk : usize) = usize(0);
@@ -1308,7 +1308,7 @@ arm_params :: (fn(case_value : &AstExpr) -> ArrayList(AstExpr))(
 nullable_variant_names :: (fn(t : &TypeValue) -> Option(ArrayList(String)))(
   match(
     t,
-    .EnumT({ variant_names : vns, variant_fields : vfs }) => {
+    Rc(.EnumT({ variant_names : vns, variant_fields : vfs })) => {
       (empty_name : String) = String.new();
       (payload_name : String) = String.new();
       (i : usize) = usize(0);
@@ -1374,7 +1374,7 @@ nullable_arm_payload_binder :: (fn(case_value : &AstExpr) -> Option(AstExpr))({
 can_optimize_as_simple_enum :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .EnumT({ variant_fields, is_reference_semantics }) => {
+    Rc(.EnumT({ variant_fields, is_reference_semantics })) => {
       // Reference-semantics enums (`ref(enum(...))`) are heap RC objects:
       // constructors write obj->header.ref_count and match lowers to
       // switch(obj->tag) — those sites don't follow the collapse, so a
@@ -1459,14 +1459,14 @@ _lookup_named_c_type :: (fn(t : &TypeValue, context : &CodeGenContext) -> String
 _some_t_requires_future :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .SomeT({ required_trait_types : rtts }) => {
+    Rc(.SomeT({ required_trait_types : rtts })) => {
       (found : bool) = false;
       (i : usize) = usize(0);
       n := rtts.len();
       while((i < n) && !found, {
         match(
           rtts.get(i),
-          .Some(.FutureTraitT(_, _, _, _)) => {
+          .Some(Rc(.FutureTraitT(_, _, _, _))) => {
             found = true;
           },
           .Some(_) => (),
@@ -1487,7 +1487,7 @@ _some_t_requires_future :: (fn(t : &TypeValue) -> bool)(
 _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
-    .SomeT({ required_trait_types : eft_rtts }) => {
+    Rc(.SomeT({ required_trait_types : eft_rtts })) => {
       (eft_found : Option(TypeValue)) = Option(TypeValue).None;
       (eft_i : usize) = usize(0);
       n := eft_rtts.len();
@@ -1496,7 +1496,7 @@ _extract_future_trait_of_some_t :: (fn(t : &TypeValue) -> Option(TypeValue))(
           eft_rtts.get(eft_i),
           .Some(eft_rt) => match(
             eft_rt,
-            .FutureTraitT(_, _, _, _) => {
+            Rc(.FutureTraitT(_, _, _, _)) => {
               eft_found = Option(TypeValue).Some(eft_rt);
             },
             _ => ()
@@ -1559,41 +1559,41 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // type IS the inner's. Without this arm the variant reached the
     // `// Unknown type:` fallback INSIDE prototypes and emitted malformed C
     // for every refined-parameter signature (array_list's annotated ops).
-    .RefineT(inner, _) => get_type_string(&inner, context),
-    .Unit => String.from("void"),
-    .Void => String.from("void"),
+    Rc(.RefineT(inner, _)) => get_type_string(&inner, context),
+    Rc(.Unit) => String.from("void"),
+    Rc(.Void) => String.from("void"),
     // `never` has no values; a `-> never` function returns `void` in C.
-    .Never => String.from("void"),
-    .BoolT => String.from("bool"),
-    .Usize => String.from("size_t"),
-    .Isize => String.from("intptr_t"),
-    .Int(bits, signed) => cond(
+    Rc(.Never) => String.from("void"),
+    Rc(.BoolT) => String.from("bool"),
+    Rc(.Usize) => String.from("size_t"),
+    Rc(.Isize) => String.from("intptr_t"),
+    Rc(.Int(bits, signed)) => cond(
       (bits == u8(8)) => if(signed, String.from("int8_t"), String.from("uint8_t")),
       (bits == u8(16)) => if(signed, String.from("int16_t"), String.from("uint16_t")),
       (bits == u8(32)) => if(signed, String.from("int32_t"), String.from("uint32_t")),
       (bits == u8(64)) => if(signed, String.from("int64_t"), String.from("uint64_t")),
       true => String.from("int32_t")
     ),
-    .Float(bits) => if(bits == u8(32), String.from("float"), String.from("double")),
-    .ComptimeInt => String.from("int32_t"),
-    .ComptimeFloat => String.from("double"),
+    Rc(.Float(bits)) => if(bits == u8(32), String.from("float"), String.from("double")),
+    Rc(.ComptimeInt) => String.from("int32_t"),
+    Rc(.ComptimeFloat) => String.from("double"),
     // At runtime, comptime_str values materialize as the builtin str.
-    .ComptimeString => String.from("__yo_str"),
-    .CChar => String.from("char"),
-    .CShort => String.from("short"),
-    .CUShort => String.from("unsigned short"),
-    .CInt => String.from("int"),
-    .CUInt => String.from("unsigned int"),
-    .CLong => String.from("long"),
-    .CULong => String.from("unsigned long"),
-    .CLongLong => String.from("long long"),
-    .CULongLong => String.from("unsigned long long"),
-    .CLongDouble => String.from("long double"),
+    Rc(.ComptimeString) => String.from("__yo_str"),
+    Rc(.CChar) => String.from("char"),
+    Rc(.CShort) => String.from("short"),
+    Rc(.CUShort) => String.from("unsigned short"),
+    Rc(.CInt) => String.from("int"),
+    Rc(.CUInt) => String.from("unsigned int"),
+    Rc(.CLong) => String.from("long"),
+    Rc(.CULong) => String.from("unsigned long"),
+    Rc(.CLongLong) => String.from("long long"),
+    Rc(.CULongLong) => String.from("unsigned long long"),
+    Rc(.CLongDouble) => String.from("long double"),
     // Builtin static string view — canonical fat-pointer typedef.
-    .Str => String.from("__yo_str"),
-    .Tuple(_, _) => _lookup_named_c_type(t, context),
-    .Union(_, _, _) => _lookup_named_c_type(t, context),
-    .Struct({ is_reference_semantics : is_ref }) => {
+    Rc(.Str) => String.from("__yo_str"),
+    Rc(.Tuple(_, _)) => _lookup_named_c_type(t, context),
+    Rc(.Union(_, _, _)) => _lookup_named_c_type(t, context),
+    Rc(.Struct({ is_reference_semantics : is_ref })) => {
       base := _lookup_named_c_type(t, context);
       // Reference-semantics structs (object/atomic object) are pointers in C.
       if(is_ref, {
@@ -1607,7 +1607,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // single-pointer) lowers to the bare pointer type. Otherwise a
     // reference-semantics enum (`ref(enum(…))`) is a pointer to its
     // heap-allocated RC handle, exactly like a reference-semantics struct.
-    .EnumT({ is_reference_semantics : is_ref }) => match(
+    Rc(.EnumT({ is_reference_semantics : is_ref })) => match(
       can_optimize_as_nullable_pointer(t),
       .Some(ptr_type) => recur(&ptr_type, context),
       .None => {
@@ -1621,8 +1621,8 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
       }
     ),
     // Function pointers use void* (resolved by the prototype generator).
-    .Func({}) => String.from("void*"),
-    .Pointer(pointee) => {
+    Rc(.Func({})) => String.from("void*"),
+    Rc(.Pointer(pointee)) => {
       // In Yo a PtrType is a borrow `*(T)`. Object types are already pointers
       // in C; for value types a borrow is a pointer to the value. Either way
       // the C type is `<base>*`.
@@ -1633,7 +1633,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // Concrete-length arrays lower to a generated struct wrapper so they are
     // returnable by value. (`length_var` non-empty = unresolved generic
     // length — falls through to the unknown fallback.)
-    .Array(element, length, length_var) => cond(
+    Rc(.Array(element, length, length_var)) => cond(
       (length_var.len() == usize(0)) => {
         element_type_string := recur(&element, context);
         array_type_name := String.from("Array_");
@@ -1659,7 +1659,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // future's SM / sync-future struct under the future SomeType — return that.
     // Otherwise fall back to `void*` (an unresolved generic `Self`/SomeType is
     // passed by opaque pointer; field/method access casts at use).
-    .SomeT({ id : sid, name : snm }) => match(
+    Rc(.SomeT({ id : sid, name : snm })) => match(
       // Prefer the PER-OBJECT resolved concrete (survives clone/substitute/
       // intern — the id-keyed global misses when ids re-mint, e.g. the Rc
       // CTFE's cloned field SomeT in the Dyn(Fn) family). Global as fallback.
@@ -1681,7 +1681,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
         if(_some_t_requires_future(t), {
           match(
             rct,
-            .ExternOpaqueT(_, gts_ec) => {
+            Rc(.ExternOpaqueT(_, gts_ec)) => {
               return(`${gts_ec.clone()}*`);
             },
             _ => ()
@@ -1739,7 +1739,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // pointer wherever it appears bare, e.g. a NAMED local bound to an
     // `IoFuture` in a sync function
     // (issues/fixed/io-future-named-local-declared-by-value.md).
-    .ExternOpaqueT(_, eo_c) => cond(
+    Rc(.ExternOpaqueT(_, eo_c)) => cond(
       (eo_c == "__yo_io_future_t") => String.from("__yo_io_future_t*"),
       true => eo_c.clone()
     ),
@@ -1747,7 +1747,7 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // `Iso_<cleanChild>` and the type is registered (idempotent) so its
     // struct + runtime helpers
     // (__yo_create_iso_*, __yo_iso_extract_*, __yo_iso_dispose_*) get emitted.
-    .IsoT(c) => {
+    Rc(.IsoT(c)) => {
       child_c_name := recur(&c, context);
       clean := _strip_stars(child_c_name.clone()).trim();
       iso_name := String.from("Iso_");
@@ -1760,13 +1760,13 @@ get_type_string :: (fn(t : &TypeValue, context : &CodeGenContext) -> String)(
     // Dynamic dispatch type — a value struct { data ptr, vtable ptr } passed
     // by value: return the registered fat-pointer C type name (keyed by
     // type_key).
-    .DynT({}) => match(
+    Rc(.DynT({})) => match(
       context.get_type_c_name(type_key(t)),
       .Some(cn) => cn,
       .None => __yo_panic("No C type name found for dynamic dispatch type")
     ),
-    .FnTraitT({}) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
-    .FutureTraitT({}) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
+    Rc(.FnTraitT({})) => __yo_panic("get_type_string: Fn-trait lowering is Phase 3/5 — not yet ported"),
+    Rc(.FutureTraitT({})) => __yo_panic("get_type_string: Future-trait lowering is Phase 5 — not yet ported"),
     // Comptime-only / type-level types should not reach codegen.
     _ => {
       fallback := String.from("// Unknown type: ");
@@ -1889,7 +1889,7 @@ _codegen_name_of_variables :: (fn(variable_name : &String, variables : &ArrayLis
       // (`stdout`/`stderr` — non-Func, so it can't carry is_extern on its type;
       // tracked in the g_extern_c_globals registry). Either way, keep the REAL
       // C name (skip the `__yo_c_reserved_` reserved-word prefix).
-      is_extern_c_fn := match(variable.ty, .Func({ meta : __fm1 }) => match(__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
+      is_extern_c_fn := match(variable.ty, Rc(.Func({ meta : __fm1 })) => match(__fm1.*.is_extern, .Some(lang) => (lang == "c"), .None => false), _ => false);
       // The registry is NAME-keyed, but the rule is per-RESOLVED-variable
       // (extern-ness rides the TYPE):
       // a LOCAL binding that merely shares the name (IoError.from_errno's
@@ -2260,7 +2260,7 @@ _checked_index_expr :: (fn(index_code : &String, length_code : &String, expr : &
 _fixed_array_len_literal :: (fn(array_type : &TypeValue) -> String)(
   match(
     array_type,
-    .Array(_, nlen, nlvar) => if(nlvar.len() == usize(0), nlen.to_string(), String.new()),
+    Rc(.Array(_, nlen, nlvar)) => if(nlvar.len() == usize(0), nlen.to_string(), String.new()),
     _ => String.new()
   )
 );

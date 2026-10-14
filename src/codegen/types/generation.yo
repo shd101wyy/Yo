@@ -244,7 +244,7 @@ _emit_runtime_fields :: (fn(fields : &ArrayList(RuntimeStructField), context : &
 generate_struct_declaration :: (fn(struct_type : &TypeValue, c_name : &String, context : &CodeGenContext) -> unit)(
   match(
     struct_type,
-    .Struct({ name, field_types, is_reference_semantics, is_atomic_rc, is_newtype }) => {
+    Rc(.Struct({ name, field_types, is_reference_semantics, is_atomic_rc, is_newtype })) => {
       // Newtype: zero-cost typedef over the single underlying type.
       if(is_newtype && (field_types.len() == usize(1)), {
         underlying := match(field_types.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -307,7 +307,7 @@ generate_struct_declaration :: (fn(struct_type : &TypeValue, c_name : &String, c
 generate_tuple_declaration :: (fn(tuple_type : &TypeValue, c_name : &String, context : &CodeGenContext) -> unit)(
   match(
     tuple_type,
-    .Tuple({ field_types }) => {
+    Rc(.Tuple({ field_types })) => {
       // A NAMED struct tag, not an anonymous `typedef struct {...} T;`, so the
       // forward-declaration pass in `generate_type_declarations` can declare
       // the name ahead of any struct that holds a POINTER to this tuple. It
@@ -348,7 +348,7 @@ generate_tuple_declaration :: (fn(tuple_type : &TypeValue, c_name : &String, con
 generate_union_declaration :: (fn(union_type : &TypeValue, c_name : &String, context : &CodeGenContext) -> unit)(
   match(
     union_type,
-    .Union({ name, field_labels, field_types }) => {
+    Rc(.Union({ name, field_labels, field_types })) => {
       context.emitter.emit_declaration_string_line(`typedef union { // ${name} : ${type_to_string(union_type)}`);
       n := field_types.len();
       (i : usize) = usize(0);
@@ -399,7 +399,7 @@ _emit_enum_tags :: (fn(c_name : &String, variant_names : &ArrayList(String), var
 generate_enum_declaration :: (fn(enum_type : &TypeValue, c_name : &String, context : &CodeGenContext) -> unit)(
   match(
     enum_type,
-    .EnumT({ name, variant_names, variant_fields, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc }) => {
+    Rc(.EnumT({ name, variant_names, variant_fields, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc })) => {
       // Nullable-pointer optimization.
       match(
         can_optimize_as_nullable_pointer(enum_type),
@@ -1272,7 +1272,7 @@ _Static_assert(offsetof(__yo_io_future_t, continuation_sm) == offsetof(__yo_futu
 _walk_struct_some_only :: (fn(type : &TypeValue, visited : &mut HashSet(String)) -> bool)(
   match(
     type,
-    .Struct({ id, field_types }) => {
+    Rc(.Struct({ id, field_types })) => {
       if(visited.contains(id.clone()), {
         return(true);
       });
@@ -1302,7 +1302,7 @@ _walk_struct_some_only :: (fn(type : &TypeValue, visited : &mut HashSet(String))
 _walk_enum_some_only :: (fn(type : &TypeValue, visited : &mut HashSet(String)) -> bool)(
   match(
     type,
-    .EnumT({ id, variant_fields }) => {
+    Rc(.EnumT({ id, variant_fields })) => {
       if(visited.contains(id.clone()), {
         return(true);
       });
@@ -1346,7 +1346,7 @@ _walk_skip_some :: (fn(type : &TypeValue) -> bool)(
 _walk_pointee_newtype :: (fn(ft : &TypeValue) -> Option(TypeValue))(
   match(
     ft,
-    .Pointer(pointee) => {
+    Rc(.Pointer(pointee)) => {
       p := pointee;
       if(is_struct_type(&p) && is_newtype_type(&p), Option(TypeValue).Some(p), Option(TypeValue).None)
     },
@@ -1356,7 +1356,7 @@ _walk_pointee_newtype :: (fn(ft : &TypeValue) -> Option(TypeValue))(
         can_optimize_as_nullable_pointer(ft),
         .Some(ptrty) => match(
           ptrty,
-          .Pointer(pe) => {
+          Rc(.Pointer(pe)) => {
             p := pe;
             if(is_struct_type(&p) && is_newtype_type(&p), Option(TypeValue).Some(p), Option(TypeValue).None)
           },
@@ -1392,7 +1392,7 @@ _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self
     // this edge the capture body comes later → "field has incomplete type").
     is_some_type(ft) => match(
       ft,
-      .SomeT({ id : _ }) => match(
+      Rc(.SomeT({ id : _ })) => match(
         some_resolution(ft),
         // `some_resolution` reads the per-object resolution, then the global
         // registry exactly like get_type_string's SomeT arm (utils/index.yo):
@@ -1437,7 +1437,7 @@ _walk_by_value_dep :: (fn(deps_set : &mut HashSet(String), ft : &TypeValue, self
     // wrapper too late — "array has incomplete element type".
     is_array_type(ft) => match(
       ft,
-      .Array(elem, _, _) => recur(deps_set, &elem, self_type_id, guard_nullable, cname_to_typeid, context),
+      Rc(.Array(elem, _, _)) => recur(deps_set, &elem, self_type_id, guard_nullable, cname_to_typeid, context),
       _ => ()
     ),
     true => ()
@@ -1540,7 +1540,7 @@ _dyn_vtable_method_line :: (fn(label : &String, field_ty : &TypeValue, processed
     processed.insert(label.clone());
     match(
       field_ty,
-      .Func({ param_types, result, meta : __fm1 }) => {
+      Rc(.Func({ param_types, result, meta : __fm1 })) => {
         param_labels := __fm1.*.param_labels;
         param_is_ref := __fm1.*.param_is_ref;
         // Only methods whose first param is `self`, and that a Dyn can call
@@ -1591,7 +1591,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
   processed := HashSet(String).new();
   match(
     type,
-    .DynT({ required_trait_types }) => {
+    Rc(.DynT({ required_trait_types })) => {
       nt := required_trait_types.len();
       (ti : usize) = usize(0);
       while(ti < nt, {
@@ -1599,7 +1599,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
         cond(
           is_fn_trait_type(&tt) => match(
             tt,
-            .FnTraitT({ call_param_labels, call_param_types, call_result, call_param_is_ref }) => {
+            Rc(.FnTraitT({ call_param_labels, call_param_types, call_result, call_param_is_ref })) => {
               ret_str := get_type_string(&call_result, context);
               plist := String.new();
               np := call_param_labels.len();
@@ -1623,7 +1623,7 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
           ),
           true => match(
             tt,
-            .TraitT({ field_labels, field_types }) => {
+            Rc(.TraitT({ field_labels, field_types })) => {
               nf := field_labels.len();
               (fi : usize) = usize(0);
               while(fi < nf, {
@@ -1752,7 +1752,7 @@ generate_dyn_box_types :: (fn(context : &CodeGenContext) -> unit)({
 /// FUTURE-typed function parameter (`task : Impl(Future(T, E))`).
 generate_future_trait_declaration :: (fn(type : &TypeValue, c_name : &String, context : &CodeGenContext) -> unit)({
   em := context.emitter;
-  result_type := match(type, .FutureTraitT({ output : ftd_o }) => ftd_o.clone(), _ => return(()));
+  result_type := match(type, Rc(.FutureTraitT({ output : ftd_o })) => ftd_o.clone(), _ => return(()));
   em.emit_declaration_string_line(`struct ${c_name.clone()}_struct { // Generic Future interface for ${type_to_string(type)}`);
   em.emit_declaration_string_line(String.from("  __YO_FUTURE_PREFIX  // header, state (0 cold, -1 completed, -2 aborted), type operations, waiter"));
   if(is_unit_type(&result_type), {
@@ -1777,7 +1777,7 @@ generate_future_trait_declaration :: (fn(type : &TypeValue, c_name : &String, co
 /// Is the child of the Iso type `iso_type` a reference object (held by its
 /// handle), rather than a value held inline?
 iso_child_is_object :: (fn(iso_type : &TypeValue) -> bool)(
-  match(iso_type, .IsoT(c) => (is_reference_struct_type(&c) || is_reference_enum_type(&c)), _ => true)
+  match(iso_type, Rc(.IsoT(c)) => (is_reference_struct_type(&c) || is_reference_enum_type(&c)), _ => true)
 );
 /// The Iso wrapper struct bodies, emitted after every other type declaration
 /// (see `generate_iso_type_declarations`'s first pass).
@@ -2059,7 +2059,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
               is_struct_type(&ty) => {
                 // Newtypes are plain typedefs — no forward struct declaration.
                 is_nt_single := (
-                  is_newtype_type(&ty) && match(ty, .Struct({ field_types }) => (field_types.len() == usize(1)), _ => false)
+                  is_newtype_type(&ty) && match(ty, Rc(.Struct({ field_types })) => (field_types.len() == usize(1)), _ => false)
                 );
                 if(!is_nt_single, {
                   l := String.from("typedef struct ");
@@ -2215,7 +2215,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
           },
           (e.kind == "enum") => match(
             e.ty,
-            .EnumT({ variant_fields }) => {
+            Rc(.EnumT({ variant_fields })) => {
               nv := variant_fields.len();
               (vi : usize) = usize(0);
               while(vi < nv, {
@@ -2233,7 +2233,7 @@ generate_type_declarations :: (fn(context : &CodeGenContext) -> unit)({
           ),
           (e.kind == "tuple") => match(
             e.ty,
-            .Tuple(_, field_types) => {
+            Rc(.Tuple(_, field_types)) => {
               nft := field_types.len();
               (ti : usize) = usize(0);
               while(ti < nft, {

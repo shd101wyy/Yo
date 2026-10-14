@@ -565,7 +565,7 @@ ${ast_expr_to_string(expr)}`
   // always consistent with the types that produced it.
   match(
     inner_ty,
-    .RefineT(_, inner_fid) => {
+    Rc(.RefineT(_, inner_fid)) => {
       chain := ArrayList(String).new();
       chain.push(inner_fid.clone());
       (ci : usize) = usize(0);
@@ -721,7 +721,7 @@ _evaluate_spec_collection :: (
     // A list-backed Seq's element is the list's (R2 task 2); a str's is u8.
     (head == "seq_nth") => match(
       t_refine_inner(&arg1_ty),
-      .Struct({ type_arguments : sn_targs, is_reference_semantics : sn_ref }) => cond(
+      Rc(.Struct({ type_arguments : sn_targs, is_reference_semantics : sn_ref })) => cond(
         (sn_ref && (sn_targs.len() == usize(1))) => sn_targs(usize(0)),
         true => t_u8()
       ),
@@ -1664,7 +1664,7 @@ register_impl_inheritance_task :: (
       ret_ty := rc(TypeValueNode.Unit);
       match(
         fn_ty,
-        .Func({ meta : __ihm, param_types : __ihpt, result : __ihres }) => {
+        Rc(.Func({ meta : __ihm, param_types : __ihpt, result : __ihres })) => {
           (pih : usize) = usize(0);
           while(pih < __ihpt.len(), {
             match(
@@ -2251,7 +2251,7 @@ register_impl_variance_task :: (
   ret_ty := rc(TypeValueNode.Unit);
   match(
     fn_ty,
-    .Func({ meta : __vm, param_types : __vpt, result : __vres }) => {
+    Rc(.Func({ meta : __vm, param_types : __vpt, result : __vres })) => {
       (pi : usize) = usize(0);
       while(pi < __vpt.len(), {
         match(
@@ -3160,7 +3160,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
   (is_func : bool) = false;
   match(
     ft,
-    .Func({ meta : __lm, param_types : __lpt, result : __lres }) => {
+    Rc(.Func({ meta : __lm, param_types : __lpt, result : __lres })) => {
       is_func = true;
       (pi : usize) = usize(0);
       while(pi < __lpt.len(), {
@@ -3176,7 +3176,7 @@ evaluate_law :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn
         );
         pi = (pi + usize(1));
       });
-      ret_is_unit = match(__lres, .Unit => true, _ => false);
+      ret_is_unit = match(__lres, Rc(.Unit) => true, _ => false);
       match(
         __lm.*.origin_id,
         .Some(oid) => {

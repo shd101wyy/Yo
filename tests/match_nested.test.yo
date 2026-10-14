@@ -226,14 +226,14 @@ test("a match on an Rc handle with plain variant arms switches on the payload", 
   size :: (fn(s : &Rc(Shape)) -> i32)(
     match(
       s,
-      .Dot => i32(1),
-      .Line(n) => n,
-      .Pair(a, b) => (recur(&a) + recur(&b))
+      Rc(.Dot) => i32(1),
+      Rc(.Line(n)) => n,
+      Rc(.Pair(a, b)) => (recur(&a) + recur(&b))
     )
   );
-  only_line :: (fn(s : &Rc(Shape)) -> i32)(match(s, .Line(n) => n, _ => i32(0)));
-  with_literal :: (fn(s : &Rc(Shape)) -> i32)(match(s, .Line(0) => i32(-1), .Line(n) => n, _ => i32(0)));
-  with_guard :: (fn(s : &Rc(Shape)) -> i32)(match(s, (.Line(n) && (n > i32(5))) => i32(5), .Line(n) => n, _ => i32(0)));
+  only_line :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(n)) => n, _ => i32(0)));
+  with_literal :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(0)) => i32(-1), Rc(.Line(n)) => n, _ => i32(0)));
+  with_guard :: (fn(s : &Rc(Shape)) -> i32)(match(s, (Rc(.Line(n)) && (n > i32(5))) => i32(5), Rc(.Line(n)) => n, _ => i32(0)));
   dot := rc(Shape.Dot);
   line := rc(Shape.Line(len : i32(7)));
   zero := rc(Shape.Line(len : i32(0)));
@@ -365,7 +365,7 @@ test("a structural pattern at an Rc position must spell Rc(p)", {
     bad4 :: (fn(t : &Tree) -> i32)(
       match(
         t,
-        .Node(.Leaf(a), _) => a,
+        .Node(Rc(.Leaf(a)), _) => a,
         _ => i32(0)
       )
     );

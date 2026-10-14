@@ -8923,7 +8923,7 @@ run_effects :: (
     (types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
     match(
       outcome.module_type,
-      .Struct({ field_labels, field_types }) => {
+      Rc(.Struct({ field_labels, field_types })) => {
         labels = field_labels;
         types = field_types;
       },
@@ -8955,7 +8955,7 @@ run_effects :: (
       li = (li + usize(1));
       match(
         ty,
-        .Func({ param_types, implicit_types, result, meta }) => {
+        Rc(.Func({ param_types, implicit_types, result, meta })) => {
           seen_fns = (seen_fns + usize(1));
           fn_sep := if(seen_fns < n_fns, String.from(","), String.new());
           entries := ArrayList(String).new();
@@ -9041,7 +9041,7 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
   kinds := ArrayList(String).new();
   match(
     t,
-    .Struct({ name, field_labels, field_types }) => {
+    Rc(.Struct({ name, field_labels, field_types })) => {
       (has_ctl : bool) = false;
       (has_async : bool) = false;
       (fi : usize) = usize(0);
@@ -9051,7 +9051,7 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
         fi = (fi + usize(1));
         match(
           fty,
-          .Func({ meta : fmeta }) => {
+          Rc(.Func({ meta : fmeta })) => {
             if(fmeta.*.is_control, {
               has_ctl = true;
             });
@@ -9092,7 +9092,7 @@ _collect_future_effects :: (
 )({
   match(
     t,
-    .FutureTraitT({ effect_labels, effect_types }) => {
+    Rc(.FutureTraitT({ effect_labels, effect_types })) => {
       (i : usize) = usize(0);
       while((i < effect_labels.len()) && (i < effect_types.len()), {
         labels.push(effect_labels(i).clone());
@@ -9100,7 +9100,7 @@ _collect_future_effects :: (
         i = (i + usize(1));
       });
     },
-    .SomeT({ required_trait_types }) => {
+    Rc(.SomeT({ required_trait_types })) => {
       (i : usize) = usize(0);
       while(i < required_trait_types.len(), {
         match(required_trait_types.get(i), .Some(rt) => recur(&rt, labels, types), .None => ());

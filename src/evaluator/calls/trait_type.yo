@@ -74,17 +74,17 @@ try_to_specialize_trait_type :: (
   // Extract field labels and assoc_type_names from TraitT.
   field_labels := match(
     trait_type,
-    .TraitT(_, _, labels, _, _, _, _, _, _, _) => labels,
+    Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
     _ => ArrayList(String).new()
   );
   assoc_type_names := match(
     trait_type,
-    .TraitT(_, an, _, _, _, _, _, _, _, _) => an,
+    Rc(.TraitT(_, an, _, _, _, _, _, _, _, _)) => an,
     _ => ArrayList(String).new()
   );
   trait_name := match(
     trait_type,
-    .TraitT(n, _, _, _, _, _, _, _, _, _) => n,
+    Rc(.TraitT(n, _, _, _, _, _, _, _, _, _)) => n,
     _ => String.from("unknown")
   );
   (caller_env : Environment) = caller_env_in;
@@ -229,7 +229,7 @@ try_to_specialize_trait_type :: (
   // Specialized TraitType — same identity, with the constraints added.
   specialized_trait_type := match(
     trait_type,
-    .TraitT(n, atns, fls, fts, tid, ic, sc, nsc, _, _) =>
+    Rc(.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, _, _)) =>
       rc(TypeValueNode.TraitT(n, atns, fls, fts, tid, ic, sc, nsc, atc_labels, atc_types)),
     _ => trait_type
   );
@@ -253,17 +253,17 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   // Extract field labels and types from TraitT.
   field_labels := match(
     trait_type,
-    .TraitT(_, _, labels, _, _, _, _, _, _, _) => labels,
+    Rc(.TraitT(_, _, labels, _, _, _, _, _, _, _)) => labels,
     _ => ArrayList(String).new()
   );
   field_types := match(
     trait_type,
-    .TraitT(_, _, _, types, _, _, _, _, _, _) => types,
+    Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types,
     _ => ArrayList(TypeValue).new()
   );
   trait_name := match(
     trait_type,
-    .TraitT(n, _, _, _, _, _, _, _, _, _) => n,
+    Rc(.TraitT(n, _, _, _, _, _, _, _, _, _)) => n,
     _ => String.from("unknown")
   );
   n_fields := field_labels.len();
@@ -315,7 +315,7 @@ try_to_implement_trait_with_arguments_by_trait_type :: (
   pv_type_id := type_id_or_empty(&receiver_ty_pv);
   trait_tid_pv := match(
     trait_type,
-    .TraitT(_, _, _, _, tid, _, _, _, _, _) => tid,
+    Rc(.TraitT(_, _, _, _, tid, _, _, _, _, _)) => tid,
     _ => String.from("")
   );
   if(pv_type_id != "", {

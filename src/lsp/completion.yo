@@ -195,14 +195,16 @@ _placeholder :: (fn(n : usize, label : &String) -> String)(
 _func_snippet :: (fn(name : &String, ty : &TypeValue) -> String)(
   match(
     ty,
-    .Func(
-      _,
-      param_types,
-      _,
-      _,
-      _,
-      meta,
-      _
+    Rc(
+      .Func(
+        _,
+        param_types,
+        _,
+        _,
+        _,
+        meta,
+        _
+      )
     ) => {
       (parts : String) = String.new();
       (n : usize) = usize(0);
@@ -275,7 +277,7 @@ _type_member_items :: (
 )({
   match(
     ty,
-    .Struct({ field_labels, field_types, is_source_namespace }) => {
+    Rc(.Struct({ field_labels, field_types, is_source_namespace })) => {
       (i : usize) = usize(0);
       while(i < field_labels.len(), {
         label := match(field_labels.get(i), .Some(l) => l, .None => String.new());
@@ -283,8 +285,8 @@ _type_member_items :: (
         hidden := ((label.len() == usize(0)) || _hidden_name(label.clone()));
         if(!hidden && !seen.contains(label.clone()), {
           seen.insert(label.clone());
-          is_fn := match(fty, .Func(_, _, _, _, _, _, _) => true, _ => false);
-          is_mod := match(fty, .Struct({ is_source_namespace : ns }) => ns, _ => false);
+          is_fn := match(fty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
+          is_mod := match(fty, Rc(.Struct({ is_source_namespace : ns })) => ns, _ => false);
           kind := cond(
             is_fn => cond(is_source_namespace => K_FUNCTION, true => K_METHOD),
             is_mod => K_MODULE,
@@ -296,7 +298,7 @@ _type_member_items :: (
         i = (i + usize(1));
       });
     },
-    .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+    Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
       (i : usize) = usize(0);
       while(i < variant_names.len(), {
         vname := match(variant_names.get(i), .Some(n) => n, .None => String.new());
@@ -308,7 +310,7 @@ _type_member_items :: (
         i = (i + usize(1));
       });
     },
-    .Union({ field_labels : u_labels, field_types : u_types }) => {
+    Rc(.Union({ field_labels : u_labels, field_types : u_types })) => {
       (i : usize) = usize(0);
       while(i < u_labels.len(), {
         label := match(u_labels.get(i), .Some(l) => l, .None => String.new());
@@ -320,7 +322,7 @@ _type_member_items :: (
         i = (i + usize(1));
       });
     },
-    .TraitT({ field_labels : t_labels, field_types : t_types }) => {
+    Rc(.TraitT({ field_labels : t_labels, field_types : t_types })) => {
       (i : usize) = usize(0);
       while(i < t_labels.len(), {
         label := match(t_labels.get(i), .Some(l) => l, .None => String.new());
@@ -328,7 +330,7 @@ _type_member_items :: (
         keep := ((label.len() > usize(0)) && _is_ident_name(label.clone()));
         if(keep && !_hidden_name(label.clone()) && !seen.contains(label.clone()), {
           seen.insert(label.clone());
-          is_fn := match(fty, .Func(_, _, _, _, _, _, _) => true, _ => false);
+          is_fn := match(fty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
           kind := cond(is_fn => K_METHOD, true => K_PROPERTY);
           insert := cond(is_fn => _func_snippet(label.clone(), &fty), true => String.new());
           out.push(_ci(label.clone(), kind, type_to_string(&fty), String.from("0_") + label.clone(), &insert));
@@ -495,7 +497,7 @@ _receiver_at :: (
   while(guard < usize(8), {
     match(
       deref,
-      .Pointer(p) => {
+      Rc(.Pointer(p)) => {
         deref = p;
       },
       _ => {
@@ -591,7 +593,7 @@ _expected_enum_at :: (
                         );
                         match(
                           found,
-                          .EnumT(_, _, _, _, _, _, _, _, _, _) => {
+                          Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => {
                             out.push(found);
                           },
                           _ => ()
@@ -629,7 +631,7 @@ _expected_enum_at :: (
               expr_info_table_get(info_table, ast_expr_id(&subject)),
               .Some(sinfo) => match(
                 sinfo.ty,
-                .EnumT(_, _, _, _, _, _, _, _, _, _) => {
+                Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => {
                   out.push(sinfo.ty);
                 },
                 _ => ()
@@ -1020,7 +1022,7 @@ _import_member_items :: (
   );
   match(
     _module_type_at(&abs, std_path, io),
-    .Struct({ field_labels, field_types, is_source_namespace }) => {
+    Rc(.Struct({ field_labels, field_types, is_source_namespace })) => {
       if(!is_source_namespace, {
         return(items);
       });
@@ -1041,8 +1043,8 @@ _import_member_items :: (
             (!_hidden_name(label.clone()) && _matches_prefix(label.clone(), prefix_lower.clone()))
         );
         if(keep, {
-          is_fn := match(fty, .Func(_, _, _, _, _, _, _) => true, _ => false);
-          is_mod := match(fty, .Struct({ is_source_namespace : ns }) => ns, _ => false);
+          is_fn := match(fty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
+          is_mod := match(fty, Rc(.Struct({ is_source_namespace : ns })) => ns, _ => false);
           kind := cond(is_fn => K_FUNCTION, is_mod => K_MODULE, true => K_VARIABLE);
           items.push(_ci(label.clone(), kind, type_to_string(&fty), _sort_key(label.clone(), prefix_lower.clone()), String.new()));
         });
@@ -1211,7 +1213,7 @@ handle_completion :: (
           if(expected.len() > usize(0), {
             match(
               expected(usize(0)),
-              .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+              Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
                 seen2 := HashSet(String).new();
                 (vi : usize) = usize(0);
                 while(vi < variant_names.len(), {
@@ -1267,7 +1269,7 @@ handle_completion :: (
           detail = type_to_string(&info.ty);
           match(
             info.ty,
-            .Func(_, _, _, _, _, _, _) => {
+            Rc(.Func(_, _, _, _, _, _, _)) => {
               kind = K_FUNCTION;
             },
             _ => ()
@@ -1305,7 +1307,7 @@ handle_completion :: (
                 );
                 if(fresh, {
                   emitted.insert(vname.clone());
-                  is_fn := match(v.ty, .Func(_, _, _, _, _, _, _) => true, _ => false);
+                  is_fn := match(v.ty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false);
                   kind2 := cond(is_fn => K_FUNCTION, true => K_VARIABLE);
                   items.push(_ci(vname.clone(), kind2, type_to_string(&v.ty), _sort_key(vname.clone(), prefix_lower.clone()), String.new()));
                 });

@@ -73,7 +73,7 @@ _enum_field_access :: (fn(object_type : &TypeValue, object_code : &String, field
     .Some(_) => object_code,
     .None => match(
       object_type,
-      .EnumT({ variant_names : vnames, variant_field_labels : vlabels, name : ename }) => {
+      Rc(.EnumT({ variant_names : vnames, variant_field_labels : vlabels, name : ename })) => {
         nv := vnames.len();
         (vi : usize) = usize(0);
         while(vi < nv, {
@@ -130,7 +130,7 @@ _typevalue_enum_access :: (fn(object_value : &Option(EvalValue), field_name : &S
         et := t;
         match(
           et,
-          .EnumT({ variant_names : vnames, variant_fields : vfields }) => {
+          Rc(.EnumT({ variant_names : vnames, variant_fields : vfields })) => {
             nv := vnames.len();
             (vi : usize) = usize(0);
             while(vi < nv, {
@@ -185,16 +185,16 @@ _ptr_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_
     (deref_level : usize) = usize(0);
     (current_type : TypeValue) = object_type;
     while(is_pointer_type(&current_type), {
-      current_type = match(current_type, .Pointer(p) => p, _ => current_type);
+      current_type = match(current_type, Rc(.Pointer(p)) => p, _ => current_type);
       deref_level = (deref_level + usize(1));
     });
     // Reference-semantics structs are already pointers in C — one more deref.
-    ref_sem := match(current_type, .Struct({ is_reference_semantics : rs }) => rs, _ => false);
+    ref_sem := match(current_type, Rc(.Struct({ is_reference_semantics : rs })) => rs, _ => false);
     if((deref_level > usize(0)) && ref_sem, {
       deref_level = (deref_level + usize(1));
     });
     // Newtype field through a pointer is just the dereference.
-    nt_match := if(is_newtype_type(&current_type), match(current_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name), .None => false), false), _ => false), false);
+    nt_match := if(is_newtype_type(&current_type), match(current_type, Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name), .None => false), false), _ => false), false);
     if(nt_match, {
       res := if(deref_level == usize(1), {
         out := String.from("(*");
@@ -240,7 +240,7 @@ _tuple_field_access :: (fn(object_type : &TypeValue, object_code : &String, fiel
     out
   }, match(
     object_type,
-    .Tuple({ field_labels : fls }) => {
+    Rc(.Tuple({ field_labels : fls })) => {
       n := fls.len();
       (i : usize) = usize(0);
       (idx : usize) = usize(0);
@@ -349,7 +349,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
   // table, so a user struct with an `io` field is untouched.
   if((field_name == "io") && is_struct_type(&object_type) && match(
     object_type,
-    .Struct({ id : oid }) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
+    Rc(.Struct({ id : oid })) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
     _ => false
   ), {
     return(object_code.clone());
@@ -368,7 +368,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
   if(is_newtype_type(&object_type), {
     match(
       object_type,
-      .Struct({ field_labels : fls }) => if(fls.len() == usize(1), {
+      Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), {
         match(
           fls.get(usize(0)),
           .Some(lbl) => if(lbl == field_name, {

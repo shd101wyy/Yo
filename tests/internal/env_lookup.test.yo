@@ -51,7 +51,7 @@ test("get_trait_type_from_env: None when value is not a TraitType", {
 test("get_value_of_some_type_from_env: non-SomeT returned as-is", {
   env := Environment.new(`test`);
   r := get_value_of_some_type_from_env(&env, t_i32());
-  assert(match(r, .Int(_, _) => true, _ => false), "i32 passes through");
+  assert(match(r, Rc(.Int(_, _)) => true, _ => false), "i32 passes through");
 });
 test("get_value_of_some_type_from_env: unbound SomeT stays SomeT", {
   env := Environment.new(`test`);
@@ -80,10 +80,10 @@ test("get_value_of_some_type_from_env: a recorded binder resolves without a mark
   env := Environment.new(`test`);
   slot := t_some_t(`T`, usize(7));
   sibling := t_some_t(`T`, usize(7));
-  slot_id := match(slot, .SomeT({ id : sid }) => sid, _ => panic("t_some_t built no SomeT"));
+  slot_id := match(slot, Rc(.SomeT({ id : sid })) => sid, _ => panic("t_some_t built no SomeT"));
   _d := env.define_val(`T`, t_i32(), true, .Some(EvalValue.TypeVal(t_i32())));
   assert(is_some_type(get_value_of_some_type_from_env(&env, &slot)), "an unrecorded, unconfirmed binding is not the slot's");
   match(get_variables_from_env(&env, `T`).get(usize(0)), .Some(v) => variable_set_bound_some_id(&v, &slot_id), .None => panic("T was not defined"));
-  assert(match(get_value_of_some_type_from_env(&env, &slot), .Int(_, _) => true, _ => false), "the recorded binder resolves");
+  assert(match(get_value_of_some_type_from_env(&env, &slot), Rc(.Int(_, _)) => true, _ => false), "the recorded binder resolves");
   assert(is_some_type(get_value_of_some_type_from_env(&env, &sibling)), "a sibling binder named T does not read it");
 });

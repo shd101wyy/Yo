@@ -42,14 +42,16 @@ _unwrap_type_eval_value :: (fn(val : &EvalValue) -> TypeValue)(
 _same_some_id :: (fn(ty : &TypeValue, id_to_compare : &String) -> bool)(
   match(
     ty,
-    .SomeT(
-      id : tid,
-      name : _,
-      frame_level : _,
-      required_trait_types : _,
-      required_trait_levels : _,
-      negative_trait_types : _,
-      negative_trait_levels : _
+    Rc(
+      .SomeT(
+        id : tid,
+        name : _,
+        frame_level : _,
+        required_trait_types : _,
+        required_trait_levels : _,
+        negative_trait_types : _,
+        negative_trait_levels : _
+      )
     ) =>
       (tid == id_to_compare),
     _ => false
@@ -59,14 +61,16 @@ _same_some_id :: (fn(ty : &TypeValue, id_to_compare : &String) -> bool)(
 _some_id :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
-    .SomeT(
-      id : tid,
-      name : _,
-      frame_level : _,
-      required_trait_types : _,
-      required_trait_levels : _,
-      negative_trait_types : _,
-      negative_trait_levels : _
+    Rc(
+      .SomeT(
+        id : tid,
+        name : _,
+        frame_level : _,
+        required_trait_types : _,
+        required_trait_levels : _,
+        negative_trait_types : _,
+        negative_trait_levels : _
+      )
     ) => tid,
     _ => String.from("")
   )
@@ -75,14 +79,16 @@ _some_id :: (fn(ty : &TypeValue) -> String)(
 _some_name :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
-    .SomeT(
-      id : _,
-      name : n,
-      frame_level : _,
-      required_trait_types : _,
-      required_trait_levels : _,
-      negative_trait_types : _,
-      negative_trait_levels : _
+    Rc(
+      .SomeT(
+        id : _,
+        name : n,
+        frame_level : _,
+        required_trait_types : _,
+        required_trait_levels : _,
+        negative_trait_types : _,
+        negative_trait_levels : _
+      )
     ) => n,
     _ => String.from("")
   )
@@ -91,14 +97,16 @@ _some_name :: (fn(ty : &TypeValue) -> String)(
 _some_frame_level :: (fn(ty : &TypeValue) -> Option(usize))(
   match(
     ty,
-    .SomeT(
-      id : _,
-      name : _,
-      frame_level : fl,
-      required_trait_types : _,
-      required_trait_levels : _,
-      negative_trait_types : _,
-      negative_trait_levels : _
+    Rc(
+      .SomeT(
+        id : _,
+        name : _,
+        frame_level : fl,
+        required_trait_types : _,
+        required_trait_levels : _,
+        negative_trait_types : _,
+        negative_trait_levels : _
+      )
     ) => Option(usize).Some(fl),
     _ => Option(usize).None
   )
@@ -473,14 +481,16 @@ _chain_resolve :: (fn(env : &Environment, start : &TypeValue, visited_ids : &mut
   // Only when the level is known and >= 0.
   fast_result := match(
     start,
-    .SomeT(
-      id : sid,
-      name : sn,
-      frame_level : sfl,
-      required_trait_types : _,
-      required_trait_levels : _,
-      negative_trait_types : _,
-      negative_trait_levels : _
+    Rc(
+      .SomeT(
+        id : sid,
+        name : sn,
+        frame_level : sfl,
+        required_trait_types : _,
+        required_trait_levels : _,
+        negative_trait_types : _,
+        negative_trait_levels : _
+      )
     ) => {
       r := _lookup_by_frame(env, sfl, &sn, &sid);
       match(
@@ -569,7 +579,7 @@ create_str_type :: (fn(env : &Environment) -> TypeValue)({
 _pointer_target_is_byte :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    .Pointer(pointee) => (is_u8_type(&pointee) || is_char_type(&pointee)),
+    Rc(.Pointer(pointee)) => (is_u8_type(&pointee) || is_char_type(&pointee)),
     _ => false
   )
 );

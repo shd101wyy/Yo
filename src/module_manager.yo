@@ -2685,7 +2685,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                 main_fty := get_func_type(__main_fvd.*.func_id.clone());
                 main_result := match(
                   main_fty,
-                  .Func({ result : __main_res }) => __main_res,
+                  Rc(.Func({ result : __main_res })) => __main_res,
                   _ => t_unit()
                 );
                 if(!is_unit_type(&main_result), {
@@ -2707,7 +2707,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                 // evaluator/calls/function.yo).
                 match(
                   main_fty,
-                  .Func({ param_types : __main_pts }) => {
+                  Rc(.Func({ param_types : __main_pts })) => {
                     (pi : usize) = usize(0);
                     while(pi < __main_pts.len(), {
                       match(
@@ -2715,7 +2715,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                         .Some(pt) => {
                           pt_is_io := match(
                             pt,
-                            .Struct({ name : __pt_name, is_source_namespace : __pt_sns }) => ((__pt_name == "Io") && !__pt_sns),
+                            Rc(.Struct({ name : __pt_name, is_source_namespace : __pt_sns })) => ((__pt_name == "Io") && !__pt_sns),
                             _ => false
                           );
                           if(!pt_is_io, {

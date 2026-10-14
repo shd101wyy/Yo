@@ -17,15 +17,15 @@
 /// (`_resolve_dyn_trait_values`, evaluator/values/dyn.yo, pushes one per
 /// `TraitT` / `FnTraitT` and none for anything else.)
 _carries_trait_value :: (fn(t : &TypeValue) -> bool)(
-  match(t, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, .FnTraitT(_, _, _, _, _, _, _, _) => true, _ => false)
+  match(t, Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => true, Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => true, _ => false)
 );
 /// The trait values of `entry` for the traits `tgt` requires, in `tgt`'s
 /// order. Every target trait is one of the source's (the evaluator checked
 /// the upcast), so each is found.
 _upcast_trait_values :: (fn(entry : &DynImplEntry, tgt : &TypeValue) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
-  src_req := match(entry.dyn_type.clone(), .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
-  tgt_req := match(tgt, .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
+  src_req := match(entry.dyn_type.clone(), Rc(.DynT({ required_trait_types : r })) => r, _ => ArrayList(TypeValue).new());
+  tgt_req := match(tgt, Rc(.DynT({ required_trait_types : r })) => r, _ => ArrayList(TypeValue).new());
   (ti : usize) = usize(0);
   while(ti < tgt_req.len(), {
     tt := match(tgt_req.get(ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));

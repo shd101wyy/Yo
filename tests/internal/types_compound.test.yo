@@ -302,7 +302,7 @@ test("t_dyn: required + negative traits", {
   // Pattern-match to verify shape (catches arity drift).
   ok := match(
     d,
-    .DynT(req, _, neg, _) => ((req.len() == usize(1)) && (neg.len() == usize(1))),
+    Rc(.DynT(req, _, neg, _)) => ((req.len() == usize(1)) && (neg.len() == usize(1))),
     _ => false
   );
   assert(ok, "DynT should carry 1 required + 1 negative trait");
@@ -330,8 +330,8 @@ test("substitute: a shared struct DAG is substituted once per node", {
   subst_add(&s, `T`, usize(0), t_i32());
   (cur : TypeValue) = substitute(&s, &ty);
   (depth : usize) = usize(0);
-  while(match(cur, .Struct({ id : _ }) => true, _ => false), {
-    cur = match(cur, .Struct({ field_types : fts }) => match(fts.get(usize(1)), .Some(t) => t, .None => t_unit()), _ => t_unit());
+  while(match(cur, Rc(.Struct({ id : _ })) => true, _ => false), {
+    cur = match(cur, Rc(.Struct({ field_types : fts })) => match(fts.get(usize(1)), .Some(t) => t, .None => t_unit()), _ => t_unit());
     depth = (depth + usize(1));
   });
   assert(depth == usize(40), "every level survives");

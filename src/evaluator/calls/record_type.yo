@@ -55,17 +55,17 @@ try_to_implement_module_with_arguments_by_module_type :: (
   // Extract field labels and types from the source-namespace Struct.
   field_labels := match(
     module_type,
-    .Struct({ field_labels : labels }) => labels,
+    Rc(.Struct({ field_labels : labels })) => labels,
     _ => ArrayList(String).new()
   );
   field_types := match(
     module_type,
-    .Struct({ field_types : types }) => types,
+    Rc(.Struct({ field_types : types })) => types,
     _ => ArrayList(TypeValue).new()
   );
   sns_ty_id := match(
     module_type,
-    .Struct({ id : sid }) => sid,
+    Rc(.Struct({ id : sid })) => sid,
     _ => String.from("")
   );
   n_fields := field_labels.len();

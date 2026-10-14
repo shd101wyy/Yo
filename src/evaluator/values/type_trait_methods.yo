@@ -84,17 +84,17 @@ _dyn_type_id :: (fn(rtt : &ArrayList(TypeValue), ntt : &ArrayList(TypeValue)) ->
 _dyn_member_key :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
+    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id,
     _ => type_key(t)
   )
 );
 type_id_or_empty :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    .Struct({ id }) => id,
-    .EnumT(id, _, _, _, _, _, _, _, _, _) => id,
-    .TraitT(_, _, _, _, id, _, _, _, _, _) => id,
-    .SomeT(id, _, _, _, _, _, _, _, _, _) => id,
+    Rc(.Struct({ id })) => id,
+    Rc(.EnumT(id, _, _, _, _, _, _, _, _, _)) => id,
+    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => id,
+    Rc(.SomeT(id, _, _, _, _, _, _, _, _, _)) => id,
     // A union's `name` IS its unique id: evaluate_union_type mints
     // `union_<random_id>` and passes it as the name (evaluator/types/union.yo),
     // and the binding rename replaces it with the declared name consistently on
@@ -102,52 +102,52 @@ type_id_or_empty :: (fn(t : &TypeValue) -> String)(
     // empty, so `impl(<union>, …)` registered NOTHING and every union method —
     // static or instance — was unresolvable (tests/basic.test.yo arm 14), while
     // the identical struct form worked.
-    .Union({ name : un_id }) => un_id,
+    Rc(.Union({ name : un_id })) => un_id,
     // Primitive types get stable synthetic ids so `impl(usize, ...)`,
     // `impl(i32, ...)`, etc. can register `MAX`/`MIN`/operator methods
     // in the trait-methods registry — without an id the registration
     // is silently skipped and property access (`usize.MAX`) fails.
-    .Unit => String.from("__yo_t_unit"),
+    Rc(.Unit) => String.from("__yo_t_unit"),
     // str keeps the id "str" — impl(str, ...) methods are registered
     // under the singleton struct id "str".
-    .Str => String.from("str"),
-    .BoolT => String.from("__yo_t_bool"),
-    .Void => String.from("__yo_t_void"),
-    .Int(bits, signed) => cond(
+    Rc(.Str) => String.from("str"),
+    Rc(.BoolT) => String.from("__yo_t_bool"),
+    Rc(.Void) => String.from("__yo_t_void"),
+    Rc(.Int(bits, signed)) => cond(
       signed => (String.from("__yo_t_i") + bits.to_string()),
       true => (String.from("__yo_t_u") + bits.to_string())
     ),
-    .Float(bits) => (String.from("__yo_t_f") + bits.to_string()),
-    .Usize => String.from("__yo_t_usize"),
-    .Isize => String.from("__yo_t_isize"),
-    .ComptimeInt => String.from("__yo_t_comptime_int"),
-    .ComptimeFloat => String.from("__yo_t_comptime_float"),
-    .ComptimeString => String.from("__yo_t_comptime_string"),
-    .CChar => String.from("__yo_t_c_char"),
-    .CShort => String.from("__yo_t_c_short"),
-    .CUShort => String.from("__yo_t_c_ushort"),
-    .CInt => String.from("__yo_t_c_int"),
-    .CUInt => String.from("__yo_t_c_uint"),
-    .CLong => String.from("__yo_t_c_long"),
-    .CULong => String.from("__yo_t_c_ulong"),
-    .CLongLong => String.from("__yo_t_c_longlong"),
-    .CULongLong => String.from("__yo_t_c_ulonglong"),
-    .CLongDouble => String.from("__yo_t_c_longdouble"),
+    Rc(.Float(bits)) => (String.from("__yo_t_f") + bits.to_string()),
+    Rc(.Usize) => String.from("__yo_t_usize"),
+    Rc(.Isize) => String.from("__yo_t_isize"),
+    Rc(.ComptimeInt) => String.from("__yo_t_comptime_int"),
+    Rc(.ComptimeFloat) => String.from("__yo_t_comptime_float"),
+    Rc(.ComptimeString) => String.from("__yo_t_comptime_string"),
+    Rc(.CChar) => String.from("__yo_t_c_char"),
+    Rc(.CShort) => String.from("__yo_t_c_short"),
+    Rc(.CUShort) => String.from("__yo_t_c_ushort"),
+    Rc(.CInt) => String.from("__yo_t_c_int"),
+    Rc(.CUInt) => String.from("__yo_t_c_uint"),
+    Rc(.CLong) => String.from("__yo_t_c_long"),
+    Rc(.CULong) => String.from("__yo_t_c_ulong"),
+    Rc(.CLongLong) => String.from("__yo_t_c_longlong"),
+    Rc(.CULongLong) => String.from("__yo_t_c_ulonglong"),
+    Rc(.CLongDouble) => String.from("__yo_t_c_longdouble"),
     /// The Expr reflection type — `impl(Expr, is_atom : ...)` must register
     /// and `expr.is_atom()` dispatch must resolve (same class of gap as the
     /// TypeUni id below; without it every Expr method soft-fell to unit).
-    .ExprT => String.from("__yo_t_expr"),
+    Rc(.ExprT) => String.from("__yo_t_expr"),
     // The type universe (`Type`). The cached singleton carries
     // `id: "Type(${level})"` and a trait slot — so
     // `impl(Type, get_info : ...)` registers and
     // `Type.get_info(...)` dispatch resolves. Without this id the prelude's
     // `impl(Type, ...)` registration was silently skipped and every
     // `Type.*` reflection method soft-fell to `unit` under check.
-    .TypeUni(level) => (String.from("Type(") + level.to_string() + String.from(")")),
+    Rc(.TypeUni(level)) => (String.from("Type(") + level.to_string() + String.from(")")),
     // A `Dyn` is identified by its trait set, so `impl(AnyError, is : ...)`
     // registers under `Dyn(Error)` and `err.is(T)` resolves. Without an id the
     // registration was silently skipped and the method was unreachable.
-    .DynT({ required_trait_types : rtt, negative_trait_types : ntt }) => _dyn_type_id(&rtt, &ntt),
+    Rc(.DynT({ required_trait_types : rtt, negative_trait_types : ntt })) => _dyn_type_id(&rtt, &ntt),
     _ => String.from("")
   )
 );
@@ -992,8 +992,8 @@ assoc_type_registry_key :: (fn(t : &TypeValue) -> String)({
   tid := type_id_or_empty(t);
   has_args := match(
     t,
-    .Struct({ type_arguments : ta }) => (ta.len() > usize(0)),
-    .EnumT(_, _, _, _, _, _, _, _, _, _) => true,
+    Rc(.Struct({ type_arguments : ta })) => (ta.len() > usize(0)),
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => true,
     _ => false
   );
   cond(

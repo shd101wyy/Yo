@@ -215,12 +215,12 @@ _constant_in_scope :: (fn(name : &String, env : &Environment) -> bool)({
   )
 });
 _enum_variant_names :: (fn(t : &TypeValue) -> ArrayList(String))(
-  match(t, .EnumT({ variant_names : vns }) => vns, _ => ArrayList(String).new())
+  match(t, Rc(.EnumT({ variant_names : vns })) => vns, _ => ArrayList(String).new())
 );
 _enum_variant_labels :: (fn(t : &TypeValue, idx : usize) -> ArrayList(String))(
   match(
     t,
-    .EnumT({ variant_field_labels : vfls }) => match(vfls.get(idx), .Some(l) => l, .None => ArrayList(String).new()),
+    Rc(.EnumT({ variant_field_labels : vfls })) => match(vfls.get(idx), .Some(l) => l, .None => ArrayList(String).new()),
     _ => ArrayList(String).new()
   )
 );
@@ -251,7 +251,7 @@ _variant_name_eq :: (fn(stored : &String, arm_name : &String) -> bool)(
 _select_variant :: (fn(enum_ty : &TypeValue, name : &String) -> TypeValue)(
   match(
     enum_ty,
-    .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas) => rc(TypeValueNode.EnumT(id, n, vn, vf, Option(String).Some(name), vfl, discs, eirs, eiar, etas)),
+    Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id, n, vn, vf, Option(String).Some(name), vfl, discs, eirs, eiar, etas)),
     _ => enum_ty
   )
 );
@@ -1229,7 +1229,7 @@ _struct_type_name_for_err :: (fn(struct_ty : &TypeValue, ty_named : &Option(Type
 _struct_type_name_text :: (fn(struct_ty : &TypeValue) -> String)(
   match(
     struct_ty,
-    .Struct({ name : n }) => n.clone(),
+    Rc(.Struct({ name : n })) => n.clone(),
     _ => String.new()
   )
 );
@@ -1285,7 +1285,7 @@ _wrapper_position_matches :: (fn(position_ty : &TypeValue, ctor : &_WrapperCtor)
   head.push_str("(");
   match(
     position_ty,
-    .Struct({ name : sn }) => sn.starts_with(&head),
+    Rc(.Struct({ name : sn })) => sn.starts_with(&head),
     _ => false
   )
 });
@@ -1370,7 +1370,7 @@ compile_pattern :: (
     _wrapper_pattern_ctor(e, env),
     .Some(ctor) => {
       // One pointer level is looked through first, as at every position.
-      cell_ty := match(position_ty, .Pointer(p) => p, _ => position_ty);
+      cell_ty := match(position_ty, Rc(.Pointer(p)) => p, _ => position_ty);
       if(!_wrapper_position_matches(&cell_ty, &ctor), {
         article := if(ctor.name == "Box", String.from("a"), String.from("an"));
         exn.throw(

@@ -775,7 +775,7 @@ _variable_can_need_drop_ignoring_consumed :: (fn(v : &Variable) -> bool)({
   });
   some_undroppable := match(
     v.ty,
-    .SomeT({ required_trait_types : s_rtt, resolution : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+    Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
     _ => false
   );
   !some_undroppable
@@ -1288,7 +1288,7 @@ _optimize_dup_drop_pairs :: (
         e3 := (e2 && !v.is_ref && !variable_is_inout_borrow_root(&v));
         some_undroppable := match(
           v.ty,
-          .SomeT({ required_trait_types : s_rtt, resolution : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+          Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
           _ => false
         );
         e4 := (e3 && !some_undroppable);
@@ -1851,7 +1851,7 @@ _schedule_scope_end_drops :: (
         // the resolvedConcreteType/requiredTraits check.
         some_undroppable := match(
           v.ty,
-          .SomeT({ required_trait_types : s_rtt, resolution : s_rc }) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
+          Rc(.SomeT({ required_trait_types : s_rtt, resolution : s_rc })) => (s_rc.is_none() && (s_rtt.len() == usize(0))),
           _ => false
         );
         e4 := (e3 && !some_undroppable);
@@ -1965,7 +1965,7 @@ _enclosing_fn_result_type :: (fn(ctx : &EvalContext) -> Option(TypeValue))(
       fb_ctx.kind,
       .FunctionBody => match(
         fb_ctx.func_type,
-        .Some(.Func({ result : ret_box })) => Option(TypeValue).Some(ret_box),
+        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(ret_box),
         .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
@@ -2011,7 +2011,7 @@ _variant_local_hint :: (
   if(rhs_is_async, {
     async_out_concrete := match(
       extract_future_trait_from_type(&result_ty),
-      .Some(.FutureTraitT({ output : ao_out })) => !is_some_type(&ao_out),
+      .Some(Rc(.FutureTraitT({ output : ao_out }))) => !is_some_type(&ao_out),
       _ => false
     );
     if(!async_out_concrete, {
@@ -2104,7 +2104,7 @@ _must_use_kind :: (fn(stmt : &AstExpr, ty : &TypeValue) -> Option(String))({
   inner := t_refine_inner(ty);
   is_result := match(
     inner,
-    .EnumT({ id : _mu_eid }) => type_to_string(&inner).starts_with("Result("),
+    Rc(.EnumT({ id : _mu_eid })) => type_to_string(&inner).starts_with("Result("),
     _ => false
   );
   cond(
@@ -2357,7 +2357,7 @@ _evaluate_begin_expression_impl :: (
               .FunctionBody => match(
                 fb_ctx.func_type,
                 // A projection returns its place's address (decision 24).
-                .Some(.Func({ result : ret_box, meta : ret_meta })) => Option(TypeValue).Some(if(ret_meta.*.result_is_ref, t_ptr(&ret_box), ret_box)),
+                .Some(Rc(.Func({ result : ret_box, meta : ret_meta }))) => Option(TypeValue).Some(if(ret_meta.*.result_is_ref, t_ptr(&ret_box), ret_box)),
                 .Some(_) => Option(TypeValue).None,
                 .None => Option(TypeValue).None
               ),
@@ -2414,7 +2414,7 @@ _evaluate_begin_expression_impl :: (
                 rfb_ctx.func_type,
                 .Some(rft) => match(
                   rft,
-                  .Func({ result : rfb, meta : __fm1 }) => {
+                  Rc(.Func({ result : rfb, meta : __fm1 })) => {
                     rfco := __fm1.*.result_is_comptime_only;
                     if(!rfco && type_representation_contains_raw_ptr(&rfb)
                     && !is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(&ret_arg).module_path.clone())), {
@@ -2458,7 +2458,7 @@ _evaluate_begin_expression_impl :: (
               ir_fb.kind,
               .FunctionBody => match(
                 ir_fb.func_type,
-                .Some(.Func({ result : ir_ret })) => is_some_type(&ir_ret),
+                .Some(Rc(.Func({ result : ir_ret }))) => is_some_type(&ir_ret),
                 .Some(_) => false,
                 .None => false
               ),
@@ -2887,7 +2887,7 @@ _evaluate_begin_expression_impl :: (
               .Some(ft) => {
                 match(
                   ft,
-                  .Func({ result : result_box, meta : rb_meta }) => {
+                  Rc(.Func({ result : result_box, meta : rb_meta })) => {
                     // A projection's `return(&place)` yields the place's
                     // address (decision 24, `rewrite_projection_tails`).
                     expected_ret := if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box);
@@ -3084,7 +3084,7 @@ _evaluate_begin_expression_impl :: (
                       fc.func_type,
                       .Some(fty) => match(
                         fty,
-                        .Func({ meta : own_fm }) => {
+                        Rc(.Func({ meta : own_fm })) => {
                           (own_found : bool) = false;
                           own_labels := own_fm.*.param_labels;
                           own_flags := own_fm.*.param_is_owning;

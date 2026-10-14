@@ -75,9 +75,9 @@ apply_bounds :: (fn(n : i64, ty : &TypeValue) -> i64)(
 comptime_int_width :: (fn(ty : &TypeValue) -> Option(u32))(
   match(
     ty,
-    .Int(bits, _) => Option(u32).Some(u32(bits)),
-    .Usize => Option(u32).Some(get_target_pointer_size_bits()),
-    .Isize => Option(u32).Some(get_target_pointer_size_bits()),
+    Rc(.Int(bits, _)) => Option(u32).Some(u32(bits)),
+    Rc(.Usize) => Option(u32).Some(get_target_pointer_size_bits()),
+    Rc(.Isize) => Option(u32).Some(get_target_pointer_size_bits()),
     _ => Option(u32).None
   )
 );
@@ -115,10 +115,10 @@ _reject_min_by_minus_one :: (fn(a : i64, b : i64, ty : &TypeValue, unsigned_64 :
 bit_not_int :: (fn(n : i64, ty : &TypeValue) -> i64)(
   match(
     ty,
-    .ComptimeInt => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
-    .Usize => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
-    .Isize => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
-    .Int(bits, signed) => cond(
+    Rc(.ComptimeInt) => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
+    Rc(.Usize) => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
+    Rc(.Isize) => i64(0).wrapping_sub(n.wrapping_add(i64(1))),
+    Rc(.Int(bits, signed)) => cond(
       (bits == u8(8)) => {
         n_lower := (n & i64(255));
         result_u := (n_lower ^ i64(255));

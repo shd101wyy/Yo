@@ -164,13 +164,13 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
     (d > usize(6)) => false,
     true => match(
       t,
-      .Array(cal_elem, _, cal_var) => cond(
+      Rc(.Array(cal_elem, _, cal_var)) => cond(
         is_computed_array_len_var(&cal_var) => true,
         true => recur(&cal_elem, d + usize(1))
       ),
-      .Pointer(cal_p) => recur(&cal_p, d + usize(1)),
-      .IsoT(cal_i) => recur(&cal_i, d + usize(1)),
-      .Tuple(_, cal_tts) => {
+      Rc(.Pointer(cal_p)) => recur(&cal_p, d + usize(1)),
+      Rc(.IsoT(cal_i)) => recur(&cal_i, d + usize(1)),
+      Rc(.Tuple(_, cal_tts)) => {
         (cal_found0 : bool) = false;
         (cal_ti : usize) = usize(0);
         while((cal_ti < cal_tts.len()) && !cal_found0, {
@@ -185,7 +185,7 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
         });
         cal_found0
       },
-      .Struct({ field_types : cal_fts }) => {
+      Rc(.Struct({ field_types : cal_fts })) => {
         (cal_found : bool) = false;
         (cal_i2 : usize) = usize(0);
         while((cal_i2 < cal_fts.len()) && !cal_found, {
@@ -200,7 +200,7 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
         });
         cal_found
       },
-      .EnumT({ variant_fields : cal_vfs }) => {
+      Rc(.EnumT({ variant_fields : cal_vfs })) => {
         (cal_found2 : bool) = false;
         (cal_vi : usize) = usize(0);
         while((cal_vi < cal_vfs.len()) && !cal_found2, {
@@ -321,7 +321,7 @@ t_iso :: (fn(child : &TypeValue) -> TypeValue)(
 /// The printed form breaks ties between instances of one generic trait and
 /// orders the id-less `Fn` traits.
 _dyn_trait_sort_key :: (fn(t : &TypeValue) -> String)({
-  tid := match(t, .TraitT(id : i) => i, _ => String.new());
+  tid := match(t, Rc(.TraitT(id : i)) => i, _ => String.new());
   `${tid}#${type_to_string(t)}`
 });
 /// Reorder `types` (and its parallel `levels`, when it has one entry per
@@ -468,7 +468,7 @@ t_dyn_payload_wrapper :: (fn(dyn_ty : &TypeValue, frame_level : usize) -> Option
 t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
   match(
     t,
-    .SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _) => rc(
+    Rc(.SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _)) => rc(
       TypeValueNode.SomeT(
         wr_id,
         wr_nm,
@@ -490,7 +490,7 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
 t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ft,
-    .Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt) => rc(TypeValueNode.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt)),
+    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt)) => rc(TypeValueNode.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt)),
     _ => ft
   )
 );
@@ -513,7 +513,7 @@ t_extern_opaque :: (fn(name : &String, c_name : &String) -> TypeValue)(
 clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
   match(
     s,
-    .SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, skind, _) => rc(
+    Rc(.SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, skind, _)) => rc(
       TypeValueNode.SomeT(
         generate_some_type_id(),
         snm,
@@ -557,11 +557,11 @@ t_some_t_with_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue
 type_value_tag :: (fn(t : &TypeValue) -> TypeTag)(
   match(
     t_refine_inner(t),
-    .Unit => TypeTag.TUnit,
-    .BoolT => TypeTag.TBool,
-    .Void => TypeTag.TVoid,
-    .Never => TypeTag.TNever,
-    .Int(bits, signed) => cond(
+    Rc(.Unit) => TypeTag.TUnit,
+    Rc(.BoolT) => TypeTag.TBool,
+    Rc(.Void) => TypeTag.TVoid,
+    Rc(.Never) => TypeTag.TNever,
+    Rc(.Int(bits, signed)) => cond(
       signed => cond(
         (bits == u8(8)) => TypeTag.TI8,
         (bits == u8(16)) => TypeTag.TI16,
@@ -575,47 +575,47 @@ type_value_tag :: (fn(t : &TypeValue) -> TypeTag)(
         true => TypeTag.TU64
       )
     ),
-    .Float(bits) => cond(
+    Rc(.Float(bits)) => cond(
       (bits == u8(32)) => TypeTag.TF32,
       true => TypeTag.TF64
     ),
-    .Usize => TypeTag.TUsize,
-    .Isize => TypeTag.TIsize,
-    .ComptimeInt => TypeTag.TComptimeInt,
-    .ComptimeFloat => TypeTag.TComptimeFloat,
-    .ComptimeString => TypeTag.TComptimeString,
-    .CChar => TypeTag.TCChar,
-    .CShort => TypeTag.TCShort,
-    .CUShort => TypeTag.TCUShort,
-    .CInt => TypeTag.TCInt,
-    .CUInt => TypeTag.TCUInt,
-    .CLong => TypeTag.TCLong,
-    .CULong => TypeTag.TCULong,
-    .CLongLong => TypeTag.TCLongLong,
-    .CULongLong => TypeTag.TCULongLong,
-    .CLongDouble => TypeTag.TCLongDouble,
-    .TypeUni(_) => TypeTag.TType,
-    .Pointer(_) => TypeTag.TPtr,
-    .Str => TypeTag.TStr,
-    .Array(_, _, _) => TypeTag.TArray,
-    .Tuple(_, _) => TypeTag.TTuple,
-    .Func({ result : _ }) => TypeTag.TFunction,
+    Rc(.Usize) => TypeTag.TUsize,
+    Rc(.Isize) => TypeTag.TIsize,
+    Rc(.ComptimeInt) => TypeTag.TComptimeInt,
+    Rc(.ComptimeFloat) => TypeTag.TComptimeFloat,
+    Rc(.ComptimeString) => TypeTag.TComptimeString,
+    Rc(.CChar) => TypeTag.TCChar,
+    Rc(.CShort) => TypeTag.TCShort,
+    Rc(.CUShort) => TypeTag.TCUShort,
+    Rc(.CInt) => TypeTag.TCInt,
+    Rc(.CUInt) => TypeTag.TCUInt,
+    Rc(.CLong) => TypeTag.TCLong,
+    Rc(.CULong) => TypeTag.TCULong,
+    Rc(.CLongLong) => TypeTag.TCLongLong,
+    Rc(.CULongLong) => TypeTag.TCULongLong,
+    Rc(.CLongDouble) => TypeTag.TCLongDouble,
+    Rc(.TypeUni(_)) => TypeTag.TType,
+    Rc(.Pointer(_)) => TypeTag.TPtr,
+    Rc(.Str) => TypeTag.TStr,
+    Rc(.Array(_, _, _)) => TypeTag.TArray,
+    Rc(.Tuple(_, _)) => TypeTag.TTuple,
+    Rc(.Func({ result : _ })) => TypeTag.TFunction,
     // Source-namespace structs keep the TModule tag (TypeTag is internal).
-    .Struct({ is_source_namespace : sns_tag }) => cond(sns_tag => TypeTag.TModule, true => TypeTag.TStruct),
-    .EnumT(_, _, _, _, _, _, _, _, _, _) => TypeTag.TEnum,
-    .Union(_, _, _) => TypeTag.TUnion,
-    .TraitT(name : _) => TypeTag.TTrait,
-    .SomeT(name : _) => TypeTag.TSomeType,
-    .ExprT => TypeTag.TExpr,
-    .ComptimeListT(_) => TypeTag.TComptimeList,
-    .TypeAppT(_, _) => TypeTag.TTypeApplication,
-    .IsoT(_) => TypeTag.TIso,
-    .DynT(_, _, _, _) => TypeTag.TDyn,
-    .FnTraitT(base_name : _) => TypeTag.TTrait,
-    .FutureTraitT(base_name : _) => TypeTag.TTrait,
+    Rc(.Struct({ is_source_namespace : sns_tag })) => cond(sns_tag => TypeTag.TModule, true => TypeTag.TStruct),
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => TypeTag.TEnum,
+    Rc(.Union(_, _, _)) => TypeTag.TUnion,
+    Rc(.TraitT(name : _)) => TypeTag.TTrait,
+    Rc(.SomeT(name : _)) => TypeTag.TSomeType,
+    Rc(.ExprT) => TypeTag.TExpr,
+    Rc(.ComptimeListT(_)) => TypeTag.TComptimeList,
+    Rc(.TypeAppT(_, _)) => TypeTag.TTypeApplication,
+    Rc(.IsoT(_)) => TypeTag.TIso,
+    Rc(.DynT(_, _, _, _)) => TypeTag.TDyn,
+    Rc(.FnTraitT(base_name : _)) => TypeTag.TTrait,
+    Rc(.FutureTraitT(base_name : _)) => TypeTag.TTrait,
     // V6 task 3: a refinement's tag IS its inner's tag (erasure).
-    .RefineT(inner, _) => type_value_tag(&inner),
-    .ExternOpaqueT(_, _) => TypeTag.TExternOpaque
+    Rc(.RefineT(inner, _)) => type_value_tag(&inner),
+    Rc(.ExternOpaqueT(_, _)) => TypeTag.TExternOpaque
   )
 );
 /// True if `visited` already holds `tok` (linear scan — the set stays small:
@@ -653,7 +653,7 @@ _contains_self_shell :: (
 )(
   match(
     t,
-    .EnumT({ id, variant_names, variant_fields, type_arguments }) => cond(
+    Rc(.EnumT({ id, variant_names, variant_fields, type_arguments })) => cond(
       ((id == shell_id) && (variant_names.len() == usize(0))) => true,
       true => {
         tok := String.from("E:");
@@ -683,7 +683,7 @@ _contains_self_shell :: (
         hit
       }
     ),
-    .Struct({ id, field_types, type_arguments }) => cond(
+    Rc(.Struct({ id, field_types, type_arguments })) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => true,
       true => {
         tok := String.from("S:");
@@ -708,9 +708,9 @@ _contains_self_shell :: (
         hit
       }
     ),
-    .Pointer(inner) => recur(&inner, shell_id, visited),
-    .Array(el, _, _) => recur(&el, shell_id, visited),
-    .ComptimeListT(el) => recur(&el, shell_id, visited),
+    Rc(.Pointer(inner)) => recur(&inner, shell_id, visited),
+    Rc(.Array(el, _, _)) => recur(&el, shell_id, visited),
+    Rc(.ComptimeListT(el)) => recur(&el, shell_id, visited),
     _ => false
   )
 );
@@ -739,7 +739,7 @@ _patch_self_shell_guarded :: (
 )(
   match(
     t,
-    .EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, type_arguments }) => cond(
+    Rc(.EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, type_arguments })) => cond(
       ((id == shell_id) && (variant_names.len() == usize(0))) => final_ty,
       // Recurse into every variant field so a shell nested inside a generic
       // enum instantiation (e.g. `Option(Self)` / `Result(Self, E)`) is patched
@@ -778,10 +778,10 @@ _patch_self_shell_guarded :: (
         rc(TypeValueNode.EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, new_etas))
       }
     ),
-    .Pointer(inner) => rc(TypeValueNode.Pointer(recur(&inner, shell_id, final_ty, visited))),
-    .Array(el, n, lv) => rc(TypeValueNode.Array(recur(&el, shell_id, final_ty, visited), n, lv)),
-    .ComptimeListT(el) => rc(TypeValueNode.ComptimeListT(recur(&el, shell_id, final_ty, visited))),
-    .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => cond(
+    Rc(.Pointer(inner)) => rc(TypeValueNode.Pointer(recur(&inner, shell_id, final_ty, visited))),
+    Rc(.Array(el, n, lv)) => rc(TypeValueNode.Array(recur(&el, shell_id, final_ty, visited), n, lv)),
+    Rc(.ComptimeListT(el)) => rc(TypeValueNode.ComptimeListT(recur(&el, shell_id, final_ty, visited))),
+    Rc(.Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace })) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
       true => {
         tok := String.from("S:");
@@ -849,7 +849,7 @@ register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
 resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    .EnumT(eid, _, vns, _, _, _, _, _, _, _) => {
+    Rc(.EnumT(eid, _, vns, _, _, _, _, _, _, _)) => {
       if(vns.len() > usize(0), {
         return(t);
       });
@@ -933,7 +933,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &ArrayList(Type
     g_enum_finals.get(&shell_key),
     .Some(final_ty) => match(
       final_ty,
-      .EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas) => if(ftas.len() == usize(0), {
+      Rc(.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas)) => if(ftas.len() == usize(0), {
         _register_enum_phantom_positions(fid.clone(), phantom.clone());
         _ := g_enum_finals.insert(shell_key, rc(TypeValueNode.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args)));
       }),
@@ -967,7 +967,7 @@ register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
 resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    .Struct({ id : sid, field_types : fts }) => cond(
+    Rc(.Struct({ id : sid, field_types : fts })) => cond(
       (fts.len() > usize(0)) => t,
       true => match(g_struct_finals.get(&sid), .Some(f) => f, .None => t)
     ),

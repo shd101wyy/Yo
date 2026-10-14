@@ -48,18 +48,18 @@ is_io_future_type :: (fn(ty : &TypeValue) -> bool)({
   // for `IoFuture` — and misclassifying an io future as a lazy sync future
   // emits a `->vt->resume` cold-start on `__yo_io_future_t`, whose `vt` is
   // NULL (the fs/gc batch C errors, when it had no such member).
-  some_id := match(ty, .SomeT({ id }) => id, _ => String.from(""));
+  some_id := match(ty, Rc(.SomeT({ id })) => id, _ => String.from(""));
   rc_final := some_resolution(ty);
   match(
     rc_final,
-    .Some(.ExternOpaqueT(_, _)) => {
+    .Some(Rc(.ExternOpaqueT(_, _))) => {
       return(true);
     },
     .Some(_) => (),
     .None => ()
   );
   // Branch (2): any required trait is a `Concrete(...)` trait.
-  rts := match(ty, .SomeT({ required_trait_types }) => required_trait_types, _ => ArrayList(TypeValue).new());
+  rts := match(ty, Rc(.SomeT({ required_trait_types })) => required_trait_types, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < rts.len(), {
     rt := match(rts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));

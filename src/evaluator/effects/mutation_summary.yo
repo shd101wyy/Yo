@@ -131,7 +131,7 @@ _ms_type_is_function_like :: (fn(t : &TypeValue) -> bool)({
   });
   match(
     t,
-    .Pointer({ pointee : p }) => is_function_type(&p),
+    Rc(.Pointer({ pointee : p })) => is_function_type(&p),
     _ => false
   )
 });
@@ -536,7 +536,7 @@ impl(
           (callee_vtypes : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
           match(
             callee_ty,
-            .Func({ param_types : cpt, meta : cm, variadic_types : cvt }) => {
+            Rc(.Func({ param_types : cpt, meta : cm, variadic_types : cvt })) => {
               callee_extern = cm.*.extern_name;
               callee_ptypes = cpt;
               callee_vtypes = cvt;
@@ -592,7 +592,7 @@ impl(
       type_only2,
       .Some(t2) => match(
         t2,
-        .Func({ param_types : tpt, meta : tm, variadic_types : tvt }) => {
+        Rc(.Func({ param_types : tpt, meta : tm, variadic_types : tvt })) => {
           match(
             tm.*.extern_name,
             .Some(ten) => {
@@ -776,8 +776,8 @@ _msp_type_contains_pointer_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool
     is_pointer_type(&ty) => true,
     true => match(
       ty,
-      .Array(element : elem, length : _) => recur(&elem, depth + u32(1)),
-      .Tuple(field_labels : _, field_types : fields) => {
+      Rc(.Array(element : elem, length : _)) => recur(&elem, depth + u32(1)),
+      Rc(.Tuple(field_labels : _, field_types : fields)) => {
         (found : bool) = false;
         (i : usize) = usize(0);
         while((i < fields.len()) && !found, {
@@ -792,7 +792,7 @@ _msp_type_contains_pointer_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool
         });
         found
       },
-      .Union(name : _, field_labels : _, field_types : fields) => {
+      Rc(.Union(name : _, field_labels : _, field_types : fields)) => {
         (found : bool) = false;
         (i : usize) = usize(0);
         while((i < fields.len()) && !found, {
@@ -807,7 +807,7 @@ _msp_type_contains_pointer_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool
         });
         found
       },
-      .Struct({ field_types : fields }) => {
+      Rc(.Struct({ field_types : fields })) => {
         (found : bool) = false;
         (i : usize) = usize(0);
         while((i < fields.len()) && !found, {
@@ -822,7 +822,7 @@ _msp_type_contains_pointer_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool
         });
         found
       },
-      .EnumT({ variant_fields : all_fields }) => {
+      Rc(.EnumT({ variant_fields : all_fields })) => {
         (found : bool) = false;
         (vi : usize) = usize(0);
         while((vi < all_fields.len()) && !found, {
@@ -847,8 +847,8 @@ _msp_type_contains_pointer_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool
         });
         found
       },
-      .IsoT(child : child) => recur(&child, depth + u32(1)),
-      .SomeT({ required_trait_types : _, resolution : resolved }) => match(
+      Rc(.IsoT(child : child)) => recur(&child, depth + u32(1)),
+      Rc(.SomeT({ required_trait_types : _, resolution : resolved })) => match(
         resolved,
         .Some(concrete) => recur(&concrete, depth + u32(1)),
         .None => true
@@ -863,7 +863,7 @@ _msp_type_may_root :: (fn(ty : &TypeValue) -> bool)(
   type_contains_rc_type(ty) || _msp_type_contains_pointer_inner(ty, u32(0))
 );
 _msp_labels :: (fn(fid : &String) -> ArrayList(String))(
-  match(get_func_type(fid), .Func({ meta : m }) => m.*.param_labels, _ => ArrayList(String).new())
+  match(get_func_type(fid), Rc(.Func({ meta : m })) => m.*.param_labels, _ => ArrayList(String).new())
 );
 /// Allocation externs hand back storage nothing else references.
 _msp_extern_returns_fresh :: (fn(h : &String) -> bool)(
@@ -916,7 +916,7 @@ _msp_allocator_slot :: (fn(func_expr : &AstExpr, table : &ExprInfoTable) -> Stri
   is_vtable := match(
     recv_ty,
     .Some(rt) => {
-      pointee := match(rt, .Pointer({ pointee : pt }) => pt, _ => rt);
+      pointee := match(rt, Rc(.Pointer({ pointee : pt })) => pt, _ => rt);
       match(
         resolve_struct_shell(&pointee),
         // The declaring module is std/allocator.yo, or std/prelude.yo once
@@ -924,7 +924,7 @@ _msp_allocator_slot :: (fn(func_expr : &AstExpr, table : &ExprInfoTable) -> Stri
         // only move it after a seed carries this arm): a struct id carries
         // the module stem and an anchored position, not the struct's name
         // (`stable_position_id`, utils.yo).
-        .Struct({ id : sid, name : sname }) => (
+        Rc(.Struct({ id : sid, name : sname })) => (
           (sname == "AllocatorVTable")
           && (sid.starts_with("struct_decl_std__allocator_") || sid.starts_with("struct_decl_std__prelude_"))
         ),
@@ -1230,7 +1230,7 @@ _msp_inout_param_of_place :: (fn(place : &AstExpr, ctx : &_MspCtx) -> Option(usi
       _msp_param_index(ctx, ast_expr_token(&atom).value.clone()),
       .Some(pi) => match(
         get_func_type(ctx.fid.clone()),
-        .Func({ meta : pm }) => if(match(pm.*.param_is_ref.get(pi), .Some(r) => r, .None => false), Option(usize).Some(pi), Option(usize).None),
+        Rc(.Func({ meta : pm })) => if(match(pm.*.param_is_ref.get(pi), .Some(r) => r, .None => false), Option(usize).Some(pi), Option(usize).None),
         _ => Option(usize).None
       ),
       .None => Option(usize).None
@@ -1754,7 +1754,7 @@ impl(
       .Some(callee) => match(
         callee,
         .TypeVal(_) => {
-          value_is_struct := match(info_opt, .Some(i4) => match(resolve_struct_shell(&i4.ty), .Struct({ is_source_namespace : ns }) => !ns, _ => false), .None => false);
+          value_is_struct := match(info_opt, .Some(i4) => match(resolve_struct_shell(&i4.ty), Rc(.Struct({ is_source_namespace : ns })) => !ns, _ => false), .None => false);
           return(_MsP.ctor_root(&args, ctx, value_is_ptr, value_is_struct));
         },
         .FuncVal(fvd, _) => {
@@ -1960,7 +1960,7 @@ impl(
               (is_extern : bool) = false;
               match(
                 get_func_type(fid.clone()),
-                .Func({ meta : cm }) => {
+                Rc(.Func({ meta : cm })) => {
                   is_extern = cm.*.extern_name.is_some();
                 },
                 _ => ()
@@ -2054,7 +2054,7 @@ impl(
         cv,
         .FuncVal(fvd, _) => match(
           get_func_type(fvd.*.func_id.clone()),
-          .Func({ param_types : p0, meta : cm, variadic_types : v0 }) => match(
+          Rc(.Func({ param_types : p0, meta : cm, variadic_types : v0 })) => match(
             cm.*.extern_name,
             .Some(en) => {
               return(Option(_MspExtern).Some(_MspExtern(name : en, ptypes : p0, vtypes : v0)));
@@ -2087,7 +2087,7 @@ impl(
       type_only2,
       .Some(t2) => match(
         t2,
-        .Func({ param_types : tpt, meta : tm, variadic_types : tvt }) => match(
+        Rc(.Func({ param_types : tpt, meta : tm, variadic_types : tvt })) => match(
           tm.*.extern_name,
           .Some(ten) => Option(_MspExtern).Some(_MspExtern(name : ten, ptypes : tpt, vtypes : tvt)),
           .None => Option(_MspExtern).None
@@ -2192,7 +2192,7 @@ impl(
             expr_info_capture_type(&info),
             .Some(ct) => match(
               ct,
-              .Struct({ field_labels : labels }) => {
+              Rc(.Struct({ field_labels : labels })) => {
                 (ci : usize) = usize(0);
                 while(ci < labels.len(), {
                   match(labels.get(ci), .Some(l) => _msp_taint(ctx, l.clone(), MSP_ROOTED), .None => ());
@@ -3116,7 +3116,7 @@ impl(
           (cvt : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
           match(
             get_func_type(fid.clone()),
-            .Func({ param_types : p0, meta : cm, variadic_types : v0 }) => {
+            Rc(.Func({ param_types : p0, meta : cm, variadic_types : v0 })) => {
               callee_extern = cm.*.extern_name;
               cpt = p0;
               cvt = v0;
@@ -3285,7 +3285,7 @@ impl(
       type_only2,
       .Some(t2) => match(
         t2,
-        .Func({ param_types : tpt, meta : tm, variadic_types : tvt }) => match(
+        Rc(.Func({ param_types : tpt, meta : tm, variadic_types : tvt })) => match(
           tm.*.extern_name,
           .Some(ten) => {
             cond(
@@ -3711,7 +3711,7 @@ _gr_value_function :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
       v,
       .FuncVal(fvd, _) => {
         fid := fvd.*.func_id.clone();
-        (is_extern : bool) = match(get_func_type(fid.clone()), .Func({ meta : cm }) => cm.*.extern_name.is_some(), _ => false);
+        (is_extern : bool) = match(get_func_type(fid.clone()), Rc(.Func({ meta : cm })) => cm.*.extern_name.is_some(), _ => false);
         if(is_extern, {
           return(Option(String).None);
         });
@@ -3794,7 +3794,7 @@ _gr_walk :: (fn(e : &AstExpr, ctx : &_GrCtx) -> Option(String))({
               (is_extern : bool) = false;
               match(
                 get_func_type(fid.clone()),
-                .Func({ meta : cm }) => {
+                Rc(.Func({ meta : cm })) => {
                   is_extern = cm.*.extern_name.is_some();
                 },
                 _ => ()
@@ -3989,7 +3989,7 @@ summarize_function_bodies :: (fn(values : &ArrayList(EvalValue), table : &ExprIn
         v,
         .FuncVal(fvd, _) => {
           fid := fvd.*.func_id.clone();
-          (is_extern : bool) = match(get_func_type(fid.clone()), .Func({ meta : cm }) => cm.*.extern_name.is_some(), _ => false);
+          (is_extern : bool) = match(get_func_type(fid.clone()), Rc(.Func({ meta : cm })) => cm.*.extern_name.is_some(), _ => false);
           if(!is_extern && expr_info_table_get(table, ast_expr_id(&fvd.*.body)).is_some(), {
             _r := function_reaches_non_send_global(fid.clone(), &fvd.*.body, table, env);
             _m := function_param_mutation_mask(&fid, &fvd.*.body, table);

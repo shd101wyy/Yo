@@ -426,7 +426,7 @@ _type_binder_env_value :: (
       sig_some_ts.get(smi),
       .Some(st) => match(
         st,
-        .SomeT(_, st_name, _, _, _, _, _, _, _, _) => if(st_name == name, {
+        Rc(.SomeT(_, st_name, _, _, _, _, _, _, _, _)) => if(st_name == name, {
           sig_match = Option(TypeValue).Some(st);
         }),
         _ => ()
@@ -471,7 +471,7 @@ _type_binder_env_value :: (
       });
       stamped := match(
         fresh_some,
-        .SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2) => rc(TypeValueNode.SomeT(fs_id, fs_name, fs_level, fs_parent, fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1, fs_r2)),
+        Rc(.SomeT(fs_id, fs_name, fs_level, fs_parent, _, _, _, _, fs_r1, fs_r2)) => rc(TypeValueNode.SomeT(fs_id, fs_name, fs_level, fs_parent, fs_req, fs_req_lv, fs_neg, fs_neg_lv, fs_r1, fs_r2)),
         other => other
       );
       Option(EvalValue).Some(create_type_value(&stamped))
@@ -496,7 +496,7 @@ _ctor_binder_some_ids :: (
     ids.push(
       match(
         find_variable_in_env(env, &lbl),
-        .Some(v) => match(v.value.get(usize(0)), .Some(.TypeVal(.SomeT({ id : sid }))) => sid, _ => String.from("")),
+        .Some(v) => match(v.value.get(usize(0)), .Some(.TypeVal(Rc(.SomeT({ id : sid })))) => sid, _ => String.from("")),
         .None => String.from("")
       )
     );
@@ -537,7 +537,7 @@ _record_ctor_phantom_positions :: (
   );
   match(
     body_ty,
-    .EnumT(_, _, _, _, _, _, _, _, _, _) => (),
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => (),
     _ => {
       return(());
     }
@@ -552,7 +552,7 @@ _record_ctor_phantom_positions :: (
     while((j < payload_somes.len()) && !in_payload, {
       match(
         payload_somes.get(j),
-        .Some(.SomeT({ id : pid })) => if(pid == bid, {
+        .Some(Rc(.SomeT({ id : pid }))) => if(pid == bid, {
           in_payload = true;
         }),
         _ => ()
@@ -758,7 +758,7 @@ _build_def_time_body_env :: (
                 rv.value.get(usize(0)),
                 .Some(rv_ev) => match(
                   rv_ev,
-                  .TypeVal(.SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _)) =>
+                  .TypeVal(Rc(.SomeT(_, rv_sname, rv_slvl, _, _, _, _, _, _, _))) =>
                     resolve_some_binder_kind(&rv_sname, rv_slvl),
                   _ => Option(TypeValue).None,
                   _ => Option(TypeValue).None
@@ -899,8 +899,8 @@ _build_def_time_body_env :: (
   // Skipped when a parameter of the same name exists: the parameter loop is
   // authoritative for it (and runs after, so it would overwrite anyway).
   {
-    fa_labels := match(fn_type_for_foralls, .Func({ meta : __fa_m }) => __fa_m.*.forall_labels, _ => ArrayList(String).new());
-    fa_types := match(fn_type_for_foralls, .Func({ forall_types : __fa_t }) => __fa_t, _ => ArrayList(TypeValue).new());
+    fa_labels := match(fn_type_for_foralls, Rc(.Func({ meta : __fa_m })) => __fa_m.*.forall_labels, _ => ArrayList(String).new());
+    fa_types := match(fn_type_for_foralls, Rc(.Func({ forall_types : __fa_t })) => __fa_t, _ => ArrayList(TypeValue).new());
     (fa_i : usize) = usize(0);
     while(fa_i < fa_labels.len(), {
       fa_name := match(fa_labels.get(fa_i), .Some(n) => n, .None => String.from(""));
@@ -1123,7 +1123,7 @@ try_to_implement_function_by_function_type :: (
 )(
   match(
     function_type,
-    .Func({ param_types, result : result_box, meta : __fm2 }) => {
+    Rc(.Func({ param_types, result : result_box, meta : __fm2 })) => {
       forall_labels := __fm2.*.forall_labels;
       param_labels := __fm2.*.param_labels;
       implicit_labels := __fm2.*.implicit_labels;
@@ -1252,7 +1252,7 @@ Result type: ${type_to_string(&result_box)}`
       while(pti < n_pt, {
         pt_name := match(
           param_types.get(pti),
-          .Some(.SomeT(_, name, _, _, _, _, _, _, _, _)) => name,
+          .Some(Rc(.SomeT(_, name, _, _, _, _, _, _, _, _))) => name,
           .Some(_) => String.from(""),
           .None => String.from("")
         );
@@ -1329,7 +1329,7 @@ Result type: ${type_to_string(&result_box)}`
                     // (issues/fixed/yo-self-check-misses-undefined-variable.md).
                     cv_is_extern_fn := match(
                       cv.ty,
-                      .Func({ meta : __fcxm }) => __fcxm.*.is_extern.is_some(),
+                      Rc(.Func({ meta : __fcxm })) => __fcxm.*.is_extern.is_some(),
                       _ => false
                     );
                     if(cv.is_compile_time_only && cv_unfilled && is_function_type(&cv.ty) && !cv.name.starts_with("__yo_") && !cv_is_extern_fn, {
@@ -1414,7 +1414,7 @@ Result type: ${type_to_string(&result_box)}`
           while((ct_fi < ct_flags_ft.len()) && !ft_has_ct_param, {
             ct_is_typeuni := match(
               param_types.get(ct_fi),
-              .Some(ct_pt) => match(ct_pt, .TypeUni(_) => true, _ => false),
+              .Some(ct_pt) => match(ct_pt, Rc(.TypeUni(_)) => true, _ => false),
               .None => false
             );
             match(
@@ -1794,7 +1794,7 @@ Result type: ${type_to_string(&result_box)}`
               match(
                 def_where_entries.get(fwi),
                 .Some(fwe) => {
-                  fwe_id := match(fwe.trait_ty, .TraitT(_, _, _, _, fwe_tid, _, _, _, _, _) => fwe_tid, _ => String.from(""));
+                  fwe_id := match(fwe.trait_ty, Rc(.TraitT(_, _, _, _, fwe_tid, _, _, _, _, _)) => fwe_tid, _ => String.from(""));
                   if(fwe_id != "", {
                     flow_where_ids.push(fwe_id);
                   });
@@ -2131,7 +2131,7 @@ Result type: ${type_to_string(&result_box)}`
           // resolution is an immutable value, types/definitions.yo).
           match(
             result_box,
-            .SomeT({ id : _ }) => if(
+            Rc(.SomeT({ id : _ })) => if(
               some_resolution(&result_box).is_none(),
               match(
                 flow_out.get(usize(0)),
@@ -2248,7 +2248,7 @@ Result type: ${type_to_string(&result_box)}`
                 match(
                   dg_where.get(dgw_i),
                   .Some(dgw_e) => {
-                    dgw_id := match(dgw_e.trait_ty, .TraitT(_, _, _, _, dgw_tid, _, _, _, _, _) => dgw_tid, _ => String.from(""));
+                    dgw_id := match(dgw_e.trait_ty, Rc(.TraitT(_, _, _, _, dgw_tid, _, _, _, _, _)) => dgw_tid, _ => String.from(""));
                     if(dgw_id != "", {
                       dg_where_ids.push(dgw_id);
                     });
@@ -2322,7 +2322,7 @@ Result type: ${type_to_string(&result_box)}`
             {
               (dgcv_i : usize) = usize(0);
               while(dgcv_i < dg_ct_flags.len(), {
-                dgcv_typeuni := match(param_types.get(dgcv_i), .Some(dgcv_pt) => match(dgcv_pt, .TypeUni(_) => true, _ => false), .None => false);
+                dgcv_typeuni := match(param_types.get(dgcv_i), .Some(dgcv_pt) => match(dgcv_pt, Rc(.TypeUni(_)) => true, _ => false), .None => false);
                 if(match(dg_ct_flags.get(dgcv_i), .Some(b) => b, .None => false) && !dgcv_typeuni, {
                   dg_has_ct_value = true;
                 });
@@ -2382,7 +2382,7 @@ Result type: ${type_to_string(&result_box)}`
                     // `-> T`), so a concrete body is the correct shape.
                     dg_own_forall_skip := match(
                       dg_expected,
-                      .SomeT({ name : dg_sname }) => {
+                      Rc(.SomeT({ name : dg_sname })) => {
                         (dg_found : bool) = false;
                         (dg_fi : usize) = usize(0);
                         while(dg_fi < forall_labels.len(), {

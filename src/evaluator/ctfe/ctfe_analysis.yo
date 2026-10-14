@@ -67,13 +67,13 @@ CtfeComptimeFn :: struct(value : EvalValue, ty : TypeValue);
 _to_comptime_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
   match(
     ty,
-    .Int(_, _) => .Some(rc(TypeValueNode.ComptimeInt)),
-    .Usize => .Some(rc(TypeValueNode.ComptimeInt)),
-    .Isize => .Some(rc(TypeValueNode.ComptimeInt)),
-    .Float(_) => .Some(rc(TypeValueNode.ComptimeFloat)),
-    .ComptimeInt => .Some(rc(TypeValueNode.ComptimeInt)),
-    .ComptimeFloat => .Some(rc(TypeValueNode.ComptimeFloat)),
-    .ComptimeString => .Some(rc(TypeValueNode.ComptimeString)),
+    Rc(.Int(_, _)) => .Some(rc(TypeValueNode.ComptimeInt)),
+    Rc(.Usize) => .Some(rc(TypeValueNode.ComptimeInt)),
+    Rc(.Isize) => .Some(rc(TypeValueNode.ComptimeInt)),
+    Rc(.Float(_)) => .Some(rc(TypeValueNode.ComptimeFloat)),
+    Rc(.ComptimeInt) => .Some(rc(TypeValueNode.ComptimeInt)),
+    Rc(.ComptimeFloat) => .Some(rc(TypeValueNode.ComptimeFloat)),
+    Rc(.ComptimeString) => .Some(rc(TypeValueNode.ComptimeString)),
     _ => Option(TypeValue).None
   )
 );
@@ -87,14 +87,14 @@ _to_comptime_type :: (fn(ty : &TypeValue) -> Option(TypeValue))(
 /// Returns `.None` when the return type cannot be promoted, which is one of the
 /// ways CTFE is simply not available for a function.
 create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue))({
-  forall_labels := match(func_type, .Func({ meta : __fm1 }) => __fm1.*.forall_labels, _ => ArrayList(String).new());
-  forall_types := match(func_type, .Func({ forall_types : ft }) => ft, _ => ArrayList(TypeValue).new());
-  param_labels := match(func_type, .Func({ meta : __fm2 }) => __fm2.*.param_labels, _ => ArrayList(String).new());
-  param_types := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
-  implicit_labels := match(func_type, .Func({ meta : __fm3 }) => __fm3.*.implicit_labels, _ => ArrayList(String).new());
-  implicit_types := match(func_type, .Func({ implicit_types : it }) => it, _ => ArrayList(TypeValue).new());
-  where_types := match(func_type, .Func({ where_types : wt }) => wt, _ => ArrayList(TypeValue).new());
-  result_box := match(func_type, .Func({ result : rb }) => rb, _ => t_unit());
+  forall_labels := match(func_type, Rc(.Func({ meta : __fm1 })) => __fm1.*.forall_labels, _ => ArrayList(String).new());
+  forall_types := match(func_type, Rc(.Func({ forall_types : ft })) => ft, _ => ArrayList(TypeValue).new());
+  param_labels := match(func_type, Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels, _ => ArrayList(String).new());
+  param_types := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => ArrayList(TypeValue).new());
+  implicit_labels := match(func_type, Rc(.Func({ meta : __fm3 })) => __fm3.*.implicit_labels, _ => ArrayList(String).new());
+  implicit_types := match(func_type, Rc(.Func({ implicit_types : it })) => it, _ => ArrayList(TypeValue).new());
+  where_types := match(func_type, Rc(.Func({ where_types : wt })) => wt, _ => ArrayList(TypeValue).new());
+  result_box := match(func_type, Rc(.Func({ result : rb })) => rb, _ => t_unit());
   match(
     _to_comptime_type(&result_box),
     .None => Option(TypeValue).None,
@@ -114,12 +114,12 @@ create_comptime_function_type :: (fn(func_type : &TypeValue) -> Option(TypeValue
               result_is_comptime_only : true,
               param_is_ref : ArrayList(bool).new(),
               // preserve the original's metadata below
-              param_is_owning : match(func_type, .Func({ meta : m }) => m.*.param_is_owning, _ => ArrayList(bool).new()),
+              param_is_owning : match(func_type, Rc(.Func({ meta : m })) => m.*.param_is_owning, _ => ArrayList(bool).new()),
               result_is_ref : false,
-              has_variadic : match(func_type, .Func({ meta : m }) => m.*.has_variadic, _ => false),
-              is_extern : match(func_type, .Func({ meta : m }) => m.*.is_extern, _ => Option(String).None),
-              extern_name : match(func_type, .Func({ meta : m }) => m.*.extern_name, _ => Option(String).None),
-              is_control : match(func_type, .Func({ meta : m }) => m.*.is_control, _ => false),
+              has_variadic : match(func_type, Rc(.Func({ meta : m })) => m.*.has_variadic, _ => false),
+              is_extern : match(func_type, Rc(.Func({ meta : m })) => m.*.is_extern, _ => Option(String).None),
+              extern_name : match(func_type, Rc(.Func({ meta : m })) => m.*.extern_name, _ => Option(String).None),
+              is_control : match(func_type, Rc(.Func({ meta : m })) => m.*.is_control, _ => false),
               variadic_label : Option(String).None,
               variadic_comptime : false
             )
@@ -399,17 +399,17 @@ analyze_ctfe_capability :: (
   ) -> Option(CtfeComptimeFn)
 )({
   // Skip if this is ALREADY a comptime function.
-  already_comptime := match(func_type, .Func({ meta : m }) => m.*.result_is_comptime_only, _ => false);
+  already_comptime := match(func_type, Rc(.Func({ meta : m })) => m.*.result_is_comptime_only, _ => false);
   // Skip extern functions — they cannot be evaluated at compile time.
   is_extern_fn := match(
     func_type,
-    .Func({ meta : m }) => match(m.*.is_extern, .Some(_) => true, .None => false),
+    Rc(.Func({ meta : m })) => match(m.*.is_extern, .Some(_) => true, .None => false),
     _ => false
   );
   // Skip generic functions — they need specialisation first.
-  forall_labels := match(func_type, .Func({ meta : m }) => m.*.forall_labels, _ => ArrayList(String).new());
-  param_types := match(func_type, .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
-  result_box := match(func_type, .Func({ result : rb }) => rb, _ => t_unit());
+  forall_labels := match(func_type, Rc(.Func({ meta : m })) => m.*.forall_labels, _ => ArrayList(String).new());
+  param_types := match(func_type, Rc(.Func({ param_types : pt })) => pt, _ => ArrayList(TypeValue).new());
+  result_box := match(func_type, Rc(.Func({ result : rb })) => rb, _ => t_unit());
   // Any param type or the return type prohibiting the comptime modifier
   // (runtime-only types like Ptr, Slice, Void) rules CTFE out.
   (prohibited : bool) = type_prohibits_comptime_modifier(&result_box);
@@ -455,7 +455,7 @@ analyze_ctfe_capability :: (
           // The body sees every capture's value; the clone keeps the original's
           // (empty when it reads its handles, §0.16).
           cap_val_list := match(func_value, .FuncVal(__fvd4, cv4) => fv_capture_vals(&__fvd4.*, &cv4), _ => ArrayList(EvalValue).new());
-          param_labels := match(func_type, .Func({ meta : m }) => m.*.param_labels, _ => ArrayList(String).new());
+          param_labels := match(func_type, Rc(.Func({ meta : m })) => m.*.param_labels, _ => ArrayList(String).new());
           ok := ArrayList(bool).new();
           // SAVE/RESTORE THE CTFE CONTEXT FLAGS HERE, not only inside
           // `_eval_body_for_ctfe`. That function restores them after the body

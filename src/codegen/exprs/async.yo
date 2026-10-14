@@ -135,7 +135,7 @@ is_async_runtime_extern_name :: (fn(name : &String) -> bool)(
 _io_async_call_effect_type :: (fn(future_trait_type : &TypeValue) -> Option(TypeValue))(
   match(
     future_trait_type,
-    .FutureTraitT({ effect_types : ets }) => match(
+    Rc(.FutureTraitT({ effect_types : ets })) => match(
       ets.get(usize(0)),
       .Some(e0) => cond(
         is_some_type(&e0) => Option(TypeValue).None,
@@ -167,8 +167,8 @@ _add_mapping :: (fn(mappings : &mut ArrayList(EffectFieldMapping), label : &Stri
 /// The capture-struct field label matching an effect/bundle field: exact label,
 /// then case-insensitive label, then structural type match (`type_key`).
 _find_capture_field :: (fn(capture_type : &TypeValue, label : &String, field_type : &TypeValue) -> Option(String))({
-  clabels := match(capture_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
-  ctypes := match(capture_type, .Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+  clabels := match(capture_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+  ctypes := match(capture_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < clabels.len(), {
     match(
@@ -210,8 +210,8 @@ _find_capture_field :: (fn(capture_type : &TypeValue, label : &String, field_typ
 _visit_effect_struct_fields :: (
   fn(struct_type : &TypeValue, base_path : &String, base_label : &String, mappings : &mut ArrayList(EffectFieldMapping)) -> unit
 )({
-  flabels := match(struct_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
-  ftypes := match(struct_type, .Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+  flabels := match(struct_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+  ftypes := match(struct_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < flabels.len(), {
     flabel := match(flabels.get(i), .Some(l) => l, .None => String.from(""));
@@ -221,7 +221,7 @@ _visit_effect_struct_fields :: (
       ap := `${base_path}.${sanitize_for_c_identifier(flabel.clone(), false)}`;
       _add_mapping(mappings, &el, &ap);
     }, {
-      has_fields := match(ftype, .Struct({ field_labels : sfl }) => (sfl.len() > usize(0)), _ => false);
+      has_fields := match(ftype, Rc(.Struct({ field_labels : sfl })) => (sfl.len() > usize(0)), _ => false);
       if(is_struct_type(&ftype) && has_fields, {
         sub_label := if(base_label.len() > usize(0), `${base_label}.${flabel}`, flabel.clone());
         sub_path := `${base_path}.${sanitize_for_c_identifier(flabel.clone(), false)}`;
@@ -311,8 +311,8 @@ get_injectable_future_effect_field_mappings :: (
   ) -> ArrayList(EffectFieldMapping)
 )({
   mappings := ArrayList(EffectFieldMapping).new();
-  eff_labels := match(future_trait_type, .FutureTraitT({ effect_labels : el }) => el, _ => ArrayList(String).new());
-  eff_types := match(future_trait_type, .FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
+  eff_labels := match(future_trait_type, Rc(.FutureTraitT({ effect_labels : el })) => el, _ => ArrayList(String).new());
+  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
   (ei : usize) = usize(0);
   while(ei < eff_labels.len(), {
     elabel := match(eff_labels.get(ei), .Some(l) => l, .None => String.from(""));
@@ -330,8 +330,8 @@ get_injectable_future_effect_field_mappings :: (
         match(
           capture_type,
           .Some(ct) => {
-            ef_labels := match(etype, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
-            ef_types := match(etype, .Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+            ef_labels := match(etype, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+            ef_types := match(etype, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
             (fi : usize) = usize(0);
             while(fi < ef_labels.len(), {
               flabel := match(ef_labels.get(fi), .Some(l) => l, .None => String.from(""));
@@ -370,7 +370,7 @@ SyncParamSlot :: ref(struct(field_name : String, c_type : String));
 /// The first struct-typed effect type on a `FutureTraitT` (the bundle effect), or
 /// `.None`.
 _first_struct_effect_type :: (fn(future_trait_type : &TypeValue) -> Option(TypeValue))({
-  eff_types := match(future_trait_type, .FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
+  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < eff_types.len(), {
     match(
@@ -427,7 +427,7 @@ generate_future_effect_setter :: (
   em := context.base.emitter;
   mappings := get_injectable_future_effect_field_mappings(future_trait_type, capture_type, &context.state_machine_variables, &context.state_machine_field_aliases);
   bundle_field := find_bundle_field_name(future_trait_type, &context.state_machine_variables, &context.state_machine_field_aliases);
-  has_effect := match(future_trait_type, .FutureTraitT({ effect_labels : el }) => (el.len() > usize(0)), _ => false);
+  has_effect := match(future_trait_type, Rc(.FutureTraitT({ effect_labels : el })) => (el.len() > usize(0)), _ => false);
   has_sync_param := sync_param_slot.is_some();
   has_bundle_case := (!has_sync_param && bundle_field.is_some() && has_effect);
   // Where a whole bundle is copied: the same choice the `__bundle` case of
@@ -526,7 +526,7 @@ _find_capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionG
     found,
     .Some(name) => name,
     .None => {
-      cap_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
+      cap_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
       o := String.from("async_capture_");
       o.push_string(&cap_id);
       o
@@ -741,18 +741,18 @@ _dep_named_type_string :: (fn(t : &TypeValue, context : &FunctionGenerationConte
 _dep_type_string :: (fn(t : &TypeValue, context : &FunctionGenerationContext) -> Option(String))(
   match(
     t,
-    .IsoT({}) => Option(String).None,
-    .FnTraitT({}) => Option(String).None,
-    .FutureTraitT({}) => Option(String).None,
-    .Tuple(_, _) => _dep_named_type_string(t, context),
-    .Union(_, _, _) => _dep_named_type_string(t, context),
-    .Struct({}) => _dep_named_type_string(t, context),
-    .EnumT({}) => match(
+    Rc(.IsoT({})) => Option(String).None,
+    Rc(.FnTraitT({})) => Option(String).None,
+    Rc(.FutureTraitT({})) => Option(String).None,
+    Rc(.Tuple(_, _)) => _dep_named_type_string(t, context),
+    Rc(.Union(_, _, _)) => _dep_named_type_string(t, context),
+    Rc(.Struct({})) => _dep_named_type_string(t, context),
+    Rc(.EnumT({})) => match(
       can_optimize_as_nullable_pointer(t),
       .Some(_) => Option(String).Some(get_type_string(t, &context.base)),
       .None => _dep_named_type_string(t, context)
     ),
-    .DynT({}) => _dep_named_type_string(t, context),
+    Rc(.DynT({})) => _dep_named_type_string(t, context),
     _ => Option(String).Some(get_type_string(t, &context.base))
   )
 );
@@ -1110,11 +1110,11 @@ _capture_type_entry_exists :: (fn(capture_type : &TypeValue, context : &Function
 /// The labels and the effect-parameter flags come from the registry; each
 /// type comes from `capture_type` itself.
 _capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
-  struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => return(ArrayList(TypeField).new()));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => return(ArrayList(TypeField).new()));
   fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
   (labels, types) := match(
     capture_type,
-    .Struct({ field_labels : fl, field_types : ft }) => (fl, ft),
+    Rc(.Struct({ field_labels : fl, field_types : ft })) => (fl, ft),
     _ => (ArrayList(String).new(), ArrayList(TypeValue).new())
   );
   out := ArrayList(TypeField).new();
@@ -1147,7 +1147,7 @@ _capture_struct_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField)
 /// generated (e.g. it holds unresolved SomeType fields).
 _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &FunctionGenerationContext) -> unit)({
   em := context.base.emitter;
-  struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
   fields := _capture_struct_fields(capture_type);
   owns_captures := is_fnonce_capture_struct(&struct_id);
   (i : usize) = usize(0);
@@ -1188,7 +1188,7 @@ _emit_inline_capture_field_drops :: (fn(capture_type : &TypeValue, context : &Fu
 /// any other capture struct, whose fields the dispose drops unconditionally.
 _owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
   out := ArrayList(TypeField).new();
-  struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => return(out));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => return(out));
   if(!is_fnonce_capture_struct(&struct_id), {
     return(out);
   });
@@ -1214,14 +1214,14 @@ _owned_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))
 /// nothing, so nothing drops it.
 _lent_param_capture_fields :: (fn(capture_type : &TypeValue) -> ArrayList(TypeField))({
   out := ArrayList(TypeField).new();
-  struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => return(out));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => return(out));
   borrows := match(capture_struct_borrows(&struct_id), .Some(bs) => bs, .None => return(out));
   fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
   (i : usize) = usize(0);
   while(i < fields.len(), i = (i + usize(1)), {
     match(
       fields.get(i),
-      .Some(f) => if(match(f.ty, .Pointer(_) => true, _ => false), {
+      .Some(f) => if(match(f.ty, Rc(.Pointer(_)) => true, _ => false), {
         (lent : bool) = false;
         (bi : usize) = usize(0);
         while(bi < borrows.len(), bi = (bi + usize(1)), {
@@ -1249,7 +1249,7 @@ _emit_lent_param_slots :: (fn(capture_type : &TypeValue, context : &FunctionGene
       lent.get(i),
       .Some(f) => match(
         f.ty,
-        .Pointer(pointee) => em.emit_declaration_string_line(`  ${get_type_string(&pointee, &context.base)} __yo_lent_${sanitize_for_c_identifier(f.label.clone(), false)};  // the future's copy of the lent parameter ${f.label.clone()}`),
+        Rc(.Pointer(pointee)) => em.emit_declaration_string_line(`  ${get_type_string(&pointee, &context.base)} __yo_lent_${sanitize_for_c_identifier(f.label.clone(), false)};  // the future's copy of the lent parameter ${f.label.clone()}`),
         _ => ()
       ),
       .None => ()
@@ -1585,7 +1585,7 @@ _build_async_capture_struct_literal :: (
   ) -> String
 )({
   in_special_context := (match(context.current_closure_captures, .Some(_) => true, .None => false) || match(context.in_async_state_machine, .Some(_) => true, .None => false));
-  struct_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
+  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
   fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
   (used_deferred_dups : bool) = false;
   parts := ArrayList(String).new();
@@ -1907,7 +1907,7 @@ fused_await_site :: (fn(await_expr : &AstExpr, report : bool, context : &Functio
   (n_params : usize) = usize(0);
   match(
     get_func_type(cand.func_id.clone()),
-    .Func({ param_types : wpts, meta : wmeta }) => {
+    Rc(.Func({ param_types : wpts, meta : wmeta })) => {
       n_params = wpts.len();
       (ri : usize) = usize(0);
       while(ri < wmeta.*.param_is_ref.len(), ri = (ri + usize(1)), {
@@ -2099,7 +2099,7 @@ _emit_fused_site_releases :: (
   match(
     site.block.capture_type,
     .Some(ct) => {
-      cap_id := match(ct, .Struct({ id : sid }) => sid, _ => String.from(""));
+      cap_id := match(ct, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
       fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
       (fi : usize) = usize(0);
       while(fi < fields.len(), fi = (fi + usize(1)), {
@@ -2189,7 +2189,7 @@ _fused_sm_variables :: (fn(site : &FusedAwaitSite) -> HashMap(String, CapturedVa
   match(
     site.block.capture_type,
     .Some(ct) => {
-      cap_id := match(ct, .Struct({ id : sid }) => sid, _ => String.from(""));
+      cap_id := match(ct, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
       fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
       (fi : usize) = usize(0);
       while(fi < fields.len(), fi = (fi + usize(1)), {
@@ -2365,7 +2365,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   context.variable_id_remapping = Option(HashMap(String, String)).None;
   match(
     get_func_type(site.wrapper_fid.clone()),
-    .Func({ param_types : wpts, meta : wmeta }) => {
+    Rc(.Func({ param_types : wpts, meta : wmeta })) => {
       (pi : usize) = usize(0);
       while(pi < wpts.len(), pi = (pi + usize(1)), {
         pt := match(wpts.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -2763,8 +2763,8 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
   match(
     fsm_capture_type,
     .Some(ct) => {
-      (cap_id : String) = match(ct, .Struct({ id : sid }) => sid, _ => String.from(""));
-      cap_labels := match(ct, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+      (cap_id : String) = match(ct, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
+      cap_labels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
       if((cap_labels.len() > usize(0)) && !capture_struct_has_decl_sites(cap_id.clone()), {
         codegen_fatal(`the capture struct ${cap_id} of an io.async block recorded no declaration sites, so its captures cannot be told from body bindings`);
       });
@@ -2823,11 +2823,11 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     .None => ()
   );
   // Result type (T in Future(T)); resolve an unresolved SomeType output.
-  (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.clone(), _ => future_type);
+  (result_type : TypeValue) = match(future_trait_type, Rc(.FutureTraitT({ output : o })) => o.clone(), _ => future_type);
   // Per-closure composite key for some-resolved-concrete: append the unique
   // async_block_id so different closures sharing the same Future(T) trait
   // do NOT cross-contaminate each other's registered result type.
-  _rsid_base := match(result_type, .SomeT({ id : i }) => i, _ => String.from(""));
+  _rsid_base := match(result_type, Rc(.SomeT({ id : i })) => i, _ => String.from(""));
   _per_clone_rsid := _rsid_base.clone();
   _per_clone_rsid.push_str("@@");
   _per_clone_rsid.push_string(async_block_id.clone());
@@ -2849,7 +2849,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
           lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
           .Some(res_fid) => match(
             get_func_type(res_fid.clone()),
-            .Func({ result : frr }) => if(!is_some_type(&frr) && !type_implements_future(&frr), {
+            Rc(.Func({ result : frr })) => if(!is_some_type(&frr) && !type_implements_future(&frr), {
               result_type = frr.clone();
               resolved_via_fn_ret = true;
             }),
@@ -2923,7 +2923,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
       lookup_io_async_closure_fid(ast_expr_id(expr).to_string()),
       .Some(closure_fid) => match(
         get_func_type(closure_fid.clone()),
-        .Func({ param_types : pts, meta : __fm1 }) => {
+        Rc(.Func({ param_types : pts, meta : __fm1 })) => {
           pls := __fm1.*.param_labels;
           (i : usize) = usize(0);
           while(i < pts.len(), {
@@ -3203,7 +3203,7 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   match(
     block.capture_type,
     .Some(cap_ty) => {
-      cap_id := match(cap_ty, .Struct({ id : sid }) => sid, _ => String.from(""));
+      cap_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
       cap_fields := match(get_struct_fields(&cap_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
       (cfi : usize) = usize(0);
       while(cfi < cap_fields.len(), {
@@ -3374,7 +3374,7 @@ _called_extern_name :: (fn(expr : &AstExpr, context : &FunctionGenerationContext
   ft := match(context.base.get_expr_info(&func_expr), .Some(ei) => ei.ty, .None => return(Option(String).None));
   match(
     ft,
-    .Func({ meta : __fm2 }) => match(
+    Rc(.Func({ meta : __fm2 })) => match(
       __fm2.*.is_extern,
       .Some(lang) => if(lang == "yo", __fm2.*.extern_name, Option(String).None),
       .None => Option(String).None
@@ -3572,12 +3572,12 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     .Some(fv) => Option(EvalValue).Some(fv),
     .None => match(cei.value, .Some(v) => if(is_func_val(&v), Option(EvalValue).Some(v), Option(EvalValue).None), .None => Option(EvalValue).None)
   );
-  (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.clone(), _ => future_type);
+  (result_type : TypeValue) = match(future_trait_type, Rc(.FutureTraitT({ output : o })) => o.clone(), _ => future_type);
   // Capture the future-trait output SomeType id BEFORE resolution. Once we resolve
   // it to a concrete type below, we record it under this id (with the block id,
   // `g_async_block_result_types`) so this block's later emission agrees with it
   // instead of lowering the await binding to `void*`.
-  output_some_id := match(result_type, .SomeT({ id : i }) => i, _ => String.from(""));
+  output_some_id := match(result_type, Rc(.SomeT({ id : i })) => i, _ => String.from(""));
   // Per-closure composite key: append the unique async_block_id to the
   // output_some_id so that different closures implementing the same Future(T)
   // do NOT share the same resolved-concrete-type registration. Without this,
@@ -3642,7 +3642,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
         fv,
         .FuncVal(__fvd5, _) => match(
           get_func_type(&__fvd5.*.func_id),
-          .Func({ result : rb }) => if(!is_some_type(&rb), {
+          Rc(.Func({ result : rb })) => if(!is_some_type(&rb), {
             result_type = rb.clone();
           }),
           _ => ()
@@ -3708,7 +3708,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     .None => match(orig_closure_ei, .Some(oe) => expr_info_capture_type(&oe), .None => Option(TypeValue).None)
   );
   capture_c_name := match(eff_capture_type, .Some(cap_ty) => Option(String).Some(_find_capture_type_c_name(&cap_ty, context)), .None => Option(String).None);
-  capture_field_count := match(eff_capture_type, .Some(cap_ty) => match(cap_ty, .Struct({ field_labels : fl }) => fl.len(), _ => usize(0)), .None => usize(0));
+  capture_field_count := match(eff_capture_type, .Some(cap_ty) => match(cap_ty, Rc(.Struct({ field_labels : fl })) => fl.len(), _ => usize(0)), .None => usize(0));
   cfn := match(closure_function_c_name, .Some(n) => n, .None => return(codegen_fatal_expr(String.from("no closure FUNCTION for io.async sync path"))));
   ccn := match(capture_c_name, .Some(n) => n, .None => return(codegen_fatal_expr(String.from("no CAPTURE type for io.async sync path"))));
   // Discover the closure's runtime parameters (non-comptime; the bundle param e).
@@ -3717,7 +3717,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
   closure_call_type := cei.ty;
   match(
     closure_call_type,
-    .Func({ param_types : pts }) => {
+    Rc(.Func({ param_types : pts })) => {
       (i : usize) = usize(0);
       while(i < pts.len(), {
         pt := match(pts.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -3872,7 +3872,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     match(
       eff_capture_type,
       .Some(cap_ty) => if(type_contains_rc_cell_or_move_only(&cap_ty), {
-        cap_struct_id := match(cap_ty, .Struct({ id : sid }) => sid, _ => String.from(""));
+        cap_struct_id := match(cap_ty, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
         cap_fields := match(get_struct_fields(&cap_struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
         (cfi : usize) = usize(0);
         while(cfi < cap_fields.len(), {
@@ -3999,8 +3999,8 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
     // capture struct's field labels — each captured field is the same-named
     // variable in scope at the io.async call site. (The closure `value` is a
     // function reference, not a capture struct, so it cannot be used here.)
-    cap_labels := match(eff_capture_type, .Some(ct) => match(ct, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new()), .None => ArrayList(String).new());
-    cap_types := match(eff_capture_type, .Some(ct) => match(ct, .Struct({ field_types : ftys }) => ftys, _ => ArrayList(TypeValue).new()), .None => ArrayList(TypeValue).new());
+    cap_labels := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new()), .None => ArrayList(String).new());
+    cap_types := match(eff_capture_type, .Some(ct) => match(ct, Rc(.Struct({ field_types : ftys })) => ftys, _ => ArrayList(TypeValue).new()), .None => ArrayList(TypeValue).new());
     lit := String.from("(");
     lit.push_string(ccn.clone());
     lit.push_str("){ ");

@@ -1165,7 +1165,7 @@ _scope_same_ids :: (fn(a : &ArrayList(Variable), b : &ArrayList(Variable)) -> bo
 _scope_type_installs :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .Func({ param_types : pts, meta : m }) => {
+    Rc(.Func({ param_types : pts, meta : m })) => {
       if(m.*.is_control, {
         return(true);
       });
@@ -1270,7 +1270,7 @@ scope_release_body :: (fn(mark : usize, entry : &Environment) -> unit)({
         expr_info_capture_type(&info),
         .Some(ct) => match(
           ct,
-          .Struct({ field_labels : cfls }) => {
+          Rc(.Struct({ field_labels : cfls })) => {
             (ci : usize) = usize(0);
             while(ci < cfls.len(), {
               names.push(cfls.get(ci).unwrap());
@@ -1940,7 +1940,7 @@ is_thread_local :: (fn(module_path : &String, name : &String) -> bool)(
 some_resolution :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
-    .SomeT({ resolution : sr_r }) => sr_r,
+    Rc(.SomeT({ resolution : sr_r })) => sr_r,
     _ => Option(TypeValue).None
   )
 );
@@ -2311,7 +2311,7 @@ lookup_trait_ctor_fid :: (fn(trait_id : &String) -> Option(String))(
 struct_effective_ctor_fid :: (fn(ty : &TypeValue) -> String)(
   match(
     ty,
-    .Struct({ id : ec_sid, constructor_func_id : ec_cfid }) => cond(
+    Rc(.Struct({ id : ec_sid, constructor_func_id : ec_cfid })) => cond(
       (ec_cfid.len() > usize(0)) => ec_cfid,
       true => match(lookup_struct_ctor_fid(&ec_sid), .Some(rec) => rec, .None => String.new())
     ),
@@ -2328,7 +2328,7 @@ struct_fully_concrete_instance :: (fn(ty : &TypeValue) -> bool)({
   });
   match(
     ty,
-    .Struct({ type_arguments : fc_tas }) => {
+    Rc(.Struct({ type_arguments : fc_tas })) => {
       (fci : usize) = usize(0);
       while(fci < fc_tas.len(), {
         ta := match(fc_tas.get(fci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
@@ -2357,8 +2357,8 @@ adopt_receiver_struct_instance :: (
   if(!(ret_cfid == recv_cfid), {
     return(Option(TypeValue).None);
   });
-  ret_id := match(ret, .Struct({ id : ai_rid }) => ai_rid, _ => String.new());
-  recv_id := match(recv, .Struct({ id : ai_vid }) => ai_vid, _ => String.new());
+  ret_id := match(ret, Rc(.Struct({ id : ai_rid })) => ai_rid, _ => String.new());
+  recv_id := match(recv, Rc(.Struct({ id : ai_vid })) => ai_vid, _ => String.new());
   if((ret_id.len() == usize(0)) || ((ret_id == recv_id) || !struct_fully_concrete_instance(recv)), {
     return(Option(TypeValue).None);
   });
@@ -2369,8 +2369,8 @@ adopt_receiver_struct_instance :: (
   // positionally (compared by rendered type). Without this a stale
   // ctx.self_type of the SAME ctor but a DIFFERENT instantiation
   // (List(u8) vs List(i32)) would mis-adopt.
-  ret_tas := match(ret, .Struct({ type_arguments : ai_rtas }) => ai_rtas, _ => ArrayList(TypeValue).new());
-  recv_tas := match(recv, .Struct({ type_arguments : ai_vtas }) => ai_vtas, _ => ArrayList(TypeValue).new());
+  ret_tas := match(ret, Rc(.Struct({ type_arguments : ai_rtas })) => ai_rtas, _ => ArrayList(TypeValue).new());
+  recv_tas := match(recv, Rc(.Struct({ type_arguments : ai_vtas })) => ai_vtas, _ => ArrayList(TypeValue).new());
   if((ret_tas.len() > usize(0)) && (recv_tas.len() > usize(0)), {
     if(ret_tas.len() != recv_tas.len(), {
       return(Option(TypeValue).None);
@@ -2382,7 +2382,7 @@ adopt_receiver_struct_instance :: (
       if(is_some_type(&rta), {
         match(
           rta,
-          .SomeT({ resolution : .Some(ai_conc) }) => {
+          Rc(.SomeT({ resolution : .Some(ai_conc) })) => {
             rta = ai_conc;
           },
           _ => ()

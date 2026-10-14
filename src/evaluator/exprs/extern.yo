@@ -203,14 +203,16 @@ User code should normally call stdlib wrappers (e.g. functions in
     // gate does not need them. `ioBuiltin` is codegen-only and stays skipped.
     field_ty_with_extern := match(
       result.field_type,
-      .Func({
-        forall_types : fts,
-        param_types : pts,
-        implicit_types : its,
-        where_types : wts,
-        result : ret,
-        meta : m
-      }) => rc(
+      Rc(
+        .Func({
+          forall_types : fts,
+          param_types : pts,
+          implicit_types : its,
+          where_types : wts,
+          result : ret,
+          meta : m
+        })
+      ) => rc(
         TypeValueNode.Func(
           fts,
           pts,
@@ -251,7 +253,7 @@ User code should normally call stdlib wrappers (e.g. functions in
     // not a placeholder the uses turn into a SomeT.
     field_val := match(
       result.field_type,
-      .TypeUni(fv_lvl) => cond(
+      Rc(.TypeUni(fv_lvl)) => cond(
         (fv_lvl == usize(0)) => EvalValue.TypeVal(t_extern_opaque(result.label.clone(), String.new())),
         true => create_unknown_val_with_name(&field_ty_with_extern, result.label.clone())
       ),

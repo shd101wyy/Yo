@@ -254,7 +254,7 @@ subst_add :: (fn(s : &Substitution, name : &String, level : usize, ty : &TypeVal
   s.levels.push(level);
   s.types.push(ty);
 });
-_is_some_t :: (fn(t : &TypeValue) -> bool)(match(t, .SomeT({ id : _ }) => true, _ => false));
+_is_some_t :: (fn(t : &TypeValue) -> bool)(match(t, Rc(.SomeT({ id : _ })) => true, _ => false));
 /// Adopt the own resolution of every occurrence of the SomeT `id` that
 /// carries one (see `own_resolution_ids`).
 subst_adopt_own_resolution :: (fn(s : &Substitution, id : &String) -> unit)({
@@ -308,11 +308,11 @@ _is_self_pattern :: (fn(s : &Substitution, ty : &TypeValue) -> bool)({
     return(false);
   });
   from := match(s.self_from.get(usize(0)), .Some(f) => f, .None => rc(TypeValueNode.Unit));
-  ty_id := match(ty, .Struct({ id : sid }) => sid, .EnumT(eid, _, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  ty_id := match(ty, Rc(.Struct({ id : sid })) => sid, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid, _ => String.new());
   if(ty_id.is_empty(), {
     return(false);
   });
-  from_id := match(from, .Struct({ id : fid }) => fid, .EnumT(fe, _, _, _, _, _, _, _, _, _) => fe, _ => String.new());
+  from_id := match(from, Rc(.Struct({ id : fid })) => fid, Rc(.EnumT(fe, _, _, _, _, _, _, _, _, _)) => fe, _ => String.new());
   if(from_id.is_empty() || !(ty_id == from_id), {
     return(false);
   });
@@ -421,7 +421,7 @@ _mask_func_own_binders :: (fn(s : &Substitution, forall_labels : &ArrayList(Stri
 /// `_substitute_node` through the walk's struct/enum memo (see
 /// `node_memo_from`): a shared node is substituted once per walk.
 _substitute_at :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> TypeValue)({
-  (memoized : bool) = match(ty, .Struct({ id : _ }) => true, .EnumT({ id : _ }) => true, _ => false);
+  (memoized : bool) = match(ty, Rc(.Struct({ id : _ })) => true, Rc(.EnumT({ id : _ })) => true, _ => false);
   if(!memoized, {
     return(_substitute_node(s, ty, is_root));
   });
@@ -466,12 +466,12 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
       match(
         ty,
         // Recurse into pointer / slice / array.
-        .Pointer(inner) => rc(TypeValueNode.Pointer(_substitute_at(s, &inner, false))),
+        Rc(.Pointer(inner)) => rc(TypeValueNode.Pointer(_substitute_at(s, &inner, false))),
         // The element type substitutes like any other child; the LENGTH is a
         // value binder, resolved from the const-generic side map when the
         // impl's `generic(N : usize)` was bound at match time. Unbound (or
         // already concrete) lengths are carried through unchanged.
-        .Array(inner, len, lvar) => {
+        Rc(.Array(inner, len, lvar)) => {
           new_inner := _substitute_at(s, &inner, false);
           cond(
             (lvar.len() == usize(0)) => rc(TypeValueNode.Array(new_inner, len, lvar)),
@@ -492,7 +492,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           )
         },
         // Recurse into tuple.
-        .Tuple(labels, types) => {
+        Rc(.Tuple(labels, types)) => {
           new_types := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < types.len(), {
@@ -506,7 +506,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         // forall binders shadow same-named substitution entries — see
         // _mask_func_own_binders (capture avoidance); the root node is exempt
         // (see the `substitute` wrapper).
-        .Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : __fm1, variadic_types : vts }) => {
+        Rc(.Func({ forall_types : fts, param_types : pts, implicit_types : its, where_types : wts, result : ret, meta : __fm1, variadic_types : vts })) => {
           s_in := if(is_root, s, _mask_func_own_binders(s, &__fm1.*.forall_labels));
           new_fts := ArrayList(TypeValue).new();
           i := usize(0);
@@ -549,17 +549,19 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
         },
         // TraitT — recurse into field types. (Source-namespace structs go
         // through the Struct arm above.)
-        .TraitT(
-          name : n,
-          assoc_type_names : atns,
-          field_labels : fls,
-          field_types : fts,
-          id : tid,
-          is_concrete : ic,
-          self_constraints : scons,
-          neg_self_constraints : ncons,
-          assoc_constraint_labels : atcl,
-          assoc_constraint_types : atct
+        Rc(
+          .TraitT(
+            name : n,
+            assoc_type_names : atns,
+            field_labels : fls,
+            field_types : fts,
+            id : tid,
+            is_concrete : ic,
+            self_constraints : scons,
+            neg_self_constraints : ncons,
+            assoc_constraint_labels : atcl,
+            assoc_constraint_types : atct
+          )
         ) =>
           // Cycle guard: self-referential traits (e.g. a method returning
           // `Dyn(SelfTrait)`) form a cyclic TypeValue graph. If we are already
@@ -583,16 +585,18 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
             }
           ),
         // SomeT — check substitution first; if not found, recurse into constraints.
-        .SomeT(
-          id : orig_id,
-          name : n,
-          frame_level : lvl,
-          parent_type : pt,
-          required_trait_types : rts,
-          required_trait_levels : rlvls,
-          negative_trait_types : nts,
-          negative_trait_levels : nlvls,
-          resolution : rcp
+        Rc(
+          .SomeT(
+            id : orig_id,
+            name : n,
+            frame_level : lvl,
+            parent_type : pt,
+            required_trait_types : rts,
+            required_trait_levels : rlvls,
+            negative_trait_types : nts,
+            negative_trait_levels : nlvls,
+            resolution : rcp
+          )
         ) => {
           // A SomeT that carries its own resolution is already bound: a
           // (name, level) entry names ANOTHER binder that shares its spelling
@@ -634,7 +638,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           )
         },
         // Struct / Enum / Union — recurse into field types.
-        .Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs, is_source_namespace : is_sns }) => {
+        Rc(.Struct({ id, name, field_labels : labels, field_types : types, is_reference_semantics : is_ref, is_atomic_rc : is_atomic, is_newtype : is_nt, constructor_func_id : cfid, type_arguments : tyargs, is_source_namespace : is_sns })) => {
           // Nominal boundary — see _without_len_vars.
           s_nom := _without_len_vars(s);
           new_types := ArrayList(TypeValue).new();
@@ -659,7 +663,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           rc(TypeValueNode.Struct(id, name, labels, new_types, is_ref, is_atomic, is_nt, cfid, new_tyargs, is_sns))
         },
         // EnumT has variant_fields : ArrayList(ArrayList(TypeValue)) — nested.
-        .EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar, etas) => {
+        Rc(.EnumT(id, name, variant_names, variant_fields, svn, vfl, discs, eirs, eiar, etas)) => {
           // Nominal boundary — see _without_len_vars.
           s_nom_e := _without_len_vars(s);
           new_variant_fields := ArrayList(ArrayList(TypeValue)).new();
@@ -703,7 +707,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           });
           rc(TypeValueNode.EnumT(id, name, variant_names, new_variant_fields, svn, vfl, discs, eirs, eiar, new_etas))
         },
-        .Union(name, labels, types) => {
+        Rc(.Union(name, labels, types)) => {
           new_types := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < types.len(), {
@@ -714,8 +718,8 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           rc(TypeValueNode.Union(name, labels, new_types))
         },
         // Phase 2f variants — recurse into child types
-        .ComptimeListT(child) => rc(TypeValueNode.ComptimeListT(_substitute_at(s, &child, false))),
-        .TypeAppT(constructor, args) => {
+        Rc(.ComptimeListT(child)) => rc(TypeValueNode.ComptimeListT(_substitute_at(s, &child, false))),
+        Rc(.TypeAppT(constructor, args)) => {
           new_args := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < args.len(), {
@@ -725,12 +729,14 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           });
           rc(TypeValueNode.TypeAppT(_substitute_at(s, &constructor, false), new_args))
         },
-        .IsoT(child) => rc(TypeValueNode.IsoT(_substitute_at(s, &child, false))),
-        .DynT(
-          required_trait_types : rtt,
-          required_trait_levels : rtl,
-          negative_trait_types : ntt,
-          negative_trait_levels : ntl
+        Rc(.IsoT(child)) => rc(TypeValueNode.IsoT(_substitute_at(s, &child, false))),
+        Rc(
+          .DynT(
+            required_trait_types : rtt,
+            required_trait_levels : rtl,
+            negative_trait_types : ntt,
+            negative_trait_levels : ntl
+          )
         ) => {
           new_rtt := ArrayList(TypeValue).new();
           i := usize(0);
@@ -749,7 +755,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           // Re-sorted: substituting a trait argument can change its key.
           t_dyn(&new_rtt, &rtl, &new_ntt, &ntl)
         },
-        .FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, call_param_is_ref : cprf, call_param_is_owning : cpof) => {
+        Rc(.FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : cpts, call_result : cr, implicit_labels : ils, implicit_types : its, call_param_is_ref : cprf, call_param_is_owning : cpof)) => {
           new_cpts := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < cpts.len(), {
@@ -766,7 +772,7 @@ _substitute_node :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> T
           });
           rc(TypeValueNode.FnTraitT(base_name : bn, call_param_labels : cpls, call_param_types : new_cpts, call_result : _substitute_at(s, &cr, false), implicit_labels : ils, implicit_types : new_its, call_param_is_ref : cprf, call_param_is_owning : cpof))
         },
-        .FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets) => {
+        Rc(.FutureTraitT(base_name : bn, output : out, effect_labels : els, effect_types : ets)) => {
           new_ets := ArrayList(TypeValue).new();
           i := usize(0);
           while(i < ets.len(), {

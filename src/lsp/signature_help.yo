@@ -120,7 +120,7 @@ handle_signature_help :: (
     );
     is_fn := match(
       expr_info_table_get(info_table, ast_expr_id(&cand)),
-      .Some(cinfo) => match(cinfo.ty, .Func(_, _, _, _, _, _, _) => true, _ => false),
+      .Some(cinfo) => match(cinfo.ty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false),
       .None => false
     );
     if(is_fn, {
@@ -163,7 +163,7 @@ handle_signature_help :: (
   callee_name := ast_expr_token(&callee).value;
   match(
     info.ty,
-    .Func(_, param_types, _, _, _, meta, _) => {
+    Rc(.Func(_, param_types, _, _, _, meta, _)) => {
       params := ArrayList(JsonValue).new();
       (pi : usize) = usize(0);
       while(pi < param_types.len(), {

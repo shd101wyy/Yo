@@ -50,7 +50,7 @@ import("std/fmt");
 trait_id_for_dedup :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    .TraitT(_, _, _, _, id, _, _, _, _, _) => {
+    Rc(.TraitT(_, _, _, _, id, _, _, _, _, _)) => {
       if(id.len() > usize(0), {
         return(id);
       });
@@ -66,8 +66,8 @@ _dyn_trait_slot_names :: (fn(t : &TypeValue) -> ArrayList(String))({
   out := ArrayList(String).new();
   match(
     t,
-    .FnTraitT(_, _, _, _, _, _, _, _) => out.push(String.from("call")),
-    .TraitT({ field_labels : fls, field_types : fts }) => {
+    Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => out.push(String.from("call")),
+    Rc(.TraitT({ field_labels : fls, field_types : fts })) => {
       (i : usize) = usize(0);
       while(i < fls.len(), {
         ft := match(fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
@@ -294,7 +294,7 @@ evaluate_dyn_type :: (
     cur_trait := match(required_traits.get(qi), .Some(t) => t, .None => t_i32());
     scs := match(
       cur_trait,
-      .TraitT(_, _, _, _, _, _, sc, _, _, _) => sc,
+      Rc(.TraitT(_, _, _, _, _, _, sc, _, _, _)) => sc,
       _ => ArrayList(TypeValue).new()
     );
     k := usize(0);

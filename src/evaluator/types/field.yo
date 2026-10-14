@@ -265,9 +265,9 @@ evaluate_type_field :: (
     if(is_tuple_type(&expected_type_val) || is_struct_type(&expected_type_val) || is_module_type(&expected_type_val) || is_trait_type(&expected_type_val), {
       maybe_field_ty := match(
         expected_type_val,
-        .Tuple(_, types) => types.get(tuple_field_index),
-        .Struct({ field_types : types }) => types.get(tuple_field_index),
-        .TraitT(_, _, _, types, _, _, _, _, _, _) => types.get(tuple_field_index),
+        Rc(.Tuple(_, types)) => types.get(tuple_field_index),
+        Rc(.Struct({ field_types : types })) => types.get(tuple_field_index),
+        Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types.get(tuple_field_index),
         _ => Option(TypeValue).None
       );
       if(maybe_field_ty.is_none(), {

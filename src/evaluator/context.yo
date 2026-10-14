@@ -1781,7 +1781,7 @@ fn_ctx_returns_comptime :: (fn(ctx : &EvalContext) -> bool)(
       fc.kind,
       .FunctionBody => match(
         fc.func_type,
-        .Some(.Func({ meta : fm })) => fm.*.result_is_comptime_only,
+        .Some(Rc(.Func({ meta : fm }))) => fm.*.result_is_comptime_only,
         .Some(_) => false,
         .None => false
       ),
@@ -3082,17 +3082,17 @@ _force_pending_impls_pass :: (fn(type_name : &String, declaring : &Option(String
 type_head_name_for_impl_forcing :: (fn(ty : &TypeValue) -> String)({
   raw := match(
     ty,
-    .Struct({ id : sid, name : sn }) => cond(
+    Rc(.Struct({ id : sid, name : sn })) => cond(
       (sn.len() > usize(0)) => sn.clone(),
       true => match(type_binding_name(&sid), .Some(b) => b, .None => String.new())
     ),
-    .EnumT(eid, en, _, _, _, _, _, _, _, _) => cond(
+    Rc(.EnumT(eid, en, _, _, _, _, _, _, _, _)) => cond(
       (en.len() > usize(0)) => en.clone(),
       true => match(type_binding_name(&eid), .Some(b) => b, .None => String.new())
     ),
-    .Union(un, _, _) => un.clone(),
-    .TraitT(tn, _, _, _, _, _, _, _, _, _) => tn.clone(),
-    .Pointer(pointee) => recur(&pointee),
+    Rc(.Union(un, _, _)) => un.clone(),
+    Rc(.TraitT(tn, _, _, _, _, _, _, _, _, _)) => tn.clone(),
+    Rc(.Pointer(pointee)) => recur(&pointee),
     _ => String.new()
   );
   match(
@@ -3343,7 +3343,7 @@ create_function_body_evaluation_context :: (
       block.kind,
       .FunctionBody => match(
         block.func_type,
-        .Some(.Func({ result : ret_box })) => Option(TypeValue).Some(ret_box),
+        .Some(Rc(.Func({ result : ret_box }))) => Option(TypeValue).Some(ret_box),
         .Some(_) => Option(TypeValue).None,
         .None => Option(TypeValue).None
       ),
@@ -3357,7 +3357,7 @@ create_function_body_evaluation_context :: (
   // (e.g. `match(opt, .Some(b) => &(b(i)), .None => __yo_panic(...))`).
   return_type := match(
     function_type,
-    .Func({ result : ret_box, meta : __fm1 }) => cond(
+    Rc(.Func({ result : ret_box, meta : __fm1 })) => cond(
       __fm1.*.result_is_ref => t_ptr(&ret_box),
       true => ret_box
     ),

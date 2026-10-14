@@ -952,7 +952,7 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
   if(!(is_some_type(future_type) && type_implements_future(future_type)), {
     return(false);
   });
-  fid := match(future_type, .SomeT({ id }) => id, _ => String.from(""));
+  fid := match(future_type, Rc(.SomeT({ id })) => id, _ => String.from(""));
   if(context.base.types.contains_key(fid.clone()), {
     return(false);
   });
@@ -960,13 +960,13 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
     some_resolution(future_type),
     .Some(resolved) => {
       if(is_some_type(&resolved), {
-        rcid := match(resolved, .SomeT({ id }) => id, _ => String.from(""));
+        rcid := match(resolved, Rc(.SomeT({ id })) => id, _ => String.from(""));
         if(context.base.types.contains_key(&rcid), {
           return(false);
         });
       });
       if(is_struct_type(&resolved), {
-        capture_id := match(resolved, .Struct({ id }) => id, _ => String.from(""));
+        capture_id := match(resolved, Rc(.Struct({ id })) => id, _ => String.from(""));
         it := context.base.types.into_iter();
         (go : bool) = true;
         while(go, {
@@ -978,7 +978,7 @@ uses_generic_future_interface :: (fn(future_type : &TypeValue, context : &Functi
                 match(
                   some_resolution(&ety),
                   .Some(erc) => if(is_struct_type(&erc), {
-                    ercid := match(erc, .Struct({ id }) => id, _ => String.from(""));
+                    ercid := match(erc, Rc(.Struct({ id })) => id, _ => String.from(""));
                     if(ercid == capture_id, {
                       return(false);
                     });
@@ -1098,8 +1098,8 @@ _build_combined_sm_variables :: (
   match(
     capture_type,
     .Some(ct) => {
-      flabels := match(ct, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
-      ftypes := match(ct, .Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+      flabels := match(ct, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+      ftypes := match(ct, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
       (j : usize) = usize(0);
       while(j < flabels.len(), {
         lbl := match(flabels.get(j), .Some(l) => l, .None => String.from(""));
@@ -1135,14 +1135,14 @@ find_bundle_field_name :: (
     state_machine_field_aliases : &Option(HashMap(String, String))
   ) -> Option(String)
 )({
-  eff_types := match(future_trait_type, .FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
+  eff_types := match(future_trait_type, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
   (eff_id : Option(String)) = Option(String).None;
   (ei : usize) = usize(0);
   while((ei < eff_types.len()) && eff_id.is_none(), {
     match(
       eff_types.get(ei),
       .Some(et) => if(is_struct_type(&et), {
-        eff_id = Option(String).Some(match(et, .Struct({ id }) => id, _ => String.from("")));
+        eff_id = Option(String).Some(match(et, Rc(.Struct({ id })) => id, _ => String.from("")));
       }),
       .None => ()
     );
@@ -1164,7 +1164,7 @@ find_bundle_field_name :: (
               smvar := b.value;
               is_outer := match(smvar.kind, .Outer => true, .Local => false);
               if(!is_outer, {
-                svid := match(smvar.base.ty, .Struct({ id }) => id, _ => String.from(""));
+                svid := match(smvar.base.ty, Rc(.Struct({ id })) => id, _ => String.from(""));
                 if(svid == target_id, {
                   aliased := match(state_machine_field_aliases, .Some(al) => al.get(smvar.base.id.to_string()), .None => Option(String).None);
                   match(
@@ -1203,8 +1203,8 @@ emit_effect_record_injection_for_sm :: (
     expr : &AstExpr
   ) -> unit
 )({
-  field_labels := match(source_namespace_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
-  field_types := match(source_namespace_type, .Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
   (fi : usize) = usize(0);
   while(fi < field_labels.len(), {
     flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
@@ -1374,14 +1374,14 @@ emit_effect_injection_for_sm :: (
         match(
           extract_future_trait_from_type(&fut_ty),
           .Some(ftrait) => {
-            eff_labels := match(ftrait, .FutureTraitT({ effect_labels : el }) => el, _ => ArrayList(String).new());
-            eff_types := match(ftrait, .FutureTraitT({ effect_types : et }) => et, _ => ArrayList(TypeValue).new());
+            eff_labels := match(ftrait, Rc(.FutureTraitT({ effect_labels : el })) => el, _ => ArrayList(String).new());
+            eff_types := match(ftrait, Rc(.FutureTraitT({ effect_types : et })) => et, _ => ArrayList(TypeValue).new());
             (i : usize) = usize(0);
             while(i < eff_labels.len(), {
               elabel := match(eff_labels.get(i), .Some(l) => l, .None => String.from(""));
               etype := match(eff_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
               if(is_function_type(&etype), {
-                has_forall := match(etype, .Func({ meta : __fm1 }) => (__fm1.*.forall_labels.len() > usize(0)), _ => false);
+                has_forall := match(etype, Rc(.Func({ meta : __fm1 })) => (__fm1.*.forall_labels.len() > usize(0)), _ => false);
                 if(!has_forall, {
                   match(
                     resolve_effect_field_from_sm_scope(&elabel, context, await_expr),
@@ -1840,7 +1840,7 @@ generate_async_block_resume_function_inline :: (
   em := context.base.emitter;
   is_unit_result := match(
     extract_future_trait_from_type(future_type),
-    .Some(ft) => match(ft, .FutureTraitT({ output : o }) => is_unit_type(&o), _ => false),
+    .Some(ft) => match(ft, Rc(.FutureTraitT({ output : o })) => is_unit_type(&o), _ => false),
     .None => false
   );
   em.emit_string_line(`// Resume function for async block ${async_block_id} (single-pass lowering)`);
@@ -1868,7 +1868,7 @@ generate_async_block_resume_function_inline :: (
     moved_reads : HashMap(usize, String).new(),
     binding_sources : HashMap(String, String).new(),
     rc_operand : false,
-    owns_fnonce_captures : match(capture_type, .Some(.Struct({ id : cs_id })) => is_fnonce_capture_struct(&cs_id), _ => false)
+    owns_fnonce_captures : match(capture_type, .Some(Rc(.Struct({ id : cs_id }))) => is_fnonce_capture_struct(&cs_id), _ => false)
   );
   p_low := context.sm_inline_lowering;
   p_in := context.in_async_state_machine;

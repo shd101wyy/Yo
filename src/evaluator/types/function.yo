@@ -866,7 +866,7 @@ _collect_where_constraints_from_some_t :: (
 )({
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _)) => {
       (ri : usize) = usize(0);
       while(ri < required_trait_types.len(), {
         match(
@@ -1185,7 +1185,7 @@ _atom_name_occurs :: (fn(e : &AstExpr, name : &String) -> bool)(
 _wcc_trait_id :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    .TraitT(_, _, _, _, wcc_tid, _, _, _, _, _) => wcc_tid,
+    Rc(.TraitT(_, _, _, _, wcc_tid, _, _, _, _, _)) => wcc_tid,
     _ => String.from("")
   )
 );
@@ -1216,7 +1216,7 @@ _add_where_clause_constraint :: (
 )(
   match(
     some_ty,
-    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _)) => {
       // Dedup by trait id before appending. A SomeT's trait lists are shared by
       // REFERENCE, so re-validating the same where clause used to append another
       // copy every time — measured at the entries.yo codegen panic, one SomeT's
@@ -1244,7 +1244,7 @@ _add_where_clause_constraint :: (
 _trait_has_receiver :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .TraitT(_, _, _, _, _, is_concrete, _, _, _, _) => is_concrete.is_some(),
+    Rc(.TraitT(_, _, _, _, _, is_concrete, _, _, _, _)) => is_concrete.is_some(),
     _ => false
   )
 );
@@ -1881,7 +1881,7 @@ evaluate_function_parameter :: (
   if(!is_compile_time_only && is_function_type(&final_param_type), {
     has_forall := match(
       final_param_type,
-      .Func({ meta : __fm1 }) => (__fm1.*.forall_labels.len() > usize(0)),
+      Rc(.Func({ meta : __fm1 })) => (__fm1.*.forall_labels.len() > usize(0)),
       _ => false
     );
     if(has_forall, {
@@ -1939,7 +1939,7 @@ evaluate_function_parameter :: (
   if(is_trait_type(&final_param_type), {
     has_receiver := match(
       final_param_type,
-      .TraitT(_, _, _, _, _, is_concrete, _, _, _, _) => is_concrete.is_some(),
+      Rc(.TraitT(_, _, _, _, _, is_concrete, _, _, _, _)) => is_concrete.is_some(),
       _ => true
     );
     if(!has_receiver, {
@@ -2060,7 +2060,7 @@ use_id :: (fn(generic(T : Type),
                 new_some := av_box;
                 match(
                   new_some,
-                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _) => {
+                  Rc(.SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _)) => {
                     // Merge required traits
                     (ri : usize) = usize(0);
                     while(ri < new_rtt.len(), {
@@ -2157,7 +2157,7 @@ use_id :: (fn(generic(T : Type),
                   if(
                     match(
                       final_param_type,
-                      .Func({ result, meta : __fm2 }) => (__fm2.*.result_is_comptime_only && is_type_0(&result)),
+                      Rc(.Func({ result, meta : __fm2 })) => (__fm2.*.result_is_comptime_only && is_type_0(&result)),
                       _ => false
                     ),
                     Option(EvalValue).Some(create_type_value(t_some_t_with_kind(&label_str, param_frame_level, &final_param_type))),
@@ -2230,8 +2230,8 @@ use_id :: (fn(generic(T : Type),
 /// (plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md, option 3).
 _unmet_trait_message :: (fn(concrete : &TypeValue, tv : &TypeValue, env : &Environment) -> String)({
   base := `Type ${type_to_string(concrete)} does not implement required trait ${type_to_string(tv)}`;
-  labels := match(tv, .TraitT(_, _, _, _, _, _, _, _, l, _) => l, _ => ArrayList(String).new());
-  wants := match(tv, .TraitT(_, _, _, _, _, _, _, _, _, t) => t, _ => ArrayList(TypeValue).new());
+  labels := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => l, _ => ArrayList(String).new());
+  wants := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => t, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < labels.len(), {
     label := match(labels.get(i), .Some(l) => l, .None => String.new());
@@ -4510,7 +4510,7 @@ evaluate_function_type :: (
       params_result.params.get(rp2_i),
       .Some(fp) => match(
         fp.ty,
-        .RefineT(_, pred_fid) => {
+        Rc(.RefineT(_, pred_fid)) => {
           pred_here = pred_fid;
         },
         _ => ()
@@ -4620,7 +4620,7 @@ evaluate_function_type :: (
     );
     match(
       fp.ty,
-      .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+      Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
         (ti2 : usize) = usize(0);
         while(ti2 < required_trait_types.len(), {
           tt := match(
@@ -4730,7 +4730,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
   acc := ArrayList(TypeValue).new();
   rtts := match(
     wrapper,
-    .SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _) => rts,
+    Rc(.SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _)) => rts,
     _ => ArrayList(TypeValue).new()
   );
   (i : usize) = usize(0);
@@ -4749,7 +4749,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
       // an unbound T/E resolves to itself and the substitution below no-ops,
       // so the async pipeline's unresolved-SomeT registrations keep their
       // identity.
-      .FutureTraitT({ output : fut_out, effect_types : fut_ets }) => {
+      Rc(.FutureTraitT({ output : fut_out, effect_types : fut_ets })) => {
         fo_inner := get_all_some_types(&fut_out);
         (foi : usize) = usize(0);
         while(foi < fo_inner.len(), {
@@ -4785,7 +4785,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
           fei = (fei + usize(1));
         });
       },
-      .FnTraitT({ call_param_types : cpts, call_result : cr, implicit_types : its }) => {
+      Rc(.FnTraitT({ call_param_types : cpts, call_result : cr, implicit_types : its })) => {
         (cj : usize) = usize(0);
         while(cj < cpts.len(), {
           match(
@@ -4860,7 +4860,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
 _substitute_wrapper_carriers :: (fn(ns : &Substitution, wrapper : &TypeValue) -> TypeValue)(
   match(
     wrapper,
-    .SomeT(sw_id, sw_nm, sw_fl, sw_pt, sw_rtt, sw_rtl, sw_ntt, sw_ntl, sw_kft, sw_rc) => {
+    Rc(.SomeT(sw_id, sw_nm, sw_fl, sw_pt, sw_rtt, sw_rtl, sw_ntt, sw_ntl, sw_kft, sw_rc)) => {
       new_rtt := ArrayList(TypeValue).new();
       (i : usize) = usize(0);
       while(i < sw_rtt.len(), {
@@ -4895,12 +4895,12 @@ _resolve_some_types_deep :: (
     if(!is_some_type(&r) && is_function_type(&r), {
       match(
         ty,
-        .SomeT({ required_trait_types : rsd_rtt }) => {
+        Rc(.SomeT({ required_trait_types : rsd_rtt })) => {
           (rsd_i : usize) = usize(0);
           while((rsd_i < rsd_rtt.len()) && !rsd_fut_poisoned, {
             match(
               rsd_rtt.get(rsd_i),
-              .Some(.FutureTraitT(base_name : _)) => {
+              .Some(Rc(.FutureTraitT(base_name : _))) => {
                 rsd_fut_poisoned = true;
               },
               .Some(_) => (),
@@ -4955,7 +4955,7 @@ _resolve_some_types_deep :: (
       if(!is_some_type(&nres), {
         match(
           nst,
-          .SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _) => {
+          Rc(.SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _)) => {
             subst_add(&ns, &nst_name, nst_lvl, &nres);
             nbound = true;
           },
@@ -5011,7 +5011,7 @@ _resolve_some_types_deep :: (
     if(!is_some_type(&resolved) || rebound_to_some, {
       match(
         st,
-        .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _) => {
+        Rc(.SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _)) => {
           subst_add(&s, &st_name, st_lvl, &resolved);
           bound_any = true;
         },
@@ -5038,7 +5038,7 @@ _resolve_some_types_deep :: (
 _env_rebound_to_another_some :: (fn(st : &TypeValue, r : &TypeValue) -> bool)(
   match(
     r,
-    .SomeT({ id : r_id }) => match(st, .SomeT({ id : st_id }) => (r_id != st_id), _ => true),
+    Rc(.SomeT({ id : r_id })) => match(st, Rc(.SomeT({ id : st_id })) => (r_id != st_id), _ => true),
     _ => false
   )
 );
@@ -5099,7 +5099,7 @@ _collect_type_arg_somes :: (
 )(
   match(
     ty,
-    .Struct({ id : cta_sid, field_types : cta_fts, type_arguments : cta_args }) => {
+    Rc(.Struct({ id : cta_sid, field_types : cta_fts, type_arguments : cta_args })) => {
       if(_cta_seen(visited_ids, &cta_sid), {
         return(());
       });
@@ -5126,7 +5126,7 @@ _collect_type_arg_somes :: (
         cta_f = (cta_f + usize(1));
       });
     },
-    .EnumT(cta_eid, _, _, cta_vfs, _, _, _, _, _, _) => {
+    Rc(.EnumT(cta_eid, _, _, cta_vfs, _, _, _, _, _, _)) => {
       if(_cta_seen(visited_ids, &cta_eid), {
         return(());
       });
@@ -5168,7 +5168,7 @@ _collect_type_arg_somes :: (
         cta_v = (cta_v + usize(1));
       });
     },
-    .Func({ param_types : cta_pts, result : cta_res }) => {
+    Rc(.Func({ param_types : cta_pts, result : cta_res })) => {
       (cta_p : usize) = usize(0);
       while(cta_p < cta_pts.len(), {
         match(cta_pts.get(cta_p), .Some(cta_pt) => recur(&cta_pt, acc, visited_ids), .None => ());
@@ -5176,16 +5176,16 @@ _collect_type_arg_somes :: (
       });
       recur(&cta_res, acc, visited_ids);
     },
-    .Tuple(_, field_types : cta_tfs) => {
+    Rc(.Tuple(_, field_types : cta_tfs)) => {
       (cta_t : usize) = usize(0);
       while(cta_t < cta_tfs.len(), {
         match(cta_tfs.get(cta_t), .Some(cta_tt) => recur(&cta_tt, acc, visited_ids), .None => ());
         cta_t = (cta_t + usize(1));
       });
     },
-    .Pointer(pointee : cta_p2) => recur(&cta_p2, acc, visited_ids),
-    .Array(element : cta_e, _, _) => recur(&cta_e, acc, visited_ids),
-    .IsoT(child : cta_c) => recur(&cta_c, acc, visited_ids),
+    Rc(.Pointer(pointee : cta_p2)) => recur(&cta_p2, acc, visited_ids),
+    Rc(.Array(element : cta_e, _, _)) => recur(&cta_e, acc, visited_ids),
+    Rc(.IsoT(child : cta_c)) => recur(&cta_c, acc, visited_ids),
     _ => ()
   )
 );
@@ -5222,7 +5222,7 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
         if(is_some_type(&tas_r), {
           match(
             tas_st,
-            .SomeT({ resolution : tas_cell }) => match(
+            Rc(.SomeT({ resolution : tas_cell })) => match(
               tas_cell,
               .Some(tas_c) => {
                 tas_r = tas_c;
@@ -5249,7 +5249,7 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
         if(!is_some_type(&tas_r), {
           match(
             tas_st,
-            .SomeT(tas_id, tas_name, tas_lvl, _, _, _, _, _, _, _) => {
+            Rc(.SomeT(tas_id, tas_name, tas_lvl, _, _, _, _, _, _, _)) => {
               if(tas_own && (tas_id.len() > usize(0)), {
                 subst_adopt_own_resolution(&tas_s, &tas_id);
               }, {

@@ -2868,8 +2868,8 @@ _resolve_inner_type :: (fn(field_type : &TypeValue, value : &EvalValue) -> TypeV
         registered := get_func_type(&data.*.func_id);
         match(
           registered,
-          .Func({ result }) => {
-            is_type_uni_result := match(result, .TypeUni(_) => true, _ => false);
+          Rc(.Func({ result })) => {
+            is_type_uni_result := match(result, Rc(.TypeUni(_)) => true, _ => false);
             if(!is_type_uni_result, {
               return(result);
             });
@@ -2893,7 +2893,7 @@ _function_params_to_doc_params :: (
   out := ArrayList(DocParam).new();
   match(
     func_type,
-    .Func({ param_types, meta }) => {
+    Rc(.Func({ param_types, meta })) => {
       labels := meta.*.param_labels;
       origin := match(meta.*.origin_id, .Some(oid) => oid, .None => String.new());
       comptime_flags := get_func_param_comptime(&origin);
@@ -2952,7 +2952,7 @@ _forall_params_to_doc_params :: (
   out := ArrayList(DocParam).new();
   match(
     func_type,
-    .Func({ forall_types, meta }) => {
+    Rc(.Func({ forall_types, meta })) => {
       labels := meta.*.forall_labels;
       (i : usize) = usize(0);
       while((i < labels.len()) && (i < forall_types.len()), {
@@ -3048,7 +3048,7 @@ build_doc_function :: (
     .None => {
       match(
         func_type,
-        .Func({ result, meta }) => {
+        Rc(.Func({ result, meta })) => {
           return_type = type_to_string(&result);
           if(meta.*.forall_labels.len() > usize(0), {
             type_params = Option(ArrayList(DocParam)).Some(_forall_params_to_doc_params(func_type, doc_lookup));
@@ -3080,10 +3080,10 @@ build_doc_function :: (
 _doc_type_name :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    .Struct({ name }) => name.clone(),
-    .EnumT({ name }) => name.clone(),
-    .Union({ name }) => name.clone(),
-    .TraitT({ name }) => name.clone(),
+    Rc(.Struct({ name })) => name.clone(),
+    Rc(.EnumT({ name })) => name.clone(),
+    Rc(.Union({ name })) => name.clone(),
+    Rc(.TraitT({ name })) => name.clone(),
     _ => String.new()
   )
 );
@@ -3216,7 +3216,7 @@ _get_type_kind :: (fn(t : &TypeValue) -> DocItemKind)({
     return(
       match(
         t,
-        .Struct({ is_reference_semantics, is_atomic_rc, is_newtype }) => cond(
+        Rc(.Struct({ is_reference_semantics, is_atomic_rc, is_newtype })) => cond(
           is_newtype => DocItemKind.Newtype,
           is_atomic_rc => DocItemKind.AtomicObject,
           is_reference_semantics => DocItemKind.Object,
@@ -3278,7 +3278,7 @@ _enum_variants_to_doc_variants :: (
   out := ArrayList(DocVariant).new();
   match(
     enum_type,
-    .EnumT({ variant_names, variant_fields, variant_field_labels, variant_discriminants }) => {
+    Rc(.EnumT({ variant_names, variant_fields, variant_field_labels, variant_discriminants })) => {
       (i : usize) = usize(0);
       while(i < variant_names.len(), {
         v_name := match(variant_names.get(i), .Some(n) => n, .None => String.new());
@@ -3319,7 +3319,7 @@ _get_type_constructor_params :: (fn(field_type : &TypeValue) -> Option(ArrayList
   });
   has_forall := match(
     field_type,
-    .Func({ meta }) => (meta.*.forall_labels.len() > usize(0)),
+    Rc(.Func({ meta })) => (meta.*.forall_labels.len() > usize(0)),
     _ => false
   );
   if(has_forall, {
@@ -3348,9 +3348,9 @@ _get_type_constructor_params :: (fn(field_type : &TypeValue) -> Option(ArrayList
 _doc_type_id :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    .Struct({ id }) => id.clone(),
-    .EnumT({ id }) => id.clone(),
-    .TraitT({ id }) => id.clone(),
+    Rc(.Struct({ id })) => id.clone(),
+    Rc(.EnumT({ id })) => id.clone(),
+    Rc(.TraitT({ id })) => id.clone(),
     _ => String.new()
   )
 );
@@ -3424,7 +3424,7 @@ build_doc_module :: (
   (ns_field_types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
   match(
     module_type,
-    .Struct({ field_labels, field_types }) => {
+    Rc(.Struct({ field_labels, field_types })) => {
       ns_field_labels = field_labels;
       ns_field_types = field_types;
     },
@@ -3506,7 +3506,7 @@ build_doc_module :: (
             (st_fields : ArrayList(DocField)) = ArrayList(DocField).new();
             match(
               actual_type,
-              .Struct({ field_labels : sfl, field_types : sft }) => {
+              Rc(.Struct({ field_labels : sfl, field_types : sft })) => {
                 st_fields = _type_fields_to_doc_fields(&sfl, &sft, &doc_lookup);
               },
               _ => ()
@@ -3633,7 +3633,7 @@ build_doc_module :: (
             (un_fields : ArrayList(DocField)) = ArrayList(DocField).new();
             match(
               actual_type,
-              .Union(_, ufl, uft) => {
+              Rc(.Union(_, ufl, uft)) => {
                 un_fields = _type_fields_to_doc_fields(&ufl, &uft, &doc_lookup);
               },
               _ => ()
@@ -3665,7 +3665,7 @@ build_doc_module :: (
             associated_types := ArrayList(DocAssociatedType).new();
             match(
               actual_type,
-              .TraitT({ assoc_type_names, field_labels : tfl, field_types : tft }) => {
+              Rc(.TraitT({ assoc_type_names, field_labels : tfl, field_types : tft })) => {
                 (fi : usize) = usize(0);
                 while((fi < tfl.len()) && (fi < tft.len()), {
                   t_label := match(tfl.get(fi), .Some(l) => l, .None => String.new());
@@ -3729,7 +3729,7 @@ build_doc_module :: (
             module_methods := ArrayList(DocFunction).new();
             match(
               actual_type,
-              .Struct({ field_labels : mfl, field_types : mft }) => {
+              Rc(.Struct({ field_labels : mfl, field_types : mft })) => {
                 (fi : usize) = usize(0);
                 while((fi < mfl.len()) && (fi < mft.len()), {
                   m_label := match(mfl.get(fi), .Some(l) => l, .None => String.new());
@@ -3854,7 +3854,7 @@ build_doc_module :: (
             (st_fields : ArrayList(DocField)) = ArrayList(DocField).new();
             match(
               inner_type,
-              .Struct({ field_labels : sfl, field_types : sft }) => {
+              Rc(.Struct({ field_labels : sfl, field_types : sft })) => {
                 st_fields = _type_fields_to_doc_fields(&sfl, &sft, &doc_lookup);
               },
               _ => ()
@@ -3946,7 +3946,7 @@ build_doc_module :: (
             associated_types := ArrayList(DocAssociatedType).new();
             match(
               inner_type,
-              .TraitT({ assoc_type_names, field_labels : tfl, field_types : tft }) => {
+              Rc(.TraitT({ assoc_type_names, field_labels : tfl, field_types : tft })) => {
                 (fi : usize) = usize(0);
                 while((fi < tfl.len()) && (fi < tft.len()), {
                   t_label := match(tfl.get(fi), .Some(l) => l, .None => String.new());
@@ -4010,7 +4010,7 @@ build_doc_module :: (
             module_methods := ArrayList(DocFunction).new();
             match(
               inner_type,
-              .Struct({ field_labels : mfl, field_types : mft }) => {
+              Rc(.Struct({ field_labels : mfl, field_types : mft })) => {
                 (fi : usize) = usize(0);
                 while((fi < mfl.len()) && (fi < mft.len()), {
                   m_label := match(mfl.get(fi), .Some(l) => l, .None => String.new());
@@ -4062,7 +4062,7 @@ build_doc_module :: (
             // to the unresolvable generic type constructor.
             is_hierarchy := match(
               field_type,
-              .Func({ result : fn_result }) => match(fn_result, .TypeUni(lvl) => (lvl >= usize(1)), _ => false),
+              Rc(.Func({ result : fn_result })) => match(fn_result, Rc(.TypeUni(lvl)) => (lvl >= usize(1)), _ => false),
               _ => false
             );
             if(is_hierarchy, {
