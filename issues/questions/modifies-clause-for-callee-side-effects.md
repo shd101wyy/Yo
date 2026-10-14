@@ -71,8 +71,9 @@ The convention should become a surface, and sooner than point 3 says:
   needed only to *narrow* it (an `&mut` parameter the callee reads but
   does not write) or to name a ghost footprint. That is Prusti's model
   (ownership gives the frame; permissions only where sharing exists), and
-  it is the one SELF_VERIFICATION's foundations table already names as
-  the nearer fit.
+  it is one of the two candidates SELF_VERIFICATION's foundations table
+  leaves to L6 ("partially applicable" for parameters; D2 starts L6 with
+  singleton `inout` treatment).
 
 Recommendation under this position: keep point 1's loud subset error;
 derive the default frame from the signature under VALUES_BY_DEFAULT (by

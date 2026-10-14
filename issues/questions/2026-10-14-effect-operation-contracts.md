@@ -2,8 +2,8 @@
 
 **Kind:** design question — an open decision, not a defect. Filed 2026-10-14
 from the F\* audit (`plans/backlog/FSTAR_ADOPTION_CANDIDATES.md` F11(b)),
-whose plan parks the idea until SELF_VERIFICATION M4; this doc asks whether
-it should come earlier.
+which first parked the idea with the heap model (OQ1/L6); this doc asks
+whether it should come earlier.
 
 ## The question
 
@@ -12,12 +12,13 @@ not use an effect parameter, install a `ctl` handler, await, or call
 through FFI, and that purity is what makes framing free
 (`plans/backlog/FORMAL_VERIFICATION.md` §Purity and the effect frame rule).
 The boundary is elegant and it is drawn exactly where user code lives.
-Nearly every non-trivial Yo function takes `io` or `exn`; under
-`Pragma.VerifyOrAssert` such a function is reported `outside-subset` and
-nothing in it is proved, including the bounds and divisor obligations the
-effect has nothing to do with. SELF_VERIFICATION's census counts the
-consequence for the compiler (3,636 of 4,049 functions blocked at a
-parameter); user programs that log, read files or throw are in the same
+Many Yo functions take `io` or `exn` (13.7% of the compiler's signatures
+take `Exception` and 4.6% take `Io`, `plans/SELF_VERIFICATION.md` census).
+A verified body that uses one is outside the subset: reported
+`outside-subset` if it has no contract, `subset-error` (runtime-assert
+fallback under `verify+`) if it does. Nothing in it is proved, including
+the bounds and divisor obligations the effect has nothing to do with; user
+programs that log, read files or throw are in the same
 position. L2 (exceptions as exit paths) is the only planned step toward
 effectful code, and it covers one effect.
 

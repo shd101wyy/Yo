@@ -46,9 +46,10 @@ of `wrapping_*` and of unsafe code, not of safe arithmetic.
    already prints them under `--elision`. The cost is honesty: fixtures and
    std contracts that lean on silent wrapping will refute and need the
    range `requires` their arithmetic needs (the docs' own troubleshooting
-   advice for an extreme-value counter-example). `VerifyOrAssert` keeps the
-   runtime trap for every obligation that does not prove, so no build is
-   blocked.
+   advice for an extreme-value counter-example). Under `VerifyOrAssert` an
+   overflow obligation that is merely `unproven` keeps its runtime trap;
+   one that is `refuted` fails the build as any refutation does, so the
+   switch needs the fixture and std sweep first.
 2. Keep `wrapping_*` / `saturating_*` / `checked_*` and bitwise operators
    on the bitvector model with no obligation; they are the operations whose
    meaning *is* the wrap.

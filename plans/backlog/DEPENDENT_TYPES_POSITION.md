@@ -195,8 +195,9 @@ there is nothing to stratify.
 **What Yo lacks is pervasiveness, not a type former.** In F\* a refinement
 flows through every binder, result and record field, and ghost state can
 live inside a runtime value (`erased` fields). In Yo the verifier
-consumes a refinement only on function parameters (a refined field or
-local evaluates to its base type and carries no obligation), and there is
+consumes a refinement only on function parameters (a local's binder erases
+it to the base type and a field's refinement is never read, so neither
+carries an obligation), and there is
 no ghost field. Closing that (that doc's
 F1, F2) is verifier-pass work that leaves unification alone; the rest of
 the audit (auto-firing lemmas, hint replay, scoped hiding, fuel, inferred

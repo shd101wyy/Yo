@@ -7,7 +7,10 @@ verifier can learn from F\*; and whether anything like F\*'s tactics
 belongs in Yo. Nothing here is adopted; each candidate ends with a verdict
 and a trigger, and the maintainer picks. Every "Yo today" claim was checked
 on the 2026-10-14 tree (develop `960a3904c`, seed v0.2.61) by grep or by
-reading the cited file; a claim marked *(verify)* was not run to ground.
+reading the cited file; an audit pass against develop on 2026-10-14
+(seed v0.2.62) corrected 17 claims and settled the two that had been
+marked unverified (refined results, F1; closed `ghost_fn` folding, F7) by
+running probe programs through `yo verify`.
 Every F\* claim cites a primary source (§8). Companions:
 [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md) (the charter;
 this PR adds its "The F\* question" section),
@@ -100,18 +103,18 @@ Listed so nobody proposes it again.
 
 | F\* | Yo today | Where |
 | --- | --- | --- |
-| `x:t{φ}` refinement, erased, SMT-discharged | `refine(T, p)`: the callee assumes `p(param)` at entry, every call site proves `refine#N`; `NonZero(T)`, `Bounded(T, lo, hi)`, `Positive(T)`, … | `docs/en-US/FORMAL_VERIFICATION.md` §Refinement types; `src/evaluator/types/function.yo:629` (`g_func_refined_params`); `std/spec/refine.yo` |
+| `x:t{φ}` refinement, erased, SMT-discharged | `refine(T, p)`: the callee assumes `p(param)` at entry, every call site proves `refine#N`; `NonZero(T)`, `Bounded(T, lo, hi)`, `Positive(T)`, … | `docs/en-US/FORMAL_VERIFICATION.md` §Refinement types; `src/evaluator/types/function.yo:638` (`g_func_refined_params`); `std/spec/refine.yo` |
 | Proof irrelevance (`squash`, refinements materialize no proof) | predicates are `bool`; `ghost` values never reach codegen; "ghost value escapes specification context" is an error | FV §Ghost erasure (V5) |
-| `Lemma` as a total recursive function = induction | a unit `ghost_fn` with `ensures` (+ `decreases`) is proved once by induction; the self-call's `ensures` is the hypothesis | `src/verifier/vc.yo` (~L5760); `docs/en-US/FORMAL_VERIFICATION.md` §Lemmas |
+| `Lemma` as a total recursive function = induction | a unit `ghost_fn` with `ensures` (+ `decreases`) is proved once by induction; the self-call's `ensures` is the hypothesis | `src/verifier/vc.yo` (~L6086, `is_lemma`); `docs/en-US/FORMAL_VERIFICATION.md` §Lemmas |
 | `Pure a req ens`, `Lemma (requires) (ensures)` | `requires(...)` / `ensures(...)`, named return `-> (r : T)` | FV D3 |
 | `decreases %[m; n]` | `decreases(m, n)` | ATS lessons A5 |
 | `GTot`, `erased`, `hide`/`reveal` | `ghost(...)` bindings, `ghost_fn`, erased in verify mode | FV V5 task 3 |
-| `assert_norm`, the normalizer | literal obligations constant-fold at emission (`folded`, never a query); comptime functions need no VCs | `src/verifier/vc.yo:672`, `_fold_*` (L883–L1013); FV §`comptime` functions need no VCs |
+| `assert_norm`, the normalizer | literal obligations constant-fold at emission (`folded`, never a query); comptime functions need no VCs | `src/verifier/vc.yo:672`, `_fold_*` / `_fold_term` (L885–L1177, applied to the goal at L1421); FV §`comptime` functions need no VCs |
 | `--z3rlimit`, fixed seeds | `:rlimit` budgets, `:random-seed 0`, one deterministic 20× retry, cache keyed on the pin | FV D7; `src/verifier/driver.yo:349` |
-| `--z3refresh` (fresh solver per query) | always: one fresh Z3 process per function | FV §Determinism |
+| `--z3refresh` (fresh solver per query) | always: one fresh Z3 process per obligation (`run_vc_query`, `src/verifier/driver.yo:355`) | `driver.yo`, `z3.yo:333` |
 | `assume` / `admit` — "a proof isn't done until it's free of them" | `assumed()` on std's trusted contracts; `yo verify --strict` denies `assumed`, `outside-subset`, `unproven` | BEND B0 |
 | Intrinsic vs extrinsic proofs | `ensures` on the function vs `law` / lemma beside it | BEND B1 |
-| Unsat cores | `(get-unsat-core)` names the clauses a `Proved` verdict used | `src/verifier/encode.yo:553`, `driver.yo:291` |
+| Unsat cores | plumbing only: `:produce-unsat-cores` and `(get-unsat-core)` are emitted and `Proved` carries the core, but production assumptions are unnamed, so the core is empty | `src/verifier/encode.yo:580–587`, `vc.yo:1310`, `driver.yo:291` |
 | Inductives as SMT datatypes | value enums as `declare-datatypes`, `match` as `ite` over testers | `docs/en-US/FORMAL_VERIFICATION.md` §The verifiable subset |
 | Low\*: a verified C-like subset | the verifiable subset (SPARK's discipline) and safe mode | FV §The verifiable subset; `plans/SAFE_MODE.md` |
 | Interfaces (`.fsti`) hide an implementation from clients | `_`-prefix privacy and `export(...)`; the SMT-visibility half is F6 | `plans/reference/MEMBER_VISIBILITY.md` |
@@ -162,11 +165,12 @@ fields). In Yo today a refinement lives in the function signature only:
 the callee assumes it, the caller proves it, a call's result keeps its
 declared `refine(...)` for dispatch, but "a binder erases a refinement"
 (`tests/spec/refine_types.test.yo:148`); a `refine(T, p)` annotation may be
-written in any type position and evaluates to `T`, the evaluator records
-it by expression id (`register_refine_annotation`,
-`src/evaluator/types/function.yo:683`), and the verifier consumes it only
-for function parameters (`g_func_refined_params`, "read at fn-type
-registration where each parameter's declared TYPE EXPR is inspected"), so
+written in any type position and evaluates to the nested-distinct type
+`RefineT(T, p)`, which every binder erases to `T` (`src/env.yo`,
+`t_refine_inner`); the verifier reads it only from a function's resolved
+parameter types (`g_func_refined_params`,
+`src/evaluator/types/function.yo:638`, filled at `:4502–4523`; the
+node-id registry `register_refine_annotation` at `:683` has no reader), so
 a refined field or local carries no obligation and no assumption; and
 there is no ghost field or ghost parameter anywhere in the tree (grep over
 `plans/`, `docs/`, `issues/`: none). Closing that is F1 and F2, and it is Layer-2
@@ -197,20 +201,29 @@ type `x:nat{x > 0}` is proved at the function's exits; record fields carry
 refinements.
 
 **Yo today.** A refined *parameter* is assumed at entry and proved by the
-caller (`refine#N`). A refined *result* keeps its declared type for
-dispatch (`refine_types.test.yo:148–159`), but the registry is
-per-parameter only (`register_func_refined_params`) — whether the callee
-proves the predicate at its exits and the caller assumes it after the
-call is *(verify)*. A refined *local* annotation `d : NonZero(i32) = e`
-erases to `i32` with no obligation ("a binder erases a refinement"). A
-refined *field* type is accepted and registered by expression id but never
-read: the only consumer of the annotation registry is the per-parameter
-table (`g_func_refined_params`, `src/evaluator/types/function.yo:629`),
-so `struct(n : NonZero(i32))` is a plain `i32` field to the verifier. The
-construction gap is recorded in
-`std/spec/refine.yo` itself: in verified code a value satisfying `p` on
-the current path must still go through a runtime `check_*` gate (an
-`Option`) or the unsafe-capable `unchecked` cast.
+caller (`refine#N`); the caller may pass a plain value and prove `refine#N`
+from its own path, so a refined parameter needs no gate in verified code
+(`tests/spec/fixtures/valid/refine_nonzero.yo:17`). A refined *result* is
+not a spec: the call's ExprInfo keeps its declared `refine(...)` type
+(operator and method dispatch erase it, `refine_types.test.yo:148–159`),
+but the verifier neither proves the predicate at the callee's exits nor
+assumes it after the call. `get_func_refined_params` is per-parameter only
+(`src/verifier/vc.yo:6155`, `6235`, `6818`), and
+`issues/fixed/an-operator-on-a-refined-value-finds-no-impl.md` records that
+a refined result type is never read as a spec: a function declared
+`-> refine(i32, p)` that returns a value violating `p` verifies with no
+obligation. A refined *local* annotation `d : NonZero(i32) = e` erases to
+`i32` with no obligation ("a binder erases a refinement"). A refined
+*field* type is accepted, and its type is a `RefineT`, but the verifier
+never reads it: it strips every `RefineT` with `t_refine_inner` except on
+parameters, so `struct(n : NonZero(i32))` is a plain `i32` field to the
+verifier. A plain `T` even converts to a refined type silently, for
+example as a return value (`refine_types.test.yo`'s `abs_nn`), so
+`std/spec/refine.yo`'s "a plain `T` does not coerce silently" is stale.
+The `check_*` gate (an `Option`) or the unsafe-capable `unchecked` cast is
+only the way to manufacture a refined value outside a proof. What verified
+code lacks is a refinement that a binder, a result or a field *carries*
+once proved, so the fact survives being stored or returned.
 
 **Proposal.**
 
@@ -218,7 +231,10 @@ the current path must still go through a runtime `check_*` gate (an
   a declared refined type) emits `refine#` for `e` under the path
   condition and the binding carries the refinement from then on. In a
   verified function, `if(x != i32(0), { d : NonZero(i32) = x; … })`
-  proves from the branch condition — no gate, no `Option`, no unsafe.
+  proves from the branch condition. Inside one function this buys little
+  (the divisor obligation in the sketch below already proves from the
+  path today); it matters once the fact must outlive the path that proved
+  it, as a loop-carried binder or a value passed on.
 - (b) **Result obligation.** A refined return type is proved at every
   normal exit (like `ensures`) and assumed after every call (like
   `ensures`); then `abs_nn :: (fn(x : i32) -> refine(i32, _nonneg_i32))`
@@ -230,7 +246,7 @@ the current path must still go through a runtime `check_*` gate (an
   dependent record.
 
 ```yo ignore
-// (a): the gate disappears inside a verified function
+// (a): verifies today from the path; with (a), `d` itself carries NonZero
 safe_recip :: (fn(x : i32) -> (r : i32))(
   if(x != i32(0), { d : NonZero(i32) = x; i32(1) / d }, i32(0))
 );
@@ -245,8 +261,9 @@ value semantics and should wait for the heap/ownership model of
 
 **Verdict: adopt (a) and (b), size S–M; (c) as the first slice of D11
 when type invariants are prioritized.** Trigger: the SELF_VERIFICATION M2
-census finds a `check_*` gate or `unchecked` cast in a verified function
-whose path condition already proves the predicate.
+census finds a verified function that has to re-prove a predicate it
+already established (a refined result or field restated as `ensures` or
+`requires`).
 
 ### F2 Ghost fields and ghost parameters (F\*'s `erased`)
 
@@ -288,8 +305,9 @@ SMT solver sees it", so the trigger term vanishes.
 
 **Yo today.** Quantifiers use MBQI ("explicit `:pattern` triggers are
 deferred until a benchmark needs them", `src/verifier/vc.yo:3623`;
-`terms.yo:180`); definitional axioms of recursive `ghost_fn`s and the
-list-append/`ms_of` axioms are triggered (`vc.yo:4581`, `5268`); a lemma
+`terms.yo:180`); definitional axioms of `decreases`-carrying `ghost_fn`s (`vc.yo:5902`),
+the list-append contents axiom (`vc.yo:3790`) and the `ms_of` axioms
+(`vc.yo:4581`, `5306`) are triggered; a lemma
 is used only by naming it, `ghost(lemma(args))`. THEOREM_PROVING_NEXT T1
 (the std lemma library) and T4b (a user-facing `trigger(...)`) are
 separate items with T4b gated on T1's gaps.
@@ -327,17 +345,24 @@ milliseconds instead of minutes". Caveat, also theirs: "Z3 does not
 guarantee that it will be able to *prove* that an unsat core is indeed
 unsatisfiable".
 
-**Yo today.** Every assertion is `:named`, `:produce-unsat-cores` is on,
-and a `Proved` verdict carries its core (`src/verifier/encode.yo:528–587`,
-`driver.yo:291`) — for *attribution* only. The verdict cache
-(`~/.cache/yo/verify-cache/`, keyed on source, contracts, callee contracts,
-pin, mode, options) is a cache, not a proof: any edit or pin bump re-proves
-from nothing, and nothing tells an author that a proof only passes because
+**Yo today.** The encoder can name assertions (`encode.yo:527`) and
+requests `(get-unsat-core)` (`encode.yo:580–587`), and `Proved` carries the
+result (`driver.yo:291`). But no production assumption is named:
+`vc.yo:1310` pushes every one through the unnamed `q.assume`, and only a
+unit test calls `assume_named`. Today's cores are therefore empty. The
+verdict cache (`~/.cache/yo/verify-cache/`) is per obligation, keyed on the
+sha256 of the encoded query plus the Z3 pin, rlimit, seed, timeout and a
+cache epoch (`src/verifier/driver.yo:252–270`). It is a cache, not a
+proof: an obligation whose query changes, and every obligation after a pin
+bump, is re-proved from nothing, with no record of what the old proof
+used, and nothing tells an author that a proof only passes because
 of a heuristic the next Z3 may not share. K L1 (stable obligation ids) is
 the prerequisite already filed.
 
 **Proposal.**
 
+- Name the assumptions first (`assume_named` at `vc.yo:1310`, plus the
+  goal); until then every core is empty and nothing below has input.
 - Per obligation id, persist the core's clause names beside the verdict;
   on a cache miss with a recorded core, send the core-only query first;
   `unknown` falls back to the full query **unconditionally** (the verdict
@@ -367,7 +392,7 @@ M2's verify wall time, or the first Z3 pin bump that flips a verdict.
 **F\*.** `--z3refresh` "detect[s] flaky proofs"; `smtprofiling`'s
 stabilization catalog starts from seed and refresh variation.
 
-**Yo today.** A fresh process per function and `:random-seed 0` always:
+**Yo today.** A fresh process per obligation and `:random-seed 0` always:
 reproducible by construction, but a proof that passes *only* under seed 0
 is invisible.
 
@@ -394,8 +419,8 @@ visible to every obligation or to none.
 
 **Proposal.** `opaque` on a pure function: specs see only its contracts
 (none ⇒ uninterpreted). `ghost(reveal(f))` as a statement: from that
-point in the function, obligations see `f`'s definition. One unfolding per
-reveal, as A3 today.
+point in the function, obligations see `f`'s definition: the reveal
+brings the definitional axiom into scope.
 
 **Verdict: adopt when measured, size S.** Trigger: SELF_VERIFICATION M2
 obligations whose contexts carry more than N transparent definitions, or
@@ -410,11 +435,19 @@ F\*'s normalizer".
 
 **Yo today.** A recursive `ghost_fn` is an uninterpreted function plus the
 definitional axiom `forall ps. f(ps) == body[ps]` triggered on the
-application (`src/verifier/vc.yo` ~L5760): unfolding depth is bounded only
-by E-matching's own limits and the rlimit. A spec-transparent runtime
-function unfolds once per call (A3). Whether a closed application of a
-recursive `ghost_fn` over literals is CTFE-folded before encoding is
-*(verify)*; the literal folds in `vc.yo` cover operators, not calls.
+application (`_ghost_fn_app_term`, `src/verifier/vc.yo:5771–5910`):
+unfolding depth is bounded only by E-matching's own limits and the rlimit.
+A spec-transparent runtime function (A3) uses the same encoding
+(`_transparent_call_term` → `_ghost_fn_app_term`, `vc.yo:5712`); only a
+`ghost_fn` without `decreases` is inlined once per call
+(`_ghost_fn_inline_term`, `vc.yo:5912`). A closed application of a
+`decreases`-carrying `ghost_fn` is not folded: it reaches Z3 as an
+uninterpreted application plus its definitional axiom, and E-matching
+unfolds it (`sum_to(i32(3)) == i32(6)` is a solver query today).
+`_fold_term` (`vc.yo:1077`) folds operator applications only, and the
+evaluator does not CTFE a runtime-typed `ghost_fn` call. A `ghost_fn`
+without `decreases` is inlined, so a closed application of one does fold
+(`sq(i32(3)) == i32(9)` reports `PROVED (folded)`).
 
 **Proposal.** (i) Fold closed ghost terms through the evaluator before
 encoding — Yo's normalizer is CTFE, and `count(seq_unit(1), 1) == 1`
@@ -522,8 +555,10 @@ Open Question 7.
   `MATCHING_LOGIC_RESEARCH.md` §7 gave separation logic: Pulse proves
   exclusivity with `pts_to` permissions at proof time; Yo's unique
   ownership (VALUES_BY_DEFAULT §0) and `&mut` exclusivity give it
-  statically, so Prusti-style ownership framing (SELF_VERIFICATION's
-  foundations table) is the nearer model, with flat heaps as the floor.
+  statically, so Prusti-style ownership framing is one of the two
+  candidates SELF_VERIFICATION's foundations table leaves to L6
+  ("partially applicable" for parameters; D2 starts L6 with singleton
+  `inout` treatment), with flat heaps as the other.
 - (d) Nothing for async: Pulse's `par` is structured concurrency under
   separation logic — relevant to `src/codegen/parallelism/`, not to the
   single-threaded event loop.
@@ -591,19 +626,21 @@ modified code without restarting F\*").
 unstarted; `yo mcp` is a precedent-backed idea in
 [`AGENT_LOOP_NEXT.md`](AGENT_LOOP_NEXT.md); the resident checker exists
 for `check` and `build` (`--watch`) but not for `verify`;
-`docs/*/FORMAL_VERIFICATION.md` §Troubleshooting has four rows.
+`docs/*/FORMAL_VERIFICATION.md` §Troubleshooting has seven rows,
+including the extreme-value overflow and weak-invariant symptoms.
 
 **Proposal.** (a) A **proof-stabilization catalog** in
 `docs/*/FORMAL_VERIFICATION.md` §Troubleshooting, one row per technique
 with the fixture that demonstrates it (the negative twins in
-`tests/spec/fixtures/` are the corpus): weak invariant, missing frame
-lemma, overflow in the claim, trigger never matched, transparent recursion
+`tests/spec/fixtures/` are the corpus), beyond the seven rows already
+there: missing frame lemma, trigger never matched, transparent recursion
 without `decreases`, alias without `distinct`, … (b) B4's task shape: a
 contract-as-spec corpus mined from `std/` and `tests/spec` (signature +
 contracts → body), checked by `yo verify --strict`, retrieval by
 signature. (c) `yo verify --watch` on the resident checker, so an agent's
-edit re-verifies only the obligations whose cache key changed (K L1's
-stale/fresh marker).
+edit re-runs only the evaluator and VC generation for the changed
+definitions (K L1's stale/fresh marker); the per-obligation verdict cache
+already skips unchanged queries at the solver.
 
 **Verdict: adopt (a) now (docs, size S); (b) is B4's design input; (c)
 when B4 measures the loop's latency.**
@@ -663,7 +700,7 @@ ghost statement.
 | F15 in-body `assume` | — | XS | B4 or the first annotation loop that wants it |
 | F13(a) stabilization catalog (docs) | — | S | none |
 | F8(a) inferred `decreases` | the fixture count | S | that count |
-| F1(a)(b) binder and result refinements | — | S–M | M2 census finds a redundant gate |
+| F1(a)(b) binder and result refinements | — | S–M | M2 census finds a re-proved predicate |
 | F3 auto-firing lemmas (= T1 + T4b) | T4a | M | T1 start |
 | F5 seed sweeps (T4a) | — | XS | T1's first landing |
 | F7(i)(ii) fold + diagnose | — | S | T4a counts; (iii) fuel encoding on measurement |
@@ -672,7 +709,7 @@ ghost statement.
 | F2 ghost fields and parameters | F1(c) | M | an L6/M2 module wanting a ghost view |
 | F1(c) field refinements (= D11 slice 1) | L6 | M | type invariants prioritized |
 | F12 canonicalization pass | — | M | `unknown` class on M1's arithmetic laws |
-| F11(b) effect-operation contracts | OQ1 / L6 | design question | M4, or a verified std module performing an effect |
+| F11(b) effect-operation contracts | L2 | design question | the census count of functions blocked only by an effect parameter |
 | F13(c) `yo verify --watch` | K L1 | M | B4's latency measurement |
 
 Every item keeps the landed invariants: pinned Z3, deterministic rlimit
