@@ -1563,9 +1563,10 @@ check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token,
 /// binding and its field path, and how a message names it.
 _ArgPlace :: struct(root_id : usize, path : ArrayList(String), text : String);
 /// The places argument `arg` (evaluated) reaches: the place it names, when it
-/// is a field chain rooted at a runtime binding (`z`, `s.items`), and every
-/// place a capture-list closure it holds borrows, transitively (decision 38 B).
-_arg_places :: (fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(_ArgPlace)) -> unit)({
+/// is a field chain rooted at a runtime binding (`z`, `s.items`) and `named`
+/// holds, and every place a capture-list closure it holds borrows,
+/// transitively (decision 38 B).
+_arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(_ArgPlace)) -> unit)({
   fields_rev := ArrayList(String).new();
   (cur : AstExpr) = arg;
   (walking : bool) = true;
@@ -1591,7 +1592,7 @@ _arg_places :: (fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out :
       walking = false;
     });
   });
-  if(is_place && ast_expr_is_atom(&cur), {
+  if(named && is_place && ast_expr_is_atom(&cur), {
     match(
       get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last(),
       .Some(rv) => if(!rv.is_compile_time_only, {
@@ -1656,13 +1657,22 @@ require_capture_borrow_exclusivity :: (
   });
   all_args := ArrayList(AstExpr).new();
   excl := ArrayList(bool).new();
+  // A by-value argument of a `Copy` type (`self.m(self.tail)` with a `u64`
+  // field) is copied before the call runs, so the callee cannot reach the
+  // place it names; only the borrows its type carries count. A second-class
+  // value (a `&T`, a borrowing closure) keeps its named place too
+  // (issues/fixed/2026-10-15-a-copy-field-read-argument-overlaps-a-lent-receiver-once-a-capture-borrow-exists.md).
+  named := ArrayList(bool).new();
   (ai : usize) = usize(0);
   while(ai < args.len(), {
     a := match(args.get(ai), .Some(x) => x, .None => make_err_expr());
     all_args.push(a);
     is_ref_param := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
-    carries_mut := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)), .Some(inf) => type_first_mut_borrow(&inf.ty).is_some(), .None => false);
+    a_info := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a));
+    carries_mut := match(a_info, .Some(inf) => type_first_mut_borrow(&inf.ty).is_some(), .None => false);
+    copied := (!is_ref_param && match(a_info, .Some(inf) => (type_is_bitwise_copy(inf.ty) && !type_is_second_class(&inf.ty)), .None => false));
     excl.push(is_ref_param || carries_mut);
+    named.push(!copied);
     ai = (ai + usize(1));
   });
   match(
@@ -1670,6 +1680,7 @@ require_capture_borrow_exclusivity :: (
     .Some(callee) => {
       all_args.push(callee);
       excl.push(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(inf) => type_first_mut_borrow(&inf.ty).is_some(), .None => false));
+      named.push(true);
     },
     .None => ()
   );
@@ -1677,7 +1688,7 @@ require_capture_borrow_exclusivity :: (
   (pi : usize) = usize(0);
   while(pi < all_args.len(), {
     ps := ArrayList(_ArgPlace).new();
-    _arg_places(match(all_args.get(pi), .Some(x) => x, .None => make_err_expr()), env, ctx, &mut ps);
+    _arg_places(match(all_args.get(pi), .Some(x) => x, .None => make_err_expr()), match(named.get(pi), .Some(n) => n, .None => true), env, ctx, &mut ps);
     places.push(ps);
     pi = (pi + usize(1));
   });
