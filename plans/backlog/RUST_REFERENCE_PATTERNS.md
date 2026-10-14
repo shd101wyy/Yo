@@ -12,10 +12,11 @@ check spelled `RefCell(T)`, references `&T`/`&mut T` as second-class types
 with lifetimes elided ([`NON_ESCAPABLE_TYPES.md`](NON_ESCAPABLE_TYPES.md),
 rules R1–R7). Sections that depend on that design or on V2b say so. At V5
 this document is the seed of the user-facing porting guide (`docs/en-US/`
-+ `docs/zh-CN/`). Four shapes still have an open design question, each
-filed with a recommendation and cited where it applies:
++ `docs/zh-CN/`). Three shapes still have an open design question, each
+filed with a recommendation and cited where it applies (a fourth, `Rc`'s
+`get_mut`/`try_unwrap`/`make_mut`, was decided as Rust's on 2026-10-14:
+`plans/VALUES_BY_DEFAULT.md` decision 46):
 `issues/questions/hashmap-lookup-by-borrowed-key-form.md`,
-`issues/questions/rc-get-mut-try-unwrap-make-mut-are-undecided.md`,
 `issues/questions/refcell-inside-a-plain-value.md`,
 `issues/questions/borrowed-for-over-user-defined-collections.md`.
 
@@ -588,8 +589,8 @@ narrowed with `depends(...)` (R3). So:
 | a value out instead | `get(i)` for `Copy` payloads, `get_cloned(i)` otherwise; `take(i)`, `pop`, `remove` for ownership |
 | a reference to hold beside others, long-lived | `Rc(V)` values and `Rc.clone(v)`; or the key/index (shape 3) |
 
-`Rc::get_mut`/`try_unwrap`/`make_mut` out of a handle are
-`issues/questions/rc-get-mut-try-unwrap-make-mut-are-undecided.md`.
+`Rc::get_mut`/`try_unwrap`/`make_mut` out of a handle are Rust's, with
+`Arc` mirrors (`plans/VALUES_BY_DEFAULT.md` decision 46, 2026-10-14).
 
 ## 7. Closures and async
 
