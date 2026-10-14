@@ -27,7 +27,7 @@
   expr_info_deferred_dup_expressions,
   scope_variables
 } :: import("../../expr_info.yo");
-{ is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type, is_unique_box_type } :: import("../../types/guards.yo");
+{ is_unit_type, is_never_type, is_pointer_type, is_reference_struct_type, is_reference_enum_type, is_enum_type, is_float_type, is_unique_box_type, is_box_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { note_state_machine_binding_id, FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
@@ -40,7 +40,8 @@
 { declare_c_var_name, get_type_string, fresh_local_name, get_variable_name_for_codegen, type_key, sanitize_for_c_identifier, c_field_name, c_variant_member_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, get_enum_variant_c_name, get_deferred_dup_target_atom_name, pattern_param_is_literal, pattern_literal_param_code, pattern_literal_arm_guards, arm_variant_name, arm_params, nullable_arm_selects_payload, nullable_arm_payload_binder, get_runtime_struct_fields, note_line_position, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { resolve_enum_shell, t_ptr } :: import("../../types/creators.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-{ Pattern, Arm, lookup_match_arms, pattern_bindings, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT } :: import("../../pattern.yo");
+{ Pattern, Arm, lookup_match_arms, pattern_bindings, lookup_match_mode, lookup_arm_entry_drops, pattern_position_is_cell, MATCH_MODE_MUT, MATCH_MODE_BORROW } :: import("../../pattern.yo");
+{ arm_is_classic } :: import("../../evaluator/exprs/pattern_compile.yo");
 /// True for an ASCII word byte ([A-Za-z0-9_]).
 _is_word_byte :: (fn(b : u8) -> bool)(
   ((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95))
@@ -2265,6 +2266,63 @@ _emit_pattern_chain :: (
   );
 });
 /// Are all arms of a match classic switch shapes?
+/// The `Rc` cell a borrow match looks through on every arm, when the
+/// pre-IR switch emitter can lower it on the payload's tag: each arm is a
+/// classic `_`, or an implicit look-through (`ThroughBox`) of a classic
+/// variant shape at one `Rc` type whose fields are binders or `_` only. With
+/// no literal field, every variant's arms cover it, so the switch drops no
+/// miss (the soundness rule the evaluator checks for a plain enum's classic
+/// groups). Without this a match on a `TypeValue` handle took the general
+/// test chain, one `if (!(tag == X)) goto` per arm
+/// (plans/VALUES_BY_DEFAULT.md decision 21's "As built" note).
+_lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
+  (cell : Option(TypeValue)) = .None;
+  (cell_key : String) = String.new();
+  (i : usize) = usize(0);
+  while(i < arms.len(), i = (i + usize(1)), {
+    arm := match(arms.get(i), .Some(a) => a, .None => return(.None));
+    if(arm.guard.is_some(), {
+      return(.None);
+    });
+    match(
+      arm.pattern,
+      .Wildcard => if(!arm.classic, {
+        return(.None);
+      }),
+      .ThroughBox(bt, _, sub) => {
+        if(!is_box_type(&bt) || is_unique_box_type(&bt), {
+          return(.None);
+        });
+        simple := match(
+          sub,
+          .Variant(_, _, _, subs, _, through_ptr, _) => {
+            (ok : bool) = !through_ptr;
+            (k : usize) = usize(0);
+            while((k < subs.len()) && ok, k = (k + usize(1)), {
+              ok = match(subs.get(k), .Some(.Wildcard) => true, .Some(.Bind(_, _, _)) => true, _ => false);
+            });
+            ok
+          },
+          _ => false
+        );
+        if(!simple || !arm_is_classic(&arm.pattern_expr, &sub, false, false), {
+          return(.None);
+        });
+        k := type_key(&bt);
+        cond(
+          cell.is_none() => {
+            cell = .Some(bt);
+            cell_key = k;
+          },
+          !(k == cell_key) => return(.None),
+          true => ()
+        );
+      },
+      _ => return(.None)
+    );
+  });
+  cell
+});
 _arms_all_classic :: (fn(arms : &ArrayList(Arm)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
@@ -2447,7 +2505,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   args := _args(expr);
   subject := match(args.get(usize(0)), .Some(s) => s, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a subject"))));
   subject_ei := match(context.base.get_expr_info(&subject), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("\"match\" expression requires a valid type"))));
-  match_value_type := subject_ei.ty;
+  (match_value_type : TypeValue) = subject_ei.ty;
   (matched_value_code : String) = _call_generate_expr(&subject, indent.clone(), context);
   // Materialize the subject into its temp var when the evaluator assigned one
   // — for a NON-atom subject (a call, a field read) whose value the arms then
@@ -2507,6 +2565,34 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   if(match(expr_info_is_primitive_match(&ei), .Some(b) => b, .None => false), {
     return(generate_primitive_match_expression(expr, indent.clone(), context, &matched_value_code, &match_value_type, &temp_var_opt, is_unit));
   });
+  // A borrow match whose arms all look through one `Rc` cell to classic
+  // variant shapes switches on the payload: the subject becomes the cell's
+  // payload field (`h->_u42_`), and the classic emitters below see a plain
+  // enum value.
+  (through_switch : bool) = false;
+  if(lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_BORROW, {
+    match(
+      lookup_match_arms(ast_expr_id(expr)),
+      .Some(lt_arms) => match(
+        _lookthrough_switch_cell(&lt_arms),
+        .Some(cell_ty) => {
+          cell_base := if(is_pointer_type(&match_value_type), `(*${matched_value_code})`, matched_value_code.clone());
+          fields := get_runtime_struct_fields(&cell_ty);
+          match(
+            fields.get(usize(0)),
+            .Some(f) => {
+              matched_value_code = `${cell_base}->${sanitize_for_c_identifier(f.label.clone(), false)}`;
+              match_value_type = resolve_enum_shell(&f.ty);
+              through_switch = is_enum_type(&match_value_type);
+            },
+            .None => ()
+          );
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+  });
   // Dereference pointer / ref-semantics one level to the enum type.
   is_ptr := is_pointer_type(&match_value_type);
   is_ref_sem := (!is_ptr && (is_reference_struct_type(&match_value_type) || is_reference_enum_type(&match_value_type)));
@@ -2517,7 +2603,7 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   match(
     lookup_match_arms(ast_expr_id(expr)),
     .Some(arms) => {
-      if(!_arms_all_classic(&arms) || !is_enum_type(resolve_enum_shell(&enum_type0)), {
+      if(!through_switch && (!_arms_all_classic(&arms) || !is_enum_type(resolve_enum_shell(&enum_type0))), {
         return(_gen_general_match(expr, &arms, indent.clone(), context, &matched_value_code, &match_value_type, &temp_var_opt, is_unit));
       });
     },
