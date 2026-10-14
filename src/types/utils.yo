@@ -3188,7 +3188,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
         (oi : usize) = usize(0);
         (ofound : bool) = false;
         while((oi < ofts.len()) && !ofound, oi = (oi + usize(1)), {
-          oft := match(ofts.get(oi), .Some(t) => t, .None => TypeValue.Unit);
+          oft := match(ofts.get(oi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(match(buffer_element_type(&oft), .Some(elem) => recur(&elem, depth - usize(1)), .None => recur(&oft, depth - usize(1))), {
             ofound = true;
           });
