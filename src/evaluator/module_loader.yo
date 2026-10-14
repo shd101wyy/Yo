@@ -386,12 +386,15 @@ update_module_cache_slot :: (fn(path : &String, name : &String, var : &Variable)
           match(
             mv,
             .StructVal(_, names, vals) => {
+              // A binding below the value's cell is a read-only copy; the
+              // write goes through an owned handle to the same list.
+              slots := vals;
               (ni : usize) = usize(0);
               while(ni < names.len(), {
                 match(
                   names.get(ni),
                   .Some(n) => if(n == name, {
-                    vals(ni) = match(
+                    slots(ni) = match(
                       var.value.get(usize(0)),
                       .Some(v) => v,
                       .None => EvalValue.UnitVal

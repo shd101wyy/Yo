@@ -5379,6 +5379,17 @@ compiler; the std shapes are plain structs the seed lowers):
       `tests/unsafe_cast_rc_borrow.test.yo`,
       `tests/deferred_dup_return_single_eval.test.yo`): a type that is
       written through the subscript needs an `IndexMut` impl.
+    - **`src/`.** A subscript write through a read-only binding is E0908
+      now, though a writing method through the same binding of a `ref`
+      collection still passes until unique buffers. Ten sites moved: two `&`
+      parameters became `&mut` (`src/doc/builder.yo`), one `Option` match
+      became `match(&mut got, …)` (`src/types/substitution.yo`), and seven
+      pattern bindings below an `EvalValue`/`AstExpr` cell, which stay
+      read-only copies, write through an owned local handle to the same list
+      (`src/evaluator/module_loader.yo`, `src/evaluator/exprs/assignment.yo`,
+      `src/evaluator/exprs/initialization_assignment.yo`). Unique buffers
+      turn those handle copies into explicit moves or copies, so they will
+      surface again there rather than silently write a copy.
     - **Not in this step.** The dispatch still looks `index` / `index_mut`
       up by name; keying it on the prelude traits waits for the direct
       projection calls (decision 24's remaining result positions). Once a

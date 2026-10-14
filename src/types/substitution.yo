@@ -438,8 +438,10 @@ _substitute_at :: (fn(s : &Substitution, ty : &TypeValue, is_root : bool) -> Typ
   });
   memo := match(s.node_memo.get(usize(0)), .Some(m) => m, .None => HashMap(String, ArrayList(_NodeMemoEntry)).new());
   (probe : String) = String.new();
+  // `&mut`: a stale entry's key is written back into the bucket below.
+  got := memo.get(&id);
   match(
-    memo.get(&id),
+    &mut got,
     .Some(bucket) => {
       probe = type_memo_key(ty);
       (i : usize) = usize(0);

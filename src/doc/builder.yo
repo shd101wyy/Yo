@@ -1901,7 +1901,7 @@ _classify_token_declarations :: (fn(tokens : &ArrayList(Token)) -> TokenDeclStru
 });
 /// Append `field` to `types(idx)`'s field list, creating the list on first
 /// use (the write-back pattern `build_cross_references` uses for traits).
-_attach_token_field :: (fn(types : &ArrayList(DocType), idx : usize, field : &DocField) -> unit)({
+_attach_token_field :: (fn(types : &mut ArrayList(DocType), idx : usize, field : &DocField) -> unit)({
   t := match(
     types.get(idx),
     .Some(x) => x,
@@ -1932,7 +1932,7 @@ _attach_token_field :: (fn(types : &ArrayList(DocType), idx : usize, field : &Do
 });
 /// Append `variant` to `types(idx)`'s variant list, creating the list on
 /// first use.
-_attach_token_variant :: (fn(types : &ArrayList(DocType), idx : usize, variant : &DocVariant) -> unit)({
+_attach_token_variant :: (fn(types : &mut ArrayList(DocType), idx : usize, variant : &DocVariant) -> unit)({
   t := match(
     types.get(idx),
     .Some(x) => x,
@@ -2172,7 +2172,7 @@ build_doc_module_from_tokens :: (
                 .None => String.from("(unknown)")
               );
               _attach_token_field(
-                &types,
+                &mut types,
                 idx,
                 DocField(
                   name : decl_name.clone(),
@@ -2183,7 +2183,7 @@ build_doc_module_from_tokens :: (
               );
             }, {
               _attach_token_variant(
-                &types,
+                &mut types,
                 idx,
                 DocVariant(
                   name : decl_name.clone(),

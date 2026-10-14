@@ -981,7 +981,10 @@ evaluate_initialization_assignment :: (
     match(
       expr,
       .FnCall(_, _, ia_args, _, _) => {
-        ia_args(usize(0)) = tl_atom;
+        // A pattern binding below a cell is a read-only copy; the write goes
+        // through an owned handle to the same list.
+        tl_args := ia_args;
+        tl_args(usize(0)) = tl_atom;
       },
       .Atom(_, _) => ()
     );
