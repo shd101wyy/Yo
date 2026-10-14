@@ -42,6 +42,7 @@ pragma(Pragma.AllowUnsafe);
 /// Capture-list borrow entries by capture-struct id (`register_capture_borrows`).
 (g_capture_borrows : HashMap(String, ArrayList(CaptureBorrow))) = HashMap(String, ArrayList(CaptureBorrow)).new();
 { TypeValue, TypeValueNode, t_refine_inner } :: import("./definitions.yo");
+{ type_intern_key } :: import("./intern.yo");
 { type_to_string } :: import("./string.yo");
 { type_value_tag, resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { TypeTag } :: import("./tags.yo");
@@ -1551,6 +1552,13 @@ _declared_acyclic :: (fn(ty : &TypeValue) -> bool)(
     _ => false
   )
 );
+/// The cycle walk's cut key for one buffer-owning instantiation: its
+/// structural key, since every instantiation of a generic struct shares the
+/// struct id.
+_buffer_cut_key :: (fn(ty : &TypeValue) -> String)({
+  seen := HashSet(String).new();
+  `buffer:${type_intern_key(ty, usize(0), &mut seen)}`
+});
 _type_refs_back_to_cyclic :: (
   fn(ty : &TypeValue, original_id : &String, visited : &ArrayList(String)) -> bool
 )(
@@ -1635,7 +1643,7 @@ _type_refs_back_to_cyclic :: (
         // struct id would not do, because every instantiation of a generic
         // struct shares it.
         has_buffer := (!found && (buffer_element_types(&sfields).len() > usize(0)));
-        buf_key := if(has_buffer, `buffer:${type_memo_key(ty)}`, String.new());
+        buf_key := if(has_buffer, _buffer_cut_key(ty), String.new());
         if(has_buffer && !_id_already_visited(visited, &buf_key), {
           v2 := visited.clone();
           v2.push(buf_key);
