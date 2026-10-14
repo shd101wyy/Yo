@@ -3561,10 +3561,10 @@ dyn_upcast_note :: (fn(expected : &TypeValue, given : &TypeValue) -> String)(
 _dyn_carries_fn_trait :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .DynT({ required_trait_types : dct_rtt }) => {
+    Rc(.DynT({ required_trait_types : dct_rtt })) => {
       (i : usize) = usize(0);
       while(i < dct_rtt.len(), i = (i + usize(1)), {
-        if(match(dct_rtt.get(i), .Some(dct_t) => match(dct_t, .FnTraitT(base_name : _) => true, _ => false), .None => false), {
+        if(match(dct_rtt.get(i), .Some(dct_t) => match(dct_t, Rc(.FnTraitT(base_name : _)) => true, _ => false), .None => false), {
           return(true);
         });
       });
@@ -3579,16 +3579,16 @@ _dyn_carries_fn_trait :: (fn(t : &TypeValue) -> bool)(
 _is_unerased_callable :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .Func({ result : _ }) => true,
-    .SomeT({ required_trait_types : uc_rtt }) => {
+    Rc(.Func({ result : _ })) => true,
+    Rc(.SomeT({ required_trait_types : uc_rtt })) => {
       (i : usize) = usize(0);
       while(i < uc_rtt.len(), i = (i + usize(1)), {
-        if(match(uc_rtt.get(i), .Some(uc_t) => match(uc_t, .FnTraitT(base_name : _) => true, _ => false), .None => false), {
+        if(match(uc_rtt.get(i), .Some(uc_t) => match(uc_t, Rc(.FnTraitT(base_name : _)) => true, _ => false), .None => false), {
           return(true);
         });
       });
       uc_term := resolve_cell_chain(t);
-      match(uc_term, .Func({ result : _ }) => true, _ => is_closure_capture_struct(&uc_term))
+      match(uc_term, Rc(.Func({ result : _ })) => true, _ => is_closure_capture_struct(&uc_term))
     },
     _ => is_closure_capture_struct(t)
   )

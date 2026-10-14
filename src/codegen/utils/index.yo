@@ -2292,7 +2292,7 @@ dyn_concrete_func_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
   while(go, {
     match(
       cur,
-      .SomeT({ id : dcf_id, resolution : .Some(dcf_r) }) => if(seen.insert(dcf_id.clone()), {
+      Rc(.SomeT({ id : dcf_id, resolution : .Some(dcf_r) })) => if(seen.insert(dcf_id.clone()), {
         cur = dcf_r;
       }, {
         go = false;
@@ -2302,7 +2302,7 @@ dyn_concrete_func_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
       }
     );
   });
-  match(cur, .Func({}) => Option(TypeValue).Some(cur), _ => Option(TypeValue).None)
+  match(cur, Rc(.Func({})) => Option(TypeValue).Some(cur), _ => Option(TypeValue).None)
 });
 /// The C name of a `dyn(...)` impl's CONCRETE type: its registered C type
 /// name, else, for a `fn(...)` payload (`dyn(f)` of a named function, which has

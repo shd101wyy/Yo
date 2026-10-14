@@ -464,7 +464,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                     // takes it at (`fn_abi_param_is_ptr`: a `&mut T` and a
                     // projection's `&T` are `T*`) where the slot's spelling
                     // differs (issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md).
-                    pay_fn := match(fn_payload, .Some(pf) => pf, .None => TypeValue.Unit);
+                    pay_fn := match(fn_payload, .Some(pf) => pf, .None => rc(TypeValueNode.Unit));
                     pay_ptr := fn_abi_param_is_ptr(&pay_fn);
                     boxed_cname := _boxed_c_name(data_type.clone(), context);
                     field_name := _box_field_name(data_type.clone());
