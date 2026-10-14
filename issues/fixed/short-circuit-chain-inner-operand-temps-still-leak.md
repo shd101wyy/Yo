@@ -51,7 +51,7 @@ Fixed by recording unconditionally and emitting conditionally.
 `drop_dup.yo:895` both put `emitted_deferred_drop_ids.insert(...)` inside
 `if(drop_code.len() > usize(0), …)`. They are not currently observed to
 double-drop, but they are one emission point away from it:
-`issues/drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`.
+`issues/fixed/drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`.
 
 ## A third, monotone dedup signal
 

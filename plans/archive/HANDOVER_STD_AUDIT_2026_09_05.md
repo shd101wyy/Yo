@@ -170,7 +170,7 @@ change itself and only appeared under independent measurement.
    **Treat every leak-shaped test in `tests/` as unverified until re-measured
    with `leaks --atExit`.**
 
-2. **`issues/drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`.**
+2. **`issues/fixed/drop-bookkeeping-hangs-off-a-generator-return-value-that-is-empty-for-multi-line-drops.md`.**
    `_call_generate_expr(drop_expr, ...)` does not always RETURN the drop code —
    for an enum/`Option` target it lowers to a multi-line `switch` that
    `drop_dup.yo` writes DIRECTLY to the emitter, returning `""`. So the

@@ -6,7 +6,7 @@ reproduces it, so this has been live for as long as #556 has been failing.
 
 ## THIS IS THE ROOT CAUSE OF #556
 
-`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md` spent days
+`issues/fixed/a-bodyless-http-response-is-not-read-until-the-deadline.md` spent days
 in the HTTP client, then kqueue, then io_uring. It is in none of them.
 
 ## The defect

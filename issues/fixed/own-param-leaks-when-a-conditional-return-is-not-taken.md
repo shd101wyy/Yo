@@ -2,7 +2,11 @@
 
 **Severity:** S1 — a spurious balancing `+1` leaks every RC own-param value when a guard-clause return is not taken — unbounded, hits idiomatic std shapes
 
-**Status:** OPEN. **Class**: silent memory leak of every RC type passed by
+## Resolution (2026-10-14)
+
+Fixed by #925 (6cdf5267f, first shipped in v0.2.44): move state is per-path. `record_branch_consume` and `reset_sibling_flow_state` restore `consumed_at_token` before each sibling arm, so an early return's transfer no longer turns the fall-through tail into a dup. Bisected: 0.2.43 leaks, 0.2.44 is clean. The parameter shapes had no regression test; this PR adds "Phase 5: an owning parameter returned from an untaken conditional is dropped once" to `tests/type_soundness.test.yo`. It covers shapes A–F (by-value and `sink`), with A and D as the over-drop controls. With seed v0.2.62 every box is released exactly once. The repro below still spells `own(h)` (E0009 since V3b); the test is the current form.
+
+**Status:** FIXED (moved 2026-10-14, see Resolution). **Class**: silent memory leak of every RC type passed by
 `own`. **Found:** 2026-09-14, while root-causing
 `issues/retired/stddoc-coll-imm-vec-dedup-leaks-rc-elements.md` — whose filed diagnosis
 turned out to be a symptom of this, not the cause.

@@ -91,7 +91,7 @@ A/B on the EMITTED C with clang so no compiler rebuild was needed:
 
 Two things this makes candidates rather than conclusions:
 
-- **#556** (`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md`)
+- **#556** (`issues/fixed/a-bodyless-http-response-is-not-read-until-the-deadline.md`)
   is "an inner `io.async` block completes and the parent await never resumes",
   timing-dependent, on both kqueue and io_uring. A token freed while still on
   the inbox can LOSE a wake instead of crashing, which is that symptom exactly.
