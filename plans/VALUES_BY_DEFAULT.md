@@ -4948,21 +4948,21 @@ is `Arc(Mutex(T))`, `clone()` or `&mut`, and the error says which.
     with its own type; a `&` capture is a pointer, `Copy`; a `&mut` capture
     makes the closure neither `Copy` nor `Clone` (`type_first_mut_borrow` in
     the structural branch,
-    `issues/fixed/a-mut-capturing-closure-answers-copy-and-clone.md`).
+    `issues/fixed/2026-10-14-a-mut-capturing-closure-answers-copy-and-clone.md`).
     - **The copy rule follows it now, ahead of V2b.** A closure that is not
       `Copy` is explicit-copy (`_plain_data_lacks_copy`,
       `src/types/utils.yo`, asks the flip's question of a closure identity
       before the owned-buffer carve-out): `d := c` moves, a later `c` is
       E0901 naming `c.clone()`. This holds although `String` itself still
       copies implicitly until V2b: the closure is the stricter of the two
-      (`issues/fixed/a-closure-owning-a-string-copies-implicitly.md`).
+      (`issues/fixed/2026-10-14-a-closure-owning-a-string-copies-implicitly.md`).
       Anonymous records and tuples keep the V2b carve-out with `String`.
     - **Where-clause bounds.** `where(T <: Copy)`/`where(T <: Clone)` judge
       a closure type through `function_value_marker`
       (`src/evaluator/utils/closure.yo`), which every where-clause path
       consults for a function type; a closure type is an `Impl(Fn(...))`
       SomeT, which the concrete-only gates skipped
-      (`issues/fixed/a-where-copy-bound-accepts-a-closure-that-owns-a-string.md`).
+      (`issues/fixed/2026-10-14-a-where-copy-bound-accepts-a-closure-that-owns-a-string.md`).
     - **The field-wise clone.** `x.clone()` on a closure or an anonymous
       record that is `Clone` but not `Copy` copies each `Copy` part and
       clones the rest (`structural_clone_expansion`,

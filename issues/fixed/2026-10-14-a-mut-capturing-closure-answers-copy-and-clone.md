@@ -2,7 +2,7 @@
 
 **Severity:** S2 — `Type.impls(type_of(t), Copy)` held for a closure with a `&mut` capture, so a `Copy` or `Clone` bound accepted a value whose copy would alias an exclusive borrow
 
-**Found:** 2026-10-14, while fixing `issues/fixed/a-closure-owning-a-string-copies-implicitly.md`.
+**Found:** 2026-10-14, while fixing `issues/fixed/2026-10-14-a-closure-owning-a-string-copies-implicitly.md`.
 **Status:** FIXED 2026-10-14.
 
 ## Symptom

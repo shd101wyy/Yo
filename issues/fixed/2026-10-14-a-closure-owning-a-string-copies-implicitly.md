@@ -53,7 +53,7 @@ closure identities as concrete. So:
   `d := c` moves `c`, and a later use is E0901 whose note names `c.clone()`;
 - `&` captures (pointers) keep a closure `Copy`;
 - a `&mut` capture keeps it move-only
-  (`issues/fixed/a-mut-capturing-closure-answers-copy-and-clone.md`).
+  (`issues/fixed/2026-10-14-a-mut-capturing-closure-answers-copy-and-clone.md`).
 
 Until V2b, `t := s` on the `String` itself still shares; the closure is the
 stricter of the two by design.
