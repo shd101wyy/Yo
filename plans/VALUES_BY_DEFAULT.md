@@ -1350,6 +1350,10 @@ instead.
       `t.0.*.n = v`, `&mut h.a.*` and `t.0.*.bump()` passed in safe code
       (`issues/fixed/2026-10-14-d3-misses-a-write-through-an-arc-that-is-not-the-place-root.md`).
       Fixed with the A2 amendment, which relies on D3.
+    - **Bug found and fixed:**
+      `issues/fixed/2026-10-15-a-lent-parameter-copy-in-a-generic-io-async-body-has-another-instantiations-type.md`
+      (`with_lock`'s `{ &body }` copy slot was declared with another
+      instantiation's closure type; the third twin of A3's capture fixes).
     - **Streams.** The trait's `next` takes `self : &mut Self`, and an
       implementation borrows the stream through its capture list
       (`io.async({ &mut self }…)`), so the future is second-class and a
