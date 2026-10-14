@@ -173,3 +173,11 @@ comptime_expect_error({
   xs.push(i32(1));
   xs.index_unchecked(usize(5))
 });
+// The write twin, `IndexUncheckedMut.index_unchecked_mut`, is gated the same
+// way: the V2b split once gave both twins projection results, which safe code
+// could call (issues/fixed/2026-10-14-safe-code-can-call-the-unchecked-index-twins.md).
+comptime_expect_error({
+  xs := ArrayList(i32).new();
+  xs.push(i32(1));
+  xs.index_unchecked_mut(usize(5))
+});
