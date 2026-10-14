@@ -1504,6 +1504,17 @@ structural_clone_expansion :: (
     });
     code.push_str(")");
     record := _eval_clone_template(&code, recv, env, ctx, exn);
+    // The literal has the receiver's record type, not a new anonymous record
+    // type of its own (whose C struct is a different one): a `where(T <:
+    // Clone)` body returns it as `T`.
+    match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&record)),
+      .Some(rec_info) => {
+        rec_info.ty = target.clone();
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&record), &rec_info);
+      },
+      .None => ()
+    );
     return(Option(AstExpr).Some(_expand_clone_to(expr, &record, ctx)));
   });
   // A closure: a new capture record with the same code.
