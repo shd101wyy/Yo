@@ -90,7 +90,9 @@ Progress:
     projections, and subscript dispatch through `Index` / `IndexMut` (#1324);
     and Generation B, the prelude switch: `Index`/`IndexMut` and
     `IndexUnchecked`/`IndexUncheckedMut` in the projection shapes, every std
-    impl split, and `String`'s read-only byte index (#1361);
+    impl split, and `String`'s read-only byte index (#1361); then direct
+    projection calls, decision 24's remaining result positions
+    (feat/vbd-v2b-projection-calls; V2b's "Direct projection calls");
   - decision 45 Generation A: `Drop` beside `Dispose`, E0915 for an
     explicit destructor call, `drop(x)`, and `yo fix --migrate drop-trait`
     (#1343). Generation B, the tree-wide rename, waits for the seed.
@@ -5474,13 +5476,56 @@ compiler; the std shapes are plain structs the seed lowers):
     - **`IndexUnchecked`.** The twin recorder accepts both result shapes.
       A promoted write drops the read twin and looks for
       `IndexUncheckedMut.index_unchecked_mut`.
-    - **Not yet built.** A projection called other than through the
-      subscript (`t.index(i)`, `f(&x)`, used as an operand, a receiver or
-      a binding) is rejected with an error naming V2b: decision 24's
-      remaining result positions. Method lookup stays by name until the
-      prelude traits exist.
+    - **Direct projection calls (feat/vbd-v2b-projection-calls).** A
+      projection called by name (`t.index(i)`, `Trio.index(&t, i)`,
+      `first(&t)`) yields its place; a call through a function value is
+      still an error. Method lookup stays by name until the prelude traits
+      exist.
+      - **Recognition.** A call whose evaluated callee's type is a
+        projection, and which is not a subscript, is a projection call of
+        that mode (`projection_call_mode_of` in the evaluator,
+        `call_projection_mode` in codegen). `evaluate_function_call`
+        re-attaches its temp as non-owning (`_stamp_projection_call`), so a
+        by-value use dups the element (as a read of `xs(i)` does) and
+        nothing drops the place. Codegen emits the call as the place,
+        `(*f(args))`, never a `T` temp; `&`-folding (`_apply_ref_amp`,
+        `addr_of`, the subscript's receiver, a local borrow) takes its
+        pointer back.
+      - **Positions.** An operand reads through it. A receiver and a
+        `&T`/`&mut T` argument lend it bare (a call result is not a named
+        place, so E0914 does not apply). `r := call` binds a local borrow of
+        the result's mode (`_bind_projection_result`), declared
+        `T* r = f(...)`; the block look-ahead is armed for every
+        `name := call(...)` statement, since only the evaluated callee
+        tells. `(v : T) = call` copies the value out. A `&mut`
+        projection's call is the left of `=` (`t.index_mut(i) = v`): with
+        `&T` not yet a type (decision 43), a place is written without `.*`,
+        as `y = v` writes through a `&mut` local today; decision 43 step 2
+        moves both to `.*`.
+      - **The root rule (R3, first cut).** The callee's signature does not
+        say which borrowed argument the place comes from, so the result is
+        rooted at all of them (`projection_call_root_args`), the receiver
+        included; a `&mut` projection's at its `&mut` arguments, which its
+        body's root rule guarantees. A binding freezes each root place
+        (`&`: no write or move; `&mut`: no access except through the
+        binding; E0911) for its live range, never leaves the function
+        (E0912), and is rejected when a root is a temporary. A `&`
+        projection's place is read-only at every write position
+        (`promote_index_places_for_write`: the `=` target, a `&mut`
+        receiver or argument, `addr_of`; E0908). A projection may yield
+        another projection's place when that call's borrowed arguments are
+        rooted at its own parameters (`_projection_call_root_error`), a
+        `&mut` result only a `&mut` projection's.
+      - **Not covered yet.** Conflicts inside one statement through a
+        projection call's argument (`f(t.index_mut(0), &t)`: the
+        call-site lend check reads named places, not call results); a
+        binding whose root crosses a reference cell is frozen statically
+        but takes no runtime pin of the cell; per-parameter roots wait for
+        decision 43's `depends` clause.
     - **Tests.** `tests/index.test.yo`, with local `VIndex`/`VIndexMut`
-      traits in the V2b shapes. `tests/ref_return_ban.test.yo` and
+      traits in the V2b shapes, and its "V2b: a projection call is …"
+      tests for each direct-call position, the root freezes and the
+      rejections. `tests/ref_return_ban.test.yo` and
       `tests/borrow_spelling.test.yo` now accept a projection and reject a
       borrow result whose body yields a value.
   - **Generation B (waits for a seed carrying Generation A; v0.2.59 bans

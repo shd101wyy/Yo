@@ -114,6 +114,7 @@ pragma(Pragma.AllowUnsafe);
   local_borrows_truncate,
   local_borrows_active,
   local_borrow_is_binding_stmt,
+  local_borrow_may_bind_projection_stmt,
   local_borrow_set_lookahead,
   local_borrow_result_borrow_of,
   local_borrow_reject_result_borrow
@@ -2690,7 +2691,7 @@ _evaluate_begin_expression_impl :: (
         ctx.local_variant_hint = _variant_local_hint(&expr_to_eval, &begin_args, loop_i, is_evaluating_function_body_begin_block, &env, ctx);
         // A local borrow's live range ends at its last use in this block
         // (decision 18): hand the binding the statements after it.
-        if(local_borrow_is_binding_stmt(&expr_to_eval), {
+        if(local_borrow_is_binding_stmt(&expr_to_eval) || local_borrow_may_bind_projection_stmt(&expr_to_eval), {
           local_borrow_set_lookahead(&begin_args, loop_i, &expr_to_eval);
         });
         // The result chain's tail (decision 18 rule 1, decision 38 A): when

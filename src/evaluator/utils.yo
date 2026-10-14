@@ -33,7 +33,8 @@ pragma(Pragma.AllowUnsafe);
   BK_ASSIGN,
   BK_INIT_ASSIGN,
   ast_expr_is_local_borrow_mode_call,
-  ast_expr_strip_borrow_marker
+  ast_expr_strip_borrow_marker,
+  BF_ADDR_OF
 } :: import("../expr.yo");
 {
   ExprInfo,
@@ -4308,6 +4309,21 @@ local_borrow_is_binding_stmt :: (fn(stmt : &AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
+/// `stmt` may bind a projection call's result (`r := t.index(i)`, decision
+/// 24), which is a local borrow: `name := call(...)`. Whether the callee is a
+/// projection is known only once the call is evaluated, so every such
+/// binding is handed the look-ahead; one that binds a value leaves it unused.
+local_borrow_may_bind_projection_stmt :: (fn(stmt : &AstExpr) -> bool)(
+  ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) && match(
+    stmt,
+    .FnCall(_, _, sargs, _, _) => (match(sargs.get(usize(0)), .Some(l) => ast_expr_is_atom(&l), .None => false) && match(
+      sargs.get(usize(1)),
+      .Some(.FnCall(_, _, _, r_infix, _)) => !r_infix,
+      _ => false
+    )),
+    .Atom(_, _) => false
+  )
+);
 /// `evaluate_begin_expression`, before it evaluates `stmts(i)`, a borrow
 /// binding: hand the binding the statements after it.
 local_borrow_set_lookahead :: (fn(stmts : &ArrayList(AstExpr), i : usize, stmt : &AstExpr) -> unit)({
@@ -5119,6 +5135,83 @@ local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : 
   end := cond(_lb_mentions(body, name.clone()) => _lb_region_end(body, name.clone(), decl), true => decl);
   _info := local_borrow_register(name, decl, is_mut, place, LocalBorrowRange(last_use : last, end : end, has_repoint : false), Option(Variable).None);
 });
+// ---------------------------------------------------------------------------
+// Direct projection calls (plans/VALUES_BY_DEFAULT.md decision 24, V2b)
+// ---------------------------------------------------------------------------
+/// `e` is a direct call of a projection (a function returning `&T` /
+/// `&mut T`): `.Some(is_mut)`, read from its evaluated callee's type. A
+/// subscript (`x(i)`, whose dispatch records the `Index` method on the call)
+/// is not one. The call's result is a place of type `T`
+/// (codegen's twin: `call_projection_mode`, codegen/exprs/_expr.yo).
+projection_call_mode_of :: (fn(e : &AstExpr, ctx : &EvalContext) -> Option(bool))(
+  match(
+    e,
+    .FnCall(_, pc_callee, _, pc_infix, _) => cond(
+      pc_infix => Option(bool).None,
+      match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)), .Some(ci) => expr_info_index_trait_ptr_type(&ci).is_some(), .None => true) => Option(bool).None,
+      true => match(
+        expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&pc_callee)),
+        .Some(cei) => match(cei.ty, .Func({ meta : pc_m }) => if(pc_m.*.result_is_ref, Option(bool).Some(pc_m.*.result_is_mut_ref), Option(bool).None), _ => Option(bool).None),
+        .None => Option(bool).None
+      )
+    ),
+    .Atom(_, _) => Option(bool).None
+  )
+);
+/// One argument a projection call's result is rooted at: the argument
+/// passed to a `&` or `&mut` parameter (`is_mut`), with its call-site
+/// marker (`&x`, `&mut x`, a receiver's `addr_of(x)`) read through.
+ProjectionRootArg :: struct(arg : AstExpr, is_mut : bool);
+_strip_lend :: (fn(e : &AstExpr) -> AstExpr)(
+  cond(
+    ast_expr_is_fn_call_of(e, BF_ADDR_OF, Option(usize).Some(usize(1))) => match(
+      e,
+      .FnCall(_, _, sl_args, _, _) => match(sl_args.get(usize(0)), .Some(a) => a, .None => e),
+      .Atom(_, _) => e
+    ),
+    true => ast_expr_strip_borrow_marker(e)
+  )
+);
+/// The arguments the result of the projection call `call` is rooted at
+/// (decision 24's single-root rule, `NON_ESCAPABLE_TYPES.md` R3, first cut):
+/// every argument the call passes to a `&` or `&mut` parameter, the receiver
+/// included. The callee's signature does not say which of them the yielded
+/// place comes from, so the result is rooted at all of them.
+projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(ProjectionRootArg))({
+  out := ArrayList(ProjectionRootArg).new();
+  callee := match(call, .FnCall(_, pc_callee, _, _, _) => pc_callee, .Atom(_, _) => return(out));
+  meta_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(ci) => ci.ty, .None => return(out));
+  (param_is_ref : ArrayList(bool)) = ArrayList(bool).new();
+  (param_is_owning : ArrayList(bool)) = ArrayList(bool).new();
+  match(
+    meta_ty,
+    .Func({ meta : pc_m }) => {
+      param_is_ref = pc_m.*.param_is_ref;
+      param_is_owning = pc_m.*.param_is_owning;
+    },
+    _ => {
+      return(out);
+    }
+  );
+  // The arguments in parameter order, the receiver first: what codegen
+  // passes (`runtime_arg_exprs_in_order`).
+  args := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(call)),
+    .Some(ci2) => match(ci2.runtime_arg_exprs_in_order, .Some(ra) => ra, .None => ArrayList(AstExpr).new()),
+    .None => ArrayList(AstExpr).new()
+  );
+  (i : usize) = usize(0);
+  while(i < args.len(), {
+    p_ref := match(param_is_ref.get(i), .Some(b) => b, .None => false);
+    p_own := match(param_is_owning.get(i), .Some(b) => b, .None => true);
+    if(p_ref || !p_own, {
+      match(args.get(i), .Some(a) => out.push(ProjectionRootArg(arg : _strip_lend(&a), is_mut : p_ref)), .None => ());
+    });
+    i = (i + usize(1));
+  });
+  out
+});
+export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args);
 export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at);
 export(
   LocalBorrowPlace,
@@ -5133,6 +5226,7 @@ export(
   local_borrow_clear_receiver,
   local_borrow_take_receiver,
   local_borrow_is_binding_stmt,
+  local_borrow_may_bind_projection_stmt,
   local_borrow_set_lookahead,
   local_borrow_place_of,
   local_borrow_place_of_variable,

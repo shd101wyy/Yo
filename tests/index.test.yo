@@ -929,13 +929,215 @@ test("V2b: a projection yields a place rooted at a borrow parameter", {
   comptime_expect_error((fn(t : &mut Trio) -> &mut i32)(&t.a), "write `&mut place`");
   comptime_expect_error((fn(t : &Trio) -> &i32)(&mut t.a), "write `&place`, not `&mut place`");
 });
-// A projection yielding a place of its parameter is accepted; its call
-// sites other than the trait subscript are the rest of decision 24.
+// ============================================================
+// Decision 24's remaining result positions: a projection called directly
+// (`t.index(i)`, `first(&t)`), not through the subscript. Its result is a
+// place, read through as an operand, used as a receiver, lent to a borrow
+// parameter, bound to a local borrow and written through as the left of
+// `=` (a `&mut` projection's). The place lies in the call's borrowed
+// arguments, which stay frozen while a binding of it is live.
+// ============================================================
 _v2b_first :: (fn(t : &Trio) -> &i32)(&t.a);
-test("V2b: a projection is reached through the subscript", {
-  t := Trio(a : i32(5), b : i32(6), c : i32(7));
-  comptime_expect_error(_v2b_first(&t), "Calling one directly is not supported yet");
+_v2b_first_mut :: (fn(t : &mut Trio) -> &mut i32)(&mut t.a);
+_v2b_read :: (fn(x : &i32) -> i32)(x + i32(0));
+_v2b_bump :: (fn(x : &mut i32) -> unit)({
+  x = (x + i32(1));
 });
+// RC elements: the place is read through and written through, never
+// copied into a temporary that is dropped.
+Names :: struct(first : String, second : String);
+impl(
+  Names,
+  name : (fn(self : &Self, idx : usize) -> &String)(
+    cond(
+      (idx == usize(0)) => &self.first,
+      true => &self.second
+    )
+  ),
+  name_mut : (fn(self : &mut Self, idx : usize) -> &mut String)(
+    cond(
+      (idx == usize(0)) => &mut self.first,
+      true => &mut self.second
+    )
+  )
+);
+_v2b_len :: (fn(s : &String) -> usize)(s.len());
+test("V2b: a projection call is an operand", {
+  t := Trio(a : i32(5), b : i32(6), c : i32(7));
+  assert(_v2b_first(&t) == i32(5), "a free projection, read through");
+  assert((t.index(usize(1)) + i32(1)) == i32(7), "a method projection in an operator");
+  assert(Trio.index(&t, usize(2)) == i32(7), "the static form");
+  assert((t.index_mut(usize(0)) + i32(1)) == i32(6), "a &mut projection read through");
+});
+test("V2b: a projection call is a receiver", {
+  n := Names(first : String.from("ab"), second : String.from("xyz"));
+  assert(n.name(usize(1)).len() == usize(3), "a &self method on a read projection's place");
+  n.name_mut(usize(0)).push_str("c");
+  assert(n.first == "abc", "a &mut self method wrote the caller's field");
+  g := Rows(rows : ArrayList(Trio).new());
+  g.rows.push(Trio(a : i32(1), b : i32(2), c : i32(3)));
+  g.index_mut(usize(0)).bump_all();
+  assert(g.rows(usize(0)).c == i32(4), "a &mut receiver through a &mut projection");
+  assert(g.index(usize(0))(usize(1)) == i32(3), "a subscript on a projection's place");
+  g.index_mut(usize(0))(usize(2)) = i32(40);
+  assert(g.rows(usize(0)).c == i32(40), "an element write through a &mut projection's place");
+});
+test("V2b: a projection call is a borrow argument", {
+  t := Trio(a : i32(5), b : i32(6), c : i32(7));
+  assert(_v2b_read(t.index(usize(1))) == i32(6), "lent to a & parameter");
+  _v2b_bump(t.index_mut(usize(2)));
+  _v2b_bump(_v2b_first_mut(&mut t));
+  assert((t.c == i32(8)) && (t.a == i32(6)), "lent to a &mut parameter, the write reached the caller");
+  n := Names(first : String.from("ab"), second : String.from("xyz"));
+  assert(_v2b_len(n.name(usize(0))) == usize(2), "an RC element lent to a & parameter");
+});
+test("V2b: a projection call binds a local borrow", {
+  t := Trio(a : i32(5), b : i32(6), c : i32(7));
+  r := t.index(usize(1));
+  assert(r == i32(6), "read through the & borrow");
+  assert(t.b == i32(6), "its root stays readable while a & borrow is live");
+  w := t.index_mut(usize(2));
+  w = (w + i32(30));
+  assert(t.c == i32(37), "written through the &mut borrow, read after its last use");
+  t.c = i32(1);
+  assert(t.c == i32(1), "the root is writable after the borrow's last use");
+  n := Names(first : String.from("ab"), second : String.from("xyz"));
+  s := n.name_mut(usize(1));
+  s.push_str("!");
+  kept := n.name(usize(1));
+  copy := kept;
+  assert(copy == "xyz!", "a by-value read of the borrow copies the element");
+  assert(n.second == "xyz!", "and the element is still the caller's");
+});
+test("V2b: a &mut projection call is the left of `=`", {
+  t := Trio(a : i32(5), b : i32(6), c : i32(7));
+  t.index_mut(usize(1)) = i32(60);
+  _v2b_first_mut(&mut t) = i32(6);
+  assert((t.b == i32(60)) && (t.a == i32(6)), "both writes reached the caller's fields");
+  n := Names(first : String.from("ab"), second : String.from("xyz"));
+  n.name_mut(usize(0)) = String.from("replaced");
+  assert((n.first == "replaced") && (n.second == "xyz"), "an RC element replaced in place");
+});
+// A projection yields another projection's place, rooted at its own
+// parameters.
+_v2b_row_a :: (fn(g : &Rows, i : usize) -> &i32)(&g.index(i).a);
+_v2b_row_b_mut :: (fn(g : &mut Rows, i : usize) -> &mut i32)(&mut g.index_mut(i).b);
+test("V2b: a projection yields another projection's result", {
+  g := Rows(rows : ArrayList(Trio).new());
+  g.rows.push(Trio(a : i32(1), b : i32(2), c : i32(3)));
+  assert(_v2b_row_a(&g, usize(0)) == i32(1), "a & projection through a & projection");
+  _v2b_row_b_mut(&mut g, usize(0)) = i32(20);
+  assert(g.rows(usize(0)).b == i32(20), "a &mut projection through a &mut projection");
+});
+comptime_expect_error(
+  _v2b_yield_of_read_as_mut :: (fn(g : &mut Rows) -> &mut i32)(&mut g.index(usize(0)).b),
+  "read projection"
+);
+comptime_expect_error(
+  _v2b_yield_of_local :: (fn(t : &Trio) -> &i32)({
+    u := Trio(a : i32(1), b : i32(2), c : i32(3));
+    &u.index(usize(0))
+  }),
+  "is a local"
+);
+// A read projection's place is read-only.
+comptime_expect_error(
+  _v2b_write_through_read :: (fn() -> unit)({
+    t := Trio(a : i32(5), b : i32(6), c : i32(7));
+    t.index(usize(0)) = i32(1);
+  }),
+  "is a read projection"
+);
+comptime_expect_error(
+  _v2b_mut_receiver_through_read :: (fn() -> unit)({
+    g := Rows(rows : ArrayList(Trio).new());
+    g.index(usize(0)).bump_all();
+  }),
+  "is a read projection"
+);
+comptime_expect_error(
+  _v2b_mut_method_through_read :: (fn() -> unit)({
+    n := Names(first : String.from("ab"), second : String.from("xyz"));
+    n.name(usize(0)).push_str("!");
+  }),
+  "is a read projection"
+);
+comptime_expect_error(
+  _v2b_mut_arg_through_read :: (fn() -> unit)({
+    t := Trio(a : i32(5), b : i32(6), c : i32(7));
+    _v2b_bump(t.index(usize(0)));
+  }),
+  "is a read projection"
+);
+comptime_expect_error(
+  _v2b_write_through_read_binding :: (fn() -> unit)({
+    t := Trio(a : i32(5), b : i32(6), c : i32(7));
+    r := t.index(usize(0));
+    r = i32(1);
+  }),
+  "is a `&` borrow, which is read-only"
+);
+// A `&mut` projection call needs a `&mut` root.
+comptime_expect_error(
+  _v2b_mut_projection_of_shared :: (fn(t : &Trio) -> unit)({
+    t.index_mut(usize(0)) = i32(1);
+  })
+);
+// The root is frozen while a binding of the result is live (E0911).
+comptime_expect_error(
+  _v2b_write_root_under_read :: (fn() -> unit)({
+    t := Trio(a : i32(5), b : i32(6), c : i32(7));
+    r := t.index(usize(0));
+    t.a = i32(9);
+    _v := r;
+  }),
+  "Cannot write `t.a` here"
+);
+comptime_expect_error(
+  _v2b_overwrite_root_under_read :: (fn() -> unit)({
+    t := Trio(a : i32(5), b : i32(6), c : i32(7));
+    r := t.index(usize(0));
+    t = Trio(a : i32(1), b : i32(2), c : i32(3));
+    _v := r;
+  }),
+  "Cannot write `t` here"
+);
+comptime_expect_error(
+  _v2b_move_root_under_read :: (fn() -> unit)({
+    n := Names(first : String.from("ab"), second : String.from("xyz"));
+    s := n.name(usize(0));
+    m := n;
+    _l := s.len();
+    _k := m.first.len();
+  }),
+  "Cannot move `n` here"
+);
+comptime_expect_error(
+  _v2b_read_root_under_mut :: (fn() -> unit)({
+    t := Trio(a : i32(5), b : i32(6), c : i32(7));
+    w := t.index_mut(usize(0));
+    x := t.b;
+    w = x;
+  }),
+  "Cannot read `t.b` here"
+);
+// A binding of the result is second-class: it never leaves the function
+// (E0912), and a temporary has no place to borrow.
+comptime_expect_error(
+  _v2b_return_the_borrow :: (fn(t : &Trio) -> i32)({
+    r := t.index(usize(0));
+    return(r);
+  }),
+  "Cannot return the local borrow `r`"
+);
+_v2b_make_trio :: (fn() -> Trio)(Trio(a : i32(1), b : i32(2), c : i32(3)));
+comptime_expect_error(
+  _v2b_bind_of_temporary :: (fn() -> unit)({
+    r := _v2b_make_trio().index(usize(0));
+    _v := r;
+  }),
+  "which is a temporary"
+);
 // A projection body that forwards its pointer-bound `self` whole: to a
 // method, to a static `Self.helper(self, …)`, and through `addr_of(self)` to a
 // raw-pointer helper (the shape of the prelude's `Array` impl).

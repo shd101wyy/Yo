@@ -327,7 +327,9 @@ Placement rules for `&` and `&mut`:
   they declare a **projection** (decision 24): the body yields a place written
   with the result's sigil (`&self.a`, `&mut self.rows(i)`), rooted at one of
   the function's borrow parameters. A projection is reached through the
-  subscript (`x(i)`); calling one directly is not supported yet
+  subscript (`x(i)`) or called directly (`t.index(i)`), whose result is the
+  place: an operand, a receiver, a borrow argument, a local borrow
+  (`r := t.index(i)`) and, for `&mut`, the left of `=`
   ([INDEX_TRAIT.md](./INDEX_TRAIT.md#projections)).
 - `mut` is a reserved word: a binding or parameter named `mut` is an error.
 - The deleted mode-word spellings `imm(x) : T`, `mut(x) : T`, `inout(x) : T`,

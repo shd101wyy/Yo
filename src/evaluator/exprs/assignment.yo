@@ -100,7 +100,8 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_access,
   local_borrow_write_expr,
   local_borrow_mark_receiver,
-  local_borrow_clear_receiver
+  local_borrow_clear_receiver,
+  projection_call_mode_of
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1085,9 +1086,11 @@ evaluate_assignment :: (
     // A plain FUNCTION CALL is not a place: `f(1) = 2` used to be evaluated and
     // its value silently discarded, at check AND at runtime
     // (issues/fixed/assignment-to-call-expression-silently-accepted.md). The
-    // recognised call-shaped places are `x.a` (a `.` call) and `arr(i)` (an
-    // Index-trait callee, whose callee is a VALUE, not a function).
-    if(!ast_expr_is_fn_call_of(&lhs, BF_DOT, Option(usize).Some(usize(2))), {
+    // recognised call-shaped places are `x.a` (a `.` call), `arr(i)` (an
+    // Index-trait callee, whose callee is a VALUE, not a function) and a
+    // `&mut` projection's call (decision 24: `t.index_mut(i) = v`; a `&` one
+    // was rejected as a write above).
+    if(!ast_expr_is_fn_call_of(&lhs, BF_DOT, Option(usize).Some(usize(2))) && projection_call_mode_of(&evaluated_lhs, ctx).is_none(), {
       match(
         lhs,
         .FnCall(_, lhs_callee, _, _, _) => match(

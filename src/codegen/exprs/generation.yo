@@ -102,7 +102,7 @@
 { is_func_val, is_unknown_val, is_struct_val, is_enum_val, EvalValue } :: import("../../value.yo");
 { is_unit_type, is_primitive_type, is_pointer_type, is_array_type, is_never_type, is_void_type } :: import("../../types/guards.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ set_generate_expr_fn, _call_generate_expr } :: import("./_expr.yo");
+{ set_generate_expr_fn, _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
 { generate_atom } :: import("./atom.yo");
 { generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_ref_count_call } :: import("./rc_fns.yo");
@@ -467,7 +467,8 @@ _generate_index_trait_call :: (fn(expr : &AstExpr, ei : &ExprInfo, indent : &Str
   // An element access as the receiver (`g(i)(j)`) is already a place,
   // `(*index_fn(...))`: spilling it would hand the outer method a copy, and a
   // write through `index_mut` would land in the copy.
-  callee_is_index_place := match(context.base.get_expr_info(&callee), .Some(cei0) => (expr_info_index_trait_ptr_type(&cei0).is_some() && expr_info_index_method_type(&cei0).is_some()), .None => false);
+  // So is a direct projection call (decision 24), `(*f(args))`.
+  callee_is_index_place := (match(context.base.get_expr_info(&callee), .Some(cei0) => (expr_info_index_trait_ptr_type(&cei0).is_some() && expr_info_index_method_type(&cei0).is_some()), .None => false) || call_projection_mode(&callee, context).is_some());
   if(ast_expr_is_fn_call(&callee) && (!ast_expr_is_atom(&callee) && !ast_expr_is_fn_call_of(&callee, BF_DOT, Option(usize).Some(usize(2)))) && !callee_is_index_place, {
     match(
       context.base.get_expr_info(&callee),

@@ -98,7 +98,15 @@ The rules a projection follows:
 - **The sigil matches the result.** A `-> &T` projection writes `&place`, and a `-> &mut T` one writes `&mut place`.
 - **Raw-pointer places.** In a `pragma(Pragma.AllowUnsafe)` file the place may be a raw-pointer dereference (`&(p &+ i).*`), and the result may be the raw pointer `*T` itself. This is the form std's buffers use.
 - **ABI.** A projection's `&T` parameters are passed by pointer (a `&T` parameter is passed by value elsewhere), so the place it returns is the caller's.
-- **Where a projection is called.** For now a projection is reached through the subscript its trait dispatches (`x(i)`). A direct call such as `t.index(i)` or `f(&x)` is a compile error until the rest of decision 24 lands: a projection result used as a receiver, an argument, an operand, or bound to a local.
+- **Calling a projection directly.** A projection is also an ordinary function or method, called by name: `t.index(i)`, `Trio.index(&t, i)`, `first(&t)`. Calling one through a function value is an error. The call's result is the place itself, never a copy:
+  - as an operand it is read through (`t.index(i) + 1`);
+  - as a receiver it is lent (`n.name(0).len()`, `n.name_mut(0).push_str("!")`), and a subscript on it indexes the place (`g.index_mut(0)(2) = v`);
+  - as the argument of a `&T` or `&mut T` parameter it is lent as written (`f(t.index(i))`);
+  - `r := t.index(i)` binds a local borrow, `&` or `&mut` as the result is, live until its last use. `(v : T) = t.index(i)` copies the value out instead;
+  - a `&mut` projection's call is the left of `=` (`t.index_mut(i) = v`). Decision 43 will spell this write `t.index_mut(i).* = v`.
+- **The result's roots.** The place lies in the call's borrowed arguments, the receiver included (a `&mut` projection's place lies in its `&mut` arguments). While a binding of the result is live, a `&` result freezes them (no write or move), and a `&mut` result allows no access to them except through the binding (E0911). The binding never leaves the function (E0912), and a projection call whose borrowed argument is a temporary cannot be bound.
+- **Read projections are read-only.** Writing a `&` projection's place, calling a `self : &mut Self` method on it, or lending it to a `&mut` parameter is E0908. A `&mut` projection's call needs a writable receiver, as any `&mut self` method does.
+- **A projection may yield another projection's result** (`&g.index(i).a`, `&mut g.index_mut(i).b`) when that call's borrowed arguments are rooted at its own borrow parameters. A `-> &mut T` projection yields only a `&mut` projection's place.
 
 ## Implementing Index
 
