@@ -46,24 +46,14 @@ IndexMut :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
 export(Index, IndexMut);
 ```
 
-`index` and `index_mut` are projections (decision 24): a projection's result expression is the place it yields, written `&place` / `&mut place`. The compiler accepts these shapes from Generation A on; the prelude switches to them in Generation B, once a seed lowers `-> &T`. Until then it declares the pre-V2b trait, which the dispatch still accepts and which serves reads and writes alike:
-
-```yo
-Index :: (fn(comptime(Idx) : Type) -> comptime(Trait))(
-  trait(
-    Output : Type,
-    index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)
-  )
-);
-export(Index);
-```
+`index` and `index_mut` are projections (decision 24): a projection's result expression is the place it yields, written `&place` / `&mut place`. The compiler accepts these shapes from Generation A on, and the prelude declares them from Generation B (2026-10-14, after the v0.2.61 seed). Before Generation B the prelude declared the pre-V2b trait, `index : (fn(self : &mut Self, idx : Idx) -> *Self.Output)`, which served reads and writes alike; an impl in that shape no longer conforms to the prelude's `Index`.
 
 Key design decisions:
 
 - **`index` returns a borrow of the element** (`&Self.Output`, a read projection; `index_mut` returns `&mut Self.Output`), not the value. Both lower to a C pointer into the container, as Rust's `&Output` does. The pre-V2b `index` returned the raw `*(Output)`.
 - **`Idx` is a type parameter on the trait**, allowing multiple implementations for the same type (e.g., `Index(usize)` for element access, `Index(Range(usize))` for slicing).
 - **`idx` is taken BY VALUE** (amended 2026-10-11, decision 34's by-value rule in `plans/VALUES_BY_DEFAULT.md`; `issues/retired/index-trait-borrows-its-index-and-takes-self-mutably.md`), as Rust's `Index::index(&self, index: Idx)` takes it. A heavy index type borrows by instantiating `Idx` with a reference type once references are types (decision 43).
-- **`IndexMut` is added** (amended 2026-10-11 by the maintainer; the earlier "no `IndexMut`" position — that `*(T)` is always mutable, so `arr(0) = value` writes through the returned pointer — is superseded). With decision 24's projections (`plans/VALUES_BY_DEFAULT.md` V2b), `Index` relaxes to `index : (fn(self : &Self, idx : Idx) -> &Self.Output)`, a read-only projection that type-checks through a shared borrow, and `IndexMut(Idx)` is added with `index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)`, which `arr(0) = value` and every write-through dispatch. The result type cannot flip before the split exists: reads and writes ride the same `index` today, so a read-only `&Self.Output` return leaves element assignment with no path until `index_mut` takes the writes. `IndexUnchecked` (the bounds-check-free twin, `std/prelude.yo`) splits the same way in the same PR — a read half `self : &Self -> &Self.Output` and an unchecked-write twin, both under `pragma(AllowUnsafe)`. Until V2b's Generation B, the single `&mut Self` trait above stands in the prelude.
+- **`IndexMut` is added** (amended 2026-10-11 by the maintainer; the earlier "no `IndexMut`" position — that `*(T)` is always mutable, so `arr(0) = value` writes through the returned pointer — is superseded). With decision 24's projections (`plans/VALUES_BY_DEFAULT.md` V2b), `Index` relaxes to `index : (fn(self : &Self, idx : Idx) -> &Self.Output)`, a read-only projection that type-checks through a shared borrow, and `IndexMut(Idx)` is added with `index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)`, which `arr(0) = value` and every write-through dispatch. The result type cannot flip before the split exists: reads and writes ride the same `index` today, so a read-only `&Self.Output` return leaves element assignment with no path until `index_mut` takes the writes. `IndexUnchecked` (the bounds-check-free twin, `std/prelude.yo`) splits the same way in the same PR — a read half `self : &Self -> &Self.Output` and an unchecked-write twin, both under `pragma(AllowUnsafe)`. The prelude declares the split from V2b's Generation B (2026-10-14).
 - **As built (V2b Generation A, the compiler):**
   - **Shapes.** The subscript dispatch accepts both `index` shapes. A read goes through `index` (the projection, or the pre-V2b `*(Output)` method). A write goes through the receiver's `index_mut` when the read resolved to a projection. The writes are the target of `=`, a field or nested element of it, a `&mut` argument or receiver, `addr_of`, a `&mut` local borrow, and a `&mut` projection's result. The pre-V2b method serves both.
   - **Errors.** A write to a type with only a projection `index` is an error naming `IndexMut`. An `index_mut` receiver that is a read-only borrow is E0908. `Index` and `IndexMut` share one `Output`.
@@ -374,7 +364,7 @@ Resolved via compiler builtins approach: Array/Slice Index impls use `__yo_array
 ### Differences from Rust
 
 - Yo uses `arr(i)` instead of `arr[i]` — function call syntax, not bracket syntax.
-- `IndexMut` is added at V2b (the 2026-10-11 amendment above): the compiler dispatches it from Generation A, and the prelude declares it from Generation B. Until then the single `*(T)`-returning trait covers reads and writes.
+- `IndexMut` is added at V2b (the 2026-10-11 amendment above): the compiler dispatches it from Generation A, and the prelude declares it from Generation B (2026-10-14).
 - Range-based slicing (`arr(0..5)`) is handled via built-in functions, not through Index trait, to avoid pointer-to-temporary issues.
 - `..` and `..=` are defined via traits (`RangeOp`, `RangeInclusiveOp`), like `Add` defines `(+)`.
 - No `RangeFull` (`..`), `RangeFrom` (`1..`), or `RangeTo` (`..3`) — use explicit bounds instead.

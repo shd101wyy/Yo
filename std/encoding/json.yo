@@ -431,7 +431,33 @@ impl(
   JsonValue,
   Index(String)(
     Output : JsonValue,
-    index : (fn(self : &mut Self, key : String) -> *Self.Output)(
+    index : (fn(self : &Self, key : String) -> &Self.Output)(
+      match(
+        self,
+        .Object(keys, values) => {
+          i := usize(0);
+          while(i < keys.len(), i = (i + usize(1)), {
+            if(keys(i) == key, {
+              // SAFETY: `i` is bounded by `keys.len()` and the
+              // Object variant invariant says `values.len() ==
+              // keys.len()`, so the buffer is allocated and slot `i` is
+              // live in the Rc-managed values list. (A raw step: a match
+              // binding is not yet a projection root.)
+              return(unsafe(values.ptr().unwrap().add(i)));
+            });
+          });
+          __yo_panic("JsonValue: key not found in Object")
+        },
+        _ => __yo_panic("JsonValue: index by String requires .Object variant")
+      )
+    )
+  )
+);
+impl(
+  JsonValue,
+  IndexMut(String)(
+    Output : JsonValue,
+    index_mut : (fn(self : &mut Self, key : String) -> &mut Self.Output)(
       match(
         self,
         .Object(keys, values) => {
@@ -458,7 +484,27 @@ impl(
   JsonValue,
   Index(usize)(
     Output : JsonValue,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
+      match(
+        self,
+        .Array(items) => {
+          assert(idx < items.len(), "JsonValue: Array index out of bounds");
+          // SAFETY: assert above bounds `idx`, so the buffer is
+          // allocated; `items` is the Rc-managed Array list, which the
+          // `&Self` receiver keeps alive. (A raw step: a match binding is
+          // not yet a projection root.)
+          return(unsafe(items.ptr().unwrap().add(idx)));
+        },
+        _ => __yo_panic("JsonValue: index by usize requires .Array variant")
+      )
+    )
+  )
+);
+impl(
+  JsonValue,
+  IndexMut(usize)(
+    Output : JsonValue,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
       match(
         self,
         .Array(items) => {

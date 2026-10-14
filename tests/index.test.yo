@@ -13,11 +13,25 @@ impl(
   MyArray,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
       cond(
-        (idx == usize(0)) => addr_of(self.data0),
-        (idx == usize(1)) => addr_of(self.data1),
-        (idx == usize(2)) => addr_of(self.data2),
+        (idx == usize(0)) => &self.data0,
+        (idx == usize(1)) => &self.data1,
+        (idx == usize(2)) => &self.data2,
+        true => __yo_panic("MyArray: index out of bounds")
+      )
+    )
+  )
+);
+impl(
+  MyArray,
+  IndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      cond(
+        (idx == usize(0)) => &mut self.data0,
+        (idx == usize(1)) => &mut self.data1,
+        (idx == usize(2)) => &mut self.data2,
         true => __yo_panic("MyArray: index out of bounds")
       )
     )
@@ -202,10 +216,11 @@ test("Test Index on Deque with ring buffer wrap", {
   assert(d(usize(1)) == i32(4), "d(1) should be 4");
   assert(d(usize(2)) == i32(5), "d(2) should be 5");
 });
-// === String bytes: no Index trait (String S3a), read by name ===
-test("String has no Index; byte_at / get_byte read bytes", {
+// === String bytes: a read-only Index (V2b Generation B), no IndexMut ===
+test("String's Index reads a byte and has no IndexMut; byte_at / get_byte agree", {
   (s : String) = `Hello`;
-  comptime_expect_error(s(usize(0)), "is not callable");
+  assert(s(usize(0)) == u8(72), "s(0) reads byte 0");
+  comptime_expect_error(s(usize(0)) = u8(0), "IndexMut");
   assert(s.byte_at(usize(0)) == u8(72), "byte 0 should be 'H' (72)");
   assert(s.byte_at(usize(1)) == u8(101), "byte 1 should be 'e' (101)");
   assert(s.byte_at(usize(2)) == u8(108), "byte 2 should be 'l' (108)");
@@ -442,10 +457,22 @@ impl(
   Point,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
       cond(
-        (idx == usize(0)) => addr_of(self.x),
-        true => addr_of(self.y)
+        (idx == usize(0)) => &self.x,
+        true => &self.y
+      )
+    )
+  )
+);
+impl(
+  Point,
+  IndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      cond(
+        (idx == usize(0)) => &mut self.x,
+        true => &mut self.y
       )
     )
   )
@@ -490,10 +517,10 @@ impl(
   StrictPoint,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
       cond(
-        (idx == usize(0)) => addr_of(self.x),
-        (idx == usize(1)) => addr_of(self.y),
+        (idx == usize(0)) => &self.x,
+        (idx == usize(1)) => &self.y,
         true => __yo_panic("StrictPoint: index out of bounds")
       )
     )
@@ -530,10 +557,23 @@ impl(
   GenericPoint(T),
   Index(usize)(
     Output : T,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
       cond(
-        (idx == usize(0)) => addr_of(self.x),
-        true => addr_of(self.y)
+        (idx == usize(0)) => &self.x,
+        true => &self.y
+      )
+    )
+  )
+);
+impl(
+  generic(T),
+  GenericPoint(T),
+  IndexMut(usize)(
+    Output : T,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      cond(
+        (idx == usize(0)) => &mut self.x,
+        true => &mut self.y
       )
     )
   )
@@ -583,10 +623,22 @@ impl(
   Pair,
   Index(usize)(
     Output : i32,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)(
       cond(
-        (idx == usize(0)) => addr_of(self.first),
-        true => addr_of(self.second)
+        (idx == usize(0)) => &self.first,
+        true => &self.second
+      )
+    )
+  )
+);
+impl(
+  Pair,
+  IndexMut(usize)(
+    Output : i32,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+      cond(
+        (idx == usize(0)) => &mut self.first,
+        true => &mut self.second
       )
     )
   )
@@ -649,11 +701,11 @@ impl(
   Keyed,
   Index(String)(
     Output : String,
-    index : (fn(self : &mut Self, key : String) -> *Self.Output)({
+    index : (fn(self : &Self, key : String) -> &Self.Output)({
       (i : usize) = usize(0);
       while(i < self.entries.len(), i = (i + usize(1)), {
         if(self.entries(i) == key, {
-          return(unsafe(addr_of(self.entries(i))));
+          return(&self.entries(i));
         });
       });
       __yo_panic("Keyed: key not found")
@@ -692,7 +744,7 @@ test("A borrowed idx no longer conforms to the by-value Index trait", {
       BadBorrowIdx,
       Index(usize)(
         Output : i32,
-        index : (fn(self : &mut Self, idx : &usize) -> *Self.Output)(addr_of(self.data0))
+        index : (fn(self : &Self, idx : &usize) -> &Self.Output)(&self.data0)
       )
     ),
     "but the trait requires"
@@ -720,9 +772,9 @@ test("An impl abandoned under comptime_expect_error leaves no Output behind", {
 });
 // ============================================================
 // V2b: the read/write split (decision 34) over projections (decision 24).
-// The prelude's `Index` keeps its pre-V2b `-> *Self.Output` shape until a
-// seed lowers `-> &T` (Generation B), so these traits spell the V2b shapes
-// locally. The subscript dispatches by method name: `x(i)` reads through
+// These local traits spell the prelude's `Index`/`IndexMut` shapes, so the
+// cases below exercise the dispatch apart from std's impls. The subscript
+// dispatches by method name: `x(i)` reads through
 // `index`, and every write (`=`, a field of the element, a `&mut` receiver
 // or argument, `addr_of`) goes through `index_mut`.
 // ============================================================

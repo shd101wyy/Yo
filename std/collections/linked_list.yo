@@ -504,7 +504,37 @@ impl(
   LinkedList(T),
   Index(usize)(
     Output : T,
-    index : (fn(self : &mut Self, idx : usize) -> *Self.Output)({
+    index : (fn(self : &Self, idx : usize) -> &Self.Output)({
+      assert(idx < self.length, "LinkedList: index out of bounds");
+      (current : Option(Node(T))) = self.head;
+      i := usize(0);
+      while(runtime(true), {
+        match(
+          current,
+          .Some(node) => {
+            if(i == idx, {
+              // SAFETY: `node` is held in an Rc-managed chain rooted
+              // at `self.head`; while `self` is borrowed (`self : &mut Self`)
+              // every node we've walked stays alive, so `&node.value`
+              // is a valid borrow into Rc storage.
+              return(unsafe(addr_of(node.value)));
+            });
+            current = node.next;
+            i = (i + usize(1));
+          },
+          .None => __yo_panic("LinkedList: unreachable past length check")
+        );
+      });
+      __yo_panic("LinkedList: index loop exited without return")
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  LinkedList(T),
+  IndexMut(usize)(
+    Output : T,
+    index_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)({
       assert(idx < self.length, "LinkedList: index out of bounds");
       (current : Option(Node(T))) = self.head;
       i := usize(0);

@@ -1037,7 +1037,10 @@ evaluate_assignment :: (
       match(
         lhs,
         .FnCall(_, _, tl_cargs2, _, _) => {
-          tl_cargs2(usize(0)) = tl_atom;
+          // A pattern binding below a cell is a read-only copy; the write
+          // goes through an owned handle to the same list.
+          tl_args := tl_cargs2;
+          tl_args(usize(0)) = tl_atom;
         },
         .Atom(_, _) => ()
       );
@@ -1491,19 +1494,25 @@ evaluate_assignment :: (
           prop_rhs_info.value,
           .None => (),
           .Some(cr_rhs_val) => {
+            // A pattern binding below a cell is a read-only copy; each write
+            // goes through an owned handle to the same shared list.
             match(
               cr,
               .ArrayRef(cr_elements, cr_index) => {
-                cr_elements(cr_index) = cr_rhs_val;
+                slots := cr_elements;
+                slots(cr_index) = cr_rhs_val;
               },
               .ComptimeListRef(cr_elements, cr_index) => {
-                cr_elements(cr_index) = cr_rhs_val;
+                slots := cr_elements;
+                slots(cr_index) = cr_rhs_val;
               },
               .StructRef(cr_field_values, cr_field_index) => {
-                cr_field_values(cr_field_index) = cr_rhs_val;
+                slots := cr_field_values;
+                slots(cr_field_index) = cr_rhs_val;
               },
               .TupleRef(cr_fields, cr_field_index) => {
-                cr_fields(cr_field_index) = cr_rhs_val;
+                slots := cr_fields;
+                slots(cr_field_index) = cr_rhs_val;
               }
             );
             is_comptime_only_prop = true;

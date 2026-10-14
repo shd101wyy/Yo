@@ -6,14 +6,9 @@
 fill_copy :: (fn(out : &ArrayList(i32)) -> unit)({
   out.push(i32(1));
 });
-// Listed: an assignment through a by-value parameter.
-set_copy :: (fn(xs : &ArrayList(i32)) -> unit)({
-  xs(usize(0)) = i32(2);
-});
-// Listed: a nested list written through the outer by-value parameter.
-nested_copy :: (fn(rows : &ArrayList(ArrayList(i32))) -> unit)({
-  rows(usize(0)).push(i32(3));
-});
+// A subscript write through a read-only binding (`xs(i) = v`,
+// `rows(i).push(v)`) is E0908 since V2b Generation B: the subscript
+// re-dispatches to `IndexMut.index_mut`, which needs `&mut`.
 // Listed as unresolved: `Deque.push_back`'s mutation mask is not resolved.
 deque_copy :: (fn(d : &Deque(i32)) -> unit)({
   d.push_back(i32(4));
@@ -26,11 +21,9 @@ apply :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
 main :: (fn() -> unit)({
   xs := ArrayList(i32).new();
   fill_copy(&xs);
-  set_copy(&xs);
   fill_inout(&mut xs);
   rows := ArrayList(ArrayList(i32)).new();
   rows.push(ArrayList(i32).new());
-  nested_copy(&rows);
   deque_copy(Deque(i32).new());
   // Listed: a `match` binding of a map value.
   m := HashMap(i32, ArrayList(i32)).new();
