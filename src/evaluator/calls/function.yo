@@ -411,28 +411,16 @@ _reject_dyn_uncallable_method_call :: (
     _ => ()
   );
 });
-/// `"Drop"` / `"Dispose"` when `tid` (a method entry's `source_trait_id`, or a
-/// trait's own id) is the prelude destructor trait under that name, else `""`.
-_destructor_trait_name_of_id :: (fn(tid : &String, env : &Environment) -> String)({
-  if(tid.is_empty(), {
-    return(String.new());
-  });
-  (names : ArrayList(String)) = ArrayList(String).new();
-  names.push(String.from("Drop"));
-  names.push(String.from("Dispose"));
-  (ni : usize) = usize(0);
-  while(ni < names.len(), ni = (ni + usize(1)), {
-    nm := match(names.get(ni), .Some(n) => n, .None => String.new());
-    match(
-      get_trait_type_from_env(env, nm.clone()),
-      .Some(Rc(.TraitT(_, _, _, _, d_id, _, _, _, _, _))) => if(d_id == tid, {
-        return(nm);
-      }),
-      _ => ()
-    );
-  });
-  String.new()
-});
+/// Is `tid` (a method entry's `source_trait_id`, or a trait's own id) the
+/// destructor trait bound to `wanted` in `env`: `Drop`, or under
+/// `yo fix --migrate drop-trait` the old spelling's `Dispose`?
+_is_destructor_trait_id :: (fn(tid : &String, wanted : &String, env : &Environment) -> bool)(
+  !tid.is_empty() && match(
+    get_trait_type_from_env(env, wanted.clone()),
+    .Some(Rc(.TraitT(_, _, _, _, d_id, _, _, _, _, _))) => (d_id == tid),
+    _ => false
+  )
+);
 /// Does `labels` hold `name`?
 _labels_contain :: (fn(labels : &ArrayList(String), name : &String) -> bool)({
   (i : usize) = usize(0);
@@ -445,8 +433,8 @@ _labels_contain :: (fn(labels : &ArrayList(String), name : &String) -> bool)({
 });
 /// E0915 (plans/VALUES_BY_DEFAULT.md decision 45): the destructor runs when
 /// the value's owner drops it, or when the last `Rc`/`Arc` reference goes
-/// away, so a call by hand — `x.drop()`, `T.drop(&x)`, `(T <: Drop).drop(&x)`,
-/// and the old spelling's `x.dispose()` — would run it a second time. Rust
+/// away, so a call by hand — `x.drop()`, `T.drop(&x)`, `(T <: Drop).drop(&x)`
+/// — would run it a second time. Rust
 /// rejects the same call (its E0040). Checked on the dot callee once it is
 /// evaluated, before either call path: a destructor-trait method of that name
 /// found on the receiver (or one of its auto-dereference payloads) before any
@@ -463,7 +451,9 @@ _labels_contain :: (fn(labels : &ArrayList(String), name : &String) -> bool)({
 /// first argument of `T.drop(&x)` and `(T <: Drop).drop(&x)`
 /// (issues/fixed/e0915-repair-hint-names-the-type-instead-of-the-value.md).
 /// Under `yo fix --migrate drop-trait` the member is recorded for the
-/// rewrite instead (`record_destructor_site`).
+/// rewrite instead (`record_destructor_site`), and the old spelling counts
+/// too: `x.dispose()` of the `Dispose` trait the migration alone defines
+/// (`mm_load_file`, decision 45 Generation B).
 _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(ArrayList(AstExpr)), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   dot_args := match(
     callee,
@@ -489,7 +479,8 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
   name_tok := ast_expr_token(&name_expr);
   // Every evaluated `.` access reaches here (`reject_destructor_member_read`):
   // test the name before anything allocates.
-  if(!is_drop_method_name(&name_tok.value) || name_tok.module_path.starts_with(String.from("auto-generated://")), {
+  is_old_spelling := (name_tok.value == "dispose") && migrate_drop_trait_on();
+  if(!(is_drop_method_name(&name_tok.value) || is_old_spelling) || name_tok.module_path.starts_with(String.from("auto-generated://")), {
     return(());
   });
   name := name_tok.value.clone();
@@ -500,7 +491,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
       return(());
     }
   );
-  wanted := cond((name == "drop") => String.from("Drop"), true => String.from("Dispose"));
+  wanted := if(is_old_spelling, String.from("Dispose"), String.from("Drop"));
   (found : String) = String.new();
   (recv_ty : Option(TypeValue)) = Option(TypeValue).Some(resolve_enum_shell(&oi.ty));
   match(
@@ -509,7 +500,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
       tv,
       Rc(.TraitT(_, _, _, _, w_id, _, _, _, _, _)) => {
         // `(T <: Drop).drop`: the witness names the trait itself.
-        if(_destructor_trait_name_of_id(&w_id, env) == wanted, {
+        if(_is_destructor_trait_id(&w_id, &wanted, env), {
           found = wanted.clone();
         });
         recv_ty = Option(TypeValue).None;
@@ -541,7 +532,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
               h.source_trait_id.is_empty() => {
                 inherent = true;
               },
-              (_destructor_trait_name_of_id(&h.source_trait_id, env) == wanted) => {
+              _is_destructor_trait_id(&h.source_trait_id, &wanted, env) => {
                 found = wanted.clone();
               },
               true => ()
@@ -604,7 +595,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
 /// E0915 for a destructor member READ as a value, not called: `f := Fd.drop`,
 /// `(Fd <: Drop).drop` or `x.drop` evaluated anywhere but as a call's callee
 /// (`is_dot_callee`). Called on every evaluated `.` access; a member that is
-/// not `drop`/`dispose` returns at once.
+/// not `drop` (or, under the migration, `dispose`) returns at once.
 reject_destructor_member_read :: (fn(dot : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
   _reject_explicit_destructor_call(dot, Option(ArrayList(AstExpr)).None, env, ctx, exn)
 );
@@ -1441,7 +1432,7 @@ _instance_dot_receiver_self_type :: (
 /// that is the OUTER impl's Self, and the adoption arm then stamps the outer
 /// receiver as this call's result type: `children.add(usize(i))` (the
 /// pointer-arithmetic `add : fn(self : Self, …) -> Self`) typed as the
-/// enclosing Dispose impl's ref-struct instead of `*(MapNode(K, V))`, so the
+/// enclosing Drop impl's ref-struct instead of `*(MapNode(K, V))`, so the
 /// following `.*` deref had no pointer and the ___drop def-eval failed
 /// (std/imm/map.yo — surfaced by the fatal-re-raise fix in
 /// issues/fixed/yo-self-check-misses-undefined-variable.md). Static TypeVal

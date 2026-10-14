@@ -71,7 +71,7 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
    file position (write(2)), as in every read/write entry point here: the
    standard streams need it, because a redirected stdout shared with libc
    has no position of its own to track
-   (issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md). Exists so Dispose impls — which cannot await — can
+   (issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md). Exists so Drop impls — which cannot await — can
    flush bytes without reaching for libc through platform-gated imports:
    on Windows the async-opened fds wrap OVERLAPPED handles that CRT _write
    cannot serve, so a per-platform shim is the only correct home. */
@@ -950,7 +950,7 @@ static __yo_io_pending_op_t* __yo_kq_park(__yo_io_op_type op, __yo_io_future_t* 
 // suspended forever. This also keeps a reused descriptor number from
 // inheriting a stale registration. Reached from __yo_async_close_start and,
 // through __yo_kq_close_hook, from __yo_file_close and __yo_sync_dup2 — std's
-// Dispose paths close synchronously, which is exactly the abort-and-drop
+// Drop paths close synchronously, which is exactly the abort-and-drop
 // timing where an operation is likeliest to still be pending.
 static void __yo_kq_drop_fd(int fd) {
   // Queued enables for this descriptor would only fail on the closed fd (or

@@ -134,7 +134,7 @@ _closure_runtime_arg_zeroinits :: (fn(closure_fid : &String, context : &Function
 /// walks therefore split the field by CONTENT — that one releases the RC
 /// references, this one runs the disposes — and each returns at the other's
 /// territory (`type_contains_rc_cell_or_move_only` here mirrors the early return there),
-/// so a value that is both (a struct with a user `Dispose` AND an RC field)
+/// so a value that is both (a struct with a user `Drop` AND an RC field)
 /// is handled exactly once by each.
 ///
 /// A closure-typed capture field lowers to its capture struct BY VALUE, so
@@ -167,7 +167,7 @@ _emit_capture_dispose_lines :: (
       },
       .None => ()
     );
-    // No synthesized `___dispose` (no user `Dispose` on this nominal): the
+    // No synthesized `___dispose` (no user `Drop` on this nominal): the
     // move-only values are its FIELDS — fall through to the aggregate walks.
   });
   match(
@@ -323,7 +323,7 @@ _emit_capture_dispose_lines :: (
 /// (issues/fixed/spawn-closure-captures-never-dropped-leak.md).
 ///
 /// It also made a whole class of std API silently inert across a spawn
-/// boundary: a captured handle's `Dispose` never ran, so
+/// boundary: a captured handle's `Drop` never ran, so
 /// "the last `Sender` to go closes the channel" did not happen for a `Sender`
 /// moved into a `Thread.spawn` closure.
 ///

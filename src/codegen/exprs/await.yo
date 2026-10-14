@@ -592,7 +592,7 @@ _option_some_field_type :: (fn(option_type : &TypeValue) -> Option(TypeValue))(
   )
 );
 /// The `JoinHandle(T)` the prelude declares is a `ref` struct today and a
-/// move-only VALUE struct `struct(__future : *(T))` with a `Dispose` once
+/// move-only VALUE struct `struct(__future : *(T))` with a `Drop` once
 /// §3.13 A3's prelude switch lands (plans/VALUES_BY_DEFAULT.md). Codegen
 /// lowers both, so the prelude can switch once a seed carries this
 /// (Generation A; plans/backlog/SEED_VERSION_AUTOMATION.md).
@@ -623,7 +623,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
     match(args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("JoinHandle.await requires a self argument"))))
   });
   handle_code := _call_generate_expr(&handle_arg, indent.clone(), context);
-  // The handle keeps its reference until its Dispose: a `ref` handle reads
+  // The handle keeps its reference until its Drop: a `ref` handle reads
   // the future through its cell, a value handle holds it in its field.
   handle_is_value := match(context.base.get_expr_info(&handle_arg), .Some(hei) => join_handle_is_value_struct(&hei.ty), .None => false);
   jh_member := if(handle_is_value, String.from(".__future"), String.from("->__future"));
@@ -709,7 +709,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   em.emit_string_line(`${indent.clone()}    __yo_task_abort_observed(${fut_var.clone()});`);
   em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = ${none_code};`);
   em.emit_string_line(`${indent.clone()}  }`);
-  // A `ref` handle keeps the future referenced (its Dispose releases it), so
+  // A `ref` handle keeps the future referenced (its Drop releases it), so
   // awaiting it neither consumes the handle nor releases the task. A value
   // handle is consumed by the await, which releases its reference here.
   if(handle_is_value, {

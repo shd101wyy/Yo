@@ -1371,11 +1371,9 @@ _eval_and_register_rc_method :: (
     .None => ()
   );
 });
-/// The destructor `ct` carries (plans/VALUES_BY_DEFAULT.md decision 45,
-/// Generation A): `"drop"` for a `Drop` impl, `"dispose"` for a `Dispose`
-/// impl (the old spelling), `""` for neither. A `drop` method counts only when
-/// the prelude `Drop` trait supplies it, since `drop` is a common method name;
-/// `dispose` keeps the name-only test it always had.
+/// The destructor `ct` carries (plans/VALUES_BY_DEFAULT.md decision 45):
+/// `"drop"` for a `Drop` impl, `""` for none. A `drop` method counts only when
+/// the prelude `Drop` trait supplies it, since `drop` is a common method name.
 _destructor_method_name :: (fn(ct : &TypeValue, module_env : &Environment) -> String)({
   match(
     get_trait_type_from_env(module_env, String.from("Drop")),
@@ -1407,16 +1405,12 @@ _destructor_method_name :: (fn(ct : &TypeValue, module_env : &Environment) -> St
     },
     .None => ()
   );
-  cond(
-    (find_methods_from_generic_impls(ct, String.from("dispose"), module_env).len() > usize(0)) => String.from("dispose"),
-    (get_type_trait_methods_by_name(type_id_or_empty(ct), String.from("dispose")).len() > usize(0)) => String.from("dispose"),
-    true => String.new()
-  )
+  String.new()
 });
 /// The synthesized `___dispose`'s receiver: `self : &mut Self` over a `Drop`
 /// impl, whose `drop` takes it so (Rust's `drop(&mut self)`, decision 45), so
 /// what the destructor writes lands in the dropped value's own storage; `self
-/// : &Self` otherwise (a `Dispose` impl, or no user destructor). Every C
+/// : &Self` without a user destructor. Every C
 /// caller of a pointer-receiver `___dispose` passes the storage's address
 /// (`dispose_function_takes_pointer`, codegen/exprs/drop_dup.yo).
 _destructor_receiver :: (fn(method : &String) -> String)(
@@ -1425,15 +1419,12 @@ _destructor_receiver :: (fn(method : &String) -> String)(
     true => String.from("self : &Self")
   )
 );
-/// The synthesized `___dispose`'s call of the user destructor
-/// (`_destructor_method_name`'s answer). Its tokens are `auto-generated://`,
-/// so E0915 (an explicit destructor call) exempts it.
-_destructor_call_code :: (fn(method : &String) -> String)(
-  cond(
-    (method == "drop") => String.from("(Self <: Drop).drop(self); "),
-    true => String.from("self.dispose(); ")
-  )
-);
+/// The synthesized `___dispose`'s call of the user destructor. The
+/// trait-qualified call: a `Deref` wrapper with a `Drop` (the unique `Box`)
+/// over a payload with its own `drop` would make `self.drop()` decision 32's
+/// E0616. Its tokens are `auto-generated://`, so E0915 (an explicit
+/// destructor call) exempts it.
+_destructor_call_code :: (fn() -> String)(String.from("(Self <: Drop).drop(self); "));
 /// Synthesize + register the auto-derived `___dispose` (recursive RC-field drop) for a
 /// concrete RC struct that has RC runtime fields and no ___dispose yet. Builds
 /// `(fn(self : Self) -> unit)({ { f : a, … } := self; (___drop)(a); … () })` over the
@@ -1491,15 +1482,15 @@ _synthesize_and_register_dispose :: (
     });
     return(());
   });
-  // Does this type carry a user `impl Dispose` (its RAII destructor)? Containers
+  // Does this type carry a user `Drop` impl (its RAII destructor)? Containers
   // like ArrayList/HashMap keep their elements in a malloc'd BUFFER the field-walk
-  // below cannot reach, and drop them via a `Dispose` impl (a generic impl such as
-  // `impl(generic(T), ArrayList(T), Dispose(...))`, or a direct impl). Without wiring
+  // below cannot reach, and drop them via a `Drop` impl (a generic impl such as
+  // `impl(generic(T), ArrayList(T), Drop(...))`, or a direct impl). Without wiring
   // that into the type's ___dispose, freeing such a container TRANSITIVELY (as an RC
   // field of another object whose dispose merely `decr_rc`s it) leaks ALL its
   // elements — the dominant self-compile leak (Environment→frames→variables). The
-  // `self.dispose()` call at the top of the synthesized body lazily
-  // specializes the user dispose for `ct` (so a
+  // `(Self <: Drop).drop(self)` call at the top of the synthesized body lazily
+  // specializes the user `drop` for `ct` (so a
   // `bool`-valued map correctly skips the element drop via its own
   // `Type.contains_rc_type(V)` comptime guard), and `_eval_and_register_rc_method`'s
   // `find_function_calls_in_expr` collects it for emission.
@@ -1541,7 +1532,7 @@ _synthesize_and_register_dispose :: (
   // then drop the RC fields.
   body := String.from("");
   if(has_user_dispose, {
-    body.push_string(_destructor_call_code(&user_destructor));
+    body.push_string(_destructor_call_code());
   });
   if(any, {
     body.push_str("{ ");
@@ -1599,9 +1590,9 @@ _synthesize_and_register_enum_dispose :: (
     });
     return(());
   });
-  // User `impl Dispose` destructor: the call goes at the top of the ___dispose
+  // User `Drop` destructor: the call goes at the top of the ___dispose
   // body for ANY SelfType — enums included (the
-  // `self.dispose()` call in the synthesized body is that call site).
+  // `(Self <: Drop).drop(self)` call in the synthesized body is that call site).
   user_destructor := _destructor_method_name(ct, module_env);
   has_user_dispose := !user_destructor.is_empty();
   variant_names := match(ct, Rc(.EnumT({ variant_names : vn })) => vn, _ => ArrayList(String).new());
@@ -1670,7 +1661,7 @@ _synthesize_and_register_enum_dispose :: (
   });
   body := String.from("");
   if(has_user_dispose, {
-    body.push_string(_destructor_call_code(&user_destructor));
+    body.push_string(_destructor_call_code());
   });
   if(rc_variants > usize(0), {
     body.push_str("match(self, ");
@@ -1685,11 +1676,11 @@ _synthesize_and_register_enum_dispose :: (
   code := `(fn(${_destructor_receiver(&user_destructor)}) -> unit)({ ${body} })`;
   _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, &code, String.from("___dispose"));
 });
-/// Register the `___dispose` of a move-only VALUE type with a user `Dispose`
-/// (plans/VALUES_BY_DEFAULT.md §3.4): `(fn(self : &Self) -> unit)({ (Self <: Dispose).dispose(self); () })`.
+/// Register the `___dispose` of a move-only VALUE type with a user `Drop`
+/// (plans/VALUES_BY_DEFAULT.md §3.4): `(fn(self : &mut Self) -> unit)({ (Self <: Drop).drop(self); () })`.
 /// It runs the user destructor only: the value's fields are dropped inline by
 /// `generate_drop_code_for_value`, which calls this first. Registering it here
-/// specializes the user `dispose` for `ct` (a generic impl included) and
+/// specializes the user `drop` for `ct` (a generic impl included) and
 /// collects it for emission, the same route as the reference types' dispose.
 _synthesize_and_register_value_dispose :: (
   fn(base : &CodeGenContext, ctx : &EvalContext, module_env : &Environment, info : &ExprInfoTable, exn : Exception, ct : &TypeValue) -> unit
@@ -1728,14 +1719,7 @@ _synthesize_and_register_value_dispose :: (
   if(!has_user_dispose, {
     return(());
   });
-  // The trait-qualified call: a `Deref` wrapper with a `Dispose` (the unique
-  // `Box`) over a payload with its own `dispose` would make `self.dispose()`
-  // decision 32's E0616.
-  qualified := cond(
-    (user_destructor == "drop") => String.from("(Self <: Drop).drop(self); "),
-    true => String.from("(Self <: Dispose).dispose(self); ")
-  );
-  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, `(fn(${_destructor_receiver(&user_destructor)}) -> unit)({ ${qualified}() })`, String.from("___dispose"));
+  _eval_and_register_rc_method(base, ctx, module_env, info, exn, ct, `(fn(${_destructor_receiver(&user_destructor)}) -> unit)({ ${_destructor_call_code()}() })`, String.from("___dispose"));
 });
 /// Codegen pass: auto-derive + register the `___dispose` method for every concrete RC
 /// struct and ref-enum type that lacks one (and the user destructor of every move-only

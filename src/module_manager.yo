@@ -42,7 +42,7 @@ env_mod :: import("std/env");
   BK_IMPORT
 } :: import("./expr.yo");
 { fnv1a64 } :: import("./utils.yo");
-{ ExprInfoTable, purge_expr_side_tables, set_name_path_sharing, scope_release_set_table } :: import("./expr_info.yo");
+{ ExprInfoTable, purge_expr_side_tables, set_name_path_sharing, scope_release_set_table, migrate_drop_trait_on } :: import("./expr_info.yo");
 { parse } :: import("./parser.yo");
 { Environment, clone_env, build_prelude_var_cache, purge_funcval_cap_vars_owned_by } :: import("./env.yo");
 {
@@ -2960,7 +2960,16 @@ mm_load_file :: (
       true => String.new()
     )
   );
-  src := String.from_bytes(src_bytes);
+  (src : String) = String.from_bytes(src_bytes);
+  // `yo fix --migrate drop-trait` evaluates code still spelling the
+  // destructor trait `Dispose` (plans/VALUES_BY_DEFAULT.md decision 45), to
+  // learn which `.dispose` members resolve to it (`record_destructor_site`).
+  // Generation B deleted that trait from std, so the migration alone appends
+  // its old definition to the prelude: an ordinary trait, no destructor, there
+  // only for the member lookup. Appended at the end, so no prelude line moves.
+  if(migrate_drop_trait_on() && input_path.ends_with(String.from("prelude.yo")), {
+    src.push_str("\nDispose :: trait(id := \"Dispose\", dispose : (fn(self : &Self) -> unit));\nexport(Dispose);\n");
+  });
   exprs := parse(&src, input_path.clone(), local_exn);
   _record_static_import_edges(mm_resolve_entry_abs(input_path.clone(), std_path.clone()), &exprs, std_path.clone());
   if(verbose, {

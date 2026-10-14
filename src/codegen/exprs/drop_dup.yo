@@ -87,8 +87,8 @@ get_dispose_function_for_type :: (fn(type : &TypeValue, context : &FunctionGener
 /// Does `type`'s `___dispose` take its receiver through a pointer
 /// (`self : &mut Self`, the C ABI `fn_abi_param_is_ptr` reports)? True for the
 /// one synthesized over a `Drop` impl, whose `drop` takes `self : &mut Self`
-/// (plans/VALUES_BY_DEFAULT.md decision 45); false for a `Dispose` one
-/// (`self : &Self`, by value in C). Every C-level caller passes the address of
+/// (plans/VALUES_BY_DEFAULT.md decision 45); false for one with no user
+/// destructor (`self : &Self`, by value in C). Every C-level caller passes the address of
 /// the dropped value's storage when it is true, so what the destructor writes
 /// (a field taken out, set to `.None`) is what the field drops then read.
 dispose_function_takes_pointer :: (fn(type : &TypeValue) -> bool)(
@@ -350,7 +350,7 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
     return(String.from(""));
   });
   em := context.base.emitter;
-  // A move-only value type with a user `Dispose` (plans/VALUES_BY_DEFAULT.md
+  // A move-only value type with a user `Drop` (plans/VALUES_BY_DEFAULT.md
   // §3.4) runs it first, then its fields are dropped below. Its one owner
   // drops it once, so this is the only call. The `___dispose` is registered
   // by `collect_dispose_methods` (`_synthesize_and_register_value_dispose`).

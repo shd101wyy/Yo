@@ -761,7 +761,7 @@ _first_non_copy_part :: (fn(target : &TypeValue, copy_tt : &TypeValue, env : &En
 ///   structurally and declares nothing.
 /// - Anything else that is not a value `struct`/`enum`/`newtype` (a `Dyn`,
 ///   an `Iso`, a blanket `T`, a C opaque type) cannot.
-/// - A value nominal type must not be move-only (a `Dispose` would run once
+/// - A value nominal type must not be move-only (a `Drop` would run once
 ///   per copy), and every field and payload
 ///   must be `Copy`. The first one that is not is named.
 /// - Every type that may be `Copy` must also be `Clone`
@@ -1096,39 +1096,8 @@ _trait_or_supertrait_is :: (fn(bound : &TypeValue, wanted : &TypeValue, depth : 
 ///
 /// Use `type_implements_trait_bool` when only the boolean result is needed.
 ///
-/// `Drop` and `Dispose` answer as one trait until decision 45's Generation B
-/// (plans/VALUES_BY_DEFAULT.md): either spelling's impl satisfies a bound,
-/// a witness or `Type.impls` written with the other, so migrating a type to
-/// `Drop` (std keeps `Dispose`) flips neither
-/// (issues/fixed/drop-and-dispose-are-not-one-trait-for-bounds-and-type-impls.md).
+///
 type_implements_trait :: (
-  fn(
-    target_type : &TypeValue,
-    trait_type : &TypeValue,
-    env : &Environment
-  ) -> TraitCheckResult
-)({
-  r := _type_implements_trait_one(target_type, trait_type, env);
-  (twin : Option(TypeValue)) = if(r.implemented, Option(TypeValue).None, _destructor_twin_trait(trait_type, env));
-  match(
-    twin,
-    .Some(t) => _type_implements_trait_one(target_type, &t, env),
-    .None => r
-  )
-});
-/// The other spelling of the prelude destructor trait: `Dispose` for `Drop`,
-/// `Drop` for `Dispose` (by trait identity), else `.None`. The name test
-/// first keeps every other trait off the environment lookups.
-_destructor_twin_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> Option(TypeValue))(
-  cond(
-    !match(trait_type, Rc(.TraitT({ name })) => is_drop_trait_name(&name), _ => false) => Option(TypeValue).None,
-    _is_prelude_trait_named(trait_type, "Drop", env) => get_trait_type_from_env(env, String.from("Dispose")),
-    _is_prelude_trait_named(trait_type, "Dispose", env) => get_trait_type_from_env(env, String.from("Drop")),
-    true => Option(TypeValue).None
-  )
-);
-/// `type_implements_trait` for one trait, its destructor spelling not unified.
-_type_implements_trait_one :: (
   fn(
     target_type : &TypeValue,
     trait_type : &TypeValue,
@@ -1804,12 +1773,12 @@ _is_prelude_trait_named :: (fn(trait_type : &TypeValue, name : str, env : &Envir
     .None => false
   )
 );
-/// The receiver-kind gate on `Dispose` and `Trace`: `.Some(msg)`
+/// The receiver-kind gate on `Drop` and `Trace`: `.Some(msg)`
 /// when `trait_type` is one of them and `target_type` may not implement it. A
 /// `SomeT` is resolved and an enum shell mapped to its final type first, as
 /// `type_implements_trait` does.
 ///
-/// - `Dispose`: a value nominal type (`struct`, `enum`, `newtype`), which it
+/// - `Drop`: a value nominal type (`struct`, `enum`, `newtype`), which it
 ///   makes move-only (plans/VALUES_BY_DEFAULT.md §3.4: its one owner
 ///   disposes it once), or a reference type
 ///   (`ref(struct)`, `ref(enum)`, and their `atomic(...)` forms), whose copies
@@ -1838,7 +1807,6 @@ receiver_kind_trait_violation_msg :: (
 )({
   trait_name := cond(
     _is_prelude_trait_named(trait_type, "Drop", env) => String.from("Drop"),
-    _is_prelude_trait_named(trait_type, "Dispose", env) => String.from("Dispose"),
     _is_prelude_trait_named(trait_type, "Trace", env) => String.from("Trace"),
     is_copy_trait(trait_type, env) => String.from("Copy"),
     true => String.from("")
@@ -1856,7 +1824,7 @@ receiver_kind_trait_violation_msg :: (
     return(_copy_impl_violation_msg(target_type, &target, trait_type, env));
   });
   // A Copy type is never move-only (decision 36): the other direction of
-  // the impl check, for a `Drop` (`Dispose`) impl registered after `Copy`.
+  // the impl check, for a `Drop` impl registered after `Copy`.
   if(is_value_nominal && is_drop_trait_name(&trait_name), {
     match(
       get_trait_type_from_env(env, String.from("Copy")),
@@ -1879,7 +1847,7 @@ receiver_kind_trait_violation_msg :: (
   )
 });
 /// Message-returning core of the impl-site self check: `.Some(msg)` when the
-/// target may not implement the trait (the `Dispose`/`Trace`
+/// target may not implement the trait (the `Drop`/`Trace`
 /// receiver gate, `receiver_kind_trait_violation_msg`) or violates a positive or negative
 /// selfConstraint on it, `.None` otherwise. Split out (throw-free) so
 /// `impl.yo`'s concrete-impl path can call it through the injected
@@ -2096,18 +2064,12 @@ _type_implements_thread_marker :: (fn(ty : &TypeValue, marker : str, env : &Envi
 // ---------------------------------------------------------------------------
 // type_implements_dispose
 // ---------------------------------------------------------------------------
-/// Check if a type implements the destructor trait: `Drop`, or `Dispose`
-/// (its old spelling, recognized until decision 45's Generation B).
-/// `type_implements_trait` answers both spellings for either one.
+/// Check if a type implements the destructor trait, `Drop`.
 type_implements_dispose :: (fn(ty : &TypeValue, env : &Environment) -> bool)(
   match(
     get_trait_type_from_env(env, String.from("Drop")),
     .Some(drop_trait) => type_implements_trait_bool(ty, &drop_trait, env),
-    .None => match(
-      get_trait_type_from_env(env, String.from("Dispose")),
-      .None => false,
-      .Some(dispose_trait) => type_implements_trait_bool(ty, &dispose_trait, env)
-    )
+    .None => false
   )
 );
 // ---------------------------------------------------------------------------
