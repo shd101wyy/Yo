@@ -116,7 +116,8 @@ pragma(Pragma.AllowUnsafe);
   record_copy_write,
   record_copy_write_decl,
   _ic_decl_key,
-  _ic_place_root_decl
+  _ic_place_root_decl,
+  place_cell_hops
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -725,7 +726,11 @@ D3PendingInout :: struct(
   root_type : String,
   global : Option(Variable),
   borrow_error : Option(String),
-  (lb_place : Option(LocalBorrowPlace)) ?= Option(LocalBorrowPlace).None
+  (lb_place : Option(LocalBorrowPlace)) ?= Option(LocalBorrowPlace).None,
+  /// The root is not an atomic object, but an inner hop may be one
+  /// (`s.a.*`, `t.0.*`): decided by `d3_check_pending` on the evaluated
+  /// place's types, where `root_text`/`root_type` are filled in.
+  (atomic_hop : bool) ?= false
 );
 /// The module-level (non-thread-local, runtime) global a place is rooted in,
 /// if any — the D1 write rule's counterpart of `get_atomic_object_root_type`.
@@ -824,7 +829,21 @@ d3_record_inout_place :: (
         )
       );
     },
-    .None => ()
+    .None => if(!ast_expr_is_atom(place), {
+      pending.push(
+        D3PendingInout(
+          param_index : param_index,
+          place : place,
+          how : how,
+          noun : String.from("atomic object"),
+          root_text : String.new(),
+          root_type : String.new(),
+          global : Option(Variable).None,
+          borrow_error : Option(String).None,
+          atomic_hop : true
+        )
+      );
+    })
   );
   // D1: the same question for a place rooted in a module-level global.
   match(
@@ -963,6 +982,33 @@ d3_check_pending :: (
       );
     });
   });
+  // An `atomic_hop` entry is a candidate only: it counts when its evaluated
+  // place passes through an atomic object. Resolve those first, so a call
+  // whose candidates all fall away computes no mutation mask.
+  (hop_receivers : ArrayList(Option(AstExpr))) = ArrayList(Option(AstExpr)).new();
+  (needs_mask : bool) = false;
+  (hi : usize) = usize(0);
+  while(hi < pending.len(), hi = (hi + usize(1)), {
+    (hop_r : Option(AstExpr)) = Option(AstExpr).None;
+    match(
+      pending.get(hi),
+      .Some(entry) => if(entry.borrow_error.is_none() && ((entry.noun != _COPY_WRITE_NOUN) && entry.lb_place.is_none()), {
+        if(entry.atomic_hop, {
+          hop_r = place_cell_hops(&entry.place, ctx).atomic_receiver;
+          if(hop_r.is_some(), {
+            needs_mask = true;
+          });
+        }, {
+          needs_mask = true;
+        });
+      }),
+      .None => ()
+    );
+    hop_receivers.push(hop_r);
+  });
+  if(!needs_mask, {
+    return(());
+  });
   mask := match(borrow_mask, .Some(bm) => bm, .None => function_param_mutation_mask(callee_fid, callee_body, &ctx.expr_info_table));
   (i : usize) = usize(0);
   while(i < pending.len(), {
@@ -973,14 +1019,31 @@ d3_check_pending :: (
           entry.global,
           .Some(gv) => _d1_record_write(&gv, ast_expr_token(&entry.place), entry.how.clone(), String.from(", which the callee may write through"), exn),
           .None => {
-            exn.throw(
-              dyn(
-                format_error_message(
-                  ast_expr_token(&entry.place),
-                  `Cannot ${entry.how} ${entry.noun} '${entry.root_text}' (type ${entry.root_type}) in safe code: the callee may write through that mut parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
+            (root_text : String) = entry.root_text.clone();
+            (root_type : String) = entry.root_type.clone();
+            (is_write : bool) = true;
+            if(entry.atomic_hop, {
+              match(
+                match(hop_receivers.get(i), .Some(hr) => hr, .None => Option(AstExpr).None),
+                .Some(r) => {
+                  root_text = ast_expr_to_string(&r);
+                  root_type = match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => type_to_string(&ri.ty), .None => String.from("?"));
+                },
+                .None => {
+                  is_write = false;
+                }
+              );
+            });
+            if(is_write, {
+              exn.throw(
+                dyn(
+                  format_error_message(
+                    ast_expr_token(&entry.place),
+                    `Cannot ${entry.how} ${entry.noun} '${root_text}' (type ${root_type}) in safe code: the callee may write through that mut parameter. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation — take the receiver by value (self : Self) for a read-only method, or wrap the state in Arc(Mutex(T)).`
+                  )
                 )
-              )
-            );
+              );
+            });
           }
         );
       }),
@@ -1026,6 +1089,30 @@ throw_if_write_through_atomic_root :: (
   match(
     _module_global_root_var(&root_expr, env),
     .Some(gv) => _d1_record_write(&gv, ast_expr_token(place), how, String.new(), exn),
+    .None => ()
+  );
+});
+/// D3 for an evaluated place whose atomic object is not its root: a hop
+/// through an `Arc` reached by a field, a tuple element or another cell
+/// (`s.a.* = v`, `t.0.*.n = v`, `r.*.*.n = v`) is the same write as one rooted
+/// in the `Arc` (issues/2026-10-14-d3-misses-a-write-through-an-arc-that-is-not-the-place-root.md).
+_throw_if_write_through_atomic_hop :: (fn(ev_place : &AstExpr, how : String, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(ev_place).module_path.clone())), {
+    return(());
+  });
+  match(
+    place_cell_hops(ev_place, ctx).atomic_receiver,
+    .Some(r) => {
+      r_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&r)), .Some(ri) => type_to_string(&ri.ty), .None => String.from("?"));
+      exn.throw(
+        dyn(
+          format_error_message(
+            ast_expr_token(ev_place),
+            `Cannot ${how} atomic object '${ast_expr_to_string(&r)}' (type ${r_ty}) in safe code. Atomic objects shared across threads must use AtomicX / Mutex / RwLock for mutation. Use Arc(AtomicI32), Arc(Mutex(T)), or Arc(RwLock(T)) instead.`
+          )
+        )
+      );
+    },
     .None => ()
   );
 });
@@ -1209,6 +1296,9 @@ evaluate_assignment :: (
     local_borrow_mark_receiver(&lhs);
     evaluated_lhs := evaluate_expression_raw(&lhs, &env, ctx, exn);
     local_borrow_clear_receiver();
+    // D3 past the root: an inner hop may pass through an atomic object
+    // (`s.a.* = v`, `t.0.*.n = v`), which the root check above cannot see.
+    _throw_if_write_through_atomic_hop(&evaluated_lhs, String.from("write to field of"), ctx, exn);
     // The target is written: its element accesses dispatch `IndexMut`
     // (decision 34, V2b).
     call_promote_index_places_for_write(&evaluated_lhs, &env, ctx, exn);
