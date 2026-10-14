@@ -12,7 +12,7 @@ FAILED=0
 
 # job <name> <hold-seconds> [exclusive]: takes a slot, logs start/end, drops.
 job() {
-  bash -c '
+  /bin/bash -uc '
     source "$1"; trap heavy_drop EXIT
     heavy_take "$2" ${4:-}
     echo "$(date +%s.%N) start $2" >> "$HEAVY_ROOT/events"
@@ -23,7 +23,7 @@ job() {
 # old_job <name> <hold-seconds>: the pre-#1363 one-slot loop (slot 0 only,
 # ticket without a weight line), as gates written before it still run it.
 old_job() {
-  bash -c '
+  /bin/bash -uc '
     Q="$HEAVY_ROOT/.heavy-queue"; mkdir -p "$Q"; T="$Q/$(date +%s%N)-$$"; echo "$1" > "$T"
     while true; do
       head=""; for x in $(ls "$Q" | sort); do if kill -0 "${x##*-}" 2>/dev/null; then head=$x; break; fi; rm -f "$Q/$x"; done
@@ -69,15 +69,15 @@ expect "sessions with HEAVY_SLOTS=2 and =9 both obey the conf's 4" "$(max_concur
 
 # 3. Without a conf file the environment applies; 3 is the default.
 scenario env-fallback
-HEAVY_SLOTS=2 HEAVY_MIN_AVAIL_MB=0 bash -c 'source "$1"; echo "$HEAVY_SLOTS $HEAVY_MIN_AVAIL_MB"' _ "$LIB" > "$WORK/env.out"
+HEAVY_SLOTS=2 HEAVY_MIN_AVAIL_MB=0 /bin/bash -uc 'source "$1"; echo "$HEAVY_SLOTS $HEAVY_MIN_AVAIL_MB"' _ "$LIB" > "$WORK/env.out"
 expect "no conf: the environment sets the knobs" "$(cat "$WORK/env.out")" "2 0"
-env -u HEAVY_SLOTS -u HEAVY_MIN_AVAIL_MB bash -c 'source "$1"; echo "$HEAVY_SLOTS $HEAVY_MIN_AVAIL_MB"' _ "$LIB" > "$WORK/env.out"
+env -u HEAVY_SLOTS -u HEAVY_MIN_AVAIL_MB /bin/bash -uc 'source "$1"; echo "$HEAVY_SLOTS $HEAVY_MIN_AVAIL_MB"' _ "$LIB" > "$WORK/env.out"
 expect "no conf, no environment: the defaults" "$(cat "$WORK/env.out")" "3 6144"
 printf 'HEAVY_SLOTS=5' > "$HEAVY_ROOT/heavy-lock.conf"
-bash -c 'source "$1"; echo "$HEAVY_SLOTS"' _ "$LIB" > "$WORK/env.out"
+/bin/bash -uc 'source "$1"; echo "$HEAVY_SLOTS"' _ "$LIB" > "$WORK/env.out"
 expect "a last conf line without a newline still counts" "$(cat "$WORK/env.out")" 5
 printf 'HEAVY_SLOTS=40\n' > "$HEAVY_ROOT/heavy-lock.conf"
-bash -c 'source "$1"; echo "$HEAVY_SLOTS"' _ "$LIB" > "$WORK/env.out"
+/bin/bash -uc 'source "$1"; echo "$HEAVY_SLOTS"' _ "$LIB" > "$WORK/env.out"
 expect "a slot count above 26 is clamped" "$(cat "$WORK/env.out")" 26
 
 # 4. Slots past f are distinct directories (the old name table stopped at f).

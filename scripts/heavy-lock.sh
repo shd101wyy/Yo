@@ -40,6 +40,9 @@
 #
 # The file wins over environment variables of the same name, which only
 # apply when it does not set a key (throwaway HEAVY_ROOTs in tests).
+# The script runs under macOS's bash 3.2 and under `set -u`: an empty array is
+# expanded as `${a[@]+"${a[@]}"}`, which both accept
+# (scripts/heavy-lock-test.sh runs every job under /bin/bash -u).
 # HEAVY_ROOT itself has to come from the environment; every copy of this
 # script, in any worktree, must agree on it. The default is the worktree root
 # that AGENTS.md prescribes.
@@ -125,7 +128,7 @@ heavy_take() {
       if kill -0 "$pid" 2>/dev/null; then live+=("$t"); else rm -f "$HEAVY_QUEUE/$t"; fi
     done
     local k
-    for k in "${!live[@]}"; do
+    for k in ${live[@]+"${!live[@]}"}; do
       if [ "${live[$k]}" = "$ticket_name" ]; then pos=$k; break; fi
       grep -q '^weight=2$' "$HEAVY_QUEUE/${live[$k]}" 2>/dev/null && excl_ahead=1
       grep -q '^weight=' "$HEAVY_QUEUE/${live[$k]}" 2>/dev/null && newpos=$((newpos + 1))
@@ -148,7 +151,7 @@ heavy_take() {
     done
     if [ $weight = 2 ]; then
       if [ "$pos" = 0 ]; then
-        for s in "${free[@]}"; do
+        for s in ${free[@]+"${free[@]}"}; do
           _heavy_claim "$(_heavy_slot_dir $s)" "$who" && HEAVY_HELD_SLOTS="$HEAVY_HELD_SLOTS $s"
         done
         # Done once nobody else holds any slot, configured or not.
@@ -160,7 +163,7 @@ heavy_take() {
       fi
     elif [ $excl_ahead = 0 ] && [ $held_excl = 0 ] && [ "$pos" -ge 0 ] \
       && { [ $held = 0 ] || [ "$(_heavy_avail_mb)" -ge "$HEAVY_MIN_AVAIL_MB" ]; }; then
-      for s in "${free[@]}"; do
+      for s in ${free[@]+"${free[@]}"}; do
         if [ "$s" = 0 ]; then [ "$pos" = 0 ] || continue
         else [ "$newpos" -lt "$free_hi" ] || continue
         fi
