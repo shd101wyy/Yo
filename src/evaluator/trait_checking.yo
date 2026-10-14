@@ -1101,19 +1101,19 @@ type_implements_trait :: (
   ) -> TraitCheckResult
 )({
   r := _type_implements_trait_one(target_type, trait_type, env);
-  if(r.implemented || !match(trait_type, .TraitT({ name }) => is_drop_trait_name(&name), _ => false), {
-    return(r);
-  });
+  (twin : Option(TypeValue)) = if(r.implemented, Option(TypeValue).None, _destructor_twin_trait(trait_type, env));
   match(
-    _destructor_twin_trait(trait_type, env),
-    .Some(twin) => _type_implements_trait_one(target_type, &twin, env),
+    twin,
+    .Some(t) => _type_implements_trait_one(target_type, &t, env),
     .None => r
   )
 });
 /// The other spelling of the prelude destructor trait: `Dispose` for `Drop`,
-/// `Drop` for `Dispose` (by trait identity), else `.None`.
+/// `Drop` for `Dispose` (by trait identity), else `.None`. The name test
+/// first keeps every other trait off the environment lookups.
 _destructor_twin_trait :: (fn(trait_type : &TypeValue, env : &Environment) -> Option(TypeValue))(
   cond(
+    !match(trait_type, .TraitT({ name }) => is_drop_trait_name(&name), _ => false) => Option(TypeValue).None,
     _is_prelude_trait_named(trait_type, "Drop", env) => get_trait_type_from_env(env, String.from("Dispose")),
     _is_prelude_trait_named(trait_type, "Dispose", env) => get_trait_type_from_env(env, String.from("Drop")),
     true => Option(TypeValue).None
