@@ -113,7 +113,7 @@ test("a nested variant pattern through an Rc payload", {
   f :: (fn(l : &List) -> i32)(
     match(
       l,
-      .Cons(1, .Cons(n, _)) => n,
+      .Cons(1, Rc(.Cons(n, _))) => n,
       .Cons(h, _) => h,
       .Nil => i32(0)
     )
@@ -126,14 +126,14 @@ test("two levels through Rc payloads", {
   sum_boxed :: (fn(b : &Rc(List)) -> i32)(
     match(
       b,
-      .Cons(h, _) => h,
-      .Nil => i32(-2)
+      Rc(.Cons(h, _)) => h,
+      Rc(.Nil) => i32(-2)
     )
   );
   g :: (fn(l : &List) -> i32)(
     match(
       l,
-      .Cons(1, .Cons(2, .Cons(n, _))) => n,
+      .Cons(1, Rc(.Cons(2, Rc(.Cons(n, _))))) => n,
       .Cons(_, t) => sum_boxed(&t),
       .Nil => i32(-1)
     )
@@ -147,7 +147,7 @@ test("a literal sub-pattern through an Rc payload", {
   h :: (fn(c : &Cell) -> i32)(
     match(
       c,
-      .Value(42) => i32(1),
+      .Value(Rc(42)) => i32(1),
       .Value(_) => i32(2),
       .Empty => i32(0)
     )
@@ -160,7 +160,7 @@ test("an or-pattern through an Rc payload", {
   k :: (fn(l : &List) -> i32)(
     match(
       l,
-      (.Nil | .Cons(0, .Nil)) => i32(0),
+      (.Nil | .Cons(0, Rc(.Nil))) => i32(0),
       .Cons(h, _) => h,
       _ => i32(-1)
     )
@@ -192,8 +192,8 @@ test("an Rc scrutinee takes nested patterns directly", {
   n :: (fn(b : &Rc(List)) -> i32)(
     match(
       b,
-      .Cons(h, _) => h,
-      .Nil => i32(-1)
+      Rc(.Cons(h, _)) => h,
+      Rc(.Nil) => i32(-1)
     )
   );
   assert(n(rc(List.Cons(7, rc(List.Nil)))) == i32(7));
@@ -324,4 +324,60 @@ test("a wrapper pattern must name the cell at its position", {
     );
     bad3(Tree.Leaf(1))
   }, "not exhaustive");
+});
+// Decision 31, Generation B: an `Rc(T)` position is never looked through
+// implicitly, and a missing case is printed through the wrapper.
+test("a structural pattern at an Rc position must spell Rc(p)", {
+  comptime_expect_error({
+    bad4 :: (fn(t : &Tree) -> i32)(
+      match(
+        t,
+        .Node(.Leaf(a), _) => a,
+        _ => i32(0)
+      )
+    );
+    bad4(Tree.Leaf(1))
+  }, "a pattern does not look through a cell implicitly");
+  comptime_expect_error({
+    bad5 :: (fn(b : &Rc(Tree)) -> i32)(
+      match(
+        b,
+        .Leaf(n) => n,
+        _ => i32(0)
+      )
+    );
+    bad5(rc(Tree.Leaf(1)))
+  }, "a pattern does not look through a cell implicitly");
+  comptime_expect_error({
+    Cell3 :: enum(Value(v : Rc(i32)), Empty);
+    bad6 :: (fn(c : &Cell3) -> i32)(
+      match(
+        c,
+        .Value(42) => i32(1),
+        _ => i32(0)
+      )
+    );
+    bad6(Cell3.Empty)
+  }, "a pattern does not look through a cell implicitly");
+});
+test("a missing case is printed through the Rc wrapper", {
+  comptime_expect_error({
+    bad7 :: (fn(t : &Tree) -> i32)(
+      match(
+        t,
+        .Node(Rc(.Leaf(_)), _) => i32(1),
+        .Leaf(_) => i32(0)
+      )
+    );
+    bad7(Tree.Leaf(1))
+  }, "Missing case: .Node(Rc(.Node(_, _)), Rc(.Leaf(_)))");
+  comptime_expect_error({
+    bad8 :: (fn(b : &Rc(Tree)) -> i32)(
+      match(
+        b,
+        Rc(.Node(_, _)) => i32(1)
+      )
+    );
+    bad8(rc(Tree.Leaf(1)))
+  }, "Missing case: Rc(.Leaf(_))");
 });

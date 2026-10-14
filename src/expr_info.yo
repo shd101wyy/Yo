@@ -3046,3 +3046,35 @@ take_marker_sites :: (fn() -> ArrayList(MarkerSite))({
   out
 });
 export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, take_marker_sites);
+/// One pattern `yo fix --migrate rc-pattern` wraps in `Rc(…)`
+/// (plans/VALUES_BY_DEFAULT.md decision 31, Generation B): a structural
+/// pattern at an `Rc(T)` position, which the compiler no longer looks through
+/// implicitly. `row`/`col` are the pattern's leftmost token; `expect` is the
+/// printed pattern, which the rewrite matches against the source text before
+/// it edits anything.
+RcPatternSite :: struct(path : String, row : usize, col : usize, expect : String);
+(g_migrate_rc_pattern : bool) = false;
+(g_rc_pattern_sites : ArrayList(RcPatternSite)) = ArrayList(RcPatternSite).new();
+(g_rc_pattern_site_keys : HashSet(String)) = HashSet(String).new();
+set_migrate_rc_pattern :: (fn(on : bool) -> unit)({
+  g_migrate_rc_pattern = on;
+});
+/// Whether `yo fix --migrate rc-pattern` is recording (the implicit `Rc`
+/// look-through records the site and looks through instead of rejecting it).
+migrate_rc_pattern_on :: (fn() -> bool)(g_migrate_rc_pattern);
+/// Record one site: `tok` is the pattern's leftmost token. Recorded once per
+/// position.
+record_rc_pattern_site :: (fn(tok : &Token, expect : &String) -> unit)({
+  key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  if(!g_rc_pattern_site_keys.insert(key), {
+    return(());
+  });
+  g_rc_pattern_sites.push(RcPatternSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone()));
+});
+take_rc_pattern_sites :: (fn() -> ArrayList(RcPatternSite))({
+  out := g_rc_pattern_sites;
+  g_rc_pattern_sites = ArrayList(RcPatternSite).new();
+  g_rc_pattern_site_keys = HashSet(String).new();
+  out
+});
+export(RcPatternSite, set_migrate_rc_pattern, migrate_rc_pattern_on, record_rc_pattern_site, take_rc_pattern_sites);
