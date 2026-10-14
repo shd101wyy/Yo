@@ -138,7 +138,7 @@ Landing the value-root rule instead (dropping the gate and reporting named
 pairs everywhere) was measured. `check ./src` reported exactly the two sites
 above, and `check ./std` reported nothing. In the language suite, it failed
 `string.test.yo` and `type_soundness.test.yo` on the two tests named above,
-and nothing else. That is V2b's change, together with those two tests and
+and on no other E0910. (The suite's other failures, E0901 in `tests/http/*` and `tests/spawn_blocking.test.yo`, failed the same way on a build without this change.) That is V2b's change, together with those two tests and
 `docs/*/FLOWABILITY.md`'s "+1 keep-alive" paragraph.
 
 The PR `fix/e0910-holes` (E0910 lend-move holes) edits
