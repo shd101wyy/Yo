@@ -5568,6 +5568,44 @@ stage-2 RSS):
     destructuring arms that reaches through a child, which a `yo fix`
     repair inserts mechanically from the pattern position's type.
 
+### Evaluator performance: the migration's copy and allocation cost
+
+**Status: measured 2026-10-14; step 1 in progress, steps 2–3 queued** (maintainer, 2026-10-14: "go with your recommendation").
+
+**Measured.** Each release's own binary, checking its own tag's tree (`check ./src --std-path ./std`, Mac Mini M4, nothing else running):
+
+| Release | `check ./src` | Max RSS | `src/` lines |
+| --- | ---: | ---: | ---: |
+| v0.2.50 | 113.3 s | 1,165 MB | 261,544 |
+| v0.2.53 | 130.9 s | 1,089 MB | 266,343 |
+| v0.2.55 | 141.2 s | 1,125 MB | 272,367 |
+| v0.2.57 | 161.7 s | 1,175 MB | 274,375 |
+| v0.2.59 | 166.2 s | 1,189 MB | 277,907 |
+| v0.2.60 | 172.8 s | 1,188 MB | 278,100 |
+| v0.2.61 | 177.2 s | 1,201 MB | 280,844 |
+
+- Develop after the v0.2.62 batch measures about 187 s.
+- The source grew 7% while the time grew 56%. The growth is spread across the VBD releases; no one release jumps.
+- It is not #1329's key memos. Develop, the `Rc`-handle `TypeValue` with key memos, and the handle with #1137's identity memos all check in 186–188 s.
+
+**Where the time goes.** `sample` on the checking thread, v0.2.50 → v0.2.61:
+
+| Category | v0.2.50 | v0.2.61 | Change |
+| --- | ---: | ---: | ---: |
+| Yo code | 45.6 s | 66.7 s | +46% |
+| RC increments/decrements | 20.1 s | 33.9 s | +69% |
+| `malloc`/`free` | 15.4 s | 27.6 s | +79% |
+| `memmove`/`memcpy`/`memcmp` | 5.9 s | 9.5 s | +60% |
+
+RC and allocation traffic grew faster than the code. That points at copies the migration made explicit (clones, by-value `String`/`ArrayList` parameters) on the evaluator's hot paths.
+
+**Why the existing ratchet missed it.** CI's evaluator memory ratchet (`scripts/bootstrap/memory_ratchet.sh`) gates `check src/main.yo` on max RSS only, and RSS grew about 3%. Its printed wall time is not usable as a gate: identical trees measure 3:47 to 8:53 on `ubuntu-latest`.
+
+**Plan:**
+1. **Attribute now.** Map the profile's `yo_id_*` symbols to `.yo` functions by emitting each release's compiler C with `--line-directives`, rank the functions by inclusive time and by the RC/allocation time under them, and fix the clear regressions in v0.2.63: a clone inside a hot loop, a by-value copy that should be a `&` lend.
+2. **Structural tuning after V2b's unique buffers and V4's `TypeValue`.** Both change exactly the RC and allocation profile, so tuning before them would be partly wasted.
+3. **A deterministic guard.** Extend the memory ratchet with an allocation count, for example an `LD_PRELOAD` `malloc` counter on Linux or `perf stat -e instructions:u` if the runners expose it. Ratchet it ±10% like RSS, and report the `check ./src` time per release in the release notes' "Compiler performance and memory" section.
+
 ### Decision 43: references as types
 
 Decision 43 (§4) is the design, and `plans/backlog/NON_ESCAPABLE_TYPES.md`
