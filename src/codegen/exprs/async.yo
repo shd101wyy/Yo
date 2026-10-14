@@ -1585,8 +1585,12 @@ _build_async_capture_struct_literal :: (
   ) -> String
 )({
   in_special_context := (match(context.current_closure_captures, .Some(_) => true, .None => false) || match(context.in_async_state_machine, .Some(_) => true, .None => false));
-  struct_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
-  fields := match(get_struct_fields(&struct_id), .Some(fs) => fs, _ => ArrayList(TypeField).new());
+  // Each field's type from the instantiated capture type, not the registry:
+  // a closure in a generic body shares one capture struct id across its
+  // instantiations, so the registry's field types are another
+  // instantiation's, and the retain lines below declared their temps with them
+  // (issues/fixed/2026-10-14-a-capture-in-a-generic-io-async-body-is-retained-with-another-instantiations-type.md).
+  fields := _capture_struct_fields(capture_type);
   (used_deferred_dups : bool) = false;
   parts := ArrayList(String).new();
   (i : usize) = usize(0);

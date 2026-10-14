@@ -222,7 +222,7 @@ impl(
     /// re-`yield` in a loop, which kept the task always runnable: a waiting
     /// watcher spun a core and the loop never blocked
     /// (issues/fixed/poll-and-fs-event-watches-starve-while-the-loop-waits.md).
-    next : (fn(self : &Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
       io.async((io : Io) => {
         while(runtime((self._head >= self._queue.len()) && self._active), {
           p := Park.new();
