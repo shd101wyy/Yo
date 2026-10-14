@@ -849,6 +849,39 @@ regression. A real break shows localized, structural differences instead.
 This is the same two-generation rule as the seed pin, in a different costume:
 anything that changes `std/` shifts every program that links it.
 
+## The heavy lock: one machine, several sessions
+
+Several sessions and agents often share one development machine, and two
+compiler-sized jobs that start at the same moment can swap each other into
+the test runner's 600 s deadline. Every heavy step therefore goes through
+`scripts/heavy-lock.sh`, a FIFO lock under `~/Workspace/Yo-wt` (the worktree
+root; override with `HEAVY_ROOT`, which every session on the machine must share):
+
+```bash
+source scripts/heavy-lock.sh
+trap heavy_drop EXIT
+heavy_take "<who>: build + check src"        # shares the machine (default 3 slots)
+yo build --std-path ./std && yo check ./src --std-path ./std
+heavy_drop
+heavy_take "<who>: check-time A/B" exclusive  # runs alone
+```
+
+- **Heavy:** `yo build`, `check ./src`, `compile src/main.yo`, the language
+  suite, any `tests/internal` file, fixpoint. **Light, no lock:** single small
+  test files, `fmt`, `check` of one small module.
+- **Take `exclusive`** for anything timed (an owner line containing `timed`,
+  `A/B`, `measure`, `profile` or `sample` is treated as exclusive too) and for
+  steps that grow past ~5 GB, such as `tests/internal/macro_expansion.test.yo`
+  (6.5 GB). The free-memory check (`HEAVY_MIN_AVAIL_MB`, 6 GB) only runs when a
+  job is admitted beside another, so it cannot catch a job that grows later.
+- **Never hold a slot while idle.** A gate is one script with no waits inside;
+  `trap heavy_drop EXIT` releases the slot when the script fails.
+- `cat ~/Workspace/Yo-wt/.heavy-lock*/owner` shows the holders and
+  `~/Workspace/Yo-wt/.heavy-queue/` the waiters, oldest first. A holder whose
+  process is stopped (`ps -o stat=` shows `T`) blocks everyone; `kill -CONT` it.
+- Killing a waiter is safe (its ticket is pruned); killing a holder leaves its
+  slot directory behind, so remove the `.heavy-lock*` directory it owned.
+
 ## Compiler internal tests — `tests/internal/`
 
 These are the self-hosted compiler's own tests. **They lived at `yo-self/tests/`
