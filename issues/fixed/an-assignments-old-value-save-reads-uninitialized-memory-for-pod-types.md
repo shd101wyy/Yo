@@ -2,6 +2,12 @@
 
 **Severity:** S1 — generated C reads uninitialized malloc'd memory for POD assignment saves — undefined behavior
 
+## Resolution (2026-10-14)
+
+Fixed. #976 had covered only `consume(p.* = v)`, through the `consume_assignment_saves_by_bytes` flag, so `ArrayList(bool).push` was clean. Every other assignment still saved the old value with a typed load, `T temp = lhs;`. That is undefined behavior when the slot is uninitialized and the type is a `bool` or an enum. The 2026-10-14 triage reproduced it with an `unsafe(p.* = true)` into fresh `malloc` memory: UBSan reported `load of value 170, which is not a valid value for type 'bool'`.
+
+The save in `generate_assignment` (`src/codegen/exprs/assignment.yo`) is now always a byte copy (`T temp; memcpy(&temp, &(lhs), sizeof(temp));`), and the flag is deleted. The temp is still declared, so a consuming parent such as `y := (x = …)` keeps working; gating the save on whether the type contains an RC value broke exactly that. The two state-machine save forms read an `sm->` slot, which is always initialized (calloc), so they are unchanged. Test: "a plain store into fresh memory never loads the uninitialized old value" in `tests/rc.test.yo`, which fails under UBSan (ubsan.yml).
+
 Found while running the tier-1 battery locally under `zig cc` (the deck box
 has no clang; a `cc` shim wrapping `zig cc` stands in): `tests/rand.test.yo`
 died with

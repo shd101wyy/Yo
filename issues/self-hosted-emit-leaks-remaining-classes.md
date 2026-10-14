@@ -2,6 +2,8 @@
 
 **Severity:** S1 — self-hosted-emitted binaries leak on 50 corpus files — unbounded in long-running programs
 
+**2026-10-14:** the S1 triage isolated one class that is still live and fully general: a block result that is not moved was never released. It is fixed in `issues/fixed/2026-10-14-a-block-result-that-is-not-moved-is-never-released.md`. The 50-file list needs a Linux LSan re-measure before this umbrella can shrink further. The async part is tracked in `issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`.
+
 **Status: OPEN — the map for the next RC campaign.** Measured 2026-08-14 on
 PR #122 round 3 (Linux, functional ASan), AFTER the sync-await future leak
 fix (`issues/fixed/sync-await-future-never-dropped.md`) cleared 29 of the

@@ -22,7 +22,7 @@
 { eprintln } :: import("std/fmt");
 { take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
-{ get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position } :: import("../utils/index.yo");
+{ declare_c_var_name, get_type_string, is_deferred_drop_for_closure_capture, get_deferred_drop_target_atom_name, sanitize_for_c_identifier, note_line_position } :: import("../utils/index.yo");
 (g_debug_scope_drops : bool) = debug_knob(`YO_DEBUG_SCOPE_DROPS`).is_some();
 /// Concatenate `current` then `prev` (both optional) into a fresh drop list.
 _concat_drops :: (fn(current : &Option(ArrayList(AstExpr)), prev : &Option(ArrayList(AstExpr))) -> ArrayList(AstExpr))({
@@ -189,6 +189,13 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
         d.push_string(temp_var.clone());
         d.push_str(";");
         em.emit_string_line(&d);
+        // Register the bare declaration, as cond and match do: the
+        // deferred-drop passes skip a temp they never saw declared, so the
+        // evaluator's scope-end drop of a block result that is not moved
+        // (a call argument, a receiver, `&{...}`, a discarded statement, an
+        // `array_list(...)` temporary) was silently thrown away
+        // (issues/fixed/2026-10-14-a-block-result-that-is-not-moved-is-never-released.md).
+        declare_c_var_name(&context.base, temp_var.clone());
       });
       hdr := indent.clone();
       hdr.push_str("{ // begin block");
@@ -249,6 +256,12 @@ generate_begin :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
       ftr := indent.clone();
       ftr.push_str("} // end begin block");
       em.emit_string_line(&ftr);
+      // The result temp is assigned inside the block; once it is closed, put
+      // it on the block-scope stack so an explicit `return` / escape after the
+      // block releases it (see generate_match_expression).
+      if(is_returning, {
+        em.mark_declared_in_scope(&temp_var);
+      });
       context.pending_deferred_drops = prev_pending;
       context.consumed_var_pending_drops = prev_consumed;
       if(is_unit || has_cf, String.from(""), temp_var)
