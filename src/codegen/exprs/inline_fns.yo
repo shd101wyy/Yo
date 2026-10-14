@@ -64,7 +64,8 @@
   BF_YO_MAYBE_UNINIT_NEW,
   BF_YO_MAYBE_UNINIT_AS_PTR,
   BF_YO_MAYBE_UNINIT_ASSUME_INIT,
-  BF_YO_ARRAY_INDEX
+  BF_YO_ARRAY_INDEX,
+  ast_call_args_unmarked
 } :: import("../../expr.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_enum_type, is_reference_struct_type, is_reference_enum_type, is_primitive_type, is_unit_type, is_f32_type, is_f64_type, is_i8_type, is_i16_type, is_i32_type, is_i64_type, is_isize_type, is_u8_type, is_u16_type, is_u32_type, is_u64_type, is_usize_type } :: import("../../types/guards.yo");
@@ -463,18 +464,17 @@ _as_source_is_tagged_enum :: (fn(expr : &AstExpr, context : &FunctionGenerationC
 /// splits by path"), so the builtin lowers to nothing. Casting the value to
 /// `void*` was invalid C.
 _borrow_operand_has_flag :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  // Read through a call-site `&x` marker: the evaluator annotates the place
+  // under it, not the marker node (`ast_call_args_unmarked`), so the raw
+  // operand of `__yo_borrow_release(&self._c)` had no type and was flagged.
   match(
-    expr,
-    .FnCall(_, _, a, _, _) => match(
-      a.get(usize(0)),
-      .Some(a0) => match(
-        context.base.get_expr_info(&a0),
-        .Some(aei) => (is_reference_struct_type(&aei.ty) || is_reference_enum_type(&aei.ty)),
-        .None => true
-      ),
+    ast_call_args_unmarked(expr).get(usize(0)),
+    .Some(a0) => match(
+      context.base.get_expr_info(&a0),
+      .Some(aei) => (is_reference_struct_type(&aei.ty) || is_reference_enum_type(&aei.ty)),
       .None => true
     ),
-    .Atom(_, _) => true
+    .None => true
   )
 );
 /// Generate a Yo operator / inline-builtin function call.

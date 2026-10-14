@@ -45,8 +45,16 @@ borrowed-`for` guard splits by path": a value-rooted place is checked
 statically under unique ownership and needs no run-time flag, and a place
 reached through an `Rc` deref keeps the guard on that cell.
 
+The predicate reads the operand through a call-site `&x` marker
+(`ast_call_args_unmarked`). The evaluator annotates the place under the
+marker, not the marker node, so the guard's `Dispose`
+(`__yo_borrow_release(&self._c)`) found no type on the raw operand and kept
+the cast. The first version of the fix missed that, and only the release
+still failed.
+
 ## Verification
 
 `tests/for_macro_borrow.test.yo`, "a borrow guard over a value-rooted place
-sets no flag", compiled and ran with the tree-built compiler. Before the fix
-the same test failed at the C compile.
+sets no flag", compiles and runs with the tree-built compiler. Before the fix
+the same test failed at the C compile, at the acquire and then, with the
+first version of the fix, at the release.
