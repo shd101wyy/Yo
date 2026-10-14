@@ -178,7 +178,7 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
 ### Before, during, after a change
 
 - **Use the LATEST published seed** (`yo --version` = newest GitHub release). A current tree can need runtime symbols only the newest seed emits. Update with `bash scripts/install.sh` (`--no-deps` on nix boxes).
-- **Heavy steps take a slot of the machine-wide FIFO lock** (`source scripts/heavy-lock.sh; heavy_take "<who>: <job>"` … `heavy_drop`; `exclusive` for timings and >5 GB steps). Three memory-admitted slots; details in `testing.instructions.md` ("The heavy lock").
+- **Heavy steps take a slot of the machine-wide FIFO lock** (`source scripts/heavy-lock.sh; heavy_take "<who>: <job>"` … `heavy_drop`; `exclusive` for timings and >5 GB steps). Memory-admitted slots, sized per machine in `~/Workspace/Yo-wt/heavy-lock.conf` (default 3); details in `testing.instructions.md` ("The heavy lock").
 - Run `yo check ./src` before any longer command. `check` is evaluator-only: the hollow-`io.async`-body rule (E0905) is enforced in codegen, so gate it with `yo compile src/main.yo --skip-c-compiler`.
 - Make commands succeed yourself. Do not ask the user to run them, and do not end the conversation until they pass.
 - No hardcoding, no shortcuts, no simplifications in the evaluator or codegen. When asked to refactor, refactor everything: no placeholders, no TODOs.

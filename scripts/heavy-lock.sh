@@ -30,17 +30,52 @@
 # A slot whose owner line contains EXCLUSIVE, "timed", "A/B", "measure",
 # "profile" or "sample" counts as exclusive, which also covers an
 # old-protocol timing gate that cannot declare a weight.
-# Every copy of this script, in any worktree, must agree on HEAVY_ROOT; the
-# default is the worktree root that AGENTS.md prescribes.
+#
+# Configuration: every session on the machine must agree on it, so it lives in
+# `$HEAVY_ROOT/heavy-lock.conf`, which the script re-reads on every pass of
+# the wait loop (an edit reaches waiters already in the queue):
+#
+#   HEAVY_SLOTS=6              # concurrent weight-1 jobs, 1..26 (default 3)
+#   HEAVY_MIN_AVAIL_MB=6144    # memory needed to start beside another job
+#
+# The file wins over environment variables of the same name, which only
+# apply when it does not set a key (throwaway HEAVY_ROOTs in tests).
+# HEAVY_ROOT itself has to come from the environment; every copy of this
+# script, in any worktree, must agree on it. The default is the worktree root
+# that AGENTS.md prescribes.
 HEAVY_ROOT="${HEAVY_ROOT:-$HOME/Workspace/Yo-wt}"
-HEAVY_SLOTS="${HEAVY_SLOTS:-3}"
-HEAVY_MIN_AVAIL_MB="${HEAVY_MIN_AVAIL_MB:-6144}"
 HEAVY_LOCK="$HEAVY_ROOT/.heavy-lock"
 HEAVY_QUEUE="$HEAVY_ROOT/.heavy-queue"
+HEAVY_CONF="$HEAVY_ROOT/heavy-lock.conf"
+# Slot k >= 1 is `.heavy-lock-<letter k>`: b, c, ... z.
+HEAVY_SLOT_LETTERS="abcdefghijklmnopqrstuvwxyz"
+HEAVY_MAX_SLOTS=26
+_HEAVY_ENV_SLOTS="${HEAVY_SLOTS:-}"
+_HEAVY_ENV_MIN_AVAIL_MB="${HEAVY_MIN_AVAIL_MB:-}"
+
+# Sets HEAVY_SLOTS and HEAVY_MIN_AVAIL_MB from the conf file, else the
+# environment, else the defaults. The file is parsed, never sourced.
+_heavy_load_conf() {
+  local conf_slots="" conf_avail="" key val
+  if [ -r "$HEAVY_CONF" ]; then
+    while IFS='=' read -r key val || [ -n "$key" ]; do
+      key="${key//[[:space:]]/}"; val="${val%%#*}"; val="${val//[[:space:]]/}"
+      case "$val" in '' | *[!0-9]*) continue ;; esac
+      case "$key" in
+        HEAVY_SLOTS) conf_slots="$val" ;;
+        HEAVY_MIN_AVAIL_MB) conf_avail="$val" ;;
+      esac
+    done < "$HEAVY_CONF"
+  fi
+  HEAVY_SLOTS="${conf_slots:-${_HEAVY_ENV_SLOTS:-3}}"
+  HEAVY_MIN_AVAIL_MB="${conf_avail:-${_HEAVY_ENV_MIN_AVAIL_MB:-6144}}"
+  [ "$HEAVY_SLOTS" -ge 1 ] 2>/dev/null || HEAVY_SLOTS=1
+  [ "$HEAVY_SLOTS" -le $HEAVY_MAX_SLOTS ] || HEAVY_SLOTS=$HEAVY_MAX_SLOTS
+}
+_heavy_load_conf
 
 _heavy_slot_dir() {
-  local suffixes=(_ b c d e f)
-  if [ "$1" = 0 ]; then echo "$HEAVY_LOCK"; else echo "$HEAVY_LOCK-${suffixes[$1]}"; fi
+  if [ "$1" = 0 ]; then echo "$HEAVY_LOCK"; else echo "$HEAVY_LOCK-${HEAVY_SLOT_LETTERS:$1:1}"; fi
 }
 _heavy_avail_mb() {
   if [ -r /proc/meminfo ]; then
@@ -95,14 +130,18 @@ heavy_take() {
       grep -q '^weight=2$' "$HEAVY_QUEUE/${live[$k]}" 2>/dev/null && excl_ahead=1
       grep -q '^weight=' "$HEAVY_QUEUE/${live[$k]}" 2>/dev/null && newpos=$((newpos + 1))
     done
+    _heavy_load_conf
+    # Scan every possible slot, not just the configured ones: after the slot
+    # count is lowered, a job still running in a higher slot keeps counting
+    # as held, so nobody (an exclusive job least of all) starts over it.
     local s dir free=() free_hi=0 held=0 held_excl=0
-    for ((s = 0; s < HEAVY_SLOTS; s++)); do
-      dir="$(_heavy_slot_dir $s)"
+    for ((s = 0; s < HEAVY_MAX_SLOTS; s++)); do
+      if [ $s = 0 ]; then dir="$HEAVY_LOCK"; else dir="$HEAVY_LOCK-${HEAVY_SLOT_LETTERS:$s:1}"; fi
       if [ -d "$dir" ]; then
         case " $HEAVY_HELD_SLOTS " in *" $s "*) ;; *)
           held=$((held + 1)); _heavy_slot_exclusive "$dir" && held_excl=1 ;;
         esac
-      else
+      elif [ "$s" -lt "$HEAVY_SLOTS" ]; then
         free+=("$s")
         [ "$s" != 0 ] && free_hi=$((free_hi + 1))
       fi
@@ -112,7 +151,10 @@ heavy_take() {
         for s in "${free[@]}"; do
           _heavy_claim "$(_heavy_slot_dir $s)" "$who" && HEAVY_HELD_SLOTS="$HEAVY_HELD_SLOTS $s"
         done
-        if [ "$(echo $HEAVY_HELD_SLOTS | wc -w)" -eq "$HEAVY_SLOTS" ]; then
+        # Done once nobody else holds any slot, configured or not.
+        local mine=0
+        for s in $HEAVY_HELD_SLOTS; do [ -d "$(_heavy_slot_dir $s)" ] && mine=$((mine + 1)); done
+        if [ $held = 0 ] && [ $mine -ge "$HEAVY_SLOTS" ]; then
           rm -f "$ticket"; HEAVY_HELD=1; return 0
         fi
       fi
@@ -127,7 +169,7 @@ heavy_take() {
         fi
       done
     fi
-    sleep 10
+    sleep "${HEAVY_POLL_SECONDS:-10}"
   done
 }
 

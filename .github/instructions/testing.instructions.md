@@ -874,6 +874,13 @@ heavy_take "<who>: check-time A/B" exclusive  # runs alone
   steps that grow past ~5 GB, such as `tests/internal/macro_expansion.test.yo`
   (6.5 GB). The free-memory check (`HEAVY_MIN_AVAIL_MB`, 6 GB) only runs when a
   job is admitted beside another, so it cannot catch a job that grows later.
+- **Size the slots per machine in `~/Workspace/Yo-wt/heavy-lock.conf`**, never
+  per session: `HEAVY_SLOTS=N` (1–26, default 3) and `HEAVY_MIN_AVAIL_MB=M`.
+  Every waiter re-reads the file each poll, and it wins over environment
+  variables, so one session cannot run with a different slot count than the
+  rest. Budget ~4 GB per Tier 1 gate on top of the OS and the sessions
+  themselves: 3 slots on 16 GB, about 6 on 48 GB. `bash scripts/heavy-lock-test.sh`
+  (~1 min, throwaway lock root) checks a change to the script.
 - **Never hold a slot while idle.** A gate is one script with no waits inside;
   `trap heavy_drop EXIT` releases the slot when the script fails.
 - `cat ~/Workspace/Yo-wt/.heavy-lock*/owner` shows the holders and
