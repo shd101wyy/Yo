@@ -556,6 +556,9 @@ move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
       `\`${name}\` is move-only (${why}): move it (\`sink(${name})\`), lend it to a \`&mut T\` parameter, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`). A \`&T\` parameter borrows it without a copy (the call lends it with \`&${name}\`).${_clone_hint(name, ty)}`
     ),
     .None => cond(
+      (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
+        `\`${name}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, name.clone())}`
+      ),
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
         `\`${name}\` has type \`${type_to_string(ty)}\`, which is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give the type \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move it (\`sink(${name})\`).`
       ),
@@ -567,6 +570,16 @@ move_only_help :: (fn(name : &String, ty : &TypeValue) -> Option(String))(
       ),
       true => Option(String).None
     )
+  )
+);
+/// A closure's type: its identity, or its capture record.
+_is_closure_type :: (fn(ty : &TypeValue) -> bool)(is_bound_closure_identity(ty) || is_closure_capture_struct(ty));
+/// What to do with a closure that is not `Copy`: clone it when it is `Clone`
+/// (each by-value capture is), else move it.
+_closure_copy_remedy :: (fn(ty : &TypeValue, name : String) -> String)(
+  cond(
+    type_lacks_clone(ty) => `this one is not \`Clone\` either, so it is move-only: move it (\`sink(${name})\`), or capture by \`&\` what it only reads.`,
+    true => `write \`${name}.clone()\` for a copy (it clones each by-value capture), move it (\`sink(${name})\`), or capture by \`&\` what it only reads.`
   )
 );
 /// The explicit copy a move-only type that implements `Clone` offers
@@ -589,6 +602,9 @@ move_only_type_help :: (fn(ty : &TypeValue) -> Option(String))(
       `\`${type_to_string(ty)}\` is move-only (${why}): a value of it is moved, never copied. Lend it to a \`&T\` or \`&mut T\` parameter, move its whole owner, or share it through a reference type (\`Rc\`, \`Arc\`, a \`ref(struct(...))\`).`
     ),
     .None => cond(
+      (type_requires_explicit_copy(ty) && _is_closure_type(ty)) => Option(String).Some(
+        `\`${type_to_string(ty)}\` is a closure, and a closure is \`Copy\` exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36): ${_closure_copy_remedy(ty, String.from("the closure"))}`
+      ),
       (type_requires_explicit_copy(ty) && !type_contains_rc_cell_or_move_only(ty) && type_lacks_clone(ty)) => Option(String).Some(
         `\`${type_to_string(ty)}\` is neither \`Copy\` nor \`Clone\`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give it \`derive(${_copy_derive_target(ty)}, Copy, Clone)\` to copy it implicitly, or move its whole owner.`
       ),

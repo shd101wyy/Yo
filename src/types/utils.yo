@@ -908,6 +908,15 @@ type_lacks_clone :: (fn(ty : &TypeValue) -> bool)(match(g_type_lacks_clone_fn, .
 (g_flip_report : bool) = debug_knob(`YO_FLIP_REPORT`).is_some();
 (g_flip_reported : HashMap(String, bool)) = HashMap(String, bool).new();
 _plain_data_lacks_copy :: (fn(ty_in : &TypeValue) -> bool)({
+  // A closure is judged by its capture record, as in Rust: `Copy` exactly
+  // when every by-value capture is (decision 36), whatever it owns. The
+  // owned-buffer and counted-cell carve-out below is V2b's and V2c's
+  // migration of `String`, the collections and `Rc` themselves, not of the
+  // closures that capture them: a closure owning a `String` is explicit-copy
+  // now (issues/fixed/a-closure-owning-a-string-copies-implicitly.md).
+  if(is_bound_closure_identity(ty_in) || is_closure_capture_struct(ty_in), {
+    return(match(g_type_lacks_copy_fn, .Some(f) => f(resolve_cell_chain(ty_in)), .None => false));
+  });
   ty := match(
     ty_in,
     .SomeT({ resolution : sr }) => match(

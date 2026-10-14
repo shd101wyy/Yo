@@ -1,13 +1,13 @@
 //! Closure construction + capture emission.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ AstExpr, ExprId, ast_expr_id } :: import("../../expr.yo");
+{ AstExpr, ExprId, ast_expr_id, ast_expr_token } :: import("../../expr.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_some_type, is_dyn_type, is_function_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { type_implements_fn, extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
-{ expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr_info.yo");
-{ declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains } :: import("../utils/index.yo");
+{ ExprInfo, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_capture_field_inits, some_resolution, scope_variables } :: import("../../expr_info.yo");
+{ declare_c_var_name, type_key, get_variable_name_for_codegen_at, ImplClosureCallInfo, get_type_string, get_deferred_dup_target_atom_name, sanitize_for_c_identifier, scope_stack_contains, c_field_name } :: import("../utils/index.yo");
 { _call_generate_expr } :: import("./_expr.yo");
 { sm_slot_of } :: import("../async/state_machine_naming.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -140,13 +140,48 @@ is_closure_construction :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
     // on io.async closures handled by the state-machine path.
     .Some(ei) => (
       (
-        expr_info_closure_function_value(&ei).is_some()
-        || match(ei.value, .Some(v) => is_func_val(&v), .None => false)
-      ) && (type_implements_fn(&ei.ty) || is_function_type(&ei.ty)) && expr_info_capture_type(&ei).is_some()
+        (
+          expr_info_closure_function_value(&ei).is_some()
+          || match(ei.value, .Some(v) => is_func_val(&v), .None => false)
+        ) && (type_implements_fn(&ei.ty) || is_function_type(&ei.ty)) && expr_info_capture_type(&ei).is_some()
+      ) || _is_capture_record_rebuild(&ei)
     ),
     .None => false
   )
 );
+/// A closure's field-wise clone (`structural_clone_expansion`,
+/// evaluator/utils/closure.yo): a new capture record built from field
+/// initializers, with no function value of its own. The closure's code is the
+/// receiver's, already registered under the capture struct's id.
+_is_capture_record_rebuild :: (fn(ei : &ExprInfo) -> bool)(
+  expr_info_capture_type(ei).is_some() && expr_info_capture_field_inits(ei).is_some() && expr_info_closure_function_value(ei).is_none() && match(ei.value, .Some(v) => !is_func_val(&v), .None => true)
+);
+/// `__yo_capture_field(c, i)`: field `i` of closure `c`'s capture record, in
+/// place (`(c).<field>`, or `(c)-><field>` through a pointer).
+generate_yo_capture_field :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
+  cf_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
+  idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => return(codegen_fatal_expr(String.from("__yo_capture_field requires 2 arguments"))));
+  recv_ty := match(context.base.get_expr_info(&recv), .Some(ri) => ri.ty, .None => return(codegen_fatal_expr(String.from("__yo_capture_field: receiver has no type"))));
+  (through_ptr : bool) = false;
+  (cap : TypeValue) = resolve_some_type_to_concrete(&recv_ty);
+  match(
+    cap,
+    .Pointer(pointee) => {
+      through_ptr = true;
+      cap = resolve_some_type_to_concrete(&pointee);
+    },
+    _ => ()
+  );
+  idx := match(ast_expr_token(&idx_e).value.parse_i64(), .Some(n) => usize(n), .None => usize(0));
+  label := match(
+    cap,
+    .Struct({ field_labels : cf_labels }) => match(cf_labels.get(idx), .Some(l) => l, .None => return(codegen_fatal_expr(String.from("__yo_capture_field: index out of range")))),
+    _ => return(codegen_fatal_expr(`__yo_capture_field: ${type_to_string(&cap)} is not a capture record`))
+  );
+  recv_code := _call_generate_expr(&recv, indent.clone(), context);
+  `(${recv_code})${if(through_ptr, "->", ".")}${c_field_name(&cap, &label)}`
+});
 /// Generate C for an Impl(Fn(...)) closure construction (piece A).
 /// The capture struct (a `Struct` TypeValue)
 /// carries only field labels (no per-field source exprs), so each capture field
@@ -161,18 +196,21 @@ is_closure_construction :: (fn(expr : &AstExpr, context : &FunctionGenerationCon
 /// value-type Impl closures with plain captures.
 generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)({
   ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(codegen_fatal_expr(String.from("Missing closure metadata"))));
+  // A capture-record rebuild (a closure's clone) has no function value: its
+  // code is the receiver's, whose call mapping is already registered.
+  is_rebuild := _is_capture_record_rebuild(&ei);
   closure_fv := match(
     expr_info_closure_function_value(&ei),
-    .Some(v) => v,
+    .Some(v) => Option(EvalValue).Some(v),
     // Fallback: anonymous_function.yo records the closure FuncVal on info.value.
-    .None => match(ei.value, .Some(v) => v, .None => return(codegen_fatal_expr(String.from("Missing closure_function_value"))))
+    .None => match(ei.value, .Some(v) => Option(EvalValue).Some(v), .None => if(is_rebuild, Option(EvalValue).None, return(codegen_fatal_expr(String.from("Missing closure_function_value")))))
   );
   // The Fn call signature (for evidence params) — the closure type is recorded
   // as a bare Func/FnTraitT, so the FnTrait may be absent; fall back to the
   // recorded type itself. Only the evidence path needs the precise call type.
   call_type_opt := extract_fn_trait_from_type(&ei.ty);
-  fid := match(closure_fv, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""));
-  function_c_name := match(context.base.functions.get(&fid), .Some(fe) => fe.c_name, .None => return(codegen_fatal_expr(String.from("Closure implementation function not found in context"))));
+  fid := match(closure_fv, .Some(.FuncVal(__fvd1, _)) => __fvd1.*.func_id, _ => String.from(""));
+  function_c_name := match(context.base.functions.get(&fid), .Some(fe) => fe.c_name, .None => if(is_rebuild, String.new(), return(codegen_fatal_expr(String.from("Closure implementation function not found in context")))));
   if(is_dyn_type(&ei.ty), {
     return(codegen_fatal_expr(String.from("Dyn(Fn(...)) closure construction not yet ported")));
   });
@@ -345,6 +383,9 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
       );
     });
     // Register the impl-closure-call mapping (key = concrete capture struct id).
+    if(is_rebuild, {
+      return(temp);
+    });
     key := match(resolve_some_type_to_concrete(&capture_ty), .Struct({ id : kid }) => kid, _ => struct_id.clone());
     cg_base := context.base;
     cg_base.impl_closure_call_map.insert(
@@ -475,4 +516,4 @@ register_impl_closure_call_mappings :: (fn(context : &FunctionGenerationContext)
     );
   });
 });
-export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, register_impl_closure_call_mappings, set_sm_atom_resolver, set_deferred_dup_or_code, closure_capture_counter_reset);
+export(check_variable_is_closure_captured, resolve_some_type_to_concrete, is_closure_construction, generate_closure_construction, generate_yo_capture_field, register_impl_closure_call_mappings, set_sm_atom_resolver, set_deferred_dup_or_code, closure_capture_counter_reset);

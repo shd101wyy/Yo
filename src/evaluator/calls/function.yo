@@ -92,7 +92,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ is_drop_method_name, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, type_contains_rc_type, type_requires_explicit_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type } :: import("../../types/utils.yo");
+{ is_drop_method_name, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -144,6 +144,7 @@ MACRO_DISPATCH_ENABLED :: true;
 { TypeField, get_struct_fields } :: import("../types/field.yo");
 { _somes_are_closure_forall_args, try_to_call_function_with_arguments, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout, resolve_param_types_from_expected, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder, forall_binding_now, validate_where_constraints_for_call, reapply_where_clause_exprs_for_call, create_specialization_at_call, reject_runtime_comptime_arguments, runtime_value_for_comptime_param, _type_has_array_len_var, _trial_eval_ret_type_expr } :: import("./helper.yo");
 { get_func_type, register_func_type, is_control_fn, get_closure_body_type, is_fnonce_closure_fn, is_fnonce_capture_struct, get_closure_capture_info } :: import("../../function_value.yo");
+{ structural_clone_expansion } :: import("../utils/closure.yo");
 { is_ghost_fn } :: import("../builtins/contracts.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { create_unknown_val, create_unknown_val_with_name, is_runtime_only_unknown_val, value_to_string } :: import("../../value.yo");
@@ -819,16 +820,17 @@ _reject_private_construction :: (
 /// durably like the numeric conversions'): `g := f.clone()` is `g := f`, and
 /// the binding copies as it does for any read of `f`. A tuple or an array has
 /// the prelude's element-wise `Clone` impl and never misses. A record or a
-/// closure that is `Clone` but not `Copy` needs a field-wise clone, which
-/// this does not provide
-/// (`issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`).
+/// closure that is `Clone` but not `Copy` clones field-wise
+/// (`structural_clone_expansion`, evaluator/utils/closure.yo;
+/// `issues/fixed/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`).
 _try_structural_copy_clone :: (
   fn(
     expr : &AstExpr,
     callee : &AstExpr,
     arg_count : usize,
     env : &Environment,
-    ctx : &EvalContext
+    ctx : &EvalContext,
+    exn : Exception
   ) -> Option(AstExpr)
 )({
   if((arg_count != usize(0)) || !ast_expr_is_fn_call_of(callee, BF_DOT, Option(usize).Some(usize(2))), {
@@ -860,16 +862,19 @@ _try_structural_copy_clone :: (
     }
   );
   recv_ty := ri.ty;
-  if(is_pointer_type(&recv_ty) || copy_structural_parts(&recv_ty).is_none(), {
+  // A generic `T` bound to one of these types answers through its
+  // resolution, a closure's type through its capture record.
+  sc_target := resolve_cell_chain(&recv_ty);
+  if(is_pointer_type(&recv_ty) || copy_structural_parts(&sc_target).is_none(), {
     return(Option(AstExpr).None);
   });
   is_copy := match(
     get_trait_type_from_env(env, String.from("Copy")),
-    .Some(copy_tt) => type_implements_trait(&recv_ty, &copy_tt, env).implemented,
+    .Some(copy_tt) => type_implements_trait(&sc_target, &copy_tt, env).implemented,
     .None => false
   );
   if(!is_copy, {
-    return(Option(AstExpr).None);
+    return(structural_clone_expansion(expr, &recv, &recv_ty, &sc_target, env, ctx, exn));
   });
   out_info := new_expr_info(env, &recv_ty);
   out_info.value = ri.value;
@@ -10666,7 +10671,7 @@ Fix: wrap the call:
             .None => ()
           );
           match(
-            _try_structural_copy_clone(expr, &evaluated_callee, args.len(), &callee_env, ctx),
+            _try_structural_copy_clone(expr, &evaluated_callee, args.len(), &callee_env, ctx, exn),
             .Some(sc_expr) => {
               return(sc_expr);
             },

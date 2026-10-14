@@ -692,3 +692,69 @@ test("a local or comptime slot of a function type returning Impl(Fn)", {
   assert(g() == i32(42), "local annotation");
   assert(_nim_use_ct(_nim_double, i32(6)) == i32(12), "comptime parameter");
 });
+// ---------------------------------------------------------------------------
+// A closure's clone (plans/VALUES_BY_DEFAULT.md decision 36): each by-value
+// capture is cloned, a `Copy` one copied, and each copy owns what it holds
+// (issues/fixed/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md).
+// `g_cl_tok_dropped` / `g_cl_tok_cloned` count `_ClTok`'s drops and clones.
+// ---------------------------------------------------------------------------
+(g_cl_tok_dropped : i32) = i32(0);
+(g_cl_tok_cloned : i32) = i32(0);
+_ClTok :: struct(n : i32);
+impl(
+  _ClTok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_cl_tok_dropped = (g_cl_tok_dropped + i32(1));
+    })
+  )
+);
+impl(
+  _ClTok,
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      g_cl_tok_cloned = (g_cl_tok_cloned + i32(1));
+      Self(n : self.n)
+    })
+  )
+);
+_cl_clone_of :: (fn(comptime(T) : Type, x : T, where(T <: Clone)) -> T)(x.clone());
+test("a closure's clone owns a separate copy of its String capture", {
+  s := String.from("hello");
+  (c : Impl(Fn() -> ?*u8)) = ({ s }() => s.ptr());
+  d := c.clone();
+  (cp : ?*u8) = c();
+  (dp : ?*u8) = d();
+  assert(cp != dp, "the clone's String is a separate buffer");
+  (e : Impl(Fn() -> usize)) = ({ t : String.from("abc"), k : usize(2) }() => (t.len() + k));
+  f := e.clone();
+  assert((e() + f()) == usize(10), "a String and an i32 capture: the i32 is copied");
+});
+test("a cloned closure's capture is dropped once per copy", {
+  dropped0 := g_cl_tok_dropped;
+  cloned0 := g_cl_tok_cloned;
+  {
+    tok := _ClTok(n : i32(7));
+    (c : Impl(Fn() -> i32)) = ({ tok }() => tok.n);
+    d := c.clone();
+    assert((c() + d()) == i32(14), "both call");
+    assert(g_cl_tok_cloned == (cloned0 + i32(1)), "the clone cloned the capture once");
+    assert(g_cl_tok_dropped == dropped0, "nothing dropped yet");
+  };
+  assert(g_cl_tok_dropped == (dropped0 + i32(2)), `two copies, two drops, got ${g_cl_tok_dropped - dropped0}`);
+  {
+    tok2 := _ClTok(n : i32(1));
+    (c2 : Impl(Fn() -> i32)) = ({ tok2 }() => tok2.n);
+    k := _cl_clone_of(type_of(c2), c2);
+    assert(k() == i32(1), "a where(T <: Clone) body clones it");
+  };
+  assert(g_cl_tok_dropped == (dropped0 + i32(4)), `the generic clone's copies drop too, got ${g_cl_tok_dropped - dropped0}`);
+});
+test("a closure's clone outlives the original", {
+  (g : Impl(Fn() -> usize)) = {
+    s := String.from("four");
+    (c : Impl(Fn() -> usize)) = ({ s }() => s.len());
+    c.clone()
+  };
+  assert(g() == usize(4), "the clone keeps its own String after the original's scope dropped it");
+});

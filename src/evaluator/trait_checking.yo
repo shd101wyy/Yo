@@ -51,6 +51,9 @@ pragma(Pragma.AllowUnsafe);
   enum_phantom_type_arg_somes,
   is_bound_closure_identity,
   resolve_cell_chain,
+  type_first_mut_borrow,
+  is_closure_capture_struct,
+  type_has_no_open_some,
   type_is_move_only,
   move_only_reason,
   move_only_declarations_exist,
@@ -679,7 +682,7 @@ copy_structural_parts :: (fn(ty_in : &TypeValue) -> Option(ArrayList(TypeValue))
     },
     .Func({ result : _ }) => Option(ArrayList(TypeValue)).Some(ArrayList(TypeValue).new()),
     .Struct({ field_types : rec_fields }) => cond(
-      _is_anonymous_record_type(&ty) => Option(ArrayList(TypeValue)).Some(rec_fields),
+      (_is_anonymous_record_type(&ty) || is_closure_capture_struct(&ty)) => Option(ArrayList(TypeValue)).Some(rec_fields),
       true => Option(ArrayList(TypeValue)).None
     ),
     _ => Option(ArrayList(TypeValue)).None
@@ -921,7 +924,10 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // resolved to `Option(i32)` binds the impl's `T` to the variable itself, not
   // to its resolution, and answers no (`_ww_thrice`,
   // tests/generic_instantiation_compat.test.yo).
-  if(type_mentions_some_type(&ty), {
+  // A closure's capture record may hold another closure, whose type is a
+  // SomeT bound to its own capture record: that is a concrete type, not a
+  // type variable.
+  if(type_mentions_some_type(&ty) && !(is_closure_capture_struct(&ty) && type_has_no_open_some(&ty)), {
     return(false);
   });
   env := match(
@@ -1160,6 +1166,13 @@ type_implements_trait :: (
     match(
       copy_structural_parts(&target),
       .Some(cp_parts) => {
+        // A `&mut` capture (decision 38 A) makes a closure move-only, and so
+        // anything holding one: two copies of one exclusive borrow would
+        // alias, and a clone would copy the borrow. Its capture record's
+        // words (a pointer) are Copy, so the parts alone would answer yes.
+        if(type_first_mut_borrow(&target).is_some(), {
+          return(TraitCheckResult(implemented : false, env : env));
+        });
         (cp_i : usize) = usize(0);
         while(cp_i < cp_parts.len(), {
           if(!recur(match(cp_parts.get(cp_i), .Some(p) => p, .None => TypeValue.Unit), trait_type, env).implemented, {
