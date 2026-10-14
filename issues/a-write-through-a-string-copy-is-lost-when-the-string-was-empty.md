@@ -2,11 +2,23 @@
 
 **Severity:** S1: silently wrong result. Whether a write through a copy of a `String` reaches the original depends on whether the original happened to be empty, and nothing reports the lost write.
 
-**Status: OPEN, partly fixed.** Since `plans/STRING_VALUE_SEMANTICS.md` S1, the parameter, `for` and `match` shapes below are compile errors (E0908, `issues/fixed/an-inout-write-through-a-borrowed-value-bypassed-e0908.md`). Since S3a, `clone()` is the independent copy: it copies the bytes whether or not the string was empty. A plain local copy (`t := s; t.push_str("!")`) still shows the split: measured 2026-10-05 on the S3a tree with yo 0.2.52, `a := String.new(); ta := a; ta.push_str("!")` leaves `a == ""`, while the same with `String.from("hi")` makes `b == "hi!"`. The copy-on-write fix this doc once named was dropped (`plans/STRING_VALUE_SEMANTICS.md` §0). The last shape closes in `plans/VALUES_BY_DEFAULT.md` V2b, where `t := s` becomes a move, or an error naming `s.clone()` when `s` is used again. Found 2026-10-03 while documenting `String` copies (agent-knowledge consolidation K1; DESIGN §Writing through a copy of a `String`). **Measured on:** yo 0.2.49, `--std-path ./std`.
+**Status: OPEN. Closed by V2b's flip (`plans/VALUES_BY_DEFAULT.md`, "Unique buffers", Generation B), not by an earlier step.** Re-triaged 2026-10-14 on seed v0.2.62. Three shapes still split silently:
+
+- a local copy (`ta := a; ta.push_str("!")`);
+- a by-value parameter (`append_copy(a)` below). It was E0908 under `plans/STRING_VALUE_SEMANTICS.md` S1, but V3b's flip (#1296) made a plain parameter an owned copy rather than a borrowed binding, so the rule no longer covers it;
+- a struct-field copy (`x := Box1(s : a); x.s.push_str("!")`).
+
+Only the `for`/`match` binding shape is a compile error (E0908, `issues/fixed/an-inout-write-through-a-borrowed-value-bypassed-e0908.md`). Since S3a, `clone()` copies the bytes whether or not the string was empty. The copy-on-write fix this doc once named was dropped (`plans/STRING_VALUE_SEMANTICS.md` §0), and so was allocate-on-empty.
+
+**Why the fix is the flip.** `type_requires_explicit_copy` (`src/types/utils.yo`) is false for `String`, because `_plain_data_lacks_copy` returns early for any type that reaches a counted cell, and `ArrayList` is still `ref(struct(...))`. So `t := s` copies the handle and bumps the count. The design note in `plans/VALUES_BY_DEFAULT.md` (V2b, "Unique buffers", as-built plan) measured that unique buffers and the explicit-copy kind are one step. Once `ArrayList` is a value with a destructor, `String` is explicit-copy with no predicate clause: `t := s` moves, or is E0901 naming `s.clone()` when `s` is used again. Each shape above then either moves or is rejected.
+
+A predicate clause that made buffer owners explicit-copy while `ArrayList` is still a cell (the triage's sketch, near `_plain_data_lacks_copy`) is that same flip without the representation change. It turns the roughly 3,000 implicit `String`/`ArrayList` copies in `src/` (§6's audit) into E0901 at once, so it needs the same sweep (`yo fix --migrate explicit-copy`, Generation A2) and lands with Generation B. The test that fails before and passes after (the three shapes are E0901 or moves) goes in with it.
+
+Found 2026-10-03 while documenting `String` copies (agent-knowledge consolidation K1; DESIGN §Writing through a copy of a `String`). **Measured on:** yo 0.2.49, `--std-path ./std`; re-measured 2026-10-14 on yo 0.2.62.
 
 ## Symptom
 
-```rust
+```yo
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");

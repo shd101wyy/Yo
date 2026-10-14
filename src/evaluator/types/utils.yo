@@ -32,7 +32,7 @@
   type_implements_runtime_full,
   register_type_trait
 } :: import("../trait_checking.yo");
-{ can_type_form_rc_cycle, buffer_element_type, get_all_some_types } :: import("../../types/utils.yo");
+{ can_type_form_rc_cycle, buffer_element_type, get_all_some_types, value_acyclic_obligations } :: import("../../types/utils.yo");
 { is_some_type } :: import("../../types/guards.yo");
 { Exception } :: import("std/error");
 { Token } :: import("../../token.yo");
@@ -166,11 +166,12 @@ auto_derive_traits_for_struct_type :: (
   });
   // Acyclic.
   // Object types: if not a cycle root.
-  // Struct (value) types: all fields Acyclic.
+  // Struct (value) types: all fields Acyclic, and the elements of a buffer
+  // the value owns (V2b's unique buffers).
   is_acyclic := if(
     is_reference_semantics,
     _all_buffer_elements_acyclic(field_types, env) && !can_type_form_rc_cycle(self_type),
-    _all_fields_implement_acyclic(field_types, env)
+    _all_fields_implement_acyclic(&value_acyclic_obligations(field_types), env)
   );
   if(is_acyclic, {
     register_type_trait(struct_id, "Acyclic", env);

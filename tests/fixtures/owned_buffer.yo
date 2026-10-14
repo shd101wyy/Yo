@@ -1,0 +1,77 @@
+//! A value that owns a heap buffer: the shape every std collection takes
+//! once V2b gives it a uniquely owned buffer (plans/VALUES_BY_DEFAULT.md, V2b
+//! "Unique buffers"). It frees its buffer in `Dispose` and traces each slot in
+//! `Trace`, which the gate admits on a value with a `?*E` field. Used by
+//! tests/cycle_collector.test.yo and tests/move_only.test.yo.
+pragma(Pragma.AllowUnsafe);
+{ panic } :: import("std/assert");
+{ realloc, free } :: import("std/libc/stdlib.yo");
+VList :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _ptr : ?*T,
+    _len : usize,
+    _cap : usize
+  )
+);
+impl(
+  generic(T : Type),
+  VList(T),
+  new : (fn() -> Self)(Self(_ptr : .None, _len : usize(0), _cap : usize(0))),
+  len : (fn(self : &Self) -> usize)(self._len),
+  push : (fn(self : &mut Self, value : T) -> unit)({
+    if(self._len == self._cap, {
+      cap := cond((self._cap == usize(0)) => usize(4), true => (self._cap * usize(2)));
+      old := match(self._ptr, .Some(p) => Option(*void).Some((*void)(p)), .None => Option(*void).None);
+      grown := unsafe(realloc(old, cap * size_of(T)));
+      self._ptr = match(grown, .Some(g) => Option(*T).Some((*T)(g)), .None => panic("VList: out of memory"));
+      self._cap = cap;
+    });
+    match(
+      self._ptr,
+      .Some(base) => {
+        slot := base.add(self._len);
+        consume(slot.* = value);
+      },
+      .None => ()
+    );
+    self._len = (self._len + usize(1));
+  })
+);
+impl(
+  generic(T : Type),
+  VList(T),
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      match(
+        self._ptr,
+        .Some(base) => {
+          (i : usize) = usize(0);
+          while(i < self._len, i = (i + usize(1)), {
+            unsafe.drop(base.add(i).*);
+          });
+          unsafe(free(.Some((*void)(base))));
+        },
+        .None => ()
+      );
+    })
+  )
+);
+impl(
+  generic(T : Type),
+  VList(T),
+  Trace(
+    trace : (fn(self : &Self, tracer : GcTracer) -> unit)({
+      match(
+        self._ptr,
+        .Some(base) => {
+          (i : usize) = usize(0);
+          while(i < self._len, i = (i + usize(1)), {
+            tracer.visit(base.add(i));
+          });
+        },
+        .None => ()
+      );
+    })
+  )
+);
+export(VList);

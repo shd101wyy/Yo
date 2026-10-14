@@ -3,6 +3,7 @@ pragma(Pragma.AllowUnsafe);
 { printf } :: import("std/libc/stdio.yo");
 Gc :: import("std/gc");
 { ArrayList } :: import("std/collections/array_list");
+{ VList } :: import("./fixtures/owned_buffer.yo");
 List :: ref(
   struct(
     value : i32,
@@ -524,4 +525,64 @@ test("a declared Acyclic tree's nodes are not cycle candidates", {
   c := CycTree.Node(CycTree.Leaf(1), CycTree.Leaf(2));
   assert(Gc.tracked_count() > before, "a CycTree node is registered");
   assert(match(t, .Node(_, _) => true, .Leaf(_) => false) && match(c, .Node(_, _) => true, .Leaf(_) => false));
+});
+// A cycle closed through a VALUE that owns a heap buffer (V2b's unique
+// buffers, plans/VALUES_BY_DEFAULT.md: after Generation B every collection is
+// this shape). The buffer's elements live behind a `?*T` field the inline
+// field walk cannot see, so the value implements `Trace` (the gate admits a
+// value that owns a buffer) and its holder's walk calls that `trace` in
+// place. Before, the gate rejected the impl, and nothing traced the slots.
+(g_vnode_disposed : i32) = i32(0);
+VNode :: ref(
+  struct(
+    value : i32,
+    kids : VList(Self)
+  )
+);
+impl(
+  VNode,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g_vnode_disposed = (g_vnode_disposed + i32(1));
+    })
+  )
+);
+// A cyclic element type declared on its own, so `VList(VPeer)` is first
+// instantiated outside any definition: the trait checker's on-demand
+// re-derivation must see the buffer's elements too (`*T` alone reads as
+// Acyclic).
+VPeer :: ref(
+  struct(
+    value : i32,
+    next : Option(Self)
+  )
+);
+test("A cycle closed through a buffer-owning value's slots is collected", {
+  comptime_assert(Type.can_form_rc_cycle(VNode), "the walk sees through the value's buffer to its elements");
+  comptime_assert(!Type.impls(VList(VNode), Acyclic), "a value whose buffer holds a cyclic element is not Acyclic");
+  comptime_assert(Type.impls(VList(i32), Acyclic), "one whose buffer holds plain data is");
+  comptime_assert(!Type.impls(VList(VPeer), Acyclic), "nor one whose buffer holds a separately declared cyclic element");
+  base := Gc.tracked_count();
+  do_test :: (fn() -> unit)({
+    a := VNode(1, VList(VNode).new());
+    b := VNode(2, VList(VNode).new());
+    a.kids.push(b); // a -> b, through a's buffer
+    b.kids.push(a); // b -> a : a cycle
+  });
+  do_test();
+  Gc.collect();
+  assert(g_vnode_disposed == i32(2), "both nodes of the buffer-closed cycle were disposed");
+  assert(Gc.tracked_count() == base, "and are no longer tracked");
+});
+test("A value without a buffer still cannot implement Trace", {
+  _PlainPair :: struct(a : i32, b : i32);
+  comptime_expect_error(
+    impl(
+      _PlainPair,
+      Trace(
+        trace : (fn(self : &Self, tracer : GcTracer) -> unit)(())
+      )
+    ),
+    "cannot implement \"Trace\""
+  );
 });

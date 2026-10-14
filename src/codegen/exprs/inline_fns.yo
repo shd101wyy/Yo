@@ -67,7 +67,7 @@
   BF_YO_ARRAY_INDEX
 } :: import("../../expr.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
-{ is_enum_type, is_primitive_type, is_unit_type, is_f32_type, is_f64_type, is_i8_type, is_i16_type, is_i32_type, is_i64_type, is_isize_type, is_u8_type, is_u16_type, is_u32_type, is_u64_type, is_usize_type } :: import("../../types/guards.yo");
+{ is_enum_type, is_reference_struct_type, is_reference_enum_type, is_primitive_type, is_unit_type, is_f32_type, is_f64_type, is_i8_type, is_i16_type, is_i32_type, is_i64_type, is_isize_type, is_u8_type, is_u16_type, is_u32_type, is_u64_type, is_usize_type } :: import("../../types/guards.yo");
 { is_target_windows, is_target_wasm } :: import("../../target.yo");
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -456,6 +456,27 @@ ei_ty :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> TypeValue
 _as_source_is_tagged_enum :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(expr, .FnCall(_, _, a, _, _) => match(a.get(usize(0)), .Some(a0) => match(context.base.get_expr_info(&a0), .Some(aei) => (is_enum_type(&aei.ty) && !can_optimize_as_simple_enum(&aei.ty)), .None => false), .None => false), .Atom(_, _) => false)
 );
+/// Does the borrow-flag builtin's operand (`__yo_borrow_acquire(&c)` and its
+/// two siblings) have a flag to set? Only a reference type's cell header
+/// carries one. A value-rooted place has none: unique ownership checks it
+/// statically (plans/VALUES_BY_DEFAULT.md §3.10, "the borrowed-`for` guard
+/// splits by path"), so the builtin lowers to nothing. Casting the value to
+/// `void*` was invalid C.
+_borrow_operand_has_flag :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
+  match(
+    expr,
+    .FnCall(_, _, a, _, _) => match(
+      a.get(usize(0)),
+      .Some(a0) => match(
+        context.base.get_expr_info(&a0),
+        .Some(aei) => (is_reference_struct_type(&aei.ty) || is_reference_enum_type(&aei.ty)),
+        .None => true
+      ),
+      .None => true
+    ),
+    .Atom(_, _) => true
+  )
+);
 /// Generate a Yo operator / inline-builtin function call.
 generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayList(String), expr : &AstExpr, context : &FunctionGenerationContext, indent : &String) -> String)(
   cond(
@@ -490,6 +511,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       out.push_str(")");
       out
     },
+    ((function_name == BF_YO_BORROW_ASSERT_UNBORROWED) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
     (function_name == BF_YO_BORROW_ASSERT_UNBORROWED) => {
       line := indent.clone();
       line.push_str("__yo_borrow_assert_unborrowed((void*)(");
@@ -499,6 +521,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       em.emit_string_line(&line);
       String.from("")
     },
+    ((function_name == BF_YO_BORROW_ACQUIRE) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
     (function_name == BF_YO_BORROW_ACQUIRE) => {
       line := indent.clone();
       line.push_str("__yo_borrow_acquire((void*)(");
@@ -508,6 +531,7 @@ generate_yo_inline_function_call :: (fn(function_name : &String, args : &ArrayLi
       em.emit_string_line(&line);
       String.from("")
     },
+    ((function_name == BF_YO_BORROW_RELEASE) && !_borrow_operand_has_flag(expr, context)) => String.from(""),
     (function_name == BF_YO_BORROW_RELEASE) => {
       line := indent.clone();
       line.push_str("__yo_borrow_release((void*)(");
