@@ -75,8 +75,8 @@ Progress:
     error where the bundle is copied (#1326, after an adversarial review's
     two fix rounds), together with the async-lowering fixes found on the way
     (#1325);
-  - V3 async A3 Generation B and A4's handle half (§3.13; 2026-10-14, branch
-    `feat/vbd-v3-genb-r2`, after the v0.2.61 seed): `JoinHandle(T)` is a
+  - V3 async A3 Generation B and A4's handle half (§3.13; #1349, after the
+    v0.2.61 seed): `JoinHandle(T)` is a
     move-only value struct whose `await`/`join`/`timeout` consume it, the
     `std/async` combinators take handle lists by value, and
     `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
@@ -1131,7 +1131,7 @@ instead.
     - Branch `async-handle-genb` holds the `Impl(Future(T))` shape that
       "Why a pointer field" rejects. It is a record, not a candidate.
   - **As built, Generation B (built 2026-10-12 on `feat/vbd-v3-genb`; landed
-    from `feat/vbd-v3-genb-r2` after the v0.2.61 seed).**
+    in #1349 after the v0.2.61 seed).**
     - **The prelude switch.** `JoinHandle(T)` is `struct(__future : *T)`, a
       value struct whose `Dispose` releases the task's reference. It has no
       `Clone`, so it is move-only, and stays `!Send`/`!Sync`.
