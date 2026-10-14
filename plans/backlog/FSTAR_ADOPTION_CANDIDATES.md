@@ -529,9 +529,15 @@ Open Question 7.
   single-threaded event loop.
 
 **Verdict: (a) and (c) are inputs to OQ1, not items; (b) is a design
-question — file it in `issues/questions/` when its trigger fires.**
-Trigger: SELF_VERIFICATION M4, or the first verified std module whose
-body performs an effect.
+question, filed as
+`issues/questions/2026-10-14-effect-operation-contracts.md` with the
+recommendation that it come after L2 and before the heap model** (the
+assessment that followed this audit found it is the difference between
+`VerifyOrAssert` verifying user code and verifying only its pure leaves).
+The counter-position on (a) is appended to
+`issues/questions/modifies-clause-for-callee-side-effects.md`. Trigger for
+(b): the SELF_VERIFICATION census count of functions blocked only by an
+effect parameter.
 
 ### F12 Meta-F\* tactics — the jobs, not the language
 
@@ -683,6 +689,15 @@ and `--strict` as the honest gate (F15's `assume` counts against it).
   F3–F5 and F7; §11 lists this doc.
 - [`README.md`](../README.md): the backlog paragraph lists this doc beside
   the Rust and Zig surveys.
+- Three design questions from the assessment that followed the audit, each
+  with a recommendation:
+  `issues/questions/2026-10-14-overflow-trap-freedom-as-a-default-obligation.md`
+  (the model wraps where safe code traps; make the overflow obligations
+  default and measure the integer theory),
+  `issues/questions/2026-10-14-effect-operation-contracts.md` (F11(b),
+  pulled ahead of the heap model), and the counter-position appended to
+  `issues/questions/modifies-clause-for-callee-side-effects.md` (an
+  explicit frame, with ownership as the default).
 
 ## 8. Sources
 
