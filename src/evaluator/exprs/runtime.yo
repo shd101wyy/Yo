@@ -106,6 +106,13 @@ evaluate_runtime :: (
   runtime_type := convert_comptime_type_to_runtime_type(&arg_info.ty, &next_env);
   out_info := new_expr_info(&next_env, &runtime_type);
   // value stays .None — `runtime(_)` always yields a runtime value.
+  // The wrapper is transparent for ownership: codegen emits the inner node,
+  // so the owning temp the argument's evaluation attached stays visible here.
+  // Without it a binding of `runtime(f())` found no owner link and became an
+  // independent owner of the temp's value — one release too many
+  // (issues/fixed/rc-value-copied-address-taken-and-returned-is-double-dropped.md).
+  out_info.variable_name = arg_info.variable_name.clone();
+  out_info.source_variable = arg_info.source_variable;
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_info);
   expr
 });

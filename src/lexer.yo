@@ -628,7 +628,7 @@ tokenize_span :: (
                   k = (k + usize(2));
                 },
                 (nck.char == u32(0x5C)) => {
-                  ts_sb.write_rune(rune(u32(0x5C)));
+                  ts_sb.write_str("\\\\");
                   k = (k + usize(2));
                 },
                 (nck.char == u32(0x22)) => {
@@ -704,13 +704,13 @@ tokenize_span :: (
                           dyn(format_lexer_error(module_path, input, line, col, surrogate_escape_error_message()))
                         );
                       });
-                      ts_sb.write_rune(rune(code));
+                      cond((code == u32(0x5C)) => ts_sb.write_str("\\\\"), true => ts_sb.write_rune(rune(code)));
                       k = (k + adv);
                     }
                   );
                 },
                 true => {
-                  ts_sb.write_rune(ck);
+                  ts_sb.write_str("\\\\");
                   ts_sb.write_rune(nck);
                   k = (k + usize(2));
                 }

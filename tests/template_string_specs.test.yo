@@ -129,3 +129,16 @@ test("a comment inside an interpolation body does not close it", {
 } d`;
   assert(t == `c 1 d`, "a line comment inside the body ends at the newline");
 });
+// A literal backslash before `${` is a backslash, and the interpolation still
+// runs; only `\$` escapes the dollar
+// (issues/fixed/template-string-backslash-before-interpolation-eats-both.md).
+test("a backslash before an interpolation keeps both", {
+  n := i32(7);
+  assert(`\\${n}` == "\\7", "an escaped backslash, then the interpolation");
+  assert(`\u{5C}${n}` == "\\7", "a unicode-escaped backslash, then the interpolation");
+  assert(`\${n}` == "${n}", "an escaped dollar is still literal");
+  assert(`\\\${n}` == "\\${n}", "an escaped backslash, then an escaped dollar");
+  assert(`\\ ${n}` == "\\ 7", "a backslash, a space, the interpolation");
+  assert(`\q${n}` == "\\q7", "an unknown escape keeps its backslash");
+  assert(`a\\b` == "a\\b", "a backslash with no interpolation");
+});

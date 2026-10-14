@@ -109,8 +109,8 @@ Key rules:
 - **`String.from(`` `...` ``)` is WRONG**: `` `...` `` is already `String`; `String.from` takes `str`. Use `` `...` `` directly or `String.from("...")` with double quotes. The unify failure names neither line nor column — it surfaces at the file's `1:1` (`Cannot unify incompatible types: "str" and "String"`), so grep for the two `String.from(`` ` `` call sites when you see it.
 - **`push_str` takes `str`, `push_string` takes `String`** (same split as `String.from` vs a bare template): `s.push_str(", ")` with a bare literal is right; `s.push_str(String.from(", "))` fails to unify. Reach for `push_string` only when the value is a runtime `String` (measured 2026-09-06).
 - **A double-quoted literal does NOT concatenate with a `String` variable**: `"prefix " + var` fails with `Cannot unify incompatible types: "String" and "comptime_str"`. For a runtime concat starting from a literal, write `String.from("prefix ") + var` (measured 2026-09-02).
-- **A template string MAY contain another template string inside `${…}`** (`` `outer ${`inner ${x}`} end` `` works — fixed 2026-09-23, `issues/fixed/template-string-nested-inside-an-interpolation-fails-to-parse.md`; before that fix the inner backtick ended the outer literal with a misleading line-1 `to_string` error). The sibling bug is still OPEN: a `\\` immediately before `${…}` eats the escape AND the interpolation (`issues/template-string-backslash-before-interpolation-eats-both.md`) — hoist the inner value into a local when you need that shape.
-- **The escape tables of the two string forms are DIFFERENT, and neither errors on an escape it does not know.** Both decode `\n \t \r \\ \" \' \0 \b \f \v`; only the double-quoted form decodes `\uXXXX` (exactly four hex digits), and only the template form decodes `` \` `` and `\$`. There is no `\u{...}` (Rust's delimited form) and no `\xNN` anywhere. Everything else is passed through as a literal backslash plus the next character — silently. Measured 2026-09-11: `"x\u0041y"` is 3 bytes (`xAy`) but `` `x\u0041y` `` is 8 literal bytes, and a malformed `"\uZZZZ"` is a NUL byte while `"\u{41}"` is U+0410 followed by leftover text (each non-hex digit counts as 0). `issues/fixed/unicode-escape-accepts-non-hex-digits.md`. Consequences: never spell a unicode escape in a template string, and build a control byte with `s.push_byte(u8(7))` rather than an escape.
+- **A template string MAY contain another template string inside `${…}`** (`` `outer ${`inner ${x}`} end` `` works — fixed 2026-09-23, `issues/fixed/template-string-nested-inside-an-interpolation-fails-to-parse.md`; before that fix the inner backtick ended the outer literal with a misleading line-1 `to_string` error). The sibling bug, where a `\\` immediately before `${…}` ate the escape AND the interpolation, is fixed in v0.2.63 (`issues/fixed/template-string-backslash-before-interpolation-eats-both.md`).
+- **The escape tables of the two string forms are DIFFERENT, and neither errors on an escape it does not know.** Both decode `\n \t \r \\ \" \' \0 \b \f \v`; only the double-quoted form decodes `\uXXXX` (exactly four hex digits), and only the template form decodes `` \` `` and `\$`. There is no `\u{...}` (Rust's delimited form) and no `\xNN` anywhere. Everything else is passed through as a literal backslash plus the next character — silently. Measured 2026-09-11: `"x\u0041y"` is 3 bytes (`xAy`) but `` `x\u0041y` `` is 8 literal bytes, and a malformed `"\uZZZZ"` is a NUL byte while `"\u{41}"` is U+0410 followed by leftover text (each non-hex digit counts as 0). `issues/fixed/unicode-escape-accepts-non-hex-digits.md`. Consequences: never spell a unicode escape in a template string, and build a control byte with `s.push_byte(u8(7))` rather than an escape. Update, measured 2026-10-14 with v0.2.62: a template now decodes both `\u0041` and `\u{41}` (`` `[\u{41}][\u0041]` `` prints `[A][A]`); an unknown escape such as `\q` is still passed through.
 - **`assert`/`panic` require an explicit import**: `{ assert, panic } :: import("std/assert");` — they are NOT prelude-ambient. Both are generic over `where(T <: ToString)`, so `str`, `String` (template strings), integers, etc. all work as messages: `assert(cond, `got ${x}`)`. `assert(cond)` uses the default message.
 - **`__yo_panic` is the diverging builtin** (message must be `str`/`comptime_str`/`*(u8)`). Use it (not `panic`) in VALUE-position match/cond arms — e.g. `.None => __yo_panic("...")` in an arm that must yield `T` — because `std/assert`'s `panic` is a normal fn returning `unit` and cannot adopt the sibling arm's type. Statement-position `panic("...")` from `std/assert` is fine.
 - Low-level std modules inside `std/assert`'s own dependency cycle (`std/string/string.yo`, `std/collections/array_list.yo`, …) cannot import it — they use `cond`/`if` + `__yo_panic` directly.
@@ -1643,27 +1643,24 @@ becomes `{ 0 }`), and the parse error lands on the COMMENT line with a message
 about paren-less calls. Write such comments with plain quotes or no delimiter at
 all.
 
-### A literal `\\` immediately before `${...}` silently kills the interpolation
+### A literal `\\` before `${...}`: fixed in v0.2.63
 
-`\\` is the escape for one literal backslash and works everywhere EXCEPT
-directly in front of an interpolation, where the backslash is swallowed AND the
-`${...}` is emitted as literal text. No error, no warning — you only see it in
-the printed string.
+Up to v0.2.62, a `\\` directly in front of an interpolation was swallowed
+together with the interpolation, which was then emitted as literal text, with
+no error. Since v0.2.63 the backslash is kept and the interpolation runs. Only
+`\$` escapes the dollar.
 
 ```yo
 n := usize(7);
-println(`A: ${n}`); // A: 7
-println(`B: \\${n}`); // B: ${n}   ❌ backslash eaten, interpolation dead
-println(`C: \\ ${n}`); // C: \ 7    ✅ any character in between is fine
-println(`D: \\x${n}`); // D: \x7    ✅
+println(`B: \\${n}`); // B: \7
+println(`E: \${n}`); // E: ${n}  (an escaped dollar)
 ```
 
-Cause: the lexer encodes "escaped dollar" as the two characters `\$`, which is
-byte-identical to "literal backslash, then a real `${`"
-(`src/lexer.yo:415-433` → `src/parser.yo:376-384`) —
-issues/template-string-backslash-before-interpolation-eats-both.md. Until that
-is fixed, reword so no backslash abuts an interpolation, or build the string
-with a separator variable.
+The lexer now doubles every literal backslash in the template payload, so it
+can no longer collide with the escaped-dollar marker
+(issues/fixed/template-string-backslash-before-interpolation-eats-both.md).
+`src/` and `std/` are lexed by the seed, so keep a backslash away from an
+interpolation there until `SEED_VERSION` is v0.2.63 or later.
 
 ### A backtick literal is a `String`, with or without `${...}`
 

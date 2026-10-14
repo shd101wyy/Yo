@@ -2288,3 +2288,31 @@ test("Rc(T) with a Drop payload drops it once, with the last handle", {
   };
   assert(g_rc_drop_payload == (before + i32(5)), "the last handle dropped the payload once");
 });
+// `runtime(x)` is transparent for ownership: a binding of `runtime(f())` owns
+// the call's result exactly once
+// (issues/fixed/rc-value-copied-address-taken-and-returned-is-double-dropped.md).
+(g_rt_disposed : i32) = i32(0);
+_RtBox :: ref(struct(tag : i32));
+impl(
+  _RtBox,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g_rt_disposed = (g_rt_disposed + i32(1));
+    })
+  )
+);
+_rt_make :: (fn(t : i32) -> _RtBox)(_RtBox(tag : t));
+test("a binding of runtime(call) releases the result once", {
+  before := g_rt_disposed;
+  {
+    (b : _RtBox) = runtime(_rt_make(i32(4)));
+    assert(b.tag == i32(4), "the value came through");
+  };
+  assert(g_rt_disposed == (before + i32(1)), `released once, got ${(g_rt_disposed - before).to_string()}`);
+  (i : i32) = i32(0);
+  while(i < i32(100), {
+    (s : String) = runtime(String.from("hello"));
+    assert(s == "hello", "the string came through");
+    i = (i + i32(1));
+  });
+});

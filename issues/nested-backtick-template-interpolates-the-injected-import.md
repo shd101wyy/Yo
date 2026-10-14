@@ -158,7 +158,7 @@ No — it makes source compile that is rejected today.
 
 ## Related
 
-`issues/template-string-backslash-before-interpolation-eats-both.md` is the
+`issues/fixed/template-string-backslash-before-interpolation-eats-both.md` is the
 other open defect in this desugaring path (a `\\` immediately before `${…}`
 silently disables the interpolation). They are independent: that one is in the
 lexer's escape handling, this one is in the interpolation's sub-parse.

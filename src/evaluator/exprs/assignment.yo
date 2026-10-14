@@ -1443,7 +1443,10 @@ evaluate_assignment :: (
                         (vi : usize) = n_vn; // sentinel: not found
                         while(k_vn < n_vn, {
                           vn := match(ev_vnames.get(k_vn), .Some(s) => s, .None => String.from(""));
-                          if(vn == ev_variant, {
+                          // `EnumT.variant_names` holds bare names ("Circle"), an
+                          // `EnumVal` the dotted form (".Circle")
+                          // (issues/fixed/comptime-enum-payload-field-assignment-is-a-silent-no-op.md).
+                          if((vn == ev_variant) || (`.${vn}` == ev_variant), {
                             vi = k_vn;
                             k_vn = n_vn;
                           }, {
@@ -1467,7 +1470,19 @@ evaluate_assignment :: (
                       },
                       _ => ()
                     );
-                    if((ev_fi >= i64(0)) && prop_rhs_info.value.is_some(), {
+                    // An accepted compile-time assignment either takes effect or is
+                    // rejected: a lookup miss here used to discard the write silently.
+                    if(ev_fi < i64(0), {
+                      exn.throw(
+                        dyn(
+                          format_error_message(
+                            ast_expr_token(&lhs),
+                            `Cannot assign the compile-time payload field "${pc_field_or_idx}": variant ${ev_variant} has no such field.`
+                          )
+                        )
+                      );
+                    });
+                    if(prop_rhs_info.value.is_some(), {
                       pc_rhs_enum := match(prop_rhs_info.value, .Some(v) => v, .None => EvalValue.UnitVal);
                       ev_fi_us := usize(ev_fi);
                       new_ev_opt := Option(EvalValue).Some(

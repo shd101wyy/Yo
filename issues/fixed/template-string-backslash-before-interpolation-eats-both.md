@@ -2,7 +2,11 @@
 
 **Severity:** S1 — a `\\` immediately before `${...}` silently produces literal `${n}` text — wrong string content, no diagnostic
 
-**Status: OPEN.** Found 2026-08-25 while writing `RegexError`'s `ToString`
+## Resolution (2026-10-14)
+
+Fixed (2026-10-14). The lexer and the parser passed template text to each other in an in-band encoding with a collision. The lexer wrote `\$` (an escaped dollar) as the marker `\$`, and wrote `\\` and `\u{5C}` as ONE raw backslash. A backslash before `${` was therefore byte-identical to an escaped dollar, and the parser swallowed the interpolation. The lexer now doubles every literal backslash in the payload (`\\`, the `\u` escape of U+005C, and the backslash of an unknown escape). The parser's `parse_template_string` turns a doubled backslash into one escaped backslash before testing for `\$`. Test: "a backslash before an interpolation keeps both" in `tests/template_string_specs.test.yo`.
+
+**Status: FIXED** (moved 2026-10-14, see Resolution). Found 2026-08-25 while writing `RegexError`'s `ToString`
 messages for `std/regex` (STD_API_AUDIT D8). Silent wrong output — no error, no
 warning; the message shipped as `backreference '${group}' exceeds …` instead of
 `backreference '\1' exceeds …` and only a runtime read of the printed string
