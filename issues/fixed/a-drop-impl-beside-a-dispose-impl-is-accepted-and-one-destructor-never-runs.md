@@ -10,7 +10,14 @@
 { ArrayList } :: import("std/collections/array_list");
 (g : i32) = i32(0);
 El :: ref(struct(n : i32));
-impl(El, Drop(drop : (fn(self : &mut Self) -> unit)({ g = (g + i32(1)); })));
+impl(
+  El,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g = (g + i32(1));
+    })
+  )
+);
 impl(ArrayList(El), Drop(drop : (fn(self : &mut Self) -> unit)(println("user Drop on ArrayList(El)"))));
 main :: (fn() -> unit)({
   {
@@ -18,7 +25,7 @@ main :: (fn() -> unit)({
     xs.push(El(n : i32(1)));
     xs.push(El(n : i32(2)));
   };
-  println(`elements dropped=${g}`);   // printed 0, want 2
+  println(`elements dropped=${g}`); // printed 0, want 2
 });
 export(main);
 ```

@@ -10,14 +10,21 @@
 { println } :: import("std/fmt");
 (g : i32) = i32(0);
 Fd :: struct(n : i32);
-impl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)({ g = (g + i32(1)); })));
+impl(
+  Fd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g = (g + i32(1));
+    })
+  )
+);
 main :: (fn() -> unit)({
   {
     a := Fd(n : i32(1));
-    f := Fd.drop;            // also `(Fd <: Drop).drop`
+    f := Fd.drop; // also `(Fd <: Drop).drop`
     f(&mut a);
   };
-  println(`drops=${g}`);     // printed drops=2
+  println(`drops=${g}`); // printed drops=2
 });
 export(main);
 ```

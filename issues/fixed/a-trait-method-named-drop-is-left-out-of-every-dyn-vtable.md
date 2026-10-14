@@ -9,7 +9,15 @@
 ```yo
 Stack :: trait(drop : (fn(self : &mut Self, n : i32) -> i32));
 S :: struct(top : i32);
-impl(S, Stack(drop : (fn(self : &mut Self, n : i32) -> i32)({ self.top = (self.top - n); self.top })));
+impl(
+  S,
+  Stack(
+    drop : (fn(self : &mut Self, n : i32) -> i32)({
+      self.top = (self.top - n);
+      self.top
+    })
+  )
+);
 main :: (fn() -> unit)({
   (d : Dyn(Stack)) = dyn(S(top : i32(10)));
   r := d.drop(i32(3));

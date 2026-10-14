@@ -11,8 +11,8 @@
 needs_cleanup :: (fn(comptime(T) : Type) -> comptime(bool))(Type.impls(T, Drop));
 retire :: (fn(generic(T : Type), x : T, where(T <: Drop)) -> unit)(drop(x));
 main :: (fn() -> unit)({
-  println(`${needs_cleanup(ArrayList(i32))}`);   // false; `Dispose` answers true
-  retire(ArrayList(i32).new());                  // E0602: does not implement required trait Drop
+  println(`${needs_cleanup(ArrayList(i32))}`); // false; `Dispose` answers true
+  retire(ArrayList(i32).new()); // E0602: does not implement required trait Drop
 });
 export(main);
 ```
