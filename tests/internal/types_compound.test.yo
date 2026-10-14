@@ -3,7 +3,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
 { println } :: import("std/fmt");
-{ TypeValue } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
 { t_func_simple, t_trait, t_trait_simple, t_module, t_module_simple, t_some_t, t_ptr, t_i32, t_bool, t_unit, t_usize, t_dyn, t_dyn_simple, type_value_tag } :: import("../../src/types/creators.yo");
 { is_function_type, is_trait_type, is_module_type, is_some_type } :: import("../../src/types/guards.yo");
 { TypeTag } :: import("../../src/types/tags.yo");
@@ -302,7 +302,7 @@ test("t_dyn: required + negative traits", {
   // Pattern-match to verify shape (catches arity drift).
   ok := match(
     d,
-    .DynT(req, _, neg, _) => ((req.len() == usize(1)) && (neg.len() == usize(1))),
+    Rc(.DynT(req, _, neg, _)) => ((req.len() == usize(1)) && (neg.len() == usize(1))),
     _ => false
   );
   assert(ok, "DynT should carry 1 required + 1 negative trait");
@@ -317,7 +317,7 @@ _dag_level :: (fn(i : usize, child : &TypeValue) -> TypeValue)({
   types := ArrayList(TypeValue).new();
   types.push(child);
   types.push(child);
-  TypeValue.Struct(`dag_${i.to_string()}`, `Dag${i.to_string()}`, labels, types, false, false, false, ``, ArrayList(TypeValue).new(), false)
+  rc(TypeValueNode.Struct(`dag_${i.to_string()}`, `Dag${i.to_string()}`, labels, types, false, false, false, ``, ArrayList(TypeValue).new(), false))
 });
 test("substitute: a shared struct DAG is substituted once per node", {
   (ty : TypeValue) = t_some_t(`T`, usize(0));
@@ -330,8 +330,8 @@ test("substitute: a shared struct DAG is substituted once per node", {
   subst_add(&s, `T`, usize(0), t_i32());
   (cur : TypeValue) = substitute(&s, &ty);
   (depth : usize) = usize(0);
-  while(match(cur, .Struct({ id : _ }) => true, _ => false), {
-    cur = match(cur, .Struct({ field_types : fts }) => match(fts.get(usize(1)), .Some(t) => t, .None => t_unit()), _ => t_unit());
+  while(match(cur, Rc(.Struct({ id : _ })) => true, _ => false), {
+    cur = match(cur, Rc(.Struct({ field_types : fts })) => match(fts.get(usize(1)), .Some(t) => t, .None => t_unit()), _ => t_unit());
     depth = (depth + usize(1));
   });
   assert(depth == usize(40), "every level survives");

@@ -8,7 +8,7 @@
 { String } :: import("std/string");
 { HashMap } :: import("std/collections/hash_map");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { CodeGenContext, DynImplEntry, type_key, dyn_concrete_c_name } :: import("./index.yo");
 { extract_fn_trait_from_type } :: import("../../evaluator/trait_checking.yo");
 { EvalValue } :: import("../../value.yo");
@@ -17,24 +17,24 @@
 /// (`_resolve_dyn_trait_values`, evaluator/values/dyn.yo, pushes one per
 /// `TraitT` / `FnTraitT` and none for anything else.)
 _carries_trait_value :: (fn(t : &TypeValue) -> bool)(
-  match(t, .TraitT(_, _, _, _, _, _, _, _, _, _) => true, .FnTraitT(_, _, _, _, _, _, _, _) => true, _ => false)
+  match(t, Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => true, Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => true, _ => false)
 );
 /// The trait values of `entry` for the traits `tgt` requires, in `tgt`'s
 /// order. Every target trait is one of the source's (the evaluator checked
 /// the upcast), so each is found.
 _upcast_trait_values :: (fn(entry : &DynImplEntry, tgt : &TypeValue) -> ArrayList(EvalValue))({
   out := ArrayList(EvalValue).new();
-  src_req := match(entry.dyn_type.clone(), .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
-  tgt_req := match(tgt, .DynT({ required_trait_types : r }) => r, _ => ArrayList(TypeValue).new());
+  src_req := match(entry.dyn_type.clone(), Rc(.DynT({ required_trait_types : r })) => r, _ => ArrayList(TypeValue).new());
+  tgt_req := match(tgt, Rc(.DynT({ required_trait_types : r })) => r, _ => ArrayList(TypeValue).new());
   (ti : usize) = usize(0);
   while(ti < tgt_req.len(), {
-    tt := match(tgt_req.get(ti), .Some(t) => t, .None => TypeValue.Unit);
+    tt := match(tgt_req.get(ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(_carries_trait_value(tt.clone()), {
       (si : usize) = usize(0);
       (vi : usize) = usize(0);
       (found : bool) = false;
       while((si < src_req.len()) && !found, {
-        st := match(src_req.get(si), .Some(t) => t, .None => TypeValue.Unit);
+        st := match(src_req.get(si), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(_carries_trait_value(st.clone()), {
           if(are_types_compatible_exact(&st, tt.clone()), {
             match(entry.trait_values.get(vi), .Some(v) => out.push(v), .None => ());
@@ -86,7 +86,7 @@ register_dyn_upcast_targets :: (fn(context : &CodeGenContext) -> unit)({
           targets := context.dyn_upcast_targets(entry.dyn_type.clone());
           (t : usize) = usize(0);
           while(t < targets.len(), {
-            tgt := match(targets.get(t), .Some(x) => x, .None => TypeValue.Unit);
+            tgt := match(targets.get(t), .Some(x) => x, .None => rc(TypeValueNode.Unit));
             tkey := `${type_key(entry.concrete_type.clone())}_${type_key(tgt.clone())}`;
             if(context.dyn_impls.get(tkey.clone()).is_none(), {
               context.register_dyn_impl(

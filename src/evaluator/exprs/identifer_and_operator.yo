@@ -477,7 +477,7 @@ evaluate_identifier_and_operator :: (
   // `source_variable`; codegen still resolves the symbol by name through
   // the atom, so the scope release records the name (cheap gates first:
   // this path runs for every identifier).
-  if(match(variable.ty, .Func({ meta : __xm }) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(&variable.ty) && is_extern_c_global(variable.name.clone()))), {
+  if(match(variable.ty, Rc(.Func({ meta : __xm })) => __xm.*.is_extern.is_some(), _ => false) || (variable.is_compile_time_only && (!is_function_type(&variable.ty) && is_extern_c_global(variable.name.clone()))), {
     scope_release_note_query(ast_expr_id(expr), variable.name.clone());
   });
   // ------------------------------------------------------------------

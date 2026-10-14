@@ -26,7 +26,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_adopt_env
 } :: import("../../expr_info.yo");
 { Environment, snapshot_env } :: import("../../env.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 {
@@ -55,17 +55,17 @@ try_to_implement_module_with_arguments_by_module_type :: (
   // Extract field labels and types from the source-namespace Struct.
   field_labels := match(
     module_type,
-    .Struct({ field_labels : labels }) => labels,
+    Rc(.Struct({ field_labels : labels })) => labels,
     _ => ArrayList(String).new()
   );
   field_types := match(
     module_type,
-    .Struct({ field_types : types }) => types,
+    Rc(.Struct({ field_types : types })) => types,
     _ => ArrayList(TypeValue).new()
   );
   sns_ty_id := match(
     module_type,
-    .Struct({ id : sid }) => sid,
+    Rc(.Struct({ id : sid })) => sid,
     _ => String.from("")
   );
   n_fields := field_labels.len();
@@ -94,7 +94,7 @@ try_to_implement_module_with_arguments_by_module_type :: (
     field_label_opt := field_labels.get(i);
     field_type_opt := field_types.get(i);
     field_label := match(field_label_opt, .Some(s) => s, .None => String.from(""));
-    field_type := match(field_type_opt, .Some(t) => t, .None => TypeValue.Unit);
+    field_type := match(field_type_opt, .Some(t) => t, .None => rc(TypeValueNode.Unit));
     (found_arg : bool) = false;
     (j : usize) = usize(0);
     while(j < n_args, {

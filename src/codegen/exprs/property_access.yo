@@ -20,7 +20,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_id, ast_expr_is_atom, ast_expr_token } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val, is_unknown_val } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_pointer_type, is_tuple_type, is_dyn_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_module_type, is_unique_box_type } :: import("../../types/guards.yo");
 { Environment } :: import("../../env.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
@@ -73,7 +73,7 @@ _enum_field_access :: (fn(object_type : &TypeValue, object_code : &String, field
     .Some(_) => object_code,
     .None => match(
       object_type,
-      .EnumT({ variant_names : vnames, variant_field_labels : vlabels, name : ename }) => {
+      Rc(.EnumT({ variant_names : vnames, variant_field_labels : vlabels, name : ename })) => {
         nv := vnames.len();
         (vi : usize) = usize(0);
         while(vi < nv, {
@@ -130,7 +130,7 @@ _typevalue_enum_access :: (fn(object_value : &Option(EvalValue), field_name : &S
         et := t;
         match(
           et,
-          .EnumT({ variant_names : vnames, variant_fields : vfields }) => {
+          Rc(.EnumT({ variant_names : vnames, variant_fields : vfields })) => {
             nv := vnames.len();
             (vi : usize) = usize(0);
             while(vi < nv, {
@@ -185,16 +185,16 @@ _ptr_field_access :: (fn(object_type : &TypeValue, object_code : &String, field_
     (deref_level : usize) = usize(0);
     (current_type : TypeValue) = object_type;
     while(is_pointer_type(&current_type), {
-      current_type = match(current_type, .Pointer(p) => p, _ => current_type);
+      current_type = match(current_type, Rc(.Pointer(p)) => p, _ => current_type);
       deref_level = (deref_level + usize(1));
     });
     // Reference-semantics structs are already pointers in C — one more deref.
-    ref_sem := match(current_type, .Struct({ is_reference_semantics : rs }) => rs, _ => false);
+    ref_sem := match(current_type, Rc(.Struct({ is_reference_semantics : rs })) => rs, _ => false);
     if((deref_level > usize(0)) && ref_sem, {
       deref_level = (deref_level + usize(1));
     });
     // Newtype field through a pointer is just the dereference.
-    nt_match := if(is_newtype_type(&current_type), match(current_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name), .None => false), false), _ => false), false);
+    nt_match := if(is_newtype_type(&current_type), match(current_type, Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), match(fls.get(usize(0)), .Some(lbl) => (lbl == field_name), .None => false), false), _ => false), false);
     if(nt_match, {
       res := if(deref_level == usize(1), {
         out := String.from("(*");
@@ -240,7 +240,7 @@ _tuple_field_access :: (fn(object_type : &TypeValue, object_code : &String, fiel
     out
   }, match(
     object_type,
-    .Tuple({ field_labels : fls }) => {
+    Rc(.Tuple({ field_labels : fls })) => {
       n := fls.len();
       (i : usize) = usize(0);
       (idx : usize) = usize(0);
@@ -284,7 +284,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
   field_name := ast_expr_token(&field_expr).value;
   object_code := _call_generate_expr(&object_expr, indent.clone(), context);
   obj_ei_opt := context.base.get_expr_info(&object_expr);
-  object_type := match(obj_ei_opt, .Some(oei) => oei.ty, .None => TypeValue.Unit);
+  object_type := match(obj_ei_opt, .Some(oei) => oei.ty, .None => rc(TypeValueNode.Unit));
   object_value := match(obj_ei_opt, .Some(oei) => oei.value, .None => Option(EvalValue).None);
   // Dyn method access takes PRIORITY over static method resolution: even when
   // the evaluator resolved `obj.method` to a concrete impl FuncVal, a dyn
@@ -349,7 +349,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
   // table, so a user struct with an `io` field is untouched.
   if((field_name == "io") && is_struct_type(&object_type) && match(
     object_type,
-    .Struct({ id : oid }) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
+    Rc(.Struct({ id : oid })) => lookup_io_builtin_struct_field(oid.clone(), String.from("await")).is_some(),
     _ => false
   ), {
     return(object_code.clone());
@@ -368,7 +368,7 @@ generate_field_access :: (fn(expr : &AstExpr, indent : &String, context : &Funct
   if(is_newtype_type(&object_type), {
     match(
       object_type,
-      .Struct({ field_labels : fls }) => if(fls.len() == usize(1), {
+      Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), {
         match(
           fls.get(usize(0)),
           .Some(lbl) => if(lbl == field_name, {

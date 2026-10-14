@@ -19,7 +19,7 @@
 { EvalValue } :: import("../../value.yo");
 { type_contains_rc_type } :: import("../../types/utils.yo");
 { is_some_type, is_tuple_type, is_array_type } :: import("../../types/guards.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { ArrayList } :: import("std/collections/array_list");
 { format_error_message } :: import("../../error.yo");
@@ -77,7 +77,7 @@ evaluate_dup :: (
   if(is_some_type(&concrete_type), {
     match(
       concrete_type,
-      .SomeT({ resolution : dup_rc_cell }) => match(
+      Rc(.SomeT({ resolution : dup_rc_cell })) => match(
         dup_rc_cell,
         .Some(dup_rc_inner) => {
           concrete_type = dup_rc_inner;
@@ -106,10 +106,10 @@ evaluate_dup :: (
     if(dup_var_name.len() > usize(0), {
       (dup_calls : ArrayList(String)) = ArrayList(String).new();
       if(is_tuple_type(&concrete_type), {
-        tup_fts := match(concrete_type, .Tuple(_, fts) => fts, _ => ArrayList(TypeValue).new());
+        tup_fts := match(concrete_type, Rc(.Tuple(_, fts)) => fts, _ => ArrayList(TypeValue).new());
         (dti : usize) = usize(0);
         while(dti < tup_fts.len(), {
-          ft := match(tup_fts.get(dti), .Some(t) => t, .None => TypeValue.Unit);
+          ft := match(tup_fts.get(dti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(type_contains_rc_type(&ft), {
             dup_calls.push(`${BF_YO_DUP_TUPLE_ELEMENT}(${dup_var_name}, ${dti.to_string()})`);
           });
@@ -119,8 +119,8 @@ evaluate_dup :: (
       if(is_array_type(&concrete_type), {
         (arr_elem, arr_len, arr_lvar) := match(
           concrete_type,
-          .Array(e, l, lv) => (e, l, lv),
-          _ => (TypeValue.Unit, usize(0), String.new())
+          Rc(.Array(e, l, lv)) => (e, l, lv),
+          _ => (rc(TypeValueNode.Unit), usize(0), String.new())
         );
         // Only compile-time-known lengths; a
         // pattern-era `length_var` means the length is not concrete — skip.

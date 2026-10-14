@@ -74,7 +74,7 @@ is_convertible_numeric_type :: (fn(type_val : &TypeValue) -> bool)(
     // `i32(unsafe(getpid()))` took the non-numeric soft fallback (UnknownVal,
     // no __yo_as rewrite) and codegen FTT'd the call — the sys/signal red
     // (issues/fixed/yo-self-sys-signal-i32-extern-cast-ftt.md).
-    match(type_val, .ExternOpaqueT(_, _) => true, _ => false) => true,
+    match(type_val, Rc(.ExternOpaqueT(_, _)) => true, _ => false) => true,
     true => false
   )
 );
@@ -251,7 +251,7 @@ try_to_convert_to_numeric_type :: (
             .EnumVal(variant, _) => {
               match(
                 arg_type,
-                .EnumT(_, _, vnames, _, _, _, discs, _, _, _) => {
+                Rc(.EnumT(_, _, vnames, _, _, _, discs, _, _, _)) => {
                   match(
                     _get_enum_discriminant(&variant, &vnames, &discs),
                     .Some(d) => {
@@ -299,7 +299,7 @@ try_to_convert_to_numeric_type :: (
   // applies to a slot of that type, so the explicit conversion and the
   // implicit one agree (issues/fixed/atomic-bool-conversion-rejects-a-bool.md).
   // A NUMERIC target still rejects a `bool` (`usize(flag)` stays an error).
-  bool_to_opaque := (is_bool_type(&arg_type) && match(target_type, .ExternOpaqueT(_, _) => true, _ => false));
+  bool_to_opaque := (is_bool_type(&arg_type) && match(target_type, Rc(.ExternOpaqueT(_, _)) => true, _ => false));
   if(!is_convertible_numeric_type(&arg_type) &&
     !is_comptime_int_type(&arg_type) &&
       !is_comptime_float_type(&arg_type) &&

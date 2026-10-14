@@ -43,7 +43,7 @@ import("std/fmt");
 { Environment, Variable, get_variables_from_env, add_variable_to_env, add_where_clause_constraint_for_type_application, snapshot_env, copy_env_frames } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, force_pending_impls_for_type_name, type_head_name_for_impl_forcing, call_function_value_marker } :: import("../context.yo");
 { EvalValue, create_type_value, create_unknown_val, is_type_value, is_runtime_only_unknown_val } :: import("../../value.yo");
-{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
 { t_some_t, t_some_t_with_kind, t_type, t_type_1, t_unit, t_expr_t, t_comptime_list, type_has_computed_array_len } :: import("../../types/creators.yo");
 { is_some_type, is_trait_type, is_function_type, is_type_0, is_unit_type } :: import("../../types/guards.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -866,7 +866,7 @@ _collect_where_constraints_from_some_t :: (
 )({
   match(
     ty,
-    .SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types, _, negative_trait_types, _, _, _)) => {
       (ri : usize) = usize(0);
       while(ri < required_trait_types.len(), {
         match(
@@ -1010,7 +1010,7 @@ _get_expr_type :: (
           )
         )
       );
-      new_expr_info(env_mut, TypeValue.Unit)
+      new_expr_info(env_mut, rc(TypeValueNode.Unit))
     }
   );
   if(!is_type_value(&info.value), {
@@ -1025,8 +1025,8 @@ _get_expr_type :: (
   });
   match(
     info.value,
-    .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-    .None => TypeValue.Unit
+    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+    .None => rc(TypeValueNode.Unit)
   )
 });
 /// Evaluate an expression and update env_mut in-place.
@@ -1053,8 +1053,8 @@ _eval_and_update_env :: (
         .Some(
           match(
             info.value,
-            .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-            .None => TypeValue.Unit
+            .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+            .None => rc(TypeValueNode.Unit)
           )
         ),
         Option(TypeValue).None
@@ -1185,7 +1185,7 @@ _atom_name_occurs :: (fn(e : &AstExpr, name : &String) -> bool)(
 _wcc_trait_id :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    .TraitT(_, _, _, _, wcc_tid, _, _, _, _, _) => wcc_tid,
+    Rc(.TraitT(_, _, _, _, wcc_tid, _, _, _, _, _)) => wcc_tid,
     _ => String.from("")
   )
 );
@@ -1216,7 +1216,7 @@ _add_where_clause_constraint :: (
 )(
   match(
     some_ty,
-    .SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _) => {
+    Rc(.SomeT(_, _, _, _, required_trait_types, required_trait_levels, negative_trait_types, negative_trait_levels, _, _)) => {
       // Dedup by trait id before appending. A SomeT's trait lists are shared by
       // REFERENCE, so re-validating the same where clause used to append another
       // copy every time — measured at the entries.yo codegen panic, one SomeT's
@@ -1244,7 +1244,7 @@ _add_where_clause_constraint :: (
 _trait_has_receiver :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .TraitT(_, _, _, _, _, is_concrete, _, _, _, _) => is_concrete.is_some(),
+    Rc(.TraitT(_, _, _, _, _, is_concrete, _, _, _, _)) => is_concrete.is_some(),
     _ => false
   )
 );
@@ -1691,7 +1691,7 @@ evaluate_function_parameter :: (
         );
       });
       param_type = .Some(t_type());
-      assigned_value = .Some(create_type_value(match(av_ty_opt, .Some(t) => t, .None => TypeValue.Unit)));
+      assigned_value = .Some(create_type_value(match(av_ty_opt, .Some(t) => t, .None => rc(TypeValueNode.Unit))));
       if(!is_compile_time_only, {
         exn.throw(
           dyn(
@@ -1720,7 +1720,7 @@ evaluate_function_parameter :: (
           )
         );
       });
-      param_type = .Some(match(ty_opt, .Some(t) => t, .None => TypeValue.Unit));
+      param_type = .Some(match(ty_opt, .Some(t) => t, .None => rc(TypeValueNode.Unit)));
     },
     .None => ()
   );
@@ -1836,7 +1836,7 @@ evaluate_function_parameter :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   // Raw-view naming gate (plans/archive/SLICE_REWORK.md): a SAFE file may not
@@ -1881,7 +1881,7 @@ evaluate_function_parameter :: (
   if(!is_compile_time_only && is_function_type(&final_param_type), {
     has_forall := match(
       final_param_type,
-      .Func({ meta : __fm1 }) => (__fm1.*.forall_labels.len() > usize(0)),
+      Rc(.Func({ meta : __fm1 })) => (__fm1.*.forall_labels.len() > usize(0)),
       _ => false
     );
     if(has_forall, {
@@ -1939,7 +1939,7 @@ evaluate_function_parameter :: (
   if(is_trait_type(&final_param_type), {
     has_receiver := match(
       final_param_type,
-      .TraitT(_, _, _, _, _, is_concrete, _, _, _, _) => is_concrete.is_some(),
+      Rc(.TraitT(_, _, _, _, _, is_concrete, _, _, _, _)) => is_concrete.is_some(),
       _ => true
     );
     if(!has_receiver, {
@@ -2048,7 +2048,7 @@ use_id :: (fn(generic(T : Type),
     existing_where_var,
     .Some(wv) => {
       // Variable pre-created by where clause — reuse its SomeT
-      existing_some_ty := match(wv.value.get(usize(0)), .Some(ev) => match(ev, .TypeVal(b) => b, _ => TypeValue.Unit), .None => TypeValue.Unit);
+      existing_some_ty := match(wv.value.get(usize(0)), .Some(ev) => match(ev, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       // If assigned_value is a SomeT, merge traits from it
       match(
         assigned_value,
@@ -2060,7 +2060,7 @@ use_id :: (fn(generic(T : Type),
                 new_some := av_box;
                 match(
                   new_some,
-                  .SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _) => {
+                  Rc(.SomeT(_, _, _, _, new_rtt, _, new_ntt, _, _, _)) => {
                     // Merge required traits
                     (ri : usize) = usize(0);
                     while(ri < new_rtt.len(), {
@@ -2069,7 +2069,7 @@ use_id :: (fn(generic(T : Type),
                         .Some(t) => t,
                         .None => {
                           ri = new_rtt.len();
-                          TypeValue.Unit
+                          rc(TypeValueNode.Unit)
                         }
                       );
                       _add_where_clause_constraint(&existing_some_ty, &nt, false);
@@ -2083,7 +2083,7 @@ use_id :: (fn(generic(T : Type),
                         .Some(t) => t,
                         .None => {
                           ni = new_ntt.len();
-                          TypeValue.Unit
+                          rc(TypeValueNode.Unit)
                         }
                       );
                       _add_where_clause_constraint(&existing_some_ty, &nt, true);
@@ -2157,7 +2157,7 @@ use_id :: (fn(generic(T : Type),
                   if(
                     match(
                       final_param_type,
-                      .Func({ result, meta : __fm2 }) => (__fm2.*.result_is_comptime_only && is_type_0(&result)),
+                      Rc(.Func({ result, meta : __fm2 })) => (__fm2.*.result_is_comptime_only && is_type_0(&result)),
                       _ => false
                     ),
                     Option(EvalValue).Some(create_type_value(t_some_t_with_kind(&label_str, param_frame_level, &final_param_type))),
@@ -2200,7 +2200,7 @@ use_id :: (fn(generic(T : Type),
     label_expr,
     .Some(le) => {
       if(ast_expr_id(&le) != ast_expr_id(expr), {
-        outer_info := new_expr_info(env_mut, TypeValue.Unit);
+        outer_info := new_expr_info(env_mut, rc(TypeValueNode.Unit));
         outer_info.value = .Some(EvalValue.UnitVal);
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &outer_info);
       });
@@ -2230,12 +2230,12 @@ use_id :: (fn(generic(T : Type),
 /// (plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md, option 3).
 _unmet_trait_message :: (fn(concrete : &TypeValue, tv : &TypeValue, env : &Environment) -> String)({
   base := `Type ${type_to_string(concrete)} does not implement required trait ${type_to_string(tv)}`;
-  labels := match(tv, .TraitT(_, _, _, _, _, _, _, _, l, _) => l, _ => ArrayList(String).new());
-  wants := match(tv, .TraitT(_, _, _, _, _, _, _, _, _, t) => t, _ => ArrayList(TypeValue).new());
+  labels := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, l, _)) => l, _ => ArrayList(String).new());
+  wants := match(tv, Rc(.TraitT(_, _, _, _, _, _, _, _, _, t)) => t, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < labels.len(), {
     label := match(labels.get(i), .Some(l) => l, .None => String.new());
-    want := match(wants.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    want := match(wants.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     i = (i + usize(1));
     if(!is_some_type(&want) && (get_all_some_types(&want).len() == usize(0)), {
       match(
@@ -2512,7 +2512,7 @@ apply_single_trait_constraint :: (
     );
   }, {
     // Evaluate LHS expression
-    (lhs_ty : TypeValue) = TypeValue.Unit;
+    (lhs_ty : TypeValue) = rc(TypeValueNode.Unit);
     evaluated := evaluate_expression_raw(lhs_expr, env_mut, ctx, exn);
     info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated));
     info := match(
@@ -2529,7 +2529,7 @@ apply_single_trait_constraint :: (
     env_mut.module_path = info.env.module_path;
     env_mut.function_declaration_frame_level = info.env.function_declaration_frame_level;
     env_mut.input_string = info.env.input_string;
-    lhs_ty = match(info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit), .None => TypeValue.Unit);
+    lhs_ty = match(info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
     if(is_some_type(&lhs_ty), {
       some_ty_opt = .Some(lhs_ty);
     }, {
@@ -2546,7 +2546,7 @@ apply_single_trait_constraint :: (
     }
   );
   // Evaluate trait expression (unwrapped)
-  (trait_ty : TypeValue) = TypeValue.Unit;
+  (trait_ty : TypeValue) = rc(TypeValueNode.Unit);
   evaluated_rhs := evaluate_expression_raw(&unwrapped_trait_expr, env_mut, ctx, exn);
   info_rhs_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_rhs));
   info_rhs := match(
@@ -2563,7 +2563,7 @@ apply_single_trait_constraint :: (
   env_mut.module_path = info_rhs.env.module_path;
   env_mut.function_declaration_frame_level = info_rhs.env.function_declaration_frame_level;
   env_mut.input_string = info_rhs.env.input_string;
-  trait_ty = match(info_rhs.value, .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit), .None => TypeValue.Unit);
+  trait_ty = match(info_rhs.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
   if(!is_trait_type(&trait_ty), {
     exn.throw(
       dyn(
@@ -2766,7 +2766,7 @@ parse_where_clause_constraints :: (
               )
             )
           );
-          new_expr_info(env_mut, TypeValue.Unit)
+          new_expr_info(env_mut, rc(TypeValueNode.Unit))
         }
       );
       if(!is_type_value(&lhs_info.value), {
@@ -2783,7 +2783,7 @@ parse_where_clause_constraints :: (
       env_mut.module_path = lhs_info.env.module_path;
       env_mut.function_declaration_frame_level = lhs_info.env.function_declaration_frame_level;
       env_mut.input_string = lhs_info.env.input_string;
-      lhs_tv := match(lhs_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit), .None => TypeValue.Unit);
+      lhs_tv := match(lhs_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       // HKT TypeApplication case: record `F(A) <: Trait` via the dedicated
       // type-application constraint table
       // (add_where_clause_constraint_for_type_application). The RHS trait parsing
@@ -2849,7 +2849,7 @@ parse_where_clause_constraints :: (
       });
       // Try to evaluate trait expression
       // Note: errors propagate via outer exn (collect_pending fallback simplified)
-      (trait_ty2 : TypeValue) = TypeValue.Unit;
+      (trait_ty2 : TypeValue) = rc(TypeValueNode.Unit);
       evaluated_trait := evaluate_expression_raw(&unwrapped_te, env_mut, ctx, exn);
       trait_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_trait));
       (skip_iter : bool) = false;
@@ -2869,7 +2869,7 @@ parse_where_clause_constraints :: (
           });
           pending_traits.push(PendingConstraint(lhs_expr, trait_expr_item, constraint_expr));
           skip_iter = true;
-          new_expr_info(env_mut, TypeValue.Unit)
+          new_expr_info(env_mut, rc(TypeValueNode.Unit))
         }
       );
       if(skip_iter, {
@@ -2896,7 +2896,7 @@ parse_where_clause_constraints :: (
       env_mut.module_path = trait_info.env.module_path;
       env_mut.function_declaration_frame_level = trait_info.env.function_declaration_frame_level;
       env_mut.input_string = trait_info.env.input_string;
-      trait_ty2 = match(trait_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit), .None => TypeValue.Unit);
+      trait_ty2 = match(trait_info.value, .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)), .None => rc(TypeValueNode.Unit));
       if(!is_trait_type(&trait_ty2), {
         exn.throw(
           dyn(
@@ -3142,7 +3142,7 @@ evaluate_function_parameters :: (
   (has_variadic : bool) = false;
   (variadic_param : FuncParam) = FuncParam(
     String.from("..."),
-    TypeValue.Unit,
+    rc(TypeValueNode.Unit),
     false,
     false,
     false,
@@ -3692,7 +3692,7 @@ evaluate_function_parameters :: (
       (is_vquote : bool) = false;
       (vparam_name : String) = String.from("...");
       (vlabel_expr : AstExpr) = param_expr;
-      (vparam_type : TypeValue) = TypeValue.Unit;
+      (vparam_type : TypeValue) = rc(TypeValueNode.Unit);
       if(ast_expr_is_fn_call(&param_expr), {
         varg := match(_fn_call_args(&param_expr).get(usize(0)), .Some(a) => a, .None => make_err_expr());
         // ...((lhsExpr : typeExpr)) — type-annotated variadic.
@@ -3752,7 +3752,7 @@ evaluate_function_parameters :: (
                   )
                 )
               );
-              TypeValue.Unit
+              rc(TypeValueNode.Unit)
             }
           );
         }, {
@@ -3761,7 +3761,7 @@ evaluate_function_parameters :: (
             is_vcomptime = true;
             vlabel_expr = match(_fn_call_args(&varg).get(usize(0)), .Some(a) => a, .None => make_err_expr());
             vparam_name = ast_expr_token(&vlabel_expr).value;
-            vparam_type = TypeValue.ComptimeListT(t_type());
+            vparam_type = rc(TypeValueNode.ComptimeListT(t_type()));
           }, {
             // ...(quote(name)) or ...(:(name)) — the unary quote
             // macro. `:` (unary) aliases `quote` semantically.
@@ -4242,7 +4242,7 @@ evaluate_function_type :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   // Auto-convert comptime-only return types if possible
@@ -4510,7 +4510,7 @@ evaluate_function_type :: (
       params_result.params.get(rp2_i),
       .Some(fp) => match(
         fp.ty,
-        .RefineT(_, pred_fid) => {
+        Rc(.RefineT(_, pred_fid)) => {
           pred_here = pred_fid;
         },
         _ => ()
@@ -4620,7 +4620,7 @@ evaluate_function_type :: (
     );
     match(
       fp.ty,
-      .SomeT(_, _, _, _, required_trait_types, _, _, _, _, _) => {
+      Rc(.SomeT(_, _, _, _, required_trait_types, _, _, _, _, _)) => {
         (ti2 : usize) = usize(0);
         while(ti2 < required_trait_types.len(), {
           tt := match(
@@ -4647,54 +4647,56 @@ evaluate_function_type :: (
     mint_vcomptime = params_result.variadic_param.is_compile_time_only;
     vts_mint.push(params_result.variadic_param.ty);
   });
-  func_type := TypeValue.Func(
-    forall_types,
-    param_types,
-    implicit_types,
-    where_types,
-    return_type,
-    rc(
-      FuncMeta(
-        forall_labels : forall_labels,
-        param_labels : param_labels,
-        implicit_labels : implicit_labels,
-        // result_is_comptime_only — set from the `comptime(...)` wrapper on
-        // the declared return.
-        result_is_comptime_only : is_return_comptime_only,
-        // param_is_ref / param_is_owning / result_is_ref — the per-parameter
-        // ref/own flags and the return ref flag.
-        param_is_ref : param_is_ref,
-        param_is_owning : param_is_owning,
-        result_is_ref : is_return_type_ref,
-        result_is_mut_ref : is_return_type_mut_ref,
-        // has_variadic — set from the trailing `...` marker (C-style
-        // variadic externs).
-        has_variadic : params_result.has_variadic,
-        // is_extern / extern_name — None here; a bare `fn(...)` type carries no
-        // FFI marker. `evaluate_extern`/`evaluate_c_include` rebuild the field's
-        // type with `Some(language)`/`Some(label)`.
-        is_extern : Option(String).None,
-        extern_name : Option(String).None,
-        // is_control — true when the head was `ctl(...)`.
-        is_control : is_ctl_fn_type,
-        // variadic_label / variadic_comptime — the variadic parameter's
-        // binding name + comptime flag; the
-        // TYPE rides in Func.variadic_types below.
-        variadic_label : mint_vlabel,
-        variadic_comptime : mint_vcomptime,
-        // origin_id — this `fn(...)` TYPE EXPRESSION's id, the key under which
-        // every side table above (param comptime flags, param type exprs,
-        // return type expr, defaults, where clauses, contracts) was just
-        // registered. Carrying it ON the type is what lets a consumer that only
-        // ever sees the TYPE — an anonymous function checked against it —
-        // re-key those tables onto its own FuncVal id, the way the `::` path
-        // does explicitly.
-        origin_id : Option(String).Some(ast_expr_id(expr).to_string()),
-        // param_is_sink — the `sink(x)` flags, read by callers only.
-        param_is_sink : Option(ArrayList(bool)).Some(param_is_sink)
-      )
-    ),
-    vts_mint
+  func_type := rc(
+    TypeValueNode.Func(
+      forall_types,
+      param_types,
+      implicit_types,
+      where_types,
+      return_type,
+      rc(
+        FuncMeta(
+          forall_labels : forall_labels,
+          param_labels : param_labels,
+          implicit_labels : implicit_labels,
+          // result_is_comptime_only — set from the `comptime(...)` wrapper on
+          // the declared return.
+          result_is_comptime_only : is_return_comptime_only,
+          // param_is_ref / param_is_owning / result_is_ref — the per-parameter
+          // ref/own flags and the return ref flag.
+          param_is_ref : param_is_ref,
+          param_is_owning : param_is_owning,
+          result_is_ref : is_return_type_ref,
+          result_is_mut_ref : is_return_type_mut_ref,
+          // has_variadic — set from the trailing `...` marker (C-style
+          // variadic externs).
+          has_variadic : params_result.has_variadic,
+          // is_extern / extern_name — None here; a bare `fn(...)` type carries no
+          // FFI marker. `evaluate_extern`/`evaluate_c_include` rebuild the field's
+          // type with `Some(language)`/`Some(label)`.
+          is_extern : Option(String).None,
+          extern_name : Option(String).None,
+          // is_control — true when the head was `ctl(...)`.
+          is_control : is_ctl_fn_type,
+          // variadic_label / variadic_comptime — the variadic parameter's
+          // binding name + comptime flag; the
+          // TYPE rides in Func.variadic_types below.
+          variadic_label : mint_vlabel,
+          variadic_comptime : mint_vcomptime,
+          // origin_id — this `fn(...)` TYPE EXPRESSION's id, the key under which
+          // every side table above (param comptime flags, param type exprs,
+          // return type expr, defaults, where clauses, contracts) was just
+          // registered. Carrying it ON the type is what lets a consumer that only
+          // ever sees the TYPE — an anonymous function checked against it —
+          // re-key those tables onto its own FuncVal id, the way the `::` path
+          // does explicitly.
+          origin_id : Option(String).Some(ast_expr_id(expr).to_string()),
+          // param_is_sink — the `sink(x)` flags, read by callers only.
+          param_is_sink : Option(ArrayList(bool)).Some(param_is_sink)
+        )
+      ),
+      vts_mint
+    )
   );
   // Set expr info on the expr
   out_info := new_expr_info(&env_mut, type_of_type(&func_type));
@@ -4728,7 +4730,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
   acc := ArrayList(TypeValue).new();
   rtts := match(
     wrapper,
-    .SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _) => rts,
+    Rc(.SomeT(_, _, _, _, required_trait_types : rts, _, _, _, _, _)) => rts,
     _ => ArrayList(TypeValue).new()
   );
   (i : usize) = usize(0);
@@ -4747,7 +4749,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
       // an unbound T/E resolves to itself and the substitution below no-ops,
       // so the async pipeline's unresolved-SomeT registrations keep their
       // identity.
-      .FutureTraitT({ output : fut_out, effect_types : fut_ets }) => {
+      Rc(.FutureTraitT({ output : fut_out, effect_types : fut_ets })) => {
         fo_inner := get_all_some_types(&fut_out);
         (foi : usize) = usize(0);
         while(foi < fo_inner.len(), {
@@ -4783,7 +4785,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
           fei = (fei + usize(1));
         });
       },
-      .FnTraitT({ call_param_types : cpts, call_result : cr, implicit_types : its }) => {
+      Rc(.FnTraitT({ call_param_types : cpts, call_result : cr, implicit_types : its })) => {
         (cj : usize) = usize(0);
         while(cj < cpts.len(), {
           match(
@@ -4858,7 +4860,7 @@ collect_wrapper_trait_somes :: (fn(wrapper : &TypeValue) -> ArrayList(TypeValue)
 _substitute_wrapper_carriers :: (fn(ns : &Substitution, wrapper : &TypeValue) -> TypeValue)(
   match(
     wrapper,
-    .SomeT(sw_id, sw_nm, sw_fl, sw_pt, sw_rtt, sw_rtl, sw_ntt, sw_ntl, sw_kft, sw_rc) => {
+    Rc(.SomeT(sw_id, sw_nm, sw_fl, sw_pt, sw_rtt, sw_rtl, sw_ntt, sw_ntl, sw_kft, sw_rc)) => {
       new_rtt := ArrayList(TypeValue).new();
       (i : usize) = usize(0);
       while(i < sw_rtt.len(), {
@@ -4871,7 +4873,7 @@ _substitute_wrapper_carriers :: (fn(ns : &Substitution, wrapper : &TypeValue) ->
         match(sw_ntt.get(j), .Some(t) => new_ntt.push(substitute(ns, &t)), .None => ());
         j = (j + usize(1));
       });
-      TypeValue.SomeT(sw_id, sw_nm, sw_fl, sw_pt, new_rtt, sw_rtl, new_ntt, sw_ntl, sw_kft, sw_rc)
+      rc(TypeValueNode.SomeT(sw_id, sw_nm, sw_fl, sw_pt, new_rtt, sw_rtl, new_ntt, sw_ntl, sw_kft, sw_rc))
     },
     _ => substitute(ns, wrapper)
   )
@@ -4893,12 +4895,12 @@ _resolve_some_types_deep :: (
     if(!is_some_type(&r) && is_function_type(&r), {
       match(
         ty,
-        .SomeT({ required_trait_types : rsd_rtt }) => {
+        Rc(.SomeT({ required_trait_types : rsd_rtt })) => {
           (rsd_i : usize) = usize(0);
           while((rsd_i < rsd_rtt.len()) && !rsd_fut_poisoned, {
             match(
               rsd_rtt.get(rsd_i),
-              .Some(.FutureTraitT(base_name : _)) => {
+              .Some(Rc(.FutureTraitT(base_name : _))) => {
                 rsd_fut_poisoned = true;
               },
               .Some(_) => (),
@@ -4953,7 +4955,7 @@ _resolve_some_types_deep :: (
       if(!is_some_type(&nres), {
         match(
           nst,
-          .SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _) => {
+          Rc(.SomeT(_, nst_name, nst_lvl, _, _, _, _, _, _, _)) => {
             subst_add(&ns, &nst_name, nst_lvl, &nres);
             nbound = true;
           },
@@ -5009,7 +5011,7 @@ _resolve_some_types_deep :: (
     if(!is_some_type(&resolved) || rebound_to_some, {
       match(
         st,
-        .SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _) => {
+        Rc(.SomeT(_, st_name, st_lvl, _, _, _, _, _, _, _)) => {
           subst_add(&s, &st_name, st_lvl, &resolved);
           bound_any = true;
         },
@@ -5036,7 +5038,7 @@ _resolve_some_types_deep :: (
 _env_rebound_to_another_some :: (fn(st : &TypeValue, r : &TypeValue) -> bool)(
   match(
     r,
-    .SomeT({ id : r_id }) => match(st, .SomeT({ id : st_id }) => (r_id != st_id), _ => true),
+    Rc(.SomeT({ id : r_id })) => match(st, Rc(.SomeT({ id : st_id })) => (r_id != st_id), _ => true),
     _ => false
   )
 );
@@ -5097,7 +5099,7 @@ _collect_type_arg_somes :: (
 )(
   match(
     ty,
-    .Struct({ id : cta_sid, field_types : cta_fts, type_arguments : cta_args }) => {
+    Rc(.Struct({ id : cta_sid, field_types : cta_fts, type_arguments : cta_args })) => {
       if(_cta_seen(visited_ids, &cta_sid), {
         return(());
       });
@@ -5124,7 +5126,7 @@ _collect_type_arg_somes :: (
         cta_f = (cta_f + usize(1));
       });
     },
-    .EnumT(cta_eid, _, _, cta_vfs, _, _, _, _, _, _) => {
+    Rc(.EnumT(cta_eid, _, _, cta_vfs, _, _, _, _, _, _)) => {
       if(_cta_seen(visited_ids, &cta_eid), {
         return(());
       });
@@ -5166,7 +5168,7 @@ _collect_type_arg_somes :: (
         cta_v = (cta_v + usize(1));
       });
     },
-    .Func({ param_types : cta_pts, result : cta_res }) => {
+    Rc(.Func({ param_types : cta_pts, result : cta_res })) => {
       (cta_p : usize) = usize(0);
       while(cta_p < cta_pts.len(), {
         match(cta_pts.get(cta_p), .Some(cta_pt) => recur(&cta_pt, acc, visited_ids), .None => ());
@@ -5174,16 +5176,16 @@ _collect_type_arg_somes :: (
       });
       recur(&cta_res, acc, visited_ids);
     },
-    .Tuple(_, field_types : cta_tfs) => {
+    Rc(.Tuple(_, field_types : cta_tfs)) => {
       (cta_t : usize) = usize(0);
       while(cta_t < cta_tfs.len(), {
         match(cta_tfs.get(cta_t), .Some(cta_tt) => recur(&cta_tt, acc, visited_ids), .None => ());
         cta_t = (cta_t + usize(1));
       });
     },
-    .Pointer(pointee : cta_p2) => recur(&cta_p2, acc, visited_ids),
-    .Array(element : cta_e, _, _) => recur(&cta_e, acc, visited_ids),
-    .IsoT(child : cta_c) => recur(&cta_c, acc, visited_ids),
+    Rc(.Pointer(pointee : cta_p2)) => recur(&cta_p2, acc, visited_ids),
+    Rc(.Array(element : cta_e, _, _)) => recur(&cta_e, acc, visited_ids),
+    Rc(.IsoT(child : cta_c)) => recur(&cta_c, acc, visited_ids),
     _ => ()
   )
 );
@@ -5220,7 +5222,7 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
         if(is_some_type(&tas_r), {
           match(
             tas_st,
-            .SomeT({ resolution : tas_cell }) => match(
+            Rc(.SomeT({ resolution : tas_cell })) => match(
               tas_cell,
               .Some(tas_c) => {
                 tas_r = tas_c;
@@ -5247,7 +5249,7 @@ _resolve_type_arg_somes :: (fn(ty : &TypeValue, env : &Environment) -> TypeValue
         if(!is_some_type(&tas_r), {
           match(
             tas_st,
-            .SomeT(tas_id, tas_name, tas_lvl, _, _, _, _, _, _, _) => {
+            Rc(.SomeT(tas_id, tas_name, tas_lvl, _, _, _, _, _, _, _)) => {
               if(tas_own && (tas_id.len() > usize(0)), {
                 subst_adopt_own_resolution(&tas_s, &tas_id);
               }, {

@@ -2,7 +2,7 @@
 { String } :: import("std/string");
 { println } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
 { t_unit, t_bool, t_i32, t_i64, t_u8, t_f32, t_f64, t_usize, t_comptime_int, t_comptime_float, t_comptime_string, t_ptr, t_array, t_expr_t, t_comptime_list, t_type_app, t_iso, t_dyn, t_dyn_simple, t_fn_trait, t_fn_trait_simple, t_future_trait, t_future_trait_simple, t_some_t, generate_some_type_id } :: import("../../src/types/creators.yo");
 { type_to_string } :: import("../../src/types/string.yo");
 { are_types_compatible, are_types_compatible_exact, are_function_types_compatible } :: import("../../src/types/compatibility.yo");
@@ -27,7 +27,7 @@ test("type_to_string primitives", {
 });
 test("type_to_string compound", {
   assert_str_eq(type_to_string(t_ptr(t_i32())), `*(i32)`, "*(i32)");
-  assert_str_eq(type_to_string(TypeValue.Str), `str`, "str");
+  assert_str_eq(type_to_string(rc(TypeValueNode.Str)), `str`, "str");
   assert_str_eq(type_to_string(t_ptr(t_ptr(t_i64()))), `*(*(i64))`, "**(i64)");
   // Array length is rendered as its usize literal
   assert_str_eq(type_to_string(t_array(t_i32(), usize(8))), `Array(i32, 8)`, "Array(i32,8)");
@@ -53,7 +53,7 @@ test("compatibility — comptime widening", {
 test("compatibility — pointers and slices recurse", {
   assert(are_types_compatible(t_ptr(t_i32()), t_ptr(t_i32())), "*(i32) ~ *(i32)");
   assert(!are_types_compatible(t_ptr(t_i32()), t_ptr(t_i64())), "*(i32) !~ *(i64)");
-  assert(are_types_compatible(TypeValue.Str, TypeValue.Str), "str ~ str");
+  assert(are_types_compatible(rc(TypeValueNode.Str), rc(TypeValueNode.Str)), "str ~ str");
   assert(
     are_types_compatible(
       t_ptr(t_ptr(t_i32())),

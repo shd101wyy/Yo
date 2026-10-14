@@ -171,7 +171,7 @@ json :: import("std/encoding/json");
 { format_yo_source, format_yo_files, FormatYoFilesOptions } :: import("./formatter.yo");
 { host_target, set_current_target, parse_target, TargetInfo, clang_triple, is_target_linux, is_target_windows, is_target_macos, is_target_wasm, is_target_standalone_wasi } :: import("./target.yo");
 { set_target_pointer_size } :: import("./types/utils.yo");
-{ TypeValue } :: import("./types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("./types/definitions.yo");
 { is_function_type } :: import("./types/guards.yo");
 { type_to_string } :: import("./types/string.yo");
 { compile_module } :: import("./codegen/codegen_c.yo");
@@ -8923,7 +8923,7 @@ run_effects :: (
     (types : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
     match(
       outcome.module_type,
-      .Struct({ field_labels, field_types }) => {
+      Rc(.Struct({ field_labels, field_types })) => {
         labels = field_labels;
         types = field_types;
       },
@@ -8951,11 +8951,11 @@ run_effects :: (
     (li : usize) = usize(0);
     while(li < labels.len(), {
       name := match(labels.get(li), .Some(l) => l, .None => String.new());
-      ty := match(types.get(li), .Some(t) => t, .None => TypeValue.Unit);
+      ty := match(types.get(li), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       li = (li + usize(1));
       match(
         ty,
-        .Func({ param_types, implicit_types, result, meta }) => {
+        Rc(.Func({ param_types, implicit_types, result, meta })) => {
           seen_fns = (seen_fns + usize(1));
           fn_sep := if(seen_fns < n_fns, String.from(","), String.new());
           entries := ArrayList(String).new();
@@ -8964,7 +8964,7 @@ run_effects :: (
           (pi : usize) = usize(0);
           while((pi < param_labels.len()) && (pi < param_types.len()), {
             plabel := match(param_labels.get(pi), .Some(l) => l, .None => String.new());
-            pty := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
+            pty := match(param_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             pi = (pi + usize(1));
             kinds := _effect_kinds_of_type(&pty, usize(0));
             if(kinds.len() > usize(0), {
@@ -8976,7 +8976,7 @@ run_effects :: (
           (ii : usize) = usize(0);
           while((ii < implicit_labels.len()) && (ii < implicit_types.len()), {
             ilabel := match(implicit_labels.get(ii), .Some(l) => l, .None => String.new());
-            ity := match(implicit_types.get(ii), .Some(t) => t, .None => TypeValue.Unit);
+            ity := match(implicit_types.get(ii), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             ii = (ii + usize(1));
             // An implicit (`using`) parameter is an effect by construction.
             kinds := _effect_kinds_of_type(&ity, usize(0));
@@ -8995,7 +8995,7 @@ run_effects :: (
           (ei : usize) = usize(0);
           while((ei < fut_labels.len()) && (ei < fut_types.len()), {
             elabel := match(fut_labels.get(ei), .Some(l) => l, .None => String.new());
-            ety := match(fut_types.get(ei), .Some(t) => t, .None => TypeValue.Unit);
+            ety := match(fut_types.get(ei), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             ei = (ei + usize(1));
             kinds := _effect_kinds_of_type(&ety, usize(0));
             // The row label of an `Impl(Future(T, E))` is E's own name; say
@@ -9041,17 +9041,17 @@ _effect_kinds_of_type :: (fn(t : &TypeValue, depth : usize) -> ArrayList(String)
   kinds := ArrayList(String).new();
   match(
     t,
-    .Struct({ name, field_labels, field_types }) => {
+    Rc(.Struct({ name, field_labels, field_types })) => {
       (has_ctl : bool) = false;
       (has_async : bool) = false;
       (fi : usize) = usize(0);
       while(fi < field_types.len(), {
         flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.new());
-        fty := match(field_types.get(fi), .Some(x) => x, .None => TypeValue.Unit);
+        fty := match(field_types.get(fi), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         fi = (fi + usize(1));
         match(
           fty,
-          .Func({ meta : fmeta }) => {
+          Rc(.Func({ meta : fmeta })) => {
             if(fmeta.*.is_control, {
               has_ctl = true;
             });
@@ -9092,7 +9092,7 @@ _collect_future_effects :: (
 )({
   match(
     t,
-    .FutureTraitT({ effect_labels, effect_types }) => {
+    Rc(.FutureTraitT({ effect_labels, effect_types })) => {
       (i : usize) = usize(0);
       while((i < effect_labels.len()) && (i < effect_types.len()), {
         labels.push(effect_labels(i).clone());
@@ -9100,7 +9100,7 @@ _collect_future_effects :: (
         i = (i + usize(1));
       });
     },
-    .SomeT({ required_trait_types }) => {
+    Rc(.SomeT({ required_trait_types })) => {
       (i : usize) = usize(0);
       while(i < required_trait_types.len(), {
         match(required_trait_types.get(i), .Some(rt) => recur(&rt, labels, types), .None => ());

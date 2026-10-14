@@ -25,7 +25,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { EvalValue } :: import("../value.yo");
-{ TypeValue } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../types/definitions.yo");
 { Environment, Variable } :: import("../env.yo");
 { LoadModuleResult } :: import("./context.yo");
 { set_registration_owner, set_import_closure_fn } :: import("./values/type_trait_methods.yo");
@@ -309,13 +309,13 @@ load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
       module_type : match(
         g_module_cache_types.get(i),
         .Some(t) => t,
-        .None => TypeValue.Unit
+        .None => rc(TypeValueNode.Unit)
       ),
       module_error : Option(String).None
     ),
     .None => LoadModuleResult(
       module_value : EvalValue.UnitVal,
-      module_type : TypeValue.Unit,
+      module_type : rc(TypeValueNode.Unit),
       module_error : Option(String).Some(`module not preloaded: ${path}`)
     )
   )
@@ -325,12 +325,12 @@ load_module_from_cache :: (fn(path : &String) -> LoadModuleResult)(
 _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue) -> Option(TypeValue))(
   match(
     mt,
-    .Struct(sid, sname, tlabels, ttypes, sref, satomic, snt, scfid, stas, ssns) => {
+    Rc(.Struct(sid, sname, tlabels, ttypes, sref, satomic, snt, scfid, stas, ssns)) => {
       new_types := ArrayList(TypeValue).new();
       (found : bool) = false;
       (ti : usize) = usize(0);
       while(ti < ttypes.len(), {
-        ft := match(ttypes.get(ti), .Some(t) => t, .None => TypeValue.Unit);
+        ft := match(ttypes.get(ti), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(match(tlabels.get(ti), .Some(t) => (t == name), .None => false), {
           new_types.push(ty);
           found = true;
@@ -341,17 +341,19 @@ _module_type_with_field :: (fn(mt : &TypeValue, name : &String, ty : &TypeValue)
       });
       cond(
         found => Option(TypeValue).Some(
-          TypeValue.Struct(
-            id : sid,
-            name : sname,
-            field_labels : tlabels,
-            field_types : new_types,
-            is_reference_semantics : sref,
-            is_atomic_rc : satomic,
-            is_newtype : snt,
-            constructor_func_id : scfid,
-            type_arguments : stas,
-            is_source_namespace : ssns
+          rc(
+            TypeValueNode.Struct(
+              id : sid,
+              name : sname,
+              field_labels : tlabels,
+              field_types : new_types,
+              is_reference_semantics : sref,
+              is_atomic_rc : satomic,
+              is_newtype : snt,
+              constructor_func_id : scfid,
+              type_arguments : stas,
+              is_source_namespace : ssns
+            )
           )
         ),
         true => Option(TypeValue).None

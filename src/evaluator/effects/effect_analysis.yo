@@ -34,7 +34,7 @@ pragma(Pragma.AllowUnsafe);
   ast_expr_is_fn_call_of
 } :: import("../../expr.yo");
 { ExprInfo } :: import("../../expr_info.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 {
   is_function_type,
   is_module_type,
@@ -349,14 +349,14 @@ is_transitive_effect_call_ :: (
   if(is_function_type(func_type.clone()), {
     result := match(
       func_type,
-      .Func({ implicit_types, meta : __fm1 }) => {
+      Rc(.Func({ implicit_types, meta : __fm1 })) => {
         implicit_labels := __fm1.*.implicit_labels;
         n := implicit_labels.len();
         i := usize(0);
         found := Option(bool).None;
         while(i < n, {
           label := match(implicit_labels.get(i), .Some(l) => l, .None => String.from(""));
-          ty := match(implicit_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+          ty := match(implicit_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           // Direct match: label matches and type is Func or effect record
           if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
             found = Option(bool).Some(false);
@@ -381,12 +381,12 @@ is_transitive_effect_call_ :: (
     .Some(ftt) => {
       match(
         ftt,
-        .FnTraitT(_, _, _, _, implicit_labels, implicit_types, _, _) => {
+        Rc(.FnTraitT(_, _, _, _, implicit_labels, implicit_types, _, _)) => {
           n2 := implicit_labels.len();
           (i2 : usize) = usize(0);
           while(i2 < n2, {
             label := match(implicit_labels.get(i2), .Some(l) => l, .None => String.from(""));
-            ty := match(implicit_types.get(i2), .Some(t) => t, .None => TypeValue.Unit);
+            ty := match(implicit_types.get(i2), .Some(t) => t, .None => rc(TypeValueNode.Unit));
             if((label == effect_param_name) && (is_function_type(ty.clone()) || is_module_type(ty.clone()) || is_struct_type(ty.clone())), {
               return(Option(bool).Some(true));
             });
@@ -467,7 +467,7 @@ detect_effect_expr_ :: (
         .None => (),
         .Some(fn_type) => match(
           fn_type,
-          .Func({ param_types }) => {
+          Rc(.Func({ param_types })) => {
             pn := param_types.len();
             pi := usize(0);
             while(pi < pn, {
@@ -497,7 +497,7 @@ detect_effect_expr_ :: (
       result_type_opt = match(
         effect_param_fn_type.clone(),
         .None => Option(TypeValue).None,
-        .Some(.Func({ result })) => Option(TypeValue).Some(result),
+        .Some(Rc(.Func({ result }))) => Option(TypeValue).Some(result),
         _ => Option(TypeValue).None
       );
     });
@@ -569,7 +569,7 @@ detect_effect_expr_ :: (
           transitive_arg_types := ArrayList(TypeValue).new();
           match(
             ctl_type.clone(),
-            .Func({ param_types }) => {
+            Rc(.Func({ param_types })) => {
               pn := param_types.len();
               pi := usize(0);
               while(pi < pn, {
@@ -591,7 +591,7 @@ detect_effect_expr_ :: (
           transitive_result_type_opt := cond(
             via_closure => match(
               ctl_type,
-              .Func({ result }) => Option(TypeValue).Some(result),
+              Rc(.Func({ result })) => Option(TypeValue).Some(result),
               _ => Option(TypeValue).None
             ),
             true => match(

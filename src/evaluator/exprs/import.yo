@@ -27,7 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { register_sns_module, EvalContext, LoadModuleResult } :: import("../context.yo");
 { Diagnostic } :: import("../../diagnostics.yo");
 { EvalValue, type_of_eval_value } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { YoError, format_error_message, take_error_diagnostics, note_diagnostic_of_token } :: import("../../error.yo");
 { Exception } :: import("std/error");
@@ -508,7 +508,7 @@ evaluate_import :: (
     .Some(load_fn) => load_fn(module_abs_path.clone()),
     .None => LoadModuleResult(
       module_value : _build_module_val_from_env(&env),
-      module_type : TypeValue.Unit,
+      module_type : rc(TypeValueNode.Unit),
       module_error : .None
     )
   );
@@ -562,7 +562,7 @@ evaluate_import :: (
   // the cycle path, which has no recorded type.
   mod_ty := match(
     load_result.module_type,
-    .Unit => type_of_eval_value(&mod_val),
+    Rc(.Unit) => type_of_eval_value(&mod_val),
     _ => load_result.module_type
   );
   out_info := new_expr_info(&env, &mod_ty);

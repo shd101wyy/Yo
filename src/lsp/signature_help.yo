@@ -11,7 +11,7 @@ import("std/error");
 { Token, TokenKind } :: import("../token.yo");
 { AstExpr, ast_expr_id, ast_expr_token } :: import("../expr.yo");
 { ExprInfoTable, expr_info_table_get } :: import("../expr_info.yo");
-{ TypeValue } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../types/definitions.yo");
 { type_to_string, format_param_with_mode } :: import("../types/string.yo");
 { JsonValue } :: import("std/encoding/json");
 { jb, jstr, jnum } :: import("./protocol.yo");
@@ -120,7 +120,7 @@ handle_signature_help :: (
     );
     is_fn := match(
       expr_info_table_get(info_table, ast_expr_id(&cand)),
-      .Some(cinfo) => match(cinfo.ty, .Func(_, _, _, _, _, _, _) => true, _ => false),
+      .Some(cinfo) => match(cinfo.ty, Rc(.Func(_, _, _, _, _, _, _)) => true, _ => false),
       .None => false
     );
     if(is_fn, {
@@ -163,11 +163,11 @@ handle_signature_help :: (
   callee_name := ast_expr_token(&callee).value;
   match(
     info.ty,
-    .Func(_, param_types, _, _, _, meta, _) => {
+    Rc(.Func(_, param_types, _, _, _, meta, _)) => {
       params := ArrayList(JsonValue).new();
       (pi : usize) = usize(0);
       while(pi < param_types.len(), {
-        pt := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
+        pt := match(param_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         plabel := match(meta.*.param_labels.get(pi), .Some(l) => l, .None => `arg${pi}`);
         // Spelled as the signature label spells it (decision 42), so the
         // client finds the parameter inside the signature.

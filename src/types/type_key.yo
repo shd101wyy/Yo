@@ -8,7 +8,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode } :: import("./definitions.yo");
 { type_to_string } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
@@ -80,7 +80,7 @@ _tk_resolve_arg_slot :: (fn(t_in : &TypeValue) -> TypeValue)({
   while(walk, {
     match(
       cur,
-      .SomeT({ id : ras_id, name : ras_nm, resolution : ras_rc }) => {
+      Rc(.SomeT({ id : ras_id, name : ras_nm, resolution : ras_rc })) => {
         // The dyn-coercion wrappers (minted NAMELESS, values/dyn.yo) keep
         // their OWN identity: the dyn/box closure machinery lowers them to a
         // distinct fat call/data C struct, and hopping to the capture struct
@@ -135,7 +135,7 @@ _tk_somes_have_id :: (fn(somes : &ArrayList(TypeValue), id : &String) -> bool)({
   (found : bool) = false;
   (i : usize) = usize(0);
   while((i < somes.len()) && !found, {
-    found = match(somes.get(i), .Some(.SomeT({ id : sid })) => (sid == id), _ => false);
+    found = match(somes.get(i), .Some(Rc(.SomeT({ id : sid }))) => (sid == id), _ => false);
     i = (i + usize(1));
   });
   found
@@ -197,11 +197,11 @@ _tk_arg_id :: (fn(t_in : &TypeValue, depth : usize) -> String)({
   t := resolve_struct_shell(resolve_enum_shell(t_in));
   match(
     t,
-    .Struct({ id : sh_sid, type_arguments : sh_tas }) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, &sh_tas, depth + usize(1)), `s:${sh_sid}`),
-    .EnumT({ id : sh_eid, type_arguments : sh_etas }) => if(depth < usize(8), _tk_args_sig(`e:${sh_eid}(`, &sh_etas, depth + usize(1)), `e:${sh_eid}`),
-    .SomeT({ id : sh_tid }) => {
+    Rc(.Struct({ id : sh_sid, type_arguments : sh_tas })) => if(depth < usize(8), _tk_args_sig(`s:${sh_sid}(`, &sh_tas, depth + usize(1)), `s:${sh_sid}`),
+    Rc(.EnumT({ id : sh_eid, type_arguments : sh_etas })) => if(depth < usize(8), _tk_args_sig(`e:${sh_eid}(`, &sh_etas, depth + usize(1)), `e:${sh_eid}`),
+    Rc(.SomeT({ id : sh_tid })) => {
       sh_end := resolve_cell_chain(&t);
-      match(sh_end, .SomeT({ id : _ }) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(&sh_end, depth)}`)
+      match(sh_end, Rc(.SomeT({ id : _ })) => `t:${sh_tid}`, _ => `t:${sh_tid}>${_tk_arg_id(&sh_end, depth)}`)
     },
     _ => type_to_string(&t)
   )
@@ -209,14 +209,14 @@ _tk_arg_id :: (fn(t_in : &TypeValue, depth : usize) -> String)({
 _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
   match(
     t,
-    .Struct({ id, constructor_func_id : cfid, type_arguments : tas, field_types : fts, is_reference_semantics : t_is_ref }) => {
+    Rc(.Struct({ id, constructor_func_id : cfid, type_arguments : tas, field_types : fts, is_reference_semantics : t_is_ref })) => {
       // Resolve a leaked recursive-struct SELF-SHELL to its final so the shell and
       // its final share ONE C type key. Same as the EnumT branch below. No-op for
       // non-shells. See resolve_struct_shell (creators.yo).
       st := resolve_struct_shell(t);
       (sid, scfid, stas, sfts, s_is_ref) := match(
         st,
-        .Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts, is_reference_semantics : rirs }) => (rid, rcfid, rtas, rfts, rirs),
+        Rc(.Struct({ id : rid, constructor_func_id : rcfid, type_arguments : rtas, field_types : rfts, is_reference_semantics : rirs })) => (rid, rcfid, rtas, rfts, rirs),
         _ => (id, cfid, tas, fts, t_is_ref)
       );
       // #30: a reference-semantics struct (`ref(struct …)` → emitted as a pointer
@@ -379,7 +379,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
                   skey.push_string(
                     match(
                       sft,
-                      .SomeT({ id : cf_sid }) => if(is_capture && (cf_sid.len() > usize(0)), cf_sid.clone(), recur(&sft, depth + usize(1))),
+                      Rc(.SomeT({ id : cf_sid })) => if(is_capture && (cf_sid.len() > usize(0)), cf_sid.clone(), recur(&sft, depth + usize(1))),
                       _ => recur(&sft, depth + usize(1))
                     )
                   );
@@ -401,19 +401,19 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       out_key.push_string(&raw_key);
       out_key
     },
-    .EnumT({ id, variant_fields : vfs }) => {
+    Rc(.EnumT({ id, variant_fields : vfs })) => {
       // Resolve a leaked recursive-enum SELF-SHELL to its final so the shell and
       // its final share ONE C type key (else a `Rc(Self)` field two levels deep
       // keys/emits a separate empty `..._self_shell` enum — "use of empty enum").
       // Passthrough for any non-shell enum. See
       // issues/.../recursive-enum-self-shell.md.
       rs := resolve_enum_shell(t);
-      eid := match(rs, .EnumT({ id : rid }) => rid, _ => id.clone());
-      evfs := match(rs, .EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs);
-      evns := match(rs, .EnumT({ variant_names : rvns }) => rvns, _ => ArrayList(String).new());
-      evds := match(rs, .EnumT({ variant_discriminants : rvds }) => rvds, _ => ArrayList(i64).new());
-      e_is_ref := match(rs, .EnumT({ is_reference_semantics : rirs }) => rirs, _ => false);
-      evfls := match(rs, .EnumT({ variant_field_labels : rvfls }) => rvfls, _ => ArrayList(ArrayList(String)).new());
+      eid := match(rs, Rc(.EnumT({ id : rid })) => rid, _ => id.clone());
+      evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs, _ => vfs);
+      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => ArrayList(String).new());
+      evds := match(rs, Rc(.EnumT({ variant_discriminants : rvds })) => rvds, _ => ArrayList(i64).new());
+      e_is_ref := match(rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs, _ => false);
+      evfls := match(rs, Rc(.EnumT({ variant_field_labels : rvfls })) => rvfls, _ => ArrayList(ArrayList(String)).new());
       // Cycle guard (see g_tk_visited): an enum already on the expansion
       // path renders id-only rather than re-expanding its variant fields. The
       // node is the id AND its type arguments' identities, as the Struct arm's:
@@ -423,7 +423,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
       // guard cut the inner one to its bare id. That gave the outer instance a
       // second C type beside the declared `Option(Option(i32))`
       // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
-      e_node_targs := match(rs, .EnumT({ type_arguments : nd_tas }) => nd_tas, _ => ArrayList(TypeValue).new());
+      e_node_targs := match(rs, Rc(.EnumT({ type_arguments : nd_tas })) => nd_tas, _ => ArrayList(TypeValue).new());
       e_node := _tk_node_id(&eid, &e_node_targs);
       if((eid.len() > usize(0)) && _tk_seen(&e_node), {
         return(eid.clone());
@@ -489,7 +489,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
                     rft := resolve_enum_shell(&ft);
                     fk := match(
                       rft,
-                      .EnumT({ id : rid, is_reference_semantics : rrs }) =>
+                      Rc(.EnumT({ id : rid, is_reference_semantics : rrs })) =>
                         if(rrs && (rid.len() > usize(0)), rid.clone(), recur(&ft, depth + usize(1))),
                       _ => recur(&ft, depth + usize(1))
                     );
@@ -518,17 +518,17 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
         // plus a type-variable argument no payload mentions. A resolved variable keys as its resolution, and a
         // non-type argument (`Unit`) adds nothing; an enum with no phantom
         // position keys exactly as before.
-        e_targs := match(rs, .EnumT({ type_arguments : rtas }) => rtas, _ => ArrayList(TypeValue).new());
+        e_targs := match(rs, Rc(.EnumT({ type_arguments : rtas })) => rtas, _ => ArrayList(TypeValue).new());
         if(e_targs.len() > usize(0), {
           e_mask := enum_phantom_positions(&eid);
           e_some_phantoms := enum_phantom_type_args_masked(&rs, &e_mask);
           (pti : usize) = usize(0);
           while(pti < e_targs.len(), {
-            pt := match(e_targs.get(pti), .Some(x) => x, .None => TypeValue.Unit);
+            pt := match(e_targs.get(pti), .Some(x) => x, .None => rc(TypeValueNode.Unit));
             pt_masked := match(e_mask.get(pti), .Some(b) => b, .None => false);
             pt_free_var := match(
               pt,
-              .SomeT({ id : pt_id, resolution : pt_res }) => (pt_res.is_none() && _tk_somes_have_id(&e_some_phantoms, &pt_id)),
+              Rc(.SomeT({ id : pt_id, resolution : pt_res })) => (pt_res.is_none() && _tk_somes_have_id(&e_some_phantoms, &pt_id)),
               _ => false
             );
             if((pt_masked && !is_unit_type(&pt)) || pt_free_var, {
@@ -587,12 +587,12 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
     // payload, or a comptime `sizeof(T)`, names the C type of k's capture
     // struct whichever copy of the wrapper it holds
     // (issues/fixed/a-container-of-a-closure-type-does-not-compile.md).
-    .SomeT({ id }) => cond(
+    Rc(.SomeT({ id })) => cond(
       is_bound_closure_identity(t) => recur(resolve_cell_chain(t), depth + usize(1)),
       (id.len() > usize(0)) => id.clone(),
       true => type_to_string(t)
     ),
-    .TraitT({ id }) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
+    Rc(.TraitT({ id })) => if(id.len() > usize(0), id.clone(), type_to_string(t)),
     // Key a Dyn by its trait IDS (each trait keyed by the stable TraitT arm
     // above, which uses the id WITHOUT recursing into method signatures), NOT
     // by `type_to_string`. For a self-referential trait like `Error`
@@ -601,7 +601,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
     // vs abbreviated `_`), so the same `Dyn(Error)` got TWO C type names — the
     // vtable `source` slot vs its wrapper's return type mismatched (fn-ptr type
     // error). Trait-id keying is stable and still distinguishes distinct Dyns.
-    .DynT({ required_trait_types : drtt, negative_trait_types : dntt }) => {
+    Rc(.DynT({ required_trait_types : drtt, negative_trait_types : dntt })) => {
       key := String.from("dyn");
       (di : usize) = usize(0);
       while(di < drtt.len(), {
@@ -638,7 +638,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
     // startup heap corruption" verdict came from an invalidated bisect — the
     // corruption was the since-fixed RC leak + GC-teardown double-free. See
     // issues/fixed/yo-self-specialization-signature-type-identity.md.
-    .Pointer(pointee) => {
+    Rc(.Pointer(pointee)) => {
       key := String.from("*(");
       key.push_string(recur(&pointee, depth + usize(1)));
       key.push_str(")");
@@ -653,7 +653,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
     // C-compile (tests/rc.test.yo "Rc in different data structures", rc
     // layer 2 in the Gap-6 ledger). Per-field recursion inherits the struct
     // arm's instantiation merging, so layout-identical tuples share one key.
-    .Tuple(tk_labels, tk_fts) => {
+    Rc(.Tuple(tk_labels, tk_fts)) => {
       key := String.from("tup");
       (ti : usize) = usize(0);
       while(ti < tk_fts.len(), {
@@ -679,7 +679,7 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
     },
     // An extern opaque type is identified by its C spelling
     // (types/definitions.yo `ExternOpaqueT`), not its Yo label.
-    .ExternOpaqueT(_, tk_ec) => `ex_${tk_ec}`,
+    Rc(.ExternOpaqueT(_, tk_ec)) => `ex_${tk_ec}`,
     _ => type_to_string(t)
   )
 );
@@ -731,8 +731,8 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
     cut.push_string(
       match(
         t,
-        .Struct({ id : cut_sid }) => cut_sid.clone(),
-        .EnumT(cut_eid, _, _, _, _, _, _, _, _, _) => cut_eid.clone(),
+        Rc(.Struct({ id : cut_sid })) => cut_sid.clone(),
+        Rc(.EnumT(cut_eid, _, _, _, _, _, _, _, _, _)) => cut_eid.clone(),
         _ => type_to_string(t)
       )
     );
@@ -740,11 +740,11 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
   });
   match(
     t,
-    .Struct({ id, field_labels : fls, field_types : fts, is_reference_semantics : t_is_ref }) => {
+    Rc(.Struct({ id, field_labels : fls, field_types : fts, is_reference_semantics : t_is_ref })) => {
       st := resolve_struct_shell(t);
       (sid, sfls, sfts, s_is_ref) := match(
         st,
-        .Struct({ id : rid, field_labels : rfls, field_types : rfts, is_reference_semantics : rirs }) => (rid, rfls, rfts, rirs),
+        Rc(.Struct({ id : rid, field_labels : rfls, field_types : rfts, is_reference_semantics : rirs })) => (rid, rfls, rfts, rirs),
         _ => (id, fls, fts, t_is_ref)
       );
       pfx := if(s_is_ref, String.from("R#"), String.from(""));
@@ -760,7 +760,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       out.push_string(&sid);
       (i : usize) = usize(0);
       while(i < sfts.len(), {
-        ft := match(sfts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        ft := match(sfts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         fl := match(sfls.get(i), .Some(x) => x, .None => String.from(""));
         out.push_str("_");
         out.push_string(&fl);
@@ -770,12 +770,12 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       });
       out
     },
-    .EnumT({ id, variant_names : vns0, variant_fields : vfs0, is_reference_semantics : e_is_ref0 }) => {
+    Rc(.EnumT({ id, variant_names : vns0, variant_fields : vfs0, is_reference_semantics : e_is_ref0 })) => {
       rs := resolve_enum_shell(t);
-      eid := match(rs, .EnumT({ id : rid }) => rid, _ => id.clone());
-      evns := match(rs, .EnumT({ variant_names : rvns }) => rvns, _ => vns0);
-      evfs := match(rs, .EnumT({ variant_fields : rvfs }) => rvfs, _ => vfs0);
-      e_is_ref := match(rs, .EnumT({ is_reference_semantics : rirs }) => rirs, _ => e_is_ref0);
+      eid := match(rs, Rc(.EnumT({ id : rid })) => rid, _ => id.clone());
+      evns := match(rs, Rc(.EnumT({ variant_names : rvns })) => rvns, _ => vns0);
+      evfs := match(rs, Rc(.EnumT({ variant_fields : rvfs })) => rvfs, _ => vfs0);
+      e_is_ref := match(rs, Rc(.EnumT({ is_reference_semantics : rirs })) => rirs, _ => e_is_ref0);
       pfx := if(e_is_ref, String.from("R#"), String.from(""));
       // The path node carries the type arguments, as `_type_key_at`'s does:
       // `wrap(wrap(x))` nests one `Option(U)` instance in another under one
@@ -783,7 +783,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       // `Option(Option(String))` alike, so collect_type aliased the second
       // onto the first's C type
       // (issues/fixed/a-generic-fns-option-result-at-a-specialized-option-is-a-second-c-type.md).
-      e_node := _tk_node_id(&eid, match(rs, .EnumT({ type_arguments : sti_tas }) => sti_tas, _ => ArrayList(TypeValue).new()));
+      e_node := _tk_node_id(&eid, match(rs, Rc(.EnumT({ type_arguments : sti_tas })) => sti_tas, _ => ArrayList(TypeValue).new()));
       if((eid.len() > usize(0)) && _sti_seen(&e_node), {
         out_cyc := pfx.clone();
         out_cyc.push_string(&eid);
@@ -804,7 +804,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
           .Some(fields) => {
             (fi : usize) = usize(0);
             while(fi < fields.len(), {
-              ft := match(fields.get(fi), .Some(x) => x, .None => TypeValue.Unit);
+              ft := match(fields.get(fi), .Some(x) => x, .None => rc(TypeValueNode.Unit));
               out.push_str(":");
               out.push_string(recur(&ft, depth + usize(1)));
               fi = (fi + usize(1));
@@ -816,7 +816,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
       });
       out
     },
-    .Pointer(pointee) => {
+    Rc(.Pointer(pointee)) => {
       out := String.from("*(");
       out.push_string(recur(&pointee, depth + usize(1)));
       out.push_str(")");
@@ -830,7 +830,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
     // one `__yo_tN` for two different layouts (basic.test.yo arm 12; the
     // handoff-2026-08-02/07 A2 patch, re-landed after the get_type_string
     // cycle guard removed the stage-2 crash that blocked its control run).
-    .Tuple(sti_labels, sti_fts) => {
+    Rc(.Tuple(sti_labels, sti_fts)) => {
       out := String.from("tup");
       (sti_i : usize) = usize(0);
       while(sti_i < sti_fts.len(), {
@@ -860,7 +860,7 @@ _stable_identity_at :: (fn(t : &TypeValue, depth : usize) -> String)({
     // so `StreamMap(Countdown, i32, F)` rendered alike for two different
     // closures `F`, and collect_type aliased the second spec's capture struct
     // onto the first ("unknown type name 'async_capture_…'").
-    .SomeT({ id : sti_sid }) => {
+    Rc(.SomeT({ id : sti_sid })) => {
       sti_term := resolve_cell_chain(t);
       cond(
         !is_some_type(&sti_term) => {
@@ -892,7 +892,7 @@ stable_type_identity :: (fn(t : &TypeValue) -> String)({
 enum_instance_node_id :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    .EnumT({ id : ein_id, type_arguments : ein_tas }) => _tk_node_id(&ein_id, &ein_tas),
+    Rc(.EnumT({ id : ein_id, type_arguments : ein_tas })) => _tk_node_id(&ein_id, &ein_tas),
     _ => String.new()
   )
 );

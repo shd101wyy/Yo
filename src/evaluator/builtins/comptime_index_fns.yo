@@ -44,7 +44,7 @@ pragma(Pragma.AllowUnsafe);
   is_unknown_val,
   create_unknown_val
 } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_ptr, t_comptime_list, t_comptime_string } :: import("../../types/creators.yo");
 { is_array_type, is_pointer_type } :: import("../../types/guards.yo");
 { is_comptime_list_type } :: import("../../types/guards.yo");
@@ -82,7 +82,7 @@ ci_eval_arg :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.TypeUni(usize(0)))
+      new_expr_info(env, rc(TypeValueNode.TypeUni(usize(0))))
     }
   )
 });
@@ -107,8 +107,8 @@ ci_str_quote :: (fn(s : &String) -> String)(
 ci_child_of_comptime_list_ty :: (fn(ty : &TypeValue) -> TypeValue)(
   match(
     ty,
-    .ComptimeListT(cb) => cb,
-    .Pointer(pb) => match(pb, .ComptimeListT(cb) => cb, _ => ty),
+    Rc(.ComptimeListT(cb)) => cb,
+    Rc(.Pointer(pb)) => match(pb, Rc(.ComptimeListT(cb)) => cb, _ => ty),
     _ => ty
   )
 );
@@ -116,8 +116,8 @@ ci_child_of_comptime_list_ty :: (fn(ty : &TypeValue) -> TypeValue)(
 ci_child_of_array_ty :: (fn(ty : &TypeValue) -> TypeValue)(
   match(
     ty,
-    .Array(cb, _, _) => cb,
-    .Pointer(pb) => match(pb, .Array(cb, _, _) => cb, _ => ty),
+    Rc(.Array(cb, _, _)) => cb,
+    Rc(.Pointer(pb)) => match(pb, Rc(.Array(cb, _, _)) => cb, _ => ty),
     _ => ty
   )
 );
@@ -125,16 +125,16 @@ ci_child_of_array_ty :: (fn(ty : &TypeValue) -> TypeValue)(
 ci_elem_return_ty :: (fn(ty : &TypeValue) -> TypeValue)(
   match(
     ty,
-    .Pointer(pb) => {
+    Rc(.Pointer(pb)) => {
       inner := pb;
       cond(
-        is_array_type(&inner) => t_ptr(match(inner, .Array(cb, _, _) => cb, _ => inner)),
-        is_comptime_list_type(&inner) => t_ptr(match(inner, .ComptimeListT(cb) => cb, _ => inner)),
+        is_array_type(&inner) => t_ptr(match(inner, Rc(.Array(cb, _, _)) => cb, _ => inner)),
+        is_comptime_list_type(&inner) => t_ptr(match(inner, Rc(.ComptimeListT(cb)) => cb, _ => inner)),
         true => ty
       )
     },
-    .Array(cb, _, _) => t_ptr(&cb),
-    .ComptimeListT(cb) => t_ptr(&cb),
+    Rc(.Array(cb, _, _)) => t_ptr(&cb),
+    Rc(.ComptimeListT(cb)) => t_ptr(&cb),
     _ => ty
   )
 );
@@ -142,8 +142,8 @@ ci_elem_return_ty :: (fn(ty : &TypeValue) -> TypeValue)(
 ci_list_range_return_ty :: (fn(ty : &TypeValue) -> TypeValue)(
   match(
     ty,
-    .Pointer(_) => ty,
-    .ComptimeListT(_) => t_ptr(ty),
+    Rc(.Pointer(_)) => ty,
+    Rc(.ComptimeListT(_)) => t_ptr(ty),
     _ => ty
   )
 );

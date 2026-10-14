@@ -91,11 +91,11 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
     (_d > usize(40)) => String.from("…"),
     true => match(
       t,
-      .Unit => `unit`,
-      .BoolT => `bool`,
-      .Void => `void`,
-      .Never => `never`,
-      .Int(bits, signed) => cond(
+      Rc(.Unit) => `unit`,
+      Rc(.BoolT) => `bool`,
+      Rc(.Void) => `void`,
+      Rc(.Never) => `never`,
+      Rc(.Int(bits, signed)) => cond(
         signed => cond(
           (bits == u8(8)) => `i8`,
           (bits == u8(16)) => `i16`,
@@ -109,36 +109,36 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           true => `u64`
         )
       ),
-      .Float(bits) => cond(
+      Rc(.Float(bits)) => cond(
         (bits == u8(32)) => `f32`,
         true => `f64`
       ),
-      .Usize => `usize`,
-      .Isize => `isize`,
-      .ComptimeInt => `comptime_int`,
-      .ComptimeFloat => `comptime_float`,
-      .ComptimeString => `comptime_str`,
-      .CChar => `char`,
-      .CShort => `short`,
-      .CUShort => `ushort`,
-      .CInt => `int`,
-      .CUInt => `uint`,
-      .CLong => `long`,
-      .CULong => `ulong`,
-      .CLongLong => `longlong`,
-      .CULongLong => `ulonglong`,
-      .CLongDouble => `longdouble`,
-      .TypeUni(level) => cond(
+      Rc(.Usize) => `usize`,
+      Rc(.Isize) => `isize`,
+      Rc(.ComptimeInt) => `comptime_int`,
+      Rc(.ComptimeFloat) => `comptime_float`,
+      Rc(.ComptimeString) => `comptime_str`,
+      Rc(.CChar) => `char`,
+      Rc(.CShort) => `short`,
+      Rc(.CUShort) => `ushort`,
+      Rc(.CInt) => `int`,
+      Rc(.CUInt) => `uint`,
+      Rc(.CLong) => `long`,
+      Rc(.CULong) => `ulong`,
+      Rc(.CLongLong) => `longlong`,
+      Rc(.CULongLong) => `ulonglong`,
+      Rc(.CLongDouble) => `longdouble`,
+      Rc(.TypeUni(level)) => cond(
         (level == usize(0)) => `Type`,
         true => `Type(${level})`
       ),
-      .Pointer(inner) => `*(${recur(&inner, _d + usize(1), visited)})`,
-      .Str => String.from("str"),
-      .Array(inner, n, lv) => cond(
+      Rc(.Pointer(inner)) => `*(${recur(&inner, _d + usize(1), visited)})`,
+      Rc(.Str) => String.from("str"),
+      Rc(.Array(inner, n, lv)) => cond(
         (lv.len() > usize(0)) => `Array(${recur(&inner, _d + usize(1), visited)}, ${lv})`,
         true => `Array(${recur(&inner, _d + usize(1), visited)}, ${n})`
       ),
-      .Tuple(labels, types) => {
+      Rc(.Tuple(labels, types)) => {
         body := String.from("");
         n := types.len();
         i := usize(0);
@@ -157,7 +157,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         });
         `Tuple(${body})`
       },
-      .Func({ forall_types : fts, param_types : ptypes, implicit_types : its, result : ret, meta : __fm1 }) => {
+      Rc(.Func({ forall_types : fts, param_types : ptypes, implicit_types : its, result : ret, meta : __fm1 })) => {
         fls := __fm1.*.forall_labels;
         plabels := __fm1.*.param_labels;
         ils := __fm1.*.implicit_labels;
@@ -220,7 +220,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         // A control function prints as written: `ctl(...)`, not `fn(...)`.
         `${if(__fm1.*.is_control, "ctl", "fn")}(${forall_prefix}${body}) -> ${cond(!__fm1.*.result_is_ref => ret_s, __fm1.*.result_is_mut_ref => `&mut ${ret_s}`, true => `&${ret_s}`)}${using_suffix}`
       },
-      .Struct({ id, name, field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns }) => cond(
+      Rc(.Struct({ id, name, field_labels : s_fls, field_types : s_fts, is_source_namespace : s_sns })) => cond(
         // Source-namespace structs (anonymous modules / imports) keep the
         // legacy `module (...)` rendering for error-message continuity.
         s_sns => {
@@ -251,7 +251,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         },
         true => if(name.len() > usize(0), name, match(type_display_name(id.clone()), .Some(d) => d, .None => `<struct:${id}>`))
       ),
-      .EnumT(id, name, _, _, _, _, _, _, _, _) => if(
+      Rc(.EnumT(id, name, _, _, _, _, _, _, _, _)) => if(
         name.len() > usize(0),
         name,
         match(
@@ -261,8 +261,8 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           .None => cond(id.ends_with(`__self_shell`) => String.from("Self"), true => `<enum:${id}>`)
         )
       ),
-      .Union(name, _, _) => if(name.len() > usize(0), match(type_display_name(name.clone()), .Some(d) => d, .None => name), `<union>`),
-      .TraitT(id : t_id, name : n, field_labels : fls, field_types : fts) => {
+      Rc(.Union(name, _, _)) => if(name.len() > usize(0), match(type_display_name(name.clone()), .Some(d) => d, .None => name), `<union>`),
+      Rc(.TraitT(id : t_id, name : n, field_labels : fls, field_types : fts)) => {
         // Prefer the trait's NAME whenever it has one (print "Send", not the
         // trait's field dump) — the
         // field dump is the fallback for genuinely anonymous traits only.
@@ -293,7 +293,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         });
         `${n}(${body})`
       },
-      .SomeT(id : sm_id, name : n, required_trait_types : rts, negative_trait_types : nts) => {
+      Rc(.SomeT(id : sm_id, name : n, required_trait_types : rts, negative_trait_types : nts)) => {
         if((rts.len() == usize(0)) && (nts.len() == usize(0)), {
           return(n);
         });
@@ -333,9 +333,9 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
           true => `${n} : (${body})`
         )
       },
-      .ExprT => `Expr`,
-      .ComptimeListT(child) => `ComptimeList(${recur(&child, _d + usize(1), visited)})`,
-      .TypeAppT(constructor, args) => {
+      Rc(.ExprT) => `Expr`,
+      Rc(.ComptimeListT(child)) => `ComptimeList(${recur(&child, _d + usize(1), visited)})`,
+      Rc(.TypeAppT(constructor, args)) => {
         body := String.from("");
         i := usize(0);
         while(i < args.len(), {
@@ -348,8 +348,8 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         });
         `TypeApp(${recur(&constructor, _d + usize(1), visited)}, [${body}])`
       },
-      .IsoT(child) => `iso(${recur(&child, _d + usize(1), visited)})`,
-      .DynT(required_trait_types : rtt, required_trait_levels : _, negative_trait_types : ntt, negative_trait_levels : _) => {
+      Rc(.IsoT(child)) => `iso(${recur(&child, _d + usize(1), visited)})`,
+      Rc(.DynT(required_trait_types : rtt, required_trait_levels : _, negative_trait_types : ntt, negative_trait_levels : _)) => {
         body := String.from("");
         i := usize(0);
         while(i < rtt.len(), {
@@ -371,7 +371,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         });
         `dyn(${body})`
       },
-      .FnTraitT(base_name : bn, call_param_labels : _, call_param_types : cpts, call_result : cr) => {
+      Rc(.FnTraitT(base_name : bn, call_param_labels : _, call_param_types : cpts, call_result : cr)) => {
         body := String.from("");
         i := usize(0);
         while(i < cpts.len(), {
@@ -385,7 +385,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         `${bn}(${body}) -> ${recur(&cr, _d + usize(1), visited)}`
       },
       // As written: `Future(T, E)` — the output, then the effect types.
-      .FutureTraitT(base_name : bn, output : out, effect_labels : _, effect_types : ets) => {
+      Rc(.FutureTraitT(base_name : bn, output : out, effect_labels : _, effect_types : ets)) => {
         body := recur(&out, _d + usize(1), visited);
         i := usize(0);
         while(i < ets.len(), {
@@ -399,7 +399,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
       // func_id's tail is unique per ghost_fn declaration and keeps two
       // predicates over the same inner distinct in keys/signatures without
       // printing a mangled id in user-facing diagnostics.
-      .RefineT(inner, pfid) => {
+      Rc(.RefineT(inner, pfid)) => {
         tag := String.from("@");
         slen := pfid.len();
         cond(
@@ -408,7 +408,7 @@ _tts :: (fn(t : &TypeValue, _d : usize, visited : &mut ArrayList(String)) -> Str
         );
         `refine(${recur(&inner, _d + usize(1), visited)}, ${tag})`
       },
-      .ExternOpaqueT(eo_nm, _) => eo_nm.clone()
+      Rc(.ExternOpaqueT(eo_nm, _)) => eo_nm.clone()
     )
   )
 );

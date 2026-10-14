@@ -26,7 +26,7 @@ import("std/fmt");
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_fn_trait } :: import("../../types/creators.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
 { note_move_only_possible } :: import("../../types/utils.yo");
@@ -119,8 +119,8 @@ evaluate_fn_trait_type :: (
       });
       match(
         info.value,
-        .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-        .None => TypeValue.Unit
+        .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+        .None => rc(TypeValueNode.Unit)
       )
     },
     .None => {
@@ -132,7 +132,7 @@ evaluate_fn_trait_type :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   // Pop the parameters frame

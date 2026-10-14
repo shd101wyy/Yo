@@ -17,7 +17,7 @@
 { HashSet } :: import("std/collections/hash_set");
 { AstExpr, ast_expr_id, ast_call_args_unmarked } :: import("../../expr.yo");
 { EvalValue, is_func_val, is_struct_val } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 {
   is_enum_type,
   is_function_type,
@@ -64,7 +64,7 @@ _FutureEffect :: ref(struct(label : String, ty : TypeValue));
 _first_future_effect :: (fn(ft : &TypeValue) -> Option(_FutureEffect))(
   match(
     ft,
-    .FutureTraitT({ effect_labels : els, effect_types : ets }) => if(els.len() > usize(0), {
+    Rc(.FutureTraitT({ effect_labels : els, effect_types : ets })) => if(els.len() > usize(0), {
       l := match(els.get(usize(0)), .Some(x) => x, .None => return(Option(_FutureEffect).None));
       t := match(ets.get(usize(0)), .Some(x) => x, .None => return(Option(_FutureEffect).None));
       Option(_FutureEffect).Some(_FutureEffect(label : l, ty : t))
@@ -181,12 +181,12 @@ resolve_evidence_field_from_given_bindings :: (fn(field_label : &String, context
 /// capture struct. Resolves each fn field from SM captures, caller evidence
 /// params, or `given` bindings.
 emit_effect_record_injection :: (fn(source_namespace_type : &TypeValue, future_type : &TypeValue, future_var : &String, indent : &String, context : &FunctionGenerationContext, expr : &AstExpr) -> unit)({
-  field_labels := match(source_namespace_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
-  field_types := match(source_namespace_type, .Struct({ field_types : ft }) => ft, _ => ArrayList(TypeValue).new());
+  field_labels := match(source_namespace_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
+  field_types := match(source_namespace_type, Rc(.Struct({ field_types : ft })) => ft, _ => ArrayList(TypeValue).new());
   (i : usize) = usize(0);
   while(i < field_labels.len(), {
     flbl := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
-    fty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    fty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(is_function_type(&fty), {
       (member_code : Option(String)) = Option(String).None;
       // Inside SM: member captured in state-machine variables.
@@ -381,15 +381,15 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
   // then the legacy sid globals, are fallbacks only.
   // (The poisoned-global order emitted `int32_t r0 = ;` — the await returned
   // "" as unit while the binding knew i32.)
-  (result_type : TypeValue) = match(future_trait_type, .FutureTraitT({ output : o }) => o.clone(), _ => future_type);
+  (result_type : TypeValue) = match(future_trait_type, Rc(.FutureTraitT({ output : o })) => o.clone(), _ => future_type);
   if(is_some_type(&result_type), {
-    own_cell := match(result_type, .SomeT({ resolution : orc }) => orc, _ => Option(TypeValue).None);
+    own_cell := match(result_type, Rc(.SomeT({ resolution : orc })) => orc, _ => Option(TypeValue).None);
     cond(
       !is_some_type(&expr_type) => {
         result_type = expr_type;
       },
       true => {
-        expr_cell := match(expr_type, .SomeT({ resolution : erc }) => erc, _ => Option(TypeValue).None);
+        expr_cell := match(expr_type, Rc(.SomeT({ resolution : erc })) => erc, _ => Option(TypeValue).None);
         match(
           match(
             expr_cell,
@@ -474,7 +474,7 @@ generate_await :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
     );
     generate_pending_deferred_drops(`${indent.clone()}    `, context, expr, false, false, false, Option(HashSet(String)).None, Option(String).None);
     context.pending_deferred_drops = saved_drops;
-    return_type := match(context.current_function_type, .Some(ft) => match(ft, .Func({ result : r }) => Option(TypeValue).Some(r), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
+    return_type := match(context.current_function_type, .Some(ft) => match(ft, Rc(.Func({ result : r })) => Option(TypeValue).Some(r), _ => Option(TypeValue).None), .None => Option(TypeValue).None);
     // Caught here only when the handler that unwound was installed in THIS
     // function, so the value has this function's return type. Deciding by the
     // effect bundle (a bundle built here counted as an installation) let a
@@ -574,7 +574,7 @@ generate_state :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGene
 _option_some_field_type :: (fn(option_type : &TypeValue) -> Option(TypeValue))(
   match(
     option_type,
-    .EnumT({ variant_names : vns, variant_fields : vfs }) => {
+    Rc(.EnumT({ variant_names : vns, variant_fields : vfs })) => {
       (i : usize) = usize(0);
       while(i < vns.len(), {
         match(
@@ -597,13 +597,13 @@ _option_some_field_type :: (fn(option_type : &TypeValue) -> Option(TypeValue))(
 /// lowers both, so the prelude can switch once a seed carries this
 /// (Generation A; plans/backlog/SEED_VERSION_AUTOMATION.md).
 join_handle_is_value_struct :: (fn(ty : &TypeValue) -> bool)(
-  match(ty, .Struct({ is_reference_semantics : r }) => !r, _ => false)
+  match(ty, Rc(.Struct({ is_reference_semantics : r })) => !r, _ => false)
 );
 /// The C type of a value `JoinHandle`'s `__future` field.
 join_handle_future_field_c_type :: (fn(ty : &TypeValue, context : &FunctionGenerationContext) -> String)(
   match(
     ty,
-    .Struct({ field_types : fts }) => match(fts.get(usize(0)), .Some(ft) => get_type_string(&ft, &context.base), .None => String.from("void*")),
+    Rc(.Struct({ field_types : fts })) => match(fts.get(usize(0)), .Some(ft) => get_type_string(&ft, &context.base), .None => String.from("void*")),
     _ => String.from("void*")
   )
 );
@@ -673,7 +673,7 @@ generate_join_handle_await :: (fn(expr : &AstExpr, indent : &String, context : &
   if(is_result_unit, {
     em.emit_string_line(`${indent.clone()}    ${result_var.clone()} = (${option_type_name.clone()}){ .tag = ${some_tag.clone()} };`);
   }, {
-    rt := match(result_type_opt, .Some(t) => t, .None => TypeValue.Unit);
+    rt := match(result_type_opt, .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(handle_is_value && type_contains_rc_cell_or_move_only(&rt), {
       // A value handle is consumed (§3.13 A3): the result moves out of the
       // task, which no longer drops it (`-3`, result taken; the same

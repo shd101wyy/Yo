@@ -95,7 +95,7 @@ pragma(Pragma.AllowUnsafe);
   CaptureSlice
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ TypeValue, FuncMeta } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta } :: import("../../types/definitions.yo");
 { t_unit, t_some_t, t_func_simple, t_ptr, generate_some_type_id, t_dyn_payload_wrapper } :: import("../../types/creators.yo");
 {
   EvalValue,
@@ -246,7 +246,7 @@ _synthesize_default_func_type :: (
 _is_unresolved_impl_fn_type :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    .SomeT(_, _, _, _, _, _, _, _, _, res) => match(
+    Rc(.SomeT(_, _, _, _, _, _, _, _, _, res)) => match(
       res,
       .Some(_) => false,
       .None => type_implements_fn(ty)
@@ -332,40 +332,42 @@ _get_param_name_from_expr :: (fn(param_expr : &AstExpr, fallback : &String) -> S
 _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
   match(
     ftt,
-    .FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof) => TypeValue.Func(
-      ArrayList(TypeValue).new(),
-      // no generic types
-      cpt,
-      ArrayList(TypeValue).new(),
-      // no implicit types
-      ArrayList(TypeValue).new(),
-      // no where types
-      cr_box,
-      rc(
-        FuncMeta(
-          forall_labels : ArrayList(String).new(),
-          param_labels : cpl,
-          implicit_labels : ArrayList(String).new(),
-          result_is_comptime_only : false,
-          // Fn-trait-derived closure type (runtime); `inout` call params
-          // carry through (the with_lock write-through closure).
-          param_is_ref : cprf,
-          // A plain `Fn(x : T)` parameter is by value (V3b's flip).
-          param_is_owning : cpof,
-          result_is_ref : false,
-          has_variadic : false,
-          is_extern : Option(String).None,
-          // Fn-trait-derived closure type is not FFI
-          extern_name : Option(String).None,
-          is_control : false // Fn-trait-derived closure type is `fn`, not `ctl`
-          ,
-          variadic_label : Option(String).None,
-          variadic_comptime : false
-        )
-      ),
-      ArrayList(TypeValue).new()
+    Rc(.FnTraitT(_, cpl, cpt, cr_box, _, _, cprf, cpof)) => rc(
+      TypeValueNode.Func(
+        ArrayList(TypeValue).new(),
+        // no generic types
+        cpt,
+        ArrayList(TypeValue).new(),
+        // no implicit types
+        ArrayList(TypeValue).new(),
+        // no where types
+        cr_box,
+        rc(
+          FuncMeta(
+            forall_labels : ArrayList(String).new(),
+            param_labels : cpl,
+            implicit_labels : ArrayList(String).new(),
+            result_is_comptime_only : false,
+            // Fn-trait-derived closure type (runtime); `inout` call params
+            // carry through (the with_lock write-through closure).
+            param_is_ref : cprf,
+            // A plain `Fn(x : T)` parameter is by value (V3b's flip).
+            param_is_owning : cpof,
+            result_is_ref : false,
+            has_variadic : false,
+            is_extern : Option(String).None,
+            // Fn-trait-derived closure type is not FFI
+            extern_name : Option(String).None,
+            is_control : false // Fn-trait-derived closure type is `fn`, not `ctl`
+            ,
+            variadic_label : Option(String).None,
+            variadic_comptime : false
+          )
+        ),
+        ArrayList(TypeValue).new()
+      )
     ),
-    _ => TypeValue.Unit
+    _ => rc(TypeValueNode.Unit)
   )
 );
 /// Substitute generic SomeTypes (by name, from `env2` bindings) throughout a
@@ -389,7 +391,7 @@ _func_from_fn_trait :: (fn(ftt : &TypeValue) -> TypeValue)(
 _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : &ArrayList(String)) -> TypeValue)(
   match(
     ty,
-    .SomeT({ name : ssn }) => {
+    Rc(.SomeT({ name : ssn })) => {
       // ALLOW-LIST gate: only substitute generic names THIS pass itself bound
       // (the per-lambda annotation frame). A bare name-based env walk is
       // collision-prone for trait-associated type names — the Future trait's
@@ -421,17 +423,17 @@ _subst_some_types_from_env :: (fn(ty : &TypeValue, env2 : &Environment, allow : 
       });
       match(ss_bound, .Some(bt) => recur(&bt, env2, allow.clone()), .None => ty)
     },
-    .Pointer(ss_in) => .Pointer(recur(&ss_in, env2, allow.clone())),
-    .Array(ss_ain, ss_alen, ss_alv) => .Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv),
-    .Func({ forall_types : ss_fts, param_types : ss_pts, implicit_types : ss_its, where_types : ss_wts, result : ss_ret, meta : ss_fm }) => {
+    Rc(.Pointer(ss_in)) => rc(TypeValueNode.Pointer(recur(&ss_in, env2, allow.clone()))),
+    Rc(.Array(ss_ain, ss_alen, ss_alv)) => rc(TypeValueNode.Array(recur(&ss_ain, env2, allow.clone()), ss_alen, ss_alv)),
+    Rc(.Func({ forall_types : ss_fts, param_types : ss_pts, implicit_types : ss_its, where_types : ss_wts, result : ss_ret, meta : ss_fm })) => {
       ss_new_pts := ArrayList(TypeValue).new();
       (ss_pi : usize) = usize(0);
       while(ss_pi < ss_pts.len(), {
-        ss_elem := match(ss_pts.get(ss_pi), .Some(t) => t, .None => TypeValue.Unit);
+        ss_elem := match(ss_pts.get(ss_pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         ss_new_pts.push(recur(&ss_elem, env2, allow.clone()));
         ss_pi = (ss_pi + usize(1));
       });
-      TypeValue.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(&ss_ret, env2, allow.clone()), rc(ss_fm.*.clone()), ArrayList(TypeValue).new())
+      rc(TypeValueNode.Func(ss_fts.clone(), ss_new_pts, ss_its.clone(), ss_wts.clone(), recur(&ss_ret, env2, allow.clone()), rc(ss_fm.*.clone()), ArrayList(TypeValue).new()))
     },
     _ => ty
   )
@@ -1144,7 +1146,7 @@ evaluate_anonymous_function_implementation :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   // For closures passed to generic functions (e.g. io.async), the callee's
@@ -1176,7 +1178,7 @@ evaluate_anonymous_function_implementation :: (
   // struct and a `->` literal a code pointer, neither of which the slot
   // accepts, so evaluation stopped at the first literal
   // (issues/fixed/yo-fix-migrate-dyn-spelling-stops-at-the-first-site-that-is-not-a-named-closure.md).
-  if(match(expected_ty, .DynT(_, _, _, _) => extract_fn_trait_from_type(&expected_ty).is_some(), _ => false), {
+  if(match(expected_ty, Rc(.DynT(_, _, _, _)) => extract_fn_trait_from_type(&expected_ty).is_some(), _ => false), {
     reject_closure_literal_into_dyn_fn(&expected_ty, expr, is_creating_closure, ctx, exn);
     match(
       t_dyn_payload_wrapper(&expected_ty, env.frames.len()),
@@ -1192,9 +1194,9 @@ evaluate_anonymous_function_implementation :: (
   // For SomeT: extract FnTraitT via trait_checking, then convert to Func.
   function_type_opt := match(
     expected_ty,
-    .Func({ result : _ }) => Option(TypeValue).Some(expected_ty),
-    .FnTraitT(_, _, _, _, _, _, _, _) => Option(TypeValue).Some(_func_from_fn_trait(&expected_ty)),
-    .SomeT(_, _, _, _, _, _, _, _, _, _) => {
+    Rc(.Func({ result : _ })) => Option(TypeValue).Some(expected_ty),
+    Rc(.FnTraitT(_, _, _, _, _, _, _, _)) => Option(TypeValue).Some(_func_from_fn_trait(&expected_ty)),
+    Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => {
       fn_trait_opt := extract_fn_trait_from_type(&expected_ty);
       match(
         fn_trait_opt,
@@ -1214,10 +1216,10 @@ evaluate_anonymous_function_implementation :: (
   // may move one out. Against `Fn(...)` the call borrows them.
   expected_fn_base := match(
     expected_ty,
-    .FnTraitT(base_name : efb) => efb.clone(),
-    .SomeT(_, _, _, _, _, _, _, _, _, _) => match(
+    Rc(.FnTraitT(base_name : efb)) => efb.clone(),
+    Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => match(
       extract_fn_trait_from_type(&expected_ty),
-      .Some(eft) => match(eft, .FnTraitT(base_name : efb2) => efb2.clone(), _ => String.from("")),
+      .Some(eft) => match(eft, Rc(.FnTraitT(base_name : efb2)) => efb2.clone(), _ => String.from("")),
       .None => String.from("")
     ),
     _ => String.from("")
@@ -1235,7 +1237,7 @@ evaluate_anonymous_function_implementation :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   // A closure is not a function pointer. A bare `fn(...)` type (not a `ctl`
@@ -1243,7 +1245,7 @@ evaluate_anonymous_function_implementation :: (
   // checking one against the other emitted C that calls a struct
   // (issues/fixed/bare-fn-type-param-accepts-a-closure-then-emits-invalid-c.md).
   // The closure-carrying slot types are `Impl(Fn(...))` and `Dyn(Fn(...))`.
-  if(is_creating_closure && match(expected_ty, .Func({ meta : bf_m }) => !(bf_m.*.is_control), _ => false), {
+  if(is_creating_closure && match(expected_ty, Rc(.Func({ meta : bf_m })) => !(bf_m.*.is_control), _ => false), {
     exn.throw(
       dyn(
         format_error_message_with_help(
@@ -1259,17 +1261,17 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   forall_labels := match(
     function_type,
-    .Func({ meta : __fm1 }) => __fm1.*.forall_labels,
+    Rc(.Func({ meta : __fm1 })) => __fm1.*.forall_labels,
     _ => ArrayList(String).new()
   );
   param_labels := match(
     function_type,
-    .Func({ meta : __fm2 }) => __fm2.*.param_labels,
+    Rc(.Func({ meta : __fm2 })) => __fm2.*.param_labels,
     _ => ArrayList(String).new()
   );
   (param_types : ArrayList(TypeValue)) = match(
     function_type,
-    .Func({ param_types : pt }) => pt,
+    Rc(.Func({ param_types : pt })) => pt,
     _ => ArrayList(TypeValue).new()
   );
   // The expected type's per-param ref-ness. A `self : &mut Self` trait-method
@@ -1281,7 +1283,7 @@ evaluate_anonymous_function_implementation :: (
   // (create_specialized_function_inline) body-eval paths.
   param_is_ref := match(
     function_type,
-    .Func({ meta : __fm3 }) => __fm3.*.param_is_ref,
+    Rc(.Func({ meta : __fm3 })) => __fm3.*.param_is_ref,
     _ => ArrayList(bool).new()
   );
   // The expected type's by-value flags (V3b's flip, decision 30): a closure
@@ -1289,23 +1291,23 @@ evaluate_anonymous_function_implementation :: (
   // parameter does (`bind_parameter`), so the closure drops it.
   param_is_owning := match(
     function_type,
-    .Func({ meta : __fm3o }) => __fm3o.*.param_is_owning,
+    Rc(.Func({ meta : __fm3o })) => __fm3o.*.param_is_owning,
     _ => ArrayList(bool).new()
   );
   implicit_labels := match(
     function_type,
-    .Func({ meta : __fm4 }) => __fm4.*.implicit_labels,
+    Rc(.Func({ meta : __fm4 })) => __fm4.*.implicit_labels,
     _ => ArrayList(String).new()
   );
   implicit_types := match(
     function_type,
-    .Func({ implicit_types : it }) => it,
+    Rc(.Func({ implicit_types : it })) => it,
     _ => ArrayList(TypeValue).new()
   );
   result_box := match(
     function_type,
-    .Func({ result : rb }) => rb,
-    _ => TypeValue.Unit
+    Rc(.Func({ result : rb })) => rb,
+    _ => rc(TypeValueNode.Unit)
   );
   // -------------------------------------------------------------------------
   // Parse the parameter declaration into a flat list.
@@ -1411,13 +1413,13 @@ evaluate_anonymous_function_implementation :: (
     (ann_i : usize) = usize(0);
     while(ann_i < n_regular, {
       ann_pe := match(regular_param_exprs.get(ann_i), .Some(a) => a, .None => make_err_expr());
-      ann_exp_ty := match(param_types.get(ann_i), .Some(t) => t, .None => TypeValue.Unit);
+      ann_exp_ty := match(param_types.get(ann_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       ann_is_colon := ast_expr_is_fn_call_of(&ann_pe, ":", Option(usize).Some(usize(2)));
       // The expected param must be a SomeT with no resolution yet
       // (`resolved_concrete` empty).
       ann_some_name := match(
         ann_exp_ty,
-        .SomeT({ name : ann_sn, resolution : ann_rc }) => if(
+        Rc(.SomeT({ name : ann_sn, resolution : ann_rc })) => if(
           ann_rc.is_none() && ann_is_colon,
           Option(String).Some(ann_sn.clone()),
           Option(String).None
@@ -1467,7 +1469,7 @@ evaluate_anonymous_function_implementation :: (
                 _ann_v := add_variable_to_env(
                   env,
                   ann_nm.clone(),
-                  TypeValue.TypeUni(usize(0)),
+                  rc(TypeValueNode.TypeUni(usize(0))),
                   Option(EvalValue).Some(EvalValue.TypeVal(ann_user_ty)),
                   true,
                   false,
@@ -1490,7 +1492,7 @@ evaluate_anonymous_function_implementation :: (
       function_type = _subst_some_types_from_env(&function_type, env, &ann_bound_names);
       param_types = match(
         function_type,
-        .Func({ param_types : ann_pt }) => ann_pt,
+        Rc(.Func({ param_types : ann_pt })) => ann_pt,
         _ => param_types.clone()
       );
     });
@@ -1509,7 +1511,7 @@ evaluate_anonymous_function_implementation :: (
   // -------------------------------------------------------------------------
   (ifp_i : usize) = usize(0);
   while(ifp_i < param_types.len(), {
-    ifp_ty := match(param_types.get(ifp_i), .Some(t) => t, .None => TypeValue.Unit);
+    ifp_ty := match(param_types.get(ifp_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     if(_is_unresolved_impl_fn_type(&ifp_ty), {
       ifp_label := match(param_labels.get(ifp_i), .Some(l) => l.clone(), .None => String.from("_"));
       exn.throw(
@@ -1646,23 +1648,25 @@ evaluate_anonymous_function_implementation :: (
   (fa_env_i : usize) = usize(0);
   while(fa_env_i < forall_labels.len(), {
     fl_name := match(forall_labels.get(fa_env_i), .Some(n) => n, .None => String.from(""));
-    fl_ty := TypeValue.SomeT(
-      fl_name.clone(),
-      fl_name.clone(),
-      env.frame_count(),
-      TypeValue.TypeUni(usize(0)),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
-      ArrayList(TypeValue).new(),
-      ArrayList(usize).new(),
-      Option(TypeValue).None,
-      Option(TypeValue).None
+    fl_ty := rc(
+      TypeValueNode.SomeT(
+        fl_name.clone(),
+        fl_name.clone(),
+        env.frame_count(),
+        rc(TypeValueNode.TypeUni(usize(0))),
+        ArrayList(TypeValue).new(),
+        ArrayList(usize).new(),
+        ArrayList(TypeValue).new(),
+        ArrayList(usize).new(),
+        Option(TypeValue).None,
+        Option(TypeValue).None
+      )
     );
     fl_tok := synthetic_token(fl_name.clone(), &env.module_path);
     _fa_v := add_variable_to_env(
       env,
       fl_name.clone(),
-      TypeValue.TypeUni(usize(0)),
+      rc(TypeValueNode.TypeUni(usize(0))),
       Option(EvalValue).Some(EvalValue.TypeVal(fl_ty)),
       true,
       false,
@@ -1678,7 +1682,7 @@ evaluate_anonymous_function_implementation :: (
   (il_env_i : usize) = usize(0);
   while(il_env_i < implicit_labels.len(), {
     il_name := match(implicit_labels.get(il_env_i), .Some(n) => n, .None => String.from(""));
-    il_ty := match(implicit_types.get(il_env_i), .Some(t) => t, .None => TypeValue.Unit);
+    il_ty := match(implicit_types.get(il_env_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     il_tok := synthetic_token(il_name.clone(), &env.module_path);
     il_val := create_unknown_val(il_ty.clone());
     _il_v := add_variable_to_env(
@@ -1705,12 +1709,12 @@ evaluate_anonymous_function_implementation :: (
   while(rp_i < n_regular, {
     rpe := match(regular_param_exprs.get(rp_i), .Some(a) => a, .None => make_err_expr());
     exp_label := match(param_labels.get(rp_i), .Some(n) => n, .None => String.from(""));
-    rp_ty_raw := match(param_types.get(rp_i), .Some(t) => t, .None => TypeValue.Unit);
+    rp_ty_raw := match(param_types.get(rp_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     // Substitute generic SomeTypes (e.g. `E`) in the param type with their
     // concrete bindings from the callee env.
     rp_ty := match(
       rp_ty_raw,
-      .SomeT(_, srp_name, _, _, _, _, _, _, _, _) => {
+      Rc(.SomeT(_, srp_name, _, _, _, _, _, _, _, _)) => {
         _st_bind_vars := get_variables_from_env(&expected_type_env, srp_name.clone());
         (_st_bound : Option(TypeValue)) = Option(TypeValue).None;
         (_st_bi : usize) = _st_bind_vars.len();
@@ -1739,7 +1743,7 @@ evaluate_anonymous_function_implementation :: (
     // param_type_name for generic param binding at call time
     ptn := match(
       rp_ty_raw,
-      .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
+      Rc(.SomeT(_, name, _, _, _, _, _, _, _, _)) => name,
       _ => String.from("")
     );
     param_type_names.push(ptn.clone());
@@ -1811,10 +1815,10 @@ evaluate_anonymous_function_implementation :: (
     rp_resolved_names := ArrayList(String).new();
     (rpr_i : usize) = usize(0);
     while(rpr_i < n_regular, {
-      rpr_raw := match(param_types.get(rpr_i), .Some(t) => t, .None => TypeValue.Unit);
+      rpr_raw := match(param_types.get(rpr_i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       match(
         rpr_raw,
-        .SomeT({ name : rpr_nm }) => if((rpr_nm.len() > usize(0)) && !(rpr_nm == "Impl"), {
+        Rc(.SomeT({ name : rpr_nm })) => if((rpr_nm.len() > usize(0)) && !(rpr_nm == "Impl"), {
           rpr_vars := get_variables_from_env(&expected_type_env, rpr_nm.clone());
           (rpr_conc : bool) = false;
           (rpr_vi : usize) = rpr_vars.len();
@@ -1905,10 +1909,10 @@ evaluate_anonymous_function_implementation :: (
   // `function_type` (used below for body-eval + the expr's ExprInfo) untouched.
   corrected_func_type := match(
     function_type.clone(),
-    .Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m, _) => {
+    Rc(.Func(_l3ft, _l3pt, _l3it, _l3wt, _l3r, _l3m, _)) => {
       _l3nm := _l3m.*.clone();
       _l3nm.param_labels = actual_param_labels.clone();
-      TypeValue.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), rc(_l3nm), ArrayList(TypeValue).new())
+      rc(TypeValueNode.Func(_l3ft.clone(), _l3pt.clone(), _l3it.clone(), _l3wt.clone(), _l3r.clone(), rc(_l3nm), ArrayList(TypeValue).new()))
     },
     _ => function_type.clone()
   );
@@ -1925,7 +1929,7 @@ evaluate_anonymous_function_implementation :: (
   // emitted as a RUNTIME C parameter. `origin_id` is the channel for the same
   // thing and travels with the meta through the `.clone()` just above.
   match(
-    match(corrected_func_type, .Func({ meta : _oid_m }) => _oid_m.*.origin_id, _ => Option(String).None),
+    match(corrected_func_type, Rc(.Func({ meta : _oid_m })) => _oid_m.*.origin_id, _ => Option(String).None),
     .Some(_oid) => {
       copy_func_param_defaults(_oid.clone(), func_id.clone());
       copy_func_param_default_exprs(_oid.clone(), func_id.clone());
@@ -1987,8 +1991,8 @@ evaluate_anonymous_function_implementation :: (
         .Some(enclosing_func_ty) => {
           enclosing_return_ty := match(
             enclosing_func_ty,
-            .Func({ result : rb }) => rb,
-            _ => TypeValue.Unit
+            Rc(.Func({ result : rb })) => rb,
+            _ => rc(TypeValueNode.Unit)
           );
           register_definition_site_return(func_id.clone(), &enclosing_return_ty);
         },
@@ -2054,7 +2058,7 @@ evaluate_anonymous_function_implementation :: (
     while((bcp_i < bcp_flags.len()) && !body_has_ct_param, {
       bcp_is_typeuni := match(
         param_types.get(bcp_i),
-        .Some(bcp_pt) => match(bcp_pt, .TypeUni(_) => true, _ => false),
+        .Some(bcp_pt) => match(bcp_pt, Rc(.TypeUni(_)) => true, _ => false),
         .None => false
       );
       match(
@@ -2089,7 +2093,7 @@ evaluate_anonymous_function_implementation :: (
   // failing body harmless.
   ctl_force := match(
     function_type,
-    .Func({ meta : __fmc9 }) => __fmc9.*.is_control,
+    Rc(.Func({ meta : __fmc9 })) => __fmc9.*.is_control,
     _ => false
   );
   // §4 escape boundary 1 (rule 8): a fn's RESULT type must not be
@@ -2107,7 +2111,7 @@ evaluate_anonymous_function_implementation :: (
   // DOWN into the still-live throw frame. SomeT results are conservatively
   // not control-bound, so generic/async (`Impl(Future(...))`) results pass.
   if(!ctl_force, {
-    decl_result_ty := match(function_type, .Func({ result : __rr }) => __rr, _ => t_unit());
+    decl_result_ty := match(function_type, Rc(.Func({ result : __rr })) => __rr, _ => t_unit());
     if(type_is_control_bound(&decl_result_ty), {
       exn.throw(
         dyn(
@@ -2173,7 +2177,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // body types as SomeT and the concrete result-refine is skipped (closure return
     // + future result then lower to void*). Clear the expected type so the body
     // types naturally (the closure's result is inferred from the body anyway).
-    ret_ty_for_body := match(function_type, .Func({ result : brt }) => brt, _ => t_unit());
+    ret_ty_for_body := match(function_type, Rc(.Func({ result : brt })) => brt, _ => t_unit());
     // (`mark_closure_for_codegen` is every `=>` closure — this clear is what
     // makes the def-time body type CONCRETELY instead of being coerced to
     // the SomeT, which feeds the closure-body-type registration below.)
@@ -2279,7 +2283,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
     // `unwind` is a type error. Closures are exempt.
     fn_type_is_control := match(
       function_type,
-      .Func({ meta : __fm5 }) => __fm5.*.is_control,
+      Rc(.Func({ meta : __fm5 })) => __fm5.*.is_control,
       _ => false
     );
     match(
@@ -2316,10 +2320,10 @@ Result type: ${type_to_string(&decl_result_ty)}`
             // Decision 38 A: a second-class value is never returned, except
             // a borrowing future rooted at the closure's own borrow
             // parameters (§3.13 A2).
-            cr_ret_ty := match(function_type, .Func({ result : cr_r }) => cr_r, _ => t_unit());
+            cr_ret_ty := match(function_type, Rc(.Func({ result : cr_r })) => cr_r, _ => t_unit());
             if(!has_any_control_flow(cr_info.control_flow), {
               // Decision 44: a callable result into `Dyn(Fn(...))` is `dyn(f)`.
-              if(!match(function_type, .Func({ meta : cr_m }) => cr_m.*.result_is_ref, _ => false), {
+              if(!match(function_type, Rc(.Func({ meta : cr_m })) => cr_m.*.result_is_ref, _ => false), {
                 reject_bare_callable_result(&cr_ret_ty, &cr_body_ty, &body_expr, ctx, exn);
               });
               reject_second_class_return(&cr_body_ty, ast_expr_token(&anon_eb), env, ctx, exn);
@@ -2353,10 +2357,10 @@ Result type: ${type_to_string(&decl_result_ty)}`
         // That is parametricity, as the deferred trial checks for a closure
         // against its own forall
         // (issues/fixed/a-plain-exception-handler-that-returns-a-value-resumes-with-zero.md).
-        rv_ret := match(function_type, .Func({ result : rv_r }) => rv_r, _ => t_unit());
+        rv_ret := match(function_type, Rc(.Func({ result : rv_r })) => rv_r, _ => t_unit());
         rv_generic := match(
           rv_ret,
-          .SomeT({ name : rv_name }) => {
+          Rc(.SomeT({ name : rv_name })) => {
             (rv_found : bool) = false;
             (rv_i : usize) = usize(0);
             while(rv_i < forall_labels.len(), {
@@ -2420,7 +2424,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
           expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&anon_eb)),
           .Some(nrs_info) => {
             nrs_body_ty := nrs_info.ty;
-            nrs_ret_ty := match(function_type, .Func({ result : nrs_r }) => nrs_r, _ => t_unit());
+            nrs_ret_ty := match(function_type, Rc(.Func({ result : nrs_r })) => nrs_r, _ => t_unit());
             nrs_ret_nested := (!is_some_type(&nrs_ret_ty) && (get_all_some_types(&nrs_ret_ty).len() > usize(0)));
             // BARE-SomeT declared return (`-> B`, map's output forall): the
             // env-channel binding must handle it here or `B` never binds
@@ -2462,10 +2466,10 @@ Result type: ${type_to_string(&decl_result_ty)}`
               // body referenced `x` ("use of undeclared identifier 'x'").
               function_type = match(
                 function_type,
-                .Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt) => {
+                Rc(.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, _, nrs_m, nrs_vt)) => {
                   nrs_nm := nrs_m.*.clone();
                   nrs_nm.param_labels = actual_param_labels.clone();
-                  TypeValue.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, rc(nrs_nm), nrs_vt)
+                  rc(TypeValueNode.Func(nrs_fl, nrs_pt, nrs_it, nrs_wt, nrs_body_ty, rc(nrs_nm), nrs_vt))
                 },
                 _ => function_type
               );
@@ -2517,7 +2521,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
               // io.async future result lower to void*.
               match(
                 body_ty,
-                .SomeT({ resolution : bt_cell }) => match(
+                Rc(.SomeT({ resolution : bt_cell })) => match(
                   bt_cell,
                   .Some(bt_rc) => {
                     body_ty = bt_rc;
@@ -2546,7 +2550,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                 // skipped the deref).
                 rereg_ty := match(
                   corrected_func_type.clone(),
-                  .Func(_l4ft, _l4pt, _l4it, _l4wt, _l4r, _l4m, _) => {
+                  Rc(.Func(_l4ft, _l4pt, _l4it, _l4wt, _l4r, _l4m, _)) => {
                     _l4nm := _l4m.*.clone();
                     _l4nm.param_labels = actual_param_labels.clone();
                     // The parameter types are the SUBSTITUTED ones (`_l4pt`, from
@@ -2556,7 +2560,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     // which codegen then lowered to `void*` once the id-keyed
                     // registry stopped carrying binder resolutions
                     // (issues/fixed/a-caller-binder-named-t-collides-with-io-async-t.md).
-                    TypeValue.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), rc(_l4nm), ArrayList(TypeValue).new())
+                    rc(TypeValueNode.Func(_l4ft.clone(), _l4pt.clone(), _l4it.clone(), _l4wt.clone(), body_ty.clone(), rc(_l4nm), ArrayList(TypeValue).new()))
                   },
                   _ => t_func_simple(actual_param_labels.clone(), param_types.clone(), body_ty.clone())
                 );
@@ -2657,7 +2661,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
   // degenerating to unit cannot convict, and an expected bare SomeT that is
   // not this fn's own forall is bound by the call site.
   if(should_defer_body, {
-    dgc_ret := match(function_type, .Func({ result : dgc_r }) => dgc_r, _ => t_unit());
+    dgc_ret := match(function_type, Rc(.Func({ result : dgc_r })) => dgc_r, _ => t_unit());
     // Every deferred generic closure body is trialled (Phase 6 step 2, the
     // twin of the named-fn deferred trial); the result comparison below
     // stays limited to a result that mentions a type variable.
@@ -2759,14 +2763,14 @@ Result type: ${type_to_string(&decl_result_ty)}`
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&dgc_body)),
             .Some(dgc_info) => {
               dgc_skip_cf := (has_control_flow(dgc_info.control_flow, .Unwind) && !has_control_flow(dgc_info.control_flow, .Return));
-              dgc_is_ref := match(function_type, .Func({ meta : __fmd1 }) => __fmd1.*.result_is_ref, _ => false);
+              dgc_is_ref := match(function_type, Rc(.Func({ meta : __fmd1 })) => __fmd1.*.result_is_ref, _ => false);
               dgc_expected := cond(
                 dgc_is_ref => t_ptr(&dgc_ret),
                 true => dgc_ret
               );
               dgc_own_forall_skip := match(
                 dgc_expected,
-                .SomeT({ name : dgc_sname }) => {
+                Rc(.SomeT({ name : dgc_sname })) => {
                   (dgc_found : bool) = false;
                   (dgc_fi : usize) = usize(0);
                   while(dgc_fi < forall_labels.len(), {
@@ -2887,7 +2891,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
       closure_capture_type,
       .Some(cbt) => match(
         cbt,
-        .Struct({ id : cb_sid }) => {
+        Rc(.Struct({ id : cb_sid })) => {
           cbs := ArrayList(CaptureBorrow).new();
           (cb_i : usize) = usize(0);
           while(cb_i < cap_entries.len(), {
@@ -2943,10 +2947,10 @@ Result type: ${type_to_string(&decl_result_ty)}`
     match(
       get_closure_capture_info(func_id.clone()),
       .Some(prev_cci2) => {
-        prev_nf2 := match(prev_cci2.capture_type, .Struct({ field_labels : pfl2 }) => pfl2.len(), _ => usize(0));
+        prev_nf2 := match(prev_cci2.capture_type, Rc(.Struct({ field_labels : pfl2 })) => pfl2.len(), _ => usize(0));
         cur_nf2 := match(
           closure_capture_type,
-          .Some(cur_ct2) => match(cur_ct2, .Struct({ field_labels : cfl2 }) => cfl2.len(), _ => usize(0)),
+          .Some(cur_ct2) => match(cur_ct2, Rc(.Struct({ field_labels : cfl2 })) => cfl2.len(), _ => usize(0)),
           .None => usize(0)
         );
         if(prev_nf2 > cur_nf2, {
@@ -2993,7 +2997,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
   if(is_creating_closure && !ctx.is_inside_io_async_call, {
     match(
       expected_ty,
-      .SomeT(w_id, w_nm, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_kft, _) => {
+      Rc(.SomeT(w_id, w_nm, w_fl, w_pt, w_rtt, w_rtl, w_ntt, w_ntl, w_kft, _)) => {
         match(
           closure_capture_type,
           .Some(cap_t) => {
@@ -3016,8 +3020,8 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   // (issues/fixed/a-function-returning-impl-passed-to-a-function-typed-parameter-is-called-through-void-pointer.md).
                   match(
                     w_rt,
-                    .FnTraitT({ call_result : w_cr }) => if(!is_some_type(&w_cr) || (
-                      match(w_cr, .SomeT({ name : w_cr_nm }) => (w_cr_nm == "Impl"), _ => false) && _is_unresolved_impl_fn_type(&w_cr)
+                    Rc(.FnTraitT({ call_result : w_cr })) => if(!is_some_type(&w_cr) || (
+                      match(w_cr, Rc(.SomeT({ name : w_cr_nm })) => (w_cr_nm == "Impl"), _ => false) && _is_unresolved_impl_fn_type(&w_cr)
                     ), {
                       w_has_concrete_fn = true;
                     }),
@@ -3058,17 +3062,19 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   impl_rtt.push(eft.clone());
                   impl_rtl := ArrayList(usize).new();
                   impl_rtl.push(usize(0));
-                  impl_fn_wrapper := TypeValue.SomeT(
-                    generate_some_type_id(),
-                    String.from("__impl_fn"),
-                    usize(0),
-                    TypeValue.TypeUni(usize(0)),
-                    impl_rtt,
-                    impl_rtl,
-                    ArrayList(TypeValue).new(),
-                    ArrayList(usize).new(),
-                    Option(TypeValue).None,
-                    Option(TypeValue).Some(cap_t)
+                  impl_fn_wrapper := rc(
+                    TypeValueNode.SomeT(
+                      generate_some_type_id(),
+                      String.from("__impl_fn"),
+                      usize(0),
+                      rc(TypeValueNode.TypeUni(usize(0))),
+                      impl_rtt,
+                      impl_rtl,
+                      ArrayList(TypeValue).new(),
+                      ArrayList(usize).new(),
+                      Option(TypeValue).None,
+                      Option(TypeValue).Some(cap_t)
+                    )
                   );
                   // PER-CALL identity: the `F` here is ONE SomeT across
                   // every call of the generic fn, so recording the capture on
@@ -3079,7 +3085,26 @@ Result type: ${type_to_string(&decl_result_ty)}`
                   // its own resolution instead — the arg's recorded type feeds
                   // `fa_bound`, so the caller's return-type substitution and
                   // the body specialization both see THIS call's `__impl_fn`.
-                  final_lambda_ty = TypeValue.SomeT(
+                  final_lambda_ty = rc(
+                    TypeValueNode.SomeT(
+                      w_id,
+                      w_nm,
+                      w_fl,
+                      w_pt,
+                      w_rtt,
+                      w_rtl,
+                      w_ntt,
+                      w_ntl,
+                      w_kft,
+                      Option(TypeValue).Some(impl_fn_wrapper)
+                    )
+                  );
+                },
+                .None => ()
+              ),
+              w_has_concrete_fn => {
+                final_lambda_ty = rc(
+                  TypeValueNode.SomeT(
                     w_id,
                     w_nm,
                     w_fl,
@@ -3089,23 +3114,8 @@ Result type: ${type_to_string(&decl_result_ty)}`
                     w_ntt,
                     w_ntl,
                     w_kft,
-                    Option(TypeValue).Some(impl_fn_wrapper)
-                  );
-                },
-                .None => ()
-              ),
-              w_has_concrete_fn => {
-                final_lambda_ty = TypeValue.SomeT(
-                  w_id,
-                  w_nm,
-                  w_fl,
-                  w_pt,
-                  w_rtt,
-                  w_rtl,
-                  w_ntt,
-                  w_ntl,
-                  w_kft,
-                  Option(TypeValue).Some(cap_t)
+                    Option(TypeValue).Some(cap_t)
+                  )
                 );
               },
               true => ()
@@ -3148,7 +3158,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
 /// release after it (`_fnonce_callee_releases_itself`, calls/function.yo).
 _mark_fnonce_capture_struct_of :: (fn(owns : bool, cap_ty : &Option(TypeValue)) -> unit)({
   if(owns, {
-    match(cap_ty, .Some(.Struct({ id : cs_id })) => mark_fnonce_capture_struct(&cs_id), _ => ());
+    match(cap_ty, .Some(Rc(.Struct({ id : cs_id }))) => mark_fnonce_capture_struct(&cs_id), _ => ());
   });
 });
 export(evaluate_anonymous_function_implementation);

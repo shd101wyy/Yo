@@ -16,7 +16,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { AstExpr, ast_expr_token, ast_expr_id, make_err_expr, ast_expr_is_fn_call_of, ast_expr_is_atom_of, ast_expr_to_string, BF_DOT } :: import("../../expr.yo");
 { Environment, Variable, get_receiver_methods_by_name_from_env, get_variables_from_env, add_variable_to_env, synthetic_token, snapshot_env, FvCaptureSource, fv_capture_source, fv_source_name, fv_source_ty, fv_capture_vals } :: import("../../env.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_usize, t_type } :: import("../../types/creators.yo");
 { is_array_type, is_pointer_type, is_trait_type, is_struct_type, is_function_type, is_reference_struct_type } :: import("../../types/guards.yo");
 {
@@ -178,7 +178,7 @@ _resolve_prelude_range_type :: (
 _struct_ctor_fid :: (fn(t : &TypeValue) -> String)(
   match(
     t,
-    .Struct({ constructor_func_id : cfid }) => cfid,
+    Rc(.Struct({ constructor_func_id : cfid })) => cfid,
     _ => String.from("")
   )
 );
@@ -379,7 +379,7 @@ _find_all_index_methods :: (
   result := ArrayList(_IndexMethodEntry).new();
   match(
     concrete_type,
-    .TraitT(_, _, field_labels, field_types, _, _, _, _, _, _) => {
+    Rc(.TraitT(_, _, field_labels, field_types, _, _, _, _, _, _)) => {
       n := field_labels.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -392,7 +392,7 @@ _find_all_index_methods :: (
               match(
                 ty_opt,
                 .Some(fty) => {
-                  if(match(fty, .Func({ result : _ }) => true, _ => false), {
+                  if(match(fty, Rc(.Func({ result : _ })) => true, _ => false), {
                     result.push(
                       _IndexMethodEntry(
                         method_type : fty,
@@ -426,7 +426,7 @@ _find_all_index_methods :: (
       match(
         reg_methods.get(ri),
         .Some(m) => {
-          if(match(m.ty, .Func({ result : _ }) => true, _ => false), {
+          if(match(m.ty, Rc(.Func({ result : _ })) => true, _ => false), {
             result.push(
               _IndexMethodEntry(
                 method_type : m.ty,
@@ -461,7 +461,7 @@ _IndexShape :: struct(is_projection : bool, is_mut : bool, output : TypeValue);
 _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Option(_IndexShape))(
   match(
     method_type,
-    .Func({ param_types, result : result_box, meta : __fm1 }) => cond(
+    Rc(.Func({ param_types, result : result_box, meta : __fm1 })) => cond(
       (param_types.len() != usize(2)) => Option(_IndexShape).None,
       true => {
         p0_is_ref := match(__fm1.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false);
@@ -485,7 +485,7 @@ _index_shape_of :: (fn(method_type : &TypeValue, arg_type : &TypeValue) -> Optio
             _IndexShape(
               is_projection : false,
               is_mut : true,
-              output : match(result_box, .Pointer(et) => et, _ => result_box)
+              output : match(result_box, Rc(.Pointer(et)) => et, _ => result_box)
             )
           ),
           true => Option(_IndexShape).None
@@ -536,7 +536,7 @@ _find_index_mut_method :: (
     m := methods(i);
     match(
       _index_shape_of(&m.method_type, arg_type),
-      .Some(sh) => if(sh.is_projection && sh.is_mut && match(m.method_type, .Func({ meta : imm_fm }) => match(imm_fm.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), {
+      .Some(sh) => if(sh.is_projection && sh.is_mut && match(m.method_type, Rc(.Func({ meta : imm_fm })) => match(imm_fm.*.param_is_ref.get(usize(0)), .Some(b) => b, .None => false), _ => false), {
         return(Option(_IndexMethodEntry).Some(m));
       }),
       .None => ()
@@ -562,7 +562,7 @@ _try_comptime_element_access :: (
 )({
   elem_ty := match(
     value_type,
-    .Array(et, _, _) => et,
+    Rc(.Array(et, _, _)) => et,
     _ => t_unit()
   );
   match(
@@ -982,7 +982,7 @@ _try_comptime_string_index :: (
     range_check.is_inclusive,
     exn
   );
-  result_ty := TypeValue.ComptimeString;
+  result_ty := rc(TypeValueNode.ComptimeString);
   ptr_result_ty := t_ptr(&result_ty);
   IndexCallResult(
     value : Option(EvalValue).Some(result_val),
@@ -1107,7 +1107,7 @@ _find_comptime_index_method :: (
       .Some(m) => {
         match(
           m.method_type,
-          .Func({ param_types, result : ci_result, meta : __cifm1 }) => {
+          Rc(.Func({ param_types, result : ci_result, meta : __cifm1 })) => {
             ci_param_is_ref := __cifm1.*.param_is_ref;
             if(param_types.len() == usize(2), {
               match(
@@ -1259,11 +1259,11 @@ _try_comptime_custom_type_index :: (
     return(Option(IndexCallResult).None);
   });
   // The return type must be `*(Output)`.
-  ct_ret_type := match(ct_fn_type, .Func({ result : ct_r }) => ct_r, _ => t_unit());
+  ct_ret_type := match(ct_fn_type, Rc(.Func({ result : ct_r })) => ct_r, _ => t_unit());
   if(!is_pointer_type(&ct_ret_type), {
     return(Option(IndexCallResult).None);
   });
-  output_ty := match(ct_ret_type, .Pointer(ct_pt) => ct_pt, _ => ct_ret_type);
+  output_ty := match(ct_ret_type, Rc(.Pointer(ct_pt)) => ct_pt, _ => ct_ret_type);
   // Comptime pointer to self for the first argument.
   self_ptr_type := t_ptr(value_type);
   // Fresh 1-elem cell around self.
@@ -1272,22 +1272,22 @@ _try_comptime_custom_type_index :: (
   self_ptr_value := EvalValue.PtrVal(self_ptr_cell, usize(0), .None);
   ct_p0_ty := match(
     ct_fn_type,
-    .Func({ param_types : ct_pts0 }) => match(ct_pts0.get(usize(0)), .Some(t) => t, .None => t_unit()),
+    Rc(.Func({ param_types : ct_pts0 })) => match(ct_pts0.get(usize(0)), .Some(t) => t, .None => t_unit()),
     _ => t_unit()
   );
   ct_p1_ty := match(
     ct_fn_type,
-    .Func({ param_types : ct_pts1 }) => match(ct_pts1.get(usize(1)), .Some(t) => t, .None => t_unit()),
+    Rc(.Func({ param_types : ct_pts1 })) => match(ct_pts1.get(usize(1)), .Some(t) => t, .None => t_unit()),
     _ => t_unit()
   );
   ct_p0_label := match(
     ct_fn_type,
-    .Func({ meta : __cifm2 }) => match(__cifm2.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("self")),
+    Rc(.Func({ meta : __cifm2 })) => match(__cifm2.*.param_labels.get(usize(0)), .Some(l) => l, .None => String.from("self")),
     _ => String.from("self")
   );
   ct_p1_label := match(
     ct_fn_type,
-    .Func({ meta : __cifm3 }) => match(__cifm3.*.param_labels.get(usize(1)), .Some(l) => l, .None => String.from("idx")),
+    Rc(.Func({ meta : __cifm3 })) => match(__cifm3.*.param_labels.get(usize(1)), .Some(l) => l, .None => String.from("idx")),
     _ => String.from("idx")
   );
   // Rebuild the method's definition-time scope from its capture snapshot, then
@@ -1602,7 +1602,7 @@ try_to_call_with_index_trait :: (
   if(is_arr_or_slice_ty, {
     elem_ty := match(
       value_type,
-      .Array(et, _, _) => et,
+      Rc(.Array(et, _, _)) => et,
       _ => t_unit()
     );
     result_val := create_unknown_val(&elem_ty);
@@ -1656,7 +1656,7 @@ try_to_call_with_index_trait :: (
   // mode flags here and is skipped, exactly as a normal call would.
   match(
     method.method_type,
-    .Func({ meta : __ibv_fm }) => {
+    Rc(.Func({ meta : __ibv_fm })) => {
       __ibv_ref := match(__ibv_fm.*.param_is_ref.get(usize(1)), .Some(b) => b, .None => false);
       __ibv_own := match(__ibv_fm.*.param_is_owning.get(usize(1)), .Some(b) => b, .None => false);
       if(!__ibv_ref, {
@@ -1749,7 +1749,7 @@ _record_index_unchecked_twin :: (
   });
   trait_id := match(
     get_trait_type_from_env(caller_env, String.from(trait_name)),
-    .Some(.TraitT(id : tid)) => tid,
+    .Some(Rc(.TraitT(id : tid))) => tid,
     _ => String.new()
   );
   if(trait_id == "", {
@@ -1765,8 +1765,8 @@ _record_index_unchecked_twin :: (
       // `*(Output)`, or a projection's result.
       same_output := match(
         c.ty,
-        .Func({ result : twin_ret, meta : twin_m }) => {
-          twin_out := if(twin_m.*.result_is_ref, twin_ret, match(twin_ret, .Pointer(tp) => tp, _ => t_unit()));
+        Rc(.Func({ result : twin_ret, meta : twin_m })) => {
+          twin_out := if(twin_m.*.result_is_ref, twin_ret, match(twin_ret, Rc(.Pointer(tp)) => tp, _ => t_unit()));
           (twin_m.*.result_is_ref || is_pointer_type(&twin_ret)) && are_types_compatible(&twin_out, output_ty) && are_types_compatible(output_ty, &twin_out)
         },
         _ => false

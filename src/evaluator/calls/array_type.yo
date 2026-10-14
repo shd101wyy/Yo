@@ -18,7 +18,7 @@ pragma(Pragma.AllowUnsafe);
   expr_info_table_set
 } :: import("../../expr_info.yo");
 { Environment } :: import("../../env.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_array_type } :: import("../../types/guards.yo");
 { type_to_string } :: import("../../types/string.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -49,7 +49,7 @@ try_to_implement_array_by_array_type :: (
   // Extract element type and concrete length from TypeValue.Array.
   elem_type := match(
     array_type,
-    .Array(elem_box, _, _) => elem_box,
+    Rc(.Array(elem_box, _, _)) => elem_box,
     _ => {
       exn.throw(
         dyn(
@@ -59,12 +59,12 @@ try_to_implement_array_by_array_type :: (
           )
         )
       );
-      TypeValue.Unit
+      rc(TypeValueNode.Unit)
     }
   );
   expected_len := match(
     array_type,
-    .Array(_, len, _) => len,
+    Rc(.Array(_, len, _)) => len,
     _ => usize(0)
   );
   // A non-empty `length_var` means the length is an UNRESOLVED inference
@@ -73,7 +73,7 @@ try_to_implement_array_by_array_type :: (
   // resolve the result type to the concrete count below.
   arr_len_var := match(
     array_type,
-    .Array(_, _, lv) => lv,
+    Rc(.Array(_, _, lv)) => lv,
     _ => String.from("")
   );
   // Validate argument count matches array length.
@@ -173,7 +173,7 @@ try_to_implement_array_by_array_type :: (
   });
   // Store result in expr_info_table.
   // Re-use array_type but with refined element type (may have been updated from first element).
-  final_array_type := TypeValue.Array(expected_element_type, eff_len, String.from(""));
+  final_array_type := rc(TypeValueNode.Array(expected_element_type, eff_len, String.from("")));
   out_info := new_expr_info(&env, &final_array_type);
   // Only a FULLY compile-time array gets a compile-time value. Stamping one
   // with manufactured `UnknownVal` placeholders (as this used to) told codegen

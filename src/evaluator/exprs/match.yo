@@ -64,7 +64,7 @@ pragma(Pragma.AllowUnsafe);
   is_enum_val,
   is_unknown_val
 } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit, t_ptr, t_bool, t_never, resolve_enum_shell } :: import("../../types/creators.yo");
 {
   is_bool_type,
@@ -277,15 +277,15 @@ _variant_pattern_has_literal_sub :: (fn(p : &Pattern) -> bool)(
 _gadt_refined_expected :: (
   fn(expected : &TypeValue, tca : &ArrayList(TypeValue), gra : &ArrayList(TypeValue)) -> TypeValue
 )({
-  exp_id := match(expected, .SomeT({ id : sid }) => sid, _ => String.new());
+  exp_id := match(expected, Rc(.SomeT({ id : sid })) => sid, _ => String.new());
   if(exp_id.len() == usize(0), {
     return(expected);
   });
   (refined : Option(TypeValue)) = Option(TypeValue).None;
   (k : usize) = usize(0);
   while((k < tca.len()) && refined.is_none(), {
-    tk := match(tca.get(k), .Some(t) => t, .None => TypeValue.Unit);
-    tk_id := match(tk, .SomeT({ id : tid }) => tid, _ => String.new());
+    tk := match(tca.get(k), .Some(t) => t, .None => rc(TypeValueNode.Unit));
+    tk_id := match(tk, Rc(.SomeT({ id : tid })) => tid, _ => String.new());
     if((tk_id.len() > usize(0)) && (tk_id == exp_id), {
       match(
         gra.get(k),
@@ -634,7 +634,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         match(
           subs.get(i),
           .Some(sub) => {
@@ -656,7 +656,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
             });
             j = (j + usize(1));
           });
-          fty := match(ftys.get(f), .Some(t) => t, .None => TypeValue.Unit);
+          fty := match(ftys.get(f), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(!listed && _part_has_drop(&fty), {
             new_idx.push(f);
             new_subs.push(_ownership_unbound(own, &fty, env));
@@ -755,7 +755,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
       new_subs := ArrayList(Pattern).new();
       (i : usize) = usize(0);
       while(i < subs.len(), {
-        ety := match(elem_tys.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         match(subs.get(i), .Some(sub) => new_subs.push(recur(&sub, &ety, cell, own, env, exn)), .None => ());
         i = (i + usize(1));
       });
@@ -763,13 +763,13 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
     },
     .Struct(struct_ty, field_idx, subs, arity) => {
       cell := (in_cell || pattern_position_is_cell(ty));
-      ftys := match(struct_ty, .Struct({ field_types : fts }) => fts, _ => ArrayList(TypeValue).new());
+      ftys := match(struct_ty, Rc(.Struct({ field_types : fts })) => fts, _ => ArrayList(TypeValue).new());
       new_idx := ArrayList(usize).new();
       new_subs := ArrayList(Pattern).new();
       (i : usize) = usize(0);
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
-        fty := match(ftys.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         match(
           subs.get(i),
           .Some(sub) => {
@@ -791,7 +791,7 @@ _augment_arm_pattern :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, own :
             });
             j = (j + usize(1));
           });
-          fty := match(ftys.get(f), .Some(t) => t, .None => TypeValue.Unit);
+          fty := match(ftys.get(f), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           if(!listed && _part_has_drop(&fty), {
             new_idx.push(f);
             new_subs.push(_ownership_unbound(own, &fty, env));
@@ -981,7 +981,7 @@ evaluate_match :: (
   (matched_type : TypeValue) = scrutinee_type;
   (is_ptr_match : bool) = false;
   if(is_pointer_type(&scrutinee_type), {
-    matched_type = match(scrutinee_type, .Pointer(inner) => inner, _ => scrutinee_type);
+    matched_type = match(scrutinee_type, Rc(.Pointer(inner)) => inner, _ => scrutinee_type);
     is_ptr_match = true;
   });
   // Resolve a leaked recursive-enum SELF-SHELL (an empty-variant EnumT whose id
@@ -1002,7 +1002,7 @@ evaluate_match :: (
     is_ptr_match => t_ptr(&matched_type),
     true => matched_type
   );
-  en_id := match(matched_type, .EnumT(eid, _, _, _, _, _, _, _, _, _) => eid, _ => String.new());
+  en_id := match(matched_type, Rc(.EnumT(eid, _, _, _, _, _, _, _, _, _)) => eid, _ => String.new());
   // GADT match detection: the enum is a GADT, an expected
   // type exists to refine against, and this instantiation recorded its
   // type-constructor args. The entry expected type is CAPTURED here — the arm
@@ -1369,7 +1369,7 @@ evaluate_match :: (
         .Variant(vname, _, _, _, venum, _, _) => {
           sel := match(
             venum,
-            .EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas) => TypeValue.EnumT(id, n, vn, vf, Option(String).Some(vname.clone()), vfl, discs, eirs, eiar, etas),
+            Rc(.EnumT(id, n, vn, vf, _, vfl, discs, eirs, eiar, etas)) => rc(TypeValueNode.EnumT(id, n, vn, vf, Option(String).Some(vname.clone()), vfl, discs, eirs, eiar, etas)),
             _ => venum
           );
           cond(is_ptr_match => t_ptr(&sel), true => sel)
@@ -1759,7 +1759,7 @@ evaluate_match :: (
       (vname : String) = String.new();
       (varity : usize) = usize(0);
       (vptr : bool) = false;
-      (vety : TypeValue) = TypeValue.Unit;
+      (vety : TypeValue) = rc(TypeValueNode.Unit);
       grows := ArrayList(Pattern).new();
       (has_unguarded_group_arm : bool) = false;
       (ai3 : usize) = usize(0);
@@ -2094,7 +2094,7 @@ evaluate_match :: (
                     .Some(ft) => {
                       match(
                         ft,
-                        .Func({ result : result_box, meta : rb_meta }) => {
+                        Rc(.Func({ result : result_box, meta : rb_meta })) => {
                           ret_type_em = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box));
                         },
                         _ => ()

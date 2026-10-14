@@ -158,7 +158,7 @@ evaluate_panic :: (
         // *(u8) — C string pointer (e.g. a String's to_cstr().ptr())
         is_ptr_to_u8 := match(
           msg_type,
-          .Pointer(pointee) => is_u8_type(&pointee),
+          Rc(.Pointer(pointee)) => is_u8_type(&pointee),
           _ => false
         );
         if(!is_str && !is_comptime_str && !is_ptr_to_u8, {

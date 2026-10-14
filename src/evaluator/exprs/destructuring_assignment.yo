@@ -37,7 +37,7 @@ pragma(Pragma.AllowUnsafe);
   is_extern_c_global,
   register_extern_c_global_alias
 } :: import("../../expr_info.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_tuple_type, is_struct_type, is_union_type, is_module_type, is_enum_type, get_adopted_extern_c_type, type_decl_module } :: import("../../types/guards.yo");
 { private_member_blocked } :: import("../../utils.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -95,7 +95,7 @@ _get_eval_value_field :: (fn(v : &EvalValue, index : usize) -> Option(EvalValue)
 _record_destructured_read :: (fn(env : &Environment, rhs_type : &TypeValue, label : &String) -> unit)({
   match(
     rhs_type,
-    .Struct({ id : dr_sns, is_source_namespace : dr_flag }) => if(dr_flag, {
+    Rc(.Struct({ id : dr_sns, is_source_namespace : dr_flag })) => if(dr_flag, {
       match(
         sns_module_of(dr_sns.clone()),
         .Some(dr_target) => record_module_member_read(&env.module_path, &dr_target, label),
@@ -117,8 +117,8 @@ _reject_private_destructure :: (
 )({
   pv_type_id := match(
     rhs_type,
-    .Struct({ id : pv_sid, is_source_namespace : pv_sns }) => cond(pv_sns => String.new(), true => pv_sid.clone()),
-    .Union(pv_uid, _, _) => pv_uid.clone(),
+    Rc(.Struct({ id : pv_sid, is_source_namespace : pv_sns })) => cond(pv_sns => String.new(), true => pv_sid.clone()),
+    Rc(.Union(pv_uid, _, _)) => pv_uid.clone(),
     _ => String.new()
   );
   if(private_member_blocked(label.clone(), type_decl_module(&pv_type_id), tok.module_path.clone()), {
@@ -195,7 +195,7 @@ _record_extern_c_alias :: (fn(rhs_type : &TypeValue, label : &String, var_name :
   });
   match(
     rhs_type,
-    .Struct({ id : sid, is_source_namespace : sns }) => if(sns && is_extern_c_module_id(sid.clone()) && is_extern_c_global(label.clone()), {
+    Rc(.Struct({ id : sid, is_source_namespace : sns })) => if(sns && is_extern_c_module_id(sid.clone()) && is_extern_c_global(label.clone()), {
       register_extern_c_global_alias(var_name, label, ty);
     }),
     _ => ()
@@ -211,7 +211,7 @@ _record_extern_c_alias :: (fn(rhs_type : &TypeValue, label : &String, var_name :
 _is_adopted_extern_c_field :: (fn(rhs_type : &TypeValue, fval_opt : &Option(EvalValue)) -> bool)(
   match(
     rhs_type,
-    .Struct({ id : sid, is_source_namespace : sns }) => (
+    Rc(.Struct({ id : sid, is_source_namespace : sns })) => (
       sns && is_extern_c_module_id(sid.clone()) &&
         match(
           fval_opt,
@@ -316,7 +316,7 @@ handle_member_destructuring :: (
     (rhs_field_type : TypeValue) = match(
       rhs_field_types.get(field_index),
       .Some(t) => t,
-      .None => TypeValue.Unit
+      .None => rc(TypeValueNode.Unit)
     );
     (variable_name_opt : Option(String)) = Option(String).None;
     (variable_token_opt : Option(AstExpr)) = Option(AstExpr).None; // token carried via lhs_field
@@ -358,7 +358,7 @@ handle_member_destructuring :: (
       (j : usize) = usize(0);
       while(j < rhs_field_labels.len(), {
         flab := match(rhs_field_labels.get(j), .Some(l) => l, .None => String.from(""));
-        fty := match(rhs_field_types.get(j), .Some(t) => t, .None => TypeValue.Unit);
+        fty := match(rhs_field_types.get(j), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         if(!_label_already_seen(&seen_labels, flab.clone()), {
           {
             seen_labels.push(flab.clone());
@@ -455,7 +455,7 @@ handle_member_destructuring :: (
           .Some(fi) => {
             field_index = fi;
             rhs_field_label = match(rhs_field_labels.get(fi), .Some(l) => l, .None => String.from(""));
-            rhs_field_type = match(rhs_field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+            rhs_field_type = match(rhs_field_types.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
           }
         );
         // Get field value at the resolved index.
@@ -685,7 +685,7 @@ evaluate_destructuring_assignment :: (
       )
     );
   });
-  rhs_info := match(rhs_info_opt, .Some(ri) => ri, .None => new_expr_info(env, TypeValue.Unit));
+  rhs_info := match(rhs_info_opt, .Some(ri) => ri, .None => new_expr_info(env, rc(TypeValueNode.Unit)));
   rhs_type := rhs_info.ty;
   rhs_value := rhs_info.value;
   is_rhs_atom := ast_expr_is_atom(rhs);
@@ -696,14 +696,14 @@ evaluate_destructuring_assignment :: (
   if(is_struct_union_module && ast_expr_is_fn_call(lhs), {
     field_labels_opt := match(
       rhs_type,
-      .Struct({ field_labels : fl }) => Option(ArrayList(String)).Some(fl),
-      .Union(_, fl, _) => Option(ArrayList(String)).Some(fl),
+      Rc(.Struct({ field_labels : fl })) => Option(ArrayList(String)).Some(fl),
+      Rc(.Union(_, fl, _)) => Option(ArrayList(String)).Some(fl),
       _ => Option(ArrayList(String)).None
     );
     field_types_opt := match(
       rhs_type,
-      .Struct({ field_types : ft }) => Option(ArrayList(TypeValue)).Some(ft),
-      .Union(_, _, ft) => Option(ArrayList(TypeValue)).Some(ft),
+      Rc(.Struct({ field_types : ft })) => Option(ArrayList(TypeValue)).Some(ft),
+      Rc(.Union(_, _, ft)) => Option(ArrayList(TypeValue)).Some(ft),
       _ => Option(ArrayList(TypeValue)).None
     );
     field_labels := match(field_labels_opt, .Some(l) => l, .None => ArrayList(String).new());
@@ -731,8 +731,8 @@ evaluate_destructuring_assignment :: (
   // Tuple destructuring
   // -------------------------------------------------------------------
   if(is_tuple_type(&rhs_type) && ast_expr_is_fn_call(lhs) && ast_expr_is_fn_call_of(lhs, BK_TUPLE, Option(usize).None), {
-    field_labels := match(rhs_type, .Tuple(fl, _) => fl, _ => ArrayList(String).new());
-    field_types := match(rhs_type, .Tuple(_, ft) => ft, _ => ArrayList(TypeValue).new());
+    field_labels := match(rhs_type, Rc(.Tuple(fl, _)) => fl, _ => ArrayList(String).new());
+    field_types := match(rhs_type, Rc(.Tuple(_, ft)) => ft, _ => ArrayList(TypeValue).new());
     lhs_func := match(lhs, .FnCall(_, fb, _, _, _) => fb, .Atom(_, tok) => AstExpr.Atom(ast_expr_id(lhs), tok));
     lhs_args := match(lhs, .FnCall(_, _, args, _, _) => args, _ => ArrayList(AstExpr).new());
     return(
@@ -756,7 +756,7 @@ evaluate_destructuring_assignment :: (
   // Enum variant destructuring
   // -------------------------------------------------------------------
   if(is_enum_type(&rhs_type) && ast_expr_is_fn_call(lhs), {
-    svn_opt := match(rhs_type, .EnumT(_, _, _, _, svn, _, _, _, _, _) => svn, _ => Option(String).None);
+    svn_opt := match(rhs_type, Rc(.EnumT(_, _, _, _, svn, _, _, _, _, _)) => svn, _ => Option(String).None);
     match(
       svn_opt,
       .None => {
@@ -773,8 +773,8 @@ evaluate_destructuring_assignment :: (
     );
     svn := match(svn_opt, .Some(s) => s, .None => String.from(""));
     // Find the variant index.
-    vnames := match(rhs_type, .EnumT(_, _, vn, _, _, _, _, _, _, _) => vn, _ => ArrayList(String).new());
-    vfields := match(rhs_type, .EnumT(_, _, _, vf, _, _, _, _, _, _) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
+    vnames := match(rhs_type, Rc(.EnumT(_, _, vn, _, _, _, _, _, _, _)) => vn, _ => ArrayList(String).new());
+    vfields := match(rhs_type, Rc(.EnumT(_, _, _, vf, _, _, _, _, _, _)) => vf, _ => ArrayList(ArrayList(TypeValue)).new());
     vi_opt := _find_field_index(&vnames, svn.clone());
     match(
       vi_opt,

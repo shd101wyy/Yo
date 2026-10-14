@@ -167,7 +167,7 @@ resolve_some_type_param_type :: (fn(value_arg : &AstExpr, value_type : &TypeValu
   var_name := ast_expr_token(value_arg).value;
   match(
     ft,
-    .Func({ param_types : pts, meta : __fm1 }) => {
+    Rc(.Func({ param_types : pts, meta : __fm1 })) => {
       pls := __fm1.*.param_labels;
       n := pls.len();
       (i : usize) = usize(0);
@@ -248,7 +248,7 @@ _value_enum_rc_fn :: (fn(concrete_type : &TypeValue, is_drop : bool, context : &
   value_code := String.from("(*__yo_v)");
   match(
     concrete_type,
-    .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+    Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
       scratch.emit_string_line(`switch (${value_code.clone()}.tag) {`);
       nv := variant_names.len();
       (vi : usize) = usize(0);
@@ -381,7 +381,7 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
     },
     is_array_type(&concrete_type) => match(
       concrete_type,
-      .Array(element, length, length_var) => {
+      Rc(.Array(element, length, length_var)) => {
         if(length_var.len() > usize(0), {
           return(String.from("/* Error: array has non-constant length */"));
         });
@@ -406,7 +406,7 @@ generate_drop_code_for_value :: (fn(value_code : &String, value_type : &TypeValu
     ),
     is_tuple_type(&concrete_type) => match(
       concrete_type,
-      .Tuple({ field_types : fts }) => {
+      Rc(.Tuple({ field_types : fts })) => {
         n := fts.len();
         (i : usize) = usize(0);
         while(i < n, {
@@ -594,7 +594,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     },
     is_array_type(&concrete_type) => match(
       concrete_type,
-      .Array(element, length, length_var) => {
+      Rc(.Array(element, length, length_var)) => {
         if(length_var.len() > usize(0), {
           return(String.from("/* Error: array has non-constant length */"));
         });
@@ -636,7 +636,7 @@ generate_dup_code_for_value :: (fn(value_code : &String, value_type : &TypeValue
     ),
     is_tuple_type(&concrete_type) => match(
       concrete_type,
-      .Tuple({ field_types : fts }) => {
+      Rc(.Tuple({ field_types : fts })) => {
         temp_var := fresh_local_name(String.from("temp_dup_tuple_"), &context.base.current_function_name);
         tuple_c_name := get_type_string(&concrete_type, &context.base);
         decl := tuple_c_name;

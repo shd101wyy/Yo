@@ -16,7 +16,7 @@
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue, FuncMeta, t_refine_inner } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode, FuncMeta, t_refine_inner } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
 { type_to_string } :: import("./string.yo");
 { debug_knob } :: import("../utils.yo");
@@ -53,38 +53,38 @@ UNFRAMED_BINDER_LEVEL :: usize(1000000000);
 // keeps its own +1 forever, so the singleton is never freed). Nothing
 // mutates a leaf in place (they have no mutable fields), and all TypeValue
 // comparisons in the compiler are structural, so sharing is unobservable.
-(g_t_unit : TypeValue) = TypeValue.Unit;
-(g_t_str : TypeValue) = TypeValue.Str;
-(g_t_bool : TypeValue) = TypeValue.BoolT;
-(g_t_void : TypeValue) = TypeValue.Void;
-(g_t_never : TypeValue) = TypeValue.Never;
-(g_t_i8 : TypeValue) = TypeValue.Int(u8(8), true);
-(g_t_i16 : TypeValue) = TypeValue.Int(u8(16), true);
-(g_t_i32 : TypeValue) = TypeValue.Int(u8(32), true);
-(g_t_i64 : TypeValue) = TypeValue.Int(u8(64), true);
-(g_t_u8 : TypeValue) = TypeValue.Int(u8(8), false);
-(g_t_u16 : TypeValue) = TypeValue.Int(u8(16), false);
-(g_t_u32 : TypeValue) = TypeValue.Int(u8(32), false);
-(g_t_u64 : TypeValue) = TypeValue.Int(u8(64), false);
-(g_t_f32 : TypeValue) = TypeValue.Float(u8(32));
-(g_t_f64 : TypeValue) = TypeValue.Float(u8(64));
-(g_t_usize : TypeValue) = TypeValue.Usize;
-(g_t_isize : TypeValue) = TypeValue.Isize;
-(g_t_comptime_int : TypeValue) = TypeValue.ComptimeInt;
-(g_t_comptime_float : TypeValue) = TypeValue.ComptimeFloat;
-(g_t_comptime_string : TypeValue) = TypeValue.ComptimeString;
-(g_t_type : TypeValue) = TypeValue.TypeUni(usize(0));
-(g_t_type_1 : TypeValue) = TypeValue.TypeUni(usize(1));
-(g_t_c_char : TypeValue) = TypeValue.CChar;
-(g_t_c_short : TypeValue) = TypeValue.CShort;
-(g_t_c_ushort : TypeValue) = TypeValue.CUShort;
-(g_t_c_int : TypeValue) = TypeValue.CInt;
-(g_t_c_uint : TypeValue) = TypeValue.CUInt;
-(g_t_c_long : TypeValue) = TypeValue.CLong;
-(g_t_c_ulong : TypeValue) = TypeValue.CULong;
-(g_t_c_longlong : TypeValue) = TypeValue.CLongLong;
-(g_t_c_ulonglong : TypeValue) = TypeValue.CULongLong;
-(g_t_c_longdouble : TypeValue) = TypeValue.CLongDouble;
+(g_t_unit : TypeValue) = rc(TypeValueNode.Unit);
+(g_t_str : TypeValue) = rc(TypeValueNode.Str);
+(g_t_bool : TypeValue) = rc(TypeValueNode.BoolT);
+(g_t_void : TypeValue) = rc(TypeValueNode.Void);
+(g_t_never : TypeValue) = rc(TypeValueNode.Never);
+(g_t_i8 : TypeValue) = rc(TypeValueNode.Int(u8(8), true));
+(g_t_i16 : TypeValue) = rc(TypeValueNode.Int(u8(16), true));
+(g_t_i32 : TypeValue) = rc(TypeValueNode.Int(u8(32), true));
+(g_t_i64 : TypeValue) = rc(TypeValueNode.Int(u8(64), true));
+(g_t_u8 : TypeValue) = rc(TypeValueNode.Int(u8(8), false));
+(g_t_u16 : TypeValue) = rc(TypeValueNode.Int(u8(16), false));
+(g_t_u32 : TypeValue) = rc(TypeValueNode.Int(u8(32), false));
+(g_t_u64 : TypeValue) = rc(TypeValueNode.Int(u8(64), false));
+(g_t_f32 : TypeValue) = rc(TypeValueNode.Float(u8(32)));
+(g_t_f64 : TypeValue) = rc(TypeValueNode.Float(u8(64)));
+(g_t_usize : TypeValue) = rc(TypeValueNode.Usize);
+(g_t_isize : TypeValue) = rc(TypeValueNode.Isize);
+(g_t_comptime_int : TypeValue) = rc(TypeValueNode.ComptimeInt);
+(g_t_comptime_float : TypeValue) = rc(TypeValueNode.ComptimeFloat);
+(g_t_comptime_string : TypeValue) = rc(TypeValueNode.ComptimeString);
+(g_t_type : TypeValue) = rc(TypeValueNode.TypeUni(usize(0)));
+(g_t_type_1 : TypeValue) = rc(TypeValueNode.TypeUni(usize(1)));
+(g_t_c_char : TypeValue) = rc(TypeValueNode.CChar);
+(g_t_c_short : TypeValue) = rc(TypeValueNode.CShort);
+(g_t_c_ushort : TypeValue) = rc(TypeValueNode.CUShort);
+(g_t_c_int : TypeValue) = rc(TypeValueNode.CInt);
+(g_t_c_uint : TypeValue) = rc(TypeValueNode.CUInt);
+(g_t_c_long : TypeValue) = rc(TypeValueNode.CLong);
+(g_t_c_ulong : TypeValue) = rc(TypeValueNode.CULong);
+(g_t_c_longlong : TypeValue) = rc(TypeValueNode.CLongLong);
+(g_t_c_ulonglong : TypeValue) = rc(TypeValueNode.CULongLong);
+(g_t_c_longdouble : TypeValue) = rc(TypeValueNode.CLongDouble);
 t_unit :: (fn() -> TypeValue)(g_t_unit);
 /// `str` — the builtin static string view (a
 /// dedicated fieldless tag; impl registry keys it by id "str").
@@ -122,9 +122,9 @@ t_c_ulong :: (fn() -> TypeValue)(g_t_c_ulong);
 t_c_longlong :: (fn() -> TypeValue)(g_t_c_longlong);
 t_c_ulonglong :: (fn() -> TypeValue)(g_t_c_ulonglong);
 t_c_longdouble :: (fn() -> TypeValue)(g_t_c_longdouble);
-t_ptr :: (fn(pointee : &TypeValue) -> TypeValue)(.Pointer(pointee));
+t_ptr :: (fn(pointee : &TypeValue) -> TypeValue)(rc(TypeValueNode.Pointer(pointee)));
 t_array :: (fn(element : &TypeValue, length : usize) -> TypeValue)(
-  .Array(element, length, String.from(""))
+  rc(TypeValueNode.Array(element, length, String.from("")))
 );
 /// Array type whose LENGTH is an unresolved generic variable (`Array(T, U)`
 /// with `U : usize` in a generic list). `length` is a placeholder 0; the
@@ -143,7 +143,7 @@ t_array_var :: (fn(element : &TypeValue, length_var : &String) -> TypeValue)({
     );
     eprintln(`[alen] ${shape} ${length_var}`);
   });
-  .Array(element, usize(0), length_var)
+  rc(TypeValueNode.Array(element, usize(0), length_var))
 });
 /// Marker prefix of a COMPUTED array length recorded at definition time
 /// (`-> Array(u8, N + usize(1))`, `Array(u8, T.BYTES * 2)`): the length
@@ -164,13 +164,13 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
     (d > usize(6)) => false,
     true => match(
       t,
-      .Array(cal_elem, _, cal_var) => cond(
+      Rc(.Array(cal_elem, _, cal_var)) => cond(
         is_computed_array_len_var(&cal_var) => true,
         true => recur(&cal_elem, d + usize(1))
       ),
-      .Pointer(cal_p) => recur(&cal_p, d + usize(1)),
-      .IsoT(cal_i) => recur(&cal_i, d + usize(1)),
-      .Tuple(_, cal_tts) => {
+      Rc(.Pointer(cal_p)) => recur(&cal_p, d + usize(1)),
+      Rc(.IsoT(cal_i)) => recur(&cal_i, d + usize(1)),
+      Rc(.Tuple(_, cal_tts)) => {
         (cal_found0 : bool) = false;
         (cal_ti : usize) = usize(0);
         while((cal_ti < cal_tts.len()) && !cal_found0, {
@@ -185,7 +185,7 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
         });
         cal_found0
       },
-      .Struct({ field_types : cal_fts }) => {
+      Rc(.Struct({ field_types : cal_fts })) => {
         (cal_found : bool) = false;
         (cal_i2 : usize) = usize(0);
         while((cal_i2 < cal_fts.len()) && !cal_found, {
@@ -200,7 +200,7 @@ _type_has_computed_array_len_d :: (fn(t : &TypeValue, d : usize) -> bool)(
         });
         cal_found
       },
-      .EnumT({ variant_fields : cal_vfs }) => {
+      Rc(.EnumT({ variant_fields : cal_vfs })) => {
         (cal_found2 : bool) = false;
         (cal_vi : usize) = usize(0);
         while((cal_vi < cal_vfs.len()) && !cal_found2, {
@@ -236,35 +236,37 @@ t_func_simple :: (
     result : &TypeValue
   ) -> TypeValue
 )(
-  .Func(
-    ArrayList(TypeValue).new(),
-    param_types,
-    ArrayList(TypeValue).new(),
-    ArrayList(TypeValue).new(),
-    result,
-    rc(
-      FuncMeta(
-        forall_labels : ArrayList(String).new(),
-        param_labels : param_labels,
-        implicit_labels : ArrayList(String).new(),
-        result_is_comptime_only : false,
-        // simple (runtime) function type
-        param_is_ref : ArrayList(bool).new(),
-        // no ref params in a synthesized type
-        param_is_owning : ArrayList(bool).new(),
-        // no own params in a synthesized type
-        result_is_ref : false,
-        has_variadic : false,
-        is_extern : Option(String).None,
-        // synthesized types are never FFI
-        extern_name : Option(String).None,
-        is_control : false // synthesized `fn` type, not `ctl`
-        ,
-        variadic_label : Option(String).None,
-        variadic_comptime : false
-      )
-    ),
-    ArrayList(TypeValue).new()
+  rc(
+    TypeValueNode.Func(
+      ArrayList(TypeValue).new(),
+      param_types,
+      ArrayList(TypeValue).new(),
+      ArrayList(TypeValue).new(),
+      result,
+      rc(
+        FuncMeta(
+          forall_labels : ArrayList(String).new(),
+          param_labels : param_labels,
+          implicit_labels : ArrayList(String).new(),
+          result_is_comptime_only : false,
+          // simple (runtime) function type
+          param_is_ref : ArrayList(bool).new(),
+          // no ref params in a synthesized type
+          param_is_owning : ArrayList(bool).new(),
+          // no own params in a synthesized type
+          result_is_ref : false,
+          has_variadic : false,
+          is_extern : Option(String).None,
+          // synthesized types are never FFI
+          extern_name : Option(String).None,
+          is_control : false // synthesized `fn` type, not `ctl`
+          ,
+          variadic_label : Option(String).None,
+          variadic_comptime : false
+        )
+      ),
+      ArrayList(TypeValue).new()
+    )
   )
 );
 /// Create a trait type with associated-type names and method/field lists.
@@ -276,11 +278,11 @@ t_trait :: (
     field_types : &ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  .TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
+  rc(TypeValueNode.TraitT(name, assoc_names, field_labels, field_types, String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new()))
 );
 /// Create a named trait type with no fields.
 t_trait_simple :: (fn(name : &String) -> TypeValue)(
-  .TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new())
+  rc(TypeValueNode.TraitT(name, ArrayList(String).new(), ArrayList(String).new(), ArrayList(TypeValue).new(), String.from(""), Option(TypeValue).None, ArrayList(TypeValue).new(), ArrayList(TypeValue).new(), ArrayList(String).new(), ArrayList(TypeValue).new()))
 );
 /// Create a module type with field lists.
 t_module :: (
@@ -292,24 +294,24 @@ t_module :: (
 )(
   // Source-namespace STRUCT — there is no separate module type.
   // plans/archive/MODULE_AS_STRUCT_ALIGNMENT.md.
-  .Struct(String.from(""), name, field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
+  rc(TypeValueNode.Struct(String.from(""), name, field_labels, field_types, false, false, false, String.from(""), ArrayList(TypeValue).new(), true))
 );
 /// Create a named module type with no fields.
 t_module_simple :: (fn(name : &String) -> TypeValue)(
-  .Struct(String.from(""), name, ArrayList(String).new(), ArrayList(TypeValue).new(), false, false, false, String.from(""), ArrayList(TypeValue).new(), true)
+  rc(TypeValueNode.Struct(String.from(""), name, ArrayList(String).new(), ArrayList(TypeValue).new(), false, false, false, String.from(""), ArrayList(TypeValue).new(), true))
 );
 // ---------------------------------------------------------------------------
 // Convenience constructors for Phase 2f variants
 // ---------------------------------------------------------------------------
-t_expr_t :: (fn() -> TypeValue)(.ExprT);
+t_expr_t :: (fn() -> TypeValue)(rc(TypeValueNode.ExprT));
 t_comptime_list :: (fn(child : &TypeValue) -> TypeValue)(
-  .ComptimeListT(child)
+  rc(TypeValueNode.ComptimeListT(child))
 );
 t_type_app :: (fn(constructor : &TypeValue, args : &ArrayList(TypeValue)) -> TypeValue)(
-  .TypeAppT(constructor, args)
+  rc(TypeValueNode.TypeAppT(constructor, args))
 );
 t_iso :: (fn(child : &TypeValue) -> TypeValue)(
-  .IsoT(child)
+  rc(TypeValueNode.IsoT(child))
 );
 /// The sort key of one trait in a `Dyn`'s trait list: its declaration id,
 /// which is fixed when the trait is built. NOT its printed name: a trait is
@@ -319,7 +321,7 @@ t_iso :: (fn(child : &TypeValue) -> TypeValue)(
 /// The printed form breaks ties between instances of one generic trait and
 /// orders the id-less `Fn` traits.
 _dyn_trait_sort_key :: (fn(t : &TypeValue) -> String)({
-  tid := match(t, .TraitT(id : i) => i, _ => String.new());
+  tid := match(t, Rc(.TraitT(id : i)) => i, _ => String.new());
   `${tid}#${type_to_string(t)}`
 });
 /// Reorder `types` (and its parallel `levels`, when it has one entry per
@@ -370,7 +372,7 @@ t_dyn :: (
   ntl := negative_trait_levels.clone();
   _sort_dyn_traits(&mut rtt, &mut rtl);
   _sort_dyn_traits(&mut ntt, &mut ntl);
-  .DynT(rtt, rtl, ntt, ntl)
+  rc(TypeValueNode.DynT(rtt, rtl, ntt, ntl))
 });
 t_dyn_simple :: (fn(required_trait_types : &ArrayList(TypeValue)) -> TypeValue)(
   t_dyn(required_trait_types, ArrayList(usize).new(), ArrayList(TypeValue).new(), ArrayList(usize).new())
@@ -387,7 +389,7 @@ t_fn_trait :: (
     call_param_is_owning : &ArrayList(bool)
   ) -> TypeValue
 )(
-  .FnTraitT(base_name, call_param_labels, call_param_types, call_result, implicit_labels, implicit_types, call_param_is_ref, call_param_is_owning)
+  rc(TypeValueNode.FnTraitT(base_name, call_param_labels, call_param_types, call_result, implicit_labels, implicit_types, call_param_is_ref, call_param_is_owning))
 );
 t_fn_trait_simple :: (
   fn(
@@ -396,7 +398,7 @@ t_fn_trait_simple :: (
     call_result : &TypeValue
   ) -> TypeValue
 )(
-  .FnTraitT(base_name, ArrayList(String).new(), call_param_types, call_result, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new(), ArrayList(bool).new())
+  rc(TypeValueNode.FnTraitT(base_name, ArrayList(String).new(), call_param_types, call_result, ArrayList(String).new(), ArrayList(TypeValue).new(), ArrayList(bool).new(), ArrayList(bool).new()))
 );
 t_future_trait :: (
   fn(
@@ -406,24 +408,26 @@ t_future_trait :: (
     effect_types : &ArrayList(TypeValue)
   ) -> TypeValue
 )(
-  .FutureTraitT(base_name, output, effect_labels, effect_types)
+  rc(TypeValueNode.FutureTraitT(base_name, output, effect_labels, effect_types))
 );
 t_future_trait_simple :: (fn(base_name : &String, output : &TypeValue) -> TypeValue)(
-  .FutureTraitT(base_name, output, ArrayList(String).new(), ArrayList(TypeValue).new())
+  rc(TypeValueNode.FutureTraitT(base_name, output, ArrayList(String).new(), ArrayList(TypeValue).new()))
 );
 /// Create an unconstrained SomeType (generic type variable).
 t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
-  .SomeT(
-    generate_some_type_id(),
-    name,
-    frame_level,
-    .TypeUni(usize(0)),
-    ArrayList(TypeValue).new(),
-    ArrayList(usize).new(),
-    ArrayList(TypeValue).new(),
-    ArrayList(usize).new(),
-    Option(TypeValue).None,
-    Option(TypeValue).None
+  rc(
+    TypeValueNode.SomeT(
+      generate_some_type_id(),
+      name,
+      frame_level,
+      rc(TypeValueNode.TypeUni(usize(0))),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
+      Option(TypeValue).None,
+      Option(TypeValue).None
+    )
   )
 );
 /// The type a `dyn(...)` payload is evaluated against when its target is
@@ -434,24 +438,28 @@ t_some_t :: (fn(name : &String, frame_level : usize) -> TypeValue)(
 t_dyn_payload_wrapper :: (fn(dyn_ty : &TypeValue, frame_level : usize) -> Option(TypeValue))(
   match(
     dyn_ty,
-    .DynT(
-      required_trait_types : dpw_rtt,
-      required_trait_levels : dpw_rtl,
-      negative_trait_types : dpw_ntt,
-      negative_trait_levels : dpw_ntl
+    Rc(
+      .DynT(
+        required_trait_types : dpw_rtt,
+        required_trait_levels : dpw_rtl,
+        negative_trait_types : dpw_ntt,
+        negative_trait_levels : dpw_ntl
+      )
     ) =>
       Option(TypeValue).Some(
-        TypeValue.SomeT(
-          generate_some_type_id(),
-          String.from(""),
-          frame_level,
-          TypeValue.TypeUni(usize(0)),
-          dpw_rtt,
-          dpw_rtl,
-          dpw_ntt,
-          dpw_ntl,
-          Option(TypeValue).None,
-          Option(TypeValue).None
+        rc(
+          TypeValueNode.SomeT(
+            generate_some_type_id(),
+            String.from(""),
+            frame_level,
+            rc(TypeValueNode.TypeUni(usize(0))),
+            dpw_rtt,
+            dpw_rtl,
+            dpw_ntt,
+            dpw_ntl,
+            Option(TypeValue).None,
+            Option(TypeValue).None
+          )
         )
       ),
     _ => Option(TypeValue).None
@@ -464,17 +472,19 @@ t_dyn_payload_wrapper :: (fn(dyn_ty : &TypeValue, frame_level : usize) -> Option
 t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
   match(
     t,
-    .SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _) => TypeValue.SomeT(
-      wr_id,
-      wr_nm,
-      wr_fl,
-      wr_pt,
-      wr_rtt,
-      wr_rtl,
-      wr_ntt,
-      wr_ntl,
-      wr_kft,
-      Option(TypeValue).Some(concrete)
+    Rc(.SomeT(wr_id, wr_nm, wr_fl, wr_pt, wr_rtt, wr_rtl, wr_ntt, wr_ntl, wr_kft, _)) => rc(
+      TypeValueNode.SomeT(
+        wr_id,
+        wr_nm,
+        wr_fl,
+        wr_pt,
+        wr_rtt,
+        wr_rtl,
+        wr_ntt,
+        wr_ntl,
+        wr_kft,
+        Option(TypeValue).Some(concrete)
+      )
     ),
     _ => t
   )
@@ -484,7 +494,7 @@ t_with_resolution :: (fn(t : &TypeValue, concrete : &TypeValue) -> TypeValue)(
 t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
   match(
     ft,
-    .Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt) => TypeValue.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt),
+    Rc(.Func(fr_ft, fr_pt, fr_it, fr_wt, _, fr_meta, fr_vt)) => rc(TypeValueNode.Func(fr_ft, fr_pt, fr_it, fr_wt, result, fr_meta, fr_vt)),
     _ => ft
   )
 );
@@ -492,7 +502,7 @@ t_with_func_result :: (fn(ft : &TypeValue, result : &TypeValue) -> TypeValue)(
 /// (types/definitions.yo `ExternOpaqueT`). `c_name` is its C spelling; the
 /// label is its own spelling when no `c_type("...")` is given.
 t_extern_opaque :: (fn(name : &String, c_name : &String) -> TypeValue)(
-  TypeValue.ExternOpaqueT(name, cond((c_name.len() > usize(0)) => c_name, true => name.clone()))
+  rc(TypeValueNode.ExternOpaqueT(name, cond((c_name.len() > usize(0)) => c_name, true => name.clone())))
 );
 /// Per-call SomeT minting (§7 step 3's cure, issues/fixed/
 /// warm-test-batches-doc-stability-genericimplentry.md): rebuild `s` with a
@@ -507,17 +517,19 @@ t_extern_opaque :: (fn(name : &String, c_name : &String) -> TypeValue)(
 clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
   match(
     s,
-    .SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, skind, _) => .SomeT(
-      generate_some_type_id(),
-      snm,
-      sfl,
-      spt,
-      sreq,
-      sreql,
-      sneg,
-      snegl,
-      skind,
-      Option(TypeValue).None
+    Rc(.SomeT(sid, snm, sfl, spt, sreq, sreql, sneg, snegl, skind, _)) => rc(
+      TypeValueNode.SomeT(
+        generate_some_type_id(),
+        snm,
+        sfl,
+        spt,
+        sreq,
+        sreql,
+        sneg,
+        snegl,
+        skind,
+        Option(TypeValue).None
+      )
     ),
     _ => s
   )
@@ -528,17 +540,19 @@ clone_some_fresh :: (fn(s : &TypeValue) -> TypeValue)(
 /// when binding HKT-kinded
 /// generic params so `F(A)` can later be evaluated as a TypeApplication.
 t_some_t_with_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue) -> TypeValue)(
-  .SomeT(
-    generate_some_type_id(),
-    name,
-    frame_level,
-    .TypeUni(usize(0)),
-    ArrayList(TypeValue).new(),
-    ArrayList(usize).new(),
-    ArrayList(TypeValue).new(),
-    ArrayList(usize).new(),
-    Option(TypeValue).Some(kind),
-    Option(TypeValue).None
+  rc(
+    TypeValueNode.SomeT(
+      generate_some_type_id(),
+      name,
+      frame_level,
+      rc(TypeValueNode.TypeUni(usize(0))),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
+      ArrayList(TypeValue).new(),
+      ArrayList(usize).new(),
+      Option(TypeValue).Some(kind),
+      Option(TypeValue).None
+    )
   )
 );
 // ---------------------------------------------------------------------------
@@ -547,11 +561,11 @@ t_some_t_with_kind :: (fn(name : &String, frame_level : usize, kind : &TypeValue
 type_value_tag :: (fn(t : &TypeValue) -> TypeTag)(
   match(
     t_refine_inner(t),
-    .Unit => TypeTag.TUnit,
-    .BoolT => TypeTag.TBool,
-    .Void => TypeTag.TVoid,
-    .Never => TypeTag.TNever,
-    .Int(bits, signed) => cond(
+    Rc(.Unit) => TypeTag.TUnit,
+    Rc(.BoolT) => TypeTag.TBool,
+    Rc(.Void) => TypeTag.TVoid,
+    Rc(.Never) => TypeTag.TNever,
+    Rc(.Int(bits, signed)) => cond(
       signed => cond(
         (bits == u8(8)) => TypeTag.TI8,
         (bits == u8(16)) => TypeTag.TI16,
@@ -565,47 +579,47 @@ type_value_tag :: (fn(t : &TypeValue) -> TypeTag)(
         true => TypeTag.TU64
       )
     ),
-    .Float(bits) => cond(
+    Rc(.Float(bits)) => cond(
       (bits == u8(32)) => TypeTag.TF32,
       true => TypeTag.TF64
     ),
-    .Usize => TypeTag.TUsize,
-    .Isize => TypeTag.TIsize,
-    .ComptimeInt => TypeTag.TComptimeInt,
-    .ComptimeFloat => TypeTag.TComptimeFloat,
-    .ComptimeString => TypeTag.TComptimeString,
-    .CChar => TypeTag.TCChar,
-    .CShort => TypeTag.TCShort,
-    .CUShort => TypeTag.TCUShort,
-    .CInt => TypeTag.TCInt,
-    .CUInt => TypeTag.TCUInt,
-    .CLong => TypeTag.TCLong,
-    .CULong => TypeTag.TCULong,
-    .CLongLong => TypeTag.TCLongLong,
-    .CULongLong => TypeTag.TCULongLong,
-    .CLongDouble => TypeTag.TCLongDouble,
-    .TypeUni(_) => TypeTag.TType,
-    .Pointer(_) => TypeTag.TPtr,
-    .Str => TypeTag.TStr,
-    .Array(_, _, _) => TypeTag.TArray,
-    .Tuple(_, _) => TypeTag.TTuple,
-    .Func({ result : _ }) => TypeTag.TFunction,
+    Rc(.Usize) => TypeTag.TUsize,
+    Rc(.Isize) => TypeTag.TIsize,
+    Rc(.ComptimeInt) => TypeTag.TComptimeInt,
+    Rc(.ComptimeFloat) => TypeTag.TComptimeFloat,
+    Rc(.ComptimeString) => TypeTag.TComptimeString,
+    Rc(.CChar) => TypeTag.TCChar,
+    Rc(.CShort) => TypeTag.TCShort,
+    Rc(.CUShort) => TypeTag.TCUShort,
+    Rc(.CInt) => TypeTag.TCInt,
+    Rc(.CUInt) => TypeTag.TCUInt,
+    Rc(.CLong) => TypeTag.TCLong,
+    Rc(.CULong) => TypeTag.TCULong,
+    Rc(.CLongLong) => TypeTag.TCLongLong,
+    Rc(.CULongLong) => TypeTag.TCULongLong,
+    Rc(.CLongDouble) => TypeTag.TCLongDouble,
+    Rc(.TypeUni(_)) => TypeTag.TType,
+    Rc(.Pointer(_)) => TypeTag.TPtr,
+    Rc(.Str) => TypeTag.TStr,
+    Rc(.Array(_, _, _)) => TypeTag.TArray,
+    Rc(.Tuple(_, _)) => TypeTag.TTuple,
+    Rc(.Func({ result : _ })) => TypeTag.TFunction,
     // Source-namespace structs keep the TModule tag (TypeTag is internal).
-    .Struct({ is_source_namespace : sns_tag }) => cond(sns_tag => TypeTag.TModule, true => TypeTag.TStruct),
-    .EnumT(_, _, _, _, _, _, _, _, _, _) => TypeTag.TEnum,
-    .Union(_, _, _) => TypeTag.TUnion,
-    .TraitT(name : _) => TypeTag.TTrait,
-    .SomeT(name : _) => TypeTag.TSomeType,
-    .ExprT => TypeTag.TExpr,
-    .ComptimeListT(_) => TypeTag.TComptimeList,
-    .TypeAppT(_, _) => TypeTag.TTypeApplication,
-    .IsoT(_) => TypeTag.TIso,
-    .DynT(_, _, _, _) => TypeTag.TDyn,
-    .FnTraitT(base_name : _) => TypeTag.TTrait,
-    .FutureTraitT(base_name : _) => TypeTag.TTrait,
+    Rc(.Struct({ is_source_namespace : sns_tag })) => cond(sns_tag => TypeTag.TModule, true => TypeTag.TStruct),
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => TypeTag.TEnum,
+    Rc(.Union(_, _, _)) => TypeTag.TUnion,
+    Rc(.TraitT(name : _)) => TypeTag.TTrait,
+    Rc(.SomeT(name : _)) => TypeTag.TSomeType,
+    Rc(.ExprT) => TypeTag.TExpr,
+    Rc(.ComptimeListT(_)) => TypeTag.TComptimeList,
+    Rc(.TypeAppT(_, _)) => TypeTag.TTypeApplication,
+    Rc(.IsoT(_)) => TypeTag.TIso,
+    Rc(.DynT(_, _, _, _)) => TypeTag.TDyn,
+    Rc(.FnTraitT(base_name : _)) => TypeTag.TTrait,
+    Rc(.FutureTraitT(base_name : _)) => TypeTag.TTrait,
     // V6 task 3: a refinement's tag IS its inner's tag (erasure).
-    .RefineT(inner, _) => type_value_tag(&inner),
-    .ExternOpaqueT(_, _) => TypeTag.TExternOpaque
+    Rc(.RefineT(inner, _)) => type_value_tag(&inner),
+    Rc(.ExternOpaqueT(_, _)) => TypeTag.TExternOpaque
   )
 );
 /// True if `visited` already holds `tok` (linear scan — the set stays small:
@@ -643,7 +657,7 @@ _contains_self_shell :: (
 )(
   match(
     t,
-    .EnumT({ id, variant_names, variant_fields, type_arguments }) => cond(
+    Rc(.EnumT({ id, variant_names, variant_fields, type_arguments })) => cond(
       ((id == shell_id) && (variant_names.len() == usize(0))) => true,
       true => {
         tok := String.from("E:");
@@ -673,7 +687,7 @@ _contains_self_shell :: (
         hit
       }
     ),
-    .Struct({ id, field_types, type_arguments }) => cond(
+    Rc(.Struct({ id, field_types, type_arguments })) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => true,
       true => {
         tok := String.from("S:");
@@ -698,9 +712,9 @@ _contains_self_shell :: (
         hit
       }
     ),
-    .Pointer(inner) => recur(&inner, shell_id, visited),
-    .Array(el, _, _) => recur(&el, shell_id, visited),
-    .ComptimeListT(el) => recur(&el, shell_id, visited),
+    Rc(.Pointer(inner)) => recur(&inner, shell_id, visited),
+    Rc(.Array(el, _, _)) => recur(&el, shell_id, visited),
+    Rc(.ComptimeListT(el)) => recur(&el, shell_id, visited),
     _ => false
   )
 );
@@ -729,7 +743,7 @@ _patch_self_shell_guarded :: (
 )(
   match(
     t,
-    .EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, type_arguments }) => cond(
+    Rc(.EnumT({ id, name, variant_names, variant_fields, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, type_arguments })) => cond(
       ((id == shell_id) && (variant_names.len() == usize(0))) => final_ty,
       // Recurse into every variant field so a shell nested inside a generic
       // enum instantiation (e.g. `Option(Self)` / `Result(Self, E)`) is patched
@@ -765,13 +779,13 @@ _patch_self_shell_guarded :: (
           new_etas.push(recur(&ta, shell_id, final_ty, visited));
           ti = (ti + usize(1));
         });
-        .EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, new_etas)
+        rc(TypeValueNode.EnumT(id, name, variant_names, new_vfs, selected_variant_name, variant_field_labels, variant_discriminants, is_reference_semantics, is_atomic_rc, new_etas))
       }
     ),
-    .Pointer(inner) => .Pointer(recur(&inner, shell_id, final_ty, visited)),
-    .Array(el, n, lv) => .Array(recur(&el, shell_id, final_ty, visited), n, lv),
-    .ComptimeListT(el) => .ComptimeListT(recur(&el, shell_id, final_ty, visited)),
-    .Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace }) => cond(
+    Rc(.Pointer(inner)) => rc(TypeValueNode.Pointer(recur(&inner, shell_id, final_ty, visited))),
+    Rc(.Array(el, n, lv)) => rc(TypeValueNode.Array(recur(&el, shell_id, final_ty, visited), n, lv)),
+    Rc(.ComptimeListT(el)) => rc(TypeValueNode.ComptimeListT(recur(&el, shell_id, final_ty, visited))),
+    Rc(.Struct({ id, name, field_labels, field_types, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, type_arguments, is_source_namespace })) => cond(
       ((id == shell_id) && (field_types.len() == usize(0))) => final_ty,
       true => {
         tok := String.from("S:");
@@ -795,7 +809,7 @@ _patch_self_shell_guarded :: (
           new_tas.push(recur(&ta, shell_id, final_ty, visited));
           j = (j + usize(1));
         });
-        .Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace)
+        rc(TypeValueNode.Struct(id, name, field_labels, new_fts, is_reference_semantics, is_atomic_rc, is_newtype, constructor_func_id, new_tas, is_source_namespace))
       }
     ),
     _ => t
@@ -822,11 +836,16 @@ _patch_self_shell :: (
 // side, std/encoding/json.yo). The registry lets use sites swap a shell
 // for its final form BY ID — the value-semantics stand-in for mutating one
 // shared object in place.
-EnumFinalEntry :: struct(enum_id : String, ty : TypeValue);
-(g_enum_finals : ArrayList(EnumFinalEntry)) = ArrayList(EnumFinalEntry).new();
+/// Keyed by enum id; the FIRST registration wins (the list this replaced was
+/// scanned front to back). A map because a recursive value enum's `Rc(Self)`
+/// children stay shells inside nested containers, so type walks resolve
+/// shells constantly: the linear scan was the top frame of `check` on a
+/// `TypeValue :: Rc(TypeValueNode)` tree (plans/VALUES_BY_DEFAULT.md decision
+/// 21's "As built" note), as the struct registry below was before it.
+(g_enum_finals : HashMap(String, TypeValue)) = HashMap(String, TypeValue).new();
 register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
-  if(enum_id.len() > usize(0), {
-    g_enum_finals.push(EnumFinalEntry(enum_id : enum_id, ty : ty));
+  if((enum_id.len() > usize(0)) && g_enum_finals.get(enum_id).is_none(), {
+    g_enum_finals.insert(enum_id, ty);
   });
 });
 /// Resolve an empty-variant EnumT shell to its finalized form (no-op for
@@ -834,24 +853,11 @@ register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
 resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    .EnumT(eid, _, vns, _, _, _, _, _, _, _) => {
+    Rc(.EnumT(eid, _, vns, _, _, _, _, _, _, _)) => {
       if(vns.len() > usize(0), {
         return(t);
       });
-      (i : usize) = usize(0);
-      n := g_enum_finals.len();
-      (r : Option(TypeValue)) = Option(TypeValue).None;
-      while((i < n) && r.is_none(), {
-        match(
-          g_enum_finals.get(i),
-          .Some(e) => if(e.enum_id == eid, {
-            r = Option(TypeValue).Some(e.ty);
-          }),
-          .None => ()
-        );
-        i = (i + usize(1));
-      });
-      match(r, .Some(f) => f, .None => t)
+      match(g_enum_finals.get(&eid), .Some(f) => f, .None => t)
     },
     _ => t
   )
@@ -927,27 +933,18 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &ArrayList(Type
   });
   _register_enum_phantom_positions(enum_id.clone(), phantom.clone());
   shell_key := `${enum_id}__self_shell`;
-  (i : usize) = usize(0);
-  n := g_enum_finals.len();
-  while(i < n, {
-    match(
-      g_enum_finals.get(i),
-      .Some(e) => if(e.enum_id == shell_key, {
-        match(
-          e.ty,
-          .EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas) => if(ftas.len() == usize(0), {
-            _register_enum_phantom_positions(fid.clone(), phantom.clone());
-            _old := g_enum_finals.remove(i);
-            g_enum_finals.insert(i, EnumFinalEntry(enum_id : shell_key, ty : TypeValue.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args)));
-          }),
-          _ => ()
-        );
-        return(());
+  match(
+    g_enum_finals.get(&shell_key),
+    .Some(final_ty) => match(
+      final_ty,
+      Rc(.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas)) => if(ftas.len() == usize(0), {
+        _register_enum_phantom_positions(fid.clone(), phantom.clone());
+        _ := g_enum_finals.insert(shell_key, rc(TypeValueNode.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args)));
       }),
-      .None => ()
-    );
-    i = (i + usize(1));
-  });
+      _ => ()
+    ),
+    .None => ()
+  );
 });
 // Struct finalization side-table: `struct_id -> finalized Struct`. During a
 // struct's own definition `Self` is bound to a PRELIMINARY empty-field shell
@@ -974,7 +971,7 @@ register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
 resolve_struct_shell :: (fn(t : &TypeValue) -> TypeValue)(
   match(
     t,
-    .Struct({ id : sid, field_types : fts }) => cond(
+    Rc(.Struct({ id : sid, field_types : fts })) => cond(
       (fts.len() > usize(0)) => t,
       true => match(g_struct_finals.get(&sid), .Some(f) => f, .None => t)
     ),

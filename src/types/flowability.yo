@@ -43,7 +43,7 @@
 { Exception, AnyError } :: import("std/error");
 { is_type_val } :: import("../value.yo");
 { EvalContext } :: import("../evaluator/context.yo");
-{ TypeValue } :: import("./definitions.yo");
+{ TypeValue, TypeValueNode } :: import("./definitions.yo");
 { is_function_type, is_reference_struct_type, is_atomic_reference_struct_type, is_pointer_type } :: import("./guards.yo");
 { expr_info_adopt_env, expr_info_capture_type, expr_info_index_trait_ptr_type, expr_info_is_anonymous_function_definition } :: import("../expr_info.yo");
 { type_may_provide_slice_source, type_representation_contains_raw_ptr, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy }
@@ -520,15 +520,15 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
     return(false);
   });
   // Extract the Func's return/ref/param info.
-  is_ref_return := match(callee_ty, .Func({ meta : __fm1 }) => __fm1.*.result_is_ref, _ => false);
-  ret_ty := match(callee_ty, .Func({ result : rb }) => rb, _ => TypeValue.Unit);
+  is_ref_return := match(callee_ty, Rc(.Func({ meta : __fm1 })) => __fm1.*.result_is_ref, _ => false);
+  ret_ty := match(callee_ty, Rc(.Func({ result : rb })) => rb, _ => rc(TypeValueNode.Unit));
   _slice_pre := (opts.allow_parameter_source && !is_ref_return);
   is_slice_return := (_slice_pre && type_representation_contains_raw_ptr(&ret_ty));
   if(!is_ref_return && !is_slice_return, {
     return(false);
   });
-  param_types := match(callee_ty, .Func({ param_types : pts }) => pts, _ => ArrayList(TypeValue).new());
-  param_is_ref := match(callee_ty, .Func({ meta : __fm2 }) => __fm2.*.param_is_ref, _ => ArrayList(bool).new());
+  param_types := match(callee_ty, Rc(.Func({ param_types : pts })) => pts, _ => ArrayList(TypeValue).new());
+  param_is_ref := match(callee_ty, Rc(.Func({ meta : __fm2 })) => __fm2.*.param_is_ref, _ => ArrayList(bool).new());
   // Build the effective argument list (receiver as implicit arg 0 for methods).
   eff_args := ArrayList(AstExpr).new();
   if(is_method_call, {
@@ -558,7 +558,7 @@ is_flowable_expr :: (fn(expr_in : &AstExpr, ctx : &EvalContext, opts : &FlowOpti
   (all_ok : bool) = true;
   while((pi < param_types.len()) && all_ok, {
     p_is_ref := match(param_is_ref.get(pi), .Some(b) => b, .None => false);
-    p_ty := match(param_types.get(pi), .Some(t) => t, .None => TypeValue.Unit);
+    p_ty := match(param_types.get(pi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     _slice_src := (is_slice_return && type_may_provide_slice_source(&p_ty));
     needs_check := (p_is_ref || _slice_src);
     if(needs_check, {

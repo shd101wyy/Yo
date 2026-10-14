@@ -33,7 +33,7 @@
   Environment,
   get_variables_from_env
 } :: import("../../env.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
 { get_trait_type_from_env } :: import("../../types/env_lookup.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -174,7 +174,7 @@ _raise_capture_trait_violation :: (
 _capture_judgement_type :: (fn(ty : &TypeValue, value : &Option(EvalValue)) -> Option(TypeValue))(
   match(
     ty,
-    .SomeT({ id : _ }) => match(
+    Rc(.SomeT({ id : _ })) => match(
       some_resolution(ty),
       .Some(c) => Option(TypeValue).Some(c),
       .None => match(
@@ -219,7 +219,7 @@ _capture_judgement_type :: (fn(ty : &TypeValue, value : &Option(EvalValue)) -> O
 _declared_bound_requires :: (fn(ty : &TypeValue, trait_type : &TypeValue) -> bool)(
   match(
     ty,
-    .SomeT({ required_trait_types : dbr_rtts }) => {
+    Rc(.SomeT({ required_trait_types : dbr_rtts })) => {
       want := type_to_string(trait_type);
       (dbr_i : usize) = usize(0);
       (dbr_found : bool) = false;
@@ -265,10 +265,10 @@ _declared_bound_requires :: (fn(ty : &TypeValue, trait_type : &TypeValue) -> boo
 /// struct, it would be `Send` whatever its code reaches.
 (g_closure_fids_by_capture : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
 _some_id_of :: (fn(ty : &TypeValue) -> String)(
-  match(ty, .SomeT(sid, _, _, _, _, _, _, _, _, _) => sid, _ => String.new())
+  match(ty, Rc(.SomeT(sid, _, _, _, _, _, _, _, _, _)) => sid, _ => String.new())
 );
 _capture_id_of :: (fn(ty : &TypeValue) -> String)(
-  if(is_closure_capture_struct(ty), match(ty, .Struct({ id : cid }) => cid, _ => String.new()), String.new())
+  if(is_closure_capture_struct(ty), match(ty, Rc(.Struct({ id : cid })) => cid, _ => String.new()), String.new())
 );
 _note_fid_for_some_id :: (fn(sid : &String, fid : &String) -> unit)(_note_fid_in(&mut g_closure_fids_by_some, sid, fid));
 _note_fid_in :: (fn(registry : &mut HashMap(String, ArrayList(String)), sid : &String, fid : &String) -> unit)({
@@ -418,7 +418,7 @@ record_closure_capture_verdicts :: (
 _declares_marker :: (fn(ty : &TypeValue, marker : &TypeValue) -> bool)(
   match(
     ty,
-    .SomeT({ required_trait_types : rtts }) => {
+    Rc(.SomeT({ required_trait_types : rtts })) => {
       want := type_to_string(marker);
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -469,7 +469,7 @@ _function_value_offense :: (
     return(Option(String).None);
   });
   // An extern runs no Yo code.
-  (is_extern : bool) = match(get_func_type(fid.clone()), .Func({ meta : fm }) => fm.*.extern_name.is_some(), _ => false);
+  (is_extern : bool) = match(get_func_type(fid.clone()), Rc(.Func({ meta : fm })) => fm.*.extern_name.is_some(), _ => false);
   if(is_extern, {
     return(Option(String).None);
   });
@@ -502,7 +502,7 @@ _closure_copy_offense :: (fn(ty : &TypeValue, trait_name : &String, env : &Envir
   trait_tt := get_trait_type_from_env(env, trait_name.clone());
   match(
     resolve_cell_chain(ty),
-    .Struct({ field_labels : co_labels, field_types : co_fields }) => {
+    Rc(.Struct({ field_labels : co_labels, field_types : co_fields })) => {
       (i : usize) = usize(0);
       while(i < co_fields.len(), {
         ft := match(co_fields.get(i), .Some(f) => f, .None => t_unit());
@@ -693,7 +693,7 @@ validate_send_closure_global_reach :: (
   // `Sync` closure slot as well as a `Send` one (decision 38 E).
   thread_marker := match(
     wrapper_type,
-    .SomeT({ required_trait_types : rtts }) => {
+    Rc(.SomeT({ required_trait_types : rtts })) => {
       (found : String) = String.new();
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
@@ -761,7 +761,7 @@ validate_capture_trait_requirements :: (
 )({
   match(
     wrapper_type,
-    .SomeT({ required_trait_types : rtts }) => {
+    Rc(.SomeT({ required_trait_types : rtts })) => {
       (ti : usize) = usize(0);
       while(ti < rtts.len(), ti = (ti + usize(1)), {
         trait_type := rtts(ti);
@@ -831,7 +831,7 @@ validate_capture_trait_requirements :: (
             details := String.new();
             match(
               capture_type,
-              .Struct({ field_labels : fls, field_types : fts }) => {
+              Rc(.Struct({ field_labels : fls, field_types : fts })) => {
                 (fi : usize) = usize(0);
                 while(fi < fls.len(), fi = (fi + usize(1)), {
                   match(
@@ -1073,7 +1073,7 @@ create_capture_type_and_value :: (
           field_types.get(csi),
           .Some(ck_t) => match(
             ck_t,
-            .SomeT({ id : ck_sid, resolution : ck_rc }) => {
+            Rc(.SomeT({ id : ck_sid, resolution : ck_rc })) => {
               cap_key.push_str("@res:");
               match(
                 ck_rc,
@@ -1139,17 +1139,19 @@ create_capture_type_and_value :: (
         .None => ()
       );
       // Build the capture struct TypeValue.
-      capture_ty := TypeValue.Struct(
-        struct_id.clone(),
-        String.from(""),
-        field_labels,
-        field_types,
-        false,
-        false,
-        false,
-        String.from(""),
-        ArrayList(TypeValue).new(),
-        false
+      capture_ty := rc(
+        TypeValueNode.Struct(
+          struct_id.clone(),
+          String.from(""),
+          field_labels,
+          field_types,
+          false,
+          false,
+          false,
+          String.from(""),
+          ArrayList(TypeValue).new(),
+          false
+        )
       );
       // Auto-derive trait markers for the capture struct.
       auto_derive_traits_for_struct_type(
@@ -1360,7 +1362,7 @@ closure_identity_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
     });
     match(
       cur,
-      .SomeT({ resolution : ci_res }) => match(
+      Rc(.SomeT({ resolution : ci_res })) => match(
         ci_res,
         .Some(next) => {
           cur = next;
@@ -1472,7 +1474,7 @@ structural_clone_expansion :: (
   closure_ty := closure_identity_of(recv_ty);
   (fields_labels, fields_types) := match(
     target,
-    .Struct({ field_labels : sc_labels, field_types : sc_types }) => (sc_labels, sc_types),
+    Rc(.Struct({ field_labels : sc_labels, field_types : sc_types })) => (sc_labels, sc_types),
     _ => {
       return(Option(AstExpr).None);
     }
@@ -1571,7 +1573,7 @@ evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &Eva
   idx := match(ast_expr_token(&idx_e).value.parse_i64(), .Some(n) => usize(n), .None => usize(0));
   field_ty := match(
     cap,
-    .Struct({ field_types : cf_types }) => match(cf_types.get(idx), .Some(t) => t, .None => t_unit()),
+    Rc(.Struct({ field_types : cf_types })) => match(cf_types.get(idx), .Some(t) => t, .None => t_unit()),
     _ => {
       exn.throw(dyn(format_error_message(ast_expr_token(expr), `__yo_capture_field: ${type_to_string(&recv_ty)} is not a closure`)));
       t_unit()

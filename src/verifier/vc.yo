@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   make_err_expr
 } :: import("../expr.yo");
 { lookup_method_callee_value, ExprInfo, ExprInfoTable, expr_info_table_get, expr_info_macro_expansion } :: import("../expr_info.yo");
-{ TypeValue, t_refine_inner } :: import("../types/definitions.yo");
+{ TypeValue, TypeValueNode, t_refine_inner } :: import("../types/definitions.yo");
 { canonical_module_path } :: import("../utils.yo");
 { get_current_target } :: import("../target.yo");
 { EvalValue, is_func_val } :: import("../value.yo");
@@ -260,7 +260,7 @@ register_recursion_cliques :: (fn(tasks : &ArrayList(VerifyTask)) -> unit)({
 _is_bool_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .BoolT => true,
+    Rc(.BoolT) => true,
     _ => false
   )
 );
@@ -268,9 +268,9 @@ _is_bool_type :: (fn(t : &TypeValue) -> bool)(
 _int_width :: (fn(t : &TypeValue) -> Option(usize))(
   match(
     t_refine_inner(t),
-    .Int({ bits : b }) => Option(usize).Some(usize(b)),
-    .Usize => Option(usize).Some(_pointer_width()),
-    .Isize => Option(usize).Some(_pointer_width()),
+    Rc(.Int({ bits : b })) => Option(usize).Some(usize(b)),
+    Rc(.Usize) => Option(usize).Some(_pointer_width()),
+    Rc(.Isize) => Option(usize).Some(_pointer_width()),
     _ => Option(usize).None
   )
 );
@@ -283,8 +283,8 @@ _pointer_width :: (fn() -> usize)(
 _int_is_signed :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
-    .Int({ signed : s }) => s,
-    .Isize => true,
+    Rc(.Int({ signed : s })) => s,
+    Rc(.Isize) => true,
     _ => false
   )
 );
@@ -340,7 +340,7 @@ _lex_components :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 _list_elem_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t_refine_inner(t),
-    .Struct({ id : ls_id, name : ls_name, field_labels : ls_fls, is_reference_semantics : ls_ref, type_arguments : ls_targs }) => cond(
+    Rc(.Struct({ id : ls_id, name : ls_name, field_labels : ls_fls, is_reference_semantics : ls_ref, type_arguments : ls_targs })) => cond(
       (ls_ref && (ls_targs.len() == usize(1)) && _is_array_list_shape(&ls_id, &ls_name, &ls_fls)) => ls_targs.get(usize(0)),
       true => Option(TypeValue).None
     ),
@@ -521,7 +521,7 @@ _type_sort :: (fn(t : &TypeValue) -> Option(VcSort))(
         // (generic-length) array is outside the subset.
         true => match(
           t_refine_inner(t),
-          .Array(elem, len, lv) => cond(
+          Rc(.Array(elem, len, lv)) => cond(
             ((lv.len() == usize(0)) && (len > usize(0))) => match(
               _type_sort(&elem),
               .Some(es) => Option(VcSort).Some(VcSort.ArrS(elem : es, len : len)),
@@ -540,7 +540,7 @@ _type_sort :: (fn(t : &TypeValue) -> Option(VcSort))(
 _enum_sort_or_none :: (fn(t : &TypeValue) -> Option(VcSort))(
   match(
     t,
-    .EnumT({ id : e_id, is_reference_semantics : e_ref }) => cond(
+    Rc(.EnumT({ id : e_id, is_reference_semantics : e_ref })) => cond(
       (e_ref || (e_id.len() == usize(0))) => Option(VcSort).None,
       true => Option(VcSort).Some(VcSort.DataS(name : _enum_dt_name(e_id.clone())))
     ),
@@ -581,7 +581,7 @@ _register_uninterpreted_sort :: (fn(name : &String) -> unit)({
 _is_some_t_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .SomeT(_, _, _, _, _, _, _, _, _, _) => true,
+    Rc(.SomeT(_, _, _, _, _, _, _, _, _, _)) => true,
     _ => false
   )
 );
@@ -593,7 +593,7 @@ _is_some_t_type :: (fn(t : &TypeValue) -> bool)(
 _uninterpreted_sort_of :: (fn(t : &TypeValue) -> VcSort)(
   match(
     t,
-    .SomeT(id, name, _, _, _, _, _, _, _, _) => VcSort.Uninterpreted(
+    Rc(.SomeT(id, name, _, _, _, _, _, _, _, _)) => VcSort.Uninterpreted(
       name : `__yo_T_${_smt_sanitize(`${name}_${id}`)}`
     ),
     _ => VcSort.Uninterpreted(name : String.from("__yo_T_unknown"))
@@ -2040,13 +2040,15 @@ _expr_term :: (fn(ctx : &mut VcCtx, e : &AstExpr) -> Option(VcTerm))({
 _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
   match(
     t,
-    .EnumT({
-      id : e_id,
-      variant_names : e_names,
-      variant_fields : e_fields,
-      variant_field_labels : e_labels,
-      is_reference_semantics : e_ref
-    }) => {
+    Rc(
+      .EnumT({
+        id : e_id,
+        variant_names : e_names,
+        variant_fields : e_fields,
+        variant_field_labels : e_labels,
+        is_reference_semantics : e_ref
+      })
+    ) => {
       if(!e_ref && (e_id.len() > usize(0)), {
         dt := _enum_dt_name(e_id.clone());
         already := _dt_registered(&ctx.datatypes, dt.clone());
@@ -2070,7 +2072,7 @@ _note_enum_datatype :: (fn(ctx : &mut VcCtx, t : &TypeValue) -> unit)(
               sb.write_byte(u8(0x28));
               (fi : usize) = usize(0);
               while(fi < vfs.len(), {
-                fty := match(vfs.get(fi), .Some(x) => x, .None => TypeValue.Unit);
+                fty := match(vfs.get(fi), .Some(x) => x, .None => rc(TypeValueNode.Unit));
                 flabel := match(
                   vls.get(fi),
                   .Some(fl) => fl.clone(),
@@ -2140,7 +2142,7 @@ _dt_registered :: (fn(entries : &ArrayList(String), dt : &String) -> bool)({
 _is_value_enum_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .EnumT({ id : e_id, is_reference_semantics : e_ref }) => (!e_ref && (e_id.len() > usize(0))),
+    Rc(.EnumT({ id : e_id, is_reference_semantics : e_ref })) => (!e_ref && (e_id.len() > usize(0))),
     _ => false
   )
 );
@@ -2159,7 +2161,7 @@ _callee_is_atom :: (fn(e : &AstExpr) -> bool)(
 _qualified_nullary_variant :: (fn(info : &ExprInfo, dot_args : &ArrayList(AstExpr)) -> Option(AstExpr))(
   match(
     info.ty,
-    .EnumT({ variant_names : q_names }) => cond(
+    Rc(.EnumT({ variant_names : q_names })) => cond(
       (dot_args.len() != usize(2)) => Option(AstExpr).None,
       !(ast_expr_is_atom(dot_args.get(usize(0)).unwrap()) && ast_expr_is_atom(dot_args.get(usize(1)).unwrap())) => Option(AstExpr).None,
       _variant_named(&q_names, ast_expr_token(dot_args.get(usize(0)).unwrap()).value) => Option(AstExpr).None,
@@ -2229,7 +2231,7 @@ _enum_ctor_named :: (
 )(
   match(
     info.ty,
-    .EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields }) => _build_enum_ctor(ctx, e, &info.ty, e_id.clone(), &e_names, &e_fields, variant, dot_args),
+    Rc(.EnumT({ id : e_id, variant_names : e_names, variant_fields : e_fields })) => _build_enum_ctor(ctx, e, &info.ty, e_id.clone(), &e_names, &e_fields, variant, dot_args),
     _ => {
       _fail_subset(ctx, String.from("field/method access (outside the V3 core subset)"), e);
       Option(VcTerm).None
@@ -2326,7 +2328,7 @@ _match_term :: (fn(ctx : &mut VcCtx, at : &AstExpr, args : &ArrayList(AstExpr)) 
   // The scrutinee's TYPE names the datatype's CONSTRUCTORS and ACCESSORS
   // (SMT-unique across enums): every Test/Proj the walk builds must use
   // the same spellings the declare-datatypes block declares.
-  e_ty := match(scrut_info, .Some(si) => si.ty, .None => TypeValue.Unit);
+  e_ty := match(scrut_info, .Some(si) => si.ty, .None => rc(TypeValueNode.Unit));
   match(
     scrut,
     .Some(s) => {
@@ -2665,7 +2667,7 @@ _pattern_test_ast :: (fn(p : &Pattern) -> AstExpr)(
 resolve_verifier_enum :: (fn(outer : &TypeValue, inner : &TypeValue) -> TypeValue)(
   match(
     inner,
-    .EnumT(_, _, _, _, _, _, _, _, _, _) => inner,
+    Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => inner,
     _ => outer
   )
 );
@@ -2679,7 +2681,7 @@ arm_expr_of :: (fn(p : &Pattern) -> AstExpr)(make_err_expr());
 _variant_ctor_name :: (fn(e_ty : &TypeValue, variant : &String) -> String)(
   match(
     e_ty,
-    .EnumT({ id : e_id }) => _enum_ctor_name(e_id.clone(), variant.clone()),
+    Rc(.EnumT({ id : e_id })) => _enum_ctor_name(e_id.clone(), variant.clone()),
     _ => variant.clone()
   )
 );
@@ -2693,7 +2695,7 @@ _variant_accessors :: (fn(e_ty : &TypeValue, variant : &String, count : usize) -
   ctor := _variant_ctor_name(e_ty, variant.clone());
   vls := match(
     e_ty,
-    .EnumT({ variant_names : e_names, variant_field_labels : e_labels }) => match(
+    Rc(.EnumT({ variant_names : e_names, variant_field_labels : e_labels })) => match(
       e_labels.get(_variant_index_of(&e_names, variant.clone())),
       .Some(l) => l,
       .None => ArrayList(String).new()
@@ -4773,7 +4775,7 @@ _list_option_term :: (
 )({
   e_id := match(
     t_refine_inner(ty),
-    .EnumT({ id : oid, is_reference_semantics : oref }) => cond(
+    Rc(.EnumT({ id : oid, is_reference_semantics : oref })) => cond(
       (oref || (oid.len() == usize(0))) => String.new(),
       true => oid.clone()
     ),

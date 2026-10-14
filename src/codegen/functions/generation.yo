@@ -183,7 +183,7 @@ _emit_erm_unit_resume_tail :: (fn(function_type : &TypeValue, indent : &String, 
   if(!context.is_effect_record_member_function, {
     return(());
   });
-  ret_c := match(function_type, .Func({ result : erm_r }) => get_type_string(&erm_r, &context.base), _ => String.from("void"));
+  ret_c := match(function_type, Rc(.Func({ result : erm_r })) => get_type_string(&erm_r, &context.base), _ => String.from("void"));
   if(ret_c.ends_with("*"), {
     erm_em := context.base.emitter;
     erm_line := `${indent.clone()}return (${ret_c.clone()}){0};  // implicit unit resume (ctl handler fall-through)`;
@@ -202,7 +202,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
   // signature while `is_unit_type(SomeT)=false` sent the body down the
   // value-returning tail path — "void function should not return a value"
   // (the async_await/worker void-closure class).
-  result_is_unit := match(function_type, .Func({ result : r }) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
+  result_is_unit := match(function_type, Rc(.Func({ result : r })) => is_unit_type(resolve_some_type_to_concrete(r.clone())), _ => true);
   if(ast_expr_is_fn_call_of(body_expr, BK_BEGIN, Option(usize).None), {
     match(
       context.base.get_expr_info(body_expr),
@@ -314,7 +314,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
                     .Some(lvn) => {
                       raw_code := _call_generate_expr(&last_expr, indent.clone(), context);
                       tail_tmp := get_variable_name_for_codegen_at(ast_expr_id(&last_expr), lvn.clone(), Option(Environment).Some(lei.env));
-                      ret_ty_dup := match(function_type, .Func({ result : r0 }) => r0, _ => t_unit());
+                      ret_ty_dup := match(function_type, Rc(.Func({ result : r0 })) => r0, _ => t_unit());
                       tail_self := is_self_named_atom(&last_expr, lvn.clone());
                       tail_value = Option(String).Some(if(tail_self, raw_code.clone(), tail_tmp.clone()));
                       if(!tail_self && !(tail_tmp == raw_code), {
@@ -385,7 +385,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
             // local the result expression reads (e.g. `i32(xs.len())` after `xs`
             // is dropped → reads freed memory).
             // Only when there are drops + a non-unit return; else `return <expr>`.
-            ret_ty_opt := match(function_type, .Func({ result : r }) => Option(TypeValue).Some(r), _ => Option(TypeValue).None);
+            ret_ty_opt := match(function_type, Rc(.Func({ result : r })) => Option(TypeValue).Some(r), _ => Option(TypeValue).None);
             // DEGRADED tail return when the tail expression itself failed to
             // transpile (its ExprInfo was dropped by an eval throw inside
             // this definition — e.g. a comptime_expect_error that did not
@@ -432,7 +432,7 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
                 // (issues/fixed/a-tail-return-temporary-takes-another-specializations-return-type.md).
                 decl.push_string(match(context.override_return_type_str, .Some(ors) => ors, .None => get_type_string(&ret_ty, &context.base)));
                 // A projection (decision 24) returns its place's address.
-                if(context.override_return_type_str.is_none() && match(function_type, .Func({ meta : sr_m }) => sr_m.*.result_is_ref, _ => false), {
+                if(context.override_return_type_str.is_none() && match(function_type, Rc(.Func({ meta : sr_m })) => sr_m.*.result_is_ref, _ => false), {
                   decl.push_str("*");
                 });
                 decl.push_str(" __yo_scope_ret = ");
@@ -554,7 +554,7 @@ _maybe_emit_method_entry_borrow_assert :: (fn(function_type : &TypeValue, func_i
   if(is_index_entry_method(func_id.clone()), return(()));
   match(
     function_type,
-    .Func({ param_types : pts, result : r, meta : __fm }) => {
+    Rc(.Func({ param_types : pts, result : r, meta : __fm })) => {
       if(__fm.*.param_labels.len() == usize(0), return(()));
       if(type_implements_future(&r), return(()));
       // Any RC-object parameter at all? (Cheap pre-check before the analysis.)
@@ -765,7 +765,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
         match(
           get_closure_capture_info(func_id.clone()),
           .Some(ci) => {
-            cap_labels := match(ci.capture_type, .Struct({ field_labels : fl }) => fl, _ => ArrayList(String).new());
+            cap_labels := match(ci.capture_type, Rc(.Struct({ field_labels : fl })) => fl, _ => ArrayList(String).new());
             if(is_fnonce_closure_fn(func_id.clone()), {
               owned_capture_labels = cap_labels.clone();
             });
@@ -790,7 +790,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       context.base.declared_scopes = rc(ArrayList(String).new());
       match(
         function_type,
-        .Func({ param_types : _pt, meta : _pm }) => {
+        Rc(.Func({ param_types : _pt, meta : _pm })) => {
           _pls := _pm.*.param_labels;
           _pn := _pt.len();
           (_pi : usize) = usize(0);
@@ -952,7 +952,7 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       stub_is_superseded := fid_fully_specialized(func_id.clone());
       stub_ret_unit := match(
         function_type,
-        .Func({ result : stub_r }) => is_unit_type(resolve_some_type_to_concrete(stub_r.clone())),
+        Rc(.Func({ result : stub_r })) => is_unit_type(resolve_some_type_to_concrete(stub_r.clone())),
         _ => true
       );
       // Phase 6 step 3 (plans/TYPE_SYSTEM_SOUNDNESS.md): a SPECIALIZATION that
@@ -1168,7 +1168,7 @@ generate_all_functions :: (fn(context : &FunctionGenerationContext) -> unit)({
 /// zero-initialized as `(<cType>){0}` (e.g. `io : Io` → `(Io){0}`).
 /// (Evidence-param mains are unimplemented.)
 _main_call_args :: (fn(main_func_id : &String, context : &FunctionGenerationContext) -> String)({
-  pts := match(get_func_type(main_func_id), .Func({ param_types : pt }) => pt, _ => ArrayList(TypeValue).new());
+  pts := match(get_func_type(main_func_id), Rc(.Func({ param_types : pt })) => pt, _ => ArrayList(TypeValue).new());
   out := String.from("(");
   n := pts.len();
   (i : usize) = usize(0);

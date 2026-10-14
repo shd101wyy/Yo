@@ -65,7 +65,7 @@ _capture_type_c_name :: (fn(capture_type : &TypeValue, context : &FunctionGenera
     found,
     .Some(name) => name,
     .None => {
-      cap_id := match(capture_type, .Struct({ id : sid }) => sid, _ => String.from(""));
+      cap_id := match(capture_type, Rc(.Struct({ id : sid })) => sid, _ => String.from(""));
       o := String.from("async_capture_");
       o.push_string(&cap_id);
       o
@@ -102,7 +102,7 @@ _closure_runtime_arg_zeroinits :: (fn(closure_fid : &String, context : &Function
   out := String.from("");
   match(
     get_func_type(closure_fid),
-    .Func({ param_types : pts }) => {
+    Rc(.Func({ param_types : pts })) => {
       n := pts.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -174,7 +174,7 @@ _emit_capture_dispose_lines :: (
     concrete,
     // A newtype is a transparent typedef to its single field: recurse on the
     // inner type with the SAME ref (no `._f` member exists at the C ABI).
-    .Struct({ id : _ }) => {
+    Rc(.Struct({ id : _ })) => {
       if(is_newtype_type(&concrete), {
         // A newtype is a transparent typedef to its single field: recurse on
         // the inner type with the SAME ref (no  member at the C ABI).
@@ -203,7 +203,7 @@ _emit_capture_dispose_lines :: (
         });
       });
     },
-    .Tuple(field_labels : _, field_types : ds_fts) => {
+    Rc(.Tuple(field_labels : _, field_types : ds_fts)) => {
       (dt_i : usize) = usize(0);
       while(dt_i < ds_fts.len(), {
         match(
@@ -220,7 +220,7 @@ _emit_capture_dispose_lines :: (
         dt_i = (dt_i + usize(1));
       });
     },
-    .Array(element : ds_elem, length : ds_len, length_var : ds_lv) => {
+    Rc(.Array(element : ds_elem, length : ds_len, length_var : ds_lv)) => {
       if((ds_lv.len() == usize(0)) && (ds_len > usize(0)), {
         ds_loop := fresh_local_name(String.from("i_"), &context.base.current_function_name);
         ds_hdr := String.from("for (size_t ");
@@ -246,7 +246,7 @@ _emit_capture_dispose_lines :: (
     // that is live, mirroring `generate_drop_code_for_value`'s value-enum
     // switch. A nullable-pointer-optimized enum guards the recursion with the
     // same non-NULL check its drop uses.
-    .EnumT({ variant_names : ds_vns, variant_fields : ds_vfs, variant_field_labels : ds_vls }) => {
+    Rc(.EnumT({ variant_names : ds_vns, variant_fields : ds_vfs, variant_field_labels : ds_vls })) => {
       match(
         can_optimize_as_nullable_pointer(&concrete),
         .Some(nb_inner) => {
@@ -505,8 +505,8 @@ _generate_spawn_call :: (fn(expr : &AstExpr, indent : &String, context : &Functi
   // STRUCTURAL (sid + field keys), so keying the get by type_key missed.
   cb_map_key := match(
     capture_type,
-    .Struct({ id : cb_sid }) => cb_sid,
-    .SomeT({ id : cb_sid }) => cb_sid,
+    Rc(.Struct({ id : cb_sid })) => cb_sid,
+    Rc(.SomeT({ id : cb_sid })) => cb_sid,
     _ => type_key(capture_type.clone())
   );
   mapped_opt := context.base.impl_closure_call_map.get(&cb_map_key);

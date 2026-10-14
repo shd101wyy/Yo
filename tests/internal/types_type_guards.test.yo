@@ -3,7 +3,7 @@
 /// dyn, downcast, drop-dup, ptr-fns, …).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
 { t_bool, t_i32 } :: import("../../src/types/creators.yo");
 { assert, panic } :: import("std/assert");
 {
@@ -24,17 +24,19 @@ mk_struct :: (
     is_newtype : bool
   ) -> TypeValue
 )(
-  TypeValue.Struct(
-    id : String.from(""),
-    name : String.from(name),
-    field_labels : field_labels,
-    field_types : ArrayList(TypeValue).new(),
-    is_reference_semantics : is_reference_semantics,
-    is_atomic_rc : is_atomic_rc,
-    is_newtype : is_newtype,
-    constructor_func_id : String.from(""),
-    type_arguments : ArrayList(TypeValue).new(),
-    is_source_namespace : false
+  rc(
+    TypeValueNode.Struct(
+      id : String.from(""),
+      name : String.from(name),
+      field_labels : field_labels,
+      field_types : ArrayList(TypeValue).new(),
+      is_reference_semantics : is_reference_semantics,
+      is_atomic_rc : is_atomic_rc,
+      is_newtype : is_newtype,
+      constructor_func_id : String.from(""),
+      type_arguments : ArrayList(TypeValue).new(),
+      is_source_namespace : false
+    )
   )
 );
 empty_labels :: (fn() -> ArrayList(String))(ArrayList(String).new());
@@ -44,7 +46,7 @@ box_labels :: (fn() -> ArrayList(String))({
   l
 });
 test("is_iso_type matches IsoT only", {
-  iso_ty := TypeValue.IsoT(t_i32());
+  iso_ty := rc(TypeValueNode.IsoT(t_i32()));
   assert(is_iso_type(&iso_ty), "IsoT");
   assert(!is_iso_type(t_i32()), "i32 is not Iso");
   assert(!is_iso_type(t_bool()), "bool is not Iso");
@@ -52,7 +54,7 @@ test("is_iso_type matches IsoT only", {
 test("is_dyn_type matches DynT only", {
   empty_traits := ArrayList(TypeValue).new();
   empty_levels := ArrayList(usize).new();
-  dyn_ty := TypeValue.DynT(empty_traits, empty_levels, empty_traits.clone(), empty_levels.clone());
+  dyn_ty := rc(TypeValueNode.DynT(empty_traits, empty_levels, empty_traits.clone(), empty_levels.clone()));
   assert(is_dyn_type(&dyn_ty), "DynT");
   assert(!is_dyn_type(t_i32()), "i32 is not Dyn");
 });
@@ -80,7 +82,7 @@ test("is_newtype_type", {
 test("is_str_type matches the dedicated Str variant only", {
   // Post-slice-rework model (TS TypeTag.Str): `str` is its own TypeValue
   // variant, NOT a newtype Struct named "str" (commit 49f51b35).
-  str_ty := TypeValue.Str;
+  str_ty := rc(TypeValueNode.Str);
   legacy_struct_str := mk_struct("str", empty_labels(), false, false, true);
   not_str_name := mk_struct("string", empty_labels(), false, false, true);
   assert(is_str_type(&str_ty), "TypeValue.Str");

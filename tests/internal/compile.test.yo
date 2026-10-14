@@ -222,3 +222,65 @@ test("a value enum's drop and dup are one function each, not a switch per site",
   assert(drop_names.len() == drop_defs, `each drop function is defined once; got ${drop_defs.to_string()} definitions of ${drop_names.len().to_string()} functions`);
   assert(hold_cases <= usize(2), `only the drop and dup functions walk the variants; got ${hold_cases.to_string()} case labels`);
 });
+// A generic function's specialization id carries its full signature, and a
+// value enum's type key spells every variant field, so `rc(Big.Alpha(...))`
+// minted a C function name hundreds of bytes long at every declaration and
+// call site: the callee-walk registrations used the raw id instead of
+// `function_c_name`'s hashed `__yo_fs_` name (the compiler's own
+// `rc(TypeValueNode.X(...))` repeated a 17 KB name 780 times;
+// issues/fixed/2026-10-14-specialized-function-names-called-through-a-callee-are-not-hashed.md).
+test("a specialization reached through a call gets the hashed C name, not its raw signature", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, `unexpected error while compiling the long-signature fixture: ${err.to_string()}`);
+        unwind(());
+      }
+    )
+  );
+  cwd_str := match(cwd(), .Ok(c) => c.to_string(), .Err(_) => String.from("."));
+  scratch := `${cwd_str}/tmp-long-fn-name-it`;
+  io.await(create_dir_all(Path.new(scratch.clone()), io), IoExn(io : io, exn : exn));
+  fixture := String.from(
+    "{ ArrayList } :: import(\"std/collections/array_list\");\n{ println } :: import(\"std/fmt\");\n{ String } :: import(\"std/string\");\nBig :: enum(\n  Alpha(first_field : i32, second_field : i64),\n  Beta(third_field : u8, fourth_field : String),\n  Gamma(fifth_field : bool, sixth_field : f64),\n  Delta(seventh_field : ArrayList(i32))\n);\nbig_tag :: (fn(b : &Big) -> i32)(match(b, .Alpha(_, _) => i32(1), .Beta(_, _) => i32(2), .Gamma(_, _) => i32(3), .Delta(_) => i32(4)));\nmain :: (fn() -> unit)({\n  h := rc(Big.Alpha(first_field : i32(1), second_field : i64(2)));\n  println(big_tag(&h.*));\n});\nexport(main);\n"
+  );
+  io.await(write_string(Path.new(`${scratch}/fx.yo`), &fixture, io), IoExn(io : io, exn : exn));
+  compile_argv := ArrayList(String).new();
+  compile_argv.push(String.from("yo"));
+  compile_argv.push(String.from("compile"));
+  compile_argv.push(`${scratch}/fx.yo`);
+  compile_argv.push(String.from("--emit-c"));
+  compile_argv.push(String.from("--skip-c-compiler"));
+  compile_argv.push(String.from("-o"));
+  compile_argv.push(`${scratch}/fx`);
+  run_compile(&compile_argv, io, exn);
+  c_text := String.from_bytes(read_file_sync(`${scratch}/fx.c`, exn));
+  // The longest run of identifier characters that starts a `yo_id_` name.
+  n := c_text.len();
+  (longest : usize) = usize(0);
+  (run_len : usize) = usize(0);
+  (in_yo_id : bool) = false;
+  (i : usize) = usize(0);
+  while(i < n, i = (i + usize(1)), {
+    b := c_text.byte_at(i);
+    is_ident := (((b >= u8(97)) && (b <= u8(122))) || ((b >= u8(65)) && (b <= u8(90))) || ((b >= u8(48)) && (b <= u8(57))) || (b == u8(95)));
+    cond(
+      is_ident => {
+        if(run_len == usize(0), {
+          // Byte compares: the C carries UTF-8 comments, so a `substring`
+          // could split a code point.
+          in_yo_id = (((i + usize(6)) <= n) && ((c_text.byte_at(i) == u8(121)) && ((c_text.byte_at(i + usize(1)) == u8(111)) && ((c_text.byte_at(i + usize(2)) == u8(95)) && ((c_text.byte_at(i + usize(3)) == u8(105)) && ((c_text.byte_at(i + usize(4)) == u8(100)) && (c_text.byte_at(i + usize(5)) == u8(95))))))));
+        });
+        run_len = (run_len + usize(1));
+      },
+      true => {
+        if(in_yo_id && (run_len > longest), {
+          longest = run_len;
+        });
+        run_len = usize(0);
+        in_yo_id = false;
+      }
+    );
+  });
+  assert(longest <= usize(160), `every yo_id_ function name is at most 160 bytes; the longest is ${longest.to_string()}`);
+});

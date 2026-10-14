@@ -191,7 +191,7 @@ evaluate_recur :: (
     return_type := call_result.return_type;
     recur_ret_is_comptime := match(
       func_body_ctx.func_type,
-      .Some(ft) => match(ft, .Func({ meta : __rc_fm }) => __rc_fm.*.result_is_comptime_only, _ => false),
+      .Some(ft) => match(ft, Rc(.Func({ meta : __rc_fm })) => __rc_fm.*.result_is_comptime_only, _ => false),
       .None => false
     );
     recur_unknown := if(

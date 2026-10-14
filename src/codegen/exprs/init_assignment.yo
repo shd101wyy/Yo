@@ -12,7 +12,7 @@
 { RuntimeDestructuring, expr_info_converted_runtime_type, expr_info_runtime_destructurings, expr_info_deferred_dup_expressions, expr_info_macro_expansion, scope_variables, lookup_local_borrow_step_pin } :: import("../../expr_info.yo");
 { Variable, Environment } :: import("../../env.yo");
 { is_array_type, is_unit_type, is_struct_type, is_reference_struct_type, is_tuple_type, is_newtype_type } :: import("../../types/guards.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
@@ -59,7 +59,7 @@ _last_is_module_level :: (fn(key : ExprId, env : &Environment, name : &String) -
 _tuple_index_of :: (fn(rhs_type : &TypeValue, label : &String) -> Option(usize))(
   match(
     rhs_type,
-    .Tuple({ field_labels : fls }) => {
+    Rc(.Tuple({ field_labels : fls })) => {
       n := fls.len();
       (i : usize) = usize(0);
       while(i < n, {
@@ -79,7 +79,7 @@ _tuple_index_of :: (fn(rhs_type : &TypeValue, label : &String) -> Option(usize))
 );
 /// Newtype single-field label, if `rhs_type` is a 1-field newtype.
 _newtype_single_label :: (fn(rhs_type : &TypeValue) -> Option(String))(
-  if(is_newtype_type(rhs_type), match(rhs_type, .Struct({ field_labels : fls }) => if(fls.len() == usize(1), fls.get(usize(0)), Option(String).None), _ => Option(String).None), Option(String).None)
+  if(is_newtype_type(rhs_type), match(rhs_type, Rc(.Struct({ field_labels : fls })) => if(fls.len() == usize(1), fls.get(usize(0)), Option(String).None), _ => Option(String).None), Option(String).None)
 );
 /// The task slot (`sm->…`) a binding of `name` writes to in an `io.async`
 /// state machine, or `.None` when it has none (outside one, or a C local).
@@ -432,7 +432,7 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
   match(
     expr_info_runtime_destructurings(&ei),
     .Some(destructurings) => {
-      rhs_type := match(context.base.get_expr_info(&rhs), .Some(rei) => rei.ty, .None => TypeValue.Unit);
+      rhs_type := match(context.base.get_expr_info(&rhs), .Some(rei) => rei.ty, .None => rc(TypeValueNode.Unit));
       _emit_destructurings(&destructurings, &rhs, &lhs, &rhs_type, &ei.env, indent.clone(), context);
       return(Option(String).Some(String.from("")));
     },

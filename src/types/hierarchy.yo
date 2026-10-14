@@ -17,8 +17,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
-{ TypeValue } :: import("./definitions.yo");
-{ type_memo_key } :: import("./intern.yo");
+{ TypeValue, TypeValueNode } :: import("./definitions.yo");
 // ---------------------------------------------------------------------------
 // Forward reference slot for _universe_of
 // (needed by _determine_type_universe which is defined before the function)
@@ -64,62 +63,47 @@ _determine_type_universe :: (
   max_level := usize(0);
   i := usize(0);
   while(i < field_types.len(), {
-    field := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+    field := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
     subtype := match(
       g_type_of_type_visited_fn,
       .Some(f) => f(&field, visited_names),
-      .None => TypeValue.TypeUni(usize(0))
+      .None => rc(TypeValueNode.TypeUni(usize(0)))
     );
     sub_level := match(
       subtype,
-      .TypeUni(lvl) => lvl,
+      Rc(.TypeUni(lvl)) => lvl,
       _ => usize(0)
     );
     max_level = _max_usize(max_level, sub_level);
     i = (i + usize(1));
   });
-  TypeValue.TypeUni(max_level)
+  rc(TypeValueNode.TypeUni(max_level))
 });
 // ---------------------------------------------------------------------------
 // _universe_of — the recursive core
 // ---------------------------------------------------------------------------
-/// One memoized named aggregate: the type walked, its structural key
-/// (`type_memo_key`; `""` until a second same-id type needs it) and its
-/// universe.
-_UniverseMemoEntry :: struct(ty : TypeValue, key : String, universe : TypeValue);
+/// One memoized named aggregate: the type object walked and its universe.
+_UniverseMemoEntry :: struct(ty : TypeValue, universe : TypeValue);
 /// The memo of the current top-level walk, bucketed by `struct:<id>` /
-/// `enum:<id>`. A hit requires the same TYPE, not just the same id:
+/// `enum:<id>`. A hit requires the SAME type object, not just the same id:
 /// substitution and SomeT resolution rebuild a struct under its id with
 /// different field types (`src/types/substitution.yo`,
 /// `evaluator/calls/helper.yo`), and those copies can have different
-/// universes. Within a bucket the types are told apart by their structural
-/// key, rendered only when a bucket already holds an entry
-/// (plans/VALUES_BY_DEFAULT.md V4: a `TypeValue` is a value, so object
-/// identity is not available).
+/// universes. Nothing mutates a type object during one walk, so an identity
+/// hit is exact.
 (g_universe_memo : HashMap(String, ArrayList(_UniverseMemoEntry))) = HashMap(String, ArrayList(_UniverseMemoEntry)).new();
 /// Set when the name-cycle guard answered for a type on the current path:
 /// a result computed under it depends on that path, so it is not memoized.
 (g_universe_guard_fired : bool) = false;
 _universe_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(TypeValue))({
   bucket := match(g_universe_memo.get(key), .Some(b) => b, .None => return(Option(TypeValue).None));
-  probe := type_memo_key(ty);
   (i : usize) = usize(0);
   while(i < bucket.len(), {
     match(
       bucket.get(i),
-      .Some(e) => {
-        ek := cond(
-          (e.key.len() > usize(0)) => e.key,
-          true => {
-            k := type_memo_key(&e.ty);
-            bucket(i) = _UniverseMemoEntry(ty : e.ty, key : k.clone(), universe : e.universe);
-            k
-          }
-        );
-        if(ek == probe, {
-          return(Option(TypeValue).Some(e.universe));
-        });
-      },
+      .Some(e) => if(__yo_ptr_eq(&e.ty, ty), {
+        return(Option(TypeValue).Some(e.universe));
+      }),
       .None => ()
     );
     i = (i + usize(1));
@@ -140,7 +124,7 @@ _universe_memo_compute :: (
   r := _determine_type_universe(fields, &new_visited);
   if(!g_universe_guard_fired, {
     bucket := match(g_universe_memo.get(key.clone()), .Some(b) => b, .None => ArrayList(_UniverseMemoEntry).new());
-    bucket.push(_UniverseMemoEntry(ty : ty, key : String.new(), universe : r));
+    bucket.push(_UniverseMemoEntry(ty : ty, universe : r));
     _ := g_universe_memo.insert(key, bucket);
   });
   g_universe_guard_fired = (g_universe_guard_fired || outer_fired);
@@ -156,51 +140,51 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
   match(
     ty,
     // Primitives -------------------------------------------------------------
-    .Unit => TypeValue.TypeUni(usize(0)),
-    .BoolT => TypeValue.TypeUni(usize(0)),
-    .Void => TypeValue.TypeUni(usize(0)),
-    .Int(_, _) => TypeValue.TypeUni(usize(0)),
-    .Float(_) => TypeValue.TypeUni(usize(0)),
-    .Usize => TypeValue.TypeUni(usize(0)),
-    .Isize => TypeValue.TypeUni(usize(0)),
-    .Str => TypeValue.TypeUni(usize(0)),
-    .ComptimeInt => TypeValue.TypeUni(usize(0)),
-    .ComptimeFloat => TypeValue.TypeUni(usize(0)),
-    .ComptimeString => TypeValue.TypeUni(usize(0)),
-    .CChar => TypeValue.TypeUni(usize(0)),
-    .CShort => TypeValue.TypeUni(usize(0)),
-    .CUShort => TypeValue.TypeUni(usize(0)),
-    .CInt => TypeValue.TypeUni(usize(0)),
-    .CUInt => TypeValue.TypeUni(usize(0)),
-    .CLong => TypeValue.TypeUni(usize(0)),
-    .CULong => TypeValue.TypeUni(usize(0)),
-    .CLongLong => TypeValue.TypeUni(usize(0)),
-    .CULongLong => TypeValue.TypeUni(usize(0)),
-    .CLongDouble => TypeValue.TypeUni(usize(0)),
+    Rc(.Unit) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.BoolT) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Void) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Int(_, _)) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Float(_)) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Usize) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Isize) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.Str) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.ComptimeInt) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.ComptimeFloat) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.ComptimeString) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CChar) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CShort) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CUShort) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CInt) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CUInt) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CLong) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CULong) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CLongLong) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CULongLong) => rc(TypeValueNode.TypeUni(usize(0))),
+    Rc(.CLongDouble) => rc(TypeValueNode.TypeUni(usize(0))),
     // Type universes: TypeUni(n) → TypeUni(n+1) -----------------------------
-    .TypeUni(lvl) => TypeValue.TypeUni(lvl + usize(1)),
+    Rc(.TypeUni(lvl)) => rc(TypeValueNode.TypeUni(lvl + usize(1))),
     // Pointer: raw pointers are level-0 types --------------------------------
-    .Pointer(_) => TypeValue.TypeUni(usize(0)),
+    Rc(.Pointer(_)) => rc(TypeValueNode.TypeUni(usize(0))),
     // Array: recurse into element type --------------------------------------
-    .Array(elem_box, _, _) => match(
+    Rc(.Array(elem_box, _, _)) => match(
       g_type_of_type_visited_fn,
       .Some(f) => f(&elem_box, visited),
-      .None => TypeValue.TypeUni(usize(0))
+      .None => rc(TypeValueNode.TypeUni(usize(0)))
     ),
     // Tuple: check all field types ------------------------------------------
-    .Tuple(_, ftypes) => _determine_type_universe(&ftypes, visited),
+    Rc(.Tuple(_, ftypes)) => _determine_type_universe(&ftypes, visited),
     // Function types: all functions are level-0 types -----------------------
-    .Func({ result : _ }) => TypeValue.TypeUni(usize(0)),
+    Rc(.Func({ result : _ })) => rc(TypeValueNode.TypeUni(usize(0))),
     // Struct: recurse into fields, guard against cycles by name.
     // Source-namespace structs (anonymous modules / imports) are
     // type-level-1, like traits (modules ARE structs; the namespace
     // itself is a comptime entity).
-    .Struct({ id : sid, name : sname, field_types : ftypes, is_source_namespace : s_sns }) =>
+    Rc(.Struct({ id : sid, name : sname, field_types : ftypes, is_source_namespace : s_sns })) =>
       cond(
-        s_sns => TypeValue.TypeUni(usize(1)),
+        s_sns => rc(TypeValueNode.TypeUni(usize(1))),
         _name_in_visited(visited, &sname) => {
           g_universe_guard_fired = true;
-          TypeValue.TypeUni(usize(0))
+          rc(TypeValueNode.TypeUni(usize(0)))
         },
         true => {
           mk := `struct:${sid}`;
@@ -212,11 +196,11 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
         }
       ),
     // EnumT: flatten all variant field types, then check the universe ------
-    .EnumT(eid, ename, _, variant_fields, _, _, _, _, _, _) =>
+    Rc(.EnumT(eid, ename, _, variant_fields, _, _, _, _, _, _)) =>
       cond(
         _name_in_visited(visited, &ename) => {
           g_universe_guard_fired = true;
-          TypeValue.TypeUni(usize(0))
+          rc(TypeValueNode.TypeUni(usize(0)))
         },
         true => {
           mk2 := `enum:${eid}`;
@@ -230,7 +214,7 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
                 vfields := match(variant_fields.get(vi), .Some(vf) => vf, .None => ArrayList(TypeValue).new());
                 fi := usize(0);
                 while(fi < vfields.len(), {
-                  ft := match(vfields.get(fi), .Some(t) => t, .None => TypeValue.Unit);
+                  ft := match(vfields.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                   all_fields.push(ft);
                   fi = (fi + usize(1));
                 });
@@ -244,11 +228,11 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
     // Union: same as Struct -------------------------------------------------
     // A union carries no id (name, labels, fields), and two modules may
     // define same-named unions, so unions are not memoized.
-    .Union(uname, _, ftypes) =>
+    Rc(.Union(uname, _, ftypes)) =>
       cond(
         _name_in_visited(visited, &uname) => {
           g_universe_guard_fired = true;
-          TypeValue.TypeUni(usize(0))
+          rc(TypeValueNode.TypeUni(usize(0)))
         },
         true => {
           new_visited := visited.clone();
@@ -257,13 +241,13 @@ _universe_of :: (fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue)
         }
       ),
     // Traits and modules are type-level-1 types ----------------------------
-    .TraitT(_, _, _, _, _, _, _, _, _, _) => TypeValue.TypeUni(usize(1)),
-    .FnTraitT(base_name : _) => TypeValue.TypeUni(usize(1)),
-    .FutureTraitT(base_name : _) => TypeValue.TypeUni(usize(1)),
+    Rc(.TraitT(_, _, _, _, _, _, _, _, _, _)) => rc(TypeValueNode.TypeUni(usize(1))),
+    Rc(.FnTraitT(base_name : _)) => rc(TypeValueNode.TypeUni(usize(1))),
+    Rc(.FutureTraitT(base_name : _)) => rc(TypeValueNode.TypeUni(usize(1))),
     // SomeT: return its parent_type (meta-type) ----------------------------
-    .SomeT(parent_type : pt) => pt,
+    Rc(.SomeT(parent_type : pt)) => pt,
     // Remaining Phase 2f variants that live at type level 0 ---------------
-    _ => TypeValue.TypeUni(usize(0))
+    _ => rc(TypeValueNode.TypeUni(usize(0)))
   )
 );
 // Set the function pointer after _universe_of is defined.

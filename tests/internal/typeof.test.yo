@@ -88,7 +88,7 @@ test("evaluate_typeof: writes TypeVal(i32) into the side table for typeof(x)", {
       v,
       .TypeVal(ty) => match(
         ty,
-        .Int(bits, signed) => {
+        Rc(.Int(bits, signed)) => {
           assert(bits == u8(32), "expected i32 bits=32");
           assert(signed, "expected i32 signed=true");
         },
@@ -101,7 +101,7 @@ test("evaluate_typeof: writes TypeVal(i32) into the side table for typeof(x)", {
   // Meta type stored in info.ty should equal type_of_type(i32) = TypeUni(0)
   match(
     info.ty,
-    .TypeUni(_) => (),
+    Rc(.TypeUni(_)) => (),
     _ => assert(false, "expected meta type = TypeUni")
   );
 });

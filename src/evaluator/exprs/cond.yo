@@ -223,7 +223,7 @@ evaluate_cond :: (
     // lookup that the bootstrap can't yet resolve). Treat the
     // condition as non-comptime-true and let the rest of the
     // case-selection logic fall through naturally.
-    is_unit_fallback := match(cond_info.ty, .Unit => true, _ => false);
+    is_unit_fallback := match(cond_info.ty, Rc(.Unit) => true, _ => false);
     if(!is_bool_type(&cond_info.ty) && !is_unit_fallback, {
       exn.throw(
         dyn(
@@ -539,7 +539,7 @@ evaluate_cond :: (
                     is_ptr_relaxed_match := cond(
                       (is_pointer_type(&et.ty) && !is_pointer_type(&body_einfo.ty)) => match(
                         et.ty,
-                        .Pointer(child_box) => are_types_compatible(&body_einfo.ty, &child_box),
+                        Rc(.Pointer(child_box)) => are_types_compatible(&body_einfo.ty, &child_box),
                         _ => false
                       ),
                       true => false
@@ -766,7 +766,7 @@ evaluate_cond :: (
                         .Some(ft) => {
                           match(
                             ft,
-                            .Func({ result : result_box, meta : rb_meta }) => {
+                            Rc(.Func({ result : result_box, meta : rb_meta })) => {
                               return_type = Option(TypeValue).Some(if(rb_meta.*.result_is_ref, t_ptr(&result_box), result_box));
                             },
                             _ => ()

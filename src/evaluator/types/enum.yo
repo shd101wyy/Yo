@@ -39,7 +39,7 @@ import("std/fmt");
 { Environment, get_variables_from_env } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { EvalValue, create_type_value, is_type_value } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_unit, register_enum_final, _patch_self_shell } :: import("../../types/creators.yo");
 { fields_have_incompatible_contexts, type_is_control_bound, control_bound_field_message } :: import("../../types/utils.yo");
 { is_comptime_int_type, is_type_0, register_type_decl_module } :: import("../../types/guards.yo");
@@ -104,10 +104,10 @@ _visited_has :: (fn(xs : &ArrayList(String), s : &String) -> bool)({
 _type_is_ref_indirection :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .Struct({ is_reference_semantics : s_ref }) => s_ref,
-    .EnumT({ is_reference_semantics : e_ref }) => e_ref,
-    .Pointer(_) => true,
-    .DynT(_, _, _, _) => true,
+    Rc(.Struct({ is_reference_semantics : s_ref })) => s_ref,
+    Rc(.EnumT({ is_reference_semantics : e_ref })) => e_ref,
+    Rc(.Pointer(_)) => true,
+    Rc(.DynT(_, _, _, _)) => true,
     _ => false
   )
 );
@@ -133,7 +133,7 @@ _type_value_cycle_step :: (
 )(
   match(
     t,
-    .EnumT(e_id, _, _, e_vfs, _, _, _, _, _, _) => cond(
+    Rc(.EnumT(e_id, _, _, e_vfs, _, _, _, _, _, _)) => cond(
       ((e_id == root) || (e_id == shell)) => true,
       _visited_has(visited, e_id.clone()) => false,
       true => {
@@ -144,7 +144,7 @@ _type_value_cycle_step :: (
           vfs := match(e_vfs.get(i), .Some(l) => l, .None => ArrayList(TypeValue).new());
           (j : usize) = usize(0);
           while((j < vfs.len()) && !hit, {
-            ft := match(vfs.get(j), .Some(x) => x, .None => TypeValue.Unit);
+            ft := match(vfs.get(j), .Some(x) => x, .None => rc(TypeValueNode.Unit));
             if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
               hit = true;
             });
@@ -155,7 +155,7 @@ _type_value_cycle_step :: (
         hit
       }
     ),
-    .Struct(s_id, _, _, s_fts, _, _, _, _, _, _) => cond(
+    Rc(.Struct(s_id, _, _, s_fts, _, _, _, _, _, _)) => cond(
       // The struct twin of the EnumT root test above (struct.yo's
       // definition-time value-cycle check passes this struct's id as root;
       // the struct shell shares the final's id, so one comparison covers
@@ -167,7 +167,7 @@ _type_value_cycle_step :: (
         (hit : bool) = false;
         (i : usize) = usize(0);
         while((i < s_fts.len()) && !hit, {
-          ft := match(s_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+          ft := match(s_fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
           if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
             hit = true;
           });
@@ -176,11 +176,11 @@ _type_value_cycle_step :: (
         hit
       }
     ),
-    .Tuple(_, t_fts) => {
+    Rc(.Tuple(_, t_fts)) => {
       (hit : bool) = false;
       (i : usize) = usize(0);
       while((i < t_fts.len()) && !hit, {
-        ft := match(t_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        ft := match(t_fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
@@ -188,11 +188,11 @@ _type_value_cycle_step :: (
       });
       hit
     },
-    .Union(_, _, u_fts) => {
+    Rc(.Union(_, _, u_fts)) => {
       (hit : bool) = false;
       (i : usize) = usize(0);
       while((i < u_fts.len()) && !hit, {
-        ft := match(u_fts.get(i), .Some(x) => x, .None => TypeValue.Unit);
+        ft := match(u_fts.get(i), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         if(_type_reaches_root_by_value(&ft, root.clone(), shell.clone(), visited), {
           hit = true;
         });
@@ -200,7 +200,7 @@ _type_value_cycle_step :: (
       });
       hit
     },
-    .Array(element, _, _) => _type_reaches_root_by_value(&element, root.clone(), shell.clone(), visited),
+    Rc(.Array(element, _, _)) => _type_reaches_root_by_value(&element, root.clone(), shell.clone(), visited),
     _ => false
   )
 );
@@ -227,7 +227,7 @@ _evaluate_discriminant :: (
           )
         )
       );
-      new_expr_info(env_in, TypeValue.Unit)
+      new_expr_info(env_in, rc(TypeValueNode.Unit))
     }
   );
   if(disc_info.value.is_none(), {
@@ -336,17 +336,19 @@ evaluate_enum_type :: (
   // def-time instantiations that captured the empty shell were returned
   // for post-definition lookups of the real enum (std/encoding/json.yo).
   shell_id := `${enum_id}__self_shell`;
-  prelim_ty := TypeValue.EnumT(
-    shell_id.clone(),
-    String.from(""),
-    ArrayList(String).new(),
-    ArrayList(ArrayList(TypeValue)).new(),
-    Option(String).None,
-    ArrayList(ArrayList(String)).new(),
-    ArrayList(i64).new(),
-    force_reference_semantics,
-    is_atomic_rc,
-    ArrayList(TypeValue).new()
+  prelim_ty := rc(
+    TypeValueNode.EnumT(
+      shell_id.clone(),
+      String.from(""),
+      ArrayList(String).new(),
+      ArrayList(ArrayList(TypeValue)).new(),
+      Option(String).None,
+      ArrayList(ArrayList(String)).new(),
+      ArrayList(i64).new(),
+      force_reference_semantics,
+      is_atomic_rc,
+      ArrayList(TypeValue).new()
+    )
   );
   // Temporarily set SelfType in context for field evaluation.
   old_self_type := ctx.self_type;
@@ -632,7 +634,7 @@ evaluate_enum_type :: (
           ra := match(recur_args.get(gi), .Some(a) => a, .None => make_err_expr());
           evaluated_ra := evaluate_expression_raw(&ra, &env, ctx, exn);
           ra_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ra));
-          ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(&env, TypeValue.Unit));
+          ra_info := match(ra_info_opt, .Some(ii) => ii, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
           if(!is_type_value(&ra_info.value), {
             exn.throw(
               dyn(
@@ -645,8 +647,8 @@ evaluate_enum_type :: (
           });
           ra_ty := match(
             ra_info.value,
-            .Some(v) => match(v, .TypeVal(inner) => inner, _ => TypeValue.Unit),
-            .None => TypeValue.Unit
+            .Some(v) => match(v, .TypeVal(inner) => inner, _ => rc(TypeValueNode.Unit)),
+            .None => rc(TypeValueNode.Unit)
           );
           this_variant_args.push(ra_ty);
           gi = (gi + usize(1));
@@ -678,14 +680,14 @@ evaluate_enum_type :: (
           fab.func_type,
           .Some(ft) => match(
             ft,
-            .Func({ param_types : fc_ptypes, meta : __fm1 }) => {
+            Rc(.Func({ param_types : fc_ptypes, meta : __fm1 })) => {
               fc_plabels := __fm1.*.param_labels;
               tca := ArrayList(TypeValue).new();
               (tci : usize) = usize(0);
               n_tcp := fc_plabels.len();
               while(tci < n_tcp, {
                 p_lbl := match(fc_plabels.get(tci), .Some(l) => l, .None => String.from(""));
-                p_ty := match(fc_ptypes.get(tci), .Some(t) => t, .None => TypeValue.Unit);
+                p_ty := match(fc_ptypes.get(tci), .Some(t) => t, .None => rc(TypeValueNode.Unit));
                 // Comptime type param ≈ declared type is the `Type` universe.
                 if(is_type_0(&p_ty), {
                   vars := get_variables_from_env(&env, &p_lbl);
@@ -747,7 +749,7 @@ evaluate_enum_type :: (
       vfs := match(variant_fields.get(vi2), .Some(l) => l, .None => ArrayList(TypeValue).new());
       (fi2 : usize) = usize(0);
       while(fi2 < vfs.len(), {
-        ft := match(vfs.get(fi2), .Some(x) => x, .None => TypeValue.Unit);
+        ft := match(vfs.get(fi2), .Some(x) => x, .None => rc(TypeValueNode.Unit));
         visited := ArrayList(String).new();
         if(_type_reaches_root_by_value(&ft, enum_id.clone(), shell_id.clone(), &mut visited), {
           exn.throw(
@@ -768,17 +770,19 @@ evaluate_enum_type :: (
   ctx.self_type = old_self_type;
   // Build the final EnumT in two steps: an UNPATCHED pre-final used as the
   // replacement target, then the real final with shell-patched fields.
-  pre_final_ty := TypeValue.EnumT(
-    enum_id.clone(),
-    String.from(""),
-    variant_names,
-    variant_fields,
-    Option(String).None,
-    variant_field_labels,
-    variant_discriminants,
-    force_reference_semantics,
-    is_atomic_rc,
-    ArrayList(TypeValue).new()
+  pre_final_ty := rc(
+    TypeValueNode.EnumT(
+      enum_id.clone(),
+      String.from(""),
+      variant_names,
+      variant_fields,
+      Option(String).None,
+      variant_field_labels,
+      variant_discriminants,
+      force_reference_semantics,
+      is_atomic_rc,
+      ArrayList(TypeValue).new()
+    )
   );
   // Patch the SELF SHELL out of the variant fields: during field
   // evaluation `Self` was the empty prelim (same id), and instantiations
@@ -801,17 +805,19 @@ evaluate_enum_type :: (
     patched_fields.push(new_list);
     pf_i = (pf_i + usize(1));
   });
-  enum_ty := TypeValue.EnumT(
-    enum_id.clone(),
-    String.from(""),
-    variant_names,
-    patched_fields,
-    Option(String).None,
-    variant_field_labels,
-    variant_discriminants,
-    force_reference_semantics,
-    is_atomic_rc,
-    ArrayList(TypeValue).new()
+  enum_ty := rc(
+    TypeValueNode.EnumT(
+      enum_id.clone(),
+      String.from(""),
+      variant_names,
+      patched_fields,
+      Option(String).None,
+      variant_field_labels,
+      variant_discriminants,
+      force_reference_semantics,
+      is_atomic_rc,
+      ArrayList(TypeValue).new()
+    )
   );
   // Record the finalized form under the SHELL's id so leaked shells can
   // be resolved at use sites — see resolve_enum_shell.

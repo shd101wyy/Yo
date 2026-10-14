@@ -37,7 +37,7 @@ type_decl_module :: (fn(type_id : &String) -> Option(String))(
 is_prelude_io_struct :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .Struct({ id : sid, name : sname }) => (
+    Rc(.Struct({ id : sid, name : sname })) => (
       (sname == "Io")
       && match(type_decl_module(sid.clone()), .Some(m) => m.ends_with("prelude.yo"), .None => false)
     ),
@@ -79,8 +79,8 @@ register_adopted_extern_c_type :: (
 type_decl_id :: (fn(t : &TypeValue) -> Option(String))(
   match(
     t,
-    .Struct({ id : sid }) => if(sid.len() > usize(0), Option(String).Some(sid.clone()), Option(String).None),
-    .EnumT({ id : eid }) => if(eid.len() > usize(0), Option(String).Some(eid.clone()), Option(String).None),
+    Rc(.Struct({ id : sid })) => if(sid.len() > usize(0), Option(String).Some(sid.clone()), Option(String).None),
+    Rc(.EnumT({ id : eid })) => if(eid.len() > usize(0), Option(String).Some(eid.clone()), Option(String).None),
     _ => Option(String).None
   )
 );
@@ -99,16 +99,16 @@ get_adopted_extern_c_type :: (fn(t : &TypeValue) -> Option(AdoptedExternCType))(
 // boolean test rather than a tag enum comparison.
 // ---------------------------------------------------------------------------
 is_int_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Int(_, _) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Int(_, _)) => true, _ => false)
 );
 is_float_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Float(_) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Float(_)) => true, _ => false)
 );
 is_signed_int_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
-    .Int(_, signed) => signed,
-    .Isize => true,
+    Rc(.Int(_, signed)) => signed,
+    Rc(.Isize) => true,
     _ => false
   )
 );
@@ -118,32 +118,32 @@ is_numeric_type :: (fn(t : &TypeValue) -> bool)(
     is_float_type(t) => true,
     true => match(
       t_refine_inner(t),
-      .Usize => true,
-      .Isize => true,
-      .ComptimeInt => true,
-      .ComptimeFloat => true,
+      Rc(.Usize) => true,
+      Rc(.Isize) => true,
+      Rc(.ComptimeInt) => true,
+      Rc(.ComptimeFloat) => true,
       _ => false
     )
   )
 );
 is_pointer_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Pointer(_) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Pointer(_)) => true, _ => false)
 );
 is_array_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Array(_, _, _) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Array(_, _, _)) => true, _ => false)
 );
 is_function_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Func({ result : _ }) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Func({ result : _ })) => true, _ => false)
 );
 is_some_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .SomeT(name : _) => true, _ => false)
+  match(t_refine_inner(t), Rc(.SomeT(name : _)) => true, _ => false)
 );
 is_trait_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
-    .TraitT(name : _) => true,
-    .FnTraitT(base_name : _) => true,
-    .FutureTraitT(base_name : _) => true,
+    Rc(.TraitT(name : _)) => true,
+    Rc(.FnTraitT(base_name : _)) => true,
+    Rc(.FutureTraitT(base_name : _)) => true,
     _ => false
   )
 );
@@ -151,21 +151,21 @@ is_trait_type :: (fn(t : &TypeValue) -> bool)(
 /// There is no separate module type; the legacy name is kept for the
 /// existing call sites.
 is_module_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Struct({ is_source_namespace : sns }) => sns, _ => false)
+  match(t_refine_inner(t), Rc(.Struct({ is_source_namespace : sns })) => sns, _ => false)
 );
 /// True for structs EXCLUDING source-namespace
 /// structs.
 is_struct_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Struct({ is_source_namespace : sns }) => !sns, _ => false)
+  match(t_refine_inner(t), Rc(.Struct({ is_source_namespace : sns })) => !sns, _ => false)
 );
 is_enum_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .EnumT(_, _, _, _, _, _, _, _, _, _) => true, _ => false)
+  match(t_refine_inner(t), Rc(.EnumT(_, _, _, _, _, _, _, _, _, _)) => true, _ => false)
 );
 is_unit_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Unit => true, _ => false)
+  match(t_refine_inner(t), Rc(.Unit) => true, _ => false)
 );
 is_bool_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .BoolT => true, _ => false)
+  match(t_refine_inner(t), Rc(.BoolT) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Basic primitive guards
@@ -173,95 +173,95 @@ is_bool_type :: (fn(t : &TypeValue) -> bool)(
 is_primitive_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t_refine_inner(t),
-    .Unit => true,
-    .BoolT => true,
-    .Usize => true,
-    .Isize => true,
-    .Int(_, _) => true,
-    .Float(_) => true,
-    .CChar => true,
-    .CShort => true,
-    .CUShort => true,
-    .CInt => true,
-    .CUInt => true,
-    .CLong => true,
-    .CULong => true,
-    .CLongLong => true,
-    .CULongLong => true,
-    .CLongDouble => true,
+    Rc(.Unit) => true,
+    Rc(.BoolT) => true,
+    Rc(.Usize) => true,
+    Rc(.Isize) => true,
+    Rc(.Int(_, _)) => true,
+    Rc(.Float(_)) => true,
+    Rc(.CChar) => true,
+    Rc(.CShort) => true,
+    Rc(.CUShort) => true,
+    Rc(.CInt) => true,
+    Rc(.CUInt) => true,
+    Rc(.CLong) => true,
+    Rc(.CULong) => true,
+    Rc(.CLongLong) => true,
+    Rc(.CULongLong) => true,
+    Rc(.CLongDouble) => true,
     _ => false
   )
 );
 is_comptime_int_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .ComptimeInt => true, _ => false)
+  match(t_refine_inner(t), Rc(.ComptimeInt) => true, _ => false)
 );
 is_comptime_float_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .ComptimeFloat => true, _ => false)
+  match(t_refine_inner(t), Rc(.ComptimeFloat) => true, _ => false)
 );
 is_comptime_string_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .ComptimeString => true, _ => false)
+  match(t_refine_inner(t), Rc(.ComptimeString) => true, _ => false)
 );
 is_comptime_list_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .ComptimeListT(_) => true, _ => false)
+  match(t_refine_inner(t), Rc(.ComptimeListT(_)) => true, _ => false)
 );
 is_expr_list_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .ComptimeListT(child) => match(child, .ExprT => true, _ => false),
+    Rc(.ComptimeListT(child)) => match(child, Rc(.ExprT) => true, _ => false),
     _ => false
   )
 );
 is_usize_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Usize => true, _ => false)
+  match(t_refine_inner(t), Rc(.Usize) => true, _ => false)
 );
 is_isize_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Isize => true, _ => false)
+  match(t_refine_inner(t), Rc(.Isize) => true, _ => false)
 );
 is_u8_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(8)) && !signed), _ => false)
+  match(t_refine_inner(t), Rc(.Int(bits, signed)) => ((bits == u8(8)) && !signed), _ => false)
 );
 is_i8_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(8)) && signed), _ => false)
+  match(t_refine_inner(t), Rc(.Int(bits, signed)) => ((bits == u8(8)) && signed), _ => false)
 );
 is_u16_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(16)) && !signed), _ => false)
+  match(t_refine_inner(t), Rc(.Int(bits, signed)) => ((bits == u8(16)) && !signed), _ => false)
 );
 is_i16_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(16)) && signed), _ => false)
+  match(t_refine_inner(t), Rc(.Int(bits, signed)) => ((bits == u8(16)) && signed), _ => false)
 );
 is_u32_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(32)) && !signed), _ => false)
+  match(t_refine_inner(t), Rc(.Int(bits, signed)) => ((bits == u8(32)) && !signed), _ => false)
 );
 is_i32_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(32)) && signed), _ => false)
+  match(t_refine_inner(t), Rc(.Int(bits, signed)) => ((bits == u8(32)) && signed), _ => false)
 );
 is_u64_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(64)) && !signed), _ => false)
+  match(t_refine_inner(t), Rc(.Int(bits, signed)) => ((bits == u8(64)) && !signed), _ => false)
 );
 is_i64_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Int(bits, signed) => ((bits == u8(64)) && signed), _ => false)
+  match(t_refine_inner(t), Rc(.Int(bits, signed)) => ((bits == u8(64)) && signed), _ => false)
 );
 is_f32_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Float(bits) => (bits == u8(32)), _ => false)
+  match(t_refine_inner(t), Rc(.Float(bits)) => (bits == u8(32)), _ => false)
 );
 is_f64_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Float(bits) => (bits == u8(64)), _ => false)
+  match(t_refine_inner(t), Rc(.Float(bits)) => (bits == u8(64)), _ => false)
 );
 is_expr_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .ExprT => true, _ => false)
+  match(t_refine_inner(t), Rc(.ExprT) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Compound type guards
 // ---------------------------------------------------------------------------
 is_tuple_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Tuple(_, _) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Tuple(_, _)) => true, _ => false)
 );
 is_union_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Union(_, _, _) => true, _ => false)
+  match(t_refine_inner(t), Rc(.Union(_, _, _)) => true, _ => false)
 );
 /// Reference-semantics struct: `ref(struct(...))`.
 is_reference_struct_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Struct({ is_reference_semantics : is_ref }) => is_ref, _ => false)
+  match(t_refine_inner(t), Rc(.Struct({ is_reference_semantics : is_ref })) => is_ref, _ => false)
 );
 // Atomic reference-semantics struct: `atomic(ref(struct(...)))`, which
 // requires BOTH `is_reference_semantics` AND `is_atomic_rc`. A
@@ -270,33 +270,33 @@ is_reference_struct_type :: (fn(t : &TypeValue) -> bool)(
 is_atomic_reference_struct_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .Struct({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) =>
+    Rc(.Struct({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) =>
       (is_ref && is_atomic),
     _ => false
   )
 );
 /// Reference-semantics enum: `ref(enum(...))`.
 is_reference_enum_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .EnumT({ is_reference_semantics : is_ref }) => is_ref, _ => false)
+  match(t_refine_inner(t), Rc(.EnumT({ is_reference_semantics : is_ref })) => is_ref, _ => false)
 );
 /// Atomic reference-semantics enum: `atomic(ref(enum(...)))`.
 is_atomic_reference_enum_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .EnumT({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic }) =>
+    Rc(.EnumT({ is_reference_semantics : is_ref, is_atomic_rc : is_atomic })) =>
       (is_ref && is_atomic),
     _ => false
   )
 );
 // Phase 2b : Type.Struct needs `isNewtype` flag.
 is_newtype_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Struct({ is_newtype : is_nt }) => is_nt, _ => false)
+  match(t_refine_inner(t), Rc(.Struct({ is_newtype : is_nt })) => is_nt, _ => false)
 );
 /// True if `t` is the builtin `str` static string view (TypeValue.Str).
 /// Used by `panic` / `fprintf` codegen to choose between `%s` and `%.*s`
 /// format specifiers.
 is_str_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Str => true, _ => false)
+  match(t_refine_inner(t), Rc(.Str) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // The prelude's shared, counted cell, by name
@@ -398,7 +398,7 @@ _is_shared_cell_instance_name :: (fn(name : &String) -> bool)({
 is_box_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .Struct({ name, field_labels, is_reference_semantics : is_ref }) => cond(
+    Rc(.Struct({ name, field_labels, is_reference_semantics : is_ref })) => cond(
       !is_ref => false,
       (field_labels.len() != usize(1)) => false,
       !_is_shared_cell_instance_name(&name) => false,
@@ -421,12 +421,12 @@ is_box_type :: (fn(t : &TypeValue) -> bool)(
 unique_box_payload_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t_refine_inner(t),
-    .Struct({ name, field_labels, field_types, is_reference_semantics : is_ref, is_newtype : is_nt }) => cond(
+    Rc(.Struct({ name, field_labels, field_types, is_reference_semantics : is_ref, is_newtype : is_nt })) => cond(
       (is_ref || !is_nt) => .None,
       (field_labels.len() != usize(1)) => .None,
       !name.starts_with("Box(") => .None,
       !match(field_labels.get(usize(0)), .Some(l) => (l == "_cell"), .None => false) => .None,
-      true => match(field_types.get(usize(0)), .Some(.Pointer(p)) => .Some(p), _ => .None)
+      true => match(field_types.get(usize(0)), .Some(Rc(.Pointer(p))) => .Some(p), _ => .None)
     ),
     _ => .None
   )
@@ -434,12 +434,12 @@ unique_box_payload_type :: (fn(t : &TypeValue) -> Option(TypeValue))(
 /// True if `t` is the prelude's unique cell `Box(V)` (`unique_box_payload_type`).
 is_unique_box_type :: (fn(t : &TypeValue) -> bool)(unique_box_payload_type(t).is_some());
 is_fn_trait_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .FnTraitT(base_name : _) => true, _ => false)
+  match(t_refine_inner(t), Rc(.FnTraitT(base_name : _)) => true, _ => false)
 );
 is_function_type_and_is_type_function :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .Func({ result : r }) => match(r, .TypeUni(_) => true, _ => false),
+    Rc(.Func({ result : r })) => match(r, Rc(.TypeUni(_)) => true, _ => false),
     _ => false
   )
 );
@@ -453,18 +453,18 @@ is_function_type_and_is_macro_function :: (fn(t : &TypeValue) -> bool)(false);
 is_comptime_only_type_simple :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .ComptimeInt => true,
-    .ComptimeFloat => true,
-    .ComptimeString => true,
-    .TypeUni(_) => true,
+    Rc(.ComptimeInt) => true,
+    Rc(.ComptimeFloat) => true,
+    Rc(.ComptimeString) => true,
+    Rc(.TypeUni(_)) => true,
     // Source-namespace structs (anonymous modules / imports) are
     // comptime-only; ordinary structs are not.
-    .Struct({ is_source_namespace : sns2 }) => sns2,
-    .TraitT(name : _) => true,
-    .FnTraitT(base_name : _) => true,
-    .FutureTraitT(base_name : _) => true,
-    .ExprT => true,
-    .ComptimeListT(_) => true,
+    Rc(.Struct({ is_source_namespace : sns2 })) => sns2,
+    Rc(.TraitT(name : _)) => true,
+    Rc(.FnTraitT(base_name : _)) => true,
+    Rc(.FutureTraitT(base_name : _)) => true,
+    Rc(.ExprT) => true,
+    Rc(.ComptimeListT(_)) => true,
     _ => false
   )
 );
@@ -479,7 +479,7 @@ is_function_type_and_returns_comptime_value :: (fn(t : &TypeValue) -> bool)(
     // result type with the comptime-ness carried in the meta flag. The
     // type-based test alone made every "runtime binding in a comptime-only
     // fn body" gate silently never fire (tests/fn.test.yo).
-    .Func({ result : r, meta : __gm }) => (__gm.*.result_is_comptime_only || is_comptime_only_type_simple(&r)),
+    Rc(.Func({ result : r, meta : __gm })) => (__gm.*.result_is_comptime_only || is_comptime_only_type_simple(&r)),
     _ => false
   )
 );
@@ -488,16 +488,16 @@ is_function_type_and_returns_comptime_value :: (fn(t : &TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// The `Type`, `Type(1)`, … universe.
 is_type_hierarchy_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .TypeUni(_) => true, _ => false)
+  match(t_refine_inner(t), Rc(.TypeUni(_)) => true, _ => false)
 );
 is_type_0 :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .TypeUni(level) => (level == usize(0)), _ => false)
+  match(t_refine_inner(t), Rc(.TypeUni(level)) => (level == usize(0)), _ => false)
 );
 // ---------------------------------------------------------------------------
 // Pointer / reference / dyn guards
 // ---------------------------------------------------------------------------
 is_iso_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .IsoT(_) => true, _ => false)
+  match(t_refine_inner(t), Rc(.IsoT(_)) => true, _ => false)
 );
 /// True for an RC handle whose reference count other threads update
 /// atomically: an atomic reference struct, an atomic reference enum, or an
@@ -509,10 +509,10 @@ is_atomically_counted_rc_type :: (fn(t : &TypeValue) -> bool)(
   is_atomic_reference_struct_type(t) || is_atomic_reference_enum_type(t) || is_iso_type(t)
 );
 is_dyn_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .DynT(required_trait_types : _) => true, _ => false)
+  match(t_refine_inner(t), Rc(.DynT(required_trait_types : _)) => true, _ => false)
 );
 is_type_application_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .TypeAppT(constructor : _) => true, _ => false)
+  match(t_refine_inner(t), Rc(.TypeAppT(constructor : _)) => true, _ => false)
 );
 // ---------------------------------------------------------------------------
 // Numeric type guards (extended versions)
@@ -526,8 +526,8 @@ is_integer_type :: (fn(t : &TypeValue) -> bool)(
     is_int_type(t) => true,
     true => match(
       t_refine_inner(t),
-      .Usize => true,
-      .Isize => true,
+      Rc(.Usize) => true,
+      Rc(.Isize) => true,
       _ => false
     )
   )
@@ -535,8 +535,8 @@ is_integer_type :: (fn(t : &TypeValue) -> bool)(
 is_unsigned_integer_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .Int(_, signed) => !signed,
-    .Usize => true,
+    Rc(.Int(_, signed)) => !signed,
+    Rc(.Usize) => true,
     _ => false
   )
 );
@@ -544,51 +544,51 @@ is_unsigned_integer_type :: (fn(t : &TypeValue) -> bool)(
 // C-compatible type guards
 // ---------------------------------------------------------------------------
 is_char_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .CChar => true, _ => false)
+  match(t_refine_inner(t), Rc(.CChar) => true, _ => false)
 );
 is_short_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .CShort => true, _ => false)
+  match(t_refine_inner(t), Rc(.CShort) => true, _ => false)
 );
 is_u_short_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .CUShort => true, _ => false)
+  match(t_refine_inner(t), Rc(.CUShort) => true, _ => false)
 );
 is_c_int_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .CInt => true, _ => false)
+  match(t_refine_inner(t), Rc(.CInt) => true, _ => false)
 );
 is_c_uint_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .CUInt => true, _ => false)
+  match(t_refine_inner(t), Rc(.CUInt) => true, _ => false)
 );
 is_long_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .CLong => true, _ => false)
+  match(t_refine_inner(t), Rc(.CLong) => true, _ => false)
 );
 is_u_long_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .CULong => true, _ => false)
+  match(t_refine_inner(t), Rc(.CULong) => true, _ => false)
 );
 is_long_long_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .CLongLong => true, _ => false)
+  match(t_refine_inner(t), Rc(.CLongLong) => true, _ => false)
 );
 is_u_long_long_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .CULongLong => true, _ => false)
+  match(t_refine_inner(t), Rc(.CULongLong) => true, _ => false)
 );
 is_long_double_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .CLongDouble => true, _ => false)
+  match(t_refine_inner(t), Rc(.CLongDouble) => true, _ => false)
 );
 is_void_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Void => true, _ => false)
+  match(t_refine_inner(t), Rc(.Void) => true, _ => false)
 );
 /// The bottom type `never` (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 3.6).
 is_never_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .Never => true, _ => false)
+  match(t_refine_inner(t), Rc(.Never) => true, _ => false)
 );
 is_future_trait_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .FutureTraitT(base_name : _) => true, _ => false)
+  match(t_refine_inner(t), Rc(.FutureTraitT(base_name : _)) => true, _ => false)
 );
 /// `true` when `t` is a `Concrete(T)` trait type (its `is_concrete` marker is
 /// `.Some`). The `TraitT` variant carries `is_concrete :
 /// Option(Rc(Self))`; this was a `=> false` stub until the async-Future type
 /// plumbing (Phase 5) needed it (`is_io_future_type`).
 is_concrete_trait_type :: (fn(t : &TypeValue) -> bool)(
-  match(t_refine_inner(t), .TraitT({ is_concrete }) => is_concrete.is_some(), _ => false)
+  match(t_refine_inner(t), Rc(.TraitT({ is_concrete })) => is_concrete.is_some(), _ => false)
 );
 /// Return `true` if `t` itself is an RC-managed type (not recursively).
 ///
@@ -612,20 +612,20 @@ is_rc_type :: (fn(t : &TypeValue) -> bool)(
     // method value freed by the pusher's scope-end drop). Same shell-resolve
     // pattern as type_key / eval-match
     // (issues/fixed/yo-self-codegen-recursive-enum-self-shell.md).
-    .Struct({ is_reference_semantics : is_ref }) => match(
+    Rc(.Struct({ is_reference_semantics : is_ref })) => match(
       resolve_struct_shell(t),
-      .Struct({ is_reference_semantics : r_res }) => r_res,
+      Rc(.Struct({ is_reference_semantics : r_res })) => r_res,
       _ => is_ref
     ),
     // Reference-semantics enums (`ref(enum(…))`) are RC-managed like objects.
-    .EnumT({ is_reference_semantics : is_ref }) => match(
+    Rc(.EnumT({ is_reference_semantics : is_ref })) => match(
       resolve_enum_shell(t),
-      .EnumT({ is_reference_semantics : r_res }) => r_res,
+      Rc(.EnumT({ is_reference_semantics : r_res })) => r_res,
       _ => is_ref
     ),
-    .DynT(required_trait_types : _) => true,
-    .IsoT(_) => true,
-    .SomeT(required_trait_types : req_traits) => {
+    Rc(.DynT(required_trait_types : _)) => true,
+    Rc(.IsoT(_)) => true,
+    Rc(.SomeT(required_trait_types : req_traits)) => {
       // Check if any required trait is a Future trait
       (found : bool) = false;
       (i : usize) = usize(0);
@@ -649,16 +649,16 @@ is_rc_type :: (fn(t : &TypeValue) -> bool)(
 is_c_compatible_type :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .CChar => true,
-    .CShort => true,
-    .CUShort => true,
-    .CInt => true,
-    .CUInt => true,
-    .CLong => true,
-    .CULong => true,
-    .CLongLong => true,
-    .CULongLong => true,
-    .CLongDouble => true,
+    Rc(.CChar) => true,
+    Rc(.CShort) => true,
+    Rc(.CUShort) => true,
+    Rc(.CInt) => true,
+    Rc(.CUInt) => true,
+    Rc(.CLong) => true,
+    Rc(.CULong) => true,
+    Rc(.CLongLong) => true,
+    Rc(.CULongLong) => true,
+    Rc(.CLongDouble) => true,
     _ => false
   )
 );
@@ -679,7 +679,7 @@ is_c_compatible_type :: (fn(t : &TypeValue) -> bool)(
 _some_type_implements_future :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .SomeT({ required_trait_types : sf_rtts }) => {
+    Rc(.SomeT({ required_trait_types : sf_rtts })) => {
       (sf_found : bool) = false;
       (sf_i : usize) = usize(0);
       while((sf_i < sf_rtts.len()) && !sf_found, {
@@ -700,7 +700,7 @@ _some_type_implements_future :: (fn(t : &TypeValue) -> bool)(
 is_function_type_generic :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .Func({ param_types : pts, meta : __fm1 }) =>
+    Rc(.Func({ param_types : pts, meta : __fm1 })) =>
       cond(
         (__fm1.*.forall_labels.len() > usize(0)) => true,
         (__fm1.*.implicit_labels.len() > usize(0)) => true,
@@ -715,7 +715,7 @@ is_function_type_generic :: (fn(t : &TypeValue) -> bool)(
               .Some(pt) => match(
                 pt,
                 // Future-implementing SomeT params are exempt.
-                .SomeT(name : _) => if(!_some_type_implements_future(&pt), {
+                Rc(.SomeT(name : _)) => if(!_some_type_implements_future(&pt), {
                   found = true;
                 }),
                 _ => ()
@@ -739,7 +739,7 @@ is_function_type_generic :: (fn(t : &TypeValue) -> bool)(
 is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
   match(
     t,
-    .Func({ param_types : pts, meta : __fm2 }) =>
+    Rc(.Func({ param_types : pts, meta : __fm2 })) =>
       cond(
         (__fm2.*.forall_labels.len() > usize(0)) => true,
         // A SomeType param makes the unspecialized form hard-generic — UNLESS it
@@ -755,7 +755,7 @@ is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
               pts.get(i),
               .Some(pt) => match(
                 pt,
-                .SomeT({ resolution : hg_res }) => {
+                Rc(.SomeT({ resolution : hg_res })) => {
                   // Future-implementing SomeT params are exempt:
                   // they
                   // lower to the future-trait struct pointer, so the
@@ -770,7 +770,7 @@ is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
                 // be a runtime C parameter — the prototype renders
                 // `// Unknown type: Type K` ("invalid storage class
                 // specifier", the imm_map/imm_set family).
-                .TypeUni(_) => {
+                Rc(.TypeUni(_)) => {
                   found = true;
                 },
                 // An Array with an UNRESOLVED length variable
@@ -779,7 +779,7 @@ is_function_type_hard_generic :: (fn(t : &TypeValue) -> bool)(
                 // `// Unknown type: Array(i32, n)` and ate the line
                 // (array.test batch clang errors). Same hard-generic
                 // classification as the comptime `Type` param above.
-                .Array(_, _, hg_lvar) => if(hg_lvar.len() > usize(0), {
+                Rc(.Array(_, _, hg_lvar)) => if(hg_lvar.len() > usize(0), {
                   found = true;
                 }),
                 _ => ()
@@ -812,7 +812,7 @@ is_boxed_type :: (fn(t : &TypeValue) -> bool)(
     false,
     match(
       t,
-      .Struct({ name, field_labels, field_types }) =>
+      Rc(.Struct({ name, field_labels, field_types })) =>
         (
           (field_labels.len() == usize(1)) && match(field_labels.get(usize(0)), .Some(l) => (l == "*"), .None => false) && (
             _is_shared_cell_instance_name(&name)
@@ -863,7 +863,7 @@ _is_nullable_payload_type :: (fn(t : &TypeValue) -> bool)(
 can_optimize_as_nullable_pointer :: (fn(t : &TypeValue) -> Option(TypeValue))(
   match(
     t,
-    .EnumT({ variant_fields, is_reference_semantics }) => {
+    Rc(.EnumT({ variant_fields, is_reference_semantics })) => {
       if(is_reference_semantics || (variant_fields.len() != usize(2)), {
         return(.None);
       });

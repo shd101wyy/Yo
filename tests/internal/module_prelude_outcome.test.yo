@@ -31,7 +31,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { mm_load_file, resolve_std_path } :: import("../../src/module_manager.yo");
 { EvalValue } :: import("../../src/value.yo");
-{ TypeValue } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
 { is_module_type, is_function_type, is_function_type_and_is_type_function } :: import(
   "../../src/types/guards.yo"
 );
@@ -43,12 +43,12 @@ pragma(Pragma.AllowUnsafe);
 /// The field labels of a source-namespace module type, or an empty list for
 /// anything else.
 _ns_labels :: (fn(t : &TypeValue) -> ArrayList(String))(
-  match(t, .Struct({ field_labels }) => field_labels, _ => ArrayList(String).new())
+  match(t, Rc(.Struct({ field_labels })) => field_labels, _ => ArrayList(String).new())
 );
 /// The field types of a source-namespace module type, or an empty list for
 /// anything else.
 _ns_types :: (fn(t : &TypeValue) -> ArrayList(TypeValue))(
-  match(t, .Struct({ field_types }) => field_types, _ => ArrayList(TypeValue).new())
+  match(t, Rc(.Struct({ field_types })) => field_types, _ => ArrayList(TypeValue).new())
 );
 /// A namespace field's TYPE by label — the type the export walk recorded for
 /// that binding, which is what `build_doc_module` routes a declaration on.
@@ -67,13 +67,13 @@ _ns_field_type :: (fn(t : &TypeValue, label : &String) -> TypeValue)({
         match(
           tys.get(i),
           .Some(ft) => ft,
-          .None => TypeValue.Unit
+          .None => rc(TypeValueNode.Unit)
         )
       );
     });
     i = (i + usize(1));
   });
-  TypeValue.Unit
+  rc(TypeValueNode.Unit)
 });
 /// The names of a doc module's `types` list.
 _doc_type_names :: (fn(m : &DocModule) -> ArrayList(String))({

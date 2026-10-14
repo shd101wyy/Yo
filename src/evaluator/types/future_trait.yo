@@ -25,7 +25,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment } :: import("../../env.yo");
 { EvalContext } :: import("../context.yo");
 { create_type_value, is_type_value } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { t_future_trait } :: import("../../types/creators.yo");
 { note_move_only_possible } :: import("../../types/utils.yo");
 { type_of_type } :: import("../../types/hierarchy.yo");
@@ -47,8 +47,8 @@ _future_args :: (fn(e : &AstExpr) -> ArrayList(AstExpr))(
 _effect_label_for :: (fn(effect_type : &TypeValue, effect_expr : &AstExpr) -> String)(
   match(
     effect_type,
-    .Struct({ name, is_source_namespace : fl_sns }) => cond(fl_sns => name, true => ast_expr_to_string(effect_expr)),
-    .SomeT(_, name, _, _, _, _, _, _, _, _) => name,
+    Rc(.Struct({ name, is_source_namespace : fl_sns })) => cond(fl_sns => name, true => ast_expr_to_string(effect_expr)),
+    Rc(.SomeT(_, name, _, _, _, _, _, _, _, _)) => name,
     _ => ast_expr_to_string(effect_expr)
   )
 );
@@ -108,8 +108,8 @@ _resolve_effect_arg :: (
           });
           effect_type := match(
             info.value,
-            .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-            .None => TypeValue.Unit
+            .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+            .None => rc(TypeValueNode.Unit)
           );
           label := _effect_label_for(&effect_type, effect_expr);
           out_labels.push(label);
@@ -172,7 +172,7 @@ evaluate_future_type :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.Unit)
+      new_expr_info(env, rc(TypeValueNode.Unit))
     }
   );
   (env_mut : Environment) = expr_info_adopt_env(&elem_info);
@@ -188,8 +188,8 @@ evaluate_future_type :: (
   });
   output_type := match(
     elem_info.value,
-    .Some(v) => match(v, .TypeVal(b) => b, _ => TypeValue.Unit),
-    .None => TypeValue.Unit
+    .Some(v) => match(v, .TypeVal(b) => b, _ => rc(TypeValueNode.Unit)),
+    .None => rc(TypeValueNode.Unit)
   );
   // Process effect arguments (args 1..N)
   effect_labels := ArrayList(String).new();

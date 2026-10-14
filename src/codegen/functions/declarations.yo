@@ -4,7 +4,7 @@
 //! and the function-prototype/declaration emitters.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_function_type, is_struct_type, is_module_type, is_reference_struct_type, is_reference_enum_type, is_unit_type, is_some_type, is_expr_type, is_function_type_hard_generic, is_comptime_int_type, is_comptime_float_type, is_comptime_string_type } :: import("../../types/guards.yo");
 { type_contains_some_type, func_params_have_raw_some_type, fn_abi_param_is_ptr } :: import("../../types/utils.yo");
 { type_contains_some_type_for_codegen_param, type_implements_future } :: import("../../evaluator/trait_checking.yo");
@@ -59,12 +59,12 @@ collect_evidence_from_record :: (
 )(
   match(
     effect_record_type,
-    .Struct({ field_labels, field_types }) => {
+    Rc(.Struct({ field_labels, field_types })) => {
       n := field_labels.len();
       (i : usize) = usize(0);
       while(i < n, {
         field_label := match(field_labels.get(i), .Some(l) => l, .None => String.from(""));
-        field_ty := match(field_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        field_ty := match(field_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         cond(
           is_function_type(&field_ty) => {
             // Forall function fields are passed as void* and cast at each call site.
@@ -125,7 +125,7 @@ generate_function_prototype :: (
 )(
   match(
     function_type,
-    .Func({ param_types, result, meta : __fm1 }) => {
+    Rc(.Func({ param_types, result, meta : __fm1 })) => {
       param_labels := __fm1.*.param_labels;
       // The C pointer flags: a `&mut T` parameter, or a projection's `&T`.
       param_is_ref := fn_abi_param_is_ptr(function_type);
@@ -153,7 +153,7 @@ generate_function_prototype :: (
         if(i > usize(0), {
           params.push_str(", ");
         });
-        pt := match(param_types.get(i), .Some(t) => t, .None => TypeValue.Unit);
+        pt := match(param_types.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         // Use the source parameter label (sanitized) so the C signature matches
         // the body's references to that parameter (the atom emitter emits the
         // source name). Falls back to
@@ -249,7 +249,7 @@ _emit_ref_enum_constructor_decls :: (fn(type : &TypeValue, c_name : &String, con
   em := context.emitter;
   match(
     type,
-    .EnumT({ variant_names, variant_fields, variant_field_labels }) => {
+    Rc(.EnumT({ variant_names, variant_fields, variant_field_labels })) => {
       nv := variant_names.len();
       (vi : usize) = usize(0);
       while(vi < nv, {
@@ -388,12 +388,12 @@ generate_object_constructor_declarations :: (fn(context : &CodeGenContext) -> un
 });
 /// The result (return) type of a Func TypeValue, or Unit for non-functions.
 _func_result_type :: (fn(ft : &TypeValue) -> TypeValue)(
-  match(ft, .Func({ result }) => result, _ => TypeValue.Unit)
+  match(ft, Rc(.Func({ result })) => result, _ => rc(TypeValueNode.Unit))
 );
 /// True when the Func's declared return is `comptime(...)` (compile-time-only
 /// function).
 _func_result_is_comptime_only :: (fn(ft : &TypeValue) -> bool)(
-  match(ft, .Func({ meta : __fm2 }) => __fm2.*.result_is_comptime_only, _ => false)
+  match(ft, Rc(.Func({ meta : __fm2 })) => __fm2.*.result_is_comptime_only, _ => false)
 );
 /// True if any runtime parameter of the Func contains a SomeType at the codegen
 /// ABI level, or the Func has generic type parameters.
@@ -403,7 +403,7 @@ _func_result_is_comptime_only :: (fn(ft : &TypeValue) -> bool)(
 _func_has_expr_param :: (fn(ft : &TypeValue) -> bool)(
   match(
     ft,
-    .Func({ param_types }) => {
+    Rc(.Func({ param_types })) => {
       n := param_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -425,7 +425,7 @@ _func_has_expr_param :: (fn(ft : &TypeValue) -> bool)(
 _func_has_generic_params :: (fn(ft : &TypeValue) -> bool)(
   match(
     ft,
-    .Func({ forall_types, param_types }) => if(forall_types.len() > usize(0), true, {
+    Rc(.Func({ forall_types, param_types })) => if(forall_types.len() > usize(0), true, {
       n := param_types.len();
       (i : usize) = usize(0);
       (found : bool) = false;
@@ -456,7 +456,7 @@ _func_has_generic_params :: (fn(ft : &TypeValue) -> bool)(
 /// True when the return type is a plain `Impl(...)` existential (SomeType at top
 /// level with at least one required trait).
 _returns_plain_impl :: (fn(ret : &TypeValue) -> bool)(
-  if(!is_some_type(ret), false, match(ret, .SomeT({ required_trait_types : rts }) => (rts.len() > usize(0)), _ => false))
+  if(!is_some_type(ret), false, match(ret, Rc(.SomeT({ required_trait_types : rts })) => (rts.len() > usize(0)), _ => false))
 );
 /// The body expression of a FuncVal, if any.
 _func_value_body :: (fn(value : &EvalValue) -> Option(AstExpr))(
@@ -538,12 +538,12 @@ should_skip_function_codegen :: (fn(func_id : &String, c_name : &String, value :
   _ret_has_len_var :: (fn(rl_t : &TypeValue) -> bool)(
     match(
       rl_t,
-      .Array(rl_elem, _, rl_var) => cond(
+      Rc(.Array(rl_elem, _, rl_var)) => cond(
         (rl_var.len() > usize(0)) => true,
         true => recur(&rl_elem)
       ),
-      .Pointer(rl_p) => recur(&rl_p),
-      .IsoT(rl_i) => recur(&rl_i),
+      Rc(.Pointer(rl_p)) => recur(&rl_p),
+      Rc(.IsoT(rl_i)) => recur(&rl_i),
       _ => false
     )
   );
@@ -793,7 +793,7 @@ emitted_return_type_string :: (
               .Some(s) => s,
               .None => match(
                 ft,
-                .Func({ result : r, meta : __erm }) => {
+                Rc(.Func({ result : r, meta : __erm })) => {
                   base := get_type_string(&r, context);
                   if(__erm.*.result_is_ref, {
                     base.push_str("*");
@@ -831,8 +831,8 @@ static_dispatch_callee_return_type :: (
     .Some(cei) => {
       sd_id := match(
         resolve_some_type_to_concrete(&cei.ty),
-        .Struct({ id : i }) => i,
-        .SomeT({ id : i }) => i,
+        Rc(.Struct({ id : i })) => i,
+        Rc(.SomeT({ id : i })) => i,
         _ => String.from("")
       );
       cond(
@@ -871,7 +871,7 @@ _is_threading_macro_function :: (fn(name : &String) -> bool)(
 );
 /// `is_extern` tag of a Func type: `.Some("c")` / `.Some("yo")` / `.None`.
 _func_extern_tag :: (fn(ft : &TypeValue) -> Option(String))(
-  match(ft, .Func({ meta : __fm3 }) => __fm3.*.is_extern, _ => Option(String).None)
+  match(ft, Rc(.Func({ meta : __fm3 })) => __fm3.*.is_extern, _ => Option(String).None)
 );
 /// Generate constructor declarations for closures. No-op: Impl(Fn(...)) closures
 /// use concrete capture structs + direct calls; Dyn(Fn(...)) uses dyn

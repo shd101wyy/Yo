@@ -825,11 +825,11 @@ _evaluate_expression :: (
             // fallback.
             expected_is_anon_struct := match(
               et_ty,
-              .Struct({ is_source_namespace : et_sns }) => !et_sns,
+              Rc(.Struct({ is_source_namespace : et_sns })) => !et_sns,
               // Patch D: an expected FUNC type reroutes too — `is_even =
               // _(cond(...))` under `comptime(is_even) : (fn(n : i32) ->
               // bool)` is a function DEFINITION call (fn arm 14).
-              .Func(_, _, _, _, _, _, _) => true,
+              Rc(.Func(_, _, _, _, _, _, _)) => true,
               _ => false
             );
             // NOTE (fn.test.yo arm 14, measured 2026-08-03): widening this
@@ -1542,7 +1542,7 @@ _surfaces_raw_pointer :: (fn(ty : &TypeValue) -> bool)({
   });
   match(
     ty,
-    .EnumT({ variant_fields : all_fields }) => {
+    Rc(.EnumT({ variant_fields : all_fields })) => {
       (found : bool) = false;
       (vi : usize) = usize(0);
       while((vi < all_fields.len()) && !found, {

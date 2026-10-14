@@ -123,14 +123,14 @@ register_closure_fid_source :: (fn(func_id : &String, src_key : &String) -> unit
   ()
 });
 _capture_struct_field_count :: (fn(t : &TypeValue) -> usize)(
-  match(t, .Struct({ field_labels : cfl }) => cfl.len(), _ => usize(0))
+  match(t, Rc(.Struct({ field_labels : cfl })) => cfl.len(), _ => usize(0))
 );
 register_closure_capture_info :: (fn(func_id : &String, info : &ClosureCaptureInfo) -> unit)({
   if(debug_knob(`YO_DEBUG_CAPTURE`).is_some(), {
     (reg_flds : String) = String.new();
     match(
       info.capture_type,
-      .Struct({ field_labels : rfl }) => {
+      Rc(.Struct({ field_labels : rfl })) => {
         (rgi : usize) = usize(0);
         while(rgi < rfl.len(), rgi = (rgi + usize(1)), {
           match(
@@ -201,7 +201,7 @@ find_closure_fid_by_capture_struct_id :: (fn(struct_id : &String) -> Option(Stri
         g_closure_capture_info.get(fid.clone()),
         .Some(ci) => match(
           ci.capture_type,
-          .Struct({ id : csid }) => if(csid == struct_id, {
+          Rc(.Struct({ id : csid })) => if(csid == struct_id, {
             out = Option(String).Some(fid.clone());
             go = false;
           }),

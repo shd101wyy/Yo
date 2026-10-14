@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_unknown_val, create_unknown_val } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_array_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { type_to_string } :: import("../../types/string.yo");
@@ -74,7 +74,7 @@ evaluate_yo_array_fill :: (
           )
         )
       );
-      new_expr_info(env, TypeValue.TypeUni(usize(0)))
+      new_expr_info(env, rc(TypeValueNode.TypeUni(usize(0))))
     }
   );
   (cur_env : Environment) = expr_info_adopt_env(&at_info);
@@ -96,7 +96,7 @@ evaluate_yo_array_fill :: (
           )
         )
       );
-      TypeValue.TypeUni(usize(0))
+      rc(TypeValueNode.TypeUni(usize(0)))
     }
   );
   if(!is_array_type(&array_type_tv), {
@@ -112,7 +112,7 @@ evaluate_yo_array_fill :: (
   // Destructure Array(element_box, length).
   (element_box, length) := match(
     array_type_tv,
-    .Array(eb, l, _) => (eb, l),
+    Rc(.Array(eb, l, _)) => (eb, l),
     _ => {
       return(expr);
     }

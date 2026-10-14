@@ -14,7 +14,7 @@
 { Emitter } :: import("../../src/emitter.yo");
 { expr_info_table_new } :: import("../../src/expr_info.yo");
 { host_target } :: import("../../src/target.yo");
-{ TypeValue } :: import("../../src/types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../src/types/definitions.yo");
 { CodeGenContext } :: import("../../src/codegen/utils/index.yo");
 { FunctionGenerationContext } :: import("../../src/codegen/functions/context.yo");
 { _emit_pattern_binding_decl } :: import("../../src/codegen/exprs/match.yo");
@@ -38,7 +38,7 @@ mk_context :: (fn() -> FunctionGenerationContext)({
 
 emit_decl :: (fn(bind : &String, init : &String) -> String)({
   ctx := mk_context();
-  _emit_pattern_binding_decl(&ctx, String.from("  "), bind, TypeValue.Int(u8(32), true), init);
+  _emit_pattern_binding_decl(&ctx, String.from("  "), bind, rc(TypeValueNode.Int(u8(32), true)), init);
   ctx.base.emitter.print()
 });
 

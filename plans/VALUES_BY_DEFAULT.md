@@ -112,14 +112,14 @@ Progress:
     functions, and a recursive enum's `Option(E)` is one C type (#1341);
   - an S1 fix: a later argument that moves a place an earlier argument
     lends to the call is E0910 (#1346).
+  - V4's `TypeValue` as an `Rc` handle: `TypeValue :: Rc(TypeValueNode)`,
+    with #1137's identity memos restored and long specialization names
+    hashed (feat/vbd-v4-typevalue-rc-handle; decision 21's "As built"
+    note). The value-enum conversion was built and measured first, and
+    lost.
 - **In progress:**
   - V3's remaining async work (§3.13): A4's future operands, A5's remaining
     lines, and A6's `Rc`-field half (V2c).
-  - V4's `TypeValue`: the value-enum conversion was built and measured,
-    and `TypeValue` stays an `Rc` handle (decision 21, amended
-    2026-10-13). The two codegen bugs it found are fixed
-    (`issues/fixed/value-enum-drops-are-emitted-inline-at-every-drop-site.md`,
-    `issues/fixed/option-of-a-recursive-value-enum-gets-two-c-types-in-the-self-build.md`).
   - Decision 44's follow-up: a closure into a `Dyn(Fn)` slot is `dyn(f)`.
 - **Next:** the rest of V2b (direct projection calls, unique buffers, the
   explicit-copy kind), then the allocator interface version 2 (§6, after
@@ -1494,11 +1494,55 @@ and in git, not a silent edit.
       #1329 declared `TypeValue` `Acyclic` (72.1 M on an earlier develop),
       so `TypeValue` nodes are not what the collector tracks. The converted tree
       itself is correct: it self-builds, and its stage 2 equals stage 3.
-      Branch `feat/vbd-v4-typevalue-2` keeps it as the record. At V5,
-      `TypeValue`'s `ref(enum)` becomes an `Rc` handle at the type level
-      (the enum with `Self` children behind one `Rc`, so its children are
-      handles too), not a value enum. `AstExpr` and `EvalValue` are measured
-      the same way before either converts.
+      Branch `feat/vbd-v4-typevalue-2` keeps it as the record. `AstExpr`
+      and `EvalValue` are measured the same way before either converts.
+    - **As built (maintainer 2026-10-13: "Rc handle").** `TypeValue ::
+      Rc(TypeValueNode)`, where `TypeValueNode` is the enum with `Rc(Self)`
+      children. The one-name spelling `Rc(enum(... Self ...))` does not
+      compile: `Self` names the inner enum, so a by-value `Self` is
+      infinite. Constructions are `rc(TypeValueNode.X(...))`, since neither
+      `TypeValue.X(...)` nor a contextual `.X(...)` reaches through the alias.
+      Arms look through the handle unchanged, and `clone` returns the
+      handle. Object identity is valid again, so #1137's address-identity
+      memos (`substitute`'s node memo, the universe memo, the representation
+      memo and cycle path) replace #1329's structural keys. Measured on macOS
+      arm64: each binary was built by one tree compiler and checked the
+      handle tree's `src/`, two rounds each:
+
+      | compiler | `check ./src` | RSS |
+      | --- | --- | --- |
+      | develop (`ref(enum)`, #1329 key memos) | 186.0 / 187.6 s | 1.237 GB |
+      | handle, #1329 key memos | 187.0 / 187.7 s | 1.240 GB |
+      | handle, identity memos (as built) | 187.0 / 187.1 s | 1.222 GB |
+
+      Check time is unchanged, and the memo restore saves 15 MB. After the
+      rebase onto v0.2.62 the handle tree was slower to check (224 s against
+      develop's 186 s) and to emit (587 s against 402 s). The cause was
+      `resolve_enum_shell` scanning a list of every finalized enum: a
+      `TypeValueNode`'s `Rc(Self)` children stay self-shells inside nested
+      containers, so every type walk resolved shells (a `ref(enum)` has
+      none). The registry is now a `HashMap`. The same PR fixes two
+      emitted-C costs:
+      - `rc` specialized at `TypeValueNode` was emitted under its raw
+        17,783-byte signature at 780 call sites. Three callee-walk
+        registrations bypassed `function_c_name`'s hash
+        (`issues/fixed/2026-10-14-specialized-function-names-called-through-a-callee-are-not-hashed.md`).
+      - A borrow match whose arms all look through one `Rc` cell to plain
+        variant shapes (binder or `_` fields, no guard) took the general test
+        chain (`if (!(tag == X)) goto`; 7,872 tests against develop's 1,715).
+        It now lowers to a `switch` on the payload's tag.
+
+      Measured as built: each tree is checked by its own S1, seed-built by
+      v0.2.62, alone on the box (macOS arm64):
+
+      | | `check ./src` | emit (`compile src/main.yo --skip-c-compiler`) | emitted C |
+      | --- | --- | --- | --- |
+      | develop 93de1de73 | 188.1 s, 1.258 GB | 401.6 s, 3.25 GB | 138.4 MB |
+      | this tree | 172.1 s, 1.226 GB | 334.5 s, 3.20 GB | 135.3 MB |
+
+      The v0.2.62 seed itself still builds this tree in 716 s against 520 s
+      for develop, because it carries none of the three fixes. That comes
+      back once a seed does.
 22. **Non-escaping closures borrow, escaping closures own, and a closure's
     kind follows its captures** (the structural rule of §0.2 applied to the
     capture struct).
@@ -5835,10 +5879,12 @@ stage-2 RSS):
   slower in `check ./src` and 2.6× slower in the self-emit). The four
   representation-independent items below landed in #1329 and stay. The
   conversion found two codegen bugs that any large recursive value enum
-  hits, and they are fixed (#1338, #1341). At V5 the `ref(enum)` becomes
-  an `Rc` handle at the type level.
-  - Replace the three `__yo_ptr_eq` memo and cycle-path checks
-    (`src/types/hierarchy.yo`, `src/types/utils.yo`) with key-based ones.
+  hits, and they are fixed (#1338, #1341). As built (2026-10-13), the
+  `ref(enum)` is `Rc(TypeValueNode)` (decision 21's "As built" note).
+  - ~~Replace the three `__yo_ptr_eq` memo and cycle-path checks
+    (`src/types/hierarchy.yo`, `src/types/utils.yo`) with key-based ones~~:
+    landed in #1329, then reverted by the handle conversion, since a
+    handle has object identity.
   - Rebuild the module type in `update_module_cache_slot`
     (`src/evaluator/module_loader.yo`) instead of patching it.
   - `clone` stays O(1), as an `Rc` count bump.
@@ -6167,7 +6213,7 @@ that later phases add.
 | `T :: ref(struct(...))` mutated through one handle only | `T :: struct(...)`, mutators `self : &mut Self` | E0908 audit |
 | `T :: ref(struct(...))` held in two places on purpose | `struct(...)` plus `Rc(T)` at the sharing site | E0908 audit, `__yo_ptr_eq` sites |
 | `T :: atomic(ref(struct(...)))` shared across threads | `Arc(T)` over a value `T` (requires `T <: (Send, Sync)`) | E0602 at the `Arc` |
-| `T :: ref(enum(... Self ...))` | `enum(... Box(Self) ...)`, or `Rc(Self)` children for the large compiler trees; `TypeValue` stays an `Rc` handle at the type level (decision 21, amended 2026-10-13) | V4 list |
+| `T :: ref(enum(... Self ...))` | `enum(... Box(Self) ...)`, or `Rc(Self)` children for the large compiler trees; `TypeValue` is `Rc(TypeValueNode)` (decision 21, as built 2026-10-13) | V4 list |
 | `Box(T)` whose copies must alias | `Rc(T)` | V1 step 1 renames all; step 2 moves recursion back |
 | an implicit copy of a `String`, collection, `Box` or `Dyn` whose source lives on | `x.clone()`, a move, or `y := &x` | E0901 + note (V2b) |
 | an implicit `Rc`/`Arc` copy | `r.clone()` | E0901 (V2c) |

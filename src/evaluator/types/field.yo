@@ -32,7 +32,7 @@ import("std/fmt");
 { Environment, snapshot_env } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx } :: import("../context.yo");
 { EvalValue, is_unknown_val } :: import("../../value.yo");
-{ TypeValue } :: import("../../types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_some_type, is_tuple_type, is_struct_type, is_module_type, is_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { format_error_message, format_error_message_with_help } :: import("../../error.yo");
@@ -261,13 +261,13 @@ evaluate_type_field :: (
   // --- Determine expected type for this field (from context) ---
   (expected_tuple_element_type : Option(TypeValue)) = Option(TypeValue).None;
   if(ctx.expected_type.is_some(), {
-    expected_type_val := match(ctx.expected_type, .Some(e) => e.ty, .None => TypeValue.Unit);
+    expected_type_val := match(ctx.expected_type, .Some(e) => e.ty, .None => rc(TypeValueNode.Unit));
     if(is_tuple_type(&expected_type_val) || is_struct_type(&expected_type_val) || is_module_type(&expected_type_val) || is_trait_type(&expected_type_val), {
       maybe_field_ty := match(
         expected_type_val,
-        .Tuple(_, types) => types.get(tuple_field_index),
-        .Struct({ field_types : types }) => types.get(tuple_field_index),
-        .TraitT(_, _, _, types, _, _, _, _, _, _) => types.get(tuple_field_index),
+        Rc(.Tuple(_, types)) => types.get(tuple_field_index),
+        Rc(.Struct({ field_types : types })) => types.get(tuple_field_index),
+        Rc(.TraitT(_, _, _, types, _, _, _, _, _, _)) => types.get(tuple_field_index),
         _ => Option(TypeValue).None
       );
       if(maybe_field_ty.is_none(), {
@@ -292,7 +292,7 @@ evaluate_type_field :: (
       elem_env := match(ctx.expected_type, .Some(e) => snapshot_env(&e.env), .None => env);
       ctx.expected_type = Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
+          ty : match(expected_tuple_element_type, .Some(t) => t, .None => rc(TypeValueNode.Unit)),
           env : elem_env
         )
       );
@@ -302,7 +302,7 @@ evaluate_type_field :: (
     evaluated_te := evaluate_expression_raw(&te, &env, ctx, exn);
     ctx.expected_type = old_expected;
     te_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_te));
-    te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env, TypeValue.Unit));
+    te_info := match(te_info_opt, .Some(i) => i, .None => new_expr_info(&env, rc(TypeValueNode.Unit)));
     env.frames = te_info.env.frames;
     env.module_path = te_info.env.module_path;
     env.function_declaration_frame_level = te_info.env.function_declaration_frame_level;
@@ -336,7 +336,7 @@ evaluate_type_field :: (
                 ast_expr_token(&te),
                 fn_type_unrepresentable_impl_message(
                   `${for_type} field "${match(label, .Some(l) => l, .None => `${tuple_field_index}`)}"`,
-                  match(field_type, .Some(fft2) => fft2, .None => TypeValue.Unit),
+                  match(field_type, .Some(fft2) => fft2, .None => rc(TypeValueNode.Unit)),
                   &ffi_impl
                 ),
                 Option(String).Some(fn_type_unrepresentable_impl_help())
@@ -365,7 +365,7 @@ evaluate_type_field :: (
       field_type.is_some(),
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(field_type, .Some(t) => t, .None => TypeValue.Unit),
+          ty : match(field_type, .Some(t) => t, .None => rc(TypeValueNode.Unit)),
           env : env
         )
       ),
@@ -373,7 +373,7 @@ evaluate_type_field :: (
         expected_tuple_element_type.is_some(),
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
-            ty : match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
+            ty : match(expected_tuple_element_type, .Some(t) => t, .None => rc(TypeValueNode.Unit)),
             env : env
           )
         ),
@@ -401,7 +401,7 @@ evaluate_type_field :: (
             )
           )
         );
-        new_expr_info(&env, TypeValue.Unit)
+        new_expr_info(&env, rc(TypeValueNode.Unit))
       }
     );
     env.frames = av_info.env.frames;
@@ -437,7 +437,7 @@ evaluate_type_field :: (
       .None => ()
     );
     if(field_expected_ctx.is_some(), {
-      ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
+      ft := match(field_expected_ctx, .Some(e) => e.ty, .None => rc(TypeValueNode.Unit));
       if(!are_types_compatible(&av_type, &ft), {
         exn.throw(
           dyn(
@@ -460,7 +460,7 @@ evaluate_type_field :: (
       field_type.is_some(),
       Option(ExpectedTypeCtx).Some(
         ExpectedTypeCtx(
-          ty : match(field_type, .Some(t) => t, .None => TypeValue.Unit),
+          ty : match(field_type, .Some(t) => t, .None => rc(TypeValueNode.Unit)),
           env : env
         )
       ),
@@ -468,7 +468,7 @@ evaluate_type_field :: (
         expected_tuple_element_type.is_some(),
         Option(ExpectedTypeCtx).Some(
           ExpectedTypeCtx(
-            ty : match(expected_tuple_element_type, .Some(t) => t, .None => TypeValue.Unit),
+            ty : match(expected_tuple_element_type, .Some(t) => t, .None => rc(TypeValueNode.Unit)),
             env : env
           )
         ),
@@ -492,7 +492,7 @@ evaluate_type_field :: (
             )
           )
         );
-        new_expr_info(&env, TypeValue.Unit)
+        new_expr_info(&env, rc(TypeValueNode.Unit))
       }
     );
     env.frames = dv_info.env.frames;
@@ -538,7 +538,7 @@ evaluate_type_field :: (
       .None => ()
     );
     if(field_expected_ctx.is_some(), {
-      ft := match(field_expected_ctx, .Some(e) => e.ty, .None => TypeValue.Unit);
+      ft := match(field_expected_ctx, .Some(e) => e.ty, .None => rc(TypeValueNode.Unit));
       if(!are_types_compatible(&dv_type, &ft), {
         exn.throw(
           dyn(
@@ -565,7 +565,7 @@ evaluate_type_field :: (
       )
     );
   });
-  final_type := match(field_type, .Some(t) => t, .None => TypeValue.Unit);
+  final_type := match(field_type, .Some(t) => t, .None => rc(TypeValueNode.Unit));
   // For non-tuple types, a label is required
   if((for_type != "tuple") && label_expr.is_none(), {
     exn.throw(
@@ -607,7 +607,7 @@ evaluate_type_field :: (
     .None => false
   );
   if(!is_same_as_type_expr, {
-    expr_info := new_expr_info(&env, TypeValue.Unit);
+    expr_info := new_expr_info(&env, rc(TypeValueNode.Unit));
     expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
   });

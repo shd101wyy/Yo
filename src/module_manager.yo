@@ -98,7 +98,7 @@ env_mod :: import("std/env");
 { purge_specialization_caches_owned_by, specialization_recording_begin, specialization_recording_take } :: import("./evaluator/calls/helper.yo");
 { purge_match_arms } :: import("./pattern.yo");
 { EvalValue, type_of_eval_value } :: import("./value.yo");
-{ TypeValue } :: import("./types/definitions.yo");
+{ TypeValue, TypeValueNode } :: import("./types/definitions.yo");
 { clear_type_display_names, type_to_string } :: import("./types/string.yo");
 { render_any_error, stash_error_diagnostics, format_error_message } :: import("./error.yo");
 { get_func_type } :: import("./function_value.yo");
@@ -175,7 +175,7 @@ _failed_outcome :: (fn() -> ModuleLoadOutcome)(
   ModuleLoadOutcome(
     ok : false,
     module_value : EvalValue.UnitVal,
-    module_type : TypeValue.Unit,
+    module_type : rc(TypeValueNode.Unit),
     env : Environment.new(String.from("")),
     ctx : eval_context_new(String.from(""), String.from(""))
   )
@@ -2398,7 +2398,7 @@ _load_module_at_abs :: (fn(abs : &String) -> Option(String))({
   match(
     out_vals.get(usize(0)),
     .Some(mv) => {
-      reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit);
+      reg_ty := match(out_tys.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit));
       register_module(abs.clone(), &mv, &reg_ty);
       module_load_end(abs, touch_mark);
       Option(String).None
@@ -2493,7 +2493,7 @@ demand_load_module :: (fn(path : &String) -> LoadModuleResult)({
       return(
         LoadModuleResult(
           module_value : _build_module_val_from_env(&env),
-          module_type : TypeValue.Unit,
+          module_type : rc(TypeValueNode.Unit),
           module_error : Option(String).None
         )
       );
@@ -2506,7 +2506,7 @@ demand_load_module :: (fn(path : &String) -> LoadModuleResult)({
       return(
         LoadModuleResult(
           module_value : EvalValue.UnitVal,
-          module_type : TypeValue.Unit,
+          module_type : rc(TypeValueNode.Unit),
           module_error : Option(String).Some(load_err)
         )
       );
@@ -2685,7 +2685,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                 main_fty := get_func_type(__main_fvd.*.func_id.clone());
                 main_result := match(
                   main_fty,
-                  .Func({ result : __main_res }) => __main_res,
+                  Rc(.Func({ result : __main_res })) => __main_res,
                   _ => t_unit()
                 );
                 if(!is_unit_type(&main_result), {
@@ -2707,7 +2707,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                 // evaluator/calls/function.yo).
                 match(
                   main_fty,
-                  .Func({ param_types : __main_pts }) => {
+                  Rc(.Func({ param_types : __main_pts })) => {
                     (pi : usize) = usize(0);
                     while(pi < __main_pts.len(), {
                       match(
@@ -2715,7 +2715,7 @@ _reject_non_unit_main :: (fn(module_value : &EvalValue, exn : Exception) -> unit
                         .Some(pt) => {
                           pt_is_io := match(
                             pt,
-                            .Struct({ name : __pt_name, is_source_namespace : __pt_sns }) => ((__pt_name == "Io") && !__pt_sns),
+                            Rc(.Struct({ name : __pt_name, is_source_namespace : __pt_sns })) => ((__pt_name == "Io") && !__pt_sns),
                             _ => false
                           );
                           if(!pt_is_io, {
@@ -2806,7 +2806,7 @@ mm_eval_entry_exprs :: (
       ModuleLoadOutcome(
         ok : true,
         module_value : mv,
-        module_type : match(out_tys.get(usize(0)), .Some(t) => t, .None => TypeValue.Unit),
+        module_type : match(out_tys.get(usize(0)), .Some(t) => t, .None => rc(TypeValueNode.Unit)),
         env : env,
         ctx : ctx
       )
@@ -2820,7 +2820,7 @@ mm_eval_entry_exprs :: (
     .None => ModuleLoadOutcome(
       ok : false,
       module_value : EvalValue.UnitVal,
-      module_type : TypeValue.Unit,
+      module_type : rc(TypeValueNode.Unit),
       env : env,
       ctx : ctx
     )

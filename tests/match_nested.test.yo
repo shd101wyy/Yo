@@ -217,6 +217,39 @@ test("Rc(p) looks through an Rc child at any depth", {
   assert(f(Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Node(rc(Tree.Leaf(4)), rc(Tree.Leaf(0)))))) == i32(-1));
   assert(f(Tree.Leaf(7)) == i32(7));
 });
+// A borrow match on an `Rc` handle whose arms all look through it to plain
+// variant shapes lowers to a `switch` on the payload's tag; a literal field
+// or a guard keeps the test chain (plans/VALUES_BY_DEFAULT.md decision 21's
+// "As built" note). Both lowerings answer alike.
+Shape :: enum(Dot, Line(len : i32), Pair(a : Rc(Self), b : Rc(Self)));
+test("a match on an Rc handle with plain variant arms switches on the payload", {
+  size :: (fn(s : &Rc(Shape)) -> i32)(
+    match(
+      s,
+      Rc(.Dot) => i32(1),
+      Rc(.Line(n)) => n,
+      Rc(.Pair(a, b)) => (recur(&a) + recur(&b))
+    )
+  );
+  only_line :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(n)) => n, _ => i32(0)));
+  with_literal :: (fn(s : &Rc(Shape)) -> i32)(match(s, Rc(.Line(0)) => i32(-1), Rc(.Line(n)) => n, _ => i32(0)));
+  with_guard :: (fn(s : &Rc(Shape)) -> i32)(match(s, (Rc(.Line(n)) && (n > i32(5))) => i32(5), Rc(.Line(n)) => n, _ => i32(0)));
+  dot := rc(Shape.Dot);
+  line := rc(Shape.Line(len : i32(7)));
+  zero := rc(Shape.Line(len : i32(0)));
+  pair := rc(Shape.Pair(a : line, b : rc(Shape.Pair(a : dot, b : zero))));
+  assert(size(&dot) == i32(1));
+  assert(size(&line) == i32(7));
+  assert(size(&pair) == i32(8));
+  assert(only_line(&line) == i32(7));
+  assert(only_line(&pair) == i32(0));
+  assert(with_literal(&zero) == i32(-1));
+  assert(with_literal(&line) == i32(7));
+  assert(with_literal(&dot) == i32(0));
+  assert(with_guard(&line) == i32(5));
+  assert(with_guard(&zero) == i32(0));
+  assert(with_guard(&pair) == i32(0));
+});
 test("Rc(p) at the scrutinee covers it with no catch-all", {
   g :: (fn(b : &Rc(Tree)) -> i32)(
     match(
