@@ -1443,16 +1443,44 @@ test("a block result that is not moved is released once", {
   };
   assert(g_at_disposed == (before + i32(3)), "a block as a receiver");
 });
+// Regression (issues/fixed/2026-10-15-a-block-that-yields-an-outer-local-never-takes-its-reference.md):
+// a block whose value is a local it does not own (an outer-frame local, a
+// borrowed parameter) shares it out with a balancing `___dup`, which the
+// block emitter never wrote, so the block's result and the local each
+// released the one reference (heap-use-after-free under ASan). Each shape
+// below released the outer local early before the fix.
+at_block_of_param :: (fn(keep : &ArgTemp) -> i32)(
+  at_read({
+    _z := i32(0);
+    keep
+  })
+);
 test("a block that yields an outer local or is bound does not over-release", {
   before := g_at_disposed;
   {
     keep := ArgTemp(n : i32(23));
-    _k := at_read({
-      _z := i32(0);
-      keep
-    });
+    {
+      _k := at_read({
+        _z := i32(0);
+        keep
+      });
+      {
+        _z := i32(0);
+        keep
+      };
+      _m := {
+        _z := i32(0);
+        keep
+      }.n;
+      also := {
+        _z := i32(0);
+        keep
+      };
+      assert(also.n == i32(23), "a binding of a block that yields the outer local");
+      assert(at_block_of_param(&keep) == i32(23), "a block that yields a borrowed parameter");
+    };
     assert(g_at_disposed == before, "the outer local is still alive");
-    assert(ref_count(keep) == 1, "and holds exactly its own reference");
+    assert(ref_count(keep) == 1, "every block's share of it is released at its scope end");
   };
   assert(g_at_disposed == (before + i32(1)), "the outer local is released once, at its scope end");
   {
@@ -1463,6 +1491,14 @@ test("a block that yields an outer local or is bound does not over-release", {
     assert(b.n == i32(24), "the bound block's value");
   };
   assert(g_at_disposed == (before + i32(2)), "the bound block's value is released once");
+  {
+    last := ArgTemp(n : i32(25));
+    _l := at_read({
+      _z := i32(0);
+      last
+    });
+  };
+  assert(g_at_disposed == (before + i32(3)), "an outer local whose last use is a block's value is released once");
 });
 // Regression (issues/fixed/an-assignments-old-value-save-reads-uninitialized-memory-for-pod-types.md):
 // every assignment saves the old value for its deferred drop, and a typed
