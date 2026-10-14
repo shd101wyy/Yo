@@ -452,8 +452,9 @@ test("Copy: where(T <: Copy) rejects a closure that owns a String", {
   comptime_expect_error(_ct_need_copy_g(c2), "does not implement required trait Copy");
   n := i32(4);
   (k : Impl(Fn() -> i32)) = (() => (n + i32(1)));
+  (kg : Impl(Fn() -> i32)) = (() => (n + i32(1)));
   k2 := _ct_need_copy(type_of(k), k);
-  k3 := _ct_need_copy_g(k);
+  k3 := _ct_need_copy_g(kg);
   assert((k2() + k3()) == i32(10), "a closure of Copy captures passes, through a generic parameter too");
 });
 test("Copy: a &mut capture makes a closure neither Copy nor Clone", {

@@ -15,6 +15,7 @@
 { EvalValue, is_func_val } :: import("../../value.yo");
 { Environment } :: import("../../env.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
+{ debug_knob } :: import("../../utils.yo");
 /// Monotonic counter for unique closure capture temp names.
 (g_closure_capture_counter : usize) = usize(0);
 /// Reset the closure-capture counter — per-EMISSION state (see
@@ -256,6 +257,9 @@ generate_closure_construction :: (fn(expr : &AstExpr, indent : &String, context 
             match(
               inits.get(ci),
               .Some(cfi) => if(cfi.label == label, {
+                if(is_rebuild && debug_knob(`YO_DEBUG_SCLONE`).is_some(), {
+                  ceg_eprintln(`[sclone-cg] expr=${ast_expr_id(expr).to_string()} init=${ast_expr_id(&cfi.init).to_string()} info=${context.base.get_expr_info(&cfi.init).is_some().to_string()}`);
+                });
                 init_code := _call_generate_expr(&cfi.init, indent.clone(), context);
                 // A by-value RC entry's +1 rides the initializer's own
                 // deferred `___dup` (an atom entry's `___dup(<local>)` expr

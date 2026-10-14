@@ -78,7 +78,7 @@ pragma(Pragma.AllowUnsafe);
   copy_func_where_constraints,
   copy_func_contract_exprs
 } :: import("../types/function.yo");
-{ analyze_await_points, register_closure_await_analysis } :: import("../async/await_analysis.yo");
+{ analyze_await_points_in_table, register_closure_await_analysis } :: import("../async/await_analysis.yo");
 { AwaitAnalysisResult } :: import("../async/await_analysis_types.yo");
 {
   Environment,
@@ -2458,7 +2458,7 @@ Result type: ${type_to_string(&decl_result_ty)}`
         // to the sync path). See issues/fixed/yo-self-closure-codegen-gate.md.
         if(mark_closure_for_codegen, {
           info_tbl := ctx.expr_info_table;
-          await_res := analyze_await_points(&anon_eb, (e : AstExpr) => expr_info_table_get(&info_tbl, ast_expr_id(e)));
+          await_res := analyze_await_points_in_table(&anon_eb, &info_tbl);
           if(await_res.has_awaits, {
             // Side-table by func_id (codegen reads it there — the analysis lands on
             // an inaccessible body clone, but func_id is stable for the codegen-read

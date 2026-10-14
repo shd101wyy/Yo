@@ -19,6 +19,7 @@
   AstExpr,
   ast_expr_id,
   ast_expr_token,
+  ast_expr_to_string,
   ast_expr_is_atom_of,
   ast_expr_is_fn_call_of,
   clone_expr_fresh_ids,
@@ -71,6 +72,7 @@
   CapturedVarInfo,
   CaptureUsage,
   EvalContext,
+  ExpectedTypeCtx,
   set_function_value_marker_fn,
   track_variable_usage_resolved
 } :: import("../context.yo");
@@ -1492,6 +1494,9 @@ structural_clone_expansion :: (
     return(Option(AstExpr).Some(_expand_clone_to(expr, &record, ctx)));
   });
   // A closure: a new capture record with the same code.
+  if(debug_knob(`YO_DEBUG_SCLONE`).is_some(), {
+    eprintln(`[sclone] begin expr=${ast_expr_id(expr).to_string()} recv=${ast_expr_to_string(recv)} expected=${ctx.expected_type.is_some().to_string()}`);
+  });
   inits := ArrayList(CaptureFieldInit).new();
   (ci : usize) = usize(0);
   while(ci < fields_labels.len(), {
@@ -1499,10 +1504,18 @@ structural_clone_expansion :: (
     ft := match(fields_types.get(ci), .Some(t) => t, .None => t_unit());
     read := `${BF_YO_CAPTURE_FIELD}(${_CLONE_RECV_HOLE}, ${ci.to_string()})`;
     init_code := if(type_implements_trait_bool(&ft, &copy_tt, env), read, `${read}.clone()`);
+    // Each field is evaluated as its own value: the type the enclosing
+    // expression expects is the closure's, not the field's.
+    saved_expected := ctx.expected_type;
+    ctx.expected_type = Option(ExpectedTypeCtx).None;
     init := _eval_clone_template(&init_code, recv, env, ctx, exn);
+    ctx.expected_type = saved_expected;
     // The clone is stored into the new record's field: the store moves it,
     // as a capture list's by-value entry is moved.
     set_expr_as_needs_to_call_dup(&init, ctx, exn, "field-store");
+    if(debug_knob(`YO_DEBUG_SCLONE`).is_some(), {
+      eprintln(`[sclone] expr=${ast_expr_id(expr).to_string()} init=${ast_expr_id(&init).to_string()} info=${expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&init)).is_some().to_string()} code=${ast_expr_to_string(&init)}`);
+    });
     inits.push(CaptureFieldInit(label : label, init : init, is_borrow : false));
     ci = (ci + usize(1));
   });
