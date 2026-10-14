@@ -139,6 +139,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
+{ ExplicitCopySite, CopyWrite, set_migrate_explicit_copy, take_explicit_copy_sites, take_copy_writes } :: import("./evaluator/utils.yo");
 { MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
@@ -2820,6 +2821,267 @@ _run_migrate_rc_pattern :: (
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated patterns were not migrated`));
   });
 });
+/// Is the variable `decl` (an `_ic_decl_key`; empty for none) written after
+/// the copy site `st`, in its module?
+_copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite)), decl : &String, st : &ExplicitCopySite) -> bool)(
+  cond(
+    decl.is_empty() => false,
+    true => match(
+      writes_by_decl.get(decl.clone()),
+      .Some(lst) => {
+        (found : bool) = false;
+        (k : usize) = usize(0);
+        while((k < lst.len()) && !found, k = (k + usize(1)), {
+          match(
+            lst.get(k),
+            .Some(w) => if((w.at_module == st.at_module) && (w.at_offset > st.at_offset), {
+              found = true;
+            }),
+            .None => ()
+          );
+        });
+        found
+      },
+      .None => false
+    )
+  )
+);
+/// `yo fix <path> --migrate explicit-copy` — V2b's unique buffers,
+/// Generation A (plans/VALUES_BY_DEFAULT.md, "Unique buffers"). Once `String`
+/// and the std collections own their buffers uniquely, an implicit copy whose
+/// source stays alive is E0901; this migration spells each one `.clone()`
+/// while the tree still compiles them, so the flip lands on a tree that
+/// already says where it copies. Semantic: the sites are
+/// `YO_AUDIT_IMPLICIT_COPY`'s (`audit_record_implicit_copy`,
+/// evaluator/utils.yo), kept to `String`, the collections and the value
+/// aggregates holding one, of a type with `Clone`, at a point where
+/// `.clone()` on the copied expression is the copy: a binding, an
+/// assignment, a field or element store, an argument, a return. A capture
+/// and a binding a macro wrote are listed by the audit and left alone. Each
+/// site is found in the source from its leftmost token (it may span lines)
+/// and gets `.clone()`, or `(…).clone()` when the expression is not a
+/// postfix operand. A position copied at two types is a generic body, and a
+/// site whose source text no longer prints as the evaluated expression is a
+/// macro's; both are listed and left as written.
+_run_migrate_explicit_copy :: (
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
+)({
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    if(!outcome.ok, {
+      _drop := _take_load_error();
+      _drop_diags := take_error_diagnostics();
+      failed = (failed + usize(1));
+      println(`fix: ${file} does not evaluate; its copies are migrated only as far as evaluation reached`);
+    });
+  });
+  set_migrate_explicit_copy(false);
+  sites := take_explicit_copy_sites();
+  // The writes, by declaration key: a site whose source or destination is
+  // written after it was sharing a buffer the program may rely on.
+  writes_by_decl := HashMap(String, ArrayList(CopyWrite)).new();
+  writes := take_copy_writes();
+  (wi : usize) = usize(0);
+  while(wi < writes.len(), wi = (wi + usize(1)), {
+    w := writes(wi);
+    key := w.decl.clone();
+    lst := match(writes_by_decl.get(key.clone()), .Some(l) => l, .None => ArrayList(CopyWrite).new());
+    lst.push(w);
+    writes_by_decl.insert(key, lst);
+  });
+  site_paths := ArrayList(String).new();
+  (spi : usize) = usize(0);
+  while(spi < sites.len(), spi = (spi + usize(1)), {
+    site_paths.push(canonical_module_path(sites(spi).path.clone()));
+  });
+  (n_inserted : usize) = usize(0);
+  (n_skipped : usize) = usize(0);
+  (ti : usize) = usize(0);
+  while(ti < files.len(), ti = (ti + usize(1)), {
+    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    canon := canonical_module_path(file.clone());
+    // One position can be recorded under both spellings of its module path
+    // and by several evaluations: keep one per position. A position recorded
+    // at two types is a generic body, which one `.clone()` cannot serve.
+    mine := ArrayList(ExplicitCopySite).new();
+    pos_type := HashMap(String, String).new();
+    generic := HashSet(String).new();
+    (si : usize) = usize(0);
+    while(si < sites.len(), si = (si + usize(1)), {
+      if(site_paths(si) == canon, {
+        st := sites(si);
+        key := `${st.row.to_string()}:${st.col.to_string()}`;
+        match(
+          pos_type.get(key.clone()),
+          .Some(t) => if(t != st.ty, {
+            generic.insert(key);
+          }),
+          .None => {
+            pos_type.insert(key, st.ty.clone());
+            mine.push(st);
+          }
+        );
+      });
+    });
+    if(mine.len() == usize(0), {
+      continue;
+    });
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    // The whole file as runes, with each line's first rune index: a copied
+    // expression may span lines.
+    runes := ArrayList(rune).new();
+    line_starts := ArrayList(usize).new();
+    line_starts.push(usize(0));
+    sit := src.chars();
+    (sgo : bool) = true;
+    while(sgo, {
+      match(
+        sit.next(),
+        .Some(r) => {
+          runes.push(r);
+          if(r.char == u32(0x0A), {
+            line_starts.push(runes.len());
+          });
+        },
+        .None => {
+          sgo = false;
+        }
+      );
+    });
+    // Insertions as (rune index, text, closes): `(` opens, `.clone()` and
+    // `).clone()` close. At one index the closers go first.
+    at_idx := ArrayList(usize).new();
+    at_text := ArrayList(String).new();
+    at_close := ArrayList(bool).new();
+    (mi : usize) = usize(0);
+    while(mi < mine.len(), mi = (mi + usize(1)), {
+      st := mine(mi);
+      at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      if(generic.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is copied at more than one type (a generic body); left as written`);
+        continue;
+      });
+      written := cond(
+        _copy_written_after(&writes_by_decl, &st.src_decl, &st) => Option(String).Some(String.from("its source")),
+        _copy_written_after(&writes_by_decl, &st.dst_decl, &st) => Option(String).Some(String.from("the copy")),
+        true => Option(String).None
+      );
+      match(
+        written,
+        .Some(which) => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: \`${st.expect}\` is copied and ${which} is written afterwards, so the two may share a buffer on purpose; spell a borrow (\`&mut\`) or the copy (\`.clone()\`) by hand`);
+          continue;
+        },
+        .None => ()
+      );
+      start_opt := match(line_starts.get(st.row), .Some(ls) => Option(usize).Some(ls + st.col), .None => Option(usize).None);
+      span_e := match(
+        start_opt,
+        .Some(start) => if(start < runes.len(), _expr_span_end(&runes, start, start, &st.expect, &file), Option(usize).None),
+        .None => Option(usize).None
+      );
+      match(
+        span_e,
+        .Some(end) => {
+          start := match(start_opt, .Some(x) => x, .None => usize(0));
+          cand := String.new();
+          (k : usize) = start;
+          while(k < end, k = (k + usize(1)), {
+            cand.push_rune(runes(k));
+          });
+          // `.clone()` binds tighter than an infix operator: a postfix
+          // operand takes it bare, anything else inside parentheses. The two
+          // spellings parse alike exactly when the parentheses are redundant.
+          bare := _parse_or_none(`${cand}.clone()`, file.clone());
+          wrapped := _parse_or_none(`(${cand}).clone()`, file.clone());
+          (needs_parens : bool) = match(
+            bare,
+            .Some(b_asts) => match(
+              wrapped,
+              .Some(w_asts) => !((b_asts.len() == usize(1)) && (w_asts.len() == usize(1)) && (ast_expr_to_string(&b_asts(usize(0))) == ast_expr_to_string(&w_asts(usize(0))))),
+              .None => false
+            ),
+            .None => true
+          );
+          n_inserted = (n_inserted + usize(1));
+          if(dry_run, {
+            println(`fix: ${at}: ${st.copy_path}: \`${st.expect}\` would become \`${if(needs_parens, `(${cand})`, cand.clone())}.clone()\``);
+          });
+          if(needs_parens, {
+            at_idx.push(start);
+            at_text.push(String.from("("));
+            at_close.push(false);
+            at_idx.push(end);
+            at_text.push(String.from(").clone()"));
+            at_close.push(true);
+          }, {
+            at_idx.push(end);
+            at_text.push(String.from(".clone()"));
+            at_close.push(true);
+          });
+        },
+        .None => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: the source text does not print as \`${st.expect}\`; left as written`);
+        }
+      );
+    });
+    if(dry_run || (at_idx.len() == usize(0)), {
+      continue;
+    });
+    // Order the insertions by index, closers before openers at one index.
+    (n : usize) = at_idx.len();
+    (oi : usize) = usize(0);
+    while(oi < n, oi = (oi + usize(1)), {
+      (best : usize) = oi;
+      (bi : usize) = (oi + usize(1));
+      while(bi < n, bi = (bi + usize(1)), {
+        if((at_idx(bi) < at_idx(best)) || ((at_idx(bi) == at_idx(best)) && at_close(bi) && !at_close(best)), {
+          best = bi;
+        });
+      });
+      if(best != oi, {
+        swap_i := at_idx(oi);
+        at_idx(oi) = at_idx(best);
+        at_idx(best) = swap_i;
+        swap_t := at_text(oi).clone();
+        at_text(oi) = at_text(best).clone();
+        at_text(best) = swap_t;
+        swap_c := at_close(oi);
+        at_close(oi) = at_close(best);
+        at_close(best) = swap_c;
+      });
+    });
+    // Walk forward, emitting each insertion before the rune at its index.
+    out := String.new();
+    (nx : usize) = usize(0);
+    (k : usize) = usize(0);
+    while(k <= runes.len(), k = (k + usize(1)), {
+      while((nx < n) && (at_idx(nx) == k), nx = (nx + usize(1)), {
+        out.push_string(&at_text(nx));
+      });
+      if(k < runes.len(), {
+        out.push_rune(runes(k));
+      });
+    });
+    io.await(write_string(Path.new(file.clone()), &out, io), IoExn(io : io, exn : exn));
+    fmt_argv := ArrayList(String).new();
+    fmt_argv.push(String.from("yo"));
+    fmt_argv.push(String.from("fmt"));
+    fmt_argv.push(file.clone());
+    run_fmt(&fmt_argv, io, exn);
+  });
+  verb := if(dry_run, String.from("would insert"), String.from("inserted"));
+  println(`fix: ${verb} ${n_inserted.to_string()} \`.clone()\` call(s); ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated copies were not migrated`));
+  });
+});
 /// `yo fix <path> --migrate dyn-spelling` — decision 44's spelled erasure
 /// (plans/VALUES_BY_DEFAULT.md, amended 2026-10-12). Semantic: only the
 /// evaluator knows that a value is a callable and that its slot is a
@@ -3065,7 +3327,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|explicit-copy]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -3090,8 +3352,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling or mutable-globals`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals") && (argv(next_m) != "explicit-copy")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling, mutable-globals or explicit-copy`));
         });
         migrate = argv(next_m);
         ai = (ai + usize(2));
@@ -3106,7 +3368,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals|explicit-copy]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -3195,6 +3457,9 @@ run_fix :: (
   if(migrate == "mutable-globals", {
     set_migrate_mutable_globals(true);
   });
+  if(migrate == "explicit-copy", {
+    set_migrate_explicit_copy(true);
+  });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
   // env: the reload then failed before reaching the target file, so the only
@@ -3234,6 +3499,10 @@ run_fix :: (
   });
   if(migrate == "mutable-globals", {
     _run_migrate_mutable_globals(&files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "explicit-copy", {
+    _run_migrate_explicit_copy(&files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -11112,8 +11381,11 @@ Options:
                             rc-pattern (a pattern at an Rc(T) position
                             p -> Rc(p)), dyn-spelling (dyn(f) around
                             a callable passed bare to a Dyn(Fn(...))
-                            slot), or mutable-globals (mut(G) on every
-                            module-level binding the program writes)
+                            slot), mutable-globals (mut(G) on every
+                            module-level binding the program writes),
+                            or explicit-copy (.clone() on an
+                            implicit copy of a String or collection
+                            whose source is used again)
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -11142,8 +11414,10 @@ Examples:
                             Drop、dispose -> drop、x.dispose() -> drop(x)），
                             rc-pattern（Rc(T) 位置上的模式 p -> Rc(p)），
                             dyn-spelling（给裸传入 Dyn(Fn(...)) 位置的
-                            可调用值加上 dyn(f)），或 mutable-globals
-                            （给程序写入的每个模块级绑定加上 mut(G)）
+                            可调用值加上 dyn(f)），mutable-globals
+                            （给程序写入的每个模块级绑定加上 mut(G)），
+                            或 explicit-copy（源值之后仍被使用的
+                            String / 集合隐式复制加上 .clone()）
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录

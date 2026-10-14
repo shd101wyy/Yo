@@ -107,7 +107,7 @@ pragma(Pragma.AllowUnsafe);
   ImplicitCopyPending,
   audit_pending_copies_enabled,
   audit_take_implicit_copy_pending,
-  audit_print_implicit_copy,
+  audit_report_implicit_copy,
   reject_second_class_return,
   reject_second_class_result_outliving,
   local_borrows_mark,
@@ -1763,7 +1763,7 @@ _audit_judge_implicit_copies :: (fn(frame : &Frame, begin_args : &ArrayList(AstE
                   ci = (ci + usize(1));
                 });
                 if(acc.later, {
-                  audit_print_implicit_copy(&site.line);
+                  audit_report_implicit_copy(&site);
                 });
               },
               .None => ()
