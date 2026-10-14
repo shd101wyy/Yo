@@ -1,0 +1,145 @@
+#!/bin/bash
+# FIFO heavy lock shared by every session and agent working on one machine.
+# Heavy steps (`yo build`, `check ./src`, `compile src/main.yo`, the language
+# suite, `tests/internal`, fixpoint) take a slot; light work needs none.
+# Background: .github/instructions/testing.instructions.md ("The heavy lock").
+#
+#   source scripts/heavy-lock.sh
+#   heavy_take "<who>: <job>"            # weight 1: may share the machine with other jobs
+#   heavy_take "<who>: <job>" exclusive  # runs alone: timings, A/B, profiles, >5 GB steps
+#                                        # (tests/internal/macro_expansion is 6.5 GB)
+#   ... heavy step ...
+#   heavy_drop                           # releases whatever this caller holds
+#
+# Slots: slot 0 is the original `.heavy-lock` dir, so a waiter that still runs
+# the one-slot loop (mkdir .heavy-lock once its ticket is the oldest live one)
+# keeps working. Slots 1.. are `.heavy-lock-b`, `.heavy-lock-c`, ...
+#
+# Admission for a weight-1 ticket at queue position p (0 = oldest live ticket):
+#   - no exclusive ticket is ahead of it and no held slot is exclusive;
+#   - slot 0 goes only to p == 0, so an old-protocol head waiter is never starved;
+#   - slots 1.. go in FIFO order among new-protocol tickets: q < number of free
+#     slots 1.., where q counts only the tickets ahead that carry a weight line
+#     (an old-protocol waiter can only ever take slot 0, so it does not compete);
+#   - when any slot is already held, at least HEAVY_MIN_AVAIL_MB of memory must be
+#     available (Linux MemAvailable; macOS free + inactive + speculative +
+#     purgeable pages). The check runs at admission only: a job that grows past
+#     ~5 GB must take the lock `exclusive`.
+# An exclusive ticket must be the oldest; it claims slots as they free up and
+# runs once it holds all of them (holding some drains the others).
+# A slot whose owner line contains EXCLUSIVE, "timed", "A/B", "measure",
+# "profile" or "sample" counts as exclusive, which also covers an
+# old-protocol timing gate that cannot declare a weight.
+# Every copy of this script, in any worktree, must agree on HEAVY_ROOT; the
+# default is the worktree root that AGENTS.md prescribes.
+HEAVY_ROOT="${HEAVY_ROOT:-$HOME/Workspace/Yo-wt}"
+HEAVY_SLOTS="${HEAVY_SLOTS:-3}"
+HEAVY_MIN_AVAIL_MB="${HEAVY_MIN_AVAIL_MB:-6144}"
+HEAVY_LOCK="$HEAVY_ROOT/.heavy-lock"
+HEAVY_QUEUE="$HEAVY_ROOT/.heavy-queue"
+
+_heavy_slot_dir() {
+  local suffixes=(_ b c d e f)
+  if [ "$1" = 0 ]; then echo "$HEAVY_LOCK"; else echo "$HEAVY_LOCK-${suffixes[$1]}"; fi
+}
+_heavy_avail_mb() {
+  if [ -r /proc/meminfo ]; then
+    awk '/^MemAvailable:/ { print int($2 / 1024) }' /proc/meminfo
+    return
+  fi
+  vm_stat | awk '
+    /page size of/ { ps = $8 }
+    /^Pages free/ { gsub(/\./, "", $3); f = $3 }
+    /^Pages inactive/ { gsub(/\./, "", $3); i = $3 }
+    /^Pages speculative/ { gsub(/\./, "", $3); s = $3 }
+    /^Pages purgeable/ { gsub(/\./, "", $3); p = $3 }
+    END { print int((f + i + s + p) * ps / 1048576) }'
+}
+# Ticket names sort by this: nanoseconds from GNU date, seconds * 1e9 from
+# BSD date (which prints a literal N), so both spellings have the same width.
+_heavy_now_ns() {
+  local t
+  t="$(date +%s%N)"
+  case "$t" in *N) t="${t%N}000000000" ;; esac
+  echo "$t"
+}
+_heavy_slot_exclusive() {
+  grep -qiE 'EXCLUSIVE|timed|A/B|measure|profile|sample' "$1/owner" 2>/dev/null
+}
+_heavy_claim() {
+  if mkdir "$1" 2>/dev/null; then
+    echo "$2, started $(date +%H:%M) (pid $$)" > "$1/owner"
+    return 0
+  fi
+  return 1
+}
+
+heavy_take() {
+  local who="$1" weight=1
+  [ "${2:-}" = exclusive ] && weight=2 && who="$who [EXCLUSIVE]"
+  mkdir -p "$HEAVY_QUEUE"
+  local ticket_name ticket
+  ticket_name="$(_heavy_now_ns)-$$"
+  ticket="$HEAVY_QUEUE/$ticket_name"
+  printf '%s\nweight=%s\n' "$who" "$weight" > "$ticket"
+  HEAVY_HELD_SLOTS=""
+  while true; do
+    local live=() t pid pos=-1 newpos=0 excl_ahead=0
+    for t in $(ls "$HEAVY_QUEUE" 2>/dev/null | sort); do
+      pid="${t##*-}"
+      if kill -0 "$pid" 2>/dev/null; then live+=("$t"); else rm -f "$HEAVY_QUEUE/$t"; fi
+    done
+    local k
+    for k in "${!live[@]}"; do
+      if [ "${live[$k]}" = "$ticket_name" ]; then pos=$k; break; fi
+      grep -q '^weight=2$' "$HEAVY_QUEUE/${live[$k]}" 2>/dev/null && excl_ahead=1
+      grep -q '^weight=' "$HEAVY_QUEUE/${live[$k]}" 2>/dev/null && newpos=$((newpos + 1))
+    done
+    local s dir free=() free_hi=0 held=0 held_excl=0
+    for ((s = 0; s < HEAVY_SLOTS; s++)); do
+      dir="$(_heavy_slot_dir $s)"
+      if [ -d "$dir" ]; then
+        case " $HEAVY_HELD_SLOTS " in *" $s "*) ;; *)
+          held=$((held + 1)); _heavy_slot_exclusive "$dir" && held_excl=1 ;;
+        esac
+      else
+        free+=("$s")
+        [ "$s" != 0 ] && free_hi=$((free_hi + 1))
+      fi
+    done
+    if [ $weight = 2 ]; then
+      if [ "$pos" = 0 ]; then
+        for s in "${free[@]}"; do
+          _heavy_claim "$(_heavy_slot_dir $s)" "$who" && HEAVY_HELD_SLOTS="$HEAVY_HELD_SLOTS $s"
+        done
+        if [ "$(echo $HEAVY_HELD_SLOTS | wc -w)" -eq "$HEAVY_SLOTS" ]; then
+          rm -f "$ticket"; HEAVY_HELD=1; return 0
+        fi
+      fi
+    elif [ $excl_ahead = 0 ] && [ $held_excl = 0 ] && [ "$pos" -ge 0 ] \
+      && { [ $held = 0 ] || [ "$(_heavy_avail_mb)" -ge "$HEAVY_MIN_AVAIL_MB" ]; }; then
+      for s in "${free[@]}"; do
+        if [ "$s" = 0 ]; then [ "$pos" = 0 ] || continue
+        else [ "$newpos" -lt "$free_hi" ] || continue
+        fi
+        if _heavy_claim "$(_heavy_slot_dir $s)" "$who"; then
+          HEAVY_HELD_SLOTS=" $s"; rm -f "$ticket"; HEAVY_HELD=1; return 0
+        fi
+      done
+    fi
+    sleep 10
+  done
+}
+
+heavy_drop() {
+  local s dir
+  for s in ${HEAVY_HELD_SLOTS:-}; do
+    dir="$(_heavy_slot_dir $s)"
+    grep -q "(pid $$)" "$dir/owner" 2>/dev/null && rm -rf "$dir"
+  done
+  # A caller that took the lock with the one-slot loop sets only HEAVY_HELD and holds slot 0.
+  if [ "${HEAVY_HELD:-0}" = 1 ] && [ -z "${HEAVY_HELD_SLOTS:-}" ] && grep -q "(pid $$)" "$HEAVY_LOCK/owner" 2>/dev/null; then
+    rm -rf "$HEAVY_LOCK"
+  fi
+  HEAVY_HELD=0; HEAVY_HELD_SLOTS=""
+}
