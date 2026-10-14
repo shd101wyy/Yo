@@ -14,8 +14,15 @@ passed `yo check` in safe code:
 
 ```yo
 Counter :: struct(n : i32);
-impl(Counter, bump : (fn(self : &mut Self) -> unit)({ self.n = (self.n + i32(1)); }));
-bump_by_ten :: (fn(c : &mut Counter) -> unit)({ c.n = (c.n + i32(10)); });
+impl(
+  Counter,
+  bump : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+bump_by_ten :: (fn(c : &mut Counter) -> unit)({
+  c.n = (c.n + i32(10));
+});
 Holder :: struct(a : Arc(Counter), n : i32);
 main :: (fn() -> unit)({
   h := Holder(a : arc(Counter(n : i32(0))), n : i32(0));
