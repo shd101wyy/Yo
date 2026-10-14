@@ -134,7 +134,7 @@ yo verify ./src --format json           # summary (7 outcomes, strict, denied) +
   `assumed`/`outside-subset`/`unproven` fail the verify run.
 - After editing compiler sources, confirm `yo build` actually recompiled
   (a stale artifact can be served with exit 0 —
-  `issues/yo-build-artifact-cache-serves-a-stale-binary.md`): compare the
+  `issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md`): compare the
   binary's build stamp or `yo --version` output before trusting a gate run.
 
 ## Incremental loop

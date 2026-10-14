@@ -2,7 +2,18 @@
 
 **Severity:** S1 — the post-compile input stamp lets `yo build` serve a stale binary forever with exit 0 — every gate can unknowingly test the wrong compiler
 
-**Status:** OPEN. **Found:** 2026-09-18, during `plans/SELF_VERIFICATION.md` M0 /
+## Resolution (2026-10-14)
+
+The doc held four claims. The 2026-10-14 triage split them, and all four are now closed:
+
+1. **The post-compile re-hash that absorbed mid-compile edits:** fixed by #772 (a923d1be7). `input_record.yo` records the sha256 of the bytes as read, and the RECORD pass consumes the depfile's hashes verbatim.
+2. **Compiler identity in the key:** fixed by #970 (`_compiler_identity`).
+3. **Warm in-process compiles under-recorded:** fixed here. Both module read sites in `module_manager.yo` returned on a module-cache hit before recording, so a `build --watch` round wrote a depfile naming only the files it re-read. The next cold build re-hashed that subset, matched, and served the stale binary. Now each module load remembers what it touched: every input recorded during it, with its as-read hash, plus `@<key>` for each module it found cached. A hit replays that list into the compile's record once, recursively through the `@` entries, without re-reading the disk (the #772 rule). A cached module whose load was never observed is recorded with no hash, which makes the stamp unusable and forces a recompile. `yo build --watch` turns hashing on before the build-file evaluation, so the modules that evaluation loads carry hashes too. `check`, `test` and the LSP keep no log.
+4. **A failed compile left the previous artifact in place:** fixed here. `compile_artifact` now removes `<output><lib_suffix>` when the compile fails.
+
+Test: `tests/internal/input_record.test.yo` covers three cases: a hit replays its module's inputs with their hashes; a hit replays through a module its load found cached, even one already replayed earlier in the same compile; a never-observed module makes the record unusable. A `--watch` session cannot be scripted as a cli-case, which is why the test is at this level.
+
+**Status:** FIXED (moved 2026-10-14, see Resolution). **Found:** 2026-09-18, during `plans/SELF_VERIFICATION.md` M0 /
 Bend-plan B0 work.
 **Severity:** HIGH — every local gate in this repo can silently test the wrong
 binary. A contributor who rebases and re-runs `yo build` gets the pre-rebase

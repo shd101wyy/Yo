@@ -1,0 +1,71 @@
+// The compile's input record across warm compiles
+// (issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md): a module-cache
+// hit reads nothing, so it replays what the module's load read. Without the
+// replay a warm `yo build --watch` round wrote a depfile naming only the files
+// it re-read, and the next cold build matched that subset and served a stale
+// binary.
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ assert } :: import("std/assert");
+{
+  record_input_file,
+  reset_input_files,
+  input_file_entries,
+  set_input_hashing,
+  module_load_begin,
+  module_load_end,
+  module_cache_hit
+} :: import("../../src/input_record.yo");
+_entry :: (fn(i : usize) -> String)(
+  match(input_file_entries().get(i), .Some(e) => e, .None => String.new())
+);
+_load :: (fn(key : str, file : str, hash : str, deps : &ArrayList(String)) -> unit)({
+  mark := module_load_begin();
+  record_input_file(&String.from(file), &String.from(hash));
+  (i : usize) = usize(0);
+  while(i < deps.len(), {
+    module_cache_hit(&deps(i));
+    i = (i + usize(1));
+  });
+  module_load_end(&String.from(key), mark);
+});
+test("a cache hit replays the inputs its module's load read", {
+  set_input_hashing(true);
+  reset_input_files();
+  mark := module_load_begin();
+  record_input_file(&String.from("/tmp/yo_ir/a.yo"), &String.from("h_a"));
+  record_input_file(&String.from("/tmp/yo_ir/data.txt"), &String.from("h_data"));
+  module_load_end(&String.from("file:///tmp/yo_ir/a.yo"), mark);
+  // The next compile, a warm round, finds `a` in the module cache.
+  reset_input_files();
+  module_cache_hit(&String.from("file:///tmp/yo_ir/a.yo"));
+  assert(input_file_entries().len() == usize(2), `both inputs, got ${input_file_entries().len().to_string()}`);
+  assert(_entry(usize(0)) == "h_a /tmp/yo_ir/a.yo", `the module, with the hash it was read with: ${_entry(usize(0))}`);
+  assert(_entry(usize(1)) == "h_data /tmp/yo_ir/data.txt", "and what it read");
+  set_input_hashing(false);
+});
+test("a hit replays through the modules its load found cached, even ones replayed earlier", {
+  set_input_hashing(true);
+  reset_input_files();
+  _load("file:///tmp/yo_ir2/b.yo", "/tmp/yo_ir2/b.yo", "h_b", &ArrayList(String).new());
+  reset_input_files();
+  b_dep := ArrayList(String).new();
+  b_dep.push(String.from("file:///tmp/yo_ir2/b.yo"));
+  // `c` replays `b` first; `a`'s load then finds `b` cached a second time.
+  _load("file:///tmp/yo_ir2/c.yo", "/tmp/yo_ir2/c.yo", "h_c", &b_dep);
+  _load("file:///tmp/yo_ir2/a.yo", "/tmp/yo_ir2/a.yo", "h_a", &b_dep);
+  // The next compile hits only `a`: `b` must still be in its record.
+  reset_input_files();
+  module_cache_hit(&String.from("file:///tmp/yo_ir2/a.yo"));
+  assert(input_file_entries().len() == usize(2), `a and b, got ${input_file_entries().len().to_string()}`);
+  assert(_entry(usize(0)) == "h_a /tmp/yo_ir2/a.yo", "the module itself");
+  assert(_entry(usize(1)) == "h_b /tmp/yo_ir2/b.yo", "the module its load found cached");
+  set_input_hashing(false);
+});
+test("a hit on a module whose load was never observed makes the record unusable", {
+  set_input_hashing(true);
+  reset_input_files();
+  module_cache_hit(&String.from("file:///tmp/yo_ir3/never.yo"));
+  assert(_entry(usize(0)) == "- /tmp/yo_ir3/never.yo", `no hash, so the stamp cannot match: ${_entry(usize(0))}`);
+  set_input_hashing(false);
+});
