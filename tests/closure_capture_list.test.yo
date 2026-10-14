@@ -33,7 +33,9 @@ _cl_with_mut :: (fn(f : &Impl(Fn() -> i32), z : &mut i32) -> i32)({
 _cl_reentry :: (fn(a : &Impl(Fn() -> i32), b : &Impl(Fn() -> i32)) -> i32)(a() + b());
 _ClAcc :: struct(total : i32, other : i32);
 derive(_ClAcc, Copy, Clone);
-impl(_ClAcc, run : (fn(self : Self, f : &Impl(Fn() -> unit)) -> unit)(f()));
+// `run` lends its receiver, so a `&mut` capture of the receiver overlaps it;
+// `run_copy` copies its `Copy` receiver before the call, which reaches nothing.
+impl(_ClAcc, run : (fn(self : &Self, f : &Impl(Fn() -> unit)) -> unit)(f()), run_copy : (fn(self : Self, f : &Impl(Fn() -> unit)) -> unit)(f()));
 (g_cl_rc_disposed : i32) = i32(0);
 _ClRc :: ref(struct(v : i32));
 impl(
@@ -531,6 +533,11 @@ test("exclusivity: a by-value Copy field read does not overlap the lent receiver
   assert(h.state == u64(6), "`self._mix(self.tail)` copied the field");
   _cl_mix_into(&mut h, h.tail);
   assert(h.state == u64(11), "`f(&mut h, h.tail)` copies the field too");
+  acc := _ClAcc(total : i32(0), other : i32(0));
+  acc.run_copy({ t : &mut acc.total }() => {
+    t = (t + i32(1));
+  });
+  assert(acc.total == i32(1), "a by-value Copy receiver is copied before the closure writes the field");
   z := i32(0);
   comptime_expect_error(_cl_with_mut({ &z }() => z, &mut z), "lent exclusively");
 });

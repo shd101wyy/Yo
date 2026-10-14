@@ -2541,7 +2541,14 @@ _evaluate_begin_expression_impl :: (
             )
           );
         });
-        match(ctx.is_evaluating_loop_body, .Some(brk_lc) => snapshot_loop_flow(&brk_lc, &mut brk_lc.break_states, &env, ast_expr_token(&expr_to_eval)), .None => ());
+        match(
+          ctx.is_evaluating_loop_body,
+          .Some(brk_lc) => {
+            snap := snapshot_loop_flow(&brk_lc, &env, ast_expr_token(&expr_to_eval));
+            brk_lc.break_states.push(snap);
+          },
+          .None => ()
+        );
         out := new_expr_info(&env, rc(TypeValueNode.Unit));
         out.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Break));
@@ -2564,7 +2571,14 @@ _evaluate_begin_expression_impl :: (
             )
           );
         });
-        match(ctx.is_evaluating_loop_body, .Some(cnt_lc) => snapshot_loop_flow(&cnt_lc, &mut cnt_lc.continue_states, &env, ast_expr_token(&expr_to_eval)), .None => ());
+        match(
+          ctx.is_evaluating_loop_body,
+          .Some(cnt_lc) => {
+            snap := snapshot_loop_flow(&cnt_lc, &env, ast_expr_token(&expr_to_eval));
+            cnt_lc.continue_states.push(snap);
+          },
+          .None => ()
+        );
         out := new_expr_info(&env, rc(TypeValueNode.Unit));
         out.value = Option(EvalValue).Some(EvalValue.UnitVal);
         out.control_flow = Option(ControlFlowFlags).Some(control_flow_of(.Continue));

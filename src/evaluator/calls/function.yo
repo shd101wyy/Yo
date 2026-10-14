@@ -9290,7 +9290,7 @@ Fix: wrap the call:
           exn
         );
         require_valid_ref_argument_places(&fv_param_is_ref, &fv_args, env, ctx, exn);
-        require_capture_borrow_exclusivity(&fv_param_is_ref, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
+        require_capture_borrow_exclusivity(&fv_param_is_ref, &fv_param_is_owning, &fv_args, Option(AstExpr).Some(evaluated_callee), env, ctx, exn);
         fv_returns_place := match(callee_info_opt, .Some(rpi) => match(rpi.ty, Rc(.Func({ result : fv_res })) => is_pointer_type(&fv_res), _ => false), .None => false);
         require_no_inout_write_through_borrow(&mut fv_d3_pending, &fv_param_labels, &fv_param_is_ref, &fv_args, fv_returns_place, env, ctx);
         // Bind regular params. Params at index >= n_supplied_reg were
