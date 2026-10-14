@@ -2281,6 +2281,48 @@ _checked_fixed_array_subscript :: (fn(index_code : &String, array_type : &TypeVa
 is_self_named_atom :: (fn(expr : &AstExpr, variable_name : &String) -> bool)(
   ast_expr_is_atom(expr) && (variable_name == ast_expr_token(expr).value)
 );
+/// The `fn(...)` type a `dyn(...)` payload's concrete type is, through its
+/// `SomeT` resolutions (an `Impl(Fn(...))` parameter bound to a named `fn`),
+/// or `.None`. Such a payload is a bare code pointer, not a closure's capture
+/// struct.
+dyn_concrete_func_type :: (fn(t : &TypeValue) -> Option(TypeValue))({
+  (cur : TypeValue) = t;
+  seen := HashSet(String).new();
+  (go : bool) = true;
+  while(go, {
+    match(
+      cur,
+      .SomeT({ id : dcf_id, resolution : .Some(dcf_r) }) => if(seen.insert(dcf_id.clone()), {
+        cur = dcf_r;
+      }, {
+        go = false;
+      }),
+      _ => {
+        go = false;
+      }
+    );
+  });
+  match(cur, .Func({}) => Option(TypeValue).Some(cur), _ => Option(TypeValue).None)
+});
+/// The C name of a `dyn(...)` impl's CONCRETE type: its registered C type
+/// name, else, for a `fn(...)` payload (`dyn(f)` of a named function, which has
+/// no registered C type: its value is a code pointer), `__yo_fn_<hash>` of the
+/// function type. `.None` for any other unregistered type, which each caller
+/// names by its own fallback. Every emitter that names a dyn impl (the impl key
+/// at the `dyn(...)` site and in `fixup_dyn_impl_keys`, the box typedef and
+/// constructor, the TypeId static and vtable) goes through this, so one `fn`
+/// payload keys one impl (issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md).
+dyn_concrete_c_name :: (fn(t : &TypeValue, context : &CodeGenContext) -> Option(String))(
+  match(
+    context.get_type_c_name(type_key(t)),
+    .Some(cn) => Option(String).Some(cn),
+    .None => match(
+      dyn_concrete_func_type(t),
+      .Some(ft) => Option(String).Some(`__yo_fn_${fnv1a64(type_key(&ft)).to_string()}`),
+      .None => Option(String).None
+    )
+  )
+);
 /// The C type of one parameter of a Dyn vtable slot and of the wrapper the
 /// slot points at. An `inout` parameter is `T*`, exactly as the function
 /// prototype spells it (`functions/declarations.yo`): the call site hands the
@@ -2339,6 +2381,8 @@ export(
   get_type_string,
   get_storage_type_string,
   dyn_slot_param_type_string,
+  dyn_concrete_func_type,
+  dyn_concrete_c_name,
   get_variable_type_string,
   declare_c_var_name,
   push_declared_scope,

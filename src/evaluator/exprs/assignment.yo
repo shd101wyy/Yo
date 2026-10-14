@@ -100,7 +100,9 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_access,
   local_borrow_write_expr,
   local_borrow_mark_receiver,
-  local_borrow_clear_receiver
+  local_borrow_clear_receiver,
+  reject_bare_callable_into_dyn_fn,
+  bare_callable_recorded_into_dyn_fn
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1139,6 +1141,8 @@ evaluate_assignment :: (
     // decision 18).
     local_borrow_write_expr(&evaluated_lhs, `write \`${_place_source_text(&lhs)}\``, ast_expr_token(&lhs), &env, ctx, exn);
     throw_expr_is_implicit_variable_error(&prop_rhs, &env, ctx, exn);
+    // Decision 44: a callable into a `Dyn(Fn(...))` field or element is `dyn(f)`.
+    reject_bare_callable_into_dyn_fn(&expected_ty, &prop_rhs_info.ty, &rhs, `\`${_place_source_text(&lhs)}\``, ctx, exn);
     reject_second_class_escape(&prop_rhs_info.ty, String.from("stored in a field or an element"), ast_expr_token(&rhs), ctx, exn);
     set_expr_as_needs_to_call_dup(&prop_rhs, ctx, exn, "field-store");
     // Re-read rhs info after potential mutations by the above helpers.
@@ -1280,7 +1284,9 @@ evaluate_assignment :: (
         expr_info_set_converted_runtime_type(&prop_rhs_info, Option(TypeValue).Some(prop_rhs_type.clone()));
       });
     });
-    if(!are_types_compatible(&prop_rhs_type, &expected_ty), {
+    // A site `yo fix --migrate dyn-spelling` recorded stands for the
+    // rewrite's `dyn(value)`, which the slot takes.
+    if(!bare_callable_recorded_into_dyn_fn(&expected_ty, &prop_rhs_type) && !are_types_compatible(&prop_rhs_type, &expected_ty), {
       exp_str := type_to_string(&expected_ty);
       rhs_str := type_to_string(&prop_rhs_type);
       exn.throw(
@@ -1964,8 +1970,13 @@ comptime(${variable_name}) : ${dgc_ty_str}
   // `Fn(t : String)` owns and drops its argument, and a call through
   // `Impl(Fn(t : &String) -> usize)` only lends one
   // (`function_value_slot_mismatch`, the rule a call argument meets).
+  // Decision 44: a callable into a `Dyn(Fn(...))` variable is `dyn(f)`.
+  reject_bare_callable_into_dyn_fn(&variable.ty, &rhs_type, &rhs, `\`${variable_name}\``, ctx, exn);
+  // Recorded by `yo fix --migrate dyn-spelling`: the value stands for the
+  // rewrite's `dyn(value)`, which the slot takes.
+  bind_dyn_recorded := bare_callable_recorded_into_dyn_fn(&variable.ty, &rhs_type);
   match(
-    function_value_slot_mismatch(&variable.ty, &rhs_type),
+    if(bind_dyn_recorded, Option(String).None, function_value_slot_mismatch(&variable.ty, &rhs_type)),
     .Some(fvs_note) => exn.throw(
       dyn(
         mark_generic_independent(
@@ -1978,7 +1989,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     .None => ()
   );
   // Type-compatibility check.
-  if(!are_types_compatible(&rhs_type, &variable.ty), {
+  if(!bind_dyn_recorded && !are_types_compatible(&rhs_type, &variable.ty), {
     var_ty_str := type_to_string(&variable.ty);
     rhs_ty_str := type_to_string(&rhs_type);
     exn.throw(

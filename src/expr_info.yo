@@ -3113,3 +3113,35 @@ take_rc_pattern_sites :: (fn() -> ArrayList(RcPatternSite))({
   out
 });
 export(RcPatternSite, set_migrate_rc_pattern, migrate_rc_pattern_on, record_rc_pattern_site, take_rc_pattern_sites);
+/// One bare callable `yo fix --migrate dyn-spelling` wraps in `dyn(...)`
+/// (plans/VALUES_BY_DEFAULT.md decision 44): a named closure, a named `fn`
+/// or a closure literal in a `Dyn(Fn(...))` binding, field, argument or
+/// result. `row`/`col` are the value's leftmost token; `expect` is the
+/// printed value, which the rewrite matches against the source text before
+/// it edits anything.
+DynSpellingSite :: struct(path : String, row : usize, col : usize, expect : String);
+(g_migrate_dyn_spelling : bool) = false;
+(g_dyn_spelling_sites : ArrayList(DynSpellingSite)) = ArrayList(DynSpellingSite).new();
+(g_dyn_spelling_site_keys : HashSet(String)) = HashSet(String).new();
+set_migrate_dyn_spelling :: (fn(on : bool) -> unit)({
+  g_migrate_dyn_spelling = on;
+});
+/// Whether `yo fix --migrate dyn-spelling` is recording (E0618 records the
+/// site instead of rejecting it).
+migrate_dyn_spelling_on :: (fn() -> bool)(g_migrate_dyn_spelling);
+/// Record one site: `tok` is the value's leftmost token. Recorded once per
+/// position.
+record_dyn_spelling_site :: (fn(tok : &Token, expect : &String) -> unit)({
+  key := `${tok.module_path}:${tok.row.to_string()}:${tok.column.to_string()}`;
+  if(!g_dyn_spelling_site_keys.insert(key), {
+    return(());
+  });
+  g_dyn_spelling_sites.push(DynSpellingSite(path : tok.module_path.clone(), row : usize(tok.row), col : usize(tok.column), expect : expect.clone()));
+});
+take_dyn_spelling_sites :: (fn() -> ArrayList(DynSpellingSite))({
+  out := g_dyn_spelling_sites;
+  g_dyn_spelling_sites = ArrayList(DynSpellingSite).new();
+  g_dyn_spelling_site_keys = HashSet(String).new();
+  out
+});
+export(DynSpellingSite, set_migrate_dyn_spelling, migrate_dyn_spelling_on, record_dyn_spelling_site, take_dyn_spelling_sites);

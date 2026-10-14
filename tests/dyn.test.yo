@@ -4,6 +4,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { AnyError, Error, Exception, IoExn } :: import("std/error");
+{ path_join } :: import("./helper.yo");
 TestDyn :: trait(
   print : (fn(self : &*Self) -> unit),
   return_i32 : (fn(self : &*Self) -> i32)
@@ -743,9 +744,9 @@ test("Dyn(trait) method with an inout parameter writes through to the caller's p
 // A `fn(...)` value behind a `Dyn(Fn(...))` is called through the Dyn's
 // signature, so `dyn(f)` checks f's against it, modes included
 // (issues/fixed/a-function-argument-is-not-checked-against-a-function-typed-parameter.md).
-// A `fn(...)` value whose signature IS the Dyn's passes the check but has no
-// runtime canary here: `dyn(f)` of a named function emits invalid C
-// (issues/dyn-of-a-named-function-value-emits-invalid-c.md).
+// A `fn(...)` value whose signature IS the Dyn's is boxed as its code pointer
+// and called through it: the runtime canaries follow the check below
+// (issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md).
 _dfs_by_value :: (fn(s : String) -> usize)(s.len());
 _dfs_call :: (fn(f : &Dyn(Fn(s : &String) -> usize), s : &String) -> usize)(f(s));
 test("dyn of a function value checks its signature against the Dyn's `Fn`", {
@@ -761,4 +762,72 @@ test("dyn of a function value checks its signature against the Dyn's `Fn`", {
   (c : Dyn(Fn(t : &String) -> usize)) = dyn(t => t.len());
   assert(_dfs_call(&c, &s) == usize(4), "a closure literal adopts the Dyn's modes");
   assert(s.len() == usize(4), "s was only ever lent");
+});
+// `dyn(f)` of a named function boxes its code pointer: the Dyn's `call` slot
+// casts the pointer back to the function's own prototype and calls it. Every
+// shape that names a function value: a top-level `fn` (two of one signature,
+// which share one box type and vtable, so the slot must call the pointer the
+// box holds, not a fixed function), a `&mut` parameter, `FnOnce`, a function
+// from another module, and an `Impl(Fn(...))` parameter bound to a named `fn`
+// and boxed in the callee. Before the fix every one passed `check` and failed
+// in the C compiler on `__yo_dyn_box_unknown_fn(...)`
+// (issues/fixed/dyn-of-a-named-function-value-emits-invalid-c.md). A generic
+// type's function taken as a value is not emitted with or without `dyn`
+// (issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md).
+_dnf_len :: (fn(s : &String) -> usize)(s.len());
+_dnf_twice_len :: (fn(s : &String) -> usize)(s.len() * usize(2));
+_dnf_bump :: (fn(x : &mut i32) -> unit)({
+  x = (x + i32(1));
+});
+_dnf_nine :: (fn() -> i32)(i32(9));
+_dnf_double :: (fn(x : i32) -> i32)(x * i32(2));
+_dnf_box :: (fn(f : Impl(Fn(x : i32) -> i32)) -> Dyn(Fn(x : i32) -> i32))(dyn(f));
+_dnf_call :: (fn(f : &Dyn(Fn(s : &String) -> usize), s : &String) -> usize)(f(s));
+test("dyn of a named function calls the function", {
+  s := String.from("four");
+  (a : Dyn(Fn(s : &String) -> usize)) = dyn(_dnf_len);
+  (b : Dyn(Fn(s : &String) -> usize)) = dyn(_dnf_twice_len);
+  assert(a(&s) == usize(4), "the first named fn");
+  assert(b(&s) == usize(8), "a second fn of the same signature calls its own code");
+  assert(_dnf_call(&a, &s) == usize(4), "a Dyn of a named fn passed by reference");
+  (c : Dyn(Fn(x : &mut i32) -> unit)) = dyn(_dnf_bump);
+  (x : i32) = i32(40);
+  c(&mut x);
+  c(&mut x);
+  assert(x == i32(42), "a &mut parameter writes through to the caller's place");
+  (o : Dyn(FnOnce() -> i32)) = dyn(_dnf_nine);
+  assert(o() == i32(9), "a Dyn(FnOnce) of a named fn");
+  (fs : ArrayList(Dyn(Fn() -> i32))) = ArrayList(Dyn(Fn() -> i32)).new();
+  fs.push(dyn(_dnf_nine));
+  fs.push(dyn(() => i32(1)));
+  assert((fs(usize(0))() + fs(usize(1))()) == i32(10), "a named fn and a closure share one Dyn type");
+});
+// A `unit` result lowers to C `void`: a `Dyn(FnOnce(...) -> unit)` call slot
+// calls the payload without keeping its result, for a named fn's code pointer
+// and for a closure's capture struct alike. Before the fix both declared a
+// `void __yo_once_r` temp and failed in the C compiler
+// (issues/fixed/a-unit-returning-dyn-fnonce-call-slot-declares-a-void-temp.md).
+_dnf_noop :: (fn() -> unit)(());
+test("a unit-returning Dyn(FnOnce) of a named fn and of a closure", {
+  (n : Dyn(FnOnce() -> unit)) = dyn(_dnf_noop);
+  n();
+  (x : i32) = i32(1);
+  (b : Dyn(FnOnce(x : &mut i32) -> unit)) = dyn(_dnf_bump);
+  b(&mut x);
+  assert(x == i32(2), "a unit-returning named fn called once through a Dyn");
+  (c : Dyn(FnOnce(x : &mut i32) -> unit)) = dyn(x => {
+    x = (x + i32(10));
+  });
+  c(&mut x);
+  assert(x == i32(12), "a unit-returning closure called once through a Dyn");
+  (d : Dyn(FnOnce() -> unit)) = dyn(() => _dnf_noop());
+  d();
+});
+test("dyn of another module's function and of an Impl(Fn) parameter", {
+  (pj : Dyn(Fn(base : &String, name : &String) -> String)) = dyn(path_join);
+  base := String.from("a");
+  name := String.from("b");
+  assert(pj(&base, &name) == path_join(&base, &name), "a function imported from another module");
+  d := _dnf_box(_dnf_double);
+  assert(d(i32(21)) == i32(42), "an Impl(Fn) parameter bound to a named fn, boxed in the callee");
 });

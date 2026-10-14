@@ -75,7 +75,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../env.yo");
 // dup-on-store / move for owned fn-call args. utils.yo
 // imports nothing from calls/, so this is acyclic.
-{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
+{ set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, are_values_equal, require_expr_not_consumed, adopt_never_type, reject_bare_callable_into_dyn_fn, reject_bare_callable_result, bare_callable_recorded_into_dyn_fn, reject_second_class_escape, reject_second_class_return, require_capture_borrow_exclusivity, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
 { function_may_mutate_rc_storage } :: import("../effects/mutation_summary.yo");
 { TypeValue, FuncMeta } :: import("../../types/definitions.yo");
 { Token, TokenKind } :: import("../../token.yo");
@@ -1294,6 +1294,7 @@ check_argument_for_parameter :: (
     arg_ty : &TypeValue,
     arg_info : &ExprInfo,
     arg_tok : &Token,
+    arg_expr : &AstExpr,
     env : &Environment,
     ctx : &EvalContext,
     exn : Exception
@@ -1358,6 +1359,10 @@ check_argument_for_parameter :: (
     if(!nc_callable, {
       _arg_rule_throw(arg_tok, fn_argument_not_callable_message(param_label.clone(), resolved_pt, &lowered), ctx, exn);
     });
+  });
+  // Decision 44: a callable into a `Dyn(Fn(...))` parameter is `dyn(f)`.
+  if(!param_is_ct, {
+    reject_bare_callable_into_dyn_fn(resolved_pt, &lowered, arg_expr, `the argument for parameter "${param_label}"`, ctx, exn);
   });
   // A function value fills a function-typed slot only when its type is the
   // slot's, modes included — the binding rule (`(h : Hook) = f`). A by-value
@@ -1506,7 +1511,7 @@ check_if_function_parameter_matches_argument :: (
   // Steps 3a–3c and the comptime-argument gate: the shared rule
   // (`check_argument_for_parameter`), which also lowers a comptime literal to
   // the runtime type it takes as this parameter's value.
-  (arg_type : TypeValue) = check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty, &arg_info, ast_expr_token(&actual_arg), &caller_env_r, ctx, exn);
+  (arg_type : TypeValue) = check_argument_for_parameter(param_label.clone(), &resolved_pt, is_ct_only, &arg_info.ty, &arg_info, ast_expr_token(&actual_arg), &actual_arg, &caller_env_r, ctx, exn);
   // Record the runtime type a comptime literal lowered to, so codegen renders
   // the right C form (comptime_str → `*(char)` emits a bare string literal,
   // not a `__yo_str` struct). Only the codegen reads this field.
@@ -1623,6 +1628,17 @@ ${ast_expr_to_string(&actual_arg)}`
     ),
     .None => ()
   );
+  // A site `yo fix --migrate dyn-spelling` recorded (Step 3c, instead of
+  // E0618) stands for the rewrite's `dyn(value)`, which takes the parameter's
+  // `Dyn` type from it. Synthesis (Step 6), the compatibility check (Step 8)
+  // and the binding (Step 9) see that type: a generic method's `T` slot
+  // (`ArrayList(Dyn(Fn() -> i32)).push(f)`) unified the `Dyn` with the bare
+  // callable's own type and stopped evaluation at the site, or bound `T` to a
+  // closure literal's capture struct
+  // (issues/fixed/yo-fix-migrate-dyn-spelling-stops-at-the-first-site-that-is-not-a-named-closure.md).
+  if(bare_callable_recorded_into_dyn_fn(&resolved_pt, &arg_type), {
+    arg_type = resolved_pt.clone();
+  });
   (arg_type_for_synth : TypeValue) = arg_type;
   match(
     arg_value,
@@ -4151,10 +4167,16 @@ create_specialized_function_inline :: (
               // Decision 38 A: a second-class value is never returned, which a
               // specialization checks per instantiation (`Impl(Fn)` bodies).
               if(!has_any_control_flow(sb_info.control_flow), {
+                // Decision 44: a callable result into `Dyn(Fn(...))` is `dyn(f)`.
+                if(!sb_ret_is_ref, {
+                  reject_bare_callable_result(&spec_ret_ty, &sb_ty, &cloned_body, ctx, exn);
+                });
                 reject_second_class_return(&sb_ty, ast_expr_token(&cloned_body), callee_env, ctx, exn);
               });
               sb_skip := (has_any_control_flow(sb_info.control_flow) || is_void_type(&spec_ret_ty) || is_type_hierarchy_type(&spec_ret_ty) || (get_all_some_types(&spec_ret_ty).len() > usize(0)) || (get_all_some_types(&sb_ty).len() > usize(0)) || sb_ret_is_ref);
-              if(!sb_skip && !are_types_compatible(&sb_ty, &spec_ret_ty), {
+              // A tail `yo fix --migrate dyn-spelling` recorded stands for the
+              // rewrite's `dyn(value)`, which the result takes.
+              if(!sb_skip && !bare_callable_recorded_into_dyn_fn(&spec_ret_ty, &sb_ty) && !are_types_compatible(&sb_ty, &spec_ret_ty), {
                 sb_inst := String.new();
                 (sbi : usize) = usize(0);
                 while((sbi < forall_names.len()) && (sbi < arg_values.forall_args.len()), {

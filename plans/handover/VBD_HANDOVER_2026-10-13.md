@@ -115,7 +115,7 @@ These were filed since v0.2.59 and are still open at develop's tip:
 
 | Issue | Severity | Note |
 | --- | --- | --- |
-| `issues/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md` | S2 | Fixed by #1339 |
+| `issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md` | S2 | Fixed by #1339 |
 | `issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md` | S2 | Pre-existing |
 | `issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md` | S2 | Needs V2b's non-copying access |
 | `issues/an-impl-fn-local-returning-a-future-is-declared-as-a-void-pointer.md` | S2 | |
