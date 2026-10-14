@@ -61,7 +61,11 @@ with `structural_clone_expansion` (`src/evaluator/utils/closure.yo`):
   `__yo_capture_field(c, i)`: a `&` capture's pointer and every other `Copy`
   capture are copied, each other by-value capture is cloned. A `&mut` capture
   makes the closure neither `Copy` nor `Clone`
-  (`issues/fixed/a-mut-capturing-closure-answers-copy-and-clone.md`);
+  (`issues/fixed/a-mut-capturing-closure-answers-copy-and-clone.md`). The
+  field initializers live only in the call's ExprInfo, not in the AST, so the
+  codegen collectors (`src/codegen/functions/collection.yo`,
+  `src/codegen/types/collection.yo`) walk them: otherwise a capture's `clone`
+  that nothing else calls is never collected, and its call fails to transpile;
 - a receiver that is not a place is bound first, `{ __yo_clone_src := recv;
   __yo_clone_src.clone() }`, so it is evaluated once.
 
