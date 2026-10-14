@@ -2538,6 +2538,12 @@ and in git, not a silent edit.
         is an ABI choice that stores nothing;
       - the second-class check runs per instantiation even in
         bound-checked generics.
+    - **As built (2026-10-14):** a `&` capture is a pointer field, `Copy`;
+      a `&mut` capture makes the closure neither `Copy` nor `Clone`
+      (`type_first_mut_borrow` in `type_implements_trait`'s structural
+      branch); every by-value capture counts with its own type, so a closure
+      owning a `String` is `Clone` but not `Copy` and moves at `d := c`
+      (decision 36's "Closures as built" note in the Generation A record).
     - **Where it may not go.** A second-class value may not be:
       - returned;
       - stored in a field, element or `Dyn` (an owned `Dyn` cell; `dyn(&v)`
@@ -4930,9 +4936,40 @@ is `Arc(Mutex(T))`, `clone()` or `&mut`, and the error says which.
   (`Clone`) exactly when every part is. A closure is judged on its capture
   record, which in Generation A holds values only; decision 38 A's rule for
   `&`/`&mut` captures lands with decision 35's capture list.
-  - **Dispatch gap:** `.clone()` on an anonymous record, a closure or a
-    `fn` pointer has no method yet, although `Type.impls(_, Clone)` holds
-    (`issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`).
+  - **Dispatch gap** (closed 2026-10-14, below): `.clone()` on an anonymous
+    record, a closure or a `fn` pointer had no method, although
+    `Type.impls(_, Clone)` held
+    (`issues/fixed/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`).
+  - **Closures as built (2026-10-14, the maintainer: "the closure behavior
+    should match rust. If it captures String then it shouldn't auto derive
+    Copy").** The capture record decides, field by field as built: a
+    by-value capture (a listed `x`, or an implicit capture of a closure
+    bound to a name, which owns what it captures under decision 22) counts
+    with its own type; a `&` capture is a pointer, `Copy`; a `&mut` capture
+    makes the closure neither `Copy` nor `Clone` (`type_first_mut_borrow` in
+    the structural branch,
+    `issues/fixed/a-mut-capturing-closure-answers-copy-and-clone.md`).
+    - **The copy rule follows it now, ahead of V2b.** A closure that is not
+      `Copy` is explicit-copy (`_plain_data_lacks_copy`,
+      `src/types/utils.yo`, asks the flip's question of a closure identity
+      before the owned-buffer carve-out): `d := c` moves, a later `c` is
+      E0901 naming `c.clone()`. This holds although `String` itself still
+      copies implicitly until V2b: the closure is the stricter of the two
+      (`issues/fixed/a-closure-owning-a-string-copies-implicitly.md`).
+      Anonymous records and tuples keep the V2b carve-out with `String`.
+    - **Where-clause bounds.** `where(T <: Copy)`/`where(T <: Clone)` judge
+      a closure type through `function_value_marker`
+      (`src/evaluator/utils/closure.yo`), which every where-clause path
+      consults for a function type; a closure type is an `Impl(Fn(...))`
+      SomeT, which the concrete-only gates skipped
+      (`issues/fixed/a-where-copy-bound-accepts-a-closure-that-owns-a-string.md`).
+    - **The field-wise clone.** `x.clone()` on a closure or an anonymous
+      record that is `Clone` but not `Copy` copies each `Copy` part and
+      clones the rest (`structural_clone_expansion`,
+      `src/evaluator/utils/closure.yo`): a record becomes its literal, a
+      closure a rebuild of its own capture record (same type, same code)
+      whose fields read the receiver's in place through the compiler-only
+      `__yo_capture_field(c, i)`.
 - **The impl check** (`_copy_impl_violation_msg`, on both the concrete and
   the generic impl paths through the receiver-kind gate):
   - **a `Clone` impl must cover the type** (`_copy_without_clone_msg`): for
@@ -5047,9 +5084,10 @@ is `Arc(Mutex(T))`, `clone()` or `&mut`, and the error says which.
   (`_try_structural_copy_clone`, `src/evaluator/calls/function.yo`, through
   `ExprInfo.macro_expansion`). A first version dispatched to a synthesized
   `__yo_return_self` method entry; its call bodies failed to transpile. A
-  record or closure that is `Clone` but not `Copy` still has no `clone()`
-  (`issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`,
-  narrowed).
+  record or closure that is `Clone` but not `Copy` had no `clone()` until
+  2026-10-14, when the field-wise clone landed (Generation A's "Structural
+  `Copy` and `Clone`" bullet above;
+  `issues/fixed/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md`).
 - **The sweep:** `derive(T, Copy, Clone)` on about 165 named types in `src/`,
   `std/` and `tests/`, driven by the audit's `needs=` list. Generic types get
   a conditional pair, `derive(generic(T : Type), where(T <: Clone), G(T),
