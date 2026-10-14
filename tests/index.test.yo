@@ -216,10 +216,11 @@ test("Test Index on Deque with ring buffer wrap", {
   assert(d(usize(1)) == i32(4), "d(1) should be 4");
   assert(d(usize(2)) == i32(5), "d(2) should be 5");
 });
-// === String bytes: no Index trait (String S3a), read by name ===
-test("String has no Index; byte_at / get_byte read bytes", {
+// === String bytes: a read-only Index (V2b Generation B), no IndexMut ===
+test("String's Index reads a byte and has no IndexMut; byte_at / get_byte agree", {
   (s : String) = `Hello`;
-  comptime_expect_error(s(usize(0)), "is not callable");
+  assert(s(usize(0)) == u8(72), "s(0) reads byte 0");
+  comptime_expect_error(s(usize(0)) = u8(0), "IndexMut");
   assert(s.byte_at(usize(0)) == u8(72), "byte 0 should be 'H' (72)");
   assert(s.byte_at(usize(1)) == u8(101), "byte 1 should be 'e' (101)");
   assert(s.byte_at(usize(2)) == u8(108), "byte 2 should be 'l' (108)");

@@ -5389,7 +5389,9 @@ compiler; the std shapes are plain structs the seed lowers):
       (`src/evaluator/module_loader.yo`, `src/evaluator/exprs/assignment.yo`,
       `src/evaluator/exprs/initialization_assignment.yo`). Unique buffers
       turn those handle copies into explicit moves or copies, so they will
-      surface again there rather than silently write a copy.
+      surface again there rather than silently write a copy. V2a's
+      `YO_AUDIT_INOUT_BORROW` fixture drops its two subscript-write cases,
+      which are E0908 now (`audit-inout-borrow-lists-collection-writes`).
     - **Not in this step.** The dispatch still looks `index` / `index_mut`
       up by name; keying it on the prelude traits waits for the direct
       projection calls (decision 24's remaining result positions). Once a
