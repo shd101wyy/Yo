@@ -24,8 +24,8 @@ MyBox :: ref(
 );
 impl(
   MyBox,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       unsafe(printf("Disposing Boxed i32 with value: %d\n", self.x));
     })
   )
@@ -317,8 +317,8 @@ test("Dyn(trait) with a Future-returning method dispatches through the vtable", 
 DynPayloadRes :: ref(struct(tag : i32));
 impl(
   DynPayloadRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_dyn_payload_disposed = (g_dyn_payload_disposed + i32(1));
     })
   )

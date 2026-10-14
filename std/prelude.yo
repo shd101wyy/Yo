@@ -294,8 +294,8 @@ export(Acyclic);
 /// and their `atomic(...)` forms) may implement it too: its copies share one
 /// cell, and `dispose` runs when the count reaches zero. No other type may
 /// implement it; the compiler checks this at the `impl`.
-Dispose :: trait(
-  id := "Dispose",
+Drop :: trait(
+  id := "Drop",
   /// Release the resources `self` owns — a file descriptor, a socket, a lock,
   /// a buffer the allocator handed out. Called automatically when the value's
   /// owner drops it (a value type) or the last reference to it goes away (a
@@ -305,9 +305,9 @@ Dispose :: trait(
   /// It must be safe to run exactly once, and a type that also exposes an
   /// explicit `close`/`release` is responsible for making the second call a
   /// no-op.
-  dispose : (fn(self : &Self) -> unit)
+  drop : (fn(self : &mut Self) -> unit)
 );
-export(Dispose);
+export(Drop);
 /// Drop trait — the destructor, Rust's `Drop` (plans/VALUES_BY_DEFAULT.md
 /// decision 45). It is `Dispose` under its new name and with the same
 /// meaning: `drop` runs automatically when the value's owner drops it (a value
@@ -9929,9 +9929,9 @@ impl(
 impl(
   generic(T : Type),
   Box(T),
-  Dispose(
+  Drop(
     /// Drops the payload, then frees the cell through its owner prefix.
-    dispose : (fn(self : &Self) -> unit)({
+    drop : (fn(self : &mut Self) -> unit)({
       // SAFETY: the box is the cell's only owner, and this runs once.
       unsafe.drop(unsafe(self._cell.*));
       block := _box_owner_of((*void)(self._cell));
@@ -10444,8 +10444,8 @@ __BorrowGuard :: (fn(comptime(C) : Type) -> comptime(Type))(
 impl(
   generic(C : Type),
   __BorrowGuard(C),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       __yo_borrow_release(&self._c);
     })
   )
@@ -12811,8 +12811,8 @@ impl(
   JoinHandle(T),
   /// Dropping the handle releases its reference to the task's future: an
   /// unawaited task is detached, and keeps running until it finishes.
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(
       __yo_join_handle_release_raw((*void)(self.__future))
     )
   )

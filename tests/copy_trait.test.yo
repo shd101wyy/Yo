@@ -67,8 +67,8 @@ _CtLabel :: struct(id : i32, name : String);
 _CtFd :: struct(fd : i32);
 impl(
   _CtFd,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(())
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(())
   )
 );
 _CtRef :: ref(struct(n : i32));
@@ -274,7 +274,7 @@ test("Copy: an impl over a part that is not Copy names that part", {
 _CtPlainHolder :: struct(inner : _CtPlain);
 test("Copy: Copy and Dispose exclude each other, in either order", {
   comptime_expect_error(impl(_CtFd, Copy()), "implements Dispose");
-  comptime_expect_error(impl(_CtCopied, Dispose(dispose : (fn(self : Self) -> unit)(()))), "it implements Copy");
+  comptime_expect_error(impl(_CtCopied, Drop(drop : (fn(self : Self) -> unit)(()))), "it implements Copy");
 });
 test("Copy: a reference type, a tuple and a blanket type parameter cannot declare Copy", {
   comptime_expect_error(impl(_CtRef, Copy()), "it is a reference type");

@@ -775,8 +775,8 @@ impl(
   ChildStdin,
   /// Dropping the handle closes the pipe, so a child waiting on EOF is not
   /// left hanging by a forgotten `close`.
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       cond(
         !self._closed => {
           close_sync(self._fd);
@@ -826,8 +826,8 @@ impl(
 );
 impl(
   ChildStdout,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       cond(
         !self._closed => {
           close_sync(self._fd);
@@ -877,8 +877,8 @@ impl(
 );
 impl(
   ChildStderr,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       cond(
         !self._closed => {
           close_sync(self._fd);

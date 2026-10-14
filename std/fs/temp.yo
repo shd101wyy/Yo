@@ -145,8 +145,8 @@ impl(
 // `remove`) — use `remove(io)` to observe failures.
 impl(
   TempDir,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       cond(
         self._removed => (),
         true => {
@@ -267,8 +267,8 @@ impl(
 // open file; Windows does not).
 impl(
   TempFile,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       cond(
         self._removed => (),
         true => {

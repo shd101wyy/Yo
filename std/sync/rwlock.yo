@@ -105,8 +105,8 @@ impl(
   generic(T : Type),
   where(T <: (Send, Sync, Acyclic)),
   __RwLockReadUnlocker(T),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       self._lock._raw_read_unlock();
     })
   )
@@ -123,8 +123,8 @@ impl(
   generic(T : Type),
   where(T <: (Send, Sync, Acyclic)),
   __RwLockWriteUnlocker(T),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       self._lock._raw_write_unlock();
     })
   )

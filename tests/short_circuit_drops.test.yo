@@ -33,8 +33,8 @@ Counter :: ref(struct(n : i32));
 Tracked :: ref(struct(c : Counter, v : i32));
 impl(
   Tracked,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       self.c.n = (self.c.n + i32(1));
     })
   )

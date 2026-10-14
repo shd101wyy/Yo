@@ -392,8 +392,8 @@ impl(
 );
 impl(
   TcpListener,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       cond(
         !self._is_closed => {
           { close_sync } :: import("../sys/file");
@@ -604,8 +604,8 @@ impl(
 );
 impl(
   TcpStream,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(
       self.close_sync()
     )
   )

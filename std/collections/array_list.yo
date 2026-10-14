@@ -1074,11 +1074,11 @@ impl(
 impl(
   generic(T : Type),
   ArrayList(T),
-  Dispose(
+  Drop(
     /// Drops every live element and frees the buffer. Runs when the last
     /// reference to the list goes away, not at the end of the binding's
     /// scope.
-    dispose : (fn(self : &Self) -> unit)({
+    drop : (fn(self : &mut Self) -> unit)({
       match(
         self._ptr,
         .Some(_ptr) => {

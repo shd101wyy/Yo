@@ -409,11 +409,11 @@ impl(
 );
 impl(
   TlsStream,
-  Dispose(
+  Drop(
     /// A `TlsStream` dropped without `close` used to leak everything it owned
     /// — the socket descriptor AND the OpenSSL `SSL`/`SSL_CTX` pair.
     /// `dispose` releases both, through `close_sync`.
-    dispose : (fn(self : &Self) -> unit)(
+    drop : (fn(self : &mut Self) -> unit)(
       self.close_sync()
     )
   )

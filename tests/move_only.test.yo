@@ -16,8 +16,8 @@
 _MoFd :: struct(n : i32);
 impl(
   _MoFd,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_mo_disposed = (g_mo_disposed + i32(1));
       g_mo_sum = (g_mo_sum + self.n);
     })
@@ -56,8 +56,8 @@ _mo_late_user :: (fn() -> i32)({
 _MoLate :: struct(n : i32);
 impl(
   _MoLate,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_mo_disposed = (g_mo_disposed + i32(1));
     })
   )
@@ -87,7 +87,7 @@ test("move-only: Dispose makes a value type move-only, and value aggregates inhe
   assert((r.fd.n + r2.fd.n) == i32(8), "both handles stay usable");
 });
 test("move-only: the impl-site gate", {
-  comptime_expect_error(impl(i32, Dispose(dispose : (fn(self : Self) -> unit)(()))), "cannot implement \"Dispose\"");
+  comptime_expect_error(impl(i32, Drop(drop : (fn(self : Self) -> unit)(()))), "cannot implement \"Dispose\"");
   comptime_expect_error(impl(_MoToken, Trace(trace : (fn(self : Self, tracer : GcTracer) -> unit)(()))), "cannot implement \"Trace\"");
 });
 // ---------------------------------------------------------------------------

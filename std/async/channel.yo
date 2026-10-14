@@ -381,8 +381,8 @@ impl(
   /// version: the decrement and the `close` both run on the single event-loop
   /// thread with no suspension point between them, so no other task can
   /// observe the count between the two.
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       self._ch._senders = (self._ch._senders - usize(1));
       if(self._ch._senders == usize(0), {
         self._ch.close();
@@ -461,8 +461,8 @@ impl(
   /// be sent", the SENDERS' end of the lifetime, and keeping the two facts
   /// apart is what lets a `Sender` that outlives the receiver report the
   /// honest failure.
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(
       self._ch._mark_receiver_dropped()
     )
   )

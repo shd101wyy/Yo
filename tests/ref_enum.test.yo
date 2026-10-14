@@ -257,8 +257,8 @@ test("ref(enum) derives the reference-type marker traits", {
 Guarded :: ref(enum(GuardNone, GuardSome(label : String)));
 impl(
   Guarded,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_ref_enum_disposed = (g_ref_enum_disposed + i32(1));
     })
   )
@@ -286,22 +286,22 @@ test("ref(enum) can implement Dispose; it runs once at the last release", {
 GuardedChain :: ref(enum(GcEnd, GcLink(next : Self)));
 impl(
   GuardedChain,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_ref_enum_chain_disposed = (g_ref_enum_chain_disposed + i32(1));
     })
   )
 );
 impl(
   Atom,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(())
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(())
   )
 );
 impl(
   RefEnumBox(i32),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(())
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(())
   )
 );
 
@@ -311,8 +311,8 @@ DisposedValueEnum :: enum(DvA, DvB(x : i32));
 (g_value_enum_disposed : i32) = i32(0);
 impl(
   DisposedValueEnum,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_value_enum_disposed = (g_value_enum_disposed + i32(1));
     })
   )

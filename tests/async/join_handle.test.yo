@@ -117,8 +117,8 @@ test("Test abort after completion is a no-op", {
 AbortCaptureProbe :: ref(struct(id : i32));
 impl(
   AbortCaptureProbe,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_abort_capture_disposed = (g_abort_capture_disposed + i32(1));
     })
   )
@@ -264,8 +264,8 @@ test("a handle moved into join cannot be used after it", {
 _JhRes :: struct(n : i32);
 impl(
   _JhRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_jh_res_disposed = (g_jh_res_disposed + i32(1));
     })
   )

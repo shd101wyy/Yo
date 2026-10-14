@@ -330,8 +330,8 @@ test("join_all waits for its own pool's tasks only", {
 _PoolOnceTok :: struct(n : i32);
 impl(
   _PoolOnceTok,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       _ := g_pool_once_disposed.fetch_add(i32(1), MemoryOrder.AcqRel);
     })
   )

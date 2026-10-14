@@ -274,8 +274,8 @@ impl(
 );
 impl(
   UdpSocket,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       cond(
         !self._is_closed => {
           { close_sync } :: import("../sys/file");

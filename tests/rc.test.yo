@@ -455,8 +455,8 @@ test("Returning an OWNED RC local from inside a branch is not double-dropped", {
 M3HiddenRet :: ref(struct(tag : i32));
 impl(
   M3HiddenRet,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_m3_hidden_disposed = (g_m3_hidden_disposed + i32(1));
     })
   )
@@ -1003,8 +1003,8 @@ test("statement-hidden mutation keeps the borrowed-projection dup", {
 AliasHandle :: ref(struct(tag : i32));
 impl(
   AliasHandle,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_alias_disposed = (g_alias_disposed + i32(1));
     })
   )
@@ -1062,8 +1062,8 @@ test("box takes ownership of its argument without retaining an extra reference",
 OwnParamRes :: ref(struct(tag : i32));
 impl(
   OwnParamRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_own_param_freed = (g_own_param_freed + i32(1));
     })
   )
@@ -1204,8 +1204,8 @@ test("alias made in an inner block, base reassigned there, base used after", {
 NestedSink :: ref(struct(tag : i32));
 impl(
   NestedSink,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_nested_disposed = (g_nested_disposed + i32(1));
     })
   )
@@ -1299,8 +1299,8 @@ test("a container in a cond arm and in a while body behave the same way", {
 ScHandle :: ref(struct(tag : i32));
 impl(
   ScHandle,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_sc_disposed = (g_sc_disposed + i32(1));
     })
   )
@@ -1369,8 +1369,8 @@ test("|| chain ending in Option.is_some() inside a match arm inside a cond arm",
 ArgTemp :: ref(struct(n : i32));
 impl(
   ArgTemp,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_at_disposed = (g_at_disposed + i32(1));
     })
   )
@@ -1711,8 +1711,8 @@ test("ref_count: copies of a value holding RC data are counted in every position
 _OwnM :: ref(struct(tag : i32));
 impl(
   _OwnM,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_own_m_disposed = (g_own_m_disposed + i32(1));
     })
   )
@@ -1887,8 +1887,8 @@ test("ref_count is a reserved builtin name", {
 _NtBox :: ref(struct(tag : i32));
 impl(
   _NtBox,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_nt_disposed = (g_nt_disposed + i32(1));
     })
   )
@@ -1989,8 +1989,8 @@ test("a newtype over an Option, a newtype or a tuple retains a field payload", {
 TupleElemHandle :: ref(struct(tag : i32));
 impl(
   TupleElemHandle,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_tuple_elem_disposed = (g_tuple_elem_disposed + i32(1));
     })
   )
@@ -2078,8 +2078,8 @@ test("a named tuple binding pushed into a container is disposed exactly once", {
 UBoxProbe :: struct(n : i32);
 impl(
   UBoxProbe,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_ubox_disposed = (g_ubox_disposed + i32(1));
     })
   )
@@ -2331,8 +2331,8 @@ test("Rc(T) with a Drop payload drops it once, with the last handle", {
 _RtBox :: ref(struct(tag : i32));
 impl(
   _RtBox,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_rt_disposed = (g_rt_disposed + i32(1));
     })
   )

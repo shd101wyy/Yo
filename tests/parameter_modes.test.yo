@@ -24,8 +24,8 @@ _pm_add1 :: (fn(n : i32) -> i32)(n + i32(1));
 _PmRes :: struct(n : i32);
 impl(
   _PmRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_pm_disposed = (g_pm_disposed + i32(1));
     })
   )
@@ -329,8 +329,8 @@ impl(_PmNamed, LogicalNot((!) : (fn(self : Self) -> bool)(self.name.len() == usi
 _PmHeld :: struct(n : i32);
 impl(
   _PmHeld,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_pm_disposed = (g_pm_disposed + i32(1));
     })
   )

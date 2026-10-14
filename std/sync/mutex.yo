@@ -163,8 +163,8 @@ impl(
 );
 impl(
   RawMutex,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       return(__yo_mutex_destroy(addr_of(self._handle)));
     })
   )
@@ -185,8 +185,8 @@ impl(
   generic(T : Type),
   where(T <: (Send, Acyclic)),
   __MutexUnlocker(T),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       self._mutex._raw_unlock();
     })
   )
@@ -338,8 +338,8 @@ impl(
   generic(T : Type),
   where(T <: (Send, Acyclic)),
   Mutex(T),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       return(__yo_mutex_destroy(addr_of(self._handle)));
     })
   )

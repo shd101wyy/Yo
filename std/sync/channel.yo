@@ -372,8 +372,8 @@ impl(
   generic(T : Type),
   Channel(T),
   where(T <: (Send, Acyclic)),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       (current_len : usize) = self._len.load(MemoryOrder.Relaxed);
       (i : usize) = usize(0);
       while(runtime(i < current_len), {
@@ -493,8 +493,8 @@ impl(
   /// mutex and broadcasts under it, which is what makes a receiver that is
   /// between its predicate check and its park wake up instead of blocking
   /// forever.
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       (prev : usize) = self._ch._senders.fetch_sub(usize(1), MemoryOrder.AcqRel);
       if(prev == usize(1), {
         self._ch.close();
@@ -580,8 +580,8 @@ impl(
   /// facts apart is what lets a `Sender` that outlives the receiver report
   /// the honest failure. The buffered values are released when the last
   /// handle drops the `Channel` itself (its `dispose`).
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(
       self._ch._mark_receiver_dropped()
     )
   )

@@ -12,8 +12,8 @@ MyBox :: ref(
 );
 impl(
   MyBox,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       unsafe(printf("Disposing Boxed i32 with value: %d\n", self.*));
     })
   )
@@ -438,8 +438,8 @@ test("a second closure's list after the first list's push", {
 CapPayload :: ref(struct(n : i32));
 impl(
   CapPayload,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_cap_disposed = (g_cap_disposed + i32(1));
     })
   )

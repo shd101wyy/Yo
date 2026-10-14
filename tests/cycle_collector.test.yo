@@ -12,8 +12,8 @@ List :: ref(
 );
 impl(
   List,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       unsafe(printf("Disposing List with value %d\n", self.value));
     })
   )
@@ -61,8 +61,8 @@ Node :: ref(
 );
 impl(
   Node,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       unsafe(printf("Disposing Node with value %d\n", self.value));
     })
   )
@@ -370,8 +370,8 @@ MNode :: ref(
 );
 impl(
   MNode,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       if(self.store, {
         match(
           self.keeper,
@@ -486,8 +486,8 @@ BNode :: ref(
 );
 impl(
   BNode,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_bnode_disposed = (g_bnode_disposed + i32(1));
     })
   )

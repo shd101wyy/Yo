@@ -19,8 +19,8 @@ pragma(Pragma.AllowUnsafe);
 Thing :: ref(struct(n : i32));
 impl(
   Thing,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_disposed = (g_disposed + i32(1));
     })
   )
@@ -811,8 +811,8 @@ _Guard :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(n : u8)));
 impl(
   generic(T : Type),
   _Guard(T),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_guards = (g_guards + i32(1));
     })
   )

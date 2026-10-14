@@ -111,8 +111,8 @@ GenericRefPair :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(a : T, b
 impl(
   generic(T : Type),
   GenericRefPair(T),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_generic_ref_pair_disposed = (g_generic_ref_pair_disposed + i32(1));
     })
   )
@@ -120,8 +120,8 @@ impl(
 impl(
   generic(T : Type),
   GenericValuePair(T),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_generic_value_pair_disposed = (g_generic_value_pair_disposed + i32(1));
     })
   )
@@ -154,8 +154,8 @@ test("Test a generic 'Dispose' impl runs once, and 'Trace'/a blanket receiver ar
     impl(
       generic(T : Type),
       T,
-      Dispose(
-        dispose : (fn(self : Self) -> unit)(())
+      Drop(
+        drop : (fn(self : Self) -> unit)(())
       )
     ),
     "cannot implement \"Dispose\""
@@ -173,8 +173,8 @@ test("Test 'Dispose' and 'Trace' receivers", {
   );
   impl(
     MyBox,
-    Dispose(
-      dispose : (fn(self : &Self) -> unit)({
+    Drop(
+      drop : (fn(self : &mut Self) -> unit)({
         ();
       })
     )
@@ -183,8 +183,8 @@ test("Test 'Dispose' and 'Trace' receivers", {
   comptime_expect_error(
     impl(
       i32,
-      Dispose(
-        dispose : (fn(self : Self) -> unit)(())
+      Drop(
+        drop : (fn(self : Self) -> unit)(())
       )
     ),
     "cannot implement \"Dispose\""

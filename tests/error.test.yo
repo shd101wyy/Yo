@@ -267,8 +267,8 @@ test("comptime call after exn.throw in a match arm compiles and unwinds", {
 ThrownRes :: ref(struct(tag : i32));
 impl(
   ThrownRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_thrown_payload_disposed = (g_thrown_payload_disposed + i32(1));
     })
   )
@@ -315,8 +315,8 @@ test("every AnyError payload thrown in a loop is released", {
 MovedOutRes :: ref(struct(tag : i32));
 impl(
   MovedOutRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_moved_out_local_disposed = (g_moved_out_local_disposed + i32(1));
     })
   )
