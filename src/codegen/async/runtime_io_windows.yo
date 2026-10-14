@@ -382,6 +382,28 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
 
+/* Offset UINT64_MAX means the handle's own file position, as read(2)/write(2)
+   use it on POSIX (the standard streams need that:
+   issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md).
+   Windows positions disk I/O through the OVERLAPPED offset, so the position
+   is read here, and __yo_win_advance_position moves it past the bytes once
+   the transfer is done. An overlapped handle keeps no file pointer, so on one
+   the position stays wherever SetFilePointerEx last left it. */
+static uint64_t __yo_win_resolve_offset(HANDLE h, uint64_t offset) {
+  if (offset != UINT64_MAX) return offset;
+  LARGE_INTEGER zero;
+  zero.QuadPart = 0;
+  LARGE_INTEGER cur;
+  if (!SetFilePointerEx(h, zero, &cur, FILE_CURRENT)) return 0;
+  return (uint64_t)cur.QuadPart;
+}
+
+static void __yo_win_advance_position(HANDLE h, uint64_t base, DWORD transferred) {
+  LARGE_INTEGER to;
+  to.QuadPart = (LONGLONG)(base + (uint64_t)transferred);
+  SetFilePointerEx(h, to, NULL, FILE_BEGIN);
+}
+
 /* Positioned synchronous write. File fds here may wrap handles opened with
    FILE_FLAG_OVERLAPPED (the async openat path), which CRT _write cannot
    serve — WriteFile with an explicit OVERLAPPED works for BOTH overlapped
@@ -401,6 +423,8 @@ static int32_t __yo_sync_write(int32_t fd, const void* buf, uint32_t count, uint
     int n = _write(fd, buf, count);
     return (n < 0) ? -errno : n;
   }
+  bool at_position = (offset == UINT64_MAX);
+  offset = __yo_win_resolve_offset(h, offset);
   OVERLAPPED ov;
   memset(&ov, 0, sizeof(ov));
   ov.Offset = (DWORD)(offset & 0xFFFFFFFFu);
@@ -422,6 +446,7 @@ static int32_t __yo_sync_write(int32_t fd, const void* buf, uint32_t count, uint
     }
   }
   CloseHandle(ev);
+  if (at_position) __yo_win_advance_position(h, offset, written);
   return (int32_t)written;
 }
 
@@ -3157,6 +3182,8 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
     return future;
   }
 
+  bool at_position = (offset == UINT64_MAX);
+  offset = __yo_win_resolve_offset(handle, offset);
   __yo_win_associate_handle(handle);
 
   __yo_win_overlapped_t* ov = __yo_win_alloc_overlapped(future, handle, offset);
@@ -3170,6 +3197,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   if (ok) {
     DWORD bytes_transferred = 0;
     GetOverlappedResult(handle, &ov->overlapped, &bytes_transferred, FALSE);
+    if (at_position) __yo_win_advance_position(handle, offset, bytes_transferred);
     future->result = (int32_t)bytes_transferred;
     __yo_win_free_overlapped(ov);
     { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }
@@ -3351,6 +3379,8 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
     return future;
   }
 
+  bool at_position = (offset == UINT64_MAX);
+  offset = __yo_win_resolve_offset(handle, offset);
   // Check if file was opened with O_APPEND -- overlapped I/O doesn't auto-append
   if (__yo_win_fd_is_append(fd)) {
     // Get file size and write at end
@@ -3373,6 +3403,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   if (ok) {
     DWORD bytes_transferred = 0;
     GetOverlappedResult(handle, &ov->overlapped, &bytes_transferred, FALSE);
+    if (at_position) __yo_win_advance_position(handle, offset, bytes_transferred);
     future->result = (int32_t)bytes_transferred;
     __yo_win_free_overlapped(ov);
     { if (atomic_load(&future->state) != -2) atomic_store(&future->state, -1); }

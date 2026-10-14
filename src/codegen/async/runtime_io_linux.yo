@@ -64,10 +64,16 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
 
-/* Positioned synchronous write — see the macOS emitter's comment. */
+/* Positioned synchronous write — see the macOS emitter's comment
+   (UINT64_MAX: the descriptor's own position). */
 static int32_t __yo_sync_write(int32_t fd, const void* buf, uint32_t count, uint64_t offset) {
-  ssize_t n = pwrite(fd, buf, (size_t)count, (off_t)offset);
-  if (n < 0 && errno == ESPIPE) n = write(fd, buf, (size_t)count);
+  ssize_t n;
+  if (offset == UINT64_MAX) {
+    n = write(fd, buf, (size_t)count);
+  } else {
+    n = pwrite(fd, buf, (size_t)count, (off_t)offset);
+    if (n < 0 && errno == ESPIPE) n = write(fd, buf, (size_t)count);
+  }
   return (n < 0) ? -errno : (int32_t)n;
 }
 
@@ -636,6 +642,7 @@ static _Thread_local uint32_t __yo_io_harvest = 0;
 #define __YO_IORING_ENTER_GETEVENTS      (1U << 0)
 #define __YO_IORING_ENTER_EXT_ARG        (1U << 3)
 #define __YO_IORING_FEAT_SINGLE_MMAP     (1U << 0)
+#define __YO_IORING_FEAT_RW_CUR_POS      (1U << 3)
 #define __YO_IORING_FEAT_EXT_ARG         (1U << 8)
 #define __YO_IORING_FSYNC_DATASYNC       (1U << 0)
 #define __YO_IORING_OFF_SQ_RING          0ULL
@@ -1150,6 +1157,10 @@ static _Thread_local struct __yo_uring __yo_io_ring;
 // IORING_ENTER_EXT_ARG (5.11): the ring's wait can carry its own timeout.
 // Without it a bounded wait arms an IORING_OP_TIMEOUT instead.
 static _Thread_local bool __yo_uring_has_ext_arg = false;
+// IORING_FEAT_RW_CUR_POS (5.6): a read/write SQE with offset -1 uses and
+// advances the file position, which offset UINT64_MAX asks for. Without it
+// such an op is done inline with read(2)/write(2).
+static _Thread_local bool __yo_uring_has_rw_cur_pos = false;
 
 // ThreadSanitizer does not order a munmap against a later mmap that returns
 // the same address, so ring mappings reused across threads look racy to it.
@@ -1338,6 +1349,7 @@ static void __yo_io_init(void) {
       __yo_io_close_hook = __yo_ring_drop_fd;
       __yo_uring_probe_ops(&__yo_io_ring);
       __yo_uring_has_ext_arg = (params.features & __YO_IORING_FEAT_EXT_ARG) != 0;
+      __yo_uring_has_rw_cur_pos = (params.features & __YO_IORING_FEAT_RW_CUR_POS) != 0;
       __yo_io_notify_init();
       if (__yo_notify_efd >= 0) {
         __yo_io_arm_notify();
@@ -2587,9 +2599,12 @@ static void __yo_epoll_drive(bool block, int* count_out) {
 // for a file read where one does.
 static __yo_io_future_t* __yo_epoll_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
   if (!__yo_epoll_dir_busy(fd, 0)) {
-    ssize_t r = __YO_SC(pread(fd, buffer, size, (off_t)offset));
-    if (r >= 0 || errno != ESPIPE) {
-      return __yo_io_done_future((r < 0) ? -errno : (int32_t)r);
+    ssize_t r;
+    if (offset != UINT64_MAX) {
+      r = __YO_SC(pread(fd, buffer, size, (off_t)offset));
+      if (r >= 0 || errno != ESPIPE) {
+        return __yo_io_done_future((r < 0) ? -errno : (int32_t)r);
+      }
     }
     r = __YO_SC(read(fd, buffer, size));
     if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
@@ -2616,9 +2631,12 @@ static __yo_io_future_t* __yo_epoll_read_start(int32_t fd, void* buffer, uint32_
 // the old fstat + F_GETFL + write/pwrite was three syscalls.
 static __yo_io_future_t* __yo_epoll_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
   if (!__yo_epoll_dir_busy(fd, 1)) {
-    ssize_t w = __YO_SC(pwrite(fd, buffer, size, (off_t)offset));
-    if (w >= 0 || errno != ESPIPE) {
-      return __yo_io_done_future((w < 0) ? -errno : (int32_t)w);
+    ssize_t w;
+    if (offset != UINT64_MAX) {
+      w = __YO_SC(pwrite(fd, buffer, size, (off_t)offset));
+      if (w >= 0 || errno != ESPIPE) {
+        return __yo_io_done_future((w < 0) ? -errno : (int32_t)w);
+      }
     }
     w = __YO_SC(write(fd, buffer, size));
     if (w >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
@@ -3281,6 +3299,10 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   if (__yo_backend == __YO_BACKEND_DEGRADED) {
     return __yo_io_done_future(-__yo_backend_errno);
   }
+  if (offset == UINT64_MAX && !__yo_uring_has_rw_cur_pos) {
+    ssize_t r = __YO_SC(read(fd, buffer, size));
+    return __yo_io_done_future((r < 0) ? -errno : (int32_t)r);
+  }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));
   memset(future, 0, sizeof(__yo_io_future_t));  // Zero-initialize all fields
@@ -3371,6 +3393,12 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
       // same, one hop later.
       return __yo_io_done_future(-e);
     }
+  }
+  if (offset == UINT64_MAX && !__yo_uring_has_rw_cur_pos) {
+    // pwritev2 above already treats offset -1 as the file position; a ring
+    // older than 5.6 does not, so the write is done inline.
+    ssize_t w = __YO_SC(write(fd, buffer, size));
+    return __yo_io_done_future((w < 0) ? -errno : (int32_t)w);
   }
   
   __yo_io_future_t* future = (__yo_io_future_t*)__yo_rc_alloc(sizeof(__yo_io_future_t));

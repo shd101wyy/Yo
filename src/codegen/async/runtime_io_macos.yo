@@ -67,13 +67,22 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
 }
 
 /* Positioned synchronous write (pwrite semantics; plain write for
-   non-seekable fds). Exists so Dispose impls — which cannot await — can
+   non-seekable fds). An offset of UINT64_MAX means the descriptor's own
+   file position (write(2)), as in every read/write entry point here: the
+   standard streams need it, because a redirected stdout shared with libc
+   has no position of its own to track
+   (issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md). Exists so Dispose impls — which cannot await — can
    flush bytes without reaching for libc through platform-gated imports:
    on Windows the async-opened fds wrap OVERLAPPED handles that CRT _write
    cannot serve, so a per-platform shim is the only correct home. */
 static int32_t __yo_sync_write(int32_t fd, const void* buf, uint32_t count, uint64_t offset) {
-  ssize_t n = pwrite(fd, buf, (size_t)count, (off_t)offset);
-  if (n < 0 && errno == ESPIPE) n = write(fd, buf, (size_t)count);
+  ssize_t n;
+  if (offset == UINT64_MAX) {
+    n = write(fd, buf, (size_t)count);
+  } else {
+    n = pwrite(fd, buf, (size_t)count, (off_t)offset);
+    if (n < 0 && errno == ESPIPE) n = write(fd, buf, (size_t)count);
+  }
   return (n < 0) ? -errno : (int32_t)n;
 }
 
@@ -1803,9 +1812,12 @@ static __yo_io_pending_op_t* __yo_kq_park_or_fail(__yo_io_op_type op, __yo_io_fu
 static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_t size, uint64_t offset) {
   __yo_io_init();
   if (!__yo_kq_dir_busy(fd, 0)) {
-    ssize_t r = pread(fd, buffer, size, (off_t)offset);
-    if (r >= 0 || (errno != ESPIPE && errno != ENXIO)) {
-      return __yo_kq_done_future((r < 0) ? -errno : (int32_t)r);
+    ssize_t r;
+    if (offset != UINT64_MAX) {
+      r = pread(fd, buffer, size, (off_t)offset);
+      if (r >= 0 || (errno != ESPIPE && errno != ENXIO)) {
+        return __yo_kq_done_future((r < 0) ? -errno : (int32_t)r);
+      }
     }
     r = read(fd, buffer, size);
     if (r >= 0 || (errno != EAGAIN && errno != EWOULDBLOCK)) {
@@ -1826,7 +1838,8 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
 
 // Write. An O_APPEND descriptor writes at end-of-file whatever offset is
 // supplied: macOS pwrite honors the offset even there (unlike Linux), so
-// those take write(). Everything else is a positioned pwrite, and a
+// those take write(), as does offset UINT64_MAX (the descriptor's own
+// position; see __yo_sync_write). Everything else is a positioned pwrite, and a
 // non-seekable descriptor (ESPIPE; a tty's ENXIO) the non-blocking write that
 // parks on EVFILT_WRITE. F_GETFL + pwrite replaces fstat + F_GETFL + pwrite.
 static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, uint32_t size, uint64_t offset) {
@@ -1837,7 +1850,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
       return __yo_kq_done_future(-errno);
     }
     ssize_t w;
-    if (fl & O_APPEND) {
+    if ((fl & O_APPEND) || offset == UINT64_MAX) {
       w = write(fd, buffer, size);
     } else {
       w = pwrite(fd, buffer, size, (off_t)offset);

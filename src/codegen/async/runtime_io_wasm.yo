@@ -309,10 +309,16 @@ static int64_t __yo_sync_lseek(int32_t fd, int64_t offset, int32_t whence) {
   off_t result = lseek(fd, (off_t)offset, whence);
   return (result < 0) ? (int64_t)(-errno) : (int64_t)result;
 }
-/* Positioned synchronous write — see the macOS emitter's comment. */
+/* Positioned synchronous write — see the macOS emitter's comment
+   (UINT64_MAX: the descriptor's own position). */
 static int32_t __yo_sync_write(int32_t fd, const void* buf, uint32_t count, uint64_t offset) {
-  ssize_t n = pwrite(fd, buf, (size_t)count, (off_t)offset);
-  if (n < 0 && errno == ESPIPE) n = write(fd, buf, (size_t)count);
+  ssize_t n;
+  if (offset == UINT64_MAX) {
+    n = write(fd, buf, (size_t)count);
+  } else {
+    n = pwrite(fd, buf, (size_t)count, (off_t)offset);
+    if (n < 0 && errno == ESPIPE) n = write(fd, buf, (size_t)count);
+  }
   return (n < 0) ? -errno : (int32_t)n;
 }
 `
@@ -606,7 +612,7 @@ static __yo_io_future_t* __yo_async_read_start(int32_t fd, void* buffer, uint32_
   }
 
   ssize_t result;
-  if (is_regular) {
+  if (is_regular && offset != UINT64_MAX) {
     result = pread(fd, buffer, size, (off_t)offset);
   } else {
     result = read(fd, buffer, size);
@@ -624,7 +630,7 @@ static __yo_io_future_t* __yo_async_write_start(int32_t fd, const void* buffer, 
   ssize_t result;
   if (is_regular) {
     int fl = fcntl(fd, F_GETFL);
-    if (fl != -1 && (fl & O_APPEND)) {
+    if ((fl != -1 && (fl & O_APPEND)) || offset == UINT64_MAX) {
       result = write(fd, buffer, size);
     } else {
       result = pwrite(fd, buffer, size, (off_t)offset);
