@@ -178,7 +178,7 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
 ### Before, during, after a change
 
 - **Use the LATEST published seed** (`yo --version` = newest GitHub release). A current tree can need runtime symbols only the newest seed emits. Update with `bash scripts/install.sh` (`--no-deps` on nix boxes).
-- **Heavy steps take a slot of the machine-wide FIFO lock** (`source scripts/heavy-lock.sh; heavy_take "<who>: <job>"` … `heavy_drop`; `exclusive` for timings and >5 GB steps). Memory-admitted slots, sized per machine in `~/Workspace/Yo-wt/heavy-lock.conf` (default 3); details in `testing.instructions.md` ("The heavy lock").
+- **Heavy steps take a slot of the machine-wide FIFO lock** (`source scripts/heavy-lock.sh; heavy_take "<who>: <job>"` … `heavy_drop`; `exclusive` for timings and >5 GB steps; never backdate a ticket). Memory-admitted slots, sized per machine in `~/Workspace/Yo-wt/heavy-lock.conf` (default 3); details in `testing.instructions.md` ("The heavy lock").
 - Run `yo check ./src` before any longer command. `check` is evaluator-only: the hollow-`io.async`-body rule (E0905) is enforced in codegen, so gate it with `yo compile src/main.yo --skip-c-compiler`.
 - Make commands succeed yourself. Do not ask the user to run them, and do not end the conversation until they pass.
 - No hardcoding, no shortcuts, no simplifications in the evaluator or codegen. When asked to refactor, refactor everything: no placeholders, no TODOs.
@@ -202,7 +202,7 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
   - **Tier 1 is the merge gate:** a targeted local gate of about 20–30 minutes, run before the PR is opened.
     - `yo build --std-path ./std`, only when `src/` changed; a std- or tests-only change reuses a develop-built binary.
     - `check ./src` and `check ./std`.
-    - The feature's own test files, plus every `tests/internal` file that imports a changed `src/` module. #1343 broke develop by skipping `gc_runtime_atomics`.
+    - The feature's own test files and the tests that name a changed identifier, run ONE file per `yo test` call (it takes one path), plus every `tests/internal` file that imports a changed `src/` module or names a changed identifier. #1343 broke develop by skipping `gc_runtime_atomics`. A std- or prelude-only change does NOT select every internal file (each re-evaluates the compiler, ~4.5 min); more than ~8 → one in-process run under `exclusive`. Selection recipe: `testing.instructions.md` ("Choosing a Tier 1 gate").
     - cli-diff-test, only when std, CLI output, diagnostics text, skills or a `yo fix` migration changed; read each GOLDEN-DIFF before `--record`.
     - fmt and `check-issue-refs.sh`.
     - Not in Tier 1: the full language suite, `yo test ./std`, the fixpoint and the full `tests/internal`.
