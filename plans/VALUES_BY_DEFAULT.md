@@ -1523,10 +1523,11 @@ and in git, not a silent edit.
       callee-walk registrations bypassed `function_c_name`'s hash. The same
       PR fixes that
       (`issues/fixed/specialized-function-names-called-through-a-callee-are-not-hashed.md`).
-      A match on the handle also takes the general test chain
+      A match on the handle also took the general test chain
       (`if (!(tag == X)) goto`) rather than a `switch`: 7,872 goto tests
-      against develop's 1,715. A seed carrying the hash fix shows how much
-      of the build time each accounts for.
+      against develop's 1,715. The same PR lowers a borrow match whose arms
+      all look through one `Rc` cell to plain variant shapes (binder or `_`
+      fields, no guard) to a `switch` on the payload's tag.
 22. **Non-escaping closures borrow, escaping closures own, and a closure's
     kind follows its captures** (the structural rule of §0.2 applied to the
     capture struct).

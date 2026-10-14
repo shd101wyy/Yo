@@ -66,3 +66,17 @@ registrations kept `c_symbol_name`.
 `tests/internal/compile.test.yo`: "a specialization reached through a call
 gets the hashed C name, not its raw signature". It compiles the reproducer
 with `--emit-c` and asserts that no `yo_id_` name is longer than 160 bytes.
+
+## Fix
+
+The three registrations now name the function with `function_c_name`,
+like every other registration (feat/vbd-v4-typevalue-rc-handle). A
+specialization reached through a call gets `__yo_fs_<fnv1a64>` once its id
+passes 160 bytes. Collisions still fall back to `register_function`'s
+`_x<k>` suffix.
+
+## Verification
+
+- The reproducer's longest `yo_id_` name drops from 730 bytes to 150.
+- The compile.test case fails on develop's `src` (built into the test
+  binary) and passes on the fixed tree.
