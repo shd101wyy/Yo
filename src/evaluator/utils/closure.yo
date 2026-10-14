@@ -1504,15 +1504,29 @@ structural_clone_expansion :: (
     });
     code.push_str(")");
     record := _eval_clone_template(&code, recv, env, ctx, exn);
-    // The literal has the receiver's record type, not a new anonymous record
-    // type of its own (whose C struct is a different one): a `where(T <:
-    // Clone)` body returns it as `T`.
+    // The literal builds the receiver's record type, not a new anonymous
+    // record type of its own (whose C struct is a different one): a
+    // `where(T <: Clone)` body returns it as `T`. Its `_` callee names the
+    // type the constructor builds.
     match(
       expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&record)),
       .Some(rec_info) => {
         rec_info.ty = target.clone();
         expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&record), &rec_info);
       },
+      .None => ()
+    );
+    rec_callee := match(record, .FnCall(_, rc_f, _, _, _) => rc_f, .Atom(_, _) => record.clone());
+    match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rec_callee)),
+      .Some(rc_info) => match(
+        rc_info.value,
+        .Some(.TypeVal(_)) => {
+          rc_info.value = Option(EvalValue).Some(EvalValue.TypeVal(target.clone()));
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&rec_callee), &rc_info);
+        },
+        _ => ()
+      ),
       .None => ()
     );
     return(Option(AstExpr).Some(_expand_clone_to(expr, &record, ctx)));
