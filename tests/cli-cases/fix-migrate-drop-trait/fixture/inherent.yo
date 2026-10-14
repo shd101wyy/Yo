@@ -1,0 +1,20 @@
+// `.dispose` members that are not the destructor: an inherent method named
+// `dispose` and a field named `dispose`. The repair evaluates the file and
+// rewrites only the member that resolves to the `Dispose` trait (`a.dispose()`
+// becomes `drop(a)`); the other two are listed and left as written, so the
+// inherent method's definition and its call stay in step and the file checks.
+{ println } :: import("std/fmt");
+Pool :: struct(n : i32);
+impl(Pool, dispose : (fn(self : &Self) -> unit)(println(`Pool.dispose: released ${self.n} slots`)));
+Cfg :: struct(dispose : bool);
+Fd :: struct(n : i32);
+impl(Fd, Dispose(dispose : (fn(self : &Self) -> unit)(println(`closing ${self.n}`))));
+main :: (fn() -> unit)({
+  p := Pool(n : i32(3));
+  p.dispose();
+  c := Cfg(dispose : true);
+  println(`${c.dispose}`);
+  a := Fd(n : i32(1));
+  a.dispose();
+});
+export(main);

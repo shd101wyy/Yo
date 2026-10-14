@@ -3451,11 +3451,40 @@ and in git, not a silent edit.
         explicit call for a hand edit. std, src, tests and docs keep
         spelling `Dispose`. The std's three explicit calls (`std/crypto/
         tls.yo`, `std/http/client.yo`) became `close_sync()` calls.
+      - **As built, Generation A follow-ups (v0.2.63, from the v0.2.62
+        review).** "Exactly as" now holds everywhere the two traits meet:
+        - *One destructor slot.* Coherence (E0612) treats `Drop` and
+          `Dispose` as one trait: an impl of one spelling on a type that has
+          the other, concretely or through a generic impl in either order
+          (std's `Dispose` on `ArrayList(T)` included), is rejected, where it
+          used to replace the first destructor silently
+          (`issues/fixed/a-drop-impl-beside-a-dispose-impl-is-accepted-and-one-destructor-never-runs.md`).
+        - *Bounds and reflection.* `type_implements_trait` answers either
+          spelling for the other, so `where(T <: Drop)`, a witness and
+          `Type.impls(T, Drop)` accept std's `Dispose` types and the other
+          way around
+          (`issues/fixed/drop-and-dispose-are-not-one-trait-for-bounds-and-type-impls.md`).
+        - *The Dyn vtable* leaves out only the destructor trait's own
+          `drop`/`dispose`; another trait's method of that name keeps its
+          slot (`issues/fixed/a-trait-method-named-drop-is-left-out-of-every-dyn-vtable.md`).
+        - *E0915 also covers the destructor read as a value*
+          (`f := Fd.drop`, `(T <: Drop).drop` not called), as Rust's E0040
+          does, and its repair names the value (`drop(a)` for
+          `Fd.drop(&mut a)`), not the type or the witness
+          (`issues/fixed/a-destructor-read-as-a-method-value-gets-past-e0915.md`,
+          `issues/fixed/e0915-repair-hint-names-the-type-instead-of-the-value.md`).
+        - *The repair evaluates.* A `.dispose` member may be an inherent
+          method, another trait's or a field, so `--migrate drop-trait`
+          evaluates each file with E0915 recording the members that resolve
+          to the destructor, rewrites only those (and the witness form), and
+          lists every other `.dispose` member as left as written
+          (`issues/fixed/migrate-drop-trait-rewrites-a-non-destructor-dispose-call.md`).
       - **Generation B (once `SEED_VERSION` carries Generation A):** the
         tree-wide rename through the repair, then delete the prelude
         `Dispose`, the second name in `is_drop_trait_name` /
-        `is_drop_method_name` and the `dispose` branch of the synthesized
-        call, and rename the docs, skills and instruction files
+        `is_drop_method_name`, the `dispose` branch of the synthesized
+        call, the two-spelling unification (`_destructor_twin_trait`,
+        `_destructor_twin_of`), and rename the docs, skills and instruction files
         (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
     - **Tests (Generation A).** `tests/move_only.test.yo`: a `Drop` impl
       runs once at the owner's drop, through a field and through a generic
@@ -3464,9 +3493,14 @@ and in git, not a silent edit.
       payload, a `Dyn` object, `ArrayList` elements and a reference type's
       last handle; a `drop` declared `self : &Self` does not conform; a `Drop` type and its holders are move-only; `drop(x)` runs
       the destructor at once and moves `x` (a `Dispose` value too); each
-      explicit-call form is E0915 in both spellings. `tests/rc.test.yo`:
+      explicit-call form is E0915 in both spellings; the follow-ups: a
+      trait method named `drop`/`dispose` keeps its Dyn slot, the destructor
+      read as a value is E0915 and the repair names the value, one
+      destructor slot under either spelling (E0612), and the two spellings
+      satisfy each other's bounds and `Type.impls`. `tests/rc.test.yo`:
       an `Rc(T)` with a `Drop` payload drops it once, with the last handle.
-      `tests/cli-cases/fix-migrate-drop-trait`: the repair.
+      `tests/cli-cases/fix-migrate-drop-trait`: the repair, including an
+      inherent `dispose` method and a `dispose` field it leaves alone.
 
 ## 5. Prerequisites, gates and the seed
 

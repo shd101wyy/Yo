@@ -230,7 +230,7 @@ import("std/fmt");
 { is_never_type } :: import("../../types/guards.yo");
 { TokenKind } :: import("../../token.yo");
 { Environment, Variable } :: import("../../env.yo");
-{ EvalContext } :: import("../context.yo");
+{ EvalContext, is_dot_callee } :: import("../context.yo");
 { format_error_message, format_error_message_with_help, note_eval_attempt, note_swallowed_error, format_eval_failure } :: import("../../error.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -470,7 +470,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
   evaluate_yo_var_has_other_aliases,
   evaluate_yo_var_is_owning_the_rc_value
 } :: import("../builtins/var_fns.yo");
-{ evaluate_function_call } :: import("../calls/function.yo");
+{ evaluate_function_call, reject_destructor_member_read } :: import("../calls/function.yo");
 { register_promote_index_places } :: import("../calls/index_trait.yo");
 { evaluate_iso_type_call } :: import("../calls/iso.yo");
 { evaluate_raw_pointer_call } :: import("../calls/pointer.yo");
@@ -1010,8 +1010,15 @@ _evaluate_expression :: (
           evaluate_enum_type(expr, env, ctx, false, false, exn),
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_UNION, .None)) =>
           evaluate_union_type(expr, env, ctx, exn),
-        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_DOT, .None)) =>
-          evaluate_property_access(expr, env, ctx, exn),
+        // A destructor member read as a value, not called, is E0915 too
+        // (`f := Fd.drop`); a call's callee is checked with its arguments.
+        ((__dk_len == usize(1)) && ast_expr_is_fn_call_of(expr, BF_DOT, .None)) => {
+          pa_res := evaluate_property_access(expr, env, ctx, exn);
+          if(!is_dot_callee(ast_expr_id(expr)), {
+            reject_destructor_member_read(&pa_res, env, ctx, exn);
+          });
+          pa_res
+        },
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_BEGIN, .None)) =>
           evaluate_begin_expression(expr, env, ctx, ArrayList(Variable).new(), false, exn),
         ((__dk_len == usize(5)) && ast_expr_is_fn_call_of(expr, BK_TRAIT, .None)) =>

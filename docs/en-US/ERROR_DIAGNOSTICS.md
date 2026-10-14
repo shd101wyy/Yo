@@ -156,10 +156,10 @@ records nothing.
 
 `yo fix <path> --migrate drop-trait` is the migration for decision 45, which
 renames the destructor trait `Dispose` to `Drop` (its method `dispose` to
-`drop`) and makes an explicit destructor call E0915. It only parses each file:
-`Dispose` becomes `Drop` wherever it is an identifier (an `impl` entry, a `<:`
-bound or witness, an import), the impl entry's `dispose :` label and every
-`.dispose` member become `drop`, a written receiver `dispose : (fn(self :
+`drop`) and makes an explicit destructor call E0915. `Dispose` becomes `Drop`
+wherever it is an identifier (an `impl` entry, a `<:` bound or witness, an
+import), the impl entry's `dispose :` label and every `.dispose` member that
+resolves to the destructor become `drop`, a written receiver `dispose : (fn(self :
 &Self)` becomes `drop : (fn(self : &mut Self)` (`Drop.drop` takes `&mut Self`,
 as Rust's `drop(&mut self)`; also in a `Dispose :: trait(...)` definition), and an explicit call that ends a named value,
 `x.dispose()` or `(T <: Dispose).dispose(&x)`, becomes `drop(x)`. That last row
@@ -168,7 +168,12 @@ and `check` says where. Any other explicit call (`self.dispose()`, a field's
 `s.f.dispose()`) is renamed, listed with its position and left for a hand edit:
 a destructor never calls a field's destructor (the fields drop after it
 returns), and a resource that must be released while other references live
-gets an ordinary method, such as `TcpStream.close_sync()`.
+gets an ordinary method, such as `TcpStream.close_sync()`. The names are
+rewritten from the parse, but a `.dispose` member may also be an inherent
+method, another trait's method or a field, so the migration first evaluates
+each file and rewrites only the members that resolve to the destructor; any
+other `.dispose` member (or one in code evaluation never reached) is listed
+and left as written.
 
 ## Warnings
 

@@ -3014,6 +3014,41 @@ take_addr_of_sites :: (fn() -> ArrayList(AddrOfSite))({
   out
 });
 export(AddrOfSite, set_migrate_addr_of, migrate_addr_of_on, record_addr_of_site, take_addr_of_sites);
+/// One `.dispose`/`.drop` member that `yo fix --migrate drop-trait` saw
+/// resolve to the destructor (plans/VALUES_BY_DEFAULT.md decision 45): the
+/// E0915 check records it instead of rejecting it while the migration
+/// evaluates. `row`/`col` are the member token's. The rewrite touches only
+/// these members; a `.dispose` that names an inherent method, another trait's
+/// method or a field is left as written
+/// (issues/fixed/migrate-drop-trait-rewrites-a-non-destructor-dispose-call.md).
+DestructorSite :: struct(path : String, row : usize, col : usize);
+(g_migrate_drop_trait : bool) = false;
+(g_destructor_sites : ArrayList(DestructorSite)) = ArrayList(DestructorSite).new();
+(g_destructor_site_keys : HashSet(String)) = HashSet(String).new();
+set_migrate_drop_trait :: (fn(on : bool) -> unit)({
+  g_migrate_drop_trait = on;
+});
+/// Whether `yo fix --migrate drop-trait` is recording.
+migrate_drop_trait_on :: (fn() -> bool)(g_migrate_drop_trait);
+/// Record one destructor member, once per position.
+record_destructor_site :: (fn(member_tok : &Token) -> unit)({
+  if(!g_migrate_drop_trait, {
+    return(());
+  });
+  key := `${member_tok.module_path}:${member_tok.row.to_string()}:${member_tok.column.to_string()}`;
+  if(g_destructor_site_keys.contains(&key), {
+    return(());
+  });
+  g_destructor_site_keys.insert(key);
+  g_destructor_sites.push(DestructorSite(path : member_tok.module_path.clone(), row : usize(member_tok.row), col : usize(member_tok.column)));
+});
+take_destructor_sites :: (fn() -> ArrayList(DestructorSite))({
+  out := g_destructor_sites;
+  g_destructor_sites = ArrayList(DestructorSite).new();
+  g_destructor_site_keys = HashSet(String).new();
+  out
+});
+export(DestructorSite, set_migrate_drop_trait, migrate_drop_trait_on, record_destructor_site, take_destructor_sites);
 /// One call-site borrow marker `yo fix --migrate markers` inserts
 /// (plans/VALUES_BY_DEFAULT.md decision 33, V3b Generation B): a bare named
 /// place passed to a `&T` parameter takes `&`, one passed to a `&mut T`
