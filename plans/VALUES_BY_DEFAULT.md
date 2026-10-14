@@ -87,8 +87,7 @@ Progress:
     projections, and subscript dispatch through `Index` / `IndexMut` (#1324);
     and Generation B, the prelude switch: `Index`/`IndexMut` and
     `IndexUnchecked`/`IndexUncheckedMut` in the projection shapes, every std
-    impl split, and `String`'s read-only byte index (2026-10-14, branch
-    `feat/vbd-v2b-genb-r2`);
+    impl split, and `String`'s read-only byte index (#1361);
   - decision 45 Generation A: `Drop` beside `Dispose`, E0915 for an
     explicit destructor call, `drop(x)`, and `yo fix --migrate drop-trait`
     (#1343). Generation B, the tree-wide rename, waits for the seed.
@@ -5356,8 +5355,7 @@ compiler; the std shapes are plain structs the seed lowers):
     `IndexUnchecked` and `ComptimeIndex` are this switch's own change
     (`issues/fixed/hash-debug-format-to-json-and-source-take-their-receiver-mutably.md`,
     2026-10-13; not seed-gated either).
-  - **As built, Generation B (2026-10-14, branch `feat/vbd-v2b-genb-r2`,
-    after the v0.2.61 seed).**
+  - **As built, Generation B (2026-10-14, #1361, after the v0.2.61 seed).**
     - **The prelude.** `Index(Idx)` is
       `index : (fn(self : &Self, idx : Idx) -> &Self.Output)`, `IndexMut(Idx)`
       is `index_mut : (fn(self : &mut Self, idx : Idx) -> &mut Self.Output)`,
