@@ -22,8 +22,9 @@
 # Fails BOTH ways like memory_ratchet.sh: more than TOL_PCT above the baseline
 # is a regression; more than TOL_PCT below means the baseline must be lowered
 # in the same PR. A baseline of 0 means "not recorded yet": the run prints the
-# measurement and fails. REPEAT=N runs the measurement N times and prints the
-# spread (the determinism probe); the gate uses the first run.
+# measurement and fails. REPEAT=N runs the measurement N times, prints the
+# spread and fails unless every run agrees (CI runs 2): the gate is only sound
+# while the count is exact.
 set -u
 BIN="${1:?usage: eval_work_ratchet.sh <libc-linked yo binary> <alloc_count.so>}"
 SHIM="${2:?usage: eval_work_ratchet.sh <libc-linked yo binary> <alloc_count.so>}"
@@ -75,6 +76,12 @@ if [ "$REPEAT" -gt 1 ]; then
     NR == 1 { lo = $1; hi = $1 }
     { if ($1 < lo) lo = $1; if ($1 > hi) hi = $1 }
     END { printf "spread over %d runs: min %.0f, max %.0f, max-min %.0f (%.4f%%)\n", NR, lo, hi, hi - lo, (hi - lo) * 100.0 / lo }'
+  if [ "$(printf '%s\n' "${counts[@]}" | sort -u | wc -l)" -ne 1 ]; then
+    echo "FAIL: the runs disagree. The ratchet assumes an exact count (2026-10-14: three runs agreed"
+    echo "      to the call); something in check now depends on addresses, time or scheduling."
+    echo "      Find it (hash iteration over pointers is the usual suspect) before trusting this gate."
+    exit 1
+  fi
 fi
 n="$first"
 echo "check src/main.yo: ${n} allocation calls; baseline ${base}, tolerance ±${TOL_PCT}%"

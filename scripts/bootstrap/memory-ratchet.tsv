@@ -2,6 +2,8 @@
 # check_src_main_max_rss_kb: max RSS (kB) of `check src/main.yo` (memory_ratchet.sh).
 # compile_src_main_peak_kb: cgroup memory.peak (kB) of `compile src/main.yo` with the C compiler, under an 8 GB no-swap limit (compile_memory_ratchet.sh).
 #   2026-10-10 (#1296, maintainer OK while the VBD migration is in flight): 2990712 -> 3317216. develop itself measured 3260004 (+9.0% since the 2026-10-07 baseline); the V3b flip adds +1.75% (call-site share dups and the static drop elaboration; emitted C +0.3%). Revisit when VBD lands.
+# check_src_main_alloc_calls: malloc+calloc+realloc+aligned_alloc calls of `check src/main.yo` (eval_work_ratchet.sh), counted by an LD_PRELOAD shim on a glibc-malloc rebuild of the stage-2 C. ±5% both ways, not ±10%: the count is exact, so the tolerance is pure policy, and the creep it guards against ran about 5% per release (check ./src 113 s -> 177 s, v0.2.50 -> v0.2.61).
+#   2026-10-14 (#1359): recorded at develop 229772321. Three CI runs agreed to the call (2769331795; 225431200 of them realloc; 166.4 GB requested). perf instructions:u was the other candidate and is unavailable: ubuntu-latest has no PMU ("PMU not available due to virtualization").
 check_src_main_max_rss_kb	973268
 compile_src_main_peak_kb	3317216
-check_src_main_alloc_calls	0
+check_src_main_alloc_calls	2769331795
