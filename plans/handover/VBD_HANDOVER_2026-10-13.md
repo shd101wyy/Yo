@@ -75,6 +75,7 @@ The order is: merge the batch, wait for develop's battery to be green on the exa
 3. **After v0.2.62 is the seed:**
    - Decision 45 Generation B: `yo fix ./std ./src ./tests --migrate drop-trait`, delete `Dispose`, rename the docs.
    - std's own `dyn(f)` spelling.
+3a. **Evaluator performance step 1** (§6 "Evaluator performance"): attribute the `check ./src` slowdown (113 s at v0.2.50, about 187 s on develop) to `.yo` functions, and fix the clear hot spots in v0.2.63. Tools are in `~/Workspace/Yo-wt/checktime/` (`emitmap.sh`, `analyze.py`). Step 2, structural tuning, follows V2b and V4. Step 3 is a deterministic allocation-count ratchet in CI.
 4. **V4 `TypeValue`** in the measured shape, then `AstExpr`, `Pattern`/`VcSort`/`VcTerm`/`Z3Sexpr`, and `EvalValue` (§6 V4).
 5. **The rest of V3 async** (§3.13): A5's remaining lines (wakers, channels, mutexes, streams), and A6's `Rc`-field half with V2c.
 6. **The rest of V2b:** direct projection calls, unique buffers, the explicit-copy kind, and decision 39's iterators.
