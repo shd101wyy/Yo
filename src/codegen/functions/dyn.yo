@@ -21,15 +21,17 @@
 { FunctionGenerationContext } :: import("./context.yo");
 { type_key, get_type_string, dyn_slot_param_type_string, sanitize_for_c_identifier, ImplClosureCallInfo } :: import("../utils/index.yo");
 { get_drop_function_for_type, generate_drop_code_for_value, generate_dup_code_for_value } :: import("../exprs/drop_dup.yo");
-{ type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member } :: import("../../types/utils.yo");
 /// func_id of a FuncVal EvalValue (same as collection.yo's _func_val_id).
 _func_val_id :: (fn(v : &EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
 );
-/// True for the reserved dyn-method labels (___dup/___drop/___dispose and the
-/// destructor's `drop`/`dispose`, decision 45).
-_is_reserved_dyn_label :: (fn(label : &String) -> bool)(
-  (label == "___dup") || (label == "___drop") || (label == "___dispose") || (label == "dispose") || (label == "drop")
+/// True for the reserved dyn-method labels (___dup/___drop/___dispose), and
+/// for the destructor trait's own method (`drop`/`dispose` of the prelude
+/// `Drop`/`Dispose`, decision 45), which the box's `___dispose` runs. A method
+/// of another trait named `drop` or `dispose` keeps its slot.
+_is_reserved_dyn_label :: (fn(label : &String, trait_ty : Option(TypeValue)) -> bool)(
+  (label == "___dup") || (label == "___drop") || (label == "___dispose") || match(trait_ty, .Some(t) => is_destructor_trait_member(&t, label), .None => false)
 );
 /// Sanitized C field name of the single field of an Rc(T) data type ("*").
 _box_field_name :: (fn(data_type : &TypeValue) -> String)(
@@ -515,7 +517,7 @@ generate_dyn_wrapper_functions :: (fn(context : &FunctionGenerationContext) -> u
                     // Pre-bind the owned-clone subexpression so it is declared
                     // unconditionally (a `label.clone()` inside a short-circuit
                     // `||` mis-scopes its drop).
-                    label_reserved := _is_reserved_dyn_label(label.clone());
+                    label_reserved := _is_reserved_dyn_label(label.clone(), req_traits.get(mi));
                     // A wrapper only for a vtable slot (the typedef's rule):
                     // a member a Dyn cannot call has no slot to fill.
                     // The slot's member type is also the wrapper's C signature:
@@ -782,7 +784,7 @@ generate_dyn_vtables :: (fn(context : &FunctionGenerationContext) -> unit)({
                     label := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
                     // Pre-bind owned-clone subexpressions (short-circuit `||`
                     // mis-scopes their drops).
-                    label_reserved := _is_reserved_dyn_label(label.clone());
+                    label_reserved := _is_reserved_dyn_label(label.clone(), Option(TypeValue).Some(rt.clone()));
                     label_processed := processed.contains(label.clone());
                     is_skip := ((label == "Self") || label_reserved || label_processed);
                     if(!is_skip, {

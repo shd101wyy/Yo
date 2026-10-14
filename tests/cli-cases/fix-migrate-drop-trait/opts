@@ -7,6 +7,10 @@
 # `(T <: Dispose).dispose(&x)` -> `drop(x)`. left.yo's dry run lists the
 # explicit calls it cannot rewrite (both on a field reached through `self`).
 # The expected_tree pins the rewritten main.yo, and the trailing `check`
-# proves the result evaluates.
+# proves the result evaluates. inherent.yo has an inherent method and a field
+# named `dispose`: the repair evaluates the file first and rewrites only the
+# member that resolves to the destructor, listing the other two as left as
+# written (issues/fixed/migrate-drop-trait-rewrites-a-non-destructor-dispose-call.md);
+# its trailing `check` proves the method's definition and call still agree.
 stdout_keep=^fix:
 timeout=240
