@@ -486,10 +486,12 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
     }
   );
   name_tok := ast_expr_token(&name_expr);
-  name := name_tok.value.clone();
-  if(!is_drop_method_name(&name) || name_tok.module_path.starts_with(String.from("auto-generated://")), {
+  // Every evaluated `.` access reaches here (`reject_destructor_member_read`):
+  // test the name before anything allocates.
+  if(!is_drop_method_name(&name_tok.value) || name_tok.module_path.starts_with(String.from("auto-generated://")), {
     return(());
   });
+  name := name_tok.value.clone();
   oi := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&obj)),
     .Some(i) => i,
