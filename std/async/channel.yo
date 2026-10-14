@@ -58,8 +58,8 @@
 //!
 //! A `Sender` moved into an `io.async` body (`io.async({ tx }(io : Io) => …)`)
 //! is released when the task and its future are done, so a producer task's
-//! sender closes the channel like any other. The same is now true of a `Thread.spawn` capture on the
-//! blocking channel; it was not until 2026-09-11
+//! sender closes the channel like any other. The same is now true of a
+//! `Thread.spawn` capture on the blocking channel; it was not until 2026-09-11
 //! (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`).
 //!
 //! ## Stability
@@ -86,33 +86,33 @@
 /// an `Rc`.
 _ChannelState :: (fn(comptime(T) : Type) -> comptime(Type))(
   struct(
-      _buf : ArrayList(T),
-      _capacity : usize,
-      _closed : bool,
-      /// How many live `Sender(T)` handles share this channel. Zero for a
-      /// `Channel` created with `new` and used directly: nothing counts down,
-      /// so nothing auto-closes. `receiver()`/`pair()` start it at one.
-      ///
-      /// Plain `usize`, not an atomic: Yo's async runtime is per-thread and
-      /// cooperative, so every increment and decrement runs on the one loop
-      /// thread with no suspension point in between. An atomic here would buy
-      /// nothing and would contradict the runtime's own rule against
-      /// synchronizing its single-threaded state.
-      _senders : usize,
-      /// Set once the `Receiver(T)` handle has been dropped, which makes every
-      /// further `send` fail instead of suspending on a channel nobody will
-      /// drain.
-      _recv_dropped : bool,
-      /// Tasks suspended in `send` waiting for space, in arrival order. A
-      /// `recv` or `try_recv` that frees a slot wakes the front one; `close`
-      /// and `_mark_receiver_dropped` wake them all, because after either of
-      /// those every one of them has an answer waiting.
-      _send_waiters : ArrayList(Waker),
-      /// Tasks suspended in `recv` waiting for data, same discipline. A `send`
-      /// or `try_send` that buffers a value wakes the front one; `close` wakes
-      /// them all, because a closed-and-drained channel resolves `.None`
-      /// rather than waiting.
-      _recv_waiters : ArrayList(Waker)
+    _buf : ArrayList(T),
+    _capacity : usize,
+    _closed : bool,
+    /// How many live `Sender(T)` handles share this channel. Zero for a
+    /// `Channel` created with `new` and used directly: nothing counts down,
+    /// so nothing auto-closes. `receiver()`/`pair()` start it at one.
+    ///
+    /// Plain `usize`, not an atomic: Yo's async runtime is per-thread and
+    /// cooperative, so every increment and decrement runs on the one loop
+    /// thread with no suspension point in between. An atomic here would buy
+    /// nothing and would contradict the runtime's own rule against
+    /// synchronizing its single-threaded state.
+    _senders : usize,
+    /// Set once the `Receiver(T)` handle has been dropped, which makes every
+    /// further `send` fail instead of suspending on a channel nobody will
+    /// drain.
+    _recv_dropped : bool,
+    /// Tasks suspended in `send` waiting for space, in arrival order. A
+    /// `recv` or `try_recv` that frees a slot wakes the front one; `close`
+    /// and `_mark_receiver_dropped` wake them all, because after either of
+    /// those every one of them has an answer waiting.
+    _send_waiters : ArrayList(Waker),
+    /// Tasks suspended in `recv` waiting for data, same discipline. A `send`
+    /// or `try_send` that buffers a value wakes the front one; `close` wakes
+    /// them all, because a closed-and-drained channel resolves `.None`
+    /// rather than waiting.
+    _recv_waiters : ArrayList(Waker)
   )
 );
 impl(
@@ -534,10 +534,13 @@ impl(
   /// `match`, which moves each half into its own binding:
   ///
   /// ```yo
-  /// match(Channel(i32).pair(usize(2)), (tx, rx) => {
-  ///   _s := io.await(tx.send(i32(1), io), io);
-  ///   v := io.await(rx.recv(io), io);
-  /// });
+  /// match(
+  ///   Channel(i32).pair(usize(2)),
+  ///   (tx, rx) => {
+  ///     _s := io.await(tx.send(i32(1), io), io);
+  ///     v := io.await(rx.recv(io), io);
+  ///   }
+  /// );
   /// ```
   ///
   /// Each binding then has its own lifetime, as with `receiver()` +

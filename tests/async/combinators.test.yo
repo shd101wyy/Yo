@@ -419,25 +419,24 @@ test("Test aborting the joining task leaves the joined task running", {
 // Stream — the async analogue of `Iterator`
 // (plans/reference/ASYNC_ITERATION_STREAM.md)
 // ===========================================================================
-/// A finite test stream: `n`, `n-1`, …, 1, then `.None` forever. A `ref`
-/// struct because `Stream.next` takes `self : Self` — see the trait's doc.
-Countdown :: ref(struct(_n : i32));
+/// A finite test stream: `n`, `n-1`, …, 1, then `.None` forever. A plain
+/// value: `next` takes `self : &mut Self`, and its future borrows the stream
+/// (plans/VALUES_BY_DEFAULT.md §3.13 A5).
+Countdown :: struct(_n : i32);
 impl(
   Countdown,
   Stream(
     Item : i32,
-    next : (fn(self : &Self, io : Io) -> Impl(Future(Option(i32), Io)))(
-      io.async(
-        (io : Io) =>
-          cond(
-            (self._n <= i32(0)) => Option(i32).None,
-            true => {
-              v := self._n;
-              self._n = (self._n - i32(1));
-              Option(i32).Some(v)
-            }
-          )
-      )
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async({ &mut self }(io : Io) =>
+        cond(
+          (self._n <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n;
+            self._n = (self._n - i32(1));
+            Option(i32).Some(v)
+          }
+        ))
     )
   )
 );
@@ -448,12 +447,12 @@ impl(
 /// and the deadline is what turns "a combinator loops forever because `.None`
 /// stopped being terminal" into a failed assertion instead of a burnt CI job.
 ///
-/// It takes the stream and calls the blanket `collect` on the generic
-/// parameter itself. That used to fail (`No matching call found with
+/// It takes the stream by value and calls the blanket `collect`, which
+/// consumes it, on the generic parameter itself. That used to fail (`No matching call found with
 /// arguments: (s.collect)(io)`), so this helper took the collect future
 /// instead; it is the shape `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
 /// (Phase 2.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) made work.
-_bounded :: (fn(generic(S : Type), s : &S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))({
+_bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))({
   h := io.spawn(s.collect(io), io);
   match(
     io.await(timeout(h, Duration.from_millis(i64(5000)), io), io),
@@ -472,9 +471,9 @@ _bounded :: (fn(generic(S : Type), s : &S, io : Io, where(S <: Stream(Item := i3
 /// `_sum_i32`) and a GENERIC one (`Item := A`, as in `_collect_all`) all work
 /// here, for sources and chains alike.
 _count_items :: (
-  fn(generic(S : Type), s : &S, io : Io, where(S <: Stream)) -> Impl(Future(usize, Io))
+  fn(generic(S : Type), s : S, io : Io, where(S <: Stream)) -> Impl(Future(usize, Io))
 )(
-  io.async((io : Io) => {
+  io.async({ s }(io : Io) => {
     (n : usize) = usize(0);
     (draining : bool) = true;
     while(draining, {
@@ -494,15 +493,15 @@ _count_items :: (
 );
 /// Generic over the item type: `A` is bound from the argument's `Stream` impl,
 /// so the body can name `ArrayList(A)` and call the blanket `collect` on `s`.
-_collect_all :: (fn(generic(S : Type, A : Type), s : &S, io : Io, where(S <: Stream(Item := A))) -> ArrayList(A))(
+_collect_all :: (fn(generic(S : Type, A : Type), s : S, io : Io, where(S <: Stream(Item := A))) -> ArrayList(A))(
   io.await(s.collect(io), io)
 );
 /// The same idea with the item type spelled out, so the body can use the
 /// values.
 _sum_i32 :: (
-  fn(generic(S : Type), s : &S, io : Io, where(S <: Stream(Item := i32))) -> Impl(Future(i32, Io))
+  fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> Impl(Future(i32, Io))
 )(
-  io.async((io : Io) => {
+  io.async({ s }(io : Io) => {
     (total : i32) = i32(0);
     (draining : bool) = true;
     while(draining, {
@@ -558,7 +557,7 @@ test("Test a consumer generic over Stream", {
   n := io.await(_count_items(Countdown(_n : i32(4)), io), io);
   assert(n == usize(4), "a function that only knows `S <: Stream` drains the stream");
   chain := Countdown(_n : i32(5)).take(usize(2));
-  n3 := io.await(_count_items(&chain, io), io);
+  n3 := io.await(_count_items(chain, io), io);
   assert(n3 == usize(2), "and it takes a combinator chain, not only a source");
   total := io.await(_sum_i32(Countdown(_n : i32(3)), io), io);
   assert(total == i32(6), "a concrete-Item consumer sums a source");
@@ -681,7 +680,7 @@ test("Test Stream for_each inside a spawned task", {
 test("Test a hand-written consumer loop inside a spawned task", {
   seen := ArrayList(i32).new();
   c := Countdown(_n : i32(3));
-  task := io.async((io : Io) => {
+  task := io.async({ c, seen }(io : Io) => {
     (done : bool) = false;
     while(done == false, {
       nx := io.await(c.next(io), io);
@@ -736,7 +735,7 @@ test("Test for_await from main", {
 test("Test for_await inside a spawned task, with continue and break", {
   seen := ArrayList(i32).new();
   c := Countdown(_n : i32(6));
-  task := io.async((io : Io) => {
+  task := io.async({ c, seen }(io : Io) => {
     for_await(c, io, x => {
       if(x == i32(5), {
         continue;
@@ -753,8 +752,8 @@ test("Test for_await inside a spawned task, with continue and break", {
   assert(seen.len() == usize(3), "6, then 5 skipped, 4 and 3, then 2 breaks");
   assert((seen(usize(0)) == i32(6)) && ((seen(usize(1)) == i32(4)) && (seen(usize(2)) == i32(3))), "6 4 3");
 });
-_first_even :: (fn(c : &Countdown, io : Io) -> Impl(Future(i32, Io)))(
-  io.async((io : Io) => {
+_first_even :: (fn(c : Countdown, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ c }(io : Io) => {
     for_await(c, io, x => {
       if((x % i32(2)) == i32(0), {
         return(x);
@@ -768,13 +767,13 @@ test("Test for_await with a return from the enclosing task", {
   assert(io.await(_first_even(Countdown(_n : i32(1)), io), io) == i32(-1), "no even item: the loop ends");
 });
 /// A stream whose `next` yields to the loop before answering.
-Ticker :: ref(struct(_n : i32));
+Ticker :: struct(_n : i32);
 impl(
   Ticker,
   Stream(
     Item : i32,
-    next : (fn(self : &Self, io : Io) -> Impl(Future(Option(i32), Io)))(
-      io.async((io : Io) => {
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async({ &mut self }(io : Io) => {
         io.await(yield(io), io);
         cond(
           (self._n <= i32(0)) => Option(i32).None,
@@ -792,7 +791,7 @@ test("Test for_await suspends its task between items", {
   ticks := Rc(i32)(0);
   seen := ArrayList(i32).new();
   t := Ticker(_n : i32(3));
-  task := io.async((io : Io) => {
+  task := io.async({ t, seen, ticks }(io : Io) => {
     for_await(t, io, x => {
       seen.push(ticks.*);
     });
@@ -836,4 +835,38 @@ test("Stream.for_each releases what its body closure captures", {
     assert(total.* > i32(0), "the body ran");
   };
   assert((g_fe_disposed - before) == i32(1), `the captured value was released once, released ${g_fe_disposed - before}`);
+});
+// issues/fixed/2026-10-14-a-capture-in-a-generic-io-async-body-is-retained-with-another-instantiations-type.md
+// `collect` owns its stream through a capture list (`io.async({ self }…)`, in
+// the blanket impl). A stream holding an `Rc` gets its capture retained field
+// by field, and the retain temps were declared with whichever chain's types
+// the capture struct registered first: two chains of different shapes in one
+// binary failed the C compile.
+/// A countdown that keeps its counter in an `Rc` cell.
+RcCountdown :: struct(_n : Rc(i32));
+impl(
+  RcCountdown,
+  Stream(
+    Item : i32,
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async({ &mut self }(io : Io) =>
+        cond(
+          (self._n.* <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n.*;
+            self._n.* = (self._n.* - i32(1));
+            Option(i32).Some(v)
+          }
+        ))
+    )
+  )
+);
+test("Test collect over chains of different shapes whose source holds an Rc", {
+  a := io.await(RcCountdown(_n : rc(i32(4))).map(x => (x * i32(10))).map(x => (x + i32(1))).collect(io), io);
+  b := io.await(RcCountdown(_n : rc(i32(4))).filter(x => (x > i32(1))).filter(x => (x < i32(4))).collect(io), io);
+  c := io.await(RcCountdown(_n : rc(i32(4))).map(x => (x * i32(10))).filter(x => (x > i32(20))).collect(io), io);
+  assert(a.len() == usize(4), "map then map keeps every item");
+  assert(a(usize(0)) == i32(41), "and applies both maps: 4 * 10 + 1");
+  assert(b.len() == usize(2), "filter then filter keeps 3 and 2");
+  assert(c.len() == usize(2), "map then filter keeps 40 and 30");
 });

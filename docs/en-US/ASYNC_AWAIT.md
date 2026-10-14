@@ -1198,7 +1198,7 @@ is both — "a value, later, repeatedly":
 ```yo
 Stream :: trait(
   Item : Type,
-  next : (fn(self : Self, io : Io) -> Impl(Future(Option(Self.Item), Io)))
+  next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(Self.Item), Io)))
 );
 ```
 
@@ -1223,7 +1223,11 @@ accepted := io.await(conns.collect(io), io); // ArrayList(Result(TcpStream, NetE
 
 ### Combinators and consumers
 
-Written once over `where(S <: Stream)`, mirroring the `Iterator` combinators:
+Written once over `where(S <: Stream)`, mirroring the `Iterator` combinators.
+Each takes the stream and its closure by value: an adapter is a plain value
+that owns what it wraps. The consumers take the stream by value too, so the
+future they return owns it, and a task may own that future
+(`io.spawn(chain.collect(io), io)`).
 
 | lazy | what it does |
 | --- | --- |
@@ -1244,8 +1248,9 @@ Written once over `where(S <: Stream)`, mirroring the `Iterator` combinators:
 names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
 io.await(names.for_each(n => println(&n), io), io);
 
-// Or as a loop, which can stop early: here at the first empty name.
-for_await(names, io, n => {
+// Or as a loop over a chain built the same way, which can stop early: here at
+// the first empty name.
+for_await(names2, io, n => {
   if(n.len() == usize(0), {
     break;
   });
@@ -1255,29 +1260,29 @@ for_await(names, io, n => {
 
 ### Implementing one
 
-`next` takes `self : Self`, NOT `self : &mut Self` the way `Iterator` does: the
-future outlives the call, and a `&mut` borrow cannot be held across a
-suspension. So a stream source is a reference-semantics type
-(`ref(struct(...))`) and its field writes propagate through the handle:
+`next` takes `self : &mut Self`, the way `Iterator` does, and its future
+borrows the stream: the body names the borrow in its capture list
+(`{ &mut self }`), so the future is second-class. It is awaited where it is
+made (`io.await(s.next(io), io)`), or returned from a function whose `&mut`
+parameter it borrows, and never stored or spawned. A stream source is
+therefore a plain value whose fields `next` writes through the borrow:
 
 ```yo
-Countdown :: ref(struct(_n : i32));
+Countdown :: struct(_n : i32);
 impl(
   Countdown,
   Stream(
     Item : i32,
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
-      io.async(
-        (io : Io) =>
-          cond(
-            (self._n <= i32(0)) => Option(i32).None,
-            true => {
-              v := self._n;
-              self._n = (self._n - i32(1));
-              Option(i32).Some(v)
-            }
-          )
-      )
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async({ &mut self }(io : Io) =>
+        cond(
+          (self._n <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n;
+            self._n = (self._n - i32(1));
+            Option(i32).Some(v)
+          }
+        ))
     )
   )
 );
@@ -1299,7 +1304,7 @@ consumer needs no `Exception` handler.
 
    ```yo
    chain := source.map(x => f(x)); // out here
-   task := io.async((io : Io) => io.await(chain.collect(io), io)); // awaited in there
+   task := io.async({ chain }(io : Io) => io.await(chain.collect(io), io)); // awaited in there
    ```
 
 2. **`for_await` is the hand-written loop.** Its expansion is this, and its
@@ -1432,6 +1437,11 @@ io.await(p.wait(io), io);
 // The signaller, from any other task:
 match(waiters.pop(), .Some(w) => w.wake(), .None => ());
 ```
+
+A `Waker` is a move-only value: the waiter list above owns it once it is
+pushed, `pop` moves it back out, and dropping it releases its token. A
+`Park` is move-only too, and `wait` consumes it. `Mutex` and `Channel` keep
+their waiter lists this way.
 
 Three properties are worth knowing, because primitives built on this depend on
 them:

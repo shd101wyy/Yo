@@ -49,34 +49,39 @@
 //!
 //! ## Implementing it
 //!
-//! `next` takes `self : Self` — not `self : &mut Self`, the way `Iterator` does —
-//! because the future it returns outlives the call, and a `mut` borrow
-//! cannot be held across a suspension. So every stream SOURCE is a
-//! reference-semantics type (`ref(struct(...))` / `ref(enum(...))`), and
-//! field writes propagate through the handle:
+//! `next` takes `self : &mut Self`, the way `Iterator` does, and its future
+//! borrows the stream (plans/VALUES_BY_DEFAULT.md §3.13 A2/A5): the body
+//! names the borrow in its capture list, and the future is second-class, so
+//! it is awaited where it is made (`io.await(s.next(io), io)`) or returned
+//! from a function whose `&mut` parameter it borrows. A stream SOURCE is
+//! therefore a plain value whose fields `next` writes through the borrow:
 //!
 //! ```yo
-//! Countdown :: ref(struct(_n : i32));
+//! Countdown :: struct(_n : i32);
 //! impl(
 //!   Countdown,
 //!   Stream(
 //!     Item : i32,
-//!     next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
-//!       io.async(
-//!         (io : Io) =>
-//!           cond(
-//!             (self._n <= i32(0)) => Option(i32).None,
-//!             true => {
-//!               v := self._n;
-//!               self._n = (self._n - i32(1));
-//!               Option(i32).Some(v)
-//!             }
-//!           )
-//!       )
+//!     next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+//!       io.async({ &mut self }(io : Io) =>
+//!         cond(
+//!           (self._n <= i32(0)) => Option(i32).None,
+//!           true => {
+//!             v := self._n;
+//!             self._n = (self._n - i32(1));
+//!             Option(i32).Some(v)
+//!           }
+//!         ))
 //!     )
 //!   )
 //! );
 //! ```
+//!
+//! The combinators take the stream and their closure BY VALUE: each adapter
+//! (`StreamMap`, `StreamFilter`, `StreamFilterMap`, `StreamTake`,
+//! `StreamSkip`) is a plain value that owns what it wraps. The consumers
+//! (`for_each`, `collect`) consume the stream too, so their future owns it and
+//! a task may own that future (`io.spawn(chain.collect(io), io)`).
 //!
 //! A stream whose items can FAIL carries the failure in the item —
 //! `Item = Result(T, E)`, the way `TcpListener.incoming` yields

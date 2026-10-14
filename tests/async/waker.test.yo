@@ -9,7 +9,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ Park, Waker, yield_now } :: import("std/async/waker");
+{ Park, Waker, park, yield_now } :: import("std/async/waker");
 { yield } :: import("std/async");
 { Instant } :: import("std/time/instant");
 { sleep } :: import("std/sys/timer");
@@ -148,6 +148,38 @@ test("Test a waker is moved into a waiter list and back out", {
     a.wake();
     b.wake();
   }, "moved");
+});
+
+// ---------------------------------------------------------------------------
+// 1d. `park` hands its waker to `register` by move, so `register` can keep it
+//     for whoever will fire it.
+// ---------------------------------------------------------------------------
+test("Test park moves its waker into register, which keeps it", {
+  slot := Rc(Option(Waker))(Option(Waker).None);
+  // The signaller: takes the kept waker out of the slot and fires it.
+  h := io.spawn(
+    io.async({ slot }(io : Io) => {
+      io.await(yield(io), io);
+      fired := match(
+        slot.*.take(),
+        .Some(w) => {
+          w.wake();
+          true
+        },
+        .None => false
+      );
+      fired
+    }),
+    io
+  );
+  io.await(
+    park((w : Waker) => {
+      slot.* = Option(Waker).Some(w);
+    }, io),
+    io
+  );
+  r := h.await(io);
+  assert(match(r, .Some(f) => f, .None => false), "register kept the waker, and firing it resumed the park");
 });
 
 // ---------------------------------------------------------------------------

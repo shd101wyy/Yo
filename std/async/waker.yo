@@ -144,13 +144,14 @@ impl(
 );
 /// Suspend the current task until the waker handed to `register` is woken.
 ///
-/// `register` runs BEFORE the suspension and receives the waker, so it can
-/// hand it to whoever will fire it without any chance of publishing it too
-/// late. This is the shape Rust's `Future::poll(cx)` and every correct condvar
+/// `register` runs BEFORE the suspension and receives the waker by move, so
+/// it can hand it to whoever will fire it without any chance of publishing it
+/// too late. A waker `register` drops instead releases its token, and a park
+/// nothing can wake is reported by the loop rather than hung. This is the shape Rust's `Future::poll(cx)` and every correct condvar
 /// API use, and it is the right default for a caller who needs exactly one
 /// waker; reach for `Park` directly when a waiter list wants to hold the token
 /// itself.
-park :: (fn(register : &Impl(Fn(w : &Waker) -> unit), io : Io) -> Impl(Future(unit, Io)))(
+park :: (fn(register : &Impl(Fn(w : Waker) -> unit), io : Io) -> Impl(Future(unit, Io)))(
   io.async((io : Io) => {
     p := Park.new();
     register(p.waker());
