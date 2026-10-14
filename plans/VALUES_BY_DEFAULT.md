@@ -4,7 +4,8 @@
 - **Direction:** approved by the maintainer on 2026-10-03.
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
-- **Decisions:** all 38 in §4 are confirmed. No design question is open;
+- **Decisions:** all in §4 are confirmed (decision 46, `Rc` is Rust's
+  `Rc`, added 2026-10-14). No design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
@@ -220,7 +221,7 @@ Unique ownership removes the question instead of answering it.
   | Wrapper | Meaning | A copy | Threads |
   | --- | --- | --- | --- |
   | **`Box(T)`** | uniquely owned heap cell, no count (Rust's `Box`); used for recursion and stable addresses | `b.clone()`, deep | as `T` |
-  | **`Rc(T)`** | shared and mutable, one thread | `r.clone()`: a new handle to the same object | not `Send` |
+  | **`Rc(T)`** | shared, one thread; the payload is read-only through the handle, as Rust's `Rc` (decision 46): mutation goes through `RefCell(T)`, `Rc.get_mut` or `Rc.make_mut` | `r.clone()`: a new handle to the same object | not `Send` |
   | **`Arc(T)`** | shared across threads, atomically counted; mutation through `Mutex`/atomics (D3) | `a.clone()` | `Send` and `Sync` when `T <: (Send, Sync)` (amended 2026-10-07, second audit #1264 finding 2) |
 
 - **`Dyn(Trait)`** is a uniquely owned, type-erased cell (decision 7).
@@ -724,15 +725,26 @@ Each kind of root gets its own check:
     value, a callee with no summary, or a second handle the summary cannot
     relate: a compile error naming the two repairs, prove it (restructure
     so the summaries can see the write) or spell it (`RefCell(T)` in the
-    type, or `Rc.get_mut` for a uniquely held handle,
-    `issues/questions/rc-get-mut-try-unwrap-make-mut-are-undecided.md`).
+    type, or `Rc.get_mut` for a uniquely held handle, decision 46).
   - There is no `pragma(Pragma.StrictBorrow)`: strict is the default and
     the only mode.
-- **`Rc(T)` is writable only in outcome (a).** Everywhere else the payload
-  is read-only through the handle. The cell header carries **no borrow
-  marks** (the `borrow_count` word goes with V2b's header work) and a lend
-  through a plain `Rc` sets no mark, so `Rc(T)` costs what Rust's `Rc<T>`
-  costs (CODEGEN_PERFORMANCE.md CP2d).
+- **`Rc(T)`'s payload is read-only through the handle** (decision 46,
+  amended 2026-10-14; this replaces "`Rc(T)` is writable only in outcome
+  (a)"). A write through a plain `Rc` is a compile error whatever the
+  summaries prove; the error names the three doors, Rust's:
+  - `RefCell(T)` in the payload's type, for shared mutation;
+  - `Rc.get_mut(h : &mut Rc(T)) -> Option(&mut T)`, `.None` unless the
+    count is 1;
+  - `Rc.make_mut(h : &mut Rc(T)) -> &mut T` (`T <: Clone`), which clones
+    the payload into a fresh cell when it is shared.
+
+  The outcomes (a)/(b)/(c) above now classify the writes that remain
+  possible, those to value places and through `RefCell`'s entries (where
+  (a) elides the run-time check); a plain `Rc` handle is no longer one of
+  them. The cell
+  header carries **no borrow marks** and a lend through a plain `Rc` sets
+  none, so `Rc(T)` costs what Rust's `Rc<T>` costs (CODEGEN_PERFORMANCE.md
+  CP2d).
 - **`RefCell(T)`** (`std/sync`, beside `Mutex(T)`: `Mutex` blocks,
   `RefCell` panics) holds the shared/exclusive marks and asserts them. Its
   API is closure- and projection-shaped, never a guard value (decision 38
@@ -875,6 +887,13 @@ and every free routes through the owner prefix.
   **Open:** whether outcome (a) can be strengthened to a cycle-free proof
   (it is exclusivity against borrows, not an absence-of-other-handles
   proof) — until it is, no cell is untracked on (a)'s account.
+  **Superseded by decision 46 (2026-10-14):** once a plain `Rc` admits no
+  write, a cycle needs a write through `RefCell`/`Mutex`/`RwLock`, because
+  `Rc.get_mut` and `Rc.make_mut` write only into a cell whose count is 1,
+  which no other handle can reach. So the tracking predicate can narrow to
+  "reaches a `RefCell`/`Mutex`/`RwLock` whose payload reaches an `Rc`".
+  That narrowing is a follow-up of decision 46's Generation B, measured on
+  its own; until it lands, the predicate stays "reaches an `Rc`".
   - The compiler's trees have `Rc` children (decision 21), so V4 makes
     `can_type_form_rc_cycle` honour a declared `Acyclic`. Trees with no
     back edges then stay untracked.
@@ -1325,6 +1344,9 @@ and in git, not a silent edit.
    exclusive** (§3.10 outcome (a)), as a plain write with no assert; the
    dynamic check is spelled `RefCell(T)` (decision 41). D3 forbids writes
    through an `Arc` root in safe code.
+   - **Amended 2026-10-14 by decision 46.** No write through a plain `Rc`
+     compiles, as D3 already says for `Arc`: `Rc(T)` is Rust's `Rc`, and
+     mutation goes through `RefCell(T)`, `Rc.get_mut` or `Rc.make_mut`.
 5. **`Arc` reads are a borrowed place, plus the `Sync` bound** (§3.8).
 6. **The heap cell is usable in `pragma(Pragma.AllowUnsafe)` files.** Safe
    code cannot name it.
@@ -3610,6 +3632,49 @@ and in git, not a silent edit.
       an `Rc(T)` with a `Drop` payload drops it once, with the last handle.
       `tests/cli-cases/fix-migrate-drop-trait`: the repair, including an
       inherent `dispose` method and a `dispose` field it leaves alone.
+
+46. **`Rc(T)` is Rust's `Rc`: the payload is read-only through the handle**
+    (maintainer, 2026-10-14: "Rc in Yo shouldnt be mutable shared cell.
+    Thats why we introduced the RefCell. I think Rc in Yo should be like in
+    Rust"). It amends decision 4 and §3.10's outcome (a).
+    - **The rule.** A write through a plain `Rc` handle (an assignment to
+      `h.*` or to a place under it, a `&mut` argument or receiver whose
+      place crosses the deref, a `&mut` capture of such a place) is a
+      compile error, whatever the summaries prove. `Arc` already follows it
+      (D3); the two handles now differ only in counting and `Send`/`Sync`.
+    - **The doors, Rust's, with `Arc` mirrors.** This answers the
+      2026-10-10 design question on `Rc.get_mut`, `Rc.try_unwrap` and
+      `Rc.make_mut` (deleted with this decision; its text is in git
+      history) with its option 3, "the Rust trio":
+      - `RefCell(T)` (decision 41) for shared mutation, and `Mutex`/`RwLock`
+        or atomics across threads;
+      - `Rc.get_mut(h : &mut Rc(T)) -> Option(&mut T)`: `.None` unless the
+        count is 1. It needs decision 43 step 2 (`Option(&mut T)` in user
+        code), so it lands with or after that step;
+      - `Rc.make_mut(h : &mut Rc(T)) -> &mut T`, `where(T <: Clone)`:
+        clones the payload into a fresh cell when the count is above 1. The
+        clone is spelled in the name, as §0.1 requires;
+      - `Rc.try_unwrap(h : Rc(T)) -> Result(T, Rc(T))`: the payload by
+        value when the count is 1, else the handle back.
+      - No `Weak`: the cycle collector stays (§3.12).
+    - **What it buys.**
+      - A `&` borrow whose place crosses an `Rc` deref can no longer be
+        invalidated by a write through another handle. So E0909's rule for
+        borrowing futures (§3.13 A2, decision 38 D) is stated as a
+        predicate, "the handle's payload is read-only through the handle":
+        true for `Arc` now, and for `Rc` once this decision's Generation B
+        makes the write an error. Then `Rc(Mutex(T))` and `Arc(Mutex(T))`
+        share an async `Mutex` exactly as Rust does (the maintainer's
+        2026-10-14 verdict on V3 A5's async `Mutex` design question: "lets
+        match how rust does it?").
+      - The cycle collector's tracking predicate can narrow (§3.12).
+      - The verifier's exclusion of `Rc`-reaching values (§3.12) can
+        narrow to `RefCell`-reaching ones, as a follow-up.
+    - **Unchanged.** Decision 21's trees, immutable after construction,
+      stay `Rc(struct(...))`. The `ref(struct)` handles keep their
+      entry-time assert until V4/V5 classify each tree as immutable or
+      `RefCell`, and the classification now has no third answer.
+    - **Rollout:** the phase "Decision 46: `Rc` is read-only" in §6.
 
 ## 5. Prerequisites, gates and the seed
 
@@ -5914,6 +5979,44 @@ stage-2 RSS.
   landed E0009 with its migration. No release accepts both spellings.
 - **`str` in borrow position** stays parked with
   `RUST_ADOPTION_CANDIDATES.md` L1. Nothing in steps 1–4 depends on it.
+
+### Decision 46: `Rc` is read-only
+
+Decision 46 (§4) is the design. Each step is its own PR. Every write
+through an `Rc` that the compiler admits today has to move behind a door
+before the error can turn on, so the size of the sweep comes from a census,
+not an estimate.
+
+1. **Generation A: the census and the doors.**
+   - A `YO_AUDIT_RC_WRITE` knob, like V3b's marker audit: the compiler
+     reports each write through a plain `Rc` handle (file, line, and
+     whether the summaries proved it today's outcome (a)) and rejects
+     nothing.
+   - `RefCell(T)` lands in `std/sync` with decision 41's API (`with`,
+     `with_mut`, the expression-scoped `get`/`get_mut`), if §3.10's own
+     Generation A has not landed it first.
+   - `Rc.make_mut`, `Rc.try_unwrap` and their `Arc` mirrors. `Rc.get_mut`
+     follows decision 43 step 2.
+   - Tests: each door works and is rejected where Rust rejects it
+     (`make_mut` without `Clone`, `try_unwrap` on a shared handle returns
+     the handle).
+2. **Generation B: the sweep, then the error** (once a seed carries 1).
+   - Each census site moves its payload into `RefCell(T)` or uses a door.
+     The known ones include the async runtime's shared states (A5's
+     `Channel`, `Rc(_ChannelState(T))`) and the compiler's mutable
+     registries, which V4/V5's per-tree classification already sends to
+     `RefCell`.
+   - Then the write is the error everywhere, with the three doors in its
+     text. E0909's read-only-handle predicate becomes true for `Rc`, and
+     the async `Mutex` tests gain the `Rc(Mutex(T))` shape.
+   - Tests: a write through `Rc` is an error naming the doors; a `&` borrow
+     through an `Rc` across an `await` compiles; `Rc.get_mut` on that root
+     while the borrow lives is E0911; through a second handle `get_mut`
+     returns `.None`; `RefCell.get()` stays unbindable, so it cannot cross
+     an `await`.
+3. **Follow-up: the cycle collector's predicate** narrows to
+   `RefCell`/`Mutex`/`RwLock`-reaching cells (§3.12), measured on the
+   collector's own benchmarks.
 
 ### V5: remove `ref(...)` and `atomic(...)`
 

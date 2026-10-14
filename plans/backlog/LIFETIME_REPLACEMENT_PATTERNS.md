@@ -292,8 +292,8 @@ races are unaddressed in the posts.
   decision 43's phase, to be filed with the `depends` grammar.
 - **Unique reachability as a static `get_mut`.** Valen's "temporary
   uniqueness" (cross into an exclusive context when uniquely reachable
-  during the call) is the static form of `Rc.get_mut` — input for
-  `issues/questions/rc-get-mut-try-unwrap-make-mut-are-undecided.md`.
+  during the call) is the static form of `Rc.get_mut` — decided as Rust's
+  `get_mut` in `plans/VALUES_BY_DEFAULT.md` decision 46 (2026-10-14).
 - **Generational-reference evidence.** A whole language betting on
   deterministic generation checks is the strongest external validation
   yet for §7's generational `Arena(T)`/`Id(T)` candidate, where the
