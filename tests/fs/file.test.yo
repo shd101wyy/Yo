@@ -652,3 +652,39 @@ test("File satisfies the Seek trait bound", {
   io.await(f.close(io), IoExn(io : io, exn : exn));
   io.await(fs_dir.remove_file(&fpath, io), IoExn(io : io, exn : exn));
 });
+// A path with an interior NUL is rejected, never truncated to its prefix: the
+// decoy file at the prefix must stay invisible
+// (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md).
+_nul_read_throws_invalid_input :: (fn(p : &Path, io : Io) -> bool)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(err.to_string().contains("invalid input"));
+      }
+    )
+  );
+  _s := io.await(fs_file.read_to_string(p, io), IoExn(io : io, exn : exn));
+  false
+});
+test("a path with an interior NUL never reaches the file at its prefix", {
+  exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected exception");
+        unwind(());
+      }
+    )
+  );
+  tmp := temp_dir();
+  real := path_join(&tmp, `yo_fs_nul_decoy.txt`);
+  rpath := Path.new(real.clone());
+  io.await(fs_file.write_string(&rpath, String.from("DECOY"), io), IoExn(io : io, exn : exn));
+  bad := real.clone();
+  bad.push_byte(u8(0));
+  bad.push_str("/garbage");
+  bpath := Path.new(&bad);
+  assert(!io.await(fs_file.exists(&bpath, io), io), "exists answers for the whole path, not the prefix");
+  assert(!io.await(fs_file.is_file(&bpath, io), io), "so does is_file");
+  assert(_nul_read_throws_invalid_input(&bpath, io), "read_to_string throws InvalidInput instead of reading the decoy");
+  io.await(fs_dir.remove_file(&rpath, io), IoExn(io : io, exn : exn));
+});

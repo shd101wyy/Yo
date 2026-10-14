@@ -109,7 +109,7 @@ export(DirEntry);
 /// Create a directory at the given path.
 create_dir :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
-    cstr_bytes := path.to_string().to_cstr();
+    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)), e.io);
     IoError.check(result, e.exn);
@@ -125,7 +125,7 @@ create_dir_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(
 create_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
     path_s := path.to_string();
-    cstr_bytes := path_s.to_cstr();
+    cstr_bytes := match(path_s.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     // Try creating the directory directly first
     result := e.io.await(IO_dir.mkdir(AT_FDCWD, cstr, i32(DEFAULT_DIR_MODE)), e.io);
@@ -168,6 +168,7 @@ create_dir_all :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
                 ((b == u8(47)) || (b == u8(92))) => {
                   // '/' found - try to create this prefix
                   prefix := path_s.substring(usize(0), i);
+                  // A prefix of the path checked above: no interior NUL.
                   prefix_cstr_bytes := prefix.to_cstr();
                   prefix_cstr := prefix_cstr_bytes.ptr().unwrap();
                   r := e.io.await(IO_dir.mkdir(AT_FDCWD, prefix_cstr, i32(DEFAULT_DIR_MODE)), e.io);
@@ -209,7 +210,7 @@ create_dir_all_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(
 /// Remove an empty directory. Throws if the directory is not empty.
 remove_dir :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
-    cstr_bytes := path.to_string().to_cstr();
+    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.unlink(AT_FDCWD, cstr, AT_REMOVEDIR), e.io);
     IoError.check(result, e.exn);
@@ -223,7 +224,7 @@ remove_dir_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(
 /// Remove a file at the given path.
 remove_file :: (fn(path : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
-    cstr_bytes := path.to_string().to_cstr();
+    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.unlink(AT_FDCWD, cstr, i32(0)), e.io);
     IoError.check(result, e.exn);
@@ -235,9 +236,9 @@ remove_file_str :: (fn(path : str, io : Io) -> Impl(Future(unit, IoExn)))(remove
 /// Rename or move a file or directory from `from` to `to`.
 rename :: (fn(from : &Path, to : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
-    from_cstr_bytes := from.to_string().to_cstr();
+    from_cstr_bytes := match(from.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     from_cstr := from_cstr_bytes.ptr().unwrap();
-    to_cstr_bytes := to.to_string().to_cstr();
+    to_cstr_bytes := match(to.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     to_cstr := to_cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.rename(AT_FDCWD, from_cstr, AT_FDCWD, to_cstr), e.io);
     IoError.check(result, e.exn);
@@ -249,9 +250,9 @@ rename_str :: (fn(from : str, to : str, io : Io) -> Impl(Future(unit, IoExn)))(r
 /// Create a hard link from `src` to `dst`.
 hard_link :: (fn(src : &Path, dst : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
-    src_cstr_bytes := src.to_string().to_cstr();
+    src_cstr_bytes := match(src.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     src_cstr := src_cstr_bytes.ptr().unwrap();
-    dst_cstr_bytes := dst.to_string().to_cstr();
+    dst_cstr_bytes := match(dst.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     dst_cstr := dst_cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.link(AT_FDCWD, src_cstr, AT_FDCWD, dst_cstr, i32(0)), e.io);
     IoError.check(result, e.exn);
@@ -263,9 +264,9 @@ hard_link_str :: (fn(src : str, dst : str, io : Io) -> Impl(Future(unit, IoExn))
 /// Create a symbolic link at `dst` pointing to `src`.
 symlink :: (fn(src : &Path, dst : &Path, io : Io) -> Impl(Future(unit, IoExn)))(
   io.async(e => {
-    src_cstr_bytes := src.to_string().to_cstr();
+    src_cstr_bytes := match(src.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     src_cstr := src_cstr_bytes.ptr().unwrap();
-    dst_cstr_bytes := dst.to_string().to_cstr();
+    dst_cstr_bytes := match(dst.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     dst_cstr := dst_cstr_bytes.ptr().unwrap();
     result := e.io.await(IO_dir.symlink(src_cstr, AT_FDCWD, dst_cstr), e.io);
     IoError.check(result, e.exn);
@@ -278,7 +279,7 @@ symlink_str :: (fn(src : str, dst : str, io : Io) -> Impl(Future(unit, IoExn)))(
 /// not a symlink (EINVAL) — like Rust.
 read_link :: (fn(path : &Path, io : Io) -> Impl(Future(Path, IoExn)))(
   io.async(e => {
-    cstr_bytes := path.to_string().to_cstr();
+    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     bufsize := usize(4096);
     buf := (*u8)(malloc(bufsize).unwrap());
@@ -327,7 +328,7 @@ _statx_file_type :: (fn(buf : *u8, buf_size : usize) -> FileType)({
 /// Throws when the path cannot be stat'ed.
 file_type :: (fn(path : &Path, io : Io) -> Impl(Future(FileType, IoExn)))(
   io.async(e => {
-    cstr_bytes := path.to_string().to_cstr();
+    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
@@ -357,7 +358,7 @@ file_type :: (fn(path : &Path, io : Io) -> Impl(Future(FileType, IoExn)))(
 /// unresolvable entry never fails the whole listing.
 _file_type_or_other :: (fn(path : &Path, io : Io) -> Impl(Future(FileType, Io)))(
   io.async(io => {
-    cstr_bytes := path.to_string().to_cstr();
+    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => return(FileType.Other));
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());
@@ -377,7 +378,7 @@ _file_type_or_other :: (fn(path : &Path, io : Io) -> Impl(Future(FileType, Io)))
 /// Skips the `.` and `..` entries.
 read_dir :: (fn(path : &Path, io : Io) -> Impl(Future(ArrayList(DirEntry), IoExn)))(
   io.async(e => {
-    cstr_bytes := path.to_string().to_cstr();
+    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     // Open the directory
     fd_result := e.io.await(IO_file.openat(AT_FDCWD, cstr, O_RDONLY | O_DIRECTORY, i32(0)), e.io);

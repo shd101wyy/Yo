@@ -277,6 +277,29 @@ impl(
 // ============================================================================
 // Internal helpers
 // ============================================================================
+// True when the program, an argument, an environment override or the working
+// directory holds an interior NUL: C would see only the prefix, so the child
+// would run a different program or get different arguments
+// (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md). Inherited
+// environment entries come from `environ` and are C strings already.
+_command_has_interior_nul :: (fn(self : &Command) -> bool)({
+  if(self._program.to_cstr_checked().is_err(), return(true));
+  (i : usize) = usize(0);
+  while(runtime(i < self._args.len()), {
+    if(self._args(i).to_cstr_checked().is_err(), return(true));
+    i = (i + usize(1));
+  });
+  (k : usize) = usize(0);
+  while(runtime(k < self._env_overrides.len()), {
+    if(self._env_overrides(k).to_cstr_checked().is_err(), return(true));
+    k = (k + usize(1));
+  });
+  match(
+    &self._cwd,
+    .Some(cd) => cd.to_cstr_checked().is_err(),
+    .None => false
+  )
+});
 // Convert each entry of `(program + args)` into an owned NUL-terminated
 // `ArrayList(u8)`. The returned list owns the C-string storage; callers
 // extract the raw `*(u8)` pointers separately.
@@ -379,6 +402,7 @@ _spawn_with_fds :: (
   // object/ref binding that can't be safely captured across an async
   // boundary; the resulting `storage` ArrayList is Rc/heap-allocated and
   // can be moved into the closure's capture struct.
+  has_interior_nul := _command_has_interior_nul(self);
   storage := _build_cstr_storage(self);
   env_storage := _build_env_storage(self);
   use_envp := (self._env_clear || (self._env_overrides.len() > usize(0)));
@@ -407,6 +431,9 @@ _spawn_with_fds :: (
   // defect — rather than passing `.None` to flush all streams.
   unsafe(fflush(.Some(stdout)));
   io.async(e => {
+    if(has_interior_nul, {
+      e.exn.throw(dyn(IoError.InvalidInput));
+    });
     argc := storage.len();
     // Allocate argv buffer: argc entries + 1 null terminator.
     argv_bytes := (size_of(?*u8) * (argc + usize(1)));

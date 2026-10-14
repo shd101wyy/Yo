@@ -149,6 +149,9 @@ _on_fs_event :: (fn(path : *u8, mask : i32, user_data : *u8) -> unit)({
 /// Start watching `path`. Throws the backend's `IoError` (e.g. `NotFound`)
 /// through `exn`.
 watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
+  // Checked before the watcher exists: a path with an interior NUL would
+  // watch its prefix (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md).
+  cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => exn.throw(dyn(IoError.InvalidInput)));
   w := Watcher(
     _handle : events.fs_event_init(),
     _root : path,
@@ -157,7 +160,6 @@ watch :: (fn(path : &Path, opts : WatchOptions, exn : Exception) -> Watcher)({
     _active : false,
     _waiters : ArrayList(Waker).new()
   );
-  cstr_bytes := path.to_string().to_cstr();
   cstr := cstr_bytes.ptr().unwrap();
   flags := cond(opts.recursive => events.FS_EVENT_RECURSIVE, true => u32(0));
   status := events.fs_event_start(w._handle, cstr, flags, _on_fs_event, unsafe.cast(&w, *u8));

@@ -159,8 +159,16 @@ s(usize(1) .. usize(3)); // "é" —— 一个新的 String
 | `into_bytes()` | 消耗字符串并把缓冲区移出；只有另一个副本共享它时才复制 |
 | `String.from_bytes(sink(bytes))` | 接管列表，不检查 |
 | `String.from_utf8(sink(bytes))` | 校验后接管列表；否则返回 `Err(.InvalidUtf8(...))` |
+| `to_cstr_checked()` | 字节加上结尾的 `\0`，用于 C 边界；字符串含 NUL 字节时返回 `Err(.InteriorNul(index))` |
+| `to_cstr()` | 字节加上结尾的 `\0`，不检查：遇到内部 NUL 时 C 只看到它之前的前缀 |
 
 读取字节用 `len()`、`byte_at(i)`、`get_byte(i)` 或 `bytes()` 迭代器，它们都不复制。
+
+在 C 边界上用来指名的字符串（路径、主机名、环境变量、程序参数）要经过
+`to_cstr_checked()`。C 在第一个 NUL 处结束字符串，所以 `"/tmp/a\0/etc"`
+否则会作用于 `/tmp/a`。std 的文件系统、网络、环境变量和进程 API 都这样做：这样的
+路径或名字会抛出 `IoError.InvalidInput`（`exists`、`is_file`、`is_dir` 返回
+`false`，`env.get` 返回 `.None`），永远不会落到前缀上。
 
 ## 编译期字符串共享同一基准
 

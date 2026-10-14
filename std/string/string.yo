@@ -59,7 +59,8 @@ unicode_case :: import("./unicode.yo");
 { malloc } :: GlobalAllocator;
 /// String operation error variants.
 ///
-/// One variant, deliberately. An `IndexOutOfBounds(index, length)` variant was
+/// `InteriorNul` is returned by `to_cstr_checked`, the conversion for C
+/// boundaries. Before it, there was one variant, deliberately. An `IndexOutOfBounds(index, length)` variant was
 /// declared here and documented as public surface, but **no `String` entry
 /// point could ever return it**: a bounds failure PANICS, which is the decided
 /// design (D4), not an oversight. So the enum published a *recoverable* error
@@ -73,7 +74,10 @@ unicode_case :: import("./unicode.yo");
 StringError :: enum(
   /// The input bytes are not valid UTF-8. `cause` says exactly what is wrong
   /// and at which byte offset.
-  InvalidUtf8(cause : utf8.Utf8Error)
+  InvalidUtf8(cause : utf8.Utf8Error),
+  /// The string holds a NUL byte at `index`, so it has no C-string form: C
+  /// would end the string there and act on the prefix.
+  InteriorNul(index : usize)
 );
 derive(StringError, Copy, Clone);
 // Takes an owned list and lets it drop: the move that keeps every arm of
@@ -172,8 +176,30 @@ impl(
     bytes.extend_from_ptr(cstr, len);
     return(.Ok(Self(_bytes : .Some(bytes))));
   }),
+  /// Convert the string to a C string, rejecting an interior NUL.
+  ///
+  /// This is the conversion for a C boundary that names something (a path, a
+  /// host, an environment variable, an argument): C ends the string at the
+  /// first NUL, so `"/tmp/a\0/etc/passwd"` would act on `/tmp/a`. Returns
+  /// `.Err(.InteriorNul(index))` for the first NUL byte, and otherwise the
+  /// bytes followed by a terminating `\0`
+  /// (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md).
+  to_cstr_checked : (fn(self : &Self) -> Result(ArrayList(u8), StringError))({
+    n := self.len();
+    (i : usize) = usize(0);
+    while(i < n, {
+      if(self.byte_at(i) == u8(0), {
+        return(.Err(.InteriorNul(index : i)));
+      });
+      i = (i + usize(1));
+    });
+    .Ok(self.to_cstr())
+  }),
   /// Convert the string to a null-terminated C string.
   /// Returns an `ArrayList(u8)` with the string bytes followed by a `\0`.
+  ///
+  /// An interior NUL is copied as is, so C sees only the prefix before it.
+  /// At a C boundary that names something, use `to_cstr_checked`.
   to_cstr : (fn(self : &Self) -> ArrayList(u8))({
     (bytes_len : usize) = match(
       self._bytes,
