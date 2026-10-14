@@ -1533,6 +1533,59 @@ _useful :: (
     gadt_exact : bool
   ) -> Option(ArrayList(String))
 )({
+  w_opt := _useful_at(rows_in, q, tys, gadt_exact);
+  cell := match(tys.get(usize(0)), .Some(t0) => _witness_cell_name(&t0), .None => Option(String).None);
+  match(
+    w_opt,
+    .Some(w) => match(
+      cell,
+      .Some(cn) => Option(ArrayList(String)).Some(_wrap_witness_head(&w, &cn)),
+      .None => Option(ArrayList(String)).Some(w)
+    ),
+    .None => Option(ArrayList(String)).None
+  )
+});
+/// The wrapper a witness at a column of type `t` is spelled with (decision
+/// 31): `Rc` or `Arc` for a cell a pattern must name, else `.None`. A unique
+/// `Box` is still looked through implicitly, so its witness stays bare.
+_witness_cell_name :: (fn(t : &TypeValue) -> Option(String))({
+  inner := match(t, .Pointer(p) => p, _ => t);
+  cond(
+    is_box_type(&inner) => Option(String).Some(String.from("Rc")),
+    (is_atomic_reference_struct_type(&inner) && box_inner_type(&inner).is_some()) => Option(String).Some(String.from("Arc")),
+    true => Option(String).None
+  )
+});
+/// `w` with its head (the column's witness) spelled through the wrapper
+/// `cell`: `.Nil` → `Rc(.Nil)`. A wildcard needs no wrapper.
+_wrap_witness_head :: (fn(w : &ArrayList(String), cell : &String) -> ArrayList(String))({
+  out := ArrayList(String).new();
+  (i : usize) = usize(0);
+  while(i < w.len(), i = (i + usize(1)), {
+    match(
+      w.get(i),
+      .Some(s) => {
+        if((i == usize(0)) && (s != "_"), {
+          out.push(`${cell}(${s})`);
+        }, {
+          out.push(s);
+        });
+      },
+      .None => ()
+    );
+  });
+  out
+});
+/// `_useful` without the wrapper on the head's witness: the same-column steps
+/// (`At`, `ThroughBox`, `Or`) recurse here, so the wrapper is spelled once.
+_useful_at :: (
+  fn(
+    rows_in : &ArrayList(ArrayList(Pattern)),
+    q : &ArrayList(Pattern),
+    tys : &ArrayList(TypeValue),
+    gadt_exact : bool
+  ) -> Option(ArrayList(String))
+)({
   if(q.len() == usize(0), {
     if(rows_in.len() == usize(0), {
       return(Option(ArrayList(String)).Some(ArrayList(String).new()));
@@ -1570,7 +1623,7 @@ _useful :: (
     (.At(_, _, _, sub) | .ThroughBox(_, _, sub)) => {
       nq := ArrayList(Pattern).new();
       nq.push(sub);
-      return(recur(&rows, _concat_patterns(&nq, &q_rest), tys, gadt_exact));
+      return(_useful_at(&rows, _concat_patterns(&nq, &q_rest), tys, gadt_exact));
     },
     .Or(alts) => {
       (ai : usize) = usize(0);
@@ -1581,7 +1634,7 @@ _useful :: (
             nq := ArrayList(Pattern).new();
             nq.push(alt);
             match(
-              recur(&rows, _concat_patterns(&nq, &q_rest), tys, gadt_exact),
+              _useful_at(&rows, _concat_patterns(&nq, &q_rest), tys, gadt_exact),
               .Some(w) => {
                 return(Option(ArrayList(String)).Some(w));
               },
@@ -1602,7 +1655,7 @@ _useful :: (
       spec := _specialize_variant(&rows, name.clone(), arity);
       ftys := variant_field_types(&enum_ty, idx);
       match(
-        recur(&spec, _concat_patterns(_variant_full_subs(&fidx, &subs, arity), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
+        _useful(&spec, _concat_patterns(_variant_full_subs(&fidx, &subs, arity), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
         .Some(w) => {
           return(Option(ArrayList(String)).Some(_render_variant_witness(name.clone(), arity, &w)));
         },
@@ -1615,7 +1668,7 @@ _useful :: (
       // A tuple is ONE constructor of arity `subs.len()`: specialize by it.
       spec := _specialize_aggregate(&rows, subs.len());
       match(
-        recur(&spec, _concat_patterns(&subs, &q_rest), _concat_types(&elem_tys, &tys_rest), gadt_exact),
+        _useful(&spec, _concat_patterns(&subs, &q_rest), _concat_types(&elem_tys, &tys_rest), gadt_exact),
         .Some(w) => {
           return(Option(ArrayList(String)).Some(_render_tuple_witness(&w, subs.len())));
         },
@@ -1628,7 +1681,7 @@ _useful :: (
       ftys := _struct_field_tys(&struct_ty);
       spec := _specialize_aggregate(&rows, arity);
       match(
-        recur(
+        _useful(
           &spec,
           _concat_patterns(_variant_full_subs(&fidx, &subs, arity), &q_rest),
           _concat_types(&ftys, &tys_rest),
@@ -1645,7 +1698,7 @@ _useful :: (
     .Const(_, _, _, _, _) => {
       spec := _specialize_const(&rows, _const_key(&head0));
       match(
-        recur(&spec, &q_rest, &tys_rest, gadt_exact),
+        _useful(&spec, &q_rest, &tys_rest, gadt_exact),
         .Some(w) => {
           return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(&head0), &w)));
         },
@@ -1657,7 +1710,7 @@ _useful :: (
     .Range(_, _, _, _, _, _, _) => {
       spec := _specialize_const(&rows, _const_key(&head0));
       match(
-        recur(&spec, &q_rest, &tys_rest, gadt_exact),
+        _useful(&spec, &q_rest, &tys_rest, gadt_exact),
         .Some(w) => {
           return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(&head0), &w)));
         },
@@ -1686,7 +1739,7 @@ _useful :: (
                     spec := _specialize_variant(&rows, cn.clone(), carity);
                     ftys := variant_field_types(&cenum, cidx);
                     match(
-                      recur(&spec, _concat_patterns(_wildcards(carity), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
+                      _useful(&spec, _concat_patterns(_wildcards(carity), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
                       .Some(w) => {
                         return(Option(ArrayList(String)).Some(_render_variant_witness(cn.clone(), carity, &w)));
                       },
@@ -1704,7 +1757,7 @@ _useful :: (
         });
         // Incomplete: only the rows that match anything constrain q's tail.
         match(
-          recur(_default_matrix(&rows), &q_rest, &tys_rest, gadt_exact),
+          _useful(_default_matrix(&rows), &q_rest, &tys_rest, gadt_exact),
           .Some(w) => {
             vns := _enum_variant_names(&ty0);
             first_missing := match(missing.get(usize(0)), .Some(m) => m, .None => usize(0));
@@ -1745,7 +1798,7 @@ _useful :: (
               .Some(cp) => {
                 spec := _specialize_const(&rows, _const_key(&cp));
                 match(
-                  recur(&spec, &q_rest, &tys_rest, gadt_exact),
+                  _useful(&spec, &q_rest, &tys_rest, gadt_exact),
                   .Some(w) => {
                     return(Option(ArrayList(String)).Some(_cons_str(pattern_to_string(&cp), &w)));
                   },
@@ -1759,7 +1812,7 @@ _useful :: (
           return(Option(ArrayList(String)).None);
         });
         match(
-          recur(_default_matrix(&rows), &q_rest, &tys_rest, gadt_exact),
+          _useful(_default_matrix(&rows), &q_rest, &tys_rest, gadt_exact),
           .Some(w) => {
             mb := match(missing_b.get(usize(0)), .Some(s) => s, .None => String.from("_"));
             return(Option(ArrayList(String)).Some(_cons_str(&mb, &w)));
@@ -1776,7 +1829,7 @@ _useful :: (
         ftys := _tuple_elem_tys(&ty0);
         spec := _specialize_aggregate(&rows, ftys.len());
         match(
-          recur(&spec, _concat_patterns(_wildcards(ftys.len()), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
+          _useful(&spec, _concat_patterns(_wildcards(ftys.len()), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
           .Some(w) => {
             return(Option(ArrayList(String)).Some(_render_tuple_witness(&w, ftys.len())));
           },
@@ -1789,7 +1842,7 @@ _useful :: (
         ftys := _struct_field_tys(&ty0);
         spec := _specialize_aggregate(&rows, ftys.len());
         match(
-          recur(&spec, _concat_patterns(_wildcards(ftys.len()), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
+          _useful(&spec, _concat_patterns(_wildcards(ftys.len()), &q_rest), _concat_types(&ftys, &tys_rest), gadt_exact),
           .Some(w) => {
             return(Option(ArrayList(String)).Some(_render_struct_witness(&ty0, &w, ftys.len())));
           },
@@ -1801,7 +1854,7 @@ _useful :: (
       // Infinite domain (`comptime_int`, floats, strings, …): only wildcard
       // rows cover it.
       match(
-        recur(_default_matrix(&rows), &q_rest, &tys_rest, gadt_exact),
+        _useful(_default_matrix(&rows), &q_rest, &tys_rest, gadt_exact),
         .Some(w) => Option(ArrayList(String)).Some(_cons_str(String.from("_"), &w)),
         .None => Option(ArrayList(String)).None
       )

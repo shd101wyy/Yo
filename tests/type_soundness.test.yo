@@ -1025,6 +1025,59 @@ test("soundness: a sibling arm's return still releases the value the tail moves"
   keep.clear();
   assert(g_p5_disposed == (before + i32(3)), `each released once the keeper lets go, got ${(g_p5_disposed - before).to_string()}`);
 });
+// An owning parameter returned from an UNTAKEN conditional is still dropped
+// when the function exits another way: the early return's transfer belongs
+// to its own path (issues/fixed/own-param-leaks-when-a-conditional-return-is-not-taken.md,
+// fixed by #925's per-path move state). A and D are the over-drop controls.
+_p5_ret_a :: (fn(h : _P5Box) -> _P5Box)({
+  if(h.tag > i32(0), {
+    return(h);
+  });
+  h
+});
+_p5_ret_b :: (fn(h : _P5Box) -> _P5Box)({
+  if(h.tag < i32(0), {
+    return(h);
+  });
+  h
+});
+_p5_ret_c :: (fn(h : _P5Box) -> _P5Box)({
+  if(h.tag < i32(0), {
+    return(h);
+  });
+  if(h.tag > i32(0), {
+    return(h);
+  });
+  h
+});
+_p5_ret_d :: (fn(sink(h) : _P5Box) -> _P5Box)({
+  (x : i32) = h.tag;
+  if(x > i32(0), {
+    return(h);
+  });
+  h
+});
+_p5_ret_f :: (fn(sink(h) : _P5Box) -> _P5Box)({
+  if(h.tag < i32(0), {
+    return(h);
+  });
+  if(h.tag < i32(0), {
+    return(h);
+  });
+  h
+});
+test("Phase 5: an owning parameter returned from an untaken conditional is dropped once", {
+  before := g_p5_disposed;
+  {
+    r_a := _p5_ret_a(_P5Box(tag : i32(1)));
+    r_b := _p5_ret_b(_P5Box(tag : i32(1)));
+    r_c := _p5_ret_c(_P5Box(tag : i32(1)));
+    r_d := _p5_ret_d(_P5Box(tag : i32(1)));
+    r_f := _p5_ret_f(_P5Box(tag : i32(1)));
+    assert((r_a.tag + r_b.tag + r_c.tag + (r_d.tag + r_f.tag)) == i32(5), "every shape returned its box");
+  };
+  assert(g_p5_disposed == (before + i32(5)), `each box released exactly once, got ${(g_p5_disposed - before).to_string()}`);
+});
 _p5_move_on_break :: (fn(n : i32) -> i32)({
   b := _P5Box(tag : n);
   (i : i32) = i32(0);

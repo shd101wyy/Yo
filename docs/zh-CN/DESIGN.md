@@ -1217,9 +1217,9 @@ export(main);
 
 #### `Drop`：`Dispose` 即将采用的新名字
 
-`Dispose` 正在更名为 `Drop`，其方法 `dispose` 改为 `drop`，并采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）。含义不变：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。（在更名之前，`Dispose.dispose` 仍是 `self : &Self`。）编译器已经接受两种写法；等发布的种子编译器认识 `Drop` 后，`std/` 和本文档会改用 `Drop`，`yo fix <path> --migrate drop-trait` 会改写整个项目（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`）。
+`Dispose` 正在更名为 `Drop`，其方法 `dispose` 改为 `drop`，并采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）。含义不变：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。（在更名之前，`Dispose.dispose` 仍是 `self : &Self`。）编译器已经接受两种写法，并把它们视为同一个析构函数：`Drop` impl 满足 `where(T <: Dispose)` 约束和 `Type.impls(T, Dispose)`，反之亦然；一个类型只有一个析构函数，因此在已有一种写法的类型上实现另一种写法（包括 std 为 `ArrayList(T)` 提供的 `Dispose` impl）是错误 E0612。等发布的种子编译器认识 `Drop` 后，`std/` 和本文档会改用 `Drop`，`yo fix <path> --migrate drop-trait` 会改写整个项目（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`；不是析构函数的 `.dispose` 成员，例如同名的固有方法或字段，保持原样）。
 
-手动调用析构函数是错误 E0915，两种写法都是，与 Rust 相同：`x.drop()`、`Fd.drop(&x)`、`(Fd <: Drop).drop(&x)` 和 `x.dispose()` 会在值仍然存活时再运行一次析构函数。析构函数也不调用其字段的析构函数：字段会在它返回后自行 drop。要提前结束一个值，请把它传给 prelude 的 `drop(x)`：它把值移入，并在调用返回时 drop 它；之后再使用 `x` 是 E0901。
+手动调用析构函数是错误 E0915，两种写法都是，与 Rust 相同：`x.drop()`、`Fd.drop(&x)`、`(Fd <: Drop).drop(&x)` 和 `x.dispose()` 会在值仍然存活时再运行一次析构函数。把它当作值读取（`f := Fd.drop`）也是 E0915，因为通过 `f` 调用会造成同样的结果。其他 trait 中恰好名为 `drop` 的方法是普通方法，可以直接调用，也可以通过 `Dyn` 调用。析构函数也不调用其字段的析构函数：字段会在它返回后自行 drop。要提前结束一个值，请把它传给 prelude 的 `drop(x)`：它把值移入，并在调用返回时 drop 它；之后再使用 `x` 是 E0901。
 
 ```yo
 { println } :: import("std/fmt");
@@ -2403,7 +2403,7 @@ area :: (fn(shape : Shape) -> i32)(
 | 元组 | `(0, y)`、`(_, .Some(v))` | 元素个数必须相同，每个元素一个子模式 |
 | 具名结构体 | `Point(x : 0, y)`、`Person(name : "alice")` | 带标签或裸字段名，可部分匹配（未列出的字段匹配任意值） |
 | 匿名结构体 | `{x : 0, y}` | 用于结构体位置，与变体的花括号形式相同 |
-| 包装 | `Rc(p)`、`Arc(p)` | 穿透 `Rc(T)`/`Arc(T)` 位置上的单元；`p` 匹配其中的 `T`，其绑定是借用 |
+| 包装 | `Rc(p)`、`Arc(p)`、`Box(p)` | 穿透 `Rc(T)`/`Arc(T)`/`Box(T)` 位置上的单元；`p` 匹配其中的 `T`；`Rc(p)`/`Arc(p)` 内的绑定是借用 |
 
 ```yo
 classify :: (fn(r : Result(Option(i32), str)) -> i32)(
@@ -2433,12 +2433,15 @@ command :: (fn(s : String) -> i32)(
 ```
 
 元组被匹配值按元素逐个接受子模式；结构体被匹配值接受带标签的子模式
-（裸字段名即绑定该字段；未列出的字段匹配任意值）。包装模式 `Rc(p)` 或
-`Arc(p)` 写出它所穿透的单元，与 Rust 相同：`p` 匹配该位置上 `Rc(T)`/`Arc(T)`
-内部的 `T`，可任意嵌套，单元内的变体计入穷尽性检查。其中的绑定借用载荷，
-因为其他句柄可能共享该单元；`(c := Rc(p))` 绑定单元本身。`Arc(T)` 位置只接受
-包装写法。在 `Rc(T)` 位置上，未写 `Rc(…)` 的结构化模式目前仍会被隐式穿透，
-直到 `src/` 与 `std/` 中的每个分支都写出包装为止
+（裸字段名即绑定该字段；未列出的字段匹配任意值）。包装模式 `Rc(p)`、
+`Arc(p)` 或 `Box(p)` 写出它所穿透的单元，与 Rust 相同：`p` 匹配该位置上
+`Rc(T)`/`Arc(T)`/`Box(T)` 内部的 `T`，可任意嵌套，单元内的变体计入穷尽性检查。
+`Rc(p)` 或 `Arc(p)` 中的绑定借用载荷，因为其他句柄可能共享该单元；
+`(c := Rc(p))` 绑定单元本身。`Rc(T)` 或 `Arc(T)` 位置只接受包装写法：
+不写包装的结构化模式是 E0609，其帮助信息给出 `Rc(p)`；
+`yo fix <path> --migrate rc-pattern` 会为每个这样的模式加上包装。缺失的情形
+也透过包装打印（`.Node(Rc(.Leaf(_)), _)`）。在唯一的 `Box(T)` 位置上，未写
+`Box(…)` 的模式目前仍会被隐式穿透，直到 `src/` 写出 `Box(p)` 为止
 （`plans/VALUES_BY_DEFAULT.md` 决定 31）：
 
 ```yo
@@ -3267,8 +3270,8 @@ assert(sum(&t) == 3);
 ```
 
 - **`box(v)`** 把 `v` 移入一个新单元。`b.*` 是载荷的位置，在安全代码中同样可用：
-  `b.* = v` 替换载荷，`b.field` / `b.method()` 通过自动解引用访问载荷。模式会穿过
-  `Box` 的载荷进行匹配，与穿过 `Rc` 相同。
+  `b.* = v` 替换载荷，`b.field` / `b.method()` 通过自动解引用访问载荷。模式用 `Box(p)`
+  穿过 `Box` 的载荷进行匹配，与用 `Rc(p)` 穿过 `Rc` 相同；目前不写 `Box(…)` 也会穿透。
 - **显式复制。** `Box` 永远不是 `Copy`。当 `c := b` 是 `b` 的最后一次使用时，它移动
   `b`；其他任何复制都是 E0901。`Box.clone(b)` 是深拷贝：一个持有载荷克隆的新单元
   （`b.clone()` 是 E0616，因为载荷可能有自己的 `clone`）。`T` 实现 `Clone` 时

@@ -2,6 +2,10 @@
 
 **Severity:** S1 — inner io.async completes but the parent continuation never fires, so a served response stalls the task to its deadline and is misreported as Timeout
 
+## Resolution (2026-10-14)
+
+Fixed. The cause was codegen, not HTTP: a `while` whose body awaits, inside a `match` arm, emitted the statements after the loop inside the loop body. `_fetch_deadline`'s trailing `cond` therefore ran on the first turn, aborted the exchange and threw `Timeout`. Root cause and fix: `issues/fixed/a-while-loop-inside-a-match-arm-runs-its-trailing-code-every-iteration.md` (#677, 2a7bc4269). #1018 later rewrote the lowering, and #1158 removed the spin-loop shape from `std/http/client.yo` (it now awaits `timeout(&h, limit, e.io)`). Regression coverage: `tests/async_while_in_match_arm.test.yo` and the 204/HEAD tests in `tests/http/http.test.yo`. 2026-10-14 triage, seed v0.2.62: the root-cause repro prints its trailing line once; 200 pooled 204 exchanges produced 0 timeouts; the pre-#1158 shape returned correctly in 50/50 runs at -O0, -O2 and under ASan.
+
 **Found**: 2026-09-11, by the server-side checkpoints added to
 `tests/http/http.test.yo` for #556. **Class**: a lost wake-up in the async
 runtime, visible as a ten-second `HttpError.Timeout` on an exchange that

@@ -82,7 +82,10 @@ Progress:
     `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
     move bitwise through `__yo_ptr_read`/`__yo_ptr_write`;
   - V1 step 2 Generation A, the unique `Box(V)` (#1328; Step 2's "as
-    built");
+    built"), and Generation B, the `src/` sites (feat/vbd-v1-step2-box-genb:
+    the verifier's local cells are `Box`; the owner chains and
+    `consumed_at_token` drop their cell; `FuncMeta` and `DocModule` stay
+    `Rc`, see Step 2's "as built");
   - V2b "Projections first", Generation A: `-> &T` / `-> &mut T`
     projections, and subscript dispatch through `Index` / `IndexMut` (#1324);
     and Generation B, the prelude switch: `Index`/`IndexMut` and
@@ -92,7 +95,10 @@ Progress:
     explicit destructor call, `drop(x)`, and `yo fix --migrate drop-trait`
     (#1343). Generation B, the tree-wide rename, waits for the seed.
   - V4: decision 31's wrapper patterns `Rc(p)` / `Arc(p)`, Generation A
-    (#1327), and the `TypeValue` prep: key-based memos, the module-type
+    (#1327), and Generation B: the implicit `Rc` look-through deleted,
+    `yo fix --migrate rc-pattern`, witnesses through the wrapper, and
+    `Box(p)` (feat/vbd-d31-rc-pattern-genb; decision 31's "as built"); and
+    the `TypeValue` prep: key-based memos, the module-type
     rebuild, and the `Acyclic` short-circuit (#1329);
   - V2b's prerequisite: `Clone.clone`, `ToString.to_string` and the other
     read-only trait receivers take `self : &Self` (#1347);
@@ -101,9 +107,6 @@ Progress:
   - an S1 fix: a later argument that moves a place an earlier argument
     lends to the call is E0910 (#1346).
 - **In progress:**
-  - The Generation B halves that wait for the v0.2.61 seed:
-    - V1 step 2's `src/` sites moving back to `Box`;
-    - decision 31's deletion of the implicit `Rc` look-through.
   - V3's remaining async work (§3.13): A4's future operands, A5's remaining
     lines, and A6's `Rc`-field half (V2c).
   - V4's `TypeValue`: the value-enum conversion was built and measured,
@@ -1760,6 +1763,46 @@ and in git, not a silent edit.
         Rc(.Leaf(a)) cannot match a value of type T`) was not a separate
         bug: the implicit look-through ran first and compiled `Rc(…)`
         against the payload as a constant. The wrapper rule runs before it.
+    - **As built, Generation B (2026-10-14,
+      `feat/vbd-d31-rc-pattern-genb`).**
+      - **The look-through is gone.** A structural pattern at an `Rc(T)`
+        position takes the `Arc` branch's error, E0609 "a pattern does not
+        look through a cell implicitly", whose help spells the pattern
+        inside `Rc(…)` and names the migration.
+      - **`yo fix <path> --migrate rc-pattern`.** Every file is evaluated
+        with a recorder on (`record_rc_pattern_site`, `src/expr_info.yo`):
+        the look-through, which is otherwise the error, records the
+        pattern's leftmost token and printed form and looks through. The
+        driver (`_run_migrate_rc_pattern`, `src/main.yo`) finds each pattern
+        in the source by parsing candidate spans until one prints as
+        recorded (across lines; a parenthesized pattern starts at its
+        grouping `(`), and inserts `Rc(` and `)`, so nested sites compose
+        in one pass. A site whose text does not print as recorded is listed
+        and left as written.
+      - **Measured: 19 patterns, all in `tests/`** (`match_nested`,
+        `match_async_arms`, `move_only`, `rc_cell`); none in `std/` or
+        `src/`, whose recursive types are `ref` types or reach their
+        children through `ArrayList(Self)`, not `Rc`. The ~3,500 arms the
+        "Cost" bullet counted are V4's, when `TypeValue`'s children become
+        cells. A second pass found nothing.
+      - **Witnesses** render through the wrapper: `_useful`
+        (`src/pattern.yo`) wraps its column's witness in `Rc(…)` or
+        `Arc(…)` when the column is that cell (`.Node(Rc(.Node(_, _)),
+        Rc(.Leaf(_)))`); the same-column steps (`At`, `ThroughBox`, `Or`)
+        recurse into `_useful_at`, so the wrapper is spelled once.
+      - **`Box(p)`, Generation A.** `Box` joined `_is_wrapper_ctor_name`
+        for V1 step 2's unique `Box` (its position test is
+        `is_unique_box_type`, and its payload has no compile-time value).
+        A `Box` position is still looked through implicitly, and its
+        witnesses stay bare: `src/` cannot spell `Box(p)` before a
+        `SEED_VERSION` carries it. The next seed-gated step deletes that
+        look-through the same way (`yo fix --migrate rc-pattern` would
+        need a `Box` twin).
+      - **Tests:** `tests/match_nested.test.yo` (E0609 at a variant child,
+        at an `Rc` scrutinee and at `Rc(i32)`; witnesses through `Rc`),
+        `tests/rc.test.yo` (`Box(p)` at any depth, at the scrutinee with
+        one drop, and at a position that is not a `Box`), and the cli case
+        `tests/cli-cases/fix-migrate-rc-pattern`.
 
 32. **A member name both the wrapper and its payload have is an error;
     the wrapper's is spelled `Rc.clone(w)`.** Confirmed 2026-10-05 by the
@@ -3511,11 +3554,40 @@ and in git, not a silent edit.
         explicit call for a hand edit. std, src, tests and docs keep
         spelling `Dispose`. The std's three explicit calls (`std/crypto/
         tls.yo`, `std/http/client.yo`) became `close_sync()` calls.
+      - **As built, Generation A follow-ups (v0.2.63, from the v0.2.62
+        review).** "Exactly as" now holds everywhere the two traits meet:
+        - *One destructor slot.* Coherence (E0612) treats `Drop` and
+          `Dispose` as one trait: an impl of one spelling on a type that has
+          the other, concretely or through a generic impl in either order
+          (std's `Dispose` on `ArrayList(T)` included), is rejected, where it
+          used to replace the first destructor silently
+          (`issues/fixed/a-drop-impl-beside-a-dispose-impl-is-accepted-and-one-destructor-never-runs.md`).
+        - *Bounds and reflection.* `type_implements_trait` answers either
+          spelling for the other, so `where(T <: Drop)`, a witness and
+          `Type.impls(T, Drop)` accept std's `Dispose` types and the other
+          way around
+          (`issues/fixed/drop-and-dispose-are-not-one-trait-for-bounds-and-type-impls.md`).
+        - *The Dyn vtable* leaves out only the destructor trait's own
+          `drop`/`dispose`; another trait's method of that name keeps its
+          slot (`issues/fixed/a-trait-method-named-drop-is-left-out-of-every-dyn-vtable.md`).
+        - *E0915 also covers the destructor read as a value*
+          (`f := Fd.drop`, `(T <: Drop).drop` not called), as Rust's E0040
+          does, and its repair names the value (`drop(a)` for
+          `Fd.drop(&mut a)`), not the type or the witness
+          (`issues/fixed/a-destructor-read-as-a-method-value-gets-past-e0915.md`,
+          `issues/fixed/e0915-repair-hint-names-the-type-instead-of-the-value.md`).
+        - *The repair evaluates.* A `.dispose` member may be an inherent
+          method, another trait's or a field, so `--migrate drop-trait`
+          evaluates each file with E0915 recording the members that resolve
+          to the destructor, rewrites only those (and the witness form), and
+          lists every other `.dispose` member as left as written
+          (`issues/fixed/migrate-drop-trait-rewrites-a-non-destructor-dispose-call.md`).
       - **Generation B (once `SEED_VERSION` carries Generation A):** the
         tree-wide rename through the repair, then delete the prelude
         `Dispose`, the second name in `is_drop_trait_name` /
-        `is_drop_method_name` and the `dispose` branch of the synthesized
-        call, and rename the docs, skills and instruction files
+        `is_drop_method_name`, the `dispose` branch of the synthesized
+        call, the two-spelling unification (`_destructor_twin_trait`,
+        `_destructor_twin_of`), and rename the docs, skills and instruction files
         (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
     - **Tests (Generation A).** `tests/move_only.test.yo`: a `Drop` impl
       runs once at the owner's drop, through a field and through a generic
@@ -3524,9 +3596,14 @@ and in git, not a silent edit.
       payload, a `Dyn` object, `ArrayList` elements and a reference type's
       last handle; a `drop` declared `self : &Self` does not conform; a `Drop` type and its holders are move-only; `drop(x)` runs
       the destructor at once and moves `x` (a `Dispose` value too); each
-      explicit-call form is E0915 in both spellings. `tests/rc.test.yo`:
+      explicit-call form is E0915 in both spellings; the follow-ups: a
+      trait method named `drop`/`dispose` keeps its Dyn slot, the destructor
+      read as a value is E0915 and the repair names the value, one
+      destructor slot under either spelling (E0612), and the two spellings
+      satisfy each other's bounds and `Type.impls`. `tests/rc.test.yo`:
       an `Rc(T)` with a `Drop` payload drops it once, with the last handle.
-      `tests/cli-cases/fix-migrate-drop-trait`: the repair.
+      `tests/cli-cases/fix-migrate-drop-trait`: the repair, including an
+      inherent `dispose` method and a `dispose` field it leaves alone.
 
 ## 5. Prerequisites, gates and the seed
 
@@ -3964,6 +4041,43 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   moves back to `Box` and their `.clone()`/move fixes wait for a
   `SEED_VERSION` carrying Generation A
   (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+- **As built, Generation B (2026-10-14, `feat/vbd-v1-step2-box-genb`,
+  on the v0.2.61 seed).** Each listed site was re-read against "one owner,
+  and the cell exists for recursion or size":
+  - **The verifier's local cells are the unique `Box`** (`chain`,
+    `guard_cell`, `phi_cell`, `acc_cell` in `src/verifier/vc.yo`): one
+    owner each, no closure captures them, and the `VcTerm` payload is a
+    `ref` handle, so `cell.*` reads stay implicit copies.
+  - **The owner chains and `consumed_at_token` drop the cell.**
+    `Variable`, `CapturedVariable`, `SuspensionCapturedVariable`,
+    `EffectCapturedVariable` and `Token` are `ref(struct(...))` types, so
+    their values are already shared handles: `Option(Self)` and
+    `Option(Token)` are one pointer and need neither recursion help nor a
+    size cell. The site list was written when they were value structs.
+    A `Box` around a handle would allocate a 16-byte-prefixed cell per
+    link, and with no `Clone` on a `ref` type it would make the copy points
+    (`env.yo`, `assignment.yo`, `va_start.yo`, `codegen/exprs/async.yo`,
+    `synthesizer.yo`) E0901 with no fix. So the "non-last-use copies" stay
+    plain copies, and the hop loop in `evaluator/exprs/runtime.yo` walks
+    handles. The change is 68 type spellings and 65 `.*` reads in 28 files.
+  - **`Rc(FuncMeta)` stays `Rc`.** `TypeValue.Func` shares one meta across
+    every type rebuilt from it: `substitute` (`src/types/substitution.yo`)
+    reuses `__fm1` for each substituted function type, and about ten
+    construction sites copy a `meta` from another `Func`. A unique `Box`
+    would deep-copy six `ArrayList`s at each of them. Reasoned from the
+    sharing, not measured.
+  - **`ArrayList(Rc(Self))` in `src/doc/model.yo` stays `Rc` for now.**
+    `ArrayList(Box(T)).get` copies a move-only element out of the buffer,
+    E0901 inside `std/collections/array_list.yo` (measured with the v0.2.61
+    seed on a two-level `Box` tree); `for(&xs, …)` copies the same way. It
+    moves with V2b's non-copying access, as `HashMap(Box(K), V)` does.
+  - **Measured** (Mac Mini M4, the tree-built compilers, min of 3 runs
+    under the shared lock): `check ./src` 185.8 s / 1,203 MB max RSS at
+    a89b8356c, 184.8 s / 1,189 MB with this change (−0.5 % time, noise;
+    −14 MB RSS). Self-emit C (`compile src/main.yo --optimize 2
+    --emit-c`): 138,521,141 → 138,309,119 bytes (−0.15 %), 1,752,977 →
+    1,751,840 lines. The fixpoint holds, and `yo verify ./tests/spec`
+    prints the same outcomes as the base compiler.
 
 ### V3: move-only, `Dispose`, resources
 
@@ -5602,8 +5716,10 @@ stage-2 RSS):
   memory ratchet.
   - **Wrapper patterns** (decision 31). `Box(p)`, `Rc(p)` and `Arc(p)`
     patterns are one evaluator rule and one codegen rule, in
-    `pattern_compile.yo` and `codegen/exprs/match.yo`. They land in V4's
-    first PR, with the `TypeValue` conversion as the test.
+    `pattern_compile.yo` and `codegen/exprs/match.yo`. Landed: Generation A
+    (#1327) and Generation B (the `Rc` look-through deleted,
+    `yo fix --migrate rc-pattern`; decision 31's "as built"). A `Box`
+    position still looks through implicitly until a seed carries `Box(p)`.
   - **Constructions and arms.** About 750 `TypeValue.`, 430 `EvalValue.` and
     90 `AstExpr.` constructions are rewritten. So is each of the ~3,500
     destructuring arms that reaches through a child, which a `yo fix`

@@ -182,7 +182,7 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
 - Make commands succeed yourself. Do not ask the user to run them, and do not end the conversation until they pass.
 - No hardcoding, no shortcuts, no simplifications in the evaluator or codegen. When asked to refactor, refactor everything: no placeholders, no TODOs.
 - Do not create new `.yo` files unless told to.
-- Never skip a bug discovered during implementation. Every bug gets an `issues/` entry carrying a `**Severity:**` verdict (S1–S3, scale in `issues/README.md`) and a test that fails before the fix and passes after, added to `tests/`. An open design/API/policy decision — not broken code — is not a bug: file it in `issues/questions/` with a `## Recommendation` stating a position. `scripts/check-issue-refs.sh` enforces both.
+- Never skip a bug discovered during implementation. Every bug gets an `issues/YYYY-MM-DD-<name>.md` entry (filing date first, `issues/README.md`) carrying a `**Severity:**` verdict (S1–S3, scale in `issues/README.md`) and a test that fails before the fix and passes after, added to `tests/`. An open design/API/policy decision — not broken code — is not a bug: file it in `issues/questions/` with a `## Recommendation` stating a position. `scripts/check-issue-refs.sh` enforces both.
 - `issues/TRIAGE.md` is UNTRACKED (gitignored since 2026-10-07): a locally generated index (`python scripts/gen-issue-triage.py`), never committed — it can never conflict or ship stale. Run the generator whenever you want the overview; never `git add` it. CI's `tree-hygiene` job rejects any committed `<<<<<<<` conflict markers anywhere in the tree and enforces `check-issue-refs.sh`'s issues/ discipline (since 2026-10-07, after #1231 shipped six marker hunks in through a branch merge).
 - **Run `yo fmt <file.yo>` on every `.yo` file you create or modify** (`yo fmt --check` verifies). There is no pre-commit hook. **Verify formatting diffs with the same binary the gate uses** — a tree-built `yo-out/<target>/bin/yo fmt --check <files>` — not the installed seed: the formatter changes between releases, so a seed can lay a file out differently from the tree's fmt gate (GATE 6). A `cancelled` develop battery left NO fmt verdict (that is how #1110/#1102 went red unnoticed): a cancelled run means "unknown", not "green".
 - Review `git diff` before considering work done: leftover debug code, unused imports, consistency across files.
@@ -197,9 +197,23 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
 - **Worktrees live under `$HOME/Workspace/Yo-wt/<name>` (or another durable path), never under `/tmp` or `/private/tmp`** (macOS clears them on reboot; one reboot deleted 27 agents' uncommitted worktrees). Create with `git worktree add -b <branch> $HOME/Workspace/Yo-wt/<name> origin/develop`, then `git -c protocol.file.allow=always submodule update --init`. Remove with `git worktree remove --force <path>` (the `vendor/` submodules make plain `remove` refuse).
 - **Commit and push before every heavy step.** WIP commits are fine (PRs are squash-merged); `git push -u origin <branch>` right after the first commit. A worktree is not a backup; only a pushed commit is.
 - **PR bodies follow `.github/pull_request_template.md`** (Summary, Verification, LLM attribution, Deferred). `gh pr create --body`/`--body-file` does not apply the template, so write its sections into the body yourself.
-- **Merging to `develop` requires a green CI battery on the PR's final head commit. Never `gh pr merge --admin`.** Local gates stay mandatory before a PR is opened, but they are not the merge gate: on 2026-09-28 four admin-merged PRs whose local gates passed broke `develop` for every session (#970's TSan race, #973's stage-2 `yo install` segfault, #989/#991's seed-gate breaks), because one Linux box covers no macOS, Windows, arm64, TSan, wasm or seed-with-tree-std build. The ruleset carries no admin bypass; if one reappears, the rule still stands. The only exception is a fix for a red `develop`, and only with the user's explicit OK for that PR, once its own previously red jobs are green.
+- **Gating is three-tier (maintainer, 2026-10-14). A PR is admin-merged as soon as its Tier 1 passes; develop's own battery is the full check, and its failures are fixed forward.**
+  - **Tier 1 is the merge gate:** a targeted local gate of about 20–30 minutes, run before the PR is opened.
+    - `yo build --std-path ./std`, only when `src/` changed; a std- or tests-only change reuses a develop-built binary.
+    - `check ./src` and `check ./std`.
+    - The feature's own test files, plus every `tests/internal` file that imports a changed `src/` module. #1343 broke develop by skipping `gc_runtime_atomics`.
+    - cli-diff-test, only when std, CLI output, diagnostics text, skills or a `yo fix` migration changed; read each GOLDEN-DIFF before `--record`.
+    - fmt and `check-issue-refs.sh`.
+    - Not in Tier 1: the full language suite, `yo test ./std`, the fixpoint and the full `tests/internal`.
+  - **Tier 2, the PR's battery, is not waited for.** It still fires when the PR opens. Once the PR is merged, cancel it, since it gates nothing.
+  - **Tier 3 is develop's battery.** Several PRs can be admin-merged in a row; the next develop battery covers all of them.
+    - Watch it on its pinned run ID.
+    - On a red job, find the PR that caused it, then fix it forward in a `fix(develop): …` PR. That fix PR also merges on its own Tier 1.
+    - A flaky job gets one rerun, as below.
+  - **Releases are unchanged.** Cut only when develop's battery is green on the exact tip (the battery-head diff below).
+  - **Why:** the per-PR full gate (about 1.5–2 h on a serialized local machine) and the per-PR battery both duplicated develop's battery. Before 2026-10-14, local-only admin merges did turn develop red (#970, #973, #989 and #991 on 2026-09-28, #1329 and #1343 later), because one Linux or macOS box covers no Windows, arm64, TSan, wasm or seed-with-tree-std build. That cost is accepted and paid by fixing forward quickly; it is not paid by waiting on every PR.
 - **A flaky failure gets one rerun**: `gh run rerun <run-id> --failed`. A second failure of the same job is real: investigate it and file an `issues/` doc, even if the job looks unrelated.
-- **Keep working while a PR waits for CI: stack.** Branch the next piece off the waiting branch and open it as a draft on top (`gh pr create --draft --base <waiting-branch>`; see the draft rule below). A stacked PR merges into its PARENT branch once its local gates pass; the ruleset guards only `develop`. When the bottom PR squash-merges, restack the next one:
+- **Stack only for dependent pieces** (with Tier-1 admin merges a PR rarely waits). **Keep working while a PR waits: stack.** Branch the next piece off the waiting branch and open it as a draft on top (`gh pr create --draft --base <waiting-branch>`; see the draft rule below). A stacked PR merges into its PARENT branch once its local gates pass; the ruleset guards only `develop`. When the bottom PR squash-merges, restack the next one:
 
   ```bash
   git fetch origin
@@ -298,7 +312,7 @@ The format (modeled on v0.2.38 — read it with `gh release view v0.2.38 --json 
 
 ## Debugging codegen / C compilation issues
 
-1. Document the issue in `issues/<name>.md` with a `**Severity:**` line (S1–S3, scale in `issues/README.md`): the verbatim error, a minimal `.yo` reproducer (use `tmp/fixme.yo`), the root cause.
+1. Document the issue in `issues/YYYY-MM-DD-<name>.md` (the filing date) with a `**Severity:**` line (S1–S3, scale in `issues/README.md`): the verbatim error, a minimal `.yo` reproducer (use `tmp/fixme.yo`), the root cause.
 2. Fix the codegen in `src/codegen/`.
 3. Verify: the repro compiles, the full project's error count decreases.
 4. Move the doc to `issues/fixed/` and commit.

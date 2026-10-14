@@ -2,7 +2,11 @@
 
 **Severity:** S1 — a swallowed closure-spec failure emits a wrong-typed return plus an `abort()` stub — latent UB; breaks the MSVC batch leg
 
-Status: OPEN (pre-existing on `origin/develop` @547d0c239; blocks `test
+## Resolution (2026-10-14)
+
+Fixed. A SomeT's resolution used to live in one shared mutable cell, and the closure spec's signature and body read it at different moments, so each saw a different capture-struct era. #940 (0e6f2500b) and #936 (b5af1df46) made the capture-struct key stable. 2026-10-14 triage: a 17-name batch sweep compiled with `-Werror=incompatible-pointer-types` is clean, confirmed by an adversarial second agent. Regression coverage: "capture struct's key survives a rewrite of its captured closure's cell" in `tests/internal/type_key.test.yo`, and `tests/closure_param_forwarding.test.yo` arm 2.
+
+Status: FIXED (moved 2026-10-14, see Resolution). (pre-existing on `origin/develop` @547d0c239; blocks `test
 (windows-11-arm)` whenever the batch packs these files; found via #614's CI
 on 2026-09-13).
 

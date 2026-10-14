@@ -2227,7 +2227,7 @@ static __declspec(thread) HANDLE __yo_io_iocp = NULL;
 // initializer — the previous CRITICAL_SECTION was initialized in __yo_io_init
 // and deleted in __yo_io_cleanup, which are PER-LOOP: two threads with event
 // loops re-initialized it while in use and tore it down under each other
-// (issues/windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md).
+// (issues/fixed/windows-dir-state-mutex-is-reinitialized-and-deleted-per-loop-but-the-list-is-process-global.md).
 // The list itself stays process-global on purpose: a dir fd, like a socket,
 // is a plain value that can move to another thread.
 static SRWLOCK __yo_dir_state_mutex = SRWLOCK_INIT;
@@ -4767,7 +4767,7 @@ static __yo_process_handle_entry* __yo_process_handles = NULL;
 // Process-global list, process-global lock: two threads can each spawn and
 // wait commands (a ThreadPool worker driving Command.output, two spawned
 // loops), and an unlocked push/unlink race loses a HANDLE or walks a freed
-// node (issues/windows-process-handle-list-is-an-unlocked-process-global.md).
+// node (issues/fixed/windows-process-handle-list-is-an-unlocked-process-global.md).
 // SRWLOCK_INIT is a static initializer, so there is no init race and nothing
 // to tear down. Nodes are freed OUTSIDE the lock, mirroring the socket-fd
 // registry's __yo_win_fd_unmark_socket.

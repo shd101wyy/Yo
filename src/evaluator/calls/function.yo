@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
-{ ExprInfo, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release } :: import("../../expr_info.yo");
+{ ExprInfo, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -432,6 +432,16 @@ _destructor_trait_name_of_id :: (fn(tid : &String, env : &Environment) -> String
   });
   String.new()
 });
+/// Does `labels` hold `name`?
+_labels_contain :: (fn(labels : &ArrayList(String), name : &String) -> bool)({
+  (i : usize) = usize(0);
+  while(i < labels.len(), i = (i + usize(1)), {
+    if(match(labels.get(i), .Some(l) => (l == name), .None => false), {
+      return(true);
+    });
+  });
+  false
+});
 /// E0915 (plans/VALUES_BY_DEFAULT.md decision 45): the destructor runs when
 /// the value's owner drops it, or when the last `Rc`/`Arc` reference goes
 /// away, so a call by hand — `x.drop()`, `T.drop(&x)`, `(T <: Drop).drop(&x)`,
@@ -442,7 +452,18 @@ _destructor_trait_name_of_id :: (fn(tid : &String, env : &Environment) -> String
 /// inherent method of it, or a member of the destructor trait's witness. The
 /// compiler's own synthesized `___dispose` (`auto-generated://` tokens) is
 /// the one caller allowed.
-_reject_explicit_destructor_call :: (fn(callee : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+///
+/// `call_args` is the call's arguments, or `.None` when the member is READ as
+/// a value (`f := Fd.drop`, `(T <: Drop).drop` passed along), which Rust's
+/// E0040 rejects too: a later call through the value would run the destructor
+/// on a live value (`reject_destructor_member_read`,
+/// issues/fixed/a-destructor-read-as-a-method-value-gets-past-e0915.md). The
+/// repair names the value being destroyed: the receiver of `x.drop()`, the
+/// first argument of `T.drop(&x)` and `(T <: Drop).drop(&x)`
+/// (issues/fixed/e0915-repair-hint-names-the-type-instead-of-the-value.md).
+/// Under `yo fix --migrate drop-trait` the member is recorded for the
+/// rewrite instead (`record_destructor_site`).
+_reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(ArrayList(AstExpr)), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   dot_args := match(
     callee,
     .FnCall(_, _, pargs, _, _) => pargs,
@@ -465,10 +486,12 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, env : &Environment, c
     }
   );
   name_tok := ast_expr_token(&name_expr);
-  name := name_tok.value.clone();
-  if(!is_drop_method_name(&name) || name_tok.module_path.starts_with(String.from("auto-generated://")), {
+  // Every evaluated `.` access reaches here (`reject_destructor_member_read`):
+  // test the name before anything allocates.
+  if(!is_drop_method_name(&name_tok.value) || name_tok.module_path.starts_with(String.from("auto-generated://")), {
     return(());
   });
+  name := name_tok.value.clone();
   oi := match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&obj)),
     .Some(i) => i,
@@ -496,10 +519,15 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, env : &Environment, c
     ),
     _ => ()
   );
+  obj_is_type := match(oi.value, .Some(.TypeVal(_)) => true, _ => false);
   (depth : u32) = u32(0);
   while(found.is_empty() && recv_ty.is_some() && (depth < u32(8)), depth = (depth + u32(1)), {
     cur := match(recv_ty, .Some(t) => t, .None => TypeValue.Unit);
     recv_ty = Option(TypeValue).None;
+    // A field of that name: `x.drop` reads the field, never a method.
+    if(!obj_is_type && match(resolve_struct_shell(&cur), .Struct({ field_labels : dfl }) => _labels_contain(&dfl, &name), _ => false), {
+      return(());
+    });
     if(!is_pointer_type(&cur), {
       hits := get_receiver_methods_by_name_from_env(env, name.clone(), &cur, false);
       if(hits.len() > usize(0), {
@@ -531,20 +559,54 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, env : &Environment, c
   if(found.is_empty(), {
     return(());
   });
-  recv_s := ast_expr_to_string(&obj);
+  if(migrate_drop_trait_on(), {
+    record_destructor_site(&name_tok);
+    return(());
+  });
+  is_call := call_args.is_some();
+  // The value the call would destroy: the receiver of `x.drop()`; the first
+  // argument (its `&`/`&mut` stripped) of the type-qualified `T.drop(&x)` and
+  // the witness `(T <: Drop).drop(&x)`, whose dot object is a type.
+  (value_s : Option(String)) = cond(
+    !obj_is_type => Option(String).Some(ast_expr_to_string(&obj)),
+    true => match(
+      call_args,
+      .Some(cas) => match(
+        cas.get(usize(0)),
+        .Some(a0) => {
+          a0u := _unlabeled_argument(&a0);
+          Option(String).Some(ast_expr_to_string(match(_lent_argument_place(&a0u), .Some(p) => p, .None => a0u)))
+        },
+        .None => Option(String).None
+      ),
+      .None => Option(String).None
+    )
+  );
+  repair := match(value_s, .Some(v) => `drop(${v})`, .None => String.from("drop(x) on the value"));
+  (message : String) = cond(
+    is_call => `Explicit call of the destructor "${name}": ${found} runs it automatically, exactly once, when the value's owner drops it or the last Rc/Arc reference to it goes away, so a call by hand would run it twice (plans/VALUES_BY_DEFAULT.md decision 45).`,
+    true => `The destructor "${name}" is read as a value: ${found} runs it automatically, exactly once, when the value's owner drops it or the last Rc/Arc reference to it goes away, so a call through the value would run it twice (plans/VALUES_BY_DEFAULT.md decision 45).`
+  );
   exn.throw(
     dyn(
       with_code(
         format_error_message_with_help(
           &name_tok,
-          `Explicit call of the destructor "${name}": ${found} runs it automatically, exactly once, when the value's owner drops it or the last Rc/Arc reference to it goes away, so a call by hand would run it twice (plans/VALUES_BY_DEFAULT.md decision 45).`,
-          Option(String).Some(`to end the value now, write drop(${recv_s}): it moves the value in and drops it there. Inside a destructor, the fields drop by themselves after it returns.`)
+          &message,
+          Option(String).Some(`to end the value now, write ${repair}: it moves the value in and drops it there. Inside a destructor, the fields drop by themselves after it returns.`)
         ),
         E_EXPLICIT_DESTRUCTOR_CALL
       )
     )
   );
 });
+/// E0915 for a destructor member READ as a value, not called: `f := Fd.drop`,
+/// `(Fd <: Drop).drop` or `x.drop` evaluated anywhere but as a call's callee
+/// (`is_dot_callee`). Called on every evaluated `.` access; a member that is
+/// not `drop`/`dispose` returns at once.
+reject_destructor_member_read :: (fn(dot : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)(
+  _reject_explicit_destructor_call(dot, Option(ArrayList(AstExpr)).None, env, ctx, exn)
+);
 /// Decision 32 (plans/VALUES_BY_DEFAULT.md): `w.m(...)` where the `Deref`
 /// wrapper `w` has a method `m` AND its payload (through its own
 /// auto-dereference chain) has one too has two readings, the wrapper's
@@ -2921,7 +2983,7 @@ _check_lent_place_untouched_after :: (fn(place : &AstExpr, lent_arg : &AstExpr, 
 _lent_place_moved_at :: (fn(lp : &_LentPlace, ctx : &EvalContext) -> Option(AstExpr))(
   match(
     _lent_root_variable(&lp.root, ctx),
-    .Some(rv) => match(rv.consumed_at_token, .Some(moved_at) => Option(AstExpr).Some(AstExpr.Atom(alloc_global_expr_id(), moved_at.*.clone())), .None => Option(AstExpr).None),
+    .Some(rv) => match(rv.consumed_at_token, .Some(moved_at) => Option(AstExpr).Some(AstExpr.Atom(alloc_global_expr_id(), moved_at.clone())), .None => Option(AstExpr).None),
     .None => Option(AstExpr).None
   )
 );
@@ -5888,7 +5950,7 @@ _try_eval_operand_type :: (
   // state is put back afterwards
   // (issues/fixed/a-move-inside-an-overloaded-operators-operand-is-a-use-after-move.md).
   saved_vars := ArrayList(Variable).new();
-  saved_moves := ArrayList(Option(Rc(Token))).new();
+  saved_moves := ArrayList(Option(Token)).new();
   (fi : usize) = usize(0);
   while(fi < env.frames.len(), fi = (fi + usize(1)), {
     match(
@@ -5915,7 +5977,7 @@ _try_eval_operand_type :: (
     match(
       saved_vars.get(ri),
       .Some(v) => {
-        v.consumed_at_token = match(saved_moves.get(ri), .Some(m) => m, .None => Option(Rc(Token)).None);
+        v.consumed_at_token = match(saved_moves.get(ri), .Some(m) => m, .None => Option(Token).None);
       },
       .None => ()
     );
@@ -6289,10 +6351,10 @@ _record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Env
   // consumed state of every binding of the name (a `sink` parameter's
   // non-owning shadow and the owning binding beside it) and restore it.
   same_name := get_variables_from_env(env, name.clone());
-  saved := ArrayList(Option(Rc(Token))).new();
+  saved := ArrayList(Option(Token)).new();
   (si : usize) = usize(0);
   while(si < same_name.len(), {
-    saved.push(match(same_name.get(si), .Some(sv) => sv.consumed_at_token, .None => Option(Rc(Token)).None));
+    saved.push(match(same_name.get(si), .Some(sv) => sv.consumed_at_token, .None => Option(Token).None));
     si = (si + usize(1));
   });
   drop_expr := generate_expr_from_code(`___drop(${name})`, exn);
@@ -6302,7 +6364,7 @@ _record_fnonce_callee_release :: (fn(call : &AstExpr, name : &String, env : &Env
     match(
       same_name.get(ri),
       .Some(rv) => {
-        rv.consumed_at_token = match(saved.get(ri), .Some(t) => t, .None => Option(Rc(Token)).None);
+        rv.consumed_at_token = match(saved.get(ri), .Some(t) => t, .None => Option(Token).None);
       },
       .None => ()
     );
@@ -6392,7 +6454,7 @@ _consume_fnonce_callee :: (fn(callee : &AstExpr, call : &AstExpr, callee_info : 
       _record_fnonce_callee_release(call, name.clone(), env, ctx, exn);
     });
     if(v.consumed_at_token.is_none(), {
-      v.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(callee)));
+      v.consumed_at_token = Option(Token).Some(ast_expr_token(callee));
     });
     return(());
   });
@@ -6978,7 +7040,7 @@ _evaluate_function_call_unanchored :: (
   );
   if(callee_is_marked_dot, {
     unmark_dot_callee();
-    _reject_explicit_destructor_call(&evaluated_callee, env, ctx, exn);
+    _reject_explicit_destructor_call(&evaluated_callee, Option(ArrayList(AstExpr)).Some(args), env, ctx, exn);
   });
   ctx.expected_type = callee_saved_expected;
   // Call-overload expansion: when the callee is a source-namespace struct
@@ -10913,5 +10975,5 @@ Fix: wrap the call:
     }
   )
 });
-export(evaluate_function_call);
+export(evaluate_function_call, reject_destructor_member_read);
 export(MACRO_DISPATCH_ENABLED);

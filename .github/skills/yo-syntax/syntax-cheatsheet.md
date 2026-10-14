@@ -313,10 +313,11 @@ text := match(
   on a tuple (exact arity) and `match(p, Point(x : 0, y) => …, {x, y} => …)`
   on a struct (partial; a bare field name binds that field). A wrapper
   pattern names the cell it crosses: `.Node(Rc(.Leaf(a)), _)` matches through
-  `l : Rc(Self)`, `Rc(x)` binds the payload (a borrow), `Arc(p)` likewise
-  (an `Arc` position needs the wrapper). An `Rc` position is still looked
-  through implicitly (`.Cons(h, .Cons(n, _))`) until decision 31's
-  Generation B; a BINDING at an Rc position binds the cell (`b.*`).
+  `l : Rc(Self)`, `Rc(x)` binds the payload (a borrow), `Arc(p)` and
+  `Box(p)` likewise. An `Rc` or `Arc` position NEEDS the wrapper:
+  `.Cons(h, .Cons(n, _))` through `tail : Rc(Self)` is E0609 (write
+  `.Cons(h, Rc(.Cons(n, _)))`; `yo fix <path> --migrate rc-pattern` does it).
+  A BINDING at an Rc position binds the cell (`b.*`).
 
 Three destructuring shapes for arms (mix freely across arms):
 

@@ -266,7 +266,7 @@ disagree. `issues/repros/generic-future-return-three-t-closure-param.yo`.
 
 ### One more, outside this document's scope but tracked with it
 
-`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md` — a lost
+`issues/fixed/a-bodyless-http-response-is-not-read-until-the-deadline.md` — a lost
 read wake-up that now reproduces identically on kqueue and io_uring, which is
 what makes it interesting: a defect in neither backend. Its checkpoints are on
 the `std-http-client-pool` branch (#556).

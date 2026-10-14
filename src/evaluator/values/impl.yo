@@ -1918,9 +1918,47 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &Type
     );
     bi = (bi + usize(1));
   });
+  // `Drop` and `Dispose` are one destructor (decision 45, Generation A): a
+  // generic impl of the other spelling that covers this receiver is the
+  // same overlap. Their methods' labels differ (`drop`/`dispose`), so
+  // `_trait_instances_agree` does not apply; neither trait has parameters.
+  match(
+    _destructor_twin_of(trait_ty, env),
+    .Some(twin) => {
+      tbucket := _generic_impl_bucket(get_base_trait_key(&twin));
+      (tbi : usize) = usize(0);
+      while(tbi < tbucket.len(), tbi = (tbi + usize(1)), {
+        match(
+          tbucket.get(tbi),
+          .Some(tge) => if((tge.site != site) && try_match_generic_impl(receiver_ty, &tge, env, true).is_some(), {
+            exn.throw(dyn(format_error_message(tok, _destructor_twin_conflict_msg(trait_ty, &twin, receiver_ty, `by the generic impl at ${tge.site}, which covers it`))));
+          }),
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
   g_concrete_trait_impls.push(ConcreteTraitImpl(base_key : base, receiver_ty : receiver_ty, trait_ty : trait_ty, site : site));
   g_concrete_trait_impl_owners.push(registration_owner());
 });
+/// The other spelling of the destructor trait when `trait_ty` is the prelude
+/// `Drop` or `Dispose`, else `.None`.
+_destructor_twin_of :: (fn(trait_ty : &TypeValue, env : &Environment) -> Option(TypeValue))({
+  nm := move_only_declaring_trait_name(trait_ty, env);
+  cond(
+    (nm == "Drop") => get_trait_type_from_env(env, String.from("Dispose")),
+    (nm == "Dispose") => get_trait_type_from_env(env, String.from("Drop")),
+    true => Option(TypeValue).None
+  )
+});
+/// E0612 for a type given both destructor spellings
+/// (issues/fixed/a-drop-impl-beside-a-dispose-impl-is-accepted-and-one-destructor-never-runs.md):
+/// `how` says where the other one is ("(first impl: …)", "by the generic impl
+/// at …, which covers it").
+_destructor_twin_conflict_msg :: (fn(trait_ty : &TypeValue, twin : &TypeValue, receiver_ty : &TypeValue, how : String) -> String)(
+  `Trait "${type_to_string(trait_ty)}" is already implemented for type "${type_to_string(receiver_ty)}" under its other spelling, "${type_to_string(twin)}", ${how}. Drop and Dispose are one destructor until decision 45's Generation B, and a type has at most one: a second destructor would replace the first, which then never runs (plans/VALUES_BY_DEFAULT.md decision 45, plans/reference/TRAIT_COHERENCE.md).`
+);
 /// Coherence at a GENERIC trait impl: an identical impl (same receiver
 /// pattern and trait, binders renamed by position) from another site is a
 /// duplicate (rule 1), and a registered concrete impl the new entry covers is
@@ -2002,6 +2040,33 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
           )
         )
       );
+    },
+    .None => ()
+  );
+  // `Drop` and `Dispose` are one destructor (decision 45, Generation A): an
+  // impl of the other spelling over the same receiver pattern, or a concrete
+  // one this impl covers, is the same conflict.
+  match(
+    _destructor_twin_of(&entry.trait_type, env),
+    .Some(twin) => {
+      twin_key := get_base_trait_key(&twin);
+      match(
+        trait_impl_site_of(String.from("generic"), `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}\n${type_to_string(&twin)}`),
+        .Some(tprev) => if(tprev != entry.site, {
+          exn.throw(dyn(format_error_message(tok, _destructor_twin_conflict_msg(&entry.trait_type, &twin, substitute(&shown, &entry.receiver_type_pattern), `(first impl: ${tprev})`))));
+        }),
+        .None => ()
+      );
+      (tci : usize) = usize(0);
+      while(tci < g_concrete_trait_impls.len(), tci = (tci + usize(1)), {
+        match(
+          g_concrete_trait_impls.get(tci),
+          .Some(tcr) => if((tcr.base_key == twin_key) && (tcr.site != entry.site) && try_match_generic_impl(&tcr.receiver_ty, entry, env, true).is_some(), {
+            exn.throw(dyn(format_error_message(tok, _destructor_twin_conflict_msg(&entry.trait_type, &twin, &tcr.receiver_ty, `(first impl: ${tcr.site}), and this generic impl covers it too`))));
+          }),
+          .None => ()
+        );
+      });
     },
     .None => ()
   );
@@ -5319,6 +5384,19 @@ evaluate_module_value :: (
               // (issues/fixed/yo-self-missing-duplicate-impl-checks.md).
               coh_tok := ast_expr_token(&field_expr);
               _check_copy_clone_exclusion(&receiver_ty, receiver_type_id.clone(), &ctt, _impl_site_string(&coh_tok), &coh_tok, &local_env, ctx, exn);
+              // The other destructor spelling's concrete impl on this type
+              // (decision 45, Generation A: one destructor slot).
+              match(
+                _destructor_twin_of(&ctt, &local_env),
+                .Some(coh_twin) => match(
+                  trait_impl_site_of(receiver_type_id.clone(), get_trait_key(&coh_twin)),
+                  .Some(twin_prev) => if(twin_prev != _impl_site_string(&coh_tok), {
+                    exn.throw(dyn(format_error_message(&coh_tok, _destructor_twin_conflict_msg(&ctt, &coh_twin, &receiver_ty, `(first impl: ${twin_prev})`))));
+                  }),
+                  .None => ()
+                ),
+                .None => ()
+              );
               match(
                 note_trait_impl_site(receiver_type_id.clone(), get_trait_key(&ctt), _impl_site_string(&coh_tok)),
                 .Some(coh_prev) => {

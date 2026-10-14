@@ -139,7 +139,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites } :: import("./expr_info.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -1294,8 +1294,14 @@ _run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, e
 /// `yo fix <path> --migrate drop-trait` — decision 45
 /// (plans/VALUES_BY_DEFAULT.md): the destructor trait `Dispose` is renamed
 /// `Drop`, its method `dispose` `drop`, and an explicit call of it is E0915.
-/// The rename is an exact synonym, so the sweep is syntactic: each file is
-/// parsed, never evaluated. The rows:
+/// The names are an exact synonym, so their sweep is syntactic. A `.dispose`
+/// MEMBER is not: an inherent method, another trait's method or a field may
+/// be named `dispose` too, so every file is evaluated first with the E0915
+/// check recording the members that resolve to the destructor
+/// (`record_destructor_site`), and only those are rewritten; any other
+/// `.dispose` member is listed and left as written
+/// (issues/fixed/migrate-drop-trait-rewrites-a-non-destructor-dispose-call.md).
+/// The rows:
 ///   - the trait name `Dispose` → `Drop` wherever it is an identifier: an
 ///     `impl` entry, a `<:` bound or witness, an import, a reflection
 ///     argument;
@@ -1308,11 +1314,12 @@ _run_migrate_modes :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, e
 ///   - an explicit call that ends a named value, `x.dispose()` and
 ///     `(T <: Dispose).dispose(&x)` (or `(x)`), → `drop(x)`, which moves `x`
 ///     in: a later use of `x` is then E0901, and the check says where.
-/// Any other explicit call (`self.dispose()`, a field `s.f.dispose()`) is
-/// renamed to `.drop` and listed with its position: it is E0915 and needs a
-/// hand edit (`drop(x)`, or a `close_sync`-style inherent method for a
-/// resource that must be released while other references live). Each edit
-/// checks the text it replaces.
+/// Any other explicit call (`self.dispose()`, a field `s.f.dispose()`), and
+/// the destructor read as a value (`f := Fd.dispose`), is renamed to `.drop`
+/// and listed with its position: it is E0915 and needs a hand edit
+/// (`drop(x)`, or a `close_sync`-style inherent method for a resource that
+/// must be released while other references live). The witness form names the
+/// trait, so it needs no evaluation. Each edit checks the text it replaces.
 _DtmCounts :: struct(names : usize, methods : usize, receivers : usize, calls : usize);
 /// Is every byte of `line` ASCII (so a rune column is a byte offset)?
 _dtm_ascii :: (fn(line : &String) -> bool)({
@@ -1414,14 +1421,25 @@ _dtm_witness_call_fix :: (fn(line : &String, row : usize, member_col : usize, x 
   whole := line.substring(s0, close_at + usize(1));
   Option(_PendingFix).Some(_PendingFix(row : row, col : s0, len : whole.len(), replacement : `drop(${x})`, description : whole))
 });
+/// The walk's outputs and the destructor members evaluation recorded.
+/// `dkeys` holds the file's `row:col` member positions; `left` and `skipped`
+/// collect listed sites as `row:col text`.
+_DtmOut :: struct(
+  fixes : ArrayList(_PendingFix),
+  counts : _DtmCounts,
+  left : ArrayList(String),
+  skipped : ArrayList(String),
+  dkeys : HashSet(String)
+);
+_dtm_pos :: (fn(t : &Token) -> String)(`${(usize(t.row) + usize(1)).to_string()}:${(usize(t.column) + usize(1)).to_string()}`);
 _dtm_walk :: (
-  fn(e : &AstExpr, in_impl_entry : bool, lines : &ArrayList(String), out : &mut ArrayList(_PendingFix), counts : &mut _DtmCounts, left : &mut ArrayList(String)) -> unit
+  fn(e : &AstExpr, in_impl_entry : bool, lines : &ArrayList(String), o : &mut _DtmOut) -> unit
 )(
   match(
     e,
     .Atom(_, tok) => if((tok.kind == TokenKind.Identifier) && (tok.value == "Dispose"), {
-      out.push(_PendingFix(row : usize(tok.row), col : usize(tok.column), len : usize(7), replacement : String.from("Drop"), description : String.from("Dispose")));
-      counts.names = (counts.names + usize(1));
+      o.fixes.push(_PendingFix(row : usize(tok.row), col : usize(tok.column), len : usize(7), replacement : String.from("Drop"), description : String.from("Dispose")));
+      o.counts.names = (o.counts.names + usize(1));
     }),
     .FnCall(_, callee, args, _, _) => {
       callee_word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
@@ -1435,12 +1453,12 @@ _dtm_walk :: (
             lline := match(lines.get(usize(lt.row)), .Some(l) => l, .None => String.new());
             sig := String.from("dispose : (fn(self : &Self)");
             if(_rune_slice(&lline, usize(lt.column), sig.len()) == sig, {
-              out.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : sig.len(), replacement : String.from("drop : (fn(self : &mut Self)"), description : sig));
-              counts.receivers = (counts.receivers + usize(1));
+              o.fixes.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : sig.len(), replacement : String.from("drop : (fn(self : &mut Self)"), description : sig));
+              o.counts.receivers = (o.counts.receivers + usize(1));
             }, {
-              out.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : usize(7), replacement : String.from("drop"), description : String.from("dispose")));
+              o.fixes.push(_PendingFix(row : usize(lt.row), col : usize(lt.column), len : usize(7), replacement : String.from("drop"), description : String.from("dispose")));
             });
-            counts.methods = (counts.methods + usize(1));
+            o.counts.methods = (o.counts.methods + usize(1));
           }),
           _ => ()
         );
@@ -1453,7 +1471,7 @@ _dtm_walk :: (
         match(
           args.get(usize(1)),
           .Some(.FnCall(_, tc, targs, _, _)) => if(is_def && match(tc, .Atom(_, tt) => (tt.value == "trait"), _ => false), {
-            recur(&args(usize(0)), false, lines, out, counts, left);
+            recur(&args(usize(0)), false, lines, o);
             (ti : usize) = usize(0);
             while(ti < targs.len(), ti = (ti + usize(1)), {
               match(
@@ -1467,7 +1485,7 @@ _dtm_walk :: (
                         .Some(.Atom(_, st)) => {
                           sline := match(lines.get(usize(st.row)), .Some(l) => l, .None => String.new());
                           if(_rune_slice(&sline, usize(st.column), usize(9)) == "\"Dispose\"", {
-                            out.push(_PendingFix(row : usize(st.row), col : usize(st.column), len : usize(9), replacement : String.from("\"Drop\""), description : String.from("\"Dispose\"")));
+                            o.fixes.push(_PendingFix(row : usize(st.row), col : usize(st.column), len : usize(9), replacement : String.from("\"Drop\""), description : String.from("\"Dispose\"")));
                           });
                         },
                         _ => ()
@@ -1475,7 +1493,7 @@ _dtm_walk :: (
                     }),
                     _ => ()
                   );
-                  recur(&ta, true, lines, out, counts, left);
+                  recur(&ta, true, lines, o);
                 },
                 .None => ()
               );
@@ -1513,6 +1531,18 @@ _dtm_walk :: (
             .FnCall(_, wc, wargs, _, _) => (match(wc, .Atom(_, wt) => (wt.value == "<:"), _ => false) && match(wargs.get(usize(1)), .Some(.Atom(_, wn)) => (wn.value == "Dispose"), _ => false)),
             _ => false
           );
+          // A member evaluation did not resolve to the destructor (an
+          // inherent method, another trait's, a field, or code evaluation
+          // never reached) is left as written. The witness names the trait.
+          if(!is_witness && !o.dkeys.contains(`${mt.row.to_string()}:${mt.column.to_string()}`), {
+            o.skipped.push(`${_dtm_pos(&mt)} ${ast_expr_to_string(e)}`);
+            recur(&obj, false, lines, o);
+            (si : usize) = usize(0);
+            while(si < args.len(), si = (si + usize(1)), {
+              match(args.get(si), .Some(a) => recur(&a, false, lines, o), .None => ());
+            });
+            return(());
+          });
           // `x.dispose()` → `drop(x)`.
           (fix : Option(_PendingFix)) = Option(_PendingFix).None;
           if((args.len() == usize(0)) && !obj_word.is_empty() && (obj_word != "self"), {
@@ -1532,40 +1562,85 @@ _dtm_walk :: (
           match(
             fix,
             .Some(f) => {
-              out.push(f);
-              counts.calls = (counts.calls + usize(1));
+              o.fixes.push(f);
+              o.counts.calls = (o.counts.calls + usize(1));
               return(());
             },
             .None => {
-              left.push(`${(usize(mt.row) + usize(1)).to_string()}:${(usize(mt.column) + usize(1)).to_string()} ${ast_expr_to_string(e)}`);
+              o.fixes.push(_PendingFix(row : usize(mt.row), col : usize(mt.column), len : usize(7), replacement : String.from("drop"), description : String.from("dispose")));
+              o.counts.methods = (o.counts.methods + usize(1));
+              o.left.push(`${_dtm_pos(&mt)} ${ast_expr_to_string(e)} is an explicit destructor call (E0915): renamed to drop`);
             }
           );
+          // The callee's member is handled; walk its object and the
+          // arguments.
+          recur(&obj, false, lines, o);
+          (mi : usize) = usize(0);
+          while(mi < args.len(), mi = (mi + usize(1)), {
+            match(args.get(mi), .Some(a) => recur(&a, false, lines, o), .None => ());
+          });
+          return(());
         },
         .None => ()
       );
-      // A bare `obj.dispose` member (here as the node itself).
+      // A bare `obj.dispose` member (here as the node itself): the
+      // destructor read as a value when evaluation recorded it.
       if((callee_word == ".") && (args.len() == usize(2)), {
         match(
           args.get(usize(1)),
           .Some(.Atom(_, mt2)) => if(mt2.value == "dispose", {
-            out.push(_PendingFix(row : usize(mt2.row), col : usize(mt2.column), len : usize(7), replacement : String.from("drop"), description : String.from("dispose")));
-            counts.methods = (counts.methods + usize(1));
+            if(o.dkeys.contains(`${mt2.row.to_string()}:${mt2.column.to_string()}`), {
+              o.fixes.push(_PendingFix(row : usize(mt2.row), col : usize(mt2.column), len : usize(7), replacement : String.from("drop"), description : String.from("dispose")));
+              o.counts.methods = (o.counts.methods + usize(1));
+              o.left.push(`${_dtm_pos(&mt2)} ${ast_expr_to_string(e)} is the destructor read as a value (E0915): renamed to drop`);
+            }, {
+              o.skipped.push(`${_dtm_pos(&mt2)} ${ast_expr_to_string(e)}`);
+            });
           }),
           _ => ()
         );
       });
-      recur(&callee, false, lines, out, counts, left);
+      recur(&callee, false, lines, o);
       (i : usize) = usize(0);
       while(i < args.len(), i = (i + usize(1)), {
-        match(args.get(i), .Some(a) => recur(&a, callee_word == "Dispose", lines, out, counts, left), .None => ());
+        match(args.get(i), .Some(a) => recur(&a, callee_word == "Dispose", lines, o), .None => ());
       });
     }
   )
 );
-_run_migrate_drop_trait :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : Exception) -> unit)({
-  (counts : _DtmCounts) = _DtmCounts(names : usize(0), methods : usize(0), receivers : usize(0), calls : usize(0));
+_run_migrate_drop_trait :: (fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit)({
+  // Evaluate every file first: the E0915 check records each `.dispose`
+  // member that resolves to the destructor (`set_migrate_drop_trait`, on
+  // since before the prelude loaded) instead of rejecting it.
+  (n_unevaluated : usize) = usize(0);
+  (ei : usize) = usize(0);
+  while(ei < files.len(), ei = (ei + usize(1)), {
+    file := match(files.get(ei), .Some(f) => f, .None => String.new());
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    if(!outcome.ok, {
+      _drop_err := _take_load_error();
+      _drop_diags := take_error_diagnostics();
+      n_unevaluated = (n_unevaluated + usize(1));
+      println(`fix: ${file} does not evaluate; only the \`.dispose\` members evaluation reached are rewritten`);
+    });
+  });
+  set_migrate_drop_trait(false);
+  sites := take_destructor_sites();
+  site_paths := ArrayList(String).new();
+  (spi : usize) = usize(0);
+  while(spi < sites.len(), spi = (spi + usize(1)), {
+    site_paths.push(canonical_module_path(sites(spi).path.clone()));
+  });
+  (o : _DtmOut) = _DtmOut(
+    fixes : ArrayList(_PendingFix).new(),
+    counts : _DtmCounts(names : usize(0), methods : usize(0), receivers : usize(0), calls : usize(0)),
+    left : ArrayList(String).new(),
+    skipped : ArrayList(String).new(),
+    dkeys : HashSet(String).new()
+  );
   (n_stale : usize) = usize(0);
   (n_left : usize) = usize(0);
+  (n_skipped : usize) = usize(0);
   (failed : usize) = usize(0);
   (fi : usize) = usize(0);
   while(fi < files.len(), fi = (fi + usize(1)), {
@@ -1579,22 +1654,37 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), dry_run : bool, io : 
       },
       .Some(asts) => {
         lines := src.split(String.from("\n"));
-        pending := ArrayList(_PendingFix).new();
-        left := ArrayList(String).new();
+        canon := canonical_module_path(file.clone());
+        dkeys := HashSet(String).new();
+        (dk : usize) = usize(0);
+        while(dk < sites.len(), dk = (dk + usize(1)), {
+          if(site_paths(dk) == canon, {
+            dkeys.insert(`${sites(dk).row.to_string()}:${sites(dk).col.to_string()}`);
+          });
+        });
+        o.fixes = ArrayList(_PendingFix).new();
+        o.left = ArrayList(String).new();
+        o.skipped = ArrayList(String).new();
+        o.dkeys = dkeys;
         (ai : usize) = usize(0);
         while(ai < asts.len(), ai = (ai + usize(1)), {
-          match(asts.get(ai), .Some(a) => _dtm_walk(&a, false, &lines, &mut pending, &mut counts, &mut left), .None => ());
+          match(asts.get(ai), .Some(a) => _dtm_walk(&a, false, &lines, &mut o), .None => ());
         });
         (lj : usize) = usize(0);
-        while(lj < left.len(), lj = (lj + usize(1)), {
-          println(`fix: ${file}:${left(lj)} is an explicit destructor call (E0915): renamed to drop, left for a hand edit`);
+        while(lj < o.left.len(), lj = (lj + usize(1)), {
+          println(`fix: ${file}:${o.left(lj)}, left for a hand edit`);
         });
-        n_left = (n_left + left.len());
+        n_left = (n_left + o.left.len());
+        (sj : usize) = usize(0);
+        while(sj < o.skipped.len(), sj = (sj + usize(1)), {
+          println(`fix: ${file}:${o.skipped(sj)} does not resolve to the destructor (an inherent method, another trait's method or a field, or code evaluation never reached): left as written`);
+        });
+        n_skipped = (n_skipped + o.skipped.len());
         checked := ArrayList(_PendingFix).new();
         seen := HashSet(String).new();
         (pi : usize) = usize(0);
-        while(pi < pending.len(), pi = (pi + usize(1)), {
-          p := match(pending.get(pi), .Some(x) => x, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
+        while(pi < o.fixes.len(), pi = (pi + usize(1)), {
+          p := match(o.fixes.get(pi), .Some(x) => x, .None => _PendingFix(row : usize(0), col : usize(0), len : usize(0), replacement : String.new(), description : String.new()));
           key := `${p.row.to_string()}:${p.col.to_string()}`;
           if(seen.contains(&key), {
             continue;
@@ -1619,7 +1709,7 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), dry_run : bool, io : 
     );
   });
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
-  println(`fix: ${verb} ${counts.names.to_string()} Dispose to Drop, ${counts.methods.to_string()} dispose to drop (${counts.receivers.to_string()} receiver(s) to self : &mut Self), ${counts.calls.to_string()} explicit call(s) to drop(x); ${n_left.to_string()} explicit call(s) left for a hand edit; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse`);
+  println(`fix: ${verb} ${o.counts.names.to_string()} Dispose to Drop, ${o.counts.methods.to_string()} dispose to drop (${o.counts.receivers.to_string()} receiver(s) to self : &mut Self), ${o.counts.calls.to_string()} explicit call(s) to drop(x); ${n_left.to_string()} explicit call(s) left for a hand edit; ${n_skipped.to_string()} other \`.dispose\` member(s) left as written; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse; ${n_unevaluated.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
   });
@@ -2500,6 +2590,195 @@ _run_migrate_markers :: (
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated arguments were not migrated`));
   });
 });
+/// `yo fix <path> --migrate rc-pattern` — decision 31, Generation B
+/// (plans/VALUES_BY_DEFAULT.md): a pattern at an `Rc(T)` position spells the
+/// wrapper it crosses, `Rc(p)`. Semantic, not syntactic: only the evaluator
+/// knows a position's type. Every file is evaluated with the recorder on
+/// (`record_rc_pattern_site`): the implicit look-through, which is otherwise
+/// an error, records the pattern and looks through. Each recorded pattern is
+/// found in the source from its leftmost token (it may span lines; a
+/// parenthesized infix pattern starts at its `(`) and wrapped in `Rc(…)`. A
+/// site whose source text no longer prints as the evaluated pattern (a
+/// synthetic token, a macro expansion) is listed and left as written. Nested
+/// sites compose, because each edit is two insertions. Code that evaluation
+/// never reaches (an uninstantiated generic body) is not seen.
+_run_migrate_rc_pattern :: (
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
+)({
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    if(!outcome.ok, {
+      _drop := _take_load_error();
+      _drop_diags := take_error_diagnostics();
+      failed = (failed + usize(1));
+      println(`fix: ${file} does not evaluate; its patterns are migrated only as far as evaluation reached`);
+    });
+  });
+  set_migrate_rc_pattern(false);
+  sites := take_rc_pattern_sites();
+  site_paths := ArrayList(String).new();
+  (spi : usize) = usize(0);
+  while(spi < sites.len(), spi = (spi + usize(1)), {
+    site_paths.push(canonical_module_path(sites(spi).path.clone()));
+  });
+  (n_wrapped : usize) = usize(0);
+  (n_skipped : usize) = usize(0);
+  (ti : usize) = usize(0);
+  while(ti < files.len(), ti = (ti + usize(1)), {
+    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    canon := canonical_module_path(file.clone());
+    // One position can be recorded under both spellings of its module path
+    // and by several evaluations: keep one per position.
+    mine := ArrayList(RcPatternSite).new();
+    seen := HashSet(String).new();
+    (si : usize) = usize(0);
+    while(si < sites.len(), si = (si + usize(1)), {
+      if(site_paths(si) == canon, {
+        st := sites(si);
+        if(seen.insert(`${st.row.to_string()}:${st.col.to_string()}`), {
+          mine.push(st);
+        });
+      });
+    });
+    if(mine.len() == usize(0), {
+      continue;
+    });
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    // The whole file as runes, with each line's first rune index: a pattern
+    // may span lines.
+    runes := ArrayList(rune).new();
+    line_starts := ArrayList(usize).new();
+    line_starts.push(usize(0));
+    sit := src.chars();
+    (sgo : bool) = true;
+    while(sgo, {
+      match(
+        sit.next(),
+        .Some(r) => {
+          runes.push(r);
+          if(r.char == u32(0x0A), {
+            line_starts.push(runes.len());
+          });
+        },
+        .None => {
+          sgo = false;
+        }
+      );
+    });
+    // Insertions as (rune index, `Rc(` or `)`).
+    at_idx := ArrayList(usize).new();
+    at_open := ArrayList(bool).new();
+    (mi : usize) = usize(0);
+    while(mi < mine.len(), mi = (mi + usize(1)), {
+      st := mine(mi);
+      at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      start_opt := match(line_starts.get(st.row), .Some(ls) => Option(usize).Some(ls + st.col), .None => Option(usize).None);
+      (span_s : usize) = usize(0);
+      (span_e : Option(usize)) = Option(usize).None;
+      match(
+        start_opt,
+        .Some(start) => if(start < runes.len(), {
+          // A parenthesized pattern (`(a | b)`): its leftmost token is the
+          // first operand, after a grouping `(` (one no callee precedes), so
+          // the span starts at that `(` and the wrapper goes outside it.
+          (b : usize) = start;
+          while((b > usize(0)) && runes(b - usize(1)).is_whitespace(), b = (b - usize(1)), ());
+          (grouping : bool) = ((b > usize(0)) && (runes(b - usize(1)).char == u32(0x28)));
+          if(grouping && (b > usize(1)), {
+            before := runes(b - usize(2));
+            grouping = !(_is_word_rune(before) || (before.char == u32(0x29)) || (before.char == u32(0x5D)));
+          });
+          if(grouping, {
+            lp := (b - usize(1));
+            match(
+              _expr_span_end(&runes, lp, lp, &st.expect, &file),
+              .Some(end_p) => {
+                span_s = lp;
+                span_e = .Some(end_p);
+              },
+              .None => ()
+            );
+          });
+          if(span_e.is_none(), {
+            match(
+              _expr_span_end(&runes, start, start, &st.expect, &file),
+              .Some(end) => {
+                span_s = start;
+                span_e = .Some(end);
+              },
+              .None => ()
+            );
+          });
+        }),
+        .None => ()
+      );
+      match(
+        span_e,
+        .Some(e0) => {
+          n_wrapped = (n_wrapped + usize(1));
+          at_idx.push(span_s);
+          at_open.push(true);
+          at_idx.push(e0);
+          at_open.push(false);
+        },
+        .None => {
+          n_skipped = (n_skipped + usize(1));
+          println(`fix: ${at}: the source text does not print as \`${st.expect}\`; left as written`);
+        }
+      );
+    });
+    if(dry_run || (at_idx.len() == usize(0)), {
+      continue;
+    });
+    // Order the insertions by ascending index; at one index the order does
+    // not matter (an `Rc(` never shares an index with a `)`).
+    (n : usize) = at_idx.len();
+    (oi : usize) = usize(0);
+    while(oi < n, oi = (oi + usize(1)), {
+      (best : usize) = oi;
+      (bi : usize) = (oi + usize(1));
+      while(bi < n, bi = (bi + usize(1)), {
+        if(at_idx(bi) < at_idx(best), {
+          best = bi;
+        });
+      });
+      if(best != oi, {
+        ti_a := at_idx(oi);
+        at_idx(oi) = at_idx(best);
+        at_idx(best) = ti_a;
+        to_a := at_open(oi);
+        at_open(oi) = at_open(best);
+        at_open(best) = to_a;
+      });
+    });
+    // Walk forward, emitting each insertion before the rune at its index.
+    out := String.new();
+    (nx : usize) = usize(0);
+    (k : usize) = usize(0);
+    while(k <= runes.len(), k = (k + usize(1)), {
+      while((nx < n) && (at_idx(nx) == k), nx = (nx + usize(1)), {
+        out.push_str(if(at_open(nx), "Rc(", ")"));
+      });
+      if(k < runes.len(), {
+        out.push_rune(runes(k));
+      });
+    });
+    io.await(write_string(Path.new(file.clone()), &out, io), IoExn(io : io, exn : exn));
+    fmt_argv := ArrayList(String).new();
+    fmt_argv.push(String.from("yo"));
+    fmt_argv.push(String.from("fmt"));
+    fmt_argv.push(file.clone());
+    run_fmt(&fmt_argv, io, exn);
+  });
+  verb := if(dry_run, String.from("would wrap"), String.from("wrapped"));
+  println(`fix: ${verb} ${n_wrapped.to_string()} pattern(s) in Rc(…); ${n_skipped.to_string()} site(s) left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated patterns were not migrated`));
+  });
+});
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
 /// already computed (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 ///
@@ -2517,7 +2796,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -2542,8 +2821,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers or drop-trait`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait or rc-pattern`));
         });
         migrate = argv(next_m);
         ai = (ai + usize(2));
@@ -2558,7 +2837,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -2620,10 +2899,6 @@ run_fix :: (
     _run_migrate_borrow_spelling(&files, dry_run, io, exn);
     return(());
   });
-  if(migrate == "drop-trait", {
-    _run_migrate_drop_trait(&files, dry_run, io, exn);
-    return(());
-  });
   // A migration records from the first evaluated parameter on, the
   // prelude's included: under the flip the prelude itself only evaluates
   // with the conformance half of the sweep recording instead of rejecting.
@@ -2638,6 +2913,12 @@ run_fix :: (
   });
   if(migrate == "markers", {
     set_migrate_markers(true);
+  });
+  if(migrate == "drop-trait", {
+    set_migrate_drop_trait(true);
+  });
+  if(migrate == "rc-pattern", {
+    set_migrate_rc_pattern(true);
   });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
@@ -2662,6 +2943,14 @@ run_fix :: (
   });
   if(migrate == "markers", {
     _run_migrate_markers(&files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "drop-trait", {
+    _run_migrate_drop_trait(&files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "rc-pattern", {
+    _run_migrate_rc_pattern(&files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -10511,8 +10800,10 @@ Options:
                             (own -> sink), addr-of (an address-of &x ->
                             addr_of(x)), params, markers (&x / &mut x
                             on a named place passed to a &T / &mut T
-                            parameter), or drop-trait (Dispose -> Drop,
-                            dispose -> drop, x.dispose() -> drop(x))
+                            parameter), drop-trait (Dispose -> Drop,
+                            dispose -> drop, x.dispose() -> drop(x)), or
+                            rc-pattern (a pattern at an Rc(T) position
+                            p -> Rc(p))
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -10537,8 +10828,9 @@ Examples:
                             y := &mut p 等）、modes（own -> sink）、
                             addr-of（取址的 &x -> addr_of(x)）、params、
                             markers（传给 &T / &mut T 形参的具名位置
-                            加上 &x / &mut x），或 drop-trait（Dispose ->
-                            Drop、dispose -> drop、x.dispose() -> drop(x)）
+                            加上 &x / &mut x）、drop-trait（Dispose ->
+                            Drop、dispose -> drop、x.dispose() -> drop(x)），
+                            或 rc-pattern（Rc(T) 位置上的模式 p -> Rc(p)）
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录

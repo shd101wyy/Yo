@@ -97,7 +97,7 @@ change gated accordingly.
   frames append IN PLACE, so every stored env must be FROZEN explicitly —
   the §3 rule: share `Variable` handles, rebuild every `Frame` (frame 0
   included) with a fresh variables list and a **fresh `index_key`**
-  (`issues/env-sharing-live-frame-membership-leak.md`; the rule is stated in
+  (`issues/fixed/env-sharing-live-frame-membership-leak.md`; the rule is stated in
   the backlog doc as binding on this campaign).
 - Codegen does NOT read any of this: the C closure struct comes from the
   separate captured-variables analysis

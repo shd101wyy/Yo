@@ -79,7 +79,7 @@ test("nested patterns look through an Rc payload", {
   f :: (fn(l : &List) -> i32)(
     match(
       l,
-      .Cons(1, .Cons(n, _)) => n,
+      .Cons(1, Rc(.Cons(n, _))) => n,
       .Cons(h, _) => h,
       .Nil => i32(0)
     )
@@ -90,7 +90,7 @@ test("nested patterns look through an Rc payload", {
   h :: (fn(c : &Cell) -> i32)(
     match(
       c,
-      .Value(42) => i32(1),
+      .Value(Rc(42)) => i32(1),
       .Value(_) => i32(2),
       .Empty => i32(0)
     )
@@ -100,8 +100,8 @@ test("nested patterns look through an Rc payload", {
   n :: (fn(r : &Rc(List)) -> i32)(
     match(
       r,
-      .Cons(h, _) => h,
-      .Nil => i32(-1)
+      Rc(.Cons(h, _)) => h,
+      Rc(.Nil) => i32(-1)
     )
   );
   assert(n(rc(List.Cons(7, rc(List.Nil)))) == i32(7), "an Rc scrutinee takes payload patterns directly");
@@ -111,8 +111,8 @@ test("a cell type built by a comptime function is the same Rc", {
   (r : CellOf(List)) = rc(List.Cons(4, rc(List.Nil)));
   head := match(
     r,
-    .Cons(h, _) => h,
-    .Nil => i32(0)
+    Rc(.Cons(h, _)) => h,
+    Rc(.Nil) => i32(0)
   );
   assert(head == i32(4), "the CTFE-built Rc(List) is looked through like rc's");
 });

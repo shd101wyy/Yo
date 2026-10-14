@@ -2078,7 +2078,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
     expr_info_capture_type(&rhs_info),
     ast_expr_token(&lhs_resolved),
     &updated_variable.initialized_at_token,
-    match(updated_variable.consumed_at_token, .Some(uct) => Option(Token).Some(uct.*), .None => Option(Token).None)
+    match(updated_variable.consumed_at_token, .Some(uct) => Option(Token).Some(uct), .None => Option(Token).None)
   );
   // Store the RHS value for comptime-only variables; runtime vars don't carry a value.
   value_to_store := cond(
@@ -2110,7 +2110,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       updated_variable.is_ref => false,
       true => type_contains_rc_type(&rhs_type)
     ),
-    is_owning_the_same_rc_value_as : Option(Rc(Variable)).None,
+    is_owning_the_same_rc_value_as : Option(Variable).None,
     is_reassignable : updated_variable.is_reassignable,
     token : updated_variable.token,
     // First initialization stamps the token; a REASSIGNMENT must preserve it.
@@ -2126,7 +2126,7 @@ comptime(${variable_name}) : ${dgc_ty_str}
       updated_variable.initialized_at_token,
       Option(Token).Some(ast_expr_token(&lhs_resolved))
     ),
-    consumed_at_token : Option(Rc(Token)).None,
+    consumed_at_token : Option(Token).None,
     is_implicit : updated_variable.is_implicit,
     is_created_from_destructuring_atom_variable : updated_variable.is_created_from_destructuring_atom_variable,
     rare : updated_variable.rare,

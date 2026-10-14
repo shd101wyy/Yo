@@ -264,7 +264,7 @@ get_future_variable_id_ :: (
   // If the variable shares RC with an owner, return the owner's ID
   match(
     last_var.is_owning_the_same_rc_value_as,
-    .Some(owner_box) => Option(String).Some(owner_box.*.id.to_string()),
+    .Some(owner_box) => Option(String).Some(owner_box.id.to_string()),
     .None => Option(String).Some(last_var.id.to_string())
   )
 });
@@ -498,8 +498,8 @@ analyze_await_points :: (
       kind : CapturedVariableKind.Local,
       is_owning_the_same_rc_value_as : match(
         sv.is_owning_the_same_rc_value_as,
-        .Some(owner_sv) => Option(Rc(CapturedVariable)).Some(rc(CapturedVariable(base : owner_sv.*, kind : CapturedVariableKind.Local, is_owning_the_same_rc_value_as : Option(Rc(CapturedVariable)).None))),
-        .None => Option(Rc(CapturedVariable)).None
+        .Some(owner_sv) => Option(CapturedVariable).Some(CapturedVariable(base : owner_sv, kind : CapturedVariableKind.Local, is_owning_the_same_rc_value_as : Option(CapturedVariable).None)),
+        .None => Option(CapturedVariable).None
       )
     );
     captured_variables.push(cv);
@@ -594,12 +594,12 @@ collect_variable_bindings_ :: (
                                               name : var_name.clone(),
                                               ty : var_type.clone(),
                                               is_owning_the_same_rc_value_as :
-                                                Option(Rc(SuspensionCapturedVariable)).None,
+                                                Option(SuspensionCapturedVariable).None,
                                               decl_site : `${variable.token.module_path}:${variable.token.row.to_string()}:${variable.token.column.to_string()}`
                                             ),
                                             kind : CapturedVariableKind.Local,
                                             is_owning_the_same_rc_value_as :
-                                              Option(Rc(CapturedVariable)).None
+                                              Option(CapturedVariable).None
                                           );
                                           variables.push(cv);
                                           seen.insert(variable.id.to_string(), true);

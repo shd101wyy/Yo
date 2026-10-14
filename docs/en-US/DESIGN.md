@@ -1248,9 +1248,9 @@ A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copi
 
 #### `Drop`, the upcoming name of `Dispose`
 
-`Dispose` is being renamed `Drop`, and its method `dispose` becomes `drop`, with Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45). The meaning does not change: the destructor runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. Its receiver follows Rust's `drop(&mut self)`: `drop : (fn(self : &mut Self) -> unit)`, so a destructor may take a field out or reset it (`self.f = .None`) before the fields are dropped, and an impl that declares `self : &Self` does not conform. (`Dispose.dispose` keeps `self : &Self` until the rename.) The compiler already accepts both spellings; `std/` and these docs switch to `Drop` once the released seed knows it, and `yo fix <path> --migrate drop-trait` rewrites a project (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`).
+`Dispose` is being renamed `Drop`, and its method `dispose` becomes `drop`, with Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45). The meaning does not change: the destructor runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. Its receiver follows Rust's `drop(&mut self)`: `drop : (fn(self : &mut Self) -> unit)`, so a destructor may take a field out or reset it (`self.f = .None`) before the fields are dropped, and an impl that declares `self : &Self` does not conform. (`Dispose.dispose` keeps `self : &Self` until the rename.) The compiler already accepts both spellings, and treats them as one destructor: a `Drop` impl satisfies a `where(T <: Dispose)` bound and `Type.impls(T, Dispose)`, and the other way around, and a type has one destructor, so an impl of one spelling on a type that has the other (including std's `Dispose` impl on `ArrayList(T)`) is error E0612. `std/` and these docs switch to `Drop` once the released seed knows it, and `yo fix <path> --migrate drop-trait` rewrites a project (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`; a `.dispose` member that is not the destructor, such as an inherent method or a field of that name, is left as written).
 
-Calling the destructor by hand is error E0915, in both spellings, as in Rust: `x.drop()`, `Fd.drop(&x)`, `(Fd <: Drop).drop(&x)` and `x.dispose()` would run it a second time on a live value. A destructor does not call its fields' destructors either: they drop after it returns. To end a value early, pass it to the prelude's `drop(x)`, which moves it in and drops it when the call returns; a later use of `x` is E0901.
+Calling the destructor by hand is error E0915, in both spellings, as in Rust: `x.drop()`, `Fd.drop(&x)`, `(Fd <: Drop).drop(&x)` and `x.dispose()` would run it a second time on a live value. Reading it as a value, `f := Fd.drop`, is E0915 too, since a call through `f` would do the same. A method of another trait that happens to be named `drop` is an ordinary method, called directly or through `Dyn`. A destructor does not call its fields' destructors either: they drop after it returns. To end a value early, pass it to the prelude's `drop(x)`, which moves it in and drops it when the call returns; a later use of `x` is E0901.
 
 ```yo
 { println } :: import("std/fmt");
@@ -2479,7 +2479,7 @@ parentheses.
 | tuple | `(0, y)`, `(_, .Some(v))` | exact arity, one sub-pattern per element |
 | named struct | `Point(x : 0, y)`, `Person(name : "alice")` | labeled or bare-field, partial (unlisted fields match anything) |
 | anonymous struct | `{x : 0, y}` | at a struct position, like the variant curly form |
-| wrapper | `Rc(p)`, `Arc(p)` | looks through the cell at an `Rc(T)`/`Arc(T)` position; `p` matches the `T` inside, and its bindings borrow |
+| wrapper | `Rc(p)`, `Arc(p)`, `Box(p)` | looks through the cell at an `Rc(T)`/`Arc(T)`/`Box(T)` position; `p` matches the `T` inside; inside `Rc(p)`/`Arc(p)` the bindings borrow |
 
 ```yo
 classify :: (fn(r : Result(Option(i32), str)) -> i32)(
@@ -2510,14 +2510,17 @@ command :: (fn(s : String) -> i32)(
 
 A tuple scrutinee takes one sub-pattern per element; a struct scrutinee takes
 labeled sub-patterns (a bare field name binds that field; unlisted fields
-match anything). A wrapper pattern `Rc(p)` or `Arc(p)` names the cell it
-looks through, as in Rust: `p` matches the `T` inside the `Rc(T)`/`Arc(T)` at
-its position, at any depth, and the cell's variants count toward
-exhaustiveness. A binding inside it borrows the payload, because other
-handles may share the cell; `(c := Rc(p))` binds the cell itself. An
-`Arc(T)` position takes only the wrapper spelling. At an `Rc(T)` position a
-structural pattern written without `Rc(…)` is still looked through
-implicitly, until every `src/` and `std/` arm spells the wrapper
+match anything). A wrapper pattern `Rc(p)`, `Arc(p)` or `Box(p)` names the
+cell it looks through, as in Rust: `p` matches the `T` inside the
+`Rc(T)`/`Arc(T)`/`Box(T)` at its position, at any depth, and the cell's
+variants count toward exhaustiveness. A binding inside `Rc(p)` or `Arc(p)`
+borrows the payload, because other handles may share the cell;
+`(c := Rc(p))` binds the cell itself. An `Rc(T)` or `Arc(T)` position takes
+only the wrapper spelling: a structural pattern there without it is E0609,
+whose help names `Rc(p)`, and `yo fix <path> --migrate rc-pattern` wraps
+every such pattern. A missing case is printed through the wrapper
+(`.Node(Rc(.Leaf(_)), _)`). At a unique `Box(T)` position a pattern without
+`Box(…)` is still looked through implicitly, until `src/` spells `Box(p)`
 (`plans/VALUES_BY_DEFAULT.md` decision 31):
 
 ```yo
@@ -3412,8 +3415,9 @@ assert(sum(&t) == 3);
 
 - **`box(v)`** moves `v` into a new cell. `b.*` is the payload place, in safe
   code too: `b.* = v` replaces it, and `b.field` / `b.method()` reach it by
-  auto-dereference. A pattern looks through a `Box` payload, as through an
-  `Rc`'s.
+  auto-dereference. A pattern looks through a `Box` payload with `Box(p)`,
+  as through an `Rc`'s with `Rc(p)`; for now a `Box` is also looked through
+  without it.
 - **Explicit copies.** A `Box` is never `Copy`. `c := b` moves `b` when it is
   `b`'s last use; any other copy is E0901. `Box.clone(b)` is a deep copy: a
   new cell holding a clone of the payload (`b.clone()` is E0616, because the

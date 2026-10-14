@@ -163,7 +163,7 @@ _variable_was_consumed_before_cleanup_point :: (fn(consumed_at_token : &Token, c
 /// (plans/TYPE_SYSTEM_SOUNDNESS.md Phase 5.1,
 /// issues/fixed/a-move-in-a-returning-arm-is-released-again-at-the-return.md).
 _variable_moved_before_cleanup_point :: (fn(v : &Variable, cleanup_expr : &AstExpr) -> bool)({
-  if(match(v.consumed_at_token, .Some(ct) => _variable_was_consumed_before_cleanup_point(&ct.*, cleanup_expr), .None => false), {
+  if(match(v.consumed_at_token, .Some(ct) => _variable_was_consumed_before_cleanup_point(&ct, cleanup_expr), .None => false), {
     return(true);
   });
   variable_moved_at_cleanup_point(v, _get_last_comparable_token_in_expr(cleanup_expr, ast_expr_token(cleanup_expr)))
@@ -172,7 +172,7 @@ _variable_moved_before_cleanup_point :: (fn(v : &Variable, cleanup_expr : &AstEx
 /// cleanup point `cleanup_expr`, so the two can be ordered at all. A variable
 /// with no consumption token is trivially ordered (nothing to compare).
 _consumption_is_ordered_against_cleanup_point :: (fn(v : &Variable, cleanup_expr : &AstExpr) -> bool)(
-  match(v.consumed_at_token, .Some(ct) => _tokens_are_comparable(&ct.*, ast_expr_token(cleanup_expr)), .None => true)
+  match(v.consumed_at_token, .Some(ct) => _tokens_are_comparable(&ct, ast_expr_token(cleanup_expr)), .None => true)
 );
 /// Resolve which in-scope variable a pending drop targets at a cleanup point.
 /// Prefer the id match; on absence decide by declaration position (a target
@@ -237,7 +237,7 @@ _drop_target_is_state_machine_field :: (fn(v : &Variable, var_name : &String, co
     return(false);
   });
   smv := match(context.state_machine_variables, .Some(m) => m, .None => return(false));
-  (var_id : String) = match(v.is_owning_the_same_rc_value_as, .Some(owner_box) => owner_box.*.id.to_string(), .None => v.id.to_string());
+  (var_id : String) = match(v.is_owning_the_same_rc_value_as, .Some(owner_box) => owner_box.id.to_string(), .None => v.id.to_string());
   match(
     context.variable_id_remapping,
     .Some(rm) => match(

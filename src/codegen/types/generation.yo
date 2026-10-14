@@ -12,7 +12,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_unit_type, is_struct_type, is_enum_type, is_tuple_type, is_reference_struct_type, is_reference_enum_type, is_newtype_type, is_dyn_type, is_union_type, is_future_trait_type, is_function_type, is_fn_trait_type, is_some_type, is_array_type } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_uses_small_rc_header, dyn_member_is_method, dyn_member_unsafe_reason } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_uses_small_rc_header, dyn_member_is_method, dyn_member_unsafe_reason, is_destructor_trait_member } :: import("../../types/utils.yo");
 { some_resolution } :: import("../../expr_info.yo");
 { type_to_string } :: import("../../types/string.yo");
 { is_target_windows, is_target_macos } :: import("../../target.yo");
@@ -1470,10 +1470,10 @@ _unseen_type_ids :: (fn(context : &CodeGenContext, seen : &mut HashSet(String)) 
   ids
 });
 /// Reserved ARC/GC method labels NOT emitted into the dyn vtable (dup/drop/
-/// dispose are generated separately; `drop`/`dispose` are the destructor
-/// trait's method under its two spellings, decision 45).
+/// dispose are generated separately). The destructor trait's own method is
+/// left out by its trait, not its name (`is_destructor_trait_member`).
 _is_reserved_dyn_method :: (fn(label : &String) -> bool)(
-  (label == BF_DUP) || (label == BF_DROP) || (label == "___dispose") || (label == "dispose") || (label == "drop")
+  (label == BF_DUP) || (label == BF_DROP) || (label == "___dispose")
 );
 /// Generate forward declarations for Dyn structs (vtable tag fwd-decl + the
 /// fat-pointer struct). Must precede enum/struct decls since enums may contain
@@ -1628,13 +1628,15 @@ generate_dyn_declaration :: (fn(type : &TypeValue, c_name : &String, context : &
               while(fi < nf, {
                 flabel := match(field_labels.get(fi), .Some(l) => l, .None => String.from(""));
                 fty := match(field_types.get(fi), .Some(t) => t, .None => TypeValue.Unit);
-                match(
-                  _dyn_vtable_method_line(&flabel, &fty, &mut processed, context),
-                  .Some(line) => {
-                    members.push(line);
-                  },
-                  .None => ()
-                );
+                if(!is_destructor_trait_member(&tt, &flabel), {
+                  match(
+                    _dyn_vtable_method_line(&flabel, &fty, &mut processed, context),
+                    .Some(line) => {
+                      members.push(line);
+                    },
+                    .None => ()
+                  );
+                });
                 fi = (fi + usize(1));
               });
             },
