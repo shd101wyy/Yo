@@ -5727,7 +5727,7 @@ stage-2 RSS):
 
 ### Evaluator performance: the migration's copy and allocation cost
 
-**Status: measured 2026-10-14; step 1 in progress, steps 2–3 queued** (maintainer, 2026-10-14: "go with your recommendation").
+**Status: measured 2026-10-14; step 1 in progress, step 2 queued, step 3 done (#1359)** (maintainer, 2026-10-14: "go with your recommendation").
 
 **Measured.** Each release's own binary, checking its own tag's tree (`check ./src --std-path ./std`, Mac Mini M4, nothing else running):
 
@@ -5761,7 +5761,13 @@ RC and allocation traffic grew faster than the code. That points at copies the m
 **Plan:**
 1. **Attribute now.** Map the profile's `yo_id_*` symbols to `.yo` functions by emitting each release's compiler C with `--line-directives`, rank the functions by inclusive time and by the RC/allocation time under them, and fix the clear regressions in v0.2.63: a clone inside a hot loop, a by-value copy that should be a `&` lend.
 2. **Structural tuning after V2b's unique buffers and V4's `TypeValue`.** Both change exactly the RC and allocation profile, so tuning before them would be partly wasted.
-3. **A deterministic guard.** Extend the memory ratchet with an allocation count, for example an `LD_PRELOAD` `malloc` counter on Linux or `perf stat -e instructions:u` if the runners expose it. Ratchet it ±10% like RSS, and report the `check ./src` time per release in the release notes' "Compiler performance and memory" section.
+3. **A deterministic guard. Done (#1359).** CI's `memory-ratchet` job now also gates the number of heap allocation calls `check src/main.yo` makes (`scripts/bootstrap/eval_work_ratchet.sh`, key `check_src_main_alloc_calls` in `memory-ratchet.tsv`), ±5% both ways. Report the `check ./src` time per release in the release notes' "Compiler performance and memory" section.
+   - **Metric: allocation calls, from an `LD_PRELOAD` counter** (`scripts/bootstrap/alloc_count.c`: `malloc` + `calloc` + `realloc` + `aligned_alloc`, relaxed atomic counters, appended to a file at exit). Baseline at develop 229772321: 2,769,331,795 calls, 225,431,200 of them `realloc`, 166.4 GB requested.
+   - **Why not `perf stat -e instructions:u`.** The `ubuntu-latest` VMs boot with "PMU not available due to virtualization"; `perf` reads `<not supported>` for every hardware event, with `perf_event_paranoid` lowered and under `sudo`.
+   - **Determinism.** Three runs under `setarch -R` (ASLR off) agreed to the call. CI runs the count twice and fails if the runs disagree, because a ratchet on a noisy count would be the wall-time problem again.
+   - **The binary.** The stage-2 artifact links the vendored mimalloc statically, so a preloaded counter sees none of its calls. The job recompiles the artifact's C without the mimalloc include path (~5 min), so `__yo_malloc` becomes glibc's `malloc`. The RSS gate still measures the artifact.
+   - **Why ±5%, not ±10% like RSS.** The count has no noise, so the tolerance is pure policy, and the creep it has to catch ran about 5% per release.
+   - **Found on the way.** The vendored mimalloc is built in debug mode everywhere it is linked: no compile line defines `NDEBUG` or `MI_BUILD_RELEASE`, so it runs with `MI_DEBUG=2` and `MI_STAT=2` (`issues/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md`).
 
 ### Decision 43: references as types
 

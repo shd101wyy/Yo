@@ -2137,12 +2137,25 @@ jobs:
   # against scripts/bootstrap/memory-ratchet.tsv, failing BOTH ways (±10%):
   # a regression fails, and so does an unrecorded win. No functional gate saw
   # that leak; this one would have.
+  #
+  # The same job runs the evaluator WORK ratchet (plans/VALUES_BY_DEFAULT.md
+  # §6, step 3): the number of malloc/calloc/realloc calls `check src/main.yo`
+  # makes, ±5% both ways (scripts/bootstrap/eval_work_ratchet.sh). check ./src
+  # went 113 s -> 177 s from v0.2.50 to v0.2.61 while RSS moved 3%, and wall
+  # time is no gate here (identical trees: 3:47 to 8:53). The count is exact:
+  # three runs on 2026-10-14 agreed to the call. perf counters are not an
+  # option: the Azure VMs boot with "PMU not available due to virtualization",
+  # so `perf stat -e instructions:u` reads <not supported>. The stage-2 binary
+  # links mimalloc statically, which an LD_PRELOAD counter cannot see, so the
+  # job recompiles the stage-2 C on glibc's malloc (~5 min) for this one run;
+  # the RSS run keeps the artifact. Two counted runs: the script fails if they
+  # disagree, because the gate is only sound while the count is deterministic.
   memory-ratchet:
     name: Evaluator memory ratchet
     needs: [changes, tree-hygiene, bootstrap-fixpoint]
     if: needs.changes.outputs.code == 'true' && needs.changes.outputs.full == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
 
     steps:
       - name: Checkout repository
@@ -2150,11 +2163,11 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Install GNU time
+      - name: Install GNU time and the OpenSSL headers (the work ratchet recompiles the stage-2 C)
         run: |
           sudo rm -f /etc/apt/sources.list.d/*google*.list /etc/apt/sources.list.d/*google*.sources
           { sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update || sudo timeout 300 apt-get $APT_OPTS update; }
-          sudo apt-get $APT_OPTS install -y time
+          sudo apt-get $APT_OPTS install -y time libssl-dev pkg-config
 
       - name: Download stage-2 artifacts
         uses: actions/download-artifact@v8
@@ -2172,6 +2185,15 @@ jobs:
 
       - name: Measure `check src/main.yo` against the ratchet
         run: bash scripts/bootstrap/memory_ratchet.sh /tmp/stage2/yo-stage2-bin
+
+      - name: "Work ratchet: rebuild the stage-2 C on the C library's malloc"
+        run: |
+          time nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/stage2/yo-stage2.c $(pkg-config --cflags --libs openssl) -o /tmp/yo-stage2-libc
+          cc -O2 -shared -fPIC -o /tmp/alloc_count.so scripts/bootstrap/alloc_count.c
+          nm -D --undefined-only /tmp/yo-stage2-libc | grep -E ' (malloc|calloc|realloc|free|aligned_alloc)(@|$)'
+
+      - name: Measure the allocation count of `check src/main.yo` against the ratchet
+        run: REPEAT=2 bash scripts/bootstrap/eval_work_ratchet.sh /tmp/yo-stage2-libc /tmp/alloc_count.so
   # The 8 GB build claim (plans/archive/BUILD_ON_8GB_MACHINES.md Phase 4):
   # `compile src/main.yo`, C compiler included, by the STAGE-2 compiler inside
   # an 8 GB cgroup with swap forbidden. The cgroup's memory.peak is the whole
