@@ -46,20 +46,22 @@ test("Atomic object with Send constraint", {
   comptime_assert(Type.impls(SendBox(i32), Send), "SendBox(i32) should implement Send");
   println(`SendBox: ${b.value}`);
 });
-/// Atomic object with Dispose trait
+/// Atomic object with Drop trait
 AtomicResource :: atomic(ref(struct(id : i32)));
 impl(
   AtomicResource,
-  dispose : (fn(self : &Self) -> unit)({
-    println(`Disposing AtomicResource(${self.id})`);
-  })
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      println(`Dropping AtomicResource(${self.id})`);
+    })
+  )
 );
-test("Atomic object with Dispose", {
+test("Atomic object with Drop", {
   {
     (r : AtomicResource) = AtomicResource(i32(1));
     println(`Created AtomicResource(${r.id})`);
   };
-  println("After scope - dispose should have been called");
+  println("After scope - drop should have been called");
 });
 /// Test Send constraint validation at module level
 comptime_assert(Type.impls(RegularPoint, Send) == false, "RegularPoint must not impl Send for constraint test");

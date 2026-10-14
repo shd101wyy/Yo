@@ -1135,7 +1135,7 @@ test("alias made inside a nested block, base reassigned there, base used after",
 // Same optimizer, the two sibling shapes (issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md):
 // reassigning the ALIAS dropped a value the alias never owned (its
 // replacement leaked), and a chained alias with the base reassigned in a
-// nested block under-released. Dispose deltas pin "every object exactly once".
+// nested block under-released. Drop deltas pin "every object exactly once".
 test("reassigning the alias itself disposes both objects exactly once", {
   before := g_alias_disposed;
   {
@@ -1196,7 +1196,7 @@ test("alias made in an inner block, base reassigned there, base used after", {
 // Iso type, never tracked, so the free is immediate and the read faults.
 // issues/fixed/a-local-stored-in-a-struct-field-is-dangling-after-the-container-dies.md
 //
-// The oracle is a Dispose counter rather than a value read, because it catches
+// The oracle is a Drop counter rather than a value read, because it catches
 // BOTH directions: a missing dup frees early (the bug), and an unmatched dup
 // never disposes at all (the over-correction).
 // ---------------------------------------------------------------------------
@@ -1293,7 +1293,7 @@ test("a container in a cond arm and in a while body behave the same way", {
 // temp's drop was left to the post-call flush AFTER the block closed: an
 // undeclared C identifier, i.e. the whole test file failed to compile
 // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
-// Dispose deltas pin "exactly once" so the in-branch drop is neither missing
+// Drop deltas pin "exactly once" so the in-branch drop is neither missing
 // nor doubled.
 (g_sc_disposed : i32) = i32(0);
 ScHandle :: ref(struct(tag : i32));
@@ -2163,7 +2163,7 @@ test("unique Box: the payload is dropped exactly once, by its one owner", {
 test("unique Box: Box(T) is explicit-copy, and move-only when T is", {
   comptime_assert(!Type.impls(Box(i32), Copy), "a Box is never Copy");
   comptime_assert(Type.impls(Box(i32), Clone), "a Box of a Clone payload is Clone");
-  comptime_assert(Type.impls(Box(UBoxProbe), Clone), "including a Dispose payload with Clone");
+  comptime_assert(Type.impls(Box(UBoxProbe), Clone), "including a Drop payload with Clone");
   comptime_assert(!Type.impls(Box(_UBoxToken), Clone), "a Box of a move-only payload is move-only");
   comptime_assert(Type.impls(Box(i32), Send), "a Box is Send when its payload is");
   comptime_assert(!Type.impls(Box(Rc(i32)), Send), "and not when it is not");
@@ -2298,7 +2298,7 @@ test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
     .B => assert(false, "variant kept")
   );
 });
-// `Drop` (plans/VALUES_BY_DEFAULT.md decision 45, the new name of `Dispose`)
+// `Drop` (plans/VALUES_BY_DEFAULT.md decision 45, the new name of `Drop`)
 // on an `Rc` payload: the payload's destructor runs once, when the last
 // handle goes away, never while one is live; and `drop(h)` releases one
 // handle.

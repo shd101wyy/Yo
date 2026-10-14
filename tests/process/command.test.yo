@@ -497,7 +497,7 @@ test("taking a stream moves the fd out of the Child", {
   io.await(child.wait(io), e);
 });
 // Dropping a taken stdin handle closes the pipe, so the child sees EOF without
-// an explicit close — `Dispose` on ChildStdin. Without it, `cat` would never
+// an explicit close — `Drop` on ChildStdin. Without it, `cat` would never
 // exit and `wait` below would hang.
 _feed_and_drop :: (fn(child : &Child, payload : &String, io : Io, e : IoExn) -> bool)(
   match(
@@ -529,7 +529,7 @@ test("dropping a ChildStdin closes the pipe (the child sees EOF)", {
   child := io.await(cmd.spawn(io), e);
   r := child.take_stdout().unwrap();
   assert(_feed_and_drop(&child, `dropped`, io, e), "stdin was piped");
-  // BOUNDED on purpose. Without `Dispose` on `ChildStdin` the pipe stays open,
+  // BOUNDED on purpose. Without `Drop` on `ChildStdin` the pipe stays open,
   // `cat` waits for an EOF that never comes, and a bare `read_to_string` here
   // HANGS — which in CI burns a job's whole timeout instead of reporting a
   // failure. Verified: with the impl removed this reports Elapsed in ~2s;

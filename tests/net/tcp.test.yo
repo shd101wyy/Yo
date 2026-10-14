@@ -651,7 +651,7 @@ test("a consumer loop over incoming serves each connection in turn", {
   bound := listener.local_addr();
   fds := ArrayList(i32).new();
   conns := listener.incoming().take(usize(2));
-  // The accepted streams are dropped by the loop body; `TcpStream`'s Dispose
+  // The accepted streams are dropped by the loop body; `TcpStream`'s Drop
   // closes the descriptor, so nothing leaks while the fd is recorded. The
   // loop is hand-written because a macro that expands to an `io.await` is
   // emitted as a BLOCKING await inside a task and deadlocks

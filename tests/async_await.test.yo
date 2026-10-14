@@ -4882,7 +4882,7 @@ test("Test spawn inside a loop runs tasks concurrently", {
 // drops. The future OWNS its stored result (awaiters only DUP it out), and
 // the future's generated dispose used to skip the result slot entirely —
 // empty dispose for sync futures, a "/* Warning: no ___drop */" comment for
-// state machines — so an async-produced object's Dispose NEVER ran
+// state machines — so an async-produced object's Drop NEVER ran
 // (TempDir/TempFile cleanup-on-drop was dead code). The counter is
 // module-level on purpose: module-level mutables have program lifetime, so
 // they stay readable after the handles are gone (same idiom as rc.test.yo).
@@ -4955,7 +4955,7 @@ test("spawned task's ref result is dup'd out and disposed exactly once", {
 // `addrs`/`addr`/`stream` at the end of the transport branch, then a bad
 // status line threw and dispose decremented them again (heap-use-after-free
 // on Linux, where the runtime lived long enough to dispose the task). `main`
-// keeps its own reference here, so the over-release shows up as a Dispose
+// keeps its own reference here, so the over-release shows up as a Drop
 // that runs while `shared` is still held.
 (g_branch_local_disposed : i32) = i32(0);
 BranchLocalProbe :: ref(struct(id : i32));

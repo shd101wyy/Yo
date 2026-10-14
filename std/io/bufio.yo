@@ -9,7 +9,7 @@
 //! `Reader` (and gets `read_to_end`/`read_to_string` for free) and a
 //! `BufWriter(W)` is a `Writer`.
 //!
-//! **`BufWriter(W)` does NOT flush on drop.** A `Dispose` cannot await the
+//! **`BufWriter(W)` does NOT flush on drop.** A `Drop` cannot await the
 //! inner writer's async `write`, so — like tokio's `BufWriter`, and unlike
 //! the deleted fd-based `std/sys/bufio` writer, whose dispose could issue a
 //! sync positional syscall — buffered bytes still in the writer when it is
@@ -42,7 +42,7 @@
 //! is why `read_line` is the primitive; adding `lines()` later is additive,
 //! but it may well change what shape `read_line` wants to be. The
 //! no-flush-on-drop rule for `BufWriter` is NOT an open question — it is a
-//! deliberate match for tokio's `BufWriter` (a `Dispose` cannot await), and
+//! deliberate match for tokio's `BufWriter` (a `Drop` cannot await), and
 //! it is documented above because callers must act on it.
 pragma(Pragma.AllowUnsafe);
 { Reader, Writer } :: import("./index");

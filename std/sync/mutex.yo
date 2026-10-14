@@ -4,7 +4,7 @@
 //! Access is granted via `with_lock(closure)` — the closure receives a
 //! `v : &mut T` that is second-class (cannot escape the closure scope).
 //! The private `__MutexUnlocker` handles unlock on both normal return
-//! and unwind via its `Dispose` impl.
+//! and unwind via its `Drop` impl.
 //!
 //! ## Stability
 //!
@@ -68,7 +68,7 @@ impl(__YO_THREAD_SYNC_TYPE, Acyclic());
 /// A `Mutex(T)` value is a SHARED HANDLE, which is why every method takes
 /// `self : Self` rather than `self : &mut Self`: copying the handle (into a
 /// thread closure, say) bumps the atomic reference count and both copies
-/// name the same lock. The OS primitive is destroyed by the `Dispose` impl
+/// name the same lock. The OS primitive is destroyed by the `Drop` impl
 /// when the last handle goes away, so a mutex cannot outlive its own
 /// destruction — but it also is not destroyed while any thread still holds
 /// a handle.
@@ -170,7 +170,7 @@ impl(
   )
 );
 
-// __MutexUnlocker — private object that calls _raw_unlock on Dispose.
+// __MutexUnlocker — private object that calls _raw_unlock on Drop.
 // Allocated locally inside with_lock; Yo's drop-on-scope-exit and
 // drop-on-unwind machinery guarantees unlock under both normal return
 // and unwind(...).
@@ -214,7 +214,7 @@ impl(
   ///
   /// Release is structural, not by falling off the end: a private
   /// `__MutexUnlocker` is created inside the critical section and its
-  /// `Dispose` impl unlocks, so an early `return` out of `body` or an
+  /// `Drop` impl unlocks, so an early `return` out of `body` or an
   /// `unwind` through this frame still releases the lock. Nothing marks the
   /// mutex poisoned in that case (see the type doc).
   ///

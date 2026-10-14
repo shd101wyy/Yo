@@ -58,7 +58,7 @@ Semaphore :: atomic(
     )
   )
 );
-// __SemaphoreReleaser — private object that releases one permit on Dispose.
+// __SemaphoreReleaser — private object that releases one permit on Drop.
 // Allocated locally inside with_permit; Yo's drop-on-scope-exit and
 // drop-on-unwind machinery guarantees the release under both a normal return
 // and `unwind(...)`. Mirrors __MutexUnlocker in ./mutex.yo.
@@ -133,7 +133,7 @@ impl(
   /// leaked permit is a deadlock the next time the pool fills. This is the
   /// same guard shape `Mutex.with_lock` uses, for the same reason.
   ///
-  /// The release rides a `Dispose` guard, so it happens on any scope exit the
+  /// The release rides a `Drop` guard, so it happens on any scope exit the
   /// language can produce here. It does NOT claim unwind safety: `body` is a
   /// closure, and a closure cannot capture a control-bound value, so `body`
   /// cannot raise an effect that unwinds past this call at all. Taking the
