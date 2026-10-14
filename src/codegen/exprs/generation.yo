@@ -37,6 +37,7 @@
   BF_YO_DUP_ARRAY_ELEMENT,
   BF_YO_DROP_TUPLE_ELEMENT,
   BF_YO_DUP_TUPLE_ELEMENT,
+  BF_YO_CAPTURE_FIELD,
   BF_DROP,
   BF_DUP,
   BF_YO_DYN_DROP,
@@ -131,7 +132,7 @@
 { generate_op_and, generate_op_or } :: import("./and_or.yo");
 { generate_match_expression } :: import("./match.yo");
 { generate_other_function_call, _store_temp_var_to_state_machine_if_needed } :: import("./other_fn_call.yo");
-{ is_closure_construction, generate_closure_construction } :: import("./closures.yo");
+{ is_closure_construction, generate_closure_construction, generate_yo_capture_field } :: import("./closures.yo");
 { generate_deferred_dup_expressions, generate_arg_code_with_deferred_dups } :: import("./drop_dup.yo");
 { get_variable_name_for_codegen, get_variable_type_string, get_type_string, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, _idx_c_string_literal, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { sm_temp_slot_of } :: import("../async/state_machine_naming.yo");
@@ -794,6 +795,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
   if(ast_expr_is_fn_call_of(expr, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None), return(generate_yo_dup_array_element(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DROP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_drop_tuple_element(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DUP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_dup_tuple_element(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_CAPTURE_FIELD, Option(usize).None), return(generate_yo_capture_field(expr, indent.clone(), context)));
   // (BF_DUP / BF_DROP routed above, before the macro_expansion check.)
   if(ast_expr_is_fn_call_of(expr, BF_YO_DYN_DROP, Option(usize).None), return(generate_yo_dyn_drop(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DYN_DUP, Option(usize).None), return(generate_yo_dyn_dup(expr, indent.clone(), context)));

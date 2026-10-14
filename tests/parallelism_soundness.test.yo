@@ -173,9 +173,10 @@ test("D4 canary: a closure over an atomic satisfies where(T <: Send), and arc() 
   );
   _needs_send(&bump);
   a := arc(bump);
+  // Called in place: `bump` owns an atomic, so it is not `Copy`
+  // (decision 36) and `a.*` cannot be copied out of the Arc.
   t := Thread(unit).spawn((io : Io) => {
-    f := a.*;
-    f();
+    a.*();
     ()
   });
   t.join();

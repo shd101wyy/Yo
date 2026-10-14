@@ -71,9 +71,12 @@ test("Test two-hop forwarded closure param with dyn-capturing detector", {
   )(
     analyze2(depth, get_info)
   );
-  tbl := ArrayList(i32).new();
-  tbl.push(i32(100));
-  r := outer2(i32(2), (k : i32) => (match(tbl.get(usize(0)), .Some(v) => v, .None => i32(0)) + k));
+  // The detector's capture copies the forwarded closure, so the closure must
+  // be `Copy`: it captures an `i32`. A closure owning an `ArrayList` is not
+  // `Copy` (plans/VALUES_BY_DEFAULT.md decision 36, as Rust's), and copying it
+  // out of the borrowed `get_info` is E0901.
+  base := i32(100);
+  r := outer2(i32(2), (k : i32) => (base + k));
   assert(r.len() == usize(4), "two pushes per depth level over two levels");
   assert(match(r.get(usize(0)), .Some(v) => v, .None => i32(0)) == i32(102), "get_info(2) = 102");
   assert(match(r.get(usize(1)), .Some(v) => v, .None => i32(0)) == i32(109), "detect(2) = 102 + 7");

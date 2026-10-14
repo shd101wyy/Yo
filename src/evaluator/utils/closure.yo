@@ -16,7 +16,16 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
-  AstExpr
+  AstExpr,
+  ast_expr_id,
+  ast_expr_token,
+  ast_expr_to_string,
+  ast_expr_is_atom_of,
+  ast_expr_is_fn_call_of,
+  clone_expr_fresh_ids,
+  make_err_expr,
+  BF_DOT,
+  BF_YO_CAPTURE_FIELD
 } :: import("../../expr.yo");
 { Token } :: import("../../token.yo");
 {
@@ -32,7 +41,17 @@
 { format_error_message } :: import("../../error.yo");
 { type_implements_trait_bool, extract_fn_trait_from_type } :: import("../trait_checking.yo");
 { raise_flow_violation } :: import("../../types/flowability.yo");
-{ some_resolution } :: import("../../expr_info.yo");
+{
+  some_resolution,
+  CaptureFieldInit,
+  new_expr_info,
+  expr_info_table_get,
+  expr_info_table_set,
+  expr_info_set_capture_type,
+  expr_info_set_capture_field_inits,
+  expr_info_set_macro_expansion,
+  record_macro_expansion
+} :: import("../../expr_info.yo");
 { get_closure_capture_info, get_func_type } :: import("../../function_value.yo");
 // Deterministic capture-struct ids: keyed by the closure's source position +
 // capture field signature, so the SAME closure (re-evaluated across the eval and
@@ -53,6 +72,7 @@
   CapturedVarInfo,
   CaptureUsage,
   EvalContext,
+  ExpectedTypeCtx,
   set_function_value_marker_fn,
   track_variable_usage_resolved
 } :: import("../context.yo");
@@ -64,8 +84,8 @@
   register_capture_field_decl_site
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
-{ type_contains_rc_type, type_requires_explicit_copy, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain } :: import("../../types/utils.yo");
-{ move_captured_explicit_copy_variable } :: import("../utils.yo");
+{ type_contains_rc_type, type_requires_explicit_copy, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, type_first_mut_borrow } :: import("../../types/utils.yo");
+{ move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
@@ -473,6 +493,31 @@ _function_value_offense :: (
     .None => match(written, .Some(w) => Option(String).Some(`its code ${w}`), .None => Option(String).None)
   )
 });
+/// Why the closure type `ty` is not `trait_name` (`Copy` or `Clone`): its
+/// `&mut` capture, or the first by-value capture whose type is not.
+_closure_copy_offense :: (fn(ty : &TypeValue, trait_name : &String, env : &Environment) -> String)({
+  if(type_first_mut_borrow(ty).is_some(), {
+    return(String.from("the closure has a `&mut` capture, and two copies of one exclusive borrow would alias (plans/VALUES_BY_DEFAULT.md decision 38 A)"));
+  });
+  trait_tt := get_trait_type_from_env(env, trait_name.clone());
+  match(
+    resolve_cell_chain(ty),
+    .Struct({ field_labels : co_labels, field_types : co_fields }) => {
+      (i : usize) = usize(0);
+      while(i < co_fields.len(), {
+        ft := match(co_fields.get(i), .Some(f) => f, .None => t_unit());
+        (part_ok : bool) = match(trait_tt, .Some(tt) => type_implements_trait_bool(&ft, &tt, env), .None => true);
+        if(!part_ok, {
+          label := match(co_labels.get(i), .Some(l) => l, .None => String.new());
+          return(`its capture \`${label}\` has type \`${type_to_string(&ft)}\`, which is not ${trait_name}; a closure is ${trait_name} exactly when every by-value capture is (plans/VALUES_BY_DEFAULT.md decision 36)`);
+        });
+        i = (i + usize(1));
+      });
+    },
+    _ => ()
+  );
+  `its captured state is not ${trait_name}`
+});
 /// The marker judgement of a function-like type from its VALUES
 /// (`call_function_value_marker`, `context.yo`, documents the contract):
 /// `witness` when the caller has the value; otherwise the values of `ty` in
@@ -483,6 +528,20 @@ function_value_marker :: (
   fn(ty : &TypeValue, witness : &Option(EvalValue), marker : &TypeValue, env : &Environment, ctx : &EvalContext) -> Option(Option(String))
 )({
   mname := type_to_string(marker);
+  // `Copy` and `Clone` of a closure are its capture record's
+  // (plans/VALUES_BY_DEFAULT.md decision 36): a type question, judged here
+  // because a closure type is an `Impl(Fn(...))` SomeT, which the
+  // where-clause gates otherwise only collect the bound on
+  // (issues/fixed/2026-10-14-a-where-copy-bound-accepts-a-closure-that-owns-a-string.md).
+  if((mname == "Copy") || (mname == "Clone"), {
+    return(
+      cond(
+        !is_bound_closure_identity(ty) => Option(Option(String)).None,
+        type_implements_trait_bool(ty, marker, env) => Option(Option(String)).Some(Option(String).None),
+        true => Option(Option(String)).Some(Option(String).Some(_closure_copy_offense(ty, &mname, env)))
+      )
+    );
+  });
   if(!((mname == "Send") || (mname == "Sync") || (mname == "Acyclic")), {
     return(Option(Option(String)).None);
   });
@@ -1284,6 +1343,245 @@ generate_captured_variable_dup_expressions :: (
     borrowed : false
   )
 });
+// ---------------------------------------------------------------------------
+// Structural clone (plans/VALUES_BY_DEFAULT.md decision 36)
+// ---------------------------------------------------------------------------
+/// The hole a clone template's receiver goes into (`_clone_subst_receiver`).
+_CLONE_RECV_HOLE :: "__yo_clone_recv";
+/// The closure identity `ty` reaches: `ty` itself, or a type variable whose
+/// resolution chain reaches one (a generic `T` instantiated with a closure's
+/// type).
+closure_identity_of :: (fn(ty : &TypeValue) -> Option(TypeValue))({
+  (cur : TypeValue) = ty;
+  (depth : usize) = usize(0);
+  while(depth < usize(16), {
+    if(is_bound_closure_identity(&cur), {
+      return(Option(TypeValue).Some(cur));
+    });
+    match(
+      cur,
+      .SomeT({ resolution : ci_res }) => match(
+        ci_res,
+        .Some(next) => {
+          cur = next;
+        },
+        .None => {
+          return(Option(TypeValue).None);
+        }
+      ),
+      _ => {
+        return(Option(TypeValue).None);
+      }
+    );
+    depth = (depth + usize(1));
+  });
+  Option(TypeValue).None
+});
+/// A receiver a clone template may name more than once: a binding, or a
+/// field or dereference step of one. Reading it again has no effect.
+_clone_receiver_is_place :: (fn(e : &AstExpr) -> bool)(
+  match(
+    e,
+    .Atom(_, _) => true,
+    .FnCall(_, _, pl_args, _, _) => (
+      ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))) && match(pl_args.get(usize(1)), .Some(.Atom(_, _)) => true, _ => false) && match(pl_args.get(usize(0)), .Some(pl_base) => recur(&pl_base), .None => false)
+    )
+  )
+);
+/// `e` with every `_CLONE_RECV_HOLE` atom replaced by a fresh-id copy of
+/// `recv`.
+_clone_subst_receiver :: (fn(e : &AstExpr, recv : &AstExpr) -> AstExpr)(
+  match(
+    e,
+    .Atom(_, _) => if(ast_expr_is_atom_of(e, _CLONE_RECV_HOLE), clone_expr_fresh_ids(recv), e.clone()),
+    .FnCall(cs_id, cs_func, cs_args, cs_infix, cs_tok) => {
+      new_args := ArrayList(AstExpr).new();
+      (i : usize) = usize(0);
+      while(i < cs_args.len(), {
+        new_args.push(recur(match(cs_args.get(i), .Some(a) => a, .None => make_err_expr()), recv));
+        i = (i + usize(1));
+      });
+      AstExpr.FnCall(cs_id, recur(&cs_func, recv), new_args, cs_infix, cs_tok.clone())
+    }
+  )
+);
+/// Parse `code` (which names the receiver as `_CLONE_RECV_HOLE`), put `recv`
+/// in the hole and evaluate it.
+_eval_clone_template :: (fn(code : &String, recv : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+  parsed := generate_expr_from_code(code, exn);
+  // The template is its own value: the type the enclosing expression expects
+  // (a generic `T`, the closure's) is not a field's, nor a record literal's.
+  saved_expected := ctx.expected_type;
+  ctx.expected_type = Option(ExpectedTypeCtx).None;
+  out := evaluate_expression_raw(&_clone_subst_receiver(&parsed, recv), env, ctx, exn);
+  ctx.expected_type = saved_expected;
+  out
+});
+/// `expr` (`recv.clone()`) expands to the evaluated `generated` node, with
+/// that node's type and value, recorded durably as the numeric conversions'
+/// are. The info is a fresh one: `generated`'s own shares its `rare` record,
+/// so setting the expansion there made `generated` expand to itself (a walk
+/// following `macro_expansion` never returned).
+_expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContext) -> AstExpr)({
+  match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(generated)),
+    .Some(gen_info) => {
+      out := new_expr_info(&gen_info.env, &gen_info.ty);
+      out.value = gen_info.value;
+      out.control_flow = gen_info.control_flow;
+      out.variable_name = gen_info.variable_name;
+      record_macro_expansion(ast_expr_id(expr), generated.clone());
+      expr_info_set_macro_expansion(&out, Option(AstExpr).Some(generated));
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
+    },
+    .None => ()
+  );
+  expr
+});
+/// `recv.clone()` on a closure or an anonymous record that is `Clone` but not
+/// `Copy` (decision 36): the field-wise clone no impl can name. A part that is
+/// `Copy` (a scalar, a `&` capture's pointer) is copied, every other part is
+/// cloned, and the result has the receiver's own type:
+///
+/// - an anonymous record expands to the record literal
+///   `_(a : recv.a.clone(), b : recv.b)`;
+/// - a closure becomes a construction of its capture record whose fields are
+///   initialized from the receiver's (`__yo_capture_field(recv, i)`), lowered
+///   by the closure-construction emitter (`generate_closure_construction`).
+///
+/// A receiver that is not a place is bound first, so it is evaluated once:
+/// `{ __yo_clone_src := recv; __yo_clone_src.clone() }`. `.None` when `target`
+/// (the receiver's type, resolved) is neither, or is not `Clone`.
+structural_clone_expansion :: (
+  fn(expr : &AstExpr, recv : &AstExpr, recv_ty : &TypeValue, target : &TypeValue, env : &Environment, ctx : &EvalContext, exn : Exception) -> Option(AstExpr)
+)({
+  clone_tt := match(
+    get_trait_type_from_env(env, String.from("Clone")),
+    .Some(t) => t,
+    .None => {
+      return(Option(AstExpr).None);
+    }
+  );
+  copy_tt := match(
+    get_trait_type_from_env(env, String.from("Copy")),
+    .Some(t) => t,
+    .None => {
+      return(Option(AstExpr).None);
+    }
+  );
+  closure_ty := closure_identity_of(recv_ty);
+  (fields_labels, fields_types) := match(
+    target,
+    .Struct({ field_labels : sc_labels, field_types : sc_types }) => (sc_labels, sc_types),
+    _ => {
+      return(Option(AstExpr).None);
+    }
+  );
+  if(!type_implements_trait_bool(target, &clone_tt, env), {
+    return(Option(AstExpr).None);
+  });
+  if(!_clone_receiver_is_place(recv), {
+    bind_code := `{ __yo_clone_src := ${_CLONE_RECV_HOLE}; __yo_clone_src.clone() }`;
+    bound := _eval_clone_template(&bind_code, recv, env, ctx, exn);
+    return(Option(AstExpr).Some(_expand_clone_to(expr, &bound, ctx)));
+  });
+  if(closure_ty.is_none() && !is_closure_capture_struct(target), {
+    // An anonymous record: its literal, field by field.
+    code := String.from("_(");
+    (ri : usize) = usize(0);
+    while(ri < fields_labels.len(), {
+      label := match(fields_labels.get(ri), .Some(l) => l, .None => String.new());
+      ft := match(fields_types.get(ri), .Some(t) => t, .None => t_unit());
+      if(ri > usize(0), {
+        code.push_str(", ");
+      });
+      entry := `${label} : ${_CLONE_RECV_HOLE}.${label}`;
+      code.push_string(&entry);
+      if(!type_implements_trait_bool(&ft, &copy_tt, env), {
+        code.push_str(".clone()");
+      });
+      ri = (ri + usize(1));
+    });
+    code.push_str(")");
+    record := _eval_clone_template(&code, recv, env, ctx, exn);
+    // The literal builds the receiver's record type, not a new anonymous
+    // record type of its own (whose C struct is a different one): a
+    // `where(T <: Clone)` body returns it as `T`. Its `_` callee names the
+    // type the constructor builds.
+    match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&record)),
+      .Some(rec_info) => {
+        rec_info.ty = target.clone();
+        expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&record), &rec_info);
+      },
+      .None => ()
+    );
+    rec_callee := match(record, .FnCall(_, rc_f, _, _, _) => rc_f, .Atom(_, _) => record.clone());
+    match(
+      expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&rec_callee)),
+      .Some(rc_info) => match(
+        rc_info.value,
+        .Some(.TypeVal(_)) => {
+          rc_info.value = Option(EvalValue).Some(EvalValue.TypeVal(target.clone()));
+          expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&rec_callee), &rc_info);
+        },
+        _ => ()
+      ),
+      .None => ()
+    );
+    return(Option(AstExpr).Some(_expand_clone_to(expr, &record, ctx)));
+  });
+  // A closure: a new capture record with the same code.
+  inits := ArrayList(CaptureFieldInit).new();
+  (ci : usize) = usize(0);
+  while(ci < fields_labels.len(), {
+    label := match(fields_labels.get(ci), .Some(l) => l, .None => String.new());
+    ft := match(fields_types.get(ci), .Some(t) => t, .None => t_unit());
+    read := `${BF_YO_CAPTURE_FIELD}(${_CLONE_RECV_HOLE}, ${ci.to_string()})`;
+    init_code := if(type_implements_trait_bool(&ft, &copy_tt, env), read, `${read}.clone()`);
+    init := _eval_clone_template(&init_code, recv, env, ctx, exn);
+    // The clone is stored into the new record's field: the store moves it,
+    // as a capture list's by-value entry is moved.
+    set_expr_as_needs_to_call_dup(&init, ctx, exn, "field-store");
+    inits.push(CaptureFieldInit(label : label, init : init, is_borrow : false));
+    ci = (ci + usize(1));
+  });
+  out := new_expr_info(env, recv_ty);
+  expr_info_set_capture_type(&out, &Option(TypeValue).Some(target.clone()));
+  expr_info_set_capture_field_inits(&out, &Option(ArrayList(CaptureFieldInit)).Some(inits));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
+  // A fresh value that owns its captures, like a closure literal's
+  // (`evaluate_anonymous_function_implementation`): an owning temp.
+  if(type_contains_rc_type(target), {
+    attach_temp_variable_to_expr(expr, true, ctx);
+  });
+  Option(AstExpr).Some(expr)
+});
+/// `__yo_capture_field(c, i)`: the type of field `i` of closure `c`'s capture
+/// record. The read is in place: a clone template passes it to the field
+/// type's `clone`, or copies a `Copy` field.
+evaluate_yo_capture_field :: (fn(expr : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> AstExpr)({
+  cf_args := match(expr, .FnCall(_, _, a, _, _) => a, _ => ArrayList(AstExpr).new());
+  recv := match(cf_args.get(usize(0)), .Some(a) => a, .None => make_err_expr());
+  idx_e := match(cf_args.get(usize(1)), .Some(a) => a, .None => make_err_expr());
+  ev_recv := evaluate_expression_raw(&recv, env, ctx, exn);
+  _ := evaluate_expression_raw(&idx_e, env, ctx, exn);
+  recv_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&ev_recv)), .Some(ri) => ri.ty, .None => t_unit());
+  cap := resolve_cell_chain(match(closure_identity_of(&recv_ty), .Some(cl) => cl, .None => recv_ty));
+  idx := match(ast_expr_token(&idx_e).value.parse_i64(), .Some(n) => usize(n), .None => usize(0));
+  field_ty := match(
+    cap,
+    .Struct({ field_types : cf_types }) => match(cf_types.get(idx), .Some(t) => t, .None => t_unit()),
+    _ => {
+      exn.throw(dyn(format_error_message(ast_expr_token(expr), `__yo_capture_field: ${type_to_string(&recv_ty)} is not a closure`)));
+      t_unit()
+    }
+  );
+  out := new_expr_info(env, &field_ty);
+  out.value = Option(EvalValue).None;
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
+  expr
+});
 export(FuncCapturedVarInfo);
 export(CaptureTypeAndValueResult);
 export(CapturedVarDupResult);
@@ -1294,4 +1592,5 @@ export(validate_send_closure_global_reach);
 export(function_value_marker, register_function_value_marker, alias_closure_some_id, note_closure_for_some_id, record_closure_capture_verdicts);
 export(enrich_captured_variables, propagate_captures_to_enclosing);
 export(create_capture_type_and_value);
+export(structural_clone_expansion, evaluate_yo_capture_field, closure_identity_of);
 export(generate_captured_variable_dup_expressions);

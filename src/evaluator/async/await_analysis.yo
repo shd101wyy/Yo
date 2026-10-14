@@ -21,16 +21,17 @@
 //!   `analyze_suspension_points` returns, the base `SuspensionPoint` list is
 //!   zipped with the extras to produce `ArrayList(AwaitPoint)`.
 //!
-//! * `dyn(closure)` captures outer variables by reference (C pointer), so
-//!   `get_info` can be both captured in `detect_fn` and passed separately to
-//!   `analyze_suspension_points` without any ownership conflict.
+//! * `dyn(closure)` captures `get_info` by value, so `get_info` must be
+//!   `Copy` to be both captured in `detect_fn` and passed separately to
+//!   `analyze_suspension_points`; `analyze_await_points_in_table` builds such a
+//!   getter over an `ExprInfoTable`.
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TokenKind } :: import("../../token.yo");
 { AstExpr, ast_expr_token, ast_expr_id, ast_expr_is_fn_call, ast_expr_is_fn_call_of, BK_BEGIN, ast_call_args_unmarked } :: import("../../expr.yo");
-{ ExprInfo, lookup_io_builtin_call, lookup_macro_expansion, scope_variables } :: import("../../expr_info.yo");
+{ ExprInfo, ExprInfoTable, expr_info_table_get, lookup_io_builtin_call, lookup_macro_expansion, scope_variables } :: import("../../expr_info.yo");
 { TypeValue } :: import("../../types/definitions.yo");
 { codegen_tables_enabled } :: import("../../utils.yo");
 { Variable, Environment, get_variables_from_env } :: import("../../env.yo");
@@ -374,6 +375,17 @@ detect_await_expr_ :: (
 // ---------------------------------------------------------------------------
 // analyze_await_points
 // ---------------------------------------------------------------------------
+/// `analyze_await_points` over `table`'s annotations. The detector closure
+/// keeps its own copy of the getter, so the getter must be `Copy`: a closure
+/// that owns the table's `Rc` handle is not (plans/VALUES_BY_DEFAULT.md
+/// decision 36, closures are `Copy` exactly when every by-value capture is).
+/// It reaches the table through a pointer instead, which outlives the
+/// analysis.
+analyze_await_points_in_table :: (fn(body : &AstExpr, table : &ExprInfoTable) -> AwaitAnalysisResult)({
+  t := table;
+  tp := addr_of(t);
+  analyze_await_points(body, (e : &AstExpr) => expr_info_table_get(&tp.*, ast_expr_id(e)))
+});
 /// Analyzes an async function body to find all await expressions.
 ///
 /// The extra `get_info` parameter provides per-expression type/env information.
@@ -707,5 +719,6 @@ export(
   get_future_variable_id_,
   // Main analysis entry points
   analyze_await_points,
+  analyze_await_points_in_table,
   get_local_variables_from_body
 );

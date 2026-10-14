@@ -130,9 +130,12 @@ test("RwLock with_read admits several readers at the same time", {
       });
     }
   );
-  t1 := Thread(unit).spawn(io => reader());
-  t2 := Thread(unit).spawn(io => reader());
-  t3 := Thread(unit).spawn(io => reader());
+  // `reader` owns the shared cells, so it is not `Copy` (decision 36): the
+  // threads share it through an Arc, as a Rust closure would be shared.
+  shared_reader := arc(reader);
+  t1 := Thread(unit).spawn(io => shared_reader.*());
+  t2 := Thread(unit).spawn(io => shared_reader.*());
+  t3 := Thread(unit).spawn(io => shared_reader.*());
   t1.join();
   t2.join();
   t3.join();
@@ -165,8 +168,11 @@ test("RwLock two writer threads increment the protected counter", {
       });
     }
   );
-  t1 := Thread(unit).spawn(io => bump());
-  t2 := Thread(unit).spawn(io => bump());
+  // `bump` owns the shared cells, so it is not `Copy` (decision 36): the
+  // threads share it through an Arc, as a Rust closure would be shared.
+  shared_bump := arc(bump);
+  t1 := Thread(unit).spawn(io => shared_bump.*());
+  t2 := Thread(unit).spawn(io => shared_bump.*());
   t1.join();
   t2.join();
   assert(lock.with_read(v => v) == i32(200), "no increment was lost across 2 threads x 100 writes");
@@ -212,6 +218,9 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
       });
     }
   );
+  // `writer` and `reader` own the shared cells, so they are not `Copy`
+  // (decision 36): the threads share each through an Arc.
+  shared_writer := arc(writer);
   (reader : Impl(Fn() -> unit)) = (
     () => {
       i := i32(0);
@@ -234,11 +243,12 @@ test("RwLock N readers and M writers: mutual exclusion holds and no thread starv
       });
     }
   );
-  r1 := Thread(unit).spawn(io => reader());
-  r2 := Thread(unit).spawn(io => reader());
-  r3 := Thread(unit).spawn(io => reader());
-  w1 := Thread(unit).spawn(io => writer());
-  w2 := Thread(unit).spawn(io => writer());
+  shared_reader := arc(reader);
+  r1 := Thread(unit).spawn(io => shared_reader.*());
+  r2 := Thread(unit).spawn(io => shared_reader.*());
+  r3 := Thread(unit).spawn(io => shared_reader.*());
+  w1 := Thread(unit).spawn(io => shared_writer.*());
+  w2 := Thread(unit).spawn(io => shared_writer.*());
   r1.join();
   r2.join();
   r3.join();
@@ -294,9 +304,12 @@ test("RwLock readers blocked behind a held writer are woken on release", {
       });
     }
   );
-  t1 := Thread(unit).spawn(io => reader());
-  t2 := Thread(unit).spawn(io => reader());
-  t3 := Thread(unit).spawn(io => reader());
+  // `reader` owns the shared cells, so it is not `Copy` (decision 36): the
+  // threads share it through an Arc, as a Rust closure would be shared.
+  shared_reader := arc(reader);
+  t1 := Thread(unit).spawn(io => shared_reader.*());
+  t2 := Thread(unit).spawn(io => shared_reader.*());
+  t3 := Thread(unit).spawn(io => shared_reader.*());
   t1.join();
   t2.join();
   t3.join();

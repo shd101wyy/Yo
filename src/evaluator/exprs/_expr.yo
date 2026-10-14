@@ -141,6 +141,7 @@ import("std/fmt");
   BF_YO_DUP_ARRAY_ELEMENT,
   BF_YO_DROP_TUPLE_ELEMENT,
   BF_YO_DUP_TUPLE_ELEMENT,
+  BF_YO_CAPTURE_FIELD,
   BF_YO_RC_OWN,
   BF_YO_DYN_DROP,
   BF_YO_DYN_DUP,
@@ -332,7 +333,7 @@ _is_deleted_borrow_word :: (fn(e : &AstExpr, with_imm : bool) -> bool)(
 { evaluate_float_literal } :: import("../values/float.yo");
 { evaluate_module_value } :: import("../values/impl.yo");
 { register_pending_definition_forcer } :: import("../values/anonymous_module.yo");
-{ register_function_value_marker } :: import("../utils/closure.yo");
+{ register_function_value_marker, evaluate_yo_capture_field } :: import("../utils/closure.yo");
 { evaluate_integer_literal } :: import("../values/integer.yo");
 { evaluate_string_literal } :: import("../values/string.yo");
 { evaluate_tuple_value } :: import("../values/tuple.yo");
@@ -1241,6 +1242,8 @@ _evaluate_expression :: (
           evaluate_yo_drop_tuple_element(expr, env, ctx, exn),
         ((__dk_len == usize(22)) && ast_expr_is_fn_call_of(expr, BF_YO_DUP_TUPLE_ELEMENT, .None)) =>
           evaluate_yo_dup_tuple_element(expr, env, ctx, exn),
+        ((__dk_len == usize(18)) && ast_expr_is_fn_call_of(expr, BF_YO_CAPTURE_FIELD, .None)) =>
+          evaluate_yo_capture_field(expr, env, ctx, exn),
         ((__dk_len == usize(11)) && ast_expr_is_fn_call_of(expr, BF_YO_RC_OWN, .None)) =>
           evaluate_yo_rc_own(expr, env, ctx, exn),
         ((__dk_len == usize(13)) && ast_expr_is_fn_call_of(expr, BF_YO_DYN_DROP, .None)) =>

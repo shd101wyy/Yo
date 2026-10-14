@@ -362,7 +362,7 @@ test("Copy: a hand-written Clone on a type Copy for every instantiation is an er
 // A `fn` pointer, a closure whose captures are all `Copy` and an anonymous
 // record whose fields are, are `Copy` structurally. No impl can name them, so
 // `x.clone()` expands to the copy
-// (issues/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md).
+// (issues/fixed/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md).
 _ct_sclone :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone());
 test("Copy: a fn pointer, a Copy closure and a Copy anonymous record clone as the copy", {
   f := _ct_seven;
@@ -414,4 +414,79 @@ test("Clone: a conditional Clone impl answers no for a type argument without Clo
   w := _CtWrap(String)(v : `hi`);
   w2 := w.clone();
   assert(w2.v == `hi`, "the derived clone runs");
+});
+// ---------------------------------------------------------------------------
+// A closure is Copy and Clone as Rust's are: by its capture record
+// (issues/fixed/2026-10-14-a-closure-owning-a-string-copies-implicitly.md,
+// issues/fixed/2026-10-14-a-where-copy-bound-accepts-a-closure-that-owns-a-string.md,
+// issues/fixed/2026-10-14-a-mut-capturing-closure-answers-copy-and-clone.md).
+// ---------------------------------------------------------------------------
+_ct_need_copy :: (fn(comptime(T) : Type, x : T, where(T <: Copy)) -> T)(x);
+_ct_need_copy_g :: (fn(generic(T : Type), x : T, where(T <: Copy)) -> T)(x);
+_ct_need_clone :: (fn(comptime(T) : Type, x : T, where(T <: Clone)) -> T)(x.clone());
+test("Copy: a closure that owns a String moves at d := c, as Rust's does", {
+  s := String.from("hi");
+  (c : Impl(Fn() -> usize)) = ({ s }() => s.len());
+  comptime_assert(!Type.impls(type_of(c), Copy), "a by-value String capture is not Copy");
+  comptime_assert(Type.impls(type_of(c), Clone), "it is Clone: String is");
+  d := c;
+  comptime_expect_error(c(), "use of moved value");
+  comptime_expect_error({
+    e := c;
+  }, "use of moved value");
+  assert(d() == usize(2), "the moved-to closure calls");
+});
+test("Copy: an implicit capture of a String is by value, so that closure moves too", {
+  label := String.from("abc");
+  (c : Impl(Fn() -> usize)) = (() => label.len());
+  comptime_assert(!Type.impls(type_of(c), Copy), "the capture record holds the String");
+  d := c;
+  comptime_expect_error(c(), "use of moved value");
+  assert(d() == usize(3), "d calls");
+});
+test("Copy: where(T <: Copy) rejects a closure that owns a String", {
+  s := String.from("hi");
+  (c : Impl(Fn() -> usize)) = ({ s }() => s.len());
+  comptime_expect_error(_ct_need_copy(type_of(c), c), "does not implement required trait Copy");
+  (c2 : Impl(Fn() -> usize)) = ({ s }() => s.len());
+  comptime_expect_error(_ct_need_copy_g(c2), "does not implement required trait Copy");
+  n := i32(4);
+  (k : Impl(Fn() -> i32)) = (() => (n + i32(1)));
+  (kg : Impl(Fn() -> i32)) = (() => (n + i32(1)));
+  k2 := _ct_need_copy(type_of(k), k);
+  k3 := _ct_need_copy_g(kg);
+  assert((k2() + k3()) == i32(10), "a closure of Copy captures passes, through a generic parameter too");
+});
+test("Copy: a &mut capture makes a closure neither Copy nor Clone", {
+  n := i32(0);
+  {
+    (t : Impl(Fn() -> i32)) = ({ &mut n }() => {
+      n = (n + i32(1));
+      n
+    });
+    comptime_assert(!Type.impls(type_of(t), Copy), "two copies of one exclusive borrow would alias");
+    comptime_assert(!Type.impls(type_of(t), Clone), "a clone would copy the borrow");
+    assert(t() == i32(1), "it still calls");
+  };
+});
+test("Clone: a closure that owns a String clones each by-value capture", {
+  s := String.from("hi");
+  (c : Impl(Fn() -> usize)) = ({ s }() => s.len());
+  d := c.clone();
+  assert((d() + c()) == usize(4), "both the clone and the original call");
+  k := _ct_need_clone(type_of(c), c);
+  assert(k() == usize(2), "a where(T <: Clone) body clones it");
+  label := String.from("xyz");
+  (w : Impl(Fn() -> usize)) = (() => label.len());
+  w2 := _ct_need_clone(type_of(w), w);
+  assert(w2() == usize(3), "an implicitly capturing closure clones too");
+});
+test("Clone: an anonymous record of a String clones field-wise", {
+  r := _(a : String.from("x"), b : i32(1));
+  comptime_assert(!Type.impls(type_of(r), Copy) && Type.impls(type_of(r), Clone), "Clone, not Copy");
+  r2 := r.clone();
+  r2.a.push_str("y");
+  assert((r.a == String.from("x")) && (r2.a == String.from("xy")) && (r2.b == i32(1)), "the clone owns its own String");
+  r3 := _ct_sclone(&r);
+  assert(r3.a == String.from("x"), "a where(T <: Clone) body clones it");
 });

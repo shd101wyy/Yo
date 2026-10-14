@@ -151,7 +151,7 @@ test("Test closure with Impl that captures Rc object", {
     x.* = (x.* + y);
     return(x.*);
   });
-  closure2 := closure; // Test dup on closure
+  // Not `Copy`: it owns an Rc handle (decision 36, as Rust's), so a copy would move it.
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
@@ -194,12 +194,14 @@ test("Test closure captured Rc survives nested early return", {
     );
     return(i32(-1));
   });
-  closure2 := closure;
   result := closure(4);
   assert(result == i32(5), "nested early return should return updated value");
   assert(x.* == i32(5), "captured boxed variable should survive early return");
+  // A closure owning an Rc handle moves (decision 36): the moved-to closure
+  // holds the same box.
+  closure2 := closure;
   result2 := closure2(2);
-  assert(result2 == i32(7), "duplicated closure should share captured box");
+  assert(result2 == i32(7), "the moved closure shares the captured box");
   assert(x.* == i32(7), "captured box should remain alive after duplicate call");
 });
 test("Test anonymous closure value with Impl that captures Rc object", {
@@ -211,7 +213,7 @@ test("Test anonymous closure value with Impl that captures Rc object", {
       return(x.*);
     }
   );
-  closure2 := closure; // Test dup on closure
+  // Not `Copy`: it owns an Rc handle (decision 36, as Rust's), so a copy would move it.
   closure(1); // 2
   closure(1); // 3
   result := closure(2); // 5
@@ -364,7 +366,9 @@ test("a container of a closure type compiles and calls the closure", {
   );
   ks := ArrayList(type_of(k)).new();
   ks.push(k);
-  match(ks.get(usize(0)), .Some(g0) => g0(), .None => assert(false, "the pushed closure is there"));
+  // Called in place: `ks.get` copies the element, and a closure that owns an
+  // `AtomicI32` is not `Copy` (plans/VALUES_BY_DEFAULT.md decision 36).
+  ks(usize(0))();
   assert(ks.len() == usize(1), "one closure in the list");
   assert(hits.load(MemoryOrder.Acquire) == i32(1), "the listed closure ran");
 });
@@ -397,8 +401,8 @@ test("two closures' lists are two types, one per closure", {
   l2 := ArrayList(type_of(k2)).new();
   l1.push(k1);
   l2.push(k2);
-  match(l1.get(usize(0)), .Some(g1) => g1(), .None => assert(false, "k1 is in l1"));
-  match(l2.get(usize(0)), .Some(g2) => g2(), .None => assert(false, "k2 is in l2"));
+  l1(usize(0))();
+  l2(usize(0))();
   assert(hits.load(MemoryOrder.Acquire) == i32(11), "each list called its own closure");
 });
 // Two closures of different capture shapes: the first list's push must not
@@ -423,8 +427,8 @@ test("a second closure's list after the first list's push", {
   );
   l2 := ArrayList(type_of(k2)).new();
   l2.push(k2);
-  match(l1.get(usize(0)), .Some(g1) => g1(), .None => assert(false, "k1 is in l1"));
-  match(l2.get(usize(0)), .Some(g2) => g2(), .None => assert(false, "k2 is in l2"));
+  l1(usize(0))();
+  l2(usize(0))();
   assert(hits.load(MemoryOrder.Acquire) == i32(4), "each list called its own closure");
 });
 // ---------------------------------------------------------------------------
@@ -442,12 +446,15 @@ impl(
 );
 _cap_ignore :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)(i32(0));
 _cap_call :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)(get(i32(3)));
-_cap_rewrap :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)({
+// `_cap_rewrap` and `_cap_boxed` own `get`: their closures capture it by value,
+// and a closure owning a `ref` handle is not `Copy` (plans/VALUES_BY_DEFAULT.md
+// decision 36), so the capture moves it.
+_cap_rewrap :: (fn(sink(get) : Impl(Fn(x : i32) -> i32)) -> i32)({
   (again : Impl(Fn(x : i32) -> i32)) = ((x : i32) => get(x));
   again(i32(3))
 });
 _CapBox :: ref(struct(f : Dyn(Fn(x : i32) -> i32)));
-_cap_boxed :: (fn(get : &Impl(Fn(x : i32) -> i32)) -> i32)({
+_cap_boxed :: (fn(sink(get) : Impl(Fn(x : i32) -> i32)) -> i32)({
   b := _CapBox(f : dyn(x => get(x)));
   b.f(i32(3))
 });
@@ -460,13 +467,16 @@ test("a closure local releases its captures at scope end", {
   };
   assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
 });
-test("a copied closure releases its captures once per owner", {
+test("a moved closure releases its captures once", {
   before := g_cap_disposed;
   {
     p := CapPayload(n : i32(5));
     (c : Impl(Fn(x : i32) -> i32)) = ((x : i32) => (x + p.n));
+    // A closure owning a `ref` handle is not `Copy` (plans/VALUES_BY_DEFAULT.md
+    // decision 36): `c2 := c` moves it.
     c2 := c;
-    assert((c(i32(1)) + c2(i32(1))) == i32(12), "both copies read the capture");
+    comptime_expect_error(c(i32(1)), "use of moved value");
+    assert(c2(i32(1)) == i32(6), "the moved-to closure reads the capture");
   };
   assert((g_cap_disposed - before) == i32(1), "the capture is released exactly once");
 });
@@ -691,4 +701,70 @@ test("a local or comptime slot of a function type returning Impl(Fn)", {
   g := h(i32(21));
   assert(g() == i32(42), "local annotation");
   assert(_nim_use_ct(_nim_double, i32(6)) == i32(12), "comptime parameter");
+});
+// ---------------------------------------------------------------------------
+// A closure's clone (plans/VALUES_BY_DEFAULT.md decision 36): each by-value
+// capture is cloned, a `Copy` one copied, and each copy owns what it holds
+// (issues/fixed/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md).
+// `g_cl_tok_dropped` / `g_cl_tok_cloned` count `_ClTok`'s drops and clones.
+// ---------------------------------------------------------------------------
+(g_cl_tok_dropped : i32) = i32(0);
+(g_cl_tok_cloned : i32) = i32(0);
+_ClTok :: struct(n : i32);
+impl(
+  _ClTok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_cl_tok_dropped = (g_cl_tok_dropped + i32(1));
+    })
+  )
+);
+impl(
+  _ClTok,
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      g_cl_tok_cloned = (g_cl_tok_cloned + i32(1));
+      Self(n : self.n)
+    })
+  )
+);
+_cl_clone_of :: (fn(comptime(T) : Type, x : T, where(T <: Clone)) -> T)(x.clone());
+test("a closure's clone owns a separate copy of its String capture", {
+  s := String.from("hello");
+  (c : Impl(Fn() -> ?*u8)) = ({ s }() => s.ptr());
+  d := c.clone();
+  (cp : ?*u8) = c();
+  (dp : ?*u8) = d();
+  assert(cp != dp, "the clone's String is a separate buffer");
+  (e : Impl(Fn() -> usize)) = ({ t : String.from("abc"), k : usize(2) }() => (t.len() + k));
+  f := e.clone();
+  assert((e() + f()) == usize(10), "a String and an i32 capture: the i32 is copied");
+});
+test("a cloned closure's capture is dropped once per copy", {
+  dropped0 := g_cl_tok_dropped;
+  cloned0 := g_cl_tok_cloned;
+  {
+    tok := _ClTok(n : i32(7));
+    (c : Impl(Fn() -> i32)) = ({ tok }() => tok.n);
+    d := c.clone();
+    assert((c() + d()) == i32(14), "both call");
+    assert(g_cl_tok_cloned == (cloned0 + i32(1)), "the clone cloned the capture once");
+    assert(g_cl_tok_dropped == dropped0, "nothing dropped yet");
+  };
+  assert(g_cl_tok_dropped == (dropped0 + i32(2)), `two copies, two drops, got ${g_cl_tok_dropped - dropped0}`);
+  {
+    tok2 := _ClTok(n : i32(1));
+    (c2 : Impl(Fn() -> i32)) = ({ tok2 }() => tok2.n);
+    k := _cl_clone_of(type_of(c2), c2);
+    assert(k() == i32(1), "a where(T <: Clone) body clones it");
+  };
+  assert(g_cl_tok_dropped == (dropped0 + i32(4)), `the generic clone's copies drop too, got ${g_cl_tok_dropped - dropped0}`);
+});
+test("a closure's clone outlives the original", {
+  (g : Impl(Fn() -> usize)) = {
+    s := String.from("four");
+    (c : Impl(Fn() -> usize)) = ({ s }() => s.len());
+    c.clone()
+  };
+  assert(g() == usize(4), "the clone keeps its own String after the original's scope dropped it");
 });
