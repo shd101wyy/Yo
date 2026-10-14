@@ -1515,19 +1515,34 @@ and in git, not a silent edit.
       | handle, #1329 key memos | 187.0 / 187.7 s | 1.240 GB |
       | handle, identity memos (as built) | 187.0 / 187.1 s | 1.222 GB |
 
-      Check time is unchanged, and the memo restore saves 15 MB. Building the
-      compiler costs more. The v0.2.62 seed builds develop in 520 s with
-      138.4 MB of C, and the handle tree in 709 s with 148.0 MB. Most of the
-      extra C is one name: `rc` specialized at `TypeValueNode` was emitted
-      under its raw 17,783-byte signature at 780 call sites, because three
-      callee-walk registrations bypassed `function_c_name`'s hash. The same
-      PR fixes that
-      (`issues/fixed/specialized-function-names-called-through-a-callee-are-not-hashed.md`).
-      A match on the handle also took the general test chain
-      (`if (!(tag == X)) goto`) rather than a `switch`: 7,872 goto tests
-      against develop's 1,715. The same PR lowers a borrow match whose arms
-      all look through one `Rc` cell to plain variant shapes (binder or `_`
-      fields, no guard) to a `switch` on the payload's tag.
+      Check time is unchanged, and the memo restore saves 15 MB. After the
+      rebase onto v0.2.62 the handle tree was slower to check (224 s against
+      develop's 186 s) and to emit (587 s against 402 s). The cause was
+      `resolve_enum_shell` scanning a list of every finalized enum: a
+      `TypeValueNode`'s `Rc(Self)` children stay self-shells inside nested
+      containers, so every type walk resolved shells (a `ref(enum)` has
+      none). The registry is now a `HashMap`. The same PR fixes two
+      emitted-C costs:
+      - `rc` specialized at `TypeValueNode` was emitted under its raw
+        17,783-byte signature at 780 call sites. Three callee-walk
+        registrations bypassed `function_c_name`'s hash
+        (`issues/fixed/2026-10-14-specialized-function-names-called-through-a-callee-are-not-hashed.md`).
+      - A borrow match whose arms all look through one `Rc` cell to plain
+        variant shapes (binder or `_` fields, no guard) took the general test
+        chain (`if (!(tag == X)) goto`; 7,872 tests against develop's 1,715).
+        It now lowers to a `switch` on the payload's tag.
+
+      Measured as built: each tree is checked by its own S1, seed-built by
+      v0.2.62, alone on the box (macOS arm64):
+
+      | | `check ./src` | emit (`compile src/main.yo --skip-c-compiler`) | emitted C |
+      | --- | --- | --- | --- |
+      | develop 93de1de73 | 188.1 s, 1.258 GB | 401.6 s, 3.25 GB | 138.4 MB |
+      | this tree | 172.1 s, 1.226 GB | 334.5 s, 3.20 GB | 135.3 MB |
+
+      The v0.2.62 seed itself still builds this tree in 716 s against 520 s
+      for develop, because it carries none of the three fixes. That comes
+      back once a seed does.
 22. **Non-escaping closures borrow, escaping closures own, and a closure's
     kind follows its captures** (the structural rule of §0.2 applied to the
     capture struct).
