@@ -2266,8 +2266,8 @@ compile_artifact :: (
     // (issues/fixed/yo-build-artifact-cache-serves-a-stale-binary.md).
     if(!compile_ok, {
       stale_artifact := `${output_path.to_string()}${lib_suffix}`;
-      if(e.io.await(exists(Path.new(stale_artifact.clone()), e.io), e.io), {
-        e.io.await(remove_file(Path.new(stale_artifact), e.io), e);
+      if(e.io.await(exists(Path.new(&stale_artifact), e.io), e.io), {
+        e.io.await(remove_file(Path.new(&stale_artifact), e.io), e);
       });
     });
     cond(
