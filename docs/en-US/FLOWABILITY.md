@@ -239,17 +239,26 @@ caller-owned `+1` until the call returns, like an overlapping field
 projection. A borrowed handle itself never releases the caller's count
 (forwarding it to a `sink` position dups first).
 
-The arguments are evaluated in order, so a place an argument lends (`&x`,
-`&mut x`, `&mut x.f`, or the receiver of a `&self`/`&mut self` method) is
-borrowed while the later arguments run. **A later argument may not move that
-place** (E0910): in `sync(&mut a, eat(a))` the callee would read and write
-`a` after `eat` moved it out and dropped it, and a move inside a nested call
-or a block is the same. Move a copy (`eat(a.clone())`) or split the call. An
-assignment to the place, or a `&mut` relend of it, in a later argument
-finishes before the call runs and the callee sees the new value, so a plain
-call accepts it; a call that makes a borrowing Future rejects that too,
-because the Future holds the borrow until it is awaited
-([ASYNC_AWAIT.md](./ASYNC_AWAIT.md)).
+The arguments are evaluated in order, and a place an argument lends (`&x`,
+`&mut x`, `&mut x.f`, the receiver of a `&self`/`&mut self` method, or an
+operand its operator borrows, like `a` in `a == b`) is borrowed from the
+moment that argument is evaluated until the call returns. **A later argument
+may not move that place, assign to it, or lend it `&mut`** (E0910), whether
+the code is written out, in a nested call or in a block:
+
+- in `sync(&mut a, eat(a))` and `a == make(eat(a))` the callee would read
+  `a` after `eat` moved it out and dropped it;
+- in `peek(&p.s, { p = q; k })` and `peek(&p.s, reset(&mut p))`, `&p.s` was
+  already read when the later argument replaced `p` and dropped the old
+  `p.s`, so the callee would read freed memory.
+
+A read, or a `&` borrow, of the place in a later argument is fine
+(`xs.push(xs.len())`, `f(&mut a, a.len())`), and so is a write to a field the
+lent place does not overlap (`peek(&p.s, { p.k = 3; k })`). This is Rust's
+two-phase borrow rule. Move a copy (`eat(a.clone())`), or compute the later
+argument before the call (`k := reset(&mut p); peek(&p.s, k)`). A call that
+makes a borrowing Future follows the same rule, and its borrow lasts until
+the Future is awaited ([ASYNC_AWAIT.md](./ASYNC_AWAIT.md)).
 
 With no local bindings there is nothing left to "invalidate": the old
 borrow-invalidation gates were deleted along with the binding form.
