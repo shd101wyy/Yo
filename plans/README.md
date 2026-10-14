@@ -127,6 +127,20 @@ that fails leaking tests, `InlineList`, enum containers, a comptime string
 map, a replaceable panic handler, assert diffs), three toolchain items, and
 the rejections (inferred error sets, allocator-per-call, `+%` operators,
 first-class `u7`, `@fieldParentPtr`, `undefined`).
+[`LEAN_ADOPTION_CANDIDATES`](backlog/LEAN_ADOPTION_CANDIDATES.md) is the
+2026-10-14 Lean survey of the same shape, scoped to formal verification:
+a table of what the verifier already has where Lean needed to build the
+equivalent (per-VC verdict caching, paste-able counterexamples,
+`decreases` obligations, `assumed()` as a visible `sorry`), eight
+candidates (a lemma search for authors over T1's index, trust provenance
+rendered from unsat cores, shrunk counterexamples, verify-time regression
+tracking, parallel cold verification, a library lint, "Try this"
+diagnostics for T2's auto-induction, decide-by-evaluation measured first
+and likely parked), the positions it records (Yo's verifier is the
+Lean-blaster posture with compensations Lean lacks; D2's reopen condition
+is incident-shaped), and the rejections it adds (in-kernel decision
+procedures like `omega`/`grind`, ambient rewrite automation and simp
+sets, proof-term tiers over the compiler).
 [`NON_ESCAPABLE_TYPES`](backlog/NON_ESCAPABLE_TYPES.md) is the design of
 VALUES_BY_DEFAULT decisions 42 and 43 (2026-10-10): references `&T`/`&mut T`
 are types, second-class, with lifetimes elided — they may live anywhere laid

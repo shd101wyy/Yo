@@ -425,14 +425,9 @@ impl(
         match(
           self._ptr,
           .None => .None,
-          .Some(_ptr) => {
-            last_element_ptr := _ptr.add(self._length);
-            last_element := last_element_ptr.*;
-            // Drop the slot's reference since it's no longer tracked
-            // (length was decremented, so dispose won't reach this slot)
-            unsafe.drop(last_element_ptr.*);
-            .Some(last_element)
-          }
+          // The element moves out of the slot bitwise: the slot is past the
+          // length, so the list no longer drops it (a move-only `T` works).
+          .Some(_ptr) => .Some(__yo_ptr_read(_ptr.add(self._length)))
         )
       }
     )
@@ -699,10 +694,14 @@ impl(
       true =>
         match(
           self._ptr,
+          // Bitwise moves: no element is copied or dropped, so a move-only
+          // `T` swaps too.
           .Some(_ptr) => {
-            tmp := (_ptr.add(i)).*;
-            (_ptr.add(i)).* = (_ptr.add(j)).*;
-            (_ptr.add(j)).* = tmp;
+            pi := _ptr.add(i);
+            pj := _ptr.add(j);
+            tmp := __yo_ptr_read(pi);
+            __yo_ptr_write(pi, __yo_ptr_read(pj));
+            __yo_ptr_write(pj, tmp);
           },
           .None => ()
         )
@@ -790,13 +789,22 @@ impl(
       __yo_panic("ArrayList.remove: index out of bounds");
     });
     match(
-      self.get(idx),
-      .Some(elem) => {
-        // get dup'd the element; drain drops the original — RC balanced.
-        _r := self.drain(idx .. (idx + usize(1)));
+      self._ptr,
+      .Some(_ptr) => {
+        // The element moves out bitwise and the tail moves left over it, so
+        // nothing is copied or dropped (a move-only `T` works).
+        hole := _ptr.add(idx);
+        elem := __yo_ptr_read(hole);
+        tail := (self._length - idx - usize(1));
+        if(tail > usize(0), {
+          // SAFETY: `hole + 1 .. hole + 1 + tail` is the in-bounds tail
+          // (`idx < self._length`); memmove handles the overlap.
+          unsafe(memmove((*void)(hole), (*void)(hole.add(usize(1))), tail * size_of(T)));
+        });
+        self._length = (self._length - usize(1));
         elem
       },
-      .None => __yo_panic("ArrayList.remove: get failed after bounds check")
+      .None => __yo_panic("ArrayList.remove: no buffer after bounds check")
     )
   }),
   /// Owned copy of `[start, end)`, or an `.IndexOutOfBounds` error — the
@@ -1338,8 +1346,9 @@ impl(
   ArrayList(T),
   /// Reverse the elements in place, O(n).
   ///
-  /// Exchanges raw slots, like `swap`, so no element is dup'd or dropped —
-  /// RC-neutral however `T` is refcounted.
+  /// Exchanges raw slots bitwise, like `swap`, so no element is copied or
+  /// dropped: RC-neutral however `T` is refcounted, and a move-only `T`
+  /// reverses too.
   reverse : (fn(self : &mut Self) -> unit)({
     cond(
       (self._length <= usize(1)) => (),
@@ -1353,9 +1362,11 @@ impl(
               i = (i + usize(1));
               j = (j - usize(1));
             }, {
-              tmp := (_ptr.add(i)).*;
-              (_ptr.add(i)).* = (_ptr.add(j)).*;
-              (_ptr.add(j)).* = tmp;
+              pi := _ptr.add(i);
+              pj := _ptr.add(j);
+              tmp := __yo_ptr_read(pi);
+              __yo_ptr_write(pi, __yo_ptr_read(pj));
+              __yo_ptr_write(pj, tmp);
             });
           },
           .None => ()

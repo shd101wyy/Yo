@@ -8409,14 +8409,17 @@ impl(
   Option(T),
   /// Take the value out of the option, leaving `None` in its place.
   take : (fn(self : &mut Self) -> Option(T))({
-    old := self;
-    self = Option(T).None;
+    // A bitwise move out and in: a move-only payload is never copied.
+    p := addr_of(self);
+    old := __yo_ptr_read(p);
+    __yo_ptr_write(p, Option(T).None);
     old
   }),
   /// Replace the contained value with `Some(value)`, returning the old option.
   replace : (fn(self : &mut Self, value : T) -> Option(T))({
-    old := self;
-    self = Option(T).Some(value);
+    p := addr_of(self);
+    old := __yo_ptr_read(p);
+    __yo_ptr_write(p, Option(T).Some(value));
     old
   })
 );
@@ -12688,20 +12691,20 @@ export(FutureState);
 /// JoinHandle — a handle to a spawned async task.
 /// Generic over `T`, the return type of the spawned task.
 ///
-/// The handle OWNS a reference to the task's future: the task (and its
-/// result) stay alive for as long as some copy of the handle does, and
-/// dropping the last copy releases it. A handle that is dropped without being
-/// awaited DETACHES the task — it keeps running and frees itself when it
-/// finishes — which is what makes a fire-and-forget `io.spawn(…)` statement
-/// correct (it used to leak the whole state machine,
-/// issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md). Awaiting
-/// does not consume the handle; awaiting it twice reads the same result.
+/// A move-only value (plans/VALUES_BY_DEFAULT.md §3.13 A3): the handle OWNS
+/// one reference to the task's future, and its `Dispose` releases it. It has
+/// no `Clone`, so one task has one handle. Awaiting it (`h.await(io)`,
+/// `io.await(h.join(io), io)`) CONSUMES it: the result moves out of the task,
+/// and a second await of the same handle is a use after move (E0901). A
+/// result several tasks need is joined once and shared (`Rc(T)`, a channel).
+/// A handle that is dropped without being awaited DETACHES the task: it keeps
+/// running and frees itself when it finishes, which is what makes a
+/// fire-and-forget `io.spawn(…)` statement correct
+/// (issues/fixed/statement-level-io-spawn-leaks-the-state-machine.md).
 JoinHandle :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      /// Raw pointer to the spawned future (uses `*(T)` so the type parameter is visible).
-      __future : *T
-    )
+  struct(
+    /// Raw pointer to the spawned future (uses `*(T)` so the type parameter is visible).
+    __future : *T
   )
 );
 // Phase L (THREAD_SAFETY): JoinHandle is NOT Send — the inner future state
@@ -12756,11 +12759,16 @@ export(__yo_builtin_io);
 /// JoinHandle methods — defined after Io so `io : Io` resolves.
 extern(
   "Yo",
-  __yo_join_handle_await : (fn(generic(T : Type), self : &JoinHandle(T), io : Io) -> Option(T))
+  __yo_join_handle_await : (fn(generic(T : Type), self : JoinHandle(T), io : Io) -> Option(T))
 );
 impl(
   generic(T : Type),
   JoinHandle(T),
+  /// Wait for the task and return its result, `.None` if it was aborted. It
+  /// consumes the handle: the result moves out of the task, and the handle's
+  /// reference is released. A BLOCKING poll of the event loop, for `main` and
+  /// plain functions; inside a task, `io.await(h.join(io), io)`
+  /// (`std/async`) suspends instead.
   await : __yo_join_handle_await
 );
 /// JoinHandle introspection + cancellation. The raw helpers read/write the
@@ -12776,7 +12784,8 @@ extern(
 impl(
   generic(T : Type),
   JoinHandle(T),
-  /// Dropping the last copy of the handle releases the task's future.
+  /// Dropping the handle releases its reference to the task's future: an
+  /// unawaited task is detached, and keeps running until it finishes.
   Dispose(
     dispose : (fn(self : &Self) -> unit)(
       __yo_join_handle_release_raw((*void)(self.__future))
@@ -12793,8 +12802,8 @@ impl(
   ),
   /// The task's future as an untyped pointer, for the runtime externs that
   /// take a task (`std/async`'s join waits, `__yo_join_wait_add`). The
-  /// handle keeps owning its reference; the pointer is valid while some copy
-  /// of the handle is alive. Reading through it is unsafe.
+  /// handle keeps owning its reference; the pointer is valid while the handle
+  /// is alive. Reading through it is unsafe.
   as_ptr : (fn(self : &JoinHandle(T)) -> *void)((*void)(self.__future)),
   /// True once the task is terminal — `Completed` or `Aborted`.
   is_finished : (fn(self : &JoinHandle(T)) -> bool)({

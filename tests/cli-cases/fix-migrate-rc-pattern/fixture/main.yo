@@ -1,0 +1,51 @@
+//! `yo fix --migrate rc-pattern`: a pattern at an `Rc(T)` position spells
+//! `Rc(p)`; a binding and `_` there stay.
+Tree :: enum(Leaf(n : i32), Node(l : Rc(Self), r : Rc(Self)));
+Cell :: enum(Value(v : Rc(i32)), Empty);
+sum2 :: (fn(t : &Tree) -> i32)(
+  match(
+    t,
+    .Node(.Leaf(a), .Leaf(b)) => (a + b),
+    .Node(.Node(.Leaf(a), _), keep) => match(keep, .Leaf(k) => (a + k), _ => a),
+    .Node(
+      .Node(
+        .Node(_, _),
+        _
+      ),
+      _
+    ) => i32(-2),
+    .Node(_, _) => i32(-1),
+    .Leaf(n) => n
+  )
+);
+pick :: (fn(c : &Cell) -> i32)(
+  match(
+    c,
+    .Value(1 | 2) => i32(1),
+    .Value(42) => i32(42),
+    .Value(n) => n.*,
+    .Empty => i32(0)
+  )
+);
+whole :: (fn(t : &Tree) -> i32)(
+  match(
+    t,
+    .Node(c := .Leaf(n), _) => (n + i32(ref_count(c))),
+    _ => i32(0)
+  )
+);
+top :: (fn(b : &Rc(Tree)) -> i32)(
+  match(
+    b,
+    .Leaf(n) => n,
+    .Node(_, _) => i32(-1)
+  )
+);
+main :: (fn() -> unit)({
+  t := Tree.Node(rc(Tree.Leaf(1)), rc(Tree.Leaf(2)));
+  _a := sum2(&t);
+  _b := pick(&Cell.Value(rc(i32(2))));
+  _c := whole(&t);
+  _d := top(&rc(Tree.Leaf(3)));
+});
+export(main);

@@ -203,10 +203,10 @@ test("Test one signal wakes every waiter in a list", {
   while(j < n, j = (j + usize(1)), {
     match(wakers.get(j), .Some(w) => w.wake(), .None => ());
   });
-  (k : usize) = usize(0);
-  while(k < n, k = (k + usize(1)), {
+  // Awaiting a handle consumes it: pop each one off the list.
+  while(handles.len() > usize(0), {
     match(
-      handles.get(k),
+      handles.pop(),
       .Some(h) => {
         _r := h.await(io);
       },
@@ -279,10 +279,10 @@ test("Test a waker relay hands off without a millisecond floor", {
   started := Instant.now();
   // Fire the first hand-off; the relay carries itself the rest of the way.
   match(next_w, .Some(w0) => w0.wake(), .None => ());
-  (k : usize) = usize(0);
-  while(k < n, k = (k + usize(1)), {
+  // Awaiting a handle consumes it: pop each one off the list.
+  while(handles.len() > usize(0), {
     match(
-      handles.get(k),
+      handles.pop(),
       .Some(h) => {
         _r := h.await(io);
       },

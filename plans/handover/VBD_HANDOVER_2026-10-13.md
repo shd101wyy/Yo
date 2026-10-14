@@ -1,6 +1,6 @@
 # VALUES_BY_DEFAULT handover — 2026-10-13
 
-**Status: ACTIVE handover, current as of 2026-10-13 after v0.2.61.**
+**Status: ACTIVE handover, current as of 2026-10-14 (v0.2.62 released from 308b66935).**
 - **Supersedes:** [`VBD_HANDOVER_2026-10-10.md`](VBD_HANDOVER_2026-10-10.md). Its §5 ("How to work in this repository") still applies unless §1 below amends it.
 - **Written:** by the agent running the campaign on 2026-10-13.
 - **What it covers:** v0.2.60 and v0.2.61, the v0.2.62 batch, the branches in flight, the next steps in order, and the decisions recorded this cycle.
@@ -14,7 +14,8 @@
 The goal is unchanged: finish every phase in `plans/VALUES_BY_DEFAULT.md`. These rules were added or confirmed 2026-10-11/13; the earlier handovers' rules stand otherwise.
 
 - **Admin merges on local gates, then fix forward on develop.** The maintainer's standing OK (2026-10-13): open the PRs, admin-merge them once their local gates pass, watch develop's battery, and fix what it finds. Cutting and dispatching patch releases is part of the same OK.
-- **At most 5 concurrent agents,** subagents and workflow agents combined.
+- **Three-tier gating (2026-10-14; AGENTS.md "Git: worktrees, branches, merges").** A PR is admin-merged as soon as its Tier-1 targeted local gate passes (about 20–30 min). PR batteries are not waited for. Develop's battery is the full check: watch it, and fix any red job forward. Releases still need develop green on the exact tip. Never hold the lock while idle.
+- **At most 7 concurrent agents** (raised 2026-10-14), subagents and workflow agents combined.
 - **While a release candidate's develop battery runs, PR runs may be cancelled** so that develop has the runners (2026-10-13). Never cancel a `Release` run. Never cancel develop's tip run without the maintainer's OK.
 - **Heavy steps take the shared lock:** `source ~/Workspace/Yo-wt/heavy-lock.sh; heavy_take "<what>"; …; heavy_drop`. This covers builds, `check ./src`, the language suite, `tests/internal` files, the fixpoint and cli-diff-test. The lock is FIFO. Several agents queue on one machine, so the lock, not the agent count, is the bottleneck.
 - **"Whenever we could be explicit, do explicit"** (the maintainer, re-applied this cycle). A closure into a `Dyn(Fn)` slot is `dyn(f)`. `Drop` follows Rust exactly, receiver included.
@@ -35,6 +36,15 @@ The goal is unchanged: finish every phase in `plans/VALUES_BY_DEFAULT.md`. These
   - #1329: V4 prep (key-based type memos, `Acyclic`);
   - develop fixes #1332, #1335 and #1342.
   - The release notes are curated.
+- **v0.2.62** (dispatched 2026-10-14 from 308b66935, after develop's battery went green on that exact tip):
+  - #1337: the allocator hand-off audit and the `&&`/`||` constant-fold fixes;
+  - #1341: per-type value-enum drops and one `Option(E)` C type;
+  - #1346: E0910 for a later argument that moves a lent place;
+  - #1347: `&Self` receivers for `Clone` and the other read-only traits;
+  - #1343: decision 45 Generation A, `Drop`;
+  - #1331 and #1344: plans only;
+  - #1348: the develop fix for `gc_runtime_atomics`, the `dispose_fn_thunk` arity #1343 changed.
+  - The first battery after the batch failed one `tests/internal` shard, because #1343's local gates skipped the `tests/internal` files importing `src/codegen/functions/constructors.yo`.
 
 ### 2.2 CI changes this cycle
 
@@ -57,16 +67,27 @@ The integration branch `integ/v0262b` (worktree `~/Workspace/Yo-wt/integ-v0262`;
 | #1346 | S1: a later argument that moves a place an earlier argument lends to the call is E0910 | gates green |
 | #1339 | decision 44 follow-up: a bare callable in a `Dyn(Fn)` slot is E0618, `yo fix --migrate dyn-spelling` | waits for #1345 (the dyn-named-fn fix, stacked on it) to fold in, then a rebase; may slip to v0.2.63 |
 
-The order is: merge the batch, wait for develop's battery to be green on the exact tip, cut v0.2.62, then curate its notes.
+All of these except #1339 merged on 2026-10-14 and shipped in v0.2.62.
 
-### 2.4 In flight (agents, 2026-10-13)
+**Review of the batch (2026-10-14).** An adversarial-review workflow covered the five areas and their interactions. Each finding was re-reproduced and checked against v0.2.61.
+- **New in the batch:** S2 and S3 defects in Drop Generation A. The Drop follow-ups agent fixes them.
+- **Inherited:** three S1 holes in E0910 (operator sugar, defaulted parameters, a `&x.f` argument overwritten later), fixed by the E0910 agent. The other inherited findings are filed as issues.
+- The evidence is in the session scratchpad's `review-v0262.json` and in the probes under `~/Workspace/Yo-wt/review-v0262/`.
 
-- **V4 `TypeValue`:** measuring a value enum against an `Rc` handle (`~/Workspace/Yo-wt/v4fix-logs/vh/`). The maintainer chose the handle if the measurements favor it.
+### 2.4 In flight (agents, 2026-10-14), all for v0.2.63
+
+- **V3 Generation B** (#1349, local gates green): the maintainer said to admin-merge it on its local gates once v0.2.62 is out. **#1350** (another session's OWNERSHIP_AND_BORROWING draft catch-up): admin-merge as-is after the release.
+- **V2b Generation B** (branch `feat/vbd-v2b-genb-r2`): ten mode-only `src/` write sites; its gate is queued.
+- **V1 step 2 Generation B and decision 31 Generation B:** gates running.
+- **V4 `TypeValue` as an `Rc` handle** (`feat/vbd-v4-typevalue-rc-handle`): time-neutral for `check`. It found and fixed unhashed specialized C names, a 17 KB name repeated 780 times (its S3 issue doc lands with the V4 PR). Its yo-s1 build-time split is still being measured.
+- **Drop Generation A follow-ups:** all review findings except the regression fixed below; E0915 for a destructor method value; Drop/Dispose coherence; bound unification; the migration skipping non-destructor `dispose`. Also the regression where a user trait method named `drop` was left out of `Dyn` vtables.
+- **E0910's three S1 holes.**
+- **Closures follow Rust (maintainer, 2026-10-14):** `Copy` iff every capture is `Copy`, `Clone` iff every capture is `Clone`. Develop implicitly copied a closure owning a `String` by value.
 - **dyn-named-fn workflow:** fixes `dyn(named_fn)`'s invalid C and the dyn-spelling migration's rc=1 (draft #1345, stacked on #1339), then folds into #1339.
 
 ## 3. The next steps, in order
 
-1. **Ship v0.2.62** (§2.3).
+1. **Ship v0.2.62** (§2.3): done 2026-10-14. Curate its notes; the draft is in `v0262-changes.md` in the session scratchpad.
 2. **The Generation B halves that wait for v0.2.61** (trial-merged against `integ/v0262` on 2026-10-13; details in `~/Workspace/Yo-wt/notes/restack.txt`):
    - **V2b Generation B** (`feat/vbd-v2b-index-mut-genb`): cherry-pick 3fa0e4070 and 6affb0712. The only conflict is `HashMap`'s `Index`: keep the split and #1334's `_hash(&idx)`.
    - **V3 Generation B** (`feat/vbd-v3-genb`): only 505eee0c4, a1829649f and 7ae446308 are new. They cover ArrayList/Option bitwise moves, the move-only `JoinHandle`, A4's by-value combinators, and the tests/docs migration. Every other commit on the branch landed through #1325/#1326. a1829649f and 7ae446308 conflict and need a hand re-port.
@@ -75,6 +96,7 @@ The order is: merge the batch, wait for develop's battery to be green on the exa
 3. **After v0.2.62 is the seed:**
    - Decision 45 Generation B: `yo fix ./std ./src ./tests --migrate drop-trait`, delete `Dispose`, rename the docs.
    - std's own `dyn(f)` spelling.
+3a. **Evaluator performance step 1** (§6 "Evaluator performance"): attribute the `check ./src` slowdown (113 s at v0.2.50, about 187 s on develop) to `.yo` functions, and fix the clear hot spots in v0.2.63. Tools are in `~/Workspace/Yo-wt/checktime/` (`emitmap.sh`, `analyze.py`). Step 2, structural tuning, follows V2b and V4. Step 3 is a deterministic allocation-count ratchet in CI.
 4. **V4 `TypeValue`** in the measured shape, then `AstExpr`, `Pattern`/`VcSort`/`VcTerm`/`Z3Sexpr`, and `EvalValue` (§6 V4).
 5. **The rest of V3 async** (§3.13): A5's remaining lines (wakers, channels, mutexes, streams), and A6's `Rc`-field half with V2c.
 6. **The rest of V2b:** direct projection calls, unique buffers, the explicit-copy kind, and decision 39's iterators.

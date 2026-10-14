@@ -54,3 +54,23 @@ same nested in a match arm with a later struct-returning method call bound as
 of the real shape (an `impl` method body, the `Option(Box(_))`-typed receiver,
 the value-struct-with-RC-field return of a memoized method, …) is needed.
 Start from the branch's `strict_walk` at the commit before the rename.
+
+## Minimized 2026-10-14 (v0.2.62 batch review)
+
+The trigger is a `dyn(...)` consumption of the later local.
+
+```yo
+{ println } :: import("std/fmt");
+{ String } :: import("std/string");
+Pt :: struct(x : i32, label : String);
+main :: (fn() -> unit)({
+  o := Option(i32).Some(i32(3));
+  match(o, .Some(p) => println(`${p}`), .None => ());
+  p := Pt(x : i32(1), label : String.from("L"));
+  (d : Dyn(ToString)) = dyn(p);
+  s := d.to_string();
+});
+export(main);
+```
+
+`error: member reference base type 'int32_t' is not a structure or union`. The error is on `if (((__yo_v_p).__yo_v_label) != NULL) { __yo_decr_rc(...) }` under `// Drop consumed variables (unwind propagation)`, inside the earlier arm's `__yo_effect_escaped` block. The unwind epilogue of the `println` call names the LATER `p` by name, and inside that arm the name resolves to the `i32` match binding. It reproduces on develop a89b8356c and on v0.2.61. (`Pt` also needs a `ToString` impl; the review's probe derives one.)

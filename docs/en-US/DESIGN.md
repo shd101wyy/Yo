@@ -2479,7 +2479,7 @@ parentheses.
 | tuple | `(0, y)`, `(_, .Some(v))` | exact arity, one sub-pattern per element |
 | named struct | `Point(x : 0, y)`, `Person(name : "alice")` | labeled or bare-field, partial (unlisted fields match anything) |
 | anonymous struct | `{x : 0, y}` | at a struct position, like the variant curly form |
-| wrapper | `Rc(p)`, `Arc(p)` | looks through the cell at an `Rc(T)`/`Arc(T)` position; `p` matches the `T` inside, and its bindings borrow |
+| wrapper | `Rc(p)`, `Arc(p)`, `Box(p)` | looks through the cell at an `Rc(T)`/`Arc(T)`/`Box(T)` position; `p` matches the `T` inside; inside `Rc(p)`/`Arc(p)` the bindings borrow |
 
 ```yo
 classify :: (fn(r : Result(Option(i32), str)) -> i32)(
@@ -2510,14 +2510,17 @@ command :: (fn(s : String) -> i32)(
 
 A tuple scrutinee takes one sub-pattern per element; a struct scrutinee takes
 labeled sub-patterns (a bare field name binds that field; unlisted fields
-match anything). A wrapper pattern `Rc(p)` or `Arc(p)` names the cell it
-looks through, as in Rust: `p` matches the `T` inside the `Rc(T)`/`Arc(T)` at
-its position, at any depth, and the cell's variants count toward
-exhaustiveness. A binding inside it borrows the payload, because other
-handles may share the cell; `(c := Rc(p))` binds the cell itself. An
-`Arc(T)` position takes only the wrapper spelling. At an `Rc(T)` position a
-structural pattern written without `Rc(…)` is still looked through
-implicitly, until every `src/` and `std/` arm spells the wrapper
+match anything). A wrapper pattern `Rc(p)`, `Arc(p)` or `Box(p)` names the
+cell it looks through, as in Rust: `p` matches the `T` inside the
+`Rc(T)`/`Arc(T)`/`Box(T)` at its position, at any depth, and the cell's
+variants count toward exhaustiveness. A binding inside `Rc(p)` or `Arc(p)`
+borrows the payload, because other handles may share the cell;
+`(c := Rc(p))` binds the cell itself. An `Rc(T)` or `Arc(T)` position takes
+only the wrapper spelling: a structural pattern there without it is E0609,
+whose help names `Rc(p)`, and `yo fix <path> --migrate rc-pattern` wraps
+every such pattern. A missing case is printed through the wrapper
+(`.Node(Rc(.Leaf(_)), _)`). At a unique `Box(T)` position a pattern without
+`Box(…)` is still looked through implicitly, until `src/` spells `Box(p)`
 (`plans/VALUES_BY_DEFAULT.md` decision 31):
 
 ```yo
@@ -3412,8 +3415,9 @@ assert(sum(&t) == 3);
 
 - **`box(v)`** moves `v` into a new cell. `b.*` is the payload place, in safe
   code too: `b.* = v` replaces it, and `b.field` / `b.method()` reach it by
-  auto-dereference. A pattern looks through a `Box` payload, as through an
-  `Rc`'s.
+  auto-dereference. A pattern looks through a `Box` payload with `Box(p)`,
+  as through an `Rc`'s with `Rc(p)`; for now a `Box` is also looked through
+  without it.
 - **Explicit copies.** A `Box` is never `Copy`. `c := b` moves `b` when it is
   `b`'s last use; any other copy is E0901. `Box.clone(b)` is a deep copy: a
   new cell holding a clone of the payload (`b.clone()` is E0616, because the
@@ -4060,7 +4064,7 @@ Key properties:
 - `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or spawned
 - `io.await(future, e)` consumes a future: starts it if cold, runs it to completion and moves its result out; a future is awaited **once** (`e` is the effect record — just `io` for pure-Io tasks)
 - `io.spawn(future, e)` consumes a cold future and starts it without waiting, returns `JoinHandle(T)`
-- `handle.await(io)` waits for a spawned task, returns `Option(T)` — `.None` on unwind (abort)
+- `handle.await(io)` waits for a spawned task, returns `Option(T)` — `.None` on unwind (abort). A `JoinHandle` is move-only: the await consumes it, so a task is awaited once
 - All async code runs on the **same thread** (no thread spawning, no data races)
 
 See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.

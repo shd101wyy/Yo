@@ -37,6 +37,7 @@ Use this skill when you need to:
 - `io.await(future, e)` runs or waits for the future and returns its result. `e` is the effect bundle the future expects.
 - `io.spawn(future, e)` starts it without waiting and returns `JoinHandle(T)`.
 - `handle.await(io)` returns `Option(T)`; `.None` means the task aborted via `unwind`. It blocks (main / plain fns); inside a task use `io.await(handle.join(io), io)` from `std/async`.
+- A `JoinHandle` is move-only: `await` and `join` consume it (a second one is E0901), `state`/`is_finished`/`abort` borrow it, and a dropped handle detaches its task. The `std/async` combinators take handles by value; `race`/`any` hand the list back as `(index, handles)`.
 - Future types are `Future(T)` or `Future(T, E)` where `E` is a single effect bundle (typically a struct). Pack multiple effects into one struct rather than passing them as separate type arguments.
 - Effects are passed as explicit parameters — pass them by name at call sites.
 - A handler whose body may `unwind` must be typed `ctl(args) -> R`; otherwise type it `fn(args) -> R`. Subtyping is one-way: `fn(T) -> R <: ctl(T) -> R`.

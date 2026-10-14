@@ -73,7 +73,7 @@ test("awaiting an already-running future from a state machine releases it", {
       Thing(n : i32(7))
     });
     hf := io.spawn(f, io);
-    a := io.async((io : Io) => match(io.await(hf.join(io), io), .Some(v) => v.n, .None => i32(-1)));
+    a := io.async({ hf }(io : Io) => match(io.await(hf.join(io), io), .Some(v) => v.n, .None => i32(-1)));
     r := io.await(a, io);
     assert(r == i32(7), "the awaiter read the running task's result");
   };

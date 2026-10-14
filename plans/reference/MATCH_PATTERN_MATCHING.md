@@ -55,10 +55,20 @@ same `Pattern.ThroughBox` node the implicit look-through builds; codegen's
 under it (`Rc(x)` binds the payload as a borrow; `(c := Rc(p))` binds the
 cell). `norm_position_type` presents an `Arc` column as its payload as well,
 and an `Arc` position takes only the wrapper spelling. The implicit `Rc`
-look-through stays until decision 31's Generation B (a seed carrying the rule
-lets `src/`/`std/` spell `Rc(p)`); witnesses still render without the
-wrapper. `Box(p)` waits for V1 step 2's `Box`. Tests:
+look-through stayed until decision 31's Generation B (a seed carrying the rule
+let `src/`/`std/` spell `Rc(p)`). `Box(p)` waits for V1 step 2's `Box`. Tests:
 `tests/match_nested.test.yo`, `tests/match_async_arms.test.yo`.
+
+**Generation B (2026-10-14):** the implicit `Rc` look-through is deleted. A
+structural pattern at an `Rc(T)` position is E0609 (the `Arc` branch's
+error: "a pattern does not look through a cell implicitly"), whose help
+names `Rc(p)` and `yo fix <path> --migrate rc-pattern`; that migration
+records each such pattern while it looks through, then wraps it in the
+source (`_run_migrate_rc_pattern`, `src/main.yo`). Witnesses render with
+the wrapper (`_witness_cell_name` in `src/pattern.yo`: `.Cons(_, Rc(.Nil))`).
+`Box(p)` joined `_is_wrapper_ctor_name` for V1 step 2's unique `Box`; a
+`Box` position is still looked through implicitly until a `SEED_VERSION`
+carries `Box(p)`, and its witnesses stay bare until then.
 
 **P1–P3 record:** on top of P0 (#672): the `Pattern` IR (`src/pattern.yo`) with its usefulness
 checker and per-match arm registry, the pattern compiler
@@ -572,7 +582,7 @@ bound as a C variable and the second arm's binds emitted after an unconditional
 | `1..=5`, `1..5` | `(1..=5)`, `(1..5)` | **new** | the `RangeOp` trait call yields a comptime `Range(T)`/`RangeInclusive(T)` value; lowered to `lo <= x && x < hi` |
 | `E::V`, `E::V(p, q)`, `E::V { a, b: c }` | `.V`, `.V(p, q)`, `.V(a : p)`, `.V({a, b : c})`, `.V({})` | exists | sub-patterns `p`, `q` may now be ANY pattern |
 | `E::V(Inner::W(x))` | `.V(.W(x))` | **new** | any depth; pointer/`ref` payloads are looked through (top-level already auto-derefs one pointer); an `Rc` payload implicitly until decision 31's Generation B |
-| `E::V(box Inner::W(x))` (`Box`/`Rc`/`Arc`) | `.V(Rc(.W(x)))`, `Arc(p)` | **new** (decision 31, 2026-10-13) | names the cell it looks through; `Box(p)` with V1 step 2 |
+| `E::V(box Inner::W(x))` (`Box`/`Rc`/`Arc`) | `.V(Rc(.W(x)))`, `Arc(p)`, `Box(p)` | **new** (decision 31, 2026-10-13; Generation B 2026-10-14) | names the cell it looks through; required at `Rc`/`Arc` |
 | `(a, b)` | `(a, b)` | **new** | tuple scrutinee/sub-pattern; arity exact; `_` per element |
 | `S { x: 0, y }` | `S(x : 0, y : y)`, `{x : 0, y}` | **new** | struct scrutinee/sub-pattern; labeled, partial like curly variants |
 | `p \| q` | `(p \| q)`, `\|(p, q)` | exists for primitive literals; **new** for variants, nested, anywhere | alternatives must bind the same set of names with compatible types |

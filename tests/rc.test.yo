@@ -2139,6 +2139,38 @@ test("unique Box: a consuming match looks through the box, and drops it once", {
   };
   assert(g_ubox_disposed == (before + i32(3)), "both leaves dropped exactly once");
 });
+// Decision 31: `Box(p)` spells the look-through (Generation A for `Box`; the
+// implicit form above goes once a `SEED_VERSION` carries `Box(p)`).
+test("unique Box: Box(p) names the cell a pattern looks through", {
+  f :: (fn(t : &UBoxTree) -> i32)(
+    match(
+      t,
+      .Node(Box(.Leaf(a)), Box(.Leaf(b))) => (a + b),
+      .Node(Box(.Node(Box(.Leaf(a)), _)), _) => (a * i32(10)),
+      .Node(_, _) => i32(-1),
+      .Leaf(v) => v
+    )
+  );
+  assert(f(UBoxTree.Node(box(UBoxTree.Leaf(1)), box(UBoxTree.Leaf(2)))) == i32(3));
+  assert(f(UBoxTree.Node(box(UBoxTree.Node(box(UBoxTree.Leaf(4)), box(UBoxTree.Leaf(0)))), box(UBoxTree.Leaf(9)))) == i32(40));
+  assert(f(UBoxTree.Leaf(7)) == i32(7));
+  before := g_ubox_disposed;
+  {
+    v := match(box(UBoxProbe(n : i32(5))), Box(UBoxProbe(n : k)) => k);
+    assert(v == i32(5), "Box(p) at the scrutinee matched the payload");
+  };
+  assert(g_ubox_disposed == (before + i32(1)), "the scrutinee box dropped its payload once");
+  comptime_expect_error({
+    bad :: (fn(t : &UBoxTree) -> i32)(
+      match(
+        t,
+        Box(.Leaf(n)) => n,
+        _ => i32(0)
+      )
+    );
+    bad(UBoxTree.Leaf(1))
+  }, "looks through a `Box`, and this position is not one");
+});
 UBoxHolder :: struct(b : Box(UBoxPoint), k : i32);
 derive(UBoxHolder, Clone, Eq(UBoxHolder), Hash);
 UBoxChoice :: enum(A(b : Box(i32)), B);

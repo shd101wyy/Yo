@@ -242,7 +242,7 @@ process_dir :: (fn(root : Path, io : Io) -> Impl(Future(unit, WalkCtx)))(
 
   // ✓ a real suspension point
   outs := io.await(join_all(handles, io), io);
-  one := io.await(handles(usize(0)).join(io), io);
+  one := io.await(h.join(io), io); // join consumes h, as await does
   r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
   ```
 

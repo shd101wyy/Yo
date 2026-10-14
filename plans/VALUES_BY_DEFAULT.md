@@ -75,15 +75,27 @@ Progress:
     error where the bundle is copied (#1326, after an adversarial review's
     two fix rounds), together with the async-lowering fixes found on the way
     (#1325);
+  - V3 async A3 Generation B and A4's handle half (§3.13; #1349, after the
+    v0.2.61 seed): `JoinHandle(T)` is a
+    move-only value struct whose `await`/`join`/`timeout` consume it, the
+    `std/async` combinators take handle lists by value, and
+    `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
+    move bitwise through `__yo_ptr_read`/`__yo_ptr_write`;
   - V1 step 2 Generation A, the unique `Box(V)` (#1328; Step 2's "as
-    built");
+    built"), and Generation B, the `src/` sites (feat/vbd-v1-step2-box-genb:
+    the verifier's local cells are `Box`; the owner chains and
+    `consumed_at_token` drop their cell; `FuncMeta` and `DocModule` stay
+    `Rc`, see Step 2's "as built");
   - V2b "Projections first", Generation A: `-> &T` / `-> &mut T`
     projections, and subscript dispatch through `Index` / `IndexMut` (#1324);
   - decision 45 Generation A: `Drop` beside `Dispose`, E0915 for an
     explicit destructor call, `drop(x)`, and `yo fix --migrate drop-trait`
     (#1343). Generation B, the tree-wide rename, waits for the seed.
   - V4: decision 31's wrapper patterns `Rc(p)` / `Arc(p)`, Generation A
-    (#1327), and the `TypeValue` prep: key-based memos, the module-type
+    (#1327), and Generation B: the implicit `Rc` look-through deleted,
+    `yo fix --migrate rc-pattern`, witnesses through the wrapper, and
+    `Box(p)` (feat/vbd-d31-rc-pattern-genb; decision 31's "as built"); and
+    the `TypeValue` prep: key-based memos, the module-type
     rebuild, and the `Acyclic` short-circuit (#1329);
   - V2b's prerequisite: `Clone.clone`, `ToString.to_string` and the other
     read-only trait receivers take `self : &Self` (#1347);
@@ -93,14 +105,10 @@ Progress:
     lends to the call is E0910 (#1346).
 - **In progress:**
   - The Generation B halves that wait for the v0.2.61 seed:
-    - A3's prelude switch (std's `ArrayList`/`Option` on
-      `__yo_ptr_read`/`__yo_ptr_write`, and the value `JoinHandle`);
     - V2b's prelude switch to the new `Index`/`IndexMut`/`IndexUnchecked`
       shapes;
-    - V1 step 2's `src/` sites moving back to `Box`;
-    - decision 31's deletion of the implicit `Rc` look-through.
-  - V3's remaining async work (§3.13): A4, A5's remaining lines, and A6's
-    `Rc`-field half (V2c).
+  - V3's remaining async work (§3.13): A4's future operands, A5's remaining
+    lines, and A6's `Rc`-field half (V2c).
   - V4's `TypeValue`: the value-enum conversion was built and measured,
     and `TypeValue` stays an `Rc` handle (decision 21, amended
     2026-10-13). The two codegen bugs it found are fixed
@@ -1126,6 +1134,36 @@ instead.
       share one handle join it once.
     - Branch `async-handle-genb` holds the `Impl(Future(T))` shape that
       "Why a pointer field" rejects. It is a record, not a candidate.
+  - **As built, Generation B (built 2026-10-12 on `feat/vbd-v3-genb`; landed
+    in #1349 after the v0.2.61 seed).**
+    - **The prelude switch.** `JoinHandle(T)` is `struct(__future : *T)`, a
+      value struct whose `Dispose` releases the task's reference. It has no
+      `Clone`, so it is move-only, and stays `!Send`/`!Sync`.
+      `__yo_join_handle_await` takes `self : JoinHandle(T)` by value; `state`,
+      `as_ptr`, `is_finished` and `abort` borrow. The field stays `*T`, not
+      `*(void)`: the type parameter must appear in a field for generic impl
+      matching, and codegen casts it at every use. `io.spawn` builds the
+      handle without an allocation, which closes
+      `issues/fixed/an-owning-join-handle-costs-an-allocation-per-spawn.md`.
+    - **The consumed handle is not disposed again.** The evaluator marks a
+      handle moved into `await` (or `join`'s capture list), so its scope-end
+      `Dispose` is not emitted; the await releases the reference itself.
+    - **Decision 19's moves.** `Option.take`/`replace` and `ArrayList.pop`/
+      `swap`/`remove`/`reverse` move through `__yo_ptr_read`/`__yo_ptr_write`,
+      so a move-only element or payload works (`ArrayList(JoinHandle(T))`'s
+      `pop` is how a handle list is drained). `get` still copies, so it is
+      E0901 for a move-only element: borrow in place (`hs(i).abort()`) or own
+      with `pop`/`remove`.
+    - **Bugs found and fixed:**
+      `issues/fixed/a-method-call-on-a-move-only-element-disposes-a-copy-of-it.md`
+      (Aliasing Stage 0 "dup"ed a move-only element bitwise and disposed the
+      copy), `issues/fixed/a-capture-move-flag-is-read-in-a-state-machine-that-has-none.md`
+      and
+      `issues/fixed/a-capture-in-a-generic-io-async-body-is-dropped-with-another-instantiations-type.md`.
+    - **Tests that shared one handle** were rewritten per A1: two waiters on
+      one task wait through the join-wait primitive on `as_ptr()`
+      (`tests/async/sm_protocol.test.yo`), and a "re-read the result" test
+      became a single await plus an E0901 case.
 - **A4. Combinators (`std/async/index.yo`) take handles by value, and two
   also take futures.**
   - **Future operands.** `timeout` and a two-way `select` accept futures, so
@@ -1137,6 +1175,31 @@ instead.
     `Tuple(usize, ArrayList(JoinHandle(T)))` and
     `Tuple(Option(usize), ArrayList(JoinHandle(T)))`.
   - `_wait_any` takes raw pointers (`as_ptr`).
+  - **As built, the handle half (2026-10-12, with A3 Generation B).**
+    - `join(self : Self, io)` consumes its handle: the future owns it through
+      a by-value capture list, `io.async({ self }(io : Io) => …)`.
+    - `join_all`, `race_first` and `any_first` take
+      `handles : ArrayList(JoinHandle(T))` by value and drain it (`join_all`
+      reverses once and pops, so its results stay in list order). `race` and
+      `any` take it by value and resolve to
+      `Tuple(usize, ArrayList(JoinHandle(T)))` and
+      `Tuple(Option(usize), ArrayList(JoinHandle(T)))`; `race_first` and
+      `any_first` are `race`/`any` followed by `_settle`, which joins the
+      winner and aborts and joins every loser.
+    - `_wait_any(tasks : &ArrayList(*void))` takes the raw pointers
+      (`_task_ptrs`, `as_ptr()`), and `any` keeps its still-running set as
+      pointers instead of handle copies.
+    - `timeout(handle : JoinHandle(T), limit, io)` consumes its handle and
+      joins it on every path.
+    - **An `ArrayList` is still a shared handle** until V2b, so a caller's
+      binding of the list a combinator drained sees it empty, and `race`'s
+      returned list is the same list. The by-value signatures are already the
+      V2b ones.
+    - **Not in this step: the future operands.** `timeout` and a two-way
+      `select` over FUTURES (to wrap a borrowing future, A2) need the
+      compiler to accept a second-class future in a combinator's operand and
+      to run it as a scoped child; they wait for that support, with decision
+      38 B's overlap check (A2's "Not yet").
 - **A5. Wakers, parks, channels, mutexes and streams.**
   - **`Waker`** is move-only with `Clone`. A clone registers one more token
     (the runtime counts live tokens, `std/async/waker.yo`), and its cell
@@ -1700,6 +1763,46 @@ and in git, not a silent edit.
         Rc(.Leaf(a)) cannot match a value of type T`) was not a separate
         bug: the implicit look-through ran first and compiled `Rc(…)`
         against the payload as a constant. The wrapper rule runs before it.
+    - **As built, Generation B (2026-10-14,
+      `feat/vbd-d31-rc-pattern-genb`).**
+      - **The look-through is gone.** A structural pattern at an `Rc(T)`
+        position takes the `Arc` branch's error, E0609 "a pattern does not
+        look through a cell implicitly", whose help spells the pattern
+        inside `Rc(…)` and names the migration.
+      - **`yo fix <path> --migrate rc-pattern`.** Every file is evaluated
+        with a recorder on (`record_rc_pattern_site`, `src/expr_info.yo`):
+        the look-through, which is otherwise the error, records the
+        pattern's leftmost token and printed form and looks through. The
+        driver (`_run_migrate_rc_pattern`, `src/main.yo`) finds each pattern
+        in the source by parsing candidate spans until one prints as
+        recorded (across lines; a parenthesized pattern starts at its
+        grouping `(`), and inserts `Rc(` and `)`, so nested sites compose
+        in one pass. A site whose text does not print as recorded is listed
+        and left as written.
+      - **Measured: 19 patterns, all in `tests/`** (`match_nested`,
+        `match_async_arms`, `move_only`, `rc_cell`); none in `std/` or
+        `src/`, whose recursive types are `ref` types or reach their
+        children through `ArrayList(Self)`, not `Rc`. The ~3,500 arms the
+        "Cost" bullet counted are V4's, when `TypeValue`'s children become
+        cells. A second pass found nothing.
+      - **Witnesses** render through the wrapper: `_useful`
+        (`src/pattern.yo`) wraps its column's witness in `Rc(…)` or
+        `Arc(…)` when the column is that cell (`.Node(Rc(.Node(_, _)),
+        Rc(.Leaf(_)))`); the same-column steps (`At`, `ThroughBox`, `Or`)
+        recurse into `_useful_at`, so the wrapper is spelled once.
+      - **`Box(p)`, Generation A.** `Box` joined `_is_wrapper_ctor_name`
+        for V1 step 2's unique `Box` (its position test is
+        `is_unique_box_type`, and its payload has no compile-time value).
+        A `Box` position is still looked through implicitly, and its
+        witnesses stay bare: `src/` cannot spell `Box(p)` before a
+        `SEED_VERSION` carries it. The next seed-gated step deletes that
+        look-through the same way (`yo fix --migrate rc-pattern` would
+        need a `Box` twin).
+      - **Tests:** `tests/match_nested.test.yo` (E0609 at a variant child,
+        at an `Rc` scrutinee and at `Rc(i32)`; witnesses through `Rc`),
+        `tests/rc.test.yo` (`Box(p)` at any depth, at the scrutinee with
+        one drop, and at a position that is not a `Box`), and the cli case
+        `tests/cli-cases/fix-migrate-rc-pattern`.
 
 32. **A member name both the wrapper and its payload have is an error;
     the wrapper's is spelled `Rc.clone(w)`.** Confirmed 2026-10-05 by the
@@ -3938,6 +4041,43 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   moves back to `Box` and their `.clone()`/move fixes wait for a
   `SEED_VERSION` carrying Generation A
   (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+- **As built, Generation B (2026-10-14, `feat/vbd-v1-step2-box-genb`,
+  on the v0.2.61 seed).** Each listed site was re-read against "one owner,
+  and the cell exists for recursion or size":
+  - **The verifier's local cells are the unique `Box`** (`chain`,
+    `guard_cell`, `phi_cell`, `acc_cell` in `src/verifier/vc.yo`): one
+    owner each, no closure captures them, and the `VcTerm` payload is a
+    `ref` handle, so `cell.*` reads stay implicit copies.
+  - **The owner chains and `consumed_at_token` drop the cell.**
+    `Variable`, `CapturedVariable`, `SuspensionCapturedVariable`,
+    `EffectCapturedVariable` and `Token` are `ref(struct(...))` types, so
+    their values are already shared handles: `Option(Self)` and
+    `Option(Token)` are one pointer and need neither recursion help nor a
+    size cell. The site list was written when they were value structs.
+    A `Box` around a handle would allocate a 16-byte-prefixed cell per
+    link, and with no `Clone` on a `ref` type it would make the copy points
+    (`env.yo`, `assignment.yo`, `va_start.yo`, `codegen/exprs/async.yo`,
+    `synthesizer.yo`) E0901 with no fix. So the "non-last-use copies" stay
+    plain copies, and the hop loop in `evaluator/exprs/runtime.yo` walks
+    handles. The change is 68 type spellings and 65 `.*` reads in 28 files.
+  - **`Rc(FuncMeta)` stays `Rc`.** `TypeValue.Func` shares one meta across
+    every type rebuilt from it: `substitute` (`src/types/substitution.yo`)
+    reuses `__fm1` for each substituted function type, and about ten
+    construction sites copy a `meta` from another `Func`. A unique `Box`
+    would deep-copy six `ArrayList`s at each of them. Reasoned from the
+    sharing, not measured.
+  - **`ArrayList(Rc(Self))` in `src/doc/model.yo` stays `Rc` for now.**
+    `ArrayList(Box(T)).get` copies a move-only element out of the buffer,
+    E0901 inside `std/collections/array_list.yo` (measured with the v0.2.61
+    seed on a two-level `Box` tree); `for(&xs, …)` copies the same way. It
+    moves with V2b's non-copying access, as `HashMap(Box(K), V)` does.
+  - **Measured** (Mac Mini M4, the tree-built compilers, min of 3 runs
+    under the shared lock): `check ./src` 185.8 s / 1,203 MB max RSS at
+    a89b8356c, 184.8 s / 1,189 MB with this change (−0.5 % time, noise;
+    −14 MB RSS). Self-emit C (`compile src/main.yo --optimize 2
+    --emit-c`): 138,521,141 → 138,309,119 bytes (−0.15 %), 1,752,977 →
+    1,751,840 lines. The fixpoint holds, and `yo verify ./tests/spec`
+    prints the same outcomes as the base compiler.
 
 ### V3: move-only, `Dispose`, resources
 
@@ -5536,12 +5676,52 @@ stage-2 RSS):
   memory ratchet.
   - **Wrapper patterns** (decision 31). `Box(p)`, `Rc(p)` and `Arc(p)`
     patterns are one evaluator rule and one codegen rule, in
-    `pattern_compile.yo` and `codegen/exprs/match.yo`. They land in V4's
-    first PR, with the `TypeValue` conversion as the test.
+    `pattern_compile.yo` and `codegen/exprs/match.yo`. Landed: Generation A
+    (#1327) and Generation B (the `Rc` look-through deleted,
+    `yo fix --migrate rc-pattern`; decision 31's "as built"). A `Box`
+    position still looks through implicitly until a seed carries `Box(p)`.
   - **Constructions and arms.** About 750 `TypeValue.`, 430 `EvalValue.` and
     90 `AstExpr.` constructions are rewritten. So is each of the ~3,500
     destructuring arms that reaches through a child, which a `yo fix`
     repair inserts mechanically from the pattern position's type.
+
+### Evaluator performance: the migration's copy and allocation cost
+
+**Status: measured 2026-10-14; step 1 in progress, steps 2–3 queued** (maintainer, 2026-10-14: "go with your recommendation").
+
+**Measured.** Each release's own binary, checking its own tag's tree (`check ./src --std-path ./std`, Mac Mini M4, nothing else running):
+
+| Release | `check ./src` | Max RSS | `src/` lines |
+| --- | ---: | ---: | ---: |
+| v0.2.50 | 113.3 s | 1,165 MB | 261,544 |
+| v0.2.53 | 130.9 s | 1,089 MB | 266,343 |
+| v0.2.55 | 141.2 s | 1,125 MB | 272,367 |
+| v0.2.57 | 161.7 s | 1,175 MB | 274,375 |
+| v0.2.59 | 166.2 s | 1,189 MB | 277,907 |
+| v0.2.60 | 172.8 s | 1,188 MB | 278,100 |
+| v0.2.61 | 177.2 s | 1,201 MB | 280,844 |
+
+- Develop after the v0.2.62 batch measures about 187 s.
+- The source grew 7% while the time grew 56%. The growth is spread across the VBD releases; no one release jumps.
+- It is not #1329's key memos. Develop, the `Rc`-handle `TypeValue` with key memos, and the handle with #1137's identity memos all check in 186–188 s.
+
+**Where the time goes.** `sample` on the checking thread, v0.2.50 → v0.2.61:
+
+| Category | v0.2.50 | v0.2.61 | Change |
+| --- | ---: | ---: | ---: |
+| Yo code | 45.6 s | 66.7 s | +46% |
+| RC increments/decrements | 20.1 s | 33.9 s | +69% |
+| `malloc`/`free` | 15.4 s | 27.6 s | +79% |
+| `memmove`/`memcpy`/`memcmp` | 5.9 s | 9.5 s | +60% |
+
+RC and allocation traffic grew faster than the code. That points at copies the migration made explicit (clones, by-value `String`/`ArrayList` parameters) on the evaluator's hot paths.
+
+**Why the existing ratchet missed it.** CI's evaluator memory ratchet (`scripts/bootstrap/memory_ratchet.sh`) gates `check src/main.yo` on max RSS only, and RSS grew about 3%. Its printed wall time is not usable as a gate: identical trees measure 3:47 to 8:53 on `ubuntu-latest`.
+
+**Plan:**
+1. **Attribute now.** Map the profile's `yo_id_*` symbols to `.yo` functions by emitting each release's compiler C with `--line-directives`, rank the functions by inclusive time and by the RC/allocation time under them, and fix the clear regressions in v0.2.63: a clone inside a hot loop, a by-value copy that should be a `&` lend.
+2. **Structural tuning after V2b's unique buffers and V4's `TypeValue`.** Both change exactly the RC and allocation profile, so tuning before them would be partly wasted.
+3. **A deterministic guard.** Extend the memory ratchet with an allocation count, for example an `LD_PRELOAD` `malloc` counter on Linux or `perf stat -e instructions:u` if the runners expose it. Ratchet it ±10% like RSS, and report the `check ./src` time per release in the release notes' "Compiler performance and memory" section.
 
 ### Decision 43: references as types
 
