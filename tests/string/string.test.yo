@@ -2613,3 +2613,29 @@ test("A String has no writable byte place: s(i) reads, s(i) = b does not compile
   assert(s(usize(0)) == u8(97), "s(i) reads the byte");
   assert(s.byte_at(usize(2)) == s(usize(2)), "and agrees with byte_at");
 });
+// `to_cstr_checked` is the conversion for C boundaries: an interior NUL would
+// make C act on the prefix
+// (issues/fixed/string-to-cstr-truncates-at-an-interior-nul.md).
+test("to_cstr_checked rejects an interior NUL and terminates a clean string", {
+  clean := String.from("abc");
+  match(
+    clean.to_cstr_checked(),
+    .Ok(b) => {
+      assert(b.len() == usize(4), "three bytes and the terminator");
+      assert(b(usize(3)) == u8(0), "terminated");
+      assert(b(usize(0)) == u8(97), "the bytes are copied");
+    },
+    .Err(_) => assert(false, "a clean string converts")
+  );
+  bad := String.from("/tmp/a");
+  bad.push_byte(u8(0));
+  bad.push_str("/etc");
+  match(
+    bad.to_cstr_checked(),
+    .Ok(_) => assert(false, "an interior NUL must be rejected"),
+    .Err(.InteriorNul(i)) => assert(i == usize(6), `the first NUL's index, got ${i.to_string()}`),
+    .Err(_) => assert(false, "the error names the interior NUL")
+  );
+  empty := String.from("");
+  assert(empty.to_cstr_checked().is_ok(), "an empty string converts");
+});

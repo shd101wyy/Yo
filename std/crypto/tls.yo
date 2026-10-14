@@ -198,7 +198,7 @@ impl(
       tcp := e.io.await(TcpStream.connect(addr, e.io), e);
       // 2. Backend objects (verify + trust store + SNI + hostname pin are
       // configured inside __yo_tls_ssl_new).
-      host_c := host.to_cstr();
+      host_c := match(host.to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
       ctx_opt := unsafe(__yo_tls_ctx_new());
       if(ctx_opt.is_none(), {
         _throw_tls(TlsError.Handshake(detail : _ssl_err_string()), e.exn);

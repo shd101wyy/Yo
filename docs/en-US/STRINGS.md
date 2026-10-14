@@ -169,9 +169,19 @@ moved, never lent:
 | `into_bytes()` | consumes the string and moves its buffer out; copies only when another copy shares it |
 | `String.from_bytes(sink(bytes))` | takes the list over, unchecked |
 | `String.from_utf8(sink(bytes))` | takes the list over after validating it; `Err(.InvalidUtf8(...))` otherwise |
+| `to_cstr_checked()` | the bytes plus a terminating `\0`, for a C boundary; `Err(.InteriorNul(index))` when the string holds a NUL byte |
+| `to_cstr()` | the bytes plus a terminating `\0`, unchecked: C sees only the prefix before an interior NUL |
 
 To read bytes, use `len()`, `byte_at(i)`, `get_byte(i)` or the `bytes()`
 iterator, which copy nothing.
+
+A string that names something at a C boundary (a path, a host name, an
+environment variable, a program argument) goes through `to_cstr_checked()`. C
+ends a string at its first NUL, so `"/tmp/a\0/etc"` would otherwise act on
+`/tmp/a`. std's file system, network, environment and process APIs do this:
+such a path or name throws `IoError.InvalidInput` (`exists`, `is_file` and
+`is_dir` answer `false`, `env.get` answers `.None`), and never reaches the
+prefix.
 
 ## Compile-time strings share the basis
 

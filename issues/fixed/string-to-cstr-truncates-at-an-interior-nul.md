@@ -2,9 +2,25 @@
 
 **Severity:** S1 — `to_cstr` silently truncates at an interior NUL across 49 syscall sites — reads the wrong file, acts on attacker-chosen prefixes
 
+## Resolution (2026-10-14)
+
+Fixed. `String` gains `to_cstr_checked() -> Result(ArrayList(u8), StringError)`, which returns `.Err(.InteriorNul(index))` for the first NUL byte; `StringError.InteriorNul(index : usize)` lands with it, as the comment on `StringError` requires. Every std boundary that passes a caller's string to C as a name now uses it:
+
+- `fs/file`, `fs/dir`, `fs/metadata`, `fs/watch`, `net/unix`, `net/dns` and `crypto/tls` throw `IoError.InvalidInput`. `net/dns` throws `NetError.DNSFailed(.NotFound)`.
+- `exists`, `is_file` and `is_dir` answer `false`, and the directory walk's file-type probe answers `.Other`.
+- `env.get` answers `.None`, `env.set` and `env.remove` answer `false`, and `chdir` returns `.Err(.InvalidInput)`.
+- `process/command` throws `InvalidInput` from the spawn when the program, an argument, an override or the working directory holds a NUL.
+
+The unchecked `to_cstr()` stays for strings that cannot hold one, such as constants, a formatted IP, a prefix of a checked path or a panic message, and its doc comment now says it truncates.
+
+Tests:
+
+- "to_cstr_checked rejects an interior NUL and terminates a clean string" in `tests/string/string.test.yo`.
+- "a path with an interior NUL never reaches the file at its prefix" in `tests/fs/file.test.yo`. Against develop's std it fails: `exists` says true for the decoy.
+
 **Found**: 2026-09-04, during the std-API audit re-measurement of the path row
 (the row asks "should `Path.new` be fallible?"; it should not — but chasing the
-only genuinely invalid path input landed here). **Status**: OPEN.
+only genuinely invalid path input landed here). **Status:** FIXED (moved 2026-10-14, see Resolution).
 **Severity**: api-lie — the API reports one target and operates on another.
 
 ## Symptom
