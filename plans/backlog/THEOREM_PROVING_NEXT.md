@@ -163,6 +163,17 @@ and no local lemma appears.
 **Estimate:** 2–3 weeks (the lemmas are small; the measurement and twin
 discipline are the work).
 
+**Amended 2026-10-14 by the F\* audit**
+([`FSTAR_ADOPTION_CANDIDATES.md`](FSTAR_ADOPTION_CANDIDATES.md) F3): a
+library whose every lemma must be named and instantiated by the caller
+still makes the caller know the lemma's name and its instance, which is
+the burden T1 exists to remove — F\*'s `FStar.Seq` and `FStar.Math.Lemmas`
+are usable at scale because their lemmas carry `SMTPat` triggers and fire
+ambiently. The exit criterion therefore reads "proves using only std
+lemmas, **without naming them**", and T4b (a lemma trigger spelling) lands
+with T1, not after it, under T4a's observability and the F4 hint-replay
+brittleness check.
+
 ## 4. T2 — auto-induction retry and case diagnostics
 
 Today an obligation that needs induction reports `could not prove within
@@ -247,6 +258,13 @@ was insufficient.
   `ensures`) only if T1 + (a) leave measured gaps MBQI cannot close.
 
 **Estimate:** (a) ~1 week; (b) unspecced, gated on (a)'s findings.
+
+**Amended 2026-10-14 by the F\* audit**
+([`FSTAR_ADOPTION_CANDIDATES.md`](FSTAR_ADOPTION_CANDIDATES.md)): (b) is
+pulled forward to land with T1 (F3); (a) gains two cheap brittleness
+signals — a seed sweep that never changes a verdict (F5) and a recorded
+unsat core that stops replaying (F4) — and the unfolding-depth diagnostic
+for recursive spec functions (F7).
 
 ## 7. Recorded limitations (not work items)
 
@@ -343,7 +361,10 @@ verifiable-subset discipline, and `--strict` as the honest gate.
   campaign; L6/D2 heap-model sequencing),
   [`../reference/MATCHING_LOGIC_RESEARCH.md`](../reference/MATCHING_LOGIC_RESEARCH.md)
   (§8's parked certificate route),
-  [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md).
+  [`DEPENDENT_TYPES_POSITION.md`](DEPENDENT_TYPES_POSITION.md),
+  [`FSTAR_ADOPTION_CANDIDATES.md`](FSTAR_ADOPTION_CANDIDATES.md) (the
+  2026-10-14 F\* audit: the T1/T4 amendments above, hint replay, split
+  obligations, inferred measures, in-body `assume`).
 - External: Dafny's `lemma` / `calc` and its standard libraries (the model
   for T1/T3); Why3's transformation and trigger surface (the model for
   T4's diagnostics); Park, Zhang, Roșu — *End-to-End Formal Verification

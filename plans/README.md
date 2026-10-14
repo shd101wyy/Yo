@@ -127,6 +127,17 @@ that fails leaking tests, `InlineList`, enum containers, a comptime string
 map, a replaceable panic handler, assert diffs), three toolchain items, and
 the rejections (inferred error sets, allocator-per-call, `+%` operators,
 first-class `u7`, `@fieldParentPtr`, `undefined`).
+[`FSTAR_ADOPTION_CANDIDATES`](backlog/FSTAR_ADOPTION_CANDIDATES.md) is the
+2026-10-14 F\* audit, written when the maintainer asked whether Yo could
+support dependent types "like F\* does": the verdict (F\* pays the costs
+`DEPENDENT_TYPES_POSITION` names; what it ships is Yo's erased,
+SMT-discharged layer, which Yo should make pervasive rather than
+reopen), fifteen candidates with verdicts and triggers — refinements on
+binders, results and fields, ghost fields, auto-firing lemmas, unsat-core
+hint replay, seed sweeps, scoped `opaque`/`reveal`, fuel, inferred
+`decreases`, split obligations, effect-operation contracts, the three
+tactic jobs as fixed passes, the agent-loop lessons, in-body `assume` — and
+the rejections (universes, WP-indexed effects, a tactic language).
 [`LEAN_ADOPTION_CANDIDATES`](backlog/LEAN_ADOPTION_CANDIDATES.md) is the
 2026-10-14 Lean survey of the same shape, scoped to formal verification:
 a table of what the verifier already has where Lean needed to build the
