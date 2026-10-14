@@ -57,7 +57,7 @@
 > reason the rule is now written down.
 
 > **Still open, and deliberately not closed here:**
-> - **#556** (`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md`
+> - **#556** (`issues/fixed/a-bodyless-http-response-is-not-read-until-the-deadline.md`
 >   on `std-http-client-pool`) — §6 already scopes it out ("tracked with the std
 >   campaign but outside its scope"). Its own doc records the state to resume
 >   from: after the rebase both Linux legs PASS, which is NOT proof, because the
@@ -393,7 +393,7 @@ invisible.
   > emits, the bundle's own `yo` included, from the FIRST release containing it.
   > **That difference is invisible in the diff** — both are edits under `src/`.
 
-- **#556** (`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md`,
+- **#556** (`issues/fixed/a-bodyless-http-response-is-not-read-until-the-deadline.md`,
   branch `std-http-client-pool`) — a lost read wake-up reproducing identically
   on kqueue and io_uring, so a defect in neither backend. Tracked with the std
   campaign but outside its scope.

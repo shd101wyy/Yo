@@ -2,6 +2,10 @@
 
 **Severity:** S1 — valid program ICEs (or silently degrades to an abort stub) when a generic over a Dyn crosses a module boundary
 
+## Resolution (2026-10-14)
+
+Fixed. The cause was a type-identity bug in the evaluator's caches, not the module boundary. An `extern` opaque was a SomeT with no required traits, so it unified with any `Dyn`, and the CTFE memo made `Option(*(Dyn(T)))` hit std/libc/stdio's `Option(*(FILE))` entry. Fixed by #938 (spec and memo keys compare by identity) and #941. Related: `issues/fixed/an-extern-opaque-type-unifies-with-every-dyn.md`. 2026-10-14 triage, seed v0.2.62: the two-module `ArrayList(Dyn(Trait))` repro compiles and runs, confirmed by a second, adversarial agent.
+
 **Status:** open
 **Found:** 2026-09-15 writing `error_chain`; **re-diagnosed 2026-09-16 — the first
 characterization in this file was WRONG and is corrected below.**

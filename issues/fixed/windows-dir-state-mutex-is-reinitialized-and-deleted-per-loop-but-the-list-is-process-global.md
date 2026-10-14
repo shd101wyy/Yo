@@ -2,7 +2,11 @@
 
 **Severity:** S1 — per-loop init/delete of the lock guarding a process-global dir-state list — use-after-free, crashes, or silent list corruption under concurrent loops
 
-Status: OPEN (found by the 2026-09-28 Windows async-I/O audit; pre-existing
+## Resolution (2026-10-14)
+
+Fixed in #974 (7e8a17073), the same PR that filed this doc: `__yo_dir_state_mutex` is now a `static SRWLOCK = SRWLOCK_INIT` in `src/codegen/async/runtime_io_windows.yo`, and the per-thread init/cleanup calls are gone. Regression test: "concurrent directory iteration on three threads" in `tests/thread.test.yo`. Moved by the 2026-10-14 triage.
+
+Status: FIXED (moved 2026-10-14, see Resolution). (found by the 2026-09-28 Windows async-I/O audit; pre-existing
 since the dir-state registry landed).
 
 ## The defect

@@ -5,7 +5,7 @@
 **Status:** RETIRED 2026-10-09 (`std/imm` deleted). Was OPEN — **but the diagnosis below is WRONG, and the leak is not a
 `std` bug.** Re-measured 2026-09-14; see "Correction" at the end. The real
 cause is a compiler defect,
-`issues/own-param-leaks-when-a-conditional-return-is-not-taken.md`, and this
+`issues/fixed/own-param-leaks-when-a-conditional-return-is-not-taken.md`, and this
 doc should close when that one does.
 **Severity:** memory leak of RC element types — silent, and invisible to every
 existing test because `tests/imm_vec.test.yo` deduplicates `i32`s.
@@ -124,7 +124,7 @@ An `own` parameter is never dropped when the body contains an
 `if(cond, { return(param); })` whose condition is **false at runtime** — so the
 first guard, merely by not firing, orphans `self` for every vector longer than
 one element. Filed with a 30-line reproducer and a six-shape control matrix as
-`issues/own-param-leaks-when-a-conditional-return-is-not-taken.md`.
+`issues/fixed/own-param-leaks-when-a-conditional-return-is-not-taken.md`.
 
 That also explains the number this doc could not: the reproducer reports **0**
 disposals, not the 1 its own header predicts and not the 1 the `consume`
@@ -155,4 +155,4 @@ artefact under test cannot supply its own oracle.
 
 ## Retired 2026-10-09
 
-`std/imm` was deleted by the maintainer's decision (revisit later), so `imm.Vec.dedup` no longer exists. The compiler defect this doc's correction names, `issues/own-param-leaks-when-a-conditional-return-is-not-taken.md`, is tracked on its own.
+`std/imm` was deleted by the maintainer's decision (revisit later), so `imm.Vec.dedup` no longer exists. The compiler defect this doc's correction names, `issues/fixed/own-param-leaks-when-a-conditional-return-is-not-taken.md`, is tracked on its own.

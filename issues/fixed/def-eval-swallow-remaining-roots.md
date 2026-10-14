@@ -916,7 +916,7 @@ TypeApplication paths.
   that binding `N` would also clear family B above was wrong.
 - **Kind matters in both directions.** A value binder bound to a `TypeVal` is
   the `usize`-vs-`Type` misbind of
-  `issues/yo-self-collections-batch-residuals.md`; a type binder bound to
+  `issues/fixed/yo-self-collections-batch-residuals.md`; a type binder bound to
   `create_unknown_val(Type)` throws "expected type for element" because
   yo-self's TypeValues are snapshots and a placeholder must BE a type.
 - **Every root gets the full battery.** This area's history

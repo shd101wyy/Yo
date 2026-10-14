@@ -147,7 +147,7 @@ is what `source` and the operator families were waiting on.
   called under another — and `_capture_judgement_type` resolving a captured
   closure to its capture STRUCT and then rejecting it as not `Send`.
 - A body-less HTTP response can go unread until its deadline on some CI
-  runners (`issues/a-bodyless-http-response-is-not-read-until-the-deadline.md`).
+  runners (`issues/fixed/a-bodyless-http-response-is-not-read-until-the-deadline.md`).
   The read completes with the whole response in hand and the exchange still
   times out, so what is lost sits above the read; the tagged checkpoints that
   separate the two remaining candidates are on the #556 branch.

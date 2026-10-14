@@ -2,6 +2,15 @@
 
 **Severity:** S1 — valid collections batches still fail to compile, and a valid recursive enum with two Box(Self) variants crashes on construct+drop from memory corruption
 
+## Resolution (2026-10-14)
+
+Fixed during the bootstrap, and every mechanism's fix is in today's source:
+1. The recursion guard compares impl instantiations (`SpecializingFunctionInfo.impl_bindings_sig`, `src/evaluator/calls/helper.yo`).
+2. The enum self-shell memo strips the `__self_shell` suffix (`src/evaluator/calls/comptime_fn.yo`).
+3. The other fixes (removing the exact-enum fast-accept, refusing the degenerate unit-param mint, cfid-keyed struct identity) landed before #76.
+
+`imm_*` was deleted in #1289. Re-verified by the 2026-10-14 triage with seed v0.2.62, and confirmed by an adversarial second agent.
+
 Carriers of the two remaining array_list-batch signatures — see the tail of
 issues/fixed/yo-self-void-param-logicalnot-spec.md for the full analysis:
 

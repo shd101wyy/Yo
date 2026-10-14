@@ -2,7 +2,11 @@
 
 **Severity:** S1 — the pid→HANDLE list is a completely unlocked process-global — UAF reads, lost updates, leaked handles, waitpid answering -ESRCH for a live child
 
-Status: OPEN (found by the 2026-09-28 Windows async-I/O audit).
+## Resolution (2026-10-14)
+
+Fixed in #974 (7e8a17073), the same PR that filed this doc: the pid→HANDLE list is guarded by a static SRWLOCK in `src/codegen/async/runtime_io_windows.yo`. Regression test: "concurrent spawn and wait on two threads" in `tests/process/command.test.yo`. One leftover hazard, not this bug: `__yo_process_get_handle` returns the raw HANDLE after releasing the lock, so a same-pid double wait could still race. Moved by the 2026-10-14 triage.
+
+Status: FIXED (moved 2026-10-14, see Resolution). (found by the 2026-09-28 Windows async-I/O audit).
 
 ## The defect
 

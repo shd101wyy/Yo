@@ -4,7 +4,7 @@
 (commits `9dda2a00a` + `dde0bae5d`): the def-time flatten copy is replaced by
 `_share_def_time_frames` — shared `Variable` handles, per-frame FROZEN
 membership (see the implementation-critical addendum at the end of §3, and
-`issues/env-sharing-live-frame-membership-leak.md`). Measured on the
+`issues/fixed/env-sharing-live-frame-membership-leak.md`). Measured on the
 self-emit: peak footprint 14.55 → 12.21 GB (**−2.34 GB**), wall 678 → 232-283 s
 (**~2.4-2.9×**); attribution beforehand confirmed the copy loop minted
 2,760,212 of the 7.43 M live Variables and `YO_GC_FULL_PCT=130` moved nothing
@@ -196,7 +196,7 @@ statements (undeclared-identifier C, fixpoint CLANG_RC=1). Share the Variable
 handles but rebuild EVERY frame (frame 0 included) with a fresh variables
 list: `_share_def_time_frames`. Regression test:
 `tests/late_sibling_method_name_shadow.test.yo`. Full record:
-`issues/env-sharing-live-frame-membership-leak.md`. The same rule applies to
+`issues/fixed/env-sharing-live-frame-membership-leak.md`. The same rule applies to
 any future sharing lever (capture_env_for included).
 
 The id reseed also exposed a second latent bug — `_find_bundle_var_field`

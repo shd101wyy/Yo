@@ -2,9 +2,13 @@
 
 **Severity:** S1 — two drop-flush sites can emit a multi-line drop twice — double `__yo_decr_rc`/UAF class (latent)
 
+## Resolution (2026-10-14)
+
+Fixed by #601 (ccd2dfa96): both flush sites (now `src/codegen/exprs/begin.yo:151` and `src/codegen/exprs/drop_dup.yo:992`) record the drop id even when the generator wrote straight to the emitter and returned an empty string. No instance of the pattern remains in src/codegen. The generator's "may emit, returns empty" contract still exists, so a new caller written the obvious way could reintroduce the bug. Regression tests: "unwind argument built by a may-unwind call" and the Option-typed if-condition test in `tests/algebraic_effects.test.yo`; the observed instance is `issues/fixed/escape-path-releases-option-temp-twice.md`. Re-verified by the 2026-10-14 triage.
+
 **Found**: 2026-09-05, root-causing the short-circuit chain double-drop
 (`issues/fixed/short-circuit-chain-inner-operand-temps-still-leak.md`).
-**Status**: OPEN for the two remaining sites. **Severity: latent double-free** —
+**Status**: FIXED by #601 (moved 2026-10-14, see Resolution). **Severity: latent double-free** —
 a drop that is emitted without being recorded can be emitted again by the next
 flush that considers it, which is a double `__yo_decr_rc` and a use-after-free.
 
