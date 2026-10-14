@@ -36,6 +36,21 @@ import("../string");
 { read_http_message, MessageKind } :: import("./wire.yo");
 /// Default ceiling on a request (headers + body): 16 MiB.
 DEFAULT_MAX_REQUEST_BYTES :: (usize(16) * (usize(1024) * usize(1024)));
+/// Write `resp` to `stream`, with `Connection: close` unless it names a
+/// `Connection` itself, and close the connection.
+_respond :: (fn(stream : &TcpStream, resp : HttpResponse, io : Io) -> Impl(Future(unit, IoExn)))(
+  io.async(e => {
+    cond(
+      resp.get_header(`Connection`).is_none() => {
+        resp.headers.insert(`Connection`, `close`);
+      },
+      true => ()
+    );
+    _w := e.io.await(stream.write_string(resp.to_string(), e.io), e);
+    e.io.await(stream.close(e.io), e);
+    ()
+  })
+);
 /// An HTTP/1.1 server bound to a `TcpListener`.
 HttpServer :: ref(
   struct(
@@ -65,53 +80,67 @@ impl(
     self.max_request_bytes = n;
     self
   }),
-  /// Accept ONE connection, read one request, run `handler`, write the
-  /// response and close. A request that does not parse gets a `400 Bad
-  /// Request` whose body names the defect, without calling `handler`; a
-  /// framing defect (oversize, unreadable `Content-Length`, malformed
-  /// chunking) is answered the same way (`413` for oversize) instead of being
-  /// thrown out of the server
+  /// Accept ONE connection and read one request from it. Returns the
+  /// connection and either the request or the response it gets without
+  /// reaching the handler: a request that does not parse gets a `400 Bad
+  /// Request` whose body names the defect, and a framing defect (oversize,
+  /// unreadable `Content-Length`, malformed chunking) is answered the same way
+  /// (`413` for oversize) instead of being thrown out of the server
   /// (issues/fixed/one-malformed-request-killed-http-server-serve.md).
-  serve_once : (
-    fn(self : &Self, handler : &Impl(Fn(req : &HttpRequest) -> HttpResponse), io : Io) ->
-      Impl(Future(unit, IoExn))
-  )(
+  _accept_request : (fn(self : &Self, io : Io) -> Impl(Future(Tuple(TcpStream, Result(HttpRequest, HttpResponse)), IoExn)))(
     io.async(e => {
       stream := e.io.await(self.listener.accept(e.io), e);
       framed := e.io.await(read_http_message(&stream, self.max_request_bytes, MessageKind.Request, e.io), e);
-      resp := match(
+      parsed := match(
         framed,
         .Ok(raw) => match(
           parse_request(&raw),
-          .Ok(req) => handler(&req),
-          .Err(perr) => HttpResponse.with_status(StatusCode.BAD_REQUEST()).with_body(perr.to_string())
+          .Ok(req) => Result(HttpRequest, HttpResponse).Ok(req),
+          .Err(perr) => Result(HttpRequest, HttpResponse).Err(HttpResponse.with_status(StatusCode.BAD_REQUEST()).with_body(perr.to_string()))
         ),
-        .Err(ferr) => match(
-          ferr,
-          .ResponseTooLarge => HttpResponse.with_status(StatusCode.CONTENT_TOO_LARGE()).with_body(`request larger than ${self.max_request_bytes} bytes`),
-          _ => HttpResponse.with_status(StatusCode.BAD_REQUEST()).with_body(ferr.to_string())
+        .Err(ferr) => Result(HttpRequest, HttpResponse).Err(
+          match(
+            ferr,
+            .ResponseTooLarge => HttpResponse.with_status(StatusCode.CONTENT_TOO_LARGE()).with_body(`request larger than ${self.max_request_bytes} bytes`),
+            _ => HttpResponse.with_status(StatusCode.BAD_REQUEST()).with_body(ferr.to_string())
+          )
         )
       );
-      cond(
-        resp.get_header(`Connection`).is_none() => {
-          resp.headers.insert(`Connection`, `close`);
-        },
-        true => ()
-      );
-      _w := e.io.await(stream.write_string(resp.to_string(), e.io), e);
-      e.io.await(stream.close(e.io), e);
+      (stream, parsed)
+    })
+  ),
+  /// Accept ONE connection, read one request, run `handler`, write the
+  /// response and close. A request that does not parse, or whose framing is
+  /// broken, is answered without calling `handler` (`_accept_request`).
+  ///
+  /// The returned future owns `handler` (`sink`), so it can be spawned: a
+  /// closure argument moves its captures into it (plans/VALUES_BY_DEFAULT.md
+  /// decision 22). A future that only borrowed the handler would be
+  /// second-class, and an `io.spawn` of it is E0909
+  /// (issues/fixed/2026-10-15-http-server-captures-its-borrowed-handler-into-the-connection-future.md).
+  serve_once : (
+    fn(self : &Self, sink(handler) : Impl(Fn(req : &HttpRequest) -> HttpResponse), io : Io) ->
+      Impl(Future(unit, IoExn))
+  )(
+    io.async(e => {
+      got := e.io.await(self._accept_request(e.io), e);
+      resp := match(got.1, .Ok(req) => handler(&req), .Err(bad) => bad);
+      e.io.await(_respond(&got.0, resp, e.io), e);
       ()
     })
   ),
   /// Serve connections one after another until `stop()` has been called
-  /// (checked after each connection completes).
+  /// (checked after each connection completes). The future owns `handler`,
+  /// as `serve_once`'s does.
   serve : (
-    fn(self : &Self, handler : &Impl(Fn(req : &HttpRequest) -> HttpResponse), io : Io) ->
+    fn(self : &Self, sink(handler) : Impl(Fn(req : &HttpRequest) -> HttpResponse), io : Io) ->
       Impl(Future(unit, IoExn))
   )(
     io.async(e => {
       while(runtime(!self.stopped), {
-        e.io.await(self.serve_once(handler, e.io), e);
+        got := e.io.await(self._accept_request(e.io), e);
+        resp := match(got.1, .Ok(req) => handler(&req), .Err(bad) => bad);
+        e.io.await(_respond(&got.0, resp, e.io), e);
       });
       ()
     })
