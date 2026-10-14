@@ -5,6 +5,9 @@
 //! `lock`'s future borrows it through the `Arc` (plans/VALUES_BY_DEFAULT.md
 //! §3.13 A2 and A5; the maintainer, 2026-10-14). An `Arc` copies implicitly
 //! until V2c makes the copy an explicit `a.clone()`.
+// The pragma switches D3 off in this file, so the `&mut`-through-`Arc` case
+// below reaches the E0909 rule itself (in safe code D3 rejects it first).
+pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { Mutex } :: import("std/async/mutex");
 { ArrayList } :: import("std/collections/array_list");
@@ -227,7 +230,7 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
   m.*.set(i64(1));
   m.*.unlock();
   _a := ha.await(io);
-  rb := hb.await(io);
+  rb := match(hb.await(io), .Some(v) => v, .None => i64(-1));
   assert(rb == i64(111), `the with_lock task ran second, got ${rb.to_string()}`);
   assert(m.*.get() == i64(111), "both sections ran under the lock, in arrival order");
   assert(!m.*.is_locked(), "and released it");
@@ -274,9 +277,9 @@ test("Test a lock borrowing through an Rc is still E0909", {
   }, "shared mutable cell");
 });
 Gauge :: struct(n : i64);
-/// A future that borrows its `Gauge` mutably and only reads it, so D3 (which
-/// rejects a `&mut` through an `Arc` only when the callee writes) stays out of
-/// the way and the E0909 rule is what answers.
+/// A future that borrows its `Gauge` mutably. This file's pragma keeps D3 (a
+/// `&mut` argument through an `Arc`) out of the way, so the E0909 rule is what
+/// answers.
 peek_mut :: (fn(g : &mut Gauge, io : Io) -> Impl(Future(i64, Io)))(
   io.async({ &mut g }(io : Io) => {
     io.await(sleep(u64(1)), io);
