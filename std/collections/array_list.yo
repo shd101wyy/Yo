@@ -1045,7 +1045,7 @@ impl(
     /// `index` minus the length test. Codegen calls this only at a subscript
     /// the verifier proved in bounds
     /// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
-    index_unchecked : (fn(self : &Self, idx : usize) -> &Self.Output)(
+    index_unchecked : (fn(self : &Self, idx : usize) -> *Self.Output)(
       match(
         self._ptr,
         .Some(_ptr) => _ptr.add(idx),
@@ -1062,7 +1062,7 @@ impl(
     Output : T,
     /// `index_mut` minus the length test, on the same terms as
     /// `index_unchecked`.
-    index_unchecked_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)(
+    index_unchecked_mut : (fn(self : &mut Self, idx : usize) -> *Self.Output)(
       match(
         self._ptr,
         .Some(_ptr) => _ptr.add(idx),

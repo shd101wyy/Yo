@@ -438,14 +438,14 @@ export(Index, IndexMut);
 /// (plans/backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md). An impl's body
 /// must be its `index` body minus the length test: anything weaker turns a
 /// proof into undefined behavior. `IndexUncheckedMut` is the twin of
-/// `IndexMut(usize)`.
+/// `IndexMut(usize)`. Both return a raw pointer, so safe code cannot call them.
 IndexUnchecked :: trait(
   Output : Type,
-  index_unchecked : (fn(self : &Self, idx : usize) -> &Self.Output)
+  index_unchecked : (fn(self : &Self, idx : usize) -> *Self.Output)
 );
 IndexUncheckedMut :: trait(
   Output : Type,
-  index_unchecked_mut : (fn(self : &mut Self, idx : usize) -> &mut Self.Output)
+  index_unchecked_mut : (fn(self : &mut Self, idx : usize) -> *Self.Output)
 );
 export(IndexUnchecked, IndexUncheckedMut);
 /// ComptimeIndex — compile-time indexing trait for constant expressions.
