@@ -715,7 +715,7 @@ test("consuming match: below a reference cell the bindings borrow and the handle
     c := _MoCell.Cell(fd : _MoFd(n : i32(1)), shared : rc(_MoFd(n : i32(2))));
     r := match(
       c,
-      .Cell(f, _MoFd(n : k)) => {
+      .Cell(f, Rc(_MoFd(n : k))) => {
         assert(g_mo_disposed == before, "the cell's payload is alive inside the arm");
         _mo_take(f) + k
       },
@@ -764,7 +764,7 @@ test("consuming match: an io.async arm keeps a looked-through cell across an awa
     c := _MoCell.Cell(fd : _MoFd(n : i32(1)), shared : rc(_MoFd(n : i32(2))));
     result.* = match(
       c,
-      .Cell(f, _MoFd(n : k)) => {
+      .Cell(f, Rc(_MoFd(n : k))) => {
         io.await(yield(io), io);
         _mo_take(f) + k
       },

@@ -358,7 +358,7 @@ test("a pattern through an Rc payload with an await", {
   task := io.async((io : Io) => {
     result.* = match(
       l,
-      .Cons2(1, .Cons2(second, _)) => {
+      .Cons2(1, Rc(.Cons2(second, _))) => {
         io.await(yield(io), io);
         second
       },
