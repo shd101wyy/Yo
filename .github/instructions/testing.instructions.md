@@ -849,6 +849,55 @@ regression. A real break shows localized, structural differences instead.
 This is the same two-generation rule as the seed pin, in a different costume:
 anything that changes `std/` shifts every program that links it.
 
+## Choosing a Tier 1 gate: select by what the diff touches
+
+Tier 1 (AGENTS.md, "Gating is three-tier") is a *targeted* gate, and the
+target is the diff. Develop's battery runs everything, so a gate that runs
+everything only duplicates it while blocking the heavy-lock queue for hours.
+Measured 2026-10-14: a prelude rename (decision 45 Gen B, Dispose → Drop)
+picked all 33 `tests/internal` files. Each file re-evaluates the compiler
+before its first test (4–7 min each, even with 2 tests), and the serial run
+took ~2 h 20 min of a 3 h gate. The same gate's feature step passed 60
+files to one `yo test` call, which accepts one path, so it failed in 0 s and
+verified nothing.
+
+- **Always:** `yo build --std-path ./std` (when `src/` changed),
+  `check ./src` and `check ./std` (each with `--std-path ./std`), `yo fmt --check` on the
+  changed `.yo` files, `bash scripts/check-issue-refs.sh`. About 15 min.
+- **Feature tests: grep for what changed.** Take the `tests/**/*.test.yo` files
+  (minus `tests/internal` and `tests/cli-cases`) that name a renamed or
+  changed identifier, plus the feature's own new tests. **`yo test` takes ONE
+  path per run** (`test: one path per run, got …`). Loop over the files and
+  gate on each exit code:
+
+  ```bash
+  for f in $(cat feature-tests.txt); do yo test "$f" --parallel 1 > "log/$(basename $f).log" 2>&1; echo "$f rc=$?" >> log/feature.log; done
+  ```
+
+- **`tests/internal`: select by direct import or by a name the file uses, not
+  by "the prelude changed".**
+  - Include a file when it imports (`../../src/...`) a `src/` module the diff
+    changes, or when its source names a changed identifier (`grep -lw`).
+  - A `std/`- or prelude-only change selects no file by import:
+    `check ./src --std-path ./std` and the build already prove the compiler
+    accepts the new std. Add `compile.test.yo` as the self-compile smoke, plus
+    any file the grep finds.
+  - When more than ~8 files qualify, one
+    `YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000 yo test ./tests/internal --parallel 1`
+    under an `exclusive` lock (~37 min on an M4, one resident evaluator) is
+    cheaper than the serial loop (~4.5 min a file).
+  - `macro_expansion.test.yo` (6.5 GB) runs only when the parser, macros or
+    `quote` change, and always `exclusive`.
+- **cli-diff** only when the diff can move CLI output: std (line-pinned LSP
+  goldens), diagnostics prose, a CLI command, `.github/skills/`, a `yo fix`
+  migration. Read each GOLDEN-DIFF before `--record`.
+- **Split weights:** the gate is one weight-1 `heavy_take`; anything timed or
+  above ~5 GB is a separate `exclusive` job queued after it, never a reason to
+  take the whole gate exclusive.
+
+A typical gate is 30–45 min. What it leaves out is develop's battery's job;
+a red develop job is fixed forward.
+
 ## The heavy lock: one machine, several sessions
 
 Several sessions and agents often share one development machine, and two
@@ -883,6 +932,11 @@ heavy_take "<who>: check-time A/B" exclusive  # runs alone
   (~1 min, throwaway lock root) checks a change to the script.
 - **Never hold a slot while idle.** A gate is one script with no waits inside;
   `trap heavy_drop EXIT` releases the slot when the script fails.
+- **Never backdate a ticket** (overriding `_heavy_now_ns` to keep an older queue
+  position). An `exclusive` waiter claims slots only while it is the oldest
+  ticket, so a backdated weight-1 ticket that cannot start beside held
+  exclusive slots deadlocks the queue (2026-10-14). A restarted job queues at
+  the tail.
 - `cat ~/Workspace/Yo-wt/.heavy-lock*/owner` shows the holders and
   `~/Workspace/Yo-wt/.heavy-queue/` the waiters, oldest first. A holder whose
   process is stopped (`ps -o stat=` shows `T`) blocks everyone; `kill -CONT` it.
