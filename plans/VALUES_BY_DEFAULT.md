@@ -5772,7 +5772,10 @@ compiler; the std shapes are plain structs the seed lowers):
             field to `E`, as they already did for a `ref` container. A value
             whose buffer holds itself again is cut by the instantiation's
             key. A value struct is `Acyclic` only if every buffer element
-            that reaches a cell is.
+            that reaches a cell is. The definition-time derive and the trait
+            checker's on-demand re-derivation check one list
+            (`value_acyclic_obligations`); the field alone cannot decide it,
+            because `*T` is unconditionally `Acyclic`.
           - The safe-code raw-view gate (`type_representation_contains_raw_ptr`)
             treats a buffer-owning value that declares its own destructor
             (`value_type_owns_buffer_outright`) as it treats `Box`: it carries
@@ -5781,7 +5784,8 @@ compiler; the std shapes are plain structs the seed lowers):
             seed probe of the flipped std showed (`std/encoding/utf8.yo`'s
             `bytes : &ArrayList(u8)`).
           - The borrow-flag builtins lower to nothing on a value-rooted
-            operand (§3.10's split by path). They used to emit
+            operand (§3.10's split by path), read through a call-site `&`
+            marker. They used to emit
             `(void*)<struct>`, which is invalid C
             (`issues/fixed/2026-10-14-a-borrow-flag-builtin-on-a-value-rooted-place-emits-invalid-c.md`).
           - Tests: `tests/cycle_collector.test.yo` (a cycle closed through
@@ -5821,10 +5825,10 @@ compiler; the std shapes are plain structs the seed lowers):
         rejected (`plans/STRING_VALUE_SEMANTICS.md` §0). A predicate clause
         that makes buffer owners explicit-copy before the representation
         changes is the same flip, with the same sweep.
-      - **Dependency.** Generation B needs V2b's `Index` split
-        (feat/vbd-v2b-genb-r2): `index(self : &mut Self, …)` makes every
-        read of a value list through a `&` binding E0908. Direct projection
-        calls (feat/vbd-v2b-projection-calls) are independent of this work.
+      - **Dependency.** Generation B needs V2b's `Index` split, landed in
+        #1361: with `index(self : &mut Self, …)` every read of a value list
+        through a `&` binding was E0908. Direct projection calls
+        (feat/vbd-v2b-projection-calls) are independent of this work.
     - **Expected RC and allocation effect (measured at Generation B).** No
       count is touched on a `String` or collection, so their share of the
       evaluator's RC inc/dec profile (20 s at v0.2.50, 34 s at v0.2.61 in
