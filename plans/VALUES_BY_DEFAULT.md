@@ -89,7 +89,10 @@ Progress:
     explicit destructor call, `drop(x)`, and `yo fix --migrate drop-trait`
     (#1343). Generation B, the tree-wide rename, waits for the seed.
   - V4: decision 31's wrapper patterns `Rc(p)` / `Arc(p)`, Generation A
-    (#1327), and the `TypeValue` prep: key-based memos, the module-type
+    (#1327), and Generation B: the implicit `Rc` look-through deleted,
+    `yo fix --migrate rc-pattern`, witnesses through the wrapper, and
+    `Box(p)` (feat/vbd-d31-rc-pattern-genb; decision 31's "as built"); and
+    the `TypeValue` prep: key-based memos, the module-type
     rebuild, and the `Acyclic` short-circuit (#1329);
   - V2b's prerequisite: `Clone.clone`, `ToString.to_string` and the other
     read-only trait receivers take `self : &Self` (#1347);
@@ -102,7 +105,6 @@ Progress:
     - V2b's prelude switch to the new `Index`/`IndexMut`/`IndexUnchecked`
       shapes;
     - V1 step 2's `src/` sites moving back to `Box`;
-    - decision 31's deletion of the implicit `Rc` look-through.
   - V3's remaining async work (§3.13): A4's future operands, A5's remaining
     lines, and A6's `Rc`-field half (V2c).
   - V4's `TypeValue`: the value-enum conversion was built and measured,
@@ -1759,6 +1761,46 @@ and in git, not a silent edit.
         Rc(.Leaf(a)) cannot match a value of type T`) was not a separate
         bug: the implicit look-through ran first and compiled `Rc(…)`
         against the payload as a constant. The wrapper rule runs before it.
+    - **As built, Generation B (2026-10-14,
+      `feat/vbd-d31-rc-pattern-genb`).**
+      - **The look-through is gone.** A structural pattern at an `Rc(T)`
+        position takes the `Arc` branch's error, E0609 "a pattern does not
+        look through a cell implicitly", whose help spells the pattern
+        inside `Rc(…)` and names the migration.
+      - **`yo fix <path> --migrate rc-pattern`.** Every file is evaluated
+        with a recorder on (`record_rc_pattern_site`, `src/expr_info.yo`):
+        the look-through, which is otherwise the error, records the
+        pattern's leftmost token and printed form and looks through. The
+        driver (`_run_migrate_rc_pattern`, `src/main.yo`) finds each pattern
+        in the source by parsing candidate spans until one prints as
+        recorded (across lines; a parenthesized pattern starts at its
+        grouping `(`), and inserts `Rc(` and `)`, so nested sites compose
+        in one pass. A site whose text does not print as recorded is listed
+        and left as written.
+      - **Measured: 19 patterns, all in `tests/`** (`match_nested`,
+        `match_async_arms`, `move_only`, `rc_cell`); none in `std/` or
+        `src/`, whose recursive types are `ref` types or reach their
+        children through `ArrayList(Self)`, not `Rc`. The ~3,500 arms the
+        "Cost" bullet counted are V4's, when `TypeValue`'s children become
+        cells. A second pass found nothing.
+      - **Witnesses** render through the wrapper: `_useful`
+        (`src/pattern.yo`) wraps its column's witness in `Rc(…)` or
+        `Arc(…)` when the column is that cell (`.Node(Rc(.Node(_, _)),
+        Rc(.Leaf(_)))`); the same-column steps (`At`, `ThroughBox`, `Or`)
+        recurse into `_useful_at`, so the wrapper is spelled once.
+      - **`Box(p)`, Generation A.** `Box` joined `_is_wrapper_ctor_name`
+        for V1 step 2's unique `Box` (its position test is
+        `is_unique_box_type`, and its payload has no compile-time value).
+        A `Box` position is still looked through implicitly, and its
+        witnesses stay bare: `src/` cannot spell `Box(p)` before a
+        `SEED_VERSION` carries it. The next seed-gated step deletes that
+        look-through the same way (`yo fix --migrate rc-pattern` would
+        need a `Box` twin).
+      - **Tests:** `tests/match_nested.test.yo` (E0609 at a variant child,
+        at an `Rc` scrutinee and at `Rc(i32)`; witnesses through `Rc`),
+        `tests/rc.test.yo` (`Box(p)` at any depth, at the scrutinee with
+        one drop, and at a position that is not a `Box`), and the cli case
+        `tests/cli-cases/fix-migrate-rc-pattern`.
 
 32. **A member name both the wrapper and its payload have is an error;
     the wrapper's is spelled `Rc.clone(w)`.** Confirmed 2026-10-05 by the
@@ -5561,8 +5603,10 @@ stage-2 RSS):
   memory ratchet.
   - **Wrapper patterns** (decision 31). `Box(p)`, `Rc(p)` and `Arc(p)`
     patterns are one evaluator rule and one codegen rule, in
-    `pattern_compile.yo` and `codegen/exprs/match.yo`. They land in V4's
-    first PR, with the `TypeValue` conversion as the test.
+    `pattern_compile.yo` and `codegen/exprs/match.yo`. Landed: Generation A
+    (#1327) and Generation B (the `Rc` look-through deleted,
+    `yo fix --migrate rc-pattern`; decision 31's "as built"). A `Box`
+    position still looks through implicitly until a seed carries `Box(p)`.
   - **Constructions and arms.** About 750 `TypeValue.`, 430 `EvalValue.` and
     90 `AstExpr.` constructions are rewritten. So is each of the ~3,500
     destructuring arms that reaches through a child, which a `yo fix`
