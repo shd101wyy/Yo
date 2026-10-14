@@ -2191,6 +2191,120 @@ global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &Ev
 /// copy only if the variable is read again after the site. Inert unless the
 /// knob is set: nothing else in the evaluator reads these tables.
 (g_audit_implicit_copy : bool) = debug_knob(`YO_AUDIT_IMPLICIT_COPY`).is_some();
+/// One implicit copy `yo fix --migrate explicit-copy` makes explicit
+/// (plans/VALUES_BY_DEFAULT.md V2b, "Unique buffers", Generation A): a copy
+/// of a `String`, a std collection or a value aggregate holding one whose
+/// source stays alive, which unique buffers turn into E0901. `row`/`col` are
+/// the copied expression's leftmost token, `expect` the expression as the
+/// evaluator prints it (the rewrite matches it against the source text before
+/// it edits anything), and `ty` the copied type: a position recorded with two
+/// types is a generic body, which the rewrite leaves alone. `copy_path` is how
+/// the copy is made (`binding`, `return`, ...).
+///
+/// `.clone()` makes the copy independent, where today the two share one
+/// buffer. That is a behavior change exactly when one side is written while
+/// the other is read again, so the copy's source variable and, for a binding
+/// or an assignment, its destination variable are kept (`src_decl`,
+/// `dst_decl`: `_ic_decl_key` of each declaration, empty when there is none)
+/// with the site's own position (`at_module`, `at_offset`). A site one of
+/// them is written after (`record_copy_write`) is listed, not rewritten.
+ExplicitCopySite :: struct(
+  path : String,
+  row : usize,
+  col : usize,
+  expect : String,
+  ty : String,
+  copy_path : String,
+  src_decl : String,
+  dst_decl : String,
+  at_module : String,
+  at_offset : u32
+);
+/// One write to a variable that may reach a buffer it shares (an assignment
+/// into one of its fields or elements, a `&mut` argument or receiver the
+/// callee may write, a `&mut` local borrow), recorded while the migration
+/// runs: `decl` is the variable's `_ic_decl_key`.
+CopyWrite :: struct(decl : String, at_module : String, at_offset : u32);
+(g_migrate_explicit_copy : bool) = false;
+(g_explicit_copy_sites : ArrayList(ExplicitCopySite)) = ArrayList(ExplicitCopySite).new();
+(g_explicit_copy_site_keys : HashSet(String)) = HashSet(String).new();
+(g_copy_writes : ArrayList(CopyWrite)) = ArrayList(CopyWrite).new();
+set_migrate_explicit_copy :: (fn(on : bool) -> unit)({
+  g_migrate_explicit_copy = on;
+});
+/// Whether `yo fix --migrate explicit-copy` is recording.
+migrate_explicit_copy_on :: (fn() -> bool)(g_migrate_explicit_copy);
+/// Record one site, once per position and type.
+record_explicit_copy_site :: (fn(site : ExplicitCopySite) -> unit)({
+  key := `${site.path}:${site.row.to_string()}:${site.col.to_string()}:${site.ty}`;
+  if(!g_explicit_copy_site_keys.insert(key), {
+    return(());
+  });
+  g_explicit_copy_sites.push(site);
+});
+take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
+  out := g_explicit_copy_sites;
+  g_explicit_copy_sites = ArrayList(ExplicitCopySite).new();
+  g_explicit_copy_site_keys = HashSet(String).new();
+  out
+});
+/// A variable declaration's identity across the session: its token's module
+/// (canonical) and byte offset.
+_ic_decl_key :: (fn(decl : &Token) -> String)(
+  `${canonical_module_path(decl.module_path.clone())}:${decl.byte_offset.to_string()}`
+);
+/// The declaration key of the variable `place` is rooted in (`x` of `x`,
+/// `x.f`, `x(i).g`), looked up in `env`, or empty.
+_ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)({
+  (e : AstExpr) = place.clone();
+  (walking : bool) = true;
+  while(walking, {
+    match(
+      e,
+      .Atom(_, _) => {
+        walking = false;
+      },
+      .FnCall(_, callee, args, is_infix, _) => cond(
+        (is_infix || ast_expr_is_fn_call_of(&e, BF_DOT, Option(usize).Some(usize(2)))) => {
+          e = match(args.get(usize(0)), .Some(a) => a, .None => return(String.new()));
+        },
+        true => {
+          e = callee;
+        }
+      )
+    );
+  });
+  tok := ast_expr_token(&e);
+  if(tok.kind != TokenKind.Identifier, {
+    return(String.new());
+  });
+  match(
+    find_variable_in_env(env, tok.value.clone()),
+    .Some(v) => _ic_decl_key(&v.token),
+    .None => String.new()
+  )
+});
+/// Record a write to the variable `place` is rooted in, at `at`, while the
+/// migration runs.
+record_copy_write :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
+  if(!g_migrate_explicit_copy, {
+    return(());
+  });
+  record_copy_write_decl(_ic_place_root_decl(place, env), at);
+});
+/// The same, for a variable whose declaration key is known.
+record_copy_write_decl :: (fn(decl : String, at : &Token) -> unit)({
+  if(!g_migrate_explicit_copy || decl.is_empty(), {
+    return(());
+  });
+  g_copy_writes.push(CopyWrite(decl : decl, at_module : canonical_module_path(at.module_path.clone()), at_offset : at.byte_offset));
+});
+take_copy_writes :: (fn() -> ArrayList(CopyWrite))({
+  out := g_copy_writes;
+  g_copy_writes = ArrayList(CopyWrite).new();
+  out
+});
+export(ExplicitCopySite, CopyWrite, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, _ic_decl_key, _ic_place_root_decl);
 /// One dup whose source is an owning local, waiting for its frame's epilogue.
 ImplicitCopyPending :: struct(
   /// The finished report line, printed if the variable is used again.
@@ -2198,7 +2312,10 @@ ImplicitCopyPending :: struct(
   /// The site's token position: a read of the variable at a later offset in
   /// the same module is a use after the copy.
   module_path : String,
-  byte_offset : u32
+  byte_offset : u32,
+  /// The `.clone()` insertion `yo fix --migrate explicit-copy` makes if the
+  /// copy is real, or none (the knob alone, or a copy it does not rewrite).
+  migrate_site : Option(ExplicitCopySite)
 );
 /// Variable id → its pending copy sites.
 (g_implicit_copy_pending : HashMap(usize, ArrayList(ImplicitCopyPending))) = HashMap(usize, ArrayList(ImplicitCopyPending)).new();
@@ -2239,7 +2356,9 @@ audit_note_match_binding :: (fn(binding : &Variable, scr_info : &ExprInfo) -> un
   );
   g_implicit_copy_match_roots.insert(binding.id, root);
 });
-audit_implicit_copy_enabled :: (fn() -> bool)(g_audit_implicit_copy);
+/// The audit's recorder runs for the knob, and for `yo fix --migrate
+/// explicit-copy`, which turns its sites into `.clone()` insertions.
+audit_implicit_copy_enabled :: (fn() -> bool)(g_audit_implicit_copy || migrate_explicit_copy_on());
 /// Remove and return the pending sites of variable `id` (its frame's epilogue
 /// judges them), or none.
 audit_take_implicit_copy_pending :: (fn(id : usize) -> Option(ArrayList(ImplicitCopyPending)))(
@@ -2249,10 +2368,72 @@ audit_take_implicit_copy_pending :: (fn(id : usize) -> Option(ArrayList(Implicit
   )
 );
 audit_print_implicit_copy :: (fn(line : &String) -> unit)({
-  if(g_implicit_copy_printed.insert(line.clone()), {
+  if((g_audit_implicit_copy || audit_copy_trait_enabled()) && g_implicit_copy_printed.insert(line.clone()), {
     eprintln(line);
   });
 });
+/// Report one judged copy: print its line for the knob, and record its
+/// insertion for `yo fix --migrate explicit-copy`.
+audit_report_implicit_copy :: (fn(site : &ImplicitCopyPending) -> unit)({
+  audit_print_implicit_copy(&site.line);
+  match(site.migrate_site, .Some(ms) => record_explicit_copy_site(ms), .None => ());
+});
+/// The first token of `e` as written: the receiver of a `.` access or an
+/// infix operator's left operand, a call's callee.
+_ic_leftmost_token :: (fn(e : &AstExpr) -> Token)(
+  match(
+    e,
+    .Atom(_, t) => t,
+    .FnCall(_, callee, args, is_infix, tok) => cond(
+      is_infix => match(args.get(usize(0)), .Some(a0) => recur(&a0), .None => tok),
+      true => recur(&callee)
+    )
+  )
+);
+/// The categories unique buffers make explicit-copy (V2b, Generation B):
+/// `String`, the std collections, and a value aggregate holding one.
+_ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
+  base := cond(
+    category.starts_with("via:") => category.substring(usize(4), category.len()),
+    true => category.clone()
+  );
+  (base == "String") || _implicit_copy_collection_name(&base).is_some()
+});
+/// The insertion `yo fix --migrate explicit-copy` makes for a copy, or none:
+/// only a copy unique buffers turn into E0901 (`_ic_category_is_unique_buffer`)
+/// of a type with `Clone`, at a point where `.clone()` on the copied
+/// expression is the copy (not a capture, whose copy is made by the closure,
+/// and not a binding a macro wrote).
+/// What a copy site carries for `yo fix --migrate explicit-copy`: the
+/// copied expression's FIRST token as written (`p` of `p.name`, whose own
+/// token is the `.`), where the rewrite finds it in the source, and the
+/// declaration keys of its source and destination variables (`_ic_decl_key`,
+/// empty when there is none).
+ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String);
+_ic_migrate_site :: (
+  fn(m : &ICMigrateCtx, ty : &TypeValue, category : &String, copy_path : str, source_text : &String) -> Option(ExplicitCopySite)
+)(
+  cond(
+    !migrate_explicit_copy_on() => Option(ExplicitCopySite).None,
+    !_ic_category_is_unique_buffer(category) => Option(ExplicitCopySite).None,
+    ((copy_path == "capture") || (copy_path == "binding(macro)")) => Option(ExplicitCopySite).None,
+    type_lacks_clone(ty) => Option(ExplicitCopySite).None,
+    true => Option(ExplicitCopySite).Some(
+      ExplicitCopySite(
+        path : m.leftmost.module_path.clone(),
+        row : usize(m.leftmost.row),
+        col : usize(m.leftmost.column),
+        expect : source_text.clone(),
+        ty : type_to_string(ty),
+        copy_path : String.from(copy_path),
+        src_decl : m.src_decl.clone(),
+        dst_decl : m.dst_decl.clone(),
+        at_module : canonical_module_path(m.leftmost.module_path.clone()),
+        at_offset : m.leftmost.byte_offset
+      )
+    )
+  )
+);
 _IC_COLLECTIONS :: "ArrayList|HashMap|HashSet|BTreeMap|Deque|LinkedList|OrderedMap|PriorityQueue";
 /// The std collection a struct type name denotes (`ArrayList` or
 /// `ArrayList(String)` → `ArrayList`), or none.
@@ -2417,7 +2598,10 @@ audit_record_implicit_copy :: (
     ctx : &EvalContext,
     /// False for a closure's own captures: `ctx.captured_variables` is then
     /// the closure being built, not the function the site sits in.
-    in_closure_body_check : bool
+    in_closure_body_check : bool,
+    /// The site as `yo fix --migrate explicit-copy` needs it; `.None` (a
+    /// capture) records no insertion.
+    (migrate_ctx : Option(ICMigrateCtx)) ?= .None
   ) -> unit
 )({
   // Compiler-synthesized code (derives, generated helpers) is not a site a
@@ -2478,11 +2662,17 @@ audit_record_implicit_copy :: (
     (source_text.len() > usize(60)) => `${source_text.substring(usize(0), usize(57))}...`,
     true => source_text
   );
-  line := `${display_module_path(&site_tok.module_path)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [implicit-copy] ${implicit_copy_category(ty)} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} \`${text.replace("\n", String.from(" "))}\``;
+  category := implicit_copy_category(ty);
+  line := `${display_module_path(&site_tok.module_path)}:${(site_tok.row + u32(1)).to_string()}:${(site_tok.column + u32(1)).to_string()} [implicit-copy] ${category} ${type_to_string(ty).replace(" ", String.from(""))} ${copy_path} source=${kind} \`${text.replace("\n", String.from(" "))}\``;
+  migrate_site := match(
+    migrate_ctx,
+    .Some(mc) => _ic_migrate_site(&mc, ty, &category, copy_path, source_text),
+    .None => Option(ExplicitCopySite).None
+  );
   match(
     pending_id,
     .Some(vid) => {
-      entry := ImplicitCopyPending(line : line, module_path : site_tok.module_path.clone(), byte_offset : site_tok.byte_offset);
+      entry := ImplicitCopyPending(line : line, module_path : site_tok.module_path.clone(), byte_offset : site_tok.byte_offset, migrate_site : migrate_site);
       match(
         g_implicit_copy_pending.get(&vid),
         .Some(lst) => lst.push(entry),
@@ -2493,7 +2683,10 @@ audit_record_implicit_copy :: (
         }
       );
     },
-    .None => audit_print_implicit_copy(&line)
+    .None => {
+      audit_print_implicit_copy(&line);
+      match(migrate_site, .Some(ms) => record_explicit_copy_site(ms), .None => ());
+    }
   );
 });
 // ---------------------------------------------------------------------------
@@ -2520,7 +2713,7 @@ audit_record_implicit_copy :: (
 audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// Either copy audit: the pending-site tables and the frame-end judge serve
 /// both.
-audit_pending_copies_enabled :: (fn() -> bool)(g_audit_implicit_copy || g_audit_copy_trait);
+audit_pending_copies_enabled :: (fn() -> bool)(g_audit_implicit_copy || g_audit_copy_trait || migrate_explicit_copy_on());
 /// Record one implicit copy of a plain-data value for `YO_AUDIT_COPY_TRAIT`.
 /// `source` is the copied expression as written: a variable (judged by its
 /// kind), a field read (`a.b`, a copy at once) or anything else (a
@@ -2611,7 +2804,7 @@ audit_record_copy_trait :: (
   match(
     pending_id,
     .Some(vid) => {
-      entry := ImplicitCopyPending(line : line, module_path : site_tok.module_path.clone(), byte_offset : site_tok.byte_offset);
+      entry := ImplicitCopyPending(line : line, module_path : site_tok.module_path.clone(), byte_offset : site_tok.byte_offset, migrate_site : .None);
       match(
         g_implicit_copy_pending.get(&vid),
         .Some(lst) => lst.push(entry),
@@ -2658,7 +2851,12 @@ set_expr_as_needs_to_call_dup :: (
     exn : Exception,
     /// The store kind, for YO_AUDIT_IMPLICIT_COPY only: `binding`, `assign`,
     /// `field-store`, `element`, `param`, `return` or `dyn`.
-    (copy_path : str) ?= "dup"
+    (copy_path : str) ?= "dup",
+    /// The declaration key (`_ic_decl_key`) of the variable the copy is
+    /// stored in, for a binding or an assignment: `yo fix --migrate
+    /// explicit-copy` leaves a copy alone when that variable is written
+    /// afterwards.
+    (copy_dest_decl : Option(String)) ?= .None
   ) -> unit
 )({
   // YO_AUDIT_COPY_TRAIT: a plain-data copy, before any early return (a
@@ -2765,8 +2963,18 @@ set_expr_as_needs_to_call_dup :: (
         });
       });
       // --- Copy semantics: build + evaluate `___dup(variableName)`. ---
-      if(g_audit_implicit_copy, {
-        audit_record_implicit_copy(ast_expr_token(rhs), &ei.ty, copy_path, &ei.env, variable_name.clone(), ast_expr_to_string(rhs), ctx, true);
+      if(g_audit_implicit_copy || migrate_explicit_copy_on(), {
+        audit_record_implicit_copy(
+          ast_expr_token(rhs),
+          &ei.ty,
+          copy_path,
+          &ei.env,
+          variable_name.clone(),
+          ast_expr_to_string(rhs),
+          ctx,
+          true,
+          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new())))
+        );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
       saved_expected := ctx.expected_type;
@@ -4583,7 +4791,7 @@ export(require_expr_not_consumed);
 export(move_only_help, move_only_type_help, use_of_moved_value_error, move_captured_explicit_copy_variable, capture_of_caller_owned_sink_param, consume_called_fnonce_closure, transfer_explicit_copy_value);
 export(set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place);
 export(audit_copy_trait_enabled, audit_pending_copies_enabled, audit_record_copy_trait);
-export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
+export(ImplicitCopyPending, audit_implicit_copy_enabled, audit_note_match_binding, audit_take_implicit_copy_pending, audit_print_implicit_copy, audit_report_implicit_copy, audit_record_implicit_copy, implicit_copy_category);
 export(get_dup_use_site_token);
 export(attach_temp_variable_to_expr);
 export(variable_is_borrow_parameter, variable_id_in_scope);

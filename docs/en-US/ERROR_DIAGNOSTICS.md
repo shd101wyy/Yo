@@ -211,6 +211,37 @@ anywhere, and a lend of a field written through it (`&h.name` after
 migrated files and rewrite each E0916 it reports. In this release both errors
 apply outside `std` and the compiler's own sources.
 
+`yo fix <path> --migrate explicit-copy` prepares the values-by-default plan's
+unique buffers (V2b). Once `String` and the std collections own their buffers
+uniquely, an implicit copy whose source is used again is E0901. The migration
+runs while the tree still compiles those copies. It evaluates each file and
+writes `.clone()` after each copy of a `String`, a collection or a value
+holding one, whose source is used again. That covers `t := s` before a later
+read of `s`, a field read through a borrow (`p.name`), a borrowed parameter
+returned, and a copy stored, passed by value or returned. The copy must be one
+`.clone()` can make, so its type implements `Clone`.
+
+Today such a copy shares its buffer with the source; with `.clone()` it is
+independent. That changes the program exactly where one side is written while
+the other is read again: `l := m(k); l.push(x)` meant to grow the map's list.
+So a copy whose source, or whose destination variable, is written after it (a
+store into a field or element, a `&mut` argument or receiver the callee may
+write, a `&mut` borrow) is listed with its position and left for a hand edit:
+`&mut` where the write was meant to reach the source, `.clone()` where it was
+not. A write the migration cannot see is the residual: one made through the
+copy after it left the function, stored in a field, passed by value or
+returned. `--dry-run` prints every insertion with how the copy is made
+(`binding`, `return`, `field-store`, …) so those can be reviewed.
+
+These sites are also left as written:
+
+- a copy made by a closure capture;
+- a binding a macro wrote;
+- a position copied at two types (a generic body);
+- a site whose source text does not print as the evaluated expression.
+
+A clone the move checker later finds redundant is for decision 27's lint.
+
 ## Warnings
 
 `check`, `compile` and `build` also carry warning-severity diagnostics for
