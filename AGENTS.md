@@ -197,20 +197,23 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
 - **Worktrees live under `$HOME/Workspace/Yo-wt/<name>` (or another durable path), never under `/tmp` or `/private/tmp`** (macOS clears them on reboot; one reboot deleted 27 agents' uncommitted worktrees). Create with `git worktree add -b <branch> $HOME/Workspace/Yo-wt/<name> origin/develop`, then `git -c protocol.file.allow=always submodule update --init`. Remove with `git worktree remove --force <path>` (the `vendor/` submodules make plain `remove` refuse).
 - **Commit and push before every heavy step.** WIP commits are fine (PRs are squash-merged); `git push -u origin <branch>` right after the first commit. A worktree is not a backup; only a pushed commit is.
 - **PR bodies follow `.github/pull_request_template.md`** (Summary, Verification, LLM attribution, Deferred). `gh pr create --body`/`--body-file` does not apply the template, so write its sections into the body yourself.
-- **Gating is three-tier (maintainer, 2026-10-14). A PR merges on Tier 1 plus a green battery on its final head commit.**
-  - **Tier 1, local, before the PR is opened:** a targeted gate of about 20–30 minutes.
+- **Gating is three-tier (maintainer, 2026-10-14). A PR is admin-merged as soon as its Tier 1 passes; develop's own battery is the full check, and its failures are fixed forward.**
+  - **Tier 1 is the merge gate:** a targeted local gate of about 20–30 minutes, run before the PR is opened.
     - `yo build --std-path ./std`, only when `src/` changed; a std- or tests-only change reuses a develop-built binary.
     - `check ./src` and `check ./std`.
     - The feature's own test files, plus every `tests/internal` file that imports a changed `src/` module. #1343 broke develop by skipping `gc_runtime_atomics`.
     - cli-diff-test, only when std, CLI output, diagnostics text, skills or a `yo fix` migration changed; read each GOLDEN-DIFF before `--record`.
     - fmt and `check-issue-refs.sh`.
     - Not in Tier 1: the full language suite, `yo test ./std`, the fixpoint and the full `tests/internal`.
-  - **Tier 2, CI:** the PR's full battery on GitHub runs in parallel and holds no local lock. A red battery is fixed on the branch, never forward on develop.
-  - **Tier 3, per release batch:** one full integration gate on the combined branch (the suite, `yo test ./std`, cli re-records, the fixpoint), then develop's own battery green on the exact tip before the cut.
-  - **Admin merge:** `gh pr merge --admin` is used only to skip the up-to-date requirement once the battery is green. Before 2026-10-14, admin merges on local gates alone broke develop repeatedly: #970, #973, #989 and #991 on 2026-09-28, #1329 and #1343 later. One Linux box covers no macOS, Windows, arm64, TSan, wasm or seed-with-tree-std build.
-  - **The exception:** a fix for a red `develop`, with the user's OK, once its own previously red jobs are green.
+  - **Tier 2, the PR's battery, is not waited for.** It still fires when the PR opens. Once the PR is merged, cancel it, since it gates nothing.
+  - **Tier 3 is develop's battery.** Several PRs can be admin-merged in a row; the next develop battery covers all of them.
+    - Watch it on its pinned run ID.
+    - On a red job, find the PR that caused it, then fix it forward in a `fix(develop): …` PR. That fix PR also merges on its own Tier 1.
+    - A flaky job gets one rerun, as below.
+  - **Releases are unchanged.** Cut only when develop's battery is green on the exact tip (the battery-head diff below).
+  - **Why:** the per-PR full gate (about 1.5–2 h on a serialized local machine) and the per-PR battery both duplicated develop's battery. Before 2026-10-14, local-only admin merges did turn develop red (#970, #973, #989 and #991 on 2026-09-28, #1329 and #1343 later), because one Linux or macOS box covers no Windows, arm64, TSan, wasm or seed-with-tree-std build. That cost is accepted and paid by fixing forward quickly; it is not paid by waiting on every PR.
 - **A flaky failure gets one rerun**: `gh run rerun <run-id> --failed`. A second failure of the same job is real: investigate it and file an `issues/` doc, even if the job looks unrelated.
-- **Keep working while a PR waits for CI: stack.** Branch the next piece off the waiting branch and open it as a draft on top (`gh pr create --draft --base <waiting-branch>`; see the draft rule below). A stacked PR merges into its PARENT branch once its local gates pass; the ruleset guards only `develop`. When the bottom PR squash-merges, restack the next one:
+- **Stack only for dependent pieces** (with Tier-1 admin merges a PR rarely waits). **Keep working while a PR waits: stack.** Branch the next piece off the waiting branch and open it as a draft on top (`gh pr create --draft --base <waiting-branch>`; see the draft rule below). A stacked PR merges into its PARENT branch once its local gates pass; the ruleset guards only `develop`. When the bottom PR squash-merges, restack the next one:
 
   ```bash
   git fetch origin
