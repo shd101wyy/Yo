@@ -922,7 +922,7 @@ test("Drop: drop(x) ends a value now and moves it", {
     assert(g_mo_disposed == (d_before + i32(1)), "drop(x) runs a Dispose impl too");
   };
 });
-test("Drop: an explicit destructor call is E0915, in both spellings", {
+test("Drop: an explicit destructor call is E0915", {
   a := _MoDropFd(n : i32(0));
   comptime_expect_error(a.drop(), "Explicit call of the destructor");
   comptime_expect_error(_MoDropFd.drop(&a), "Explicit call of the destructor");
@@ -931,10 +931,6 @@ test("Drop: an explicit destructor call is E0915, in both spellings", {
   comptime_expect_error(r.drop(), "Explicit call of the destructor");
   p := _MoDropPair(i32)(a : i32(0), n : i32(0));
   comptime_expect_error(p.drop(), "Explicit call of the destructor");
-  d := _MoFd(n : i32(0));
-  comptime_expect_error(d.dispose(), "Explicit call of the destructor");
-  comptime_expect_error((_MoFd <: Dispose).dispose(&d), "Explicit call of the destructor");
-  comptime_expect_error(_MoFd.dispose(&d), "Explicit call of the destructor");
 });
 // `Drop.drop` takes `self : &mut Self`, as Rust's `drop(&mut self)`
 // (decision 45, maintainer 2026-10-13): a destructor that takes a field out
@@ -1056,18 +1052,15 @@ test("Drop: a trait method named drop or dispose keeps its Dyn vtable slot", {
 test("Drop: the destructor read as a value is E0915, and the repair names the value", {
   comptime_expect_error(_MoDropFd.drop, "is read as a value");
   comptime_expect_error((_MoDropFd <: Drop).drop, "is read as a value");
-  comptime_expect_error(_MoFd.dispose, "is read as a value");
-  comptime_expect_error((_MoFd <: Dispose).dispose, "is read as a value");
   myval := _MoDropFd(n : i32(0));
   comptime_expect_error(myval.drop(), "write drop(myval)");
   comptime_expect_error(_MoDropFd.drop(&mut myval), "write drop(myval)");
   comptime_expect_error((_MoDropFd <: Drop).drop(&mut myval), "write drop(myval)");
   comptime_expect_error(Drop.drop(&mut myval), "write drop(myval)");
 });
-// `Drop` and `Dispose` are one destructor slot: a type with an impl of one
-// may not take an impl of the other, concretely or through a generic impl
-// (issues/fixed/a-drop-impl-beside-a-dispose-impl-is-accepted-and-one-destructor-never-runs.md).
-// `ArrayList(T)`'s destructor is std's `Dispose` impl.
+// A type has one destructor: a second `Drop` impl, concrete or through a
+// generic impl, is E0612 (plans/reference/TRAIT_COHERENCE.md).
+// `ArrayList(T)`'s destructor is std's generic `Drop` impl.
 _MoDropBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
 impl(
   _MoDropBox(i32),
@@ -1077,12 +1070,11 @@ impl(
     })
   )
 );
-test("Drop: a type has one destructor, under either spelling", {
-  comptime_expect_error(impl(_MoDropFd, Dispose(dispose : (fn(self : &Self) -> unit)(()))), "under its other spelling");
-  comptime_expect_error(impl(_MoFd, Drop(drop : (fn(self : &mut Self) -> unit)(()))), "under its other spelling");
-  comptime_expect_error(impl(ArrayList(_MoDropFd), Drop(drop : (fn(self : &mut Self) -> unit)(()))), "under its other spelling");
-  comptime_expect_error(impl(generic(T : Type), _MoDropBox(T), Dispose(dispose : (fn(self : &Self) -> unit)(()))), "under its other spelling");
-  comptime_expect_error(impl(generic(T : Type), _MoDropPair(T), Dispose(dispose : (fn(self : &Self) -> unit)(()))), "under its other spelling");
+test("Drop: a type has one destructor", {
+  comptime_expect_error(impl(_MoDropFd, Drop(drop : (fn(self : &mut Self) -> unit)(()))), "is already implemented");
+  comptime_expect_error(impl(ArrayList(_MoDropFd), Drop(drop : (fn(self : &mut Self) -> unit)(()))), "is already implemented");
+  comptime_expect_error(impl(generic(T : Type), _MoDropBox(T), Drop(drop : (fn(self : &mut Self) -> unit)(()))), "is already implemented");
+  comptime_expect_error(impl(generic(T : Type), _MoDropPair(T), Drop(drop : (fn(self : &mut Self) -> unit)(()))), "is already implemented");
   before := g_mo_dropped;
   {
     xs := ArrayList(_MoDropFd).new();
@@ -1092,25 +1084,22 @@ test("Drop: a type has one destructor, under either spelling", {
   };
   assert(g_mo_dropped == (before + i32(50)), "std's ArrayList destructor still drops each element");
 });
-// A `Drop` impl satisfies a `Dispose` bound, witness and `Type.impls`, and
-// the other way around, so migrating a type to `Drop` (std keeps `Dispose`)
-// flips neither
-// (issues/fixed/drop-and-dispose-are-not-one-trait-for-bounds-and-type-impls.md).
-_mo_retire_dispose :: (fn(generic(T : Type), x : T, where(T <: Dispose)) -> unit)(drop(x));
+// A `Drop` impl, concrete or generic, std's included, satisfies a `Drop`
+// bound and `Type.impls(T, Drop)`.
 _mo_retire_drop :: (fn(generic(T : Type), x : T, where(T <: Drop)) -> unit)(drop(x));
 _mo_needs_cleanup :: (fn(comptime(T) : Type) -> comptime(bool))(Type.impls(T, Drop));
-test("Drop: Drop and Dispose satisfy each other's bounds and Type.impls", {
-  comptime_assert(Type.impls(_MoDropFd, Dispose), "a Drop type implements Dispose");
-  comptime_assert(Type.impls(_MoFd, Drop), "a Dispose type implements Drop");
-  comptime_assert(_mo_needs_cleanup(ArrayList(i32)), "std's Dispose types implement Drop");
+test("Drop: Drop impls satisfy a Drop bound and Type.impls", {
+  comptime_assert(Type.impls(_MoDropFd, Drop), "a Drop type implements Drop");
+  comptime_assert(Type.impls(_MoFd, Drop), "so does one migrated to Drop");
+  comptime_assert(_mo_needs_cleanup(ArrayList(i32)), "std's collections implement Drop");
   comptime_assert(_mo_needs_cleanup(_MoDropPair(i32)), "a generic Drop impl answers for Drop");
   comptime_assert(!_mo_needs_cleanup(i32), "a type with no destructor implements neither");
   before := g_mo_dropped;
-  _mo_retire_dispose(_MoDropFd(n : i32(5)));
-  assert(g_mo_dropped == (before + i32(5)), "a Drop value meets a Dispose bound");
+  _mo_retire_drop(_MoDropFd(n : i32(5)));
+  assert(g_mo_dropped == (before + i32(5)), "a Drop value meets a Drop bound");
   d_before := g_mo_disposed;
   _mo_retire_drop(_MoFd(n : i32(0)));
-  assert(g_mo_disposed == (d_before + i32(1)), "a Dispose value meets a Drop bound");
+  assert(g_mo_disposed == (d_before + i32(1)), "and so does one migrated to Drop");
   _mo_retire_drop(ArrayList(i32).new());
 });
 // §3.13 A3 Generation B: `pop`, `swap`, `remove` and `reverse` move elements
