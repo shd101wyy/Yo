@@ -697,6 +697,12 @@ A fieldless enum target hides bugs in this area: it lowers to a C integer, so a
 bad pointer cast compiles as a pointer-to-int conversion. Reproduce with a
 payload-carrying variant or a struct-shaped value type (`String`).
 
+**`is_void_type` is false for `unit`, which still renders as C `void`.** An
+emitter that keeps a call's result in a temp (the `Dyn(FnOnce(...))` call
+slot's `__yo_once_r`, say) must also test the rendered return type
+(`return_str == "void"`), or a `-> unit` payload emits `void tmp = ...`
+(`issues/fixed/a-unit-returning-dyn-fnonce-call-slot-declares-a-void-temp.md`).
+
 ## Algebraic effects codegen
 
 > **Reading this section.** The load-bearing part is the **emitted C contract**
