@@ -8,8 +8,8 @@
 //! Design notes:
 //!
 //! * No interface inheritance in Yo: base types are embedded as a `base` field.
-//! * The self-referential `is_owning_the_same_rc_value_as` override uses
-//!   `Option(Rc(Self))` to break the recursive value-type cycle.
+//! * The self-referential `is_owning_the_same_rc_value_as` override is
+//!   a plain `Option(Self)`: a `ref` type is already a handle, so it needs no cell.
 //! * Optional fields are `Option(T)`.
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
@@ -69,8 +69,8 @@ CapturedVariable :: ref(
     /// The kind of variable being captured (local or outer-scope).
     kind : CapturedVariableKind,
     /// Async-typed self-referential override for `is_owning_the_same_rc_value_as`.
-    /// Uses `Rc(Self)` to break the recursive value-type cycle.
-    is_owning_the_same_rc_value_as : Option(Rc(Self))
+    /// A plain `Option(Self)`: a `ref` type is already a handle.
+    is_owning_the_same_rc_value_as : Option(Self)
   )
 );
 // ---------------------------------------------------------------------------

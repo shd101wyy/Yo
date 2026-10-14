@@ -84,7 +84,7 @@ test("SuspensionCapturedVariable fields accessible", {
     id : String.from("v0"),
     name : String.from("counter"),
     ty : t_unit(),
-    is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
+    is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
     decl_site : String.from("")
   );
   assert(cv.id == "v0", "id");
@@ -92,21 +92,20 @@ test("SuspensionCapturedVariable fields accessible", {
   has_alias := match(cv.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);
   assert(!has_alias, "no alias");
 });
-test("SuspensionCapturedVariable self-referential field (Rc(Self))", {
-  inner := Rc(SuspensionCapturedVariable)(
+test("SuspensionCapturedVariable self-referential field (Option(Self))", {
+  inner :=
     SuspensionCapturedVariable(
       id : String.from("v1"),
       name : String.from("inner"),
       ty : t_unit(),
-      is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).None,
+      is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).None,
       decl_site : String.from("")
-    )
-  );
+    );
   outer := SuspensionCapturedVariable(
     id : String.from("v2"),
     name : String.from("outer"),
     ty : t_unit(),
-    is_owning_the_same_rc_value_as : Option(Rc(SuspensionCapturedVariable)).Some(inner),
+    is_owning_the_same_rc_value_as : Option(SuspensionCapturedVariable).Some(inner),
     decl_site : String.from("")
   );
   has_alias := match(outer.is_owning_the_same_rc_value_as, .Some(_) => true, .None => false);

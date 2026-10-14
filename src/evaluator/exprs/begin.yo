@@ -752,7 +752,7 @@ _drop_unused_old_value_now :: (fn(stmt : &AstExpr, env : &Environment, ctx : &Ev
         .Some(tv) => if(tv.is_owning_the_rc_value && tv.consumed_at_token.is_none() && type_requires_explicit_copy(&tv.ty), {
           drop_expr := generate_expr_from_code(`${BF_DROP}(${tname})`, exn);
           evaluated := evaluate_expression_raw(&drop_expr, env, ctx, exn);
-          tv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(stmt)));
+          tv.consumed_at_token = Option(Token).Some(ast_expr_token(stmt));
           record_immediate_old_value_drop(ast_expr_id(stmt), &evaluated);
         }),
         .None => ()
@@ -860,7 +860,7 @@ _attach_if_cleanup_needs_drop :: (fn(expr : &AstExpr, cleanup_point : &Token, va
 /// `expr` where the variable is live-but-not-yet-consumed.
 _attach_early_return_only_drop_to_returns :: (fn(expr : &AstExpr, variable : &Variable, drop_expr : &AstExpr, ctx : &EvalContext) -> unit)({
   init_tok := match(variable.initialized_at_token, .Some(t) => t, .None => return(()));
-  consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb.*, .None => return(()));
+  consumed_tok := match(variable.consumed_at_token, .Some(cb) => cb, .None => return(()));
   if(ast_expr_is_atom(expr), {
     if((ast_expr_is_atom_of(expr, BK_RETURN) || ast_expr_is_atom_of(expr, BF_UNWIND)) && !variable_moved_at_cleanup_point(variable, ast_expr_token(expr), true), {
       _attach_if_cleanup_needs_drop(expr, ast_expr_token(expr), variable, drop_expr, &init_tok, &consumed_tok, ctx);
@@ -1229,7 +1229,7 @@ _optimize_dup_drop_pairs :: (
             match(
               cbase.is_owning_the_same_rc_value_as,
               .Some(b) => {
-                cbase = b.*;
+                cbase = b;
               },
               .None => {
                 cwalking = false;
@@ -1302,7 +1302,7 @@ _optimize_dup_drop_pairs :: (
             match(
               base.is_owning_the_same_rc_value_as,
               .Some(b) => {
-                base = b.*;
+                base = b;
               },
               .None => {
                 walking = false;
@@ -1509,7 +1509,7 @@ _optimize_dup_drop_pairs :: (
                       .None => ()
                     );
                   });
-                  v.consumed_at_token = Option(Rc(Token)).Some(rc(consume_tok));
+                  v.consumed_at_token = Option(Token).Some(consume_tok);
                 });
               });
             }),
@@ -3103,7 +3103,7 @@ _evaluate_begin_expression_impl :: (
                 if(!is_temp_variable_name(&env.module_path, &rv.name), {
                   record_branch_consume(rv.id, ast_expr_token(&last_expr), &rv.initialized_at_token, Option(Token).None);
                 });
-                rv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(&last_expr)));
+                rv.consumed_at_token = Option(Token).Some(ast_expr_token(&last_expr));
               }, {
                 // Borrow/outer-frame share: balancing dup.
                 set_expr_as_needs_to_call_dup(&return_value_expr, ctx, exn, "return");

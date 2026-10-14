@@ -529,7 +529,7 @@ _decide_match_mode :: (
       .Some(tv) => if(is_temp_variable_name(&env.module_path, &tname), {
         if(tv.is_owning_the_rc_value, {
           if(tv.consumed_at_token.is_none(), {
-            tv.consumed_at_token = Option(Rc(Token)).Some(rc(stok));
+            tv.consumed_at_token = Option(Token).Some(stok);
           });
         }, {
           _throw_unmovable_scrutinee(&scr, &ty, String.from("it is borrowed from the value that holds it (an element, or a binding into another value)."), ctx, exn);
@@ -1462,7 +1462,7 @@ evaluate_match :: (
             .Some(uv) => {
               uv.is_owning_the_rc_value = true;
               entry_drops.push(evaluate_expression_raw(generate_expr_from_code(`___drop(${uv.name})`, exn), &env, ctx, exn));
-              uv.consumed_at_token = Option(Rc(Token)).Some(rc(ast_expr_token(&arm_expr)));
+              uv.consumed_at_token = Option(Token).Some(ast_expr_token(&arm_expr));
             },
             .None => ()
           );
