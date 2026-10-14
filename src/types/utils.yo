@@ -1521,7 +1521,7 @@ value_acyclic_obligations :: (fn(fields : &ArrayList(TypeValue)) -> ArrayList(Ty
 value_type_owns_buffer :: (fn(ty : &TypeValue) -> bool)(
   match(
     ty,
-    .Struct({ field_types : fields, is_reference_semantics : is_ref }) => (!is_ref && (buffer_element_types(&fields).len() > usize(0))),
+    Rc(.Struct({ field_types : fields, is_reference_semantics : is_ref })) => (!is_ref && (buffer_element_types(&fields).len() > usize(0))),
     _ => false
   )
 );
@@ -3176,7 +3176,7 @@ _type_repr_contains_raw_ptr :: (fn(ty : &TypeValue, depth : usize) -> bool)(
     // buffer carries what its elements carry.
     value_type_owns_buffer_outright(ty) => match(
       ty,
-      .Struct({ field_types : ofts }) => {
+      Rc(.Struct({ field_types : ofts })) => {
         (oi : usize) = usize(0);
         (ofound : bool) = false;
         while((oi < ofts.len()) && !ofound, oi = (oi + usize(1)), {
