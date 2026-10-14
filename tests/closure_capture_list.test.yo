@@ -48,10 +48,11 @@ impl(
 );
 // issues/fixed/2026-10-15-the-argument-overlap-check-runs-only-after-a-capture-list-records-a-borrow.md:
 // the argument-exclusivity check runs only once some capture list has recorded
-// a borrow, and it counted the place a by-value `Copy` argument names, so
-// `self._mix(self.tail)` was E0910 in any module checked after one. A method
-// body is checked where its definition is reached, so `_cl_arm_borrow` (a
-// borrowing capture list) stays ABOVE `_ClMix`'s impl.
+// a borrow, and it reported two places the arguments merely name, so
+// `self._mix(self.tail)` was E0910 in any module checked after one and
+// accepted in any module checked before. A method body is checked where its
+// definition is reached, so `_cl_arm_borrow` (a borrowing capture list) stays
+// ABOVE `_ClMix`'s impl.
 _cl_arm_borrow :: (fn() -> i32)({
   n := i32(3);
   (f : Impl(Fn() -> i32)) = ({ &n }() => n);
@@ -70,6 +71,9 @@ impl(
 );
 _cl_mix_into :: (fn(m : &mut _ClMix, v : u64) -> unit)({
   m.state = (m.state + v);
+});
+_cl_peek_bump :: (fn(m : &_ClMix, v : &mut u64) -> unit)({
+  v = (v + m.tail);
 });
 // ---------------------------------------------------------------------------
 // Entry kinds and puns
@@ -538,6 +542,12 @@ test("exclusivity: a by-value Copy field read does not overlap the lent receiver
     t = (t + i32(1));
   });
   assert(acc.total == i32(1), "a by-value Copy receiver is copied before the closure writes the field");
+  // Two places the arguments only name are decision 28's value-root rule,
+  // which lands with V2b (plans/VALUES_BY_DEFAULT.md decision 28 "Phase");
+  // until then they are accepted here exactly as in a file with no capture
+  // list. V2b turns this into `comptime_expect_error`.
+  _cl_peek_bump(&h, &mut h.state);
+  assert(h.state == u64(16), "`f(&h, &mut h.state)` is accepted the same way in every module");
   z := i32(0);
   comptime_expect_error(_cl_with_mut({ &z }() => z, &mut z), "lent exclusively");
 });

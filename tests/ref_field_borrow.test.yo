@@ -385,24 +385,3 @@ comptime_expect_error(
     own_and_ref(&mut xs(usize(0)), xs);
   })
 );
-// issues/fixed/2026-10-15-the-argument-overlap-check-runs-only-after-a-capture-list-records-a-borrow.md:
-// decision 28's overlap between a `&mut` argument and another argument that
-// reaches the same place ran only once some capture list had recorded a
-// borrow, and this file has none, so `f(&h, &mut h.n)` was accepted
-// (`snapshot_loop_flow(&brk_lc, &mut brk_lc.break_states, …)` in the compiler).
-_rfb_peek_bump :: (fn(h : &Holder, v : &mut i32) -> unit)({
-  v = (v + h.n);
-});
-_rfb_bump_peek :: (fn(v : &mut i32, h : &Holder) -> unit)({
-  v = (v + h.n);
-});
-_rfb_peek_both :: (fn(h : &Holder, v : &i32) -> i32)(h.n + v);
-test("a `&mut` argument may not overlap another argument of the same call", {
-  h := Holder(s : String.from("x"), n : i32(2));
-  comptime_expect_error(_rfb_peek_bump(&h, &mut h.n), "lent exclusively");
-  comptime_expect_error(_rfb_bump_peek(&mut h.n, &h), "lent exclusively");
-  assert(_rfb_peek_both(&h, &h.n) == i32(4), "two `&` arguments may overlap");
-  m := i32(1);
-  _rfb_peek_bump(&h, &mut m);
-  assert(m == i32(3), "disjoint places are fine");
-});

@@ -105,7 +105,7 @@ pragma(Pragma.AllowUnsafe);
 { get_func_type, is_fn_ctfe_clone, is_closure_fn, is_io_async_sm_closure } :: import("../function_value.yo");
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
-{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn } :: import("../types/utils.yo");
+{ type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn } :: import("../types/utils.yo");
 { expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site } :: import("../expr_info.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
@@ -1560,8 +1560,10 @@ check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token,
   );
 });
 /// One place an argument reaches, for decision 28's overlap test: its root
-/// binding and its field path, and how a message names it.
-_ArgPlace :: struct(root_id : usize, path : ArrayList(String), text : String);
+/// binding and its field path, how a message names it, and whether it comes
+/// from a capture-list borrow the argument's type carries (decision 38 B)
+/// rather than the place the argument names.
+_ArgPlace :: struct(root_id : usize, path : ArrayList(String), text : String, from_capture : bool);
 /// The places argument `arg` (evaluated) reaches: the place it names, when it
 /// is a field chain rooted at a runtime binding (`z`, `s.items`) and `named`
 /// holds, and every place a capture-list closure it holds borrows,
@@ -1605,7 +1607,7 @@ _arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &Eval
         text := String.from("`");
         text.push_string(ast_expr_to_string(arg));
         text.push_str("`");
-        out.push(_ArgPlace(root_id : rv.id, path : path, text : text));
+        out.push(_ArgPlace(root_id : rv.id, path : path, text : text, from_capture : false));
       }),
       .None => ()
     );
@@ -1617,7 +1619,7 @@ _arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &Eval
       collect_type_borrows(&ai.ty, &mut bs);
       (bi : usize) = usize(0);
       while(bi < bs.len(), {
-        match(bs.get(bi), .Some(b) => out.push(_ArgPlace(root_id : b.root_id, path : b.path, text : _capture_borrow_note(&b))), .None => ());
+        match(bs.get(bi), .Some(b) => out.push(_ArgPlace(root_id : b.root_id, path : b.path, text : _capture_borrow_note(&b), from_capture : true)), .None => ());
         bi = (bi + usize(1));
       });
     },
@@ -1640,15 +1642,20 @@ _places_overlap :: (fn(a : &_ArgPlace, b : &_ArgPlace) -> bool)({
   });
   true
 });
-/// Decision 28's argument exclusivity, extended to capture-list borrows
-/// (decision 38 B): within one call (the receiver and a called closure count
-/// as arguments), an exclusive argument — a `&mut` one, or a value that
-/// carries a `&mut` capture, which is lent exclusively even to a `&f`
-/// parameter — may not overlap anything another argument reaches. So
-/// `f(&h, &mut h.n)`, `g(&f, &mut z)` (where `f` captures `z`), `f(&g)`
-/// (where `g` reaches the `&mut`-capturing `f`) and
+/// Decision 28's argument exclusivity for capture-list borrows (decision 38
+/// B): within one call (the receiver and a called closure count as
+/// arguments), an exclusive argument — a `&mut` one, or a value that carries
+/// a `&mut` capture, which is lent exclusively even to a `&f` parameter — may
+/// not overlap anything another argument reaches, when a capture borrow is
+/// one side of the overlap. So `g(&f, &mut z)` (where `f` captures `z`),
+/// `f(&g)` (where `g` reaches the `&mut`-capturing `f`) and
 /// `xs.for_each({ n : &mut xs.n }(…) => …)` are errors, and a `for_each`
-/// literal that borrows a fresh local is not.
+/// literal that borrows a fresh local is not. Two places the arguments only
+/// name (`f(&h, &mut h.n)`) are decision 28's value-root rule, which lands
+/// with V2b (plans/VALUES_BY_DEFAULT.md decision 28 "Phase"); reporting them
+/// here made the rule depend on whether a capture list had been evaluated
+/// before the call, since that is what arms this check
+/// (issues/fixed/2026-10-15-the-argument-overlap-check-runs-only-after-a-capture-list-records-a-borrow.md).
 /// `extra` is the called closure value, when the callee is one.
 require_capture_borrow_exclusivity :: (
   fn(
@@ -1661,6 +1668,9 @@ require_capture_borrow_exclusivity :: (
     exn : Exception
   ) -> unit
 )({
+  if(!capture_borrows_exist(), {
+    return(());
+  });
   all_args := ArrayList(AstExpr).new();
   excl := ArrayList(bool).new();
   // An argument bound to a by-value parameter (`param_is_owning`) whose type
@@ -1668,8 +1678,7 @@ require_capture_borrow_exclusivity :: (
   // call runs, so the callee cannot reach the place it names; only the
   // borrows its type carries count. A `&T` parameter (`param_is_ref` marks
   // only `&mut`) and a second-class value (a `&T`, a borrowing closure) keep
-  // their named place
-  // (issues/fixed/2026-10-15-the-argument-overlap-check-runs-only-after-a-capture-list-records-a-borrow.md).
+  // their named place.
   named := ArrayList(bool).new();
   (ai : usize) = usize(0);
   while(ai < args.len(), {
@@ -1693,20 +1702,6 @@ require_capture_borrow_exclusivity :: (
     },
     .None => ()
   );
-  // Only an exclusive argument can conflict. This is not gated on
-  // `capture_borrows_exist()`: a `&mut` argument overlapping another
-  // argument's place is decision 28's rule whether or not any capture list
-  // has recorded a borrow, and that gate made the check depend on what had
-  // been evaluated before the call.
-  (any_excl : bool) = false;
-  (ei : usize) = usize(0);
-  while(ei < excl.len(), {
-    any_excl = (any_excl || match(excl.get(ei), .Some(e) => e, .None => false));
-    ei = (ei + usize(1));
-  });
-  if(!any_excl, {
-    return(());
-  });
   places := ArrayList(ArrayList(_ArgPlace)).new();
   (pi : usize) = usize(0);
   while(pi < all_args.len(), {
@@ -1729,7 +1724,7 @@ require_capture_borrow_exclusivity :: (
             (y : usize) = usize(0);
             while(y < pjs.len(), {
               pb := match(pjs.get(y), .Some(v) => v, .None => return(()));
-              if(_places_overlap(&pa, &pb), {
+              if((pa.from_capture || pb.from_capture) && _places_overlap(&pa, &pb), {
                 arg_i := match(all_args.get(i), .Some(v) => v, .None => make_err_expr());
                 arg_j := match(all_args.get(j), .Some(v) => v, .None => make_err_expr());
                 raise_flow_violation(
