@@ -73,10 +73,15 @@ at the same phases (planned: V2b, V2c, V5).
 | --- | --- | --- |
 | **`Copy`** | integers, floats, `bool`, `char`, `unit`, raw pointers, `str` views, `fn` pointers; a struct, enum or newtype with `derive(T, Copy, Clone)`; tuples, arrays, anonymous records and closures whose parts are all `Copy` | a bitwise copy |
 | **explicit-copy** | implements `Clone` but not `Copy`: `String`, the collections, `Box(T)`, `Dyn(Trait)`, `Rc(T)`/`Arc(T)` handles, and types containing them | E0901; write `x.clone()` |
-| **move-only** | implements neither `Copy` nor `Clone`, or implements `Dispose`; and any type holding such a value | E0901; there is no copy |
+| **move-only** | implements neither `Copy` nor `Clone`, or implements `Drop`; and any type holding such a value | E0901; there is no copy |
 
 A type that is not `Copy` moves at its last use, whichever of the other two
 kinds it is. The difference is only whether `x.clone()` exists.
+
+(planned: V2b, V2c) Of the explicit-copy kind, only `Box(T)` and a plain
+`Clone`-without-`Copy` type are checked today; `String`, the collections
+and `Dyn` still copy implicitly until V2b and the `Rc`/`Arc` handles until
+V2c (section 1).
 
 ### Moves happen at the last use
 
@@ -119,11 +124,11 @@ derive(Point, Copy, Clone); // derive(Point, Copy) alone is an error naming this
 ```
 
 - The impl is checked: every field must be `Copy`, and the type must not
-  implement `Dispose`. A `String` field makes `derive(T, Copy, Clone)` an
+  implement `Drop`. A `String` field makes `derive(T, Copy, Clone)` an
   error naming that field.
 - Tuples, arrays, anonymous records and closures are `Copy` exactly when all
   their parts are. A closure holding a `&mut` capture is never `Copy`.
-- `Rc`, `Arc`, `Box`, `String`, the collections, `Dyn` and every `Dispose`
+- `Rc`, `Arc`, `Box`, `String`, the collections, `Dyn` and every `Drop`
   type are never `Copy`.
 - In generic code, `where(T <: Copy)` also gives `T <: Clone`.
 - A type that is `Copy` only for some arguments derives each trait under its
@@ -158,7 +163,7 @@ serve.
 ### Move-only values and resources
 
 A lock, a file, a socket or a thread handle is a value that cannot be
-copied. A type is move-only when it implements `Dispose`, or implements
+copied. A type is move-only when it implements `Drop`, or implements
 neither `Copy` nor `Clone`, or holds such a value in a field, payload,
 tuple, array or capture.
 
@@ -200,17 +205,18 @@ resource, or decrements a shared handle.
   others is E0907. Record what the loop found and move the value once,
   after the loop.
 
-### `Dispose`
+### `Drop`
 
-`Dispose` runs exactly once, when the single owner's drop runs: first
-`dispose`, then the fields are dropped.
+`Drop` runs exactly once, when the single owner's drop runs: first `drop`,
+then the fields are dropped. (`Drop` is the renamed `Dispose`, decision 45;
+an explicit call is E0915 in both spellings while the old one exists.)
 
 ```yo
 Fd :: struct(n : i32);
 impl(
   Fd,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       // close self.n here
     })
   )
@@ -218,8 +224,14 @@ impl(
 Holder :: struct(fd : Fd, tag : i32); // move-only: it holds a move-only field
 ```
 
-- A `Dispose` type is never `Copy`.
-- `dispose` borrows `self`; it may not move a field out of it.
+- A `Drop` type is never `Copy`.
+- `drop` takes `self : &mut Self`: it may take a field out or reset it
+  (`self.inner = .None`), and the fields that drop after it read what it
+  left. Calling the destructor by hand (`x.drop()`) is E0915: it would run
+  a second time, on a value that is still live.
+- To end a value before its scope does, call `drop(x)`: the prelude
+  function moves `x` in and the value drops when the call returns; a later
+  use of `x` is E0901.
 - A resource that must keep a stable address (an OS mutex) keeps its state
   in a `Box` of a move-only struct: moving the owner moves the pointer, not
   the state.
@@ -280,6 +292,10 @@ main :: (fn() -> unit)({
 });
 export(main);
 ```
+
+(planned: NON_ESCAPABLE_TYPES N1) `n = (n + i32(1))` writes through the
+`&mut` parameter today; once references are types, a whole-value read or
+write through one is spelled `n.*` (section 5).
 
 - A mismatch is an error, never a conversion: E0914. A bare `x` to a `&T`
   parameter names `&x`; `&x` to a by-value parameter names `x` or
@@ -407,7 +423,7 @@ append :: (fn(list : &mut List, v : i32) -> unit)({
       .None => ()
     );
   });
-  cur = .Some(box(Node(value : v, next : .None))); // no sigil: writes the tail slot
+  cur = .Some(box(Node(value : v, next : .None))); // no sigil: writes the tail slot (cur.* = … once references are types)
 });
 ```
 
@@ -427,8 +443,10 @@ A `&mut` argument, or a by-value argument that moves, may not overlap any
 other argument of the same call; two `&` arguments may. So
 `swap(&mut p.a, &mut p.b)` is accepted and `swap(&mut p.a, &mut p.a)` is
 rejected. A closure argument overlaps every place it captures, and a method
-receiver counts as an argument. Today the call-level check is not yet on
-for value roots.
+receiver counts as an argument. Today the call-level rule covers a later
+argument moving a place an earlier argument lends to the call
+(`f(&mut a, eat(a))`, E0910); the overlap check is not yet on for value
+roots.
 
 ### Module-level places
 
@@ -650,7 +668,9 @@ export(main);
 
 - `for(&xs, x => …)` borrows `xs` and binds each element read-only.
 - `for(&mut xs, x => …)` borrows `xs` exclusively; `x` is a `&mut` place
-  into the element, so a write through it lands in the collection.
+  into the element, so a write through it lands in the collection (the
+  write-through spelling becomes `x.* = …` once references are types,
+  planned: NON_ESCAPABLE_TYPES N1).
 - A plain `for(xs, x => …)` takes `xs` by value.
 
 ```yo
@@ -716,6 +736,10 @@ main :: (fn() -> unit)({
 });
 export(main);
 ```
+
+(planned: NON_ESCAPABLE_TYPES N1) The `.Leaf(v) => v` arm reads through the
+`&` binding today; once references are types, nothing coerces and the
+whole-value read is spelled `v.*`.
 
 `Box(T)` is move-only exactly when `T` is; otherwise `Box.clone(b)` is a
 deep copy. Writes through a `Box` are plain writes, because its owner is
@@ -837,7 +861,8 @@ pick :: (fn(a : &ArrayList(u8), b : &ArrayList(u8), depends(view : a)) -> (view 
 `pick` may return a view of `a` and not of `b`, so the caller's `b` is free
 again after the call.
 
-- A target is the return label or a `&mut` parameter that can grow.
+- A target is the return label or a parameter that can grow: `&mut` over a
+  reference-holding type, or by value with a `&mut` component.
 - A source is a parameter `p` (its whole borrow set, the lent place
   included) or `p.*` (only what `p`'s referent carries). `()` says nothing
   flows in.
@@ -921,11 +946,12 @@ The async runtime stays single-threaded.
 | E0907 | a value moved on some ways out of a loop and not on others |
 | E0908 | a write through a `&` borrow |
 | E0909 | a second-class value escapes: a borrowing closure or future returned, stored, put in a `Dyn` or spawned; from N1 also a reference in a cell |
-| E0910 | an access conflicts with a borrow a closure or future holds |
+| E0910 | an access conflicts with a borrow a closure or future holds; a later argument moves a place an earlier argument lends to the call |
 | E0911 | an access conflicts with a live local borrow, or a re-point while a derived borrow is live; (planned: V2b) overlapping call arguments; (planned: N2) a root frozen by a container of references |
 | E0912 | a local borrow crosses the function boundary |
 | E0913 | a closure moves a capture out where its call cannot consume it |
 | E0914 | a call-site marker does not match the parameter's mode |
+| E0915 | an explicit destructor call (`x.drop()`); write `drop(x)` to end the value early |
 
 ## 14. Coming from Rust or Swift
 
@@ -977,7 +1003,8 @@ mutate on purpose becomes a value held in an `Rc`.
   parameters, 31 wrapper patterns, 32 member clashes, 33 call-site markers,
   34 operators and `Index`, 35 capture lists, 36 `Copy`, 37 `Fn`/`FnMut`/
   `FnOnce`, 38 closure soundness, 39 iteration, 40 no `Pin`, 41 `RefCell`,
-  42 borrow spelling, 43 references as types, 44 `Dyn`.
+  42 borrow spelling, 43 references as types, 44 `Dyn`, 45 `Drop` (the
+  `Dispose` rename).
 - [`plans/backlog/NON_ESCAPABLE_TYPES.md`](backlog/NON_ESCAPABLE_TYPES.md):
   R1–R7 and the `depends` clause; phases N0–N3.
 - Related docs: [`MEMORY_SAFETY.md`](../docs/en-US/MEMORY_SAFETY.md),
