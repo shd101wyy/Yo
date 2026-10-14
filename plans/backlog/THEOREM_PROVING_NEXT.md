@@ -168,8 +168,8 @@ discipline are the work).
 library whose every lemma must be named and instantiated by the caller
 still makes the caller know the lemma's name and its instance, which is
 the burden T1 exists to remove — F\*'s `FStar.Seq` and `FStar.Math.Lemmas`
-are usable at scale because their lemmas carry `SMTPat` triggers and fire
-ambiently. The exit criterion therefore reads "proves using only std
+are usable at scale because many of their lemmas carry `SMTPat` triggers
+and fire ambiently. The exit criterion therefore reads "proves using only std
 lemmas, **without naming them**", and T4b (a lemma trigger spelling) lands
 with T1, not after it, under T4a's observability and the F4 hint-replay
 brittleness check.
@@ -338,6 +338,7 @@ tier-2 items above must not creep toward them:
 | --- | --- | --- | --- |
 | T1 std lemma library | nothing — the surface landed | 2–3 weeks | anytime; first consumers are SELF_VERIFICATION's M2/M3 laws and any `spec/` user |
 | T4a trigger observability | nothing | ~1 week | alongside T1 — the library's fixtures will need the diagnostics |
+| T4b lemma trigger spelling | T4a | ~1 week | with T1 (amended 2026-10-14, F3 of `FSTAR_ADOPTION_CANDIDATES.md`; was gated on T4a's findings) |
 | T2 auto-induction | T1 | 3–4 weeks | measured repetition (B4 evals or M2/M3 annotation loops) |
 | T3 `calc` | T1 | ~1 week | optional; cut if asserts suffice (decided by the M3 laws' readability) |
 | certificates / external oracle / verified-unsafe std | — | parked | their §8 triggers |

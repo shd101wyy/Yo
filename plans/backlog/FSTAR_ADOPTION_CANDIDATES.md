@@ -161,10 +161,15 @@ call — and a ghost value can live *inside* a runtime value (`erased`
 fields). In Yo today a refinement lives in the function signature only:
 the callee assumes it, the caller proves it, a call's result keeps its
 declared `refine(...)` for dispatch, but "a binder erases a refinement"
-(`tests/spec/refine_types.test.yo:148`), there is no refined struct field
-(`g_func_refined_params` is the only registry), and there is no ghost
-field or ghost parameter anywhere in the tree (grep over `plans/`,
-`docs/`, `issues/`: none). Closing that is F1 and F2, and it is Layer-2
+(`tests/spec/refine_types.test.yo:148`); a `refine(T, p)` annotation may be
+written in any type position and evaluates to `T`, the evaluator records
+it by expression id (`register_refine_annotation`,
+`src/evaluator/types/function.yo:683`), and the verifier consumes it only
+for function parameters (`g_func_refined_params`, "read at fn-type
+registration where each parameter's declared TYPE EXPR is inspected"), so
+a refined field or local carries no obligation and no assumption; and
+there is no ghost field or ghost parameter anywhere in the tree (grep over
+`plans/`, `docs/`, `issues/`: none). Closing that is F1 and F2, and it is Layer-2
 work: obligations stay in the verifier pass, the checker only records
 where a refinement sits — ATS audit §4's reasons 3–4 (no solver inside
 unification) are untouched.
@@ -197,8 +202,12 @@ dispatch (`refine_types.test.yo:148–159`), but the registry is
 per-parameter only (`register_func_refined_params`) — whether the callee
 proves the predicate at its exits and the caller assumes it after the
 call is *(verify)*. A refined *local* annotation `d : NonZero(i32) = e`
-erases to `i32` with no obligation ("a binder erases a refinement"). There
-is no refined struct field. The construction gap is recorded in
+erases to `i32` with no obligation ("a binder erases a refinement"). A
+refined *field* type is accepted and registered by expression id but never
+read: the only consumer of the annotation registry is the per-parameter
+table (`g_func_refined_params`, `src/evaluator/types/function.yo:629`),
+so `struct(n : NonZero(i32))` is a plain `i32` field to the verifier. The
+construction gap is recorded in
 `std/spec/refine.yo` itself: in verified code a value satisfying `p` on
 the current path must still go through a runtime `check_*` gate (an
 `Option`) or the unsafe-capable `unchecked` cast.
@@ -286,7 +295,8 @@ is used only by naming it, `ghost(lemma(args))`. THEOREM_PROVING_NEXT T1
 separate items with T4b gated on T1's gaps.
 
 **The lesson.** F\*'s lemma libraries (`FStar.Seq`, `FStar.Math.Lemmas`)
-are usable at scale because their lemmas fire ambiently; a library whose
+are usable at scale because many of their lemmas carry `SMTPat` and fire
+ambiently; a library whose
 every lemma must be named and instantiated by the caller still makes the
 caller know the lemma's name and its instance — which is the burden T1
 exists to remove. T1 and T4b are one item.
