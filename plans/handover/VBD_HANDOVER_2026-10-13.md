@@ -78,7 +78,7 @@ All of these except #1339 merged on 2026-10-14 and shipped in v0.2.62.
 - **V3 Generation B** (#1349, local gates green): the maintainer said to admin-merge it on its local gates once v0.2.62 is out. **#1350** (another session's OWNERSHIP_AND_BORROWING draft catch-up): admin-merge as-is after the release.
 - **V2b Generation B** (branch `feat/vbd-v2b-genb-r2`): ten mode-only `src/` write sites; its gate is queued.
 - **V1 step 2 Generation B and decision 31 Generation B:** gates running.
-- **V4 `TypeValue` as an `Rc` handle** (`feat/vbd-v4-typevalue-rc-handle`): time-neutral for `check`. It found and fixed unhashed specialized C names, a 17 KB name repeated 780 times (`issues/specialized-function-names-called-through-a-callee-are-not-hashed.md`). Its yo-s1 build-time split is still being measured.
+- **V4 `TypeValue` as an `Rc` handle** (`feat/vbd-v4-typevalue-rc-handle`): time-neutral for `check`. It found and fixed unhashed specialized C names, a 17 KB name repeated 780 times (its S3 issue doc lands with the V4 PR). Its yo-s1 build-time split is still being measured.
 - **Drop Generation A follow-ups:** all review findings except the regression fixed below; E0915 for a destructor method value; Drop/Dispose coherence; bound unification; the migration skipping non-destructor `dispose`. Also the regression where a user trait method named `drop` was left out of `Dyn` vtables.
 - **E0910's three S1 holes.**
 - **Closures follow Rust (maintainer, 2026-10-14):** `Copy` iff every capture is `Copy`, `Clone` iff every capture is `Clone`. Develop implicitly copied a closure owning a `String` by value.
