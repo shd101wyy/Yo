@@ -289,6 +289,31 @@ test("async: producer tasks with cloned Senders fan in, and the last one closes"
     "the drained channel reports Disconnected"
   );
 });
+// §3.13 A5: a `Channel` is a handle on state behind an `Rc`, so a copy shares
+// the channel; `Sender` and `Receiver` are move-only values.
+test("async Channel copies share one channel; Sender and Receiver are move-only", {
+  ch := Channel(i32).new(usize(2));
+  ch2 := ch;
+  _s := ch2.try_send(i32(4));
+  assert(match(ch.try_recv(), .Ok(v) => (v == i32(4)), .Err(_) => false), "a copy of the handle is the same channel");
+  comptime_expect_error({
+    rx := Channel(i32).receiver(usize(1));
+    tx := rx.sender();
+    tx2 := tx;
+    _a := tx.try_send(i32(1));
+    _b := tx2.try_send(i32(2));
+  }, "moved");
+  comptime_expect_error({
+    rx := Channel(i32).receiver(usize(1));
+    rx2 := rx;
+    _a := rx.try_recv();
+    _b := rx2.try_recv();
+  }, "moved");
+  comptime_expect_error({
+    rx := Channel(i32).receiver(usize(1));
+    _rx2 := rx.clone();
+  }, "clone");
+});
 test("async Sender implements Clone", {
   assert_clone :: (fn(comptime(T) : Type, where(T <: Clone)) -> comptime(unit))(());
   assert_clone(Sender(i32));

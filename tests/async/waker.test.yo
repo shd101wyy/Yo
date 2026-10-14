@@ -130,6 +130,27 @@ test("Test a park is waited on once, and its waker outlives the wait", {
 });
 
 // ---------------------------------------------------------------------------
+// 1c. A `Waker` is a move-only value (§3.13 A5): a waiter list moves it in and
+//     moves it back out to fire it, and dropping it releases its token.
+// ---------------------------------------------------------------------------
+test("Test a waker is moved into a waiter list and back out", {
+  p := Park.new();
+  waiters := ArrayList(Waker).new();
+  waiters.push(p.waker());
+  w := waiters.remove(usize(0));
+  w.wake();
+  io.await(p.wait(io), io);
+  assert(waiters.len() == usize(0), "the waker left the list when it was taken out");
+  comptime_expect_error({
+    q := Park.new();
+    a := q.waker();
+    b := a;
+    a.wake();
+    b.wake();
+  }, "moved");
+});
+
+// ---------------------------------------------------------------------------
 // 2. Waking twice is a no-op, which is what lets a waiter list signal
 //    everyone without tracking who already ran.
 // ---------------------------------------------------------------------------
