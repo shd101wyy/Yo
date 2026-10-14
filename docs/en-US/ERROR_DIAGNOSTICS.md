@@ -174,7 +174,11 @@ rewritten from the parse, but a `.dispose` member may also be an inherent
 method, another trait's method or a field, so the migration first evaluates
 each file and rewrites only the members that resolve to the destructor; any
 other `.dispose` member (or one in code evaluation never reached) is listed
-and left as written.
+and left as written. An inherent method named `dispose`
+(`impl(T, dispose : ...)`) is listed for a hand edit too: the old compiler ran
+a method of that name as a reference type's destructor, and only a `Drop`
+impl's `drop` runs now, so move its body into a `Drop(drop : (fn(self : &mut
+Self) -> unit)(...))` entry.
 
 `yo fix <path> --migrate dyn-spelling` is the migration for decision 44, under
 which every erasure into a `Dyn` is spelled. It evaluates each file and wraps

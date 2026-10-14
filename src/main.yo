@@ -1443,6 +1443,30 @@ _dtm_walk :: (
     }),
     .FnCall(_, callee, args, _, _) => {
       callee_word := match(callee, .Atom(_, ct) => ct.value.clone(), _ => String.new());
+      // An inherent `dispose` method, `impl(T, dispose : (fn(self ...)(...)))`:
+      // Generation A ran a method of that name as a reference type's
+      // destructor whatever declared it, and Generation B runs only `Drop`'s,
+      // so the method would silently stop running. A span edit cannot move
+      // it into a `Drop(...)` entry, so it is listed for a hand edit
+      // (issues/fixed/2026-10-14-migrate-drop-trait-misses-an-inherent-dispose-method.md).
+      if(callee_word == "impl", {
+        (ii : usize) = usize(1);
+        while(ii < args.len(), ii = (ii + usize(1)), {
+          match(
+            args.get(ii),
+            .Some(.FnCall(_, ic, iargs, _, _)) => if(match(ic, .Atom(_, it) => (it.value == ":"), _ => false) && (iargs.len() == usize(2)), {
+              match(
+                iargs.get(usize(0)),
+                .Some(.Atom(_, il)) => if(il.value == "dispose", {
+                  o.left.push(`${_dtm_pos(&il)} an inherent \`dispose\` method, which Generation A ran as the destructor: move it into a \`Drop(drop : (fn(self : &mut Self) -> unit)(...))\` entry`);
+                }),
+                _ => ()
+              );
+            }),
+            _ => ()
+          );
+        });
+      });
       // `Dispose(dispose : f)`: the impl entry's (or the trait
       // definition's) method label, and its receiver: `Drop.drop` takes
       // `self : &mut Self` where `Dispose.dispose` took `self : &Self`.
@@ -1709,7 +1733,7 @@ _run_migrate_drop_trait :: (fn(files : &ArrayList(String), std_path : &String, d
     );
   });
   verb := if(dry_run, String.from("would rewrite"), String.from("rewrote"));
-  println(`fix: ${verb} ${o.counts.names.to_string()} Dispose to Drop, ${o.counts.methods.to_string()} dispose to drop (${o.counts.receivers.to_string()} receiver(s) to self : &mut Self), ${o.counts.calls.to_string()} explicit call(s) to drop(x); ${n_left.to_string()} explicit call(s) left for a hand edit; ${n_skipped.to_string()} other \`.dispose\` member(s) left as written; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse; ${n_unevaluated.to_string()} file(s) did not evaluate`);
+  println(`fix: ${verb} ${o.counts.names.to_string()} Dispose to Drop, ${o.counts.methods.to_string()} dispose to drop (${o.counts.receivers.to_string()} receiver(s) to self : &mut Self), ${o.counts.calls.to_string()} explicit call(s) to drop(x); ${n_left.to_string()} site(s) left for a hand edit; ${n_skipped.to_string()} other \`.dispose\` member(s) left as written; ${n_stale.to_string()} edit(s) skipped (span text did not match); ${failed.to_string()} file(s) did not parse; ${n_unevaluated.to_string()} file(s) did not evaluate`);
   if(failed > usize(0), {
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not parse`));
   });

@@ -3750,6 +3750,12 @@ and in git, not a silent edit.
           `where(T <: Dispose)` stops that file's evaluation, and its later
           `.dispose` members are listed as left as written. Both go when the
           migration modes retire after V5.
+        - *An inherent `dispose` method is listed.* Generation A's codegen
+          found a destructor by the method name `dispose` alone, so an
+          inherent `impl(T, dispose : ...)` on a reference type ran as one;
+          Generation B runs only `Drop`'s `drop`. The repair lists each such
+          entry for a hand edit
+          (`issues/fixed/2026-10-14-migrate-drop-trait-misses-an-inherent-dispose-method.md`).
     - **Tests (Generation A).** `tests/move_only.test.yo`: a `Drop` impl
       runs once at the owner's drop, through a field and through a generic
       impl; a `Drop` impl that takes a field out runs once, and releases the

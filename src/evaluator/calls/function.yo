@@ -479,7 +479,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
   name_tok := ast_expr_token(&name_expr);
   // Every evaluated `.` access reaches here (`reject_destructor_member_read`):
   // test the name before anything allocates.
-  is_old_spelling := (name_tok.value == "dispose") && migrate_drop_trait_on();
+  is_old_spelling := ((name_tok.value == "dispose") && migrate_drop_trait_on());
   if(!(is_drop_method_name(&name_tok.value) || is_old_spelling) || name_tok.module_path.starts_with(String.from("auto-generated://")), {
     return(());
   });
