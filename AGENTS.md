@@ -182,7 +182,7 @@ yo context [--list | <module> [<name>] | <name> | --search q] [--deps] [--format
 - Make commands succeed yourself. Do not ask the user to run them, and do not end the conversation until they pass.
 - No hardcoding, no shortcuts, no simplifications in the evaluator or codegen. When asked to refactor, refactor everything: no placeholders, no TODOs.
 - Do not create new `.yo` files unless told to.
-- Never skip a bug discovered during implementation. Every bug gets an `issues/` entry carrying a `**Severity:**` verdict (S1–S3, scale in `issues/README.md`) and a test that fails before the fix and passes after, added to `tests/`. An open design/API/policy decision — not broken code — is not a bug: file it in `issues/questions/` with a `## Recommendation` stating a position. `scripts/check-issue-refs.sh` enforces both.
+- Never skip a bug discovered during implementation. Every bug gets an `issues/YYYY-MM-DD-<name>.md` entry (filing date first, `issues/README.md`) carrying a `**Severity:**` verdict (S1–S3, scale in `issues/README.md`) and a test that fails before the fix and passes after, added to `tests/`. An open design/API/policy decision — not broken code — is not a bug: file it in `issues/questions/` with a `## Recommendation` stating a position. `scripts/check-issue-refs.sh` enforces both.
 - `issues/TRIAGE.md` is UNTRACKED (gitignored since 2026-10-07): a locally generated index (`python scripts/gen-issue-triage.py`), never committed — it can never conflict or ship stale. Run the generator whenever you want the overview; never `git add` it. CI's `tree-hygiene` job rejects any committed `<<<<<<<` conflict markers anywhere in the tree and enforces `check-issue-refs.sh`'s issues/ discipline (since 2026-10-07, after #1231 shipped six marker hunks in through a branch merge).
 - **Run `yo fmt <file.yo>` on every `.yo` file you create or modify** (`yo fmt --check` verifies). There is no pre-commit hook. **Verify formatting diffs with the same binary the gate uses** — a tree-built `yo-out/<target>/bin/yo fmt --check <files>` — not the installed seed: the formatter changes between releases, so a seed can lay a file out differently from the tree's fmt gate (GATE 6). A `cancelled` develop battery left NO fmt verdict (that is how #1110/#1102 went red unnoticed): a cancelled run means "unknown", not "green".
 - Review `git diff` before considering work done: leftover debug code, unused imports, consistency across files.
@@ -312,7 +312,7 @@ The format (modeled on v0.2.38 — read it with `gh release view v0.2.38 --json 
 
 ## Debugging codegen / C compilation issues
 
-1. Document the issue in `issues/<name>.md` with a `**Severity:**` line (S1–S3, scale in `issues/README.md`): the verbatim error, a minimal `.yo` reproducer (use `tmp/fixme.yo`), the root cause.
+1. Document the issue in `issues/YYYY-MM-DD-<name>.md` (the filing date) with a `**Severity:**` line (S1–S3, scale in `issues/README.md`): the verbatim error, a minimal `.yo` reproducer (use `tmp/fixme.yo`), the root cause.
 2. Fix the codegen in `src/codegen/`.
 3. Verify: the repro compiles, the full project's error count decreases.
 4. Move the doc to `issues/fixed/` and commit.

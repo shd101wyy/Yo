@@ -81,7 +81,14 @@ can.
 
 Conventions:
 
-- File names are kebab-case and say what is broken, not where it was found.
+- File names are `YYYY-MM-DD-<name>.md`: the filing date, then a kebab-case
+  name that says what is broken, not where it was found
+  (`2026-10-14-some-issue.md`; maintainer, 2026-10-14). The date never changes,
+  so the name survives re-triage and the move to `fixed/`/`retired/`; the
+  severity lives only in the `**Severity:**` line. Applies to every new doc in
+  the root and in `questions/`; docs filed before 2026-10-14 keep their names
+  until the one-time rename (which takes each date from `git log
+  --diff-filter=A --follow`).
 - Assign a `**Severity:**` line when filing (root bugs); a design decision —
   not broken code — goes to `questions/` with a `## Recommendation` stating a
   position the maintainer can accept or overrule.
