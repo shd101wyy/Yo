@@ -1040,7 +1040,7 @@ Future, and its reference moved into the handle. The handle has no `Clone`,
 so one task has one handle. Awaiting it (`h.await(io)`, or
 `io.await(h.join(io), io)`) consumes it: the result moves out of the task, and
 the handle's reference is released. A handle that is dropped without being
-awaited **detaches** the task: its `Dispose` releases the reference, the task
+awaited **detaches** the task: its `Drop` releases the reference, the task
 keeps running, and it frees itself when it finishes, so a fire-and-forget
 `io.spawn(task, io);` statement leaks nothing.
 
@@ -1048,7 +1048,7 @@ keeps running, and it frees itself when it finishes, so a fire-and-forget
 released at thread exit.** Nothing will ever drive that thread's event loop
 again, so the runtime aborts every task still queued or parked on a timer or
 I/O operation, and releases the task, its pending await's future and
-everything it captured — the task's `Dispose` impls run there. No task body
+everything it captured — the task's `Drop` impls run there. No task body
 resumes after `main` returned: an aborted task's resume runs only its release
 guard.
 

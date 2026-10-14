@@ -96,7 +96,8 @@ Progress:
     impl split, and `String`'s read-only byte index (#1361);
   - decision 45 Generation A: `Drop` beside `Dispose`, E0915 for an
     explicit destructor call, `drop(x)`, and `yo fix --migrate drop-trait`
-    (#1343). Generation B, the tree-wide rename, waits for the seed.
+    (#1343, follow-ups #1358), and Generation B: the tree-wide rename and
+    `Dispose` deleted (vbd-d45-genb; decision 45's "as built, Generation B").
   - decision 44's spelled closure erasure: a callable bare in a
     `Dyn(Fn(...))` slot is E0618, and `yo fix --migrate dyn-spelling`
     wraps it (#1339). One PR: the tree had no bare
@@ -3723,6 +3724,32 @@ and in git, not a silent edit.
         call, the two-spelling unification (`_destructor_twin_trait`,
         `_destructor_twin_of`), and rename the docs, skills and instruction files
         (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+      - **As built, Generation B (vbd-d45-genb, for v0.2.64; seed v0.2.62).**
+        `yo fix ./std <the tests naming it> --migrate drop-trait`, run with
+        the tree-built Generation A compiler, renamed std and the tests; the
+        hand edits after it deleted the migrated copy of the prelude's own
+        trait definition, renamed the trait's name in strings and comments,
+        and deleted the tests of the two-spelling behaviour (E0915 for
+        `dispose`, the E0612 twin, the cross-spelling bounds). The compiler
+        recognizes only `Drop`: `is_drop_trait_name` / `is_drop_method_name`
+        lost their second name; `_destructor_twin_trait`,
+        `_destructor_twin_of` and their E0612 coherence checks are deleted;
+        the synthesized `___dispose` always calls `(Self <: Drop).drop(self)`;
+        `dispose` is no longer a decrement head of the mutation summary. The
+        C-level names (`___dispose`, `dispose_fn`, the runtime's dispose
+        functions) stay: they name the runtime's slot, not the trait.
+        - *The repair keeps working on user code,* a deviation from the
+          deletion list above: it decides which `.dispose` members are the
+          destructor by evaluating the file, which needs the old trait. Under
+          `--migrate drop-trait` alone, `mm_load_file` appends
+          `Dispose :: trait(id := "Dispose", dispose : (fn(self : &Self) ->
+          unit))` to the prelude (an ordinary trait, no destructor), and the
+          E0915 check records `x.dispose()` of it
+          (`_reject_explicit_destructor_call`). The bound unification is
+          not kept: under the migration a std `Drop` type passed to a user's
+          `where(T <: Dispose)` stops that file's evaluation, and its later
+          `.dispose` members are listed as left as written. Both go when the
+          migration modes retire after V5.
     - **Tests (Generation A).** `tests/move_only.test.yo`: a `Drop` impl
       runs once at the owner's drop, through a field and through a generic
       impl; a `Drop` impl that takes a field out runs once, and releases the

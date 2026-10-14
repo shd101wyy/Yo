@@ -1049,7 +1049,7 @@ process_map(counts);
 
 ### The destructor is `Drop` (formerly `Dispose`) and is never called by hand
 
-`Drop` is the new name of `Dispose` (`plans/VALUES_BY_DEFAULT.md` decision 45): the compiler accepts both, and the tree keeps spelling `Dispose` until the seed knows `Drop`. The destructor runs automatically, once, when the owner drops the value or the last `Rc`/`Arc` handle goes away. `drop` takes `self : &mut Self` (Rust's `drop(&mut self)`), so it may take a field out (`self.f = .None`) before the fields drop; `self : &Self` does not conform (`Dispose.dispose` keeps `&Self` until the rename). Calling it yourself is E0915, in both spellings; end a value early with the prelude's `drop(x)`.
+`Drop` is the destructor trait (`plans/VALUES_BY_DEFAULT.md` decision 45; its old name `Dispose` is no longer recognized). The destructor runs automatically, once, when the owner drops the value or the last `Rc`/`Arc` handle goes away. `drop` takes `self : &mut Self` (Rust's `drop(&mut self)`), so it may take a field out (`self.f = .None`) before the fields drop; `self : &Self` does not conform. Calling it yourself is E0915; end a value early with the prelude's `drop(x)`.
 
 ```yo
 { println } :: import("std/fmt");
@@ -1057,7 +1057,7 @@ Fd :: struct(n : i32);
 impl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(println(`closing ${self.n}`))));
 main :: (fn() -> unit)({
   a := Fd(n : i32(3));
-  // a.drop();   // WRONG: E0915, explicit call of the destructor (so is a.dispose())
+  // a.drop();   // WRONG: E0915, explicit call of the destructor
   drop(a); // CORRECT: moves `a` in and drops it now; a later `a.n` is E0901
 });
 export(main);

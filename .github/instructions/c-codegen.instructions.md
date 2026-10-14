@@ -574,7 +574,7 @@ For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WIT
 
 ### Move-only values ride the RC machinery, without dups
 
-A move-only value type (a value `struct`/`enum`/`newtype` with a `Dispose` impl, or an aggregate holding one; `type_is_move_only` in `src/types/utils.yo`) makes `type_contains_rc_type` true, so it gets owning temps, scope-end drops and flow joins like an RC value. It never gets a dup: `set_expr_as_needs_to_call_dup` moves every value that is not implicitly copyable (`type_requires_explicit_copy`, today exactly the move-only ones; `transfer_explicit_copy_value`, `src/evaluator/utils.yo`) or rejects the copy (E0901), and a closure capture consumes it. Its drop (`generate_drop_code_for_value`) calls the type's `___dispose` first (a synthesized `(Self <: Dispose).dispose(self)`, or `(Self <: Drop).drop(self)` for a `Drop` impl — decision 45 Generation A, `_destructor_method_name` — registered by `collect_dispose_methods` → `_synthesize_and_register_value_dispose`), then drops its fields inline. The synthesized source is `auto-generated://`, which is the one caller E0915 (an explicit destructor call) exempts. Over a `Drop` impl the `___dispose` takes `self : &mut Self`, a pointer in C: `dispose_call_on_value` emits `X(&(value))` (so the destructor's writes reach the storage the inline field drops read), and a reference type's header goes through `dispose_fn_thunk` with the handle's C type, which passes the address of a local holding it (`dispose_function_takes_pointer` decides; a `Dispose` one keeps the by-value ABI). A dup of a move-only value reaching codegen is an evaluator bug: find the copy point that skipped the funnel.
+A move-only value type (a value `struct`/`enum`/`newtype` with a `Drop` impl, or an aggregate holding one; `type_is_move_only` in `src/types/utils.yo`) makes `type_contains_rc_type` true, so it gets owning temps, scope-end drops and flow joins like an RC value. It never gets a dup: `set_expr_as_needs_to_call_dup` moves every value that is not implicitly copyable (`type_requires_explicit_copy`, today exactly the move-only ones; `transfer_explicit_copy_value`, `src/evaluator/utils.yo`) or rejects the copy (E0901), and a closure capture consumes it. Its drop (`generate_drop_code_for_value`) calls the type's `___dispose` first (a synthesized `(Self <: Drop).drop(self)` when the type has a `Drop` impl — decision 45, `_destructor_method_name` — registered by `collect_dispose_methods` → `_synthesize_and_register_value_dispose`), then drops its fields inline. The synthesized source is `auto-generated://`, which is the one caller E0915 (an explicit destructor call) exempts. Over a `Drop` impl the `___dispose` takes `self : &mut Self`, a pointer in C: `dispose_call_on_value` emits `X(&(value))` (so the destructor's writes reach the storage the inline field drops read), and a reference type's header goes through `dispose_fn_thunk` with the handle's C type, which passes the address of a local holding it (`dispose_function_takes_pointer` decides; a `___dispose` with no user destructor keeps the by-value ABI). A dup of a move-only value reaching codegen is an evaluator bug: find the copy point that skipped the funnel.
 
 ### A hand-written C declaration must be registered, or its drops vanish
 
@@ -588,7 +588,7 @@ result temps did not, so a `match`/`cond` passed as a call argument leaked its
 value in every program, and the compiler leaked ~7 M TypeValues per self-check
 (`issues/fixed/match-or-cond-call-argument-result-is-never-released.md`). When
 a scheduled drop is "missing" from the C, check this set before the evaluator.
-To confirm a suspected leak, use a `Dispose` counter on a `ref(struct)` /
+To confirm a suspected leak, use a `Drop` counter on a `ref(struct)` /
 `ref(enum)` and read it after the scope that owns the value (statement temps are
 released at SCOPE end, not after the statement). The old-value save of a FIELD
 reassignment (`k.next = .None`) is released the same way — at the ENCLOSING
@@ -891,7 +891,7 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 2. (No abort check: an already-aborted future is not started — only a cold one is — and its handle reads `.None`. It was a panic until 2026-10-03, `plans/ASYNC_IO_API_AUDIT.md` A2.)
 3. Inject effect handler function pointers into the future's capture struct via `emit_io_spawn_effect_injection`
 4. Cold-start via `__yo_resume_fn` (with incr_rc for execution reference)
-5. Move the caller's reference into the handle and return `(JoinHandle cname){ .__future = fut }`: `JoinHandle(T)` is a move-only value struct in the prelude (§3.13 A3) that OWNS that reference, and its `Dispose` calls `__yo_join_handle_release_raw`; building it allocates nothing. A dropped, never-awaited handle detaches the task (the running task holds its own reference). `JoinHandle.await` consumes the handle: it moves the result out, marks the future `-3` (result taken) and releases the reference (`generate_join_handle_await`), and the evaluator marks the handle moved, so no scope-end `Dispose` follows.
+5. Move the caller's reference into the handle and return `(JoinHandle cname){ .__future = fut }`: `JoinHandle(T)` is a move-only value struct in the prelude (§3.13 A3) that OWNS that reference, and its `Drop` calls `__yo_join_handle_release_raw`; building it allocates nothing. A dropped, never-awaited handle detaches the task (the running task holds its own reference). `JoinHandle.await` consumes the handle: it moves the result out, marks the future `-3` (result taken) and releases the reference (`generate_join_handle_await`), and the evaluator marks the handle moved, so no scope-end `Drop` follows.
 
 ### `emit_io_spawn_effect_injection`
 
@@ -965,7 +965,7 @@ The protocol on that prefix lives in `src/codegen/async/runtime_core.yo`:
 
 `generate_join_handle_await` reads the handle's `->__future` and polls
 `((__yo_future_header_t*)fut)->state`. It does not release the future: the
-handle's `Dispose` does that.
+handle's `Drop` does that.
 
 For `Option(unit)` return types, the `.Some` variant has no data field — only the tag is set.
 

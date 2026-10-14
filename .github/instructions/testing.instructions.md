@@ -170,9 +170,9 @@ so an RC leak is invisible to `yo test` locally and only Linux CI's
 LeakSanitizer sees it. Two mechanisms make a leak observable **inside the
 language**, so the regression test works everywhere:
 
-- **A `Dispose` counter.** A module-level MUTABLE binding — `(g_freed : i32) =
+- **A `Drop` counter.** A module-level MUTABLE binding — `(g_freed : i32) =
   i32(0);` at the top level of the `.test.yo` file — plus a `ref` struct with a
-  `Dispose` impl that increments it. Assert the counter with a RUNTIME `assert`
+  `Drop` impl that increments it. Assert the counter with a RUNTIME `assert`
   after the scope that owned the value closes. A value that leaks is never
   disposed, so the counter stays put. Examples: `tests/rc.test.yo`
   (`g_alias_disposed`), `tests/dyn.test.yo` (`g_dyn_payload_disposed`),
@@ -194,7 +194,7 @@ pragma(Pragma.NeedsLeakVerdict): …` — whenever the run cannot apply a verdic
 (`YO_TEST_LEAK_VERDICT=0`, a wasm target, `--disable-sanitize`, a non-address
 `YO_TEST_SANITIZE`), instead of counting its tests as passed
 (`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md`).
-Try the Dispose counter FIRST: a skipped test verifies nothing, a counter-based
+Try the `Drop` counter FIRST: a skipped test verifies nothing, a counter-based
 one verifies everywhere. The one CI leg that runs leak-sensitive files with the
 verdict ON is the weekly `leak-verdict.yml` (Linux/clang, an allowlist that
 must stay leak-clean, and a vacuity probe that must FAIL a deliberately

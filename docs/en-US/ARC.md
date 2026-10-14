@@ -8,7 +8,7 @@ in `std/prelude.yo` as a thin `atomic(ref(struct(...)))` wrapper, so `Arc` and
 thread-shareable wrapper. Each bound has its own reason:
 
 - `Sync`: every handle reads the payload from its own thread.
-- `Send`: the last handle may be dropped on any thread, and the payload's `Dispose` runs there
+- `Send`: the last handle may be dropped on any thread, and the payload's `Drop` runs there
   (as Rust's `Arc<T>: Send + Sync` needs `T: Send + Sync`).
 - `Acyclic`: atomic reference counts are not cycle-collected, so an `Arc` cycle would never be
   freed.

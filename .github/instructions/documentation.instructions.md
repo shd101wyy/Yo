@@ -102,8 +102,8 @@ Three things to know when reading `yo doc`'s output for coverage:
 - **Trait-impl methods are shown but never inherit the trait's doc.** A method
   inside `impl(T, SomeTrait(...))` appears in the type's `methods` list with an
   empty `doc` unless it carries its own comment, so `FsEventKind.to_string`,
-  `FsEventKind.format` and `Watcher.dispose` all render blank even though
-  `ToString`, `Format` and `Dispose` document those methods at the trait.
+  `FsEventKind.format` and `Watcher.drop` all render blank even though
+  `ToString`, `Format` and `Drop` document those methods at the trait.
   Rustdoc falls back to the trait's text here; `yo doc` does not
   (`issues/fixed/yo-doc-trait-impl-methods-never-inherit-the-trait-doc.md`).
 - **A doc comment does not follow a re-export.** A barrel module

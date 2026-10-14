@@ -156,8 +156,8 @@ or dereference (`match(x.f, …)` → `match(&x.f, …)`). It leaves the argumen
 records nothing.
 
 `yo fix <path> --migrate drop-trait` is the migration for decision 45, which
-renames the destructor trait `Dispose` to `Drop` (its method `dispose` to
-`drop`) and makes an explicit destructor call E0915. `Dispose` becomes `Drop`
+renamed the destructor trait `Dispose` to `Drop` (its method `dispose` to
+`drop`) and made an explicit destructor call E0915. `Dispose` becomes `Drop`
 wherever it is an identifier (an `impl` entry, a `<:` bound or witness, an
 import), the impl entry's `dispose :` label and every `.dispose` member that
 resolves to the destructor become `drop`, a written receiver `dispose : (fn(self :

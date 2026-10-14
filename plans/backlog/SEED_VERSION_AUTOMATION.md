@@ -333,7 +333,9 @@ drops would stop, silently.
 - `yo fix <path> --migrate drop-trait`;
 - std, src, tests and docs keep spelling `Dispose`.
 
-**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
+**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A).**
+Done in vbd-d45-genb with seed v0.2.62 (decision 45's "as built,
+Generation B"; the repair keeps a migration-only `Dispose` for user code):
 - run `yo fix ./std ./src ./tests --migrate drop-trait`; it also rewrites
   each written `dispose : (fn(self : &Self)` to `drop : (fn(self : &mut
   Self)`, so a body that wrote through a reference type's `self` keeps
