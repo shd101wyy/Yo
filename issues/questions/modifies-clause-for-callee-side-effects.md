@@ -48,3 +48,38 @@ than add syntax:
 3. Revisit a real `modifies(...)` clause only if (1) turns out to reject
    idiomatic code — it also needs the verifier's heap model (open question
    1 of `FORMAL_VERIFICATION.md`) to mean anything for aliased handles.
+
+## Counter-position (2026-10-14, from the F\* audit's assessment)
+
+The convention should become a surface, and sooner than point 3 says:
+
+- The unchecked corner is exactly the trusted base. Point 2 concedes that
+  nothing can be checked for `assumed()` bodies, and that the review gate
+  already failed once. Every caller's proof rests on those contracts, so
+  the one place where "no `old(p)` means unchanged" is unverifiable is the
+  one place it matters most.
+- The heap model is not a prerequisite. Dafny's `modifies` and Low\*'s
+  `modifies` footprints predate any aliasing precision in those tools: a
+  frame clause names what *may* change; the model decides how precisely
+  "may" is tracked. Today's per-name list model can consume a clause as it
+  consumes `old(p)`.
+- VALUES_BY_DEFAULT makes the default free. With unique ownership, a
+  by-value parameter cannot be changed by the callee from the caller's
+  point of view, and `&mut` is the only way a callee reaches a caller's
+  place. So the default frame is "exactly the `&mut` parameters and the
+  reference-typed handles", stated by the signature, and a clause is
+  needed only to *narrow* it (an `&mut` parameter the callee reads but
+  does not write) or to name a ghost footprint. That is Prusti's model
+  (ownership gives the frame; permissions only where sharing exists), and
+  it is one of the two candidates SELF_VERIFICATION's foundations table
+  leaves to L6 ("partially applicable" for parameters; D2 starts L6 with
+  singleton `inout` treatment).
+
+Recommendation under this position: keep point 1's loud subset error;
+derive the default frame from the signature under VALUES_BY_DEFAULT (by
+value: unchanged; `&mut` and reference handles: may change); add
+`modifies(...)` only as a narrowing clause; and require every `assumed()`
+contract to be explicit about each reference-typed parameter it does not
+change, so the trusted base carries no convention. Decide together with
+`issues/questions/2026-10-14-effect-operation-contracts.md`, which relies
+on the purity frame rule staying as it is for effect operations.

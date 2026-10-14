@@ -1,11 +1,14 @@
 # Position: Yo will NOT support runtime dependent types
 
-**Status: DECIDED 2026-07-24; re-audited against ATS 2026-09-30 and upheld.**
+**Status: DECIDED 2026-07-24; re-audited against ATS 2026-09-30 and
+against F\* 2026-10-14, upheld both times.**
 This is a position document, not a feature plan — it records a boundary so
 future feature requests and verification design work start from a settled
 baseline. The 2026-09-30 audit (ATS/DML-style indexed types, refinements,
 type erasure, existentials) is `ATS_STYLE_INDEXED_TYPES.md`; its verdict is
-summarized in the section "The ATS question" below.
+summarized in the section "The ATS question" below. The 2026-10-14 audit
+(F\*'s dependent core, refinement types, erasure, effects and tactics) is
+`FSTAR_ADOPTION_CANDIDATES.md`; its verdict is "The F\* question" below.
 
 ## The decision
 
@@ -162,6 +165,48 @@ type-variable kind the soundness campaign has asked nobody to add before an
 identity design exists, and the reversal of the verifier's
 separate-pass architecture.
 
+## The F\* question (audited 2026-10-14)
+
+F\* is a full dependent type theory that compiles verified code to C
+(Low\*/KaRaMeL: HACL\*, EverParse), so the second obvious challenge is "F\*
+supports dependent types and ships C; why not Yo?". The audit
+(`FSTAR_ADOPTION_CANDIDATES.md` §3) answers it in three parts.
+
+**F\* pays the costs this document names, and says so.** Its tutorial
+states that type checking "is undecidable in general", that a refinement
+check "trusts the encoding and Z3", and that "without the stratification
+of universes, F\* would be unsound". The surface its users tune — `fuel`,
+explicit `:pattern` triggers on every quantifier, `opaque_to_smt`, hint
+files so proofs survive the next Z3 — is the engineering that keeps an
+SMT skeleton stable under a dependent core. F\* is a confirmation of
+reasons 1–3 above, not a counter-example to them.
+
+**What F\* ships is Yo's two layers.** The F\* code in production is
+Low\*: first-order, with lengths as refined machine integers, contents as
+erased ghost sequences, lemmas relating the two, and every index, proof
+and ghost field erased before C. The dependent core *states* those; Z3
+*checks* them; C types are what *runs*. That is Layer 1 + Layer 2, and
+"supporting dependent types like F\* does" means keeping every value
+dependency erased and SMT-discharged — the design this document chose.
+F\* needs a universe hierarchy because its propositions are types; Yo's
+propositions are `bool` in ghost context and a proof is never a value, so
+there is nothing to stratify.
+
+**What Yo lacks is pervasiveness, not a type former.** In F\* a refinement
+flows through every binder, result and record field, and ghost state can
+live inside a runtime value (`erased` fields). In Yo the verifier
+consumes a refinement only on function parameters (a local's binder erases
+it to the base type and a field's refinement is never read, so neither
+carries an obligation), and there is
+no ghost field. Closing that (that doc's
+F1, F2) is verifier-pass work that leaves unification alone; the rest of
+the audit (auto-firing lemmas, hint replay, scoped hiding, fuel, inferred
+termination measures, split obligations) is the SMT engineering F\* grew
+around its core, and it transfers to a Dafny-shaped verifier unchanged.
+Tactics stay a non-goal, with F\*'s own practice as the second reason:
+tactics there are preprocessing for the SMT solver, used on the rare
+hard assertion, with no interactive mode.
+
 ## Non-goals (permanent, for the record)
 
 - Universe hierarchies (`Type : Type1 : Type2 …`).
@@ -183,6 +228,9 @@ separate-pass architecture.
   this position permits: a `len` measure for runtime collections in the
   verifier (R1), the lemma layer (R2), computed comptime lengths in
   non-binding positions (I1), and the existentials write-up (E1).
+- `FSTAR_ADOPTION_CANDIDATES.md` is the plan for the F\*-shaped work this
+  position permits: refinements on binders, results and fields (F1), ghost
+  fields and parameters (F2), and the verifier engineering F3–F9.
 - Layer-1 deepening (richer comptime computation over types, GADT
   refinements during match — `docs/en-US/GADTS.md`) continues freely; it
   needs no new theory and does not move this boundary.
