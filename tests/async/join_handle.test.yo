@@ -5,6 +5,7 @@ pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 import("std/libc/stdio");
 { yield } :: import("std/async");
+{ ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
 
 // ---------------------------------------------------------------------------
@@ -185,13 +186,16 @@ test("aborting a task leaves a task it joins running", {
     i32(5)
   });
   hs := io.spawn(shared, io);
-  waiter := io.async((io : Io) => io.await(hs.join(io), io));
+  // The waiter owns the handle: `join` consumes it (§3.13 A3).
+  waiter := io.async({ hs }(io : Io) => io.await(hs.join(io), io));
   hw := io.spawn(waiter, io);
   io.await(yield(io), io);
   hw.abort();
-  r := hs.await(io);
-  assert(match(r, .Some(v) => (v == i32(5)), .None => false), "the shared future completed");
-  assert(ran.*, "its body ran to the end");
+  // Aborting the waiter aborted its join, which dropped the handle: the
+  // joined task is detached and keeps running.
+  assert(hw.await(io).is_none(), "the waiter reads .None");
+  io.await(sleep(u64(60)), io);
+  assert(ran.*, "the joined task's body ran to the end");
 });
 // ---------------------------------------------------------------------------
 // A user method named `await` is an ordinary method: codegen lowers
@@ -206,4 +210,143 @@ test("a user method named await compiles and runs as a method", {
   assert(t.await(io) == i32(6), "the user's await ran");
   h := io.spawn(io.async((io : Io) => i32(2)), io);
   assert(match(h.await(io), .Some(v) => (v == i32(2)), .None => false), "JoinHandle.await is still the builtin");
+});
+// ---------------------------------------------------------------------------
+// A `JoinHandle` is a move-only value (plans/VALUES_BY_DEFAULT.md §3.13 A3):
+// awaiting or joining it consumes it, `state`/`is_finished`/`abort`/`as_ptr`
+// borrow it, and a dropped handle detaches its task.
+// ---------------------------------------------------------------------------
+test("a second await of a JoinHandle is E0901", {
+  comptime_expect_error(
+    _jh_await_twice :: (fn(io : Io) -> i32)({
+      h := io.spawn(io.async((io : Io) => i32(1)), io);
+      _a := h.await(io);
+      match(h.await(io), .Some(v) => v, .None => i32(0))
+    }),
+    "use of moved value"
+  );
+  comptime_expect_error(
+    _jh_join_then_await :: (fn(io : Io) -> i32)({
+      h := io.spawn(io.async((io : Io) => i32(1)), io);
+      _f := h.join(io);
+      match(h.await(io), .Some(v) => v, .None => i32(0))
+    }),
+    "use of moved value"
+  );
+  comptime_expect_error(
+    _jh_copy :: (fn(io : Io) -> i32)({
+      h := io.spawn(io.async((io : Io) => i32(1)), io);
+      g := h;
+      _b := h.is_finished();
+      match(g.await(io), .Some(v) => v, .None => i32(0))
+    }),
+    "use of moved value"
+  );
+  h := io.spawn(io.async((io : Io) => i32(3)), io);
+  assert(h.is_finished(), "the borrowing reads leave the handle usable");
+  assert(h.state() == FutureState.Completed, "state borrows");
+  assert(match(h.await(io), .Some(v) => (v == i32(3)), .None => false), "the one await reads the result");
+});
+test("a handle moved into join cannot be used after it", {
+  comptime_expect_error(
+    _jh_after_join :: (fn(io : Io) -> bool)({
+      h := io.spawn(io.async((io : Io) => i32(1)), io);
+      _r := io.await(h.join(io), io);
+      h.is_finished()
+    }),
+    "use of moved value"
+  );
+  h := io.spawn(io.async((io : Io) => i32(4)), io);
+  r := io.await(h.join(io), io);
+  assert(match(r, .Some(v) => (v == i32(4)), .None => false), "join consumed the handle and moved the result out");
+});
+(g_jh_res_disposed : i32) = i32(0);
+_JhRes :: struct(n : i32);
+impl(
+  _JhRes,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g_jh_res_disposed = (g_jh_res_disposed + i32(1));
+    })
+  )
+);
+test("awaiting a handle moves a move-only result out; a dropped handle releases an unread one", {
+  before := g_jh_res_disposed;
+  {
+    h := io.spawn(io.async((io : Io) => _JhRes(n : i32(6))), io);
+    match(
+      h.await(io),
+      .Some(r) => assert(r.n == i32(6), "the result reaches the awaiter"),
+      .None => assert(false, "the task completed")
+    );
+  };
+  assert(g_jh_res_disposed == (before + i32(1)), "the moved-out result is disposed once, by its new owner");
+  {
+    _h := io.spawn(io.async((io : Io) => _JhRes(n : i32(7))), io);
+  };
+  assert(g_jh_res_disposed == (before + i32(2)), "dropping the handle released the task and its unread result");
+  {
+    h := io.spawn(io.async((io : Io) => _JhRes(n : i32(8))), io);
+    match(
+      io.await(h.join(io), io),
+      .Some(r) => assert(r.n == i32(8), "join moves the result out"),
+      .None => assert(false, "the task completed")
+    );
+  };
+  assert(g_jh_res_disposed == (before + i32(3)), "the joined result is disposed once");
+});
+test("a dropped handle detaches its task, which runs to the end", {
+  ran := Rc(bool)(false);
+  {
+    _h := io.spawn(
+      io.async((io : Io) => {
+        io.await(sleep(u64(10)), io);
+        ran.* = true;
+        ()
+      }),
+      io
+    );
+  };
+  io.await(sleep(u64(40)), io);
+  assert(ran.*, "the detached task finished on its own");
+});
+// issues/fixed/a-method-call-on-a-move-only-element-disposes-a-copy-of-it.md:
+// a method call on an element of a handle list borrowed it through a copy
+// whose drop released the task a second time.
+test("a handle list: borrow elements in place, pop to own one", {
+  hs := ArrayList(JoinHandle(i32)).new();
+  hs.push(io.spawn(io.async((io : Io) => i32(1)), io));
+  hs.push(
+    io.spawn(
+      io.async((io : Io) => {
+        io.await(sleep(u64(20)), io);
+        i32(2)
+      }),
+      io
+    )
+  );
+  assert(hs(usize(0)).is_finished(), "the first task finished inside its spawn");
+  assert(!hs(usize(1)).is_finished(), "the second is parked");
+  hs(usize(1)).abort();
+  assert(hs(usize(1)).state() == FutureState.Aborted, "abort through the element");
+  match(
+    hs.pop(),
+    .Some(h) => assert(h.await(io).is_none(), "the popped handle owns the aborted task"),
+    .None => assert(false, "the list had two handles")
+  );
+  match(
+    hs.pop(),
+    .Some(h) => assert(match(h.await(io), .Some(v) => (v == i32(1)), .None => false), "the popped handle reads its result"),
+    .None => assert(false, "the list had one handle left")
+  );
+  assert(hs.len() == usize(0), "both handles moved out");
+});
+test("Option.take moves a handle out of an optional slot", {
+  (slot : Option(JoinHandle(i32))) = .Some(io.spawn(io.async((io : Io) => i32(9)), io));
+  match(
+    slot.take(),
+    .Some(h) => assert(match(h.await(io), .Some(v) => (v == i32(9)), .None => false), "the taken handle is owned"),
+    .None => assert(false, "the slot held a handle")
+  );
+  assert(slot.is_none(), "take left .None");
 });

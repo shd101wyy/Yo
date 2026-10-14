@@ -4060,7 +4060,7 @@ Key properties:
 - `io.async(fn)` creates a **cold Future** — the body does NOT execute until awaited or spawned
 - `io.await(future, e)` consumes a future: starts it if cold, runs it to completion and moves its result out; a future is awaited **once** (`e` is the effect record — just `io` for pure-Io tasks)
 - `io.spawn(future, e)` consumes a cold future and starts it without waiting, returns `JoinHandle(T)`
-- `handle.await(io)` waits for a spawned task, returns `Option(T)` — `.None` on unwind (abort)
+- `handle.await(io)` waits for a spawned task, returns `Option(T)` — `.None` on unwind (abort). A `JoinHandle` is move-only: the await consumes it, so a task is awaited once
 - All async code runs on the **same thread** (no thread spawning, no data races)
 
 See [ASYNC_AWAIT.md](./ASYNC_AWAIT.md) for comprehensive documentation.

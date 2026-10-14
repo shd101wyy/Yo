@@ -1904,8 +1904,15 @@ test("Test a spawned task's handle reads Completed after it ends", {
     return(i32(7));
   });
   h := io.spawn(task, io);
-  assert(h.await(io) == .Some(i32(7)), "the task's result");
+  // `state` borrows the handle and `await` consumes it (§3.13 A3): drive the
+  // loop until the task ends, read the state, then take the result.
+  (spins : usize) = usize(0);
+  while(runtime(!h.is_finished() && (spins < usize(1000))), {
+    io.await(yield(io), io);
+    spins = (spins + usize(1));
+  });
   assert(h.state() == FutureState.Completed, "the handle reads Completed");
+  assert(h.await(io) == .Some(i32(7)), "the task's result");
 });
 test("Test io.state completed after spawn", {
   // After spawn + await, both tasks should be Completed
@@ -1920,10 +1927,17 @@ test("Test io.state completed after spawn", {
   });
   handle_a := io.spawn(task_a, io);
   handle_b := io.spawn(task_b, io);
-  handle_a.await(io);
-  handle_b.await(io);
+  // `state` borrows a handle and `await` consumes it (§3.13 A3): drive the
+  // loop until both tasks end and read their states before awaiting them.
+  (spins : usize) = usize(0);
+  while(runtime(!(handle_a.is_finished() && handle_b.is_finished()) && (spins < usize(1000))), {
+    io.await(yield(io), io);
+    spins = (spins + usize(1));
+  });
   assert(handle_a.state() == FutureState.Completed, "spawned task_a should be Completed");
   assert(handle_b.state() == FutureState.Completed, "spawned task_b should be Completed");
+  handle_a.await(io);
+  handle_b.await(io);
   assert(counter.* == i32(2), "counter should be 2 after both tasks complete");
 });
 test("Test io.state consistency", {
@@ -4843,10 +4857,10 @@ test("Test spawn inside a loop runs tasks concurrently", {
     i = (i + usize(1));
   });
   (done : usize) = usize(0);
-  (j : usize) = usize(0);
-  while(j < handles.len(), {
+  // Awaiting a handle consumes it: pop each one off the list.
+  while(handles.len() > usize(0), {
     match(
-      handles.get(j),
+      handles.pop(),
       .Some(h) => match(
         h.await(io),
         .Some(_v) => {
@@ -4856,7 +4870,6 @@ test("Test spawn inside a loop runs tasks concurrently", {
       ),
       .None => ()
     );
-    j = (j + usize(1));
   });
   elapsed := t0.elapsed().as_millis();
   assert(done == usize(4), `all four spawned tasks must complete, got ${done.to_string()}`);

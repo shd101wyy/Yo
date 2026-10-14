@@ -2,7 +2,7 @@
 
 **Severity:** S3 — about 550 extra instructions per spawn of a leaf future (691 → 1239 with 100k live handles); no wrong result
 
-**Status: OPEN** (the owning handle is std's again since 2026-09-30, so this cost is live). Found 2026-09-29 while measuring phase 3 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` (the phase 2/3 PR).
+**Status:** FIXED 2026-10-12 (feat/vbd-v3-genb), by `plans/VALUES_BY_DEFAULT.md` §3.13 A3 Generation B: the handle is a move-only value struct, so `io.spawn` allocates nothing for it. Was OPEN from 2026-09-30, when the owning handle became std's again. Found 2026-09-29 while measuring phase 3 of `plans/ASYNC_STATE_MACHINE_GENERATION.md` (the phase 2/3 PR).
 
 ## Symptom
 
@@ -66,3 +66,16 @@ The handle has to erase the future's type: `struct(__future : *(void))` with
 a `Dispose` that releases the count. A value struct with `Dispose` is only
 sound once it cannot be copied, which is the move-only rule of
 `plans/VALUES_BY_DEFAULT.md` V3. This issue closes there (§3.13 A3).
+
+## 2026-10-12: closed by A3 Generation B
+
+`JoinHandle(T)` is now `struct(__future : *T)`, a move-only value struct with
+a `Dispose` that releases the count (`std/prelude.yo`). `io.spawn` builds it
+inline, `(JoinHandle cname){ .__future = fut }`
+(`src/codegen/exprs/generation.yo`), so there is no box and no second header:
+a dup does not exist (no `Clone`), and a drop is the future's
+`__yo_join_handle_release_raw`. The callgrind row was not re-measured (this
+was built on a Mac, which has no callgrind); the allocation is gone from the
+emitted C by construction. The statement-level spawn test in
+`tests/async/sm_protocol.test.yo` and the detach tests in
+`tests/async/join_handle.test.yo` cover the release.

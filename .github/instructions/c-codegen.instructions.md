@@ -885,7 +885,7 @@ See `docs/en-US/ALGEBRAIC_EFFECTS.md` (§ Handler Functions Are Not Closures) fo
 2. (No abort check: an already-aborted future is not started — only a cold one is — and its handle reads `.None`. It was a panic until 2026-10-03, `plans/ASYNC_IO_API_AUDIT.md` A2.)
 3. Inject effect handler function pointers into the future's capture struct via `emit_io_spawn_effect_injection`
 4. Cold-start via `__yo_resume_fn` (with incr_rc for execution reference)
-5. `__yo_incr_rc` once more and return `__yo_new_<JoinHandle cname>((void*)fut)`: `JoinHandle(T)` is a `ref` struct in the prelude that OWNS that reference, and its `Dispose` calls `__yo_join_handle_release_raw`. A dropped, never-awaited handle detaches the task (the running task holds its own reference); `JoinHandle.await` does not consume the handle.
+5. Move the caller's reference into the handle and return `(JoinHandle cname){ .__future = fut }`: `JoinHandle(T)` is a move-only value struct in the prelude (§3.13 A3) that OWNS that reference, and its `Dispose` calls `__yo_join_handle_release_raw`; building it allocates nothing. A dropped, never-awaited handle detaches the task (the running task holds its own reference). `JoinHandle.await` consumes the handle: it moves the result out, marks the future `-3` (result taken) and releases the reference (`generate_join_handle_await`), and the evaluator marks the handle moved, so no scope-end `Dispose` follows.
 
 ### `emit_io_spawn_effect_injection`
 
