@@ -523,7 +523,7 @@ _reject_explicit_destructor_call :: (fn(callee : &AstExpr, call_args : Option(Ar
   obj_is_type := match(oi.value, .Some(.TypeVal(_)) => true, _ => false);
   (depth : u32) = u32(0);
   while(found.is_empty() && recv_ty.is_some() && (depth < u32(8)), depth = (depth + u32(1)), {
-    cur := match(recv_ty, .Some(t) => t, .None => TypeValue.Unit);
+    cur := match(recv_ty, .Some(t) => t, .None => rc(TypeValueNode.Unit));
     recv_ty = Option(TypeValue).None;
     // A field of that name: `x.drop` reads the field, never a method.
     if(!obj_is_type && match(resolve_struct_shell(&cur), .Struct({ field_labels : dfl }) => _labels_contain(&dfl, &name), _ => false), {
