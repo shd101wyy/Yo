@@ -2191,6 +2191,26 @@ global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &Ev
 /// copy only if the variable is read again after the site. Inert unless the
 /// knob is set: nothing else in the evaluator reads these tables.
 (g_audit_implicit_copy : bool) = debug_knob(`YO_AUDIT_IMPLICIT_COPY`).is_some();
+/// YO_AUDIT_COPY_TRAIT (plans/VALUES_BY_DEFAULT.md decision 36):
+/// Sizes decision 36's sweep: every implicit copy of a plain-data value (no
+/// owned buffer, not move-only) whose type is not `Copy`, with the source
+/// used again. Those are exactly the copies Generation B's flip turns into
+/// E0901 unless the sweep gives the type `Copy`. One stderr line per site:
+/// `file:line:col [copy-trait] <first blocker> <type> <path> source=<kind>
+/// needs=<A,B> \`<source>\``, where `needs` lists the named types
+/// (`copy_trait_blockers`, trait_checking.yo) that must implement `Copy`.
+///
+/// The copy points are the explicit-copy audit's (`binding`, `assign`,
+/// `field-store`, `element`, `return`, `capture`), plus `argument`: a value
+/// passed to a plain parameter, which decision 30 makes by value. The source
+/// rules follow the same audit (`audit_record_implicit_copy`), with two
+/// differences for plain data: a local or a plain parameter is judged at
+/// its frame's end (a plain parameter is the callee's own value under
+/// decision 30), and a `match` binding of a temporary owns its payload (it
+/// is not a copy). A field read is a copy at once (no partial moves,
+/// decision 19). Inert unless the knob is set.
+(g_audit_copy_trait : bool) = debug_knob(`YO_AUDIT_COPY_TRAIT`).is_some();
+audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// One implicit copy `yo fix --migrate explicit-copy` makes explicit
 /// (plans/VALUES_BY_DEFAULT.md V2b, "Unique buffers", Generation A): a copy
 /// of a `String`, a std collection or a value aggregate holding one whose
@@ -2692,25 +2712,8 @@ audit_record_implicit_copy :: (
 // ---------------------------------------------------------------------------
 // YO_AUDIT_COPY_TRAIT (plans/VALUES_BY_DEFAULT.md decision 36)
 // ---------------------------------------------------------------------------
-/// Sizes decision 36's sweep: every implicit copy of a plain-data value (no
-/// owned buffer, not move-only) whose type is not `Copy`, with the source
-/// used again. Those are exactly the copies Generation B's flip turns into
-/// E0901 unless the sweep gives the type `Copy`. One stderr line per site:
-/// `file:line:col [copy-trait] <first blocker> <type> <path> source=<kind>
-/// needs=<A,B> \`<source>\``, where `needs` lists the named types
-/// (`copy_trait_blockers`, trait_checking.yo) that must implement `Copy`.
-///
-/// The copy points are the explicit-copy audit's (`binding`, `assign`,
-/// `field-store`, `element`, `return`, `capture`), plus `argument`: a value
-/// passed to a plain parameter, which decision 30 makes by value. The source
-/// rules follow the same audit (`audit_record_implicit_copy`), with two
-/// differences for plain data: a local or a plain parameter is judged at
-/// its frame's end (a plain parameter is the callee's own value under
-/// decision 30), and a `match` binding of a temporary owns its payload (it
-/// is not a copy). A field read is a copy at once (no partial moves,
-/// decision 19). Inert unless the knob is set.
-(g_audit_copy_trait : bool) = debug_knob(`YO_AUDIT_COPY_TRAIT`).is_some();
-audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
+// The knob itself is defined beside YO_AUDIT_IMPLICIT_COPY's: the shared
+// printer above reads it, and a runtime binding must precede its readers.
 /// Either copy audit: the pending-site tables and the frame-end judge serve
 /// both.
 audit_pending_copies_enabled :: (fn() -> bool)(g_audit_implicit_copy || g_audit_copy_trait || migrate_explicit_copy_on());
