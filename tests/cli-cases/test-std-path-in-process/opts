@@ -1,0 +1,11 @@
+# REGRESSION GATE for issues/fixed/2026-10-15-yo-test-in-process-rejects-std-path.md.
+#
+# The in-process runner (YO_TEST_IN_PROCESS=1) compiles each batch by calling
+# `run_compile` on the forwarded argv, past main's global-flag stripping, so a
+# forwarded `--std-path` was an unknown `compile` option and every batch failed
+# at once. YO_STD points nowhere, as in test-std-path-forwarded, so the case
+# only passes when the runner's `--std-path` override reaches the batch.
+env=YO_STD=/nonexistent-std-so-only-std-path-can-work
+env=YO_TEST_IN_PROCESS=1
+stdout_keep=^(\$ yo |rc=|.*[0-9]+ passed|yo: error)
+timeout=600
