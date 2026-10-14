@@ -1417,15 +1417,22 @@ _eval_clone_template :: (fn(code : &String, recv : &AstExpr, env : &Environment,
   ctx.expected_type = saved_expected;
   out
 });
-/// `expr` (`recv.clone()`) takes the evaluated `generated` node's info and
-/// expands to it, recorded durably as the numeric conversions' are.
+/// `expr` (`recv.clone()`) expands to the evaluated `generated` node, with
+/// that node's type and value, recorded durably as the numeric conversions'
+/// are. The info is a fresh one: `generated`'s own shares its `rare` record,
+/// so setting the expansion there made `generated` expand to itself (a walk
+/// following `macro_expansion` never returned).
 _expand_clone_to :: (fn(expr : &AstExpr, generated : &AstExpr, ctx : &EvalContext) -> AstExpr)({
   match(
     expr_info_table_get(&ctx.expr_info_table, ast_expr_id(generated)),
     .Some(gen_info) => {
+      out := new_expr_info(&gen_info.env, &gen_info.ty);
+      out.value = gen_info.value;
+      out.control_flow = gen_info.control_flow;
+      out.variable_name = gen_info.variable_name;
       record_macro_expansion(ast_expr_id(expr), generated.clone());
-      expr_info_set_macro_expansion(&gen_info, Option(AstExpr).Some(generated));
-      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &gen_info);
+      expr_info_set_macro_expansion(&out, Option(AstExpr).Some(generated));
+      expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out);
     },
     .None => ()
   );
