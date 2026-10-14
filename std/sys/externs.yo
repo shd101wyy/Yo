@@ -174,6 +174,10 @@ extern(
   __yo_waker_wake : (fn(waker : *u8) -> unit),
   __yo_waker_is_woken : (fn(waker : *u8) -> bool),
   __yo_waker_release : (fn(waker : *u8) -> unit),
+  // Another handle on the same waker token, safe on any thread (§3.13 A5's
+  // `Waker.clone`). Generation A: the runtime defines it, and std's `Waker`
+  // implements `Clone` with it once `SEED_VERSION` carries it.
+  __yo_waker_clone : (fn(waker : *u8) -> *u8),
   // spawn_blocking brackets. Between them the loop keeps waiting with no I/O
   // outstanding and never reports a wake deadlock: the wake is coming from a
   // worker thread, which is outside everything the loop can see.
@@ -398,6 +402,7 @@ export(
   __yo_waker_wake,
   __yo_waker_is_woken,
   __yo_waker_release,
+  __yo_waker_clone,
   __yo_async_loop_self_ptr,
   __yo_async_blocking_begin,
   __yo_async_blocking_end,

@@ -198,10 +198,11 @@ test("Test one signal wakes every waiter in a list", {
   });
   io.await(yield(io), io);
   assert(woken.* == i32(0), "nobody has run past their park yet");
-  // One pass over the list, waking every waiter.
+  // One pass over the list, waking every waiter. A `Waker` is move-only
+  // (§3.13 A5), so it is borrowed in place: `get` would copy it.
   (j : usize) = usize(0);
   while(j < n, j = (j + usize(1)), {
-    match(wakers.get(j), .Some(w) => w.wake(), .None => ());
+    wakers(j).wake();
   });
   // Awaiting a handle consumes it: pop each one off the list.
   while(handles.len() > usize(0), {

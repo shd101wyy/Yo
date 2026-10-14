@@ -59,30 +59,31 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../sys/externs.yo");
 /// A token that makes one suspended task runnable again.
 ///
-/// Cheap to copy, safe to fire more than once, and safe to fire from a task
-/// that is not the sleeper. It holds a REFERENCE to the park it resumes, so
-/// the token cannot outlive its target — a non-owning pointer here would be
-/// the use-after-free `Watcher`'s event-loop callback once had
+/// Safe to fire more than once, and safe to fire from a task that is not the
+/// sleeper. It holds a REFERENCE to the park it resumes, so the token cannot
+/// outlive its target — a non-owning pointer here would be the use-after-free
+/// `Watcher`'s event-loop callback once had
 /// (`issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md`).
-/// ATOMIC, and therefore `Send`: a waker exists to be handed to whoever will
-/// signal, and since step 5 of the waker campaign that includes a worker
+///
+/// A `Waker` is a move-only value (plans/VALUES_BY_DEFAULT.md §3.13 A5): it
+/// has one owner, and dropping it releases its token. A waiter list moves
+/// the waker in (`waiters.push(p.waker())`) and moves it back out to fire it
+/// (`waiters.remove(usize(0))`); a closure that fires it from another thread
+/// takes it by move. It is `Send`: a waker exists to be handed to whoever
+/// will signal, and since step 5 of the waker campaign that includes a worker
 /// thread (`spawn_blocking`). A cross-thread `wake()` does not touch the park
-/// future — it hands this token to the future's own loop and nudges it — so
-/// the only refcount that crosses a thread boundary is this token's own, which
-/// is what `atomic` makes safe.
-Waker :: atomic(
-  ref(
-    struct(
-      /// The waker token, holding one reference to the park it resumes.
-      _p : *u8
-    )
-  )
+/// future — it hands the token to the future's own loop and nudges it — and
+/// the token's own count is atomic, so the worker may also drop it.
+Waker :: struct(
+  /// The waker token, holding one reference to the park it resumes.
+  _p : *u8
 );
 // SAFETY: `_p` is the runtime's waker token. Every operation on it
 // (`__yo_waker_wake`, `__yo_waker_is_woken`, `__yo_waker_release`) is
-// thread-safe: a foreign wake posts to the owner loop instead of touching the
-// park (rule D7). So the raw pointer may be moved and shared across threads
-// (plans/VALUES_BY_DEFAULT.md decision 38 E: a type holding one opts in).
+// thread-safe: a foreign wake or release posts to the owner loop instead of
+// touching the park (rule D7). So the raw pointer may be moved and shared
+// across threads (plans/VALUES_BY_DEFAULT.md decision 38 E: a type holding one
+// opts in).
 impl(Waker, Send());
 impl(Waker, Sync());
 impl(
@@ -99,7 +100,8 @@ impl(
 );
 impl(
   Waker,
-  /// Releasing the last reference to a token releases its hold on the park.
+  /// Dropping a waker releases its token, and with it the token's hold on
+  /// the park.
   ///
   /// The runtime counts live tokens, and that count is how the event loop
   /// knows a parked task is still wakeable: the I/O backend cannot see a park,
@@ -107,6 +109,9 @@ impl(
   /// return with the parked task's future unresolved. When the last token for
   /// a park is dropped, nothing can wake it any more — and the loop then
   /// reports that rather than hanging.
+  ///
+  /// The release is safe on any thread: from a thread that does not own the
+  /// park, it is posted to the owning loop (rule D7).
   Drop(
     drop : (fn(self : &mut Self) -> unit)(unsafe(__yo_waker_release(self._p)))
   )
