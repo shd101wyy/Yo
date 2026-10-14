@@ -32,7 +32,7 @@ pragma(Pragma.AllowUnsafe);
 { TypeValue } :: import("../../types/definitions.yo");
 { t_ptr } :: import("../../types/creators.yo");
 { format_error_message } :: import("../../error.yo");
-{ attach_temp_variable_to_expr } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, projection_call_root_args } :: import("../utils.yo");
 { evaluate_expression_guarded } :: import("../exprs/expr.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
@@ -104,10 +104,38 @@ _projection_root_error :: (fn(place : &AstExpr, is_mut : bool, env : &Environmen
         .None => Option(String).None
       ),
       match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(place)), .Some(pi) => expr_info_index_trait_ptr_type(&pi).is_some(), .None => false) => _projection_root_error(&pr_callee, is_mut, env, ctx),
+      projection_call_mode_of(place, ctx).is_some() => _projection_call_root_error(place, is_mut, env, ctx),
       true => Option(String).Some(String.from("A projection yields a place, and this is a temporary: its storage ends with the call (decision 24, the single-root rule)."))
     )
   )
 );
+/// A projection that yields another projection's result (decision 24): the
+/// inner call's place is rooted at its borrowed arguments
+/// (`projection_call_root_args`), so each of them must be rooted at this
+/// projection's own borrow parameters. A `&mut` inner projection's place is
+/// rooted at its `&mut` arguments alone (its own root rule). A `&mut` result
+/// needs a `&mut` inner projection.
+_projection_call_root_error :: (fn(call : &AstExpr, is_mut : bool, env : &Environment, ctx : &EvalContext) -> Option(String))({
+  inner_mut := match(projection_call_mode_of(call, ctx), .Some(m) => m, .None => false);
+  if(is_mut && !inner_mut, {
+    return(Option(String).Some(`A \`&mut\` projection yields a place it may write, and \`${ast_expr_to_string(call)}\` is the result of a read projection (\`-> &T\`).`));
+  });
+  roots := projection_call_root_args(call, ctx);
+  (checked : usize) = usize(0);
+  (i : usize) = usize(0);
+  while(i < roots.len(), {
+    r := roots(i);
+    if(!inner_mut || r.is_mut, {
+      match(_projection_root_error(&r.arg, is_mut, env, ctx), .Some(msg) => return(Option(String).Some(msg)), .None => ());
+      checked = (checked + usize(1));
+    });
+    i = (i + usize(1));
+  });
+  cond(
+    (checked == usize(0)) => Option(String).Some(String.from("A projection yields a place, and this call borrows no argument: its storage ends with the call (decision 24, the single-root rule).")),
+    true => Option(String).None
+  )
+});
 evaluate_address_call :: (
   fn(
     expr : &AstExpr,

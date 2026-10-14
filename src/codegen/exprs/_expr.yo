@@ -12,6 +12,7 @@
 //! at init.
 { String } :: import("std/string");
 { AstExpr } :: import("../../expr.yo");
+{ expr_info_index_trait_ptr_type } :: import("../../expr_info.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { panic, assert } :: import("std/assert");
 /// The expression-emitter dispatch signature: emit C for `expr` at `indent`,
@@ -33,4 +34,24 @@ _call_generate_expr :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     .None => __yo_panic("generate_expr called before set_generate_expr_fn")
   )
 );
-export(GenerateExprFn, set_generate_expr_fn, _call_generate_expr);
+/// `expr` is a direct call of a projection (decision 24, a function returning
+/// `&T` / `&mut T`), not a subscript: `.Some(is_mut)`, from its callee's
+/// type (the evaluator's twin: `projection_call_mode_of`,
+/// evaluator/utils.yo). Its C call returns `T*`, and the call is the place:
+/// `(*f(args))`.
+call_projection_mode :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> Option(bool))(
+  match(
+    expr,
+    .FnCall(_, pc_callee, _, pc_infix, _) => cond(
+      pc_infix => Option(bool).None,
+      match(context.base.get_expr_info(expr), .Some(ci) => expr_info_index_trait_ptr_type(&ci).is_some(), .None => true) => Option(bool).None,
+      true => match(
+        context.base.get_expr_info(&pc_callee),
+        .Some(cei) => match(cei.ty, Rc(.Func({ meta : pc_m })) => if(pc_m.*.result_is_ref, Option(bool).Some(pc_m.*.result_is_mut_ref), Option(bool).None), _ => Option(bool).None),
+        .None => Option(bool).None
+      )
+    ),
+    .Atom(_, _) => Option(bool).None
+  )
+);
+export(GenerateExprFn, set_generate_expr_fn, _call_generate_expr, call_projection_mode);

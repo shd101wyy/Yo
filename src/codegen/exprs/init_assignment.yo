@@ -16,7 +16,7 @@
 { t_ptr } :: import("../../types/creators.yo");
 { FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
 { resolve_some_type_to_concrete } :: import("./closures.yo");
-{ _call_generate_expr } :: import("./_expr.yo");
+{ _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { emit_deferred_dup_or_code, generate_dup_code_for_value, generate_drop_code_for_value } :: import("./drop_dup.yo");
 { type_contains_rc_cell_or_move_only } :: import("../../types/utils.yo");
 { get_state_machine_field_name, sm_slot_of, sm_move_flag_of, sm_local_field_name, sm_storage_id } :: import("../async/state_machine_naming.yo");
@@ -243,8 +243,13 @@ _sm_local_slot :: (fn(v : &Variable, context : &FunctionGenerationContext) -> Op
 /// `bind_env` is the binding node's recorded env.
 _generate_inout_local_binding :: (fn(lhs : &AstExpr, rhs : &AstExpr, bind_key : ExprId, bind_env : &Option(Environment), indent : &String, context : &FunctionGenerationContext) -> Option(String))({
   em := context.base.emitter;
-  lhs_args := match(lhs, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => ArrayList(AstExpr).new());
-  name_expr := match(lhs_args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None));
+  // `name := t.index(i)` (a projection call's result, decision 24) binds the
+  // bare name; `name := &place` its `__yo_imm(name)` / `__yo_mut(name)` form.
+  name_expr := match(
+    lhs,
+    .Atom(_, _) => lhs,
+    .FnCall(_, _, lhs_args, _, _) => match(lhs_args.get(usize(0)), .Some(x) => x, .None => return(Option(String).None))
+  );
   name_ei := match(
     context.base.get_expr_info(&name_expr),
     .Some(e) => e,
@@ -427,6 +432,11 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
     // Keyed by the `inout(name)` name atom: its scope record holds the binding.
     inout_key := match(lhs, .FnCall(_, _, la, _, _) => match(la.get(usize(0)), .Some(n) => ast_expr_id(&n), .None => ast_expr_id(expr)), .Atom(_, _) => ast_expr_id(expr));
     return(_generate_inout_local_binding(&lhs, &rhs, inout_key, Option(Environment).Some(ei.env), indent.clone(), context));
+  });
+  // `r := t.index(i)`: a projection call's result binds as a local borrow
+  // (decision 24, `_bind_projection_result`), `T* r = f(...)`.
+  if(ast_expr_is_atom(&lhs) && call_projection_mode(&rhs, context).is_some(), {
+    return(_generate_inout_local_binding(&lhs, &rhs, ast_expr_id(&lhs), Option(Environment).Some(ei.env), indent.clone(), context));
   });
   // Destructuring binds.
   match(

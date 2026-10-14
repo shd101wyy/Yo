@@ -108,7 +108,9 @@
   local_borrow_pattern_source,
   local_borrow_require_no_live_derived,
   local_borrow_place_of_variable,
-  local_borrow_info_placeholder
+  local_borrow_info_placeholder,
+  projection_call_mode_of,
+  projection_call_root_args
 } :: import("../utils.yo");
 { generate_new_temp_variable_name } :: import("../../utils.yo");
 { is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
@@ -530,6 +532,146 @@ _evaluate_inout_local_binding :: (
     .None => ()
   );
   expr_info_table_set(&ctx.expr_info_table, ast_expr_id(lhs), &lhs_info);
+  expr_info := new_expr_info(env, t_unit());
+  expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
+  expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &expr_info);
+  expr
+});
+/// `r := t.index(i)` / `r := t.index_mut(i)`: a binding of a projection
+/// call's result (plans/VALUES_BY_DEFAULT.md decision 24) is a local borrow
+/// of the place it yields, `&` or `&mut` as the projection's result is,
+/// with the usual last-use live range (decision 18). The place lies in the
+/// call's borrowed arguments (`projection_call_root_args`): a `&` result
+/// freezes each of them read-only while `r` is live, and a `&mut` result
+/// holds each `&mut` argument exclusively. A temporary argument has no
+/// storage that outlives the statement, so its result cannot be bound.
+/// `(v : T) = t.index(i)` copies the value out instead.
+///
+/// The bound variable is a reference like `y := &place`'s (`is_ref`, reads
+/// emit `(*r)`, non-owning), and codegen declares it `T* r = f(...)`
+/// (init_assignment.yo `_generate_inout_local_binding`).
+_bind_projection_result :: (
+  fn(
+    expr : &AstExpr,
+    name_expr : &AstExpr,
+    rhs : &AstExpr,
+    is_compile_time_only : bool,
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> AstExpr
+)({
+  is_mut := match(projection_call_mode_of(rhs, ctx), .Some(m) => m, .None => false);
+  sig := if(is_mut, String.from("&mut "), String.from("&"));
+  call_text := ast_expr_to_string(rhs);
+  name_tok := ast_expr_token(name_expr);
+  var_name := name_tok.value.clone();
+  if(is_compile_time_only || ctx.is_evaluating_function_body_or_async_block.is_none(), {
+    exn.throw(
+      dyn(
+        format_error_message(
+          &name_tok,
+          `\`${call_text}\` is a projection's result, a \`${sig}T\` borrow of runtime storage (decision 24): bind it with \`${var_name} := ...\` inside a function body, or copy the value out with \`(${var_name} : T) = ...\`.`
+        )
+      )
+    );
+  });
+  shadow_existing := get_variables_from_env(env, var_name.clone());
+  match(
+    shadow_existing.last(),
+    .Some(shadow_var) => {
+      sh_entries := ArrayList(TokenAndError).new();
+      sh_entries.push(TokenAndError(token : name_tok, error_message : `Failed to define variable "${var_name}":`));
+      sh_entries.push(TokenAndError(token : shadow_var.token, error_message : `Variable "${var_name}" is already defined here (variable shadowing is not allowed):`));
+      exn.throw(dyn(format_error_messages(&sh_entries)));
+    },
+    .None => ()
+  );
+  rhs_info := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(rhs)),
+    .Some(ri) => ri,
+    .None => {
+      exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Failed to evaluate, got ${call_text}`)));
+      new_expr_info(env, t_unit())
+    }
+  );
+  place_type := rhs_info.ty;
+  // The places the result borrows: a `&mut` projection's place is reached
+  // from its `&mut` arguments alone (its body's root rule), a `&` one's from
+  // any borrowed argument.
+  places := ArrayList(LocalBorrowPlace).new();
+  root_vars := ArrayList(Variable).new();
+  roots := projection_call_root_args(rhs, ctx);
+  (ri : usize) = usize(0);
+  while(ri < roots.len(), {
+    root := roots(ri);
+    if(!is_mut || root.is_mut, {
+      match(
+        local_borrow_place_of(&root.arg, env, ctx),
+        .Some(lp) => {
+          match(get_variables_from_env(env, lp.root_name.clone()).last(), .Some(rv) => root_vars.push(rv), .None => ());
+          places.push(lp);
+        },
+        .None => {
+          exn.throw(
+            dyn(
+              format_error_message(
+                ast_expr_token(&root.arg),
+                `Cannot bind \`${var_name}\` to \`${call_text}\`: the projection's result is a place inside \`${ast_expr_to_string(&root.arg)}\`, which is a temporary that ends with this statement. Bind the borrowed value to a local first, or copy the result out with \`(${var_name} : T) = ${call_text}\`.`
+              )
+            )
+          );
+        }
+      );
+    });
+    ri = (ri + usize(1));
+  });
+  if(places.len() == usize(0), {
+    exn.throw(dyn(format_error_message(ast_expr_token(rhs), `Cannot bind \`${var_name}\` to \`${call_text}\`: the projection borrows no argument, so its place has no storage to borrow.`)));
+  });
+  // A `&mut` result writes its places: each must be writable, and nothing
+  // else may borrow them (E0908 / E0911).
+  if(is_mut, {
+    (pi : usize) = usize(0);
+    while(pi < places.len(), {
+      lp := places(pi);
+      local_borrow_require_writable(&lp, `borrow \`${lp.text}\` with \`&mut\` through \`${call_text}\``, ast_expr_token(rhs), ctx, exn);
+      local_borrow_access(&lp, LocalBorrowAccess.Exclusive, ast_expr_token(rhs), ctx, exn);
+      pi = (pi + usize(1));
+    });
+  });
+  bound_opt := add_variable_to_env(env, var_name.clone(), &place_type, Option(EvalValue).None, false, true, false, false, &name_tok);
+  match(
+    bound_opt,
+    .Some(bound) => {
+      bound.is_ref = true;
+      match(root_vars.get(usize(0)), .Some(rv0) => variable_set_inout_borrow_root_id(&bound, rv0.id), .None => ());
+    },
+    .None => ()
+  );
+  (vi : usize) = usize(0);
+  while(vi < root_vars.len(), {
+    variable_mark_inout_borrow_root(&root_vars(vi));
+    vi = (vi + usize(1));
+  });
+  range := local_borrow_range_of(expr, var_name.clone(), &name_tok);
+  (step_pin : Option(Variable)) = Option(Variable).None;
+  if(range.has_repoint, {
+    sp_name := generate_new_temp_variable_name(&env.module_path, usize(name_tok.row), usize(name_tok.column), .None, .Some(name_tok.module_path));
+    step_pin = add_variable_to_env(env, &sp_name, t_unit(), Option(EvalValue).None, false, true, true, false, &name_tok);
+    match(step_pin, .Some(spv) => record_local_borrow_step_pin(ast_expr_id(name_expr), &spv), .None => ());
+  });
+  info := local_borrow_register(var_name.clone(), &name_tok, is_mut, &places(usize(0)), &range, &step_pin);
+  (qi : usize) = usize(1);
+  while(qi < places.len(), {
+    info.places.push(places(qi));
+    qi = (qi + usize(1));
+  });
+  name_info := new_expr_info(env, &place_type);
+  name_info.path_collection = path_collection_new();
+  expr_info_table_set(&ctx.expr_info_table, ast_expr_id(name_expr), &name_info);
+  scope_release_note_binding(ast_expr_id(name_expr), env, var_name.clone());
   expr_info := new_expr_info(env, t_unit());
   expr_info.value = Option(EvalValue).Some(EvalValue.UnitVal);
   expr_info_set_is_compile_time_only_assignment(&expr_info, Option(bool).Some(false));
@@ -1095,6 +1237,13 @@ Bound type: ${type_to_string(&rhs_info.ty)}`
   );
   // Disallow implicit variables as the RHS of non-given assignment.
   throw_expr_is_implicit_variable_error(&rhs, &env, ctx, exn);
+  // `r := t.index(i)`: a projection call's result binds as a local borrow
+  // (decision 24).
+  // A runtime function evaluated at compile time (`force_compile_time_bindings`)
+  // binds the value, as every `:=` there does.
+  if(ast_expr_is_atom(&actual_lhs) && !ctx.force_compile_time_bindings && projection_call_mode_of(&rhs, ctx).is_some(), {
+    return(_bind_projection_result(expr, &actual_lhs, &rhs, is_const || (is_implicit || (is_comptime_wrapped || is_thread_local_decl)), &env, ctx, exn));
+  });
   // --------------------------------------------------------------------------
   // Branch: atom LHS vs destructuring LHS
   // --------------------------------------------------------------------------

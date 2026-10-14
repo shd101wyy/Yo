@@ -306,7 +306,9 @@ BorrowedFor ::= 'for' '(' BorrowPlace ',' ClosureLiteral ')' ;; for(&mut xs, x =
 - 在**返回类型位置**（`-> &T`、`-> &mut T`、`-> (name : &mut T)`）它们声明一个
   **投影**（决策 24）：函数体产出用结果符号书写的位置（`&self.a`、
   `&mut self.rows(i)`），其根是函数的某个借用参数。投影通过下标（`x(i)`）
-  到达，目前还不能直接调用（[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。
+  到达，也可以直接调用（`t.index(i)`），其结果就是那个位置：可作操作数、接收者、
+  借用实参、局部借用（`r := t.index(i)`），`&mut` 投影的结果还可作 `=` 的左边
+  （[INDEX_TRAIT.md](./INDEX_TRAIT.md#投影)）。
 - `mut` 是保留字：名为 `mut` 的绑定或参数是错误。
 - 已删除的模式关键字写法 `imm(x) : T`、`mut(x) : T`、`inout(x) : T`、
   `comptime(imm(x)) : T`、`-> imm(T)`、`imm(y) := place`、`mut(cur) = place`、
