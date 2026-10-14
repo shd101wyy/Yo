@@ -152,7 +152,7 @@ impl(
 /// waker; reach for `Park` directly when a waiter list wants to hold the token
 /// itself.
 park :: (fn(register : &Impl(Fn(w : Waker) -> unit), io : Io) -> Impl(Future(unit, Io)))(
-  io.async((io : Io) => {
+  io.async({ &register }(io : Io) => {
     p := Park.new();
     register(p.waker());
     io.await(p.wait(io), io);
