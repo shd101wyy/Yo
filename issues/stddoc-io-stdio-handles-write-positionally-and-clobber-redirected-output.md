@@ -3,8 +3,14 @@
 **Severity:** S1 — per-handle `pwrite` offsets on stdout silently overwrite, truncate and reorder redirected output — no error, no short write
 
 **Found:** 2026-09-11, during the `std/` `///` doc sweep (agent A4, net/http/io group).
-**Status:** open. Filed, not fixed — the sweep is documentation-only. The
-hazard was documented in `std/io/stdio.yo`'s module header in the same sweep.
+**Status:** open; fix option 2 is half landed. Generation A (2026-10-14,
+fix/io-current-offset-sentinel): the runtime's read and write entry points
+treat offset `u64.MAX` as the descriptor's own position on every platform
+(`tests/sys/seek.test.yo`). Generation B, `std/io/stdio.yo` passing it, waits
+for a seed that carries Generation A
+(`plans/backlog/SEED_VERSION_AUTOMATION.md`, "the standard streams stop
+tracking an offset"). Until then the hazard stays documented in
+`std/io/stdio.yo`'s module header, as the 2026-09-11 sweep left it.
 
 Two symptoms, one cause.
 

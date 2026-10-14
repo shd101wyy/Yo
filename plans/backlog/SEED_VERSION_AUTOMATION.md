@@ -347,6 +347,28 @@ drops would stop, silently.
   instruction files to `Drop`; keep E0915's text naming `dispose` only as
   the migrated spelling.
 
+## Seed-gated follow-up (2026-10-14): the standard streams stop tracking an offset
+
+**Generation A** (fix/io-current-offset-sentinel): every runtime's read and
+write entry point (`__yo_async_read_start`, `__yo_async_write_start`,
+`__yo_sync_write`, on macOS, Linux epoll and io_uring, Windows and wasm)
+treats offset `u64.MAX` as the descriptor's own file position:
+`read(2)`/`write(2)` instead of `pread`/`pwrite`. Pinned by
+`tests/sys/seek.test.yo` ("offset u64.MAX reads and writes at the
+descriptor's own position").
+
+**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
+the seed's runtime hands `u64.MAX` to `pwrite`, which fails with `EINVAL`, so
+std cannot use the sentinel before then:
+- `std/io/stdio.yo`: `Stdin`/`Stdout`/`Stderr` pass `u64.MAX` and drop their
+  `_offset` field, so two `stdout()` handles and `println` share the kernel's
+  position; the module doc's "pick ONE writer per stream" warning and its
+  Stability note go;
+- a test that runs a child with stdout redirected to a regular FILE and
+  checks the exact bytes for both of the issue's repros (two handles, a
+  handle after `println`);
+- close `issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`.
+
 ## Seed-gated follow-up (2026-10-13): the `Index`/`IndexMut` split (VALUES_BY_DEFAULT V2b)
 
 **Generation A** (feat/vbd-v2b-index-mut): the compiler accepts projection
