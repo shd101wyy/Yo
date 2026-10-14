@@ -8392,24 +8392,31 @@ run_test :: (
         // ./std. The runner then evaluated against one std and compiled the
         // batch against another, silently.
         // See issues/fixed/yo-test-does-not-forward-std-path-to-batch-compile.md.
-        match(
-          get_std_path_override(),
-          .Some(sp) => {
-            cargv.push(String.from("--std-path"));
-            cargv.push(sp);
-          },
-          .None => ()
-        );
-        // `--imports` is global the same way and travels to the batch compile
-        // for the same reason.
-        match(
-          get_imports_file_override(),
-          .Some(imf) => {
-            cargv.push(String.from("--imports"));
-            cargv.push(imf);
-          },
-          .None => ()
-        );
+        // An IN-PROCESS batch compile is `run_compile` on this argv directly,
+        // past main's global-flag stripping, so it would read the flag as
+        // an unknown `compile` option. It needs none: it runs against the
+        // runner's own module manager, which already holds the override
+        // (issues/fixed/2026-10-15-yo-test-in-process-rejects-std-path.md).
+        if(!test_in_process, {
+          match(
+            get_std_path_override(),
+            .Some(sp) => {
+              cargv.push(String.from("--std-path"));
+              cargv.push(sp);
+            },
+            .None => ()
+          );
+          // `--imports` is global the same way and travels to the batch
+          // compile for the same reason.
+          match(
+            get_imports_file_override(),
+            .Some(imf) => {
+              cargv.push(String.from("--imports"));
+              cargv.push(imf);
+            },
+            .None => ()
+          );
+        });
         // Cooperative compile deadline. The batch compiles in a CHILD, so it
         // travels as a flag. A
         // runaway comptime loop in one batch now fails THAT batch with a
