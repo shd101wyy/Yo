@@ -426,8 +426,8 @@ main :: (fn(io : Io) -> unit)({
 export(main);
 ```
 
-A place lent to a borrowing Future may not pass through an `Rc`/`Arc`
-dereference, a `ref` object or an index into a collection
+A place lent to a borrowing Future may not pass through an `Rc`
+dereference, a `ref` object, a pointer or an index into a collection
 (`io.await(count(&r.*.items, io), io)` and `io.await(bump(&mut xs(i), io), io)`
 are E0909): the borrow lasts across the suspension, and nothing would notice
 another task writing or reallocating through its own handle meanwhile. Lend
@@ -435,11 +435,21 @@ the handle instead (`h : &Rc(S)`) and read `h.*.items` inside the Future at
 each use, or own the value in the task. An element of a fixed-size array is
 part of the array's own storage and may be lent.
 
-Nor may it be rooted in a module-level runtime binding or a `thread_local`
-(`io.await(bump(&mut G, io), io)` with `G := ...` at module level is E0909,
-and so is `io.await(G.bump(io), io)`): any task on the thread can reach the
-binding by name and reassign it while this one waits, releasing the value the
-Future borrows. Lend a local copy, or read the global by name inside the
+An `Arc` dereference is the exception for a shared borrow: no handle ever
+writes an `Arc`'s payload in safe code (its state changes only through a
+`Mutex` or an atomic inside it, as in Rust), and the task's own handle keeps
+the payload alive, so `io.await(a.*.lock(io), io)` with `a : Arc(Mutex(T))` is
+accepted, as is a path that crosses only `Arc` dereferences. A `&mut` borrow
+through an `Arc` is still E0909, and so is any path that also crosses an `Rc`
+(`rc(arc(m))`). An `Rc` joins `Arc` once its payload is read-only through the
+handle too (plans/VALUES_BY_DEFAULT.md decision 46).
+
+Nor may a lent place be rooted in a module-level runtime binding or a
+`thread_local`, `Arc` dereferences included (`io.await(bump(&mut G, io), io)`
+with `G := ...` at module level is E0909, and so are `io.await(G.bump(io), io)`
+and `io.await(peek(&G.*, io), io)` with `G := arc(...)`): any task on the
+thread can reach the binding by name and reassign it while this one waits,
+releasing the value the Future borrows. Lend a local copy, or read the global by name inside the
 Future, where each use reads its current value. A `::` constant has no runtime
 storage to change and may be lent.
 
@@ -1477,6 +1487,52 @@ io.await(
 `register` runs *before* the suspension and receives the waker, so the order
 cannot be got wrong. This is the shape Rust's `Future::poll(cx)` uses. Reach
 for `Park` directly when a waiter list wants to hold the token itself.
+
+### Sharing a lock between tasks: the async `Mutex`
+
+`std/async/mutex`'s `Mutex(T)` is a lock whose critical section may span
+awaits: a task that finds it held parks, and `unlock` wakes the longest
+waiter. It follows Rust's `tokio::sync::Mutex`:
+
+- a `Mutex` is a move-only value (copying one is E0901), and tasks share one
+  as `Arc(Mutex(T))`, each holding its own handle on the `Arc`;
+- `lock(self : &Self, io)` and `with_lock` return a Future that borrows the
+  mutex, so it is awaited where it is made, through the handle:
+  `io.await(m.*.lock(io), io)` (a shared borrow through an `Arc` may cross the
+  suspension, see "Borrowing Futures" above);
+- it is `Send` and `Sync` when `T` is `Send`: a short blocking guard protects
+  its state, so tasks on different threads' loops may contend for one.
+
+```yo
+{ assert } :: import("std/assert");
+{ Mutex } :: import("std/async/mutex");
+{ sleep } :: import("std/sys/timer");
+
+main :: (fn(io : Io) -> unit)({
+  m := arc(Mutex(i64).new(i64(0)));
+  worker := m; // another handle on the same mutex (`m.clone()` once V2c lands)
+  h := io.spawn(
+    io.async({ worker }(io : Io) => {
+      io.await(worker.*.lock(io), io);
+      before := worker.*.get();
+      io.await(sleep(u64(1)), io); // the section stays exclusive across the await
+      worker.*.set(before + i64(1));
+      worker.*.unlock();
+    }),
+    io
+  );
+  io.await(m.*.lock(io), io);
+  m.*.set(m.*.get() + i64(1));
+  m.*.unlock();
+  h.await(io);
+  assert(m.*.get() == i64(2), "both sections ran under the lock");
+});
+export(main);
+```
+
+`Rc(Mutex(T))`, the single-thread sharing (Rust's `Rc<Mutex<T>>`), works once
+an `Rc` is read-only through its handle (decision 46); until then a `lock`
+through an `Rc` is E0909.
 
 ### `yield_now`: a fairness yield with no timer
 

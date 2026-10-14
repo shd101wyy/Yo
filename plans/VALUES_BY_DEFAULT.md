@@ -1027,7 +1027,8 @@ instead.
     the borrow is live across the suspension, and another task writing
     through the same `Rc` would hit §3.10's panic.
     - The fix the error names: own the value in the task, or use
-      `Rc(Mutex(S))`.
+      `Arc(Mutex(S))` (`Rc(Mutex(S))` until 2026-10-14; see the `Arc`
+      exception below).
     - A shared (`&`) borrow of a move-only receiver stays allowed.
     - **A shared (`&`) borrow whose place crosses an `Rc`/`Arc` deref is
       rejected too** (amended 2026-10-07, audit #1251 finding 1): decision
@@ -1037,6 +1038,19 @@ instead.
       decision 38 D: capture the handle (`f(r : &Rc(S), io)` deriving
       `r.*.items` at each use), or own the value in the task. This is 38
       D's rule, extended from closure captures to future captures.
+    - **Except a shared borrow through `Arc` derefs only** (amended
+      2026-10-14; the maintainer: "lets match how rust does it?", the async
+      `Mutex` following Rust's `Arc<Mutex<T>>` and `lock(&self)`). A `&`
+      borrow whose every cell hop is a deref of a handle whose payload is
+      read-only through it (`handle_payload_is_read_only`,
+      `src/evaluator/utils.yo`) may live across a suspension: an `Arc`'s
+      payload is never written through a handle in safe code (D3, which
+      checks every hop of a written place since this amendment), so no
+      concurrent write can invalidate the borrow, and the task's own handle
+      keeps the payload alive. A `&mut` borrow through an `Arc` stays
+      rejected, as does a path that also crosses an `Rc`, a `ref` object, a
+      pointer or an index (`rc(arc(m))`). `Rc` joins when `Rc` becomes
+      read-only (decision 46): that flips the predicate and nothing else.
   - **Precedent.** This is the second-class rule `&mut` already follows,
     extended to the future that carries the borrow. It is Swift's
     `mutating func next() async`.
@@ -1263,7 +1277,11 @@ instead.
   - **The async `Channel(T)`** keeps its state behind `Rc`. `Sender` and
     `Receiver` are move-only, and `Sender` has `Clone`.
   - **The async `Mutex(T)`** is move-only, and tasks share it as
-    `Rc(Mutex(T))`.
+    `Arc(Mutex(T))` (amended 2026-10-14, the maintainer: "lets match how
+    rust does it?"; it said `Rc(Mutex(T))`). `lock(self : &Self, io)` and
+    `with_lock` return a future that borrows the mutex, which A2's amended
+    rule accepts through an `Arc`. `Rc(Mutex(T))`, the single-thread
+    sharing, works once `Rc` is read-only (decision 46).
   - **The five stream adapters** become plain values with
     `next(self : &mut Self, io)`.
   - **As built (2026-10-14, feat/vbd-v3-async-a5).**
@@ -1306,14 +1324,32 @@ instead.
       too. A producer task takes its sender through its capture list
       (`io.async({ tx }…)`), and `pair`'s tuple is taken apart with a
       consuming `match`.
-    - **The async `Mutex(T)` is NOT move-only.** It is
-      `struct(_st : Rc(_MutexState(T)))`, a copyable handle like the
-      `Channel`, and its `lock`/`with_lock` futures hold a copy of the
-      handle. The line above cannot hold together with A2's amended `Rc`
-      rule: a move-only `Mutex` shared as `Rc(Mutex(T))` whose `lock` future
-      borrows it is E0909 at every `lock` (measured with v0.2.62). The
-      question and the recommendation (keep the handle, amend this line):
-      `issues/questions/2026-10-14-the-async-mutex-is-a-copyable-handle-not-move-only.md`.
+    - **The async `Mutex(T)`, first cut: a copyable handle.** A5 first
+      landed it as `struct(_st : Rc(_MutexState(T)))`, whose futures held a
+      copy of the handle, because a move-only `Mutex` shared as
+      `Rc(Mutex(T))` whose `lock` future borrows it was E0909 at every
+      `lock` under A2's `Rc` rule (measured with v0.2.62). The maintainer
+      decided against the handle (2026-10-14:
+      `issues/fixed/2026-10-14-the-async-mutex-is-a-copyable-handle-not-move-only.md`).
+    - **The async `Mutex(T)`, as built (2026-10-14,
+      feat/vbd-async-mutex-rust).** A move-only value
+      `struct(_guard : RawMutex, _st : Box(_MutexState(T)))`, shared as
+      `Arc(Mutex(T))`, Rust's `Arc<tokio::sync::Mutex<T>>`. Its methods take
+      `self : &Self` and change the boxed state under `_guard` (std/sync's
+      `RawMutex`, held for a few instructions, never across an await):
+      interior mutability, so `Arc`'s D3 holds. `Arc` needs a `Send`,
+      `Sync`, `Acyclic` payload, and the guard makes `Sync` true: `Send`
+      and `Sync` for `T <: Send`, so tasks on different threads' loops may
+      contend for one mutex (a waker crosses threads already).
+      `lock`/`with_lock` borrow the mutex (`io.async({ &self }…)`), awaited
+      through a task's own handle (`io.await(m.*.lock(io), io)`), which
+      A2's `Arc` amendment accepts. Not seed-gated: std itself never calls
+      `lock` through an `Arc`, so the seed checks the new `std/async/mutex`
+      unchanged, and the tests run on the tree-built compiler.
+    - **D3 checked only the root** of a written place: `h.a.* = v`,
+      `t.0.*.n = v`, `&mut h.a.*` and `t.0.*.bump()` passed in safe code
+      (`issues/fixed/2026-10-14-d3-misses-a-write-through-an-arc-that-is-not-the-place-root.md`).
+      Fixed with the A2 amendment, which relies on D3.
     - **Streams.** The trait's `next` takes `self : &mut Self`, and an
       implementation borrows the stream through its capture list
       (`io.async({ &mut self }…)`), so the future is second-class and a
@@ -2956,6 +2992,13 @@ and in git, not a silent edit.
       own the value in the task. §3.13 A2 carries the normative sentence.
       The maintainer chose this over await-scoped marks, which would be
       the model's only non-call mark scope.
+    - **Narrowed for futures 2026-10-14 (the maintainer: "lets match how
+      rust does it?").** A future's shared (`&`) borrow whose cell hops are
+      all `Arc` derefs is accepted (§3.13 A2): no handle writes an `Arc`'s
+      payload (D3), so there is no write for a mark to catch. `&mut` through
+      an `Arc`, and any path that also crosses an `Rc`, a `ref` object, a
+      pointer or an index, keep the rule. Closure borrow captures keep it
+      whole.
 
     **E. Threads.**
     - **Borrows.** A borrow capture is never `Send`.
@@ -6810,7 +6853,7 @@ that later phases add.
 | `race(handles, io)` then reusing `handles` | `match(io.await(race(handles, io), io), (w, rest) => …)` | E0901 at the reuse |
 | a method whose returned future mutates `self` | `self : &mut Self`, awaited at the call (A2) | the capture audit |
 | an `io.async` body writing a captured collection | `&mut` if the future is awaited directly; otherwise return it, or `Rc(...)` | the capture audit |
-| a borrowing future through an `Rc` (`shared.s.next(io)`) | own the value in the task, or `Rc(Mutex(S))` | the A2 compile error |
+| a borrowing future through an `Rc` (`shared.s.next(io)`) | own the value in the task, or `Arc(Mutex(S))` (a shared borrow through an `Arc` is accepted) | the A2 compile error |
 | a deadline on a borrowing future | `timeout(rx.recv(io), d, io)`, awaited directly | — |
 | a cursor loop cloning each node | `cur := &mut …; cur = &mut n.next` | review; the clone lint |
 

@@ -93,29 +93,31 @@ test("a cancelled receiver does not consume the next message", {
 });
 
 test("a cancelled locker neither takes the mutex nor swallows its wake", {
-  m := Mutex(i32).new(i32(0));
-  io.await(m.lock(io), io);
+  m := arc(Mutex(i32).new(i32(0)));
+  io.await(m.*.lock(io), io);
   // b blocks in lock and is cancelled while parked there.
-  b := io.async((io : Io) => {
-    io.await(m.lock(io), io);
-    m.unlock();
+  mb := m;
+  b := io.async({ mb }(io : Io) => {
+    io.await(mb.*.lock(io), io);
+    mb.*.unlock();
     i32(1)
   });
   hb := io.spawn(b, io);
   rb := io.await(timeout(hb, Duration.from_millis(i64(5)), io), io);
   assert(rb.is_err(), "b timed out while parked on the lock");
   // c queues behind b's (now dead) waiter.
-  c := io.async((io : Io) => {
-    io.await(m.lock(io), io);
-    m.unlock();
+  mc := m;
+  c := io.async({ mc }(io : Io) => {
+    io.await(mc.*.lock(io), io);
+    mc.*.unlock();
     i32(2)
   });
   hc := io.spawn(c, io);
   io.await(yield(io), io);
-  m.unlock();
+  m.*.unlock();
   res := io.await(timeout(hc, Duration.from_millis(i64(200)), io), io);
   assert(match(res, .Ok(v) => (v == i32(2)), .Err(_) => false), "c got the lock the dead waiter was offered");
-  assert(!m.is_locked(), "nobody holds the mutex");
+  assert(!m.*.is_locked(), "nobody holds the mutex");
 });
 
 test("cancelling a task blocked on a channel releases it", {
