@@ -82,7 +82,10 @@ Progress:
     `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
     move bitwise through `__yo_ptr_read`/`__yo_ptr_write`;
   - V1 step 2 Generation A, the unique `Box(V)` (#1328; Step 2's "as
-    built");
+    built"), and Generation B, the `src/` sites (feat/vbd-v1-step2-box-genb:
+    the verifier's local cells are `Box`; the owner chains and
+    `consumed_at_token` drop their cell; `FuncMeta` and `DocModule` stay
+    `Rc`, see Step 2's "as built");
   - V2b "Projections first", Generation A: `-> &T` / `-> &mut T`
     projections, and subscript dispatch through `Index` / `IndexMut` (#1324);
   - decision 45 Generation A: `Drop` beside `Dispose`, E0915 for an
@@ -104,7 +107,6 @@ Progress:
   - The Generation B halves that wait for the v0.2.61 seed:
     - V2b's prelude switch to the new `Index`/`IndexMut`/`IndexUnchecked`
       shapes;
-    - V1 step 2's `src/` sites moving back to `Box`;
   - V3's remaining async work (§3.13): A4's future operands, A5's remaining
     lines, and A6's `Rc`-field half (V2c).
   - V4's `TypeValue`: the value-enum conversion was built and measured,
@@ -4005,6 +4007,43 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
   moves back to `Box` and their `.clone()`/move fixes wait for a
   `SEED_VERSION` carrying Generation A
   (`plans/backlog/SEED_VERSION_AUTOMATION.md`).
+- **As built, Generation B (2026-10-14, `feat/vbd-v1-step2-box-genb`,
+  on the v0.2.61 seed).** Each listed site was re-read against "one owner,
+  and the cell exists for recursion or size":
+  - **The verifier's local cells are the unique `Box`** (`chain`,
+    `guard_cell`, `phi_cell`, `acc_cell` in `src/verifier/vc.yo`): one
+    owner each, no closure captures them, and the `VcTerm` payload is a
+    `ref` handle, so `cell.*` reads stay implicit copies.
+  - **The owner chains and `consumed_at_token` drop the cell.**
+    `Variable`, `CapturedVariable`, `SuspensionCapturedVariable`,
+    `EffectCapturedVariable` and `Token` are `ref(struct(...))` types, so
+    their values are already shared handles: `Option(Self)` and
+    `Option(Token)` are one pointer and need neither recursion help nor a
+    size cell. The site list was written when they were value structs.
+    A `Box` around a handle would allocate a 16-byte-prefixed cell per
+    link, and with no `Clone` on a `ref` type it would make the copy points
+    (`env.yo`, `assignment.yo`, `va_start.yo`, `codegen/exprs/async.yo`,
+    `synthesizer.yo`) E0901 with no fix. So the "non-last-use copies" stay
+    plain copies, and the hop loop in `evaluator/exprs/runtime.yo` walks
+    handles. The change is 68 type spellings and 65 `.*` reads in 28 files.
+  - **`Rc(FuncMeta)` stays `Rc`.** `TypeValue.Func` shares one meta across
+    every type rebuilt from it: `substitute` (`src/types/substitution.yo`)
+    reuses `__fm1` for each substituted function type, and about ten
+    construction sites copy a `meta` from another `Func`. A unique `Box`
+    would deep-copy six `ArrayList`s at each of them. Reasoned from the
+    sharing, not measured.
+  - **`ArrayList(Rc(Self))` in `src/doc/model.yo` stays `Rc` for now.**
+    `ArrayList(Box(T)).get` copies a move-only element out of the buffer,
+    E0901 inside `std/collections/array_list.yo` (measured with the v0.2.61
+    seed on a two-level `Box` tree); `for(&xs, …)` copies the same way. It
+    moves with V2b's non-copying access, as `HashMap(Box(K), V)` does.
+  - **Measured** (Mac Mini M4, the tree-built compilers, min of 3 runs
+    under the shared lock): `check ./src` 185.8 s / 1,203 MB max RSS at
+    a89b8356c, 184.8 s / 1,189 MB with this change (−0.5 % time, noise;
+    −14 MB RSS). Self-emit C (`compile src/main.yo --optimize 2
+    --emit-c`): 138,521,141 → 138,309,119 bytes (−0.15 %), 1,752,977 →
+    1,751,840 lines. The fixpoint holds, and `yo verify ./tests/spec`
+    prints the same outcomes as the base compiler.
 
 ### V3: move-only, `Dispose`, resources
 
