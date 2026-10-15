@@ -120,6 +120,8 @@ impl(
     self.tail = (self.tail | (u64(b) << (u64(8) * u64(self.ntail))));
     self.ntail = (self.ntail + usize(1));
     if(self.ntail == usize(8), {
+      // TODO(v0.2.63 seed): back to `self._compress(self.tail)` once the seed
+      // carries #1382; v0.2.62 reports a false E0910 on it under A5's imports.
       t := self.tail;
       self._compress(t);
       self.tail = u64(0);
