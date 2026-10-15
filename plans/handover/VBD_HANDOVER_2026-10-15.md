@@ -336,6 +336,8 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 
 #### #1368 — V2b direct projection calls, Generation A (`feat/vbd-v2b-projection-calls`, head `f857d65d2`, draft)
 
+> **LANDED 2026-10-15 as #1368** (squash-merged from `feat/vbd-v2b-projection-calls`, rebased onto develop `6fc6e3a0a` (after #1378, #1379, #1396) and re-gated). The box below is the landing record.
+>
 > **REBASED AND GATED 2026-10-15 — land it from `feat/vbd-v2b-projection-calls-rebased` (head `5181c0b7b`, on develop `31ef8d7a3`; #1392/#1393 do not overlap it). Everything below this box is the history leading here.**
 >
 > - **Three fixes beyond the rebase:**
@@ -359,7 +361,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 
 - **What:** a projection called by name (`t.index(i)`, `first(&t)`) yields its place: operand, receiver, argument, binding (a local borrow, E0911/E0912) and write target.
 - Tier 1 had not run before the 2026-10-15 rebase; see the box.
-- **Known gap (now fixed on the rebased branch):** `issues/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2, #1375). `r := xs.index(usize(0));` failed in clang with an int-from-pointer error.
+- **Known gap (fixed by #1368):** `issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2, #1375). `r := xs.index(usize(0));` failed in clang with an int-from-pointer error.
 - **Next:** see the box's Land steps.
 
 #### `fix/d3-trust-by-mutation-mask` — the D3 S1 fix (B1 of #1380), no PR yet (head `1d4121d30`, on develop `31ef8d7a3`)
@@ -757,7 +759,7 @@ x :: 12;                           // a true constant
 - `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed on `fix/runtime-write-to-comptime-constant` (E0918).
 - `issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).
 - Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (`fix/runtime-write-to-comptime-constant`), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (`feat/global-lend-to-call-is-an-error`).
-- `issues/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2): #1368 fixes it.
+- `issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2): fixed by #1368.
 - `issues/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md`: found by #1388.
 - `issues/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md` (S3): a free speedup for every compile.
 - `issues/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md`.

@@ -66,7 +66,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -87,7 +87,8 @@ pragma(Pragma.AllowUnsafe);
   flag_pending_impl_force_error,
   take_pending_impl_force_error,
   mark_dot_callee,
-  unmark_dot_callee
+  unmark_dot_callee,
+  call_promote_index_places_for_write
 } :: import("../context.yo");
 { is_pointer_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
@@ -6410,6 +6411,7 @@ evaluate_function_call :: (
   moved_before := _lent_roots_moved_before(expr, env);
   if(is_auto_generated_expansion(Option(String).Some(call_mp.clone())) || is_std_module_path(&call_mp, ctx.std_path.clone()), {
     std_r := _evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn);
+    _stamp_projection_call(&std_r, ctx);
     _attach_fnonce_callee_release(expr, &std_r, ctx);
     _note_future_producing_call(expr, &std_r, ctx, exn);
     _check_call_lent_place_moves(expr, &moved_before, env, ctx, exn);
@@ -6424,6 +6426,7 @@ evaluate_function_call :: (
     },
     .None => {
       r := match(out.get(usize(0)), .Some(e) => e, .None => expr);
+      _stamp_projection_call(&r, ctx);
       _attach_fnonce_callee_release(expr, &r, ctx);
       _note_future_producing_call(expr, &r, ctx, exn);
       _check_call_lent_place_moves(expr, &moved_before, env, ctx, exn);
@@ -6434,6 +6437,16 @@ evaluate_function_call :: (
     }
   )
 });
+/// Decision 24: `call` is a direct call of a projection
+/// (`projection_call_mode_of`). Its result is a place of type `T` inside the
+/// borrowed arguments, never an owned temporary: its temp is re-attached as
+/// non-owning, so a by-value use dups the element, exactly as a read of
+/// `xs(i)` does, and nothing drops the place at scope end.
+_stamp_projection_call :: (fn(call : &AstExpr, ctx : &EvalContext) -> unit)(
+  if(projection_call_mode_of(call, ctx).is_some(), {
+    attach_temp_variable_to_expr(call, false, ctx);
+  })
+);
 /// Decision 18's rules 3 and 4 at a runtime call in user code: a borrow of a
 /// module-level place may not be live across a call, and a borrow through a
 /// reference cell or a module-level place may not be live across an `await`.
@@ -7224,22 +7237,23 @@ _evaluate_function_call_unanchored :: (
     .Some(once_ci) => _consume_fnonce_callee(&evaluated_callee, expr, &once_ci, env, ctx, exn),
     .None => ()
   );
-  // Decision 24, first cut: a projection (`-> &T` / `-> &mut T`) is reached
-  // through the subscript its trait dispatches (`x(i)` → `Index.index` /
-  // `IndexMut.index_mut`). Its result at any other call site (a receiver,
-  // an argument, an operand, a binding) is the rest of the decision, not
-  // yet built; the call is rejected rather than lowered as a by-value
-  // result of a function that returns a pointer.
+  // Decision 24: a projection (`-> &T` / `-> &mut T`) called directly
+  // (`t.index(i)`, `first(&t)`) yields a place (`projection_call_mode_of`,
+  // `_stamp_projection_call` in `evaluate_function_call`). It is called by name: a
+  // function, or a method of the receiver's type. A function VALUE whose
+  // type is a projection (a parameter, a local holding one) has no named
+  // callee whose `T*` result the call site could read through, so it is
+  // rejected.
   match(
     callee_info_opt,
     .Some(pj_ci) => match(
       pj_ci.ty,
-      Rc(.Func({ meta : pj_m })) => if(pj_m.*.result_is_ref, {
+      Rc(.Func({ meta : pj_m })) => if(pj_m.*.result_is_ref && !callee_is_marked_dot && match(pj_ci.value, .Some(pj_v) => !is_func_val(&pj_v), .None => true), {
         exn.throw(
           dyn(
             format_error_message(
               ast_expr_token(expr),
-              String.from("A projection (a function returning `&T` or `&mut T`, decision 24) is reached through the subscript its trait dispatches: write `x(i)` for `Index.index` / `IndexMut.index_mut`. Calling one directly is not supported yet (plans/VALUES_BY_DEFAULT.md V2b).")
+              String.from("A projection (a function returning `&T` or `&mut T`, decision 24) is called by name: a function, or a method of the receiver. Calling one through a function value is not supported (plans/VALUES_BY_DEFAULT.md V2b).")
             )
           )
         );
@@ -8970,6 +8984,14 @@ Fix: wrap the call:
             });
             evaled_arg := evaluate_expression_raw(&arg_expr_eff, &arg_eval_env, ctx, exn);
             ctx.expected_type = arg_saved_expected;
+            // A `&mut` argument writes the place it names, as in
+            // `check_if_function_parameter_matches_argument`: a bare one is a
+            // projection call's place (decision 24; a named place carries
+            // `&mut`, whose `addr_of` promotes), which a read projection
+            // cannot yield (E0908).
+            if(match(fv_param_is_ref.get(ai), .Some(r) => r, .None => false), {
+              call_promote_index_places_for_write(&evaled_arg, &arg_eval_env, ctx, exn);
+            });
             arg_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaled_arg));
             arg_info := match(
               arg_info_opt,

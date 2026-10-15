@@ -18,7 +18,7 @@
 { Environment } :: import("../../env.yo");
 { stable_label_id } :: import("../../utils.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
-{ _call_generate_expr } :: import("./_expr.yo");
+{ _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { generate_arg_code_with_deferred_dups } :: import("./drop_dup.yo");
 { get_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
 { is_array_type } :: import("../../types/guards.yo");
@@ -118,8 +118,10 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
         .Some(mv) => if(is_func_val(&mv), {
           callee_expr := match(arg, .FnCall(_, func, _, _, _) => func, .Atom(_, _) => arg);
           (callee_code : String) = _call_generate_expr(&callee_expr, indent.clone(), context);
-          // Spill an rvalue callee into a temp (can't address an rvalue).
-          if(ast_expr_is_fn_call(&callee_expr) && (!ast_expr_is_atom(&callee_expr) && !ast_expr_is_fn_call_of(&callee_expr, BF_DOT, Option(usize).None)), {
+          // Spill an rvalue callee into a temp (can't address an rvalue). A
+          // direct projection call (decision 24) is a place, not an rvalue.
+          callee_is_projection := call_projection_mode(&callee_expr, context).is_some();
+          if(ast_expr_is_fn_call(&callee_expr) && (!ast_expr_is_atom(&callee_expr) && !ast_expr_is_fn_call_of(&callee_expr, BF_DOT, Option(usize).None)) && !callee_is_projection, {
             match(
               context.base.get_expr_info(&callee_expr),
               .Some(cei) => {
@@ -195,6 +197,11 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     );
   });
   arg_code := _call_generate_expr(&arg, indent.clone(), context);
+  // A direct projection call (decision 24) is a place, `(*f(args))`: its
+  // address is the call's own result, never a spilled copy's.
+  if(call_projection_mode(&arg, context).is_some(), {
+    return(if(arg_code.starts_with("(*") && arg_code.ends_with(")"), arg_code.substring(usize(2), arg_code.len() - usize(1)), `(&${arg_code})`));
+  });
   // Rvalue function-call operand → spill into a named temp first.
   if(ast_expr_is_fn_call(&arg) && (!ast_expr_is_atom(&arg) && !ast_expr_is_fn_call_of(&arg, BF_DOT, Option(usize).None)), {
     match(
