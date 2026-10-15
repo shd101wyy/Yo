@@ -78,17 +78,9 @@ test("offset u64.MAX reads and writes at the descriptor's own position", {
   assert(seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR) == i64(8), "writes at the current position should advance it to 8");
   w3 := io.await(file.write(fd, (*u8)("CC"), u32(2), u64(0)), io);
   assert(w3 == i32(2), "a positional write at offset 0 should write 2 bytes");
-  // A positioned write leaves the position alone on POSIX (pwrite). On
-  // Windows it moves the file pointer past its bytes, as Zig's File.pwrite
-  // documents (ziglang/zig#12783), so the test seeks back to 8 there.
-  cond(
-    (platform == Platform.Windows) => {
-      assert(seek_io.lseek(fd, i64(8), seek_io.SEEK_SET) == i64(8), "seeking back to 8 after the positioned write should succeed");
-    },
-    true => {
-      assert(seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR) == i64(8), "a positional write should leave the position at 8");
-    }
-  );
+  // A positioned write leaves the position alone (pwrite), on Windows too:
+  // the runtime puts back the file pointer Windows moves past the bytes.
+  assert(seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR) == i64(8), "a positional write should leave the position at 8");
   w4 := file.write_sync(fd, (*u8)("DD"), u32(2), u64.MAX);
   assert(w4 == i32(2), "a synchronous write at the current position should write 2 bytes");
   assert(seek_io.lseek(fd, i64(0), seek_io.SEEK_CUR) == i64(10), "the synchronous write should advance the position to 10");
