@@ -1009,6 +1009,19 @@ test("V2b: a projection call binds a local borrow", {
   assert(copy == "xyz!", "a by-value read of the borrow copies the element");
   assert(n.second == "xyz!", "and the element is still the caller's");
 });
+// issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md:
+// a std collection's `index` called as a method and bound to a local
+// initialized an `int32_t` with the `int32_t *` the projection returns
+// (clang: int-from-pointer).
+test("V2b: a std collection's index method call binds a local borrow", {
+  xs := ArrayList(i32).new();
+  xs.push(i32(7));
+  r := xs.index(usize(0));
+  assert((r + i32(0)) == i32(7), "r reads the element through the borrow");
+  w := xs.index_mut(usize(0));
+  w = (w + i32(1));
+  assert(xs(usize(0)) == i32(8), "written through the &mut borrow");
+});
 test("V2b: a &mut projection call is the left of `=`", {
   t := Trio(a : i32(5), b : i32(6), c : i32(7));
   t.index_mut(usize(1)) = i32(60);
