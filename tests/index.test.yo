@@ -1161,13 +1161,15 @@ comptime_expect_error(
   }),
   "Cannot write `t` here"
 );
+// `m := n` copies `Names` (its `String`s are implicitly copyable until V2b's
+// unique buffers), so the move is a `sink` argument.
+_v2b_take_names :: (fn(sink(n) : Names) -> usize)(n.first.len());
 comptime_expect_error(
   _v2b_move_root_under_read :: (fn() -> unit)({
     n := Names(first : String.from("ab"), second : String.from("xyz"));
     s := n.name(usize(0));
-    m := n;
+    _k := _v2b_take_names(n);
     _l := s.len();
-    _k := m.first.len();
   }),
   "Cannot move `n` here"
 );
