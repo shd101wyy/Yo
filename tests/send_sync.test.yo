@@ -59,7 +59,7 @@ test("atomic cells are Send and Sync", {
 // Raw pointers exist only under pragma(Pragma.AllowUnsafe), so their rules are
 // pinned in tests/send_sync_raw_pointer.test.yo.
 // Naming `JoinHandle(T)` inside a sync test body instantiates the type and
-// emits its Dispose body, whose `__yo_join_handle_release_raw` call must pull
+// emits its Drop body, whose `__yo_join_handle_release_raw` call must pull
 // in the async runtime
 // (issues/fixed/naming-joinhandle-inside-a-sync-test-body-emits-a-call-to-an-undeclared-runtime-function.md).
 test("Io and JoinHandle declare negative markers", {
@@ -155,8 +155,8 @@ _ss_dispose_count := AtomicI32.new(i32(0));
 _SsFd :: struct(fd : i32);
 impl(
   _SsFd,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       _n := _ss_dispose_count.fetch_add(i32(1), MemoryOrder.AcqRel);
       ()
     })

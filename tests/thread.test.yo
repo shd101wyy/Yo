@@ -187,8 +187,8 @@ _spawn_dispose_count := AtomicUsize.new(usize(0));
 _Tracked :: atomic(ref(struct(tag : i32)));
 impl(
   _Tracked,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       _p := _spawn_dispose_count.fetch_add(usize(1), MemoryOrder.AcqRel);
       ()
     })
@@ -510,8 +510,8 @@ test("concurrent directory iteration on three threads", {
 _ThOnceTok :: struct(n : i32);
 impl(
   _ThOnceTok,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       _ := g_th_once_disposed.fetch_add(usize(1), MemoryOrder.AcqRel);
     })
   )

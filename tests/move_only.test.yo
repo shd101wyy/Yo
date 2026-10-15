@@ -1,6 +1,6 @@
 // Move-only values (plans/VALUES_BY_DEFAULT.md §3.4, phase V3, Generation A).
 //
-// A value type that implements `Dispose`, a plain value type that is neither
+// A value type that implements `Drop`, a plain value type that is neither
 // `Copy` nor `Clone` (decision 36), and every value aggregate holding one,
 // cannot be copied: each move point (`:=`, `=`,
 // a `sink` argument, a field or element store, a return, a closure capture)
@@ -16,15 +16,15 @@
 _MoFd :: struct(n : i32);
 impl(
   _MoFd,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_mo_disposed = (g_mo_disposed + i32(1));
       g_mo_sum = (g_mo_sum + self.n);
     })
   )
 );
 _MoHolder :: struct(fd : _MoFd, tag : i32);
-// Neither `Copy` nor `Clone`: a token that stays unique without a `Dispose`.
+// Neither `Copy` nor `Clone`: a token that stays unique without a `Drop`.
 _MoToken :: struct(id : i32);
 _MoChoice :: enum(Open(fd : _MoFd), Closed);
 _MoRef :: ref(struct(fd : _MoFd));
@@ -56,8 +56,8 @@ _mo_late_user :: (fn() -> i32)({
 _MoLate :: struct(n : i32);
 impl(
   _MoLate,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_mo_disposed = (g_mo_disposed + i32(1));
     })
   )
@@ -70,9 +70,9 @@ _mo_move_generic :: (fn(generic(T : Type), sink(x) : T) -> T)(x);
 // ---------------------------------------------------------------------------
 // The marker
 // ---------------------------------------------------------------------------
-test("move-only: Dispose makes a value type move-only, and value aggregates inherit it", {
+test("move-only: Drop makes a value type move-only, and value aggregates inherit it", {
   // Move-only is "neither Copy nor Clone" for a value type (decision 36).
-  comptime_assert(!Type.impls(_MoFd, Copy) && !Type.impls(_MoFd, Clone), "a Dispose value type is move-only");
+  comptime_assert(!Type.impls(_MoFd, Copy) && !Type.impls(_MoFd, Clone), "a Drop value type is move-only");
   comptime_assert(!Type.impls(_MoToken, Copy) && !Type.impls(_MoToken, Clone), "a plain type with neither is move-only");
   comptime_assert(!Type.impls(_MoHolder, Copy) && !Type.impls(_MoHolder, Clone), "a struct holding one is move-only");
   comptime_assert(!Type.impls(Option(_MoFd), Copy) && !Type.impls(Option(_MoFd), Clone), "an Option of one is move-only");
@@ -87,7 +87,7 @@ test("move-only: Dispose makes a value type move-only, and value aggregates inhe
   assert((r.fd.n + r2.fd.n) == i32(8), "both handles stay usable");
 });
 test("move-only: the impl-site gate", {
-  comptime_expect_error(impl(i32, Dispose(dispose : (fn(self : Self) -> unit)(()))), "cannot implement \"Dispose\"");
+  comptime_expect_error(impl(i32, Drop(drop : (fn(self : &mut Self) -> unit)(()))), "cannot implement \"Drop\"");
   comptime_expect_error(impl(_MoToken, Trace(trace : (fn(self : Self, tracer : GcTracer) -> unit)(()))), "cannot implement \"Trace\"");
 });
 // ---------------------------------------------------------------------------
@@ -791,7 +791,7 @@ test("a move inside an operator's operand moves once", {
 // issues/fixed/a-method-call-on-a-move-only-element-disposes-a-copy-of-it.md:
 // Aliasing Stage 0 gave the element a caller-owned "+1" for a callee that is
 // not read-only, which for a move-only value was a bitwise copy whose drop
-// ran `Dispose` while the list still owned the element.
+// ran `Drop` while the list still owned the element.
 // The method writes container storage (a global list), so the mutation
 // summary cannot prove it read-only and Stage 0 applied.
 (g_mo_seen : ArrayList(i32)) = ArrayList(i32).new();
@@ -835,7 +835,7 @@ test("move-only: a projection through an Rc lent to a recursive call is disposed
   assert(g_mo_disposed == (before + i32(3)), "a and the two cells' payloads, once each");
 });
 // ---------------------------------------------------------------------------
-// `Drop`, the new name of `Dispose` (plans/VALUES_BY_DEFAULT.md decision 45,
+// `Drop`, the new name of `Drop` (plans/VALUES_BY_DEFAULT.md decision 45,
 // Generation A: the compiler treats both spellings as the destructor), the
 // prelude's `drop(x)`, and E0915 for an explicit destructor call.
 // `g_mo_dropped` adds up the `n` of every dropped `_MoDrop*` value.
@@ -919,10 +919,10 @@ test("Drop: drop(x) ends a value now and moves it", {
     d := _MoFd(n : i32(0));
     d_before := g_mo_disposed;
     drop(d);
-    assert(g_mo_disposed == (d_before + i32(1)), "drop(x) runs a Dispose impl too");
+    assert(g_mo_disposed == (d_before + i32(1)), "drop(x) runs a Drop impl too");
   };
 });
-test("Drop: an explicit destructor call is E0915, in both spellings", {
+test("Drop: an explicit destructor call is E0915", {
   a := _MoDropFd(n : i32(0));
   comptime_expect_error(a.drop(), "Explicit call of the destructor");
   comptime_expect_error(_MoDropFd.drop(&a), "Explicit call of the destructor");
@@ -931,10 +931,6 @@ test("Drop: an explicit destructor call is E0915, in both spellings", {
   comptime_expect_error(r.drop(), "Explicit call of the destructor");
   p := _MoDropPair(i32)(a : i32(0), n : i32(0));
   comptime_expect_error(p.drop(), "Explicit call of the destructor");
-  d := _MoFd(n : i32(0));
-  comptime_expect_error(d.dispose(), "Explicit call of the destructor");
-  comptime_expect_error((_MoFd <: Dispose).dispose(&d), "Explicit call of the destructor");
-  comptime_expect_error(_MoFd.dispose(&d), "Explicit call of the destructor");
 });
 // `Drop.drop` takes `self : &mut Self`, as Rust's `drop(&mut self)`
 // (decision 45, maintainer 2026-10-13): a destructor that takes a field out
@@ -1056,18 +1052,15 @@ test("Drop: a trait method named drop or dispose keeps its Dyn vtable slot", {
 test("Drop: the destructor read as a value is E0915, and the repair names the value", {
   comptime_expect_error(_MoDropFd.drop, "is read as a value");
   comptime_expect_error((_MoDropFd <: Drop).drop, "is read as a value");
-  comptime_expect_error(_MoFd.dispose, "is read as a value");
-  comptime_expect_error((_MoFd <: Dispose).dispose, "is read as a value");
   myval := _MoDropFd(n : i32(0));
   comptime_expect_error(myval.drop(), "write drop(myval)");
   comptime_expect_error(_MoDropFd.drop(&mut myval), "write drop(myval)");
   comptime_expect_error((_MoDropFd <: Drop).drop(&mut myval), "write drop(myval)");
   comptime_expect_error(Drop.drop(&mut myval), "write drop(myval)");
 });
-// `Drop` and `Dispose` are one destructor slot: a type with an impl of one
-// may not take an impl of the other, concretely or through a generic impl
-// (issues/fixed/a-drop-impl-beside-a-dispose-impl-is-accepted-and-one-destructor-never-runs.md).
-// `ArrayList(T)`'s destructor is std's `Dispose` impl.
+// A type has one destructor: a second `Drop` impl, concrete or through a
+// generic impl, is E0612 (plans/reference/TRAIT_COHERENCE.md).
+// `ArrayList(T)`'s destructor is std's generic `Drop` impl.
 _MoDropBox :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T));
 impl(
   _MoDropBox(i32),
@@ -1077,12 +1070,11 @@ impl(
     })
   )
 );
-test("Drop: a type has one destructor, under either spelling", {
-  comptime_expect_error(impl(_MoDropFd, Dispose(dispose : (fn(self : &Self) -> unit)(()))), "under its other spelling");
-  comptime_expect_error(impl(_MoFd, Drop(drop : (fn(self : &mut Self) -> unit)(()))), "under its other spelling");
-  comptime_expect_error(impl(ArrayList(_MoDropFd), Drop(drop : (fn(self : &mut Self) -> unit)(()))), "under its other spelling");
-  comptime_expect_error(impl(generic(T : Type), _MoDropBox(T), Dispose(dispose : (fn(self : &Self) -> unit)(()))), "under its other spelling");
-  comptime_expect_error(impl(generic(T : Type), _MoDropPair(T), Dispose(dispose : (fn(self : &Self) -> unit)(()))), "under its other spelling");
+test("Drop: a type has one destructor", {
+  comptime_expect_error(impl(_MoDropFd, Drop(drop : (fn(self : &mut Self) -> unit)(()))), "is already implemented");
+  comptime_expect_error(impl(ArrayList(_MoDropFd), Drop(drop : (fn(self : &mut Self) -> unit)(()))), "is already implemented");
+  comptime_expect_error(impl(generic(T : Type), _MoDropBox(T), Drop(drop : (fn(self : &mut Self) -> unit)(()))), "is already implemented");
+  comptime_expect_error(impl(generic(T : Type), _MoDropPair(T), Drop(drop : (fn(self : &mut Self) -> unit)(()))), "is already implemented");
   before := g_mo_dropped;
   {
     xs := ArrayList(_MoDropFd).new();
@@ -1092,26 +1084,38 @@ test("Drop: a type has one destructor, under either spelling", {
   };
   assert(g_mo_dropped == (before + i32(50)), "std's ArrayList destructor still drops each element");
 });
-// A `Drop` impl satisfies a `Dispose` bound, witness and `Type.impls`, and
-// the other way around, so migrating a type to `Drop` (std keeps `Dispose`)
-// flips neither
-// (issues/fixed/drop-and-dispose-are-not-one-trait-for-bounds-and-type-impls.md).
-_mo_retire_dispose :: (fn(generic(T : Type), x : T, where(T <: Dispose)) -> unit)(drop(x));
+// A `Drop` impl, concrete or generic, std's included, satisfies a `Drop`
+// bound and `Type.impls(T, Drop)`.
 _mo_retire_drop :: (fn(generic(T : Type), x : T, where(T <: Drop)) -> unit)(drop(x));
 _mo_needs_cleanup :: (fn(comptime(T) : Type) -> comptime(bool))(Type.impls(T, Drop));
-test("Drop: Drop and Dispose satisfy each other's bounds and Type.impls", {
-  comptime_assert(Type.impls(_MoDropFd, Dispose), "a Drop type implements Dispose");
-  comptime_assert(Type.impls(_MoFd, Drop), "a Dispose type implements Drop");
-  comptime_assert(_mo_needs_cleanup(ArrayList(i32)), "std's Dispose types implement Drop");
+test("Drop: Drop impls satisfy a Drop bound and Type.impls", {
+  comptime_assert(Type.impls(_MoDropFd, Drop), "a Drop type implements Drop");
+  comptime_assert(Type.impls(_MoFd, Drop), "so does one migrated to Drop");
+  comptime_assert(_mo_needs_cleanup(ArrayList(i32)), "std's collections implement Drop");
   comptime_assert(_mo_needs_cleanup(_MoDropPair(i32)), "a generic Drop impl answers for Drop");
   comptime_assert(!_mo_needs_cleanup(i32), "a type with no destructor implements neither");
   before := g_mo_dropped;
-  _mo_retire_dispose(_MoDropFd(n : i32(5)));
-  assert(g_mo_dropped == (before + i32(5)), "a Drop value meets a Dispose bound");
+  _mo_retire_drop(_MoDropFd(n : i32(5)));
+  assert(g_mo_dropped == (before + i32(5)), "a Drop value meets a Drop bound");
   d_before := g_mo_disposed;
   _mo_retire_drop(_MoFd(n : i32(0)));
-  assert(g_mo_disposed == (d_before + i32(1)), "a Dispose value meets a Drop bound");
+  assert(g_mo_disposed == (d_before + i32(1)), "and so does one migrated to Drop");
   _mo_retire_drop(ArrayList(i32).new());
+});
+// Decision 45 Generation B: `Dispose` is no longer a destructor name. A
+// trait a program defines under that name is an ordinary trait: a `Copy`
+// type may implement it, and its `dispose` is an ordinary method.
+Dispose :: trait(
+  id := "Dispose",
+  dispose : (fn(self : &Self) -> i32)
+);
+_MoOldTok :: struct(n : i32);
+derive(_MoOldTok, Copy, Clone);
+impl(_MoOldTok, Dispose(dispose : (fn(self : &Self) -> i32)(self.n)));
+test("Drop: a trait named Dispose is an ordinary trait", {
+  t := _MoOldTok(n : i32(4));
+  u := t;
+  assert((t.dispose() + u.dispose()) == i32(8), "both copies are usable, and dispose is an ordinary method");
 });
 // §3.13 A3 Generation B: `pop`, `swap`, `remove` and `reverse` move elements
 // bitwise (`__yo_ptr_read`/`__yo_ptr_write`), so a move-only element works.

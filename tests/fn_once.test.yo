@@ -15,8 +15,8 @@
 _OnceTok :: struct(n : i32);
 impl(
   _OnceTok,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_once_disposed = (g_once_disposed + i32(1));
     })
   )
@@ -170,8 +170,8 @@ test("Dyn(Fn(...)) of a closure capturing a move-only value", {
 _OnceRes :: struct(a : ArrayList(i64));
 impl(
   _OnceRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_once_disposed = (g_once_disposed + i32(1));
     })
   )

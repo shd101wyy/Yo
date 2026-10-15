@@ -937,8 +937,8 @@ test("soundness: a ref struct's Option(Self) survives a generic specialization",
 _P5Box :: ref(struct(tag : i32));
 impl(
   _P5Box,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_p5_disposed = (g_p5_disposed + i32(1));
     })
   )
@@ -1157,8 +1157,8 @@ test("soundness: an operator unit does not implement is rejected", {
 _SinkReadBox :: ref(struct(n : i32));
 impl(
   _SinkReadBox,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_sink_read_disposed = (g_sink_read_disposed + i32(1));
     })
   )

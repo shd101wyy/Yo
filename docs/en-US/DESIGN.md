@@ -1155,10 +1155,15 @@ impl(
   }),
   length : (fn(self : Self) -> usize)({
     // Implementation...
-  }),
-  dispose : (fn(self : Self) -> unit)({
-    // The `dispose` function is called when the reference count reaches zero
   })
+);
+impl(
+  MyString,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      // `drop` runs when the reference count reaches zero
+    })
+  )
 );
 
 // Usage
@@ -1211,21 +1216,21 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Dispose` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. When it is `Copy`, `x.clone()` is the copy, so `f.clone()` on a `fn` pointer works; a record or closure that is `Clone` but not `Copy` clones field-wise, copying each `Copy` part and cloning the rest. A closure's parts are its capture record, as in Rust: a by-value capture counts with its own type (a listed `{ s }`, and an implicit capture too, since a closure bound to a name owns what it captures), a `&` capture is a pointer and so `Copy`, and a `&mut` capture makes the closure neither `Copy` nor `Clone`. So a closure that owns a `String` is `Clone` but not `Copy`: `d := c` moves it, and `c.clone()` gives a second closure with its own `String`. `Rc`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field whose name the pointer also owns as a method (`clone`, `add`, `sub`, `offset_from`), `p.m(...)` is an error that names `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`.
+The impl is checked. A `Clone` impl must cover the same instantiations, and the compiler never writes one: `derive(T, Copy)` alone is an error naming `derive(T, Copy, Clone)`. Every field and variant payload must be `Copy`, and the error names the first one that is not (`its field \`name\` has type \`String\``). A type that implements `Drop` cannot be `Copy`, in either order, and neither can a reference type. `derive(T, Clone)` is always allowed (a field-wise clone of `Copy` fields is the bitwise copy), and it is how a type that is `Copy` only under a bound gets `clone()` at every instantiation: `derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)` — the derive's clone calls `.clone()` on its fields, so it needs the bound. Together with `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`, it makes `Pair(i32)` copy implicitly and `Pair(String)` clone explicitly. A hand-written `Clone` impl is an error only on a type that is `Copy` for every instantiation the impl serves, such as a concrete `Copy` type; a generic one that also serves types that are not `Copy`, like the prelude `Option(T)`'s, is allowed. A tuple, an `Array(T, N)`, an anonymous record, a closure and a `fn` pointer have no declaration to annotate, so each is `Copy`, and `Clone`, exactly when all its parts are. When it is `Copy`, `x.clone()` is the copy, so `f.clone()` on a `fn` pointer works; a record or closure that is `Clone` but not `Copy` clones field-wise, copying each `Copy` part and cloning the rest. A closure's parts are its capture record, as in Rust: a by-value capture counts with its own type (a listed `{ s }`, and an implicit capture too, since a closure bound to a name owns what it captures), a `&` capture is a pointer and so `Copy`, and a `&mut` capture makes the closure neither `Copy` nor `Clone`. So a closure that owns a `String` is `Clone` but not `Copy`: `d := c` moves it, and `c.clone()` gives a second closure with its own `String`. `Rc`, `Arc`, `String`, the collections and `Dyn` never are. A raw pointer's `p.clone()` copies the pointer, never the pointee; when the pointee has a field whose name the pointer also owns as a method (`clone`, `add`, `sub`, `offset_from`), `p.m(...)` is an error that names `p.*.m(...)` for the pointee's field and, for the pointer's clone, the copy `q := p`.
 
 `Copy` is the rule ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 36). A plain-data type that is not `Copy` is copied only explicitly: `q := p` moves a `Point` without `Copy`, and a later use of `p` is E0901, whose note names `derive(Point, Copy, Clone)` and `p.clone()`. A `&T` parameter or a `match` binding of one borrows it, so storing or returning it there is E0901 too; take the parameter by value (`p : Point`, without `&`) to own it. Compile-time-only types, control-bound records such as `Exception`, unions, C opaque types and refinements of a `Copy` type keep copying implicitly.
 
 #### Move-only values
 
-A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Dispose` is **move-only**, and so is a plain value type that is neither `Copy` nor `Clone` (a token that must stay unique needs no `Dispose`: declare neither), and every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Rc`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Dispose` runs once, when the count reaches zero.
+A resource (a file descriptor, a lock, a socket) is a value that must not be copied: two copies would release it twice. A value type (`struct`, `enum`, `newtype`) that implements `Drop` is **move-only**, and so is a plain value type that is neither `Copy` nor `Clone` (a token that must stay unique needs no `Drop`: declare neither), and every value that holds one: a struct field, an enum payload, a tuple or array element, a closure capture. `Option(Fd)` and `Tuple(Fd, i32)` are move-only. A reference type (`ref(struct(...))`, `Rc`, `Arc`) never is, whatever it holds, because its copies share one cell; its `Drop` runs once, when the count reaches zero.
 
 ```yo
 { println } :: import("std/fmt");
 Fd :: struct(n : i32);
 impl(
   Fd,
-  Dispose(
-    dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // a real one would close the descriptor
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(println(`closing ${self.n}`)) // a real one would close the descriptor
   )
 );
 
@@ -1237,20 +1242,20 @@ main :: (fn() -> unit)({
   n := peek(&a); // borrowed; `a` is still usable
   b := a; // moves `a` into `b`
   // a.n           // E0901: use of moved value: `a`
-  keep(b); // moves `b`; `keep` disposes it when it returns
+  keep(b); // moves `b`; `keep` drops it when it returns
 });
 export(main);
 ```
 
-Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: a `&T` parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. A value moved in some arms of a `cond`/`match` is dropped at the end of each arm that keeps it, so where the arms meet it is gone on every path and a later use is E0901 (the static form of Rust's drop flag: the arms are structured, so no runtime flag is needed). Where the ways out of a loop meet, a value is still moved on all of them or on none (E0907). An assignment statement (`x = y;`, `h.f = y;`, `xs(i) = y;`) drops the old value right after the store, as Rust does; `old := (x = y)` keeps it in `old` instead. Its single owner runs `dispose` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
+Every copy point moves a move-only value: `:=`, `=`, a `sink` argument, a field or element store, a constructor argument, a return and a closure capture. A use after the move is E0901, and its note says why the type is move-only. A move-only value cannot be copied out of storage it does not own either: a `&T` parameter and a `match`/`for` binding borrow it, a field belongs to its holder (there are no partial moves), and a module-level binding is never moved. A value moved in some arms of a `cond`/`match` is dropped at the end of each arm that keeps it, so where the arms meet it is gone on every path and a later use is E0901 (the static form of Rust's drop flag: the arms are structured, so no runtime flag is needed). Where the ways out of a loop meet, a value is still moved on all of them or on none (E0907). An assignment statement (`x = y;`, `h.f = y;`, `xs(i) = y;`) drops the old value right after the store, as Rust does; `old := (x = y)` keeps it in `old` instead. Its single owner runs `drop` exactly once, when it drops the value, and then drops its fields. A type that implements `Clone` is copied explicitly with `x.clone()`; to share one value, put it behind a reference type.
 
 A generic function is checked at each instantiation: `ArrayList(Fd).get(i)` copies an element out, so that instantiation is E0901, reported at the call. `std/` does not use move-only types yet: its resources are still reference types, and they become move-only values in a later step of [the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md).
 
-#### `Drop`, the upcoming name of `Dispose`
+#### The destructor: `Drop`
 
-`Dispose` is being renamed `Drop`, and its method `dispose` becomes `drop`, with Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45). The meaning does not change: the destructor runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. Its receiver follows Rust's `drop(&mut self)`: `drop : (fn(self : &mut Self) -> unit)`, so a destructor may take a field out or reset it (`self.f = .None`) before the fields are dropped, and an impl that declares `self : &Self` does not conform. (`Dispose.dispose` keeps `self : &Self` until the rename.) The compiler already accepts both spellings, and treats them as one destructor: a `Drop` impl satisfies a `where(T <: Dispose)` bound and `Type.impls(T, Dispose)`, and the other way around, and a type has one destructor, so an impl of one spelling on a type that has the other (including std's `Dispose` impl on `ArrayList(T)`) is error E0612. `std/` and these docs switch to `Drop` once the released seed knows it, and `yo fix <path> --migrate drop-trait` rewrites a project (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`; a `.dispose` member that is not the destructor, such as an inherent method or a field of that name, is left as written).
+`Drop` is the destructor trait, and its method `drop` has Rust's semantics ([the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), decision 45): it runs automatically, exactly once, when the owner drops the value or the last `Rc`/`Arc` reference goes away, and a value type that implements it is move-only. Its receiver follows Rust's `drop(&mut self)`: `drop : (fn(self : &mut Self) -> unit)`, so a destructor may take a field out or reset it (`self.f = .None`) before the fields are dropped, and an impl that declares `self : &Self` does not conform. Its old name was `Dispose`, which the compiler no longer recognizes; `yo fix <path> --migrate drop-trait` rewrites old code (`Dispose` → `Drop`, `dispose` → `drop`, and `x.dispose()` → `drop(x)`; a `.dispose` member that is not the destructor, such as an inherent method or a field of that name, is left as written).
 
-Calling the destructor by hand is error E0915, in both spellings, as in Rust: `x.drop()`, `Fd.drop(&x)`, `(Fd <: Drop).drop(&x)` and `x.dispose()` would run it a second time on a live value. Reading it as a value, `f := Fd.drop`, is E0915 too, since a call through `f` would do the same. A method of another trait that happens to be named `drop` is an ordinary method, called directly or through `Dyn`. A destructor does not call its fields' destructors either: they drop after it returns. To end a value early, pass it to the prelude's `drop(x)`, which moves it in and drops it when the call returns; a later use of `x` is E0901.
+Calling the destructor by hand is error E0915, as in Rust: `x.drop()`, `Fd.drop(&x)` and `(Fd <: Drop).drop(&x)` would run it a second time on a live value. Reading it as a value, `f := Fd.drop`, is E0915 too, since a call through `f` would do the same. A method of another trait that happens to be named `drop` is an ordinary method, called directly or through `Dyn`. A destructor does not call its fields' destructors either: they drop after it returns. To end a value early, pass it to the prelude's `drop(x)`, which moves it in and drops it when the call returns; a later use of `x` is E0901.
 
 ```yo
 { println } :: import("std/fmt");
@@ -2607,7 +2612,7 @@ A `match` takes its scrutinee the way a parameter takes its argument
 
 ```yo
 Fd :: struct(n : i32);
-impl(Fd, Dispose(dispose : (fn(imm(self) : Self) -> unit)(())));
+impl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(())));
 Two :: enum(Two(a : Fd, b : Fd), Zero);
 
 take :: (fn(f : Fd) -> i32)(f.n);
@@ -4388,22 +4393,20 @@ MyBox :: ref(
 );
 impl(
   MyBox,
-  Dispose(
-    dispose : (
-      self -> {
-        printf("Disposing MyBox with value: %d\n", self.*);
-      }
-    )
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      printf("Disposing MyBox with value: %d\n", self.*);
+    })
   )
 );
 
 test("Object disposal", {
-  // MyBox is automatically disposed at end of scope
+  // MyBox is automatically dropped at end of scope
   b := MyBox(42);
   assert(b.* == 42);
   b.* = 100;
   assert(b.* == 100);
-  // dispose() runs automatically here; calling it by hand is E0915
+  // drop runs automatically here; calling it by hand is E0915
 });
 ```
 

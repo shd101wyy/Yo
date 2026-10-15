@@ -1,6 +1,6 @@
 //! RAII-managed temporary files and directories.
 //!
-//! Both types clean up on drop (`Dispose`), BEST-EFFORT: errors are ignored,
+//! Both types clean up on drop (`Drop`), BEST-EFFORT: errors are ignored,
 //! and directory removal is non-recursive (same as `remove` — it succeeds
 //! only when the directory is empty). Call `remove(io)` explicitly when you
 //! need to observe removal errors.
@@ -13,7 +13,7 @@
 //! main :: (fn(io : Io, exn : Exception) -> unit)({
 //!   dir := io.await(TempDir.new(io), { io, exn });
 //!   println(dir.path());
-//!   io.await(dir.remove(io), { io, exn }); // or let Dispose clean up on drop
+//!   io.await(dir.remove(io), { io, exn }); // or let Drop clean up on drop
 //! });
 //! ```
 //!
@@ -119,11 +119,11 @@ impl(
     self._path
   ),
   /// Remove the directory now and observe the outcome, instead of leaving it
-  /// to `Dispose`.
+  /// to `Drop`.
   ///
   /// NON-RECURSIVE (`rmdir`), so it throws `IoExn` (`ENOTEMPTY`) if anything
   /// is still inside — use `walker.remove_dir_all` for a populated tree.
-  /// Idempotent: a second call is a no-op, and so is the `Dispose` that
+  /// Idempotent: a second call is a no-op, and so is the `Drop` that
   /// follows, because both consult the same `_removed` flag. Async, awaited
   /// on the event loop.
   remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
@@ -140,13 +140,13 @@ impl(
     )
   })
 );
-// Dispose: best-effort removal on drop (plans/archive/STD_API_AUDIT.md C12).
+// Drop: best-effort removal on drop (plans/archive/STD_API_AUDIT.md C12).
 // Errors are ignored and the removal is non-recursive (parity with
 // `remove`) — use `remove(io)` to observe failures.
 impl(
   TempDir,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       cond(
         self._removed => (),
         true => {
@@ -240,9 +240,9 @@ impl(
     self._path
   ),
   /// Close the descriptor and unlink the file now, observing the outcome,
-  /// instead of leaving it to `Dispose`. The close comes FIRST so that
+  /// instead of leaving it to `Drop`. The close comes FIRST so that
   /// Windows can delete the file at all (POSIX allows unlinking an open
-  /// file; Windows does not). Idempotent, and the following `Dispose`
+  /// file; Windows does not). Idempotent, and the following `Drop`
   /// becomes a no-op. Async, awaited on the event loop; throws `IoExn` if
   /// either step fails.
   remove : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))({
@@ -261,14 +261,14 @@ impl(
     )
   })
 );
-// Dispose: best-effort close + unlink on drop (plans/archive/STD_API_AUDIT.md C12).
+// Drop: best-effort close + unlink on drop (plans/archive/STD_API_AUDIT.md C12).
 // Errors are ignored — use `remove(io)` to observe failures. The fd is
 // closed FIRST so Windows can delete the file (POSIX allows unlinking an
 // open file; Windows does not).
 impl(
   TempFile,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       cond(
         self._removed => (),
         true => {

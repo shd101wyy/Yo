@@ -273,15 +273,15 @@ impl(
   )
 );
 // Restores the allocation scope it saved when it is released. `with_allocator`
-// holds one for the length of its body: `Dispose` runs on every exit, a
+// holds one for the length of its body: `Drop` runs on every exit, a
 // normal return and an `unwind` alike, which is what keeps an unwinding body
 // from leaving the thread on a dead allocator (the `Mutex.with_lock` guard
 // pattern).
 _ScopeGuard :: ref(struct(_ctx : ?*void, _vtable : ?*void));
 impl(
   _ScopeGuard,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(__yo_scope_set(self._ctx, self._vtable))
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(__yo_scope_set(self._ctx, self._vtable))
   )
 );
 /// Evaluate `f()` with `alloc` as the thread's current allocator.

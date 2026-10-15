@@ -307,7 +307,7 @@ set_register_trait_value_fn :: (fn(f : RegisterTraitValueFn) -> unit)({
 (g_hand_written_clone_sites : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Type of `check_self_constraints_violation_msg` from trait_checking.yo:
 /// `.Some(error message)` when `target_type` may not implement `trait_ty` (a
-/// `Trace` impl on a value type, a `Dispose` on a primitive or
+/// `Trace` impl on a value type, a `Drop` on a primitive or
 /// reference type) or violates a positive or negative
 /// selfConstraint on it, `.None` when satisfied. Routed via a function pointer to
 /// break the impl.yo ↔ trait_checking.yo import cycle (same pattern as above);
@@ -320,7 +320,7 @@ set_check_self_constraints_fn :: (fn(f : CheckSelfConstraintsFn) -> unit)({
   g_check_self_constraints_fn = Option(CheckSelfConstraintsFn).Some(f);
 });
 /// `receiver_kind_trait_violation_msg` from trait_checking.yo: `.Some(error
-/// message)` when `trait_ty` is `Dispose` or `Trace` and
+/// message)` when `trait_ty` is `Drop` or `Trace` and
 /// `target_type` is not a receiver that trait accepts. The GENERIC impl path
 /// calls it on the receiver pattern (it does not run the full selfConstraint
 /// check, which a pattern over unbound type parameters cannot answer). A
@@ -452,14 +452,14 @@ register_generic_impl :: (fn(entry : &GenericImplEntry) -> unit)({
 // ---------------------------------------------------------------------------
 // Move-only declarations (plans/VALUES_BY_DEFAULT.md §3.4, V3)
 // ---------------------------------------------------------------------------
-/// One impl that makes a value nominal type move-only: `Dispose` on a
+/// One impl that makes a value nominal type move-only: `Drop` on a
 /// concrete receiver (`concrete_id`, the receiver's
 /// `type_id_or_empty`, the key every concrete impl registers under) or
 /// through a generic impl (`generic`, matched per instantiation).
 MoveOnlyDecl :: struct(
   concrete_id : String,
   generic : Option(GenericImplEntry),
-  /// `"Drop"`, or `"Dispose"` (its old spelling, decision 45 Generation A).
+  /// `"Drop"`.
   trait_name : String,
   owner : String
 );
@@ -1918,47 +1918,9 @@ _check_concrete_impl_coherence :: (fn(receiver_ty : &TypeValue, trait_ty : &Type
     );
     bi = (bi + usize(1));
   });
-  // `Drop` and `Dispose` are one destructor (decision 45, Generation A): a
-  // generic impl of the other spelling that covers this receiver is the
-  // same overlap. Their methods' labels differ (`drop`/`dispose`), so
-  // `_trait_instances_agree` does not apply; neither trait has parameters.
-  match(
-    _destructor_twin_of(trait_ty, env),
-    .Some(twin) => {
-      tbucket := _generic_impl_bucket(get_base_trait_key(&twin));
-      (tbi : usize) = usize(0);
-      while(tbi < tbucket.len(), tbi = (tbi + usize(1)), {
-        match(
-          tbucket.get(tbi),
-          .Some(tge) => if((tge.site != site) && try_match_generic_impl(receiver_ty, &tge, env, true).is_some(), {
-            exn.throw(dyn(format_error_message(tok, _destructor_twin_conflict_msg(trait_ty, &twin, receiver_ty, `by the generic impl at ${tge.site}, which covers it`))));
-          }),
-          .None => ()
-        );
-      });
-    },
-    .None => ()
-  );
   g_concrete_trait_impls.push(ConcreteTraitImpl(base_key : base, receiver_ty : receiver_ty, trait_ty : trait_ty, site : site));
   g_concrete_trait_impl_owners.push(registration_owner());
 });
-/// The other spelling of the destructor trait when `trait_ty` is the prelude
-/// `Drop` or `Dispose`, else `.None`.
-_destructor_twin_of :: (fn(trait_ty : &TypeValue, env : &Environment) -> Option(TypeValue))({
-  nm := move_only_declaring_trait_name(trait_ty, env);
-  cond(
-    (nm == "Drop") => get_trait_type_from_env(env, String.from("Dispose")),
-    (nm == "Dispose") => get_trait_type_from_env(env, String.from("Drop")),
-    true => Option(TypeValue).None
-  )
-});
-/// E0612 for a type given both destructor spellings
-/// (issues/fixed/a-drop-impl-beside-a-dispose-impl-is-accepted-and-one-destructor-never-runs.md):
-/// `how` says where the other one is ("(first impl: …)", "by the generic impl
-/// at …, which covers it").
-_destructor_twin_conflict_msg :: (fn(trait_ty : &TypeValue, twin : &TypeValue, receiver_ty : &TypeValue, how : String) -> String)(
-  `Trait "${type_to_string(trait_ty)}" is already implemented for type "${type_to_string(receiver_ty)}" under its other spelling, "${type_to_string(twin)}", ${how}. Drop and Dispose are one destructor until decision 45's Generation B, and a type has at most one: a second destructor would replace the first, which then never runs (plans/VALUES_BY_DEFAULT.md decision 45, plans/reference/TRAIT_COHERENCE.md).`
-);
 /// Coherence at a GENERIC trait impl: an identical impl (same receiver
 /// pattern and trait, binders renamed by position) from another site is a
 /// duplicate (rule 1), and a registered concrete impl the new entry covers is
@@ -2040,33 +2002,6 @@ _check_generic_impl_coherence :: (fn(entry : &GenericImplEntry, env : &Environme
           )
         )
       );
-    },
-    .None => ()
-  );
-  // `Drop` and `Dispose` are one destructor (decision 45, Generation A): an
-  // impl of the other spelling over the same receiver pattern, or a concrete
-  // one this impl covers, is the same conflict.
-  match(
-    _destructor_twin_of(&entry.trait_type, env),
-    .Some(twin) => {
-      twin_key := get_base_trait_key(&twin);
-      match(
-        trait_impl_site_of(String.from("generic"), `${type_to_string(substitute(&canon, &entry.receiver_type_pattern))}\n${type_to_string(&twin)}`),
-        .Some(tprev) => if(tprev != entry.site, {
-          exn.throw(dyn(format_error_message(tok, _destructor_twin_conflict_msg(&entry.trait_type, &twin, substitute(&shown, &entry.receiver_type_pattern), `(first impl: ${tprev})`))));
-        }),
-        .None => ()
-      );
-      (tci : usize) = usize(0);
-      while(tci < g_concrete_trait_impls.len(), tci = (tci + usize(1)), {
-        match(
-          g_concrete_trait_impls.get(tci),
-          .Some(tcr) => if((tcr.base_key == twin_key) && (tcr.site != entry.site) && try_match_generic_impl(&tcr.receiver_ty, entry, env, true).is_some(), {
-            exn.throw(dyn(format_error_message(tok, _destructor_twin_conflict_msg(&entry.trait_type, &twin, &tcr.receiver_ty, `(first impl: ${tcr.site}), and this generic impl covers it too`))));
-          }),
-          .None => ()
-        );
-      });
     },
     .None => ()
   );
@@ -4845,10 +4780,10 @@ evaluate_module_value :: (
         g_trait_ty_opt := _try_lookup_trait_type(&trait_fn_expr2, &forall_env, ctx, exn);
         _throw_if_deref_impl_outside_prelude(&g_trait_ty_opt, ast_expr_token(&mf_expr), &forall_env, ctx, exn);
         g_trait_ty := match(g_trait_ty_opt, .Some(t) => t, .None => t_unit());
-        // `Dispose`/`Trace` only on the receivers they accept, as
+        // `Drop`/`Trace` only on the receivers they accept, as
         // Case 3 checks through `g_check_self_constraints_fn`; a blanket
         // receiver pattern (a bare `T`) used to register unchecked and its
-        // `dispose` never ran
+        // `drop` never ran
         // (issues/fixed/generic-dispose-impl-on-a-value-type-is-accepted-and-never-runs.md).
         match(
           g_trait_ty_opt,
@@ -5366,7 +5301,7 @@ evaluate_module_value :: (
             .Some(ctt) => if(receiver_type_id != "", {
               // Self-constraint gate:
               // a trait with a `where(Self <: X)` clause can only be implemented
-              // on a receiver satisfying X, and `Dispose`/`Trace` only on the
+              // on a receiver satisfying X, and `Drop`/`Trace` only on the
               // receivers they accept — e.g. `impl(ValueStruct, Trace(...))`
               // is rejected.
               match(
@@ -5390,19 +5325,6 @@ evaluate_module_value :: (
               // (issues/fixed/yo-self-missing-duplicate-impl-checks.md).
               coh_tok := ast_expr_token(&field_expr);
               _check_copy_clone_exclusion(&receiver_ty, receiver_type_id.clone(), &ctt, _impl_site_string(&coh_tok), &coh_tok, &local_env, ctx, exn);
-              // The other destructor spelling's concrete impl on this type
-              // (decision 45, Generation A: one destructor slot).
-              match(
-                _destructor_twin_of(&ctt, &local_env),
-                .Some(coh_twin) => match(
-                  trait_impl_site_of(receiver_type_id.clone(), get_trait_key(&coh_twin)),
-                  .Some(twin_prev) => if(twin_prev != _impl_site_string(&coh_tok), {
-                    exn.throw(dyn(format_error_message(&coh_tok, _destructor_twin_conflict_msg(&ctt, &coh_twin, &receiver_ty, `(first impl: ${twin_prev})`))));
-                  }),
-                  .None => ()
-                ),
-                .None => ()
-              );
               match(
                 note_trait_impl_site(receiver_type_id.clone(), get_trait_key(&ctt), _impl_site_string(&coh_tok)),
                 .Some(coh_prev) => {
@@ -5917,15 +5839,13 @@ export(evaluate_module_value);
 // The move-only declaration functions sit after every runtime binding they
 // reach (`try_match_generic_impl` reads module globals declared below the
 // registry).
-/// `"Drop"` or `"Dispose"` when `trait_ty` is that prelude trait (by trait
-/// identity; both spellings name the destructor until decision 45's
-/// Generation B), else `""`.
+/// `"Drop"` when `trait_ty` is that prelude trait (by trait identity), else
+/// `""`.
 move_only_declaring_trait_name :: (fn(trait_ty : &TypeValue, env : &Environment) -> String)({
   key := get_trait_key(trait_ty);
   cond(
     key.is_empty() => String.new(),
     _named_trait_key_is(env, "Drop", key.clone()) => String.from("Drop"),
-    _named_trait_key_is(env, "Dispose", key.clone()) => String.from("Dispose"),
     true => String.new()
   )
 });
@@ -5935,7 +5855,7 @@ _named_trait_key_is :: (fn(env : &Environment, name : str, key : &String) -> boo
 /// The `MoveOnlyNominalFn` answer: the trait through which the value nominal
 /// `ty` declares move-only in a recorded impl, or `""`.
 nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
-  // A `Dispose` impl the lazy module walk has not forced yet (it
+  // A `Drop` impl the lazy module walk has not forced yet (it
   // sits below the first use of its type) is forced now: whether the type is
   // move-only decides how every use of it is evaluated.
   if(force_pending_move_only_impls(type_head_name_for_impl_forcing(ty)), {
@@ -5982,9 +5902,8 @@ _add_move_only_decl :: (fn(d : &MoveOnlyDecl) -> unit)({
   g_move_only_memo.clear();
   note_move_only_possible();
 });
-/// Record a concrete `impl(T, Drop(...))` (or `Dispose(...)`) on a
-/// value nominal `T` (the impl-site gate has rejected every other receiver of
-/// these two traits).
+/// Record a concrete `impl(T, Drop(...))` on a value nominal `T` (the
+/// impl-site gate has rejected every other receiver of the trait).
 note_concrete_move_only_impl :: (fn(receiver_ty : &TypeValue, trait_ty : &TypeValue, receiver_type_id : &String, env : &Environment) -> unit)({
   if(is_value_nominal_type(receiver_ty), {
     tn := move_only_declaring_trait_name(trait_ty, env);
@@ -5993,7 +5912,7 @@ note_concrete_move_only_impl :: (fn(receiver_ty : &TypeValue, trait_ty : &TypeVa
     });
   });
 });
-/// Record a generic `Drop` (or `Dispose`) impl over a value nominal pattern.
+/// Record a generic `Drop` impl over a value nominal pattern.
 note_generic_move_only_impl :: (fn(entry : &GenericImplEntry) -> unit)({
   if(is_value_nominal_type(&entry.receiver_type_pattern), {
     tn := move_only_declaring_trait_name(&entry.trait_type, &entry.definition_env);

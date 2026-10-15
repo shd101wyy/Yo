@@ -38,7 +38,7 @@ extern(
 // trivially Acyclic — opaque C types don't participate in ARC.
 impl(__YO_COND_TYPE, Send());
 impl(__YO_COND_TYPE, Acyclic());
-/// Reference-counted condition variable with automatic cleanup via `Dispose`.
+/// Reference-counted condition variable with automatic cleanup via `Drop`.
 /// Uses atomic reference counting for safe cross-thread sharing.
 Cond :: atomic(
   ref(
@@ -188,8 +188,8 @@ impl(
 );
 impl(
   Cond,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       return(__yo_cond_destroy(addr_of(self.cv)));
     })
   )

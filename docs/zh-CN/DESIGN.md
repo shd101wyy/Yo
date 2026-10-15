@@ -1124,10 +1124,15 @@ impl(
   }),
   length : (fn(self : Self) -> usize)({
     // 实现...
-  }),
-  dispose : (fn(self : Self) -> unit)({
-    // 当引用计数降为零时调用 `dispose` 函数
   })
+);
+impl(
+  MyString,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      // 当引用计数降为零时运行 `drop`
+    })
+  )
 );
 
 // 使用
@@ -1180,21 +1185,21 @@ main :: (fn() -> unit)({
 export(main);
 ```
 
-这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Dispose` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。当它是 `Copy` 时，`x.clone()` 就是复制，所以对 `fn` 指针可以写 `f.clone()`；是 `Clone` 但不是 `Copy` 的记录或闭包按字段克隆：`Copy` 的部分被复制，其余部分被克隆。闭包的组成部分就是它的捕获记录，与 Rust 相同：按值捕获按其自身类型计算（列出的 `{ s }`，以及隐式捕获——绑定到名字的闭包拥有它捕获的东西），`&` 捕获是指针，因此是 `Copy`，`&mut` 捕获使闭包既不是 `Copy` 也不是 `Clone`。所以拥有 `String` 的闭包是 `Clone` 而不是 `Copy`：`d := c` 会移动它，`c.clone()` 则得到持有自己 `String` 的第二个闭包。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
+这个 impl 会被检查。必须有一个覆盖相同实例化的 `Clone` impl，而编译器从不替你写：单独的 `derive(T, Copy)` 是错误，错误信息会给出 `derive(T, Copy, Clone)`。每个字段和变体载荷都必须是 `Copy`，错误信息会指出第一个不是的部分（`its field \`name\` has type \`String\``）。实现了 `Drop` 的类型不能是 `Copy`（无论两个 impl 的先后顺序），引用类型也不能。`derive(T, Clone)` 总是允许的（对 `Copy` 字段逐字段克隆就是按位复制），这也是只在约束下才是 `Copy` 的类型在每个实例化上获得 `clone()` 的写法：`derive(generic(T : Type), where(T <: Clone), Pair(T), Clone)`——派生的 clone 会对字段调用 `.clone()`，所以需要这个约束——再加上 `derive(generic(T : Type), where(T <: Copy), Pair(T), Copy)`，使 `Pair(i32)` 被隐式复制，`Pair(String)` 被显式克隆。只有在 impl 服务的每个实例化都是 `Copy` 的类型上（例如具体的 `Copy` 类型），手写的 `Clone` impl 才是错误；同时服务于非 `Copy` 类型的泛型 impl（例如 prelude 中 `Option(T)` 的）是允许的。元组、`Array(T, N)`、匿名记录、闭包和 `fn` 指针没有可以标注的声明，所以它们在所有组成部分都是 `Copy`（`Clone`）时才是 `Copy`（`Clone`）。当它是 `Copy` 时，`x.clone()` 就是复制，所以对 `fn` 指针可以写 `f.clone()`；是 `Clone` 但不是 `Copy` 的记录或闭包按字段克隆：`Copy` 的部分被复制，其余部分被克隆。闭包的组成部分就是它的捕获记录，与 Rust 相同：按值捕获按其自身类型计算（列出的 `{ s }`，以及隐式捕获——绑定到名字的闭包拥有它捕获的东西），`&` 捕获是指针，因此是 `Copy`，`&mut` 捕获使闭包既不是 `Copy` 也不是 `Clone`。所以拥有 `String` 的闭包是 `Clone` 而不是 `Copy`：`d := c` 会移动它，`c.clone()` 则得到持有自己 `String` 的第二个闭包。`Rc`、`Arc`、`String`、各种集合和 `Dyn` 永远不是。裸指针的 `p.clone()` 复制的是指针本身，而不是它指向的值；如果被指向类型的字段与指针自身的方法同名（`clone`、`add`、`sub`、`offset_from`），`p.m(...)` 是错误，错误信息会给出指向字段的写法 `p.*.m(...)`，对指针的 clone 则给出复制写法 `q := p`。
 
 `Copy` 是规则（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)，决定 36）。不是 `Copy` 的纯数据类型只能显式复制：`q := p` 会移动一个没有 `Copy` 的 `Point`，之后再使用 `p` 就是 E0901，其提示会给出 `derive(Point, Copy, Clone)` 和 `p.clone()`。`&T` 参数或 `match` 绑定只是借用这样的值，所以在那里存储或返回它也是 E0901；要拥有它，请按值接受参数（`p : Point`，不写 `&`）。仅编译期类型、`Exception` 之类绑定控制流的记录、union、C 不透明类型，以及 `Copy` 类型的精化类型，仍然隐式复制。
 
 #### 只能移动的值
 
-资源（文件描述符、锁、套接字）是不能被复制的值：两份副本会把它释放两次。实现了 `Dispose` 的值类型（`struct`、`enum`、`newtype`）是**只能移动的**（move-only），既不是 `Copy` 也不是 `Clone` 的纯值类型也是（必须保持唯一的令牌不需要 `Dispose`：两者都不声明即可），包含这种值的每个值也是：结构体字段、枚举载荷、元组或数组元素、闭包捕获。`Option(Fd)` 和 `Tuple(Fd, i32)` 都是只能移动的。引用类型（`ref(struct(...))`、`Rc`、`Arc`）无论包含什么都不是，因为它的副本共享同一个单元；它的 `Dispose` 在计数归零时运行一次。
+资源（文件描述符、锁、套接字）是不能被复制的值：两份副本会把它释放两次。实现了 `Drop` 的值类型（`struct`、`enum`、`newtype`）是**只能移动的**（move-only），既不是 `Copy` 也不是 `Clone` 的纯值类型也是（必须保持唯一的令牌不需要 `Drop`：两者都不声明即可），包含这种值的每个值也是：结构体字段、枚举载荷、元组或数组元素、闭包捕获。`Option(Fd)` 和 `Tuple(Fd, i32)` 都是只能移动的。引用类型（`ref(struct(...))`、`Rc`、`Arc`）无论包含什么都不是，因为它的副本共享同一个单元；它的 `Drop` 在计数归零时运行一次。
 
 ```yo
 { println } :: import("std/fmt");
 Fd :: struct(n : i32);
 impl(
   Fd,
-  Dispose(
-    dispose : (fn(self : Self) -> unit)(println(`closing ${self.n}`)) // 真实的实现会关闭这个描述符
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(println(`closing ${self.n}`)) // 真实的实现会关闭这个描述符
   )
 );
 
@@ -1206,20 +1211,20 @@ main :: (fn() -> unit)({
   n := peek(&a); // 借用；`a` 仍可使用
   b := a; // 把 `a` 移动到 `b`
   // a.n           // E0901：使用了被移动的值：`a`
-  keep(b); // 移动 `b`；`keep` 返回时把它 dispose
+  keep(b); // 移动 `b`；`keep` 返回时把它 drop
 });
 export(main);
 ```
 
-每个复制点都会移动只能移动的值：`:=`、`=`、`sink` 实参、字段或元素写入、构造器实参、返回以及闭包捕获。移动之后再使用就是 E0901，其说明会指出该类型为什么只能移动。只能移动的值也不能从并不拥有它的存储中复制出来：`&T` 参数以及 `match`/`for` 绑定只是借用它，字段属于其持有者（没有部分移动），模块级绑定永远不会被移动。在 `cond`/`match` 的部分分支中被移动的值，会在每个保留它的分支末尾被 drop，所以在各分支汇合处它在每条路径上都已不存在，之后再使用就是 E0901（这是 Rust drop 标志的静态形式：分支是结构化的，不需要运行时标志）。在循环的各个出口汇合处，值仍然必须要么在所有出口上都被移动，要么都不被移动（E0907）。赋值语句（`x = y;`、`h.f = y;`、`xs(i) = y;`）会在写入后立即 drop 旧值，与 Rust 一致；`old := (x = y)` 则把旧值保存在 `old` 中。它唯一的所有者在 drop 它时恰好运行一次 `dispose`，然后 drop 它的字段。实现了 `Clone` 的类型用 `x.clone()` 显式复制；要共享一个值，请把它放在引用类型之后。
+每个复制点都会移动只能移动的值：`:=`、`=`、`sink` 实参、字段或元素写入、构造器实参、返回以及闭包捕获。移动之后再使用就是 E0901，其说明会指出该类型为什么只能移动。只能移动的值也不能从并不拥有它的存储中复制出来：`&T` 参数以及 `match`/`for` 绑定只是借用它，字段属于其持有者（没有部分移动），模块级绑定永远不会被移动。在 `cond`/`match` 的部分分支中被移动的值，会在每个保留它的分支末尾被 drop，所以在各分支汇合处它在每条路径上都已不存在，之后再使用就是 E0901（这是 Rust drop 标志的静态形式：分支是结构化的，不需要运行时标志）。在循环的各个出口汇合处，值仍然必须要么在所有出口上都被移动，要么都不被移动（E0907）。赋值语句（`x = y;`、`h.f = y;`、`xs(i) = y;`）会在写入后立即 drop 旧值，与 Rust 一致；`old := (x = y)` 则把旧值保存在 `old` 中。它唯一的所有者在 drop 它时恰好运行一次 `drop`，然后 drop 它的字段。实现了 `Clone` 的类型用 `x.clone()` 显式复制；要共享一个值，请把它放在引用类型之后。
 
 泛型函数在每次实例化时检查：`ArrayList(Fd).get(i)` 会把元素复制出来，所以这个实例化是 E0901，报告在调用处。`std/` 目前还没有使用只能移动的类型：它的资源仍是引用类型，会在[值语义计划](../../plans/VALUES_BY_DEFAULT.md)的后续步骤中变成只能移动的值。
 
-#### `Drop`：`Dispose` 即将采用的新名字
+#### 析构函数：`Drop`
 
-`Dispose` 正在更名为 `Drop`，其方法 `dispose` 改为 `drop`，并采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）。含义不变：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。（在更名之前，`Dispose.dispose` 仍是 `self : &Self`。）编译器已经接受两种写法，并把它们视为同一个析构函数：`Drop` impl 满足 `where(T <: Dispose)` 约束和 `Type.impls(T, Dispose)`，反之亦然；一个类型只有一个析构函数，因此在已有一种写法的类型上实现另一种写法（包括 std 为 `ArrayList(T)` 提供的 `Dispose` impl）是错误 E0612。等发布的种子编译器认识 `Drop` 后，`std/` 和本文档会改用 `Drop`，`yo fix <path> --migrate drop-trait` 会改写整个项目（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`；不是析构函数的 `.dispose` 成员，例如同名的固有方法或字段，保持原样）。
+`Drop` 是析构 trait，其方法 `drop` 采用 Rust 的语义（[值语义计划](../../plans/VALUES_BY_DEFAULT.md)，决策 45）：析构函数会自动运行且恰好运行一次——在所有者 drop 该值时，或在最后一个 `Rc`/`Arc` 引用消失时；实现它的值类型是只能移动的。它的接收者与 Rust 的 `drop(&mut self)` 一致：`drop : (fn(self : &mut Self) -> unit)`，因此析构函数可以在字段被 drop 之前把某个字段取出或重置（`self.f = .None`），而声明为 `self : &Self` 的 impl 不符合该 trait。它以前名为 `Dispose`，编译器已不再识别这个名字；`yo fix <path> --migrate drop-trait` 会改写旧代码（`Dispose` → `Drop`、`dispose` → `drop`，以及 `x.dispose()` → `drop(x)`；不是析构函数的 `.dispose` 成员，例如同名的固有方法或字段，保持原样）。
 
-手动调用析构函数是错误 E0915，两种写法都是，与 Rust 相同：`x.drop()`、`Fd.drop(&x)`、`(Fd <: Drop).drop(&x)` 和 `x.dispose()` 会在值仍然存活时再运行一次析构函数。把它当作值读取（`f := Fd.drop`）也是 E0915，因为通过 `f` 调用会造成同样的结果。其他 trait 中恰好名为 `drop` 的方法是普通方法，可以直接调用，也可以通过 `Dyn` 调用。析构函数也不调用其字段的析构函数：字段会在它返回后自行 drop。要提前结束一个值，请把它传给 prelude 的 `drop(x)`：它把值移入，并在调用返回时 drop 它；之后再使用 `x` 是 E0901。
+手动调用析构函数是错误 E0915，与 Rust 相同：`x.drop()`、`Fd.drop(&x)` 和 `(Fd <: Drop).drop(&x)` 会在值仍然存活时再运行一次析构函数。把它当作值读取（`f := Fd.drop`）也是 E0915，因为通过 `f` 调用会造成同样的结果。其他 trait 中恰好名为 `drop` 的方法是普通方法，可以直接调用，也可以通过 `Dyn` 调用。析构函数也不调用其字段的析构函数：字段会在它返回后自行 drop。要提前结束一个值，请把它传给 prelude 的 `drop(x)`：它把值移入，并在调用返回时 drop 它；之后再使用 `x` 是 E0901。
 
 ```yo
 { println } :: import("std/fmt");
@@ -2510,7 +2515,7 @@ leaves :: (fn(t : Tree) -> i32)(
 
 ```yo
 Fd :: struct(n : i32);
-impl(Fd, Dispose(dispose : (fn(imm(self) : Self) -> unit)(())));
+impl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(())));
 Two :: enum(Two(a : Fd, b : Fd), Zero);
 
 take :: (fn(f : Fd) -> i32)(f.n);
@@ -4196,12 +4201,10 @@ MyBox :: ref(
 );
 impl(
   MyBox,
-  Dispose(
-    dispose : (
-      self -> {
-        printf("Disposing MyBox with value: %d\n", self.*);
-      }
-    )
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      printf("Disposing MyBox with value: %d\n", self.*);
+    })
   )
 );
 
@@ -4211,7 +4214,7 @@ test("Object disposal", {
   assert(b.* == 42);
   b.* = 100;
   assert(b.* == 100);
-  // 此处自动调用 dispose()；手动调用它是 E0915
+  // 此处自动运行 drop；手动调用它是 E0915
 });
 ```
 

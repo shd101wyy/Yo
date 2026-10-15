@@ -17,7 +17,7 @@
 //! additions as breaking changes in review even though the compiler will not
 //! call them that.
 //!
-//! Broadly stable: the core traits (`Clone`, `Eq`, `Ord`, `Hash`, `Dispose`,
+//! Broadly stable: the core traits (`Clone`, `Eq`, `Ord`, `Hash`, `Drop`,
 //! `Send`, the operator traits), `Option`, `Result`, `Rc`, `Range`,
 //! the numeric types and their inherent methods, and the async vocabulary
 //! (`Io`, `Future`, `JoinHandle`). These have Rust's names and meanings and
@@ -284,41 +284,21 @@ Acyclic :: trait(
   id := "Acyclic"
 );
 export(Acyclic);
-/// Dispose trait - defines a dispose method for cleaning up resources.
-/// A value type (`struct`, `enum`, `newtype`) that implements it is
-/// move-only, and so is every value holding one (a field, a variant payload,
-/// a tuple or array element, a closure capture): it is never `Copy`, its one
-/// owner runs `dispose` exactly once, when it drops the value, and a copy is
-/// E0901. A plain value type that is neither `Copy` nor `Clone` is moved too
-/// (decision 36): that is how a token with no `Dispose` stays unique. A reference type (`ref(struct(...))`, `ref(enum(...))`
-/// and their `atomic(...)` forms) may implement it too: its copies share one
-/// cell, and `dispose` runs when the count reaches zero. No other type may
-/// implement it; the compiler checks this at the `impl`.
-Dispose :: trait(
-  id := "Dispose",
-  /// Release the resources `self` owns — a file descriptor, a socket, a lock,
-  /// a buffer the allocator handed out. Called automatically when the value's
-  /// owner drops it (a value type) or the last reference to it goes away (a
-  /// reference type), so an implementor never calls it directly and must
-  /// tolerate being the only one who ever does.
-  ///
-  /// It must be safe to run exactly once, and a type that also exposes an
-  /// explicit `close`/`release` is responsible for making the second call a
-  /// no-op.
-  dispose : (fn(self : &Self) -> unit)
-);
-export(Dispose);
 /// Drop trait — the destructor, Rust's `Drop` (plans/VALUES_BY_DEFAULT.md
-/// decision 45). It is `Dispose` under its new name and with the same
-/// meaning: `drop` runs automatically when the value's owner drops it (a value
-/// type, which a `Drop` impl makes move-only) or the last reference to it goes
-/// away (a reference type), and only those types may implement it. Calling
-/// `drop` by hand — `x.drop()`, `(T <: Drop).drop(&x)` — is error E0915, as
-/// it is in Rust; the free function `drop(x)` ends a value early.
-///
-/// Generation A: the compiler recognizes both spellings, and std keeps
-/// `Dispose` until the seed knows `Drop` (`yo fix <path> --migrate
-/// drop-trait` rewrites a project).
+/// decision 45). `drop` runs automatically, exactly once, when the value's
+/// owner drops it (a value type) or the last reference to it goes away (a
+/// reference type). A value type (`struct`, `enum`, `newtype`) that
+/// implements it is move-only, and so is every value holding one (a field, a
+/// variant payload, a tuple or array element, a closure capture): it is never
+/// `Copy`, and a copy is E0901. A plain value type that is neither `Copy` nor
+/// `Clone` is moved too (decision 36): that is how a token with no `Drop`
+/// stays unique. A reference type (`ref(struct(...))`, `ref(enum(...))` and
+/// their `atomic(...)` forms) may implement it too: its copies share one
+/// cell, and `drop` runs when the count reaches zero. No other type may
+/// implement it; the compiler checks this at the `impl`. Calling `drop` by
+/// hand — `x.drop()`, `(T <: Drop).drop(&x)` — is error E0915, as it is in
+/// Rust; the free function `drop(x)` ends a value early. Its old name was
+/// `Dispose` (`yo fix <path> --migrate drop-trait` rewrites old code).
 Drop :: trait(
   id := "Drop",
   /// Release the resources `self` owns. Called automatically, exactly once,
@@ -331,7 +311,7 @@ Drop :: trait(
 );
 export(Drop);
 /// End `x`'s life now: `x` is moved in and dropped when the call returns,
-/// running its `Drop` (or `Dispose`) impl and releasing what it owns — Rust's
+/// running its `Drop` impl and releasing what it owns — Rust's
 /// `mem::drop`. A use of `x` afterwards is a use of a moved value (E0901).
 drop :: (fn(generic(T : Type), sink(x) : T) -> unit)(());
 export(drop);
@@ -364,7 +344,7 @@ impl(
 /// `Option` and all value types); hand-implemented for containers whose elements
 /// live in a heap buffer (`ArrayList`, `HashMap`, …). The constructor wires
 /// `header.traverse_fn` to this `trace`.
-/// Like `Dispose`, only a reference type may implement it (checked at the
+/// Like `Drop`, only a reference type may implement it (checked at the
 /// `impl`).
 Trace :: trait(
   id := "Trace",
@@ -1023,7 +1003,7 @@ export(Clone);
 /// derive's clone calls `.clone()` on its fields, so it needs the bound.
 /// The impl is checked: every
 /// field, variant payload and element must be `Copy`, and the type must not
-/// implement `Dispose` (a copy would dispose twice).
+/// implement `Drop` (a copy would dispose twice).
 /// A hand-written `Clone` is an error only on a type that is `Copy` for
 /// every instantiation it serves: there `clone()` is the copy, so the
 /// derived, field-wise clone is the only spelling.
@@ -9929,9 +9909,9 @@ impl(
 impl(
   generic(T : Type),
   Box(T),
-  Dispose(
+  Drop(
     /// Drops the payload, then frees the cell through its owner prefix.
-    dispose : (fn(self : &Self) -> unit)({
+    drop : (fn(self : &mut Self) -> unit)({
       // SAFETY: the box is the cell's only owner, and this runs once.
       unsafe.drop(unsafe(self._cell.*));
       block := _box_owner_of((*void)(self._cell));
@@ -10099,7 +10079,7 @@ Arc :: (fn(comptime(V) : Type, where(V <: (Send, Sync, Acyclic))) -> comptime(Ty
 arc :: (fn(generic(V : Type), sink(value) : V, where(V <: (Send, Sync, Acyclic))) -> Arc(V))(Arc(V)(value));
 // `Sync` because every handle reads the payload from its own thread; `Send`
 // because the last handle may be dropped on any thread, and the payload's
-// `Dispose` then runs there (plans/VALUES_BY_DEFAULT.md §3.8, as Rust's
+// `Drop` then runs there (plans/VALUES_BY_DEFAULT.md §3.8, as Rust's
 // `Arc<T>: Send + Sync` needs `T: Send + Sync`); `Acyclic` because an `Arc`
 // cycle is never collected. `Arc(T)` is then `Send` and `Sync` itself. The
 // impls are explicit because the atomic-object derivation asks the payload
@@ -10429,7 +10409,7 @@ export(TryInto);
 // define an equivalent macro locally under `pragma(Pragma.AllowMacroDef);`
 // (tests/macro_def_pragma.test.yo keeps a working three-line version).
 /// The borrowed `for`'s loop-scoped borrow flag: `__borrow_guard(coll)`
-/// acquires `coll`'s `borrow_count` and the guard's `Dispose` releases it
+/// acquires `coll`'s `borrow_count` and the guard's `Drop` releases it
 /// when the loop's block ends — on fall-through, `break`, `return` and effect
 /// `unwind` alike (the same scope-exit path `Mutex.with_lock`'s unlocker
 /// rides). While the flag is held, every container operation that could
@@ -10444,8 +10424,8 @@ __BorrowGuard :: (fn(comptime(C) : Type) -> comptime(Type))(
 impl(
   generic(C : Type),
   __BorrowGuard(C),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       __yo_borrow_release(&self._c);
     })
   )
@@ -10564,7 +10544,7 @@ for :: (
                 // decision 2): the collection is bound to a hidden local (the
                 // PIN — it cannot be freed while the loop runs), the runtime
                 // borrow flag is held for the whole loop by a guard whose
-                // Dispose releases it on every exit (fall-through, `break`,
+                // Drop releases it on every exit (fall-through, `break`,
                 // `return`, effect `unwind`), and each element is bound as an
                 // `mut` local through the pointer iterator `iter()`. A
                 // container operation that could invalidate the element
@@ -12717,7 +12697,7 @@ export(FutureState);
 /// Generic over `T`, the return type of the spawned task.
 ///
 /// A move-only value (plans/VALUES_BY_DEFAULT.md §3.13 A3): the handle OWNS
-/// one reference to the task's future, and its `Dispose` releases it. It has
+/// one reference to the task's future, and its `Drop` releases it. It has
 /// no `Clone`, so one task has one handle. Awaiting it (`h.await(io)`,
 /// `io.await(h.join(io), io)`) CONSUMES it: the result moves out of the task,
 /// and a second await of the same handle is a use after move (E0901). A
@@ -12811,8 +12791,8 @@ impl(
   JoinHandle(T),
   /// Dropping the handle releases its reference to the task's future: an
   /// unawaited task is detached, and keeps running until it finishes.
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(
       __yo_join_handle_release_raw((*void)(self.__future))
     )
   )

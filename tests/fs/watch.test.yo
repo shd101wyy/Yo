@@ -144,7 +144,7 @@ _probe_fd :: (fn(path : &String, io : Io) -> i32)({
   io.await(file.close(fd), io);
   fd
 });
-// Regression: `Watcher` shipped a `close()` and no `Dispose`, so a dropped
+// Regression: `Watcher` shipped a `close()` and no `Drop`, so a dropped
 // watcher never unregistered — leaking the backend's `__yo_fs_event_t` and its
 // descriptors, AND leaving the event loop holding a raw non-owning pointer to
 // freed memory

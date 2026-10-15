@@ -150,10 +150,10 @@ test("TempFile.remove is idempotent", {
   unsafe(printf("  second remove ok\n"));
 });
 // ============================================================================
-// Dispose (S0 C12, plans/archive/STD_API_AUDIT.md §2): dropping a TempDir/TempFile
+// Drop (S0 C12, plans/archive/STD_API_AUDIT.md §2): dropping a TempDir/TempFile
 // without calling remove() must clean it up best-effort.
 // ============================================================================
-test("TempDir Dispose removes the directory on drop", {
+test("TempDir Drop removes the directory on drop", {
   exn := Exception(
     throw : (
       err -> {
@@ -170,9 +170,9 @@ test("TempDir Dispose removes the directory on drop", {
     assert(e, "temp dir exists while the TempDir is alive");
   };
   e2 := io.await(fs_file.exists(&p, io), io);
-  assert(!e2, "temp dir is removed by Dispose on drop");
+  assert(!e2, "temp dir is removed by Drop on drop");
 });
-test("TempFile Dispose removes the file on drop", {
+test("TempFile Drop removes the file on drop", {
   exn := Exception(
     throw : (
       err -> {
@@ -189,9 +189,9 @@ test("TempFile Dispose removes the file on drop", {
     assert(e, "temp file exists while the TempFile is alive");
   };
   e2 := io.await(fs_file.exists(&p, io), io);
-  assert(!e2, "temp file is removed by Dispose on drop");
+  assert(!e2, "temp file is removed by Drop on drop");
 });
-test("TempDir Dispose after remove is a no-op", {
+test("TempDir Drop after remove is a no-op", {
   exn := Exception(
     throw : (
       err -> {

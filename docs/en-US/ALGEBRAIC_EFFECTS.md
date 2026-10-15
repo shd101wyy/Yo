@@ -121,7 +121,7 @@ at the top, then flow through any number of forwarding layers.
 #### An unwind skips the code after the call
 
 On its way out, `unwind` releases the values the frames it leaves own (their
-`Dispose` impls run), and runs no other code. In the install frame, every
+`Drop` impls run), and runs no other code. In the install frame, every
 statement after the call that raised is skipped, and so is the rest of every
 propagating frame in between. A save/restore of mutable state around the
 guarded call therefore never restores on the failure path:

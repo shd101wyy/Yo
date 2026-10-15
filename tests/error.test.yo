@@ -262,13 +262,13 @@ test("comptime call after exn.throw in a match arm compiles and unwinds", {
 // `box`, whose `own(value)` parameter never released the reference the caller
 // transferred in — so every thrown `AnyError` payload leaked. A LOOP makes the
 // per-throw leak unbounded, which is what made this the highest-traffic leak in
-// the language. The `Dispose` counter observes each payload's release.
+// the language. The `Drop` counter observes each payload's release.
 (g_thrown_payload_disposed : i32) = i32(0);
 ThrownRes :: ref(struct(tag : i32));
 impl(
   ThrownRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_thrown_payload_disposed = (g_thrown_payload_disposed + i32(1));
     })
   )
@@ -310,13 +310,13 @@ test("every AnyError payload thrown in a loop is released", {
 // The escape path emitted only the statement temps' drops, so the moved-out
 // local itself leaked on every unwind (measured ~550 B per rejected parse in
 // the parser's own tests, including the 40-byte ArrayList(AstExpr) node the
-// issue names). The `Dispose` counter observes the release.
+// issue names). The `Drop` counter observes the release.
 (g_moved_out_local_disposed : i32) = i32(0);
 MovedOutRes :: ref(struct(tag : i32));
 impl(
   MovedOutRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_moved_out_local_disposed = (g_moved_out_local_disposed + i32(1));
     })
   )

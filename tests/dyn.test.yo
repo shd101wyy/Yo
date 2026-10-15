@@ -24,8 +24,8 @@ MyBox :: ref(
 );
 impl(
   MyBox,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       unsafe(printf("Disposing Boxed i32 with value: %d\n", self.x));
     })
   )
@@ -312,13 +312,13 @@ test("Dyn(trait) with a Future-returning method dispatches through the vtable", 
 // body's store still emitted the balancing `___dup`. Every value boxed into a
 // `Dyn` therefore kept a reference nobody owned and was never released.
 // `AnyError` is `Dyn(Error)`, so it leaked on every thrown error. The
-// `Dispose` counter observes the release directly.
+// `Drop` counter observes the release directly.
 (g_dyn_payload_disposed : i32) = i32(0);
 DynPayloadRes :: ref(struct(tag : i32));
 impl(
   DynPayloadRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_dyn_payload_disposed = (g_dyn_payload_disposed + i32(1));
     })
   )

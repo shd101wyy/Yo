@@ -196,7 +196,7 @@ impl(
   ),
   /// Stop the native watch. Queued events stay readable through `poll`;
   /// `next` no longer waits. Idempotent, and called for you when the last
-  /// reference to the watcher goes away (`Dispose` below).
+  /// reference to the watcher goes away (`Drop` below).
   close : (fn(self : &Self) -> unit)({
     if(self._active, {
       self._active = false;
@@ -247,8 +247,8 @@ impl(
   /// non-owning `user_data` sound: the callback cannot outlive the object,
   /// because the object's own teardown removes it.
   /// (issues/fixed/a-dropped-watcher-leaves-the-event-loop-calling-freed-memory.md)
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(self.close())
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(self.close())
   )
 );
 export(FsEventKind, FsEvent, WatchOptions, Watcher, watch);

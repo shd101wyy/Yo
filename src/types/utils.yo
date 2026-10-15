@@ -418,8 +418,7 @@ type_implements_runtime :: (fn(ty : &TypeValue) -> bool)(
 // ---------------------------------------------------------------------------
 /// Answers whether a value nominal type (a `struct`, `enum` or `newtype` that
 /// is not a reference type) itself declares move-only, and through which
-/// trait: `"Drop"` or `"Dispose"` (its pre-decision-45 spelling, recognized
-/// until Generation B; `is_drop_trait_name`), concretely or through a generic impl
+/// trait: `"Drop"` (`is_drop_trait_name`), concretely or through a generic impl
 /// whose receiver pattern matches it; `""` when it does not. Installed at
 /// init (the impl registries live above this module) and consulted only once
 /// `note_move_only_possible` has run, so a program with no such impl pays one
@@ -431,7 +430,7 @@ MoveOnlyNominalFn :: (fn(ty : &TypeValue) -> String);
 set_move_only_nominal_fn :: (fn(f : Option(MoveOnlyNominalFn)) -> unit)({
   g_move_only_nominal_fn = f;
 });
-/// Set once some `impl` that declares `Dispose` has been seen
+/// Set once some `impl` that declares `Drop` has been seen
 /// (registered, or recorded pending by the lazy module walk): until then no
 /// type is move-only, and the move-only checks skip their work. Never
 /// cleared: it only gates a fast path.
@@ -747,18 +746,16 @@ _nominal_move_only_trait :: (fn(ty : &TypeValue) -> String)(
   )
 );
 _nominal_declares_move_only :: (fn(ty : &TypeValue) -> bool)(!_nominal_move_only_trait(ty).is_empty());
-/// The destructor trait's names: `Drop` (plans/VALUES_BY_DEFAULT.md decision
-/// 45) and `Dispose`, its old spelling. Generation A recognizes both, so a
-/// released seed that knows only `Dispose` still builds std; Generation B
-/// deletes `Dispose` and this second name.
-is_drop_trait_name :: (fn(name : &String) -> bool)((name == "Drop") || (name == "Dispose"));
-/// The destructor method's names, `drop` and `dispose`, paired with
-/// `is_drop_trait_name`.
-is_drop_method_name :: (fn(name : &String) -> bool)((name == "drop") || (name == "dispose"));
-/// Is `label` the destructor method of `trait_ty`: `drop`/`dispose` of the
-/// prelude `Drop`/`Dispose` trait? Only that member is left out of a Dyn
-/// vtable (the synthesized `___dispose` runs it); a method of another trait
-/// that happens to be named `drop` or `dispose` is an ordinary slot
+/// The destructor trait's name, `Drop` (plans/VALUES_BY_DEFAULT.md decision
+/// 45). Its old spelling, `Dispose`, is gone since Generation B; only
+/// `yo fix --migrate drop-trait` still reads it (`calls/function.yo`).
+is_drop_trait_name :: (fn(name : &String) -> bool)(name == "Drop");
+/// The destructor method's name, `drop`, paired with `is_drop_trait_name`.
+is_drop_method_name :: (fn(name : &String) -> bool)(name == "drop");
+/// Is `label` the destructor method of `trait_ty`: `drop` of the prelude
+/// `Drop` trait? Only that member is left out of a Dyn vtable (the
+/// synthesized `___dispose` runs it); a method of another trait that happens
+/// to be named `drop` is an ordinary slot
 /// (issues/fixed/a-trait-method-named-drop-is-left-out-of-every-dyn-vtable.md).
 /// Codegen has no environment, so the trait is recognized by the name its
 /// prelude binding gave it.
@@ -865,7 +862,7 @@ _type_is_move_only_inner :: (fn(ty_in : &TypeValue, depth : u32) -> bool)({
   )
 });
 /// True if a value of `ty` cannot be copied, only moved (§3.4): a value
-/// nominal type implementing `Dispose`, or a value aggregate
+/// nominal type implementing `Drop`, or a value aggregate
 /// (struct, enum, tuple, array, closure capture struct) with a move-only
 /// component. A reference type never is. `type_contains_rc_type` is true
 /// for every move-only type, so the ownership machinery (temps, drops,
@@ -879,7 +876,7 @@ type_is_move_only :: (fn(ty : &TypeValue) -> bool)(
 /// §3.4 and the three kinds of type: implicitly copyable, explicit-copy,
 /// move-only). The move points, use-after-move (E0901), flow joins, the
 /// no-partial-moves rule and closure-capture moves all key on this predicate;
-/// only "may it be copied with `.clone()`" and the `Dispose` rule key on
+/// only "may it be copied with `.clone()`" and the `Drop` rule key on
 /// `type_is_move_only`, its strict sub-case. It holds for move-only types and,
 /// since decision 36's flip, for a plain-data type that is not `Copy`. A
 /// value owning a buffer (`String`, the collections, `Dyn`) joins in V2b's
@@ -968,7 +965,7 @@ _nominal_lacks_copy :: (fn(ty : &TypeValue) -> bool)(
 type_requires_explicit_copy :: (fn(ty : &TypeValue) -> bool)(type_is_move_only(ty) || _plain_data_lacks_copy(ty));
 /// Why `ty` is move-only, for the E0901 note: the declaring type and trait,
 /// reached through the component path ("`Holder` holds a move-only value in
-/// its field `fd` (`Fd`): `Fd` implements Dispose"). `.None` when it is not
+/// its field `fd` (`Fd`): `Fd` implements Drop"). `.None` when it is not
 /// move-only.
 move_only_reason :: (fn(ty : &TypeValue) -> Option(String))(
   cond(g_move_only_possible => _move_only_reason_inner(ty, u32(0)), true => Option(String).None)
@@ -1071,7 +1068,7 @@ _type_contains_rc_inner :: (fn(ty_in : &TypeValue, depth : u32, flip : bool) -> 
     (depth > u32(8)) => false,
     // Direct RC type
     is_rc_type(&ty) => true,
-    // A move-only value (§3.4) has a drop to run (its `dispose`) and an
+    // A move-only value (§3.4) has a drop to run (its `drop`) and an
     // owner to track, exactly like an RC value; its fields are walked below.
     _nominal_declares_move_only(&ty) => true,
     // A closure with a `mut` capture is move-only too (decision 35).
@@ -1527,7 +1524,7 @@ value_type_owns_buffer :: (fn(ty : &TypeValue) -> bool)(
   )
 );
 /// A buffer-owning value (`value_type_owns_buffer`) that also declares a
-/// destructor (`Drop`/`Dispose`) of its own, so it frees the buffer: an
+/// destructor (`Drop`) of its own, so it frees the buffer: an
 /// owner, as opposed to a view such as an iterator holding a `?*E` into
 /// someone else's buffer.
 value_type_owns_buffer_outright :: (fn(ty : &TypeValue) -> bool)(

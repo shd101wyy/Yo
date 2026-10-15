@@ -954,10 +954,10 @@ impl(
   generic(K : Type, V : Type),
   where(K <: (Eq(K), Hash)),
   HashMap(K, V),
-  Dispose(
+  Drop(
     /// Drops every live entry and frees the control and bucket arrays. Runs
     /// when the last reference to the map goes away.
-    dispose : (fn(self : &Self) -> unit)({
+    drop : (fn(self : &mut Self) -> unit)({
       // Drop all occupied buckets before freeing memory
       cond(
         (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {

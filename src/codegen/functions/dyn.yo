@@ -27,9 +27,9 @@ _func_val_id :: (fn(v : &EvalValue) -> String)(
   match(v, .FuncVal(__fvd1, _) => __fvd1.*.func_id, _ => String.from(""))
 );
 /// True for the reserved dyn-method labels (___dup/___drop/___dispose), and
-/// for the destructor trait's own method (`drop`/`dispose` of the prelude
-/// `Drop`/`Dispose`, decision 45), which the box's `___dispose` runs. A method
-/// of another trait named `drop` or `dispose` keeps its slot.
+/// for the destructor trait's own method (`drop` of the prelude `Drop`,
+/// decision 45), which the box's `___dispose` runs. A method of another trait
+/// named `drop` keeps its slot.
 _is_reserved_dyn_label :: (fn(label : &String, trait_ty : Option(TypeValue)) -> bool)(
   (label == "___dup") || (label == "___drop") || (label == "___dispose") || match(trait_ty, .Some(t) => is_destructor_trait_member(&t, label), .None => false)
 );

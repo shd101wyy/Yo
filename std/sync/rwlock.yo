@@ -16,7 +16,7 @@
 //!   cell.
 //!
 //! The private `__RwLockReadUnlocker` / `__RwLockWriteUnlocker` objects
-//! release the lock from their `Dispose` impl, so the release happens on a
+//! release the lock from their `Drop` impl, so the release happens on a
 //! normal return, on an early `return`, and on an `unwind` alike.
 //!
 //! ## Example
@@ -90,7 +90,7 @@ RwLock :: (fn(comptime(T) : Type, where(T <: (Send, Sync, Acyclic))) -> comptime
 impl(generic(T : Type), where(T <: (Send, Sync, Acyclic)), RwLock(T), Acyclic());
 
 // __RwLockReadUnlocker / __RwLockWriteUnlocker — private objects that release
-// the corresponding acquisition on Dispose. Allocated locally inside
+// the corresponding acquisition on Drop. Allocated locally inside
 // with_read / with_write; Yo's drop-on-scope-exit and drop-on-unwind machinery
 // guarantees the release under a normal return and an unwind(...) alike.
 // Mirrors `__MutexUnlocker` in ./mutex.
@@ -105,8 +105,8 @@ impl(
   generic(T : Type),
   where(T <: (Send, Sync, Acyclic)),
   __RwLockReadUnlocker(T),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       self._lock._raw_read_unlock();
     })
   )
@@ -123,8 +123,8 @@ impl(
   generic(T : Type),
   where(T <: (Send, Sync, Acyclic)),
   __RwLockWriteUnlocker(T),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       self._lock._raw_write_unlock();
     })
   )

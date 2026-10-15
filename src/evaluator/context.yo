@@ -1894,11 +1894,11 @@ set_copy_trait_blockers_fn :: (fn(f : CopyTraitBlockersFn) -> unit)({
 copy_trait_blockers_via_hook :: (fn(ty : &TypeValue, env : &Environment) -> ArrayList(String))(
   match(g_copy_trait_blockers_fn, .Some(f) => f(ty, env), .None => ArrayList(String).new())
 );
-/// Receiver head names of pending (unforced) impls that declare `Drop` (or `Dispose`)
+/// Receiver head names of pending (unforced) impls that declare `Drop`
 /// (`""` for an un-nameable head): `force_pending_move_only_impls`
 /// forces them the first time a type's move-only status is asked.
 (g_pending_move_only_heads : HashMap(String, bool)) = HashMap(String, bool).new();
-/// An `impl(...)` statement with a `Drop(...)` or `Dispose(...)` entry,
+/// An `impl(...)` statement with a `Drop(...)` entry,
 /// read off the syntax (the trait is resolved when the impl is forced).
 _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
   match(
@@ -1924,7 +1924,7 @@ _impl_expr_declares_move_only :: (fn(e : &AstExpr) -> bool)(
     .Atom(_, _) => false
   )
 );
-/// Force the unforced pending impls of `type_name` that declare `Dispose`
+/// Force the unforced pending impls of `type_name` that declare `Drop`
 /// (plans/VALUES_BY_DEFAULT.md §3.4): a type's move-only status
 /// decides how every use of it is evaluated, so its impl cannot wait for a
 /// method miss or the module end. True when an impl was forced.

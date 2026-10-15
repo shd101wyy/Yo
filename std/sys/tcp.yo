@@ -57,7 +57,7 @@ pragma(Pragma.AllowUnsafe);
 /// A heap-allocated socket address buffer and its length — what the `bind`,
 /// `connect` and `accept` calls below take.
 ///
-/// It OWNS its allocation but has no `Dispose`: every `make_sockaddr_*` must
+/// It OWNS its allocation but has no `Drop`: every `make_sockaddr_*` must
 /// be paired with a `free_sockaddr`, or the buffer leaks. The `len` is the
 /// size of the platform's `sockaddr_in`/`sockaddr_in6`, not the number of
 /// bytes meaningfully filled.
@@ -266,7 +266,7 @@ make_sockaddr_in_loopback :: (fn(port : u16) -> SockAddr)({
   SockAddr(buf, u32(size))
 });
 /// Release a `SockAddr`'s buffer. Required after every `make_sockaddr_*`, and
-/// safe to call only once — there is no `Dispose` doing it for you.
+/// safe to call only once — there is no `Drop` doing it for you.
 free_sockaddr :: (fn(addr : SockAddr) -> unit)(
   free(.Some((*void)(addr.buf)))
 );

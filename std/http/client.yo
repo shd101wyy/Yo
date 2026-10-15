@@ -13,7 +13,7 @@
 //! The free functions stay ONE-SHOT: each call is a fresh connection and says
 //! so on the wire with a `Connection: close` request header. `HttpClient`
 //! OWNS its idle connections and reuses them, keyed by scheme+host+port, and
-//! its `Dispose` closes the idle set. Failures throw `IoExn` carrying an
+//! its `Drop` closes the idle set. Failures throw `IoExn` carrying an
 //! `HttpError` (D1); a deadline that wins the race throws `HttpError.Timeout`
 //! and aborts the in-flight task, so a hung server cannot pin a caller
 //! forever.
@@ -188,7 +188,7 @@ impl(
     })
   ),
   /// Close without the event loop, by delegating to the stream's own
-  /// `close_sync` (what its `Dispose` runs). This is what the pool uses:
+  /// `close_sync` (what its `Drop` runs). This is what the pool uses:
   /// eviction, expiry and `HttpClient`'s `dispose` all run in plain
   /// (non-async) code, and the connection being closed there is either dead
   /// or unwanted — there is nobody left to send a TLS `close_notify` to.
@@ -377,8 +377,8 @@ impl(
 );
 impl(
   HttpClient,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)(
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(
       self.close_idle()
     )
   )
@@ -912,7 +912,7 @@ _fetch_deadline :: (
         // `_fetch_follow`, not a closure nested here (C22).
         //
         // A connection cut off here is owned by the aborted state machine, so
-        // its `Dispose` closes it — it never reaches the pool.
+        // its `Drop` closes it — it never reaches the pool.
         h := e.io.spawn(_fetch_follow(url_str, opts, pool, e.io), e);
         match(
           e.io.await(timeout(h, limit, e.io), e.io),

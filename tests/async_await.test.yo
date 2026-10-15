@@ -1731,8 +1731,8 @@ test("Test explicit Future annotation with bundle effect struct", {
 _AwRes :: struct(n : i32);
 impl(
   _AwRes,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_aw_disposed = (g_aw_disposed + i32(1));
     })
   )
@@ -3258,8 +3258,8 @@ test("Test await as the scrutinee of a bound match on a handle Option", {
 ScrutPayload :: ref(struct(n : usize));
 impl(
   ScrutPayload,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_scrut_disposed = (g_scrut_disposed + i32(1));
     })
   )
@@ -4882,7 +4882,7 @@ test("Test spawn inside a loop runs tasks concurrently", {
 // drops. The future OWNS its stored result (awaiters only DUP it out), and
 // the future's generated dispose used to skip the result slot entirely —
 // empty dispose for sync futures, a "/* Warning: no ___drop */" comment for
-// state machines — so an async-produced object's Dispose NEVER ran
+// state machines — so an async-produced object's Drop NEVER ran
 // (TempDir/TempFile cleanup-on-drop was dead code). The counter is
 // module-level on purpose: module-level mutables have program lifetime, so
 // they stay readable after the handles are gone (same idiom as rc.test.yo).
@@ -4890,8 +4890,8 @@ test("Test spawn inside a loop runs tasks concurrently", {
 AsyncMadeProbe :: ref(struct(id : i32));
 impl(
   AsyncMadeProbe,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_async_result_disposed = (g_async_result_disposed + i32(1));
     })
   )
@@ -4926,8 +4926,8 @@ test("async-produced ref result is disposed when the last reference drops", {
 SpawnMadeProbe :: ref(struct(id : i32));
 impl(
   SpawnMadeProbe,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_spawn_result_disposed = (g_spawn_result_disposed + i32(1));
     })
   )
@@ -4955,14 +4955,14 @@ test("spawned task's ref result is dup'd out and disposed exactly once", {
 // `addrs`/`addr`/`stream` at the end of the transport branch, then a bad
 // status line threw and dispose decremented them again (heap-use-after-free
 // on Linux, where the runtime lived long enough to dispose the task). `main`
-// keeps its own reference here, so the over-release shows up as a Dispose
+// keeps its own reference here, so the over-release shows up as a Drop
 // that runs while `shared` is still held.
 (g_branch_local_disposed : i32) = i32(0);
 BranchLocalProbe :: ref(struct(id : i32));
 impl(
   BranchLocalProbe,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_branch_local_disposed = (g_branch_local_disposed + i32(1));
     })
   )
@@ -5801,8 +5801,8 @@ _bp_pick_cond :: (fn(flag : bool, io : Io) -> Impl(Future(String, IoExn)))(
 _BpHandle :: ref(struct(tag : i32));
 impl(
   _BpHandle,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_bp_disposed = (g_bp_disposed + i32(1));
     })
   )
@@ -5886,8 +5886,8 @@ test("borrowed arm value: released exactly once, in the bound and the tail shape
 _CapHandle :: ref(struct(tag : i32));
 impl(
   _CapHandle,
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       g_cap_disposed = (g_cap_disposed + i32(1));
     })
   )
