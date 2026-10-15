@@ -31,6 +31,7 @@ _gl_bump :: (fn(g : &mut Gauge) -> unit)({
   g.n = (g.n + i64(1));
 });
 _gl_read_i64 :: (fn(v : &i64) -> i64)(v);
+_gl_by_value :: (fn(v : i64) -> i64)(v);
 _gl_len :: (fn(s : &String) -> usize)(s.len());
 _gl_list_len :: (fn(xs : &ArrayList(i64)) -> usize)(xs.len());
 // The four declaration forms of a mutable global.
@@ -65,6 +66,7 @@ test("an immutable global is lent to any call", {
   assert(_gl_fixed.get() == i64(7), "`&self` receiver");
   assert(_gl_read(&_gl_typed_fixed) == i64(8), "the typed form");
   assert(_gl_read_i64(&_gl_tl_fixed) == i64(3), "a thread_local");
+  assert(_gl_by_value(_gl_tl_fixed) == i64(3), "a thread_local by value");
   assert(_gl_len(&_gl_label) == usize(5), "a String global");
   assert(`${_gl_label}!` == "label!", "interpolation borrows through `to_string`");
   assert(_gl_label == String.from("label"), "an operand its operator borrows");
