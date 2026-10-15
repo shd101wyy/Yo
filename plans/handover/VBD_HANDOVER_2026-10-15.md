@@ -435,7 +435,7 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
 
 ### 5.11 Decision 47: bindings are immutable unless declared `mut(name)` (maintainer, 2026-10-15)
 
-**Not yet in `plans/VALUES_BY_DEFAULT.md`.** The next agent adds it to §4 as decision 47, with the phase in §6.
+**The authoritative text is decision 47 in `plans/VALUES_BY_DEFAULT.md` §4**, with its phase "Decision 47: immutable bindings" in §6 and a pointer from decision 18 rule 3. This section records how it was decided.
 
 **What the maintainer said, in order:**
 1. "What about static(name)? As the variables in Yo are mutable by default, right?"
