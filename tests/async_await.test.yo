@@ -5171,9 +5171,10 @@ test("Test a module global survives a suspension point", {
   _g_async_counter = usize(0);
   b := io.await(_bump_suspending(io), io);
   assert(b == usize(2), "the suspending body saw both of its own increments");
+  seen := _g_async_counter;
   assert(
-    _g_async_counter == usize(2),
-    `the suspending body's writes landed on the real global, not a state-machine copy (global is ${_g_async_counter.to_string()})`
+    seen == usize(2),
+    `the suspending body's writes landed on the real global, not a state-machine copy (global is ${seen.to_string()})`
   );
   // A SECOND call must continue from 2, not restart from 0 — the state field
   // was fresh per call, which is the other half of the symptom.
