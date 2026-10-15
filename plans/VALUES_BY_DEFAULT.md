@@ -100,7 +100,7 @@ Progress:
     `IndexUnchecked`/`IndexUncheckedMut` in the projection shapes, every std
     impl split, and `String`'s read-only byte index (#1361); then direct
     projection calls, decision 24's remaining result positions
-    (feat/vbd-v2b-projection-calls; V2b's "Direct projection calls");
+    (#1368; V2b's "Direct projection calls");
   - decision 45 Generation A: `Drop` beside `Dispose`, E0915 for an
     explicit destructor call, `drop(x)`, and `yo fix --migrate drop-trait`
     (#1343, follow-ups #1358), and Generation B: the tree-wide rename and
@@ -5855,7 +5855,7 @@ compiler; the std shapes are plain structs the seed lowers):
     - **`IndexUnchecked`.** The twin recorder accepts both result shapes.
       A promoted write drops the read twin and looks for
       `IndexUncheckedMut.index_unchecked_mut`.
-    - **Direct projection calls (feat/vbd-v2b-projection-calls).** A
+    - **Direct projection calls (#1368).** A
       projection called by name (`t.index(i)`, `Trio.index(&t, i)`,
       `first(&t)`) yields its place; a call through a function value is
       still an error. The subscript dispatch still looks `index` /
