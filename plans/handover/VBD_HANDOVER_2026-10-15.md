@@ -295,7 +295,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   - **B1, the pragma-trust hole (S1):**
     - D3 trusts every mutator defined in a pragma file, so a spawned task can call `b.*.o.take()` on an `Arc` copy, because `Option.take` lives in the prelude.
     - Meanwhile `io.await(peek(&a.*, io), io)` holds the borrow, and the future reads 0 where 7 was written.
-    - **Fixed on `fix/d3-trust-by-mutation-mask`** (its entry below): D3 now judges every callee by its **mutation mask**, not by its file. The issue doc is `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`; this branch adds it at the root too (commit `657146480`).
+    - **Fixed on `fix/d3-trust-by-mutation-mask`** (its entry below): D3 now judges every callee by its **mutation mask**, not by its file. The issue doc is `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`; this branch adds it at the root too (commit `657146480`), which the restack drops.
     - The probe shape:
 
       ```yo ignore
@@ -377,7 +377,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 - **Tier 1 passed:** build; check src 278/278, std 171/171; `parallelism_soundness` 17, `arc` 15, `atomic_object` 21, `thread_safety` 4, `async_await` 280, `closure_capture_list` 41, `move_only` 54, `send_sync` 15, `thread` 23, `rc` 98, `deref_auto` 22, `match_nested` 24, `unapplied_constructor_method` 18, `type_reflection` 35; internal `assignment` 9; fmt; issue refs. Not run: the other `tests/internal` files that reach the evaluator (in-process, ~95 min).
 - **Next:**
   1. `git fetch origin && git switch fix/d3-trust-by-mutation-mask && git rebase origin/develop`.
-  2. This handover added a root copy of the D3 doc, and the branch has the `fixed/` copy; `check-issue-refs.sh` rejects a doc in both places. Delete the root copy (basename `2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`), then repoint every citation of the root path to the `fixed/` copy (this handover's §2.3 #1380 B1 and §6.1; reword this step as done). `check-issue-refs.sh` lists them.
+  2. Done: the rebase deleted this handover's root copy of the D3 doc (the branch's commit moves it to `issues/fixed/`), and this handover's citations (§2.3 #1380 B1, §6.1) point at the `fixed/` copy.
   3. It conflicts with #1380, but #1380's restack resolves that (see there).
   4. Tier 1 again (build, check src/std, `tests/parallelism_soundness.test.yo`, the internal files importing `assignment.yo`; consider the in-process run), open the PR from the template, admin-merge.
 
@@ -745,7 +745,7 @@ x :: 12;                           // a true constant
 | Issue | Note |
 | --- | --- |
 | `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; fixed by #1401 |
-| `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` (copied to develop by the handover PR) | B1; fixed on `fix/d3-trust-by-mutation-mask`, not yet on develop |
+| `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` | B1; fixed by `fix/d3-trust-by-mutation-mask` (landed, §2.3) |
 | `issues/fixed/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md` | **Fixed** by `fix/await-method-address-local`. Found by §4 step 10 (#1399): `x.as_ptr()` before an await in an `io.async` body left `x` a C local; the live-range walk saw only `&x`/`addr_of(x)`, and now treats every argument a call passes to a pointer parameter as lent |
 | `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
 | `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md` | Type-soundness track (#1162) |
