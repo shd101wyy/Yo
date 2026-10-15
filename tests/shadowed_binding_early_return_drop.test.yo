@@ -142,3 +142,53 @@ test("early return crossing two shadowing arm scopes", {
   assert(alive, "outer payload survives");
   assert(alive2, "inner payload survives");
 });
+
+// Regression (issues/fixed/2026-10-15-an-assignments-old-value-save-by-bytes-is-never-released.md):
+// an assignment saves the value it overwrites into a temp that is released at
+// scope end. #1365 made the save a byte copy (`T t; memcpy(...)`), which the
+// emitter's declaration scan does not see, so an explicit `return` (or an
+// `exn` escape) after the assignment skipped the release: one leaked old value
+// per early exit. The normal path and the never-assigned value are the
+// over-release canaries.
+(g_sv_dropped : i32) = i32(0);
+_SvTok :: ref(struct(n : i32));
+impl(
+  _SvTok,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_sv_dropped = (g_sv_dropped + i32(1));
+    })
+  )
+);
+_SvHolder :: ref(struct(tok : Option(_SvTok)));
+_sv_reassign_then_return :: (fn(early : bool) -> i32)({
+  t := _SvTok(n : i32(1));
+  t = _SvTok(n : i32(2));
+  if(early, {
+    return(t.n);
+  });
+  t.n + i32(10)
+});
+_sv_field_store_then_return :: (fn(h : _SvHolder, early : bool) -> i32)({
+  h.tok = Option(_SvTok).Some(_SvTok(n : i32(3)));
+  if(early, {
+    return(i32(1));
+  });
+  i32(2)
+});
+test("an early return after an assignment releases the overwritten value once", {
+  before := g_sv_dropped;
+  assert(_sv_reassign_then_return(true) == i32(2), "early path value");
+  assert(g_sv_dropped == (before + i32(2)), "the old and the new value are both released");
+  assert(_sv_reassign_then_return(false) == i32(12), "normal path value");
+  assert(g_sv_dropped == (before + i32(4)), "the normal path releases each value once");
+});
+test("an early return after a field store releases the field's old value once", {
+  before := g_sv_dropped;
+  h := _SvHolder(tok : Option(_SvTok).Some(_SvTok(n : i32(0))));
+  assert(_sv_field_store_then_return(h, true) == i32(1), "early path value");
+  assert(g_sv_dropped == (before + i32(1)), "the field's old value is released on the early exit");
+  assert(_sv_field_store_then_return(h, false) == i32(2), "normal path value");
+  assert(g_sv_dropped == (before + i32(2)), "and once on the normal path");
+  assert(match(&h.tok, .Some(t) => (t.n == i32(3)), .None => false), "the stored value is still alive");
+});

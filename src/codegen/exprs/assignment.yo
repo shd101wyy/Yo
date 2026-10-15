@@ -164,6 +164,14 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
           save.push_string(temp_var_name.clone());
           save.push_str(")); // Save old value by bytes");
           em.emit_string_line(&save);
+          // Put the temp on the block-scope stack, as the typed `T temp = lhs;`
+          // did through the emitter's line scan: that scan records only
+          // `<type> <name> = …`, and the escape gate skips a pending drop whose
+          // target is not in C scope, so every early-exit (`return`, `exn`
+          // escape) release of an RC-bearing old value was silently dropped
+          // (issues/fixed/2026-10-15-an-assignments-old-value-save-by-bytes-is-never-released.md).
+          saved_c_name := sanitize_for_c_identifier(&temp_var_name, false);
+          em.mark_declared_in_scope(&saved_c_name);
         }),
         // The LHS is an sm-> slot. When the old-value temp was itself lowered
         // into the
