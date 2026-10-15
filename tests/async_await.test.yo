@@ -7200,13 +7200,19 @@ _a2_global_n := i32(2);
 _a2_global_cells := Array(i32, 2)(i32(4), i32(5));
 (thread_local(_a2_tl_n) : i32) = i32(0);
 _A2_CONST :: _A2Counter(n : i32(3));
+_a2_read_i32_later :: (fn(c : &i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &c }(io : Io) => {
+    io.await(yield(io), io);
+    c
+  })
+);
 test("a borrowing future cannot hold a place rooted in a module-level or thread_local binding (decision 38 D, §3.13 A2)", {
   comptime_expect_error(io.await(_a2_tenfold(&_A2Global, io), io), "is a module-level binding");
   comptime_expect_error(io.await(_a2_bump(&mut _A2Global, io), io), "is a module-level binding");
   comptime_expect_error(io.await(_A2Global.bump(io), io), "is a module-level binding");
   comptime_expect_error(io.await(_a2_bump_i32(&mut _A2Global.n, io), io), "is a module-level binding");
   comptime_expect_error(io.await(_a2_bump_i32(&mut _a2_global_n, io), io), "is a module-level binding");
-  comptime_expect_error(io.await(_a2_bump_i32(&mut _a2_global_cells(usize(0)), io), io), "is a module-level binding");
+  comptime_expect_error(io.await(_a2_read_i32_later(&_a2_global_cells(usize(0)), io), io), "is a module-level binding");
   comptime_expect_error(io.await(_a2_bump_i32(&mut _a2_tl_n, io), io), "is a module-level binding");
   fp := _a2_bump_i32;
   comptime_expect_error(io.await(fp(&mut _a2_global_n, io), io), "is a module-level binding");

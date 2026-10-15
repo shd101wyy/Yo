@@ -51,7 +51,7 @@ borrowed payload read after the await: 111111 (wrote 7)
 
 The future read `k1`'s payload: `replace_g` released the `Box` that the future still pointed at, and `box(i64(111111))` reused the freed allocation.
 
-The same hole accepted a borrowing method on a global receiver (`io.await(G.peek_self(io), io)`), a field or fixed-size-array element of a global (`&mut G.n`, `&mut A(usize(0))`), a `thread_local` binding, and a call through a function value (`fp(&mut G, io)`).
+The same hole accepted a borrowing method on a global receiver (`io.await(G.peek_self(io), io)`), a field or fixed-size-array element of a global (`&mut G.n`, `&A(usize(0))`), a `thread_local` binding, and a call through a function value (`fp(&mut G, io)`).
 
 ## Root cause
 
