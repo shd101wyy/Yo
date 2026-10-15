@@ -1,0 +1,32 @@
+{ ArrayList } :: import("std/collections/array_list");
+Gauge :: struct(n : i64);
+derive(Gauge, Copy, Clone);
+impl(
+  Gauge,
+  inc : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i64(1));
+  })
+);
+bump :: (fn(g : &mut Gauge) -> unit)({
+  g.n = (g.n + i64(1));
+});
+count := i64(0);
+(total : i64) = i64(0);
+gauge := Gauge(n : i64(0));
+(field_gauge : Gauge) = Gauge(n : i64(0));
+lent_gauge := Gauge(n : i64(0));
+(thread_local(per_thread) : i64) = i64(0);
+names := ArrayList(i64).new();
+replaced := ArrayList(i64).new();
+fixed := i64(7);
+main :: (fn() -> unit)({
+  count = (count + i64(1));
+  total = (total + fixed);
+  gauge.inc();
+  field_gauge.n = i64(2);
+  bump(&mut lent_gauge);
+  per_thread = i64(3);
+  names.push(i64(4));
+  replaced = ArrayList(i64).new();
+});
+export(main);

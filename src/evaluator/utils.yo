@@ -2143,7 +2143,9 @@ global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &Ev
   if(marked, {
     return(());
   });
-  if(migrate_mutable_globals_on(), {
+  // A write inside a `comptime_expect_error` argument is the error that
+  // case expects: the migration leaves its global unmarked.
+  if(migrate_mutable_globals_on() && !propagate_def_time_errors(), {
     record_mutable_global_site(&gv.token, &gv.name);
     return(());
   });

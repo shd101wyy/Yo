@@ -1727,7 +1727,7 @@ test("Test explicit Future annotation with bundle effect struct", {
 // A1): `io.await` consumes it and moves the result out, so a second await is
 // E0901 and a move-only result works.
 // ---------------------------------------------------------------------------
-(g_aw_disposed : i32) = i32(0);
+(mut(g_aw_disposed) : i32) = i32(0);
 _AwRes :: struct(n : i32);
 impl(
   _AwRes,
@@ -3254,7 +3254,7 @@ test("Test await as the scrutinee of a bound match on a handle Option", {
 // (issues/fixed/an-awaited-match-scrutinee-is-never-released.md): 0 is the leak
 // (the value stayed in a C local while the completion state dropped its
 // never-assigned `sm->` field), 2 an over-release.
-(g_scrut_disposed : i32) = i32(0);
+(mut(g_scrut_disposed) : i32) = i32(0);
 ScrutPayload :: ref(struct(n : usize));
 impl(
   ScrutPayload,
@@ -3712,7 +3712,7 @@ test("Test await inside nested match arms under a payload-free scrutinee", {
 // already declares `known`: a C redefinition. It was `_compiler_identity` in
 // src/build_runner.yo that hit it, in stage 2.
 // ---------------------------------------------------------------------------
-(g_cached_identity : Option(String)) = Option(String).None;
+(mut(g_cached_identity) : Option(String)) = Option(String).None;
 _cached_identity :: (fn(rio : Io) -> Impl(Future(String, Io)))(
   rio.async((aio : Io) => {
     match(
@@ -4886,7 +4886,7 @@ test("Test spawn inside a loop runs tasks concurrently", {
 // (TempDir/TempFile cleanup-on-drop was dead code). The counter is
 // module-level on purpose: module-level mutables have program lifetime, so
 // they stay readable after the handles are gone (same idiom as rc.test.yo).
-(g_async_result_disposed : i32) = i32(0);
+(mut(g_async_result_disposed) : i32) = i32(0);
 AsyncMadeProbe :: ref(struct(id : i32));
 impl(
   AsyncMadeProbe,
@@ -4922,7 +4922,7 @@ test("async-produced ref result is disposed when the last reference drops", {
 // broke the stage2/stage3 fixpoint: the compiler's own io.spawn users read
 // freed memory). Separate counter from the io.await probe above because all
 // tests in this file share one batch binary.
-(g_spawn_result_disposed : i32) = i32(0);
+(mut(g_spawn_result_disposed) : i32) = i32(0);
 SpawnMadeProbe :: ref(struct(id : i32));
 impl(
   SpawnMadeProbe,
@@ -4957,7 +4957,7 @@ test("spawned task's ref result is dup'd out and disposed exactly once", {
 // on Linux, where the runtime lived long enough to dispose the task). `main`
 // keeps its own reference here, so the over-release shows up as a Dispose
 // that runs while `shared` is still held.
-(g_branch_local_disposed : i32) = i32(0);
+(mut(g_branch_local_disposed) : i32) = i32(0);
 BranchLocalProbe :: ref(struct(id : i32));
 impl(
   BranchLocalProbe,
@@ -5144,7 +5144,7 @@ test("io.async closure body mutates a module-level global", {
 // The control (no suspension point) is asserted alongside, because that path
 // always worked and its passing is what localises a regression.
 // ---------------------------------------------------------------------------
-(_g_async_counter : usize) = usize(0);
+(mut(_g_async_counter) : usize) = usize(0);
 _bump_flat :: (fn(io : Io) -> Impl(Future(usize, Io)))(
   io.async((io2 : Io) => {
     _g_async_counter = (_g_async_counter + usize(1));
@@ -5797,7 +5797,7 @@ _bp_pick_cond :: (fn(flag : bool, io : Io) -> Impl(Future(String, IoExn)))(
     got
   })
 );
-(g_bp_disposed : i32) = i32(0);
+(mut(g_bp_disposed) : i32) = i32(0);
 _BpHandle :: ref(struct(tag : i32));
 impl(
   _BpHandle,
@@ -5882,7 +5882,7 @@ test("borrowed arm value: released exactly once, in the bound and the tail shape
 // owns one reference), but neither dispose path dropped it — the sync-future
 // path even rebuilt a borrowed copy and orphaned the dup'd temp. Every async
 // call leaked its captures (issues/fixed/io-async-closure-captures-never-released.md).
-(g_cap_disposed : i32) = i32(0);
+(mut(g_cap_disposed) : i32) = i32(0);
 _CapHandle :: ref(struct(tag : i32));
 impl(
   _CapHandle,
@@ -6661,7 +6661,7 @@ test("an if whose condition awaits, inside a match arm", {
 // ---------------------------------------------------------------------------
 _Op_fl :: (fn(x : i32) -> i32);
 _double_fl :: (fn(x : i32) -> i32)(x * i32(2));
-(g_op_fl : Option(_Op_fl)) = Option(_Op_fl).None;
+(mut(g_op_fl) : Option(_Op_fl)) = Option(_Op_fl).None;
 _run_fl :: (fn(n : i32, io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
     f := _double_fl;
@@ -7196,7 +7196,7 @@ test("a borrowing future cannot hold an element lent through an index (decision 
 // borrows it waits
 // (issues/fixed/2026-10-15-a-module-level-global-lent-to-a-borrowing-future-can-be-reassigned-during-the-await.md).
 _A2Global := _A2Counter(n : i32(1));
-_a2_global_n := i32(2);
+mut(_a2_global_n) := i32(2);
 _a2_global_cells := Array(i32, 2)(i32(4), i32(5));
 (thread_local(_a2_tl_n) : i32) = i32(0);
 _A2_CONST :: _A2Counter(n : i32(3));

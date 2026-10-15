@@ -11,8 +11,8 @@
 { ArrayList } :: import("std/collections/array_list");
 { yield } :: import("std/async");
 { VList } :: import("./fixtures/owned_buffer.yo");
-(g_mo_disposed : i32) = i32(0);
-(g_mo_sum : i32) = i32(0);
+(mut(g_mo_disposed) : i32) = i32(0);
+(mut(g_mo_sum) : i32) = i32(0);
 _MoFd :: struct(n : i32);
 impl(
   _MoFd,
@@ -840,7 +840,7 @@ test("move-only: a projection through an Rc lent to a recursive call is disposed
 // prelude's `drop(x)`, and E0915 for an explicit destructor call.
 // `g_mo_dropped` adds up the `n` of every dropped `_MoDrop*` value.
 // ---------------------------------------------------------------------------
-(g_mo_dropped : i32) = i32(0);
+(mut(g_mo_dropped) : i32) = i32(0);
 _MoDropFd :: struct(n : i32);
 impl(
   _MoDropFd,
@@ -942,8 +942,8 @@ test("Drop: an explicit destructor call is E0915, in both spellings", {
 // drops that follow it see `.None` and the inner value is released once, by
 // the destructor's assignment. `g_md_calls` counts the outer destructor's
 // runs and `g_md_inner` the inner value's; each path must add one to both.
-(g_md_calls : i32) = i32(0);
-(g_md_inner : i32) = i32(0);
+(mut(g_md_calls) : i32) = i32(0);
+(mut(g_md_inner) : i32) = i32(0);
 _MdInner :: struct(n : i32);
 impl(
   _MdInner,

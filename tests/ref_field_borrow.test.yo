@@ -87,7 +87,7 @@ comptime_expect_error(
 );
 
 // A WHOLE module-level variable is fine — its slot is stable storage.
-g_counter := i32(0);
+mut(g_counter) := i32(0);
 test("whole module-level variable to a ref param", {
   bump(&mut g_counter);
   assert(g_counter == i32(1), "global slot written through the ref param");
@@ -339,7 +339,7 @@ test("box deref is allowed when the box is unreachable", {
 // Regression: module-level non-Rc field is fine (the storage is static
 // and overwriting an i32 does not free heap storage).
 g_static_struct :: struct(s : String, n : i32);
-g_static_val := g_static_struct(s : String.from("x"), n : i32(42));
+mut(g_static_val) := g_static_struct(s : String.from("x"), n : i32(42));
 bump_static :: (fn(v : &mut i32) -> unit)({
   v = (v + i32(1));
 });

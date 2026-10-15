@@ -933,7 +933,7 @@ test("soundness: a ref struct's Option(Self) survives a generic specialization",
 // Each box counts its releases: a leak or a double release shows as a wrong
 // count.
 // ---------------------------------------------------------------------------
-(g_p5_disposed : i32) = i32(0);
+(mut(g_p5_disposed) : i32) = i32(0);
 _P5Box :: ref(struct(tag : i32));
 impl(
   _P5Box,
@@ -1153,7 +1153,7 @@ test("soundness: an operator unit does not implement is rejected", {
 // a `sink` move consumes the name. Reading a moved reference value read the
 // cell its new owner had already released.
 // ---------------------------------------------------------------------------
-(g_sink_read_disposed : i32) = i32(0);
+(mut(g_sink_read_disposed) : i32) = i32(0);
 _SinkReadBox :: ref(struct(n : i32));
 impl(
   _SinkReadBox,
