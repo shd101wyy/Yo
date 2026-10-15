@@ -351,7 +351,7 @@ Every one is pushed. "Next" is the exact next action.
 >   - **E0916 narrowed** to lends of a `mut(G)` global and places under it, plus rule A (`&G(i)` when `G` has `&mut self` calls) and rule B (`&H.f` when `H.f` is written through the handle). A and B consult each other's registries, so the verdict does not depend on order.
 >   - **Generation A exemption** (`is_global_mut_rule_exempt`): std, `<std>/../src/`, store dependencies and `auto-generated://` code.
 >   - `YO_AUDIT_GLOBAL_LEND=1` is the census, and `yo fix --migrate mutable-globals` inserts the markers (it skips `comptime_expect_error` bodies).
-> - **Also fixed:** a `thread_local` passed as a call argument emitted an undeclared C identifier (S2, `issues/fixed/2026-10-15-a-thread-local-passed-as-a-call-argument-emits-an-undeclared-c-identifier.md` on the branch).
+> - **Also fixed:** a `thread_local` passed as a call argument emitted an undeclared C identifier (S2; the branch's `fixed/` doc `2026-10-15-a-thread-local-passed-as-a-call-argument-emits-an-undeclared-c-identifier.md`).
 > - **Filed:** S3 `2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md`. A multi-file `yo fix` mixes generic impls across files; run the migration one file at a time when a directory run says "does not evaluate".
 > - **Tests and records:**
 >   - `tests/global_lend.test.yo` (10 tests);
