@@ -183,6 +183,28 @@ Every one is pushed. "Next" is the exact next action.
 
 #### #1378 — decision 45 Generation B: `Dispose` → `Drop` across the tree (`vbd-d45-genb`, head `5aa03a9ee`)
 
+> **REBASED AND GATED 2026-10-15 — land it from `vbd-d45-genb-rebased` (head `cfc7e2e59`, on develop `6f6a2d8e9`). The steps below are done.**
+>
+> - **Conflicts as resolved:**
+>   - `.Some(Rc(.TraitT(...)))` in `_is_destructor_trait_id`;
+>   - the twins deleted;
+>   - `docs/*/CYCLE_COLLECTION.md` take develop's Trace paragraph.
+> - **Also done:**
+>   - The prelude-path nit is fixed: the migration-only `Dispose` is appended only when the resolved entry equals `${std_path}/prelude.yo`.
+>   - Develop's new `Dispose` sites are migrated: `tests/cycle_collector`, `tests/fixtures/owned_buffer.yo`, `tests/parameter_modes`.
+> - **Tier 1 on `b0ff7866e`:**
+>   - build; check src 278/278 and std 171/171;
+>   - 45 feature tests;
+>   - `tests/internal` in-process 1419/1419 (97 min);
+>   - cli-diff 393 with 0 diffs;
+>   - fmt (92 files), issue refs.
+> - **Re-gate on `cfc7e2e59`** (develop's #1392/#1393 only): build, check src/std, `seek`, `cross_thread_wake`.
+> - **Land:**
+>   1. `git push -f origin vbd-d45-genb-rebased:vbd-d45-genb`
+>   2. `gh pr merge 1378 --squash --admin --delete-branch`
+>   3. Cancel its PR run.
+>   4. If develop has moved, rebase first; the conflicts so far were comment-only.
+
 - **What:** runs `yo fix --migrate drop-trait` over the tree and deletes the `Dispose` spelling. The compiler knows only `Drop`.
 - **Seed:** the tree needs a seed that knows `Drop` (v0.2.62 does). It also needs v0.2.63 because of #1358's bound unification, which is why it was held for the cut.
 - **Review (2026-10-15):** clean apart from the rebase.
@@ -195,6 +217,25 @@ Every one is pushed. "Next" is the exact next action.
   6. **Merge this before #1379.**
 
 #### #1379 — V3 async A5: move-only wakers, parks, channel halves; streams take `&mut self` (`feat/vbd-v3-async-a5`, head `2996a8419`)
+
+> **REBASED ONTO #1378 AND GATED 2026-10-15 — land it from `feat/vbd-v3-async-a5-rebased` (head `4cc522f97`, stacked on `cfc7e2e59`). Steps 1, 2 and 4 below are done; step 3 waits for the seed.**
+>
+> - **Rebase:** with `--onto`, merge base `23787451b`. A5's commits `3838c6d8f` and `eb4f5a3c8` were skipped, because they duplicate #1382.
+> - **B4 done:**
+>   - `cross_thread_wake` and `std/async/{channel,waker}.yo` are on `Drop`;
+>   - the §3.13 prose says `Drop`.
+> - **`std/hash.yo` keeps its workaround** with a `// TODO(v0.2.63 seed)` note. Revert it once v0.2.63 is the installed seed.
+> - **Tier 1 on `ec8958596`:**
+>   - build; check src and std;
+>   - 32 feature tests (`async_await` 280);
+>   - 5 `tests/internal` files;
+>   - cli-diff 393 with 0 diffs;
+>   - fmt (102 files).
+> - **Re-gate on `4cc522f97`:** build, check, `seek`, `cross_thread_wake`.
+> - **Land, after #1378 squash-merges:**
+>   1. `git fetch && git rebase --onto origin/develop cfc7e2e59 feat/vbd-v3-async-a5-rebased`
+>   2. `git push -f origin feat/vbd-v3-async-a5-rebased:feat/vbd-v3-async-a5`
+>   3. `gh pr merge 1379 --squash --admin --delete-branch`
 
 - **What:** A5's remaining lines (§3.13).
   - `Waker` is move-only; `Waker.clone` Generation A adds `__yo_waker_clone`.
