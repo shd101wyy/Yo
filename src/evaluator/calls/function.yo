@@ -2718,6 +2718,7 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
   g_checked_future_calls.insert(ast_expr_id(expr));
   _check_future_call_lends(expr, &op_callee, &op_args, &bs, ctx, exn);
   _check_future_call_argument_conflicts(&op_callee, &op_args, &bs, ctx, exn);
+  _check_future_call_global_lends(&op_callee, &op_args, &bs, ctx, exn);
 });
 /// How a borrow names an argument whose parameter has no label (a function
 /// value typed without labels): `argument 1` for the first.
@@ -2837,6 +2838,59 @@ _check_future_call_argument_conflicts :: (fn(op_callee : &AstExpr, op_args : &Ar
       _check_lent_place_untouched_after(&place, &lent, op_args, ai + usize(1), ctx, exn);
     });
   });
+});
+/// Decision 38 D's frozen-lender premise (§3.13 A2): a place lent to a
+/// borrowing future stays put only while its owner cannot run. A local's
+/// frame is suspended with the task that awaits the future; a module-level
+/// runtime binding, or a `thread_local` one, is reachable by name from every
+/// task on the thread, so another task could reassign or write it during the
+/// await and the future would read a released value. D1 stops other threads
+/// only. A `::` constant has no runtime storage to change and is lent freely.
+_check_future_call_global_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(AstExpr), bs : &ArrayList(CaptureBorrow), ctx : &EvalContext, exn : Exception) -> unit)({
+  labels := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(op_callee)),
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+    .None => ArrayList(String).new()
+  );
+  labels_known := (labels.len() > usize(0));
+  arg_offset := _future_call_receiver_offset(op_callee, op_args, &labels);
+  if(arg_offset == usize(1), {
+    self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
+    if(_borrows_root_named(bs, &self_label), {
+      recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => return(())), .Atom(_, _) => return(()));
+      _reject_global_lend_to_future(&recv, ctx, exn);
+    });
+  });
+  (ai : usize) = usize(0);
+  while(ai < op_args.len(), ai = (ai + usize(1)), {
+    label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
+    lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+    if((!labels_known || _borrows_root_named(bs, &label)) && (ast_expr_is_fn_call_of(&lent, "&", .Some(usize(1))) || ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)))), {
+      place := match(lent, .FnCall(_, _, m_args, _, _) => match(m_args.get(usize(0)), .Some(p) => p, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      _reject_global_lend_to_future(&place, ctx, exn);
+    });
+  });
+});
+/// The E0909 for a place lent to a borrowing future whose root binding is a
+/// module-level (or `thread_local`) runtime binding.
+_reject_global_lend_to_future :: (fn(place : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
+  lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
+  gv := match(_lent_root_variable(&lp.root, ctx), .Some(v) => v, .None => return(()));
+  if(!gv.is_module_level || gv.is_compile_time_only, {
+    return(());
+  });
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        ast_expr_token(place),
+        `This future borrows \`${ast_expr_to_string(place)}\` across its suspension, and \`${gv.name}\` is a module-level binding (a static or a \`thread_local\`): any task on this thread can reassign or write it while this one waits, so the future could read a value that was already released (plans/VALUES_BY_DEFAULT.md §3.13 A2, decision 38 D).`,
+        Option(String).Some(`lend a local copy (\`v := ...; io.await(f(&v, io), io)\`), or read \`${gv.name}\` by name inside the future at each use`)
+      ),
+      E_BORROW_ESCAPES
+    ),
+    ctx,
+    exn
+  );
 });
 /// A place an argument lends, or one an access in a later argument touches:
 /// the root binding and the field steps from it. A dereference, an index or a
