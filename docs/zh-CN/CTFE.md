@@ -247,7 +247,7 @@ Yo 的 CTFE 在多个方面比 Rust 的 `const fn` 更灵活：
    反方向是错误 E0918：程序运行时执行的代码不能给编译期绑定赋值。运行时函数体
    写入模块级 `::`（或外层函数的 `::`），或把运行时值写入自己的 `::` 局部绑定，
    都会被拒绝，因为对该绑定的每次使用都已被折叠为它的值。这样的绑定请用 `:=`
-   声明；函数体自身以编译期值写的 `a :: 1; a = 2;` 仍然可用
+   声明（模块级写作 `mut(G) := v`：被写入的全局变量需要 `mut`，决策 47）；函数体自身以编译期值写的 `a :: 1; a = 2;` 仍然可用
    （[`issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`](../../issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md)）。
 2. 保留函数参数值用于编译期求值
 3. 将参数标记为仅编译期使用
