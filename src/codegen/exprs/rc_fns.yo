@@ -10,7 +10,7 @@
 //! concrete; `__yo_sometype_drop`/`_dup`'s non-Future resolvedConcreteType
 //! dispatch becomes a no-op (Phase-3 generics need Gap-6 resolution).
 { String } :: import("std/string");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type } :: import("../../types/guards.yo");
@@ -83,9 +83,21 @@ generate_yo_rc_own :: (fn(expr : &AstExpr, indent : &String, context : &Function
 /// `__yo_rc_forget_payload(<handle>)` — the cell of an `Rc`/`Arc` handle
 /// whose payload was moved out (`Rc.try_unwrap`) stops owning it: the
 /// runtime helper clears the cell's payload destructor, so the handle's own
-/// release frees the cell alone. The same helper serves both counts.
+/// release frees the cell alone. The same helper serves both counts. The
+/// handle is lent (`__yo_rc_forget_payload(&self)`), so the operand is the
+/// handle under the borrow marker.
 generate_yo_rc_forget_payload :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
-  _one_arg_call(expr, indent, context, "__yo_rc_forget_payload", "__yo_rc_forget_payload requires exactly 1 argument")
+  match(
+    _arg(expr, usize(0)),
+    .Some(lent) => {
+      handle := ast_expr_strip_borrow_marker(&lent);
+      out := String.from("__yo_rc_forget_payload(");
+      out.push_string(_rc_operand(&handle, indent, context));
+      out.push_str(")");
+      out
+    },
+    .None => codegen_fatal_expr(String.from("__yo_rc_forget_payload requires exactly 1 argument"))
+  )
 );
 /// `__yo_dyn_drop(<self>)` → decr the Dyn's `.data` pointer.
 generate_yo_dyn_drop :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
