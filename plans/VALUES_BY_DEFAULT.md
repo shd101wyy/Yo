@@ -127,10 +127,11 @@ Progress:
     (feat/vbd-v2b-explicit-copy-migration, #1385, draft, on develop).
   - V3's remaining async work (§3.13): A4's future operands, A5's remaining
     lines, and A6's `Rc`-field half (V2c).
-- **Next:** the rest of V2b (direct projection calls; unique buffers'
-  Generation B with the explicit-copy kind, on a seed carrying A1), decision
-  47's globals step (the global-lend S1) and then its locals step, the
-  allocator interface version 2 (§6, after V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
+- **Next:** decision 47's globals step (the global-lend S1; Generation A,
+  then Generation B on the next seed), the rest of V2b (direct projection
+  calls; unique buffers' Generation B with the explicit-copy kind, on a seed
+  carrying A1), decision 47's locals step, the allocator interface version 2
+  (§6, after V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
   once the README's example projects are migrated (§6, after V5).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
@@ -3796,9 +3797,9 @@ and in git, not a silent edit.
       - `&mut self` method calls (`xs.push(v)`);
       - field and element writes (`p.x = v`, `xs(i) = v`).
 
-      A `ref`-handle binding (until V5) is a pointer, so a field write
-      through it does not write the binding and needs no marker; its
-      reassignment does.
+      A `ref`-handle binding (until V5) is a pointer, so a field or element
+      write, or a `&mut self` call, through it does not write the binding
+      and needs no marker; its reassignment does.
     - **Spellings.** `mut` wraps the name, like `comptime(…)`,
       `thread_local(…)` and `sink(…)`:
 
@@ -3856,8 +3857,11 @@ and in git, not a silent edit.
         compile with its writes going to a callee-local copy; E0009 keeps
         that a compile error.
     - **Errors.** A write of any of the four kinds to an unmarked binding is
-      a new error naming the binding, its definition and the `mut(...)` form
-      (for a parameter, the rebind). E0902's "You can mutate fields" hint
+      E0917, generalized from the globals step (renamed
+      `E_IMMUTABLE_BINDING_WRITE` when the locals step lands, unless the
+      implementer records a reason for a separate code). Its message names
+      the binding, its definition and the `mut(...)` form (for a parameter,
+      the rebind). E0902's "You can mutate fields" hint
       goes away. A runtime write to a `::` binding is an error. Today it is
       accepted and diverges from the folded value
       (`issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`).
@@ -6385,10 +6389,12 @@ once `SEED_VERSION` parses it.
      - the four-kind write error, enforced outside src/std;
      - `yo fix --migrate mut-bindings` inserts the markers. A local's
        writes are function-scoped, so the migration's inference is sound.
-   - Run a census first: `YO_AUDIT_MUT_BINDINGS=1` lists each binding
-     written after its definition, by kind.
-   - The runtime write to a `::` binding becomes an error here, unless the
-     globals step has already made it one.
+   - Run a census first: add a `YO_AUDIT_MUT_BINDINGS=1` knob (not built
+     yet; model it on `YO_AUDIT_GLOBAL_LEND`) that lists each binding written
+     after its definition, by kind.
+   - A runtime write to a `::` binding is E0918 once
+     `fix/runtime-write-to-comptime-constant` lands (before this step); this
+     step generalizes it to `mut(x) ::` and `comptime(mut(x)) :=`.
    - Generation B: sweep the tree, the docs and `markdown_yo`, then enforce
      everywhere.
    - Order: after V2b Generation B and before decision 43, so that

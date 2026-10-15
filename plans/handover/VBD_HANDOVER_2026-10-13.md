@@ -1,6 +1,6 @@
 # VALUES_BY_DEFAULT handover — 2026-10-13
 
-**Status: SUPERSEDED by [`VBD_HANDOVER_2026-10-15.md`](VBD_HANDOVER_2026-10-15.md) (2026-10-15). Only its §3 order still applies, where that document says so.**
+**Status: SUPERSEDED by [`VBD_HANDOVER_2026-10-15.md`](VBD_HANDOVER_2026-10-15.md) (2026-10-15). That document still cites its §3 order, its §2.3 batch table and its §4 open-bug table; everything else is history.**
 - **Supersedes:** [`VBD_HANDOVER_2026-10-10.md`](VBD_HANDOVER_2026-10-10.md). Its §5 ("How to work in this repository") still applies unless §1 below amends it.
 - **Written:** by the agent running the campaign on 2026-10-13.
 - **What it covers:** v0.2.60 and v0.2.61, the v0.2.62 batch, the branches in flight, the next steps in order, and the decisions recorded this cycle.

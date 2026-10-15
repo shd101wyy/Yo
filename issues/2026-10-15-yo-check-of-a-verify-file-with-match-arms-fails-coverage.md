@@ -1,6 +1,6 @@
 # `yo check` of a `[verify]` file whose functions use `match` fails evaluator coverage
 
-**Severity:** S3. A tree file fails a `yo check` sweep, but nothing miscompiles. CI checks `tests/spec` with `yo verify` (which registers match arms) rather than `yo check`.
+**Severity:** S3. A tree file fails a `yo check` sweep, but nothing miscompiles. CI runs this file only through the language suite (`yo test`, as runtime asserts); no workflow runs `yo check` or `yo verify` on it (the FV job verifies only `tests/spec/verify_straight_line.test.yo`).
 
 **Status:** open. Found 2026-10-15 while gating `feat/global-lend-to-call-is-an-error`, and reproduced on develop with seed v0.2.62.
 
