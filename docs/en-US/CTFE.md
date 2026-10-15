@@ -257,6 +257,13 @@ During CTFE, Yo sets a special context flag (`forceCompileTimeBindings`) that:
    body keeps its runtime locals, and so does a runtime function evaluated at
    compile time (`comptime_fn(f)`)
    ([`issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md`](../../issues/fixed/colon-equals-is-accepted-in-a-compile-time-context.md)).
+   The other direction is error E0918: code that runs when the program runs
+   cannot assign a compile-time binding. A runtime function body that writes
+   a module-level `::` (or one of an enclosing function), or writes a runtime
+   value to its own `::` local, is rejected, because every use of the binding
+   was already folded to its value. Declare such a binding with `:=`; a
+   body's own `a :: 1; a = 2;` with a compile-time value still works
+   ([`issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`](../../issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md)).
 2. Preserves function argument values for compile-time evaluation
 3. Marks parameters as compile-time only
 
