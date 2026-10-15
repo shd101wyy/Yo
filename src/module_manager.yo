@@ -2967,7 +2967,9 @@ mm_load_file :: (
   // Generation B deleted that trait from std, so the migration alone appends
   // its old definition to the prelude: an ordinary trait, no destructor, there
   // only for the member lookup. Appended at the end, so no prelude line moves.
-  if(migrate_drop_trait_on() && input_path.ends_with(String.from("prelude.yo")), {
+  // Only std's own prelude gets it: a user file that happens to be named
+  // `prelude.yo` is compared by its resolved path, never by its name.
+  if(migrate_drop_trait_on() && (mm_resolve_entry_abs(input_path.clone(), std_path.clone()) == mm_resolve_entry_abs(`${std_path}/prelude.yo`, std_path.clone())), {
     src.push_str("\nDispose :: trait(id := \"Dispose\", dispose : (fn(self : &Self) -> unit));\nexport(Dispose);\n");
   });
   exprs := parse(&src, input_path.clone(), local_exn);
