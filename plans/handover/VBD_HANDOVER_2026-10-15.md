@@ -1,6 +1,6 @@
 # VALUES_BY_DEFAULT handover — 2026-10-15
 
-**Status: ACTIVE handover, current as of 2026-10-15 (v0.2.63: RELEASE_STATE_PLACEHOLDER).**
+**Status: ACTIVE handover, current as of 2026-10-15 (v0.2.63 published 2026-10-15 12:46Z; `SEED_VERSION` is v0.2.63).**
 - **Supersedes:** [`VBD_HANDOVER_2026-10-13.md`](VBD_HANDOVER_2026-10-13.md). Its §3 order and the 2026-10-10 handover's §5 ("How to work in this repository") still apply unless this document amends them.
 - **Written:** 2026-10-15 by the agent that ran the campaign from 2026-10-13 through the v0.2.63 cut. The maintainer's instruction: "stop all your work after v0.2.63 is out. Then please create a handover doc in new PR so another agent on another machine can pick it up. Please make it as detailed as possible".
 - **Who it is for:** an agent on **another machine**. Nothing below depends on the old box. Every branch named here is pushed. Every script the work needs is either in the repository or inlined in §9. The previous machine's paths appear only in §10, and only as history.
@@ -107,7 +107,7 @@ These rules were set or confirmed 2026-10-13/15. Each one overrides older text t
 | v0.2.60 | 2026-10-12 21:58Z | E0914 always on, effect rows by value, `Index` by value |
 | v0.2.61 | 2026-10-13 13:37Z | A1 futures, A2 borrowing futures, V2b projections Gen A, wrapper patterns, unique `Box`, V4 prep |
 | v0.2.62 | 2026-10-14 03:52Z | Drop Gen A (#1343), E0910 lent-place moves (#1346), `&Self` read-only receivers (#1347), allocator audit (#1337), V4 codegen blockers (#1341) |
-| **v0.2.63** | RELEASE_ROW_PLACEHOLDER | §2.2 below |
+| **v0.2.63** | 2026-10-15 12:46Z (Release run 38721445936; tag on `3cb12b6cf`, the version bump on top of `6f6a2d8e9`; develop's `SEED_VERSION` auto-bumped in `88babe2dc`; notes curated) | §2.2 below |
 
 ### 2.2 What v0.2.63 carries (develop `v0.2.62..6f6a2d8e9`)
 
@@ -482,7 +482,7 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
 
 ## 3. CI state at hand-over
 
-- **Develop battery:** DEVELOP_BATTERY_PLACEHOLDER.
+- **Develop battery:** run 38701738174 on `6f6a2d8e9` was green on all jobs and gated the release. The `SEED_VERSION` bump commit `88babe2dc` runs its own battery, the first to build src with the v0.2.63 seed; check it before merging anything (`gh run list --branch develop --limit 3`).
 - **The evaluator work ratchet** (`check_src_main_alloc_calls`, key in `scripts/bootstrap/memory-ratchet.tsv`) is **2,996,136,722**, ±5% both ways.
   - A PR that moves the count by more than 5% must change the baseline in the same PR, with a dated comment and its attribution.
   - V2b unique buffers Generation B and the memo-key optimization (§4 step 13) will both lower it.
@@ -905,7 +905,7 @@ done
 ## 10. Machine-specific notes (ignore on a new machine)
 
 - **The box:** a Mac Mini (M4, 16 GB, `aarch64-apple-darwin`). Worktrees were under `~/Workspace/Yo-wt/`, the heavy lock's root and `heavy-lock.conf` too.
-- **The installed seed at hand-over:** INSTALLED_SEED_PLACEHOLDER.
+- **The installed seed at hand-over:** v0.2.62 (`~/.local/lib/yo/v0.2.62`). v0.2.63 was not installed on the old box; a new machine installs it with `bash scripts/install.sh`.
 - **Session notes:** `~/Workspace/Yo-wt/notes/`, including `v0263-notes-draft.md` (the curated v0.2.63 body's source) and `issue-date-rename.py` (§9.1).
 - **Logs:**
   - `~/Workspace/Yo-wt/memreg-logs/` (the #1381/#1391 attribution);
