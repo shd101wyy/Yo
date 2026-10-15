@@ -4475,11 +4475,13 @@ local_borrow_is_binding_stmt :: (fn(stmt : &AstExpr) -> bool)(
 local_borrow_may_bind_projection_stmt :: (fn(stmt : &AstExpr) -> bool)(
   ast_expr_is_fn_call_of(stmt, BK_INIT_ASSIGN, Option(usize).Some(usize(2))) && match(
     stmt,
-    .FnCall(_, _, sargs, _, _) => (match(sargs.get(usize(0)), .Some(l) => ast_expr_is_atom(&l), .None => false) && match(
-      sargs.get(usize(1)),
-      .Some(.FnCall(_, _, _, r_infix, _)) => !r_infix,
-      _ => false
-    )),
+    .FnCall(_, _, sargs, _, _) => (
+      match(sargs.get(usize(0)), .Some(l) => ast_expr_is_atom(&l), .None => false) && match(
+        sargs.get(usize(1)),
+        .Some(.FnCall(_, _, _, r_infix, _)) => !r_infix,
+        _ => false
+      )
+    ),
     .Atom(_, _) => false
   )
 );
