@@ -93,6 +93,29 @@ _heavy_avail_mb() {
     /^Pages purgeable/ { gsub(/\./, "", $3); p = $3 }
     END { print int((f + i + s + p) * ps / 1048576) }'
 }
+# Seconds since the epoch at which the machine booted (empty if unknown).
+_heavy_boot_epoch() {
+  if [ -r /proc/stat ]; then
+    awk '/^btime / { print $2 }' /proc/stat
+  else
+    sysctl -n kern.boottime 2>/dev/null | sed -n 's/.*sec = \([0-9]*\).*/\1/p'
+  fi
+}
+# A held slot whose owner can no longer release it: the owner's pid is gone (a
+# `kill -9`, a crashed session), or the slot was taken before the machine last
+# booted (a pid that a reboot reused belongs to someone else). Without this a
+# reboot left every slot held forever and deadlocked every later waiter.
+# A slot without an owner line yet (between its mkdir and the owner write) or
+# taken by the old one-slot loop (no owner file) is never judged orphaned.
+_heavy_slot_orphaned() {
+  local pid mtime boot
+  pid="$(sed -n 's/.*(pid \([0-9]*\))$/\1/p' "$1/owner" 2>/dev/null)"
+  [ -n "$pid" ] || return 1
+  kill -0 "$pid" 2>/dev/null || return 0
+  boot="$(_heavy_boot_epoch)"
+  mtime="$(stat -c %Y "$1" 2>/dev/null || stat -f %m "$1" 2>/dev/null)"
+  [ -n "$boot" ] && [ -n "$mtime" ] && [ "$mtime" -lt "$boot" ]
+}
 # Ticket names sort by this: nanoseconds from GNU date, seconds * 1e9 from
 # BSD date (which prints a literal N), so both spellings have the same width.
 _heavy_now_ns() {
@@ -140,6 +163,9 @@ heavy_take() {
     local s dir free=() free_hi=0 held=0 held_excl=0
     for ((s = 0; s < HEAVY_MAX_SLOTS; s++)); do
       if [ $s = 0 ]; then dir="$HEAVY_LOCK"; else dir="$HEAVY_LOCK-${HEAVY_SLOT_LETTERS:$s:1}"; fi
+      if [ -d "$dir" ] && _heavy_slot_orphaned "$dir"; then
+        rm -rf "$dir"
+      fi
       if [ -d "$dir" ]; then
         case " $HEAVY_HELD_SLOTS " in *" $s "*) ;; *)
           held=$((held + 1)); _heavy_slot_exclusive "$dir" && held_excl=1 ;;
