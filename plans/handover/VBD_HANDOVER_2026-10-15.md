@@ -3,15 +3,15 @@
 **Status: ACTIVE handover, current as of 2026-10-15 (v0.2.63 published 2026-10-15 12:46Z; `SEED_VERSION` is v0.2.63).**
 - **Supersedes:** [`VBD_HANDOVER_2026-10-13.md`](VBD_HANDOVER_2026-10-13.md). Its §3 order and the 2026-10-10 handover's §5 ("How to work in this repository") still apply unless this document amends them.
 - **Written:** 2026-10-15 by the agent that ran the campaign from 2026-10-13 through the v0.2.63 cut. The maintainer's instruction: "stop all your work after v0.2.63 is out. Then please create a handover doc in new PR so another agent on another machine can pick it up. Please make it as detailed as possible".
-- **Who it is for:** an agent on **another machine**. Nothing below depends on the old box. Every branch named here is pushed. Every script the work needs is either in the repository or inlined in §9. The previous machine's paths appear only in §10, and only as history.
-- **The authoritative design** is [`plans/VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md): decisions 1–46 in §4, phases in §6. This document points into it and does not restate it.
+- **Who it is for:** an agent on **another machine**. Nothing below depends on the old box. Every branch named here is pushed. Every script the work needs is either in the repository or inlined in §9, except the global-lend census aggregation script (§2.3 says how to regenerate the census without it). The previous machine's paths appear only in §10, and only as history.
+- **The authoritative design** is [`plans/VALUES_BY_DEFAULT.md`](../VALUES_BY_DEFAULT.md): decisions 1–47 in §4, phases in §6. This document points into it and does not restate it.
 - **Before acting on any branch,** verify it with `git log origin/<branch>`, `gh pr view <n>` and `gh pr list --state open`. Other sessions may have moved it since.
 
 Read in this order:
 1. `AGENTS.md`. The Tier 1 rule is in "Git: worktrees, branches, merges".
 2. This document.
 3. `.github/instructions/testing.instructions.md`, in particular "Choosing a Tier 1 gate" and "The heavy lock".
-4. `plans/VALUES_BY_DEFAULT.md`: the header's progress list, decisions 44–46 in §4, §3.13 (async), and §6's V2b, V4, "Evaluator performance", "Decision 43" and "Decision 46".
+4. `plans/VALUES_BY_DEFAULT.md`: the header's progress list, decisions 44–47 in §4, §3.13 (async), and §6's V2b, V4, "Evaluator performance", "Decision 43", "Decision 46" and "Decision 47: immutable bindings".
 5. The `.github/instructions/` file for the area you touch.
 
 ---
@@ -41,7 +41,7 @@ These rules were set or confirmed 2026-10-13/15. Each one overrides older text t
 `testing.instructions.md`, "Choosing a Tier 1 gate", is authoritative.
 
 - **Always:**
-  - `yo build --std-path ./std`, but only if `src/` changed;
+  - `yo build --std-path ./std` when `src/` changed. A std- or tests-only change reuses a compiler built from develop (AGENTS.md), e.g. one built once per develop tip in a separate worktree;
   - `$B check ./src --std-path ./std` and `$B check ./std --std-path ./std` with the tree-built `B=yo-out/<target>/bin/yo`;
   - `$B fmt --check` on every changed `.yo` file;
   - `bash scripts/check-issue-refs.sh`.
@@ -56,7 +56,7 @@ These rules were set or confirmed 2026-10-13/15. Each one overrides older text t
   - Anything touching `src/types/` must run the internal files that import `src/types`: #1329 broke develop by skipping them.
 - **cli-diff** (`YO_SELF_BIN=$PWD/yo-out/<target>/bin/yo bash scripts/cli-diff-test.sh`): only when CLI output, std, diagnostics, skills or migrations can move.
   - Re-record (`--record <case>`) only the cases whose diff is the intended one.
-  - Under macOS's bash 3.2 the script now exits 2 on a harness error instead of 0 (#1388). Treat any exit other than 0 as a failure.
+  - The script needs bash 4 or newer (`declare -A`). Under macOS's `/bin/bash` 3.2 it exits 2 before running any case (#1388; it used to exit 0, a false green). On macOS, install a newer bash (`brew install bash`, or nix) and call it explicitly, e.g. `YO_SELF_BIN=$PWD/yo-out/<target>/bin/yo /opt/homebrew/bin/bash scripts/cli-diff-test.sh`. Any exit other than 0 is a failure.
 - **Not in Tier 1:** the full language suite, `yo test ./std`, the fixpoint. CI runs those.
 
 ### 1.3 CI runs
@@ -174,16 +174,33 @@ These rules were set or confirmed 2026-10-13/15. Each one overrides older text t
 - #1383: `yo test --std-path` works under `YO_TEST_IN_PROCESS=1`.
 - #1390: develop skew fix (`closure_capture_list` expects E0910 for the `&mut` relend).
 - #1371: decision 46.
+- #1360: closes 10 S1 docs the 2026-10-14 triage found already fixed, with a regression test for the own-param untaken-return leak.
+- #1375: files the S2 direct-projection-call doc (#1368 fixes it).
 - #1372: the F* audit (backlog).
 - #1350, #1351, #1352: plans.
 
 ### 2.3 Open PRs and branches at hand-over
 
-Every one is pushed. "Next" is the exact next action.
+Every one is pushed. "Next" or "Land" is the exact next action. On a new machine, none of these branches exists locally: start each one with `git fetch origin && git switch <branch>` (or `git worktree add -b <branch> <durable-path>/<name> origin/<branch>`), which creates the local tracking branch the commands below name.
+
+**Landing queue (§4 has the full order).** Ready, gated branches land first:
+
+| Order | Branch | State |
+| --- | --- | --- |
+| 1 | #1378 from `vbd-d45-genb-rebased` | rebased, Tier 1 green |
+| 2 | #1379 from `feat/vbd-v3-async-a5-rebased` | rebased onto #1378, Tier 1 green; revert `std/hash.yo` while landing |
+| 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | rebased, Tier 1 green |
+| 4 | this handover PR | docs; adds decision 47 to the plan |
+| 5 | `feat/global-lend-to-call-is-an-error` (no PR) | decision 47 globals, Generation A; Tier 1 green; needs this handover PR first |
+| 6 | `fix/runtime-write-to-comptime-constant` (no PR) | E0918; Tier 1 green except 8 cli goldens to re-record; conflicts with item 5 |
+| 7 | `fix/d3-trust-by-mutation-mask` (no PR) | the D3 S1 fix; Tier 1 green |
+| 8 | `perf/type-key-memo-identity` (no PR) | −40.5% allocations; Tier 1 green |
+| 9 | #1380 | blocked on item 7, then restack |
+| 10 | #1385 | needs the `--onto` restack and Tier 1 |
 
 #### #1378 — decision 45 Generation B: `Dispose` → `Drop` across the tree (`vbd-d45-genb`, head `5aa03a9ee`)
 
-> **REBASED AND GATED 2026-10-15 — land it from `vbd-d45-genb-rebased` (head `cfc7e2e59`, on develop `6f6a2d8e9`). The steps below are done.**
+> **REBASED AND GATED 2026-10-15 — land it from `vbd-d45-genb-rebased` (head `cfc7e2e59`, on develop `6f6a2d8e9`). The "Next" steps below the box are done; they are the history.**
 >
 > - **Conflicts as resolved:**
 >   - `.Some(Rc(.TraitT(...)))` in `_is_destructor_trait_id`;
@@ -192,7 +209,7 @@ Every one is pushed. "Next" is the exact next action.
 > - **Also done:**
 >   - The prelude-path nit is fixed: the migration-only `Dispose` is appended only when the resolved entry equals `${std_path}/prelude.yo`.
 >   - Develop's new `Dispose` sites are migrated: `tests/cycle_collector`, `tests/fixtures/owned_buffer.yo`, `tests/parameter_modes`.
-> - **Tier 1 on `b0ff7866e`:**
+> - **Tier 1 on `b0ff7866e`** (the head before the final rebase, never pushed; the same content as `cfc7e2e59` minus develop's #1392/#1393):
 >   - build; check src 278/278 and std 171/171;
 >   - 45 feature tests;
 >   - `tests/internal` in-process 1419/1419 (97 min);
@@ -200,10 +217,10 @@ Every one is pushed. "Next" is the exact next action.
 >   - fmt (92 files), issue refs.
 > - **Re-gate on `cfc7e2e59`** (develop's #1392/#1393 only): build, check src/std, `seek`, `cross_thread_wake`.
 > - **Land:**
->   1. `git push -f origin vbd-d45-genb-rebased:vbd-d45-genb`
->   2. `gh pr merge 1378 --squash --admin --delete-branch`
->   3. Cancel its PR run.
->   4. If develop has moved, rebase first; the conflicts so far were comment-only.
+>   1. `git fetch origin && git switch vbd-d45-genb-rebased`. Develop has moved past `6f6a2d8e9` (at least the v0.2.63 version and `SEED_VERSION` commits), so `git rebase origin/develop`, then re-run `yo build --std-path ./std` and check src/std; the conflicts so far were comment-only.
+>   2. `git push -f origin vbd-d45-genb-rebased:vbd-d45-genb`
+>   3. `gh pr merge 1378 --squash --admin --delete-branch` (no open PR is based on `vbd-d45-genb`).
+>   4. Cancel its PR run; delete `vbd-d45-genb-rebased`.
 
 - **What:** runs `yo fix --migrate drop-trait` over the tree and deletes the `Dispose` spelling. The compiler knows only `Drop`.
 - **Seed:** the tree needs a seed that knows `Drop` (v0.2.62 does). It also needs v0.2.63 because of #1358's bound unification, which is why it was held for the cut.
@@ -218,14 +235,14 @@ Every one is pushed. "Next" is the exact next action.
 
 #### #1379 — V3 async A5: move-only wakers, parks, channel halves; streams take `&mut self` (`feat/vbd-v3-async-a5`, head `2996a8419`)
 
-> **REBASED ONTO #1378 AND GATED 2026-10-15 — land it from `feat/vbd-v3-async-a5-rebased` (head `4cc522f97`, stacked on `cfc7e2e59`). Steps 1, 2 and 4 below are done; step 3 waits for the seed.**
+> **REBASED ONTO #1378 AND GATED 2026-10-15 — land it from `feat/vbd-v3-async-a5-rebased` (head `4cc522f97`, stacked on `cfc7e2e59`). "Next" steps 1, 2 and 4 below the box are done (history); step 3 is Land step 2 here.**
 >
 > - **Rebase:** with `--onto`, merge base `23787451b`. A5's commits `3838c6d8f` and `eb4f5a3c8` were skipped, because they duplicate #1382.
 > - **B4 done:**
 >   - `cross_thread_wake` and `std/async/{channel,waker}.yo` are on `Drop`;
 >   - the §3.13 prose says `Drop`.
 > - **`std/hash.yo` keeps its workaround** with a `// TODO(v0.2.63 seed)` note. Revert it once v0.2.63 is the installed seed.
-> - **Tier 1 on `ec8958596`:**
+> - **Tier 1 on `ec8958596`** (the head before the final rebase, never pushed; the same content as `4cc522f97` minus develop's #1392/#1393):
 >   - build; check src and std;
 >   - 32 feature tests (`async_await` 280);
 >   - 5 `tests/internal` files;
@@ -233,9 +250,12 @@ Every one is pushed. "Next" is the exact next action.
 >   - fmt (102 files).
 > - **Re-gate on `4cc522f97`:** build, check, `seek`, `cross_thread_wake`.
 > - **Land, after #1378 squash-merges:**
->   1. `git fetch && git rebase --onto origin/develop cfc7e2e59 feat/vbd-v3-async-a5-rebased`
->   2. `git push -f origin feat/vbd-v3-async-a5-rebased:feat/vbd-v3-async-a5`
->   3. `gh pr merge 1379 --squash --admin --delete-branch`
+>   1. `git fetch origin && git switch feat/vbd-v3-async-a5-rebased && git rebase --onto origin/develop cfc7e2e59`. `cfc7e2e59` is #1378's rebased head, so only A5's own commits replay.
+>   2. With the v0.2.63 seed installed, revert `std/hash.yo` to `self._compress(self.tail)` and delete the `// TODO(v0.2.63 seed)` note (v0.2.63 carries #1382). Re-run `yo build --std-path ./std`, `$B check ./std --std-path ./std` and the seed's `yo check ./src --std-path ./std`, then commit.
+>   3. `git push -f origin feat/vbd-v3-async-a5-rebased:feat/vbd-v3-async-a5`
+>   4. `gh pr merge 1379 --squash --admin`, **without `--delete-branch`**: `feat/vbd-v3-async-a5` is #1380's base, and deleting it auto-closes #1380, which then cannot be retargeted (§7).
+>   5. `gh pr edit 1380 --base develop`. Retargeting fires a battery on the blocked draft; cancel it.
+>   6. Only then `git push origin --delete feat/vbd-v3-async-a5`, and delete `feat/vbd-v3-async-a5-rebased`.
 
 - **What:** A5's remaining lines (§3.13).
   - `Waker` is move-only; `Waker.clone` Generation A adds `__yo_waker_clone`.
@@ -257,7 +277,7 @@ Every one is pushed. "Next" is the exact next action.
   3. Revert the `std/hash.yo` workaround to `self._compress(self.tail)`. The v0.2.63 seed carries #1382, so the seed check accepts it.
   4. Tier 1: build; check src and std; `tests/cross_thread_wake`, `tests/async/channel*`, `tests/async/waker*`, `tests/async_await.test.yo`, and every test naming `Waker`, `Park`, `Sender`, `Receiver` or `Stream` (one file per call); the internal files importing `src/codegen/async/*` and `src/evaluator/exprs/begin.yo` (likely more than 8 → the in-process run, `exclusive`).
   5. Admin-merge.
-- **Then (Generation B):** `Waker.clone` needs a seed carrying `__yo_waker_clone`, so it waits for the release after A5 merges. Change `std/async/waker.yo` to `impl(Waker, Clone(clone : … Waker(_p : unsafe(__yo_waker_clone(self._p)))))`, and move the cross-thread tests back to `Park` and `w.clone()` (§3.13 A5 "Waker.clone, Generation B").
+- **Then (Generation B):** `Waker.clone` needs a seed carrying `__yo_waker_clone`, so it waits for the release after A5 merges. Change `std/async/waker.yo` to `impl(Waker, Clone(clone : … Waker(_p : unsafe(__yo_waker_clone(self._p)))))`, and move the cross-thread tests back to `Park` and `w.clone()` (§3.13 A5 "`Waker.clone`, Generation B", in the plan as #1379 lands it; until then read it on `origin/feat/vbd-v3-async-a5-rebased`).
 
 #### #1380 — the async `Mutex` follows Rust (`feat/vbd-async-mutex-rust`, head `657146480`, draft, stacked on #1379)
 
@@ -269,7 +289,7 @@ Every one is pushed. "Next" is the exact next action.
   - **B1, the pragma-trust hole (S1):**
     - D3 trusts every mutator defined in a pragma file, so a spawned task can call `b.*.o.take()` on an `Arc` copy, because `Option.take` lives in the prelude.
     - Meanwhile `io.await(peek(&a.*, io), io)` holds the borrow, and the future reads 0 where 7 was written.
-    - **Fix D3 first:** trust a pragma'd callee by its **mutation mask**, not by its file. The issue doc is on this branch: `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`. Land it on develop as its own PR, with its test.
+    - **Fixed on `fix/d3-trust-by-mutation-mask`** (its entry below): D3 now judges every callee by its **mutation mask**, not by its file. The issue doc is `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`; this branch adds it at the root too (commit `657146480`).
     - The probe shape:
 
       ```yo ignore
@@ -281,17 +301,17 @@ Every one is pushed. "Next" is the exact next action.
 
   - **B2, a module-level `Arc` root:**
     - `G := arc(...)` is lent through `&G.*`, and `G = arc(...)` runs during the await, so the future reads a later allocation.
-    - In `_check_future_call_lends`, reject a lend whose root is a module-level or `thread_local` binding. `_module_global_root_var` (`src/evaluator/exprs/assignment.yo`) already computes this, and #1389 uses it for plain lends.
+    - This branch forks before #1389. #1389 (on develop) already rejects any module-level or `thread_local` root lent to a borrowing future (`_check_future_call_global_lends` / `_reject_global_lend_to_future` in `src/evaluator/calls/function.yo`), and its place walk (`_lent_place_of`) sees through `.*`. After the restack, re-run the B2 probe: it should already be E0909 ("is a module-level binding"). Add the `&G.*` shape as a test in `tests/async_await.test.yo`. Extend `_reject_global_lend_to_future` only if the probe still passes; do not use `_module_global_root_var`, which is D1's write-rule helper and excludes `thread_local`.
   - **B3:** `tests/async_await.test.yo` goes red. The branch changed E0909's text from "lives in a shared cell" to "lives in a shared mutable cell", and 10 `comptime_expect_error` substrings at L7136–7207 expect the old text. Update them.
   - **Should-fix:**
     - `handle_payload_is_read_only` (`src/evaluator/utils.yo` ~L1175) matches by shape, so all 11 `std/sync/atomic.yo` types qualify too. Key it on the prelude `Arc`'s identity.
     - After the rebase, V4 needs `Rc(.Struct(...))` / `rc(TypeValueNode.Unit)` at `utils.yo` ~L1175 and ~L1299, and an import/export union with #1339's in `function.yo`, `assignment.yo` and `utils.yo`.
 - **Next:**
-  1. Land the D3 mutation-mask fix on develop.
-  2. Restack this branch onto #1379 once #1379 merges (`git rebase --onto origin/develop <old-a5-tip> feat/vbd-async-mutex-rust`).
-  3. Fix B2, B3 and the should-fixes. Re-run both probes.
+  1. Land `fix/d3-trust-by-mutation-mask` (its entry below).
+  2. After #1379 lands and this PR is retargeted (#1379's Land steps 4–6), restack: `git fetch origin && git switch feat/vbd-async-mutex-rust && git rebase --onto origin/develop 43de839a3`. `43de839a3` is where this branch forks from the ORIGINAL A5, so only its own 6 commits (`63b774831`…`657146480`) replay. Do not use the rebased A5 tip `4cc522f97`. Drop `657146480`'s add of the root D3 doc, which now lives in `issues/fixed/`.
+  3. Re-run the B1 and B2 probes; fix B3 and the should-fixes.
   4. Tier 1, adding `tests/atomic_object`, `thread_safety`, `closure_capture_list`, `arc` and `async_await`.
-  5. Merge.
+  5. `gh pr ready 1380`, then merge.
 
 #### #1385 — V2b unique buffers Generation A2: `yo fix --migrate explicit-copy` (`feat/vbd-v2b-explicit-copy-migration`, head `ffb6dc6af`, draft)
 
@@ -302,15 +322,15 @@ Every one is pushed. "Next" is the exact next action.
 - **History:** stacked on #1384, which merged. #1385 was retargeted to develop before the base branch was deleted, so it stays open.
 - **Its question doc** (copied to develop by the handover PR; identical, so the rebase merges it cleanly): `issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`. It recommends leaving those to the flip's E0901.
 - **Next:**
-  1. Rebase onto develop.
-  2. Tier 1: check src and std; the cli-case `tests/cli-cases/fix-migrate-explicit-copy`; the internal files importing `src/evaluator/utils.yo`.
+  1. Restack past #1384's pre-squash commits: `git fetch origin && git switch feat/vbd-v2b-explicit-copy-migration && git rebase --onto origin/develop f5987e0c1`. `f5987e0c1` is #1384's head before its squash-merge (`41441c5b3`), so only #1385's 4 commits (`2599f81a2`…`ffb6dc6af`) replay. Then `git push -f origin feat/vbd-v2b-explicit-copy-migration`.
+  2. Tier 1: build; check src and std; the cli-case `tests/cli-cases/fix-migrate-explicit-copy`; the internal files importing `src/evaluator/utils.yo`.
   3. Mark it ready and merge.
 - **Then V2b unique buffers Generation B** (the v0.2.63 seed carries A1): run the migration over std, src and tests; hand-edit the left-as-written sites; then flip `String` and the collections to the explicit-copy kind, so an implicit copy whose source lives on is E0901.
   - The allocation ratchet will DROP by more than 5%. Lower `check_src_main_alloc_calls` in the same PR (`scripts/bootstrap/memory-ratchet.tsv`, with a dated comment).
 
 #### #1368 — V2b direct projection calls, Generation A (`feat/vbd-v2b-projection-calls`, head `f857d65d2`, draft)
 
-> **REBASED AND GATED 2026-10-15 — land it from `feat/vbd-v2b-projection-calls-rebased` (head `5181c0b7b`, on develop `31ef8d7a3`; #1392/#1393 do not overlap it).**
+> **REBASED AND GATED 2026-10-15 — land it from `feat/vbd-v2b-projection-calls-rebased` (head `5181c0b7b`, on develop `31ef8d7a3`; #1392/#1393 do not overlap it). Everything below this box is the history leading here.**
 >
 > - **Three fixes beyond the rebase:**
 >   1. The S2 (#1375) was NOT fixed by the PR's first version. A generic impl's method (`ArrayList.index`) resolves through receiver-method dispatch, which records the method type under the call's id rather than on the callee. Now `projection_call_callee_type` / `call_projection_mode` fall back to `lookup_method_callee_type`, and the dispatch emitter yields `(*m(args))`. This also closes `p.at(i) = v` through a read projection.
@@ -326,14 +346,46 @@ Every one is pushed. "Next" is the exact next action.
 >   - cli-diff `inout-interior-borrow-growth-panics`;
 >   - fmt, issue refs.
 > - **Land:**
+>   0. `git fetch origin && git switch feat/vbd-v2b-projection-calls-rebased`. Develop will have moved past `31ef8d7a3` (#1378, #1379 at least), so `git rebase origin/develop`, then re-run build, check src/std, `tests/index.test.yo` and `tests/ref_field_borrow.test.yo`, one per call.
 >   1. `git push -f origin feat/vbd-v2b-projection-calls-rebased:feat/vbd-v2b-projection-calls`
 >   2. Update the PR body: the Summary names the develop S2; Verification gets the results above; Deferred gets the non-dot recorded-method codegen tail near `other_fn_call.yo:1684`, which has no projection branch.
->   3. `gh pr ready 1368`, then `gh pr merge 1368 --squash --admin --delete-branch`.
+>   3. `gh pr ready 1368`, then `gh pr merge 1368 --squash --admin --delete-branch`; delete `feat/vbd-v2b-projection-calls-rebased`.
 
 - **What:** a projection called by name (`t.index(i)`, `first(&t)`) yields its place: operand, receiver, argument, binding (a local borrow, E0911/E0912) and write target.
-- **Tier 1 has NEVER run**: the session never got a slot for it.
-- **Known gap:** `issues/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2, #1375). `r := xs.index(usize(0));` fails in clang with an int-from-pointer error. This PR is its fix, so add that repro as a test.
-- **Next:** rebase onto develop (V4 and #1361 moved the index code). Run the full Tier 1 (check src/std, `tests/index.test.yo` and every test naming `index(`, the internal files importing the touched evaluator modules). Fix, then merge.
+- Tier 1 had not run before the 2026-10-15 rebase; see the box.
+- **Known gap (now fixed on the rebased branch):** `issues/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2, #1375). `r := xs.index(usize(0));` failed in clang with an int-from-pointer error.
+- **Next:** see the box's Land steps.
+
+#### `fix/d3-trust-by-mutation-mask` — the D3 S1 fix (B1 of #1380), no PR yet (head `1d4121d30`, on develop `31ef8d7a3`)
+
+- **What:** `d3_check_pending` (`src/evaluator/exprs/assignment.yo`) no longer returns early for a callee defined in a pragma file. Every callee is judged by its mutation mask, wherever it lives. std's own internal writes stay exempt at the pragma'd CALLER (`d3_record_inout_place`), and every `std/sync` handle method takes `self : Self` or `self : &Self`, so none reaches D3.
+- **Tests:** `tests/parallelism_soundness.test.yo`:
+  - rejected: `a.*.o.take()` / `replace` on an `Arc`; the thread shape; the task shape; D1's `g.take()` on a global a spawned thread reads;
+  - canaries: `take`/`replace` on owned values, through `&mut`, inside `with_lock`; reads through `Arc`.
+- **Stricter now:** D1 also covers `g.take()`/`g.push(x)` on a global that a spawned closure reads (the deleted `return` skipped that branch). Develop's battery is the first full sweep of that.
+- **Filed:** S3 (the branch's `2026-10-15-yo-check-swallows-a-d3-error-inside-a-thread-spawn-or-io-async-body.md`). Standalone `yo check` does not report the D3 error inside a `Thread.spawn`/`io.async` body; `yo compile` and the test harness do.
+- **Tier 1 passed:** build; check src 278/278, std 171/171; `parallelism_soundness` 17, `arc` 15, `atomic_object` 21, `thread_safety` 4, `async_await` 280, `closure_capture_list` 41, `move_only` 54, `send_sync` 15, `thread` 23, `rc` 98, `deref_auto` 22, `match_nested` 24, `unapplied_constructor_method` 18, `type_reflection` 35; internal `assignment` 9; fmt; issue refs. Not run: the other `tests/internal` files that reach the evaluator (in-process, ~95 min).
+- **Next:**
+  1. `git fetch origin && git switch fix/d3-trust-by-mutation-mask && git rebase origin/develop`.
+  2. Once this handover PR has landed, `git rm issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` (the root copy this PR adds); the branch has the fixed copy, and `check-issue-refs.sh` rejects a doc in both places.
+  3. It conflicts with `feat/vbd-async-mutex-rust` (#1380) at `d3_check_pending`: keep #1380's `needs_mask`/`hop_receivers` block AND this deletion.
+  4. Tier 1 again (build, check src/std, `tests/parallelism_soundness.test.yo`, the internal files importing `assignment.yo`; consider the in-process run), open the PR from the template, admin-merge.
+
+#### `fix/runtime-write-to-comptime-constant` — E0918, a `::` binding written at runtime, no PR yet (head `f0a97445f`, on develop `6f6a2d8e9`)
+
+- **What:** E0918 `E_COMPTIME_BINDING_RUNTIME_WRITE`, raised by `_reject_runtime_write_of_comptime_binding` (`src/evaluator/exprs/assignment.yo`) through `raise_flow_violation`. It fixes the S2 `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (moved to `issues/fixed/` on the branch) independently of decision 47.
+  - It fires for a plain, field or element write in a runtime body (function, closure, `io.async`, test) when the `::` binding is declared outside that body, or the value written is a runtime one. A write through a `ref` handle is not a write of the binding.
+  - Unchanged: module-level `G :: 1; G = 2;`, a body's own `a :: 1; a = 2;` at compile time, `while(comptime(...))` counters, `-> comptime(...)` bodies and `comptime_fn`.
+  - Not covered: a compile-time value written to a body's own `::` under a runtime `cond` arm or loop (needs flow sensitivity; decision 47's `mut(a) ::` owns it).
+- **Sites:** `src/diagnostics.yo`, `src/diagnostics_registry.yo` (en + zh-CN explain), `assignment.yo`, `tests/comptime.test.yo` (two tests), `docs/*/CTFE.md`, the yo-syntax instructions and cheatsheet. `check ./src` and `./std` found no runtime write to a `::` binding, so no tree site changed.
+- **Filed:** S2 (the branch's `2026-10-15-return-of-a-function-local-comptime-constant-emits-an-undeclared-c-identifier.md`). `a :: i32(1); return(a);` in a runtime function passes `check` and fails in the C compiler (undeclared `__yo_v_a`).
+- **Tier 1:** build; check src 278/278, std 171/171; `comptime` 46/46 (the two E0918 tests also fail on the v0.2.62 seed, so they fail before the fix); internal `assignment` 9, `diagnostics_registry_examples` 1, `diagnostics_registry` 9, `error` 35; fmt; issue refs. **cli-diff: 385 pass, 8 expected golden diffs not yet re-recorded**: `explain-list` (the new code) and seven tree cases (`build-stamp-dotted-dir`, `init`, `init-build-test`, `init-cwd`, `init-existing`, `skills-install`, `skills-install-zh`) whose only change is the hash of the bundled `syntax-cheatsheet.md`.
+- **Next:**
+  1. `git fetch origin && git switch fix/runtime-write-to-comptime-constant && git rebase origin/develop`; `git rm` the root copy of the comptime-constant doc that this handover PR adds.
+  2. It conflicts with `feat/global-lend-to-call-is-an-error` (E0917) in `src/diagnostics.yo`, `src/diagnostics_registry.yo` and `src/evaluator/exprs/assignment.yo`; whichever lands second keeps both codes.
+  3. `yo build --std-path ./std`; re-record only those 8 cases (`--record <case>`), diff the goldens (only the E0918 line and the cheatsheet hash may change), re-run cli-diff clean.
+  4. Optional: the full language suite, since the rule is statement-level.
+  5. Open the PR from the template, admin-merge.
 
 #### #1162 — type-soundness phase 6 step 4: a live FTT stub is a compile error (`tss/phase6-step4`, draft since 2026-10-03)
 
@@ -365,13 +417,13 @@ Every one is pushed. "Next" is the exact next action.
 >   - cli-diff 390, plus the re-recorded and new cases;
 >   - fmt, issue refs;
 >   - a per-file census over all 316 language test files, which evaluates `test(...)` bodies, found no stray E0916 or E0917.
->   - Not caused by this branch: `tests/spec/verify_match_patterns.test.yo` fails `yo check` identically on the v0.2.62 seed.
+>   - Not caused by this branch: `tests/spec/verify_match_patterns.test.yo` fails `yo check` identically on the v0.2.62 seed (`issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md`, S3).
 > - **Known consequences:**
 >   - D1's mutation-mask distinction for a `&mut` lend of a value global is no longer reachable in user code: E0917 or E0916 fires first. A replacement cli-case for D1 on handle places may be wanted.
 >   - Rule B means a field written through a handle global cannot then be lent through a `&self` method on that field. Lend the handle and read the field inside the callee.
 > - **Landing order and conflicts:**
 >   1. Land THIS handover PR first. The branch's decision 18 pointer and its §6 text refer to decision 47 in §4, which this PR adds.
->   2. Rebase the branch. It has its own §6 section "Decision 47: `mut(name)`", which conflicts with this PR's §6 "Decision 47: immutable bindings". Keep this PR's section and fold the branch's as-built details (E0917, the exemption, the census numbers) into step 1 of it.
+>   2. `git fetch origin && git switch feat/global-lend-to-call-is-an-error && git rebase origin/develop`. It has its own §6 section "Decision 47: `mut(name)`", which conflicts with this PR's §6 "Decision 47: immutable bindings". Keep this PR's section and fold the branch's as-built details (E0917, the exemption, the census numbers) into step 1 of it. Decision 18 rule 3 also conflicts: keep this PR's "Amended by decision 47" sentence, drop the branch's parenthetical, and move only its `issues/fixed/…` citation into the kept sentence.
 >   3. The branch moves the S1 doc to `issues/fixed/`. Update every citation of the open path; `check-issue-refs.sh` lists them.
 >   4. `yo build --std-path ./std`, re-run the changed tests and cli-diff, then open the PR from the template and admin-merge.
 > - **Generation B,** once `SEED_VERSION` parses `mut(`:
@@ -380,6 +432,8 @@ Every one is pushed. "Next" is the exact next action.
 >   3. Rewrite the remaining E0916 sites: 248 in src and 6 in std before the resets, about 87 after.
 >   4. Make the `markdown_yo` companion (3 globals).
 >   5. Drop `is_global_mut_rule_exempt`.
+>   6. Narrow #1389's E0909 (`_reject_global_lend_to_future`, `src/evaluator/calls/function.yo`) to `mut(G)` and `thread_local(mut(...))` roots, as decision 47 states, keeping rules A and B for handle globals. Do this only after step 5, because while std/src are exempt an unmarked global there can still be written. Tests: `&G` of an unmarked global lent to a borrowing future compiles; `&G` of a `mut(G)` stays E0909.
+> - **The 57/87/248 figures assume collections are `ref` handles.** If V2b unique buffers Generation B lands first, every module-level collection written through `push`/`clear` becomes a VALUE global (E0917 when unmarked). Then re-run the census with a tree-built binary after V2b Generation B and either mark those globals `mut(G)` and rewrite their lends, or move them to `thread_local(mut(...))`/`RefCell` (decision 46 Generation A brings `RefCell`). Decide before sweeping, or land the globals' Generation B before V2b Generation B.
 
 
 - **What:** the S1 `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`, with the decided design in §5.1.
@@ -438,10 +492,13 @@ Every one is pushed. "Next" is the exact next action.
   - So rule A guards the post-#1368 ABI, not today's behaviour. Keep it, and record this in the issue doc.
 - **Review amendment B:** 8 unmarked handle globals (src 7, tests 1) take field or element writes, so their lends are checked by path.
 - **Not built:** the "written-anywhere" inference registry, which was rejected for load-order dependence.
-- **The census data** (`census2-*.err`, `analyze2.py`) stayed on the old machine. `YO_AUDIT_GLOBAL_LEND=1 yo check <tree> --std-path ./std` on the branch regenerates it.
+- **The census data** (`census2-*.err`, `analyze2.py`) stayed on the old machine, and `analyze2.py` was not preserved. Regenerate the census with the branch's TREE-BUILT compiler, not the seed (the seed lacks the knob):
+  - `B=yo-out/<target>/bin/yo; YO_AUDIT_GLOBAL_LEND=1 $B check ./src --std-path ./std 2> census-src.err`, and the same for `./std` and `vendor/markdown_yo`;
+  - tests one file at a time, so `test(...)` bodies are evaluated: `for f in $(git ls-files 'tests/*.test.yo' | grep -v '^tests/internal/\|^tests/cli-cases/'); do YO_AUDIT_GLOBAL_LEND=1 $B test $f --parallel 1 2>> census-tests.err; done`;
+  - aggregate by counting the `[global-write]` and `[global-lend]` lines per `marked=`/`reach=` tag. The test counts will differ from the table above, because the branch has since marked the test globals.
 - **Next:** narrow the branch to §5.1's rule. Steps:
   1. The spelling is decided: `mut(G)` (decision 47, §5.11). Record decision 47 in the plan's §4, and decision 18 rule 3's amendment pointing at it.
-  2. Make a write to an unmarked global an error, with a census first (`YO_AUDIT_GLOBAL_LEND` already lists the writes). Expect about 150 rewrite sites, 56 of them reassigned handle globals (`G = new()` becomes `G.clear()` or similar).
+  2. Make a write to an unmarked global an error, with a census first (`YO_AUDIT_GLOBAL_LEND` already lists the writes). Expect about 150 rewrite sites, 57 of them reassigned handle globals (`G = new()` becomes `G.clear()` or similar).
   3. E0916 for lending a marked global or a place under it.
   4. The two review rules in §5.1.
   5. Generation B: sweep std and src, then turn the error on.
@@ -474,9 +531,13 @@ Every one is pushed. "Next" is the exact next action.
 
 #### Stale remote branches
 
-These have merged, or were superseded. Verify each with `git log origin/develop --grep` or `gh pr list --state merged --head <branch>` before deleting:
+These are merged or superseded. Most never had their own PR, so an empty `gh pr list --head` is expected, and `git cherry` reports every squash-merged commit as new. Confirm each against the plan header's Landed list and the 2026-10-13 handover's batch table, then delete:
 
-`feat/vbd-marker-sweep-part2`, `feat/vbd-readonly-receivers`, `feat/vbd-v2b-index-mut-genb`, `feat/vbd-v3-async-a1`, `feat/vbd-v3-genb`, `feat/vbd-v3b-addr-of-delete-inout`, `feat/vbd-v3b-flip-2`, `feat/vbd-v3b-marker-sweep-trial`, `feat/vbd-v3b-markers-a`, `feat/vbd-v3b-storing-by-value`, `feat/vbd-v4-typevalue`, `feat/vbd-v4-typevalue-2`.
+`feat/vbd-readonly-receivers` (#1334), `feat/vbd-v3b-addr-of-delete-inout` (#1302), `feat/vbd-v3b-markers-a` (#1296), `feat/vbd-v2b-index-mut-genb`, `feat/vbd-v3-async-a1`, `feat/vbd-v3-genb`, `feat/vbd-v3b-flip-2`, `feat/vbd-v3b-marker-sweep-trial`, `feat/vbd-v3b-storing-by-value`, `feat/vbd-v4-typevalue`, `feat/vbd-v4-typevalue-2`, `integ/v0262b` (the v0.2.62 integration branch), `plans/vbd-alloc-and-constructors` (#1160), `docs/tier1-admin-merge` (#1356), `docs/three-tier-gating` (#1355).
+
+- **Exception:** `feat/vbd-marker-sweep-part2` landed as #1318 except its last commit `6fb2249cf`, a loud `gates_fast.sh` fallback to the checkout's own yo-out binary that develop does not have. Decide whether to port it before deleting the branch.
+- After #1378, #1379 and #1368 land, also delete `vbd-d45-genb-rebased`, `feat/vbd-v3-async-a5-rebased` and `feat/vbd-v2b-projection-calls-rebased`.
+- Other `fix/*`, `docs/*` and `perf/*` branches on origin belong to other tracks or sessions; leave them unless a doc names them.
 
 ---
 
@@ -485,7 +546,7 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
 - **Develop battery:** run 38701738174 on `6f6a2d8e9` was green on all jobs and gated the release. The `SEED_VERSION` bump commit `88babe2dc` runs its own battery, the first to build src with the v0.2.63 seed; check it before merging anything (`gh run list --branch develop --limit 3`).
 - **The evaluator work ratchet** (`check_src_main_alloc_calls`, key in `scripts/bootstrap/memory-ratchet.tsv`) is **2,996,136,722**, ±5% both ways.
   - A PR that moves the count by more than 5% must change the baseline in the same PR, with a dated comment and its attribution.
-  - V2b unique buffers Generation B and the memo-key optimization (§4 step 13) will both lower it.
+  - V2b unique buffers Generation B and the memo-key optimization (`perf/type-key-memo-identity`, which already lowers the baseline to an estimated 1,782,545,714) will both lower it.
 - **The RSS ratchet:** #1381 brought `check` from 2.43 to 1.02 GB and `build` from 4.28 to 3.26 GB.
 - **The self-hosted differential `tests/internal` job** runs 6 shards with `--compile-timeout-ms 1200000` (#1335, #1342).
 
@@ -494,26 +555,30 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
 ## 4. The next steps, in order
 
 0. **Install the newest seed:** `bash scripts/install.sh`. `yo --version` must say 0.2.63 or later, and every `SEED_VERSION: v…` pin in `.github/workflows/` (`test.yml`, `release.yml`, `ubsan.yml`, `fixpoint-arm64.yml`, `leak-verdict.yml`; `test.yml`'s `changes` job checks they agree) must say v0.2.63.
+0a. **The v0.2.63 regression (S2):** `issues/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md`. `match(r, Rc(.A(xs)) => …)` emits `r->_u42_->_u42_`; the suspect is V4's `_lookthrough_switch_cell` (#1369). Fix it, with a test, before anything else.
 1. **#1378**, decision 45 Generation B (§2.3).
-2. **#1379**, A5, rebased onto #1378 (§2.3), including the `std/hash.yo` revert.
-3. **The D3 mutation-mask fix** (B1), its own PR. Then **#1380** (§2.3).
-4. **#1385**, then **V2b unique buffers Generation B** (§2.3). Lower the allocation baseline in the same PR.
-5. **#1368**, direct projection calls (§2.3; rebased and gated). It also closes #1375's S2 and a develop S2 (`f(&mut xs(i))` through a `&` borrow).
-6. **The global lend, decision 47 step 1** (§2.3 and §5.1). Generation A is done on `feat/global-lend-to-call-is-an-error`: land it right after this handover PR. Generation B follows on the seed that carries it.
-6a. **Decision 47, immutable bindings with `mut(name)`** (§5.11), after the queued Generation B items (#1378, A5, V2b Generation B) and before decision 43:
+2. **#1379**, A5 (§2.3): retarget #1380 before deleting the A5 branch, and revert `std/hash.yo` while landing.
+3. **#1368**, direct projection calls (§2.3; rebased and gated). It also closes #1375's S2 and a develop S2 (`f(&mut xs(i))` through a `&` borrow).
+4. **This handover PR** (if it has not already merged), then **`feat/global-lend-to-call-is-an-error`**: decision 47 step 1, Generation A (§2.3, §5.1). Generation B follows on the seed that carries it.
+5. **`fix/runtime-write-to-comptime-constant`** (E0918, §2.3): re-record its 8 cli goldens; it conflicts with item 4 in three files.
+6. **`fix/d3-trust-by-mutation-mask`** (§2.3), then **#1380** (§2.3).
+7. **`perf/type-key-memo-identity`** (§2.3): open its PR; CI's count replaces the estimated ratchet baseline.
+8. **#1385** (`--onto` restack), then **V2b unique buffers Generation B** (§2.3). Lower the allocation baseline in the same PR. Read §2.3's global-lend note on value globals first.
+9. **Decision 47, step 2: locals, patterns and comptime** (§5.11; the plan's §6 phase), after V2b Generation B and before decision 43:
     - Generation A: the parser and evaluator accept every `mut(...)` form, and the errors are enforced outside src/std;
     - `yo fix --migrate mut-bindings`;
     - Generation B on the next seed: sweep src, std, tests, docs and `markdown_yo`, then enforce the errors everywhere.
     - Census first: `YO_AUDIT_MUT_BINDINGS=1` lists each binding that is written after its definition, with its kind.
-    - `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2) closes with Generation A.
-7. **stdio Generation B:** `std/io/stdio.yo`'s handles pass offset `u64.MAX` to the runtime, so redirected stdout/stderr is no longer overwritten positionally.
+    - The runtime write to a `::` binding is already E0918 (item 5); this step generalizes it to `mut(x) ::`.
+10. **stdio Generation B:** `std/io/stdio.yo`'s handles pass offset `u64.MAX` to the runtime, so redirected stdout/stderr is no longer overwritten positionally.
    - The runtime half shipped in v0.2.63 (#1376).
    - It closes the S1 `issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`.
    - Test: `tests/sys/seek.test.yo`, plus a redirect test that appends from two handles.
-8. **The `std` `dyn(f)` spelling, if any is left:** #1339 found no bare site in the tree, so there may be nothing to do. Grep before opening a PR.
-9. **`Waker.clone` Generation B**, once a seed carries A5's `__yo_waker_clone` (the release after #1379).
-10. **Decision 46, `Rc` is read-only** (§6 "Decision 46"): Generation A (the `YO_AUDIT_RC_WRITE` census, `RefCell(T)` if not landed, `Rc.make_mut` and `try_unwrap`), then Generation B (the sweep, then the error). This also makes E0909's read-only-handle predicate true for `Rc`, so `Rc(Mutex(T))` works.
-11. **The rest of the plan, in the 2026-10-13 handover's §3 order:**
+11. **The `std` `dyn(f)` spelling, if any is left:** #1339 found no bare site in the tree, so there may be nothing to do. Grep before opening a PR.
+12. **`Waker.clone` Generation B**, once a seed carries A5's `__yo_waker_clone` (the release after #1379).
+13. **Decision 46, `Rc` is read-only** (§6 "Decision 46"): Generation A (the `YO_AUDIT_RC_WRITE` census, `RefCell(T)` if not landed, `Rc.make_mut` and `try_unwrap`), then Generation B (the sweep, then the error). This also makes E0909's read-only-handle predicate true for `Rc`, so `Rc(Mutex(T))` works.
+14. **The rest of the plan, in the 2026-10-13 handover's §3 order:**
+    - V3 A4's future operands (§3.13 A4): `timeout` and two-way `select` accept a borrowing future, run it as a scoped child, and abort and join it on a deadline or a loss; decision 38 B's overlap check for two borrowing futures passed to one combinator lands with it;
     - V3 A6's `Rc`-field half together with V2c;
     - decision 39's iterators (V2b);
     - the allocator interface version 2;
@@ -522,16 +587,12 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
     - V4's remaining trees (`AstExpr`, `Pattern`/`VcSort`/`VcTerm`/`Z3Sexpr`, `EvalValue`);
     - V5;
     - after V5: K-steps, the README examples, retiring `yo fix --migrate`.
-12. **The issue-date rename.** Do it once the in-flight branches have drained, so that it rewrites citations once. The script is in §9.1.
+15. **The issue-date rename.** Do it once the in-flight branches have drained, so that it rewrites citations once. The script is in §9.1.
     - Dry run on develop 2026-10-15: 201 docs to rename, 263 files rewritten.
     - Tier 1: `check-issue-refs.sh`, cli-diff (re-record only the cases whose diff is the rename), `fmt --check`.
     - Only the root and `questions/` docs move; `fixed/` and `retired/` keep their names.
-13. **The allocation memo-key optimization: DONE on `perf/type-key-memo-identity` (§2.3), waiting for a PR.** Background: (`issues/fixed/2026-10-15-v4-typevalue-rc-raises-the-check-allocation-count-by-7-percent.md`, "Resolution"; S3, not a regression).
-    - About 1.0 billion of the ~3.0 billion allocations of `check src/main.yo` are `type_key(ty)` strings (~5 KB each) built only to look up `g_move_only_memo` (`nominal_declares_move_only`, `src/evaluator/values/impl.yo`) and `g_lacks_copy_memo` (`type_lacks_copy_for_flip`, `src/evaluator/trait_checking.yo`).
-    - Key them without building the string: an identity front cache, sound only for types with no unresolved type variables, or a hashed key.
-    - Lower the ratchet baseline in the same PR.
-    - This is a VBD-introduced cost, so it is in scope now, unlike the general evaluator tuning, which is deferred (§1.5).
-14. **After VBD:** the evaluator-performance investigation (§6 "Evaluator performance" steps 1–2).
+16. **The allocation memo-key optimization** is done on `perf/type-key-memo-identity` (item 7).
+17. **After VBD:** the evaluator-performance investigation (§6 "Evaluator performance" steps 1–2).
     - `check ./src` went from 113 s at v0.2.50 to about 187 s before V4, and about 172 s after V4.
     - The `sample` profile split, v0.2.50 → v0.2.61: Yo code 45.6 → 66.7 s, RC inc/dec 20.1 → 33.9 s, malloc/free 15.4 → 27.6 s.
     - To attribute, use a locally built `-g` compiler: the shipped binaries' `yo_id` hashes do not match a local emit.
@@ -540,15 +601,15 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
 
 ## 5. Decisions recorded this cycle
 
-### 5.1 The global lend to a call (maintainer, 2026-10-15; implementation pending; spelled with decision 47's `mut(G)`)
+### 5.1 The global lend to a call (maintainer, 2026-10-15; Generation A built and gated on `feat/global-lend-to-call-is-an-error`, not yet merged; spelled with decision 47's `mut(G)`)
 
 - **The bug:** with `w2(&G)`, the callee can reassign `G` through another function, or await while another task reassigns it, and then read freed memory. The future half is fixed (#1389).
 - **The rule is Rust's `static` / `static mut` model, with an explicit marker.** The maintainer picked "Rust static model", then, after an advisor review, "Explicit marker".
   - A global is **immutable unless declared mutable**. Whether a global is written is DECLARED, never inferred whole-program: inference would make verdicts depend on module load order, the bug class #1382 fixed.
-  - A **write to an unmarked global is an error.**
+  - A **write to an unmarked global is an error** (E0917 `E_IMMUTABLE_GLOBAL_WRITE` on the branch).
   - **Lending a marked (mutable) global, or a place under it, to a call is E0916.** Copy it out and write it back, or use a `Mutex`, `Cell` or atomic global.
   - An unmarked global may be lent `&` freely. That covers atomics, `RawMutex`, `&self` methods, `${G}` interpolation and `Copy` reads.
-  - **Handle globals** (`ref` objects, collections) may be mutated through their methods (a `&mut self` receiver) while their **binding** stays unmarked, as long as it is never reassigned. Rewrite the 56 reassigned ones.
+  - **Handle globals** (`ref` objects, collections) may be mutated through their methods (a `&mut self` receiver) while their **binding** stays unmarked, as long as it is never reassigned. Rewrite the 57 reassigned ones (the census in §2.3), or reset them in place (`G.clear()`).
   - After V2b makes collections values, handle globals move to Rust's `thread_local` + `RefCell`.
 - **Two rules from the advisor review:**
   - **Projections into a handle global's heap:** lending `&G(i)` or `&G(i).f` to a call is E0916 unless `G` has no `&mut self` calls anywhere. Otherwise a nested `G.push` reallocates the buffer under the borrow.
@@ -557,64 +618,6 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
   - the strict rule ("every lend of a global is E0916"): 1,447 sites, and it rejects its own `Mutex`/atomic fix;
   - whole-program inference of "never written": load-order dependent.
 - **The spelling** is `mut(G)`, decided as part of decision 47 (§5.11).
-
-### 5.11 Decision 47: bindings are immutable unless declared `mut(name)` (maintainer, 2026-10-15)
-
-**The authoritative text is decision 47 in `plans/VALUES_BY_DEFAULT.md` §4**, with its phase "Decision 47: immutable bindings" in §6 and a pointer from decision 18 rule 3. This section records how it was decided.
-
-**What the maintainer said, in order:**
-1. "What about static(name)? As the variables in Yo are mutable by default, right?"
-2. "Should we change our mutable by default behavior, and introduce mut as modifier to variables, like how rust does?"
-3. After the recommendation below: "yes, record it as decision 47 in the handover. And we also need to support mut for comptime. I think we should allow syntax like mut(x) :: 12; and comptime(mut(x)) := 12;"
-
-**The rule.** Every binding is immutable unless its name is wrapped in `mut(...)`. As in Rust, `mut` gates four things:
-- reassignment (`x = v`);
-- `&mut x`, `&mut x.f` and `&mut x(i)` lends;
-- `&mut self` method calls on the binding or a place under it (`xs.push(v)`);
-- field and element writes (`p.x = v`, `xs(i) = v`).
-
-A `ref`-handle binding, until V5 removes `ref(...)`, is a pointer, so a field write through it does not write the binding; that stays allowed without `mut`. Its reassignment does need `mut`.
-
-**The spellings:**
-
-```yo ignore
-mut(x) := 0;                       // runtime local or module-level binding
-(mut(x) : i32) = 0;
-mut(x) :: 12;                      // comptime binding, mutable at compile time
-comptime(mut(x)) := 12;            // comptime variable
-(thread_local(mut(st)) : State) = State.seed();
-match(opt, .Some(mut(v)) => { v = (v + 1); v; }, .None => 0);
-{ a, mut(b) } := pair;             // destructuring: per name
-x := 0;                            // immutable
-x :: 12;                           // a true constant
-```
-
-- **Module-level globals:** an unmarked global is Rust's `static`, and `mut(G)` is `static mut`. The global-lend rule (§5.1) follows: an unmarked global may be lent freely, and lending a `mut(G)`, or a place under it, to a call is E0916, with amendments A and B. The 57 reassigned handle globals in `src/` should be reset in place (`G.clear()`) so they stay unmarked. Without that, their 172 lend sites need hand rewrites.
-- **Comptime (the maintainer's addition):** `x :: v` and `comptime(x) := v` become immutable. Today both can be reassigned, and a runtime write to a module-level `::` is accepted and diverges (issue below).
-  - `mut(x) :: v` and `comptime(mut(x)) := v` are the mutable forms.
-  - **Open point for the next agent:** module-level `::` bindings are order-independent and forced lazily (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`). A mutable lazy binding's value would depend on which definition forces it first, the load-order class #1382 fixed.
-  - Recommendation: allow `mut(x) :: v` in ordered (block) scope, and at module level only if it is never written from a lazily forced definition. Or simply reject it at module level, pointing at `comptime(mut(x)) := v` in a block. Bring this to the maintainer before implementing.
-- **Statics follow Zig (maintainer, 2026-10-15: "I am saying about static keyword to follow zigs way"). There is no `static` keyword or `static(...)` wrapper anywhere.** This supersedes a "blocks only `static(x)`" answer given minutes earlier.
-  - **Where a binding is declared decides its lifetime**, as with Zig's container-level declarations:
-    - a module-level `x := v` is an immutable global (Zig's container-level `const`);
-    - `mut(x) := v` is a mutable global (Zig's container-level `var`);
-    - `thread_local(mut(x)) := v` is Zig's `threadlocal var`;
-    - inside a block, `x := v` / `mut(x) := v` are locals (Zig's local `const`/`var`), and `comptime(mut(x)) := v` is Zig's `comptime var`.
-  - **Function-local statics get no dedicated syntax.** Zig writes them as a `var` inside a struct type declared in the function body, or as a file-level `var`. Yo's answer is a module-level `mut(_f_state)` next to the function. If Yo gains namespaced static members on a type declared in a body, that is the Zig-shaped extension; it is not part of this decision.
-  - **Open, for the implementation phase:** Zig also makes container-level initializers implicitly comptime and lazily analyzed. Yo's module-level `:=` accepts runtime initializers today; whether to tighten that is NOT decided.
-- **Parameters take no `mut`; they stay immutable.** A closure's parameters, `for` element bindings and capture-list entries follow the same rule. A body that needs to mutate a by-value argument rebinds it: `mut(y) := x;` (a move, not a copy, for an owning value). Why:
-  1. **It is invisible to the caller.** In Rust, `fn f(mut x: T)` is sugar for `fn f(x: T) { let mut x = x; … }`. The `mut` is not part of the signature, the type or the calling convention, so it adds nothing to the contract.
-  2. **Yo's parameters are already immutable:** `x = (x + 1)` on a parameter is E0902 today ("Cannot reassign"). Keeping them immutable changes nothing for parameters, except that field writes and `&mut self` calls on a by-value parameter now need the rebind.
-  3. **`mut(x) : T` meant `&mut T` until v0.2.59** (decision 42), and a parameter mode word is E0009 today. Reviving the spelling with a different meaning would let pre-v0.2.59 code, or a model trained on it, compile with its writes going to a callee-local copy. For a `Copy` argument nothing reports it, and the caller's value never changes. Keeping E0009 in parameter position makes that mistake a compile error.
-- **Errors:** a write of any of the four kinds to an unmarked binding is a new error code.
-  - Its message names the binding, its definition, and the `mut(...)` form.
-  - For a parameter, it names the rebind.
-  - E0902's "You can mutate fields" hint goes away.
-- **Rollout:**
-  - The global-lend fix first, already spelled `mut(G)`.
-  - The general phase (§4 step 6a) after the queued Generation B items and before decision 43, because decision 43's `&mut` rules can then assume `mut`.
-  - Generation A needs the parser to accept `mut(` in binding position; the seed rejects it today ("Invalid binding to "mut"").
-- **Bug found while checking the rule:** `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2). `G :: i32(1)` written at runtime reads 3, while `H :: G + 10` was folded from 1.
 
 ### 5.2 Decision 46: `Rc` is Rust's `Rc` (#1371)
 
@@ -665,16 +668,74 @@ See §1.5.
 - **No shipped skills after V5:** `yo init` writes `AGENTS.md` and `CLAUDE.md`, and `yo skills install` is deleted at K4.
 - **The `yo fix --migrate` modes are retired after V5,** once the README's six example projects are migrated.
 
+### 5.11 Decision 47: bindings are immutable unless declared `mut(name)` (maintainer, 2026-10-15)
+
+**The authoritative text is decision 47 in `plans/VALUES_BY_DEFAULT.md` §4**, with its phase "Decision 47: immutable bindings" in §6 and a pointer from decision 18 rule 3. This section records how it was decided.
+
+**What the maintainer said, in order:**
+1. "What about static(name)? As the variables in Yo are mutable by default, right?"
+2. "Should we change our mutable by default behavior, and introduce mut as modifier to variables, like how rust does?"
+3. After the recommendation below: "yes, record it as decision 47 in the handover. And we also need to support mut for comptime. I think we should allow syntax like mut(x) :: 12; and comptime(mut(x)) := 12;"
+
+**The rule.** Every binding is immutable unless its name is wrapped in `mut(...)`. As in Rust, `mut` gates four things:
+- reassignment (`x = v`);
+- `&mut x`, `&mut x.f` and `&mut x(i)` lends;
+- `&mut self` method calls on the binding or a place under it (`xs.push(v)`);
+- field and element writes (`p.x = v`, `xs(i) = v`).
+
+A `ref`-handle binding, until V5 removes `ref(...)`, is a pointer, so a field write through it does not write the binding; that stays allowed without `mut`. Its reassignment does need `mut`.
+
+**The spellings:**
+
+```yo ignore
+mut(x) := 0;                       // runtime local or module-level binding
+(mut(x) : i32) = 0;
+mut(x) :: 12;                      // comptime binding, mutable at compile time
+comptime(mut(x)) := 12;            // comptime variable
+(thread_local(mut(st)) : State) = State.seed();
+match(opt, .Some(mut(v)) => { v = (v + 1); v; }, .None => 0);
+{ a, mut(b) } := pair;             // destructuring: per name
+x := 0;                            // immutable
+x :: 12;                           // a true constant
+```
+
+- **Module-level globals:** an unmarked global is Rust's `static`, and `mut(G)` is `static mut`. The global-lend rule (§5.1) follows: an unmarked global may be lent freely, and lending a `mut(G)`, or a place under it, to a call is E0916, with amendments A and B. The 57 reassigned handle globals in `src/` should be reset in place (`G.clear()`) so they stay unmarked. Without that, their 172 lend sites need hand rewrites.
+- **Comptime (the maintainer's addition):** `x :: v` and `comptime(x) := v` become immutable. Today both can be reassigned, and a runtime write to a module-level `::` is accepted and diverges (issue below).
+  - `mut(x) :: v` and `comptime(mut(x)) := v` are the mutable forms.
+  - **Open point for the next agent:** module-level `::` bindings are order-independent and forced lazily (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`). A mutable lazy binding's value would depend on which definition forces it first, the load-order class #1382 fixed.
+  - Recommendation (as in the plan): allow `mut(x) :: v` in block scope only, and reject it at module level with a hint pointing at `comptime(mut(x)) := v` in a block. Bring this to the maintainer before implementing.
+- **Statics follow Zig (maintainer, 2026-10-15: "I am saying about static keyword to follow zigs way"). There is no `static` keyword or `static(...)` wrapper anywhere.** This supersedes a "blocks only `static(x)`" answer given minutes earlier.
+  - **Where a binding is declared decides its lifetime**, as with Zig's container-level declarations:
+    - a module-level `x := v` is an immutable global (Zig's container-level `const`);
+    - `mut(x) := v` is a mutable global (Zig's container-level `var`);
+    - `thread_local(mut(x)) := v` is Zig's `threadlocal var`;
+    - inside a block, `x := v` / `mut(x) := v` are locals (Zig's local `const`/`var`), and `comptime(mut(x)) := v` is Zig's `comptime var`.
+  - **Function-local statics get no dedicated syntax.** Zig writes them as a `var` inside a struct type declared in the function body, or as a file-level `var`. Yo's answer is a module-level `mut(_f_state)` next to the function. If Yo gains namespaced static members on a type declared in a body, that is the Zig-shaped extension; it is not part of this decision.
+  - **Open, for the implementation phase:** Zig also makes container-level initializers implicitly comptime and lazily analyzed. Yo's module-level `:=` accepts runtime initializers today; whether to tighten that is NOT decided.
+- **Parameters take no `mut`; they stay immutable.** A closure's parameters, `for` element bindings and capture-list entries follow the same rule. A body that needs to mutate a by-value argument rebinds it: `mut(y) := x;` (a move, not a copy, for an owning value). Why:
+  1. **It is invisible to the caller.** In Rust, `fn f(mut x: T)` is sugar for `fn f(x: T) { let mut x = x; … }`. The `mut` is not part of the signature, the type or the calling convention, so it adds nothing to the contract.
+  2. **Yo's parameters are already immutable:** `x = (x + 1)` on a parameter is E0902 today ("Cannot reassign"). Keeping them immutable changes nothing for parameters, except that field writes and `&mut self` calls on a by-value parameter now need the rebind.
+  3. **`mut(x) : T` meant `&mut T` until v0.2.59** (decision 42), and a parameter mode word is E0009 today. Reviving the spelling with a different meaning would let pre-v0.2.59 code, or a model trained on it, compile with its writes going to a callee-local copy. For a `Copy` argument nothing reports it, and the caller's value never changes. Keeping E0009 in parameter position makes that mistake a compile error.
+- **Errors:** a write of any of the four kinds to an unmarked binding is E0917, generalized from globals (when the locals step lands, rename it `E_IMMUTABLE_BINDING_WRITE` and widen its explain text, unless the implementer records a reason for a separate code).
+  - Its message names the binding, its definition, and the `mut(...)` form.
+  - For a parameter, it names the rebind.
+  - E0902's "You can mutate fields" hint goes away.
+- **Rollout:**
+  - The global-lend fix first, already spelled `mut(G)`.
+  - The general phase (§4 step 6a) after the queued Generation B items and before decision 43, because decision 43's `&mut` rules can then assume `mut`.
+  - Generation A needs the parser to accept `mut(` in binding position; the seed rejects it today ("Invalid binding to "mut"").
+- **Bug found while checking the rule:** `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2). `G :: i32(1)` written at runtime reads 3, while `H :: G + 10` was folded from 1.
+
 ---
 
 ## 6. Open bugs to know about
 
-### 6.1 The open S1s (develop at 31ef8d7a3)
+### 6.1 The open S1s (develop at `88babe2dc`, v0.2.63 plus its `SEED_VERSION` bump)
 
 | Issue | Note |
 | --- | --- |
-| `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; the branch is `feat/global-lend-to-call-is-an-error` |
-| `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` (copied to develop by the handover PR) | B1 in §2.3 |
+| `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; fixed on `feat/global-lend-to-call-is-an-error`, not yet on develop |
+| `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` (copied to develop by the handover PR) | B1; fixed on `fix/d3-trust-by-mutation-mask`, not yet on develop |
 | `issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md` | §4 step 7; the runtime half shipped in v0.2.63 |
 | `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
 | `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md` | Type-soundness track (#1162) |
@@ -684,6 +745,11 @@ See §1.5.
 
 ### 6.2 Filed this cycle and still open (S2/S3)
 
+- `issues/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a regression shipped in v0.2.63**; §4 item 0a).
+- `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3): `BTreeMap`'s `K` carries `Ord(K)` 15 times.
+- `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed on `fix/runtime-write-to-comptime-constant` (E0918).
+- `issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).
+- Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (`fix/runtime-write-to-comptime-constant`), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (`feat/global-lend-to-call-is-an-error`).
 - `issues/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2): #1368 fixes it.
 - `issues/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md`: found by #1388.
 - `issues/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md` (S3): a free speedup for every compile.
@@ -697,6 +763,8 @@ See §1.5.
 - `issues/e0908-calls-an-untyped-self-receiver-a-match-or-for-binding.md`.
 - `issues/option-of-self-inside-a-payload-gives-option-of-a-recursive-enum-two-c-types.md`.
 - New questions: `issues/questions/2026-10-14-effect-operation-contracts.md`, `issues/questions/2026-10-14-overflow-trap-freedom-as-a-default-obligation.md`.
+
+Still open from earlier cycles: the 2026-10-13 handover's §4 table (all 8 docs), notably `issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`, which V2b unique buffers should close, and `issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`.
 
 For the full list, run `python scripts/gen-issue-triage.py`. It writes `issues/TRIAGE.md`, which is untracked and never committed.
 
@@ -721,7 +789,7 @@ The 2026-10-10 handover's §5 still applies. Additions and changes:
 - **Checking Windows C without a Windows machine:**
   - Cross-emit with a tree-built compiler: `yo compile x.yo --target x86_64-pc-windows-gnu --emit-c --skip-c-compiler`.
   - Splice in any runtime change.
-  - Run `clang -target x86_64-w64-windows-gnu -std=c11 -fsyntax-only -w -nostdinc -isystem $(clang -print-resource-dir)/include -isystem <zig>/lib/zig/libc/include/any-windows-any -isystem <zig>/lib/zig/libc/include/generic-mingw x.c`. `zig cc` itself failed with `FileNotFound` under the session sandbox.
+  - Run `clang -target x86_64-w64-windows-gnu -std=c11 -fsyntax-only -w -nostdinc -isystem $(clang -print-resource-dir)/include -isystem <zig-lib>/libc/include/any-windows-any x.c`, where `<zig-lib>` is the `lib_dir` that `zig env` prints (older zig versions also need `-isystem <zig-lib>/libc/include/generic-mingw`; clang silently ignores a missing directory). `zig cc` itself failed with `FileNotFound` under the session sandbox.
   - Inject a typo once to prove the check is real.
 - **Shell traps seen this cycle:**
   - zsh's `echo =====` fails (equals expansion);
@@ -784,6 +852,10 @@ done
 
 4. Confirm the release pipeline's auto-bump commit `ci: bump SEED_VERSION to vX.Y.Z` landed on develop, then `bash scripts/install.sh`.
 
+### 8.5 Release markdown_yo (pre-authorized)
+
+Merge the fix in https://github.com/shd101wyy/markdown_yo, then `gh workflow run Release -R shd101wyy/markdown_yo -f bump=patch`. Once the tag exists, raise the range in Yo's `yo.toml` (`^0.0.16` admits only 0.0.16, so write `^0.0.N`), run `yo update markdown_yo` to refresh `yo.lock`, and gate with Tier 1.
+
 ---
 
 ## 9. Scripts (inlined, because the old machine's copies do not travel)
@@ -842,7 +914,7 @@ for b, (old, new) in sorted(renames.items()):
 ```
 
 Before running it for real, check two things:
-- No open doc shares a basename with a `fixed/` or `retired/` doc. If one does, its citations of the closed doc would be rewritten too: `comm -12 <(ls issues | sort) <(ls issues/fixed | sort)`.
+- No open doc (root or `questions/`) shares a basename with a `fixed/` or `retired/` doc; if one does, its citations of the closed doc would be rewritten too. `comm -12 <( (ls issues; ls issues/questions) | grep '\.md$' | grep -v '^README.md$' | sort -u) <( (ls issues/fixed; ls issues/retired) | sort -u)` must print nothing.
 - The cli-case goldens that hash `.github/skills` are re-recorded.
 
 ### 9.2 A/B timing of `check ./src` and the self-emit (the shape both deferred measurements use)
@@ -860,19 +932,19 @@ for c in $A $Bc; do
 done
 source scripts/heavy-lock.sh; trap heavy_drop EXIT
 heavy_take "ab: check/emit A/B $A vs $Bc (timed)" exclusive
-run() { local n=$1; shift; local t0=$(date +%s); ( "$@" ) > $L/$n.log 2>&1; echo "$n rc=$? $(( $(date +%s)-t0 ))s" >> $S; }
+run() { local n=$1; shift; local t0=$(date +%s) rc; if ( "$@" ) > $L/$n.log 2>&1; then rc=0; else rc=$?; fi; echo "$n rc=$rc $(( $(date +%s)-t0 ))s" >> $S; }
 for c in $A $Bc; do (cd $WT/ab-$c && run build-$c bash -c "rm -rf yo-out && yo build --std-path ./std"); done
 for i in 1 2; do for c in $A $Bc; do
   (cd $WT/ab-$c && run chk-$c-$i env YO_MAIN_STACK_MB=4096 /usr/bin/time -l ./yo-out/*/bin/yo check ./src --std-path ./std)
 done; done
 for c in $A $Bc; do
-  (cd $WT/ab-$c && run emit-$c env YO_MAIN_STACK_MB=4096 /usr/bin/time -l ./yo-out/*/bin/yo compile src/main.yo --optimize 2 --emit-c --skip-c-compiler --std-path ./std -o $L/emit-$c)
+  (cd $WT/ab-$c && run emit-$c env YO_MAIN_STACK_MB=4096 /usr/bin/time -l ./yo-out/*/bin/yo compile src/main.yo --optimize 2 --skip-c-compiler --std-path ./std -o $L/emit-$c)
 done
 for f in $L/*.log; do echo "$(basename $f) $(grep -E 'real|maximum resident' $f | tr -s ' ' | tr '\n' ' ')" >> $S; done
 ls -la $L/emit-*.c >> $S; rm -f $L/emit-*.c; echo DONE >> $S
 ```
 
-(`/usr/bin/time -l` is macOS; on Linux use `/usr/bin/time -v`. Interleave A and B, as above, to cancel drift.)
+(`/usr/bin/time -l` is macOS. On Linux use `/usr/bin/time -v` and change the summary grep to `grep -iE ' real |maximum resident|elapsed \(wall'`. `--skip-c-compiler` still writes the `$L/emit-$c.c` sidecar; `--emit-c` would also print the whole C to the log. Interleave A and B, as above, to cancel drift.)
 
 ### 9.3 Merge each PR once its `Merge gate (all checks)` is green
 
@@ -883,14 +955,15 @@ pending="$*"
 while [ -n "$pending" ]; do
   next=""
   for n in $pending; do
-    j=$(gh pr view $n --json state,mergeable,headRefOid,statusCheckRollup 2>/dev/null) || { next="$next $n"; continue; }
+    j=$(gh pr view $n --json state,mergeable,baseRefName,headRefOid,statusCheckRollup 2>/dev/null) || { next="$next $n"; continue; }
     st=$(echo "$j" | jq -r .state); mg=$(echo "$j" | jq -r .mergeable)
     g=$(echo "$j" | jq -r '[.statusCheckRollup[]?|select(.name=="Merge gate (all checks)")|(.conclusion // .status)]|first // "none"')
     if [ "$st" != OPEN ]; then echo "#$n $st (left alone)"; continue; fi
     if [ "$mg" = CONFLICTING ]; then echo "#$n CONFLICTING — needs a rebase"; continue; fi
+    [ "$(echo "$j" | jq -r .baseRefName)" != develop ] && { echo "#$n base is not develop — no CI; retarget it first"; continue; }
     case "$g" in
       SUCCESS)
-        if gh pr merge $n --squash --admin --delete-branch >/dev/null 2>&1; then echo "#$n MERGED ($(date +%H:%M))"; else echo "#$n merge FAILED"; fi ;;
+        if gh pr merge $n --squash --admin --delete-branch >/dev/null 2>&1; then echo "#$n MERGED ($(date +%H:%M))"; elif [ "$(gh pr view $n --json state --jq .state)" = MERGED ]; then echo "#$n MERGED (branch delete failed — delete it by hand)"; else echo "#$n merge FAILED"; fi ;;
       FAILURE|CANCELLED|TIMED_OUT|ACTION_REQUIRED) echo "#$n gate $g — needs a fix" ;;
       *) next="$next $n" ;;
     esac

@@ -124,10 +124,9 @@ Progress:
     in safe code, and value-rooted borrow flags lower to nothing (#1384).
 - **In progress:**
   - V2b unique buffers, Generation A2: `yo fix --migrate explicit-copy`
-    (feat/vbd-v2b-explicit-copy-migration, stacked on #1384).
+    (feat/vbd-v2b-explicit-copy-migration, #1385, draft, on develop).
   - V3's remaining async work (§3.13): A4's future operands, A5's remaining
     lines, and A6's `Rc`-field half (V2c).
-  - Decision 44's follow-up: a closure into a `Dyn(Fn)` slot is `dyn(f)`.
 - **Next:** the rest of V2b (direct projection calls; unique buffers'
   Generation B with the explicit-copy kind, on a seed carrying A1), decision
   47's globals step (the global-lend S1) and then its locals step, the
@@ -6169,7 +6168,7 @@ stage-2 RSS):
 
 ### Evaluator performance: the migration's copy and allocation cost
 
-**Status: measured 2026-10-14; step 1 in progress, step 2 queued, step 3 done (#1359)** (maintainer, 2026-10-14: "go with your recommendation").
+**Status: measured 2026-10-14; steps 1–2 deferred until after VBD (maintainer, 2026-10-15: "I am thinking about investigating the evaluator performance after we finish VBD"); step 3 done (#1359).** The VBD-introduced type-key memo cost is handled separately, on `perf/type-key-memo-identity` (−40.5% allocations of `check src/main.yo`).
 
 **Measured.** Each release's own binary, checking its own tag's tree (`check ./src --std-path ./std`, Mac Mini M4, nothing else running):
 
@@ -6201,7 +6200,7 @@ RC and allocation traffic grew faster than the code. That points at copies the m
 **Why the existing ratchet missed it.** CI's evaluator memory ratchet (`scripts/bootstrap/memory_ratchet.sh`) gates `check src/main.yo` on max RSS only, and RSS grew about 3%. Its printed wall time is not usable as a gate: identical trees measure 3:47 to 8:53 on `ubuntu-latest`.
 
 **Plan:**
-1. **Attribute now.** Map the profile's `yo_id_*` symbols to `.yo` functions by emitting each release's compiler C with `--line-directives`, rank the functions by inclusive time and by the RC/allocation time under them, and fix the clear regressions in v0.2.63: a clone inside a hot loop, a by-value copy that should be a `&` lend.
+1. **Attribute (after VBD).** Map the profile's `yo_id_*` symbols to `.yo` functions by emitting each release's compiler C with `--line-directives`, rank the functions by inclusive time and by the RC/allocation time under them, and fix the clear regressions: a clone inside a hot loop, a by-value copy that should be a `&` lend.
 2. **Structural tuning after V2b's unique buffers and V4's `TypeValue`.** Both change exactly the RC and allocation profile, so tuning before them would be partly wasted.
 3. **A deterministic guard. Done (#1359).** CI's `memory-ratchet` job now also gates the number of heap allocation calls `check src/main.yo` makes (`scripts/bootstrap/eval_work_ratchet.sh`, key `check_src_main_alloc_calls` in `memory-ratchet.tsv`), ±5% both ways. Report the `check ./src` time per release in the release notes' "Compiler performance and memory" section.
    - **Metric: allocation calls, from an `LD_PRELOAD` counter** (`scripts/bootstrap/alloc_count.c`: `malloc` + `calloc` + `realloc` + `aligned_alloc`, relaxed atomic counters, appended to a file at exit). Baseline at develop 229772321: 2,769,331,795 calls, 225,431,200 of them `realloc`, 166.4 GB requested.
