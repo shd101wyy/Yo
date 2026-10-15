@@ -84,7 +84,7 @@ Progress:
     `std/async` combinators take handle lists by value, and
     `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
     move bitwise through `__yo_ptr_read`/`__yo_ptr_write`;
-  - V3 async A5 (§3.13; feat/vbd-v3-async-a5): `Waker` is a move-only
+  - V3 async A5 (§3.13; #1379): `Waker` is a move-only
     value (its `Clone` is Generation A in the runtime), the async
     `Channel`/`Mutex` keep their state behind `Rc` with move-only
     `Sender`/`Receiver`, and `Stream.next` takes `&mut self` over plain
