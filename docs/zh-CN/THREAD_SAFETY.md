@@ -172,7 +172,7 @@ new_value := counter.with_lock(v => (v + i32(1)));
 
 ## 模块级全局变量
 
-模块级运行期绑定（在任何函数之外的 `name := init` 或 `(name : T) = init`）是一个被所有线程共享的静态变量。在安全代码中：
+模块级运行期绑定（在任何函数之外的 `name := init` 或 `(name : T) = init`）是一个被所有线程共享的静态变量。它是不可变的（Rust 的 `static`），除非它的名字被包在 `mut(...)` 里（`mut(name) := init`、`(mut(name) : T) = init`，在 `thread_local(...)` 里同样可用），这使它成为 Rust 的 `static mut`。写入不可变的全局变量是 E0917；把 `mut(...)` 全局变量或它下面的位置借给调用是 E0916（先把它读到局部变量里）。详见[错误参考](ERROR_DIAGNOSTICS.md)。在安全代码中：
 
 - 在另一个线程上运行的闭包（`Thread.spawn` 的闭包体、线程池任务、`spawn_blocking` 回调 —— 任何绑定到 `Impl(FnOnce(...), Send)`、`Impl(Fn(...), Send)` 或 `Impl(Fn(...), Sync)` 的闭包）不能直接或经由它调用的任何函数触及类型不是 `Sync` 的全局变量。全局变量被所有线程共享，所以问题在于共享。非原子引用计数的全局变量（`ArrayList`、`String`、任何 `ref(struct)`）对主线程仍然合法，但通过这样的句柄读取字段会更新引用计数，所以其他线程不能碰它；
 - 在任何地方被**写入**的 `Sync` 值类型全局变量（标量或内部不含引用的结构体）—— 被赋值、以它为根做字段或索引写入、或交给被调用者会通过其写入的 `&mut` 参数 —— 是可变静态变量，在另一个线程上运行的闭包不能触及它。只在一个线程上读写时，它是普通的全局变量；被所有线程读取但从不写入时，它是共享常量。错误报在编译器第二个看到的那个位置上，并指出另一个位置。
@@ -180,7 +180,7 @@ new_value := counter.with_lock(v => (v + i32(1)));
 ```yo
 LIMIT :: i32(5); // 常量：任何线程都可读
 hits := AtomicI32(i32(0)); // 原子对象：共享状态，可以
-(thread_local(scratch) : i32) = i32(0); // 每线程可变状态：可以
+(thread_local(mut(scratch)) : i32) = i32(0); // 每线程可变状态：可以
 g := ArrayList(i32).new(); // 只在主线程上可用
 fill :: (fn() -> unit)({
   g.push(i32(1));
@@ -188,7 +188,7 @@ fill :: (fn() -> unit)({
 Thread(unit).spawn(io => {
   fill();
 }); // 错误：闭包调用了触及 g 的 fill
-(counter : i32) = i32(0);
+(mut(counter) : i32) = i32(0);
 bump :: (fn() -> unit)({
   counter = (counter + i32(1));
 }); // 单独来看没问题……

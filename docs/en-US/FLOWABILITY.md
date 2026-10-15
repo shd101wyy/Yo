@@ -48,6 +48,10 @@ Two more rules cover the places the compiler cannot see every alias of: a
 borrow of a **module-level** place may not be live across a call (a callee
 can reach the place by name), and a borrow whose place passes through a
 reference cell or a module-level place may not be live across an **`await`**.
+A call's own argument borrows follow the same reasoning: a module-level
+binding is immutable unless declared `mut(name)`, an immutable one may be lent
+to any call, and lending a `mut(...)` one, or a place under it, is E0916
+([error reference](ERROR_DIAGNOSTICS.md)).
 
 A local binding accepts the same **places** an argument does (below), with
 one addition: a field reached through an RC object (`h.n`, `a.b.n`) is
