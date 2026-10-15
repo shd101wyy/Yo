@@ -35,7 +35,7 @@ A statement-level `a :: 1; a = 2;` inside a function body is also accepted today
 An assignment to a compile-time binding (`G :: v`, `comptime(G) := v`) that runs when the program runs is error **E0918** (`E_COMPTIME_BINDING_RUNTIME_WRITE`), reported at the write with a second label on the definition and the hint to declare a runtime binding with `:=`:
 
 ```text
-error[E0918]: Cannot assign "G" when the program runs: it is a compile-time constant (a `::` binding) declared at module level. Every use of it was folded to its value while compiling, so a runtime write would leave the folded uses reading the old value.
+error[E0918]: Cannot assign "G" when the program runs: it is a compile-time constant (a `::` binding) declared outside this body. Every use of it was folded to its value while compiling, so a runtime write would leave the folded uses reading the old value.
 ```
 
 `_reject_runtime_write_of_comptime_binding` (`src/evaluator/exprs/assignment.yo`) runs for a plain `x = v` and for a field or element write `G.x = v` / `G(i) = v` (rooted through value steps only, so a write through a `ref` handle is not a write of the binding).

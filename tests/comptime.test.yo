@@ -3686,7 +3686,7 @@ _rw_local_reassign :: (fn(x : i32) -> i32)({
   a = i32(2);
   comptime_assert(a == i32(2));
   b :: a;
-  (x + b)
+  x + b
 });
 _rw_comptime_loop :: (fn(x : i32) -> i32)({
   i :: i32(0);
@@ -3703,7 +3703,7 @@ test("a compile-time constant assigned at runtime is E0918", {
   comptime_expect_error({
     bad_module_write :: (fn() -> i32)({
       _RW_G = i32(3);
-      (_RW_G + _RW_H)
+      _RW_G + _RW_H
     });
   }, "is a compile-time constant");
   // A field of a module-level `::` struct.
