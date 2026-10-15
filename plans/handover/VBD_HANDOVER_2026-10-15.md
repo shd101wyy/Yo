@@ -532,7 +532,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   2. Open the PR, re-run Tier 1 on the rebased head, and admin-merge.
   3. A non-allocating cacheability check (a flag on the node) would win back the ~52M allocations the SomeT gate costs.
 - **Filed** (docs copied to develop by the handover PR):
-  - `issues/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a develop regression shipped in v0.2.63**). `match(r, Rc(.A(xs)) => …)` on `N :: enum(A(xs : ArrayList(i32)), B)` emits `r->_u42_->_u42_` and fails to C-compile; the v0.2.62 seed compiles it. The suspect is V4's `_lookthrough_switch_cell` (#1369). Fix it first after the cut.
+  - `issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a develop regression shipped in v0.2.63**). `match(r, Rc(.A(xs)) => …)` on `N :: enum(A(xs : ArrayList(i32)), B)` emits `r->_u42_->_u42_` and fails to C-compile; the v0.2.62 seed compiles it. The suspect is V4's `_lookthrough_switch_cell` (#1369). Fix it first after the cut.
   - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3). `BTreeMap`'s `K` carries `Ord(K)` 15 times.
 
 #### Stale remote branches
@@ -561,7 +561,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 ## 4. The next steps, in order
 
 0. **Install the newest seed:** `bash scripts/install.sh`. `yo --version` must say 0.2.63 or later, and every `SEED_VERSION: v…` pin in `.github/workflows/` (`test.yml`, `release.yml`, `ubsan.yml`, `fixpoint-arm64.yml`, `leak-verdict.yml`; `test.yml`'s `changes` job checks they agree) must say v0.2.63.
-0a. **The v0.2.63 regression (S2):** `issues/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md`. `match(r, Rc(.A(xs)) => …)` emits `r->_u42_->_u42_`; the suspect is V4's `_lookthrough_switch_cell` (#1369). Fix it, with a test, before anything else.
+0a. **DONE (fix/rc-match-second-payload-hop).** **The v0.2.63 regression (S2):** `issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md`. `match(r, Rc(.A(xs)) => …)` emits `r->_u42_->_u42_`; the suspect is V4's `_lookthrough_switch_cell` (#1369). Fix it, with a test, before anything else.
 1. **#1378**, decision 45 Generation B (§2.3).
 2. **#1379**, A5 (§2.3): retarget #1380 before deleting the A5 branch, and revert `std/hash.yo` while landing.
 3. **#1368**, direct projection calls (§2.3; rebased and gated). It also closes #1375's S2 and a develop S2 (`f(&mut xs(i))` through a `&` borrow).
@@ -752,7 +752,7 @@ x :: 12;                           // a true constant
 
 ### 6.2 Filed this cycle and still open (S2/S3)
 
-- `issues/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a regression shipped in v0.2.63**; §4 item 0a).
+- `issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a regression shipped in v0.2.63**; §4 item 0a).
 - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3): `BTreeMap`'s `K` carries `Ord(K)` 15 times.
 - `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed on `fix/runtime-write-to-comptime-constant` (E0918).
 - `issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).

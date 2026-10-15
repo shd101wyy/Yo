@@ -4,6 +4,7 @@
 //! compile-time scrutinees.
 { assert } :: import("std/assert");
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 import("std/fmt");
 Inner :: enum(A(x : i32), B);
 derive(Inner, Copy, Clone);
@@ -249,6 +250,37 @@ test("a match on an Rc handle with plain variant arms switches on the payload", 
   assert(with_guard(&line) == i32(5));
   assert(with_guard(&zero) == i32(0));
   assert(with_guard(&pair) == i32(0));
+});
+// The payload switch reads through the cell only for a tagged union. A
+// nullable-pointer enum (one pointer payload, one empty variant) or a
+// fieldless enum keeps the cell in the subject, so the pattern's own `Rc`
+// hop is the only one (issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md).
+Nul :: enum(Full(xs : ArrayList(i32)), Empty);
+Hue :: enum(Red, Green, Blue);
+test("a match through an Rc into a nullable-pointer or fieldless enum reads the payload once", {
+  count :: (fn(r : &Rc(Nul)) -> usize)(match(r, Rc(.Full(xs)) => xs.len(), _ => usize(99)));
+  both :: (fn(r : &Rc(Nul)) -> usize)(match(r, Rc(.Full(xs)) => xs.len(), Rc(.Empty) => usize(98)));
+  red :: (fn(r : &Rc(Hue)) -> i32)(match(r, Rc(.Red) => i32(1), _ => i32(0)));
+  hue :: (fn(r : &Rc(Hue)) -> i32)(match(r, Rc(.Red) => i32(1), Rc(.Green) => i32(2), Rc(.Blue) => i32(3)));
+  xs := ArrayList(i32).new();
+  xs.push(i32(4));
+  xs.push(i32(5));
+  full := rc(Nul.Full(xs));
+  empty := rc(Nul.Empty);
+  assert(count(&full) == usize(2));
+  assert(count(&empty) == usize(99));
+  assert(both(&full) == usize(2));
+  assert(both(&empty) == usize(98));
+  owned := rc(Nul.Full(ArrayList(i32).new()));
+  n := match(owned, Rc(.Full(ys)) => ys.len(), _ => usize(99));
+  assert(n == usize(0));
+  r := rc(Hue.Red);
+  g := rc(Hue.Green);
+  b := rc(Hue.Blue);
+  assert(red(&r) == i32(1));
+  assert(red(&b) == i32(0));
+  assert(hue(&g) == i32(2));
+  assert(hue(&b) == i32(3));
 });
 test("Rc(p) at the scrutinee covers it with no catch-all", {
   g :: (fn(b : &Rc(Tree)) -> i32)(
