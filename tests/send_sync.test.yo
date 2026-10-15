@@ -319,3 +319,20 @@ test("Mutex and Channel take a Send type that is not Sync", {
     .None => assert(false, "a value was sent")
   );
 });
+// Regression (issues/fixed/2026-10-15-a-closure-parameter-captured-by-an-inner-closure-is-e0901.md):
+// a generic function's `sink` closure parameter whose type mentions the type
+// parameter, captured by a closure passed on to another call, was E0901 ("it
+// is borrowed ... Take it `sink(...)`") once its argument closure was
+// move-only. `spawn_blocking` is this shape.
+_ss_run_on_thread :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T, Send), where(T <: (Send, Acyclic))) -> T)({
+  worker := Thread(T).spawn((tio : Io) => cb());
+  worker.join()
+});
+_ss_take :: (fn(generic(U : Type), sink(f) : Impl(Fn() -> U)) -> U)(f());
+_ss_relay :: (fn(generic(T : Type), sink(cb) : Impl(Fn() -> T)) -> T)(_ss_take(() => cb()));
+test("a generic function's move-only closure parameter moves into a closure it passes on", {
+  progress := AtomicI32(i32(7));
+  assert(_ss_run_on_thread(() => progress.load(MemoryOrder.Acquire)) == i32(7), "the thread ran the moved closure");
+  seen := AtomicI32(i32(9));
+  assert(_ss_relay(() => seen.load(MemoryOrder.Acquire)) == i32(9), "the relay ran the moved closure");
+});

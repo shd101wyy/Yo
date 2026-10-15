@@ -139,6 +139,30 @@ in-file tests ship with their module and cost a no-op.
 - Tests automatically use AddressSanitizer for leak detection.
 - **The test binaries are compiled by whichever `yo` runs `yo test`.** Run by the installed seed, a test gets the SEED's codegen, and LeakSanitizer then reports leaks the tree has already fixed. 2026-09-29: `entry.or_insert_with` in `tests/collections/hash_map.test.yo` leaked a closure's captures under the v0.2.45 seed, which predates #967, and passed under the tree's stage-1. To judge a leak or a codegen change, run the file with the tree's compiler: `YO_STD=$PWD/std <stage-1> test <file> --parallel 1`.
 
+## A use-after-free check on macOS: put Apple clang first on `PATH`
+
+The nix clang on the dev Macs ships an ASan runtime that does not match it.
+`yo compile --sanitize address` prints "AddressSanitizer is not functional with
+this compiler setup … Skipping sanitizer", and `yo test` then runs every test
+UNSANITIZED, without saying so. A freed slot usually still reads back intact,
+so a use-after-free passes locally. #1365's over-release canary passed on a Mac
+and failed in 7 Linux, Windows and wasm jobs (fixed by #1386).
+
+Apple's command-line-tools clang arms ASan (heap-use-after-free, double free;
+not leaks). Put it first for the sanitized step:
+
+```bash
+PATH=/Library/Developer/CommandLineTools/usr/bin:/usr/bin:/bin:$PATH \
+  yo test tests/rc.test.yo --parallel 1
+PATH=/Library/Developer/CommandLineTools/usr/bin:/usr/bin:/bin:$PATH MallocScribble=1 \
+  ./repro   # built with --sanitize address --allocator system
+```
+
+That `PATH` also puts macOS's `/bin/bash` 3.2 and BSD `sed` first. Run
+`scripts/*.sh` with the nix `bash` by its full path: under 3.2,
+`cli-diff-test.sh` used to run nothing and exit 0 (it now refuses with rc 2,
+`issues/fixed/2026-10-15-cli-diff-test-exits-0-under-bash-3-2.md`).
+
 ## Writing a test that observes a LEAK (macOS: ASan does not arm)
 
 On this macOS box AddressSanitizer refuses to arm (see the AMFI section below),

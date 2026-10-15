@@ -118,6 +118,13 @@
 # EXIT: 0 only if every non-SKIP case is PASS.
 
 set -uo pipefail
+# The scorecard is an associative array (`declare -A`, bash 4+). macOS's
+# /bin/bash 3.2 died on it AFTER every case ran nothing and still exited 0, a
+# false green (issues/fixed/2026-10-15-cli-diff-test-exits-0-under-bash-3-2.md).
+if (( BASH_VERSINFO[0] < 4 )); then
+  echo "cli-diff-test.sh: needs bash 4 or newer (this is ${BASH_VERSION}); run it with a newer bash" >&2
+  exit 2
+fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
 # On Windows the root is `C:/Users/...`, but an LSP reply spells it as a file

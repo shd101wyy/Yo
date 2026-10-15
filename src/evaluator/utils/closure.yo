@@ -85,7 +85,7 @@
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
 { type_contains_rc_type, type_requires_explicit_copy, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, type_first_mut_borrow } :: import("../../types/utils.yo");
-{ move_captured_explicit_copy_variable, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
+{ move_captured_explicit_copy_variable, capture_of_caller_owned_sink_param, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { audit_implicit_copy_enabled, audit_record_implicit_copy, audit_copy_trait_enabled, audit_record_copy_trait } :: import("../utils.yo");
@@ -1305,8 +1305,10 @@ generate_captured_variable_dup_expressions :: (
               // is initialized from the variable itself, and the variable is
               // consumed, so its scope-end drop is skipped and the closure's
               // drop disposes it. The capture struct is move-only too, by
-              // containment.
-              type_requires_explicit_copy(&ci.ty) => {
+              // containment. A `sink` closure parameter the caller still owns
+              // at run time takes the dup arm below instead
+              // (`capture_of_caller_owned_sink_param`).
+              (type_requires_explicit_copy(&ci.ty) && !capture_of_caller_owned_sink_param(env, var_name.clone(), &ci.ty)) => {
                 cap_vars := get_variables_from_env(env, var_name.clone());
                 match(
                   cap_vars.last(),
