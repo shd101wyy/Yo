@@ -1935,6 +1935,38 @@ global_lend_location :: (fn(t : &Token) -> String)(
 /// The census key of the module-level binding `name` declared at `decl`.
 global_lend_key :: (fn(decl : &Token, name : &String) -> String)(`${global_lend_location(decl)}:${name}`);
 // ---------------------------------------------------------------------------
+// YO_AUDIT_MUT_BINDINGS (plans/VALUES_BY_DEFAULT.md decision 47, step 2)
+// ---------------------------------------------------------------------------
+/// The census knob for decision 47's locals step: each write of a binding
+/// that is not module-level, after its definition, prints one stderr line
+/// (`file:line:col [mut-binding] how=<kind of write> kind=<binding> ...`)
+/// and nothing is rejected. The writes are the four kinds `mut` gates:
+/// `reassign`, `field`, `element` (`exprs/assignment.yo`) and an exclusive
+/// lend, `mut-lend-<form>` (a `&mut x` argument, a `&mut self` receiver,
+/// `calls/function.yo`). A write through a `ref` handle the binding holds is
+/// not a write of the binding and is not listed, nor is a write through a
+/// borrow. A local `&mut` borrow (`y := &mut x`) writes its root,
+/// `how=mut-borrow`. `init=first` marks an
+/// assignment to a binding declared without a value (`(x : T);`), which is
+/// its initialization, not a write.
+(g_audit_mut_bindings : bool) = debug_knob(`YO_AUDIT_MUT_BINDINGS`).is_some();
+mut_binding_audit_enabled :: (fn() -> bool)(g_audit_mut_bindings);
+mut_binding_audit_note :: (fn(v : &Variable, tok : &Token, how : &String) -> unit)({
+  // A borrow (`x : &mut T`, `y := &mut z`) is written through, not
+  // written: the write lands in its referent, counted where it was lent.
+  if(!g_audit_mut_bindings || v.is_module_level || v.is_ref || v.is_imm_borrow, {
+    return(());
+  });
+  kind := cond(
+    v.is_compile_time_only => "comptime",
+    !v.is_reassignable => "parameter",
+    v.is_created_from_destructuring_atom_variable => "destructured",
+    true => "local"
+  );
+  init := if(v.initialized_at_token.is_none(), "first", "later");
+  global_lend_audit_print(&`${global_lend_location(tok)} [mut-binding] how=${how} kind=${kind} init=${init} binding=${v.name} key=${global_lend_key(&v.token, &v.name)}`);
+});
+// ---------------------------------------------------------------------------
 // Decision 47 for module-level bindings (Generation A): `mut(name)`
 // ---------------------------------------------------------------------------
 /// A module-level or `thread_local` runtime binding is immutable unless it is
@@ -5426,6 +5458,9 @@ local_borrow_register :: (
     },
     .None => ()
   );
+  if(is_mut && g_audit_mut_bindings && !place.through_cell && !place.module_root && local_borrow_info_of(place.root_name.clone(), &place.root_decl).is_none(), {
+    global_lend_audit_print(&`${global_lend_location(decl)} [mut-binding] how=mut-borrow kind=local init=later binding=${place.root_name} key=${global_lend_key(&place.root_decl, &place.root_name)}`);
+  });
   places := ArrayList(LocalBorrowPlace).new();
   places.push(place);
   info := LocalBorrowInfo(
@@ -5581,5 +5616,5 @@ export(
   local_borrow_result_borrow_of,
   local_borrow_reject_result_borrow
 );
-export(global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key);
+export(global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, mut_binding_audit_enabled, mut_binding_audit_note);
 export(GlobalPlacePath, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_write, global_note_handle_lend, global_mut_rule_applies, global_require_mut);

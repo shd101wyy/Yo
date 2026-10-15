@@ -105,7 +105,9 @@ pragma(Pragma.AllowUnsafe);
   bare_callable_recorded_into_dyn_fn,
   global_place_path,
   global_note_handle_write,
-  global_require_mut
+  global_require_mut,
+  mut_binding_audit_enabled,
+  mut_binding_audit_note
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1119,6 +1121,17 @@ evaluate_assignment :: (
         }),
         .None => ()
       );
+      // Decision 47 step 2's census: the same write of a local.
+      if(mut_binding_audit_enabled(), {
+        match(
+          get_variables_from_env(&env, ast_expr_token(&gw_root).value.clone()).last(),
+          .Some(mb_v) => if(!mb_v.is_module_level && !global_place_path(&evaluated_lhs, ctx).through_handle, {
+            mb_how := if(ast_expr_is_fn_call_of(&lhs, BF_DOT, Option(usize).Some(usize(2))), String.from("field"), String.from("element"));
+            mut_binding_audit_note(&mb_v, &ast_expr_token(&lhs), &mb_how);
+          }),
+          .None => ()
+        );
+      });
     });
     ctx.expected_type = saved_expected;
     ctx.is_lhs_of_assignment = saved_is_lhs;
@@ -1819,6 +1832,9 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   // Decision 47: reassigning a module-level binding needs `mut(name)`.
   if(variable.is_module_level && !variable.is_compile_time_only && !d1_is_decl_init, {
     global_require_mut(&variable, &d1_lhs_tok, &String.from("assign to"), ctx, exn);
+  });
+  if(!variable.is_module_level && !d1_is_decl_init && mut_binding_audit_enabled(), {
+    mut_binding_audit_note(&variable, &d1_lhs_tok, &String.from("reassign"));
   });
   // Evaluate the RHS.
   // Pass the variable type as expected type for coercion hints.

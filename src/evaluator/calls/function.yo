@@ -66,7 +66,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_mut_rule_applies, global_require_mut } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_mut_rule_applies, global_require_mut, mut_binding_audit_enabled, mut_binding_audit_note } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -3142,18 +3142,22 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
 // Decision 18 rule 3 at a call's own argument borrows
 // ---------------------------------------------------------------------------
 /// The module-level (or `thread_local`) runtime binding whose storage `place`
-/// names: field steps, `Rc`/`Box` derefs and element accesses down to a
-/// variable. `.None` for a place rooted in a local, a `::` constant (no
-/// runtime storage), a raw-pointer deref (the pointee is not the binding's
-/// storage) or a call result.
-_global_lend_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
+/// names. `.None` for a place rooted in a local or a `::` constant (no
+/// runtime storage), and wherever `_place_root_variable` finds no binding.
+_global_lend_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))(
+  match(_place_root_variable(place, env, ctx), .Some(rv) => if(rv.is_module_level && !rv.is_compile_time_only, Option(Variable).Some(rv), Option(Variable).None), .None => Option(Variable).None)
+);
+/// The binding whose storage `place` names: field steps, `Rc`/`Box` derefs and
+/// element accesses down to a variable. `.None` for a raw-pointer deref (the
+/// pointee is not the binding's storage) or a call result.
+_place_root_variable :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
   (cur : AstExpr) = place;
   while(true, {
     match(
       cur,
       .Atom(_, root_tok) => {
         found := match(_lent_root_variable(&cur, ctx), .Some(sv) => Option(Variable).Some(sv), .None => get_variables_from_env(env, &root_tok.value).last());
-        return(match(found, .Some(rv) => if(rv.is_module_level && !rv.is_compile_time_only, Option(Variable).Some(rv), Option(Variable).None), .None => Option(Variable).None));
+        return(found);
       },
       .FnCall(_, gl_callee, gl_args, gl_infix, _) => {
         cur = cond(
@@ -3218,7 +3222,21 @@ _check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), 
   while(li < lends.len(), li = (li + usize(1)), {
     match(
       lends.get(li),
-      .Some(l) => match(_global_lend_root(&l.place, env, ctx), .Some(gv) => _judge_global_lend(call, &l, &gv, ctx, exn), .None => ()),
+      .Some(l) => match(
+        _place_root_variable(&l.place, env, ctx),
+        .Some(rv) => cond(
+          (rv.is_module_level && !rv.is_compile_time_only) => _judge_global_lend(call, &l, &rv, ctx, exn),
+          (l.exclusive && !rv.is_module_level && mut_binding_audit_enabled()) => {
+            // Decision 47 step 2's census: an exclusive lend writes the local
+            // unless it reaches the storage through a `ref` handle.
+            if(!global_place_path(&l.place, ctx).through_handle, {
+              mut_binding_audit_note(&rv, &ast_expr_token(&l.lent_arg), &`mut-lend-${l.tag}`);
+            });
+          },
+          true => ()
+        ),
+        .None => ()
+      ),
       .None => ()
     );
   });
