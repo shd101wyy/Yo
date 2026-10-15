@@ -40,6 +40,7 @@
   expr_info_set_runtime_destructurings,
   register_module_level_global,
   register_thread_local,
+  register_mut_global,
   expr_info_set_is_compile_time_only_assignment,
   expr_info_set_macro_expansion,
   record_local_borrow_step_pin
@@ -852,6 +853,38 @@ evaluate_initialization_assignment :: (
   // `imm(name) := place` / `mut(name) := place` / `inout(name) := place`
   // (and the `::` forms): the deleted spellings of `name := &place` /
   // `name := &mut place` (decision 42 Generation B), E0009.
+  // Decision 47 (Generation A): `mut(name) := init` and
+  // `thread_local(mut(name)) := init` declare a MUTABLE module-level runtime
+  // binding (Rust's `static mut`); an unmarked one is immutable. The marker
+  // wraps the name like `thread_local(name)` does, and is stripped from the
+  // tree the same way (see the thread-local arm below), with the registry
+  // (`register_mut_global`) carrying the mutability. In a function body
+  // `mut(name) := place` is still the deleted local-borrow spelling (E0009);
+  // local `mut` bindings are a later phase of decision 47.
+  (is_mut_decl : bool) = false;
+  if(is_init_assign && !ctx.is_evaluating_function_body_or_async_block.is_some(), {
+    mut_holder := if(ast_expr_is_fn_call_of(&lhs, BK_THREAD_LOCAL, .Some(usize(1))), lhs.clone(), expr.clone());
+    mut_pos := match(mut_holder, .FnCall(_, _, mh_args, _, _) => match(mh_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+    if(ast_expr_is_fn_call_of(&mut_pos, "mut", .Some(usize(1))), {
+      mut_name := match(mut_pos, .FnCall(_, _, mp_args, _, _) => match(mp_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      if(!ast_expr_is_atom(&mut_name), {
+        exn.throw(dyn(format_error_message(ast_expr_token(&mut_pos), String.from("\"mut\" takes the variable NAME: write \"mut(name) := init;\" or \"(mut(name) : T) = init;\" (plans/VALUES_BY_DEFAULT.md decision 47)."))));
+      });
+      is_mut_decl = true;
+      match(
+        mut_holder,
+        .FnCall(_, _, mh_args2, _, _) => {
+          // Rewrite the tree in place (the argument list is shared with it).
+          mh_list := mh_args2;
+          mh_list(usize(0)) = mut_name;
+        },
+        .Atom(_, _) => ()
+      );
+      if(!ast_expr_is_fn_call_of(&lhs, BK_THREAD_LOCAL, .Some(usize(1))), {
+        lhs = mut_name;
+      });
+    });
+  });
   reject_old_mode_spelling(&lhs, exn);
   is_comptime_wrapped := ast_expr_is_fn_call_of(&lhs, BK_COMPTIME, .Some(usize(1)));
   if(is_init_assign && !(is_comptime_wrapped || ast_expr_is_fn_call_of(&lhs, BK_GIVEN, .None)) && in_compile_time_fn_body(ctx), {
@@ -1582,6 +1615,12 @@ Use \`::\` for compile-time definitions inside impl.`
         // g_module_level_globals).
         if(is_module_level, {
           register_module_level_global(actual_lhs_tok.module_path.clone(), var_name.clone());
+        });
+        if(is_mut_decl, {
+          if(!is_module_level, {
+            exn.throw(dyn(format_error_message(&actual_lhs_tok, `"mut(${var_name})" marks a module-level runtime binding mutable; a compile-time binding cannot take it yet (plans/VALUES_BY_DEFAULT.md decision 47).`)));
+          });
+          register_mut_global(actual_lhs_tok.module_path.clone(), var_name.clone());
         });
         // A thread-local is a module-level global PLUS the registry entry that
         // tells codegen to route its reads through the lazy accessor. Option 1

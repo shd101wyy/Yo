@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
-{ ExprInfo, is_thread_local, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site } :: import("../../expr_info.yo");
+{ ExprInfo, is_thread_local, is_mut_global, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -64,9 +64,9 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
-{ stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name, display_module_path } :: import("../../utils.yo");
+{ stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_lend, global_mut_rule_applies, global_require_mut } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -3196,16 +3196,17 @@ _is_scalar_operator_call :: (fn(call : &AstExpr, ctx : &EvalContext) -> bool)(
     .Atom(_, _) => false
   )
 );
-/// Decision 18 rule 3 applied to a call's own argument borrows (maintainer
-/// decision 2026-10-15,
+/// Decision 18 rule 3 at a call's own argument borrows, with decision 47's
+/// `mut(name)` (maintainer decisions 2026-10-15,
 /// issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md):
 /// a module-level or `thread_local` runtime binding has no run-time borrow
-/// flag, and any function can reach it by name, so a place rooted in one may
-/// not be lent `&`/`&mut` to a call, whatever the callee. The receiver of a
-/// method whose `self` is a borrow and an operand its operator borrows are
-/// lends too. A by-value argument (`f(G)`, a by-value `self`) holds no borrow
-/// and passes; so does a `::` constant, which has no runtime storage. A call
-/// evaluated at compile time, and an operator on scalars, run no callee.
+/// flag, and any function can reach it by name. An unmarked binding is
+/// immutable (Rust's `static`), so lending it is sound; each lend rooted in
+/// one goes through `_judge_global_lend`. The receiver of a method whose
+/// `self` is a borrow and an operand its operator borrows are lends too. A
+/// by-value argument (`f(G)`, a by-value `self`) holds no borrow, and a `::`
+/// constant has no runtime storage. A call evaluated at compile time, and an
+/// operator on scalars, run no callee.
 _check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), r : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)), .Some(ri) => match(ri.value, .Some(v) => !is_unknown_val(&v), .None => false), .None => true), {
     return(());
@@ -3217,45 +3218,71 @@ _check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), 
   while(li < lends.len(), li = (li + usize(1)), {
     match(
       lends.get(li),
-      .Some(l) => match(_global_lend_root(&l.place, env, ctx), .Some(gv) => _reject_global_lend_to_call(call, &l, &gv, ctx, exn), .None => ()),
+      .Some(l) => match(_global_lend_root(&l.place, env, ctx), .Some(gv) => _judge_global_lend(call, &l, &gv, ctx, exn), .None => ()),
       .None => ()
     );
   });
 });
-/// The error (or, under `YO_AUDIT_GLOBAL_LEND`, the census line) for the lend
-/// `l` of a place rooted in the module-level binding `gv` to `call`.
-_reject_global_lend_to_call :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, ctx : &EvalContext, exn : Exception) -> unit)({
+/// Decision 18 rule 3 and decision 47 for the lend `l` of a place rooted in
+/// the module-level binding `gv` to `call`:
+/// - an exclusive lend of a place the binding itself holds (`&mut G`,
+///   `&mut G.f`, a `&mut self` method on a value) WRITES the binding: E0917
+///   unless it is declared `mut(G)`;
+/// - any lend of a `mut(G)` binding, or a place under it, is E0916;
+/// - a lend into the storage behind a handle an unmarked binding holds is
+///   checked against the writes through that handle (rules A and B,
+///   `global_note_handle_lend`), and an exclusive lend of a handle place is
+///   such a write (rule A).
+/// Under `YO_AUDIT_GLOBAL_LEND` each lend prints a census line instead.
+_judge_global_lend :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, ctx : &EvalContext, exn : Exception) -> unit)({
   callee_text := _callee_display(call);
   place_text := _place_display(&l.place);
   at := ast_expr_token(&l.lent_arg);
+  pp := global_place_path(&l.place, ctx);
+  place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&l.place)), .Some(pi) => pi.ty, .None => gv.ty.clone());
+  place_is_handle := (is_reference_struct_type(&place_ty) || is_atomic_reference_struct_type(&place_ty));
+  marked := is_mut_global(&gv.token.module_path, &gv.name);
+  is_write := (l.exclusive && !place_is_handle && !pp.through_handle);
   if(global_lend_audit_enabled(), {
-    place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&l.place)), .Some(pi) => pi.ty, .None => gv.ty.clone());
     kind := cond(
-      (is_reference_struct_type(&place_ty) || is_atomic_reference_struct_type(&place_ty)) => "handle",
+      place_is_handle => "handle",
       type_is_bitwise_copy(place_ty.clone()) => "copy",
       true => "owning"
     );
     tl := if(is_thread_local(&gv.token.module_path, &gv.name), "thread_local", "static");
-    proj := if(_place_reaches_into_heap(&l.place, ctx), "heap", "binding");
     global_lend_audit_print(
-      &`${global_lend_location(&at)} [global-lend] form=${l.tag} kind=${kind} storage=${tl} reach=${proj} global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)} type=${type_to_string(&place_ty)} callee=\`${callee_text}\` place=\`${place_text}\``
+      &`${global_lend_location(&at)} [global-lend] form=${l.tag} kind=${kind} storage=${tl} marked=${if(marked, "yes", "no")} write=${if(is_write, "yes", "no")} reach=${if(pp.heap, "heap", "binding")} global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)} type=${type_to_string(&place_ty)} callee=\`${callee_text}\` place=\`${place_text}\``
+    );
+  });
+  if(is_write, {
+    global_require_mut(gv, &at, &`lend \`&mut\` (${l.form})`, ctx, exn);
+  });
+  if(marked, {
+    if(global_lend_audit_enabled() || !global_mut_rule_applies(&at, ctx), {
+      return(());
+    });
+    raise_flow_violation(
+      with_code(
+        format_error_message_with_help(
+          &at,
+          `Cannot lend \`${place_text}\` to \`${callee_text}\` (${l.form}): \`${gv.name}\` is declared \`mut(${gv.name})\`, a mutable module-level binding, which has no run-time borrow flag. Any function can write it by name, and so can another task while the callee awaits, so the callee could read a value that was already released while it still holds the borrow (plans/VALUES_BY_DEFAULT.md decision 18 rule 3, decision 47).`,
+          Option(String).Some(
+            `copy it into a local, lend the local and write it back after the call (\`v := ${gv.name}.clone(); f(&mut v); ${gv.name} = v;\`), or keep \`${gv.name}\` immutable (no \`mut\`) and hold the changing state in an atomic or a \`Mutex(T)\`, which an unmarked global may lend`
+          )
+        ),
+        E_GLOBAL_LENT_TO_CALL
+      ),
+      ctx,
+      exn
     );
     return(());
   });
-  raise_flow_violation(
-    with_code(
-      format_error_message_with_help(
-        &at,
-        `Cannot lend \`${place_text}\` to \`${callee_text}\` (${l.form}): \`${gv.name}\` is a module-level binding (a static or a \`thread_local\`), which has no run-time borrow flag. Any function can reassign or write it by name, and so can another task while the callee awaits, so the callee could read a value that was already released while it still holds the borrow (plans/VALUES_BY_DEFAULT.md decision 18 rule 3).`,
-        Option(String).Some(
-          `read \`${gv.name}\` by value where the parameter takes a value, or copy it into a local, lend the local and assign it back after the call (\`v := ${gv.name}.clone(); f(&mut v); ${gv.name} = v;\`), or make the global a \`Mutex(T)\` or an atomic`
-        )
-      ),
-      E_GLOBAL_LENT_TO_CALL
-    ),
-    ctx,
-    exn
-  );
+  if(l.exclusive && (place_is_handle || pp.through_handle), {
+    global_note_handle_mutcall(gv, &at, ctx, exn);
+  });
+  if(pp.heap || pp.through_handle, {
+    global_note_handle_lend(gv, GlobalHandleLend(path : pp.path.clone(), heap : pp.heap, at : at.clone(), text : `\`${place_text}\` to \`${callee_text}\` (${l.form})`), ctx, exn);
+  });
 });
 /// A place or callee as a diagnostic writes it: a `.` chain without the
 /// parentheses the AST printer puts around each `.` form (`G.f.push`).
@@ -3270,32 +3297,6 @@ _place_display :: (fn(e : &AstExpr) -> String)(
 _callee_display :: (fn(call : &AstExpr) -> String)(
   match(call, .FnCall(_, c, _, _, _) => _place_display(&c), .Atom(_, _) => String.from("?"))
 );
-/// `place` reaches into a heap object the binding holds rather than naming
-/// the binding's own storage: its path crosses an element access, a
-/// dereference, or a field of a `ref` handle.
-_place_reaches_into_heap :: (fn(place : &AstExpr, ctx : &EvalContext) -> bool)({
-  (cur : AstExpr) = place;
-  while(!ast_expr_is_atom(&cur), {
-    match(
-      cur,
-      .FnCall(_, _, h_args, _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
-        base := match(h_args.get(usize(0)), .Some(b) => b, .None => return(false));
-        if(match(h_args.get(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false), {
-          return(true);
-        });
-        base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => bi.ty, .None => return(true));
-        if(is_reference_struct_type(&base_ty) || is_atomic_reference_struct_type(&base_ty), {
-          return(true);
-        });
-        cur = base;
-      }, {
-        return(true);
-      }),
-      .Atom(_, _) => ()
-    );
-  });
-  false
-});
 /// The per-operand borrow flags of an infix operator call `a op b` evaluated
 /// at run time: which parameters of the resolved operator method, stamped on
 /// the operator atom, borrow (Eq's and Ord's `lhs : &Self, rhs : &Rhs`).
