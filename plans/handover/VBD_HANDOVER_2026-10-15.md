@@ -109,7 +109,7 @@ These rules were set or confirmed 2026-10-13/15. Each one overrides older text t
 | v0.2.62 | 2026-10-14 03:52Z | Drop Gen A (#1343), E0910 lent-place moves (#1346), `&Self` read-only receivers (#1347), allocator audit (#1337), V4 codegen blockers (#1341) |
 | **v0.2.63** | RELEASE_ROW_PLACEHOLDER | §2.2 below |
 
-### 2.2 What v0.2.63 carries (develop `v0.2.62..42ec72f99`)
+### 2.2 What v0.2.63 carries (develop `v0.2.62..6f6a2d8e9`)
 
 **Language and type checking (VBD):**
 - #1349: V3 async A3 Generation B and A4's handle half.
@@ -151,9 +151,11 @@ These rules were set or confirmed 2026-10-13/15. Each one overrides older text t
 - #1386: a block that yields an outer local takes its own reference (an S1 use-after-free on develop).
 - #1388: `spawn_blocking`'s `sink` closure is captured with its own references; std/http's `serve`/`serve_once` take `sink(handler)`.
 - #1376: the runtime treats offset `u64.MAX` as "the descriptor's own position". This is the stdio fix's Generation A; Generation B is §4 step 7.
-- #1392 (fix(develop), after `31ef8d7a3`): on Windows a positioned disk transfer moves the file pointer, while POSIX `pwrite` does not. #1376's seek test was the first to check it, and it turned both Windows legs red.
-  - The maintainer chose to document the behaviour, as Rust's `FileExt::seek_write` and Zig's `File.pwrite` do, rather than save and restore the pointer, which is not atomic across threads sharing a handle.
-  - `std/sys/file.yo` documents the offset rules; the runtime is unchanged.
+- #1392 then #1393 (fix(develop), after `31ef8d7a3`): on Windows a positioned disk transfer moved the file pointer, while POSIX `pwrite` does not. #1376's seek test turned both Windows legs red.
+  - #1392 first documented the divergence, as Rust and Zig do.
+  - The maintainer then chose the runtime fix, #1393: `__yo_win_resolve_offset` records the pointer before each disk transfer, and `__yo_win_settle_position` puts it back, or advances it for `u64.MAX`.
+  - Issue: `issues/fixed/2026-10-15-windows-positional-disk-io-moves-the-file-pointer.md`.
+  - The Windows C was verified by splicing into cross-emitted C and running `clang -target x86_64-w64-windows-gnu -fsyntax-only` against zig's MinGW headers (§7).
 - #1362: `String.to_cstr_checked()`. std's C boundaries reject an interior NUL.
 - #1373: a warm compile replays its cached inputs, and a failed build removes its artifact.
 
@@ -591,6 +593,11 @@ The 2026-10-10 handover's §5 still applies. Additions and changes:
   - New syntax, a new runtime macro or a new builtin may be used in std/src only once `SEED_VERSION` carries it: Generation A in one release, Generation B in the next.
   - Test std changes with a tree-built compiler and `--std-path ./std`, never with the seed's bundled std.
 - **Rebases after V4** need `Rc(.Variant(...))` patterns and `rc(TypeValueNode.X)` constructors wherever a branch predates #1369 and matches on `TypeValue`.
+- **Checking Windows C without a Windows machine:**
+  - Cross-emit with a tree-built compiler: `yo compile x.yo --target x86_64-pc-windows-gnu --emit-c --skip-c-compiler`.
+  - Splice in any runtime change.
+  - Run `clang -target x86_64-w64-windows-gnu -std=c11 -fsyntax-only -w -nostdinc -isystem $(clang -print-resource-dir)/include -isystem <zig>/lib/zig/libc/include/any-windows-any -isystem <zig>/lib/zig/libc/include/generic-mingw x.c`. `zig cc` itself failed with `FileNotFound` under the session sandbox.
+  - Inject a typo once to prove the check is real.
 - **Shell traps seen this cycle:**
   - zsh's `echo =====` fails (equals expansion);
   - zsh's builtin `stat` is not `/usr/bin/stat`;
