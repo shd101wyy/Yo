@@ -542,12 +542,11 @@ test("exclusivity: a by-value Copy field read does not overlap the lent receiver
     t = (t + i32(1));
   });
   assert(acc.total == i32(1), "a by-value Copy receiver is copied before the closure writes the field");
-  // Two places the arguments only name are decision 28's value-root rule,
-  // which lands with V2b (plans/VALUES_BY_DEFAULT.md decision 28 "Phase");
-  // until then they are accepted here exactly as in a file with no capture
-  // list. V2b turns this into `comptime_expect_error`.
-  _cl_peek_bump(&h, &mut h.state);
-  assert(h.state == u64(16), "`f(&h, &mut h.state)` is accepted the same way in every module");
+  // A later `&mut` relend of a place an earlier argument lends is E0910 by
+  // the two-phase borrow rule (#1387), in every module alike: the `&h`
+  // borrow starts when that argument is evaluated.
+  comptime_expect_error(_cl_peek_bump(&h, &mut h.state), "the borrow starts when that argument is evaluated");
+  assert(h.state == u64(11), "the rejected call did not run");
   z := i32(0);
   comptime_expect_error(_cl_with_mut({ &z }() => z, &mut z), "lent exclusively");
 });
