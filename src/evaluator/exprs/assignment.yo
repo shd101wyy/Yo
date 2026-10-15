@@ -353,23 +353,19 @@ _reject_runtime_write_of_comptime_binding :: (
   // A function body's own parameters sit in the top frame of its `eval_env`;
   // an async or test block has none (as in `_captured_root_of_place`).
   own_floor := match(sub.kind, .FunctionBody => (sub.eval_env.frame_count() - usize(1)), _ => sub.eval_env.frame_count());
-  outside := (v.is_module_level || (v.frame_level < own_floor));
+  outside := (v.frame_level < own_floor);
   if(!outside && !rhs_is_runtime, {
     return(());
   });
   name := v.name.clone();
-  where_text := cond(
-    v.is_module_level => String.from("at module level"),
-    true => String.from("outside this function")
-  );
+  // A compile-time binding never carries `is_module_level` (that flag marks
+  // the runtime globals emitted as C statics), so the definition label below
+  // is what shows where it lives.
   first := cond(
-    outside => `Cannot assign "${name}" when the program runs: it is a compile-time constant (a \`::\` binding) declared ${where_text}. Every use of it was folded to its value while compiling, so a runtime write would leave the folded uses reading the old value.`,
+    outside => `Cannot assign "${name}" when the program runs: it is a compile-time constant (a \`::\` binding) declared outside this body. Every use of it was folded to its value while compiling, so a runtime write would leave the folded uses reading the old value.`,
     true => `Cannot assign a runtime value to "${name}": it is a compile-time constant (a \`::\` binding), whose value must be known while compiling.`
   );
-  help := cond(
-    v.is_module_level => `declare it as a module-level runtime binding, \`${name} := ...;\`, which the program can write`,
-    true => `declare it as a runtime binding, \`${name} := ...;\`, which the program can write`
-  );
+  help := `declare it with \`:=\` instead (\`${name} := ...;\`, at module level for a global): a runtime binding, which the program can write`;
   entries := ArrayList(TokenAndError).new();
   entries.push(TokenAndError(token : write_tok, error_message : first));
   entries.push(TokenAndError(token : v.token, error_message : `"${name}" is defined here:`));
@@ -1249,7 +1245,7 @@ evaluate_assignment :: (
     // E0918: a field or element of a compile-time binding written at runtime.
     match(
       _place_root_variable(&evaluated_lhs, &env, ctx, false),
-      .Some(ct_root) => _reject_runtime_write_of_comptime_binding(&ct_root, ast_expr_token(&lhs), prop_rhs_info.value.is_none(), ctx, exn),
+      .Some(ct_root) => _reject_runtime_write_of_comptime_binding(&ct_root, ast_expr_token(&get_root_expr_of_place(&lhs)), prop_rhs_info.value.is_none(), ctx, exn),
       .None => ()
     );
     // A write of the place: E0908 through an `imm` local borrow, E0911 while a
