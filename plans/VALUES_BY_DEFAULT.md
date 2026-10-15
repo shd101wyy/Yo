@@ -5873,10 +5873,20 @@ compiler; the std shapes are plain structs the seed lowers):
         nothing drops the place. Codegen emits the call as the place,
         `(*f(args))`, never a `T` temp; `&`-folding (`_apply_ref_amp`,
         `addr_of`, the subscript's receiver, a local borrow) takes its
-        pointer back.
+        pointer back. A method the receiver-method dispatch resolves (every
+        generic impl's, `xs.index(i)` on `ArrayList(T)`) leaves its `.`
+        callee untyped and records its type under the call's id
+        (`record_method_callee_type`): recognition falls back to that record
+        (`projection_call_callee_type`), and the method-dispatch emitter
+        yields the place too
+        (`issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md`).
       - **Positions.** An operand reads through it. A receiver and a
         `&T`/`&mut T` argument lend it bare (a call result is not a named
-        place, so E0914 does not apply). `r := call` binds a local borrow of
+        place, so E0914 does not apply); a bare `&mut` argument is
+        write-promoted on both argument paths (the known-function arm of
+        `_evaluate_function_call_unanchored` and
+        `check_if_function_parameter_matches_argument`), so a read
+        projection's place there is E0908. `r := call` binds a local borrow of
         the result's mode (`_bind_projection_result`), declared
         `T* r = f(...)`; the block look-ahead is armed for every
         `name := call(...)` statement, since only the evaluated callee
