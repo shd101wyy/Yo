@@ -85,7 +85,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_ptr, t_usize, clone_some_fresh } :: import("../../types/creators.yo");
 { type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
-{ type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
+{ type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 {
   get_all_some_types,
   type_contains_some_type,
@@ -1850,7 +1850,7 @@ _type_signature_string :: (fn(t : &TypeValue) -> String)({
   });
   key_epoch := type_key_epoch();
   sig := `${type_to_string(t)}_id_${type_key(t)}`;
-  if(key_epoch == type_key_epoch(), {
+  if((key_epoch == type_key_epoch()) && type_identity_cacheable(t), {
     if(g_type_sig_fast.len() >= TYPE_IDENTITY_CACHE_CAP, {
       g_type_sig_fast.clear();
       g_type_sig_fast_strings.clear();

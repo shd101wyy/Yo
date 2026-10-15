@@ -31,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
   is_reference_enum_type,
   is_primitive_type
 } :: import("../types/guards.yo");
-{ enum_instance_node_id, type_key, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_key_memo_check_enabled } :: import("../types/type_key.yo");
+{ enum_instance_node_id, type_key, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../types/type_key.yo");
 {
   is_fn_trait_type,
   is_future_trait_type,
@@ -1024,7 +1024,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
 /// under was computed in the current type-key epoch (else `ty`'s key may have
 /// changed since).
 _record_lacks_copy_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : bool) -> unit)({
-  if(key_epoch != type_key_epoch(), {
+  if((key_epoch != type_key_epoch()) || !type_identity_cacheable(ty), {
     return(());
   });
   if(g_lacks_copy_fast_epoch != key_epoch, {

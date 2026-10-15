@@ -10,10 +10,10 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, TypeValueNode } :: import("./definitions.yo");
-{ type_to_string, bump_type_key_epoch } :: import("./string.yo");
+{ type_to_string, bump_type_key_epoch, type_key_epoch } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
-{ is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked } :: import("./utils.yo");
+{ is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked, type_mentions_some_type } :: import("./utils.yo");
 { debug_knob } :: import("../utils.yo");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
@@ -705,16 +705,22 @@ type_key :: (fn(t : &TypeValue) -> String)({
 // substitution's node memo does) and, at the caller, a parallel list of
 // answers.
 //
-// Sound because, within one type-key epoch (`type_key_epoch`,
-// types/string.yo), `type_key` of one live handle never changes: the node
-// behind a handle is immutable, and every registry `type_key` reads bumps the
-// epoch when it changes. The cache holds a clone of every handle it records,
-// so a recorded address cannot be freed and reused by another node. The
-// caller keeps the invariant "a cached handle's answer is what its memo holds
-// under that handle's key": it records a handle only with a key computed in
-// the current epoch, and clears the cache whenever it clears the memo or the
-// epoch moves. `YO_DEBUG_TYPE_KEY_MEMO_CHECK=1` re-checks every cache hit
-// against the memo's own answer and aborts on a mismatch.
+// Sound for a type that mentions no type variable (`type_identity_cacheable`),
+// within one type-key epoch (`type_key_epoch`, types/string.yo): such a
+// handle's `type_key` and `type_to_string` never change. Its node's fields do
+// not change while the handle is alive, and every registry those renders
+// read bumps the epoch when it changes. A `SomeT` is excluded because its
+// trait lists are shared ref-type `ArrayList`s that grow in place
+// (`_add_where_clause_constraint`, evaluator/types/function.yo), so one live
+// SomeT handle renders differently over time (seen by the knob below on
+// std/collections/btree_map.yo: `K : (Ord + …)` gained two bounds). The cache
+// holds a clone of every handle it records, so a recorded address cannot be
+// freed and reused by another node. The caller keeps the invariant "a cached
+// handle's answer is what its memo holds under that handle's key": it records
+// a cacheable handle only with a key computed in the current epoch, and
+// clears the cache whenever it clears the memo or the epoch moves.
+// `YO_DEBUG_TYPE_KEY_MEMO_CHECK=1` re-checks every cache hit against the
+// memo's own answer and aborts on a mismatch.
 /// Past this many handles a cache is cleared before the next insert: it is
 /// only a cache, and an insert shifts the slots above it.
 TYPE_IDENTITY_CACHE_CAP :: usize(16384);
@@ -737,6 +743,38 @@ type_identity_slot :: (fn(handles : &ArrayList(TypeValue), ty : &TypeValue) -> u
 type_identity_slot_holds :: (fn(handles : &ArrayList(TypeValue), slot : usize, ty : &TypeValue) -> bool)(
   match(handles.get(slot), .Some(h) => __yo_ptr_eq(&h, ty), .None => false)
 );
+/// `type_identity_cacheable`'s own identity memo: handles sorted by address,
+/// whether each mentions no type variable, and the epoch they were judged in.
+(g_tk_cacheable_handles : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+(g_tk_cacheable_answers : ArrayList(bool)) = ArrayList(bool).new();
+(g_tk_cacheable_epoch : u64) = u64(0);
+/// Whether an identity cache may record `ty`: it mentions no `SomeT`
+/// (`type_mentions_some_type`), so no part of it grows in place. Judged once
+/// per handle and type-key epoch (whether a type mentions a type variable
+/// does not change as a SomeT's trait lists grow).
+type_identity_cacheable :: (fn(ty : &TypeValue) -> bool)({
+  if(g_tk_cacheable_epoch != type_key_epoch(), {
+    g_tk_cacheable_handles.clear();
+    g_tk_cacheable_answers.clear();
+    g_tk_cacheable_epoch = type_key_epoch();
+  });
+  (slot : usize) = type_identity_slot(&g_tk_cacheable_handles, ty);
+  if(type_identity_slot_holds(&g_tk_cacheable_handles, slot, ty), {
+    return(match(g_tk_cacheable_answers.get(slot), .Some(a) => a, .None => false));
+  });
+  key_epoch := type_key_epoch();
+  answer := !type_mentions_some_type(ty);
+  if(key_epoch == type_key_epoch(), {
+    if(g_tk_cacheable_handles.len() >= TYPE_IDENTITY_CACHE_CAP, {
+      g_tk_cacheable_handles.clear();
+      g_tk_cacheable_answers.clear();
+    });
+    (at : usize) = type_identity_slot(&g_tk_cacheable_handles, ty);
+    g_tk_cacheable_handles.insert(at, ty);
+    g_tk_cacheable_answers.insert(at, answer);
+  });
+  answer
+});
 (g_type_key_memo_check : u8) = u8(0);
 /// `YO_DEBUG_TYPE_KEY_MEMO_CHECK=1`: every identity-cache hit is checked
 /// against the string-keyed memo it fronts, and a mismatch aborts.
@@ -956,4 +994,4 @@ enum_instance_node_id :: (fn(t : &TypeValue) -> String)(
   )
 );
 export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id);
-export(TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_key_memo_check_enabled);
+export(TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled);
