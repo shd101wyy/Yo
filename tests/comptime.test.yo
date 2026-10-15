@@ -3662,6 +3662,89 @@ test("compile-time locals in a compile-time function body stay mutable", {
   comptime_assert(ct_factorial(i32(5)) == 120);
   assert(_rt_factorial(i32(4)) == i32(24), "the runtime function is unchanged");
 });
+// A compile-time binding (`::`) assigned by code that runs when the program
+// runs is E0918: every use of it was folded while compiling, so the runtime
+// write gave one name two values (`G` read 3 after the write while `H` was
+// folded from `G == 1`). Writes that run while compiling stay legal: module
+// level, a body's own `a :: 1; a = 2;` with a compile-time value, a
+// compile-time loop counter, and the `-> comptime(...)` bodies above
+// (issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md).
+_RW_G :: i32(1);
+_RW_H :: (_RW_G + i32(10));
+_RwPoint :: struct(x : i32, y : i32);
+_RW_P :: _RwPoint(x : i32(1), y : i32(2));
+_RW_M :: i32(1);
+_RW_M = i32(2);
+comptime_assert(_RW_M == i32(2));
+_rw_runtime_counter := i32(1);
+_rw_bump :: (fn() -> i32)({
+  _rw_runtime_counter = (_rw_runtime_counter + i32(1));
+  _rw_runtime_counter
+});
+_rw_local_reassign :: (fn(x : i32) -> i32)({
+  a :: i32(1);
+  a = i32(2);
+  comptime_assert(a == i32(2));
+  b :: a;
+  (x + b)
+});
+_rw_comptime_loop :: (fn(x : i32) -> i32)({
+  i :: i32(0);
+  acc := x;
+  while(comptime(i < i32(3)), {
+    acc = (acc + i);
+    i = (i + i32(1));
+  });
+  comptime_assert(i == i32(3));
+  acc
+});
+test("a compile-time constant assigned at runtime is E0918", {
+  // The issue's repro: a runtime function body writes a module-level `::`.
+  comptime_expect_error({
+    bad_module_write :: (fn() -> i32)({
+      _RW_G = i32(3);
+      (_RW_G + _RW_H)
+    });
+  }, "is a compile-time constant");
+  // A field of a module-level `::` struct.
+  comptime_expect_error({
+    bad_field_write :: (fn() -> i32)({
+      _RW_P.x = i32(3);
+      _RW_P.x
+    });
+  }, "is a compile-time constant");
+  // A nested function writing a `::` of the enclosing function.
+  comptime_expect_error({
+    bad_outer_write :: (fn(x : i32) -> i32)({
+      a :: i32(1);
+      g := (fn() -> unit)({
+        a = i32(9);
+      });
+      g();
+      x
+    });
+  }, "is a compile-time constant");
+  // A runtime value written to a body's own `::`.
+  comptime_expect_error({
+    bad_runtime_value :: (fn(x : i32) -> i32)({
+      a :: i32(1);
+      a = x;
+      x
+    });
+  }, "Cannot assign a runtime value");
+  // A test body runs at runtime too.
+  comptime_expect_error({
+    _RW_G = i32(4);
+  }, "is a compile-time constant");
+});
+test("compile-time reassignments and runtime globals still work", {
+  assert(_RW_M == i32(2), "module-level reassignment of a `::` runs while compiling");
+  assert(_rw_local_reassign(i32(5)) == i32(7), "a body's own `::` reassigned with a compile-time value");
+  assert(_rw_comptime_loop(i32(5)) == i32(8), "a compile-time loop counter");
+  assert(_rw_bump() == i32(2), "a module-level `:=` is written at runtime");
+  assert(_rw_bump() == i32(3), "and keeps its runtime value");
+  assert((_RW_G + _RW_H) == i32(12), "the constants keep their compile-time values");
+});
 // `&&` / `||` with a compile-time operand and a runtime operand. A compile-time
 // identity operand (`true &&`, `false ||`) decides nothing, so the result is
 // the runtime operand, never the constant
