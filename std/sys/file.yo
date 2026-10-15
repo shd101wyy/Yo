@@ -46,11 +46,18 @@ close :: (fn(fd : i32) -> IoFuture)(
   __yo_async_close_start(fd)
 );
 // Read from fd into buffer at the given offset.
+// Offset `u64.MAX` means the descriptor's own position, which the transfer
+// advances (read(2)/write(2)); any other offset positions the transfer
+// (pread(2)/pwrite(2)), which on POSIX leaves the position alone. On Windows
+// a positioned transfer moves the file pointer past its bytes, as Zig's
+// `File.pread`/`pwrite` document (ziglang/zig#12783): the OVERLAPPED offset
+// positions it, and a handle opened without FILE_FLAG_OVERLAPPED advances
+// its pointer anyway. Seek before mixing the two on Windows.
 // Returns number of bytes read on success, -errno on failure.
 read :: (fn(fd : i32, buffer : *u8, size : u32, offset : u64) -> IoFuture)(
   __yo_async_read_start(fd, buffer, size, offset)
 );
-// Write buffer to fd at the given offset.
+// Write buffer to fd at the given offset (see `read` for the offset rules).
 // Returns number of bytes written on success, -errno on failure.
 write :: (fn(fd : i32, buffer : *u8, size : u32, offset : u64) -> IoFuture)(
   __yo_async_write_start(fd, buffer, size, offset)
@@ -88,7 +95,7 @@ close_sync :: (fn(fd : i32) -> unit)(
   __yo_file_close(fd)
 );
 // Positioned synchronous write (pwrite semantics; plain write for
-// non-seekable fds). For contexts that cannot await — Dispose impls.
+// non-seekable fds; the offset rules of `read`, Windows included). For contexts that cannot await — Dispose impls.
 // Returns bytes written on success, -errno on failure. On Windows this is
 // OVERLAPPED-aware: async-opened file fds wrap FILE_FLAG_OVERLAPPED handles
 // that CRT _write cannot serve.
