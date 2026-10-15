@@ -158,8 +158,8 @@ _slot_peek :: (fn(w : &Slot, io : Io) -> Impl(Future(i64, Io)))(
     match(w.o, .Some(v) => v, .None => i64(0))
   })
 );
-comptime_expect_error({
-  _d3_std_take_in_another_task :: (fn(io : Io) -> unit)({
+test("D3: a std mutator through an Arc in another task is rejected", {
+  comptime_expect_error({
     a := arc(Slot(o : Option(i64).Some(i64(1))));
     b := a;
     task := io.async({ b }(io : Io) => {
@@ -169,9 +169,8 @@ comptime_expect_error({
     h := io.spawn(task, io);
     _v := io.await(_slot_peek(&a.*, io), io);
     _x := h.await(io);
-  });
-  _d3_std_take_in_another_task(io);
-}, "the callee may write through that mut parameter");
+  }, "the callee may write through that mut parameter");
+});
 // D1 through the same hole: a std mutator writing a module-level global that
 // a spawned thread reads is the mutable-static race `g = v` already is.
 (g_d3_slot : Option(i64)) = Option(i64).Some(i64(1));
