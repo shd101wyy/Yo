@@ -1602,6 +1602,22 @@ generate_other_function_call :: (fn(expr : &AstExpr, indent : &String, context :
             cm_install_ei := new_expr_info(&ei.env, &cm_mft);
             cm_install_ei.value = method_fv;
             cm_is_install := _call_is_handler_installation(ast_expr_id(expr), &cm_install_ei, &cm_mft, &cm_ptypes, &dm_runtime, context, Option(String).None);
+            // A projection method (decision 24; a generic impl's, resolved by
+            // this dispatch) is the place `(*m(args))`, as on the direct-call
+            // path below: never a `T` temp.
+            if(call_projection_mode(expr, context).is_some(), {
+              if(cm_may_unwind, {
+                cm_pt := `__yo_ref_spill_${g_ref_spill_counter.to_string()}`;
+                g_ref_spill_counter = (g_ref_spill_counter + usize(1));
+                cm_em3 := context.base.emitter;
+                cm_em3.emit_string_line(`${indent.clone()}__yo_effect_escaped = 0;`);
+                cm_em3.emit_string_line(`${indent.clone()}${get_type_string(t_ptr(&ei.ty), &context.base)} ${cm_pt.clone()} = ${cm_call};`);
+                generate_deferred_drop_expressions(expr, indent.clone(), context, true);
+                emit_effect_unwind_check(indent.clone(), context, cm_is_install, expr);
+                return(Option(String).Some(`(*${cm_pt})`));
+              });
+              return(Option(String).Some(`(*${cm_call})`));
+            });
             if(is_unit_type(&ei.ty), {
               cm_em := context.base.emitter;
               // Interior-`inout` borrow flags around the method call (see the

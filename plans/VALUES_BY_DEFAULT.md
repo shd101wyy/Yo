@@ -5858,8 +5858,12 @@ compiler; the std shapes are plain structs the seed lowers):
     - **Direct projection calls (feat/vbd-v2b-projection-calls).** A
       projection called by name (`t.index(i)`, `Trio.index(&t, i)`,
       `first(&t)`) yields its place; a call through a function value is
-      still an error. Method lookup stays by name until the prelude traits
-      exist.
+      still an error. The subscript dispatch still looks `index` /
+      `index_mut` up by name; keying it on the prelude traits (declared by
+      Generation B, #1361) is not part of this step. `index_unchecked`
+      stays out of safe code's reach: its result is a raw `*T` (#1377), not
+      a projection, so a direct call yields the raw-pointer value the
+      safe-code gate rejects.
       - **Recognition.** A call whose evaluated callee's type is a
         projection, and which is not a subscript, is a projection call of
         that mode (`projection_call_mode_of` in the evaluator,
