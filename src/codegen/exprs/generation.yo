@@ -33,6 +33,7 @@
   BF_YO_DECR_RC,
   BF_YO_INCR_RC,
   BF_YO_RC_OWN,
+  BF_YO_RC_FORGET_PAYLOAD,
   BF_YO_DROP_ARRAY_ELEMENT,
   BF_YO_DUP_ARRAY_ELEMENT,
   BF_YO_DROP_TUPLE_ELEMENT,
@@ -105,7 +106,7 @@
 { set_generate_expr_fn, _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { is_builtin_yo_inline_function, codegen_fatal_expr } :: import("../constants.yo");
 { generate_atom } :: import("./atom.yo");
-{ generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_ref_count_call } :: import("./rc_fns.yo");
+{ generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_rc_own, generate_yo_rc_forget_payload, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_ref_count_call } :: import("./rc_fns.yo");
 { generate_yo_iso_extract, generate_yo_iso_unique, generate_yo_iso_dispose, is_iso_type_call, generate_iso_type_call } :: import("./iso.yo");
 { generate_yo_gc_collect, generate_yo_gc_trace_child } :: import("./gc.yo");
 { generate_panic } :: import("./panic.yo");
@@ -792,6 +793,7 @@ generate_func_call :: (fn(expr : &AstExpr, indent : &String, context : &Function
   if(ast_expr_is_fn_call_of(expr, BF_YO_DECR_RC, Option(usize).None), return(generate_yo_decr_rc(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_INCR_RC, Option(usize).None), return(generate_yo_incr_rc(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_RC_OWN, Option(usize).None), return(generate_yo_rc_own(expr, indent.clone(), context)));
+  if(ast_expr_is_fn_call_of(expr, BF_YO_RC_FORGET_PAYLOAD, Option(usize).None), return(generate_yo_rc_forget_payload(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DROP_ARRAY_ELEMENT, Option(usize).None), return(generate_yo_drop_array_element(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DUP_ARRAY_ELEMENT, Option(usize).None), return(generate_yo_dup_array_element(expr, indent.clone(), context)));
   if(ast_expr_is_fn_call_of(expr, BF_YO_DROP_TUPLE_ELEMENT, Option(usize).None), return(generate_yo_drop_tuple_element(expr, indent.clone(), context)));

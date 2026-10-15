@@ -167,6 +167,11 @@ BF_YO_DUP_TUPLE_ELEMENT :: "__yo_dup_tuple_element";
 /// (`structural_closure_clone`, evaluator/utils/closure.yo).
 BF_YO_CAPTURE_FIELD :: "__yo_capture_field";
 BF_YO_RC_OWN :: "__yo_rc_own";
+/// `__yo_rc_forget_payload(&h)`: the cell of the `Rc`/`Arc` handle `h` no
+/// longer owns its payload, which was moved out bitwise (`Rc.try_unwrap`):
+/// releasing the cell frees it without dropping the payload. The caller holds
+/// the only handle (`ref_count(h) == 1`).
+BF_YO_RC_FORGET_PAYLOAD :: "__yo_rc_forget_payload";
 BF_YO_DYN_DROP :: "__yo_dyn_drop";
 BF_YO_DYN_DUP :: "__yo_dyn_dup";
 BF_YO_SOMETYPE_DROP :: "__yo_sometype_drop";
@@ -1055,7 +1060,7 @@ export(BF_UNSAFE, BF_PRAGMA);
 export(BF_ADDRESS_OF, BF_ARRAY_FILL, BF_DERIVE, BF_DERIVE_RULE, BF_REF_COUNT, BF_THE, BF_DOWNCAST, BF_UPCAST);
 export(BF_YO_DECR_RC, BF_YO_INCR_RC, BF_YO_DECR_RC_ATOMIC, BF_YO_INCR_RC_ATOMIC);
 export(BF_YO_ISO_EXTRACT, BF_YO_ISO_UNIQUE, BF_YO_ISO_DISPOSE, BF_YO_DROP_ARRAY_ELEMENT, BF_YO_DUP_ARRAY_ELEMENT);
-export(BF_YO_DROP_TUPLE_ELEMENT, BF_YO_DUP_TUPLE_ELEMENT, BF_YO_RC_OWN, BF_YO_CAPTURE_FIELD);
+export(BF_YO_DROP_TUPLE_ELEMENT, BF_YO_DUP_TUPLE_ELEMENT, BF_YO_RC_OWN, BF_YO_RC_FORGET_PAYLOAD, BF_YO_CAPTURE_FIELD);
 export(BF_YO_DYN_DROP, BF_YO_DYN_DUP, BF_YO_SOMETYPE_DROP, BF_YO_SOMETYPE_DUP, BF_YO_GC_COLLECT, BF_YO_GC_TRACE_CHILD);
 export(BF_YO_OP_ADD, BF_YO_OP_SUB, BF_YO_OP_MUL, BF_YO_OP_DIV, BF_YO_OP_MOD, BF_YO_OP_NEG);
 export(BF_YO_OP_ADD_WRAP, BF_YO_OP_SUB_WRAP, BF_YO_OP_MUL_WRAP);

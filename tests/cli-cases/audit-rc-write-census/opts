@@ -1,0 +1,12 @@
+# plans/VALUES_BY_DEFAULT.md §6 "Decision 46" step 1: YO_AUDIT_RC_WRITE lists
+# every write through a reference cell the compiler admits today, without
+# failing: an assignment into a place under an `Rc` (`h.n = v`, `h.* = v`), a
+# `&mut` argument (`bump(&mut h.n)`) or `self : &mut Self` receiver
+# (`h.items.push(v)`) whose callee writes it, with `proved=yes` when the
+# handle is fresh in the function (§3.10 outcome (a)) and `proved=no`
+# otherwise (a parameter, a closure capture). A `ref(struct(...))` handle is
+# listed as `handle=ref`. A value local, a `&mut` argument the callee only
+# reads, and a write through `RefCell`'s `with_mut` are not listed.
+env=YO_AUDIT_RC_WRITE=1
+stdout_keep_match=^main\.yo:[0-9]+:[0-9]+ \[rc-write\].*
+timeout=120

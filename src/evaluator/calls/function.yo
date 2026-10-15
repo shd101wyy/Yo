@@ -31,7 +31,8 @@ pragma(Pragma.AllowUnsafe);
   BK_ASSIGN,
   is_function_boundary_arrow,
   desugar_if_calls,
-  BF_YO_AS
+  BF_YO_AS,
+  ast_expr_strip_borrow_marker
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
@@ -1246,7 +1247,7 @@ _infer_unapplied_ctor_receiver :: (
       return(Option(usize).None);
     }
   );
-  uc_arg0 := cond(
+  uc_arg0_unlabeled := cond(
     ast_expr_is_fn_call_of(&uc_arg0_written, ":", .Some(usize(2))) => match(
       uc_arg0_written,
       .FnCall(_, _, uc_la, _, _) => match(uc_la.get(usize(1)), .Some(v) => v, .None => uc_arg0_written),
@@ -1254,6 +1255,10 @@ _infer_unapplied_ctor_receiver :: (
     ),
     true => uc_arg0_written
   );
+  // A receiver lent with its marker (`Rc.make_mut(&mut h)`, Rust's
+  // `Rc::make_mut(&mut h)`) is the place under it; argument matching reads
+  // the marker itself.
+  uc_arg0 := ast_expr_strip_borrow_marker(&uc_arg0_unlabeled);
   uc_saved_et := ctx.expected_type;
   ctx.expected_type = Option(ExpectedTypeCtx).None;
   uc_evaluated := evaluate_expression_raw(&uc_arg0, env, ctx, exn);

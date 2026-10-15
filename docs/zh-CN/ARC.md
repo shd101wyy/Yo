@@ -90,6 +90,20 @@ t.join();
 assert(shared.* == i32(42), "main still sees shared value");
 ```
 
+### 取出载荷与写时复制
+
+`Arc` 的载荷通过句柄只能读取：安全代码中通过它的写入会被拒绝，共享修改需要通过 `Arc(Mutex(T))`、`Arc(RwLock(T))` 或原子类型进行。`Arc(RefCell(T))` 会被拒绝，因为 `RefCell` 永远不是 `Sync`。有两个入口可以证明句柄是唯一的，与 Rust 相同（[值默认计划](../../plans/VALUES_BY_DEFAULT.md)的决策 46）：
+
+- **`Arc.try_unwrap(h)`** 消耗该句柄：若任何线程上都没有其他句柄，返回 `.Ok(payload)`（单元被释放），否则返回 `.Err(h)`。
+- **`Arc.make_mut(&mut h)`**（`T <: Clone`）是被写入的载荷：共享的载荷会先被克隆到只有 `h` 持有的新单元中。
+
+```yo
+a := arc(i32(1));
+b := a;
+Arc.make_mut(&mut b) = i32(2); // b 得到自己的单元
+assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
+```
+
 ## `Arc`、`atomic(ref(struct(...)))` 与 `Iso` 的区别
 
 | 需求                            | 推荐工具                   |

@@ -25,7 +25,7 @@
 { HollowBodyError, SpecInstantiation, trial_body_site, lookup_generic_trial_error, lookup_spec_instantiation } :: import("../../expr_info.yo");
 { YoError, yo_error_from_diagnostics, note_diagnostic_of_token, format_error_message } :: import("../../error.yo");
 { is_unit_type, is_reference_struct_type, is_atomic_reference_struct_type } :: import("../../types/guards.yo");
-{ function_param_mutation_mask, param_mutation_mask_hits } :: import("../../evaluator/effects/mutation_summary.yo");
+{ function_param_mutation_mask, param_mutation_mask_hits, rc_write_audit_enabled, audit_rc_writes } :: import("../../evaluator/effects/mutation_summary.yo");
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { is_temp_variable_name, debug_knob } :: import("../../utils.yo");
 { is_target_posix, is_target_windows } :: import("../../target.yo");
@@ -642,6 +642,10 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       func_id := __fvm6.*.func_id;
       em := context.base.emitter;
       function_type := get_func_type(func_id.clone());
+      // YO_AUDIT_RC_WRITE: decision 46's census of writes through a cell.
+      if(rc_write_audit_enabled(), {
+        audit_rc_writes(&func_id, &body_box, &context.base.info_table);
+      });
       // Impl(Future(T))-returning async fns: override the C return type with the
       // returned io.async block's state-machine struct. MUST match the forward
       // declaration's override (generate_function_

@@ -102,6 +102,27 @@ t.join();
 assert(shared.* == i32(42), "main still sees shared value");
 ```
 
+### Unwrapping and copy-on-write
+
+An `Arc`'s payload is read-only through the handle: a write through it is
+rejected in safe code, and shared mutation goes through an `Arc(Mutex(T))`,
+an `Arc(RwLock(T))` or an atomic. `Arc(RefCell(T))` is rejected, because a
+`RefCell` is never `Sync`. Two doors prove the handle is the only one, as
+Rust's do (decision 46 of
+[the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)):
+
+- **`Arc.try_unwrap(h)`** consumes the handle and returns `.Ok(payload)` when
+  no other handle exists on any thread (the cell is freed), else `.Err(h)`.
+- **`Arc.make_mut(&mut h)`** (`T <: Clone`) is the payload, written: a shared
+  payload is first cloned into a fresh cell that `h` alone holds.
+
+```yo
+a := arc(i32(1));
+b := a;
+Arc.make_mut(&mut b) = i32(2); // b gets a cell of its own
+assert((a.* == i32(1)) && (b.* == i32(2)), "a is unchanged");
+```
+
 ## `Arc` vs `atomic(ref(struct(...)))` vs `Iso`
 
 | Need                                            | Preferred tool             |

@@ -1,0 +1,130 @@
+//! `RefCell(T)`: shared mutation checked at run time, on one thread.
+//!
+//! The one spelling of the dynamic exclusivity check
+//! (plans/VALUES_BY_DEFAULT.md decisions 41 and 46). An `Rc(T)`'s payload is
+//! read-only through the handle, as in Rust; a payload that several handles
+//! mutate is an `Rc(RefCell(T))`. Every access is scoped to a closure, as
+//! `Mutex(T)`'s is: `with` lends the value `&T`, `with_mut` lends it
+//! `&mut T`, and a conflicting access while one is running panics, as Rust's
+//! `RefCell::borrow_mut` does. `Mutex` blocks; `RefCell` panics.
+//!
+//! ```yo
+//! { RefCell } :: import("std/sync/refcell");
+//! log := rc(RefCell(i32).new(i32(0)));
+//! other := log; // a second handle to the same cell
+//! other.with_mut((n) => {
+//!   n = (n + i32(1));
+//! });
+//! seen := log.with((n) => n); // 1
+//! ```
+//!
+//! ## Stability
+//!
+//! unstable — Generation A of decision 46. The expression-scoped projections
+//! `get()` / `get_mut()` (`cell.get_mut().field = x`) wait for the compiler
+//! support that releases a mark at the end of the enclosing expression and
+//! rejects binding the projection (plans/VALUES_BY_DEFAULT.md §6 "Decision
+//! 46"). The value lives in a cell of its own (one allocation) until a `&T`
+//! receiver is passed by address (decision 43).
+pragma(Pragma.AllowUnsafe);
+
+/// The marks and the value, behind the `RefCell`'s `Box`: a `self : &Self`
+/// receiver is a copy of the `RefCell` today, so the marks it writes must
+/// live where every copy points.
+_RefCellSlot :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    /// `0` = free, `n > 0` = `n` running `with` bodies, `-1` = a running
+    /// `with_mut` body.
+    _borrow : isize,
+    _value : T
+  )
+);
+
+/// A value that is mutated through shared handles on one thread, with the
+/// exclusivity of each access checked at run time — Rust's `RefCell<T>`,
+/// without a guard: access is granted only inside a closure.
+///
+/// - `with(body)` runs `body` with `v : &T`; several may run at once
+///   (nested), and none while a `with_mut` body runs.
+/// - `with_mut(body)` runs `body` with `v : &mut T`, alone: a `with` or
+///   `with_mut` on the same cell while it runs, or a `with_mut` while a
+///   `with` runs, panics.
+///
+/// The mark is released when the body returns or unwinds. A `RefCell` is
+/// `Send` when `T` is and never `Sync`, so `Arc(RefCell(T))` is rejected:
+/// across threads, share an `Arc(Mutex(T))` or `Arc(RwLock(T))`.
+RefCell :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _slot : Box(_RefCellSlot(T))
+  )
+);
+// The marks are plain integers: two threads reading one cell would race on
+// them. `Send` derives from `T` (the `Box` owns the slot).
+impl(generic(T : Type), RefCell(T), !Sync());
+
+/// Restores a cell's mark when an access ends, by return or by unwind.
+_RefCellRelease :: struct(
+  _mark : *isize,
+  /// What the access added to the mark: `1` for `with`, `-1` for `with_mut`.
+  _taken : isize
+);
+impl(
+  _RefCellRelease,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      // SAFETY: `_mark` points into the slot of the cell whose access is
+      // ending; the cell outlives the access that holds this guard.
+      unsafe(consume(self._mark.* = (self._mark.* - self._taken)));
+    })
+  )
+);
+
+impl(
+  generic(T : Type),
+  RefCell(T),
+  /// A new cell holding `value`, with no access running.
+  new : (fn(value : T) -> Self)(
+    Self(_slot : box(_RefCellSlot(T)(_borrow : isize(0), _value : value)))
+  ),
+  /// Run `body` with the value lent read-only, and return its result —
+  /// Rust's `borrow()` with the guard's scope. Panics if a `with_mut` body
+  /// of this cell is running.
+  with : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &T) -> R)) -> R)({
+    slot := addr_of(self._slot.*);
+    // SAFETY: `slot` is the cell's live slot, and this thread is the only
+    // one that reaches it (`RefCell` is not `Sync`).
+    if(unsafe(slot.*._borrow) < isize(0), {
+      __yo_panic("RefCell.with: the value is mutably borrowed (a with_mut body is running)");
+    });
+    unsafe(consume(slot.*._borrow = (slot.*._borrow + isize(1))));
+    _release := _RefCellRelease(_mark : addr_of(slot.*._borrow), _taken : isize(1));
+    unsafe(body(&slot.*._value))
+  }),
+  /// Run `body` with the value lent exclusively, and return its result —
+  /// Rust's `borrow_mut()` with the guard's scope. Panics if any `with` or
+  /// `with_mut` body of this cell is running.
+  with_mut : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &mut T) -> R)) -> R)({
+    slot := addr_of(self._slot.*);
+    // SAFETY: as in `with`.
+    if(unsafe(slot.*._borrow) != isize(0), {
+      __yo_panic("RefCell.with_mut: the value is already borrowed (a with or with_mut body is running)");
+    });
+    unsafe(consume(slot.*._borrow = isize(-1)));
+    _release := _RefCellRelease(_mark : addr_of(slot.*._borrow), _taken : isize(-1));
+    unsafe(body(&mut slot.*._value))
+  })
+);
+/// A new cell holding a clone of the value (read as `with` reads it, so it
+/// panics while a `with_mut` body runs).
+impl(
+  generic(T : Type),
+  where(T <: Clone),
+  RefCell(T),
+  Clone(
+    clone : (fn(self : &Self) -> Self)(
+      RefCell(T).new(self.with((v) => v.clone()))
+    )
+  )
+);
+
+export(RefCell);

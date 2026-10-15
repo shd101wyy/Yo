@@ -1175,6 +1175,66 @@ test("alias made in an inner block, base reassigned there, base used after", {
   };
   assert(g_alias_disposed == (before + i32(2)), "original and replacement disposed exactly once each");
 });
+// A handle lent `&mut` keeps its own count
+// (issues/fixed/2026-10-15-an-aliased-rc-handle-lent-mut-to-a-call-is-freed-under-its-alias.md):
+// the alias elision let `b := a` share ONE count with `a`, so a callee that
+// stored a new handle through `&mut b` (or a `self : &mut Self` method on `b`)
+// released the shared count and freed the object `a` still named. The drop
+// tally sums the tags: 1 + 10 exactly when each object is dropped once.
+(g_lend_dropped_tags : i32) = i32(0);
+_LendHandle :: ref(struct(tag : i32));
+impl(
+  _LendHandle,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_lend_dropped_tags = (g_lend_dropped_tags + self.tag);
+    })
+  )
+);
+impl(
+  _LendHandle,
+  /// Replace the caller's handle with a new object.
+  replace_with : (fn(self : &mut Self, tag : i32) -> unit)({
+    self = _LendHandle(tag : tag);
+  })
+);
+_lend_replace :: (fn(h : &mut _LendHandle, tag : i32) -> unit)({
+  h = _LendHandle(tag : tag);
+});
+test("an alias lent &mut to a call that replaces it leaves the base its object", {
+  before := g_lend_dropped_tags;
+  {
+    a := _LendHandle(tag : i32(1));
+    b := a;
+    _lend_replace(&mut b, i32(10));
+    assert(a.tag == i32(1), "a still names the original");
+    assert(b.tag == i32(10), "b names the replacement");
+    assert(ref_count(a) == 1, "the original is a's alone");
+  };
+  assert(g_lend_dropped_tags == (before + i32(11)), `each object dropped once, got ${(g_lend_dropped_tags - before).to_string()}`);
+});
+test("a base lent &mut to a call that replaces it leaves the alias its object", {
+  before := g_lend_dropped_tags;
+  {
+    a := _LendHandle(tag : i32(1));
+    b := a;
+    _lend_replace(&mut a, i32(10));
+    assert(b.tag == i32(1), "b still names the original");
+    assert(a.tag == i32(10), "a names the replacement");
+  };
+  assert(g_lend_dropped_tags == (before + i32(11)), `each object dropped once, got ${(g_lend_dropped_tags - before).to_string()}`);
+});
+test("an alias whose &mut self method replaces it leaves the base its object", {
+  before := g_lend_dropped_tags;
+  {
+    a := _LendHandle(tag : i32(1));
+    b := a;
+    b.replace_with(i32(10));
+    assert(a.tag == i32(1), "a still names the original");
+    assert(b.tag == i32(10), "b names the replacement");
+  };
+  assert(g_lend_dropped_tags == (before + i32(11)), `each object dropped once, got ${(g_lend_dropped_tags - before).to_string()}`);
+});
 // ---------------------------------------------------------------------------
 // A local stored into a struct field that lives in a NESTED block keeps its
 // own count.
@@ -2375,4 +2435,79 @@ test("unique Box: a struct field of type Option(Box(T)) compiles and reads back"
   );
   q := UBoxOptInt(o : .None, n : i32(4));
   assert(q.o.is_none() && (q.n == i32(4)), "a None field is NULL");
+});
+// ---------------------------------------------------------------------------
+// Decision 46's doors (plans/VALUES_BY_DEFAULT.md §6 "Decision 46" step 1):
+// `Rc.try_unwrap` and `Rc.make_mut`, as Rust has them.
+// ---------------------------------------------------------------------------
+(g_door_dropped : i32) = i32(0);
+/// A move-only payload (a `Drop` impl, no `Clone`) whose drop is tallied.
+_DoorToken :: struct(tag : i32);
+impl(
+  _DoorToken,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_door_dropped = (g_door_dropped + self.tag);
+    })
+  )
+);
+_DoorPoint :: struct(x : i32, label : String);
+derive(_DoorPoint, Clone);
+test("Rc.try_unwrap on the only handle moves the payload out", {
+  before := g_door_dropped;
+  {
+    h := rc(_DoorToken(tag : i32(5)));
+    match(
+      Rc.try_unwrap(h),
+      .Ok(t) => assert(t.tag == i32(5), "the payload came out"),
+      .Err(_) => assert(false, "the only handle unwraps")
+    );
+  };
+  assert(g_door_dropped == (before + i32(5)), `the payload is dropped once, got ${(g_door_dropped - before).to_string()}`);
+  s := match(Rc.try_unwrap(rc(String.from("moved"))), .Ok(v) => v, .Err(_) => String.from("shared"));
+  assert(s == "moved", "a String payload moves out");
+});
+test("Rc.try_unwrap on a shared handle returns the handle", {
+  before := g_door_dropped;
+  {
+    a := rc(_DoorToken(tag : i32(7)));
+    b := a;
+    back := match(
+      Rc.try_unwrap(b),
+      .Ok(_) => {
+        assert(false, "a still shares the cell");
+        rc(_DoorToken(tag : i32(0)))
+      },
+      .Err(h) => h
+    );
+    assert(ref_count(a) == 2, "the handle came back with its count");
+    assert(back.tag == i32(7), "the handle names the same payload");
+    assert(g_door_dropped == before, "nothing was dropped");
+  };
+  assert(g_door_dropped == (before + i32(7)), `the payload is dropped once with its last handle, got ${(g_door_dropped - before).to_string()}`);
+});
+test("Rc.make_mut on the only handle writes the payload in place", {
+  h := rc(_DoorPoint(x : i32(1), label : String.from("a")));
+  before := addr_of(h.*);
+  Rc.make_mut(&mut h).x = i32(2);
+  Rc.make_mut(&mut h).label.push_str("b");
+  assert(h.x == i32(2), "the write landed");
+  assert(h.label == "ab", "the receiver write landed");
+  assert(addr_of(h.*) == before, "no clone: the same cell");
+  assert(ref_count(h) == 1, "still the only handle");
+});
+test("Rc.make_mut on a shared handle clones the payload first", {
+  a := rc(_DoorPoint(x : i32(1), label : String.from("a")));
+  b := a;
+  Rc.make_mut(&mut b).x = i32(9);
+  assert(a.x == i32(1), "the other handle does not see the write");
+  assert(b.x == i32(9), "the write landed in b's own cell");
+  assert(ref_count(a) == 1, "a is alone in the old cell");
+  assert(ref_count(b) == 1, "b is alone in the new cell");
+  Rc.make_mut(&mut b).x = i32(10);
+  assert((a.x == i32(1)) && (b.x == i32(10)), "b is unique now: written in place");
+});
+test("Rc.make_mut needs a Clone payload, as Rust's does", {
+  h := rc(_DoorToken(tag : i32(0)));
+  comptime_expect_error(Rc.make_mut(&mut h));
 });

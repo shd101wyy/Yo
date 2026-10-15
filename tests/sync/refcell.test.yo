@@ -1,0 +1,72 @@
+// `RefCell(T)` (std/sync/refcell): shared mutation behind `Rc`, checked at
+// run time (plans/VALUES_BY_DEFAULT.md decisions 41 and 46, §6 "Decision 46"
+// step 1). A conflicting access panics; that path is pinned by the cli case
+// `refcell-with-mut-under-with-panics`.
+{ assert } :: import("std/assert");
+{ String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
+test("with_mut through one handle is seen through another", {
+  log := rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
+  other := log;
+  other.with_mut((xs) => {
+    xs.push(String.from("a"));
+  });
+  log.with_mut((xs) => {
+    xs.push(String.from("b"));
+  });
+  assert(log.with((xs) => xs.len()) == usize(2), "both pushes landed in the one cell");
+  assert(other.with((xs) => (xs(usize(1)) == "b")), "in order");
+});
+test("with returns the body's result, and nested reads share the cell", {
+  c := rc(RefCell(i32).new(i32(20)));
+  d := c;
+  sum := c.with((v) => d.with((w) => (v + w)));
+  assert(sum == i32(40), "two readers at once");
+});
+test("the mark is released after each access", {
+  c := rc(RefCell(i32).new(i32(1)));
+  c.with_mut((v) => {
+    v = (v + i32(1));
+  });
+  c.with_mut((v) => {
+    v = (v * i32(10));
+  });
+  assert(c.with((v) => v) == i32(20), "a second with_mut runs after the first");
+});
+test("the mark is released when the body unwinds", {
+  c := rc(RefCell(i32).new(i32(1)));
+  _unwinds :: (fn(cell : &Rc(RefCell(i32))) -> i32)({
+    cell.with_mut((v) => {
+      v = i32(2);
+      unwind(i32(7));
+    });
+    i32(0)
+  });
+  assert(_unwinds(&c) == i32(7), "the body unwound out of the function");
+  c.with_mut((v) => {
+    v = (v + i32(1));
+  });
+  assert(c.with((v) => v) == i32(3), "the cell is free again, with the write kept");
+});
+test("a RefCell is a value: a plain local works without an Rc", {
+  cell := RefCell(String).new(String.from("x"));
+  cell.with_mut((s) => {
+    s.push_str("y");
+  });
+  assert(cell.with((s) => (s == "xy")), "written through a & receiver");
+});
+test("clone copies the value into a new cell", {
+  a := RefCell(i32).new(i32(3));
+  b := a.clone();
+  b.with_mut((v) => {
+    v = i32(4);
+  });
+  assert((a.with((v) => v) == i32(3)) && (b.with((v) => v) == i32(4)), "independent cells");
+});
+test("RefCell is Send when T is, never Sync, so Arc(RefCell(T)) is rejected", {
+  comptime_assert(Type.impls(RefCell(i32), Send), "RefCell(i32) is Send");
+  comptime_assert(!Type.impls(RefCell(i32), Sync), "RefCell(i32) is not Sync");
+  comptime_assert(!Type.impls(RefCell(Rc(i32)), Send), "RefCell(Rc(i32)) is not Send");
+  comptime_expect_error(Arc(RefCell(i32)));
+});

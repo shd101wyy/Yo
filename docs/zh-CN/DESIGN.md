@@ -3430,10 +3430,40 @@ test("Rc reference counting", {
 });
 ```
 
+### 修改共享载荷：`RefCell`、`Rc.make_mut`、`Rc.try_unwrap`
+
+`Rc` 的载荷是共享的，因此**通过句柄只能读取**，与 Rust 相同（[值默认计划的决策 46](../../plans/VALUES_BY_DEFAULT.md)）。目前编译器仍然接受通过 `Rc` 的写入（`h.n = v`、上文的 `original.* = 100`、`h.items.push(v)`）；等 std 和编译器都改用下面的入口之后，这种写入会在之后的版本中成为错误。`YO_AUDIT_RC_WRITE=1 yo compile <file> --skip-c-compiler` 会列出每一处这样的写入（`kind=assign|mut-arg|mut-recv`；当单元在其函数中是新分配的时标注 `proved=yes`）。新代码请使用这些入口：
+
+- **`RefCell(T)`**（`std/sync/refcell`）是共享修改的载荷：`Rc(RefCell(T))`。访问限定在闭包内，与 `Mutex(T)` 相同：`with(v => ...)` 借出 `v : &T`，`with_mut(v => ...)` 借出 `v : &mut T`，二者都返回闭包的结果。多个 `with` 闭包体可以同时运行；`with_mut` 只能单独运行，运行期间的冲突访问会 panic，与 Rust 的 `RefCell::borrow_mut` 相同。闭包体返回或 unwind 时标记被释放。`RefCell` 在 `T` 是 `Send` 时是 `Send`，但永远不是 `Sync`，因此 `Arc(RefCell(T))` 会被拒绝（跨线程请共享 `Arc(Mutex(T))`）。它也可以放在普通值中，此时可以通过 `&` 借用进行写入。
+
+  ```yo
+  { RefCell } :: import("std/sync/refcell");
+  log := rc(RefCell(i32).new(i32(0)));
+  other := log; // 指向同一个单元的第二个句柄
+  other.with_mut((n) => {
+    n = (n + i32(1));
+  });
+  assert(log.with((n) => n) == i32(1), "seen through the first handle");
+  ```
+
+- **`Rc.make_mut(&mut h)`**（`T <: Clone`）是被写入的载荷：若另一个句柄共享该单元，`h` 先移到一个持有载荷克隆的新单元，因此其他句柄永远看不到这次写入。若 `h` 是唯一句柄，则就地写入。即 Rust 的 `Rc::make_mut`；克隆体现在名字里。
+
+  ```yo
+  a := rc(Point(x : 1, y : 2));
+  b := a;
+  Rc.make_mut(&mut b).x = 10; // b 得到自己的单元
+  assert((a.x == 1) && (b.x == 10), "a is unchanged");
+  ```
+
+- **`Rc.try_unwrap(h)`** 消耗该句柄：若它是唯一句柄，返回 `.Ok(payload)`（单元被释放），否则返回 `.Err(h)`，即原句柄。它不需要 `Clone`。
+- `Rc.get_mut(&mut h)`（仅当计数为 1 时为 `.Some(&mut T)`）将在 `Option(&mut T)` 可以表达之后提供（决策 43）。
+
+这些入口与 Rust 一样通过类型调用，因此载荷上同名的方法仍可用 `h.name()` 调用。`Arc` 有同样的 `Arc.make_mut` 和 `Arc.try_unwrap`（[ARC.md](./ARC.md)）。
+
 ### 何时使用 Rc
 
 - **堆分配**：当你需要将值类型放在堆上时
-- **共享可变性**：对同一可变值的多个引用
+- **共享所有权**：同一个值的多个句柄；共享修改通过 `Rc(RefCell(T))` 进行
 - **动态分发**：将值类型包装起来以便与 `Dyn` 一起使用（对值类型调用 `dyn(v)` 会自动完成这一步：把 `v` 包装成 `rc(v)`）
 - **递归类型**：仅当节点被共享时；唯一所有的节点组成的树使用 `Box`
 

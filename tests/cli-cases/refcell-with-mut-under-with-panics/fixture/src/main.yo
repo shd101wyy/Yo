@@ -1,0 +1,17 @@
+// A `with_mut` on a RefCell while a `with` body of the same cell runs
+// (reached through a second `Rc` handle) panics, as Rust's
+// `RefCell::borrow_mut` does under a live `borrow`.
+{ println } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
+main :: (fn() -> unit)({
+  a := rc(RefCell(i32).new(i32(1)));
+  b := a;
+  a.with((v) => {
+    println(`reading ${v.to_string()}`);
+    b.with_mut((w) => {
+      w = i32(2);
+    });
+  });
+  println("unreachable");
+});
+export(main);

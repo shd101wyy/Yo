@@ -1,0 +1,8 @@
+# plans/VALUES_BY_DEFAULT.md decision 41: `RefCell(T)` checks exclusivity at
+# run time. A `with_mut` while a `with` body of the same cell runs, reached
+# through a second `Rc` handle, panics with a message naming the API, as
+# Rust's `RefCell::borrow_mut` does under a live `borrow`. `build run`
+# propagates the panic as rc≠0; the panic line ends in a machine-specific
+# `(at file:///...)`, so only the diagnostic substring is kept.
+stdout_keep_match=reading 1|RefCell\.with_mut: the value is already borrowed \(a with or with_mut body is running\)
+timeout=300
