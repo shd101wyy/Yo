@@ -5,6 +5,8 @@
 # marker (E0917 otherwise), in each declaration form. A `ref` handle mutated
 # through its methods (`names`) and a global only read (`fixed`) stay
 # unmarked; reassigning a handle (`replaced`) needs it. The expected_tree pins
-# the rewritten main.yo; the trailing `check` proves no write is left.
+# the rewritten main.yo. No trailing `check`: the migration marks declarations
+# only, and `gauge.inc()` / `bump(&mut lent_gauge)` now lend a `mut(...)`
+# global to a call, E0916, which is rewritten by hand (copy out, write back).
 stdout_keep=^fix:
 timeout=180
