@@ -254,7 +254,7 @@ Every one is pushed. "Next" is the exact next action.
   - `src/`: 3,761 inserted, 644 left as written;
   - `std/`: 205 inserted, 97 left.
 - **History:** stacked on #1384, which merged. #1385 was retargeted to develop before the base branch was deleted, so it stays open.
-- **Its question doc**, on the branch: `issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`. It recommends leaving those to the flip's E0901.
+- **Its question doc** (copied to develop by the handover PR; identical, so the rebase merges it cleanly): `issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md`. It recommends leaving those to the flip's E0901.
 - **Next:**
   1. Rebase onto develop.
   2. Tier 1: check src and std; the cli-case `tests/cli-cases/fix-migrate-explicit-copy`; the internal files importing `src/evaluator/utils.yo`.
@@ -307,7 +307,7 @@ Every one is pushed. "Next" is the exact next action.
   - E0009 stays for parameter position; declaration position is new and unambiguous.
   - Rejected alternatives: `static_mut(name)` (reads badly inside `thread_local`), and `mutable(name)` (a new keyword Rust does not have).
   - `yo fix --migrate mutable-globals` inserts the markers, because the evaluator already sees every write.
-  - MARKER_DECISION_PLACEHOLDER
+  - **DECIDED (maintainer, 2026-10-15): `mut(name)`, as part of decision 47 (§5.11).** Globals are the first step of decision 47, so the global-lend fix is spelled `mut(G)` from its first commit.
 - **Census, globals written after their initializer** (src, std, tests and the `markdown_yo` dependency):
 
   | tree | handle (reassigned) | value | total |
@@ -335,7 +335,7 @@ Every one is pushed. "Next" is the exact next action.
 - **Not built:** the "written-anywhere" inference registry, which was rejected for load-order dependence.
 - **The census data** (`census2-*.err`, `analyze2.py`) stayed on the old machine. `YO_AUDIT_GLOBAL_LEND=1 yo check <tree> --std-path ./std` on the branch regenerates it.
 - **Next:** narrow the branch to §5.1's rule. Steps:
-  1. Pick the marker spelling. Look at what parses today; the leading candidate is a declaration modifier on the `:=` binding. Record it as an amendment to decision 18 in the plan. If it changes the user-visible language beyond "a marker exists", ask the maintainer.
+  1. The spelling is decided: `mut(G)` (decision 47, §5.11). Record decision 47 in the plan's §4, and decision 18 rule 3's amendment pointing at it.
   2. Make a write to an unmarked global an error, with a census first (`YO_AUDIT_GLOBAL_LEND` already lists the writes). Expect about 150 rewrite sites, 56 of them reassigned handle globals (`G = new()` becomes `G.clear()` or similar).
   3. E0916 for lending a marked global or a place under it.
   4. The two review rules in §5.1.
@@ -370,6 +370,12 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
 4. **#1385**, then **V2b unique buffers Generation B** (§2.3). Lower the allocation baseline in the same PR.
 5. **#1368**, direct projection calls (§2.3). It also closes #1375's S2.
 6. **The global lend, E0916** (§2.3 and §5.1): Generation A, then Generation B after a seed.
+6a. **Decision 47, immutable bindings with `mut(name)`** (§5.11), after the queued Generation B items (#1378, A5, V2b Generation B) and before decision 43:
+    - Generation A: the parser and evaluator accept every `mut(...)` form, and the errors are enforced outside src/std;
+    - `yo fix --migrate mut-bindings`;
+    - Generation B on the next seed: sweep src, std, tests, docs and `markdown_yo`, then enforce the errors everywhere.
+    - Census first: `YO_AUDIT_MUT_BINDINGS=1` lists each binding that is written after its definition, with its kind.
+    - `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2) closes with Generation A.
 7. **stdio Generation B:** `std/io/stdio.yo`'s handles pass offset `u64.MAX` to the runtime, so redirected stdout/stderr is no longer overwritten positionally.
    - The runtime half shipped in v0.2.63 (#1376).
    - It closes the S1 `issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`.
@@ -404,7 +410,7 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
 
 ## 5. Decisions recorded this cycle
 
-### 5.1 The global lend to a call (maintainer, 2026-10-15; implementation pending)
+### 5.1 The global lend to a call (maintainer, 2026-10-15; implementation pending; spelled with decision 47's `mut(G)`)
 
 - **The bug:** with `w2(&G)`, the callee can reassign `G` through another function, or await while another task reassigns it, and then read freed memory. The future half is fixed (#1389).
 - **The rule is Rust's `static` / `static mut` model, with an explicit marker.** The maintainer picked "Rust static model", then, after an advisor review, "Explicit marker".
@@ -420,7 +426,57 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
 - **Rejected:**
   - the strict rule ("every lend of a global is E0916"): 1,447 sites, and it rejects its own `Mutex`/atomic fix;
   - whole-program inference of "never written": load-order dependent.
-- **The spelling** of the marker is open. Decide it as step 1 of §2.3's global-lend next steps.
+- **The spelling** is `mut(G)`, decided as part of decision 47 (§5.11).
+
+### 5.11 Decision 47: bindings are immutable unless declared `mut(name)` (maintainer, 2026-10-15)
+
+**Not yet in `plans/VALUES_BY_DEFAULT.md`.** The next agent adds it to §4 as decision 47, with the phase in §6.
+
+**What the maintainer said, in order:**
+1. "What about static(name)? As the variables in Yo are mutable by default, right?"
+2. "Should we change our mutable by default behavior, and introduce mut as modifier to variables, like how rust does?"
+3. After the recommendation below: "yes, record it as decision 47 in the handover. And we also need to support mut for comptime. I think we should allow syntax like mut(x) :: 12; and comptime(mut(x)) := 12;"
+
+**The rule.** Every binding is immutable unless its name is wrapped in `mut(...)`. As in Rust, `mut` gates four things:
+- reassignment (`x = v`);
+- `&mut x`, `&mut x.f` and `&mut x(i)` lends;
+- `&mut self` method calls on the binding or a place under it (`xs.push(v)`);
+- field and element writes (`p.x = v`, `xs(i) = v`).
+
+A `ref`-handle binding, until V5 removes `ref(...)`, is a pointer, so a field write through it does not write the binding; that stays allowed without `mut`. Its reassignment does need `mut`.
+
+**The spellings:**
+
+```yo ignore
+mut(x) := 0;                       // runtime local or module-level binding
+(mut(x) : i32) = 0;
+mut(x) :: 12;                      // comptime binding, mutable at compile time
+comptime(mut(x)) := 12;            // comptime variable
+(thread_local(mut(st)) : State) = State.seed();
+match(opt, .Some(mut(v)) => { v = (v + 1); v; }, .None => 0);
+{ a, mut(b) } := pair;             // destructuring: per name
+x := 0;                            // immutable
+x :: 12;                           // a true constant
+```
+
+- **Module-level globals:** an unmarked global is Rust's `static`, and `mut(G)` is `static mut`. The global-lend rule (§5.1) follows: an unmarked global may be lent freely, and lending a `mut(G)`, or a place under it, to a call is E0916, with amendments A and B. The 57 reassigned handle globals in `src/` should be reset in place (`G.clear()`) so they stay unmarked. Without that, their 172 lend sites need hand rewrites.
+- **Comptime (the maintainer's addition):** `x :: v` and `comptime(x) := v` become immutable. Today both can be reassigned, and a runtime write to a module-level `::` is accepted and diverges (issue below).
+  - `mut(x) :: v` and `comptime(mut(x)) := v` are the mutable forms.
+  - **Open point for the next agent:** module-level `::` bindings are order-independent and forced lazily (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`). A mutable lazy binding's value would depend on which definition forces it first, the load-order class #1382 fixed.
+  - Recommendation: allow `mut(x) :: v` in ordered (block) scope, and at module level only if it is never written from a lazily forced definition. Or simply reject it at module level, pointing at `comptime(mut(x)) := v` in a block. Bring this to the maintainer before implementing.
+- **Parameters take no `mut`; they stay immutable.** A closure's parameters, `for` element bindings and capture-list entries follow the same rule. A body that needs to mutate a by-value argument rebinds it: `mut(y) := x;` (a move, not a copy, for an owning value). Why:
+  1. **It is invisible to the caller.** In Rust, `fn f(mut x: T)` is sugar for `fn f(x: T) { let mut x = x; … }`. The `mut` is not part of the signature, the type or the calling convention, so it adds nothing to the contract.
+  2. **Yo's parameters are already immutable:** `x = (x + 1)` on a parameter is E0902 today ("Cannot reassign"). Keeping them immutable changes nothing for parameters, except that field writes and `&mut self` calls on a by-value parameter now need the rebind.
+  3. **`mut(x) : T` meant `&mut T` until v0.2.59** (decision 42), and a parameter mode word is E0009 today. Reviving the spelling with a different meaning would let pre-v0.2.59 code, or a model trained on it, compile with its writes going to a callee-local copy. For a `Copy` argument nothing reports it, and the caller's value never changes. Keeping E0009 in parameter position makes that mistake a compile error.
+- **Errors:** a write of any of the four kinds to an unmarked binding is a new error code.
+  - Its message names the binding, its definition, and the `mut(...)` form.
+  - For a parameter, it names the rebind.
+  - E0902's "You can mutate fields" hint goes away.
+- **Rollout:**
+  - The global-lend fix first, already spelled `mut(G)`.
+  - The general phase (§4 step 6a) after the queued Generation B items and before decision 43, because decision 43's `&mut` rules can then assume `mut`.
+  - Generation A needs the parser to accept `mut(` in binding position; the seed rejects it today ("Invalid binding to "mut"").
+- **Bug found while checking the rule:** `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2). `G :: i32(1)` written at runtime reads 3, while `H :: G + 10` was folded from 1.
 
 ### 5.2 Decision 46: `Rc` is Rust's `Rc` (#1371)
 
@@ -480,7 +536,7 @@ See §1.5.
 | Issue | Note |
 | --- | --- |
 | `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; the branch is `feat/global-lend-to-call-is-an-error` |
-| `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` (on #1380's branch, not yet on develop) | B1 in §2.3 |
+| `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` (copied to develop by the handover PR) | B1 in §2.3 |
 | `issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md` | §4 step 7; the runtime half shipped in v0.2.63 |
 | `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
 | `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md` | Type-soundness track (#1162) |
