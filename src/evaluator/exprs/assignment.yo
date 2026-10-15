@@ -110,7 +110,8 @@ pragma(Pragma.AllowUnsafe);
   global_lend_key,
   global_place_path,
   global_note_handle_write,
-  global_require_mut
+  global_require_mut,
+  in_compile_time_fn_body
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -334,8 +335,9 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
 /// (issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md).
 ///
 /// The write runs at runtime when it sits in a function, closure, `io.async`
-/// or test body that is not itself compile-time code: not a body declared
-/// `-> comptime(...)`, not a CTFE execution or capability analysis
+/// or test body that is not itself compile-time code: not a body whose result
+/// is compile-time (`-> comptime(...)`, `-> Type`, `-> Expr`: the E1104 test,
+/// `in_compile_time_fn_body`), not a CTFE execution or capability analysis
 /// (`force_compile_time_bindings`, `ctfe_depth`). There it is rejected when
 /// the binding is declared outside that body (module level, or an enclosing
 /// function), or when the value written is a runtime one (`rhs_is_runtime`).
@@ -344,7 +346,7 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
 _reject_runtime_write_of_comptime_binding :: (
   fn(v : &Variable, write_tok : &Token, rhs_is_runtime : bool, ctx : &EvalContext, exn : Exception) -> unit
 )({
-  if(!v.is_compile_time_only || ctx.force_compile_time_bindings || ctx.is_analyzing_ctfe_capability || (ctx.ctfe_depth > usize(0)) || fn_ctx_returns_comptime(ctx), {
+  if(!v.is_compile_time_only || ctx.force_compile_time_bindings || ctx.is_analyzing_ctfe_capability || (ctx.ctfe_depth > usize(0)) || fn_ctx_returns_comptime(ctx) || in_compile_time_fn_body(ctx), {
     return(());
   });
   sub := match(ctx.is_evaluating_function_body_or_async_block, .Some(s) => s, .None => return(()));
