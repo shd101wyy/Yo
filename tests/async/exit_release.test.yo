@@ -26,15 +26,17 @@ test("a join wait completed before its other task's abort is released at exit", 
 });
 
 // The worker's handle is the last one, so dropping it on the worker posts the
-// release to the owner's inbox, after the owner's last tick: the token and its
-// park future waited there forever, because only a loop driver's teardown
-// drained the inbox.
+// release to the owner's inbox. The worker drops it only after the owner has
+// resumed and is blocked in `join`, i.e. after the owner's last tick: the token
+// and its park future waited there forever, because only a loop driver's
+// teardown drained the inbox.
 test("a waker released on a worker after the owner's last tick is released at exit", {
   p := Park.new();
   w := p.waker();
   t := Thread(unit).spawn({ w }(tio : Io) => {
     sleep_blocking(Duration.from_millis(i64(1)));
     w.wake();
+    sleep_blocking(Duration.from_millis(i64(20)));
     ()
   });
   io.await(p.wait(io), io);

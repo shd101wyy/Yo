@@ -1073,16 +1073,17 @@ test("a future and a copy captured by a nested io.async inside a state machine a
 });
 
 // issues/fixed/2026-10-16-an-alias-sharing-its-owners-task-slot-is-retained-but-released-once.md:
-// an alias of a body local (`tb := t`) is stored in its owner's task slot, so
+// an alias of a body local (`wb := w`) is stored in its owner's task slot, so
 // the two names hold ONE reference; the binding retained a second one that
 // the shared slot's single release never dropped.
+_AliasW :: struct(t : Thing);
 test("an alias of a local that crosses an await is released with its owner", {
   g_disposed = i32(0);
   f := io.async((io : Io) => {
-    t := Thing(n : i32(4));
-    tb := t;
+    w := _AliasW(t : Thing(n : i32(4)));
+    wb := w;
     io.await(yield(io), io);
-    (t.n + tb.n)
+    (w.t.n + wb.t.n)
   });
   assert(io.await(f, io) == i32(8), "both names read the one value");
   assert(g_disposed == i32(1), "the value is released once");
