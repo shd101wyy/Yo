@@ -1816,6 +1816,10 @@ is_extern_c_module_id :: (fn(sns_id : &String) -> bool)(
 /// naming, and this registry is only what tells codegen to route its reads
 /// through the accessor instead of reading the storage directly.
 (g_thread_locals : HashMap(String, bool)) = HashMap(String, bool).new();
+/// The module-level runtime bindings declared mutable with `mut(name)`
+/// (decision 47, plans/VALUES_BY_DEFAULT.md): Rust's `static mut`. Same key
+/// shape as `g_thread_locals`; an unmarked binding is Rust's `static`.
+(g_mut_globals : HashMap(String, bool)) = HashMap(String, bool).new();
 /// Canonicalize a module path for the registry key. Token module paths
 /// carry TWO spellings of the same file — the CLI-arg spelling of the root
 /// module (`./tests/x.yo`) and the loader's canonical `file://` absolute
@@ -1888,6 +1892,7 @@ rollback_module_level_globals_to :: (fn(mark : usize) -> unit)({
         // routing later same-named reads through an accessor that was never
         // emitted.
         g_thread_locals.remove(&k);
+        g_mut_globals.remove(&k);
         ()
       },
       .None => ()
@@ -1925,6 +1930,15 @@ register_thread_local :: (fn(module_path : &String, name : &String) -> unit)({
   g_thread_locals.insert(`${_mg_canon(module_path)}|#|${name}`, true);
   ()
 });
+/// Record that module `module_path` declared `name` with `mut(name)`.
+register_mut_global :: (fn(module_path : &String, name : &String) -> unit)({
+  g_mut_globals.insert(`${_mg_canon(module_path)}|#|${name}`, true);
+  ()
+});
+/// True if module `module_path` declared `name` with `mut(name)`.
+is_mut_global :: (fn(module_path : &String, name : &String) -> bool)(
+  g_mut_globals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
+);
 /// True if module `module_path` declared `name` as a thread-local.
 is_thread_local :: (fn(module_path : &String, name : &String) -> bool)(
   g_thread_locals.get(`${_mg_canon(module_path)}|#|${name}`).is_some()
@@ -2622,7 +2636,7 @@ export(record_method_callee_value, lookup_method_callee_value, record_local_borr
 export(register_extern_c_global, is_extern_c_global, get_extern_c_global_types);
 export(register_extern_c_global_alias, extern_c_global_c_name, register_extern_c_module_id, is_extern_c_module_id);
 export(register_module_level_global, is_module_level_global, module_global_c_suffix);
-export(register_thread_local, is_thread_local);
+export(register_thread_local, is_thread_local, register_mut_global, is_mut_global);
 export(module_global_recording_mark, rollback_module_level_globals_to);
 export(some_resolution);
 export(
@@ -3145,3 +3159,31 @@ take_dyn_spelling_sites :: (fn() -> ArrayList(DynSpellingSite))({
   out
 });
 export(DynSpellingSite, set_migrate_dyn_spelling, migrate_dyn_spelling_on, record_dyn_spelling_site, take_dyn_spelling_sites);
+/// One module-level binding `yo fix --migrate mutable-globals` marks
+/// `mut(name)` (decision 47): `row`/`col` are its declared name's token,
+/// `expect` the name, which the rewrite matches against the source text.
+MutableGlobalSite :: struct(path : String, row : usize, col : usize, expect : String);
+(g_migrate_mutable_globals : bool) = false;
+(g_mutable_global_sites : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
+(g_mutable_global_site_keys : HashSet(String)) = HashSet(String).new();
+set_migrate_mutable_globals :: (fn(on : bool) -> unit)({
+  g_migrate_mutable_globals = on;
+});
+/// Whether `yo fix --migrate mutable-globals` is recording (a write to an
+/// unmarked global records its declaration instead of being rejected).
+migrate_mutable_globals_on :: (fn() -> bool)(g_migrate_mutable_globals);
+/// Record the declaration `decl` of the written global `name`, once.
+record_mutable_global_site :: (fn(decl : &Token, name : &String) -> unit)({
+  key := `${_mg_canon(&decl.module_path)}:${decl.row.to_string()}:${decl.column.to_string()}`;
+  if(!g_mutable_global_site_keys.insert(key), {
+    return(());
+  });
+  g_mutable_global_sites.push(MutableGlobalSite(path : decl.module_path.clone(), row : usize(decl.row), col : usize(decl.column), expect : name.clone()));
+});
+take_mutable_global_sites :: (fn() -> ArrayList(MutableGlobalSite))({
+  out := g_mutable_global_sites;
+  g_mutable_global_sites = ArrayList(MutableGlobalSite).new();
+  g_mutable_global_site_keys = HashSet(String).new();
+  out
+});
+export(MutableGlobalSite, set_migrate_mutable_globals, migrate_mutable_globals_on, record_mutable_global_site, take_mutable_global_sites);

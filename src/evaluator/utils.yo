@@ -96,7 +96,7 @@ pragma(Pragma.AllowUnsafe);
   with_code
 } :: import("../error.yo");
 { raise_flow_violation, propagate_def_time_errors } :: import("../types/flowability.yo");
-{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN } :: import("../diagnostics.yo");
+{ suggest_name, E_USE_OF_MOVED_VALUE, E_MOVED_ON_SOME_PATHS, E_BORROW_ESCAPES, E_BORROW_CONFLICT, E_WRITE_THROUGH_BORROW, E_LOCAL_BORROW_CONFLICT, E_LOCAL_BORROW_ESCAPES, E_CLOSURE_MOVES_CAPTURE, E_BARE_CALLABLE_INTO_DYN, E_GLOBAL_LENT_TO_CALL, E_IMMUTABLE_GLOBAL_WRITE } :: import("../diagnostics.yo");
 { Exception } :: import("std/error");
 { generate_new_temp_variable_name, is_temp_variable_name, is_any_temp_variable_name, debug_knob, display_module_path, canonical_module_path }
 :: import("../utils.yo");
@@ -108,7 +108,8 @@ pragma(Pragma.AllowUnsafe);
 { are_types_compatible, are_types_compatible_exact } :: import("../types/compatibility.yo");
 { type_to_string } :: import("../types/string.yo");
 { type_is_bitwise_copy, type_contains_rc_type, type_contains_rc_cell_or_move_only, type_is_move_only, type_requires_explicit_copy, type_lacks_clone, move_only_reason, CaptureBorrow, collect_type_borrows, type_is_second_class, capture_borrow_place_string, capture_borrows_exist, type_first_mut_borrow, is_bound_closure_identity, is_closure_capture_struct, resolve_cell_chain, is_future_value_type, is_bare_callable_into_dyn_fn } :: import("../types/utils.yo");
-{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site } :: import("../expr_info.yo");
+{ expr_info_table_set, migrate_match_scrutinee_on, record_migrate_edit, migrate_dyn_spelling_on, record_dyn_spelling_site, is_mut_global, is_thread_local, migrate_mutable_globals_on, record_mutable_global_site } :: import("../expr_info.yo");
+{ is_global_mut_rule_exempt } :: import("./memory_safety.yo");
 // `set_expr_as_needs_to_call_dup` builds + evaluates a `___dup(name)` call.
 // `parser.yo` is upstream (no cycle); `exprs/expr.yo` is the cycle-free
 // late-binding dispatcher (it imports neither utils.yo nor any handler).
@@ -1935,6 +1936,240 @@ global_lend_location :: (fn(t : &Token) -> String)(
 );
 /// The census key of the module-level binding `name` declared at `decl`.
 global_lend_key :: (fn(decl : &Token, name : &String) -> String)(`${global_lend_location(decl)}:${name}`);
+// ---------------------------------------------------------------------------
+// Decision 47 for module-level bindings (Generation A): `mut(name)`
+// ---------------------------------------------------------------------------
+/// A module-level or `thread_local` runtime binding is immutable unless it is
+/// declared `mut(name)` (Rust's `static` / `static mut`). Writing an unmarked
+/// one is E0917; lending a `mut(...)` one, or a place under it, to a call is
+/// E0916 (`calls/function.yo`). A `ref` handle is a pointer, so a write
+/// THROUGH a handle the binding holds (a field of a `ref` object, an element
+/// of a collection, a `&mut self` method on it) does not write the binding
+/// and needs no marker; two rules keep those writes from invalidating a
+/// lend, checked here from both sides so the order the evaluator meets the
+/// sites in does not matter:
+/// - (A) a lend that projects into the heap storage behind a handle (`&G(i)`,
+///   `&G.*.f`) conflicts with any `&mut self` call on a handle rooted in the
+///   same global, which may grow or replace that storage;
+/// - (B) a lend of a place at or below a field written through a handle
+///   (`G.f = v` against `&G.f`, `&G.f.g`) conflicts with that write.
+GlobalPlacePath :: struct(path : String, heap : bool, through_handle : bool);
+/// The field path of `place` below its root (`f.g.`), cut at the first element
+/// access or dereference (`heap`), and whether any step goes through a `ref`
+/// handle or a dereference (`through_handle`).
+global_place_path :: (fn(place : &AstExpr, ctx : &EvalContext) -> GlobalPlacePath)({
+  rev := ArrayList(String).new();
+  (heap : bool) = false;
+  (through : bool) = false;
+  (cur : AstExpr) = place;
+  while(!ast_expr_is_atom(&cur), {
+    match(
+      cur,
+      .FnCall(_, gp_callee, gp_args, _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+        base := match(gp_args.get(usize(0)), .Some(b) => b, .None => return(GlobalPlacePath(path : String.new(), heap : heap, through_handle : through)));
+        fld := match(gp_args.get(usize(1)), .Some(f) => f, .None => make_err_expr());
+        if(ast_expr_is_atom_of(&fld, "*"), {
+          heap = true;
+          through = true;
+          rev.clear();
+        }, {
+          rev.push(ast_expr_token(&fld).value.clone());
+        });
+        if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => _lb_is_cell_type(&bi.ty), .None => false), {
+          through = true;
+        });
+        cur = base;
+      }, {
+        heap = true;
+        rev.clear();
+        if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&gp_callee)), .Some(ci) => _lb_is_cell_type(&ci.ty), .None => false), {
+          through = true;
+        });
+        cur = gp_callee;
+      }),
+      .Atom(_, _) => ()
+    );
+  });
+  path := String.new();
+  (ri : usize) = rev.len();
+  while(ri > usize(0), {
+    ri = (ri - usize(1));
+    path.push_string(&match(rev.get(ri), .Some(f) => f, .None => String.new()));
+    path.push_str(".");
+  });
+  GlobalPlacePath(path : path, heap : heap, through_handle : through)
+});
+/// A lend of a place under a handle a module-level binding holds, waiting
+/// for a conflicting write (rules A and B above).
+GlobalHandleLend :: struct(path : String, heap : bool, at : Token, text : String);
+(g_global_handle_mutcalls : HashMap(String, String)) = HashMap(String, String).new();
+(g_global_handle_writes : HashMap(String, ArrayList(GlobalPlacePath))) = HashMap(String, ArrayList(GlobalPlacePath)).new();
+(g_global_handle_write_locs : HashMap(String, ArrayList(String))) = HashMap(String, ArrayList(String)).new();
+(g_global_handle_lends : HashMap(String, ArrayList(GlobalHandleLend))) = HashMap(String, ArrayList(GlobalHandleLend)).new();
+/// The key of the module-level binding `gv` in the handle registries.
+global_mut_key :: (fn(gv : &Variable) -> String)(`${canonical_module_path(&gv.token.module_path)}:${gv.token.row.to_string()}:${gv.token.column.to_string()}:${gv.name}`);
+/// Whether a write recorded at `w` invalidates a lend of `path` (`heap` when
+/// the lend projects into a handle's storage).
+_global_write_hits_lend :: (fn(w : &GlobalPlacePath, path : &String, heap : bool) -> bool)(
+  path.starts_with(&w.path) && (!w.heap || heap)
+);
+/// The E0916 for a lend `l` of a place under `gv` that a write `what` (at
+/// `loc`) invalidates.
+_global_handle_conflict :: (fn(gv : &Variable, l : &GlobalHandleLend, what : &String, loc : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(g_audit_global_lend, {
+    global_lend_audit_print(&`${global_lend_location(&l.at)} [global-conflict] global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)} lend=${l.text.replace(" ", String.from("_"))} at=${loc}`);
+    return(());
+  });
+  if(!global_mut_rule_applies(&l.at, ctx), {
+    return(());
+  });
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        &l.at,
+        `Cannot lend ${l.text}: it is a place inside the storage the module-level handle \`${gv.name}\` points to, and ${what} at ${loc}. A module-level binding has no run-time borrow flag and any function can reach it by name, so that write could replace or reallocate the storage while the callee still holds the borrow, and the callee would read freed memory (plans/VALUES_BY_DEFAULT.md decision 18 rule 3, decision 47).`,
+        Option(String).Some(String.from("copy the value out into a local and lend the local (`v := G(i).clone(); f(&v)`), or lend the handle itself (`f(&G)`) and index inside the callee"))
+      ),
+      E_GLOBAL_LENT_TO_CALL
+    ),
+    ctx,
+    exn
+  );
+});
+/// Record a `&mut self` call on a handle rooted in the module-level binding
+/// `gv`, at `tok` (rule A).
+global_note_handle_mutcall :: (fn(gv : &Variable, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  key := global_mut_key(gv);
+  loc := global_lend_location(tok);
+  if(!g_global_handle_mutcalls.contains_key(key.clone()), {
+    g_global_handle_mutcalls.insert(key.clone(), loc.clone());
+  });
+  match(
+    g_global_handle_lends.get(key.clone()),
+    .Some(ls) => {
+      (li : usize) = usize(0);
+      while(li < ls.len(), li = (li + usize(1)), {
+        match(
+          ls.get(li),
+          .Some(l) => if(l.heap, {
+            _global_handle_conflict(gv, &l, &`a \`&mut self\` method is called on \`${gv.name}\``, &loc, ctx, exn);
+          }),
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
+});
+/// Record a write through a handle rooted in `gv` at `tok`, of the place at
+/// `w` (rule B).
+global_note_handle_write :: (fn(gv : &Variable, w : &GlobalPlacePath, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)({
+  key := global_mut_key(gv);
+  loc := global_lend_location(tok);
+  ws := match(g_global_handle_writes.get(key.clone()), .Some(x) => x, .None => ArrayList(GlobalPlacePath).new());
+  locs := match(g_global_handle_write_locs.get(key.clone()), .Some(x) => x, .None => ArrayList(String).new());
+  ws.push(GlobalPlacePath(path : w.path.clone(), heap : w.heap, through_handle : w.through_handle));
+  locs.push(loc.clone());
+  g_global_handle_writes.insert(key.clone(), ws);
+  g_global_handle_write_locs.insert(key.clone(), locs);
+  match(
+    g_global_handle_lends.get(key.clone()),
+    .Some(ls) => {
+      (li : usize) = usize(0);
+      while(li < ls.len(), li = (li + usize(1)), {
+        match(
+          ls.get(li),
+          .Some(l) => if(_global_write_hits_lend(w, &l.path, l.heap), {
+            _global_handle_conflict(gv, &l, &`\`${gv.name}.${w.path}\` is written`, &loc, ctx, exn);
+          }),
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
+});
+/// Record a lend `l` of a place under a handle rooted in `gv` and raise its
+/// conflict with a write recorded earlier (rules A and B).
+global_note_handle_lend :: (fn(gv : &Variable, l : GlobalHandleLend, ctx : &EvalContext, exn : Exception) -> unit)({
+  key := global_mut_key(gv);
+  if(l.heap, {
+    match(
+      g_global_handle_mutcalls.get(key.clone()),
+      .Some(loc) => _global_handle_conflict(gv, &l, &`a \`&mut self\` method is called on \`${gv.name}\``, &loc, ctx, exn),
+      .None => ()
+    );
+  });
+  match(
+    g_global_handle_writes.get(key.clone()),
+    .Some(ws) => {
+      locs := match(g_global_handle_write_locs.get(key.clone()), .Some(x) => x, .None => ArrayList(String).new());
+      (wi : usize) = usize(0);
+      while(wi < ws.len(), wi = (wi + usize(1)), {
+        match(
+          ws.get(wi),
+          .Some(w) => if(_global_write_hits_lend(&w, &l.path, l.heap), {
+            loc := match(locs.get(wi), .Some(x) => x, .None => String.new());
+            _global_handle_conflict(gv, &l, &`\`${gv.name}.${w.path}\` is written`, &loc, ctx, exn);
+          }),
+          .None => ()
+        );
+      });
+    },
+    .None => ()
+  );
+  ls := match(g_global_handle_lends.get(key.clone()), .Some(x) => x, .None => ArrayList(GlobalHandleLend).new());
+  ls.push(l);
+  g_global_handle_lends.insert(key, ls);
+});
+/// Whether the module-level rules are enforced at `tok` (decision 47
+/// Generation A: not in the trees the seed builds).
+global_mut_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
+  !is_global_mut_rule_exempt(&tok.module_path, &ctx.std_path)
+);
+/// Decision 47: the module-level runtime binding `gv` is written at `tok`
+/// (`how`: "assign to", "write a field of", ...). E0917 unless it was
+/// declared `mut(name)`. `yo fix --migrate mutable-globals` records the
+/// declaration instead; `YO_AUDIT_GLOBAL_LEND` prints a census line.
+global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &EvalContext, exn : Exception) -> unit)({
+  marked := is_mut_global(&gv.token.module_path, &gv.name);
+  if(g_audit_global_lend, {
+    kind := if(_lb_is_cell_type(&gv.ty), "handle", "value");
+    storage := if(is_thread_local(&gv.token.module_path, &gv.name), "thread_local", "static");
+    global_lend_audit_print(&`${global_lend_location(tok)} [global-write] how=${how.replace(" ", String.from("-"))} kind=${kind} storage=${storage} marked=${if(marked, "yes", "no")} global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)}`);
+  });
+  if(marked, {
+    return(());
+  });
+  if(migrate_mutable_globals_on(), {
+    record_mutable_global_site(&gv.token, &gv.name);
+    return(());
+  });
+  if(g_audit_global_lend || !global_mut_rule_applies(tok, ctx), {
+    return(());
+  });
+  entries := ArrayList(TokenAndError).new();
+  entries.push(
+    TokenAndError(
+      token : tok,
+      error_message : `Cannot ${how} \`${gv.name}\`: it is a module-level binding declared without \`mut\`, so it is immutable, as a Rust \`static\` is (plans/VALUES_BY_DEFAULT.md decision 47).`
+    )
+  );
+  entries.push(TokenAndError(token : gv.token, error_message : `\`${gv.name}\` is declared here; write \`mut(${gv.name})\` to make it mutable:`));
+  raise_flow_violation(
+    with_code(
+      format_error_messages_with_help(
+        &entries,
+        Option(String).Some(
+          `declare it \`mut(${gv.name}) := ...\` (or \`(mut(${gv.name}) : T) = ...\`, \`thread_local(mut(${gv.name}))\`); a \`mut\` global can no longer be lent to a call (E0916), so a call reads it through a local copy. \`yo fix <path> --migrate mutable-globals\` marks every written global`
+        )
+      ),
+      E_IMMUTABLE_GLOBAL_WRITE
+    ),
+    ctx,
+    exn
+  );
+});
 // ---------------------------------------------------------------------------
 // YO_AUDIT_IMPLICIT_COPY (plans/VALUES_BY_DEFAULT.md §6, item 1)
 // ---------------------------------------------------------------------------
@@ -5453,3 +5688,4 @@ export(
   local_borrow_reject_result_borrow
 );
 export(global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key);
+export(GlobalPlacePath, global_place_path, GlobalHandleLend, global_note_handle_mutcall, global_note_handle_write, global_note_handle_lend, global_mut_rule_applies, global_require_mut);

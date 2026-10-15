@@ -973,7 +973,8 @@ get_module_begin_expr_index :: (fn() -> usize)(g_module_begin_expr_index);
 /// trial, the very limitation §4.6 exists to diagnose.)
 lhs_binds_name :: (fn(lhs : &AstExpr, name : &String) -> bool)({
   (cur : AstExpr) = lhs;
-  while(ast_expr_is_fn_call_of(&cur, BK_COMPTIME, .Some(usize(1))) || ast_expr_is_fn_call_of(&cur, BK_COLON, .Some(usize(2))), {
+  // `mut(name)` and `thread_local(name)` wrap the declared name (decision 47).
+  while(ast_expr_is_fn_call_of(&cur, BK_COMPTIME, .Some(usize(1))) || (ast_expr_is_fn_call_of(&cur, BK_COLON, .Some(usize(2))) || (ast_expr_is_fn_call_of(&cur, "mut", .Some(usize(1))) || ast_expr_is_fn_call_of(&cur, "thread_local", .Some(usize(1))))), {
     cur = match(
       cur,
       .FnCall(_, _, cargs, _, _) => match(

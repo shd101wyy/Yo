@@ -129,34 +129,13 @@ SymbolEntry :: struct(
   range : JsonValue
 );
 /// The bound-name token of a declaration left side: the atom itself
-/// (`name :=`), or the atom inside `thread_local(name)`.
+/// (`name :=`), or the atom inside `thread_local(name)`, `mut(name)` or
+/// `thread_local(mut(name))` (decision 47).
 _decl_name_tok :: (fn(lhs : &AstExpr) -> Option(Token))(
   match(
     lhs,
-    .Atom(
-      _,
-      t
-    ) => Option(Token).Some(t),
-    .FnCall(
-      _,
-      _,
-      targs,
-      _,
-      _
-    ) => {
-      (tl_name : Option(Token)) = Option(Token).None;
-      if(ast_expr_is_fn_call_of(lhs, "thread_local", .Some(usize(1))), {
-        match(
-          targs.get(usize(0)),
-          .Some(.Atom(_, t)) => {
-            tl_name = Option(Token).Some(t);
-          },
-          .Some(_) => (),
-          .None => ()
-        );
-      });
-      tl_name
-    }
+    .Atom(_, t) => Option(Token).Some(t),
+    .FnCall(_, _, targs, _, _) => if(ast_expr_is_fn_call_of(lhs, "thread_local", .Some(usize(1))) || ast_expr_is_fn_call_of(lhs, "mut", .Some(usize(1))), match(targs.get(usize(0)), .Some(inner) => recur(&inner), .None => Option(Token).None), Option(Token).None)
   )
 );
 
