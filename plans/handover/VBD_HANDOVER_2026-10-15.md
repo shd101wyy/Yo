@@ -239,7 +239,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 
 #### #1379 — V3 async A5: move-only wakers, parks, channel halves; streams take `&mut self` (`feat/vbd-v3-async-a5`, head `2996a8419`)
 
-> **LANDED 2026-10-15 as #1379** (squash-merged from `feat/vbd-v3-async-a5-rebased` after `--onto` the squashed #1378, the plan header resolved as Land step 1 says, `std/hash.yo` back to `self._compress(self.tail)`; re-gated: build, check src/std, `cross_thread_wake`, `async_await`, the async channel/waker tests). #1380 is retargeted to develop (Land step 5). Everything below is the history.
+> **LANDED 2026-10-15 as #1379** (squash-merged from `feat/vbd-v3-async-a5-rebased` after `--onto` the squashed #1378, the plan header resolved as Land step 1 says, `std/hash.yo` back to `self._compress(self.tail)`; re-gated: build, check src/std, `cross_thread_wake`, `async_await`, the async channel/waker tests). #1380 is retargeted to develop (Land step 5). **Follow-up (S1):** with leak verdicts on, every test awaiting `Receiver.recv` leaks the channel state, a develop codegen bug A5's `{ ch : self._ch }` capture exposes: `issues/2026-10-15-an-io-async-capture-copied-from-a-field-is-dup-ed-twice-when-the-body-awaits-a-future-borrowing-it.md`. Everything below is the history.
 >
 > **REBASED ONTO #1378 AND GATED 2026-10-15 — land it from `feat/vbd-v3-async-a5-rebased` (head `4cc522f97`, stacked on `cfc7e2e59`). "Next" steps 1, 2 and 4 below the box are done (history); step 3 is Land step 2 here.**
 >
