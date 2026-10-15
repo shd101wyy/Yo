@@ -341,7 +341,46 @@ Every one is pushed. "Next" is the exact next action.
 - It ties to the open S1 `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
 - Leave it for the type-soundness track (`plans/handover/TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`).
 
-#### `feat/global-lend-to-call-is-an-error` — E0916, no PR yet (head `a6b8f3d4a`)
+#### `feat/global-lend-to-call-is-an-error` — decision 47 step 1 (globals, Generation A), no PR yet (head `3a259f224`)
+
+> **DONE AND GATED 2026-10-15; land it after this handover PR.** Everything below this box is the history leading here.
+>
+> - **What the branch does:**
+>   - Declarations: `mut(G) := v`, `(mut(G) : T) = v` and `thread_local(mut(x))` at module level; `mut(x)` in a body or a parameter stays E0009.
+>   - **E0917 `E_IMMUTABLE_GLOBAL_WRITE`:** any write to an unmarked global (reassignment, a field or element write on a value global, a `&mut` lend of a value place, a `&mut self` call on a value global). Writes through a `ref` handle the global holds need no marker; only reassigning the binding does.
+>   - **E0916 narrowed** to lends of a `mut(G)` global and places under it, plus rule A (`&G(i)` when `G` has `&mut self` calls) and rule B (`&H.f` when `H.f` is written through the handle). A and B consult each other's registries, so the verdict does not depend on order.
+>   - **Generation A exemption** (`is_global_mut_rule_exempt`): std, `<std>/../src/`, store dependencies and `auto-generated://` code.
+>   - `YO_AUDIT_GLOBAL_LEND=1` is the census, and `yo fix --migrate mutable-globals` inserts the markers (it skips `comptime_expect_error` bodies).
+> - **Also fixed:** a `thread_local` passed as a call argument emitted an undeclared C identifier (S2, `issues/fixed/2026-10-15-a-thread-local-passed-as-a-call-argument-emits-an-undeclared-c-identifier.md` on the branch).
+> - **Filed:** S3 `2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md`. A multi-file `yo fix` mixes generic impls across files; run the migration one file at a time when a directory run says "does not evaluate".
+> - **Tests and records:**
+>   - `tests/global_lend.test.yo` (10 tests);
+>   - 82 test globals marked by the migration, 4 rewritten by hand;
+>   - the cli-case `fix-migrate-mutable-globals`; 4 goldens re-recorded;
+>   - registry and explain text in en and zh-CN; docs (THREAD_SAFETY, ERROR_DIAGNOSTICS, FLOWABILITY) and instructions.
+> - **Tier 1:**
+>   - check src and std;
+>   - 35 test files, one path per call;
+>   - `tests/internal` in-process 1419/1419;
+>   - cli-diff 390, plus the re-recorded and new cases;
+>   - fmt, issue refs;
+>   - a per-file census over all 316 language test files, which evaluates `test(...)` bodies, found no stray E0916 or E0917.
+>   - Not caused by this branch: `tests/spec/verify_match_patterns.test.yo` fails `yo check` identically on the v0.2.62 seed.
+> - **Known consequences:**
+>   - D1's mutation-mask distinction for a `&mut` lend of a value global is no longer reachable in user code: E0917 or E0916 fires first. A replacement cli-case for D1 on handle places may be wanted.
+>   - Rule B means a field written through a handle global cannot then be lent through a `&self` method on that field. Lend the handle and read the field inside the callee.
+> - **Landing order and conflicts:**
+>   1. Land THIS handover PR first. The branch's decision 18 pointer and its §6 text refer to decision 47 in §4, which this PR adds.
+>   2. Rebase the branch. It has its own §6 section "Decision 47: `mut(name)`", which conflicts with this PR's §6 "Decision 47: immutable bindings". Keep this PR's section and fold the branch's as-built details (E0917, the exemption, the census numbers) into step 1 of it.
+>   3. The branch moves the S1 doc to `issues/fixed/`. Update every citation of the open path; `check-issue-refs.sh` lists them.
+>   4. `yo build --std-path ./std`, re-run the changed tests and cli-diff, then open the PR from the template and admin-merge.
+> - **Generation B,** once `SEED_VERSION` parses `mut(`:
+>   1. Run `yo fix --migrate mutable-globals` over std and src, file by file where needed.
+>   2. Reset the 57 reassigned handle globals in place.
+>   3. Rewrite the remaining E0916 sites: 248 in src and 6 in std before the resets, about 87 after.
+>   4. Make the `markdown_yo` companion (3 globals).
+>   5. Drop `is_global_mut_rule_exempt`.
+
 
 - **What:** the S1 `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`, with the decided design in §5.1.
 - **State:** the branch holds the **strict** first cut, WIP commits (`393713de9`…):
@@ -460,7 +499,7 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
 3. **The D3 mutation-mask fix** (B1), its own PR. Then **#1380** (§2.3).
 4. **#1385**, then **V2b unique buffers Generation B** (§2.3). Lower the allocation baseline in the same PR.
 5. **#1368**, direct projection calls (§2.3; rebased and gated). It also closes #1375's S2 and a develop S2 (`f(&mut xs(i))` through a `&` borrow).
-6. **The global lend, E0916** (§2.3 and §5.1): Generation A, then Generation B after a seed.
+6. **The global lend, decision 47 step 1** (§2.3 and §5.1). Generation A is done on `feat/global-lend-to-call-is-an-error`: land it right after this handover PR. Generation B follows on the seed that carries it.
 6a. **Decision 47, immutable bindings with `mut(name)`** (§5.11), after the queued Generation B items (#1378, A5, V2b Generation B) and before decision 43:
     - Generation A: the parser and evaluator accept every `mut(...)` form, and the errors are enforced outside src/std;
     - `yo fix --migrate mut-bindings`;
