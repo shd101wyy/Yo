@@ -1796,6 +1796,12 @@ sanitize_for_sig :: (fn(s : &String) -> String)({
 // ---------------------------------------------------------------------------
 // value_to_signature_string
 // ---------------------------------------------------------------------------
+/// The identity cache of `_type_signature_string` (see `type_identity_slot`,
+/// types/type_key.yo): handles sorted by address, their signature strings,
+/// and the type-key epoch they were rendered in.
+(g_type_sig_fast : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+(g_type_sig_fast_strings : ArrayList(String)) = ArrayList(String).new();
+(g_type_sig_fast_epoch : u64) = u64(0);
 /// Convert a value to a deterministic string for use in specialization cache keys.
 ///
 /// For type values, returns the type string.
@@ -1822,12 +1828,6 @@ value_to_signature_string :: (fn(value : &EvalValue) -> String)(
     _ => value_to_string(value)
   )
 );
-/// The identity cache of `_type_signature_string` (see `type_identity_slot`,
-/// types/type_key.yo): handles sorted by address, their signature strings,
-/// and the type-key epoch they were rendered in.
-(g_type_sig_fast : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
-(g_type_sig_fast_strings : ArrayList(String)) = ArrayList(String).new();
-(g_type_sig_fast_epoch : u64) = u64(0);
 /// A type's specialization signature, `<type_to_string>_id_<type_key>`. Both
 /// renders are functions of the handle's node and of registries that bump the
 /// type-key epoch, so the string is cached per handle within one epoch.
