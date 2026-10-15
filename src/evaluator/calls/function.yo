@@ -3229,8 +3229,12 @@ _check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), 
           (l.exclusive && !rv.is_module_level && mut_binding_audit_enabled()) => {
             // Decision 47 step 2's census: an exclusive lend writes the local
             // unless it reaches the storage through a `ref` handle.
+            // A `ref`-handle place (today's collections) is written through
+            // the handle; tagged, because V2b makes the collections values.
             if(!global_place_path(&l.place, ctx).through_handle, {
-              mut_binding_audit_note(&rv, &ast_expr_token(&l.lent_arg), &`mut-lend-${l.tag}`);
+              lp_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&l.place)), .Some(pi) => pi.ty, .None => rv.ty.clone());
+              lp_handle := (is_reference_struct_type(&lp_ty) || is_atomic_reference_struct_type(&lp_ty));
+              mut_binding_audit_note(&rv, &ast_expr_token(&l.lent_arg), &`mut-lend-${l.tag}${if(lp_handle, "/handle", "")}`);
             });
           },
           true => ()
