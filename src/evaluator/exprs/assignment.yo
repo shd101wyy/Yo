@@ -102,7 +102,11 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_mark_receiver,
   local_borrow_clear_receiver,
   reject_bare_callable_into_dyn_fn,
-  bare_callable_recorded_into_dyn_fn
+  bare_callable_recorded_into_dyn_fn,
+  global_lend_audit_enabled,
+  global_lend_audit_print,
+  global_lend_location,
+  global_lend_key
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -873,6 +877,15 @@ d3_check_pending :: (
     i = (i + usize(1));
   });
 });
+/// `YO_AUDIT_GLOBAL_LEND`'s write half: print the write `how` of `target`,
+/// rooted in the module-level binding `gv`, at `tok`.
+_global_write_census :: (fn(gv : &Variable, target : &AstExpr, tok : &Token, how : &String) -> unit)({
+  kind := if(is_reference_struct_type(&gv.ty) || is_atomic_reference_struct_type(&gv.ty), "handle", "value");
+  storage := if(is_thread_local(tok.module_path.clone(), gv.name.clone()), "thread_local", "static");
+  global_lend_audit_print(
+    &`${global_lend_location(tok)} [global-write] how=${how} kind=${kind} storage=${storage} global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)} type=${type_to_string(&gv.ty)} place=\`${ast_expr_to_string(target)}\``
+  );
+});
 // ---------------------------------------------------------------------------
 // throw_if_write_through_atomic_root
 // ---------------------------------------------------------------------------
@@ -1057,6 +1070,18 @@ evaluate_assignment :: (
     // Phase O / D3: forbid writing through an atomic object in safe code —
     // a field (`a.*.n = v`) or an index (`a.*(0) = v`) place alike.
     throw_if_write_through_atomic_root(&lhs, &env, String.from("write to field of"), exn);
+    if(global_lend_audit_enabled(), {
+      gw_root := get_root_expr_of_place(&lhs);
+      if(ast_expr_is_atom(&gw_root), {
+        match(
+          get_variables_from_env(&env, ast_expr_token(&gw_root).value.clone()).last(),
+          .Some(gw_v) => if(gw_v.is_module_level && !gw_v.is_compile_time_only, {
+            _global_write_census(&gw_v, &lhs, ast_expr_token(&lhs), &String.from("field"));
+          }),
+          .None => ()
+        );
+      });
+    });
     _check_capture_borrow_write(&lhs, ast_expr_token(&lhs), &env, ctx, exn);
     // Step 1 — Evaluate LHS with is_lhs_of_assignment = true
     saved_expected := ctx.expected_type;
@@ -1753,6 +1778,9 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   d1_is_decl_init := ((d1_lhs_tok.row == variable.token.row) && (d1_lhs_tok.column == variable.token.column) && (d1_lhs_tok.module_path == variable.token.module_path));
   if(variable.is_module_level && !variable.is_compile_time_only && !d1_is_decl_init && !is_thread_local(d1_lhs_tok.module_path.clone(), variable_name.clone()), {
     _d1_record_write(&variable, ast_expr_token(&lhs_resolved), String.from("assign to"), String.new(), exn);
+  });
+  if(global_lend_audit_enabled() && variable.is_module_level && !variable.is_compile_time_only && !d1_is_decl_init, {
+    _global_write_census(&variable, &lhs_resolved, &d1_lhs_tok, &String.from("reassign"));
   });
   // Evaluate the RHS.
   // Pass the variable type as expected type for coercion hints.
