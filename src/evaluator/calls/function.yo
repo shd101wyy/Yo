@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr.yo");
 { is_auto_generated_expansion, is_implicitly_unsafe_capable_file, is_class1_panic_method_name, is_class1_panic_receiver_type, is_class1_panic_exempt_file, is_std_module_path } :: import("../memory_safety.yo");
 { D3PendingInout, d3_record_inout_place, d3_check_pending, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
-{ ExprInfo, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site } :: import("../../expr_info.yo");
+{ ExprInfo, is_thread_local, new_expr_info, expr_info_closure_function_value, expr_info_table_get, expr_info_table_set, record_method_callee_type, record_method_callee_value, lookup_method_callee_value, record_io_builtin_struct_field, lookup_io_builtin_struct_field, record_io_builtin_call, record_macro_expansion, lookup_macro_expansion, record_fid_rtcall, active_where_trait_ids, record_fid_spec, lookup_struct_ctor_fid, struct_effective_ctor_fid, struct_fully_concrete_instance, adopt_receiver_struct_instance, mark_node_preevaluated, unmark_node_preevaluated, expr_info_adopt_env, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_method_type, expr_info_index_method_value, expr_info_set_comptime_ref, expr_info_set_deferred_dup_expressions, expr_info_set_index_method_type, expr_info_set_index_method_value, expr_info_set_index_trait_ptr_type, expr_info_set_macro_expansion, some_resolution, purge_executed_clone_metadata, mark_fnonce_post_call_release, migrate_drop_trait_on, record_destructor_site } :: import("../../expr_info.yo");
 {
   Variable,
   Environment,
@@ -64,7 +64,7 @@ pragma(Pragma.AllowUnsafe);
 { t_unit, t_type, t_usize, t_comptime_int, t_type_app, t_expr_t, generate_some_type_id, resolve_enum_shell, resolve_struct_shell, UNFRAMED_BINDER_LEVEL, t_with_resolution, enum_phantom_positions } :: import("../../types/creators.yo");
 { Token, TokenKind, string_is_operator, intern_token_str } :: import("../../token.yo");
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
-{ stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name } :: import("../../utils.yo");
+{ stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name, display_module_path } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
 { attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn } :: import("../utils.yo");
 {
@@ -93,7 +93,7 @@ pragma(Pragma.AllowUnsafe);
 { is_pointer_type, is_dyn_type, is_reference_struct_type, is_atomic_reference_struct_type, is_type_hierarchy_type, is_comptime_string_type, is_comptime_int_type, is_comptime_float_type, is_some_type, is_array_type, is_function_type, is_function_type_generic, is_expr_list_type, is_comptime_list_type, is_fn_trait_type, is_unit_type, is_primitive_type, is_type_0, type_decl_module, is_module_type } :: import("../../types/guards.yo");
 { convert_comptime_type_to_runtime_type, get_value_of_some_type_from_env } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
-{ is_drop_method_name, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type } :: import("../../types/utils.yo");
+{ is_drop_method_name, type_contains_some_type, type_contains_some_type_deep, is_bound_closure_identity, resolve_cell_chain, type_contains_rc_type, type_requires_explicit_copy, type_is_bitwise_copy, fn_param_is_ptr_borrow, CaptureBorrow, capture_borrows_exist, collect_type_borrows, register_capture_borrows, capture_struct_borrows, capture_borrow_place_string, is_future_value_type } :: import("../../types/utils.yo");
 { type_to_string } :: import("../../types/string.yo");
 { get_all_some_types, type_somes_all_resolve_concrete, target_integer_type_range, dyn_member_is_method, dyn_member_unsafe_reason, dyn_upcast_note, same_name_note, deref_miss_note, mark_generic_independent } :: import("../../types/utils.yo");
 { check_literal_fits, comptime_int_value_misfit } :: import("../values/integer.yo");
@@ -172,7 +172,7 @@ _call_result_unknown :: (fn(ty : &TypeValue, env : &Environment) -> EvalValue)({
   create_runtime_unknown_val_with_name(ty, &nm)
 });
 { format_error_message, format_error_message_with_help, format_error_message_with_repair_at, YoError, primary_diagnostic_path, reanchor_primary_at, with_code } :: import("../../error.yo");
-{ E_EXPLICIT_DESTRUCTOR_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
+{ E_EXPLICIT_DESTRUCTOR_CALL, E_GLOBAL_LENT_TO_CALL, E_NOT_CALLABLE, E_NO_MATCHING_CALL, E_AMBIGUOUS_METHOD, E_CANNOT_INFER, E_USE_OF_MOVED_VALUE, E_BORROW_ESCAPES, E_BORROW_CONFLICT, Repair, Span } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, raise_flow_violation, flow_violation_error, flag_flow_violation } :: import("../../types/flowability.yo");
 { Exception, AnyError } :: import("std/error");
 { SynthesizeOptions, TypePair, synthesize_types } :: import("../types/synthesizer.yo");
@@ -3060,42 +3060,206 @@ _lent_place_moved_at :: (fn(lp : &_LentPlace, ctx : &EvalContext) -> Option(AstE
 /// (`_lent_roots_moved_before`), so no argument of this call moved it.
 _check_call_lent_place_moves :: (fn(call : &AstExpr, moved_before : &ArrayList(String), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(()));
-  // The receiver of a method whose `self` is a borrow (`self : &Self`,
-  // `self : &mut Self`): `recv.m(args)` lends a place named by the receiver.
-  // A by-value `self` moves the receiver itself, and a later use of it is
-  // E0901. The call may omit defaulted parameters, so the method takes at
-  // least the receiver and the written arguments; a type-qualified call
-  // (`T.m(&x, k)`) names a type there, which no argument moves or writes.
-  match(
-    _call_receiver_place(call),
-    .Some(recv) => {
-      recv_borrowed := match(
-        lookup_method_callee_value(ast_expr_id(call)),
-        .Some(.FuncVal(mfv, _)) => match(
-          get_func_type(&mfv.*.func_id),
-          Rc(.Func({ param_types : mpt, meta : mm })) => (((op_args.len() + usize(1)) <= mpt.len()) && !match(mm.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => true)),
-          _ => false
-        ),
-        _ => false
-      );
-      if(recv_borrowed, {
-        _check_call_lent_place(&recv, &recv, &op_args, usize(0), moved_before, env, ctx, exn);
-      });
-    },
-    .None => ()
-  );
+  lends := _call_lends(call, ctx);
+  (li : usize) = usize(0);
+  while(li < lends.len(), li = (li + usize(1)), {
+    match(
+      lends.get(li),
+      .Some(l) => if(l.marked || _is_plain_place_expr(&l.place), {
+        _check_call_lent_place(&l.place, &l.lent_arg, &op_args, l.from, moved_before, env, ctx, exn);
+      }),
+      .None => ()
+    );
+  });
+});
+/// One place a call lends for its whole duration (decision 28): the receiver
+/// of a method whose `self` is a borrow (`self : &Self`, `self : &mut Self`),
+/// an `&x`/`&mut x` argument (`marked`), or an operand its operator's method
+/// borrows (`a == b` with Eq's `lhs : &Self`). `lent_arg` is the argument as
+/// written, `from` the index of the first argument evaluated after it,
+/// `exclusive` whether the lend is `&mut`, and `form` how a diagnostic names it.
+_CallLend :: struct(place : AstExpr, lent_arg : AstExpr, from : usize, marked : bool, exclusive : bool, form : String);
+/// The places `call` lends, in evaluation order: the receiver first, then the
+/// arguments. A by-value `self` moves the receiver itself (a later use of it
+/// is E0901), so it lends nothing. The call may omit defaulted parameters, so
+/// the method takes at least the receiver and the written arguments; a
+/// type-qualified call (`T.m(&x, k)`) names a type there, not a receiver.
+_call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))({
+  out := ArrayList(_CallLend).new();
+  op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(out));
+  (op_callee : AstExpr) = match(call, .FnCall(_, c, _, _, _) => c, .Atom(_, _) => return(out));
+  if(ast_expr_is_fn_call_of(&op_callee, BF_DOT, Option(usize).Some(usize(2))), {
+    match(
+      lookup_method_callee_value(ast_expr_id(call)),
+      .Some(.FuncVal(mfv, _)) => match(
+        get_func_type(&mfv.*.func_id),
+        Rc(.Func({ param_types : mpt, meta : mm })) => if(((op_args.len() + usize(1)) <= mpt.len()) && !match(mm.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => true), {
+          recv := match(op_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+          recv_mut := match(mm.*.param_is_ref.get(usize(0)), .Some(r) => r, .None => false);
+          out.push(
+            _CallLend(
+              place : recv.clone(),
+              lent_arg : recv,
+              from : usize(0),
+              marked : false,
+              exclusive : recv_mut,
+              form : if(recv_mut, String.from("the receiver of a `self : &mut Self` method"), String.from("the receiver of a `self : &Self` method"))
+            )
+          );
+        }),
+        _ => ()
+      ),
+      _ => ()
+    );
+  });
   operand_is_lent := _operator_operand_is_lent(call, ctx);
   (ai : usize) = usize(0);
   while(ai < op_args.len(), ai = (ai + usize(1)), {
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
     match(
       _lent_argument_place(&lent),
-      .Some(place) => _check_call_lent_place(&place, &lent, &op_args, ai + usize(1), moved_before, env, ctx, exn),
-      .None => if(match(operand_is_lent.get(ai), .Some(r) => r, .None => false) && _is_plain_place_expr(&lent), {
-        _check_call_lent_place(&lent, &lent, &op_args, ai + usize(1), moved_before, env, ctx, exn);
+      .Some(place) => {
+        is_mut := ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)));
+        out.push(_CallLend(place : place, lent_arg : lent, from : (ai + usize(1)), marked : true, exclusive : is_mut, form : if(is_mut, String.from("a `&mut` argument"), String.from("a `&` argument"))));
+      },
+      .None => if(match(operand_is_lent.get(ai), .Some(r) => r, .None => false), {
+        out.push(_CallLend(place : lent.clone(), lent_arg : lent, from : (ai + usize(1)), marked : false, exclusive : false, form : String.from("an operand its operator borrows")));
       })
     );
   });
+  out
+});
+// ---------------------------------------------------------------------------
+// Decision 18 rule 3 at a call's own argument borrows
+// ---------------------------------------------------------------------------
+/// `YO_AUDIT_GLOBAL_LEND`: report each module-level lend to a call on stderr
+/// (`file:line:col [global-lend] ...`, once per site) instead of rejecting
+/// it. The census knob for the rule's rollout.
+(g_audit_global_lend : bool) = debug_knob(`YO_AUDIT_GLOBAL_LEND`).is_some();
+(g_audit_global_lend_printed : HashSet(String)) = HashSet(String).new();
+/// The module-level (or `thread_local`) runtime binding whose storage `place`
+/// names: field steps, `Rc`/`Box` derefs and element accesses down to a
+/// variable. `.None` for a place rooted in a local, a `::` constant (no
+/// runtime storage), a raw-pointer deref (the pointee is not the binding's
+/// storage) or a call result.
+_global_lend_root :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
+  (cur : AstExpr) = place;
+  while(true, {
+    match(
+      cur,
+      .Atom(_, root_tok) => {
+        found := match(_lent_root_variable(&cur, ctx), .Some(sv) => Option(Variable).Some(sv), .None => get_variables_from_env(env, &root_tok.value).last());
+        return(match(found, .Some(rv) => if(rv.is_module_level && !rv.is_compile_time_only, Option(Variable).Some(rv), Option(Variable).None), .None => Option(Variable).None));
+      },
+      .FnCall(_, gl_callee, gl_args, gl_infix, _) => {
+        cur = cond(
+          ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))) => {
+            base := match(gl_args.get(usize(0)), .Some(b) => b, .None => return(Option(Variable).None));
+            is_deref := match(gl_args.get(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false);
+            if(is_deref && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => is_pointer_type(&bi.ty), .None => false), {
+              return(Option(Variable).None);
+            });
+            base
+          },
+          (!gl_infix && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&cur)), .Some(ii) => expr_info_index_method_type(&ii).is_some(), .None => false)) => gl_callee,
+          (!gl_infix && match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&gl_callee)), .Some(ci) => is_array_type(&ci.ty), .None => false)) => gl_callee,
+          true => {
+            return(Option(Variable).None);
+          }
+        );
+      }
+    );
+  });
+  Option(Variable).None
+});
+/// A runtime operator on implicitly copyable scalars (`g == i32(1)`) lowers
+/// to a C operator: no callee runs, so it lends nothing.
+_is_scalar_operator_call :: (fn(call : &AstExpr, ctx : &EvalContext) -> bool)(
+  match(
+    call,
+    .FnCall(_, so_callee, so_args, _, _) => {
+      if(!(ast_expr_is_atom(&so_callee) && (ast_expr_token(&so_callee).kind == TokenKind.Operator)), {
+        return(false);
+      });
+      (si : usize) = usize(0);
+      while(si < so_args.len(), si = (si + usize(1)), {
+        if(!match(so_args.get(si), .Some(a) => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)), .Some(sai) => local_borrow_is_scalar_type(&sai.ty), .None => false), .None => false), {
+          return(false);
+        });
+      });
+      true
+    },
+    .Atom(_, _) => false
+  )
+);
+/// Decision 18 rule 3 applied to a call's own argument borrows (maintainer
+/// decision 2026-10-15,
+/// issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md):
+/// a module-level or `thread_local` runtime binding has no run-time borrow
+/// flag, and any function can reach it by name, so a place rooted in one may
+/// not be lent `&`/`&mut` to a call, whatever the callee. The receiver of a
+/// method whose `self` is a borrow and an operand its operator borrows are
+/// lends too. A by-value argument (`f(G)`, a by-value `self`) holds no borrow
+/// and passes; so does a `::` constant, which has no runtime storage. A call
+/// evaluated at compile time, and an operator on scalars, run no callee.
+_check_call_global_lends :: (fn(call : &AstExpr, r : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+  if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)), .Some(ri) => match(ri.value, .Some(v) => !is_unknown_val(&v), .None => false), .None => true), {
+    return(());
+  });
+  if(_is_scalar_operator_call(r, ctx), {
+    return(());
+  });
+  lends := _call_lends(call, ctx);
+  (li : usize) = usize(0);
+  while(li < lends.len(), li = (li + usize(1)), {
+    match(
+      lends.get(li),
+      .Some(l) => match(_global_lend_root(&l.place, env, ctx), .Some(gv) => _reject_global_lend_to_call(call, &l, &gv, ctx, exn), .None => ()),
+      .None => ()
+    );
+  });
+});
+/// The error (or, under `YO_AUDIT_GLOBAL_LEND`, the census line) for the lend
+/// `l` of a place rooted in the module-level binding `gv` to `call`.
+_reject_global_lend_to_call :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, ctx : &EvalContext, exn : Exception) -> unit)({
+  callee_text := match(call, .FnCall(_, c, _, _, _) => ast_expr_to_string(&c), .Atom(_, _) => String.from("?"));
+  place_text := ast_expr_to_string(&l.place);
+  at := ast_expr_token(&l.lent_arg);
+  if(g_audit_global_lend, {
+    place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&l.place)), .Some(pi) => pi.ty, .None => gv.ty.clone());
+    kind := cond(
+      (is_reference_struct_type(&place_ty) || is_atomic_reference_struct_type(&place_ty)) => "handle",
+      type_is_bitwise_copy(place_ty.clone()) => "copy",
+      true => "owning"
+    );
+    form := cond(
+      !l.marked && (l.form == "an operand its operator borrows") => "operand",
+      (!l.marked && l.exclusive) => "recv-mut",
+      !l.marked => "recv-imm",
+      l.exclusive => "arg-mut",
+      true => "arg-imm"
+    );
+    tl := if(is_thread_local(&gv.token.module_path, &gv.name), "thread_local", "static");
+    line := `${display_module_path(&at.module_path)}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} [global-lend] form=${form} kind=${kind} storage=${tl} global=${gv.name} type=${type_to_string(&place_ty)} callee=\`${callee_text}\` place=\`${place_text}\``;
+    if(g_audit_global_lend_printed.insert(line.clone()), {
+      eprintln(&line);
+    });
+    return(());
+  });
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        &at,
+        `Cannot lend \`${place_text}\` to \`${callee_text}\` (${l.form}): \`${gv.name}\` is a module-level binding (a static or a \`thread_local\`), which has no run-time borrow flag. Any function can reassign or write it by name, and so can another task while the callee awaits, so the callee could read a value that was already released while it still holds the borrow (plans/VALUES_BY_DEFAULT.md decision 18 rule 3).`,
+        Option(String).Some(
+          `read \`${gv.name}\` by value where the parameter takes a value, or copy it into a local, lend the local and assign it back after the call (\`v := ${gv.name}.clone(); f(&mut v); ${gv.name} = v;\`), or make the global a \`Mutex(T)\` or an atomic`
+        )
+      ),
+      E_GLOBAL_LENT_TO_CALL
+    ),
+    ctx,
+    exn
+  );
 });
 /// The per-operand borrow flags of an infix operator call `a op b` evaluated
 /// at run time: which parameters of the resolved operator method, stamped on
@@ -6415,6 +6579,7 @@ evaluate_function_call :: (
     _attach_fnonce_callee_release(expr, &std_r, ctx);
     _note_future_producing_call(expr, &std_r, ctx, exn);
     _check_call_lent_place_moves(expr, &moved_before, env, ctx, exn);
+    _check_call_global_lends(expr, &std_r, env, ctx, exn);
     return(std_r);
   });
   out := ArrayList(AstExpr).new();
@@ -6430,6 +6595,7 @@ evaluate_function_call :: (
       _attach_fnonce_callee_release(expr, &r, ctx);
       _note_future_producing_call(expr, &r, ctx, exn);
       _check_call_lent_place_moves(expr, &moved_before, env, ctx, exn);
+      _check_call_global_lends(expr, &r, env, ctx, exn);
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
       });
