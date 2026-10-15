@@ -435,6 +435,14 @@ the handle instead (`h : &Rc(S)`) and read `h.*.items` inside the Future at
 each use, or own the value in the task. An element of a fixed-size array is
 part of the array's own storage and may be lent.
 
+Nor may it be rooted in a module-level runtime binding or a `thread_local`
+(`io.await(bump(&mut G, io), io)` with `G := ...` at module level is E0909,
+and so is `io.await(G.bump(io), io)`): any task on the thread can reach the
+binding by name and reassign it while this one waits, releasing the value the
+Future borrows. Lend a local copy, or read the global by name inside the
+Future, where each use reads its current value. A `::` constant has no runtime
+storage to change and may be lent.
+
 ### Aborted Futures
 
 When an algebraic effect handler calls `unwind` inside an async task, the Future is marked as **aborted** (internal state = -2). The task's continuation is discarded and no result is stored.
