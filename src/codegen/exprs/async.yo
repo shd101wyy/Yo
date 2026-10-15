@@ -33,7 +33,7 @@
   is_reference_struct_type,
   is_rc_type
 } :: import("../../types/guards.yo");
-{ type_contains_rc_cell_or_move_only, capture_struct_borrows } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, capture_struct_borrows, type_requires_explicit_copy } :: import("../../types/utils.yo");
 {
   CapturedVariable,
   CapturedVariableKind,
@@ -1563,13 +1563,22 @@ _dup_expr_var_name :: (fn(dup_expr : &AstExpr) -> Option(String))({
 });
 /// Build the capture-struct initializer literal for an io.async block:
 /// effect-param fields are zero-initialized (populated at io.await/io.spawn);
-/// other fields use a matching deferred `___dup` expression when available
-/// (else the capture-struct dup function wraps the whole literal).
-/// LIMITATION: capture-struct fields carry no per-field capture expression, so
-/// the atom fallback cannot generate a recorded expr — that machinery is the
-/// deferred Phase-3 closures.yo capture emission. A
-/// field reaching the fallback emits a loud marker (it is never hit by capture-free
-/// async blocks, including the BASELINE fixture).
+/// a capture list's entries are their evaluated initializers; an implicit
+/// capture uses its matching deferred `___dup` expression when available, else
+/// it is read by name and retained once below.
+///
+/// Every field's reference is taken exactly once
+/// (issues/fixed/2026-10-15-an-io-async-capture-copied-from-a-field-is-dup-ed-twice-when-the-body-awaits-a-future-borrowing-it.md):
+/// - a capture list's by-value entry is a field store the evaluator already
+///   decided (`set_expr_as_needs_to_call_dup`): a copy carries its own deferred
+///   dup, a move carries none and consumes its source. Its field is settled by
+///   its initializer.
+/// - an implicit capture that is not implicitly copyable was MOVED by the
+///   evaluator (`generate_captured_variable_dup_expressions`: no dup, the
+///   variable is consumed and never dropped), so retaining it leaked the value
+///   once per capture. Unless the evaluator gave it a dup anyway (a caller-owned
+///   `sink` closure parameter), it takes no retain.
+/// - the remaining implicit captures read by name are copies: one retain each.
 _build_async_capture_struct_literal :: (
   fn(
     expr : &AstExpr,
@@ -1579,8 +1588,8 @@ _build_async_capture_struct_literal :: (
     indent : &String,
     context : &FunctionGenerationContext,
     /// A capture list's evaluated entries (decision 35): a borrow entry's
-    /// field stores the address of its place (§3.13 A2), and a renamed
-    /// by-value entry (`{ m : k }`) its initializer.
+    /// field stores the address of its place (§3.13 A2), and a by-value
+    /// entry (`{ k }`, `{ m : k }`) its initializer.
     (field_inits : &Option(ArrayList(CaptureFieldInit))) ?= Option(ArrayList(CaptureFieldInit)).None
   ) -> String
 )({
@@ -1591,7 +1600,9 @@ _build_async_capture_struct_literal :: (
   // instantiation's, and the retain lines below declared their temps with them
   // (issues/fixed/2026-10-14-a-capture-in-a-generic-io-async-body-is-retained-with-another-instantiations-type.md).
   fields := _capture_struct_fields(capture_type);
-  (used_deferred_dups : bool) = false;
+  // The fields whose initializer already settled their reference (see above):
+  // the retain lines below skip them.
+  settled := HashSet(String).new();
   parts := ArrayList(String).new();
   (i : usize) = usize(0);
   while(i < fields.len(), {
@@ -1602,128 +1613,119 @@ _build_async_capture_struct_literal :: (
         label_c := sanitize_for_c_identifier(label.clone(), false);
         // A unit field is erased from the capture struct, so it takes no
         // initializer (issues/fixed/a-unit-parameter-captured-by-an-io-async-body-emits-an-initializer-for-an-erased-field.md).
-        (renamed_init : Option(AstExpr)) = Option(AstExpr).None;
-        borrow_init := match(
+        (list_init : Option(CaptureFieldInit)) = Option(CaptureFieldInit).None;
+        match(
           field_inits,
           .Some(inits) => {
-            (found : Option(AstExpr)) = Option(AstExpr).None;
             (fi : usize) = usize(0);
-            while(fi < inits.len(), fi = (fi + usize(1)), {
+            while((fi < inits.len()) && list_init.is_none(), fi = (fi + usize(1)), {
               match(
                 inits.get(fi),
                 .Some(cfi) => if(cfi.label == label, {
-                  if(cfi.is_borrow, {
-                    found = Option(AstExpr).Some(cfi.init);
-                  }, if(!(ast_expr_is_atom(&cfi.init) && (ast_expr_token(&cfi.init).value == label)), {
-                    // A by-value entry under a new name (`{ m : k }`) has no
-                    // variable of the field's name to read: its initializer
-                    // is the field's value, as the sync closure path builds
-                    // it (issues/fixed/a-renamed-by-value-capture-of-an-awaiting-io-async-body-reads-an-undeclared-name.md).
-                    renamed_init = Option(AstExpr).Some(cfi.init);
-                  }));
+                  list_init = Option(CaptureFieldInit).Some(cfi);
                 }),
                 .None => ()
               );
             });
-            found
           },
-          .None => Option(AstExpr).None
+          .None => ()
         );
         if(is_unit_type(&field.ty), {
           ();
         }, if(field.is_effect_param, {
           parts.push(`.${label_c} = NULL`);
-        }, if(borrow_init.is_some(), {
-          bi_expr := match(borrow_init, .Some(bi) => bi, .None => make_err_expr());
-          place_code := _call_generate_expr(&bi_expr, indent.clone(), context);
-          parts.push(`.${label_c} = (&(${place_code}))`);
-        }, if(renamed_init.is_some(), {
-          ri_expr := match(renamed_init, .Some(ri) => ri, .None => make_err_expr());
-          ri_code := _call_generate_expr(&ri_expr, indent.clone(), context);
-          parts.push(`.${label_c} = ${emit_deferred_dup_or_code(&ri_expr, &ri_code, indent.clone(), context)}`);
-        }, {
-          // Find a matching deferred ___dup expression by variable name.
-          (matched : Option(AstExpr)) = Option(AstExpr).None;
-          if(!in_special_context, {
+        }, match(
+          list_init,
+          .Some(cfi) => {
+            settled.insert(label.clone());
+            init_code := _call_generate_expr(&cfi.init, indent.clone(), context);
+            if(cfi.is_borrow, {
+              parts.push(`.${label_c} = (&(${init_code}))`);
+            }, {
+              // A by-value entry, under its own name or a new one
+              // (`{ m : k }`, which has no variable of the field's name to
+              // read: issues/fixed/a-renamed-by-value-capture-of-an-awaiting-io-async-body-reads-an-undeclared-name.md).
+              parts.push(`.${label_c} = ${emit_deferred_dup_or_code(&cfi.init, &init_code, indent.clone(), context)}`);
+            });
+          },
+          .None => {
+            // The evaluator's dup for this implicit capture, if it made one.
+            (matched : Option(AstExpr)) = Option(AstExpr).None;
             (di : usize) = usize(0);
-            while(di < dup_exprs.len(), {
+            while((di < dup_exprs.len()) && matched.is_none(), di = (di + usize(1)), {
               match(
                 dup_exprs.get(di),
-                .Some(de) => match(
-                  _dup_expr_var_name(&de),
-                  .Some(vn) => if(vn == label, {
-                    matched = Option(AstExpr).Some(de);
-                    di = dup_exprs.len();
-                  }),
-                  .None => ()
-                ),
+                .Some(de) => if(match(_dup_expr_var_name(&de), .Some(vn) => (vn == label), .None => false), {
+                  matched = Option(AstExpr).Some(de);
+                }),
                 .None => ()
               );
-              di = (di + usize(1));
             });
-          });
-          match(
-            matched,
-            .Some(dup_expr) => {
-              used_deferred_dups = true;
-              dup_var := match(context.base.get_expr_info(&dup_expr), .Some(dei) => dei.variable_name, .None => Option(String).None);
-              match(
-                dup_var,
-                .Some(vname) => {
-                  // Temp variable: emit the decl (side effect), use the name.
-                  // A dup that declares nothing (a plain value read, such as a
-                  // C local of the body) hands back the value itself.
-                  dup_code := _call_generate_expr(&dup_expr, indent.clone(), context);
-                  vname_c := sanitize_for_c_identifier(vname.clone(), false);
-                  declared := (context.base.declared_c_var_names.*.contains(vname.clone()) || scope_stack_contains(&context.base.declared_scopes.*, &vname_c));
-                  parts.push(`.${label_c} = ${if((declared || (dup_code.len() == usize(0))), vname_c, dup_code)}`);
-                },
-                .None => {
-                  code := _call_generate_expr(&dup_expr, indent.clone(), context);
-                  parts.push(`.${label_c} = ${code}`);
-                }
-              );
-            },
-            .None => {
-              // Capture-expression fallback: read the captured variable BY
-              // NAME in the call-site scope (capture-struct fields carry no
-              // per-field exprs). The C name of the same-named variable at the
-              // io.async call site is the faithful equivalent for the
-              // std-internal shapes (read's `.path = path, .io = io` —
-              // enclosing-fn params). The RC +1 for the whole struct comes
-              // from the dup wrap below (used_deferred_dups stays false).
-              // Previously this emitted
-              // `/* PHASE3_CAPTURE_PENDING */ 0`, feeding NULL captures into
-              // every std-internal FSM.
-              // Inside an ENCLOSING state machine (a nested io.async in an SM
-              // while-loop body), the captured variable is an SM field — map
-              // it through the sm-> alias/capture resolution the atom emitter
-              // uses. A bare C name
-              // here referenced identifiers that do not exist in the resume
-              // fn ("use of undeclared identifier 'total'/'val'", async
-              // subtask-in-while arms).
-              sm_mapped := _generate_sm_atom(expr, label.clone(), context);
-              match(
-                sm_mapped,
-                .Some(sm_name) => {
-                  parts.push(`.${label_c} = ${sm_name}`);
-                },
-                .None => {
-                  // A C local of the enclosing body (phase 6: not live
-                  // across a suspension, so it has no field) is read by its
-                  // own name while its block is open; the name lookup
-                  // through the call's env could land on an unrelated temp.
-                  local_c := sanitize_for_c_identifier(label.clone(), false);
-                  cname := if(scope_stack_contains(&context.base.declared_scopes.*, local_c.clone()) || context.base.declared_c_var_names.*.contains(local_c.clone()), local_c, {
-                    cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
-                    get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), &cap_env)
-                  });
-                  parts.push(`.${label_c} = ${cname}`);
-                }
-              );
-            }
-          );
-        }))));
+            if(matched.is_none() && type_requires_explicit_copy(&field.ty), {
+              settled.insert(label.clone());
+            });
+            match(
+              if(in_special_context, Option(AstExpr).None, matched),
+              .Some(dup_expr) => {
+                settled.insert(label.clone());
+                dup_var := match(context.base.get_expr_info(&dup_expr), .Some(dei) => dei.variable_name, .None => Option(String).None);
+                match(
+                  dup_var,
+                  .Some(vname) => {
+                    // Temp variable: emit the decl (side effect), use the name.
+                    // A dup that declares nothing (a plain value read, such as a
+                    // C local of the body) hands back the value itself.
+                    dup_code := _call_generate_expr(&dup_expr, indent.clone(), context);
+                    vname_c := sanitize_for_c_identifier(vname.clone(), false);
+                    declared := (context.base.declared_c_var_names.*.contains(vname.clone()) || scope_stack_contains(&context.base.declared_scopes.*, &vname_c));
+                    parts.push(`.${label_c} = ${if((declared || (dup_code.len() == usize(0))), vname_c, dup_code)}`);
+                  },
+                  .None => {
+                    code := _call_generate_expr(&dup_expr, indent.clone(), context);
+                    parts.push(`.${label_c} = ${code}`);
+                  }
+                );
+              },
+              .None => {
+                // Capture-expression fallback: read the captured variable BY
+                // NAME in the call-site scope (capture-struct fields carry no
+                // per-field exprs). The C name of the same-named variable at the
+                // io.async call site is the faithful equivalent for the
+                // std-internal shapes (read's `.path = path, .io = io` —
+                // enclosing-fn params). A copy's +1 comes from the retain
+                // lines below. Previously this emitted
+                // `/* PHASE3_CAPTURE_PENDING */ 0`, feeding NULL captures into
+                // every std-internal FSM.
+                // Inside an ENCLOSING state machine (a nested io.async in an SM
+                // while-loop body), the captured variable is an SM field — map
+                // it through the sm-> alias/capture resolution the atom emitter
+                // uses. A bare C name
+                // here referenced identifiers that do not exist in the resume
+                // fn ("use of undeclared identifier 'total'/'val'", async
+                // subtask-in-while arms).
+                sm_mapped := _generate_sm_atom(expr, label.clone(), context);
+                match(
+                  sm_mapped,
+                  .Some(sm_name) => {
+                    parts.push(`.${label_c} = ${sm_name}`);
+                  },
+                  .None => {
+                    // A C local of the enclosing body (phase 6: not live
+                    // across a suspension, so it has no field) is read by its
+                    // own name while its block is open; the name lookup
+                    // through the call's env could land on an unrelated temp.
+                    local_c := sanitize_for_c_identifier(label.clone(), false);
+                    cname := if(scope_stack_contains(&context.base.declared_scopes.*, local_c.clone()) || context.base.declared_c_var_names.*.contains(local_c.clone()), local_c, {
+                      cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
+                      get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), &cap_env)
+                    });
+                    parts.push(`.${label_c} = ${cname}`);
+                  }
+                );
+              }
+            );
+          }
+        )));
       },
       .None => ()
     );
@@ -1731,60 +1733,59 @@ _build_async_capture_struct_literal :: (
   });
   capture_fields := _join_names(&parts);
   literal := `(${capture_struct_name.clone()}){${capture_fields}}`;
-  if(!used_deferred_dups, {
+  if(settled.len() == usize(0), {
     match(
       get_dup_function_for_type(capture_type, context),
       .Some(dup_fn) => return(`${dup_fn}(${literal})`),
-      // No per-type `___dup` helper — none are synthesized for
-      // capture structs. Retain each RC-bearing field individually instead, so
-      // the state machine's dispose (which DOES drop them) is balanced. Without
-      // this, a future re-created every loop iteration frees its captured value
-      // under the loop. Materialize into a temp first: the fields have to be
-      // reachable as lvalues to retain them.
-      .None => {
-        // Name the temp FIRST so each retain line is built against it — the
-        // lines have to be lvalue references into the materialized struct.
-        // Position-derived (not per-function): the same async block's temp
-        // is minted from BOTH the enclosing emission and the wrapper — a
-        // per-function counter gives them different names.
-        cap_tok := ast_expr_token(expr);
-        tmp := stable_label_id(String.from("__yo_cap_"), &cap_tok.module_path, usize(cap_tok.row), usize(cap_tok.column));
-        retain_lines := ArrayList(String).new();
-        (ri : usize) = usize(0);
-        while(ri < fields.len(), {
-          match(
-            fields.get(ri),
-            .Some(f) => if(!f.is_effect_param, {
-              match(
-                _rc_field_retain_line(`${tmp.clone()}.${sanitize_for_c_identifier(f.label.clone(), false)}`, &f.ty, indent.clone(), context),
-                .Some(line) => {
-                  retain_lines.push(line);
-                },
-                .None => ()
-              );
-            }),
-            .None => ()
-          );
-          ri = (ri + usize(1));
-        });
-        if(retain_lines.len() > usize(0), {
-          em := context.base.emitter;
-          em.emit_string_line(`${indent.clone()}${capture_struct_name.clone()} ${tmp.clone()} = ${literal.clone()};`);
-          (li : usize) = usize(0);
-          while(li < retain_lines.len(), {
-            match(
-              retain_lines.get(li),
-              .Some(line) => {
-                em.emit_string_line(&line);
-              },
-              .None => ()
-            );
-            li = (li + usize(1));
-          });
-          return(tmp);
-        });
-      }
+      .None => ()
     );
+  });
+  // No per-type `___dup` helper — none are synthesized for capture structs.
+  // Retain each unsettled RC-bearing field individually instead, so the state
+  // machine's dispose (which DOES drop them) is balanced. Without this, a
+  // future re-created every loop iteration frees its captured value under the
+  // loop. Materialize into a temp first: the fields have to be reachable as
+  // lvalues to retain them.
+  // Name the temp FIRST so each retain line is built against it — the lines
+  // have to be lvalue references into the materialized struct.
+  // Position-derived (not per-function): the same async block's temp is
+  // minted from BOTH the enclosing emission and the wrapper — a per-function
+  // counter gives them different names.
+  cap_tok := ast_expr_token(expr);
+  tmp := stable_label_id(String.from("__yo_cap_"), &cap_tok.module_path, usize(cap_tok.row), usize(cap_tok.column));
+  retain_lines := ArrayList(String).new();
+  (ri : usize) = usize(0);
+  while(ri < fields.len(), {
+    match(
+      fields.get(ri),
+      .Some(f) => if(!f.is_effect_param && !settled.contains(f.label.clone()), {
+        match(
+          _rc_field_retain_line(`${tmp.clone()}.${sanitize_for_c_identifier(f.label.clone(), false)}`, &f.ty, indent.clone(), context),
+          .Some(line) => {
+            retain_lines.push(line);
+          },
+          .None => ()
+        );
+      }),
+      .None => ()
+    );
+    ri = (ri + usize(1));
+  });
+  if(retain_lines.len() > usize(0), {
+    em := context.base.emitter;
+    em.emit_string_line(`${indent.clone()}${capture_struct_name.clone()} ${tmp.clone()} = ${literal.clone()};`);
+    (li : usize) = usize(0);
+    while(li < retain_lines.len(), {
+      match(
+        retain_lines.get(li),
+        .Some(line) => {
+          em.emit_string_line(&line);
+        },
+        .None => ()
+      );
+      li = (li + usize(1));
+    });
+    return(tmp);
   });
   literal
 });
@@ -2387,7 +2388,7 @@ emit_fused_await :: (fn(await_expr : &AstExpr, indent : &String, context : &Func
   match(
     site.block.capture_type,
     .Some(ct) => {
-      lit := _build_async_capture_struct_literal(&site.io_async_call, ArrayList(AstExpr).new(), &ct, _find_capture_type_c_name(&ct, context), inner.clone(), context);
+      lit := _build_async_capture_struct_literal(&site.io_async_call, &site.block.capture_dups, &ct, _find_capture_type_c_name(&ct, context), inner.clone(), context);
       em.emit_string_line(`${inner}sm->${site.prefix}capture = ${lit};`);
     },
     .None => ()
@@ -2971,6 +2972,7 @@ generate_async_block :: (fn(expr : &AstExpr, io_async_body : &Option(AstExpr), a
     result_type : result_type,
     result_type_c_name : result_type_c_name.clone(),
     capture_type : fsm_capture_type,
+    capture_dups : match(fsm_capture_dups, .Some(d) => d, .None => ArrayList(AstExpr).new()),
     analysis : analysis_kinded,
     closure_param_slots : closure_param_slots_opt,
     source_call_id : if(is_io_async, ast_expr_id(expr), usize(0))
