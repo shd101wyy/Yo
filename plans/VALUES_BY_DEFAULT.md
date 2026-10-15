@@ -5,13 +5,15 @@
 - **Pivot:** on 2026-10-05, unique ownership (Hylo's model, Mojo's
   spelling) replaced the first draft's copy-on-write design.
 - **Decisions:** all in §4 are confirmed (decision 46, `Rc` is Rust's
-  `Rc`, added 2026-10-14). No design question is open;
+  `Rc`, added 2026-10-14; decision 47, immutable bindings with `mut(...)`
+  and Zig's statics, added 2026-10-15, with two points to settle before
+  its implementation). No other design question is open;
   the sub-decisions parked with the phase that settles them are listed in
   §9.
 - **Spelling:** the tree spells borrows `x : &T` / `x : &mut T`
   (decision 42, #1310).
 - **Handover:** start with
-  [`plans/handover/VBD_HANDOVER_2026-10-13.md`](handover/VBD_HANDOVER_2026-10-13.md), which has the
+  [`plans/handover/VBD_HANDOVER_2026-10-15.md`](handover/VBD_HANDOVER_2026-10-15.md), which has the
   releases, the open PRs, the branches in flight and the Generation B
   queue.
 
@@ -127,8 +129,9 @@ Progress:
     lines, and A6's `Rc`-field half (V2c).
   - Decision 44's follow-up: a closure into a `Dyn(Fn)` slot is `dyn(f)`.
 - **Next:** the rest of V2b (direct projection calls; unique buffers'
-  Generation B with the explicit-copy kind, on a seed carrying A1), then the allocator interface version 2 (§6, after
-  V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
+  Generation B with the explicit-copy kind, on a seed carrying A1), decision
+  47's globals step (the global-lend S1) and then its locals step, the
+  allocator interface version 2 (§6, after V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
   once the README's example projects are migrated (§6, after V5).
 - **Rule for this header:** the PR that lands a phase moves its line from
   "In progress" to "Landed".
@@ -1441,6 +1444,10 @@ and in git, not a silent edit.
          that cell.
        - A module-level root has no cell. A local borrow of one is
          rejected if its live range contains a call or an `await`.
+         Amended by decision 47: an unmarked module-level binding is
+         immutable (Zig's container-level `const`, Rust's `static`), so it
+         may be lent freely; a `mut(G)` binding may not be lent to a call
+         (E0916) or across an `await` (E0909).
     4. **`await`:** a borrow is an error across a suspension if its
        declaration or any re-point passes through an `Rc`/`Arc` deref or a
        module-level place. It is allowed when the whole path stays in
@@ -3774,6 +3781,107 @@ and in git, not a silent edit.
       entry-time assert until V4/V5 classify each tree as immutable or
       `RefCell`, and the classification now has no third answer.
     - **Rollout:** the phase "Decision 46: `Rc` is read-only" in §6.
+47. **Every binding is immutable unless its name is wrapped in `mut(...)`;
+    lifetime comes from where a binding is declared, as in Zig**
+    (maintainer, 2026-10-15). It amends decision 18 rule 3 and replaces
+    Yo's mutable-by-default bindings. The maintainer's words, in order:
+    - "Should we change our mutable by default behavior, and introduce mut
+      as modifier to variables, like how rust does?"
+    - "we also need to support mut for comptime … mut(x) :: 12; and
+      comptime(mut(x)) := 12;"
+    - on statics, "follow zigs way".
+    - **The rule.** As Rust's `mut`, the marker gates four things on the
+      binding and every place under it:
+      - reassignment (`x = v`);
+      - `&mut` lends (`&mut x`, `&mut x.f`, `&mut x(i)`);
+      - `&mut self` method calls (`xs.push(v)`);
+      - field and element writes (`p.x = v`, `xs(i) = v`).
+
+      A `ref`-handle binding (until V5) is a pointer, so a field write
+      through it does not write the binding and needs no marker; its
+      reassignment does.
+    - **Spellings.** `mut` wraps the name, like `comptime(…)`,
+      `thread_local(…)` and `sink(…)`:
+
+      ```yo ignore
+      x := 0;                            // immutable
+      mut(x) := 0;                       // mutable local or module-level binding
+      (mut(x) : i32) = 0;
+      x :: 12;                           // a true constant
+      mut(x) :: 12;                      // mutable at compile time
+      comptime(mut(x)) := 12;            // a mutable comptime variable
+      (thread_local(mut(st)) : State) = State.seed();
+      match(opt, .Some(mut(v)) => { v = (v + 1); v; }, .None => 0);
+      { a, mut(b) } := pair;             // per name in a destructuring
+      ```
+
+    - **Statics follow Zig: no `static` keyword or wrapper.** Where a
+      binding is declared decides its lifetime:
+
+      | Zig | Yo |
+      | --- | --- |
+      | container-level `const x = v` | module-level `x := v`, or `x :: v` for a constant |
+      | container-level `var x = v` | module-level `mut(x) := v` |
+      | `threadlocal var x` | `thread_local(mut(x)) := v` |
+      | local `const` / `var` | `x := v` / `mut(x) := v` in a block |
+      | `comptime var` | `comptime(mut(x)) := v` |
+
+      A function that needs state across calls uses a module-level
+      `mut(_f_state)` beside it; there is no function-local static syntax.
+    - **Globals and lending.** An unmarked module-level binding is never
+      written after its initializer, so it may be lent freely, to a call or
+      across an `await`. Lending a `mut(G)` binding, or a place under it, to
+      a call is E0916, and to a borrowing future E0909 (#1389). Two rules
+      from the 2026-10-15 review:
+      - A heap projection of a handle global (`&G(i)`, `&G(i).f`) may not
+        be lent to a call while `G` has `&mut self` calls anywhere: a
+        nested `G.push` would reallocate the buffer under the borrow. Today
+        codegen copies the element out around the call, so this guards the
+        ABI that direct projection calls bring, not today's behaviour.
+      - A handle global is path-sensitive: a write to `G.f` rejects lends
+        of `G.f` and anything below it, not lends of `&G`.
+
+      The 57 handle globals that `src/` reassigns are reset in place
+      (`G.clear()`) so they stay unmarked. Whether a global is mutable is
+      DECLARED, never inferred over the whole program: an inferred verdict
+      would depend on module load order, the class #1382 fixed.
+    - **Parameters take no `mut`.** Parameters, closure parameters, `for`
+      element bindings and capture-list entries stay immutable. A body
+      that mutates a by-value argument rebinds it: `mut(y) := x;` (a move,
+      not a copy, for an owning value). Three reasons:
+      - the marker is invisible to the caller (Rust's `fn f(mut x: T)` is
+        sugar for `let mut x = x;`), so it adds nothing to the contract;
+      - parameters are already immutable (E0902);
+      - `mut(x) : T` meant `&mut T` until decision 42's Generation B.
+        Reviving the spelling with another meaning would let old code
+        compile with its writes going to a callee-local copy; E0009 keeps
+        that a compile error.
+    - **Errors.** A write of any of the four kinds to an unmarked binding is
+      a new error naming the binding, its definition and the `mut(...)` form
+      (for a parameter, the rebind). E0902's "You can mutate fields" hint
+      goes away. A runtime write to a `::` binding is an error. Today it is
+      accepted and diverges from the folded value
+      (`issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`).
+    - **Open, to settle before the implementation:**
+      - Module-level `mut(x) :: v`. Module-level `::` bindings are lazy and
+        order-independent (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`),
+        so a mutable one would read whatever value it had when some other
+        definition first forced it. The recommendation is to allow
+        `mut(x) :: v` in block scope only.
+      - Zig makes container-level initializers comptime. Yo's module-level
+        `:=` accepts runtime initializers today; tightening that is not
+        decided.
+    - **What it buys.**
+      - Every write is visible at the declaration ("whenever we could be
+        explicit, do explicit").
+      - An unmarked binding needs no write analysis in E0910/E0911.
+      - A closure captures an unmarked binding by `&` safely.
+      - The verifier gets no frame condition for an unmarked binding.
+      - Decision 43's `&mut` rules can assume `mut`.
+    - **Rollout:** the phase "Decision 47: immutable bindings" in §6.
+      Globals go first, as the fix for
+      `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`
+      (S1, branch `feat/global-lend-to-call-is-an-error`).
 
 ## 5. Prerequisites, gates and the seed
 
@@ -6248,6 +6356,54 @@ not an estimate.
 3. **Follow-up: the cycle collector's predicate** narrows to
    `RefCell`/`Mutex`/`RwLock`-reaching cells (§3.12), measured on the
    collector's own benchmarks.
+
+### Decision 47: immutable bindings
+
+Decision 47 (§4) is the design. Each step is a Generation A PR, then its
+Generation B on the next seed. Today's seed rejects `mut(` in binding
+position ("Invalid binding to "mut""), so std and src adopt a form only
+once `SEED_VERSION` parses it.
+
+1. **Globals (the S1 fix).**
+   - Generation A:
+     - the parser accepts `mut(G) := v`, `(mut(G) : T) = v` and
+       `thread_local(mut(x))`;
+     - a write to an unmarked global is an error;
+     - lending a `mut(G)` is E0916, with the two review rules;
+     - both errors are enforced outside src/std;
+     - `yo fix --migrate mutable-globals` inserts the markers, and
+       `YO_AUDIT_GLOBAL_LEND=1` is the census.
+   - The census on 2026-10-15 found 332 written globals: src 236, std 12,
+     tests 81, `markdown_yo` 3. Lending the marked ones gives 259 E0916
+     sites, or about 87 once the 57 reassigned handle globals are reset in
+     place.
+   - Generation B: sweep src, std, tests and `markdown_yo` (with a
+     companion release), then enforce everywhere.
+2. **Locals, patterns and comptime.**
+   - Generation A:
+     - `mut(x)` in every binding position, patterns and destructuring
+       included, plus `mut(x) ::` and `comptime(mut(x)) :=`;
+     - the four-kind write error, enforced outside src/std;
+     - `yo fix --migrate mut-bindings` inserts the markers. A local's
+       writes are function-scoped, so the migration's inference is sound.
+   - Run a census first: `YO_AUDIT_MUT_BINDINGS=1` lists each binding
+     written after its definition, by kind.
+   - The runtime write to a `::` binding becomes an error here, unless the
+     globals step has already made it one.
+   - Generation B: sweep the tree, the docs and `markdown_yo`, then enforce
+     everywhere.
+   - Order: after V2b Generation B and before decision 43, so that
+     decision 43's `&mut` rules can assume `mut`.
+3. **Tests.**
+   - Each of the four write kinds is rejected on an unmarked local and on
+     a global, and accepted with `mut`.
+   - `mut(x) : T` in parameter position stays E0009.
+   - The rebind `mut(y) := x` moves.
+   - A `mut(G)` gets E0916 and E0909, and `&G` of an unmarked global is
+     lent freely.
+   - The two review rules for handle globals.
+   - Comptime `mut(x) :: v` and `comptime(mut(x)) := v` can be reassigned,
+     and the plain forms cannot.
 
 ### V5: remove `ref(...)` and `atomic(...)`
 
