@@ -388,6 +388,31 @@ Every one is pushed. "Next" is the exact next action.
   5. Generation B: sweep std and src, then turn the error on.
   - This is a language change, so it needs Generation A and then Generation B across a seed. The marker must parse in the seed before std or src may use it.
 
+#### `perf/type-key-memo-identity` — identity front caches for the type-key memos, no PR yet (head `cef6fd052`, on develop `31ef8d7a3`)
+
+- **What:** §4 step 13, done.
+  - A type-key epoch in `src/types/string.yo` is bumped by every registry that `type_key`/`type_to_string` read.
+  - Address-sorted identity caches (the `_node_memo_lower_bound` pattern) sit in front of `nominal_declares_move_only`, `type_lacks_copy_for_flip` and `value_to_signature_string`.
+  - Only types that mention no SomeT are cached. A SomeT's trait lists grow in place, which the cross-check knob caught on `btree_map.yo`.
+  - `YO_DEBUG_TYPE_KEY_MEMO_CHECK=1` cross-checks every fast hit against the string path. It passes on `./src` and `./std`.
+- **Measured** locally (M4, DYLD allocation interposer, `check src/main.yo`):
+  - allocation calls 2,999,346,315 → 1,784,455,255 (−40.5%);
+  - instructions 4.435T → 3.237T;
+  - `check ./src` 167.3/167.0 s → 130.4/129.8 s (−22%), with RSS unchanged.
+- **Tier 1 passed:**
+  - check src 278/278 and std 171/171;
+  - `move_only`, `copy_trait`, `derive`, `derive_clone_complex`, `closure`, `dyn`, `generic_instantiation_compat`;
+  - internal `check_watch`, `formatter`, `module_invalidation`, `type_key`, `types_compound`, `types_string_compat`;
+  - fmt, issue refs.
+- **The ratchet:** `check_src_main_alloc_calls` is lowered to 1,782,545,714. That value scales CI's baseline by the local ratio, so it is an estimate, not a CI count. If the first battery's glibc count differs by more than 5%, replace it with CI's number; that is expected, not a regression.
+- **Next:**
+  1. Rebase onto develop.
+  2. Open the PR, re-run Tier 1 on the rebased head, and admin-merge.
+  3. A non-allocating cacheability check (a flag on the node) would win back the ~52M allocations the SomeT gate costs.
+- **Filed** (docs copied to develop by the handover PR):
+  - `issues/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a develop regression shipped in v0.2.63**). `match(r, Rc(.A(xs)) => …)` on `N :: enum(A(xs : ArrayList(i32)), B)` emits `r->_u42_->_u42_` and fails to C-compile; the v0.2.62 seed compiles it. The suspect is V4's `_lookthrough_switch_cell` (#1369). Fix it first after the cut.
+  - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3). `BTreeMap`'s `K` carries `Ord(K)` 15 times.
+
 #### Stale remote branches
 
 These have merged, or were superseded. Verify each with `git log origin/develop --grep` or `gh pr list --state merged --head <branch>` before deleting:
@@ -442,7 +467,7 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
     - Dry run on develop 2026-10-15: 201 docs to rename, 263 files rewritten.
     - Tier 1: `check-issue-refs.sh`, cli-diff (re-record only the cases whose diff is the rename), `fmt --check`.
     - Only the root and `questions/` docs move; `fixed/` and `retired/` keep their names.
-13. **The allocation memo-key optimization** (`issues/fixed/2026-10-15-v4-typevalue-rc-raises-the-check-allocation-count-by-7-percent.md`, "Resolution"; S3, not a regression).
+13. **The allocation memo-key optimization: DONE on `perf/type-key-memo-identity` (§2.3), waiting for a PR.** Background: (`issues/fixed/2026-10-15-v4-typevalue-rc-raises-the-check-allocation-count-by-7-percent.md`, "Resolution"; S3, not a regression).
     - About 1.0 billion of the ~3.0 billion allocations of `check src/main.yo` are `type_key(ty)` strings (~5 KB each) built only to look up `g_move_only_memo` (`nominal_declares_move_only`, `src/evaluator/values/impl.yo`) and `g_lacks_copy_memo` (`type_lacks_copy_for_flip`, `src/evaluator/trait_checking.yo`).
     - Key them without building the string: an identity front cache, sound only for types with no unresolved type variables, or a hashed key.
     - Lower the ratchet baseline in the same PR.
