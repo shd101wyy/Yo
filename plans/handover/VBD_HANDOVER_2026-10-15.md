@@ -464,6 +464,14 @@ x :: 12;                           // a true constant
   - `mut(x) :: v` and `comptime(mut(x)) := v` are the mutable forms.
   - **Open point for the next agent:** module-level `::` bindings are order-independent and forced lazily (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`). A mutable lazy binding's value would depend on which definition forces it first, the load-order class #1382 fixed.
   - Recommendation: allow `mut(x) :: v` in ordered (block) scope, and at module level only if it is never written from a lazily forced definition. Or simply reject it at module level, pointing at `comptime(mut(x)) := v` in a block. Bring this to the maintainer before implementing.
+- **Statics follow Zig (maintainer, 2026-10-15: "I am saying about static keyword to follow zigs way"). There is no `static` keyword or `static(...)` wrapper anywhere.** This supersedes a "blocks only `static(x)`" answer given minutes earlier.
+  - **Where a binding is declared decides its lifetime**, as with Zig's container-level declarations:
+    - a module-level `x := v` is an immutable global (Zig's container-level `const`);
+    - `mut(x) := v` is a mutable global (Zig's container-level `var`);
+    - `thread_local(mut(x)) := v` is Zig's `threadlocal var`;
+    - inside a block, `x := v` / `mut(x) := v` are locals (Zig's local `const`/`var`), and `comptime(mut(x)) := v` is Zig's `comptime var`.
+  - **Function-local statics get no dedicated syntax.** Zig writes them as a `var` inside a struct type declared in the function body, or as a file-level `var`. Yo's answer is a module-level `mut(_f_state)` next to the function. If Yo gains namespaced static members on a type declared in a body, that is the Zig-shaped extension; it is not part of this decision.
+  - **Open, for the implementation phase:** Zig also makes container-level initializers implicitly comptime and lazily analyzed. Yo's module-level `:=` accepts runtime initializers today; whether to tighten that is NOT decided.
 - **Parameters take no `mut`; they stay immutable.** A closure's parameters, `for` element bindings and capture-list entries follow the same rule. A body that needs to mutate a by-value argument rebinds it: `mut(y) := x;` (a move, not a copy, for an owning value). Why:
   1. **It is invisible to the caller.** In Rust, `fn f(mut x: T)` is sugar for `fn f(x: T) { let mut x = x; … }`. The `mut` is not part of the signature, the type or the calling convention, so it adds nothing to the contract.
   2. **Yo's parameters are already immutable:** `x = (x + 1)` on a parameter is E0902 today ("Cannot reassign"). Keeping them immutable changes nothing for parameters, except that field writes and `&mut self` calls on a by-value parameter now need the rebind.
