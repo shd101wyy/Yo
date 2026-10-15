@@ -3990,7 +3990,7 @@ and in git, not a silent edit.
       - Decision 43's `&mut` rules can assume `mut`.
     - **Rollout:** the phase "Decision 47: immutable bindings" in §6.
       Globals go first, as the fix for
-      `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`
+      `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`
       (S1, branch `feat/global-lend-to-call-is-an-error`).
 
 ## 5. Prerequisites, gates and the seed
