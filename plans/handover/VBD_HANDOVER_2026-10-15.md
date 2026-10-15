@@ -381,7 +381,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 
 #### `fix/runtime-write-to-comptime-constant` — E0918, a `::` binding written at runtime, no PR yet (head `f0a97445f`, on develop `6f6a2d8e9`)
 
-- **What:** E0918 `E_COMPTIME_BINDING_RUNTIME_WRITE`, raised by `_reject_runtime_write_of_comptime_binding` (`src/evaluator/exprs/assignment.yo`) through `raise_flow_violation`. It fixes the S2 `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (moved to `issues/fixed/` on the branch) independently of decision 47.
+- **What:** E0918 `E_COMPTIME_BINDING_RUNTIME_WRITE`, raised by `_reject_runtime_write_of_comptime_binding` (`src/evaluator/exprs/assignment.yo`) through `raise_flow_violation`. It fixes the S2 `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (moved to `issues/fixed/` on the branch) independently of decision 47.
   - It fires for a plain, field or element write in a runtime body (function, closure, `io.async`, test) when the `::` binding is declared outside that body, or the value written is a runtime one. A write through a `ref` handle is not a write of the binding.
   - Unchanged: module-level `G :: 1; G = 2;`, a body's own `a :: 1; a = 2;` at compile time, `while(comptime(...))` counters, `-> comptime(...)` bodies and `comptime_fn`.
   - Not covered: a compile-time value written to a body's own `::` under a runtime `cond` arm or loop (needs flow sensitivity; decision 47's `mut(a) ::` owns it).
@@ -733,7 +733,7 @@ x :: 12;                           // a true constant
   - The global-lend fix first, already spelled `mut(G)`.
   - The general phase (§4 step 9) after the queued Generation B items and before decision 43, because decision 43's `&mut` rules can then assume `mut`.
   - Generation A needs the parser to accept `mut(` in binding position; the seed rejects it today ("Invalid binding to "mut"").
-- **Bug found while checking the rule:** `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2). `G :: i32(1)` written at runtime reads 3, while `H :: G + 10` was folded from 1.
+- **Bug found while checking the rule:** `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2). `G :: i32(1)` written at runtime reads 3, while `H :: G + 10` was folded from 1.
 
 ---
 
@@ -757,7 +757,7 @@ x :: 12;                           // a true constant
 
 - `issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a regression shipped in v0.2.63**; §4 item 0a).
 - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3): `BTreeMap`'s `K` carries `Ord(K)` 15 times.
-- `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed on `fix/runtime-write-to-comptime-constant` (E0918).
+- `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed on `fix/runtime-write-to-comptime-constant` (E0918).
 - `issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).
 - Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (`fix/runtime-write-to-comptime-constant`), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (landed with #1401).
 - `issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2): fixed by #1368.
