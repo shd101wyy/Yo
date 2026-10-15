@@ -2591,10 +2591,16 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
           match(
             fields.get(usize(0)),
             .Some(f) => {
-              matched_value_code = `${cell_base}->${sanitize_for_c_identifier(f.label.clone(), false)}`;
-              match_value_type = resolve_enum_shell(&f.ty);
-              // Only the tagged-union switch reads through a wrapper arm.
-              through_switch = (is_enum_type(&match_value_type) && can_optimize_as_nullable_pointer(&match_value_type).is_none() && !can_optimize_as_simple_enum(&match_value_type));
+              payload_ty := resolve_enum_shell(&f.ty);
+              // Only the tagged-union switch reads through a wrapper arm. Any
+              // other payload keeps the handle as the subject: the test chain
+              // takes the arms' own `Rc` hop, so rewriting the subject here
+              // would hop twice (issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md).
+              through_switch = (is_enum_type(&payload_ty) && can_optimize_as_nullable_pointer(&payload_ty).is_none() && !can_optimize_as_simple_enum(&payload_ty));
+              if(through_switch, {
+                matched_value_code = `${cell_base}->${sanitize_for_c_identifier(f.label.clone(), false)}`;
+                match_value_type = payload_ty;
+              });
             },
             .None => ()
           );
