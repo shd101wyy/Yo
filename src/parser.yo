@@ -1474,7 +1474,8 @@ impl(
       simple_args := ArrayList(AstExpr).new();
       simple_args.push(primary);
       simple_args.push(rhs);
-      self.parse_primary_end(.FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok), simple_args, true, op_tok), index, exn)
+      (simple_call : AstExpr) = .FnCall(self.alloc_id(), .Atom(self.alloc_id(), op_tok), simple_args, true, op_tok);
+      self.parse_primary_end(&simple_call, index, exn)
     })
   }),
   parse_primary : (fn(self : &mut Self, index : usize, exn : Exception) -> ParseResult)({
@@ -1746,7 +1747,8 @@ impl(
         .Some(t) => (t.kind == TokenKind.LParen),
         .None => false
       );
-      if(!nxt_is_immediate_lparen && self.token_starts_prefix_operand(self.skip_ws_fwd(cur_idx)), {
+      operand_at := self.skip_ws_fwd(cur_idx);
+      if(!nxt_is_immediate_lparen && self.token_starts_prefix_operand(operand_at), {
         op_tok := match(cur_expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
         inner := self.parse_prefix_operand(cur_idx, exn);
         cur_expr = .FnCall(self.alloc_id(), cur_expr, array_list(inner.expr), false, op_tok);
@@ -1815,10 +1817,12 @@ impl(
         .Some(t) => (t.kind == TokenKind.LParen),
         .None => false
       );
-      if(!immediate_lparen && self.token_starts_prefix_operand(self.skip_ws_fwd(pr.index)), {
+      operand_at := self.skip_ws_fwd(pr.index);
+      if(!immediate_lparen && self.token_starts_prefix_operand(operand_at), {
         op_tok := match(pr.expr, .Atom(_, at) => at, .FnCall(_, _, _, _, ft) => ft);
         operand := self.parse_prefix_operand(pr.index, exn);
-        return(self.parse_primary_end(.FnCall(self.alloc_id(), pr.expr, array_list(operand.expr), false, op_tok), operand.index, exn));
+        (prefix_call : AstExpr) = .FnCall(self.alloc_id(), pr.expr, array_list(operand.expr), false, op_tok);
+        return(self.parse_primary_end(&prefix_call, operand.index, exn));
       });
     });
     self.parse_primary_end(&pr.expr, pr.index, exn)

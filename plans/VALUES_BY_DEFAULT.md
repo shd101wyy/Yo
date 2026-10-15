@@ -1091,8 +1091,10 @@ instead.
       (`_check_future_call_argument_conflicts`); a read is left to decision
       28's argument exclusivity
       (`issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-the-future.md`).
-      A plain call has the move case too, with the borrow ending at the call
-      (`issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`).
+      A plain call has the same three cases, with the borrow ending at the
+      call
+      (`issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`,
+      `issues/fixed/a-later-argument-can-overwrite-the-place-an-earlier-argument-lends-to-a-call.md`).
     - **Bindings** include a `match` arm's pattern bindings
       (`note_second_class_binding` runs for them), and `_ := f(&mut x, io)`
       is rejected by name: a borrowing future cannot be discarded.
@@ -1737,11 +1739,21 @@ and in git, not a silent edit.
       in a nested call or a block (`f(&mut a, eat(a))`), is E0910
       (`_check_call_lent_place_moves`, `src/evaluator/calls/function.yo`;
       `issues/fixed/a-later-argument-can-move-the-place-an-earlier-argument-lends-to-a-call.md`).
-      An overwrite or a `&mut` relend in a later argument stays accepted for
-      a plain call (the callee sees the new value); a borrowing future
-      rejects all three (§3.13 A2). Whether a plain call should reject them
-      too is
-      `issues/questions/a-later-argument-overwriting-a-place-lent-to-a-plain-call.md`.
+      An overwrite or a `&mut` relend in a later argument stayed accepted for
+      a plain call (the callee was said to see the new value); a borrowing
+      future rejects all three (§3.13 A2).
+    - **As built (2026-10-14): the two-phase borrow rule.** A `&x.f`
+      argument is read before the later arguments run, so an overwrite or a
+      `&mut` relend of `x` in a later argument dropped what the callee read.
+      A plain call now rejects all three too (E0910,
+      `issues/fixed/a-later-argument-can-overwrite-the-place-an-earlier-argument-lends-to-a-call.md`):
+      an argument's borrow starts when it is evaluated and lasts until the
+      call returns; a read or a `&` relend in a later argument passes. The
+      lent places include an operand an operator's method borrows
+      (`a == make(eat(a))`,
+      `issues/fixed/2026-10-14-an-operator-operand-lent-to-its-method-can-be-moved-by-the-other-operand.md`)
+      and the receiver of a call that omits defaulted parameters
+      (`issues/fixed/2026-10-14-a-method-call-omitting-a-defaulted-parameter-skips-the-lent-receiver-check.md`).
 29. *(Superseded by decision 30, which needs no lowering rule.)* It
     recorded two facts that still hold:
     - **Hylo passes every parameter and result by pointer**, adding only

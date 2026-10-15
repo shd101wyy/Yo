@@ -391,7 +391,7 @@ that borrows:
   lent place, assign to it or lend it `&mut` again
   (`bump_by(&mut c, take(c), io)` and `bump_by(&mut c, c.touch(), io)` with a
   `&mut self` method are E0910). Compute such an argument before the
-  statement. A plain call rejects only the move, since its borrow ends with
+  statement. A plain call rejects the same three, with the borrow ending at
   the call ([FLOWABILITY.md](./FLOWABILITY.md#one-call-site-rule)).
 
 A call through a function value (a local or parameter of function type)

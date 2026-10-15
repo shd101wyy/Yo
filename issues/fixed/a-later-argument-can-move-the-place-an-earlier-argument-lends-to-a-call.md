@@ -79,10 +79,12 @@ it (`&mut a`) ...", with the help "move a copy instead (`a.clone()`), or split
 the call so the move comes after it". The move check is shared with the
 future rule (`_lent_place_moved_at`).
 
-An overwrite or a `&mut` relend of the lent place in a later argument stays
-accepted for a plain call: it finishes before the call runs and the callee
-sees the new value. Whether to reject it anyway is the decision 28 question
-`issues/questions/a-later-argument-overwriting-a-place-lent-to-a-plain-call.md`.
+An overwrite or a `&mut` relend of the lent place in a later argument stayed
+accepted for a plain call, on the reading that it finishes before the call
+runs and the callee sees the new value; that was filed as a decision 28
+question. Resolved 2026-10-14: the reading is false for a `&x.f` argument
+(read before the later arguments run), and both forms are now rejected too,
+`issues/fixed/a-later-argument-can-overwrite-the-place-an-earlier-argument-lends-to-a-call.md`.
 
 Documented in `docs/{en-US,zh-CN}/FLOWABILITY.md` ("One call-site rule"),
 `docs/{en-US,zh-CN}/ASYNC_AWAIT.md`, decision 28's "As built" note in

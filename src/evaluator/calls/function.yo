@@ -2998,23 +2998,28 @@ _lent_place_moved_at :: (fn(lp : &_LentPlace, ctx : &EvalContext) -> Option(AstE
 );
 /// Decision 28's argument exclusivity across a whole argument list: the
 /// arguments are evaluated in order, so a place an argument lends (`&x`,
-/// `&mut x`, `&mut x.f`, or the receiver of a method that borrows `self`) is
-/// borrowed while the later arguments run. A later argument that moves the
-/// place's root binding (`f(&mut a, eat(a))`, a move inside a nested call or
-/// a block) leaves the callee reading and writing a moved-out, disposed
-/// place. An overwrite or a `&mut` relend in a later argument finishes before
-/// the call runs, and the callee sees the new value, so it stays accepted
-/// (issues/questions/a-later-argument-overwriting-a-place-lent-to-a-plain-call.md).
+/// `&mut x`, `&mut x.f`, the receiver of a method that borrows `self`, or the
+/// operand of an operator whose method borrows it, `a == b` with Eq's
+/// `lhs : &Self`) is borrowed from the moment that argument is evaluated until
+/// the call returns. A later argument may not move the place's root binding
+/// (`f(&mut a, eat(a))`, a move inside a nested call or a block), overwrite an
+/// overlapping place (`f(&p.s, { p = q; k })`) or lend one `&mut` (written out,
+/// or as the receiver of a `&mut self` method): the callee would read and
+/// write a place whose value was already dropped. A read, or a `&` relend,
+/// passes (`xs.push(xs.len())`). This is Rust's two-phase borrow rule
+/// (issues/fixed/a-later-argument-can-overwrite-the-place-an-earlier-argument-lends-to-a-call.md).
 /// A call that makes a borrowing future checks its captured places first,
-/// with the stricter §3.13 A2 rule (`_check_future_call_argument_conflicts`).
+/// with the §3.13 A2 message (`_check_future_call_argument_conflicts`).
 /// A root in `moved_before` was already moved when the call started
 /// (`_lent_roots_moved_before`), so no argument of this call moved it.
-_check_call_lent_place_moves :: (fn(call : &AstExpr, moved_before : &ArrayList(String), ctx : &EvalContext, exn : Exception) -> unit)({
+_check_call_lent_place_moves :: (fn(call : &AstExpr, moved_before : &ArrayList(String), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(()));
   // The receiver of a method whose `self` is a borrow (`self : &Self`,
   // `self : &mut Self`): `recv.m(args)` lends a place named by the receiver.
   // A by-value `self` moves the receiver itself, and a later use of it is
-  // E0901.
+  // E0901. The call may omit defaulted parameters, so the method takes at
+  // least the receiver and the written arguments; a type-qualified call
+  // (`T.m(&x, k)`) names a type there, which no argument moves or writes.
   match(
     _call_receiver_place(call),
     .Some(recv) => {
@@ -3022,23 +3027,116 @@ _check_call_lent_place_moves :: (fn(call : &AstExpr, moved_before : &ArrayList(S
         lookup_method_callee_value(ast_expr_id(call)),
         .Some(.FuncVal(mfv, _)) => match(
           get_func_type(&mfv.*.func_id),
-          Rc(.Func({ param_types : mpt, meta : mm })) => ((mpt.len() == (op_args.len() + usize(1))) && !match(mm.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => true)),
+          Rc(.Func({ param_types : mpt, meta : mm })) => (((op_args.len() + usize(1)) <= mpt.len()) && !match(mm.*.param_is_owning.get(usize(0)), .Some(o) => o, .None => true)),
           _ => false
         ),
         _ => false
       );
       if(recv_borrowed, {
-        _check_lent_place_not_moved(&recv, &recv, moved_before, ctx, exn);
+        _check_call_lent_place(&recv, &recv, &op_args, usize(0), moved_before, env, ctx, exn);
       });
     },
     .None => ()
   );
+  operand_is_lent := _operator_operand_is_lent(call, ctx);
   (ai : usize) = usize(0);
   while(ai < op_args.len(), ai = (ai + usize(1)), {
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
-    match(_lent_argument_place(&lent), .Some(place) => _check_lent_place_not_moved(&place, &lent, moved_before, ctx, exn), .None => ());
+    match(
+      _lent_argument_place(&lent),
+      .Some(place) => _check_call_lent_place(&place, &lent, &op_args, ai + usize(1), moved_before, env, ctx, exn),
+      .None => if(match(operand_is_lent.get(ai), .Some(r) => r, .None => false) && _is_plain_place_expr(&lent), {
+        _check_call_lent_place(&lent, &lent, &op_args, ai + usize(1), moved_before, env, ctx, exn);
+      })
+    );
   });
 });
+/// The per-operand borrow flags of an infix operator call `a op b` evaluated
+/// at run time: which parameters of the resolved operator method, stamped on
+/// the operator atom, borrow (Eq's and Ord's `lhs : &Self, rhs : &Rhs`).
+/// Empty for any other call, and for an operator folded at compile time.
+_operator_operand_is_lent :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(bool))({
+  none := ArrayList(bool).new();
+  (op_callee : AstExpr) = match(call, .FnCall(_, c, _, inf, _) => if(inf, c, return(none)), .Atom(_, _) => return(none));
+  op_name := match(op_callee, .Atom(_, op_tok) => op_tok.value.clone(), .FnCall(_, _, _, _, _) => return(none));
+  if(!string_is_operator(&op_name), {
+    return(none);
+  });
+  // A parameter borrows unless it is by value (`param_is_owning`): `&T` and
+  // `&mut T` both lend the operand.
+  owning := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&op_callee)),
+    .Some(ci) => match(
+      ci.ty,
+      Rc(.Func({ meta : om })) => om.*.param_is_owning,
+      _ => match(extract_fn_trait_from_type(&ci.ty), .Some(Rc(.FnTraitT(_, _, _, _, _, _, _, cpof))) => cpof, _ => return(none))
+    ),
+    .None => return(none)
+  );
+  out := ArrayList(bool).new();
+  (oi : usize) = usize(0);
+  while(oi < owning.len(), oi = (oi + usize(1)), {
+    out.push(!match(owning.get(oi), .Some(o) => o, .None => true));
+  });
+  out
+});
+/// `place`, lent to a call by the argument `lent_arg`, is neither moved nor
+/// overwritten nor lent `&mut` by the arguments in `args` from `from` on.
+_check_call_lent_place :: (
+  fn(place : &AstExpr, lent_arg : &AstExpr, args : &ArrayList(AstExpr), from : usize, moved_before : &ArrayList(String), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
+  root_name := ast_expr_token(&lp.root).value.clone();
+  (mi : usize) = usize(0);
+  while(mi < moved_before.len(), mi = (mi + usize(1)), {
+    if(match(moved_before.get(mi), .Some(n) => (n == root_name), .None => false), {
+      return(());
+    });
+  });
+  match(
+    _lent_root_moved_at(&lp, env, ctx),
+    .Some(moved_atom) => _check_lent_place_not_moved(&moved_atom, &lp, lent_arg, ctx, exn),
+    .None => ()
+  );
+  (ai : usize) = from;
+  while(ai < args.len(), ai = (ai + usize(1)), {
+    arg := match(args.get(ai), .Some(a) => a, .None => return(()));
+    match(
+      _find_lent_place_access(&arg, &lp, ctx),
+      .Some(hit) => {
+        root := ast_expr_to_string(&lp.root);
+        raise_flow_violation(
+          with_code(
+            format_error_message_with_help(
+              ast_expr_token(&hit.0),
+              `This argument ${hit.1} \`${root}\`, which an earlier argument of the same call lends to it (\`${ast_expr_to_string(lent_arg)}\`): the borrow starts when that argument is evaluated and lasts until the call returns, so the callee would read a place a later argument replaced, or one two borrows reach at once (decision 28's argument exclusivity, plans/VALUES_BY_DEFAULT.md).`,
+              Option(String).Some(String.from("compute the later argument before the call (`k := ...; f(&mut x, k)`)"))
+            ),
+            E_BORROW_CONFLICT
+          ),
+          ctx,
+          exn
+        );
+      },
+      .None => ()
+    );
+  });
+});
+/// Where a later argument moved the root binding of `lp`: the binding the
+/// evaluator recorded on the place's root atom, else (an operator operand,
+/// evaluated before its method resolved, records none) the innermost binding
+/// of that name.
+_lent_root_moved_at :: (fn(lp : &_LentPlace, env : &Environment, ctx : &EvalContext) -> Option(AstExpr))(
+  match(
+    _lent_root_variable(&lp.root, ctx),
+    .Some(_) => _lent_place_moved_at(lp, ctx),
+    .None => match(
+      get_variables_from_env(env, &ast_expr_token(&lp.root).value).last(),
+      .Some(ev) => match(ev.consumed_at_token, .Some(moved_at) => Option(AstExpr).Some(AstExpr.Atom(alloc_global_expr_id(), moved_at.clone())), .None => Option(AstExpr).None),
+      .None => Option(AstExpr).None
+    )
+  )
+);
 /// The receiver of `call` when it is a method call `recv.m(args)` on a
 /// receiver that is a name or a field chain on one.
 _call_receiver_place :: (fn(call : &AstExpr) -> Option(AstExpr))({
@@ -3063,10 +3161,19 @@ _lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment) -> ArrayLis
   op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(out));
   places := ArrayList(AstExpr).new();
   match(_call_receiver_place(call), .Some(r) => places.push(r), .None => ());
+  // An infix operator's operands may be lent (`a == b`); which ones is known
+  // only once the operator method resolves, so take every place operand.
+  is_operator_call := match(call, .FnCall(_, .Atom(_, op_tok), _, inf, _) => (inf && string_is_operator(&op_tok.value) && (op_tok.value != BF_DOT) && (op_tok.value != BK_ASSIGN)), _ => false);
   (ai : usize) = usize(0);
   while(ai < op_args.len(), ai = (ai + usize(1)), {
     lent := match(op_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
-    match(_lent_argument_place(&lent), .Some(p) => places.push(p), .None => ());
+    match(
+      _lent_argument_place(&lent),
+      .Some(p) => places.push(p),
+      .None => if(is_operator_call && _is_plain_place_expr(&lent), {
+        places.push(lent);
+      })
+    );
   });
   (pi : usize) = usize(0);
   while(pi < places.len(), pi = (pi + usize(1)), {
@@ -3087,21 +3194,14 @@ _lent_roots_moved_before :: (fn(call : &AstExpr, env : &Environment) -> ArrayLis
   });
   out
 });
-/// `place`, lent to a call by `lent_arg`, was not moved by a later argument.
-_check_lent_place_not_moved :: (fn(place : &AstExpr, lent_arg : &AstExpr, moved_before : &ArrayList(String), ctx : &EvalContext, exn : Exception) -> unit)({
-  lp := match(_lent_place_of(place), .Some(p) => p, .None => return(()));
-  (mi : usize) = usize(0);
-  while(mi < moved_before.len(), mi = (mi + usize(1)), {
-    if(match(moved_before.get(mi), .Some(n) => (n == ast_expr_token(&lp.root).value), .None => false), {
-      return(());
-    });
-  });
-  moved_atom := match(_lent_place_moved_at(&lp, ctx), .Some(m) => m, .None => return(()));
+/// The E0910 for `moved_atom`, a later argument's move of the place `lp`
+/// that `lent_arg` lends to the call.
+_check_lent_place_not_moved :: (fn(moved_atom : &AstExpr, lp : &_LentPlace, lent_arg : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit)({
   root := ast_expr_to_string(&lp.root);
   raise_flow_violation(
     with_code(
       format_error_message_with_help(
-        ast_expr_token(&moved_atom),
+        ast_expr_token(moved_atom),
         `This argument moves \`${root}\`, which an earlier argument of the same call lends to it (\`${ast_expr_to_string(lent_arg)}\`): the arguments are evaluated in order, so the callee would read and write a place whose value was already moved out and dropped (decision 28's argument exclusivity, plans/VALUES_BY_DEFAULT.md).`,
         Option(String).Some(`move a copy instead (\`${root}.clone()\`), or split the call so the move comes after it`)
       ),
@@ -6267,7 +6367,7 @@ evaluate_function_call :: (
     std_r := _evaluate_function_call_unanchored(expr, env, given_type, given_value, ctx, exn);
     _attach_fnonce_callee_release(expr, &std_r, ctx);
     _note_future_producing_call(expr, &std_r, ctx, exn);
-    _check_call_lent_place_moves(expr, &moved_before, ctx, exn);
+    _check_call_lent_place_moves(expr, &moved_before, env, ctx, exn);
     return(std_r);
   });
   out := ArrayList(AstExpr).new();
@@ -6281,7 +6381,7 @@ evaluate_function_call :: (
       r := match(out.get(usize(0)), .Some(e) => e, .None => expr);
       _attach_fnonce_callee_release(expr, &r, ctx);
       _note_future_producing_call(expr, &r, ctx, exn);
-      _check_call_lent_place_moves(expr, &moved_before, ctx, exn);
+      _check_call_lent_place_moves(expr, &moved_before, env, ctx, exn);
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
       });

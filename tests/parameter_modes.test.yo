@@ -627,21 +627,160 @@ test("a later argument cannot move the place an earlier argument lends to the ca
     (g : Impl(Fn(c : &mut _PmRes, k : i32) -> i32)) = ((c : &mut _PmRes, k : i32) => (c.n + k));
     g(&mut a, _pm_consume(a))
   }, "an earlier argument of the same call lends to it");
-  // An overwrite or a `&mut` relend in a later argument finishes before the
-  // call runs, and the callee sees the new value
-  // (issues/questions/a-later-argument-overwriting-a-place-lent-to-a-plain-call.md).
+  o := _PmRes(n : i32(3));
   a := _PmRes(n : i32(1));
-  assert(
+  assert(_pm_sync(&mut a, _pm_consume(o)) == i32(4), "a later argument may move another binding");
+  assert(a.plus(i32(1)) == i32(5), "the lent place is intact");
+});
+
+// The borrow an argument lends starts when that argument is evaluated, so a
+// later argument may not overwrite the place or lend it `&mut` either: a `&`
+// argument naming a field is read before the later arguments run, and the
+// overwrite drops the value it points into
+// (issues/fixed/a-later-argument-can-overwrite-the-place-an-earlier-argument-lends-to-a-call.md).
+_PmLentStr :: struct(s : String, k : i32);
+_pm_str_len :: (fn(s : &String, k : i32) -> usize)(s.len());
+impl(
+  _PmRes,
+  bump : (fn(self : &mut Self, k : i32) -> i32)({
+    self.n = (self.n + k);
+    self.n
+  })
+);
+_pm_reset_str :: (fn(p : &mut _PmLentStr) -> i32)({
+  p.s = String.from("y");
+  i32(0)
+});
+test("a later argument cannot overwrite or relend the place an earlier argument lends", {
+  comptime_expect_error({
+    p := _PmLentStr(s : String.from("a heap-allocated string longer than the inline size"), k : i32(0));
+    _pm_str_len(&p.s, {
+      p = _PmLentStr(s : String.from("x"), k : i32(1));
+      i32(0)
+    })
+  }, "the borrow starts when that argument is evaluated");
+  comptime_expect_error({
+    p := _PmLentStr(s : String.from("a heap-allocated string longer than the inline size"), k : i32(0));
+    _pm_str_len(&p.s, _pm_reset_str(&mut p))
+  }, "the borrow starts when that argument is evaluated");
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
     _pm_sync(&mut a, {
       a = _PmRes(n : i32(10));
       i32(1)
-    }) == i32(11),
-    "the callee sees the overwritten value"
+    })
+  }, "the borrow starts when that argument is evaluated");
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
+    _pm_sync(&mut a, _pm_reset(&mut a))
+  }, "the borrow starts when that argument is evaluated");
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
+    a.plus({
+      a = _PmRes(n : i32(10));
+      i32(1)
+    })
+  }, "the borrow starts when that argument is evaluated");
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
+    _pm_peek(&a, a.bump(i32(1)))
+  }, "the borrow starts when that argument is evaluated");
+  comptime_expect_error({
+    xs := ArrayList(String).new();
+    xs.push(String.from("a"));
+    _pm_str_len(&xs(usize(0)), {
+      xs.push(String.from("b"));
+      i32(0)
+    })
+  }, "the borrow starts when that argument is evaluated");
+  // A read or a `&` relend of the lent place, and a write to a disjoint
+  // field, pass.
+  a := _PmRes(n : i32(1));
+  assert(_pm_sync(&mut a, a.plus(i32(1))) == i32(3), "a later argument may read the lent place");
+  assert(_pm_peek(&a, _pm_peek(&a, i32(0))) == i32(6), "a later argument may lend the place `&` again");
+  p := _PmLentStr(s : String.from("hello"), k : i32(0));
+  assert(
+    _pm_str_len(&p.s, {
+      p.k = i32(3);
+      i32(0)
+    }) == usize(5),
+    "a later argument may write a field the lent place does not overlap"
   );
-  assert(_pm_sync(&mut a, _pm_reset(&mut a)) == i32(22), "the callee sees the value a &mut relend wrote");
-  o := _PmRes(n : i32(3));
-  assert(_pm_sync(&mut a, _pm_consume(o)) == i32(25), "a later argument may move another binding");
-  assert(a.plus(i32(1)) == i32(26), "the lent place is intact");
+  assert(p.k == i32(3), "the disjoint write landed");
+  xs := ArrayList(i32).new();
+  xs.push(i32(xs.len()));
+  assert(xs(usize(0)) == i32(0), "a `&mut self` receiver lets a later argument read it");
+});
+
+// A method call that omits a defaulted parameter still lends its receiver
+// (issues/fixed/2026-10-14-a-method-call-omitting-a-defaulted-parameter-skips-the-lent-receiver-check.md).
+impl(_PmRes, peek_d : (fn(self : &Self, k : i32, (extra : i32) ?= i32(0)) -> i32)(self.n + (k + extra)));
+test("a later argument cannot move the receiver of a call that omits a defaulted parameter", {
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
+    a.peek_d(_pm_consume(a))
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    a := _PmRes(n : i32(1));
+    a.peek_d(_pm_consume(a), i32(0))
+  }, "an earlier argument of the same call lends to it");
+  a := _PmRes(n : i32(1));
+  o := _PmRes(n : i32(2));
+  assert(a.peek_d(_pm_consume(o)) == i32(3), "the receiver is lent, another binding moves");
+  assert(_PmRes.peek_d(&a, i32(1)) == i32(2), "a type-qualified call lends its `&a` argument");
+});
+
+// An operator whose method borrows its operands (Eq's and Ord's
+// `lhs : &Self`) lends them like a written `&a`
+// (issues/fixed/2026-10-14-an-operator-operand-lent-to-its-method-can-be-moved-by-the-other-operand.md).
+_PmCmp :: struct(n : i32);
+(g_pm_cmp_dropped : i32) = i32(0);
+impl(
+  _PmCmp,
+  Dispose(
+    dispose : (fn(self : &Self) -> unit)({
+      g_pm_cmp_dropped = (g_pm_cmp_dropped + i32(1));
+    })
+  )
+);
+impl(_PmCmp, Eq(_PmCmp)((==) : ((lhs, rhs) -> (lhs.n == rhs.n))));
+impl(
+  _PmCmp,
+  Ord(_PmCmp)(
+    (<) : ((lhs, rhs) -> (lhs.n < rhs.n)),
+    (<=) : ((lhs, rhs) -> (lhs.n <= rhs.n)),
+    (>) : ((lhs, rhs) -> (lhs.n > rhs.n)),
+    (>=) : ((lhs, rhs) -> (lhs.n >= rhs.n))
+  )
+);
+_pm_cmp_eat :: (fn(c : _PmCmp) -> i32)(c.n);
+_pm_cmp_make :: (fn(n : i32) -> _PmCmp)(_PmCmp(n : n));
+test("an operator operand its method borrows cannot be moved by the other operand", {
+  comptime_expect_error({
+    a := _PmCmp(n : i32(1));
+    a == _pm_cmp_make(_pm_cmp_eat(a))
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    a := _PmCmp(n : i32(1));
+    a != _pm_cmp_make(_pm_cmp_eat(a))
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    a := _PmCmp(n : i32(1));
+    a < _pm_cmp_make(_pm_cmp_eat(a))
+  }, "an earlier argument of the same call lends to it");
+  comptime_expect_error({
+    a := _PmCmp(n : i32(1));
+    a >= {
+      a = _PmCmp(n : i32(5));
+      _pm_cmp_make(i32(5))
+    }
+  }, "the borrow starts when that argument is evaluated");
+  a := _PmCmp(n : i32(1));
+  o := _PmCmp(n : i32(1));
+  assert(a == _pm_cmp_make(_pm_cmp_eat(o)), "the other operand may move another binding");
+  assert(a == a, "both operands may lend one place");
+  assert(a < _pm_cmp_make(i32(2)), "an ordinary comparison");
+  assert(a.n == i32(1), "the lent operand is intact");
 });
 
 test("imm is an ordinary identifier", {

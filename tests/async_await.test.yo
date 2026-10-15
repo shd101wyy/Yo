@@ -7432,6 +7432,8 @@ impl(
   })
 );
 test("a later argument cannot move, overwrite or lend &mut what an earlier one lends to the call's future (§3.13 A2)", {
+  // The plain-call rule (E0910 in `_check_call_lent_place_moves`) rejects
+  // these too; the future's §3.13 A2 message is the one reported.
   p := _A2Pair(n : i32(1), m : i32(2));
   comptime_expect_error(
     io.await(
@@ -7441,14 +7443,14 @@ test("a later argument cannot move, overwrite or lend &mut what an earlier one l
       }, io),
       io
     ),
-    "an earlier argument of the same call lends"
+    "an earlier argument of the same call lends to the future the call makes"
   );
-  comptime_expect_error(io.await(_a2_bump_by(&mut p, _a2_touch_pair(&mut p), io), io), "an earlier argument of the same call lends");
-  comptime_expect_error(io.await(_a2_bump_by(&mut p, p.touch(), io), io), "an earlier argument of the same call lends");
+  comptime_expect_error(io.await(_a2_bump_by(&mut p, _a2_touch_pair(&mut p), io), io), "an earlier argument of the same call lends to the future the call makes");
+  comptime_expect_error(io.await(_a2_bump_by(&mut p, p.touch(), io), io), "an earlier argument of the same call lends to the future the call makes");
   comptime_expect_error({
     q := _A2Pair(n : i32(1), m : i32(2));
     io.await(_a2_bump_by(&mut q, _a2_take_pair(q), io), io)
-  }, "an earlier argument of the same call lends");
+  }, "an earlier argument of the same call lends to the future the call makes");
   k := _a2_touch_pair(&mut p);
   assert(io.await(_a2_bump_by(&mut p, k, io), io) == i32(4), "an argument computed before the statement");
   o := _A2Pair(n : i32(2), m : i32(0));
