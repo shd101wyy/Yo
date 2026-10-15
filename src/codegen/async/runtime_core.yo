@@ -128,6 +128,14 @@ typedef struct __yo_waker_token_t {
   // (macos-latest)' for run 34777537902
   // (issues/fixed/a-waker-token-is-freed-while-back-on-the-inbox.md).
   _Atomic int refs;
+  // How many waker HANDLES share the token: 1 from __yo_waker_new, +1 per
+  // __yo_waker_clone (std's Waker is a move-only value with Clone,
+  // plans/VALUES_BY_DEFAULT.md §3.13 A5). Each handle also holds one of
+  // 'refs'. Only the LAST handle's release drops the park future and the
+  // loop's live-waker count, so a token stays one live waker for the loop
+  // however many handles it has. Atomic because a clone or a release may run
+  // on a worker thread.
+  _Atomic int handles;
 } __yo_waker_token_t;
 
 typedef struct __yo_loop_t {
@@ -784,8 +792,24 @@ static void* __yo_waker_new(void* f) {
   atomic_init(&t->release_pending, 0);
   // One reference: the handle this call returns.
   atomic_init(&t->refs, 1);
+  atomic_init(&t->handles, 1);
   atomic_fetch_add(&t->owner->live_wakers, 1);
   return (void*)t;
+}
+
+// Another handle on the same token (std's Waker.clone). Safe on any thread:
+// it touches only the token's atomic counts, never the park future, whose
+// count is non-atomic and belongs to the owner loop. The caller holds a
+// handle, so the token is alive and its future is not released yet. Balanced
+// by __yo_waker_release.
+static void* __yo_waker_clone(void* p) {
+  if (!p) {
+    return NULL;
+  }
+  __yo_waker_token_t* t = (__yo_waker_token_t*)p;
+  atomic_fetch_add(&t->handles, 1);
+  atomic_fetch_add(&t->refs, 1);
+  return p;
 }
 
 // Complete a park future and enqueue whoever is suspended on it. ONLY ever
@@ -952,12 +976,18 @@ static bool __yo_waker_is_woken(void* p) {
   return !f || atomic_load(&f->state) == -1;
 }
 
-// Drop a waker token.
+// Drop a waker handle; the last handle on a token releases the token.
 static void __yo_waker_release(void* p) {
   if (!p) {
     return;
   }
   __yo_waker_token_t* t = (__yo_waker_token_t*)p;
+  // Another handle still shares the token (__yo_waker_clone): drop only this
+  // handle's reference. The last handle does the release below.
+  if (atomic_fetch_sub(&t->handles, 1) != 1) {
+    __yo_waker_token_unref(t);
+    return;
+  }
   __yo_loop_t* owner = t->owner;
   if (owner != __yo_loop_self()) {
     // The park future's refcount belongs to the owner loop, so that drop is

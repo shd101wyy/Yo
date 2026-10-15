@@ -189,7 +189,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 | --- | --- | --- |
 | 0 | (a new fix branch) | §4 step 0a: the `Rc(.A(xs))` second-payload-hop regression, with a test |
 | 1 | #1378 from `vbd-d45-genb-rebased` | **landed** 2026-10-15 |
-| 2 | #1379 from `feat/vbd-v3-async-a5-rebased` | rebased onto #1378, Tier 1 green; revert `std/hash.yo` while landing |
+| 2 | #1379 from `feat/vbd-v3-async-a5-rebased` | **landed** 2026-10-15 (`std/hash.yo` reverted) |
 | 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | rebased, Tier 1 green |
 | 4 | `feat/global-lend-to-call-is-an-error` (no PR) | decision 47 globals, Generation A; Tier 1 green |
 | 5 | `fix/runtime-write-to-comptime-constant` (no PR) | E0918; Tier 1 green except 8 cli goldens to re-record; conflicts with item 4 |
@@ -239,6 +239,8 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 
 #### #1379 — V3 async A5: move-only wakers, parks, channel halves; streams take `&mut self` (`feat/vbd-v3-async-a5`, head `2996a8419`)
 
+> **LANDED 2026-10-15 as #1379** (squash-merged from `feat/vbd-v3-async-a5-rebased` after `--onto` the squashed #1378, the plan header resolved as Land step 1 says, `std/hash.yo` back to `self._compress(self.tail)`; re-gated: build, check src/std, `cross_thread_wake`, `async_await`, the async channel/waker tests). #1380 is retargeted to develop (Land step 5). **Follow-up (S1):** with leak verdicts on, every test awaiting `Receiver.recv` leaks the channel state, a develop codegen bug A5's `{ ch : self._ch }` capture exposes: `issues/2026-10-15-an-io-async-capture-copied-from-a-field-is-dup-ed-twice-when-the-body-awaits-a-future-borrowing-it.md`. Everything below is the history.
+>
 > **REBASED ONTO #1378 AND GATED 2026-10-15 — land it from `feat/vbd-v3-async-a5-rebased` (head `4cc522f97`, stacked on `cfc7e2e59`). "Next" steps 1, 2 and 4 below the box are done (history); step 3 is Land step 2 here.**
 >
 > - **Rebase:** with `--onto`, merge base `23787451b`. A5's commits `3838c6d8f` and `eb4f5a3c8` were skipped, because they duplicate #1382.

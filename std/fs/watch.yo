@@ -222,14 +222,18 @@ impl(
     /// re-`yield` in a loop, which kept the task always runnable: a waiting
     /// watcher spun a core and the loop never blocked
     /// (issues/fixed/poll-and-fs-event-watches-starve-while-the-loop-waits.md).
-    next : (fn(self : &Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
-      io.async((io : Io) => {
-        while(runtime((self._head >= self._queue.len()) && self._active), {
+    ///
+    /// The future holds its own handle on the watcher (a `Watcher` is a
+    /// shared `ref` object), so it borrows nothing: a borrow of a `ref`
+    /// object across the suspension is E0909 (§3.13 A2).
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(FsEvent), Io)))(
+      io.async({ w : self }(io : Io) => {
+        while(runtime((w._head >= w._queue.len()) && w._active), {
           p := Park.new();
-          self._waiters.push(p.waker());
+          w._waiters.push(p.waker());
           io.await(p.wait(io), io);
         });
-        self.poll()
+        w.poll()
       })
     )
   )

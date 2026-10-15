@@ -204,25 +204,27 @@ TcpListener :: ref(
 /// vocabulary.
 ///
 /// The stream finishes (`.None`) once the listener is closed — including by
-/// another task while a `next` is pending — mirroring `Watcher`.
+/// another task while a `next` is pending — mirroring `Watcher`. As there,
+/// `next`'s future holds its own handle, so it borrows nothing (a borrow of a
+/// `ref` object across the suspension is E0909, §3.13 A2).
 Incoming :: ref(struct(_listener : TcpListener));
 impl(
   Incoming,
   Stream(
     Item : Result(TcpStream, NetError),
     next : (
-      fn(self : &Self, io : Io) -> Impl(Future(Option(Result(TcpStream, NetError)), Io))
+      fn(self : &mut Self, io : Io) -> Impl(Future(Option(Result(TcpStream, NetError)), Io))
     )(
-      io.async((io : Io) => {
+      io.async({ inc : self }(io : Io) => {
         (out : Option(Result(TcpStream, NetError))) = Option(Result(TcpStream, NetError)).None;
-        if(!self._listener._is_closed, {
+        if(!inc._listener._is_closed, {
           // The raw accept, not the throwing `accept` method: this stream
           // reports failure IN the item, and an `Exception` handler cannot be
           // installed across a suspension inside an async body.
           addr_buf := (*u8)(malloc(usize(128)).unwrap());
           addr_len := (*u32)(malloc(usize(4)).unwrap());
           addr_len.* = u32(128);
-          client_fd := io.await(IO_tcp.accept(self._listener._fd, addr_buf, addr_len), io);
+          client_fd := io.await(IO_tcp.accept(inc._listener._fd, addr_buf, addr_len), io);
           // A failed accept, or an accepted socket that cannot be made safe
           // for `stream_write` (closed here, never handed out), is the item's
           // error.

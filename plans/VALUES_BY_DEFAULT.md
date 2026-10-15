@@ -84,6 +84,11 @@ Progress:
     `std/async` combinators take handle lists by value, and
     `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
     move bitwise through `__yo_ptr_read`/`__yo_ptr_write`;
+  - V3 async A5 (§3.13; #1379): `Waker` is a move-only
+    value (its `Clone` is Generation A in the runtime), the async
+    `Channel`/`Mutex` keep their state behind `Rc` with move-only
+    `Sender`/`Receiver`, and `Stream.next` takes `&mut self` over plain
+    value adapters;
   - V1 step 2 Generation A, the unique `Box(V)` (#1328; Step 2's "as
     built"), and Generation B, the `src/` sites (feat/vbd-v1-step2-box-genb:
     the verifier's local cells are `Box`; the owner chains and
@@ -126,8 +131,10 @@ Progress:
 - **In progress:**
   - V2b unique buffers, Generation A2: `yo fix --migrate explicit-copy`
     (feat/vbd-v2b-explicit-copy-migration, #1385, draft, on develop).
-  - V3's remaining async work (§3.13): A4's future operands, A5's remaining
-    lines, and A6's `Rc`-field half (V2c).
+  - V3's remaining async work (§3.13): A4's future operands, A5's
+    `Waker.clone` Generation B (it waits for a seed carrying
+    `__yo_waker_clone`), the async `Mutex` (#1380), and A6's `Rc`-field
+    half (V2c).
 - **Next:** decision 47's globals step (the global-lend S1; Generation A,
   then Generation B on the next seed), the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
@@ -1249,6 +1256,70 @@ instead.
     `Rc(Mutex(T))`.
   - **The five stream adapters** become plain values with
     `next(self : &mut Self, io)`.
+  - **As built (2026-10-14, feat/vbd-v3-async-a5).**
+    - **`Waker`** is `struct(_p : *u8)` with a `Drop` that releases its
+      token, so it is move-only; it stays `Send`/`Sync` (decision 38 E). A
+      waker moves into a `Thread.spawn` closure and is released on the worker
+      (the runtime's foreign-release path). `park(register, io)` hands the
+      waker to `register` by move (`Fn(w : Waker)`), so `register` can keep
+      it; with `&Waker` a kept copy was E0901.
+    - **`Waker.clone`, Generation A.** A clone is another handle on the same
+      token: the token cell keeps an atomic `handles` count beside `refs`,
+      and only the last handle's release drops the park future and the
+      loop's live-waker count, so a token stays one live waker however many
+      handles it has. `__yo_waker_clone` (`src/codegen/async/runtime_core.yo`)
+      touches only the token's atomic counts, so it is safe on a worker
+      thread, where the park future's non-atomic count must not be touched.
+      That is why a clone shares the token rather than registering a new one.
+      `std/sys/externs.yo` declares it; `tests/cross_thread_wake.test.yo`
+      exercises it through a test-local handle type (the owner keeps one
+      handle while the worker wakes and drops its clone, the queued-wake
+      regression's original ordering).
+    - **`Waker.clone`, Generation B** (needs a `SEED_VERSION` carrying
+      `__yo_waker_clone`): `impl(Waker, Clone(clone : … Waker(_p :
+      unsafe(__yo_waker_clone(self._p)))))` in `std/async/waker.yo`, and the
+      cross-thread tests go back to `Park` and `w.clone()`.
+    - **Waiter lists** move wakers in and out with no change: `push` takes
+      the waker by value and `remove(usize(0))` moves it out bitwise (A3
+      Generation B). `get` copies, so it is E0901 for a `Waker`: a list is
+      fired in place (`wakers(j).wake()`). The push goes through a helper on
+      the shared state (`_park_sender`, `_park_waiter`), because
+      `self._st._waiters.push(p.waker())` hops through the `Rc` and its
+      argument carries a raw pointer, which the container-reachability rule
+      (`_reject_if_container_reachable`) rejects.
+    - **The async `Channel(T)`** is `struct(_st : Rc(_ChannelState(T)))`, a
+      copyable handle (the fused MPMC handle). `send`/`recv` futures hold a
+      copy, so they borrow nothing. `Sender(T)` and `Receiver(T)` are value
+      structs over a `Channel(T)` with a `Drop`, so they are move-only;
+      `Sender` has `Clone`. `Receiver.recv` owns a copy of the channel
+      handle (`io.async({ ch : self._ch }…)`), so its future is first-class
+      too. A producer task takes its sender through its capture list
+      (`io.async({ tx }…)`), and `pair`'s tuple is taken apart with a
+      consuming `match`.
+    - **The async `Mutex(T)` is NOT move-only.** It is
+      `struct(_st : Rc(_MutexState(T)))`, a copyable handle like the
+      `Channel`, and its `lock`/`with_lock` futures hold a copy of the
+      handle. The line above cannot hold together with A2's amended `Rc`
+      rule: a move-only `Mutex` shared as `Rc(Mutex(T))` whose `lock` future
+      borrows it is E0909 at every `lock` (measured with v0.2.62). The
+      question and the recommendation (keep the handle, amend this line):
+      `issues/questions/2026-10-14-the-async-mutex-is-a-copyable-handle-not-move-only.md`.
+    - **Streams.** The trait's `next` takes `self : &mut Self`, and an
+      implementation borrows the stream through its capture list
+      (`io.async({ &mut self }…)`), so the future is second-class and a
+      source is a plain value (the tests' `Countdown` and `Ticker` are value
+      structs now). `Channel`, `Watcher` and `Incoming` implement the new
+      signature (the latter two are still `ref` objects until their own
+      resource conversion). The five adapters are plain value structs. The
+      combinators (`map`, `filter`, `filter_map`, `take`, `skip`) take the
+      stream and the closure by value, and so do the consumers
+      (`for_each`, `collect`): their future owns the stream, so
+      `io.spawn(chain.collect(io), io)` still works.
+    - **Bug found and fixed:**
+      `issues/fixed/2026-10-14-a-capture-in-a-generic-io-async-body-is-retained-with-another-instantiations-type.md`
+      (the construction-side twin of A3's capture-drop fix: the retain temps
+      of `collect`'s by-value capture were declared with another chain's
+      types).
 - **A6. The bundle copy.** `io.spawn` and a cold `io.await` copy the bundle
   into the future, because one bundle starts many futures.
   - An explicit-copy or move-only bundle field is an error at the site. A

@@ -36,25 +36,47 @@
 { ArrayList } :: import("../collections/array_list");
 { Waker, Park } :: import("./waker.yo");
 
-/// A mutual-exclusion lock for same-thread async tasks, protecting a `T`.
-Mutex :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      _locked : bool,
-      /// Waiters in arrival order. `unlock` wakes the FRONT one, which is what
-      /// makes acquisition FIFO; a stack here would starve the first arrival
-      /// under sustained contention.
-      _waiters : ArrayList(Waker),
-      _value : T
-    )
+/// The state a `Mutex(T)` handle shares, behind an `Rc`.
+_MutexState :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _locked : bool,
+    /// Waiters in arrival order. `unlock` wakes the FRONT one, which is what
+    /// makes acquisition FIFO; a stack here would starve the first arrival
+    /// under sustained contention. Each waker is moved in, and moved back out
+    /// to be fired.
+    _waiters : ArrayList(Waker),
+    _value : T
   )
+);
+impl(
+  generic(T : Type),
+  _MutexState(T),
+  /// A fresh park whose waker is queued (moved) at the back of the waiters.
+  _park_waiter : (fn(self : &mut Self) -> Park)({
+    p := Park.new();
+    self._waiters.push(p.waker());
+    p
+  })
+);
+/// A mutual-exclusion lock for same-thread async tasks, protecting a `T`.
+///
+/// A handle on state that lives behind an `Rc` (plans/VALUES_BY_DEFAULT.md
+/// §3.13 A5, the shape `Channel(T)` has): copying a `Mutex` shares the lock,
+/// which is how several tasks contend for one. `lock`'s and `with_lock`'s
+/// futures hold their own copy of the handle, so they borrow nothing and a
+/// spawned task may own them. A move-only `Mutex` shared as `Rc(Mutex(T))`
+/// cannot work: its `lock` future would borrow the mutex through the `Rc`
+/// across the suspension, which §3.13 A2 rejects (E0909)
+/// (`issues/questions/2026-10-14-the-async-mutex-is-a-copyable-handle-not-move-only.md`).
+Mutex :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(_st : Rc(_MutexState(T)))
 );
 impl(
   generic(T : Type),
   Mutex(T),
   /// A new unlocked mutex protecting `value`.
   new : (fn(value : T) -> Self)(
-    Self(_locked : false, _waiters : ArrayList(Waker).new(), _value : value)
+    Self(_st : rc(_MutexState(T)(_locked : false, _waiters : ArrayList(Waker).new(), _value : value)))
   ),
   /// Acquire the lock, suspending while another task holds it.
   ///
@@ -70,13 +92,12 @@ impl(
       (waiting : bool) = true;
       while(waiting, {
         cond(
-          !self._locked => {
-            self._locked = true;
+          !self._st._locked => {
+            self._st._locked = true;
             waiting = false;
           },
           true => {
-            p := Park.new();
-            self._waiters.push(p.waker());
+            p := self._st._park_waiter();
             io.await(p.wait(io), io);
           }
         );
@@ -96,7 +117,7 @@ impl(
   with_lock : (fn(generic(R : Type), self : &Self, body : &Impl(Fn(v : &mut T) -> R), io : Io) -> Impl(Future(R)))(
     io.async((io : Io) => {
       io.await(self.lock(io), io);
-      r := body(&mut self._value);
+      r := body(&mut self._st._value);
       self.unlock();
       return(r);
     })
@@ -104,9 +125,9 @@ impl(
   /// Acquire the lock without suspending: true on success.
   try_lock : (fn(self : &Self) -> bool)(
     cond(
-      self._locked => false,
+      self._st._locked => false,
       true => {
-        self._locked = true;
+        self._st._locked = true;
         true
       }
     )
@@ -119,35 +140,35 @@ impl(
   /// would make `try_lock` from a third task able to observe an unlocked mutex
   /// that is already spoken for.
   unlock : (fn(self : &Self) -> unit)({
-    assert(self._locked, "Mutex.unlock: not locked");
-    self._locked = false;
+    assert(self._st._locked, "Mutex.unlock: not locked");
+    self._st._locked = false;
     // A waiter whose task was cancelled refuses the wake (its park was taken
     // back), so keep going until a live waiter has it — spending the one wake
     // on a dead waiter left the next one suspended on a free lock.
     (woken : bool) = false;
-    while(runtime(!woken && (self._waiters.len() > usize(0))), {
-      w := self._waiters.remove(usize(0));
+    while(runtime(!woken && (self._st._waiters.len() > usize(0))), {
+      w := self._st._waiters.remove(usize(0));
       w.wake();
       woken = w.is_woken();
     });
   }),
   /// True while some task holds the lock.
   is_locked : (fn(self : &Self) -> bool)(
-    self._locked
+    self._st._locked
   ),
   /// How many tasks are suspended waiting for this lock. Diagnostics only.
   waiter_count : (fn(self : &Self) -> usize)(
-    self._waiters.len()
+    self._st._waiters.len()
   ),
   /// Read the protected value. Meaningful only while YOU hold the lock —
   /// single-threaded cooperation makes an unlocked read a logic bug, not a
   /// data race, so it is not prevented.
   get : (fn(self : &Self) -> T)(
-    self._value
+    self._st._value
   ),
   /// Replace the protected value (same locking contract as `get`).
   set : (fn(self : &Self, value : T) -> unit)({
-    self._value = value;
+    self._st._value = value;
   })
 );
 export(Mutex);

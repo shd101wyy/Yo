@@ -9,7 +9,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
-{ Park, Waker, yield_now } :: import("std/async/waker");
+{ Park, Waker, park, yield_now } :: import("std/async/waker");
 { yield } :: import("std/async");
 { Instant } :: import("std/time/instant");
 { sleep } :: import("std/sys/timer");
@@ -130,6 +130,59 @@ test("Test a park is waited on once, and its waker outlives the wait", {
 });
 
 // ---------------------------------------------------------------------------
+// 1c. A `Waker` is a move-only value (§3.13 A5): a waiter list moves it in and
+//     moves it back out to fire it, and dropping it releases its token.
+// ---------------------------------------------------------------------------
+test("Test a waker is moved into a waiter list and back out", {
+  p := Park.new();
+  waiters := ArrayList(Waker).new();
+  waiters.push(p.waker());
+  w := waiters.remove(usize(0));
+  w.wake();
+  io.await(p.wait(io), io);
+  assert(waiters.len() == usize(0), "the waker left the list when it was taken out");
+  comptime_expect_error({
+    q := Park.new();
+    a := q.waker();
+    b := a;
+    a.wake();
+    b.wake();
+  }, "moved");
+});
+
+// ---------------------------------------------------------------------------
+// 1d. `park` hands its waker to `register` by move, so `register` can keep it
+//     for whoever will fire it.
+// ---------------------------------------------------------------------------
+test("Test park moves its waker into register, which keeps it", {
+  slot := Rc(Option(Waker))(Option(Waker).None);
+  // The signaller: takes the kept waker out of the slot and fires it.
+  h := io.spawn(
+    io.async({ slot }(io : Io) => {
+      io.await(yield(io), io);
+      fired := match(
+        slot.*.take(),
+        .Some(w) => {
+          w.wake();
+          true
+        },
+        .None => false
+      );
+      fired
+    }),
+    io
+  );
+  io.await(
+    park((w : Waker) => {
+      slot.* = Option(Waker).Some(w);
+    }, io),
+    io
+  );
+  r := h.await(io);
+  assert(match(r, .Some(f) => f, .None => false), "register kept the waker, and firing it resumed the park");
+});
+
+// ---------------------------------------------------------------------------
 // 2. Waking twice is a no-op, which is what lets a waiter list signal
 //    everyone without tracking who already ran.
 // ---------------------------------------------------------------------------
@@ -198,10 +251,11 @@ test("Test one signal wakes every waiter in a list", {
   });
   io.await(yield(io), io);
   assert(woken.* == i32(0), "nobody has run past their park yet");
-  // One pass over the list, waking every waiter.
+  // One pass over the list, waking every waiter. A `Waker` is move-only
+  // (§3.13 A5), so it is borrowed in place: `get` would copy it.
   (j : usize) = usize(0);
   while(j < n, j = (j + usize(1)), {
-    match(wakers.get(j), .Some(w) => w.wake(), .None => ());
+    wakers(j).wake();
   });
   // Awaiting a handle consumes it: pop each one off the list.
   while(handles.len() > usize(0), {

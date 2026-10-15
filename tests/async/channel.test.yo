@@ -135,13 +135,22 @@ test("async Sender/Receiver deliver values in order", {
   assert(!rx.is_closed(), "a live sender keeps the channel open");
 });
 test("async Channel.pair hands back both halves over one channel", {
-  pair := Channel(i32).pair(usize(2));
-  tx := pair.0;
-  rx := pair.1;
-  s := io.await(tx.send(i32(11), io), io);
-  assert(match(s, .Ok(_) => true, .Err(_) => false), "the pair's sender sends");
-  r := io.await(rx.recv(io), io);
-  assert(match(r, .Ok(v) => (v == i32(11)), .Err(_) => false), "the pair's receiver receives it");
+  // Both halves are move-only (§3.13 A5): a consuming match moves each into
+  // its own binding.
+  match(
+    Channel(i32).pair(usize(2)),
+    (tx, rx) => {
+      s := io.await(tx.send(i32(11), io), io);
+      assert(match(s, .Ok(_) => true, .Err(_) => false), "the pair's sender sends");
+      r := io.await(rx.recv(io), io);
+      assert(match(r, .Ok(v) => (v == i32(11)), .Err(_) => false), "the pair's receiver receives it");
+      // Each half has its own lifetime: dropping the sender closes the channel.
+      {
+        _gone := tx;
+      };
+      assert(rx.is_closed(), "the pair's only sender going away closed the channel");
+    }
+  );
 });
 test("async: dropping the LAST Sender closes the channel", {
   rx := Channel(i32).receiver(usize(4));
@@ -216,7 +225,9 @@ test("async: send fails once the Receiver has been dropped", {
 });
 test("async: dropping the last Sender resolves a SUSPENDED recv as Disconnected", {
   rx := Channel(i32).receiver(usize(4));
-  consumer := io.async((io : Io) => {
+  // Minted before the consumer task takes the receiver by move.
+  tx := rx.sender();
+  consumer := io.async({ rx }(io : Io) => {
     // Suspends here: the channel is empty and open. Only the auto-close can
     // resolve it, and it must resolve to Disconnected rather than a value.
     r := io.await(rx.recv(io), io);
@@ -229,7 +240,7 @@ test("async: dropping the last Sender resolves a SUSPENDED recv as Disconnected"
   });
   h := io.spawn(consumer, io);
   {
-    tx := rx.sender();
+    _last := tx;
     // Let the consumer reach its suspension point before the sender goes.
     io.await(sleep(u64(5)), io);
   };
@@ -245,12 +256,13 @@ test("async: producer tasks with cloned Senders fan in, and the last one closes"
   {
     tx1 := rx.sender();
     tx2 := tx1.clone();
-    p1 := io.async((io : Io) => {
+    // Each producer task owns its sender (moved in by the capture list).
+    p1 := io.async({ tx1 }(io : Io) => {
       _a := io.await(tx1.send(i32(1), io), io);
       _b := io.await(tx1.send(i32(2), io), io);
       return(());
     });
-    p2 := io.async((io : Io) => {
+    p2 := io.async({ tx2 }(io : Io) => {
       _a := io.await(tx2.send(i32(10), io), io);
       _b := io.await(tx2.send(i32(20), io), io);
       return(());
@@ -276,6 +288,31 @@ test("async: producer tasks with cloned Senders fan in, and the last one closes"
     match(rx.try_recv(), .Ok(_) => false, .Err(e) => (e == TryRecvError.Disconnected)),
     "the drained channel reports Disconnected"
   );
+});
+// §3.13 A5: a `Channel` is a handle on state behind an `Rc`, so a copy shares
+// the channel; `Sender` and `Receiver` are move-only values.
+test("async Channel copies share one channel; Sender and Receiver are move-only", {
+  ch := Channel(i32).new(usize(2));
+  ch2 := ch;
+  _s := ch2.try_send(i32(4));
+  assert(match(ch.try_recv(), .Ok(v) => (v == i32(4)), .Err(_) => false), "a copy of the handle is the same channel");
+  comptime_expect_error({
+    rx := Channel(i32).receiver(usize(1));
+    tx := rx.sender();
+    tx2 := tx;
+    _a := tx.try_send(i32(1));
+    _b := tx2.try_send(i32(2));
+  }, "moved");
+  comptime_expect_error({
+    rx := Channel(i32).receiver(usize(1));
+    rx2 := rx;
+    _a := rx.try_recv();
+    _b := rx2.try_recv();
+  }, "moved");
+  comptime_expect_error({
+    rx := Channel(i32).receiver(usize(1));
+    _rx2 := rx.clone();
+  }, "clone");
 });
 test("async Sender implements Clone", {
   assert_clone :: (fn(comptime(T) : Type, where(T <: Clone)) -> comptime(unit))(());

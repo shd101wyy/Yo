@@ -1112,7 +1112,7 @@ __yo_decr_rc(future);  // 释放运行中任务的引用
 ```yo
 Stream :: trait(
   Item : Type,
-  next : (fn(self : Self, io : Io) -> Impl(Future(Option(Self.Item), Io)))
+  next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(Self.Item), Io)))
 );
 ```
 
@@ -1137,7 +1137,10 @@ accepted := io.await(conns.collect(io), io); // ArrayList(Result(TcpStream, NetE
 
 ### 组合器与消费者
 
-它们只写一次，定义在 `where(S <: Stream)` 上，与 `Iterator` 的组合器一一对应：
+它们只写一次，定义在 `where(S <: Stream)` 上，与 `Iterator` 的组合器一一对应。
+每个组合器都按值接收流和它的闭包：适配器是一个普通的值，拥有它所包装的东西。
+消费者同样按值接收流，因此它们返回的 future 拥有这个流，任务也就可以拥有这个
+future（`io.spawn(chain.collect(io), io)`）。
 
 | 惰性组合器 | 作用 |
 | --- | --- |
@@ -1158,8 +1161,8 @@ accepted := io.await(conns.collect(io), io); // ArrayList(Result(TcpStream, NetE
 names := watcher.filter(e => (e.kind == FsEventKind.Change)).map(e => e.name).take(usize(5));
 io.await(names.for_each(n => println(&n), io), io);
 
-// 或者写成可以提前结束的循环：这里遇到第一个空名字就停。
-for_await(names, io, n => {
+// 或者对一条同样构造的链写成可以提前结束的循环：这里遇到第一个空名字就停。
+for_await(names2, io, n => {
   if(n.len() == usize(0), {
     break;
   });
@@ -1169,28 +1172,28 @@ for_await(names, io, n => {
 
 ### 如何实现一个流
 
-`next` 的接收者是 `self : Self`，而不是 `Iterator` 用的 `self : &mut Self`：它返回的
-future 的生命周期超出这次调用，而 `&mut` 借用无法跨越挂起点。因此流的源头都是
-引用语义类型（`ref(struct(...))`），字段写入通过句柄传播：
+`next` 的接收者是 `self : &mut Self`，和 `Iterator` 一样，它返回的 future 借用这个流：
+函数体在捕获列表里写明这个借用（`{ &mut self }`），因此 future 是二等的。它在创建的
+地方被 await（`io.await(s.next(io), io)`），或者从一个它所借用的 `&mut` 参数所属的
+函数中返回，但不能被存储或 spawn。因此流的源头是一个普通的值，`next` 通过借用写入
+它的字段：
 
 ```yo
-Countdown :: ref(struct(_n : i32));
+Countdown :: struct(_n : i32);
 impl(
   Countdown,
   Stream(
     Item : i32,
-    next : (fn(self : Self, io : Io) -> Impl(Future(Option(i32), Io)))(
-      io.async(
-        (io : Io) =>
-          cond(
-            (self._n <= i32(0)) => Option(i32).None,
-            true => {
-              v := self._n;
-              self._n = (self._n - i32(1));
-              Option(i32).Some(v)
-            }
-          )
-      )
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(i32), Io)))(
+      io.async({ &mut self }(io : Io) =>
+        cond(
+          (self._n <= i32(0)) => Option(i32).None,
+          true => {
+            v := self._n;
+            self._n = (self._n - i32(1));
+            Option(i32).Some(v)
+          }
+        ))
     )
   )
 );
@@ -1209,7 +1212,7 @@ impl(
 
    ```yo
    chain := source.map(x => f(x)); // 在外面构造
-   task := io.async((io : Io) => io.await(chain.collect(io), io)); // 在里面 await
+   task := io.async({ chain }(io : Io) => io.await(chain.collect(io), io)); // 在里面 await
    ```
 
 2. **`for_await` 就是这个手写循环。** 它展开成下面的代码，其中的 await 和其他
@@ -1339,6 +1342,10 @@ io.await(p.wait(io), io);
 // 发信号方，可以来自任何其他任务：
 match(waiters.pop(), .Some(w) => w.wake(), .None => ());
 ```
+
+`Waker` 是只能移动的值：被 push 之后，上面的等待列表就拥有它，`pop` 再把它移出来，
+丢弃它会释放它的令牌。`Park` 也只能移动，`wait` 会消耗它。`Mutex` 和 `Channel` 就是这样
+维护它们的等待列表的。
 
 有三条性质值得记住，因为建立在它之上的原语都依赖它们：
 

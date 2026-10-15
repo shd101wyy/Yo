@@ -169,3 +169,49 @@ test("Test with_lock runs a body that borrows the caller's locals", {
   assert(r == i64(42), "the body reads the borrowed list under the lock");
   assert(m.get() == i64(42), "the body wrote the protected value");
 });
+// ---------------------------------------------------------------------------
+// §3.13 A5: a `Mutex` is a handle on state behind an `Rc`. A copy is another
+// handle on the same lock, so a spawned task owns its copy; and `lock`'s
+// future holds its own handle, so it borrows nothing — not even through an
+// `Rc(Mutex(T))`, where a borrowing future would be E0909 (§3.13 A2;
+// issues/questions/2026-10-14-the-async-mutex-is-a-copyable-handle-not-move-only.md).
+// ---------------------------------------------------------------------------
+test("Test a Mutex copy shares the lock with a task that owns it", {
+  m := Mutex(i64).new(i64(0));
+  assert(m.try_lock(), "main holds the lock");
+  m2 := m;
+  h := io.spawn(
+    io.async({ m2 }(io : Io) => {
+      io.await(m2.lock(io), io);
+      m2.set(m2.get() + i64(10));
+      m2.unlock();
+      return(());
+    }),
+    io
+  );
+  io.await(sleep(u64(5)), io);
+  assert(m.waiter_count() == usize(1), "the task's copy queued on the same lock");
+  m.set(i64(1));
+  m.unlock();
+  _d := h.await(io);
+  assert(m.get() == i64(11), "the task ran after main released, on the shared value");
+  assert(!m.is_locked(), "and released it");
+});
+test("Test a Mutex shared through an Rc locks across an await", {
+  rm := rc(Mutex(i64).new(i64(0)));
+  h := io.spawn(
+    io.async({ rm }(io : Io) => {
+      io.await(rm.lock(io), io);
+      io.await(sleep(u64(2)), io);
+      rm.set(rm.get() + i64(1));
+      rm.unlock();
+      return(());
+    }),
+    io
+  );
+  io.await(rm.lock(io), io);
+  rm.set(rm.get() + i64(1));
+  rm.unlock();
+  _d := h.await(io);
+  assert(rm.get() == i64(2), "both sections ran under the lock");
+});

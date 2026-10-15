@@ -35,13 +35,16 @@
 //!
 //! ## Two APIs over one channel
 //!
-//! `Channel(T)` is the FUSED handle both ends share, closed by hand.
+//! `Channel(T)` is the FUSED handle both ends share, closed by hand. Its
+//! state lives behind an `Rc`, so a copy of the handle is another handle on
+//! the same channel (plans/VALUES_BY_DEFAULT.md §3.13 A5).
 //! `Sender(T)`/`Receiver(T)` add a LIFETIME on top of it: the channel counts
 //! its live senders, so dropping the last one closes it and a suspended
 //! `recv` resolves to `Disconnected` instead of waiting for a value nobody
 //! will send. Dropping the `Receiver` makes every further `send` fail.
-//! Exactly one `Receiver` exists per channel, which is what makes "the
-//! receiver is gone" a fact a sender can act on.
+//! Both are move-only values: a `Sender` is copied only by `clone()`, which
+//! counts the new producer, and exactly one `Receiver` exists per channel,
+//! which is what makes "the receiver is gone" a fact a sender can act on.
 //!
 //! ```yo
 //! rx := Channel(i32).receiver(usize(4)); // channel + its one consumer
@@ -53,10 +56,10 @@
 //! io.await(rx.recv(io), io); // .Err(Disconnected)
 //! ```
 //!
-//! A `Sender` captured by an `io.async` body is released when the task and
-//! its future are done, so a producer task's sender closes the channel like
-//! any other. The same is now true of a `Thread.spawn` capture on the
-//! blocking channel; it was not until 2026-09-11
+//! A `Sender` moved into an `io.async` body (`io.async({ tx }(io : Io) => …)`)
+//! is released when the task and its future are done, so a producer task's
+//! sender closes the channel like any other. The same is now true of a
+//! `Thread.spawn` capture on the blocking channel; it was not until 2026-09-11
 //! (`issues/fixed/spawn-closure-captures-never-dropped-leak.md`).
 //!
 //! ## Stability
@@ -79,39 +82,63 @@
 { Waker, Park } :: import("./waker.yo");
 { Stream } :: import("./stream");
 
-/// A bounded FIFO channel for same-thread async tasks.
-Channel :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(
-    struct(
-      _buf : ArrayList(T),
-      _capacity : usize,
-      _closed : bool,
-      /// How many live `Sender(T)` handles share this channel. Zero for a
-      /// `Channel` created with `new` and used directly: nothing counts down,
-      /// so nothing auto-closes. `receiver()`/`pair()` start it at one.
-      ///
-      /// Plain `usize`, not an atomic: Yo's async runtime is per-thread and
-      /// cooperative, so every increment and decrement runs on the one loop
-      /// thread with no suspension point in between. An atomic here would buy
-      /// nothing and would contradict the runtime's own rule against
-      /// synchronizing its single-threaded state.
-      _senders : usize,
-      /// Set once the `Receiver(T)` handle has been dropped, which makes every
-      /// further `send` fail instead of suspending on a channel nobody will
-      /// drain.
-      _recv_dropped : bool,
-      /// Tasks suspended in `send` waiting for space, in arrival order. A
-      /// `recv` or `try_recv` that frees a slot wakes the front one; `close`
-      /// and `_mark_receiver_dropped` wake them all, because after either of
-      /// those every one of them has an answer waiting.
-      _send_waiters : ArrayList(Waker),
-      /// Tasks suspended in `recv` waiting for data, same discipline. A `send`
-      /// or `try_send` that buffers a value wakes the front one; `close` wakes
-      /// them all, because a closed-and-drained channel resolves `.None`
-      /// rather than waiting.
-      _recv_waiters : ArrayList(Waker)
-    )
+/// The state a `Channel(T)` and its `Sender`/`Receiver` halves share, behind
+/// an `Rc`.
+_ChannelState :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(
+    _buf : ArrayList(T),
+    _capacity : usize,
+    _closed : bool,
+    /// How many live `Sender(T)` handles share this channel. Zero for a
+    /// `Channel` created with `new` and used directly: nothing counts down,
+    /// so nothing auto-closes. `receiver()`/`pair()` start it at one.
+    ///
+    /// Plain `usize`, not an atomic: Yo's async runtime is per-thread and
+    /// cooperative, so every increment and decrement runs on the one loop
+    /// thread with no suspension point in between. An atomic here would buy
+    /// nothing and would contradict the runtime's own rule against
+    /// synchronizing its single-threaded state.
+    _senders : usize,
+    /// Set once the `Receiver(T)` handle has been dropped, which makes every
+    /// further `send` fail instead of suspending on a channel nobody will
+    /// drain.
+    _recv_dropped : bool,
+    /// Tasks suspended in `send` waiting for space, in arrival order. A
+    /// `recv` or `try_recv` that frees a slot wakes the front one; `close`
+    /// and `_mark_receiver_dropped` wake them all, because after either of
+    /// those every one of them has an answer waiting.
+    _send_waiters : ArrayList(Waker),
+    /// Tasks suspended in `recv` waiting for data, same discipline. A `send`
+    /// or `try_send` that buffers a value wakes the front one; `close` wakes
+    /// them all, because a closed-and-drained channel resolves `.None`
+    /// rather than waiting.
+    _recv_waiters : ArrayList(Waker)
   )
+);
+impl(
+  generic(T : Type),
+  _ChannelState(T),
+  /// A fresh park whose waker is queued (moved) behind the blocked senders.
+  _park_sender : (fn(self : &mut Self) -> Park)({
+    p := Park.new();
+    self._send_waiters.push(p.waker());
+    p
+  }),
+  /// A fresh park whose waker is queued (moved) behind the blocked receivers.
+  _park_receiver : (fn(self : &mut Self) -> Park)({
+    p := Park.new();
+    self._recv_waiters.push(p.waker());
+    p
+  })
+);
+/// A bounded FIFO channel for same-thread async tasks.
+///
+/// A handle on state that lives behind an `Rc`: copying a `Channel` shares
+/// the channel (the fused MPMC handle, §3.13 A5). Its `send`/`recv` futures
+/// hold their own copy of the handle, so they borrow nothing and a task may
+/// own them.
+Channel :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(_st : Rc(_ChannelState(T)))
 );
 impl(
   generic(T : Type),
@@ -120,13 +147,17 @@ impl(
   new : (fn(capacity : usize) -> Self)({
     assert(capacity > usize(0), "Channel.new: capacity must be > 0");
     Self(
-      _buf : ArrayList(T).new(),
-      _capacity : capacity,
-      _closed : false,
-      _senders : usize(0),
-      _recv_dropped : false,
-      _send_waiters : ArrayList(Waker).new(),
-      _recv_waiters : ArrayList(Waker).new()
+      _st : rc(
+        _ChannelState(T)(
+          _buf : ArrayList(T).new(),
+          _capacity : capacity,
+          _closed : false,
+          _senders : usize(0),
+          _recv_dropped : false,
+          _send_waiters : ArrayList(Waker).new(),
+          _recv_waiters : ArrayList(Waker).new()
+        )
+      )
     )
   }),
   /// Send a value, suspending while the buffer is full. Resolves to
@@ -138,13 +169,13 @@ impl(
       (waiting : bool) = true;
       while(waiting, {
         cond(
-          self._closed => {
+          self._st._closed => {
             waiting = false;
           },
-          self._recv_dropped => {
+          self._st._recv_dropped => {
             waiting = false;
           },
-          (self._buf.len() < self._capacity) => {
+          (self._st._buf.len() < self._st._capacity) => {
             waiting = false;
           },
           true => ()
@@ -154,18 +185,17 @@ impl(
           // wake. Re-check after waking rather than trusting it: the waker
           // says "space may have appeared", and a `try_send` from a third
           // task can have taken that slot in between.
-          p := Park.new();
-          self._send_waiters.push(p.waker());
+          p := self._st._park_sender();
           io.await(p.wait(io), io);
         });
       });
       cond(
-        self._closed => return(Result(unit, T).Err(value)),
-        self._recv_dropped => return(Result(unit, T).Err(value)),
+        self._st._closed => return(Result(unit, T).Err(value)),
+        self._st._recv_dropped => return(Result(unit, T).Err(value)),
         true => {
           // No suspension between the capacity check and this push, so no
           // other task can interleave (single-threaded cooperative loop).
-          self._buf.push(value);
+          self._st._buf.push(value);
           self._wake_one_receiver();
           return(Result(unit, T).Ok(()));
         }
@@ -179,23 +209,22 @@ impl(
       (waiting : bool) = true;
       while(waiting, {
         cond(
-          (self._buf.len() > usize(0)) => {
+          (self._st._buf.len() > usize(0)) => {
             waiting = false;
           },
-          self._closed => {
+          self._st._closed => {
             waiting = false;
           },
           true => ()
         );
         if(waiting, {
-          p := Park.new();
-          self._recv_waiters.push(p.waker());
+          p := self._st._park_receiver();
           io.await(p.wait(io), io);
         });
       });
       cond(
-        (self._buf.len() > usize(0)) => {
-          v := self._buf.remove(usize(0));
+        (self._st._buf.len() > usize(0)) => {
+          v := self._st._buf.remove(usize(0));
           self._wake_one_sender();
           return(Option(T).Some(v));
         },
@@ -207,11 +236,11 @@ impl(
   /// if the channel is full, closed, or has no `Receiver` any more.
   try_send : (fn(self : &Self, value : T) -> Result(unit, T))(
     cond(
-      self._closed => Result(unit, T).Err(value),
-      self._recv_dropped => Result(unit, T).Err(value),
-      (self._buf.len() >= self._capacity) => Result(unit, T).Err(value),
+      self._st._closed => Result(unit, T).Err(value),
+      self._st._recv_dropped => Result(unit, T).Err(value),
+      (self._st._buf.len() >= self._st._capacity) => Result(unit, T).Err(value),
       true => {
-        self._buf.push(value);
+        self._st._buf.push(value);
         self._wake_one_receiver();
         Result(unit, T).Ok(())
       }
@@ -231,19 +260,19 @@ impl(
   /// means closed AND drained.
   try_recv : (fn(self : &Self) -> Result(T, TryRecvError))(
     cond(
-      (self._buf.len() > usize(0)) => {
-        v := self._buf.remove(usize(0));
+      (self._st._buf.len() > usize(0)) => {
+        v := self._st._buf.remove(usize(0));
         self._wake_one_sender();
         Result(T, TryRecvError).Ok(v)
       },
-      self._closed => Result(T, TryRecvError).Err(TryRecvError.Disconnected),
+      self._st._closed => Result(T, TryRecvError).Err(TryRecvError.Disconnected),
       true => Result(T, TryRecvError).Err(TryRecvError.Empty)
     )
   ),
   /// Close the channel: pending and future `send`s fail with `.Err`;
   /// `recv` keeps draining buffered values, then resolves `.None`.
   close : (fn(self : &Self) -> unit)({
-    self._closed = true;
+    self._st._closed = true;
     // Wake EVERY waiter on both sides, not one: after a close each of them has
     // an answer waiting — a blocked `send` fails, a blocked `recv` drains and
     // then resolves `.None` — and waking one would leave the rest suspended
@@ -255,7 +284,7 @@ impl(
   /// `send` fails, and a task suspended on a full buffer finds out on its
   /// next tick. Internal — `Receiver`'s `dispose` is the only caller.
   _mark_receiver_dropped : (fn(self : &Self) -> unit)({
-    self._recv_dropped = true;
+    self._st._recv_dropped = true;
     // Every suspended sender now fails; none of them will be woken by a
     // receive that is never going to happen.
     self._wake_all_senders();
@@ -266,8 +295,8 @@ impl(
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
     (woken : bool) = false;
-    while(runtime(!woken && (self._recv_waiters.len() > usize(0))), {
-      w := self._recv_waiters.remove(usize(0));
+    while(runtime(!woken && (self._st._recv_waiters.len() > usize(0))), {
+      w := self._st._recv_waiters.remove(usize(0));
       w.wake();
       woken = w.is_woken();
     });
@@ -277,54 +306,57 @@ impl(
     // Skip waiters whose task was cancelled: their park refuses the wake, and
     // the next waiter must get it instead (a lost wake here is a hang).
     (woken : bool) = false;
-    while(runtime(!woken && (self._send_waiters.len() > usize(0))), {
-      w := self._send_waiters.remove(usize(0));
+    while(runtime(!woken && (self._st._send_waiters.len() > usize(0))), {
+      w := self._st._send_waiters.remove(usize(0));
       w.wake();
       woken = w.is_woken();
     });
   }),
   /// Wake every suspended sender and drop the queue.
   _wake_all_senders : (fn(self : &Self) -> unit)({
-    while(runtime(self._send_waiters.len() > usize(0)), {
-      w := self._send_waiters.remove(usize(0));
+    while(runtime(self._st._send_waiters.len() > usize(0)), {
+      w := self._st._send_waiters.remove(usize(0));
       w.wake();
     });
   }),
   /// Wake every suspended task on both sides.
   _wake_all : (fn(self : &Self) -> unit)({
     self._wake_all_senders();
-    while(runtime(self._recv_waiters.len() > usize(0)), {
-      w := self._recv_waiters.remove(usize(0));
+    while(runtime(self._st._recv_waiters.len() > usize(0)), {
+      w := self._st._recv_waiters.remove(usize(0));
       w.wake();
     });
   }),
   /// True once `close()` has been called.
   is_closed : (fn(self : &Self) -> bool)(
-    self._closed
+    self._st._closed
   ),
   /// Number of values currently buffered.
   len : (fn(self : &Self) -> usize)(
-    self._buf.len()
+    self._st._buf.len()
   )
 );
 /// The sending half of an async channel pair — the same `Sender`/`Receiver`
 /// split `std/sync/channel` has, for tasks on one event loop.
 ///
-/// Cloneable: every clone is another producer over the same channel, and the
-/// channel counts them. When the LAST `Sender` is dropped the channel closes
-/// itself, so a `Receiver` learns that no more values are coming without
-/// anyone remembering to call `close()` — a `recv` that would otherwise
-/// suspend forever resolves to `Disconnected` instead.
+/// A move-only value with `Clone` (§3.13 A5): every clone is another producer
+/// over the same channel, and the channel counts them. When the LAST
+/// `Sender` is dropped the channel closes itself, so a `Receiver` learns that
+/// no more values are coming without anyone remembering to call `close()` — a
+/// `recv` that would otherwise suspend forever resolves to `Disconnected`
+/// instead. A task takes its producer by move (`io.async({ tx }(io : Io) =>
+/// …)`), or a `clone()` of one.
 Sender :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(struct(_ch : Channel(T)))
+  struct(_ch : Channel(T))
 );
 export(Sender);
 /// The receiving half of an async channel pair.
 ///
-/// Deliberately NOT cloneable, so that "the receiver is gone" is a fact a
-/// sender can act on; `Channel(T).receiver` mints exactly one per channel.
+/// A move-only value, deliberately NOT cloneable, so that "the receiver is
+/// gone" is a fact a sender can act on; `Channel(T).receiver` mints exactly
+/// one per channel.
 Receiver :: (fn(comptime(T) : Type) -> comptime(Type))(
-  ref(struct(_ch : Channel(T)))
+  struct(_ch : Channel(T))
 );
 export(Receiver);
 impl(
@@ -333,7 +365,7 @@ impl(
   /// Attach a new producer to `ch` and count it. Internal: `Channel.receiver`,
   /// `Channel.pair`, `Receiver.sender` and `clone` are the callers.
   _attach : (fn(ch : &Channel(T)) -> Self)({
-    ch._senders = (ch._senders + usize(1));
+    ch._st._senders = (ch._st._senders + usize(1));
     Self(_ch : ch)
   }),
   /// Send a value, suspending while the buffer is full. `.Err(value)` once
@@ -366,7 +398,7 @@ impl(
   /// Another producer over the same channel, counted.
   Clone(
     clone : (fn(self : &Self) -> Self)({
-      self._ch._senders = (self._ch._senders + usize(1));
+      self._ch._st._senders = (self._ch._st._senders + usize(1));
       Self(_ch : self._ch)
     })
   )
@@ -383,8 +415,8 @@ impl(
   /// observe the count between the two.
   Drop(
     drop : (fn(self : &mut Self) -> unit)({
-      self._ch._senders = (self._ch._senders - usize(1));
-      if(self._ch._senders == usize(0), {
+      self._ch._st._senders = (self._ch._st._senders - usize(1));
+      if(self._ch._st._senders == usize(0), {
         self._ch.close();
       });
     })
@@ -416,11 +448,14 @@ impl(
   ///
   /// Values already buffered when the last sender went away are still handed
   /// out, one per call, BEFORE the disconnect is reported.
+  ///
+  /// The future holds its own copy of the channel handle, so it borrows
+  /// nothing from the `Receiver`.
   recv : (fn(self : &Self, io : Io) -> Impl(Future(Result(T, TryRecvError))))(
-    io.async((io : Io) => {
+    io.async({ ch : self._ch }(io : Io) => {
       // Bound first, matched second: an `io.await` in a match SCRUTINEE is one
       // of the async-body shapes that miscompiles to an empty value.
-      got := io.await(self._ch.recv(io), io);
+      got := io.await(ch.recv(io), io);
       match(
         got,
         .Some(v) => Result(T, TryRecvError).Ok(v),
@@ -495,15 +530,21 @@ impl(
   /// `mpsc::sync_channel(capacity)` (this channel is bounded, like the
   /// blocking one).
   ///
-  /// **The tuple keeps both handles alive for as long as the tuple binding
-  /// lives** (measured 2026-09-10): Yo has no destructuring binding, so
-  /// `tx := pair.0` copies a handle out rather than moving it, and the tuple
-  /// holds its own reference to each half. Dropping `tx` early therefore does
-  /// NOT drop the last sender, and the auto-close fires only when the whole
-  /// scope — `Receiver` included — goes away. Use this form when the producer
-  /// tasks and the consumer share a scope, or call `close()` explicitly; use
-  /// `receiver()` + `sender()` when the receiver must learn that the
-  /// producers are finished.
+  /// Both halves are move-only, so the tuple is taken apart by a consuming
+  /// `match`, which moves each half into its own binding:
+  ///
+  /// ```yo
+  /// match(
+  ///   Channel(i32).pair(usize(2)),
+  ///   (tx, rx) => {
+  ///     _s := io.await(tx.send(i32(1), io), io);
+  ///     v := io.await(rx.recv(io), io);
+  ///   }
+  /// );
+  /// ```
+  ///
+  /// Each binding then has its own lifetime, as with `receiver()` +
+  /// `sender()`: dropping `tx` drops the last sender and closes the channel.
   pair : (fn(capacity : usize) -> Tuple(Sender(T), Receiver(T)))({
     ch := Self.new(capacity);
     (Sender(T)._attach(&ch), Receiver(T)._attach(&ch))
@@ -519,7 +560,7 @@ impl(
   Channel(T),
   Stream(
     Item : T,
-    next : (fn(self : &Self, io : Io) -> Impl(Future(Option(T), Io)))(
+    next : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(T), Io)))(
       self.recv(io)
     )
   )
