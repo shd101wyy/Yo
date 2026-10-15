@@ -1021,7 +1021,53 @@ test("V2b: a std collection's index method call binds a local borrow", {
   w := xs.index_mut(usize(0));
   w = (w + i32(1));
   assert(xs(usize(0)) == i32(8), "written through the &mut borrow");
+  assert((xs.index(usize(0)) + i32(1)) == i32(9), "an operand");
+  xs.index_mut(usize(0)) = i32(20);
+  assert(xs(usize(0)) == i32(20), "the left of `=`");
 });
+// The same through a user generic impl: its methods are resolved by the
+// receiver-method dispatch, whose `.` callee carries no function type.
+V2bPair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(v : T, w : T));
+impl(
+  generic(T : Type),
+  V2bPair(T),
+  at : (fn(self : &Self, i : usize) -> &T)(
+    cond(
+      (i == usize(0)) => &self.v,
+      true => &self.w
+    )
+  ),
+  at_mut : (fn(self : &mut Self, i : usize) -> &mut T)(
+    cond(
+      (i == usize(0)) => &mut self.v,
+      true => &mut self.w
+    )
+  )
+);
+test("V2b: a generic impl's projection method call is a place", {
+  p := V2bPair(i32)(v : i32(7), w : i32(8));
+  r := p.at(usize(1));
+  assert((r + i32(0)) == i32(8), "bound as a & borrow");
+  assert((p.at(usize(0)) + i32(1)) == i32(8), "an operand");
+  p.at_mut(usize(0)) = i32(70);
+  _v2b_bump(p.at_mut(usize(1)));
+  assert((p.v == i32(70)) && (p.w == i32(9)), "written through the &mut projection");
+});
+comptime_expect_error(
+  _v2b_generic_write_through_read :: (fn() -> unit)({
+    p := V2bPair(i32)(v : i32(7), w : i32(8));
+    p.at(usize(0)) = i32(1);
+  }),
+  "is a read projection"
+);
+comptime_expect_error(
+  _v2b_std_write_through_read :: (fn() -> unit)({
+    xs := ArrayList(i32).new();
+    xs.push(i32(7));
+    xs.index(usize(0)) = i32(1);
+  }),
+  "is a read projection"
+);
 test("V2b: a &mut projection call is the left of `=`", {
   t := Trio(a : i32(5), b : i32(6), c : i32(7));
   t.index_mut(usize(1)) = i32(60);
