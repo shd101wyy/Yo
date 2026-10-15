@@ -3,14 +3,29 @@
 **Severity:** S1 — per-handle `pwrite` offsets on stdout silently overwrite, truncate and reorder redirected output — no error, no short write
 
 **Found:** 2026-09-11, during the `std/` `///` doc sweep (agent A4, net/http/io group).
-**Status:** open; fix option 2 is half landed. Generation A (2026-10-14,
-fix/io-current-offset-sentinel): the runtime's read and write entry points
-treat offset `u64.MAX` as the descriptor's own position on every platform
-(`tests/sys/seek.test.yo`). Generation B, `std/io/stdio.yo` passing it, waits
-for a seed that carries Generation A
-(`plans/backlog/SEED_VERSION_AUTOMATION.md`, "the standard streams stop
-tracking an offset"). Until then the hazard stays documented in
-`std/io/stdio.yo`'s module header, as the 2026-09-11 sweep left it.
+**Status:** FIXED 2026-10-15 (fix option 2, in two generations).
+Generation A (#1376, shipped in v0.2.63): the runtime's read and write entry
+points treat offset `u64.MAX` as the descriptor's own position on every
+platform (`read(2)`/`write(2)` on POSIX and wasm; on Windows
+`__yo_win_resolve_offset` starts the transfer at the handle's file pointer and
+`__yo_win_settle_position` advances it, #1393); pinned by
+`tests/sys/seek.test.yo`. Generation B (fix/stdio-current-position, on the
+v0.2.63 seed): `std/io/stdio.yo`'s `Stdin`/`Stdout`/`Stderr` dropped their
+`_offset` field and pass `u64.MAX`, so every handle, a `stderr` redirected onto
+the same file, and libc's flushed `stdout` share the kernel's one position.
+Test: `tests/io/stdio_redirect.test.yo`, which redirects the test process's own
+fd 0/1/2 onto a temp file with `dup2` (Command's `Stdio` has no "to this file"
+mode; a dup'd descriptor shares one open file description, which is what a
+shell's `> out 2>&1` sets up). All four of its cases fail on the old std (two
+handles: `BBBBCC`; stdout + stderr: `err:end`; a handle after flushed `print`:
+`+handleint`; two `stdin()` handles re-read the first bytes) and pass with the
+fix.
+
+What remains is symptom 2's ORDER, not its loss: `std/fmt` writes through
+libc's buffered `stdout`, which flushes on its own schedule, so text printed
+before a handle write can land after it. `std/io/stdio.yo`'s module doc says
+so and names `fflush` as the way to order the two; joining the writers is
+option 3 below, not part of this fix.
 
 Two symptoms, one cause.
 
@@ -102,7 +117,7 @@ log, a pipeline, `yo test`'s own capture. The failure is silent — no error,
 no short count — and the amount lost depends on write sizes and ordering, so
 it looks like a flaky truncation rather than a bug with a rule.
 
-## Fix sketch (not applied)
+## Fix sketch (option 2 applied)
 
 The offsets must not be per-handle. Options, in increasing order of ambition:
 

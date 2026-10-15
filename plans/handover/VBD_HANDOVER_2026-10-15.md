@@ -577,10 +577,11 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
     - Generation B on the next seed: sweep src, std, tests, docs and `markdown_yo`, then enforce the errors everywhere.
     - Census first: add a `YO_AUDIT_MUT_BINDINGS=1` knob (it does not exist yet; model it on `YO_AUDIT_GLOBAL_LEND`) that lists each binding written after its definition, with its kind.
     - The runtime write to a `::` binding is already E0918 (item 5); this step generalizes it to `mut(x) ::`.
-10. **stdio Generation B:** `std/io/stdio.yo`'s handles pass offset `u64.MAX` to the runtime, so redirected stdout/stderr is no longer overwritten positionally.
+10. **stdio Generation B — LANDED (#PRNUM):** `std/io/stdio.yo`'s handles pass offset `u64.MAX` to the runtime, so redirected stdout/stderr is no longer overwritten positionally.
    - The runtime half shipped in v0.2.63 (#1376).
-   - It closes the S1 `issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`.
-   - Test: `tests/sys/seek.test.yo`, plus a redirect test that appends from two handles.
+   - It closed the S1 `issues/fixed/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`.
+   - Tests: `tests/sys/seek.test.yo` and `tests/io/stdio_redirect.test.yo`, which `dup2`s a temp file onto the test process's own 0/1/2 (two `stdout()` handles, stdout + stderr on one file, a handle after flushed `print`, two `stdin()` handles).
+   - Found on the way: the S1 `issues/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md` (§6.1).
 11. **The `std` `dyn(f)` spelling, if any is left:** #1339 found no bare site in the tree, so there may be nothing to do. Grep before opening a PR.
 12. **`Waker.clone` Generation B**, once a seed carries A5's `__yo_waker_clone` (the release after #1379).
 13. **Decision 46, `Rc` is read-only** (§6 "Decision 46"): Generation A (the `YO_AUDIT_RC_WRITE` census, `RefCell(T)` if not landed, `Rc.make_mut` and `try_unwrap`), then Generation B (the sweep, then the error). This also makes E0909's read-only-handle predicate true for `Rc`, so `Rc(Mutex(T))` works.
@@ -743,7 +744,7 @@ x :: 12;                           // a true constant
 | --- | --- |
 | `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; fixed by #1401 |
 | `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` (copied to develop by the handover PR) | B1; fixed on `fix/d3-trust-by-mutation-mask`, not yet on develop |
-| `issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md` | §4 step 10; the runtime half shipped in v0.2.63 |
+| `issues/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md` | Found by §4 step 10 (#PRNUM): `x.as_ptr()` before an await in an `io.async` body leaves `x` a C local; the live-range walk only sees `&x`/`addr_of(x)` |
 | `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
 | `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md` | Type-soundness track (#1162) |
 | `issues/self-hosted-emit-leaks-remaining-classes.md` | Memory track |
