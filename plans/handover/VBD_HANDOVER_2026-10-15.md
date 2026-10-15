@@ -310,6 +310,26 @@ Every one is pushed. "Next" is the exact next action.
 
 #### #1368 — V2b direct projection calls, Generation A (`feat/vbd-v2b-projection-calls`, head `f857d65d2`, draft)
 
+> **REBASED AND GATED 2026-10-15 — land it from `feat/vbd-v2b-projection-calls-rebased` (head `5181c0b7b`, on develop `31ef8d7a3`; #1392/#1393 do not overlap it).**
+>
+> - **Three fixes beyond the rebase:**
+>   1. The S2 (#1375) was NOT fixed by the PR's first version. A generic impl's method (`ArrayList.index`) resolves through receiver-method dispatch, which records the method type under the call's id rather than on the callee. Now `projection_call_callee_type` / `call_projection_mode` fall back to `lookup_method_callee_type`, and the dispatch emitter yields `(*m(args))`. This also closes `p.at(i) = v` through a read projection.
+>   2. **A develop S2, also fixed here:** `f(&mut xs(i))` passed check and wrote the element when `xs` is a `&` borrow. The known-function argument loop never ran `promote_index_places_for_write`.
+>      - Its issue doc is in the branch's `issues/fixed/` (`2026-10-15-a-mut-subscript-argument-writes-through-a-read-only-borrow.md`).
+>      - `tests/ref_field_borrow.test.yo`'s `run_borrowed` relied on the bug and now takes `&mut`.
+>      - `f(&mut xs(i))` now dispatches `index_mut` everywhere; read the first develop battery with that in mind.
+>   3. A wrong move expectation in the PR's tests.
+> - **Tier 1, with build3 from `9125e6b46`;** the commits after it touch only tests, plans and issues:
+>   - check src 278/278, std 171/171;
+>   - 23 feature files, including `index` 76/76, `async_await` 280, `string/string` 302, `regex` 186, `collections/array_list` 130, `rc` 98;
+>   - internal `assignment`, `ast_reflection`, `binding`, `evaluator_utils_is_valid_variable_name`, `initialization_assignment`, `macro_helpers`, `compile`;
+>   - cli-diff `inout-interior-borrow-growth-panics`;
+>   - fmt, issue refs.
+> - **Land:**
+>   1. `git push -f origin feat/vbd-v2b-projection-calls-rebased:feat/vbd-v2b-projection-calls`
+>   2. Update the PR body: the Summary names the develop S2; Verification gets the results above; Deferred gets the non-dot recorded-method codegen tail near `other_fn_call.yo:1684`, which has no projection branch.
+>   3. `gh pr ready 1368`, then `gh pr merge 1368 --squash --admin --delete-branch`.
+
 - **What:** a projection called by name (`t.index(i)`, `first(&t)`) yields its place: operand, receiver, argument, binding (a local borrow, E0911/E0912) and write target.
 - **Tier 1 has NEVER run**: the session never got a slot for it.
 - **Known gap:** `issues/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2, #1375). `r := xs.index(usize(0));` fails in clang with an int-from-pointer error. This PR is its fix, so add that repro as a test.
@@ -439,7 +459,7 @@ These have merged, or were superseded. Verify each with `git log origin/develop 
 2. **#1379**, A5, rebased onto #1378 (§2.3), including the `std/hash.yo` revert.
 3. **The D3 mutation-mask fix** (B1), its own PR. Then **#1380** (§2.3).
 4. **#1385**, then **V2b unique buffers Generation B** (§2.3). Lower the allocation baseline in the same PR.
-5. **#1368**, direct projection calls (§2.3). It also closes #1375's S2.
+5. **#1368**, direct projection calls (§2.3; rebased and gated). It also closes #1375's S2 and a develop S2 (`f(&mut xs(i))` through a `&` borrow).
 6. **The global lend, E0916** (§2.3 and §5.1): Generation A, then Generation B after a seed.
 6a. **Decision 47, immutable bindings with `mut(name)`** (§5.11), after the queued Generation B items (#1378, A5, V2b Generation B) and before decision 43:
     - Generation A: the parser and evaluator accept every `mut(...)` form, and the errors are enforced outside src/std;
