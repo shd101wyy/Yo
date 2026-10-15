@@ -964,8 +964,13 @@ heavy_take "<who>: check-time A/B" exclusive  # runs alone
 - `cat ~/Workspace/Yo-wt/.heavy-lock*/owner` shows the holders and
   `~/Workspace/Yo-wt/.heavy-queue/` the waiters, oldest first. A holder whose
   process is stopped (`ps -o stat=` shows `T`) blocks everyone; `kill -CONT` it.
-- Killing a waiter is safe (its ticket is pruned); killing a holder leaves its
-  slot directory behind, so remove the `.heavy-lock*` directory it owned.
+- Killing a waiter or a holder is safe: a dead waiter's ticket is pruned, and a
+  slot whose owner pid is gone, or that was taken before the machine last
+  booted, is reclaimed by the next waiter's scan (a reboot used to leave every
+  slot held and deadlock the queue,
+  `issues/fixed/2026-10-16-the-heavy-lock-never-reclaims-a-slot-whose-owner-died.md`).
+- On a large machine (64 GB) the in-process `tests/internal` run (~12 GB) takes
+  a normal slot: `exclusive` would hold every slot for its ~95 minutes.
 
 ## Compiler internal tests — `tests/internal/`
 

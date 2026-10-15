@@ -118,7 +118,20 @@ job n1 2 & sleep 0.2; job n2 2 &
 wait
 expect "new jobs start beside an old holder, old waiters stay in order" "$(start_order)" "o1 n1 n2 o2"
 
-# 8. Nothing is left behind.
+# 8. Orphaned slots are reclaimed: one whose owner pid is gone, one taken
+#    before the machine booted (its pid, here a live one, was reused).
+scenario orphaned
+printf 'HEAVY_SLOTS=2\nHEAVY_MIN_AVAIL_MB=0\n' > "$HEAVY_ROOT/heavy-lock.conf"
+dead="$(/bin/bash -c 'echo $$')"
+mkdir "$HEAVY_ROOT/.heavy-lock" "$HEAVY_ROOT/.heavy-lock-b"
+echo "gone: job, started 00:00 (pid $dead)" > "$HEAVY_ROOT/.heavy-lock/owner"
+echo "rebooted: job, started 00:00 (pid $$)" > "$HEAVY_ROOT/.heavy-lock-b/owner"
+touch -t 200001010000 "$HEAVY_ROOT/.heavy-lock-b"
+job r1 1 & sleep 0.2; job r2 1 &
+wait
+expect "jobs start in slots whose owners died or predate the boot" "$(max_concurrent)" 2
+
+# 9. Nothing is left behind.
 expect "every slot released, every ticket gone" "$(find "$WORK" -mindepth 2 \( -name '.heavy-lock*' -o -path '*/.heavy-queue/*' \) | wc -l | tr -d ' ')" 0
 
 exit $FAILED
