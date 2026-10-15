@@ -4,7 +4,7 @@
 { String } :: import("std/string");
 { Thread } :: import("std/thread");
 
-(g_disposed : i32) = i32(0);
+(mut(g_disposed) : i32) = i32(0);
 Thing :: ref(struct(n : i32));
 impl(
   Thing,
@@ -47,7 +47,8 @@ main :: (fn(io : Io) -> unit)({
     sum = (sum + io.await(_child(String.from("ab"), i32(1), io), io));
     i = (i + i32(1));
   });
-  println(`result: children ${sum} disposed ${g_disposed}`);
+  disposed := g_disposed;
+  println(`result: children ${sum} disposed ${disposed}`);
   (leaves : i32) = i32(0);
   (j : i32) = i32(0);
   while(j < i32(1000), {
@@ -61,7 +62,8 @@ main :: (fn(io : Io) -> unit)({
     _spawn_and_abort(io);
     k = (k + i32(1));
   });
-  println(`result: aborted ${g_disposed}`);
+  aborted := g_disposed;
+  println(`result: aborted ${aborted}`);
   t := Thread(i32).spawn((tio : Io) => {
     (n : i32) = i32(0);
     (m : i32) = i32(0);
