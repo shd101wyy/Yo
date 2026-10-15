@@ -68,7 +68,7 @@ Only a call that lends the global as an argument or a receiver went unchecked.
 
 `_note_future_producing_call` runs a third check, `_check_future_call_global_lends`, beside the cell and argument-conflict checks. Every place the call lends to the future, the receiver included, is walked to its root binding (`_lent_place_of`, `_lent_root_variable`). If the root is a module-level runtime binding (`is_module_level && !is_compile_time_only`, which also covers a `thread_local`), the lend is E0909. A `::` constant has no runtime storage and is still lent freely. The help suggests lending a local copy, or reading the global by name inside the future, where every use re-reads it.
 
-A synchronous function that awaits a future over its `&` parameter (`w :: (fn(g : &Gauge, io : Io) -> i64)(io.await(peek(g, io), io))`, called as `w(&G, io)`) is not affected. Its await does not yield to other tasks: a trace shows `w` returning before the other task runs.
+This fix does not cover a global lent to a plain call. A synchronous function that awaits a future over its `&` parameter (`w :: (fn(g : &Gauge, io : Io) -> i64)(io.await(peek(g, io), io))`, called as `w(&G, io)`) holds the call-scoped borrow across that await. A callee that reassigns the global by name has the same hole. Both are filed as `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`.
 
 ## Verification
 
