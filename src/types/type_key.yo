@@ -9,10 +9,11 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, TypeValueNode } :: import("./definitions.yo");
-{ type_to_string } :: import("./string.yo");
+{ type_to_string, bump_type_key_epoch } :: import("./string.yo");
 { resolve_enum_shell, resolve_struct_shell, enum_phantom_positions } :: import("./creators.yo");
 { is_type_hierarchy_type, is_unit_type, is_some_type } :: import("./guards.yo");
 { is_bound_closure_identity, resolve_cell_chain, enum_phantom_type_args_masked } :: import("./utils.yo");
+{ debug_knob } :: import("../utils.yo");
 (g_struct_cfid_keys : HashMap(String, String)) = HashMap(String, String).new();
 
 // Enum structural-signature dedup (the enum analogue of g_struct_cfid_keys).
@@ -45,6 +46,7 @@ _lookup_or_register_enum_sig :: (fn(sig : &String, full_key : &String) -> String
     .Some(k) => k.clone(),
     .None => {
       g_enum_sig_keys.insert(sig.clone(), full_key.clone());
+      bump_type_key_epoch();
       full_key
     }
   )
@@ -330,9 +332,11 @@ _type_key_at :: (fn(t : &TypeValue, depth : usize) -> String)(
               g_struct_cfid_keys.get(&sid),
               .Some(prev) => if(!((prev == key) || (prev == "!AMBIG")), {
                 g_struct_cfid_keys.insert(sid.clone(), String.from("!AMBIG"));
+                bump_type_key_epoch();
               }),
               .None => {
                 g_struct_cfid_keys.insert(sid.clone(), key.clone());
+                bump_type_key_epoch();
               }
             );
           });
@@ -689,6 +693,60 @@ type_key :: (fn(t : &TypeValue) -> String)({
   _type_key_at(t, usize(0))
 });
 // ---------------------------------------------------------------------------
+// Identity front caches for memos keyed by `type_key`.
+// ---------------------------------------------------------------------------
+// A memo keyed by `type_key(ty)` builds the key on every call, and the keys
+// of the compiler's own types run to ~5 KB (about a third of the allocations
+// of `check src/main.yo`,
+// issues/fixed/2026-10-15-v4-typevalue-rc-raises-the-check-allocation-count-by-7-percent.md).
+// Such a memo is fronted by a cache keyed by the `TypeValue` handle itself: a
+// list of handles sorted by address (binary search with `__yo_ptr_lt`, as
+// substitution's node memo does) and, at the caller, a parallel list of
+// answers.
+//
+// Sound because, within one type-key epoch (`type_key_epoch`,
+// types/string.yo), `type_key` of one live handle never changes: the node
+// behind a handle is immutable, and every registry `type_key` reads bumps the
+// epoch when it changes. The cache holds a clone of every handle it records,
+// so a recorded address cannot be freed and reused by another node. The
+// caller keeps the invariant "a cached handle's answer is what its memo holds
+// under that handle's key": it records a handle only with a key computed in
+// the current epoch, and clears the cache whenever it clears the memo or the
+// epoch moves. `YO_DEBUG_TYPE_KEY_MEMO_CHECK=1` re-checks every cache hit
+// against the memo's own answer and aborts on a mismatch.
+/// Past this many handles a cache is cleared before the next insert: it is
+/// only a cache, and an insert shifts the slots above it.
+TYPE_IDENTITY_CACHE_CAP :: usize(16384);
+/// The first slot of `handles` (sorted by address) whose handle's address is
+/// not below `ty`'s.
+type_identity_slot :: (fn(handles : &ArrayList(TypeValue), ty : &TypeValue) -> usize)({
+  (lo : usize) = usize(0);
+  (hi : usize) = handles.len();
+  while(lo < hi, {
+    mid := (lo + ((hi - lo) / usize(2)));
+    if(match(handles.get(mid), .Some(h) => __yo_ptr_lt(&h, ty), .None => false), {
+      lo = (mid + usize(1));
+    }, {
+      hi = mid;
+    });
+  });
+  lo
+});
+/// Whether `handles(slot)` is the handle `ty` itself.
+type_identity_slot_holds :: (fn(handles : &ArrayList(TypeValue), slot : usize, ty : &TypeValue) -> bool)(
+  match(handles.get(slot), .Some(h) => __yo_ptr_eq(&h, ty), .None => false)
+);
+(g_type_key_memo_check : u8) = u8(0);
+/// `YO_DEBUG_TYPE_KEY_MEMO_CHECK=1`: every identity-cache hit is checked
+/// against the string-keyed memo it fronts, and a mismatch aborts.
+type_key_memo_check_enabled :: (fn() -> bool)({
+  if(g_type_key_memo_check == u8(0), {
+    on := match(debug_knob(String.from("YO_DEBUG_TYPE_KEY_MEMO_CHECK")), .Some(v) => (v == "1"), .None => false);
+    g_type_key_memo_check = if(on, u8(2), u8(1));
+  });
+  (g_type_key_memo_check == u8(2))
+});
+// ---------------------------------------------------------------------------
 // stable_type_identity — a PURE structural identity render.
 // ---------------------------------------------------------------------------
 // Like `type_key` but consulting NO mutable key registries (the
@@ -897,3 +955,4 @@ enum_instance_node_id :: (fn(t : &TypeValue) -> String)(
   )
 );
 export(type_key, stable_type_identity, _tk_resolve_arg_slot, enum_instance_node_id);
+export(TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_key_memo_check_enabled);

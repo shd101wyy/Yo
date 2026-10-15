@@ -19,6 +19,7 @@ pragma(Pragma.AllowUnsafe);
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { Exception } :: import("std/error");
+{ panic } :: import("std/assert");
 { TypeValue, TypeValueNode, FuncMeta, t_refine_inner } :: import("../types/definitions.yo");
 {
   is_function_type,
@@ -30,7 +31,7 @@ pragma(Pragma.AllowUnsafe);
   is_reference_enum_type,
   is_primitive_type
 } :: import("../types/guards.yo");
-{ enum_instance_node_id, type_key } :: import("../types/type_key.yo");
+{ enum_instance_node_id, type_key, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_key_memo_check_enabled } :: import("../types/type_key.yo");
 {
   is_fn_trait_type,
   is_future_trait_type,
@@ -69,7 +70,7 @@ pragma(Pragma.AllowUnsafe);
   value_type_owns_buffer,
   value_acyclic_obligations
 } :: import("../types/utils.yo");
-{ type_to_string } :: import("../types/string.yo");
+{ type_to_string, type_key_epoch } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
 { Environment, get_where_clause_constraints_for_some_type } :: import("../env.yo");
 { Token } :: import("../token.yo");
@@ -135,6 +136,12 @@ pragma(Pragma.AllowUnsafe);
 (g_lacks_copy_in_progress : ArrayList(String)) = ArrayList(String).new();
 (g_lacks_copy_memo : HashMap(String, bool)) = HashMap(String, bool).new();
 (g_lacks_copy_memo_epoch : u64) = u64(0);
+/// The identity front cache of `g_lacks_copy_memo` (see `type_identity_slot`,
+/// types/type_key.yo): handles sorted by address, their answers, and the
+/// type-key epoch they were keyed in. Cleared with the memo.
+(g_lacks_copy_fast : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+(g_lacks_copy_fast_answers : ArrayList(bool)) = ArrayList(bool).new();
+(g_lacks_copy_fast_epoch : u64) = u64(0);
 /// Register that the type `type_id` auto-derives the marker trait named
 /// `trait_name`, resolved to its canonical env trait VALUE. If the trait isn't in
 /// scope yet (rare — e.g. a struct defined before the marker trait), skip
@@ -945,9 +952,30 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
     return(false);
   });
   if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {
-    g_lacks_copy_memo.clear();
+    _clear_lacks_copy_memo();
     g_lacks_copy_memo_epoch = trait_impl_epoch();
   });
+  // The identity cache answers only while no derive is pending: the pending
+  // check below needs the key.
+  if(g_copy_pending_keys.is_empty(), {
+    if(g_lacks_copy_fast_epoch != type_key_epoch(), {
+      g_lacks_copy_fast.clear();
+      g_lacks_copy_fast_answers.clear();
+      g_lacks_copy_fast_epoch = type_key_epoch();
+    });
+    (slot : usize) = type_identity_slot(&g_lacks_copy_fast, &ty);
+    if(type_identity_slot_holds(&g_lacks_copy_fast, slot, &ty), {
+      fast := match(g_lacks_copy_fast_answers.get(slot), .Some(a) => a, .None => false);
+      if(type_key_memo_check_enabled(), {
+        slow := g_lacks_copy_memo.get(type_key(&ty));
+        if(match(slow, .Some(m) => (m != fast), .None => true), {
+          panic(`YO_DEBUG_TYPE_KEY_MEMO_CHECK: type_lacks_copy_for_flip(${type_to_string(&ty)}): the identity cache answers ${if(fast, "true", "false")}, the type_key memo ${match(slow, .Some(m) => if(m, "answers true", "answers false"), .None => "has no entry")}`);
+        });
+      });
+      return(fast);
+    });
+  });
+  key_epoch := type_key_epoch();
   key := type_key(&ty);
   // Not memoized: the answer changes once the derive registers `Copy`.
   (pi : usize) = usize(0);
@@ -960,6 +988,7 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   match(
     g_lacks_copy_memo.get(key.clone()),
     .Some(known) => {
+      _record_lacks_copy_fast(&ty, key_epoch, known);
       return(known);
     },
     .None => ()
@@ -984,11 +1013,39 @@ type_lacks_copy_for_flip :: (fn(ty_in : &TypeValue) -> bool)({
   // The query itself may force pending impls (and bump the epoch); record
   // the answer under the epoch it was computed at.
   if(g_lacks_copy_memo_epoch != trait_impl_epoch(), {
-    g_lacks_copy_memo.clear();
+    _clear_lacks_copy_memo();
     g_lacks_copy_memo_epoch = trait_impl_epoch();
   });
   g_lacks_copy_memo.insert(key, answer);
+  _record_lacks_copy_fast(&ty, key_epoch, answer);
   answer
+});
+/// Record `ty`'s answer in the identity cache, when the key it is memoized
+/// under was computed in the current type-key epoch (else `ty`'s key may have
+/// changed since).
+_record_lacks_copy_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : bool) -> unit)({
+  if(key_epoch != type_key_epoch(), {
+    return(());
+  });
+  if(g_lacks_copy_fast_epoch != key_epoch, {
+    g_lacks_copy_fast.clear();
+    g_lacks_copy_fast_answers.clear();
+    g_lacks_copy_fast_epoch = key_epoch;
+  });
+  if(g_lacks_copy_fast.len() >= TYPE_IDENTITY_CACHE_CAP, {
+    g_lacks_copy_fast.clear();
+    g_lacks_copy_fast_answers.clear();
+  });
+  (slot : usize) = type_identity_slot(&g_lacks_copy_fast, ty);
+  if(!type_identity_slot_holds(&g_lacks_copy_fast, slot, ty), {
+    g_lacks_copy_fast.insert(slot, ty);
+    g_lacks_copy_fast_answers.insert(slot, answer);
+  });
+});
+_clear_lacks_copy_memo :: (fn() -> unit)({
+  g_lacks_copy_memo.clear();
+  g_lacks_copy_fast.clear();
+  g_lacks_copy_fast_answers.clear();
 });
 /// Empty when `ty` is `Copy`, and for a compile-time-only type: its copies
 /// never reach run time.
