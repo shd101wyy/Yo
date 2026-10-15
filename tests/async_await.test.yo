@@ -7134,10 +7134,10 @@ test("a borrowing future is awaited where it is made: never bound, spawned or ca
 });
 test("a borrowing future cannot hold a place lent through an Rc deref (decision 38 D, §3.13 A2)", {
   r := rc(_A2Shared(items : ArrayList(i32).new()));
-  comptime_expect_error(io.await(_a2_count(&r.*.items, io), io), "lives in a shared cell");
-  comptime_expect_error(io.await(_a2_push(&mut r.*.items, io), io), "lives in a shared cell");
+  comptime_expect_error(io.await(_a2_count(&r.*.items, io), io), "lives in a shared mutable cell");
+  comptime_expect_error(io.await(_a2_push(&mut r.*.items, io), io), "lives in a shared mutable cell");
   k := rc(_A2Counter(n : i32(0)));
-  comptime_expect_error(io.await(k.bump(io), io), "lives in a shared cell");
+  comptime_expect_error(io.await(k.bump(io), io), "lives in a shared mutable cell");
   r.*.items.push(i32(1));
   other := r;
   pusher := io.spawn(
@@ -7156,16 +7156,16 @@ test("a borrowing future cannot hold a place lent through an Rc deref (decision 
 test("a borrowing future made in an arm or a block tail is checked where it is made (decision 38 D, §3.13 A2)", {
   r := rc(_A2Shared(items : ArrayList(i32).new()));
   b := true;
-  comptime_expect_error(io.await(if(b, _a2_count(&r.*.items, io), _a2_count(&r.*.items, io)), io), "lives in a shared cell");
-  comptime_expect_error(io.await(cond(b => _a2_push(&mut r.*.items, io), true => _a2_push(&mut r.*.items, io)), io), "lives in a shared cell");
-  comptime_expect_error(io.await(match(b, true => _a2_count(&r.*.items, io), false => _a2_count(&r.*.items, io)), io), "lives in a shared cell");
+  comptime_expect_error(io.await(if(b, _a2_count(&r.*.items, io), _a2_count(&r.*.items, io)), io), "lives in a shared mutable cell");
+  comptime_expect_error(io.await(cond(b => _a2_push(&mut r.*.items, io), true => _a2_push(&mut r.*.items, io)), io), "lives in a shared mutable cell");
+  comptime_expect_error(io.await(match(b, true => _a2_count(&r.*.items, io), false => _a2_count(&r.*.items, io)), io), "lives in a shared mutable cell");
   k := rc(_A2Counter(n : i32(0)));
   comptime_expect_error(
     io.await({
       u := i32(0);
       k.bump(io)
     }, io),
-    "lives in a shared cell"
+    "lives in a shared mutable cell"
   );
   c := _A2Counter(n : i32(1));
   n := io.await(if(b, _a2_tenfold_later(&c, io), _a2_tenfold_later(&c, io)), io);
@@ -7184,10 +7184,10 @@ _A2Cells :: struct(cells : Array(i32, 2));
 test("a borrowing future cannot hold an element lent through an index (decision 38 D, §3.13 A2)", {
   xs := ArrayList(i32).new();
   xs.push(i32(1));
-  comptime_expect_error(io.await(_a2_bump_i32(&mut xs(usize(0)), io), io), "lives in a shared cell");
+  comptime_expect_error(io.await(_a2_bump_i32(&mut xs(usize(0)), io), io), "lives in a shared mutable cell");
   r := rc(_A2Shared(items : ArrayList(i32).new()));
   r.*.items.push(i32(1));
-  comptime_expect_error(io.await(_a2_bump_i32(&mut r.*.items(usize(0)), io), io), "lives in a shared cell");
+  comptime_expect_error(io.await(_a2_bump_i32(&mut r.*.items(usize(0)), io), io), "lives in a shared mutable cell");
   a := _A2Cells(cells : Array(i32, 2)(i32(4), i32(5)));
   io.await(_a2_bump_i32(&mut a.cells(usize(1)), io), io);
   assert(a.cells(usize(1)) == i32(6), "an element of a fixed-size array is part of the local's own storage");
@@ -7199,6 +7199,7 @@ test("a borrowing future cannot hold an element lent through an index (decision 
 _A2Global := _A2Counter(n : i32(1));
 mut(_a2_global_n) := i32(2);
 _a2_global_cells := Array(i32, 2)(i32(4), i32(5));
+_A2ArcGlobal := arc(_A2Counter(n : i32(1)));
 (thread_local(_a2_tl_n) : i32) = i32(0);
 _A2_CONST :: _A2Counter(n : i32(3));
 _A2Defaulted :: struct(n : i32);
@@ -7230,6 +7231,13 @@ test("a borrowing future cannot hold a place rooted in a module-level or thread_
   comptime_expect_error(io.await(_a2_bump_i32(&mut _a2_tl_n, io), io), "is a module-level binding");
   fp := _a2_bump_i32;
   comptime_expect_error(io.await(fp(&mut _a2_global_n, io), io), "is a module-level binding");
+  // A shared borrow through `Arc` derefs is still rooted in the global, and
+  // `_A2ArcGlobal = arc(...)` during the await would release the payload.
+  comptime_expect_error(io.await(_a2_tenfold(&_A2ArcGlobal.*, io), io), "is a module-level binding");
+  comptime_expect_error(io.await(_a2_read_i32_later(&_A2ArcGlobal.*.n, io), io), "is a module-level binding");
+  // Through a local `Arc` the lend is accepted: the handle is the task's own.
+  la := arc(_A2Counter(n : i32(4)));
+  assert(io.await(_a2_tenfold_later(&la.*, io), io) == i32(40), "a shared borrow through a local Arc crosses the suspension");
   // A `::` constant has no runtime storage another task could change.
   assert(io.await(_a2_tenfold(&_A2_CONST, io), io) == i32(30), "a :: constant is lent freely");
   // A local copy is the task's own.
@@ -7260,7 +7268,7 @@ test("a future made through a function value is assumed to borrow what the call 
   comptime_expect_error(io.spawn(fp(&mut c, io), io), "spawned or moved into a by-value parameter");
   r := rc(_A2Shared(items : ArrayList(i32).new()));
   gp := _a2_count;
-  comptime_expect_error(io.await(gp(&r.*.items, io), io), "lives in a shared cell");
+  comptime_expect_error(io.await(gp(&r.*.items, io), io), "lives in a shared mutable cell");
   io.await(fp(&mut c, io), io);
   assert(c.n == i32(1), "awaited in place, the call through the function value runs");
 });
