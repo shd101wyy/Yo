@@ -1,6 +1,6 @@
 //! A value that owns a heap buffer: the shape every std collection takes
 //! once V2b gives it a uniquely owned buffer (plans/VALUES_BY_DEFAULT.md, V2b
-//! "Unique buffers"). It frees its buffer in `Dispose` and traces each slot in
+//! "Unique buffers"). It frees its buffer in `Drop` and traces each slot in
 //! `Trace`, which the gate admits on a value with a `?*E` field. Used by
 //! tests/cycle_collector.test.yo and tests/move_only.test.yo.
 pragma(Pragma.AllowUnsafe);
@@ -40,8 +40,8 @@ impl(
 impl(
   generic(T : Type),
   VList(T),
-  Dispose(
-    dispose : (fn(self : &Self) -> unit)({
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
       match(
         self._ptr,
         .Some(base) => {
