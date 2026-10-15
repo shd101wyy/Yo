@@ -438,7 +438,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 > - **The 57/87/248 figures assume collections are `ref` handles.** If V2b unique buffers Generation B lands first, every module-level collection written through `push`/`clear` becomes a VALUE global (E0917 when unmarked). Then re-run the census with a tree-built binary after V2b Generation B and either mark those globals `mut(G)` and rewrite their lends, or move them to `thread_local(mut(...))`/`RefCell` (decision 46 Generation A brings `RefCell`). Decide before sweeping, or land the globals' Generation B before V2b Generation B.
 
 
-- **What:** the S1 `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`, with the decided design in §5.1.
+- **What:** the S1 `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`, with the decided design in §5.1.
 - **State:** the branch holds the **strict** first cut, WIP commits (`393713de9`…):
   - E0916, "a module-level binding lent to a call";
   - the census knob `YO_AUDIT_GLOBAL_LEND=1`, one line per lend with a form tag;
@@ -737,7 +737,7 @@ x :: 12;                           // a true constant
 
 | Issue | Note |
 | --- | --- |
-| `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; fixed on `feat/global-lend-to-call-is-an-error`, not yet on develop |
+| `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; fixed on `feat/global-lend-to-call-is-an-error`, not yet on develop |
 | `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` (copied to develop by the handover PR) | B1; fixed on `fix/d3-trust-by-mutation-mask`, not yet on develop |
 | `issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md` | §4 step 10; the runtime half shipped in v0.2.63 |
 | `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
