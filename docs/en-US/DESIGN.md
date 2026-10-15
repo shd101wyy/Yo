@@ -3273,7 +3273,9 @@ count := i32(0);
 - **Call arguments are exclusive.** A closure that holds a `&mut` capture is
   lent exclusively, so a call may not also pass anything that reaches the
   borrowed place, the receiver and a called closure included (E0910):
-  `bump({ &z }() => z, &mut z)` is rejected.
+  `bump({ &z }() => z, &mut z)` is rejected. A `Copy` value passed by value
+  is copied before the call and reaches nothing, so `self.mix(self.tail)`
+  with a `u64` field is accepted.
 - A capture list on a `->` function literal or an `io.async` body is an
   error, and `{ x }(y) => …` is not a `match` arm pattern (a record pattern is
   `{ x, y } => …`).

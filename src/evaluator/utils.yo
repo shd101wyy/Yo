@@ -1560,12 +1560,15 @@ check_capture_freeze_access :: (fn(v : &Variable, is_write : bool, tok : &Token,
   );
 });
 /// One place an argument reaches, for decision 28's overlap test: its root
-/// binding and its field path, and how a message names it.
-_ArgPlace :: struct(root_id : usize, path : ArrayList(String), text : String);
+/// binding and its field path, how a message names it, and whether it comes
+/// from a capture-list borrow the argument's type carries (decision 38 B)
+/// rather than the place the argument names.
+_ArgPlace :: struct(root_id : usize, path : ArrayList(String), text : String, from_capture : bool);
 /// The places argument `arg` (evaluated) reaches: the place it names, when it
-/// is a field chain rooted at a runtime binding (`z`, `s.items`), and every
-/// place a capture-list closure it holds borrows, transitively (decision 38 B).
-_arg_places :: (fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(_ArgPlace)) -> unit)({
+/// is a field chain rooted at a runtime binding (`z`, `s.items`) and `named`
+/// holds, and every place a capture-list closure it holds borrows,
+/// transitively (decision 38 B).
+_arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &EvalContext, out : &mut ArrayList(_ArgPlace)) -> unit)({
   fields_rev := ArrayList(String).new();
   (cur : AstExpr) = arg;
   (walking : bool) = true;
@@ -1591,7 +1594,7 @@ _arg_places :: (fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out :
       walking = false;
     });
   });
-  if(is_place && ast_expr_is_atom(&cur), {
+  if(named && is_place && ast_expr_is_atom(&cur), {
     match(
       get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last(),
       .Some(rv) => if(!rv.is_compile_time_only, {
@@ -1604,7 +1607,7 @@ _arg_places :: (fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out :
         text := String.from("`");
         text.push_string(ast_expr_to_string(arg));
         text.push_str("`");
-        out.push(_ArgPlace(root_id : rv.id, path : path, text : text));
+        out.push(_ArgPlace(root_id : rv.id, path : path, text : text, from_capture : false));
       }),
       .None => ()
     );
@@ -1616,7 +1619,7 @@ _arg_places :: (fn(arg : &AstExpr, env : &Environment, ctx : &EvalContext, out :
       collect_type_borrows(&ai.ty, &mut bs);
       (bi : usize) = usize(0);
       while(bi < bs.len(), {
-        match(bs.get(bi), .Some(b) => out.push(_ArgPlace(root_id : b.root_id, path : b.path, text : _capture_borrow_note(&b))), .None => ());
+        match(bs.get(bi), .Some(b) => out.push(_ArgPlace(root_id : b.root_id, path : b.path, text : _capture_borrow_note(&b), from_capture : true)), .None => ());
         bi = (bi + usize(1));
       });
     },
@@ -1641,28 +1644,53 @@ _places_overlap :: (fn(a : &_ArgPlace, b : &_ArgPlace) -> bool)({
 });
 /// Decision 28's argument exclusivity for capture-list borrows (decision 38
 /// B): within one call (the receiver and a called closure count as
-/// arguments), an exclusive argument — a `mut`/`inout` one, or a value that
-/// carries a `mut` capture, which is lent exclusively even to an `imm(f)`
-/// parameter — may not overlap anything another argument reaches. So
-/// `g(&f, &mut z)` (where `f` captures `z`), `f(&g)` (where `g` reaches the
-/// `mut`-capturing `f`) and `xs.for_each({ mut(n) : &mut xs.n }(…) => …)` are
-/// errors, and a `for_each` literal that borrows a fresh local is not.
+/// arguments), an exclusive argument — a `&mut` one, or a value that carries
+/// a `&mut` capture, which is lent exclusively even to a `&f` parameter — may
+/// not overlap anything another argument reaches, when a capture borrow is
+/// one side of the overlap. So `g(&f, &mut z)` (where `f` captures `z`),
+/// `f(&g)` (where `g` reaches the `&mut`-capturing `f`) and
+/// `xs.for_each({ n : &mut xs.n }(…) => …)` are errors, and a `for_each`
+/// literal that borrows a fresh local is not. Two places the arguments only
+/// name (`f(&h, &mut h.n)`) are decision 28's value-root rule, which lands
+/// with V2b (plans/VALUES_BY_DEFAULT.md decision 28 "Phase"); reporting them
+/// here made the rule depend on whether a capture list had been evaluated
+/// before the call, since that is what arms this check
+/// (issues/fixed/2026-10-15-the-argument-overlap-check-runs-only-after-a-capture-list-records-a-borrow.md).
 /// `extra` is the called closure value, when the callee is one.
 require_capture_borrow_exclusivity :: (
-  fn(param_is_ref : &ArrayList(bool), args : &ArrayList(AstExpr), extra : &Option(AstExpr), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit
+  fn(
+    param_is_ref : &ArrayList(bool),
+    param_is_owning : &ArrayList(bool),
+    args : &ArrayList(AstExpr),
+    extra : &Option(AstExpr),
+    env : &Environment,
+    ctx : &EvalContext,
+    exn : Exception
+  ) -> unit
 )({
   if(!capture_borrows_exist(), {
     return(());
   });
   all_args := ArrayList(AstExpr).new();
   excl := ArrayList(bool).new();
+  // An argument bound to a by-value parameter (`param_is_owning`) whose type
+  // is `Copy` (`self.m(self.tail)` with a `u64` field) is copied before the
+  // call runs, so the callee cannot reach the place it names; only the
+  // borrows its type carries count. A `&T` parameter (`param_is_ref` marks
+  // only `&mut`) and a second-class value (a `&T`, a borrowing closure) keep
+  // their named place.
+  named := ArrayList(bool).new();
   (ai : usize) = usize(0);
   while(ai < args.len(), {
     a := match(args.get(ai), .Some(x) => x, .None => make_err_expr());
     all_args.push(a);
     is_ref_param := match(param_is_ref.get(ai), .Some(r) => r, .None => false);
-    carries_mut := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a)), .Some(inf) => type_first_mut_borrow(&inf.ty).is_some(), .None => false);
+    a_info := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&a));
+    carries_mut := match(a_info, .Some(inf) => type_first_mut_borrow(&inf.ty).is_some(), .None => false);
+    by_value := match(param_is_owning.get(ai), .Some(o) => o, .None => false);
+    copied := (by_value && match(a_info, .Some(inf) => (type_is_bitwise_copy(inf.ty) && !type_is_second_class(&inf.ty)), .None => false));
     excl.push(is_ref_param || carries_mut);
+    named.push(!copied);
     ai = (ai + usize(1));
   });
   match(
@@ -1670,6 +1698,7 @@ require_capture_borrow_exclusivity :: (
     .Some(callee) => {
       all_args.push(callee);
       excl.push(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&callee)), .Some(inf) => type_first_mut_borrow(&inf.ty).is_some(), .None => false));
+      named.push(true);
     },
     .None => ()
   );
@@ -1677,7 +1706,7 @@ require_capture_borrow_exclusivity :: (
   (pi : usize) = usize(0);
   while(pi < all_args.len(), {
     ps := ArrayList(_ArgPlace).new();
-    _arg_places(match(all_args.get(pi), .Some(x) => x, .None => make_err_expr()), env, ctx, &mut ps);
+    _arg_places(match(all_args.get(pi), .Some(x) => x, .None => make_err_expr()), match(named.get(pi), .Some(n) => n, .None => true), env, ctx, &mut ps);
     places.push(ps);
     pi = (pi + usize(1));
   });
@@ -1695,7 +1724,7 @@ require_capture_borrow_exclusivity :: (
             (y : usize) = usize(0);
             while(y < pjs.len(), {
               pb := match(pjs.get(y), .Some(v) => v, .None => return(()));
-              if(_places_overlap(&pa, &pb), {
+              if((pa.from_capture || pb.from_capture) && _places_overlap(&pa, &pb), {
                 arg_i := match(all_args.get(i), .Some(v) => v, .None => make_err_expr());
                 arg_j := match(all_args.get(j), .Some(v) => v, .None => make_err_expr());
                 raise_flow_violation(
@@ -2985,8 +3014,9 @@ keep_last_arm_moves :: (fn(env : &Environment, last_arm : &AstExpr, group_log_st
 });
 /// At a `break` or `continue`: the move state of every variable declared
 /// outside the loop that the body has touched so far (per path: the arm the
-/// jump sits in starts from the state before its branch).
-snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, into : &mut ArrayList(LoopFlowSnapshot), env : &Environment, site : &Token) -> unit)({
+/// jump sits in starts from the state before its branch). The caller pushes
+/// it onto `lc`'s `break_states` or `continue_states`.
+snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, env : &Environment, site : &Token) -> LoopFlowSnapshot)({
   ids := ArrayList(usize).new();
   states := ArrayList(Option(Token)).new();
   recs := first_flow_records_in(lc.log_start, branch_init_log_len());
@@ -3006,7 +3036,7 @@ snapshot_loop_flow :: (fn(lc : &LoopBodyCtx, into : &mut ArrayList(LoopFlowSnaps
     );
     ri = (ri + usize(1));
   });
-  into.push(LoopFlowSnapshot(site : site, var_ids : ids, consumed : states));
+  LoopFlowSnapshot(site : site, var_ids : ids, consumed : states)
 });
 /// A variable's move state at a `break`/`continue` snapshot (`pre` when the
 /// body had not touched it yet there).

@@ -6609,7 +6609,12 @@ run_compile :: (
     // `<base>_chunk` prefix the chunk files are named from.
     line_c_name := if(emit_c_to.len() > usize(0), emit_c_to.clone(), `${c_base}.c`);
     line_chunk_base := `${c_base}_chunk`;
-    c_parts := compile_module(&module_value, &mut ctx.expr_info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone());
+    // The table goes in through its own handle (written back after): passing
+    // `&mut ctx.expr_info_table` beside `&ctx` lends one place twice, which
+    // decision 28's value-root rule rejects once it lands with V2b.
+    info_table := ctx.expr_info_table;
+    c_parts := compile_module(&module_value, &mut info_table, &target, allocator.clone(), heap_size, debug_heap, debug_gc, debug_parallelism, debug_async_await, is_library_build, &ctx, &env, exn, &mut chunk_parts, emit_chunks, chunk_auto_cap, chunk_by_module, code_spill_path.clone(), line_directives, line_c_name.clone(), line_chunk_base.clone());
+    ctx.expr_info_table = info_table;
     (c_spill_exists : bool) = io.await(exists(Path.new(code_spill_path.clone()), io), io);
     // `--emit-c` (a debug path) reads the spill whole to print it; the file
     // write below copies it in pieces.
