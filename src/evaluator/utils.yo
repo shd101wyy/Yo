@@ -722,6 +722,13 @@ _place_text_of_other :: (fn(e : &AstExpr) -> String)({
 /// `own(cb)` binding the caller's transfer handed the reference to sits in
 /// an OUTER frame of the same env. A capture that moves `cb` takes THAT
 /// binding's reference; this finds it.
+///
+/// A `sink` parameter whose binding does not own a counted reference is
+/// still the owner: `bind_parameter` keeps the owning flag only when the BOUND
+/// type is not bitwise-copyable, and a generic function's call-time binder
+/// binds a closure argument at its `fn(...)` type, which is. The binding is
+/// declared owned (`is_imm_borrow` is false), so the capture may move it
+/// (issues/fixed/2026-10-15-a-closure-parameter-captured-by-an-inner-closure-is-e0901.md).
 _owning_param_binding_for_capture_move :: (fn(env : &Environment, name : &String) -> Option(Variable))({
   vars := get_variables_from_env(env, name.clone());
   (i : usize) = vars.len();
@@ -729,7 +736,7 @@ _owning_param_binding_for_capture_move :: (fn(env : &Environment, name : &String
     i = (i - usize(1));
     match(
       vars.get(i),
-      .Some(cv) => if(cv.is_parameter && cv.is_owning_the_rc_value && (!cv.is_ref && !cv.is_module_level) && cv.consumed_at_token.is_none(), {
+      .Some(cv) => if(cv.is_parameter && (cv.is_owning_the_rc_value || (!cv.is_imm_borrow && !cv.is_compile_time_only && type_is_bitwise_copy(cv.ty))) && (!cv.is_ref && !cv.is_module_level) && cv.consumed_at_token.is_none(), {
         return(Option(Variable).Some(cv));
       }),
       .None => ()
