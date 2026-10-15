@@ -735,7 +735,8 @@ _abort_rebind_then_sleep :: (fn(io : Io) -> unit)({
 test("an aborted task releases a value moved to another name once", {
   g_disposed = i32(0);
   _abort_rebind_then_sleep(io);
-  assert(g_disposed == i32(1), `the new owner releases it, released ${g_disposed}`);
+  released := g_disposed;
+  assert(released == i32(1), `the new owner releases it, released ${released}`);
 });
 _move_each_iteration :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
@@ -774,7 +775,8 @@ _abort_move_each_iteration :: (fn(io : Io) -> unit)({
 test("an aborted task releases a local re-bound after its previous value moved", {
   g_disposed = i32(0);
   _abort_move_each_iteration(io);
-  assert(g_disposed == i32(1), `the second iteration's Thing, released ${g_disposed}`);
+  released := g_disposed;
+  assert(released == i32(1), `the second iteration's Thing, released ${released}`);
   g_kept_things.clear();
   assert(g_disposed == i32(2), "the first iteration's Thing, by its new owner");
 });
