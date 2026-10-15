@@ -915,7 +915,41 @@ _drop_target_is_parameter :: (fn(drop_expr : &AstExpr, context : &FunctionGenera
 /// `skip_param_drops` / `only_param_drops` split ownership of PARAM-targeted
 /// drops between expression-level and function-level emission points — see
 /// `_drop_target_is_parameter`.
-{ _looks_like_minted_temp } :: import("./begin.yo");
+/// True iff `cn` looks like an eval-minted temp C name: contains `_temp_`
+/// followed by ONLY digits (at least one) to the end — e.g.
+/// `_file____User_temp_188653`. Module-blind fallback for the undeclared-temp
+/// drop gates: `is_temp_variable_name` recomputes the module prefix from the
+/// DROP SITE's `ei.env.module_path`, which can differ in FORM from the temp's
+/// minting module path (URL `file:///...` vs relative `./...`), so the scoped
+/// check alone misses cross-form temps. The digits-only suffix keeps user
+/// variables like `await_future_temp_var_aliases` out.
+_looks_like_minted_temp :: (fn(cn : &String) -> bool)({
+  marker := String.from("_temp_");
+  idx_opt := cn.index_of(&marker);
+  match(
+    idx_opt,
+    .None => false,
+    .Some(idx) => {
+      start := (idx + marker.len());
+      n := cn.len();
+      if(start >= n, {
+        return(false);
+      });
+      (i : usize) = start;
+      (ok : bool) = true;
+      while(i < n, {
+        b := cn.byte_at(i);
+        if(!((b >= u8(48)) && (b <= u8(57))), {
+          ok = false;
+          i = n;
+        }, {
+          i = (i + usize(1));
+        });
+      });
+      ok
+    }
+  )
+});
 /// Whether `expr` still carries a not-yet-emitted drop that the node flush
 /// would EMIT now: a param-targeted one (the own-param scope-end release), or
 /// one whose target is declared (a temp minted while rendering the tail, e.g.
@@ -1453,6 +1487,7 @@ generate_arg_code_with_deferred_dups :: (
 });
 
 export(
+  _looks_like_minted_temp,
   get_drop_function_for_type,
   get_dup_function_for_type,
   get_dispose_function_for_type,
