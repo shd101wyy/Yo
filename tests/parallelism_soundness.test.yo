@@ -5,6 +5,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { platform, Platform } :: import("std/process");
 { __yo_async_blocking_begin } :: import("std/sys/externs.yo");
+{ yield } :: import("std/async");
 /// The parallelism-soundness corpus (`plans/archive/PARALLELISM_SOUNDNESS.md`, Phase 0).
 ///
 /// One `comptime_expect_error` block per rule the plan's phases add, and one
@@ -114,6 +115,92 @@ test("D3 canary: Mutex.with_lock may mutate the protected value", {
     v.bump();
   });
   assert(m.with_lock(v => v.n) == i32(1), "with_lock body wrote through v");
+});
+// D3 judges a prelude or std callee by its mutation mask, exactly as a user
+// function: `Option.take` is defined in a pragma'd file, but it writes its
+// receiver, so calling it on a place under an `Arc` writes the shared payload
+// (issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md).
+Slot :: struct(o : Option(i64));
+comptime_expect_error({
+  _d3_std_take_through_arc :: (fn() -> unit)({
+    a := arc(Slot(o : Option(i64).Some(i64(1))));
+    _t := a.*.o.take();
+  });
+  _d3_std_take_through_arc();
+}, "the callee may write through that mut parameter");
+comptime_expect_error({
+  _d3_std_replace_through_arc :: (fn() -> unit)({
+    a := arc(Slot(o : Option(i64).Some(i64(1))));
+    _t := a.*.o.replace(i64(2));
+  });
+  _d3_std_replace_through_arc();
+}, "the callee may write through that mut parameter");
+// The data race the hole allowed: a second handle's thread takes the payload
+// field while this thread reads it.
+comptime_expect_error({
+  _d3_std_take_on_another_thread :: (fn() -> unit)({
+    a := arc(Slot(o : Option(i64).Some(i64(1))));
+    b := a;
+    t := Thread(unit).spawn((io : Io) => {
+      _t := b.*.o.take();
+      ()
+    });
+    _r := a.*.o;
+    t.join();
+  });
+  _d3_std_take_on_another_thread();
+}, "the callee may write through that mut parameter");
+// The use-after-free the hole allowed: another task takes the field a
+// borrowing future reads after its suspension.
+_slot_peek :: (fn(w : &Slot, io : Io) -> Impl(Future(i64, Io)))(
+  io.async({ &w }(io : Io) => {
+    io.await(yield(io), io);
+    match(w.o, .Some(v) => v, .None => i64(0))
+  })
+);
+comptime_expect_error({
+  _d3_std_take_in_another_task :: (fn(io : Io) -> unit)({
+    a := arc(Slot(o : Option(i64).Some(i64(1))));
+    b := a;
+    task := io.async({ b }(io : Io) => {
+      _t := b.*.o.take();
+      ()
+    });
+    h := io.spawn(task, io);
+    _v := io.await(_slot_peek(&a.*, io), io);
+    _x := h.await(io);
+  });
+  _d3_std_take_in_another_task(io);
+}, "the callee may write through that mut parameter");
+// D1 through the same hole: a std mutator writing a module-level global that
+// a spawned thread reads is the mutable-static race `g = v` already is.
+(g_d3_slot : Option(i64)) = Option(i64).Some(i64(1));
+comptime_expect_error({
+  _d1_std_take_of_a_thread_read_global :: (fn() -> unit)({
+    t := Thread(unit).spawn((io : Io) => {
+      _r := g_d3_slot;
+      ()
+    });
+    _t := g_d3_slot.take();
+    t.join();
+  });
+  _d1_std_take_of_a_thread_read_global();
+}, "a closure that runs on another thread reads it");
+// Canaries: the same std mutators on an owned value, through a `&mut`
+// parameter, inside `Mutex.with_lock`, and reads through an `Arc` stay legal.
+_take_through_mut :: (fn(s : &mut Slot) -> Option(i64))(s.o.take());
+test("D3 canary: std mutators on owned values, through &mut, and under a lock", {
+  s := Slot(o : Option(i64).Some(i64(1)));
+  assert(s.o.take() == Option(i64).Some(i64(1)), "take on an owned value");
+  assert(s.o.is_none(), "the owned value was taken");
+  _p := s.o.replace(i64(5));
+  assert(_take_through_mut(&mut s) == Option(i64).Some(i64(5)), "take through a &mut parameter");
+  m := Mutex(Slot).new(Slot(o : Option(i64).Some(i64(7))));
+  got := m.with_lock(v => v.o.take());
+  assert(got == Option(i64).Some(i64(7)), "take inside with_lock");
+  a := arc(Slot(o : Option(i64).Some(i64(3))));
+  assert(a.*.o.is_some(), "a read-only std method through an Arc");
+  assert(a.*.o.unwrap_or(i64(0)) == i64(3), "a by-value std method through an Arc");
 });
 // ============================================================================
 // D4 — a closure is Send iff its captures are
