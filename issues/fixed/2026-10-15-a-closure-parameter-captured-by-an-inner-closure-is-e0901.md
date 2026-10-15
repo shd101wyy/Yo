@@ -59,14 +59,27 @@ instead of passing it to a call.
 
 ## Fix
 
-`_owning_param_binding_for_capture_move` accepts as the owner a parameter
-binding that is declared owned (`is_imm_borrow` false, so `sink`) and was
-bound non-owning only because its bound type is bitwise-copyable. A borrowed
-parameter (`x : &T`, a plain by-value parameter) is still not an owner. The
-declared-ness is the binder's own `is_imm_borrow` mark, so no flag is guessed.
-The binding itself is unchanged and stays non-owning, as it was before
-#1366, so no release is added or removed. Only the checker's verdict on the
-capture changes.
+- The binding is caller-owned at run time, and the caller and the callee
+  agree on that: the caller does not transfer the argument
+  (`consume_argument_for_parameter` sees the same bitwise type), and the callee
+  does not release it. Only the body's closure-parameter shadow, typed
+  `Impl(Fn() -> T)` and resolved to the move-only capture record, asked for a
+  move.
+- So a capture of such a parameter takes its own references (the `___dup`
+  arm of `generate_captured_variable_dup_expressions`,
+  `src/evaluator/utils/closure.yo`). That is the arm this capture took before
+  #1366. `capture_of_caller_owned_sink_param` (`src/evaluator/utils.yo`)
+  recognizes the shape: a non-owning closure-parameter shadow, no owning
+  binding beside it, and a same-named parameter that is declared owned
+  (`is_imm_borrow` false) but non-owning at a bitwise-copyable type.
+- A closure that is move-only because it holds a `Dispose` value still moves,
+  and is still E0901 in this shape. A copy of it would dispose twice. The
+  binder's typing is the real defect:
+  `issues/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md`.
+- The first attempt was rejected by its own Tier 1 ASan run (heap-use-after-free
+  in `tests/spawn_blocking.test.yo` and the new `send_sync` test). It made the
+  owner lookup accept that binding, so the capture moved it. The inner
+  closure then released references the caller also released.
 
 ## Verification
 
@@ -74,4 +87,4 @@ capture changes.
   passes after.
 - `tests/send_sync.test.yo` "a generic function's move-only closure parameter
   moves into a closure it passes on" covers both shapes above. It is E0901
-  before the fix and passes after.
+  before the fix and passes after, under ASan too (Apple clang, macOS arm64).
