@@ -1452,7 +1452,7 @@ test("HttpClient: the pool never crosses ports", {
 // which is synchronous code, so the write lands where the handler can see it
 // (unlike a write from inside a suspending async body; see `_KaStats`) — and
 // read by that handler through a module-level fn.
-(g_iso_phase : i32) = i32(0);
+(mut(g_iso_phase) : i32) = i32(0);
 _iso_phase :: (fn() -> i32)(g_iso_phase);
 test("HttpClient: the pool never crosses hosts", {
   // The handler is where this test's assertions live: a request for another

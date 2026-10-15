@@ -451,7 +451,7 @@ test("Returning an OWNED RC local from inside a branch is not double-dropped", {
 // genuine subtree walk finds the cleanup point. A missed attachment leaks the
 // still-initialized local on the early path (the counter falls short); an
 // over-attachment double-drops it (the caller then reads a freed object).
-(g_m3_hidden_disposed : i32) = i32(0);
+(mut(g_m3_hidden_disposed) : i32) = i32(0);
 M3HiddenRet :: ref(struct(tag : i32));
 impl(
   M3HiddenRet,
@@ -999,7 +999,7 @@ test("statement-hidden mutation keeps the borrowed-projection dup", {
 // so it is still readable after the handles are gone. A counter stored INSIDE
 // the handle is not — passing it into the struct hands over ownership, so
 // disposing the handle frees the counter and reading it afterwards is a UAF.
-(g_alias_disposed : i32) = i32(0);
+(mut(g_alias_disposed) : i32) = i32(0);
 AliasHandle :: ref(struct(tag : i32));
 impl(
   AliasHandle,
@@ -1058,7 +1058,7 @@ test("box takes ownership of its argument without retaining an extra reference",
 // very first assertion before the fix. The `String` round trip at the end is
 // the over-drop canary — an over-drop would have freed the buffer before the
 // read.
-(g_own_param_freed : i32) = i32(0);
+(mut(g_own_param_freed) : i32) = i32(0);
 OwnParamRes :: ref(struct(tag : i32));
 impl(
   OwnParamRes,
@@ -1200,7 +1200,7 @@ test("alias made in an inner block, base reassigned there, base used after", {
 // BOTH directions: a missing dup frees early (the bug), and an unmatched dup
 // never disposes at all (the over-correction).
 // ---------------------------------------------------------------------------
-(g_nested_disposed : i32) = i32(0);
+(mut(g_nested_disposed) : i32) = i32(0);
 NestedSink :: ref(struct(tag : i32));
 impl(
   NestedSink,
@@ -1295,7 +1295,7 @@ test("a container in a cond arm and in a while body behave the same way", {
 // (issues/fixed/short-circuit-rhs-temp-in-bare-arm-body-drops-out-of-scope.md).
 // Drop deltas pin "exactly once" so the in-branch drop is neither missing
 // nor doubled.
-(g_sc_disposed : i32) = i32(0);
+(mut(g_sc_disposed) : i32) = i32(0);
 ScHandle :: ref(struct(tag : i32));
 impl(
   ScHandle,
@@ -1308,7 +1308,7 @@ impl(
 mk_sc :: (fn(n : i32) -> ScHandle)(ScHandle(tag : n));
 mk_sc_opt :: (fn(n : i32) -> Option(ScHandle))(Option(ScHandle).Some(ScHandle(tag : n)));
 sc_check_body :: (fn(c : bool) -> unit)(assert(c && (mk_sc(i32(3)).tag == i32(3)), "single-expression fn body"));
-(g_sc_i : usize) = usize(0);
+(mut(g_sc_i) : usize) = usize(0);
 sc_step :: (fn(ok : bool) -> unit)({
   g_sc_i = if(ok, g_sc_i + usize(1), usize(99));
 });
@@ -1365,7 +1365,7 @@ test("|| chain ending in Option.is_some() inside a match arm inside a cond arm",
 // in `_substitute_at` leaked ~7 M TypeValues per self-check). The borrowed-arm
 // cases are the over-release canaries: an arm that hands back a caller-owned
 // value must not lose a reference when the temp is dropped.
-(g_at_disposed : i32) = i32(0);
+(mut(g_at_disposed) : i32) = i32(0);
 ArgTemp :: ref(struct(n : i32));
 impl(
   ArgTemp,
@@ -1707,7 +1707,7 @@ test("ref_count: copies of a value holding RC data are counted in every position
 // call `make(a)` emits: the callee released a reference it was never given,
 // and the caller's own release then freed the box a second time
 // (issues/fixed/a-field-passed-to-an-own-parameter-of-a-method-call-is-not-retained.md).
-(g_own_m_disposed : i32) = i32(0);
+(mut(g_own_m_disposed) : i32) = i32(0);
 _OwnM :: ref(struct(tag : i32));
 impl(
   _OwnM,
@@ -1883,7 +1883,7 @@ test("ref_count is a reserved builtin name", {
 // (issues/fixed/a-newtype-built-from-a-field-projection-is-not-retained.md).
 // A payload the newtype takes over (a fresh local, a call result, a
 // constructor) must still gain no extra reference.
-(g_nt_disposed : i32) = i32(0);
+(mut(g_nt_disposed) : i32) = i32(0);
 _NtBox :: ref(struct(tag : i32));
 impl(
   _NtBox,
@@ -1985,7 +1985,7 @@ test("a newtype over an Option, a newtype or a tuple retains a field payload", {
 // push leaked, so a container inside a tuple inside a container was never
 // freed (48 B / 2 allocations per instance under LSan). The tuple literal now
 // gets an owning temp, so its scope-end drop releases the fields.
-(g_tuple_elem_disposed : i32) = i32(0);
+(mut(g_tuple_elem_disposed) : i32) = i32(0);
 TupleElemHandle :: ref(struct(tag : i32));
 impl(
   TupleElemHandle,
@@ -2074,7 +2074,7 @@ test("a named tuple binding pushed into a container is disposed exactly once", {
 // copy is E0901, and `Box.clone(b)` is a deep copy. `g_ubox_disposed` counts
 // the disposes of `UBoxProbe` payloads.
 // ===========================================================================
-(g_ubox_disposed : i32) = i32(0);
+(mut(g_ubox_disposed) : i32) = i32(0);
 UBoxProbe :: struct(n : i32);
 impl(
   UBoxProbe,
@@ -2302,7 +2302,7 @@ test("unique Box: derive(Clone) and derive(Eq) go through a Box field", {
 // on an `Rc` payload: the payload's destructor runs once, when the last
 // handle goes away, never while one is live; and `drop(h)` releases one
 // handle.
-(g_rc_drop_payload : i32) = i32(0);
+(mut(g_rc_drop_payload) : i32) = i32(0);
 RcDropPayload :: struct(n : i32);
 impl(
   RcDropPayload,
@@ -2327,7 +2327,7 @@ test("Rc(T) with a Drop payload drops it once, with the last handle", {
 // `runtime(x)` is transparent for ownership: a binding of `runtime(f())` owns
 // the call's result exactly once
 // (issues/fixed/rc-value-copied-address-taken-and-returned-is-double-dropped.md).
-(g_rt_disposed : i32) = i32(0);
+(mut(g_rt_disposed) : i32) = i32(0);
 _RtBox :: ref(struct(tag : i32));
 impl(
   _RtBox,

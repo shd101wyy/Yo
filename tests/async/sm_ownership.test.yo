@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 { Error, Exception, IoExn } :: import("std/error");
 { ToString } :: import("std/fmt");
 
-(g_disposed : i32) = i32(0);
+(mut(g_disposed) : i32) = i32(0);
 Thing :: ref(struct(n : i32));
 impl(
   Thing,
@@ -209,7 +209,7 @@ test("a value-position cond or match with an awaiting arm inside a while", {
 });
 
 // issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md
-(g_counter : i32) = i32(0);
+(mut(g_counter) : i32) = i32(0);
 test("two io.async closures that update a module global", {
   t1 := io.async((io : Io) => {
     io.await(yield(io), io);
@@ -806,7 +806,7 @@ test("a generic struct with a pointer-to-future field, built beside the future i
 // instance at a future, as it does at a ref struct: the impl matcher binds
 // the future handle itself
 // (issues/fixed/a-generic-impl-dispose-never-runs-for-a-type-fn-instance-at-a-future.md).
-(g_guards : i32) = i32(0);
+(mut(g_guards) : i32) = i32(0);
 _Guard :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(n : u8)));
 impl(
   generic(T : Type),

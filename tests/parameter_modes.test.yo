@@ -20,7 +20,7 @@ _pm_len :: (fn(s : &String) -> usize)(s.len());
 _pm_plain_len :: (fn(s : &String) -> usize)(s.len());
 _pm_take :: (fn(s : String) -> usize)(s.len());
 _pm_add1 :: (fn(n : i32) -> i32)(n + i32(1));
-(g_pm_disposed : i32) = i32(0);
+(mut(g_pm_disposed) : i32) = i32(0);
 _PmRes :: struct(n : i32);
 impl(
   _PmRes,
@@ -734,7 +734,7 @@ test("a later argument cannot move the receiver of a call that omits a defaulted
 // `lhs : &Self`) lends them like a written `&a`
 // (issues/fixed/2026-10-14-an-operator-operand-lent-to-its-method-can-be-moved-by-the-other-operand.md).
 _PmCmp :: struct(n : i32);
-(g_pm_cmp_dropped : i32) = i32(0);
+(mut(g_pm_cmp_dropped) : i32) = i32(0);
 impl(
   _PmCmp,
   Drop(

@@ -477,7 +477,7 @@ test("A resurrected pair is reclaimed once unreachable again", {
 // part of its owner's value, so the collector must trace its payload in
 // place. Before `Box` tracing, `BNode` did not count as cycle-capable and the
 // pair leaked (its disposes never ran).
-(g_bnode_disposed : i32) = i32(0);
+(mut(g_bnode_disposed) : i32) = i32(0);
 BNode :: ref(
   struct(
     value : i32,
@@ -532,7 +532,7 @@ test("a declared Acyclic tree's nodes are not cycle candidates", {
 // field walk cannot see, so the value implements `Trace` (the gate admits a
 // value that owns a buffer) and its holder's walk calls that `trace` in
 // place. Before, the gate rejected the impl, and nothing traced the slots.
-(g_vnode_disposed : i32) = i32(0);
+(mut(g_vnode_disposed) : i32) = i32(0);
 VNode :: ref(
   struct(
     value : i32,

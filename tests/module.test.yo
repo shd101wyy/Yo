@@ -61,7 +61,7 @@ test("Test destructuring by ... spread operator", {
 });
 // ── Module-level mutable variables ──
 // Module-level variable with := (the basic pattern)
-counter := i32(0);
+mut(counter) := i32(0);
 inc_counter :: (fn() -> unit)({
   counter = (counter + i32(1));
 });
@@ -75,7 +75,7 @@ test("Test module-level mutable variable with :=", {
   assert(get_counter() == i32(3), "after 3 incs should be 3");
 });
 // Module-level variable with (x : T) = val pattern
-(flag : bool) = false;
+(mut(flag) : bool) = false;
 set_flag :: (fn(v : bool) -> unit)({
   flag = v;
 });
@@ -88,8 +88,8 @@ test("Test module-level mutable variable with binding pattern", {
   assert(get_flag() == false, "flag should be false after reset");
 });
 // Multiple module-level variables
-(x_val : i32) = i32(10);
-y_val := i32(20);
+(mut(x_val) : i32) = i32(10);
+mut(y_val) := i32(20);
 swap_xy :: (fn() -> unit)({
   tmp := x_val;
   x_val = y_val;
@@ -149,7 +149,7 @@ test("Test :: inside impl works", {
   assert(result == i32(20), "13 + 7 should be 20");
 });
 // ── Accessing module-level vars from impl functions ──
-global_val := i32(100);
+mut(global_val) := i32(100);
 m_access :: impl({
   read_global :: (fn() -> i32)(global_val);
   write_global :: (fn(v : i32) -> unit)({
