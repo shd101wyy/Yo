@@ -188,7 +188,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 | Order | Branch | State |
 | --- | --- | --- |
 | 0 | (a new fix branch) | §4 step 0a: the `Rc(.A(xs))` second-payload-hop regression, with a test |
-| 1 | #1378 from `vbd-d45-genb-rebased` | rebased, Tier 1 green |
+| 1 | #1378 from `vbd-d45-genb-rebased` | **landed** 2026-10-15 |
 | 2 | #1379 from `feat/vbd-v3-async-a5-rebased` | rebased onto #1378, Tier 1 green; revert `std/hash.yo` while landing |
 | 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | rebased, Tier 1 green |
 | 4 | `feat/global-lend-to-call-is-an-error` (no PR) | decision 47 globals, Generation A; Tier 1 green |
@@ -202,6 +202,8 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 
 #### #1378 — decision 45 Generation B: `Dispose` → `Drop` across the tree (`vbd-d45-genb`, head `5aa03a9ee`)
 
+> **LANDED 2026-10-15 as #1378** (squash-merged from `vbd-d45-genb-rebased`, rebased onto develop `f6dea3da9` with no conflicts and re-gated: build, check src/std, the Drop feature tests, `tests/internal/compile`). Everything below is the history.
+>
 > **REBASED AND GATED 2026-10-15 — land it from `vbd-d45-genb-rebased` (head `cfc7e2e59`, on develop `6f6a2d8e9`). The "Next" steps below the box are done; they are the history.**
 >
 > - **Conflicts as resolved:**

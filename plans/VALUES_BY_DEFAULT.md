@@ -97,7 +97,7 @@ Progress:
   - decision 45 Generation A: `Drop` beside `Dispose`, E0915 for an
     explicit destructor call, `drop(x)`, and `yo fix --migrate drop-trait`
     (#1343, follow-ups #1358), and Generation B: the tree-wide rename and
-    `Dispose` deleted (vbd-d45-genb; decision 45's "as built, Generation B").
+    `Dispose` deleted (#1378; decision 45's "as built, Generation B").
   - decision 44's spelled closure erasure: a callable bare in a
     `Dyn(Fn(...))` slot is E0618, and `yo fix --migrate dyn-spelling`
     wraps it (#1339). One PR: the tree had no bare
