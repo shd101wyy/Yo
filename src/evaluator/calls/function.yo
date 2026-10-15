@@ -66,7 +66,7 @@ pragma(Pragma.AllowUnsafe);
 { EvalValue, FuncValData, type_of_eval_value, is_type_val, is_unknown_val, is_func_val, is_module_val, create_runtime_unknown_val_with_name, lookup_enum_cfid } :: import("../../value.yo");
 { stable_module_id, stable_func_id, private_member_blocked, debug_knob, parse_raw_int, is_temp_variable_name, display_module_path } :: import("../../utils.yo");
 { record_await_fusion_candidate } :: import("../../expr_traversal.yo");
-{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn } :: import("../utils.yo");
+{ attach_temp_variable_to_expr, projection_call_mode_of, consume_called_fnonce_closure, set_expr_as_consumed, set_expr_as_needs_to_call_dup, set_expr_as_needs_to_call_dup_for_borrowed_projection, arg_is_rc_projection_place, reject_second_class_escape, capture_place_crosses_cell, require_capture_borrow_exclusivity, local_borrows_active, local_borrow_note_runtime_call, local_borrow_is_scalar_type, variable_is_borrow_parameter, variable_id_in_scope, reject_bare_callable_into_dyn_fn, bare_callable_recorded_into_dyn_fn, global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key } :: import("../utils.yo");
 {
   EvalContext,
   ExpectedTypeCtx,
@@ -3058,9 +3058,8 @@ _lent_place_moved_at :: (fn(lp : &_LentPlace, ctx : &EvalContext) -> Option(AstE
 /// with the §3.13 A2 message (`_check_future_call_argument_conflicts`).
 /// A root in `moved_before` was already moved when the call started
 /// (`_lent_roots_moved_before`), so no argument of this call moved it.
-_check_call_lent_place_moves :: (fn(call : &AstExpr, moved_before : &ArrayList(String), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_check_call_lent_place_moves :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), moved_before : &ArrayList(String), env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   op_args := match(call, .FnCall(_, _, a, _, _) => a, .Atom(_, _) => return(()));
-  lends := _call_lends(call, ctx);
   (li : usize) = usize(0);
   while(li < lends.len(), li = (li + usize(1)), {
     match(
@@ -3134,11 +3133,6 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
 // ---------------------------------------------------------------------------
 // Decision 18 rule 3 at a call's own argument borrows
 // ---------------------------------------------------------------------------
-/// `YO_AUDIT_GLOBAL_LEND`: report each module-level lend to a call on stderr
-/// (`file:line:col [global-lend] ...`, once per site) instead of rejecting
-/// it. The census knob for the rule's rollout.
-(g_audit_global_lend : bool) = debug_knob(`YO_AUDIT_GLOBAL_LEND`).is_some();
-(g_audit_global_lend_printed : HashSet(String)) = HashSet(String).new();
 /// The module-level (or `thread_local`) runtime binding whose storage `place`
 /// names: field steps, `Rc`/`Box` derefs and element accesses down to a
 /// variable. `.None` for a place rooted in a local, a `::` constant (no
@@ -3204,14 +3198,13 @@ _is_scalar_operator_call :: (fn(call : &AstExpr, ctx : &EvalContext) -> bool)(
 /// lends too. A by-value argument (`f(G)`, a by-value `self`) holds no borrow
 /// and passes; so does a `::` constant, which has no runtime storage. A call
 /// evaluated at compile time, and an operator on scalars, run no callee.
-_check_call_global_lends :: (fn(call : &AstExpr, r : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
+_check_call_global_lends :: (fn(call : &AstExpr, lends : &ArrayList(_CallLend), r : &AstExpr, env : &Environment, ctx : &EvalContext, exn : Exception) -> unit)({
   if(match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(r)), .Some(ri) => match(ri.value, .Some(v) => !is_unknown_val(&v), .None => false), .None => true), {
     return(());
   });
   if(_is_scalar_operator_call(r, ctx), {
     return(());
   });
-  lends := _call_lends(call, ctx);
   (li : usize) = usize(0);
   while(li < lends.len(), li = (li + usize(1)), {
     match(
@@ -3224,10 +3217,10 @@ _check_call_global_lends :: (fn(call : &AstExpr, r : &AstExpr, env : &Environmen
 /// The error (or, under `YO_AUDIT_GLOBAL_LEND`, the census line) for the lend
 /// `l` of a place rooted in the module-level binding `gv` to `call`.
 _reject_global_lend_to_call :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variable, ctx : &EvalContext, exn : Exception) -> unit)({
-  callee_text := match(call, .FnCall(_, c, _, _, _) => ast_expr_to_string(&c), .Atom(_, _) => String.from("?"));
-  place_text := ast_expr_to_string(&l.place);
+  callee_text := _callee_display(call);
+  place_text := _place_display(&l.place);
   at := ast_expr_token(&l.lent_arg);
-  if(g_audit_global_lend, {
+  if(global_lend_audit_enabled(), {
     place_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&l.place)), .Some(pi) => pi.ty, .None => gv.ty.clone());
     kind := cond(
       (is_reference_struct_type(&place_ty) || is_atomic_reference_struct_type(&place_ty)) => "handle",
@@ -3235,10 +3228,10 @@ _reject_global_lend_to_call :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variab
       true => "owning"
     );
     tl := if(is_thread_local(&gv.token.module_path, &gv.name), "thread_local", "static");
-    line := `${display_module_path(&at.module_path)}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} [global-lend] form=${l.tag} kind=${kind} storage=${tl} global=${gv.name} type=${type_to_string(&place_ty)} callee=\`${callee_text}\` place=\`${place_text}\``;
-    if(g_audit_global_lend_printed.insert(line.clone()), {
-      eprintln(&line);
-    });
+    proj := if(_place_reaches_into_heap(&l.place, ctx), "heap", "binding");
+    global_lend_audit_print(
+      &`${global_lend_location(&at)} [global-lend] form=${l.tag} kind=${kind} storage=${tl} reach=${proj} global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)} type=${type_to_string(&place_ty)} callee=\`${callee_text}\` place=\`${place_text}\``
+    );
     return(());
   });
   raise_flow_violation(
@@ -3255,6 +3248,45 @@ _reject_global_lend_to_call :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variab
     ctx,
     exn
   );
+});
+/// A place or callee as a diagnostic writes it: a `.` chain without the
+/// parentheses the AST printer puts around each `.` form (`G.f.push`).
+_place_display :: (fn(e : &AstExpr) -> String)(
+  match(
+    e,
+    .FnCall(_, _, d_args, _, _) => if(ast_expr_is_fn_call_of(e, BF_DOT, Option(usize).Some(usize(2))), match(d_args.get(usize(0)), .Some(base) => match(d_args.get(usize(1)), .Some(m) => `${recur(&base)}.${ast_expr_to_string(&m)}`, .None => ast_expr_to_string(e)), .None => ast_expr_to_string(e)), ast_expr_to_string(e)),
+    .Atom(_, _) => ast_expr_to_string(e)
+  )
+);
+/// How a diagnostic names the callee of `call`.
+_callee_display :: (fn(call : &AstExpr) -> String)(
+  match(call, .FnCall(_, c, _, _, _) => _place_display(&c), .Atom(_, _) => String.from("?"))
+);
+/// `place` reaches into a heap object the binding holds rather than naming
+/// the binding's own storage: its path crosses an element access, a
+/// dereference, or a field of a `ref` handle.
+_place_reaches_into_heap :: (fn(place : &AstExpr, ctx : &EvalContext) -> bool)({
+  (cur : AstExpr) = place;
+  while(!ast_expr_is_atom(&cur), {
+    match(
+      cur,
+      .FnCall(_, _, h_args, _, _) => if(ast_expr_is_fn_call_of(&cur, BF_DOT, Option(usize).Some(usize(2))), {
+        base := match(h_args.get(usize(0)), .Some(b) => b, .None => return(false));
+        if(match(h_args.get(usize(1)), .Some(f) => ast_expr_is_atom_of(&f, "*"), .None => false), {
+          return(true);
+        });
+        base_ty := match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&base)), .Some(bi) => bi.ty, .None => return(true));
+        if(is_reference_struct_type(&base_ty) || is_atomic_reference_struct_type(&base_ty), {
+          return(true);
+        });
+        cur = base;
+      }, {
+        return(true);
+      }),
+      .Atom(_, _) => ()
+    );
+  });
+  false
 });
 /// The per-operand borrow flags of an infix operator call `a op b` evaluated
 /// at run time: which parameters of the resolved operator method, stamped on
@@ -6573,8 +6605,9 @@ evaluate_function_call :: (
     _stamp_projection_call(&std_r, ctx);
     _attach_fnonce_callee_release(expr, &std_r, ctx);
     _note_future_producing_call(expr, &std_r, ctx, exn);
-    _check_call_lent_place_moves(expr, &moved_before, env, ctx, exn);
-    _check_call_global_lends(expr, &std_r, env, ctx, exn);
+    std_lends := _call_lends(expr, ctx);
+    _check_call_lent_place_moves(expr, &std_lends, &moved_before, env, ctx, exn);
+    _check_call_global_lends(expr, &std_lends, &std_r, env, ctx, exn);
     return(std_r);
   });
   out := ArrayList(AstExpr).new();
@@ -6589,8 +6622,9 @@ evaluate_function_call :: (
       _stamp_projection_call(&r, ctx);
       _attach_fnonce_callee_release(expr, &r, ctx);
       _note_future_producing_call(expr, &r, ctx, exn);
-      _check_call_lent_place_moves(expr, &moved_before, env, ctx, exn);
-      _check_call_global_lends(expr, &r, env, ctx, exn);
+      lends := _call_lends(expr, ctx);
+      _check_call_lent_place_moves(expr, &lends, &moved_before, env, ctx, exn);
+      _check_call_global_lends(expr, &lends, &r, env, ctx, exn);
       if(local_borrows_active(), {
         _local_borrow_note_call_site(&r, &call_tok, ctx, exn);
       });

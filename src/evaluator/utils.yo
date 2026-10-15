@@ -1133,7 +1133,7 @@ transfer_explicit_copy_value :: (fn(rhs : &AstExpr, ei : &ExprInfo, variable_nam
           _throw_explicit_copy_violation(rhs, &ei.ty, &what, ctx, exn);
         });
       },
-      v.is_module_level => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Pass it to a `&T` parameter (a borrow) instead."), ctx, exn),
+      v.is_module_level => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a module-level binding, which lives for the whole program and is never moved. Copy it with `.clone()`, or lend it with `&` (a call may borrow a module-level binding only while nothing writes it, plans/VALUES_BY_DEFAULT.md decision 18 rule 3)."), ctx, exn),
       v.is_ref => _throw_explicit_copy_violation(rhs, &ei.ty, String.from("it is a `&mut` borrow, which names storage the caller owns. Lend it on with `&mut`, or move the caller's value."), ctx, exn),
       is_fn_capture_value_binding(v.id) => _throw_fn_closure_moves_capture(rhs, &ei.ty, ctx, exn),
       _is_implicit_closure_capture(&v, &ei.env, ctx) => _throw_implicit_capture_move(rhs, &ei.ty, ctx, exn),
@@ -1913,6 +1913,28 @@ set_expr_as_consumed :: (
     )
   );
 });
+// ---------------------------------------------------------------------------
+// YO_AUDIT_GLOBAL_LEND (plans/VALUES_BY_DEFAULT.md decision 18 rule 3)
+// ---------------------------------------------------------------------------
+/// The census knob for module-level lends to calls: each lend
+/// (`calls/function.yo`, `_check_call_global_lends`) and each write of a
+/// module-level binding (`exprs/assignment.yo`) prints one stderr line,
+/// `file:line:col [global-lend|global-write] ... key=<declaration>`, once per
+/// line, and nothing is rejected.
+(g_audit_global_lend : bool) = debug_knob(`YO_AUDIT_GLOBAL_LEND`).is_some();
+(g_audit_global_lend_printed : HashSet(String)) = HashSet(String).new();
+global_lend_audit_enabled :: (fn() -> bool)(g_audit_global_lend);
+global_lend_audit_print :: (fn(line : &String) -> unit)({
+  if(g_audit_global_lend_printed.insert(line.clone()), {
+    eprintln(line);
+  });
+});
+/// `file:line:col` of `t`.
+global_lend_location :: (fn(t : &Token) -> String)(
+  `${display_module_path(&t.module_path)}:${(usize(t.row) + usize(1)).to_string()}:${(usize(t.column) + usize(1)).to_string()}`
+);
+/// The census key of the module-level binding `name` declared at `decl`.
+global_lend_key :: (fn(decl : &Token, name : &String) -> String)(`${global_lend_location(decl)}:${name}`);
 // ---------------------------------------------------------------------------
 // YO_AUDIT_IMPLICIT_COPY (plans/VALUES_BY_DEFAULT.md §6, item 1)
 // ---------------------------------------------------------------------------
@@ -5430,3 +5452,4 @@ export(
   local_borrow_result_borrow_of,
   local_borrow_reject_result_borrow
 );
+export(global_lend_audit_enabled, global_lend_audit_print, global_lend_location, global_lend_key);
