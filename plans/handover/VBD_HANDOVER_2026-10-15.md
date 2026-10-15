@@ -275,7 +275,7 @@ Every one is pushed. "Next" is the exact next action.
 - It ties to the open S1 `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
 - Leave it for the type-soundness track (`plans/handover/TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`).
 
-#### `feat/global-lend-to-call-is-an-error` — E0916, no PR yet (head `GLOBAL_LEND_HEAD_PLACEHOLDER`)
+#### `feat/global-lend-to-call-is-an-error` — E0916, no PR yet (head `a6b8f3d4a`)
 
 - **What:** the S1 `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`, with the decided design in §5.1.
 - **State:** the branch holds the **strict** first cut, WIP commits (`393713de9`…):
@@ -283,7 +283,57 @@ Every one is pushed. "Next" is the exact next action.
   - the census knob `YO_AUDIT_GLOBAL_LEND=1`, one line per lend with a form tag;
   - E0916 `explain` examples using a `Copy` global.
 - **The strict census:** 1,447 sites (src 1,345). 94% are lends of handle globals, and 49 are `Mutex` or atomic globals. The strict rule would have rejected its own suggested fix, which is why the maintainer chose the static model.
-- GLOBAL_LEND_STATE_PLACEHOLDER
+- **Since the strict cut (head `a6b8f3d4a`, census instrumentation only):**
+  - `_call_lends` is computed once per call and shared by E0910 and E0916. With the knob set, `parameter_modes` 43/43, `closure_capture_list` 41/41 and `async_await` 280/280 pass, matching develop.
+  - Messages print `G.push`, not `(G.push)`.
+  - E0901's hint (`src/evaluator/utils.yo` ~L1134) names `&` and decision 18 rule 3.
+  - `YO_AUDIT_GLOBAL_LEND=1` now also prints `[global-write] how=reassign|field` lines from `exprs/assignment.yo`. Lend lines carry `key=` and `reach=heap|binding`.
+  - The strict E0916 is still ON by default on the branch; narrowing it is the next step.
+- **The syntax that exists today:**
+  - `G := v` / `(G : T) = v` are module-level runtime bindings and are always reassignable. `Variable.is_reassignable` is false only for parameters and `given(...)`.
+  - `::` takes compile-time values only, so an immutable runtime static has to be the unmarked `:=` form.
+  - `thread_local(name)` is a name wrapper, like `comptime(name)`, `given(name)` and `sink(name)`.
+  - `mut` is reserved; it follows only `&`, and the old parameter mode `mut(x)` is E0009.
+  - There is no `static`, `let` or `var`.
+  - The v0.2.62 seed rejects every candidate marker (`(mut(G) : i64) = …` gives "Invalid binding to "mut"").
+- **The agent's spelling proposal:** `mut(name)` at a module-level declaration, mirroring Rust's `static mut`. It composes with `thread_local(mut(name))`.
+
+  ```yo ignore
+  (mut(g_count) : usize) = usize(0);
+  mut(g_level) := Level.Info;
+  (thread_local(mut(_tl_state)) : _RngState) = _RngState.seed();
+  ```
+
+  - E0009 stays for parameter position; declaration position is new and unambiguous.
+  - Rejected alternatives: `static_mut(name)` (reads badly inside `thread_local`), and `mutable(name)` (a new keyword Rust does not have).
+  - `yo fix --migrate mutable-globals` inserts the markers, because the evaluator already sees every write.
+  - MARKER_DECISION_PLACEHOLDER
+- **Census, globals written after their initializer** (src, std, tests and the `markdown_yo` dependency):
+
+  | tree | handle (reassigned) | value | total |
+  | --- | ---: | ---: | ---: |
+  | src | 57 | 179 | 236 |
+  | std | 0 | 12 | 12 |
+  | tests | 0 | 81 | 81 |
+  | `markdown_yo` | 0 | 3 | 3 |
+  | **total** | **57** | **275** | **332** |
+
+  - std's 12 include `std/arena.yo` (6), `std/log.yo` (4) and `std/rand`'s `thread_local` `_tl_state` (a `&mut self` lend).
+  - tests' 81 are almost all `g_*_disposed` counters that `Drop` impls reassign.
+- **Lend sites that become E0916** (lends of marked globals), 259 in all:
+  - src: 172 on reassigned handle globals, 76 on value globals;
+  - std: 6;
+  - tests: 5.
+  - About 87 remain if the 57 reassigned handle globals are reset in place (`G.clear()`) instead of reassigned and stay unmarked.
+- **Review amendment A today:**
+  - 2 src sites lend a heap projection of a handle global that has `&mut self` calls.
+  - The probes did **not** reproduce a use-after-free under ASan, on the v0.2.62 seed or the branch: `peek(&G(usize(0)))` while the callee does 64× `G.push`, the same with the element replaced, and `for(&G, …)` with growth.
+    - Codegen copies the element out through `index(...)` with a dup and drop around the call (`set_expr_as_needs_to_call_dup_for_borrowed_projection`), so the callee never holds a pointer into the buffer.
+    - The pointer-passing case cannot be reached until #1368's direct projection calls land.
+  - So rule A guards the post-#1368 ABI, not today's behaviour. Keep it, and record this in the issue doc.
+- **Review amendment B:** 8 unmarked handle globals (src 7, tests 1) take field or element writes, so their lends are checked by path.
+- **Not built:** the "written-anywhere" inference registry, which was rejected for load-order dependence.
+- **The census data** (`census2-*.err`, `analyze2.py`) stayed on the old machine. `YO_AUDIT_GLOBAL_LEND=1 yo check <tree> --std-path ./std` on the branch regenerates it.
 - **Next:** narrow the branch to §5.1's rule. Steps:
   1. Pick the marker spelling. Look at what parses today; the leading candidate is a declaration modifier on the `:=` binding. Record it as an amendment to decision 18 in the plan. If it changes the user-visible language beyond "a marker exists", ask the maintainer.
   2. Make a write to an unmarked global an error, with a census first (`YO_AUDIT_GLOBAL_LEND` already lists the writes). Expect about 150 rewrite sites, 56 of them reassigned handle globals (`G = new()` becomes `G.clear()` or similar).
