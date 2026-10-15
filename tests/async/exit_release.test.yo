@@ -1,0 +1,43 @@
+//! The thread-exit release frees the runtime's pending work that is not a
+//! task (issues/fixed/2026-10-16-the-thread-exit-release-leaks-a-join-wait-and-a-waker-token-posted-after-the-last-tick.md).
+//! A test body is driven by synchronous awaits, so it ends in the thread-exit
+//! hook rather than in a loop driver's teardown, and anything still queued for
+//! the loop is released there or nowhere. What leaks is runtime memory no Yo
+//! value owns, so the only oracle is the leak verdict.
+pragma(Pragma.NeedsLeakVerdict);
+pragma(Pragma.SkipWasm32Emscripten); // uses the async runtime and OS threads
+pragma(Pragma.SkipWasm32Wasi);
+{ assert } :: import("std/assert");
+{ timeout } :: import("std/async");
+{ Park } :: import("std/async/waker");
+{ Thread } :: import("std/thread");
+{ Duration } :: import("std/time/duration");
+{ sleep_blocking } :: import("std/time/sleep");
+
+// `timeout` waits on the task and on a deadline task through one join wait.
+// The task finishes first, completing the wait; the deadline task is then
+// aborted, which queues its waiter entry for the wait. That entry owns a
+// reference to the wait, and the exit drain skipped it because the wait was
+// already Completed, not Aborted.
+test("a join wait completed before its other task's abort is released at exit", {
+  h := io.spawn(io.async((io : Io) => i32(1)), io);
+  r := io.await(timeout(h, Duration.from_millis(i64(5000)), io), io);
+  assert(r.is_ok(), "the task finishes before the deadline");
+});
+
+// The worker's handle is the last one, so dropping it on the worker posts the
+// release to the owner's inbox, after the owner's last tick: the token and its
+// park future waited there forever, because only a loop driver's teardown
+// drained the inbox.
+test("a waker released on a worker after the owner's last tick is released at exit", {
+  p := Park.new();
+  w := p.waker();
+  t := Thread(unit).spawn({ w }(tio : Io) => {
+    sleep_blocking(Duration.from_millis(i64(1)));
+    w.wake();
+    ()
+  });
+  io.await(p.wait(io), io);
+  t.join();
+  assert(true, "the park was woken");
+});

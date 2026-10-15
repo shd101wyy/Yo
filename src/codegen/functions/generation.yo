@@ -37,7 +37,7 @@
 { resolve_some_type_to_concrete } :: import("../exprs/closures.yo");
 { generate_implicit_return_statement } :: import("../exprs/return.yo");
 { unwind_origin_id, unwind_catches_of_body } :: import("../exprs/async_completion.yo");
-{ generate_deferred_drop_expressions, generate_deferred_dup_expressions } :: import("../exprs/drop_dup.yo");
+{ generate_deferred_drop_expressions, generate_deferred_dup_expressions, is_closure_construction } :: import("../exprs/drop_dup.yo");
 { t_unit } :: import("../../types/creators.yo");
 { eprintln } :: import("std/fmt");
 { collect_unwind_value_ctypes, generate_atomic_gc_runtime_functions } :: import("./gc_runtime.yo");
@@ -288,11 +288,14 @@ generate_function_body :: (fn(body_expr : &AstExpr, function_type : &TypeValue, 
             // the DUP'd value, or the caller's scope-end drop of the source
             // frees the returned object (stage-2 `parse` freed get_program's
             // returned list; issues/retired/yo-self-stage2-unwind-check-coverage.md).
-            last_ei_dups := match(
+            // A closure construction's dups are its captures', already in
+            // its capture struct (`is_closure_construction`): it returns as
+            // it is.
+            last_ei_dups := (!is_closure_construction(&last_expr, context) && match(
               context.base.get_expr_info(&last_expr),
               .Some(lei) => match(expr_info_deferred_dup_expressions(&lei), .Some(d) => (d.len() > usize(0)), .None => false),
               .None => false
-            );
+            ));
             if(last_ei_dups, {
               match(
                 context.base.get_expr_info(&last_expr),

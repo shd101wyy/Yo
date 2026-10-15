@@ -1043,8 +1043,7 @@ test("a renamed by-value capture of a parameter or a fresh value is retained onc
 });
 test("a future moved into a capture list is released by the future that owns it", {
   g_disposed = i32(0);
-  t := Thing(n : i32(7));
-  inner := io.async({ t }(io : Io) => {
+  inner := io.async({ t : Thing(n : i32(7)) }(io : Io) => {
     return(t.n);
   });
   outer := io.async({ inner }(io : Io) => {
@@ -1071,4 +1070,20 @@ test("a future and a copy captured by a nested io.async inside a state machine a
   });
   assert(io.await(outer, io) == i32(18), "both captures are read");
   assert(g_disposed == i32(2), "the moved future's Thing and the copied Thing are released once each");
+});
+
+// issues/fixed/2026-10-16-an-alias-sharing-its-owners-task-slot-is-retained-but-released-once.md:
+// an alias of a body local (`tb := t`) is stored in its owner's task slot, so
+// the two names hold ONE reference; the binding retained a second one that
+// the shared slot's single release never dropped.
+test("an alias of a local that crosses an await is released with its owner", {
+  g_disposed = i32(0);
+  f := io.async((io : Io) => {
+    t := Thing(n : i32(4));
+    tb := t;
+    io.await(yield(io), io);
+    (t.n + tb.n)
+  });
+  assert(io.await(f, io) == i32(8), "both names read the one value");
+  assert(g_disposed == i32(1), "the value is released once");
 });
