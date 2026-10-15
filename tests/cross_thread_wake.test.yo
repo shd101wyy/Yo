@@ -55,7 +55,7 @@ impl(
   /// Another handle on the same token.
   clone_handle : (fn(self : &Self) -> Self)(Self(_p : unsafe(__yo_waker_clone(self._p))))
 );
-impl(_RawWaker, Dispose(dispose : (fn(self : &Self) -> unit)(unsafe(__yo_waker_release(self._p)))));
+impl(_RawWaker, Drop(drop : (fn(self : &mut Self) -> unit)(unsafe(__yo_waker_release(self._p)))));
 test("a waker fired from another OS thread resumes its task on the owning loop", {
   p := Park.new();
   w := p.waker();
