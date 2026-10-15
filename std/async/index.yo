@@ -282,6 +282,73 @@ any_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io)
     io.await(_settle(hs, decided, io), io)
   })
 });
+/// A combinator's operand, running as a SCOPED child task (plans/VALUES_BY_DEFAULT.md
+/// §3.13 A4). `timeout` and `select` take futures, and a future may borrow
+/// (§3.13 A2), so the task that runs one must never outlive the combinator's
+/// own future, which the caller awaits inside the borrow:
+/// - the combinator aborts and joins it on every path before it resolves;
+/// - if the combinator's future is aborted or dropped first, dropping this
+///   aborts the task.
+/// An aborted task never resumes, so whatever it borrows is no longer touched
+/// once the abort returns.
+_Scoped :: (fn(comptime(T) : Type) -> comptime(Type))(
+  struct(_h : Option(JoinHandle(T)))
+);
+impl(
+  generic(T : Type),
+  _Scoped(T),
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)(
+      match(
+        self._h.take(),
+        .Some(h) => h.abort(),
+        .None => ()
+      )
+    )
+  )
+);
+impl(
+  generic(T : Type),
+  _Scoped(T),
+  /// Add the task to the join wait `w`.
+  _wait_on : (fn(self : &Self, w : &IoFuture) -> unit)(
+    match(
+      &self._h,
+      .Some(h) => unsafe(__yo_join_wait_add(w, h.as_ptr())),
+      .None => ()
+    )
+  ),
+  /// The task's current state (`Aborted` once it was joined).
+  _state : (fn(self : &Self) -> FutureState)(
+    match(
+      &self._h,
+      .Some(h) => h.state(),
+      .None => FutureState.Aborted
+    )
+  ),
+  /// Abort the task (a terminal one is left alone).
+  _abort : (fn(self : &Self) -> unit)(
+    match(
+      &self._h,
+      .Some(h) => h.abort(),
+      .None => ()
+    )
+  ),
+  /// Join the task: its result, or `.None` if it was aborted.
+  _join : (fn(self : &mut Self, io : Io) -> Impl(Future(Option(T), Io)))(
+    io.async({ h : self._h.take() }(io : Io) => {
+      (out : Option(T)) = Option(T).None;
+      match(
+        h,
+        .Some(t) => {
+          out = io.await(t.join(io), io);
+        },
+        .None => ()
+      );
+      out
+    })
+  )
+);
 /// Why `timeout(...)` produced no value (D18).
 ///
 /// The old `Option(T)` return collapsed these two outcomes into each other —
@@ -289,10 +356,10 @@ any_first :: (fn(generic(T : Type), handles : ArrayList(JoinHandle(T)), io : Io)
 /// returned `.None`. A caller that wants to retry on a slow task but give up
 /// on a cancelled one could not tell them apart.
 TimeoutError :: enum(
-  /// The deadline fired first; `timeout` aborted the handle.
+  /// The deadline fired first; `timeout` aborted the operand.
   Elapsed,
-  /// The task was already aborted (or unwound) while the deadline was still
-  /// unexpired, so it never produced a value.
+  /// The operand was aborted (an effect handler unwound it) while the
+  /// deadline was still unexpired, so it never produced a value.
   Aborted
 );
 derive(TimeoutError, Copy, Clone);
@@ -303,26 +370,41 @@ derive(
     .Aborted => `timeout: the task was aborted before it produced a value`
   )
 );
-/// Wait for `handle` with a deadline: `.Ok(v)` if it finishes within
-/// `limit`, `.Err(TimeoutError.Elapsed)` if the deadline fires first (the
-/// handle is `abort()`ed), `.Err(TimeoutError.Aborted)` if the task was
-/// cancelled on its own. It consumes the handle, which it joins either way.
-/// Millisecond granularity (the timer contract of `std/time/sleep`).
+/// Run `fut` with a deadline: `.Ok(v)` if it finishes within `limit`,
+/// `.Err(TimeoutError.Elapsed)` if the deadline fires first (the operand is
+/// aborted), `.Err(TimeoutError.Aborted)` if the operand was aborted on its
+/// own (an effect handler unwound it). Millisecond granularity (the timer
+/// contract of `std/time/sleep`). Tokio's `time::timeout(d, fut)`.
 ///
 /// ```yo
-/// r := io.await(timeout(h, Duration.from_millis(i64(200)), io), io);
+/// r := io.await(timeout(rx.recv(io), Duration.from_millis(i64(200)), io), io);
 /// ```
 ///
-/// A task that finishes before the deadline leaves nothing behind: `abort()`
-/// on the deadline handle deregisters the armed timer in the I/O backend and
-/// releases the deadline task there and then. Until that cancel path existed
-/// the timer kept counting and held ~256 bytes per call for the whole
+/// The operand is a FUTURE, so it may borrow (plans/VALUES_BY_DEFAULT.md
+/// §3.13 A4): `timeout(s.next(io), d, io)` over a `&mut` stream works, and
+/// the future `timeout` returns is then a borrowing future too, awaited where
+/// it is made. The operand runs as a scoped child task with the bundle the
+/// caller's `io.await` passes (`timeout`'s future has the operand's effect
+/// type `E`), and is aborted and joined before `timeout` resolves, so no
+/// borrow outlives the call. A task that is already spawned is timed out
+/// through its join future, `timeout(h.join(io), d, io)`, which resolves to
+/// `.Ok(Option(T))`; on the deadline it drops the handle, which DETACHES the
+/// task (Tokio's semantics): abort the task through the handle first if its
+/// work is unwanted.
+///
+/// An operand that finishes before the deadline leaves nothing behind:
+/// aborting the deadline task deregisters the armed timer in the I/O backend
+/// and releases the deadline task there and then. Until that cancel path
+/// existed the timer kept counting and held ~256 bytes per call for the whole
 /// remaining deadline (`issues/fixed/timeout-deadline-timer-future-leak.md`).
 timeout :: (
-  fn(generic(T : Type), handle : JoinHandle(T), limit : Duration, io : Io) -> Impl(Future(Result(T, TimeoutError), Io))
+  fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), limit : Duration, io : Io) -> Impl(Future(Result(T, TimeoutError), E))
 )({
   ms := Rc(u64)(u64(limit.as_millis()));
-  io.async({ handle, ms }(io : Io) => {
+  io.async({ fut, ms, io }(e : E) => {
+    // A borrowing operand is spawned under `unsafe`: `_Scoped` guarantees the
+    // task ends before this future does (see its documentation).
+    child := _Scoped(T)(_h : Option(JoinHandle(T)).Some(unsafe(io.spawn(fut, e))));
     // The deadline is a spawned TASK, not a bare io-timer future: a raw
     // `IoFuture` local would be auto-dropped at scope end while the backend
     // still holds the armed timer (issues/fixed/pending-io-future-local-drop-uaf.md);
@@ -331,29 +413,26 @@ timeout :: (
       io.await(IO_timer.sleep(ms.*), io);
       return(());
     });
-    dh := io.spawn(deadline_fut, io);
-    // One wait over the task and the deadline: resolves when either ends.
+    deadline := _Scoped(unit)(_h : Option(JoinHandle(unit)).Some(io.spawn(deadline_fut, io)));
+    // One wait over the operand and the deadline: resolves when either ends.
     w := unsafe(__yo_join_wait_new());
-    unsafe(__yo_join_wait_add(&w, handle.as_ptr()));
-    unsafe(__yo_join_wait_add(&w, dh.as_ptr()));
+    child._wait_on(&w);
+    deadline._wait_on(&w);
     _w := io.await(w, io);
     // Which arm ended the wait — the ONLY place the two failure modes are
-    // distinguishable. Afterwards `join` reports `.None` for a deadline abort
-    // and a self-abort alike.
-    (elapsed : bool) = false;
-    cond(
-      handle.is_finished() => (),
-      true => {
-        handle.abort();
-        elapsed = true;
-      }
-    );
-    // Abort and join the deadline handle. When the task finished first, the
+    // distinguishable. Afterwards the join reports `.None` for a deadline
+    // abort and a self-abort alike.
+    s := child._state();
+    elapsed := ((s != FutureState.Completed) && (s != FutureState.Aborted));
+    if(elapsed, {
+      child._abort();
+    });
+    // Abort and join the deadline task. When the operand finished first, the
     // abort cancels the still-armed timer and releases the deadline task
     // immediately (runtime_core.yo `__yo_async_io_cancel`), so the join that
     // follows resolves without waiting for `limit`.
-    dh.abort();
-    _deadline_r := io.await(dh.join(io), io);
+    deadline._abort();
+    _deadline_r := io.await(deadline._join(io), io);
     // A typed local, not a bare `match` tail, until SEED_VERSION carries the
     // fix for a generic `io.async` body whose tail builds bare variants: the
     // seed compiles std/http's `timeout` call into the compiler and would give
@@ -361,7 +440,7 @@ timeout :: (
     // (issues/fixed/a-generic-io-async-body-ending-in-a-bare-variant-match-gets-a-second-c-result-type.md;
     // Generation B in plans/backlog/SEED_VERSION_AUTOMATION.md).
     (out : Result(T, TimeoutError)) = match(
-      io.await(handle.join(io), io),
+      io.await(child._join(io), io),
       .Some(v) => .Ok(v),
       .None => cond(
         elapsed => .Err(TimeoutError.Elapsed),
@@ -371,4 +450,102 @@ timeout :: (
     out
   })
 });
-export(yield, join_all, race, race_first, any, any_first, timeout, TimeoutError);
+/// Which operand of `select` finished first, with its result.
+Selected :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
+  enum(
+    /// The first operand completed first.
+    First(value : A),
+    /// The second operand completed first.
+    Second(value : B)
+  )
+);
+/// Run two futures and resolve to the first one to COMPLETE, aborting and
+/// joining the other: `.Some(.First(a))` or `.Some(.Second(b))`, or `.None`
+/// when both were aborted (an effect handler unwound each) without a
+/// completion. An operand that aborts does not win; the other keeps running.
+/// When both have completed by the time the wait resumes, the first wins (a
+/// biased select, like Tokio's `select!` with `biased;`).
+///
+/// ```yo
+/// match(
+///   io.await(select(rx.recv(io), sleep(u64(50)), io), io),
+///   .Some(.First(msg)) => handle(msg),
+///   .Some(.Second(_)) => println("idle"),
+///   .None => ()
+/// );
+/// ```
+///
+/// The operands are FUTURES, so they may borrow (plans/VALUES_BY_DEFAULT.md
+/// §3.13 A4), as `timeout`'s does: each runs as a scoped child task with the
+/// bundle the caller's `io.await` passes, the loser is aborted and joined
+/// before `select` resolves, and the future `select` returns borrows what the
+/// operands borrow. The two may not lend overlapping places when either side
+/// is `&mut` (decision 38 B): `select(s.next(io), s.next(io), io)` is E0910.
+select :: (
+  fn(generic(A : Type, B : Type, E : Type.Struct), first : Impl(Future(A, E)), second : Impl(Future(B, E)), io : Io) -> Impl(Future(Option(Selected(A, B)), E))
+)(
+  io.async({ first, second, io }(e : E) => {
+    a := _Scoped(A)(_h : Option(JoinHandle(A)).Some(unsafe(io.spawn(first, e))));
+    b := _Scoped(B)(_h : Option(JoinHandle(B)).Some(unsafe(io.spawn(second, e))));
+    // 0: undecided, 1: the first completed, 2: the second, 3: both aborted.
+    (decided : u8) = u8(0);
+    while(decided == u8(0), {
+      sa := a._state();
+      sb := b._state();
+      cond(
+        (sa == FutureState.Completed) => {
+          decided = u8(1);
+        },
+        (sb == FutureState.Completed) => {
+          decided = u8(2);
+        },
+        ((sa == FutureState.Aborted) && (sb == FutureState.Aborted)) => {
+          decided = u8(3);
+        },
+        true => {
+          // Wait on the operands still running: an aborted one would resolve
+          // the wait at once.
+          w := unsafe(__yo_join_wait_new());
+          if(sa != FutureState.Aborted, {
+            a._wait_on(&w);
+          });
+          if(sb != FutureState.Aborted, {
+            b._wait_on(&w);
+          });
+          _w := io.await(w, io);
+        }
+      );
+    });
+    // The loser is aborted (a terminal one is left alone) and both are
+    // joined, so neither task outlives this future.
+    if(decided != u8(1), {
+      a._abort();
+    });
+    if(decided != u8(2), {
+      b._abort();
+    });
+    ra := io.await(a._join(io), io);
+    rb := io.await(b._join(io), io);
+    (out : Option(Selected(A, B))) = Option(Selected(A, B)).None;
+    if(decided == u8(1), {
+      match(
+        ra,
+        .Some(v) => {
+          out = Option(Selected(A, B)).Some(Selected(A, B).First(v));
+        },
+        .None => ()
+      );
+    });
+    if(decided == u8(2), {
+      match(
+        rb,
+        .Some(v) => {
+          out = Option(Selected(A, B)).Some(Selected(A, B).Second(v));
+        },
+        .None => ()
+      );
+    });
+    out
+  })
+);
+export(yield, join_all, race, race_first, any, any_first, timeout, TimeoutError, select, Selected);

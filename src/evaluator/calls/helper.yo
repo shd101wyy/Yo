@@ -216,7 +216,7 @@ pragma(Pragma.AllowUnsafe);
 { D3PendingInout, d3_record_inout_place, d3_check_pending, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
-{ is_std_module_path } :: import("../memory_safety.yo");
+{ is_std_module_path, is_implicitly_unsafe_capable_file } :: import("../memory_safety.yo");
 { E_ARGUMENT_LABEL_MISMATCH, E_CLOSURE_MOVES_CAPTURE, E_BORROW_MARKER_MISMATCH } :: import("../../diagnostics.yo");
 { require_ref_own_argument_exclusivity, require_valid_ref_argument_places, flag_flow_violation, flow_violation_pending, flow_violation_error, propagate_def_time_errors, raise_flow_violation } :: import("../../types/flowability.yo");
 {
@@ -1175,15 +1175,16 @@ consume_argument_for_parameter :: (
     (aliased_by_inout : bool) ?= false,
     /// The parameter is declared `sink(x)`: the argument moves, never shared.
     (param_is_sink : bool) ?= false,
-    /// The slot is `io.async`'s body or `io.await`'s future, which accept a
-    /// second-class argument (decision 37, §3.13 A2).
+    /// The slot accepts a second-class argument (`_param_accepts_second_class`:
+    /// `io.async`'s body, `io.await`'s future, a combinator's future operand).
     (second_class_slot : bool) ?= false
   ) -> Option(AstExpr)
 )({
   require_expr_not_consumed(evaled_arg, caller_env, ctx, exn);
   // Decision 38 A: a second-class value is never moved into a by-value
-  // parameter: the callee could keep it past the borrow. `io.async`'s body
-  // and `io.await`'s future are the exceptions: the future a borrowing body
+  // parameter: the callee could keep it past the borrow. `io.async`'s body,
+  // `io.await`'s future and a combinator's future operand are the exceptions
+  // (`_param_accepts_second_class`): the future a borrowing body or operand
   // makes is itself second-class, and an await finishes inside the borrow.
   if(param_is_owning && !param_is_ct && !second_class_slot, {
     reject_second_class_escape(&arg_info.ty, if(is_future_value_type(&arg_info.ty), String.from("spawned or moved into a by-value parameter (a borrowing future is awaited where it is made, §3.13 A2)"), String.from("moved into a by-value (`sink`) parameter")), ast_expr_token(actual_arg), ctx, exn);
@@ -1253,6 +1254,26 @@ consume_argument_for_parameter :: (
   });
   Option(AstExpr).None
 });
+/// The parameter slot accepts a second-class argument (decision 38 A's
+/// exceptions):
+/// - `io.async`'s body and `io.await`'s future (decision 37, §3.13 A2);
+/// - a by-value future operand of a function whose result is a future, a
+///   combinator such as `std/async`'s `timeout` and `select` (§3.13 A4). The
+///   callee is checked per instantiation, so inside it the operand is
+///   second-class too: it can be awaited, or captured by the `io.async` body
+///   whose future the function returns, which then carries the operand's
+///   borrows re-rooted at the parameter (`_register_borrowing_future`);
+/// - `io.spawn` written under `unsafe(...)` in an unsafe-capable file: the
+///   code vouches that the task ends before the borrow does, which is how
+///   `std/async` runs a combinator's operand as a scoped child (aborted and
+///   joined on every path, and aborted when the combinator is dropped).
+_param_accepts_second_class :: (fn(call : &AstExpr, ptype : &TypeValue, result_ty : &TypeValue, ctx : &EvalContext) -> bool)(
+  cond(
+    (is_io_async_call(call) || is_io_await_call(call)) => true,
+    is_io_spawn_call(call) => (ctx.unsafe_context && is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(call).module_path.clone()))),
+    true => (is_future_value_type(ptype) && is_future_value_type(result_ty))
+  )
+);
 /// Report `msg` at `tok`, flagging the flow-violation channel first so a
 /// definition-time swallow re-raises it at `check` time (outside trials, cee
 /// propagate mode, and when a flag is already pending).
@@ -1444,8 +1465,8 @@ check_if_function_parameter_matches_argument :: (
     /// A projection's `&T` parameter, passed by pointer
     /// (`fn_param_is_ptr_borrow`): it binds as a non-reassignable reference.
     (param_is_ptr_borrow : bool) ?= false,
-    /// The call is `io.async(...)` or `io.await(...)`: a by-value slot that
-    /// accepts a second-class body or future (decision 37, §3.13 A2).
+    /// A by-value slot that accepts a second-class body or future
+    /// (`_param_accepts_second_class`, decision 37, §3.13 A2 and A4).
     (second_class_slot : bool) ?= false
   ) -> CheckParamResult
 )({
@@ -7980,7 +8001,7 @@ try_to_call_function_with_arguments :: (
           argument_is_aliased_by_inout(&parg, match(pref.get(pi), .Some(b) => b, .None => false), &s7_inout_roots),
           p_sink,
           fn_param_is_ptr_borrow(&norm_func_type2, pi),
-          is_io_async_call(expr) || is_io_await_call(expr)
+          _param_accepts_second_class(expr, &ptype, &ret_b, ctx)
         );
         if(!(is_method_call && (pi == usize(0))), {
           if(!call_is_operator, {
