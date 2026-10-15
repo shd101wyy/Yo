@@ -1257,7 +1257,7 @@ instead.
   - **The five stream adapters** become plain values with
     `next(self : &mut Self, io)`.
   - **As built (2026-10-14, feat/vbd-v3-async-a5).**
-    - **`Waker`** is `struct(_p : *u8)` with a `Dispose` that releases its
+    - **`Waker`** is `struct(_p : *u8)` with a `Drop` that releases its
       token, so it is move-only; it stays `Send`/`Sync` (decision 38 E). A
       waker moves into a `Thread.spawn` closure and is released on the worker
       (the runtime's foreign-release path). `park(register, io)` hands the
@@ -1290,7 +1290,7 @@ instead.
     - **The async `Channel(T)`** is `struct(_st : Rc(_ChannelState(T)))`, a
       copyable handle (the fused MPMC handle). `send`/`recv` futures hold a
       copy, so they borrow nothing. `Sender(T)` and `Receiver(T)` are value
-      structs over a `Channel(T)` with a `Dispose`, so they are move-only;
+      structs over a `Channel(T)` with a `Drop`, so they are move-only;
       `Sender` has `Clone`. `Receiver.recv` owns a copy of the channel
       handle (`io.async({ ch : self._ch }…)`), so its future is first-class
       too. A producer task takes its sender through its capture list
