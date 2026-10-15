@@ -2150,6 +2150,11 @@ jobs:
   # job recompiles the stage-2 C on glibc's malloc (~5 min) for this one run;
   # the RSS run keeps the artifact. Two counted runs: the script fails if they
   # disagree, because the gate is only sound while the count is deterministic.
+  # Baseline history is in memory-ratchet.tsv. 2026-10-15: 2769331795 ->
+  # 2996136722, the deliberate cost of VBD V4 (#1369): the checked program's
+  # TypeValue became Rc(TypeValueNode), so the type keys of compiler types that
+  # embed it grew 21% with the same number of type_key calls
+  # (issues/fixed/2026-10-15-v4-typevalue-rc-raises-the-check-allocation-count-by-7-percent.md).
   memory-ratchet:
     name: Evaluator memory ratchet
     needs: [changes, tree-hygiene, bootstrap-fixpoint]
