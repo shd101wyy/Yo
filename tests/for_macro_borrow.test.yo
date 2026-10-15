@@ -559,3 +559,18 @@ test("borrowed for: methods mutating only fresh storage, or iterating the collec
   });
   assert(seen == i32(26), "methods iterating self (both for forms) and mutating a fresh copy: no assert");
 });
+// The borrowed `for`'s guard over a VALUE-rooted place (V2b's unique
+// buffers: after Generation B a collection is a value with no cell header).
+// Unique ownership checks such a place statically
+// (plans/VALUES_BY_DEFAULT.md §3.10, "the borrowed-`for` guard splits by
+// path"), so `__yo_borrow_acquire`/`__yo_borrow_release` lower to nothing
+// for it. They used to cast the struct itself to `void*`, which is invalid C.
+test("a borrow guard over a value-rooted place sets no flag", {
+  _GuardPt :: struct(x : i32, y : i32);
+  derive(_GuardPt, Copy, Clone);
+  p := _GuardPt(x : i32(1), y : i32(2));
+  {
+    _g := __borrow_guard(&p);
+  };
+  assert(p.x == i32(1), "the value is untouched");
+});

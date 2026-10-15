@@ -444,9 +444,15 @@ Trace :: trait(
 ```
 
 A `trace` implementation calls `tracer.visit(...)` once per outgoing edge. The compiler
-turns each type's `trace` into the `traverse_fn` stored in its object header. Only a
-reference type (`ref(struct(...))`, `ref(enum(...))` and their `atomic(...)` forms) may
-implement `Trace` (or `Dispose`); the compiler rejects the `impl` on any other type.
+turns a reference type's `trace` into the `traverse_fn` stored in its object header. Two
+kinds of type may implement `Trace`, and the compiler rejects the `impl` on any other:
+
+- a reference type (`ref(struct(...))`, `ref(enum(...))` and their `atomic(...)` forms);
+- a value struct that owns a heap buffer, meaning it has a `?*E` field. It has no header.
+  Whoever holds it calls its `trace` in place, as part of the holder's own walk. This is
+  the shape every collection takes once it owns its buffer uniquely (the
+  [values-by-default plan](../../plans/VALUES_BY_DEFAULT.md), V2b), and the cycle
+  analysis sees through such a field to the elements.
 
 ### Auto-derived for structs, enums, and value types
 

@@ -16,7 +16,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { TypeValue } :: import("../../types/definitions.yo");
 { is_reference_struct_type, is_atomic_reference_struct_type, is_reference_enum_type, is_atomic_reference_enum_type, is_enum_type, is_struct_type, is_newtype_type, is_tuple_type, is_array_type, is_unit_type, is_iso_type, is_unique_box_type, unique_box_payload_type } :: import("../../types/guards.yo");
-{ type_contains_some_type, type_contains_rc_cell_or_move_only, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic, type_reaches_non_atomic_cell } :: import("../../types/utils.yo");
+{ type_contains_some_type, type_contains_rc_cell_or_move_only, can_type_form_rc_cycle, type_uses_small_rc_header, _type_refs_back_to_cyclic, type_reaches_non_atomic_cell, value_type_owns_buffer } :: import("../../types/utils.yo");
 { get_type_string, get_runtime_struct_fields, sanitize_for_c_identifier, c_variant_member_name, get_enum_variant_c_name, can_optimize_as_nullable_pointer, can_optimize_as_simple_enum, RuntimeStructField, type_key } :: import("../utils/index.yo");
 { FunctionGenerationContext } :: import("./context.yo");
 { get_dispose_function_for_type, dispose_function_takes_pointer, get_trace_function_for_type, generate_drop_code_for_value } :: import("../exprs/drop_dup.yo");
@@ -340,6 +340,19 @@ _traverse_value :: (fn(access : &String, ty : &TypeValue, context : &FunctionGen
       .None => ()
     );
     return();
+  });
+  // A value that owns a heap buffer (V2b's unique buffers) and implements
+  // `Trace`: its `trace` visits the buffer's slots, which the field walk
+  // below cannot see. It takes `self : &Self`, a value in the C ABI.
+  if(value_type_owns_buffer(ty), {
+    match(
+      get_trace_function_for_type(ty, context),
+      .Some(trace_c_name) => {
+        em.emit_string_line(`  ${trace_c_name}(${access}, (void*)${g_traverse_visit_expr});`);
+        return();
+      },
+      .None => ()
+    );
   });
   // Managed handle (ref(struct)/ref(enum)) — one graph edge. Atomic (Iso) RC types
   // do not participate in cycle collection.

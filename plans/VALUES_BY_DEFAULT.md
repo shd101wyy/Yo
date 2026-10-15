@@ -117,12 +117,17 @@ Progress:
     hashed (feat/vbd-v4-typevalue-rc-handle; decision 21's "As built"
     note). The value-enum conversion was built and measured first, and
     lost.
+  - V2b unique buffers, Generation A1: `Trace` on a buffer-owning value,
+    the cycle, reach and `Acyclic` walks through its buffer, not a raw view
+    in safe code, and value-rooted borrow flags lower to nothing (#1384).
 - **In progress:**
+  - V2b unique buffers, Generation A2: `yo fix --migrate explicit-copy`
+    (feat/vbd-v2b-explicit-copy-migration, stacked on #1384).
   - V3's remaining async work (§3.13): A4's future operands, A5's remaining
     lines, and A6's `Rc`-field half (V2c).
   - Decision 44's follow-up: a closure into a `Dyn(Fn)` slot is `dyn(f)`.
-- **Next:** the rest of V2b (direct projection calls, unique buffers, the
-  explicit-copy kind), then the allocator interface version 2 (§6, after
+- **Next:** the rest of V2b (direct projection calls; unique buffers'
+  Generation B with the explicit-copy kind, on a seed carrying A1), then the allocator interface version 2 (§6, after
   V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
   once the README's example projects are migrated (§6, after V5).
 - **Rule for this header:** the PR that lands a phase moves its line from
@@ -5708,6 +5713,136 @@ compiler; the std shapes are plain structs the seed lowers):
     `clone_in(Allocator.global())`, after which `Arena.deinit` succeeds
     (2026-10-09, std/arena kept after review: a `clone()` under a global
     scope stays in the arena, §3.11).
+  - **As-built plan (2026-10-14, branch feat/vbd-v2b-unique-buffers).**
+    - **Unique buffers and the explicit-copy kind are one step.** Measured
+      with the v0.2.62 seed on a value
+      `struct(_ptr : ?*u8, _length : usize)` with `Dispose` and `Clone`:
+      `t := s; s.len()` is already E0901 ("`s` is move-only … `Buf.clone(s)`
+      copies it"), and `x := h.b` through `h : &Holder` is E0901 (no partial
+      moves). V3's move checker and decision 36's flip classify any value
+      that owns a buffer, so the moment `ArrayList` stops being
+      `ref(struct(...))` every implicit copy of a list or a `String` is an
+      error. No intermediate kind exists in which `t := s` silently deep
+      copies, and none is added: it would hide an O(n) copy at every site
+      that is a count bump today.
+    - **The representation (Generation B).** `ArrayList(T)` is the plain
+      value `struct(_ptr : ?*T, _length : usize, _capacity : usize)`, Rust's
+      `Vec` layout. The fields and the `_CAP_TAG` owner bit stay as they are,
+      and only the `ref(...)` wrapper goes. `Dispose` (drop the elements,
+      free the block) and `Trace` (visit each slot) sit on `ArrayList`
+      itself: the list is the buffer, so a separate private buffer type
+      would only double every field path. A collection with several blocks
+      may still keep a private buffer type, decided per collection.
+      `String` becomes `newtype(_bytes : ArrayList(u8))`: an empty list
+      owns no block, so the `Option` adds nothing. The other collections
+      take the same recipe.
+      - **Sizes.** `ArrayList` and `String` grow from one pointer to three
+        words, and `Option(ArrayList(T))` to four. `_ptr` is nullable, so
+        no niche is left, and the "Codegen" bullet's one-pointer niche below
+        does not apply. `src/` has 359 `Option(String)`/`Option(ArrayList(...))`
+        fields. In exchange, each non-empty list or string drops its 40-byte
+        counted cell (malloc's 48-byte class), one allocation and one
+        pointer hop per element access.
+    - **What changes for `t := s`.** Today it is +1 on a shared cell. After
+      Generation B it moves the three words when `s` is dead, and is E0901
+      naming `s.clone()` or the borrow `t := &s` when `s` is used again. A
+      `ref` handle (`TypeValue`, `AstExpr`, `Environment`, …) holding a list
+      is unaffected: copying the handle copies no list.
+    - **The migration surface.** §6's 2026-10-05 audit counted `String`
+      1,614 / 210 / 101, `ArrayList` 1,303 / 80 / 105 and the other
+      collections 76 / 21 / 6 copies in `src/` / `std/` / `tests/`. Three
+      std shapes change with them:
+      - decision 20's accessors: `get(i) -> Option(T)` copies the element
+        out, so it is E0901 at a non-`Copy` instantiation. Callers read
+        `xs(i)` in place, or call `get_cloned(i)`;
+      - decision 39's iterators: `iter()` stores its receiver, which is a
+        count bump today and a move after. The borrowed `for` becomes an
+        index walk over a `&mut` local borrow of the container, so a write to
+        the container inside the body is decision 18's static exclusivity
+        error, not a runtime flag. `for(xs, …)` consumes `xs`, and
+        `for(&xs, …)` reads it;
+      - entry and iterator types that hold a map handle (`HashMapEntry`,
+        `HashMapIter`) borrow instead, with decision 20's `with` shapes.
+    - **The Generation A/B split.**
+      - **Generation A** (std's collections unchanged), in two PRs:
+        - **A1, the seed-gated compiler support** (this branch). The seed
+          must carry it before std can use it.
+          - The `Trace` gate admits a value struct that owns a heap buffer
+            (`value_type_owns_buffer`: a `?*E` field). The holder's inline
+            walk calls that value's `trace` (`_traverse_value`,
+            `src/codegen/functions/constructors.yo`), and the trace
+            monomorphization pass covers such values.
+          - The cycle walk (`_type_refs_back_to_cyclic`) and the reach walk
+            (`type_reaches_non_atomic_cell`) see through a value's `?*E`
+            field to `E`, as they already did for a `ref` container. A value
+            whose buffer holds itself again is cut by the instantiation's
+            key. A value struct is `Acyclic` only if every buffer element
+            that reaches a cell is. The definition-time derive and the trait
+            checker's on-demand re-derivation check one list
+            (`value_acyclic_obligations`); the field alone cannot decide it,
+            because `*T` is unconditionally `Acyclic`.
+          - The safe-code raw-view gate (`type_representation_contains_raw_ptr`)
+            treats a buffer-owning value that declares its own destructor
+            (`value_type_owns_buffer_outright`) as it treats `Box`: it carries
+            what its elements carry. Without this, every safe signature naming
+            a flipped `ArrayList` or `String` is rejected, which the first
+            seed probe of the flipped std showed (`std/encoding/utf8.yo`'s
+            `bytes : &ArrayList(u8)`).
+          - The borrow-flag builtins lower to nothing on a value-rooted
+            operand (§3.10's split by path), read through a call-site `&`
+            marker. They used to emit
+            `(void*)<struct>`, which is invalid C
+            (`issues/fixed/2026-10-14-a-borrow-flag-builtin-on-a-value-rooted-place-emits-invalid-c.md`).
+          - Tests: `tests/cycle_collector.test.yo` (a cycle closed through
+            a buffer-owning value's slots is collected; `Acyclic` follows the
+            elements; a value without a buffer still cannot implement
+            `Trace`), `tests/move_only.test.yo` (a safe signature names a
+            buffer owner) and `tests/for_macro_borrow.test.yo`, over the
+            fixture `tests/fixtures/owned_buffer.yo`.
+        - **A2, the migration** (stacked branch
+          feat/vbd-v2b-explicit-copy-migration; run with the tree compiler,
+          so not seed-gated). `yo fix --migrate explicit-copy` inserts
+          `.clone()` at the copies `YO_AUDIT_IMPLICIT_COPY` lists for
+          `String`, the collections and the value aggregates that hold them.
+          It runs on the tree before the flip, where those copies are still
+          legal. The copy then becomes independent. Where the program relied
+          on the two aliases seeing each other's writes (`l := m(k);
+          l.push(x)`, or an accessor returning a list that the caller then
+          mutates), that is a behavior change. So a site whose source or
+          destination is written after the copy is listed, not rewritten.
+          The writes that escape the function (a stored, passed or returned
+          copy) remain invisible to it.
+      - **Generation B** (on a seed carrying Generation A, after v0.2.63;
+        the seed compiles `src/` against the tree's std, so the sweep lands
+        with the flip): first `ArrayList` and `String` together, since
+        `String` wraps `ArrayList(u8)` and the two carry about 95% of the
+        sites. The other collections follow, and `Dyn`'s unique cell
+        (decision 7) last, because codegen owns its layout. The order
+        within the PR: run the migration with the old std, flip std, fix the
+        remaining errors by hand, then add decision 27's lint.
+      - **It closes an S1.** A write through a `String` copy reaches the
+        original only when the original was non-empty
+        (`issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md`,
+        re-triaged 2026-10-14: the local, by-value-parameter and field-copy
+        shapes all still split). It closes with the flip. Each of those
+        copies then moves or is E0901, and Generation B carries its test.
+        No earlier fix exists: copy-on-write and allocate-on-empty are
+        rejected (`plans/STRING_VALUE_SEMANTICS.md` §0). A predicate clause
+        that makes buffer owners explicit-copy before the representation
+        changes is the same flip, with the same sweep.
+      - **Dependency.** Generation B needs V2b's `Index` split, landed in
+        #1361: with `index(self : &mut Self, …)` every read of a value list
+        through a `&` binding was E0908. Direct projection calls
+        (feat/vbd-v2b-projection-calls) are independent of this work.
+    - **Expected RC and allocation effect (measured at Generation B).** No
+      count is touched on a `String` or collection, so their share of the
+      evaluator's RC inc/dec profile (20 s at v0.2.50, 34 s at v0.2.61 in
+      `check ./src`) goes to zero. The share left belongs to the `ref`
+      trees until V4/V5. Each non-empty list or string makes one allocation
+      instead of two, and a copy that stays after the sweep becomes an
+      O(n) clone that was a count bump before. Decision 27 elides clones
+      whose source is dead, and the lint flags the rest. Generation A alone
+      changes no timing.
 - **The explicit-copy kind is switched on** for `String`, the collections
   and `Dyn` (decision 7), with the migration that the §6 measurement sized:
   - `yo fix` inserts `.clone()` where a copy is wanted, and the diagnostics

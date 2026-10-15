@@ -10,6 +10,7 @@
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { yield } :: import("std/async");
+{ VList } :: import("./fixtures/owned_buffer.yo");
 (g_mo_disposed : i32) = i32(0);
 (g_mo_sum : i32) = i32(0);
 _MoFd :: struct(n : i32);
@@ -1170,4 +1171,17 @@ test("Option take/replace move a move-only payload", {
   assert(g_mo_disposed == (before + i32(2)), "the two moved-out payloads, by their callee");
   o = Option(_MoFd).None;
   assert(g_mo_disposed == (before + i32(3)), "the stored payload, by the reassignment");
+});
+// A value that owns its heap buffer (V2b's unique buffers) is not a raw
+// view: a safe file may name it in a parameter type, as it may name a `Box`.
+// It carries what its elements carry. Before, the raw-view gate saw only the
+// `?*T` field and rejected every such signature in safe code.
+_vlist_total :: (fn(xs : &VList(i32)) -> usize)(xs.len());
+test("move-only: a buffer-owning value is not a raw view in safe code", {
+  xs := VList(i32).new();
+  xs.push(i32(1));
+  xs.push(i32(2));
+  assert(_vlist_total(&xs) == usize(2), "a safe signature names the owner");
+  ys := xs;
+  assert(ys.len() == usize(2), "it moves like any owner");
 });

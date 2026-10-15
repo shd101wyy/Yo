@@ -65,7 +65,9 @@ pragma(Pragma.AllowUnsafe);
   type_is_control_bound,
   bump_trait_impl_epoch,
   trait_impl_epoch,
-  is_drop_trait_name
+  is_drop_trait_name,
+  value_type_owns_buffer,
+  value_acyclic_obligations
 } :: import("../types/utils.yo");
 { type_to_string } :: import("../types/string.yo");
 { force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
@@ -1438,10 +1440,12 @@ _type_implements_trait_one :: (
           (tn == "Comptime") => if(!is_ref, {
             fields_opt = Option(ArrayList(TypeValue)).Some(fts);
           }),
-          // Acyclic: value structs need all fields Acyclic; objects defer to the
-          // registry (their Acyclic uses can_type_form_rc_cycle at definition).
+          // Acyclic: a value struct needs its fields Acyclic, and the
+          // elements of a buffer it owns that reach a cell (V2b's unique
+          // buffers; the auto-derive's rule); objects defer to the registry
+          // (their Acyclic uses can_type_form_rc_cycle at definition).
           (tn == "Acyclic") => if(!is_ref, {
-            fields_opt = Option(ArrayList(TypeValue)).Some(fts);
+            fields_opt = Option(ArrayList(TypeValue)).Some(value_acyclic_obligations(&fts));
           }),
           true => ()
         ),
@@ -1814,8 +1818,11 @@ _is_prelude_trait_named :: (fn(trait_type : &TypeValue, name : str, env : &Envir
 ///   until the std migration makes them value structs over a move-only cell,
 ///   and the arm is deleted then. Any other receiver (a primitive, pointer,
 ///   tuple, function, `Dyn`, blanket `T`) can be neither, so it is rejected.
-/// - `Trace`: a reference type only: a value has no header `traverse_fn` (it
-///   is traversed inline by whoever holds it).
+/// - `Trace`: a reference type, whose header `traverse_fn` is its `trace`, or
+///   a value struct that owns a heap buffer (`value_type_owns_buffer`: a
+///   `?*E` field). The holder's inline walk calls that value's `trace`, since
+///   the field walk cannot see the buffer's elements (V2b's unique buffers,
+///   plans/VALUES_BY_DEFAULT.md §3.5). Any other value is traversed inline.
 ///
 /// It replaces the deleted `Rc` marker trait, which the prelude required
 /// through `where(Self <: Rc)` on `Dispose` and `Trace`. The generic impl
@@ -1861,9 +1868,9 @@ receiver_kind_trait_violation_msg :: (
   });
   cond(
     (trait_name == "Trace") => if(
-      is_reference,
+      is_reference || value_type_owns_buffer(&target),
       Option(String).None,
-      Option(String).Some(`Type "${type_to_string(target_type)}" cannot implement "Trace": only a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms) may implement it. A value is traversed inline by whoever holds it.`)
+      Option(String).Some(`Type "${type_to_string(target_type)}" cannot implement "Trace": only a reference type (ref(struct(...)), ref(enum(...)) or their atomic(...) forms), or a value struct that owns a heap buffer (a \`?*E\` field the inline walk cannot see into), may implement it. Any other value is traversed inline by whoever holds it.`)
     ),
     (is_value_nominal || is_reference) => Option(String).None,
     true => Option(String).Some(
