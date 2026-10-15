@@ -117,12 +117,17 @@ Progress:
     hashed (feat/vbd-v4-typevalue-rc-handle; decision 21's "As built"
     note). The value-enum conversion was built and measured first, and
     lost.
+  - V2b unique buffers, Generation A1: `Trace` on a buffer-owning value,
+    the cycle, reach and `Acyclic` walks through its buffer, not a raw view
+    in safe code, and value-rooted borrow flags lower to nothing (#1384).
 - **In progress:**
+  - V2b unique buffers, Generation A2: `yo fix --migrate explicit-copy`
+    (feat/vbd-v2b-explicit-copy-migration, stacked on #1384).
   - V3's remaining async work (§3.13): A4's future operands, A5's remaining
     lines, and A6's `Rc`-field half (V2c).
   - Decision 44's follow-up: a closure into a `Dyn(Fn)` slot is `dyn(f)`.
-- **Next:** the rest of V2b (direct projection calls, unique buffers, the
-  explicit-copy kind), then the allocator interface version 2 (§6, after
+- **Next:** the rest of V2b (direct projection calls; unique buffers'
+  Generation B with the explicit-copy kind, on a seed carrying A1), then the allocator interface version 2 (§6, after
   V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
   once the README's example projects are migrated (§6, after V5).
 - **Rule for this header:** the PR that lands a phase moves its line from
