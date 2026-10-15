@@ -545,7 +545,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 
 ## 3. CI state at hand-over
 
-- **Develop battery:** run 38701738174 on `6f6a2d8e9` was green on all jobs and gated the release. The `SEED_VERSION` bump commit `88babe2dc` runs its own battery, the first to build src with the v0.2.63 seed; check it before merging anything (`gh run list --branch develop --limit 3`).
+- **Develop battery:** run 38701738174 on `6f6a2d8e9` was green on all jobs and gated the release. The `SEED_VERSION` bump commit `88babe2dc` started its own battery, the first to build src with the v0.2.63 seed (run 38737267514). The maintainer had it cancelled as unnecessary, so the first develop battery after this handover merges is the first to build src with the v0.2.63 seed. Read that run's verdict before merging anything else (`gh run list --branch develop --limit 3`); if it is red, fixing develop comes before §4 step 0a.
 - **The evaluator work ratchet** (`check_src_main_alloc_calls`, key in `scripts/bootstrap/memory-ratchet.tsv`) is **2,996,136,722**, ±5% both ways.
   - A PR that moves the count by more than 5% must change the baseline in the same PR, with a dated comment and its attribution.
   - V2b unique buffers Generation B and the memo-key optimization (`perf/type-key-memo-identity`, which already lowers the baseline to an estimated 1,782,545,714) will both lower it.
