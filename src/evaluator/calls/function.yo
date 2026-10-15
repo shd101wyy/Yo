@@ -3077,8 +3077,9 @@ _check_call_lent_place_moves :: (fn(call : &AstExpr, moved_before : &ArrayList(S
 /// an `&x`/`&mut x` argument (`marked`), or an operand its operator's method
 /// borrows (`a == b` with Eq's `lhs : &Self`). `lent_arg` is the argument as
 /// written, `from` the index of the first argument evaluated after it,
-/// `exclusive` whether the lend is `&mut`, and `form` how a diagnostic names it.
-_CallLend :: struct(place : AstExpr, lent_arg : AstExpr, from : usize, marked : bool, exclusive : bool, form : String);
+/// `exclusive` whether the lend is `&mut`, `form` how a diagnostic names it,
+/// and `tag` the short name `YO_AUDIT_GLOBAL_LEND` prints.
+_CallLend :: struct(place : AstExpr, lent_arg : AstExpr, from : usize, marked : bool, exclusive : bool, form : String, tag : String);
 /// The places `call` lends, in evaluation order: the receiver first, then the
 /// arguments. A by-value `self` moves the receiver itself (a later use of it
 /// is E0901), so it lends nothing. The call may omit defaulted parameters, so
@@ -3103,7 +3104,8 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
               from : usize(0),
               marked : false,
               exclusive : recv_mut,
-              form : if(recv_mut, String.from("the receiver of a `self : &mut Self` method"), String.from("the receiver of a `self : &Self` method"))
+              form : if(recv_mut, String.from("the receiver of a `self : &mut Self` method"), String.from("the receiver of a `self : &Self` method")),
+              tag : if(recv_mut, String.from("recv-mut"), String.from("recv-imm"))
             )
           );
         }),
@@ -3120,10 +3122,10 @@ _call_lends :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayList(_CallLend))
       _lent_argument_place(&lent),
       .Some(place) => {
         is_mut := ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1)));
-        out.push(_CallLend(place : place, lent_arg : lent, from : (ai + usize(1)), marked : true, exclusive : is_mut, form : if(is_mut, String.from("a `&mut` argument"), String.from("a `&` argument"))));
+        out.push(_CallLend(place : place, lent_arg : lent, from : (ai + usize(1)), marked : true, exclusive : is_mut, form : if(is_mut, String.from("a `&mut` argument"), String.from("a `&` argument")), tag : if(is_mut, String.from("arg-mut"), String.from("arg-imm"))));
       },
       .None => if(match(operand_is_lent.get(ai), .Some(r) => r, .None => false), {
-        out.push(_CallLend(place : lent.clone(), lent_arg : lent, from : (ai + usize(1)), marked : false, exclusive : false, form : String.from("an operand its operator borrows")));
+        out.push(_CallLend(place : lent.clone(), lent_arg : lent, from : (ai + usize(1)), marked : false, exclusive : false, form : String.from("an operand its operator borrows"), tag : String.from("operand")));
       })
     );
   });
@@ -3232,15 +3234,8 @@ _reject_global_lend_to_call :: (fn(call : &AstExpr, l : &_CallLend, gv : &Variab
       type_is_bitwise_copy(place_ty.clone()) => "copy",
       true => "owning"
     );
-    form := cond(
-      !l.marked && (l.form == "an operand its operator borrows") => "operand",
-      (!l.marked && l.exclusive) => "recv-mut",
-      !l.marked => "recv-imm",
-      l.exclusive => "arg-mut",
-      true => "arg-imm"
-    );
     tl := if(is_thread_local(&gv.token.module_path, &gv.name), "thread_local", "static");
-    line := `${display_module_path(&at.module_path)}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} [global-lend] form=${form} kind=${kind} storage=${tl} global=${gv.name} type=${type_to_string(&place_ty)} callee=\`${callee_text}\` place=\`${place_text}\``;
+    line := `${display_module_path(&at.module_path)}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} [global-lend] form=${l.tag} kind=${kind} storage=${tl} global=${gv.name} type=${type_to_string(&place_ty)} callee=\`${callee_text}\` place=\`${place_text}\``;
     if(g_audit_global_lend_printed.insert(line.clone()), {
       eprintln(&line);
     });
