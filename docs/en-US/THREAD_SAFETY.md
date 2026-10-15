@@ -229,7 +229,11 @@ Unlock is automatic — a private unlocker object calls `_raw_unlock()` on both 
 ## Module-Level Globals
 
 A module-level runtime binding (`name := init` or `(name : T) = init` outside any function) is
-one static that every thread shares. In safe code:
+one static that every thread shares. It is immutable, Rust's `static`, unless its name is
+wrapped in `mut(...)` (`mut(name) := init`, `(mut(name) : T) = init`, also inside
+`thread_local(...)`), which makes it Rust's `static mut`. Writing an immutable global is
+E0917; lending a `mut(...)` global, or a place under it, to a call is E0916 (read it into a
+local first). The [error reference](ERROR_DIAGNOSTICS.md) has the details. In safe code:
 
 - a closure that runs on another thread (a `Thread.spawn` body, a pool task, a
   `spawn_blocking` callback — anything bound to `Impl(FnOnce(...), Send)`, `Impl(Fn(...), Send)` or `Impl(Fn(...), Sync)`)
@@ -248,7 +252,7 @@ one static that every thread shares. In safe code:
 ```yo
 LIMIT :: i32(5); // a constant: fine from any thread
 hits := AtomicI32(i32(0)); // an atomic object: shared state, fine
-(thread_local(scratch) : i32) = i32(0); // per-thread mutable state: fine
+(thread_local(mut(scratch)) : i32) = i32(0); // per-thread mutable state: fine
 g := ArrayList(i32).new(); // fine on the main thread only
 fill :: (fn() -> unit)({
   g.push(i32(1));
@@ -256,7 +260,7 @@ fill :: (fn() -> unit)({
 Thread(unit).spawn(io => {
   fill();
 }); // ERROR: the closure calls fill, which reaches g
-(counter : i32) = i32(0);
+(mut(counter) : i32) = i32(0);
 bump :: (fn() -> unit)({
   counter = (counter + i32(1));
 }); // fine on its own...

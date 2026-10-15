@@ -185,6 +185,32 @@ parameter, a closure literal (`run(f)` → `run(dyn(f))`, `S(cb : f)` →
 in for is E0618. A value whose text no longer prints as the evaluated
 expression on one line is listed with its position and left as written.
 
+`yo fix <path> --migrate mutable-globals` is the migration for decision 47,
+under which a module-level or `thread_local` runtime binding is immutable
+(Rust's `static`) unless its name is wrapped in `mut(...)` (`static mut`).
+Writing an immutable global is E0917: reassigning it, writing a field or
+element of a value it holds, lending a place of that value as `&mut`, or
+calling a `&mut self` method on it. A write through a `ref` handle the global
+holds (`g.push(x)` on an `ArrayList`, `h.name = …` on a `ref(struct)`) is not
+a write of the binding and needs no marker; only reassigning the binding does.
+The migration evaluates each file and wraps the declared name of every global
+written this way: `G := v` becomes `mut(G) := v`, `(G : T) = v` becomes
+`(mut(G) : T) = v`, and `thread_local(G)` becomes `thread_local(mut(G))`.
+
+The marker is what decision 18 rule 3 reads: lending a `mut(...)` global, or a
+place under it, to a call (a `&`/`&mut` argument, a borrowed receiver, an
+operand its operator borrows, an interpolated value) is E0916, because the
+callee could reach the global by name, or await while another task writes it,
+and the borrow would then change under it. Read it into a local first
+(`v := G; f(&v)`) and write it back after a `&mut` call. An unmarked global
+is lent freely. A global holding a `ref` handle adds two conflicts, each
+reported wherever the compiler sees the second site: a lend into the storage
+behind it (`&g(i)`) is E0916 when a `&mut self` method is called on it
+anywhere, and a lend of a field written through it (`&h.name` after
+`h.name = …`) is E0916 too. The migration marks declarations only; check the
+migrated files and rewrite each E0916 it reports. In this release both errors
+apply outside `std` and the compiler's own sources.
+
 ## Warnings
 
 `check`, `compile` and `build` also carry warning-severity diagnostics for
