@@ -109,7 +109,7 @@ These rules were set or confirmed 2026-10-13/15. Each one overrides older text t
 | v0.2.62 | 2026-10-14 03:52Z | Drop Gen A (#1343), E0910 lent-place moves (#1346), `&Self` read-only receivers (#1347), allocator audit (#1337), V4 codegen blockers (#1341) |
 | **v0.2.63** | RELEASE_ROW_PLACEHOLDER | §2.2 below |
 
-### 2.2 What v0.2.63 carries (develop `v0.2.62..31ef8d7a3`)
+### 2.2 What v0.2.63 carries (develop `v0.2.62..42ec72f99`)
 
 **Language and type checking (VBD):**
 - #1349: V3 async A3 Generation B and A4's handle half.
@@ -151,6 +151,9 @@ These rules were set or confirmed 2026-10-13/15. Each one overrides older text t
 - #1386: a block that yields an outer local takes its own reference (an S1 use-after-free on develop).
 - #1388: `spawn_blocking`'s `sink` closure is captured with its own references; std/http's `serve`/`serve_once` take `sink(handler)`.
 - #1376: the runtime treats offset `u64.MAX` as "the descriptor's own position". This is the stdio fix's Generation A; Generation B is §4 step 7.
+- #1392 (fix(develop), after `31ef8d7a3`): on Windows a positioned disk transfer moves the file pointer, while POSIX `pwrite` does not. #1376's seek test was the first to check it, and it turned both Windows legs red.
+  - The maintainer chose to document the behaviour, as Rust's `FileExt::seek_write` and Zig's `File.pwrite` do, rather than save and restore the pointer, which is not atomic across threads sharing a handle.
+  - `std/sys/file.yo` documents the offset rules; the runtime is unchanged.
 - #1362: `String.to_cstr_checked()`. std's C boundaries reject an interior NUL.
 - #1373: a warm compile replays its cached inputs, and a failed build removes its artifact.
 
