@@ -12,8 +12,13 @@ Seed v0.2.62, `yo compile c4.yo -o c4 && ./c4; echo $?`:
 { exit } :: import("std/process");
 G :: i32(1);
 H :: (G + i32(10));
-f :: (fn() -> i32)({ G = i32(3); return((G + H)); });
-main :: (fn() -> unit)({ exit(usize(f())); });
+f :: (fn() -> i32)({
+  G = i32(3);
+  return(G + H);
+});
+main :: (fn() -> unit)({
+  exit(usize(f()));
+});
 export(main);
 ```
 
