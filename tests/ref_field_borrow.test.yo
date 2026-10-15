@@ -258,7 +258,7 @@ test("interior-ref call releases the container's borrow flag on unwind", {
     raise(); // the handler unwinds the INSTALLING function, through this call site
     v = i32(0); // never reached
   });
-  run_borrowed :: (fn(target : &ArrayList(i32)) -> unit)({
+  run_borrowed :: (fn(target : &mut ArrayList(i32)) -> unit)({
     (raise : Raise) = (
       () -> {
         unwind(());
@@ -269,7 +269,7 @@ test("interior-ref call releases the container's borrow flag on unwind", {
   });
   xs := ArrayList(i32).new();
   xs.push(i32(41));
-  run_borrowed(&xs);
+  run_borrowed(&mut xs);
   xs.push(i32(5)); // must not panic: the unwind path released the flag
   assert(xs.len() == usize(2), "push after the unwound borrowed call ran");
   assert(xs(usize(0)) == i32(42), "the bump landed before the unwind");

@@ -1136,6 +1136,16 @@ comptime_expect_error(
   }),
   "is a `&` borrow, which is read-only"
 );
+// issues/fixed/2026-10-15-a-mut-subscript-argument-writes-through-a-read-only-borrow.md:
+// `&mut xs(i)` lent to a known function's `&mut` parameter, with `xs` a `&`
+// borrow, passed check (its argument loop never promoted the place to
+// `IndexMut`).
+comptime_expect_error(
+  _v2b_mut_elem_arg_through_shared :: (fn(xs : &ArrayList(i32)) -> unit)({
+    _v2b_bump(&mut xs(usize(0)));
+  }),
+  "is a read-only borrow"
+);
 // A `&mut` projection call needs a `&mut` root.
 comptime_expect_error(
   _v2b_mut_projection_of_shared :: (fn(t : &Trio) -> unit)({
