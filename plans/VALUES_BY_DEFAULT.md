@@ -1521,7 +1521,8 @@ and in git, not a silent edit.
          Amended by decision 47: an unmarked module-level binding is
          immutable (Zig's container-level `const`, Rust's `static`), so it
          may be lent freely; a `mut(G)` binding may not be lent to a call
-         (E0916) or across an `await` (E0909).
+         (E0916) or across an `await` (E0909)
+         (`issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`).
     4. **`await`:** a borrow is an error across a suspension if its
        declaration or any re-point passes through an `Rc`/`Arc` deref or a
        module-level place. It is allowed when the whole path stays in
@@ -6543,8 +6544,29 @@ once `SEED_VERSION` parses it.
      tests 81, `markdown_yo` 3. Lending the marked ones gives 259 E0916
      sites, or about 87 once the 57 reassigned handle globals are reset in
      place.
-   - Generation B: sweep src, std, tests and `markdown_yo` (with a
-     companion release), then enforce everywhere.
+   - **As built (Generation A, `feat/global-lend-to-call-is-an-error`):**
+     - `register_mut_global` carries the marker, the way
+       `thread_local(name)` is carried; `mut(x)` in a function body and in
+       parameter position stays E0009.
+     - E0917 `E_IMMUTABLE_GLOBAL_WRITE` for a write to an unmarked global,
+       E0916 for a lend of a `mut(G)` global or a place under it, and rules
+       A and B for handle globals (each side records into a registry keyed
+       by the global's declaration and checks the other, so the verdict
+       does not depend on evaluation order).
+     - Enforced outside the trees a seed without `mut(` builds: std, the
+       compiler source beside it (`<std>/../src/`), fetched dependencies in
+       the store and macro expansions (`is_global_mut_rule_exempt`).
+       `tests/` is marked (`yo fix tests --migrate mutable-globals`).
+     - `YO_AUDIT_GLOBAL_LEND=1` prints every lend (`[global-lend]`, with
+       `marked=`/`write=`/`reach=`), every write (`[global-write]`, with
+       `marked=`) and every rule A/B conflict (`[global-conflict]`), in the
+       exempt trees too, and rejects nothing: the census for Generation B.
+   - Generation B: `yo fix ./std ./src --migrate mutable-globals` (file by
+     file where a directory run mixes generic impls), reset the reassigned
+     handle globals in place, rewrite the remaining E0916 lends (copy out,
+     write back), a `markdown_yo` companion release, then drop
+     `is_global_mut_rule_exempt` and narrow #1389's E0909 to `mut(G)` and
+     `thread_local(mut(...))` roots.
 2. **Locals, patterns and comptime.**
    - Generation A:
      - `mut(x)` in every binding position, patterns and destructuring

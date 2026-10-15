@@ -2013,6 +2013,10 @@ global_mut_key :: (fn(gv : &Variable) -> String)(`${canonical_module_path(&gv.to
 _global_write_hits_lend :: (fn(w : &GlobalPlacePath, path : &String, heap : bool) -> bool)(
   path.starts_with(&w.path) && (!w.heap || heap)
 );
+/// `name` followed by the field path `path` (`f.g.`), as written (`name.f.g`).
+_global_path_display :: (fn(name : &String, path : &String) -> String)(
+  if(path.is_empty(), name.clone(), `${name}.${path.slice_copy(usize(0) .. (path.len() - usize(1)))}`)
+);
 /// The E0916 for a lend `l` of a place under `gv` that a write `what` (at
 /// `loc`) invalidates.
 _global_handle_conflict :: (fn(gv : &Variable, l : &GlobalHandleLend, what : &String, loc : &String, ctx : &EvalContext, exn : Exception) -> unit)({
@@ -2080,7 +2084,7 @@ global_note_handle_write :: (fn(gv : &Variable, w : &GlobalPlacePath, tok : &Tok
         match(
           ls.get(li),
           .Some(l) => if(_global_write_hits_lend(w, &l.path, l.heap), {
-            _global_handle_conflict(gv, &l, &`\`${gv.name}.${w.path}\` is written`, &loc, ctx, exn);
+            _global_handle_conflict(gv, &l, &`\`${_global_path_display(&gv.name, &w.path)}\` is written`, &loc, ctx, exn);
           }),
           .None => ()
         );
@@ -2110,7 +2114,7 @@ global_note_handle_lend :: (fn(gv : &Variable, l : GlobalHandleLend, ctx : &Eval
           ws.get(wi),
           .Some(w) => if(_global_write_hits_lend(&w, &l.path, l.heap), {
             loc := match(locs.get(wi), .Some(x) => x, .None => String.new());
-            _global_handle_conflict(gv, &l, &`\`${gv.name}.${w.path}\` is written`, &loc, ctx, exn);
+            _global_handle_conflict(gv, &l, &`\`${_global_path_display(&gv.name, &w.path)}\` is written`, &loc, ctx, exn);
           }),
           .None => ()
         );
