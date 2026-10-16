@@ -69,12 +69,13 @@ impl(
     hi := self._entries.len();
     while(lo < hi, {
       mid := (lo + ((hi - lo) / usize(2)));
-      entry_key := self._entries(mid).key;
+      // Compared in place: a copy of the key would be E0901 for a move-only
+      // `K`.
       cond(
-        (entry_key < k) => {
+        (self._entries(mid).key < k) => {
           lo = (mid + usize(1));
         },
-        (entry_key > k) => {
+        (self._entries(mid).key > k) => {
           hi = mid;
         },
         true => {
@@ -104,9 +105,14 @@ impl(
     r := self._find(&k);
     cond(
       r.found => {
-        entry := self._entries(r.idx);
-        addr_of(self._entries(r.idx)).* = MapEntry(K, V)(key : entry.key, value : v);
-        .Some(entry.value)
+        // The old value moves out bitwise and `v` moves into its slot; the
+        // stored key stays and `k` is dropped. Nothing is copied, so a
+        // move-only key or value works.
+        p := addr_of(self._entries(r.idx));
+        old := __yo_ptr_read(addr_of(p.*.value));
+        __yo_ptr_write(addr_of(p.*.value), v);
+        drop(k);
+        .Some(old)
       },
       true => {
         // The push moved OUT of a cond condition here: before D9 this arm's
@@ -118,10 +124,7 @@ impl(
         self._entries.push(MapEntry(K, V)(key : k, value : v));
         pos := (self._entries.len() - usize(1));
         while(pos > r.idx, pos = (pos - usize(1)), {
-          curr := self._entries(pos);
-          prev := self._entries(pos - usize(1));
-          addr_of(self._entries(pos)).* = prev;
-          addr_of(self._entries(pos - usize(1))).* = curr;
+          self._entries.swap(pos, pos - usize(1));
         });
         .None
       }
@@ -132,41 +135,27 @@ impl(
   remove : (fn(self : &mut Self, k : &K, where(K <: Ord(K))) -> Option(V))({
     r := self._find(k);
     cond(
-      r.found => {
-        v := self._entries(r.idx).value;
-        self._entries.remove(r.idx);
-        .Some(v)
-      },
+      // The entry moves out of the list, and the match moves its value out
+      // of the entry (its key drops), so nothing is copied.
+      r.found => match(self._entries.remove(r.idx), { key : _, value : v } => .Some(v)),
       true => .None
     )
   }),
   /// Whether `k` is present — Rust's `contains_key`. O(log n), and it does
   /// not touch the value.
   contains_key : (fn(self : &Self, k : &K, where(K <: Ord(K))) -> bool)(
-    match(self.get(k), .Some(_) => true, .None => false)
+    self._find(k).found
   ),
   /// Remove and return the lowest entry — Rust's `pop_first`.
+  /// The entry moves out of the map, so a move-only key or value works.
   pop_first : (fn(self : &mut Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
-    match(
-      self.first_entry(),
-      .Some(e) => {
-        _r := self.remove(&e.key);
-        Option(MapEntry(K, V)).Some(e)
-      },
-      .None => Option(MapEntry(K, V)).None
+    cond(
+      (self._entries.len() == usize(0)) => Option(MapEntry(K, V)).None,
+      true => Option(MapEntry(K, V)).Some(self._entries.remove(usize(0)))
     )
   ),
   /// Remove and return the highest entry — Rust's `pop_last`.
-  pop_last : (fn(self : &mut Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(
-    match(
-      self.last_entry(),
-      .Some(e) => {
-        _r := self.remove(&e.key);
-        Option(MapEntry(K, V)).Some(e)
-      },
-      .None => Option(MapEntry(K, V)).None
-    )
-  ),
+  pop_last : (fn(self : &mut Self, where(K <: Ord(K))) -> Option(MapEntry(K, V)))(self._entries.pop()),
   /// The entry with the smallest key, or `.None` — O(1), since the backing
   /// array is kept in key order.
   ///

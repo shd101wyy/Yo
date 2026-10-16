@@ -21,7 +21,7 @@
 { _call_generate_expr, call_projection_mode } :: import("./_expr.yo");
 { generate_arg_code_with_deferred_dups } :: import("./drop_dup.yo");
 { get_type_string, get_variable_name_for_codegen, sanitize_for_c_identifier, is_function_value_with_only_builtin_yo_inline_function_call, _checked_fixed_array_subscript, get_variable_name_for_codegen_at } :: import("../utils/index.yo");
-{ is_array_type } :: import("../../types/guards.yo");
+{ is_array_type, is_unit_type } :: import("../../types/guards.yo");
 { expr_info_converted_runtime_type, expr_info_index_method_value, expr_info_is_index_trait_address_of } :: import("../../expr_info.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// The C function name for a func id (registered cName, else None).
@@ -197,6 +197,24 @@ generate_address_of :: (fn(expr : &AstExpr, indent : &String, context : &Functio
     );
   });
   arg_code := _call_generate_expr(&arg, indent.clone(), context);
+  // A `unit` place (a `unit` field, local or parameter) has no C storage: the
+  // field is elided from its struct and every unit expression emits no C, so
+  // `(&<nothing>)` was invalid C. Its address is a dangling, non-null `void*`
+  // (Rust's `NonNull::dangling()` for a zero-sized type): nothing is ever
+  // read or written through it (`__yo_ptr_read`/`__yo_ptr_write` of a `unit`
+  // pointee touch no memory), and non-null keeps `Option(*unit).Some(p)` out
+  // of the null niche. The operand still runs for its effects.
+  if(match(arg_ei_opt, .Some(aei) => is_unit_type(&aei.ty), .None => false), {
+    if(arg_code.len() > usize(0), {
+      line := indent.clone();
+      line.push_str("(void)(");
+      line.push_string(&arg_code);
+      line.push_str(");");
+      em := context.base.emitter;
+      em.emit_string_line(&line);
+    });
+    return(String.from("((void*)1)"));
+  });
   // A direct projection call (decision 24) is a place, `(*f(args))`: its
   // address is the call's own result, never a spilled copy's.
   if(call_projection_mode(&arg, context).is_some(), {

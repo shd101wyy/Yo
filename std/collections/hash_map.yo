@@ -371,9 +371,10 @@ impl(
           return(.None);
         },
         (ctrl_byte == h2) => {
-          bucket := (data_ptr.add(probe_index)).*;
+          // Compared in place: a copy of the bucket would be E0901 for a
+          // move-only `K` or `V`.
           cond(
-            (bucket.key == key) => {
+            ((data_ptr.add(probe_index)).*.key == key) => {
               return(.Some(probe_index));
             },
             true => ()
@@ -425,9 +426,8 @@ impl(
           );
         },
         (ctrl_byte == h2) => {
-          bucket := (data_ptr.add(probe_index)).*;
           cond(
-            (bucket.key == key) => {
+            ((data_ptr.add(probe_index)).*.key == key) => {
               return(BucketProbe.Occupied(index : probe_index));
             },
             true => ()
@@ -499,44 +499,22 @@ impl(
         ctrl_byte := (ctrl_ptr.add(i)).*;
         cond(
           ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-            bucket := (data_ptr.add(i)).*;
-            hash := self._hash(&bucket.key);
+            bucket_ptr := data_ptr.add(i);
+            hash := self._hash(&bucket_ptr.*.key);
             h2 := h2_hash(hash);
             new_index := Self._find_insert_bucket(&new_map, hash);
             new_ctrl_ptr := Self._ctrl_ptr(&new_map);
             new_data_ptr := Self._data_ptr(&new_map);
             (new_ctrl_ptr.add(new_index)).* = h2;
-            consume((new_data_ptr.add(new_index)).* = bucket);
+            // The entry moves bitwise: the old array is freed below without
+            // dropping anything, so no count changes and a move-only entry
+            // moves too.
+            __yo_ptr_write(new_data_ptr.add(new_index), __yo_ptr_read(bucket_ptr));
             new_map.size = (new_map.size + usize(1));
           },
           true => ()
         );
       });
-      // Drop old buckets before freeing old data array
-      // (bucket := ... above duped them, so we need to drop the old refs)
-      cond(
-        (Type.contains_rc_type(K) || Type.contains_rc_type(V)) => {
-          j := usize(0);
-          while(j < self.capacity, j = (j + usize(1)), {
-            ctrl_byte := (ctrl_ptr.add(j)).*;
-            cond(
-              ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-                bucket_ptr := data_ptr.add(j);
-                cond(
-                  Type.contains_rc_type(K) => unsafe.drop((bucket_ptr.*).key),
-                  true => ()
-                );
-                cond(
-                  Type.contains_rc_type(V) => unsafe.drop((bucket_ptr.*).value),
-                  true => ()
-                );
-              },
-              true => ()
-            );
-          });
-        },
-        true => ()
-      );
     });
     owned := self._owned();
     match(
@@ -569,16 +547,14 @@ impl(
     match(
       bucket_opt,
       .Some(index) => {
-        data_ptr := Self._data_ptr(self);
-        old_bucket := (data_ptr.add(index)).*;
-        old_value := old_bucket.value;
-        new_bucket := MapEntry(K, V)(key : key, value : value);
-        // Don't use consume here - we want to drop the old bucket at memory
-        // Note: old_bucket already duped it, so dropping here decrements to RC=1
-        // Then old_bucket goes out of scope and drops again to RC=0
-        // But wait - we return old_value which was duped from old_bucket...
-        // Actually the MapEntry struct contains RC types, so assignment drops old + dups new
-        (data_ptr.add(index)).* = new_bucket;
+        p := Self._data_ptr(self).add(index);
+        // The old value moves out bitwise and the new one moves into its
+        // slot, so nothing is copied (a move-only `V` works) and nothing is
+        // dropped twice. The key is replaced too: the assignment drops the
+        // old key.
+        old_value := __yo_ptr_read(addr_of(p.*.value));
+        __yo_ptr_write(addr_of(p.*.value), value);
+        p.*.key = key;
         .Ok(.Some(old_value))
       },
       .None => {
@@ -667,11 +643,7 @@ impl(
     bucket_opt := Self._find_bucket(self, key, hash);
     match(
       bucket_opt,
-      .Some(index) => {
-        data_ptr := Self._data_ptr(self);
-        bucket := (data_ptr.add(index)).*;
-        .Some(bucket.value)
-      },
+      .Some(index) => .Some((Self._data_ptr(self).add(index)).*.value),
       .None => .None
     )
   }),
@@ -734,16 +706,21 @@ impl(
     )
   }),
   /// Remove `key` and return the entry that was stored — Rust's `remove_entry`.
-  remove_entry : (fn(self : &mut Self, key : &K) -> Option(MapEntry(K, V)))(
+  ///
+  /// The entry moves out of its bucket, so nothing is copied: a move-only
+  /// key or value works.
+  remove_entry : (fn(self : &mut Self, key : &K) -> Option(MapEntry(K, V)))({
+    hash := self._hash(key);
     match(
-      self.get_key_value(key),
-      .Some(e) => {
-        _r := self.remove(key);
+      Self._find_bucket(self, key, hash),
+      .Some(index) => {
+        e := __yo_ptr_read(Self._data_ptr(self).add(index));
+        self._vacate(index);
         Option(MapEntry(K, V)).Some(e)
       },
       .None => Option(MapEntry(K, V)).None
     )
-  ),
+  }),
   /// Whether `key` is in the map — O(1) average, and it does not touch the
   /// value, so nothing is dup'd for a refcounted `V`.
   contains_key : (fn(self : &Self, key : &K) -> bool)({
@@ -769,33 +746,36 @@ impl(
     match(
       bucket_opt,
       .Some(index) => {
-        data_ptr := Self._data_ptr(self);
-        ctrl_ptr := Self._ctrl_ptr(self);
-        bucket_ptr := data_ptr.add(index);
-        // Read and dup value for return
-        value := bucket_ptr.*.value;
-        // Drop the bucket's key (we're removing it)
+        bucket_ptr := Self._data_ptr(self).add(index);
+        // The value moves out bitwise (a move-only `V` works) and the key is
+        // dropped where it lies.
+        value := __yo_ptr_read(addr_of(bucket_ptr.*.value));
         unsafe.drop(bucket_ptr.*.key);
-        // Drop the bucket's value extra ref (we duped it above)
-        unsafe.drop(bucket_ptr.*.value);
-        // Linear probing stops at the first EMPTY slot, so if the NEXT slot is
-        // EMPTY no live key's probe chain passes through this one and it can
-        // go straight back to EMPTY. Otherwise it must stay a tombstone: a key
-        // inserted later may have probed past it.
-        cond(
-          ((ctrl_ptr.add((index + usize(1)) % self.capacity)).* == CTRL_EMPTY) => {
-            (ctrl_ptr.add(index)).* = CTRL_EMPTY;
-          },
-          true => {
-            (ctrl_ptr.add(index)).* = CTRL_DELETED;
-            self._tombstones = (self._tombstones + usize(1));
-          }
-        );
-        self.size = (self.size - usize(1));
+        self._vacate(index);
         .Some(value)
       },
       .None => .None
     )
+  }),
+  /// Mark the live bucket `index` free, once its entry has been moved out or
+  /// dropped.
+  ///
+  /// Linear probing stops at the first EMPTY slot, so if the NEXT slot is
+  /// EMPTY no live key's probe chain passes through this one and it can go
+  /// straight back to EMPTY. Otherwise it must stay a tombstone: a key
+  /// inserted later may have probed past it.
+  _vacate : (fn(self : &mut Self, index : usize) -> unit)({
+    ctrl_ptr := Self._ctrl_ptr(self);
+    cond(
+      ((ctrl_ptr.add((index + usize(1)) % self.capacity)).* == CTRL_EMPTY) => {
+        (ctrl_ptr.add(index)).* = CTRL_EMPTY;
+      },
+      true => {
+        (ctrl_ptr.add(index)).* = CTRL_DELETED;
+        self._tombstones = (self._tombstones + usize(1));
+      }
+    );
+    self.size = (self.size - usize(1));
   }),
   /// Number of live entries — O(1). Not the bucket count; that is
   /// `capacity`.
@@ -824,10 +804,13 @@ impl(
       ctrl_byte := (ctrl_ptr.add(i)).*;
       cond(
         ((ctrl_byte != CTRL_EMPTY) && (ctrl_byte != CTRL_DELETED)) => {
-          bucket := (data_ptr.add(i)).*;
+          bucket_ptr := data_ptr.add(i);
           cond(
-            !keep(&bucket.key, &bucket.value) => {
-              self.remove(&bucket.key);
+            !keep(&bucket_ptr.*.key, &bucket_ptr.*.value) => {
+              // Dropped in place: the scan already knows the bucket, so
+              // there is nothing to probe for, and nothing is copied.
+              unsafe.drop(bucket_ptr.*);
+              self._vacate(i);
             },
             true => ()
           );
@@ -1071,9 +1054,9 @@ impl(
       self._slot,
       .Occupied(index) => {
         p := self._map._data_ptr().add(index);
-        // Whole-bucket assignment, as `try_insert` does on its occupied path:
-        // it drops the old entry and dups the new one as one step.
-        p.* = MapEntry(K, V)(key : p.*.key, value : f(&p.*.value));
+        // The value alone is replaced, so the key is not copied (a move-only
+        // `K` works); the assignment drops the old value.
+        p.*.value = f(&p.*.value);
       },
       .Vacant(_) => ()
     );

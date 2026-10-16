@@ -79,16 +79,14 @@ impl(
     // ArrayList.push panics on that failure itself as of D9, so the guard
     // that used to stand here is now the callee's job.
     self._data.push(val);
-    // Sift up
+    // Sift up. Elements are compared in place and exchanged bitwise
+    // (`swap`), so none is copied: a move-only `T` works.
     i := (self._data.len() - usize(1));
     while(i > usize(0), {
       parent := ((i - usize(1)) / usize(2));
-      child_val := self._data(i);
-      parent_val := self._data(parent);
       cond(
-        (child_val > parent_val) => {
-          addr_of(self._data(i)).* = parent_val;
-          addr_of(self._data(parent)).* = child_val;
+        (self._data(i) > self._data(parent)) => {
+          self._data.swap(i, parent);
           i = parent;
         },
         true => {
@@ -108,10 +106,10 @@ impl(
     cond(
       (n == usize(0)) => .None,
       true => {
-        top := self._data(usize(0));
-        last := self._data(n - usize(1));
-        addr_of(self._data(usize(0))).* = last;
-        self._data.pop();
+        // The root moves to the end and out (`swap` and `pop` move bitwise),
+        // and the old last element sifts down from the root.
+        self._data.swap(usize(0), n - usize(1));
+        top := self._data.pop();
         // Sift down
         i := usize(0);
         while(runtime(true), {
@@ -136,15 +134,12 @@ impl(
               break;
             },
             true => {
-              a := self._data(i);
-              b := self._data(largest);
-              addr_of(self._data(i)).* = b;
-              addr_of(self._data(largest)).* = a;
+              self._data.swap(i, largest);
               i = largest;
             }
           );
         });
-        .Some(top)
+        top
       }
     )
   })
