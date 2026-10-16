@@ -617,6 +617,50 @@ test("Dyn: upcast drops traits and keeps each payload's impls", {
   (tmp_s : Dyn(_OsSp)) = upcast(_up_both(i32(1)), Dyn(_OsSp));
   assert(tmp_s.speak() == i32(40), "upcast of a call result");
 });
+// Regression (issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md):
+// a `downcast`/`upcast` result owns a reference to the payload, released by
+// its result temp's scope-end drop. The emitters never declared that temp, so
+// the drop was skipped whenever no consumer declared it either: a method
+// receiver (`downcast(d, T).is_some()`) or a discarded statement leaked the
+// payload once per evaluation, and its `Drop` never ran.
+(mut(g_dc_disposed) : i32) = i32(0);
+_DcCat :: ref(struct(n : i32));
+impl(
+  _DcCat,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_dc_disposed = (g_dc_disposed + i32(1));
+    })
+  )
+);
+impl(_DcCat, ToString(to_string : (self -> String.from("cat"))));
+test("Dyn: a downcast or upcast used as a receiver or discarded releases its payload", {
+  before := g_dc_disposed;
+  (hits : i32) = i32(0);
+  {
+    (animal : Dyn(ToString)) = dyn(_DcCat(n : i32(1)));
+    (i : i32) = i32(0);
+    while(i < i32(3), {
+      if(downcast(animal, _DcCat).is_some(), {
+        hits = (hits + i32(1));
+      });
+      i = (i + i32(1));
+    });
+    downcast(animal, _DcCat);
+    assert(upcast(animal, Dyn(ToString)).to_string() == String.from("cat"), "the upcast receiver");
+    upcast(animal, Dyn(ToString));
+    assert(g_dc_disposed == before, "nothing is released while the Dyn is live");
+  };
+  assert(hits == i32(3), "every downcast saw the cat");
+  assert((g_dc_disposed - before) == i32(1), "the cat is released once its Dyn dies");
+  // A value target is extracted from its box and dup'd: the copy is released too.
+  payload_before := g_dyn_payload_disposed;
+  {
+    (d : Dyn(TestDyn)) = dyn(DynStructPayload(r : DynPayloadRes(tag : i32(9))));
+    assert(downcast(d, DynStructPayload).is_some(), "the boxed struct");
+  };
+  assert((g_dyn_payload_disposed - payload_before) == i32(1), "the boxed struct's payload is released");
+});
 test("Dyn: upcast of an AnyError to its ToString supertrait", {
   (e : AnyError) = dyn(_UpErr.Bad);
   (ts : Dyn(ToString)) = upcast(e, Dyn(ToString));
