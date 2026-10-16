@@ -59,3 +59,15 @@ though. Leave `return` copies of a `&`-borrowed root out of the automatic
 insertion and let the flip's E0901 name them. A hand edit there is usually
 a projection, not a clone. Field stores and by-value arguments keep the
 automatic `.clone()` and the dry-run review list.
+
+## Status
+
+2026-10-17: the recommendation's `return` split is implemented on
+`feat/v2b-genb-b1-migration` (step B1 of `plans/VALUES_BY_DEFAULT.md`'s
+Generation B sequence), pending the maintainer's verdict on that plan. A
+`return` copy of a place rooted in a `&T` or a `&mut T` parameter
+(`ExplicitCopySite.src_borrow`, `src/evaluator/utils.yo`) is listed, not
+rewritten; field stores, elements and by-value arguments keep the automatic
+`.clone()`. The `&mut` root is included because a `return` of a field of a
+`&mut self` receiver is the same accessor shape, whose hand edit is a
+`-> &mut T` projection. The fixture is `tests/cli-cases/fix-migrate-explicit-copy`.
