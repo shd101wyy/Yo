@@ -80,8 +80,9 @@ keeps its own count and `consume(b)` releases only that count.
 
 Test: `tests/rc.test.yo`, six Drop-counter tests (an owned local released at
 the consume, a call result, an alias, a consume in one `cond` arm on both
-paths, an owned parameter, a `&T` borrow). All six fail on develop's
-binary: each counts 0 releases where 1 is due. The parameter case leaked too:
+paths, an owned parameter, a `&T` borrow). The first five fail on
+develop's binary, each counting 0 releases where 1 is due; the borrow test is
+the over-release canary. The parameter case leaked too:
 a by-value parameter owns its own count, and the consume dropped it on the
 floor, so the caller's object never reached zero. The counter
 works with leak verdicts off, which is how every `test.yml` job runs.
