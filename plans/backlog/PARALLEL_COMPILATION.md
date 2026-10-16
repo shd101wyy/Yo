@@ -162,7 +162,7 @@ back to today's sequential path there.
 These are not parallelism, but every later stage divides the time they leave.
 
 1. **Build mimalloc in release mode on Linux.**
-   - The bug: `issues/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md`
+   - The bug: `issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md`
      (S3). Every compile line that links `vendor/mimalloc/src/static.c` gets
      `MI_DEBUG=2` and `MI_STAT=2`.
    - The fix: add `-DMI_BUILD_RELEASE -DNDEBUG` to `yo compile --allocator mimalloc`
