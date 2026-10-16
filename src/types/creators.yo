@@ -18,7 +18,7 @@
 { HashMap } :: import("std/collections/hash_map");
 { TypeValue, TypeValueNode, FuncMeta, t_refine_inner } :: import("./definitions.yo");
 { TypeTag } :: import("./tags.yo");
-{ type_to_string } :: import("./string.yo");
+{ type_to_string, bump_type_key_epoch } :: import("./string.yo");
 { debug_knob } :: import("../utils.yo");
 { eprintln } :: import("std/fmt");
 // ---------------------------------------------------------------------------
@@ -846,6 +846,7 @@ _patch_self_shell :: (
 register_enum_final :: (fn(enum_id : &String, ty : &TypeValue) -> unit)({
   if((enum_id.len() > usize(0)) && g_enum_finals.get(enum_id).is_none(), {
     g_enum_finals.insert(enum_id, ty);
+    bump_type_key_epoch();
   });
 });
 /// Resolve an empty-variant EnumT shell to its finalized form (no-op for
@@ -883,6 +884,7 @@ resolve_enum_shell :: (fn(t : &TypeValue) -> TypeValue)(
 register_ctor_phantom_positions :: (fn(func_id : &String, phantom : &ArrayList(bool)) -> unit)({
   if((func_id.len() > usize(0)) && !g_ctor_phantom_positions.contains_key(func_id), {
     _prev := g_ctor_phantom_positions.insert(func_id, phantom);
+    bump_type_key_epoch();
   });
 });
 /// The phantom-position flags of a type constructor's `n_args` collected
@@ -912,6 +914,7 @@ ctor_phantom_flags :: (fn(func_id : &String, n_args : usize) -> ArrayList(bool))
 _register_enum_phantom_positions :: (fn(enum_id : &String, phantom : &ArrayList(bool)) -> unit)({
   if((enum_id.len() > usize(0)) && phantom.contains(true) && !g_enum_phantom_positions.contains_key(enum_id), {
     _prev := g_enum_phantom_positions.insert(enum_id, phantom);
+    bump_type_key_epoch();
   });
 });
 /// The phantom-position flags recorded for an enum instantiation (see
@@ -940,6 +943,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &ArrayList(Type
       Rc(.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, ftas)) => if(ftas.len() == usize(0), {
         _register_enum_phantom_positions(fid.clone(), phantom.clone());
         _ := g_enum_finals.insert(shell_key, rc(TypeValueNode.EnumT(fid, fnm, fvns, fvfs, fsvn, fvfl, fdis, firs, fiar, args)));
+        bump_type_key_epoch();
       }),
       _ => ()
     ),
@@ -964,6 +968,7 @@ stamp_enum_final_type_arguments :: (fn(enum_id : &String, args : &ArrayList(Type
 register_struct_final :: (fn(struct_id : &String, ty : &TypeValue) -> unit)({
   if((struct_id.len() > usize(0)) && g_struct_finals.get(struct_id).is_none(), {
     g_struct_finals.insert(struct_id, ty);
+    bump_type_key_epoch();
   });
 });
 /// Resolve an empty-field Struct shell to its finalized form (no-op for

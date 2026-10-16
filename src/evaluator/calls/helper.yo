@@ -21,6 +21,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
+{ panic } :: import("std/assert");
 {
   AstExpr,
   ast_expr_token,
@@ -82,9 +83,9 @@ pragma(Pragma.AllowUnsafe);
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
 { t_unit, t_type, t_ptr, t_usize, clone_some_fresh } :: import("../../types/creators.yo");
-{ type_to_string } :: import("../../types/string.yo");
+{ type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { comptime_int_value_misfit } :: import("../values/integer.yo");
-{ type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
+{ type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 {
   get_all_some_types,
   type_contains_some_type,
@@ -1795,6 +1796,12 @@ sanitize_for_sig :: (fn(s : &String) -> String)({
 // ---------------------------------------------------------------------------
 // value_to_signature_string
 // ---------------------------------------------------------------------------
+/// The identity cache of `_type_signature_string` (see `type_identity_slot`,
+/// types/type_key.yo): handles sorted by address, their signature strings,
+/// and the type-key epoch they were rendered in.
+(g_type_sig_fast : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+(g_type_sig_fast_strings : ArrayList(String)) = ArrayList(String).new();
+(g_type_sig_fast_epoch : u64) = u64(0);
 /// Convert a value to a deterministic string for use in specialization cache keys.
 ///
 /// For type values, returns the type string.
@@ -1816,11 +1823,44 @@ value_to_signature_string :: (fn(value : &EvalValue) -> String)(
     // from an invalidated bisect — the startup corruption was the since-fixed
     // RC/GC-teardown bugs. See
     // issues/fixed/yo-self-specialization-signature-type-identity.md.)
-    .TypeVal(t) => `${type_to_string(&t)}_id_${type_key(&t)}`,
+    .TypeVal(t) => _type_signature_string(&t),
     .FuncVal(__fvd2, _) => `fn_${__fvd2.*.func_id}`,
     _ => value_to_string(value)
   )
 );
+/// A type's specialization signature, `<type_to_string>_id_<type_key>`. Both
+/// renders are functions of the handle's node and of registries that bump the
+/// type-key epoch, so the string is cached per handle within one epoch.
+_type_signature_string :: (fn(t : &TypeValue) -> String)({
+  if(g_type_sig_fast_epoch != type_key_epoch(), {
+    g_type_sig_fast.clear();
+    g_type_sig_fast_strings.clear();
+    g_type_sig_fast_epoch = type_key_epoch();
+  });
+  (slot : usize) = type_identity_slot(&g_type_sig_fast, t);
+  if(type_identity_slot_holds(&g_type_sig_fast, slot, t), {
+    fast := match(g_type_sig_fast_strings.get(slot), .Some(s) => s, .None => String.new());
+    if(type_key_memo_check_enabled(), {
+      slow := `${type_to_string(t)}_id_${type_key(t)}`;
+      if(slow != fast, {
+        panic(`YO_DEBUG_TYPE_KEY_MEMO_CHECK: value_to_signature_string: the identity cache answers "${fast}", the render is "${slow}"`);
+      });
+    });
+    return(fast);
+  });
+  key_epoch := type_key_epoch();
+  sig := `${type_to_string(t)}_id_${type_key(t)}`;
+  if((key_epoch == type_key_epoch()) && type_identity_cacheable(t), {
+    if(g_type_sig_fast.len() >= TYPE_IDENTITY_CACHE_CAP, {
+      g_type_sig_fast.clear();
+      g_type_sig_fast_strings.clear();
+    });
+    (at : usize) = type_identity_slot(&g_type_sig_fast, t);
+    g_type_sig_fast.insert(at, t);
+    g_type_sig_fast_strings.insert(at, sig.clone());
+  });
+  sig
+});
 // ---------------------------------------------------------------------------
 // compute_compile_time_signature
 // ---------------------------------------------------------------------------

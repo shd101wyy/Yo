@@ -19,6 +19,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { eprintln } :: import("std/fmt");
+{ panic } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 {
@@ -83,14 +84,14 @@ pragma(Pragma.AllowUnsafe);
 } :: import("./type_trait_methods.yo");
 { register_impl_inheritance_task, register_impl_variance_task } :: import("../builtins/contracts.yo");
 { FuncMeta, TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
-{ type_to_string } :: import("../../types/string.yo");
+{ type_to_string, type_key_epoch } :: import("../../types/string.yo");
 { t_unit, t_type, t_some_t, t_usize, register_some_binder_kind, clear_some_binder_kind, generate_some_type_id, enum_phantom_positions } :: import("../../types/creators.yo");
 { is_some_type, is_function_type, is_expr_type, is_type_hierarchy_type, is_future_trait_type } :: import("../../types/guards.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
 { is_implicitly_unsafe_capable_file, is_prelude_or_generated_file } :: import("../memory_safety.yo");
 { subst_new, subst_add, subst_add_len_var, subst_set_self, substitute } :: import("../../types/substitution.yo");
 { get_all_some_types, type_mentions_some_type, is_bound_closure_identity, resolve_cell_chain, is_value_nominal_type, note_move_only_possible, bump_trait_impl_epoch, fn_param_is_ptr_borrow, declare_acyclic_type_id } :: import("../../types/utils.yo");
-{ type_key, _tk_resolve_arg_slot } :: import("../../types/type_key.yo");
+{ type_key, _tk_resolve_arg_slot, TYPE_IDENTITY_CACHE_CAP, type_identity_slot, type_identity_slot_holds, type_identity_cacheable, type_key_memo_check_enabled } :: import("../../types/type_key.yo");
 { stable_func_id, debug_knob, display_module_path, OwnedKeys, owned_keys_new, owned_keys_record, owned_keys_take, parse_raw_int } :: import("../../utils.yo");
 { register_func_type } :: import("../../function_value.yo");
 { EvalValue, FuncValData, create_type_value, create_unknown_val } :: import("../../value.yo");
@@ -466,6 +467,12 @@ MoveOnlyDecl :: struct(
 (g_move_only_decls : ArrayList(MoveOnlyDecl)) = ArrayList(MoveOnlyDecl).new();
 /// `type_key` → answer; cleared whenever a declaration is added or purged.
 (g_move_only_memo : HashMap(String, String)) = HashMap(String, String).new();
+/// The identity front cache of `g_move_only_memo` (see `type_identity_slot`,
+/// types/type_key.yo): handles sorted by address, their answers, and the
+/// type-key epoch they were keyed in. Cleared with the memo.
+(g_move_only_fast : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
+(g_move_only_fast_answers : ArrayList(String)) = ArrayList(String).new();
+(g_move_only_fast_epoch : u64) = u64(0);
 /// `type_key`s being answered: a generic impl's where-clause check can ask
 /// about the same type again (it reaches `type_contains_rc_type`).
 (g_move_only_in_flight : HashMap(String, bool)) = HashMap(String, bool).new();
@@ -532,7 +539,7 @@ purge_move_only_decls_owned_by :: (fn(owner : &String) -> unit)({
     });
   });
   if(changed, {
-    g_move_only_memo.clear();
+    _clear_move_only_memo();
   });
 });
 /// Total generic-impl entries across all buckets (LSP leak gate).
@@ -5859,12 +5866,30 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   // sits below the first use of its type) is forced now: whether the type is
   // move-only decides how every use of it is evaluated.
   if(force_pending_move_only_impls(type_head_name_for_impl_forcing(ty)), {
-    g_move_only_memo.clear();
+    _clear_move_only_memo();
   });
+  if(g_move_only_fast_epoch != type_key_epoch(), {
+    g_move_only_fast.clear();
+    g_move_only_fast_answers.clear();
+    g_move_only_fast_epoch = type_key_epoch();
+  });
+  (slot : usize) = type_identity_slot(&g_move_only_fast, ty);
+  if(type_identity_slot_holds(&g_move_only_fast, slot, ty), {
+    fast := match(g_move_only_fast_answers.get(slot), .Some(a) => a, .None => String.new());
+    if(type_key_memo_check_enabled(), {
+      slow := g_move_only_memo.get(type_key(ty));
+      if(match(slow, .Some(m) => (m != fast), .None => true), {
+        panic(`YO_DEBUG_TYPE_KEY_MEMO_CHECK: nominal_declares_move_only(${type_to_string(ty)}): the identity cache answers "${fast}", the type_key memo ${match(slow, .Some(m) => `answers "${m}"`, .None => String.from("has no entry"))}`);
+      });
+    });
+    return(fast);
+  });
+  key_epoch := type_key_epoch();
   key := type_key(ty);
   match(
     g_move_only_memo.get(key.clone()),
     .Some(m) => {
+      _record_move_only_fast(ty, key_epoch, &m);
       return(m);
     },
     .None => ()
@@ -5895,11 +5920,39 @@ nominal_declares_move_only :: (fn(ty : &TypeValue) -> String)({
   });
   g_move_only_in_flight.remove(key.clone());
   g_move_only_memo.insert(key, found.clone());
+  _record_move_only_fast(ty, key_epoch, &found);
   found
+});
+/// Record `ty`'s answer in the identity cache, when the key it is memoized
+/// under was computed in the current type-key epoch (else `ty`'s key may have
+/// changed since).
+_record_move_only_fast :: (fn(ty : &TypeValue, key_epoch : u64, answer : &String) -> unit)({
+  if((key_epoch != type_key_epoch()) || !type_identity_cacheable(ty), {
+    return(());
+  });
+  if(g_move_only_fast_epoch != key_epoch, {
+    g_move_only_fast.clear();
+    g_move_only_fast_answers.clear();
+    g_move_only_fast_epoch = key_epoch;
+  });
+  if(g_move_only_fast.len() >= TYPE_IDENTITY_CACHE_CAP, {
+    g_move_only_fast.clear();
+    g_move_only_fast_answers.clear();
+  });
+  (slot : usize) = type_identity_slot(&g_move_only_fast, ty);
+  if(!type_identity_slot_holds(&g_move_only_fast, slot, ty), {
+    g_move_only_fast.insert(slot, ty);
+    g_move_only_fast_answers.insert(slot, answer);
+  });
+});
+_clear_move_only_memo :: (fn() -> unit)({
+  g_move_only_memo.clear();
+  g_move_only_fast.clear();
+  g_move_only_fast_answers.clear();
 });
 _add_move_only_decl :: (fn(d : &MoveOnlyDecl) -> unit)({
   g_move_only_decls.push(d);
-  g_move_only_memo.clear();
+  _clear_move_only_memo();
   note_move_only_possible();
 });
 /// Record a concrete `impl(T, Drop(...))` on a value nominal `T` (the

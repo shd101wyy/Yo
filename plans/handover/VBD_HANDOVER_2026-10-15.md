@@ -194,7 +194,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 | 4 | `feat/global-lend-to-call-is-an-error` → **#1401, landed** | decision 47 globals, Generation A |
 | 5 | `fix/runtime-write-to-comptime-constant` → **#1402, landed** | E0918 |
 | 6 | `fix/d3-trust-by-mutation-mask` (no PR), then #1380 | the D3 S1 fix, Tier 1 green; #1380 is blocked on it, then restacks |
-| 7 | `perf/type-key-memo-identity` (no PR) | −40.5% allocations; Tier 1 green; does not conflict with item 6 |
+| 7 | #1398 from `perf/type-key-memo-identity` | **landed** 2026-10-16 (−40% allocations; baseline 1,799,052,684, measured) |
 | 7a | release v0.2.64 | §4 step 7a |
 | 8 | #1385 | needs the `--onto` restack and Tier 1 |
 
@@ -512,7 +512,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   5. Generation B: sweep std and src, then turn the error on.
   - This is a language change, so it needs Generation A and then Generation B across a seed. The marker must parse in the seed before std or src may use it.
 
-#### `perf/type-key-memo-identity` — identity front caches for the type-key memos, no PR yet (head `cef6fd052`, on develop `31ef8d7a3`)
+#### `perf/type-key-memo-identity` — identity front caches for the type-key memos, **landed as #1398 (2026-10-16)**
 
 - **What:** the memo-key optimization (§4 step 7), done.
   - A type-key epoch in `src/types/string.yo` is bumped by every registry that `type_key`/`type_to_string` read.
@@ -528,11 +528,9 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   - `move_only`, `copy_trait`, `derive`, `derive_clone_complex`, `closure`, `dyn`, `generic_instantiation_compat`;
   - internal `check_watch`, `formatter`, `module_invalidation`, `type_key`, `types_compound`, `types_string_compat`;
   - fmt, issue refs.
-- **The ratchet:** `check_src_main_alloc_calls` is lowered to 1,782,545,714. That value scales CI's baseline by the local ratio, so it is an estimate, not a CI count. If the first battery's glibc count differs by more than 5%, replace it with CI's number; that is expected, not a regression.
-- **Next:**
-  1. Rebase onto develop.
-  2. Open the PR, re-run Tier 1 on the rebased head, and admin-merge.
-  3. A non-allocating cacheability check (a flag on the node) would win back the ~52M allocations the SomeT gate costs.
+- **The ratchet:** `check_src_main_alloc_calls` is 1,799,052,684, measured, not estimated. CI's `memory-ratchet` method reproduces on the Linux x86_64 box: develop `0684c9c40` counts 2,997,740,895 there (CI 2,996,136,722, +0.05%); the branch on it 1,782,841,149 (−40.53%; the M4 estimate was 1,782,545,714); the merged head on `6fc6e3a0a` 1,799,052,684. If the first develop battery's glibc count differs by more than 5%, replace it with CI's number.
+- **Landed** as #1398 (2026-10-16) on Tier 1: check src 278/278 and std 171/171, the knob's cross-check on both, the seven feature tests, the in-process `tests/internal` run, fmt, issue refs. `copy_trait` (1), `dyn` (3) and `check_watch` fail locally with leak verdicts only, identically on develop `0684c9c40` (`issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`).
+- **Next:** a non-allocating cacheability check (a flag on the node) would win back the ~52M allocations the SomeT gate costs.
 - **Filed** (docs copied to develop by the handover PR):
   - `issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a develop regression shipped in v0.2.63**). `match(r, Rc(.A(xs)) => …)` on `N :: enum(A(xs : ArrayList(i32)), B)` emits `r->_u42_->_u42_` and fails to C-compile; the v0.2.62 seed compiles it. The suspect is V4's `_lookthrough_switch_cell` (#1369). Fix it first after the cut.
   - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3). `BTreeMap`'s `K` carries `Ord(K)` 15 times.
@@ -554,7 +552,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 - **Develop battery:** run 38701738174 on `6f6a2d8e9` was green on all jobs and gated the release. The `SEED_VERSION` bump commit `88babe2dc` started its own battery, the first to build src with the v0.2.63 seed (run 38737267514). The maintainer had it cancelled as unnecessary, so the first develop battery after this handover merges is the first to build src with the v0.2.63 seed. Read that run's verdict before merging anything else (`gh run list --branch develop --limit 3`); if it is red, fixing develop comes before §4 step 0a.
 - **The evaluator work ratchet** (`check_src_main_alloc_calls`, key in `scripts/bootstrap/memory-ratchet.tsv`) is **2,996,136,722**, ±5% both ways.
   - A PR that moves the count by more than 5% must change the baseline in the same PR, with a dated comment and its attribution.
-  - V2b unique buffers Generation B and the memo-key optimization (`perf/type-key-memo-identity`, which already lowers the baseline to an estimated 1,782,545,714) will both lower it.
+  - The memo-key optimization (#1398) lowered it to 1,799,052,684 (measured with CI's method on the merged head). V2b unique buffers Generation B will lower it again.
 - **The RSS ratchet:** #1381 brought `check` from 2.43 to 1.02 GB and `build` from 4.28 to 3.26 GB.
 - **The self-hosted differential `tests/internal` job** runs 6 shards with `--compile-timeout-ms 1200000` (#1335, #1342).
 
@@ -570,7 +568,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 4. **`feat/global-lend-to-call-is-an-error`**: decision 47 step 1, Generation A (§2.3, §5.1). **Landed as #1401 (2026-10-16).** Generation B follows on the seed that carries it (step 7a).
 5. **`fix/runtime-write-to-comptime-constant`** (E0918, §2.3). **Landed as #1402 (2026-10-16).**
 6. **`fix/d3-trust-by-mutation-mask`** (§2.3), then **#1380** (§2.3).
-7. **`perf/type-key-memo-identity`** (§2.3): open its PR; CI's count replaces the estimated ratchet baseline. It does not conflict with step 6, so it may land before or after #1380.
+7. **DONE (#1398).** **`perf/type-key-memo-identity`** (§2.3): the ratchet baseline is now a measured count, 1,799,052,684.
 7a. **Cut v0.2.64** (§8.4) once steps 0a–7 have merged and develop's battery is green on the exact tip. It carries decision 47's `mut(` parser and A5's `__yo_waker_clone`. After the `SEED_VERSION` bump, do decision 47 globals Generation B (§2.3) before step 8; that avoids the V2b value-global re-census in §2.3's note. Step 12 can follow.
 8. **#1385** (`--onto` restack), then **V2b unique buffers Generation B** (§2.3). Lower the allocation baseline in the same PR. Read §2.3's global-lend note on value globals first.
 9. **Decision 47, step 2: locals, patterns and comptime** (§5.11; the plan's §6 phase), after V2b Generation B and before decision 43:
@@ -600,7 +598,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
     - Dry run on develop 2026-10-15: 201 docs to rename, 263 files rewritten.
     - Tier 1: `check-issue-refs.sh`, cli-diff (re-record only the cases whose diff is the rename), `fmt --check`.
     - Only the root and `questions/` docs move; `fixed/` and `retired/` keep their names.
-16. **The allocation memo-key optimization** is done on `perf/type-key-memo-identity` (item 7).
+16. **The allocation memo-key optimization** landed as #1398 (item 7).
 17. **After VBD:** the evaluator-performance investigation (§6 "Evaluator performance" steps 1–2).
     - `check ./src` went from 113 s at v0.2.50 to about 187 s before V4, and about 172 s after V4.
     - The `sample` profile split, v0.2.50 → v0.2.61: Yo code 45.6 → 66.7 s, RC inc/dec 20.1 → 33.9 s, malloc/free 15.4 → 27.6 s.
