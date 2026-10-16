@@ -393,3 +393,136 @@ test("a wrapper pattern Rc(p) with an await (decision 31)", {
   io.await(task, io);
   assert(result.* == i32(3), "Rc(p) through the tail must bind second=3");
 });
+// `mut` places across an await (plans/VALUES_BY_DEFAULT.md decision 26): a
+// place binding is a pointer into the scrutinee, so its task slot holds the
+// pointer and the arm reads and writes the scrutinee's own slot after the
+// task resumes
+// (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
+_PlacePair :: enum(Both(a : i32, b : String), Neither);
+test("a mut match place binding lives across an await", {
+  n := runtime_int();
+  result := Rc(i32)(0);
+  task := io.async((io : Io) => {
+    (o : Option(i32)) = .Some(n);
+    match(
+      &mut o,
+      .Some(v) => {
+        before := v;
+        io.await(yield(io), io);
+        v = (v + i32(10));
+        io.await(yield(io), io);
+        v = (v + before);
+      },
+      .None => ()
+    );
+    result.* = match(o, .Some(v) => v, .None => i32(-1));
+  });
+  io.await(task, io);
+  assert(result.* == (i32(10) + (n + n)), "the arm wrote the scrutinee through the place after each resume");
+});
+test("a mut place of a counted payload is replaced after an await", {
+  result := Rc(usize)(0);
+  task := io.async((io : Io) => {
+    (os : Option(String)) = .Some(String.from("old"));
+    (ol : Option(ArrayList(i32))) = .Some(ArrayList(i32).new());
+    match(
+      &mut os,
+      .Some(s) => {
+        io.await(yield(io), io);
+        s = String.from("renamed");
+      },
+      .None => ()
+    );
+    match(
+      &mut ol,
+      .Some(xs) => {
+        xs.push(i32(1));
+        io.await(yield(io), io);
+        xs.push(i32(2));
+      },
+      .None => ()
+    );
+    result.* = (match(&os, .Some(s) => s.len(), .None => usize(0)) + match(&ol, .Some(xs) => xs.len(), .None => usize(0)));
+  });
+  io.await(task, io);
+  assert(result.* == usize(9), "the payloads were replaced and pushed in place");
+});
+test("several mut places of one arm, and a local borrow scrutinee, across an await", {
+  n := runtime_int();
+  result := Rc(usize)(0);
+  task := io.async((io : Io) => {
+    (p : _PlacePair) = .Both(a : n, b : String.from("ab"));
+    match(
+      &mut p,
+      .Both(a, b) => {
+        io.await(yield(io), io);
+        a = (a + i32(4));
+        b = String.from("abcd");
+      },
+      .Neither => ()
+    );
+    (o : Option(i32)) = .Some(i32(2));
+    cur := &mut o;
+    match(
+      cur,
+      .Some(v) => {
+        io.await(yield(io), io);
+        v = (v * i32(3));
+      },
+      .None => ()
+    );
+    pa := match(&p, .Both(a, b) => (usize(a) + b.len()), .Neither => usize(0));
+    result.* = (pa + usize(match(o, .Some(v) => v, .None => i32(0))));
+  });
+  io.await(task, io);
+  assert(result.* == (usize(n) + usize(14)), "every place was written after the resume");
+});
+test("two interleaved tasks each write their own mut place across awaits", {
+  n := runtime_int();
+  r1 := Rc(i32)(0);
+  r2 := Rc(i32)(0);
+  h1 := io.spawn(
+    io.async((io : Io) => {
+      (o : Option(i32)) = .Some(n);
+      match(
+        &mut o,
+        .Some(v) => {
+          (i : i32) = i32(0);
+          while(i < i32(5), {
+            io.await(yield(io), io);
+            v = (v + i32(1));
+            i = (i + i32(1));
+          });
+        },
+        .None => ()
+      );
+      r1.* = match(o, .Some(v) => v, .None => i32(-1));
+      return(());
+    }),
+    io
+  );
+  h2 := io.spawn(
+    io.async((io : Io) => {
+      (o : Option(i32)) = .Some(i32(100));
+      match(
+        &mut o,
+        .Some(v) => {
+          (i : i32) = i32(0);
+          while(i < i32(5), {
+            io.await(yield(io), io);
+            v = (v - i32(1));
+            i = (i + i32(1));
+          });
+        },
+        .None => ()
+      );
+      r2.* = match(o, .Some(v) => v, .None => i32(-1));
+      return(());
+    }),
+    io
+  );
+  h1.await(io);
+  h2.await(io);
+  assert(r1.* == (n + i32(5)), "task 1 wrote its own place");
+  assert(r2.* == i32(95), "task 2 wrote its own place");
+});
