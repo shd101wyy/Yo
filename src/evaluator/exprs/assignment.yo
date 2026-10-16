@@ -334,8 +334,8 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
   });
   get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last()
 });
-/// The `x : &T` parameter whose borrowed value the place `place` writes
-/// into, walking only the steps that stay inside that value: a field of a
+/// The `x : &T` parameter (of a `fn` or a closure) whose borrowed value the
+/// place `place` writes into, walking only the steps that stay inside that value: a field of a
 /// value struct or tuple, an element of a fixed array, a unique `Box`'s
 /// payload. A `&T` parameter is a read-only borrow
 /// (plans/VALUES_BY_DEFAULT.md §3.1), so every such write is E0908
@@ -347,7 +347,7 @@ shared_borrow_param_root_of_place :: (fn(place : &AstExpr, env : &Environment, c
   match(
     _place_root_variable(&stripped, env, ctx, false),
     .Some(v) => cond(
-      (v.is_imm_borrow && v.is_parameter && !v.is_compile_time_only) => Option(Variable).Some(v),
+      (v.is_imm_borrow && !v.is_compile_time_only) => Option(Variable).Some(v),
       true => Option(Variable).None
     ),
     .None => Option(Variable).None
