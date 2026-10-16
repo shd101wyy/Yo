@@ -36,7 +36,7 @@
 } :: import("../../expr_info.yo");
 { local_borrows_mark, local_borrows_truncate } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
-{ set_propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error, record_cee_error_message, cee_observed_messages } :: import("../../types/flowability.yo");
+{ set_propagate_def_time_errors, propagate_def_time_errors, set_cee_observed_error, clear_cee_observed_error, cee_observed_error, record_cee_error_message, cee_observed_messages } :: import("../../types/flowability.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 /// Evaluate `arg_expr` and report whether it THREW a compile error. Uses
 /// `evaluate_expression_raw` (which propagates via `exn`) under a LOCAL
@@ -214,6 +214,17 @@ evaluate_comptime_expect_error :: (
   // Module-level globals registered by the (expected-to-fail) arg eval must
   // not survive it — see expr_info.yo's rollback comment.
   saved_mg_mark := module_global_recording_mark();
+  // An enclosing `comptime_expect_error`'s mode and observations. This one
+  // can run INSIDE another's argument: an element place `p.arr(i)` looks
+  // `arr` up as a method, which forces the type's impls, and a member body
+  // holding its own `comptime_expect_error` is evaluated right there. Ending
+  // it must hand the outer one its propagate mode and what it observed, not
+  // reset them, or the outer error is flagged as a swallowed definition-time
+  // error and re-raised by `check`
+  // (issues/fixed/2026-10-17-comptime-expect-error-nested-in-another-resets-its-propagate-mode.md).
+  saved_propagate := propagate_def_time_errors();
+  saved_observed := cee_observed_error();
+  saved_observed_msgs := cee_observed_messages();
   set_propagate_def_time_errors(true);
   // The expected throw can strand forcing-stack entries too — an impl abandoned
   // in its field loop leaves its in-flight record (and the member being
@@ -223,9 +234,15 @@ evaluate_comptime_expect_error :: (
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
   observed_msgs := cee_observed_messages();
   clear_cee_observed_error();
+  if(saved_observed, {
+    set_cee_observed_error();
+  });
+  for(&saved_observed_msgs, m => {
+    record_cee_error_message(&m);
+  });
   truncate_forcing_depths(saved_depths);
   env.frames = saved_frames_list;
-  set_propagate_def_time_errors(false);
+  set_propagate_def_time_errors(saved_propagate);
   ctx.is_executing = saved_is_executing;
   ctx.is_validating_function_definition = saved_is_validating;
   ctx.expected_type = saved_expected;
