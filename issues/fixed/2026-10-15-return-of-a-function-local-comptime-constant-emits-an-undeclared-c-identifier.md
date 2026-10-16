@@ -2,7 +2,7 @@
 
 **Severity:** S2 — a valid runtime function that returns a local `::` constant with `return(...)` fails in the C compiler; binding it to a `:=` local first, or ending the body with `a`, works around it.
 
-**Status:** fixed by #PRNUM (2026-10-16). Found 2026-10-15 while fixing `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (E0918). Not fixed there: this bug needs no assignment at all.
+**Status:** fixed by #1411 (2026-10-16). Found 2026-10-15 while fixing `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (E0918). Not fixed there: this bug needs no assignment at all.
 
 ## Repro
 

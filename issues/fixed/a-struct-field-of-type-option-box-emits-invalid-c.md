@@ -2,7 +2,7 @@
 
 **Severity:** S2: a valid program that `check` accepts fails in the C compiler.
 
-**Status: FIXED** by #PRNUM (2026-10-16). Found 2026-10-14 by the v0.2.62 batch review. **Measured on:** develop a89b8356c and v0.2.61. Any `X` reproduces it (`i32`, `String`, a user struct). A bare local of type `Option(Box(String))`, `.clone()` included, compiles and runs correctly.
+**Status: FIXED** by #1411 (2026-10-16). Found 2026-10-14 by the v0.2.62 batch review. **Measured on:** develop a89b8356c and v0.2.61. Any `X` reproduces it (`i32`, `String`, a user struct). A bare local of type `Option(Box(String))`, `.clone()` included, compiles and runs correctly.
 
 ## Symptom
 
