@@ -2070,9 +2070,6 @@ _global_handle_conflict :: (fn(gv : &Variable, l : &GlobalHandleLend, what : &St
     global_lend_audit_print(&`${global_lend_location(&l.at)} [global-conflict] global=${gv.name} key=${global_lend_key(&gv.token, &gv.name)} lend=${l.text.replace(" ", String.from("_"))} at=${loc}`);
     return(());
   });
-  if(!global_mut_rule_applies(&l.at, ctx), {
-    return(());
-  });
   raise_flow_violation(
     with_code(
       format_error_message_with_help(
@@ -2172,8 +2169,9 @@ global_note_handle_lend :: (fn(gv : &Variable, l : GlobalHandleLend, ctx : &Eval
   ls.push(l);
   g_global_handle_lends.insert(key, ls);
 });
-/// Whether the module-level rules are enforced at `tok` (decision 47
-/// Generation A: not in the trees the seed builds).
+/// Whether the rule for bindings below module level is enforced at `tok`
+/// (decision 47 step 2, Generation A: not in the trees the seed builds,
+/// `is_global_mut_rule_exempt`). The module-level rules apply everywhere.
 global_mut_rule_applies :: (fn(tok : &Token, ctx : &EvalContext) -> bool)(
   !is_global_mut_rule_exempt(&tok.module_path, &ctx.std_path)
 );
@@ -2197,7 +2195,7 @@ global_require_mut :: (fn(gv : &Variable, tok : &Token, how : &String, ctx : &Ev
     record_mutable_global_site(&gv.token, &gv.name);
     return(());
   });
-  if(g_audit_global_lend || !global_mut_rule_applies(tok, ctx), {
+  if(g_audit_global_lend, {
     return(());
   });
   entries := ArrayList(TokenAndError).new();
