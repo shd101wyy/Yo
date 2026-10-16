@@ -10782,10 +10782,39 @@ Fix: wrap the call:
               all_args.push(method_info.receiver_expr);
             });
           });
+          // `G.m(&mut x, ...)` through an unapplied constructor (decision
+          // 32): the receiver is written in call form, so its marker is a
+          // call-site marker (Rust's `Rc::make_mut(&mut h)`), checked and
+          // peeled against `self`'s mode here. The call below is
+          // method-form, which leaves position 0 unpeeled.
+          uc_args := match(
+            uc_arg0_id,
+            .Some(_) => match(
+              method_info.method_ty,
+              Rc(.Func({ param_types : uc_pts, meta : uc_fm })) => {
+                uc_head := ArrayList(AstExpr).new();
+                match(args.get(usize(0)), .Some(a0) => uc_head.push(a0), .None => ());
+                uc_peeled := apply_call_site_borrow_markers(&uc_head, &uc_pts, &uc_fm.*.param_is_ref, &uc_fm.*.param_is_owning, &uc_fm.*.param_labels, false, exn);
+                uc_out := ArrayList(AstExpr).new();
+                (uci : usize) = usize(0);
+                while(uci < args.len(), {
+                  match(
+                    cond((uci == usize(0)) => uc_peeled.get(usize(0)), true => args.get(uci)),
+                    .Some(a) => uc_out.push(a),
+                    .None => ()
+                  );
+                  uci = (uci + usize(1));
+                });
+                uc_out
+              },
+              _ => args.clone()
+            ),
+            .None => args.clone()
+          );
           (ai : usize) = usize(0);
-          while(ai < args.len(), {
+          while(ai < uc_args.len(), {
             match(
-              args.get(ai),
+              uc_args.get(ai),
               .Some(a) => {
                 all_args.push(a);
               },
