@@ -105,14 +105,18 @@ impl(
     r := self._find(&k);
     cond(
       r.found => {
-        // The old value moves out bitwise and `v` moves into its slot; the
-        // stored key stays and `k` is dropped. Nothing is copied, so a
-        // move-only key or value works.
+        // The old entry moves out bitwise and a new one, with the stored
+        // key and `v`, moves into its slot; `k` is dropped. Nothing is
+        // copied, so a move-only key or value works. The whole entry moves,
+        // never a field through `addr_of`: a `unit` value has no C storage
+        // to point at.
         p := addr_of(self._entries(r.idx));
-        old := __yo_ptr_read(addr_of(p.*.value));
-        __yo_ptr_write(addr_of(p.*.value), v);
+        old := __yo_ptr_read(p);
         drop(k);
-        .Some(old)
+        match(old, { key : stored, value : old_value } => {
+          __yo_ptr_write(p, MapEntry(K, V)(key : stored, value : v));
+          .Some(old_value)
+        })
       },
       true => {
         // The push moved OUT of a cond condition here: before D9 this arm's

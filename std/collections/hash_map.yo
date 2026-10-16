@@ -548,14 +548,15 @@ impl(
       bucket_opt,
       .Some(index) => {
         p := Self._data_ptr(self).add(index);
-        // The old value moves out bitwise and the new one moves into its
-        // slot, so nothing is copied (a move-only `V` works) and nothing is
-        // dropped twice. The key is replaced too: the assignment drops the
-        // old key.
-        old_value := __yo_ptr_read(addr_of(p.*.value));
-        __yo_ptr_write(addr_of(p.*.value), value);
-        p.*.key = key;
-        .Ok(.Some(old_value))
+        // The old entry moves out bitwise and the new one moves into its
+        // slot, so nothing is copied (a move-only `K` or `V` works) and
+        // nothing is dropped twice. The match moves the old value out of
+        // the old entry and drops its key. The whole entry moves, never a
+        // field through `addr_of`: a `unit` value (`HashSet`) has no C
+        // storage to point at.
+        old := __yo_ptr_read(p);
+        __yo_ptr_write(p, MapEntry(K, V)(key : key, value : value));
+        match(old, { key : _, value : old_value } => .Ok(.Some(old_value)))
       },
       .None => {
         resize_check := cond(
@@ -746,13 +747,11 @@ impl(
     match(
       bucket_opt,
       .Some(index) => {
-        bucket_ptr := Self._data_ptr(self).add(index);
-        // The value moves out bitwise (a move-only `V` works) and the key is
-        // dropped where it lies.
-        value := __yo_ptr_read(addr_of(bucket_ptr.*.value));
-        unsafe.drop(bucket_ptr.*.key);
+        // The entry moves out bitwise (a move-only `K` or `V` works); the
+        // match moves its value out and drops its key.
+        e := __yo_ptr_read(Self._data_ptr(self).add(index));
         self._vacate(index);
-        .Some(value)
+        match(e, { key : _, value : value } => .Some(value))
       },
       .None => .None
     )
