@@ -7,6 +7,7 @@
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
 { HashSet } :: import("std/collections/hash_set");
+{ RefCell } :: import("std/sync/refcell");
 {
   AstExpr,
   ast_expr_id,
@@ -1682,7 +1683,7 @@ _build_async_capture_struct_literal :: (
                     // C local of the body) hands back the value itself.
                     dup_code := _call_generate_expr(&dup_expr, indent.clone(), context);
                     vname_c := sanitize_for_c_identifier(vname.clone(), false);
-                    declared := (context.base.declared_c_var_names.*.contains(vname.clone()) || scope_stack_contains(&context.base.declared_scopes.*, &vname_c));
+                    declared := (context.base.declared_c_var_names.with(dn_s => dn_s.contains(vname.clone())) || context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &vname_c)));
                     parts.push(`.${label_c} = ${if((declared || (dup_code.len() == usize(0))), vname_c, dup_code)}`);
                   },
                   .None => {
@@ -1720,7 +1721,7 @@ _build_async_capture_struct_literal :: (
                     // own name while its block is open; the name lookup
                     // through the call's env could land on an unrelated temp.
                     local_c := sanitize_for_c_identifier(label.clone(), false);
-                    cname := if(scope_stack_contains(&context.base.declared_scopes.*, local_c.clone()) || context.base.declared_c_var_names.*.contains(local_c.clone()), local_c, {
+                    cname := if(context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, local_c.clone())) || context.base.declared_c_var_names.with(dn_s => dn_s.contains(local_c.clone())), local_c, {
                       cap_env := match(context.base.get_expr_info(expr), .Some(cei_f) => Option(Environment).Some(cei_f.env), .None => Option(Environment).None);
                       get_variable_name_for_codegen_at(ast_expr_id(expr), label.clone(), &cap_env)
                     });
@@ -3269,12 +3270,12 @@ _emit_one_deferred_async_block :: (fn(block : &DeferredAsyncBlock, context : &Fu
   prev_scopes := context.base.declared_scopes;
   prev_declared_ref := em.declared_ref;
   prev_scope_ref := em.scope_ref;
-  context.base.declared_c_var_names = rc(HashSet(String).new());
+  context.base.declared_c_var_names = rc(RefCell(HashSet(String)).new(HashSet(String).new()));
   declare_c_var_name(&context.base, String.from("sm"));
-  context.base.declared_scopes = rc(ArrayList(String).new());
+  context.base.declared_scopes = rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
   push_declared_scope(&context.base, String.from("sm"));
-  em.declared_ref = Option(Rc(HashSet(String))).Some(context.base.declared_c_var_names);
-  em.scope_ref = Option(Rc(ArrayList(String))).Some(context.base.declared_scopes);
+  em.declared_ref = Option(Rc(RefCell(HashSet(String)))).Some(context.base.declared_c_var_names);
+  em.scope_ref = Option(Rc(RefCell(ArrayList(String)))).Some(context.base.declared_scopes);
   saved_binding_ids := context.state_machine_binding_ids;
   context.state_machine_binding_ids = Option(HashSet(String)).Some(HashSet(String).new());
   saved_sm_unwind_catch := context.sm_unwind_catch;
@@ -4041,7 +4042,7 @@ generate_io_async_sync_call :: (fn(expr : &AstExpr, indent : &String, context : 
       // IN-SCOPE C local/param wins — the captures side-table can hold names
       // that are REAL C parameters of the current fn (the SM bundle param
       // `e`), and rewriting those referenced a nonexistent capture field.
-      lbl_in_scope := scope_stack_contains(&context.base.declared_scopes.*, lbl_c.clone());
+      lbl_in_scope := context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, lbl_c.clone()));
       lbl_read := cond(
         lbl_in_scope => lbl_c.clone(),
         match(

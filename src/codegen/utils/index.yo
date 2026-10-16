@@ -26,6 +26,7 @@
 { eprintln } :: import("std/fmt");
 { ArrayList } :: import("std/collections/array_list");
 { HashSet } :: import("std/collections/hash_set");
+{ RefCell } :: import("std/sync/refcell");
 { HashMap } :: import("std/collections/hash_map");
 { fnv1a64 } :: import("../../utils.yo");
 { TokenKind } :: import("../../token.yo");
@@ -306,7 +307,7 @@ CodeGenContext :: ref(
     /// deferred-drop survived) — emitting `__yo_decr_rc(undeclared_temp)` is an
     /// undeclared-identifier error. Temp names are globally unique, so this
     /// accumulates across functions without needing a per-function reset.
-    declared_c_var_names : Rc(HashSet(String)),
+    declared_c_var_names : Rc(RefCell(HashSet(String))),
     /// Block-scope stack of declared C var names (named locals + temps), encoded
     /// as a flat list with `"{"` sentinels at block boundaries, maintained by the
     /// emitter (`_emitter_track_scope`) during function-body emission. Read ONLY by
@@ -315,7 +316,7 @@ CodeGenContext :: ref(
     /// before AND still in scope). This is the block-scope-aware C-emission-order
     /// signal that the flat set and source-token heuristics could not provide. See
     /// issues/fixed/yo-self-fixpoint-eval-phase-leak.md.
-    declared_scopes : Rc(ArrayList(String)),
+    declared_scopes : Rc(RefCell(ArrayList(String))),
     /// Resolved concrete capture-struct type id → its generated closure impl fn.
     /// Populated at closure construction; read at closure call sites to emit
     /// `fn(&(cb), args)`.
@@ -419,8 +420,8 @@ impl(
       next_dispose_type_id : usize(1),
       sm_pool_ids : HashMap(String, usize).new(),
       dispose_thunks : HashSet(String).new(),
-      declared_c_var_names : rc(HashSet(String).new()),
-      declared_scopes : rc(ArrayList(String).new()),
+      declared_c_var_names : rc(RefCell(HashSet(String)).new(HashSet(String).new())),
+      declared_scopes : rc(RefCell(ArrayList(String)).new(ArrayList(String).new())),
       impl_closure_call_map : HashMap(String, ImplClosureCallInfo).new(),
       type_key_aliases : HashMap(String, String).new(),
       chunk_mode : false,
@@ -1832,19 +1833,20 @@ get_variable_type_string :: (
   result
 });
 /// Record `c_name` as a C declaration of the current function
-/// (`declared_c_var_names`). The set is an `Rc` because the emitter holds the
-/// same set (`Emitter.declared_ref`) and writes it too.
-declare_c_var_name :: (fn(context : &CodeGenContext, c_name : &String) -> unit)({
-  names := context.declared_c_var_names;
-  names.*.insert(c_name);
-});
+/// (`declared_c_var_names`). The set is shared, an `Rc(RefCell(...))`
+/// (decision 46), because the emitter holds the same set
+/// (`Emitter.declared_ref`) and writes it too.
+declare_c_var_name :: (fn(context : &CodeGenContext, c_name : &String) -> unit)(
+  context.declared_c_var_names.with_mut(names => {
+    names.insert(c_name);
+  })
+);
 /// Push `c_name` onto the current function's block-scope stack
 /// (`declared_scopes`), which the emitter shares the same way
 /// (`Emitter.scope_ref`).
-push_declared_scope :: (fn(context : &CodeGenContext, c_name : &String) -> unit)({
-  scopes := context.declared_scopes;
-  scopes.*.push(c_name);
-});
+push_declared_scope :: (fn(context : &CodeGenContext, c_name : &String) -> unit)(
+  context.declared_scopes.with_mut(scopes => scopes.push(c_name))
+);
 /// Generate the C name for an enum variant: `<ENUM_CNAME>_<VARIANT>` (both
 /// upper-cased).
 get_enum_variant_c_name :: (

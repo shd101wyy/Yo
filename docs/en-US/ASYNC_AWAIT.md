@@ -66,25 +66,34 @@ Yo's async uses **algebraic effects** with the `Io` effect type. Async tasks are
 
 ```yo
 { yield } :: import("std/async");
+{ RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(i32(0)));
 
   // Lazy creation — neither task starts yet
   task1 := io.async((io : Io) => {
-    counter.* = (counter.* + 1); // Runs when started
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    }); // Runs when started
     io.await(yield(io), io); // Yields to event loop
-    counter.* = (counter.* + 1); // Resumes after other tasks yield
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    }); // Resumes after other tasks yield
   });
 
   task2 := io.async((io : Io) => {
-    counter.* = (counter.* + 10);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 10);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
   });
 
   // counter is still 0 here — tasks haven't started
-  assert(counter.* == i32(0), "tasks are lazy");
+  assert(counter.with(v => v) == i32(0), "tasks are lazy");
 
   // spawn starts both without waiting:
   // 1. task1 runs: counter=0→1, yields
@@ -98,7 +107,7 @@ main :: (fn(io : Io) -> unit)({
   handle1.await(io);
   handle2.await(io);
 
-  assert(counter.* == i32(22), "both tasks interleaved and completed");
+  assert(counter.with(v => v) == i32(22), "both tasks interleaved and completed");
 });
 export(main);
 ```
@@ -1393,22 +1402,31 @@ r2 := handle2.await(io);
 
 ```yo
 { yield } :: import("std/async");
+{ RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(i32(0)));
 
   task1 := io.async((io : Io) => {
-    counter.* = (counter.* + 1);
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
-    return(counter.*);
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    });
+    return(counter.with(v => v));
   });
 
   task2 := io.async((io : Io) => {
-    counter.* = (counter.* + 10);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 10);
-    return(counter.*);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
+    return(counter.with(v => v));
   });
 
   // Tasks are cold — counter is still 0
@@ -1425,20 +1443,29 @@ export(main);
 
 ```yo
 { yield } :: import("std/async");
+{ RefCell } :: import("std/sync/refcell");
 
 main :: (fn(io : Io) -> unit)({
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(i32(0)));
 
   task1 := io.async((io : Io) => {
-    counter.* = (counter.* + 1);
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(v => {
+      v = (v + i32(1));
+    });
   });
 
   task2 := io.async((io : Io) => {
-    counter.* = (counter.* + 10);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 10);
+    counter.with_mut(v => {
+      v = (v + i32(10));
+    });
   });
 
   // Without spawn: tasks run sequentially

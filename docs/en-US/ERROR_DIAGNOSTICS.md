@@ -242,6 +242,19 @@ Run the two in phase order on code older than decision 42: in such code
 already spells decision 47's `mut(x) := v`: it would turn each mutable local
 into a borrow.
 
+A write through an `Rc` handle is E0919: an assignment to `h.*` or to a place
+under it (`h.n = v`, `h.items(i) = v`), a `&mut` argument (`bump(&mut h.n)`),
+or a `self : &mut Self` method called on such a place (`h.items.push(v)`). An
+`Rc(T)` is Rust's `Rc`: every copy of the handle shares one cell, so its
+payload is read-only through the handle (decision 46). Shared state that is
+written goes through a door instead, and the error names them: an
+`Rc(RefCell(T))`, written inside `h.with_mut(v => ...)`
+(`std/sync/refcell`); `Rc.make_mut(&mut h)`, which moves `h` to a fresh cell
+first when the cell is shared (`T <: Clone`); `Rc.try_unwrap(h)`, the payload
+out of the only handle; a uniquely owned value or `Box(T)`; and
+`Arc(Mutex(T))` or atomics across threads. There is no `yo fix` migration:
+which door fits depends on why the state is shared.
+
 `yo fix <path> --migrate explicit-copy` prepares the values-by-default plan's
 unique buffers (V2b). Once `String` and the std collections own their buffers
 uniquely, an implicit copy whose source is used again is E0901. The migration

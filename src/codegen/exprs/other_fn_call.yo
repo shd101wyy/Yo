@@ -596,7 +596,7 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
         // sibling blocks — see scope_stack_contains); the in-scope
         // local/param holds the same value, so reuse it.
         vname_c := sanitize_for_c_identifier(vname.clone(), false);
-        already_in_scope := scope_stack_contains(&context.base.declared_scopes.*, vname_c.clone());
+        already_in_scope := context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, vname_c.clone()));
         (emitted : bool) = false;
         if(!(arg_code == vname_c) && !is_comptime_only && !is_sm && !param_is_ref && !is_deref_read && !already_in_scope, {
           if(!(arg_code == sanitized), {

@@ -17,6 +17,7 @@
 { Exception } :: import("std/error");
 { Emitter } :: import("../../emitter.yo");
 { HashSet } :: import("std/collections/hash_set");
+{ RefCell } :: import("std/sync/refcell");
 { AstExpr, ast_expr_id, ast_expr_token, ast_expr_is_atom, ast_expr_is_fn_call, ast_expr_is_fn_call_of, make_err_expr, BK_BEGIN, BK_RETURN, BK_ASSIGN, BK_INIT_ASSIGN } :: import("../../expr.yo");
 { Environment } :: import("../../env.yo");
 { EvalValue } :: import("../../value.yo");
@@ -819,11 +820,11 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // switch, so a `throw` inside the RHS would otherwise drop the not-yet-
       // declared `x`). Seed it with the parameters, which ARE in scope from entry
       // (they are declared by the prototype, not via get_variable_type_string).
-      context.base.declared_c_var_names = rc(HashSet(String).new());
+      context.base.declared_c_var_names = rc(RefCell(HashSet(String)).new(HashSet(String).new()));
       // Also reset the block-scope stack (see declared_scopes / _keep_pending_drop
       // escape path): the flat base frame is seeded with the parameters, which are
       // in scope from entry. Body begin-blocks push/pop `"{"`-delimited sub-frames.
-      context.base.declared_scopes = rc(ArrayList(String).new());
+      context.base.declared_scopes = rc(RefCell(ArrayList(String)).new(ArrayList(String).new()));
       match(
         function_type,
         Rc(.Func({ param_types : _pt, meta : _pm })) => {
@@ -876,8 +877,8 @@ generate_function :: (fn(function_value : &EvalValue, c_function_name : &String,
       // scope frames and records declared names — the escape gate's liveness signal.
       prev_emitter_ref := context.base.emitter.declared_ref;
       prev_scope_ref := context.base.emitter.scope_ref;
-      context.base.emitter.declared_ref = Option(Rc(HashSet(String))).Some(context.base.declared_c_var_names);
-      context.base.emitter.scope_ref = Option(Rc(ArrayList(String))).Some(context.base.declared_scopes);
+      context.base.emitter.declared_ref = Option(Rc(RefCell(HashSet(String)))).Some(context.base.declared_c_var_names);
+      context.base.emitter.scope_ref = Option(Rc(RefCell(ArrayList(String)))).Some(context.base.declared_scopes);
       generate_function_body(&body_box, &function_type, String.from("  "), context);
       context.base.emitter.declared_ref = prev_emitter_ref;
       context.base.emitter.scope_ref = prev_scope_ref;

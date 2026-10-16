@@ -9736,17 +9736,16 @@ export(Result);
 /// V1 step 2 reintroduces `Box` as the unique, uncounted cell.
 ///
 /// The payload is shared, so it is read-only through the handle, as Rust's
-/// (decision 46): a payload several handles mutate is an `Rc(RefCell(T))`
-/// (`std/sync/refcell`), and `Rc.make_mut` / `Rc.try_unwrap` reach the
-/// payload of a handle that is the only one. The compiler still admits a
-/// write through the handle until decision 46's Generation B;
-/// `YO_AUDIT_RC_WRITE=1` lists those writes.
+/// (decision 46): a write through the handle (`h.* = v`, `h.field = v`, a
+/// `&mut` lend or a `&mut self` call on the payload) is E0919. A payload
+/// several handles mutate is an `Rc(RefCell(T))` (`std/sync/refcell`), and
+/// `Rc.make_mut` / `Rc.try_unwrap` reach the payload of a handle that is the
+/// only one.
 ///
 /// ```yo
 /// a := rc(i32(42));
 /// b := a; // a second handle to the same value
-/// consume(b.* = i32(7));
-/// assert(a.* == i32(7), "a and b name the same value");
+/// assert(b.* == i32(42), "a and b name the same value");
 /// ```
 Rc :: (fn(comptime(V) : Type) -> comptime(Type))(
   ref(
