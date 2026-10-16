@@ -458,14 +458,18 @@ through an `Arc` is still E0909, and so is any path that also crosses an `Rc`
 (`rc(arc(m))`). An `Rc` joins `Arc` once its payload is read-only through the
 handle too (plans/VALUES_BY_DEFAULT.md decision 46).
 
-Nor may a lent place be rooted in a module-level runtime binding or a
-`thread_local`, `Arc` dereferences included (`io.await(bump(&mut G, io), io)`
-with `G := ...` at module level is E0909, and so are `io.await(G.bump(io), io)`
-and `io.await(peek(&G.*, io), io)` with `mut(G) := arc(...)`): any task on
-the thread can reach the binding by name and reassign it while this one
-waits, releasing the value the Future borrows. Lend a local copy, or read the
-global by name inside the Future, where each use reads its current value. A `::` constant has no runtime
-storage to change and may be lent.
+Nor may a lent place be rooted in a mutable module-level binding, `mut(G)`,
+or a `thread_local(mut(x))`, `Arc` dereferences included
+(`io.await(bump(&mut G, io), io)` with `mut(G) := ...` at module level is
+E0909, and so are `io.await(tenfold(&G, io), io)` and
+`io.await(peek(&G.*, io), io)` with `mut(G) := arc(...)`): any task on the
+thread can reach the binding by name and reassign it while this one waits,
+releasing the value the Future borrows. Lend a local copy, or read the global
+by name inside the Future, where each use reads its current value. A global
+declared without `mut` is immutable (decision 47), so `&G` of one may be lent
+to a borrowing Future; a place inside the storage behind a handle global still
+follows the handle rules of E0916. A `::` constant has no runtime storage to
+change and may be lent.
 
 ### Aborted Futures
 

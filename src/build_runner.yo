@@ -415,7 +415,7 @@ resolve_build_import_roots :: (
   ) -> Impl(Future(unit, IoExn))
 )(
   io.async((e : IoExn) => {
-    g_import_lines = ArrayList(String).new();
+    g_import_lines.clear();
     has_manifest := manifest_opt.is_some();
     if(!has_manifest && (registry.referenced_dependencies.len() > usize(0)), {
       e.exn.throw(dyn(`Error: build.dependency("${registry.referenced_dependencies(usize(0))}") needs a ${MANIFEST_FILENAME} declaring it, and this project has none.`));
@@ -452,7 +452,8 @@ resolve_build_import_roots :: (
       lines.push(`${r.name}=${r.root}`);
       li = (li + usize(1));
     });
-    g_import_lines = lines;
+    g_import_lines.clear();
+    g_import_lines.append(&mut lines);
     e.io.await(_link_store_trees(&manifest, e.io, e.exn), e);
     ()
   })

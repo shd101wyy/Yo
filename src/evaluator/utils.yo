@@ -2531,9 +2531,8 @@ record_explicit_copy_site :: (fn(site : ExplicitCopySite) -> unit)({
   g_explicit_copy_sites.push(site);
 });
 take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
-  out := g_explicit_copy_sites;
-  g_explicit_copy_sites = ArrayList(ExplicitCopySite).new();
-  g_explicit_copy_site_keys = HashSet(String).new();
+  out := g_explicit_copy_sites.split_off(usize(0));
+  g_explicit_copy_site_keys.clear();
   out
 });
 /// A variable declaration's identity across the session: its token's module
@@ -2588,8 +2587,7 @@ record_copy_write_decl :: (fn(decl : String, at : &Token) -> unit)({
   g_copy_writes.push(CopyWrite(decl : decl, at_module : canonical_module_path(at.module_path.clone()), at_offset : at.byte_offset));
 });
 take_copy_writes :: (fn() -> ArrayList(CopyWrite))({
-  out := g_copy_writes;
-  g_copy_writes = ArrayList(CopyWrite).new();
+  out := g_copy_writes.split_off(usize(0));
   out
 });
 export(ExplicitCopySite, CopyWrite, ICMigrateCtx, set_migrate_explicit_copy, migrate_explicit_copy_on, record_explicit_copy_site, take_explicit_copy_sites, record_copy_write, record_copy_write_decl, take_copy_writes, _ic_decl_key, _ic_place_root_decl);
