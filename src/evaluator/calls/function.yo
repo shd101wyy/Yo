@@ -2895,40 +2895,40 @@ _future_lends_into :: (fn(e : &AstExpr, via : &AstExpr, ctx : &EvalContext, out 
 _future_call_lends_into :: (
   fn(leaf_callee : &AstExpr, leaf_args : &ArrayList(AstExpr), leaf_bs : &ArrayList(CaptureBorrow), via : &AstExpr, ctx : &EvalContext, out : &mut ArrayList(_FutureLend), depth : u32) -> unit
 )({
-        labels := match(
-          expr_info_table_get(&ctx.expr_info_table, ast_expr_id(leaf_callee)),
-          .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
-          .None => ArrayList(String).new()
-        );
-        labels_known := (labels.len() > usize(0));
-        arg_offset := _future_call_receiver_offset(leaf_callee, leaf_args, &labels);
-        if(arg_offset == usize(1), {
-          self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
-          if(_borrows_root_named(leaf_bs, &self_label), {
-            recv := match(leaf_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
-            match(
-              _lent_place_of(&recv),
-              .Some(rp) => out.push(_FutureLend(place : rp, is_mut : _borrows_root_named_mut(leaf_bs, &self_label), via : via.clone())),
-              .None => ()
-            );
-          });
-        });
-        (ai : usize) = usize(0);
-        while(ai < leaf_args.len(), ai = (ai + usize(1)), {
-          label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
-          if(!labels_known || _borrows_root_named(leaf_bs, &label), {
-            lent := match(leaf_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
-            match(
-              _lent_argument_place(&lent),
-              .Some(place) => match(
-                _lent_place_of(&place),
-                .Some(lp) => out.push(_FutureLend(place : lp, is_mut : (ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))) || _borrows_root_named_mut(leaf_bs, &label)), via : via.clone())),
-                .None => ()
-              ),
-              .None => _future_lends_into(&lent, via, ctx, out, depth + u32(1))
-            );
-          });
-        });
+  labels := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(leaf_callee)),
+    .Some(ci) => match(ci.ty, Rc(.Func({ meta : om })) => om.*.param_labels, _ => ArrayList(String).new()),
+    .None => ArrayList(String).new()
+  );
+  labels_known := (labels.len() > usize(0));
+  arg_offset := _future_call_receiver_offset(leaf_callee, leaf_args, &labels);
+  if(arg_offset == usize(1), {
+    self_label := match(labels.get(usize(0)), .Some(l) => l, .None => String.from("self"));
+    if(_borrows_root_named(leaf_bs, &self_label), {
+      recv := match(leaf_callee, .FnCall(_, _, d_args, _, _) => match(d_args.get(usize(0)), .Some(r) => r, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      match(
+        _lent_place_of(&recv),
+        .Some(rp) => out.push(_FutureLend(place : rp, is_mut : _borrows_root_named_mut(leaf_bs, &self_label), via : via.clone())),
+        .None => ()
+      );
+    });
+  });
+  (ai : usize) = usize(0);
+  while(ai < leaf_args.len(), ai = (ai + usize(1)), {
+    label := match(labels.get(ai + arg_offset), .Some(l) => l, .None => _unlabeled_argument_name(ai));
+    if(!labels_known || _borrows_root_named(leaf_bs, &label), {
+      lent := match(leaf_args.get(ai), .Some(a) => _unlabeled_argument(&a), .None => make_err_expr());
+      match(
+        _lent_argument_place(&lent),
+        .Some(place) => match(
+          _lent_place_of(&place),
+          .Some(lp) => out.push(_FutureLend(place : lp, is_mut : (ast_expr_is_fn_call_of(&lent, "&mut", .Some(usize(1))) || _borrows_root_named_mut(leaf_bs, &label)), via : via.clone())),
+          .None => ()
+        ),
+        .None => _future_lends_into(&lent, via, ctx, out, depth + u32(1))
+      );
+    });
+  });
 });
 /// §3.13 A4 at a call that takes a borrowing future as an operand (a
 /// combinator, `_param_accepts_second_class`): the future the call makes holds

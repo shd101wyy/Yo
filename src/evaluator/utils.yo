@@ -1672,9 +1672,13 @@ _arg_places :: (fn(arg : &AstExpr, named : bool, env : &Environment, ctx : &Eval
         // borrowing future a call made is rooted at the callee's parameters,
         // and its caller-side places are `_check_future_operand_lends`'s
         // (§3.13 A4).
-        match(bs.get(bi), .Some(b) => if(variable_id_in_scope(env, b.root_id), {
-          out.push(_ArgPlace(root_id : b.root_id, path : b.path, text : _capture_borrow_note(&b), from_capture : true));
-        }), .None => ());
+        match(
+          bs.get(bi),
+          .Some(b) => if(variable_id_in_scope(env, b.root_id), {
+            out.push(_ArgPlace(root_id : b.root_id, path : b.path, text : _capture_borrow_note(&b), from_capture : true));
+          }),
+          .None => ()
+        );
         bi = (bi + usize(1));
       });
     },

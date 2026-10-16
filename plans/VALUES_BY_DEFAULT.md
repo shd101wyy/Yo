@@ -1312,6 +1312,15 @@ instead.
       (`require_capture_borrow_exclusivity`) now skips a borrow whose root is
       not in the caller's scope, since those roots are the callee's
       parameters, not the caller's places.
+    - **Two runtime fixes it needed.** A future moved into an `io.async`
+      capture list was still retained, so every captured operand leaked and
+      an aborted operand never dropped its locals (S1,
+      `issues/fixed/2026-10-16-a-future-moved-into-an-io-async-capture-list-is-retained-and-never-freed.md`);
+      and the thread-exit drain skipped a queued join-wait entry (S3,
+      `issues/fixed/2026-10-16-a-join-wait-entry-still-queued-at-thread-exit-is-never-released.md`).
+      A generic binder bound only through a future parameter still awaits
+      to `void*`, so `std/async` names each `T`-typed binding
+      (`issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`).
 - **A5. Wakers, parks, channels, mutexes and streams.**
   - **`Waker`** is move-only with `Clone`. A clone registers one more token
     (the runtime counts live tokens, `std/async/waker.yo`), and its cell

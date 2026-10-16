@@ -460,7 +460,7 @@ impl(
 /// arguments: (s.collect)(io)`), so this helper took the collect future
 /// instead; it is the shape `plans/archive/ASSOC_TYPE_BINDING_IN_FREE_FN_WHERE.md`
 /// (Phase 2.6 of `plans/TYPE_SYSTEM_SOUNDNESS.md`) made work.
-_bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))({
+_bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32))) -> ArrayList(i32))(
   match(
     io.await(timeout(s.collect(io), Duration.from_millis(i64(5000)), io), io),
     .Ok(list) => list,
@@ -469,7 +469,7 @@ _bounded :: (fn(generic(S : Type), s : S, io : Io, where(S <: Stream(Item := i32
       ArrayList(i32).new()
     }
   )
-});
+);
 /// A consumer generic over "anything that yields values asynchronously" —
 /// the thing that was impossible before the trait existed. It never names the
 /// item type, and accepts stream sources and combinator chains alike.
