@@ -7123,6 +7123,14 @@ run_compile :: (
     mim_found := io.await(exists(Path.new(mim_static.clone()), io), io);
     if(mim_found, {
       cmd.arg(`-I${std_root}/../vendor/mimalloc/include`);
+      // mimalloc picks its build mode from the preprocessor: without
+      // MI_BUILD_RELEASE (or NDEBUG) it compiles with MI_DEBUG=2 and MI_STAT=2,
+      // internal assertions and per-allocation statistics, and `check ./src`
+      // took 292 s against 202 s
+      // (issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md).
+      // MI_BUILD_RELEASE rather than NDEBUG: NDEBUG would also reach the
+      // program's own C and any linked C that uses assert().
+      cmd.arg(String.from("-DMI_BUILD_RELEASE"));
       cmd.arg(mim_static.clone());
       link_only_sources.push(mim_static.clone());
       println(String.from("Using bundled mimalloc"));

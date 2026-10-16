@@ -1050,7 +1050,7 @@ jobs:
           # the flags resolve via pkg-config.
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage1.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -lpthread -lm \
+            -I vendor/mimalloc/include -DMI_BUILD_RELEASE -lpthread -lm \
             $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage1
 
@@ -1085,9 +1085,17 @@ jobs:
           # with the packages above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -lpthread -lm \
+            -I vendor/mimalloc/include -DMI_BUILD_RELEASE -lpthread -lm \
             $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
+          # mimalloc compiles in debug mode (MI_DEBUG=2, MI_STAT=2) unless
+          # MI_BUILD_RELEASE or NDEBUG is defined; that build ran `check ./src`
+          # 292 s against 202 s. Only the debug build carries its assertion
+          # message (issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md).
+          if strings /tmp/yo-stage2 | grep -q 'mimalloc: assertion'; then
+            echo "::error::the stage-2 binary links mimalloc in debug mode: a compile line that links vendor/mimalloc/src/static.c lacks -DMI_BUILD_RELEASE"
+            exit 1
+          fi
           echo "S1=/tmp/yo-stage2" >> "$GITHUB_ENV"
           # Same fail-fast as stage-1.
           YO_STD="$PWD/std" /tmp/yo-stage2 check std/assert.yo
@@ -1318,7 +1326,7 @@ jobs:
           # with the packages above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -lpthread -lm \
+            -I vendor/mimalloc/include -DMI_BUILD_RELEASE -lpthread -lm \
             $(pkg-config --cflags --libs openssl) \
             -o yo-candidate
 
@@ -1625,7 +1633,7 @@ jobs:
               --target=$CT \
               "cross/yo-${{ matrix.target }}.c" \
               vendor/mimalloc/src/static.c \
-              -Ivendor/mimalloc/include \
+              -Ivendor/mimalloc/include -DMI_BUILD_RELEASE \
               -lws2_32 -lbcrypt -ladvapi32 -lsecur32 -lcrypt32 \
               -o yo-suite.exe
             ./yo-suite.exe --version
@@ -2046,7 +2054,7 @@ jobs:
       - name: "Stage 2: compile the emitted C with clang"
         # $(pkg-config ... openssl): std/http in the compiler closure puts OpenSSL
         # headers into the emitted C (libssl-dev installed alongside thering above).
-        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include $(pkg-config --cflags --libs openssl) -o /tmp/yo-stage2-bin
+        run: nice -n 10 clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 /tmp/yo-stage2.c vendor/mimalloc/src/static.c -Ivendor/mimalloc/include -DMI_BUILD_RELEASE $(pkg-config --cflags --libs openssl) -o /tmp/yo-stage2-bin
 
       - name: Upload stage-2 artifacts for the stage-3 job
         uses: actions/upload-artifact@v4
@@ -2654,7 +2662,7 @@ jobs:
             }
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-musl.c vendor/mimalloc/src/static.c \
-              -I vendor/mimalloc/include \
+              -I vendor/mimalloc/include -DMI_BUILD_RELEASE \
               -static -lssl -lcrypto -lpthread -lm \
               -o yo-musl
           '
@@ -2879,7 +2887,7 @@ jobs:
           # with the packages above).
           clang -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
             /tmp/stage2.c vendor/mimalloc/src/static.c \
-            -I vendor/mimalloc/include -lpthread -lm \
+            -I vendor/mimalloc/include -DMI_BUILD_RELEASE -lpthread -lm \
             $(pkg-config --cflags --libs openssl) \
             -o /tmp/yo-stage2
 
