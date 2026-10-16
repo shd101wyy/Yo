@@ -40,19 +40,22 @@
 /// `&` re-declared these two, but a method receiver (`downcast(d, T).is_some()`)
 /// or a discarded statement did not, and the reference leaked
 /// (issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md).
-_bind_result_temp :: (fn(expr : &AstExpr, code : String, indent : &String, context : &FunctionGenerationContext) -> String)({
-  ei := match(context.base.get_expr_info(expr), .Some(e) => e, .None => return(code));
+_bind_result_temp :: (fn(expr : &AstExpr, code : String, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
-    ei.variable_name,
-    .Some(tv) => {
-      em := context.base.emitter;
-      em.emit_string_line(`${indent.clone()}${get_variable_type_string(&ei.ty, tv.clone(), &context.base)} = ${code};`);
-      _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
-      tv
-    },
+    context.base.get_expr_info(expr),
+    .Some(ei) => match(
+      ei.variable_name,
+      .Some(tv) => {
+        em := context.base.emitter;
+        em.emit_string_line(`${indent.clone()}${get_variable_type_string(&ei.ty, tv.clone(), &context.base)} = ${code};`);
+        _store_temp_var_to_state_machine_if_needed(tv.clone(), indent.clone(), context);
+        tv
+      },
+      .None => code
+    ),
     .None => code
   )
-});
+);
 /// Generate code for `downcast(dyn_value, T)`.
 generate_downcast :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   _bind_result_temp(expr, _downcast_value(expr, indent, context), indent, context)
