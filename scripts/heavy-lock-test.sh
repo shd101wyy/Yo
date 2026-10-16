@@ -131,7 +131,35 @@ job r1 1 & sleep 0.2; job r2 1 &
 wait
 expect "jobs start in slots whose owners died or predate the boot" "$(max_concurrent)" 2
 
-# 9. Nothing is left behind.
+# 9. A priority ticket takes the next free slot ahead of ordinary tickets
+#    queued before it, FIFO among priority tickets (HEAVY_PRIORITY=1 and the
+#    `priority` argument both work); a running job is not preempted.
+scenario priority
+printf 'HEAVY_SLOTS=1\nHEAVY_MIN_AVAIL_MB=0\n' > "$HEAVY_ROOT/heavy-lock.conf"
+job a 3 & sleep 0.3
+job n1 1 & sleep 0.2; job n2 1 & sleep 0.2
+HEAVY_PRIORITY=1 job p1 1 & sleep 0.2
+job p2 1 priority &
+wait
+expect "priority tickets overtake queued ordinary ones, in FIFO order" "$(start_order)" "a p1 p2 n1 n2"
+
+# 10. A priority ticket never overtakes a queued exclusive ticket, which may
+#     already hold some slots (overtaking it would deadlock), but it still goes
+#     ahead of the ordinary tickets behind that exclusive one.
+scenario priority-behind-exclusive
+printf 'HEAVY_SLOTS=2\nHEAVY_MIN_AVAIL_MB=0\n' > "$HEAVY_ROOT/heavy-lock.conf"
+pids=()
+job w1 3 & pids+=($!); sleep 0.3
+job x 1 exclusive & pids+=($!); sleep 1.5
+job n1 1 & pids+=($!); sleep 0.2
+job p 1 priority & pids+=($!)
+# A deadlock would hang the waiters forever: the watchdog kills them instead.
+( sleep 40; kill "${pids[@]}" 2>/dev/null ) & watchdog=$!
+wait "${pids[@]}"
+kill $watchdog 2>/dev/null; wait $watchdog 2>/dev/null
+expect "the exclusive ticket keeps its place; priority goes next" "$(start_order)" "w1 x p n1"
+
+# 11. Nothing is left behind.
 expect "every slot released, every ticket gone" "$(find "$WORK" -mindepth 2 \( -name '.heavy-lock*' -o -path '*/.heavy-queue/*' \) | wc -l | tr -d ' ')" 0
 
 exit $FAILED

@@ -961,6 +961,20 @@ heavy_take "<who>: check-time A/B" exclusive  # runs alone
   ticket, so a backdated weight-1 ticket that cannot start beside held
   exclusive slots deadlocks the queue (2026-10-14). A restarted job queues at
   the tail.
+- **`priority` is the one sanctioned way to jump the queue**, for release
+  blockers only: `heavy_take "<who>: <job>" priority`, or `HEAVY_PRIORITY=1` in a
+  gate script's environment. It combines with `exclusive`. The ticket sorts
+  ahead of every ordinary one, FIFO among priority tickets, so it takes the next
+  slot that frees; a running job is never preempted.
+  - It never overtakes a queued `exclusive` ticket. That ticket may already hold
+    some slots while it drains the rest, so overtaking it would deadlock the
+    queue as backdating does. The priority ticket queues right behind it instead.
+  - The order is carried by the ticket NAME, so waiters running an older copy of
+    the script honour it too.
+  - The priority code itself lives only in the copy that takes the ticket. A
+    worktree branched before the option existed should source a current copy:
+    `git -C ~/Workspace/Yo show origin/develop:scripts/heavy-lock.sh`.
+  - A priority holder's owner line ends in `[PRIORITY]`.
 - `cat ~/Workspace/Yo-wt/.heavy-lock*/owner` shows the holders and
   `~/Workspace/Yo-wt/.heavy-queue/` the waiters, oldest first. A holder whose
   process is stopped (`ps -o stat=` shows `T`) blocks everyone; `kill -CONT` it.
