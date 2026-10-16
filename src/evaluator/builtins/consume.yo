@@ -141,7 +141,7 @@ _consume_releases_variable :: (fn(name : &String, env : &Environment, ctx : &Eva
     _ => false
   );
   captured := match(ctx.captured_variables, .Some(cv) => cv.contains_key(v.name.clone()), .None => false);
-  (v.is_owning_the_rc_value && (type_contains_rc_type(&v.ty) && (!v.is_module_level && (!v.is_ref && (!some_undroppable && (v.consumed_at_token.is_none() && !captured))))))
+  v.is_owning_the_rc_value && (type_contains_rc_type(&v.ty) && (!v.is_module_level && (!v.is_ref && (!some_undroppable && (v.consumed_at_token.is_none() && !captured)))))
 });
 evaluate_consume :: (
   fn(
