@@ -749,8 +749,9 @@ x :: 12;                           // a true constant
 | `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
 | `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md` | Type-soundness track (#1162) |
 | `issues/self-hosted-emit-leaks-remaining-classes.md` | Memory track |
-| `issues/vendor-markdown-punycode-encode-reads-past-the-buffer.md` | Fix it in `markdown_yo` and release it (pre-authorized), then bump `yo.toml` |
+| `issues/fixed/vendor-markdown-punycode-encode-reads-past-the-buffer.md` | **Fixed**: shd101wyy/markdown_yo#18, released as markdown_yo v0.0.17; `yo.toml` raised to `^0.0.17` in #1400 |
 | `issues/yo-self-rc-depth-cap-skips-deep-teardown.md` | Older; RC teardown |
+| `issues/2026-10-16-a-yo-version-dispatched-command-exits-0-when-it-fails.md` | Filed by #1400: a `.yo-version`-pinned project's failing command exits 0 (raw `waitpid` status passed to `exit`); one-line fix plus a cli-case |
 
 ### 6.2 Filed this cycle and still open (S2/S3)
 
@@ -864,6 +865,8 @@ done
 ### 8.5 Release markdown_yo (pre-authorized)
 
 Merge the fix in https://github.com/shd101wyy/markdown_yo, then `gh workflow run Release -R shd101wyy/markdown_yo -f bump=patch`. Once the tag exists, raise the range in Yo's `yo.toml` (`^0.0.16` admits only 0.0.16, so write `^0.0.N`), run `yo update markdown_yo` to refresh `yo.lock`, and gate with Tier 1.
+
+**Done 2026-10-16:** shd101wyy/markdown_yo#18, released as v0.0.17; `yo.toml` raised to `^0.0.17` in #1400.
 
 ---
 

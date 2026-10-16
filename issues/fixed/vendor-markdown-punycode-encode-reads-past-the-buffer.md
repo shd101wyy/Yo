@@ -2,11 +2,12 @@
 
 **Severity:** S1 — `punycode_encode` reads past its heap buffer from plain ASCII markdown — the over-read bytes land in the rendered HTML
 
-**Status:** OPEN (upstream — `vendor/markdown_yo`, submodule pinned
-`9f9340f606572f049f8d568a47ef55af525cfd5d`, `v0.0.4-8-g9f9340f`). Found
-2026-09-04 during the std-API-audit re-measurement of the D4 PR 9 row, while
-auditing the vendor's hand-rolled UTF-8 decoders. Reproduced at runtime against
-`yo 0.2.24`.
+**Status:** FIXED upstream in markdown_yo v0.0.17 (shd101wyy/markdown_yo#18);
+this repository picks it up through `yo.toml`'s `markdown_yo` range (`^0.0.17`)
+and `yo.lock`. Found 2026-09-04 during the std-API-audit re-measurement of the D4
+PR 9 row, while auditing the vendor's hand-rolled UTF-8 decoders. Reproduced at
+runtime against `yo 0.2.24`, and again under ASan on Linux with `yo 0.2.63`
+against markdown_yo v0.0.16 (`heap-buffer-overflow ... READ of size 1`).
 **Severity:** memory-unsafety — out-of-bounds heap READ, then the bytes read are
 emitted into the rendered HTML.
 
@@ -23,7 +24,7 @@ option set `src/doc/render_html.yo:44-60` builds.
 
 ## Reproducer
 
-```rust
+```yo ignore
 pragma(Pragma.AllowUnsafe);
 { println } :: import("std/fmt");
 { String } :: import("std/string");
@@ -96,7 +97,7 @@ buffer, and no raw byte in the `href`.
 `punycode_encode` (`vendor/markdown_yo/src/common/punycode.yo:166`) decodes its
 input as UTF-8 with **no bounds checks at all**:
 
-```rust
+```yo ignore
 // vendor/markdown_yo/src/common/punycode.yo:173-190
 while(p < len, {
   (b : i32) = i32((src.add(usize(p))).*);
@@ -148,7 +149,7 @@ In the upstream repository (`github.com/shd101wyy/markdown_yo`), give
 `punycode_encode`'s decoder the bounds guards its five siblings already have,
 and make the lead-byte classification total:
 
-```rust
+```yo ignore
 }, if(((b >= i32(0xC0)) && (b < i32(0xE0)) && ((p + i32(1)) < len)), {
   …
 }, if(((b >= i32(0xE0)) && (b < i32(0xF0)) && ((p + i32(2)) < len)), {
@@ -188,3 +189,36 @@ instrument here, so Guard Malloc is the tool that works.
 
 Nothing new is needed in this repo's `tests/`; the submodule bump rides the
 existing doc-pipeline legs.
+
+## Resolution (2026-10-16)
+
+Fixed upstream in shd101wyy/markdown_yo#18, released as markdown_yo v0.0.17:
+`punycode_encode`'s decoder now gates each multi-byte arm on its continuation
+bytes lying inside the label (`(p + 1) < len`, `(p + 2) < len`,
+`(p + 3) < len`), tests the four-byte lead as a range (`0xF0..0xF7`) instead
+of taking it as the `else`, and decodes everything else — a sequence truncated
+by the end of the label, a bare continuation byte `0x80..0xBF`, a never-valid
+lead `0xF8..0xFF` — to one U+FFFD consuming one byte:
+`[l](http://a%F0/)` now renders `<a href="http://xn--a-q10i/">` (`a` + U+FFFD)
+and `[l](http://a%C3%A3%80/)` renders `<a href="http://xn--a-yfa2307q/">`.
+
+Two corrections to the analysis above, found while writing the test. A lone
+`%80` never reaches `punycode_encode`: `normalize_link` decodes the domain only
+when it holds a `%C0`+ escape, so the bare-continuation case needs one first
+(`a%C3%A3%80`). And markdown-it keeps both domains as typed
+(`href="http://a%F0/"`), because it punycodes only a raw non-ASCII hostname;
+markdown_yo punycodes literal escapes too, a pre-existing fidelity divergence
+filed upstream as markdown_yo's
+`literal-percent-escapes-in-a-domain-are-punycoded.md` (its `issues/` directory). The regression
+test pins today's labels.
+
+Regression test: markdown_yo's `tests/main.test.yo`, "punycode of a truncated
+percent-decoded UTF-8 domain stays in bounds" (both cases plus the valid
+`%C3%A3` control). Red first under `yo test ./tests --allocator system` (ASan
+heap-buffer-overflow against v0.0.16, with both the pinned 0.2.58 and 0.2.63),
+green after; markdown_yo's fixture suite stays at 1056 passed, 0 failed.
+
+The inline fix closes the over-read only. The dedup onto one shared decoder
+stays open as `issues/vendor-markdown-shared-utf8-codec-has-no-callers.md`,
+and the lead-byte aliasing in the two link-label decoders as
+`issues/vendor-markdown-truncated-utf8-aliases-a-valid-link-label.md`.

@@ -11,7 +11,7 @@ read is guarded — but a malformed link label resolves to a *different,
 well-formed* label's destination. (The vendor's sixth decoder,
 `src/common/punycode.yo`, is **not** guarded and over-reads the heap; that is a
 separate, more severe issue —
-`issues/vendor-markdown-punycode-encode-reads-past-the-buffer.md`.)
+`issues/fixed/vendor-markdown-punycode-encode-reads-past-the-buffer.md`, fixed in markdown_yo v0.0.17.)
 
 This is shipped code, not a side project: `src/doc/render_html.yo:41` imports
 `vendor/markdown_yo/src/lib.yo`, which reaches `src/doc_command.yo:33` and
