@@ -813,7 +813,7 @@ jobs:
           echo "emitted with allocator: $ALLOC"
           echo "ALLOC=$ALLOC" >> "$GITHUB_ENV"
           if [ "$ALLOC" = "mimalloc" ]; then
-            ALLOC_ARGS=(vendor/mimalloc/src/static.c -I vendor/mimalloc/include)
+            ALLOC_ARGS=(vendor/mimalloc/src/static.c -I vendor/mimalloc/include -DMI_BUILD_RELEASE)
           else
             ALLOC_ARGS=()
           fi
@@ -1109,7 +1109,7 @@ jobs:
             }
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-g1.c vendor/mimalloc/src/static.c \
-              -I vendor/mimalloc/include \
+              -I vendor/mimalloc/include -DMI_BUILD_RELEASE \
               -static -lssl -lcrypto -lpthread -lm \
               -o yo-g1
           '
@@ -1141,7 +1141,7 @@ jobs:
             }
             cc -std=c11 -fno-strict-aliasing -fwrapv -w -O2 \
               yo-musl.c vendor/mimalloc/src/static.c \
-              -I vendor/mimalloc/include \
+              -I vendor/mimalloc/include -DMI_BUILD_RELEASE \
               -static -lssl -lcrypto -lpthread -lm \
               -o yo-musl
           '

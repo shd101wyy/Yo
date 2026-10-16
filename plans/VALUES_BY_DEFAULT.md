@@ -6381,7 +6381,7 @@ RC and allocation traffic grew faster than the code. That points at copies the m
    - **Determinism.** Three runs under `setarch -R` (ASLR off) agreed to the call. CI runs the count twice and fails if the runs disagree, because a ratchet on a noisy count would be the wall-time problem again.
    - **The binary.** The stage-2 artifact links the vendored mimalloc statically, so a preloaded counter sees none of its calls. The job recompiles the artifact's C without the mimalloc include path (~5 min), so `__yo_malloc` becomes glibc's `malloc`. The RSS gate still measures the artifact.
    - **Why ±5%, not ±10% like RSS.** The count has no noise, so the tolerance is pure policy, and the creep it has to catch ran about 5% per release.
-   - **Found on the way.** The vendored mimalloc is built in debug mode everywhere it is linked: no compile line defines `NDEBUG` or `MI_BUILD_RELEASE`, so it runs with `MI_DEBUG=2` and `MI_STAT=2` (`issues/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md`).
+   - **Found on the way.** The vendored mimalloc is built in debug mode everywhere it is linked: no compile line defines `NDEBUG` or `MI_BUILD_RELEASE`, so it runs with `MI_DEBUG=2` and `MI_STAT=2` (`issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md`).
 
 ### Decision 43: references as types
 

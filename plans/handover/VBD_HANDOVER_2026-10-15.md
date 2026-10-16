@@ -760,7 +760,7 @@ x :: 12;                           // a true constant
 - Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (landed with #1402), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (landed with #1401).
 - `issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2): fixed by #1368.
 - `issues/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md`: found by #1388.
-- `issues/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md` (S3): a free speedup for every compile.
+- `issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md` (S3): fixed 2026-10-16 (`-DMI_BUILD_RELEASE` on every line that links mimalloc); `check ./src` 292 s → 202 s on the Linux box.
 - `issues/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md`.
 - `issues/a-generic-function-passed-to-an-impl-fn-parameter-fails-in-codegen.md`.
 - `issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`.
