@@ -57,10 +57,11 @@ read-only borrow of the caller's value.`):
   existing check for a write whose old value holds RC data, which keeps
   its own message;
 - a `&mut` argument or `self : &mut Self` receiver the callee writes
-  (`p.inc()`, `f(&mut p.inner)`, `g(&mut p.n, v)`), through the pending
+  (`p.inc()`, `p.inner.bump()`, `f(&mut p.inner)`, `g(&mut p.n, v)`,
+  `g(&mut p.inner.m, v)`, `g(&mut p.arr(i), v)`), through the pending
   borrow entries `d3_check_pending` judges against the callee's mutation
   mask, as the RC case already did;
-- a `&mut` local borrow of such a place (`q := &mut p.n`).
+- a `&mut` local borrow of such a place (`q := &mut p.inner.m`).
 
 A step through a handle (a `ref` object, an `Rc`, a std collection) still
 reaches storage the handle shares, so `h.xs.push(v)` on `h : &H` stays
@@ -68,6 +69,11 @@ legal until the V2b flip makes the collections values.
 
 The E0908 explanation (`yo explain E0908`, en and zh-CN) no longer says
 that plain-data fields of a `&T` parameter can be written.
+
+Writing the test turned up two more bugs, fixed in the same change:
+`issues/fixed/2026-10-17-e0908-prints-an-element-place-with-unbalanced-parentheses.md`
+and
+`issues/fixed/2026-10-17-comptime-expect-error-nested-in-another-resets-its-propagate-mode.md`.
 
 Test: `tests/shared_borrow_write.test.yo` (every shape above is E0908; the
 by-value, `&mut` and through-a-handle writes stay legal). It fails on
