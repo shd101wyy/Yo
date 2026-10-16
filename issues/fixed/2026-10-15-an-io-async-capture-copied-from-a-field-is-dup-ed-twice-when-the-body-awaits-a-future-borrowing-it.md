@@ -62,7 +62,7 @@ The state machine's dispose releases the capture once (`if (!sm->__yo_mv___captu
 
 ## Tests that observe it
 
-With leak verdicts on (`YO_TEST_LEAK_VERDICT` unset), A5's `tests/async/channel.test.yo` fails 6 of 22 (develop: 1, `Test channel Stream combinators`, the `for_each` family of `issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`). The new failures are every test that awaits `Receiver.recv`: "async Sender/Receiver deliver values in order", "async Channel.pair hands back both halves over one channel", "async: buffered values arrive before the disconnect", "async: dropping the last Sender resolves a SUSPENDED recv as Disconnected", "async: producer tasks with cloned Senders fan in, and the last one closes". The fix lands the reproducer above as a `pragma(Pragma.NeedsLeakVerdict)` test.
+With leak verdicts on (`YO_TEST_LEAK_VERDICT` unset), A5's `tests/async/channel.test.yo` fails 6 of 22 (develop: 1, `Test channel Stream combinators`, the `for_each` family of `issues/fixed/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`). The new failures are every test that awaits `Receiver.recv`: "async Sender/Receiver deliver values in order", "async Channel.pair hands back both halves over one channel", "async: buffered values arrive before the disconnect", "async: dropping the last Sender resolves a SUSPENDED recv as Disconnected", "async: producer tasks with cloned Senders fan in, and the last one closes". The fix lands the reproducer above as a `pragma(Pragma.NeedsLeakVerdict)` test.
 
 ## The same builder retained a moved capture (`{ inner }`)
 

@@ -264,8 +264,9 @@ Behaviours with NO test today (from the inventory over `tests/`, `std/`,
   diagnostic and std does it (`std/process/command.yo:591`).
 
 Leak verdicts: CI runs the async corpus with `YO_TEST_LEAK_VERDICT=0`;
-`issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md` (S2) is the
-open record.
+`issues/fixed/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md` (S2) is the
+record; its async classes were fixed on 2026-10-16, and `leak-verdict.yml` now
+runs the async combinator, channel, waker and cross-thread files with verdicts on.
 
 ## 4. Probe results
 

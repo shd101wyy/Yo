@@ -133,7 +133,7 @@ token exemption.
 Filed on the way: `issues/fixed/prelude-methods-have-no-visibility-owner.md` (S3 —
 prelude-registered methods carry owner `""`, so a `_` method there would be
 public everywhere; none exists today) and
-`issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md` (every
+`issues/fixed/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md` (every
 fast-suite leak failure is a LeakSanitizer verdict CI cannot see; all
 reproduce with the seed).
 

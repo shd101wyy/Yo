@@ -5,7 +5,7 @@ re-measure below found the whole family.)
 
 **Severity:** S2 — every `Stream ... .for_each(...)` use leaks a 32-byte object plus a 16-byte inner allocation; a long-running consumer loop grows without bound
 
-**Found**: 2026-10-01, running the local fast suite for the safe-mode audit PR — `yo test ./tests --exclude tests/internal --exclude tests/cli-cases` with leak verdicts ON (their default outside CI) fails `tests/async/combinators.test.yo`. **Status**: OPEN. Reproduces with the installed v0.2.48 seed binary, so it predates 2026-10-01's async merges; CI has never seen it because every CI job sets `YO_TEST_LEAK_VERDICT=0` (`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md` — the hollow-gate issue).
+**Found**: 2026-10-01, running the local fast suite for the safe-mode audit PR — `yo test ./tests --exclude tests/internal --exclude tests/cli-cases` with leak verdicts ON (their default outside CI) fails `tests/async/combinators.test.yo`. **Status**: FIXED 2026-10-16 (`fix/async-capture-leaks`); see "Resolution" below. Reproduces with the installed v0.2.48 seed binary, so it predates 2026-10-01's async merges; CI has never seen it because every CI job sets `YO_TEST_LEAK_VERDICT=0` (`issues/fixed/leak-regression-tests-cannot-fail-in-ci-leak-verdicts-are-off-everywhere.md` — the hollow-gate issue).
 
 ## Symptom
 
@@ -71,3 +71,16 @@ next async pass has the exact allocation sizes and the failing tests by name.
 
 TBD with the root cause; the regression gate is the two tests above running
 with leak verdicts on — the very configuration CI currently disables.
+
+## Resolution (2026-10-16)
+
+Re-measured on develop `b0c4630d3` (after #1378 and #1379) with leak verdicts on, over the 32 async test files (`tests/async/*.test.yo`, `tests/*async*.test.yo`, `tests/cross_thread_wake.test.yo`): **39 failures in 10 files, every one a leak verdict** — `combinators` 16, `channel` 6, `cross_thread_wake` 6, `async_await` 3, `waker` 3, `async_future_parameter` 2, `async_generic_future_return` 1, `io_async_captured_alias` 1, `join_handle` 1. Four root causes, all fixed on `fix/async-capture-leaks`:
+
+- `issues/fixed/2026-10-15-an-io-async-capture-copied-from-a-field-is-dup-ed-twice-when-the-body-awaits-a-future-borrowing-it.md`: the `io.async` capture builder retained a capture-list entry on top of its initializer's own dup, and retained a MOVED capture (a future, waker, park or channel half) its owner no longer drops. `async_await`'s three (the `return(io.await(...))` pair and §3.13 A2's renamed capture), `async_future_parameter`'s two, `channel`'s five `Receiver.recv` tests, `waker`'s three, `join_handle`'s one and four of `cross_thread_wake`'s.
+- `issues/fixed/2026-10-16-the-thread-exit-release-leaks-a-join-wait-and-a-waker-token-posted-after-the-last-tick.md`: the 64-byte join wait every `timeout` left queued at exit (all 16 of `combinators`, which reach `timeout` through `_bounded`, `race` and `timeout` themselves, and `channel`'s "Stream combinators"), and the waker token a worker's release posts after the owner's last tick (`cross_thread_wake`'s last two).
+- `issues/fixed/2026-10-16-a-closure-returned-from-a-function-retains-its-captures-twice.md`: `async_generic_future_return`'s one, a sync closure literal returned from a function.
+- `issues/fixed/2026-10-16-an-alias-sharing-its-owners-task-slot-is-retained-but-released-once.md`: `io_async_captured_alias`'s canary.
+
+After the fix, all 32 files and `tests/async/exit_release.test.yo` are leak-clean with verdicts on (`async_await` 280/280, `combinators` 50/50, `channel` 22/22, `cross_thread_wake` 8/8). `leak-verdict.yml`'s allowlist now runs `combinators`, `channel`, `waker`, `cross_thread_wake` and `exit_release` with verdicts on.
+
+The non-async members of the 2026-10-02 list: `tests/collection_literals.test.yo` (the nested literals), `tests/closure_capture_rc_leak.test.yo` and `tests/async_while_in_match_arm.test.yo` are leak-clean; `tests/dyn.test.yo`'s downcast/upcast trio still leaks and has its own doc, `issues/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md`.

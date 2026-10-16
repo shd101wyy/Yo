@@ -26,7 +26,7 @@ PARENT of the start directory — i.e. the walk-up loop iterates at least once
 ## Relation to the known leak-verdict family
 
 This is another instance of the class documented in
-`issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`: every CI
+`issues/fixed/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`: every CI
 job sets `YO_TEST_LEAK_VERDICT=0`, so these verdicts are local-only. With
 the verdicts off the same run is fully green — `YO_TEST_LEAK_VERDICT=0 yo
 test ./tests/internal/version.test.yo --parallel 1` passes 21/21 (measured

@@ -7,7 +7,7 @@ name: LeakVerdict (leak-sensitive tests, Linux)
 # (issues/self-hosted-emit-leaks-remaining-classes.md) — so a test whose only
 # failure mode is the LeakSanitizer verdict can NEVER go red in CI, and 28
 # real leak failures in the language suite went unseen
-# (issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md).
+# (issues/fixed/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md).
 #
 # This leg keeps the ratchet for the compiler-sized batches and runs a small
 # ALLOWLIST of leak-sensitive test files with the verdict LEFT ON (the runner
@@ -96,12 +96,13 @@ jobs:
             echo "::error::the leaking probe test failed for a reason OTHER than the leak verdict — read the log above"
             exit 1
           }
-      # THE ALLOWLIST. Deliberately tiny and deliberately leak-clean: both
-      # files were in the passing set of the 2026-10-02 full-suite
-      # leak-verdicts-on run whose failures are catalogued in
-      # issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md
-      # (the async files named there stay OFF this list until that debt is
-      # fixed; add tests/async/combinators.test.yo back first once it is).
+      # THE ALLOWLIST. Deliberately small and deliberately leak-clean. The
+      # first two were in the passing set of the 2026-10-02 full-suite
+      # leak-verdicts-on run catalogued in
+      # issues/fixed/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md;
+      # the async files joined when that debt was paid (2026-10-16), and
+      # exit_release.test.yo is a NeedsLeakVerdict file this leg is the only
+      # CI run of.
       # `YO_TEST_LEAK_VERDICT` is deliberately NOT set — the runner default
       # (verdict on) is the entire point of this leg.
       - name: Run the allowlisted leak-sensitive tests (leak verdicts ON)
@@ -110,3 +111,8 @@ jobs:
         run: |
           "$S1" test ./tests/short_circuit_drops.test.yo --c-compiler clang --verbose
           "$S1" test ./tests/rc.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/async/combinators.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/async/channel.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/async/waker.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/async/exit_release.test.yo --c-compiler clang --verbose
+          "$S1" test ./tests/cross_thread_wake.test.yo --c-compiler clang --verbose
