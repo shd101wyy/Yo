@@ -2531,6 +2531,9 @@ _consume_make :: (fn(t : i32) -> _ConsumeBox)(_ConsumeBox(tag : t));
 _consume_param :: (fn(b : _ConsumeBox) -> unit)({
   consume(b);
 });
+_consume_borrow :: (fn(b : &_ConsumeBox) -> unit)({
+  consume(b);
+});
 test("consume of an owned local releases it at the consume", {
   before := g_consume_disposed;
   {
@@ -2574,12 +2577,22 @@ test("consume in one cond arm releases the local once on either path", {
     i = (i + i32(1));
   });
 });
-test("consume of a parameter leaves the caller's value to the caller", {
+test("consume of an owned parameter releases only the callee's count", {
   before := g_consume_disposed;
   {
     s := _ConsumeBox(tag : i32(4));
     _consume_param(s);
     assert(s.tag == i32(4), "the caller's value survives the callee's consume");
+  };
+  assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
+});
+test("consume of a borrow releases nothing", {
+  before := g_consume_disposed;
+  {
+    s := _ConsumeBox(tag : i32(5));
+    _consume_borrow(&s);
+    assert(g_consume_disposed == before, "the borrow's consume left the value alone");
+    assert(s.tag == i32(5), "and the owner still reads it");
   };
   assert(g_consume_disposed == (before + i32(1)), `released exactly once, got ${(g_consume_disposed - before).to_string()}`);
 });

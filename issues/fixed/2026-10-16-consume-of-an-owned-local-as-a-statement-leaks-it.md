@@ -78,9 +78,12 @@ that is moved (`e5`), a base whose derived copy is moved (`consumed_dups`) and
 a derived copy whose base is moved (`base_consumed`), so an alias `b := a`
 keeps its own count and `consume(b)` releases only that count.
 
-Test: `tests/rc.test.yo`, five Drop-counter tests (an owned local released at
+Test: `tests/rc.test.yo`, six Drop-counter tests (an owned local released at
 the consume, a call result, an alias, a consume in one `cond` arm on both
-paths, a consumed parameter that leaves the caller's value alone). The counter
+paths, an owned parameter, a `&T` borrow). All six fail on develop's
+binary: each counts 0 releases where 1 is due. The parameter case leaked too:
+a by-value parameter owns its own count, and the consume dropped it on the
+floor, so the caller's object never reached zero. The counter
 works with leak verdicts off, which is how every `test.yml` job runs.
 
 ## Why develop's CI was green
