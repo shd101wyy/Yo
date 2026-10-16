@@ -403,7 +403,8 @@ timeout :: (
   io.async({ fut, ms, io }(e : E) => {
     // A borrowing operand is spawned under `unsafe`: `_Scoped` guarantees the
     // task ends before this future does (see its documentation). The handle
-    // is annotated, so its type comes from `T`, not from the spawn.
+    // is annotated, so its type comes from `T`, not from the spawn
+    // (issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md).
     (h : JoinHandle(T)) = unsafe(io.spawn(fut, e));
     child := _scope(h);
     // The deadline is a spawned TASK, not a bare io-timer future: a raw
