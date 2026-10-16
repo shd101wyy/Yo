@@ -1,0 +1,126 @@
+// A collection's `clone` clones each element IN PLACE, through a `&T`
+// projection of its slot, and never copies an element (or the whole receiver)
+// out of the `&Self` borrow first. Copying out is E0901 for an element type
+// that is not `Copy`, so these clones used to reject valid programs:
+// issues/fixed/arraylist-clone-copies-elements-out-through-get.md and
+// issues/fixed/array-clone-copies-self-out-of-the-borrow.md.
+//
+// `g_cb_dropped` counts the `drop` runs of `_CbFd`, and `g_cb_cloned` its
+// `clone` runs, so the tests can check that a clone makes exactly one new
+// owner per element and every owner drops once.
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ Path } :: import("std/path");
+(mut(g_cb_dropped) : i32) = i32(0);
+(mut(g_cb_cloned) : i32) = i32(0);
+// `Clone` but not `Copy`: copied only explicitly.
+_CbQ :: struct(r : usize, b : bool);
+derive(_CbQ, Clone);
+// Move-only (`Drop`) and `Clone`.
+_CbFd :: struct(n : i32);
+impl(
+  _CbFd,
+  Clone(
+    clone : (fn(self : &Self) -> Self)({
+      g_cb_cloned = (g_cb_cloned + i32(1));
+      _CbFd(n : self.n)
+    })
+  )
+);
+impl(
+  _CbFd,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_cb_dropped = (g_cb_dropped + i32(1));
+    })
+  )
+);
+_CbHolder :: struct(items : ArrayList(Box(String)), tag : i32);
+derive(_CbHolder, Clone);
+// ---------------------------------------------------------------------------
+// ArrayList(T).clone
+// ---------------------------------------------------------------------------
+test("ArrayList.clone: a move-only Box(String) element clones in place", {
+  l := ArrayList(Box(String)).new();
+  l.push(box(String.from("lb")));
+  l.push(box(String.from("lc")));
+  m := l.clone();
+  assert(m.len() == usize(2), "the clone has both elements");
+  assert(m(usize(0)).* == `lb`, "element 0 cloned");
+  assert(m(usize(1)).* == `lc`, "element 1 cloned");
+  m.push(box(String.from("ld")));
+  assert(l.len() == usize(2), "the source is independent of the clone");
+});
+test("ArrayList.clone: a Clone-but-not-Copy element", {
+  l := ArrayList(_CbQ).new();
+  l.push(_CbQ(r : usize(1), b : true));
+  l.push(_CbQ(r : usize(2), b : false));
+  m := l.clone();
+  assert(m.len() == usize(2), "the clone has both elements");
+  assert(m(usize(0)).r == usize(1), "element 0 cloned");
+  assert(!m(usize(1)).b, "element 1 cloned");
+});
+test("ArrayList.clone: a Drop element is cloned once and dropped once per owner", {
+  cloned_before := g_cb_cloned;
+  dropped_before := g_cb_dropped;
+  {
+    l := ArrayList(_CbFd).new();
+    l.push(_CbFd(n : i32(1)));
+    l.push(_CbFd(n : i32(2)));
+    m := l.clone();
+    assert(m(usize(1)).n == i32(2), "element 1 cloned");
+    assert((g_cb_cloned - cloned_before) == i32(2), "one clone per element");
+  };
+  assert((g_cb_dropped - dropped_before) == i32(4), "two sources and two clones each drop once");
+});
+test("ArrayList.clone: a derive(Clone) struct with an ArrayList(Box(String)) field", {
+  items := ArrayList(Box(String)).new();
+  items.push(box(String.from("h")));
+  h := _CbHolder(items : items, tag : i32(7));
+  c := h.clone();
+  assert(c.tag == i32(7), "tag cloned");
+  assert(c.items(usize(0)).* == `h`, "the field's element cloned");
+});
+// ---------------------------------------------------------------------------
+// Array(T, N).clone
+// ---------------------------------------------------------------------------
+test("Array.clone: a Clone-but-not-Copy element", {
+  qs := Array(_CbQ, 2)(_CbQ(r : usize(1), b : true), _CbQ(r : usize(2), b : false));
+  qs2 := qs.clone();
+  assert(qs2(usize(0)).r == usize(1), "slot 0 cloned");
+  assert(qs2(usize(0)).b, "slot 0 flag cloned");
+  assert(qs2(usize(1)).r == usize(2), "slot 1 cloned");
+  assert(!qs2(usize(1)).b, "slot 1 flag cloned");
+});
+test("Array.clone: a move-only Box(String) element clones in place", {
+  bs := Array(Box(String), 2)(box(String.from("a")), box(String.from("b")));
+  bs2 := bs.clone();
+  assert(bs2(usize(0)).* == `a`, "slot 0 cloned");
+  assert(bs2(usize(1)).* == `b`, "slot 1 cloned");
+});
+test("Array.clone: a Drop element is cloned once and dropped once per owner", {
+  cloned_before := g_cb_cloned;
+  dropped_before := g_cb_dropped;
+  {
+    fs := Array(_CbFd, 3)(_CbFd(n : i32(1)), _CbFd(n : i32(2)), _CbFd(n : i32(3)));
+    fs2 := fs.clone();
+    assert(fs2(usize(2)).n == i32(3), "slot 2 cloned");
+    assert((g_cb_cloned - cloned_before) == i32(3), "one clone per slot");
+  };
+  assert((g_cb_dropped - dropped_before) == i32(6), "three sources and three clones each drop once");
+});
+test("Array.clone: a Copy element still clones", {
+  xs := Array(i32, 3)(i32(1), i32(2), i32(3));
+  ys := xs.clone();
+  assert(ys(usize(2)) == i32(3), "slot 2 cloned");
+});
+// ---------------------------------------------------------------------------
+// Path.clone (an ArrayList(String) of segments, the same shape)
+// ---------------------------------------------------------------------------
+test("Path.clone: segments are cloned in place", {
+  p := Path.new(`/usr/local/bin`);
+  q := p.clone();
+  assert(q == p, "the clone equals the source");
+  assert(q.to_string() == p.to_string(), "the clone renders the same");
+});

@@ -785,15 +785,10 @@ impl(
       segments := ArrayList(String).with_capacity(self._segments.len());
       (n : usize) = self._segments.len();
       (i : usize) = usize(0);
-      while(i < n, {
-        match(
-          self._segments.get(i),
-          .Some(seg) => {
-            segments.push(seg.clone());
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
+      // Cloned in place through the `&String` projection, never copied out
+      // through `get` first (as `ArrayList.clone`).
+      while(i < n, i = (i + usize(1)), {
+        segments.push(self._segments(i).clone());
       });
       Self(_prefix : self._prefix.clone(), _segments : segments, _is_absolute : self._is_absolute)
     })

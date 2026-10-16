@@ -1723,17 +1723,12 @@ impl(
         .Some(a) => Self.with_capacity_in(a, n),
         .None => Self.with_capacity(n)
       );
+      // Each element is cloned in place through the `&T` projection
+      // `self(i)`; copying it out first (`self.get(i)`) is E0901 for a
+      // move-only `T` (issues/fixed/arraylist-clone-copies-elements-out-through-get.md).
       i := usize(0);
-      while(i < n, {
-        item_opt := self.get(i);
-        match(
-          item_opt,
-          .Some(item) => {
-            result.push(item.clone());
-          },
-          .None => ()
-        );
-        i = (i + usize(1));
+      while(i < n, i = (i + usize(1)), {
+        result.push(self(i).clone());
       });
       result
     })
