@@ -97,6 +97,7 @@ pragma(Pragma.AllowUnsafe);
   local_borrows_active,
   local_borrow_place_of,
   local_borrow_place_of_variable,
+  local_borrow_place_text,
   local_borrow_require_writable,
   local_borrow_access,
   local_borrow_write_expr,
@@ -500,14 +501,10 @@ _write_through_borrow_fix :: (fn(bv : &Variable) -> String)(
     true => `copy it into a local first (\`q := ${bv.name};\`) and write the copy; to write a \`for\` element in place, loop with \`for(&mut xs, ${bv.name} => ...)\``
   )
 );
-/// The place as written (`p.s`), not the printer's parenthesized `(p.s)`.
-_place_source_text :: (fn(place : &AstExpr) -> String)({
-  text := ast_expr_to_string(place);
-  if(text.starts_with("(") && text.ends_with(")"), {
-    text = text.substring(usize(1), text.len() - usize(1));
-  });
-  text
-});
+/// The place as written (`p.inner.m`), not the printer's parenthesized
+/// `((p.inner).m)`. Stripping the printer's outer pair alone turned an
+/// element place `(p.arr)(i)` into `p.arr)(i`.
+_place_source_text :: (fn(place : &AstExpr) -> String)(local_borrow_place_text(place));
 /// A value aggregate: a type whose copy owns its own storage, a non-`ref`
 /// struct or newtype (`String`), a tuple, a fixed array or a non-`ref` enum
 /// (`Option(String)`). A `ref` object, an `Rc`, a collection or a closure is a
