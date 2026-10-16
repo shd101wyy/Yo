@@ -74,7 +74,7 @@ register_file_pragma :: (fn(module_path : &String, kind : Pragma) -> unit)({
 });
 /// Reset the registry. Used between independent `check` runs.
 _clear_pragma_registry :: (fn() -> unit)({
-  g_privileged_files = ArrayList(PragmaEntry).new();
+  g_privileged_files.clear();
   ()
 });
 /// Drop pragma entries for a single module (LSP edit / cache invalidation).
@@ -93,7 +93,8 @@ _clear_pragma_for_module :: (fn(module_path : &String) -> unit)({
     );
     i = (i + usize(1));
   });
-  g_privileged_files = kept;
+  g_privileged_files.clear();
+  g_privileged_files.append(&mut kept);
   ()
 });
 /// Is the module path implicitly unsafe-capable for pointer ops?

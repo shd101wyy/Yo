@@ -254,7 +254,7 @@ _stable_id_module_stem :: (fn(module_path : &String) -> String)({
 /// (issues/warm-compile-selfcheck.md). Byte-identical warm emission needs
 /// those registries purged per compile instead.
 stable_occurrence_reset :: (fn() -> unit)({
-  g_stable_occurrence = HashMap(String, usize).new();
+  g_stable_occurrence.clear();
   ()
 });
 /// Emission-name occurrence counters — a SEPARATE namespace from
@@ -290,7 +290,7 @@ emission_occurrence_hashed :: (fn(h : u64) -> usize)({
 });
 /// Reset the emission-name counters. Called at the start of every compile.
 emission_occurrence_reset :: (fn() -> unit)({
-  g_emission_occurrence = HashMap(u64, usize).new();
+  g_emission_occurrence.clear();
   ()
 });
 stable_occurrence_key :: (fn(key : &String) -> usize)({
@@ -743,11 +743,11 @@ profile_fn_std :: (fn() -> usize)(g_prof_fn_std);
 /// so each compile's report is that compile alone.
 profile_reset :: (fn() -> unit)({
   g_prof_enabled = false;
-  g_prof_phase_names = ArrayList(String).new();
-  g_prof_phase_nanos = ArrayList(i64).new();
-  g_prof_mod_paths = ArrayList(String).new();
-  g_prof_mod_parse_ns = ArrayList(i64).new();
-  g_prof_mod_eval_ns = ArrayList(i64).new();
+  g_prof_phase_names.clear();
+  g_prof_phase_nanos.clear();
+  g_prof_mod_paths.clear();
+  g_prof_mod_parse_ns.clear();
+  g_prof_mod_eval_ns.clear();
   g_prof_fn_total = usize(0);
   g_prof_fn_at_collect = usize(0);
   g_prof_fn_std = usize(0);

@@ -113,10 +113,10 @@ record_input_file :: (fn(path : &String, content_sha256 : &String) -> unit)({
 /// Start a fresh record. `yo compile` calls this before evaluating, so a
 /// long-lived process (the LSP, `check --watch`) does not accumulate.
 reset_input_files :: (fn() -> unit)({
-  g_input_files = ArrayList(String).new();
-  g_input_hashes = ArrayList(String).new();
-  g_touches = ArrayList(String).new();
-  g_replayed_modules = HashSet(String).new();
+  g_input_files.clear();
+  g_input_hashes.clear();
+  g_touches.clear();
+  g_replayed_modules.clear();
 });
 // ── What a cached module's load read
 //
@@ -213,7 +213,7 @@ _replay_touch :: (fn(t : &String) -> unit)({
   );
 });
 /// The files read so far, in first-open order.
-input_files :: (fn() -> ArrayList(String))(g_input_files);
+input_files :: (fn() -> ArrayList(String))(g_input_files.clone());
 /// The inputs as `<sha256> <absolute path>` lines, in first-open order — the
 /// depfile's format. The hash comes FIRST so a path containing spaces still
 /// parses by splitting at the first space.

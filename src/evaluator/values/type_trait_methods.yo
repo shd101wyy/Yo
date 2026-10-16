@@ -645,14 +645,10 @@ get_visible_type_trait_methods_by_name :: (
 /// global state between runs. Same pattern as the cleanup helpers in
 /// `evaluator/values/impl.yo` for the generic-impl registry.
 clear_type_trait_methods :: (fn() -> unit)({
-  fresh := HashMap(String, ArrayList(MethodEntry)).new();
-  _type_trait_methods = fresh;
-  fresh_sites := HashMap(String, String).new();
-  _inherent_method_sites = fresh_sites;
-  fresh_ti_sites := HashMap(String, String).new();
-  _trait_impl_sites = fresh_ti_sites;
-  fresh_ti_owners := HashMap(String, String).new();
-  _trait_impl_site_owners = fresh_ti_owners;
+  _type_trait_methods.clear();
+  _inherent_method_sites.clear();
+  _trait_impl_sites.clear();
+  _trait_impl_site_owners.clear();
 });
 /// Record `site` as the defining site of inherent method `label` on
 /// `type_id`. Returns `.Some(previous_site)` when the pair was already

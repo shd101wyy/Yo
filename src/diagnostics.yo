@@ -78,8 +78,7 @@ emit_warning :: (fn(d : &Diagnostic) -> unit)({
 /// Take (and clear) the pending warnings — the CLI edge renders whatever
 /// accumulated during the command, in the process's current format.
 take_warnings :: (fn() -> ArrayList(Diagnostic))({
-  out := g_pending_warnings;
-  g_pending_warnings = ArrayList(Diagnostic).new();
+  out := g_pending_warnings.split_off(usize(0));
   out
 });
 /// ── Diagnostic codes (P2, plans/reference/ERROR_DIAGNOSTICS_OVERHAUL.md §5) ──────────

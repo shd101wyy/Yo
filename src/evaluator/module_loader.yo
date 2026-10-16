@@ -150,7 +150,7 @@ _canonical :: (fn(p : &String) -> String)(
 /// at import time and dropped on invalidation, both rare next to the
 /// method-resolution lookups that consume the closure.
 _clear_import_closure_memo :: (fn() -> unit)({
-  g_import_closure_memo = HashMap(String, HashSet(String)).new();
+  g_import_closure_memo.clear();
 });
 /// Mark a module whose registrations every module may see without importing
 /// it: the prelude, whose impls carry `${std_path}/prelude.yo` as their owner
@@ -247,13 +247,13 @@ _drop_edges_from :: (fn(importer : &String) -> unit)({
 /// Reset the cache. Call between independent `check` runs so module
 /// values from a previous file don't leak into the next.
 clear_module_cache :: (fn() -> unit)({
-  g_module_cache_keys = ArrayList(String).new();
-  g_module_cache_vals = ArrayList(EvalValue).new();
-  g_module_cache_types = ArrayList(TypeValue).new();
-  g_loading_keys = ArrayList(String).new();
-  g_loading_envs = ArrayList(Environment).new();
-  g_import_edge_importers = ArrayList(String).new();
-  g_import_edge_imports = ArrayList(String).new();
+  g_module_cache_keys.clear();
+  g_module_cache_vals.clear();
+  g_module_cache_types.clear();
+  g_loading_keys.clear();
+  g_loading_envs.clear();
+  g_import_edge_importers.clear();
+  g_import_edge_imports.clear();
   set_registration_owner(String.new());
   ()
 });
