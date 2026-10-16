@@ -2862,7 +2862,10 @@ _copy_written_after :: (fn(writes_by_decl : &HashMap(String, ArrayList(CopyWrite
 /// and gets `.clone()`, or `(…).clone()` when the expression is not a
 /// postfix operand. A position copied at two types is a generic body, and a
 /// site whose source text no longer prints as the evaluated expression is a
-/// macro's; both are listed and left as written.
+/// macro's; both are listed and left as written. So is a `return` of a place
+/// rooted in a `&T` or `&mut T` parameter (`ExplicitCopySite.src_borrow`): it
+/// leaves the function, so a caller's write through it is out of sight, and
+/// the hand edit is usually a projection.
 _run_migrate_explicit_copy :: (
   fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
 )({
@@ -2963,6 +2966,15 @@ _run_migrate_explicit_copy :: (
       if(generic.contains(`${st.row.to_string()}:${st.col.to_string()}`), {
         n_skipped = (n_skipped + usize(1));
         println(`fix: ${at}: \`${st.expect}\` is copied at more than one type (a generic body); left as written`);
+        continue;
+      });
+      // A `return` of a place rooted in a borrowed parameter leaves the
+      // function: a write through the returned copy is out of the
+      // written-after guard's sight, and the hand edit is usually a
+      // projection (`-> &T`), not a clone.
+      if((st.copy_path == "return") && !st.src_borrow.is_empty(), {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: \`${st.expect}\` is returned from a \`${st.src_borrow}\` parameter, so a caller may write through it; return a projection (\`-> ${st.src_borrow}T\`) or spell the copy (\`.clone()\`) by hand`);
         continue;
       });
       written := cond(

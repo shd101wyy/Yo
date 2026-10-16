@@ -1,7 +1,8 @@
 //! `yo fix --migrate explicit-copy`: a copy of a `String`, a collection or a
 //! value holding one, whose source stays alive, is spelled `.clone()`. A copy
 //! whose source or destination is written afterwards may share its buffer on
-//! purpose, so it is listed instead.
+//! purpose, so it is listed instead, and so is a `return` of a place rooted in
+//! a borrowed parameter (an accessor, whose hand edit is a projection).
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { println } :: import("std/fmt");
@@ -9,6 +10,7 @@ Person :: struct(name : String, tags : ArrayList(String), age : i32);
 derive(Person, Clone);
 first_name :: (fn(p : &Person) -> String)(p.name);
 keep :: (fn(s : &String) -> String)(s);
+all_tags :: (fn(p : &mut Person) -> ArrayList(String))(p.tags);
 main :: (fn() -> unit)({
   a := String.from("ada");
   b := a;
@@ -18,10 +20,11 @@ main :: (fn() -> unit)({
   q := p;
   n := first_name(&q);
   k := keep(&n);
+  ts := all_tags(&mut q);
   maybe := Option(String).Some(k);
   m2 := maybe;
   age := p.age;
-  println(`${p.name} ${q.name} ${n} ${age.to_string()} ${m2.is_some().to_string()} ${maybe.is_some().to_string()}`);
+  println(`${p.name} ${q.name} ${n} ${age.to_string()} ${m2.is_some().to_string()} ${maybe.is_some().to_string()} ${ts.len().to_string()}`);
   // The copy is written afterwards: listed, left as written.
   r := String.from("r");
   r2 := r;

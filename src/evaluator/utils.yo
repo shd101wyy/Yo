@@ -2279,6 +2279,14 @@ audit_copy_trait_enabled :: (fn() -> bool)(g_audit_copy_trait);
 /// `dst_decl`: `_ic_decl_key` of each declaration, empty when there is none)
 /// with the site's own position (`at_module`, `at_offset`). A site one of
 /// them is written after (`record_copy_write`) is listed, not rewritten.
+///
+/// `src_borrow` names the borrowed parameter the copied place is rooted in
+/// (`&` for a `name : &T` parameter, `&mut` for a `name : &mut T` one, empty
+/// otherwise). A `return` of such a place is a copy that leaves the
+/// function, out of the written-after guard's sight, and usually a classic
+/// accessor whose hand edit is a projection (`-> &T`, decision 24), not a
+/// clone: it is listed, not rewritten
+/// (issues/questions/2026-10-14-explicit-copy-migration-cannot-see-writes-through-an-escaped-copy.md).
 ExplicitCopySite :: struct(
   path : String,
   row : usize,
@@ -2289,7 +2297,8 @@ ExplicitCopySite :: struct(
   src_decl : String,
   dst_decl : String,
   at_module : String,
-  at_offset : u32
+  at_offset : u32,
+  src_borrow : String
 );
 /// One write to a variable that may reach a buffer it shares (an assignment
 /// into one of its fields or elements, a `&mut` argument or receiver the
@@ -2323,9 +2332,9 @@ take_explicit_copy_sites :: (fn() -> ArrayList(ExplicitCopySite))({
 _ic_decl_key :: (fn(decl : &Token) -> String)(
   `${canonical_module_path(decl.module_path.clone())}:${decl.byte_offset.to_string()}`
 );
-/// The declaration key of the variable `place` is rooted in (`x` of `x`,
-/// `x.f`, `x(i).g`), looked up in `env`, or empty.
-_ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)({
+/// The variable `place` is rooted in (`x` of `x`, `x.f`, `x(i).g`), looked
+/// up in `env`, or none.
+_ic_place_root_var :: (fn(place : &AstExpr, env : &Environment) -> Option(Variable))({
   (e : AstExpr) = place.clone();
   (walking : bool) = true;
   while(walking, {
@@ -2346,14 +2355,27 @@ _ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)({
   });
   tok := ast_expr_token(&e);
   if(tok.kind != TokenKind.Identifier, {
-    return(String.new());
+    return(Option(Variable).None);
   });
+  find_variable_in_env(env, tok.value.clone())
+});
+/// The declaration key of the variable `place` is rooted in, or empty.
+_ic_place_root_decl :: (fn(place : &AstExpr, env : &Environment) -> String)(
+  match(_ic_place_root_var(place, env), .Some(v) => _ic_decl_key(&v.token), .None => String.new())
+);
+/// How `place` borrows from a parameter it is rooted in: `&` for a
+/// `name : &T` parameter, `&mut` for a `name : &mut T` one, or empty.
+_ic_place_root_borrow :: (fn(place : &AstExpr, env : &Environment) -> String)(
   match(
-    find_variable_in_env(env, tok.value.clone()),
-    .Some(v) => _ic_decl_key(&v.token),
+    _ic_place_root_var(place, env),
+    .Some(v) => cond(
+      v.is_imm_borrow => String.from("&"),
+      (v.is_ref && v.is_parameter) => String.from("&mut"),
+      true => String.new()
+    ),
     .None => String.new()
   )
-});
+);
 /// Record a write to the variable `place` is rooted in, at `at`, while the
 /// migration runs.
 record_copy_write :: (fn(place : &AstExpr, env : &Environment, at : &Token) -> unit)({
@@ -2478,7 +2500,7 @@ _ic_category_is_unique_buffer :: (fn(category : &String) -> bool)({
 /// token is the `.`), where the rewrite finds it in the source, and the
 /// declaration keys of its source and destination variables (`_ic_decl_key`,
 /// empty when there is none).
-ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String);
+ICMigrateCtx :: struct(leftmost : Token, src_decl : String, dst_decl : String, src_borrow : String);
 _ic_migrate_site :: (
   fn(m : &ICMigrateCtx, ty : &TypeValue, category : &String, copy_path : str, source_text : &String) -> Option(ExplicitCopySite)
 )(
@@ -2498,7 +2520,8 @@ _ic_migrate_site :: (
         src_decl : m.src_decl.clone(),
         dst_decl : m.dst_decl.clone(),
         at_module : canonical_module_path(m.leftmost.module_path.clone()),
-        at_offset : m.leftmost.byte_offset
+        at_offset : m.leftmost.byte_offset,
+        src_borrow : m.src_borrow.clone()
       )
     )
   )
@@ -3025,7 +3048,7 @@ set_expr_as_needs_to_call_dup :: (
           ast_expr_to_string(rhs),
           ctx,
           true,
-          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new())))
+          migrate_ctx : .Some(ICMigrateCtx(leftmost : _ic_leftmost_token(rhs), src_decl : _ic_place_root_decl(rhs, &ei.env), dst_decl : match(copy_dest_decl, .Some(dd) => dd, .None => String.new()), src_borrow : _ic_place_root_borrow(rhs, &ei.env)))
         );
       });
       dup_expr := generate_expr_from_code(`${BF_DUP}(${variable_name})`, exn);
