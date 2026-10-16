@@ -448,10 +448,10 @@ handle too (plans/VALUES_BY_DEFAULT.md decision 46).
 Nor may a lent place be rooted in a module-level runtime binding or a
 `thread_local`, `Arc` dereferences included (`io.await(bump(&mut G, io), io)`
 with `G := ...` at module level is E0909, and so are `io.await(G.bump(io), io)`
-and `io.await(peek(&G.*, io), io)` with `G := arc(...)`): any task on the
-thread can reach the binding by name and reassign it while this one waits,
-releasing the value the Future borrows. Lend a local copy, or read the global by name inside the
-Future, where each use reads its current value. A `::` constant has no runtime
+and `io.await(peek(&G.*, io), io)` with `mut(G) := arc(...)`): any task on
+the thread can reach the binding by name and reassign it while this one
+waits, releasing the value the Future borrows. Lend a local copy, or read the
+global by name inside the Future, where each use reads its current value. A `::` constant has no runtime
 storage to change and may be lent.
 
 ### Aborted Futures
