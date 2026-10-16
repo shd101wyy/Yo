@@ -468,3 +468,14 @@ test("a future moved into a capture list is freed with the task that runs it", {
   assert(io.await(outer2, io) == i32(4), "the awaited capture ran");
   assert(g_disposed == (before + i32(2)), "the completed task's local was dropped");
 });
+
+// issues/fixed/2026-10-16-a-join-wait-entry-still-queued-at-thread-exit-is-never-released.md
+// The operand finishes first, so `timeout` aborts its deadline task, which
+// queues the join wait's entry; the program ends before the loop runs it.
+// The thread-exit drain released it only for a wait still pending (a leak
+// under the leak verdict).
+test("a join wait entry still queued when the program ends is released", {
+  g := io.async((io : Io) => i32(2));
+  r := io.await(timeout(g, Duration.from_millis(i64(200)), io), io);
+  assert(match(r, .Ok(v) => (v == i32(2)), .Err(_) => false), "the operand finished in time");
+});

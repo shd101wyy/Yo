@@ -1415,6 +1415,7 @@ static void __yo_io_teardown_abort_waiters(__yo_io_future_t* f) {
 // unresumed rather than resumed blind. Idempotent, like the pool free it ends
 // with: the full-GC runtime's thread cleanup calls the hook again on an empty
 // runtime.
+static void __yo_join_wait_fire(void* p);
 static void __yo_async_thread_exit_release(void) {
   __yo_io_cleanup();
   while (__yo_thread_async_queue.head) {
@@ -1428,6 +1429,14 @@ static void __yo_async_thread_exit_release(void) {
       // A waiter list: re-queue every waiter, each of which the next
       // iteration aborts and releases through its own guard.
       __yo_waiters_dispatch(cont->state_machine);
+    } else if (cont->resume_fn == __yo_join_wait_fire) {
+      // A join wait's entry (a task it waited on ended): the payload is the
+      // wait, not a task, and the entry owns a reference to it. Firing it
+      // wakes nobody (a park completes only from state 0) and releases that
+      // reference, which the abort-then-resume path below would skip for a
+      // wait that already completed
+      // (issues/fixed/2026-10-16-a-join-wait-entry-still-queued-at-thread-exit-is-never-released.md).
+      __yo_join_wait_fire(cont->state_machine);
     } else {
       __yo_future_header_t* sm = (__yo_future_header_t*)cont->state_machine;
       __yo_future_abort(cont->state_machine);
