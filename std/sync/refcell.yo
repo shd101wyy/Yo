@@ -12,10 +12,10 @@
 //! { RefCell } :: import("std/sync/refcell");
 //! log := rc(RefCell(i32).new(i32(0)));
 //! other := log; // a second handle to the same cell
-//! other.with_mut((n) => {
+//! other.with_mut(n => {
 //!   n = (n + i32(1));
 //! });
-//! seen := log.with((n) => n); // 1
+//! seen := log.with(n => n); // 1
 //! ```
 //!
 //! ## Stability
@@ -122,7 +122,7 @@ impl(
   RefCell(T),
   Clone(
     clone : (fn(self : &Self) -> Self)(
-      RefCell(T).new(self.with((v) => v.clone()))
+      RefCell(T).new(self.with(v => v.clone()))
     )
   )
 );

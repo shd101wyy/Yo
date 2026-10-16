@@ -3440,10 +3440,10 @@ test("Rc reference counting", {
   { RefCell } :: import("std/sync/refcell");
   log := rc(RefCell(i32).new(i32(0)));
   other := log; // 指向同一个单元的第二个句柄
-  other.with_mut((n) => {
+  other.with_mut(n => {
     n = (n + i32(1));
   });
-  assert(log.with((n) => n) == i32(1), "seen through the first handle");
+  assert(log.with(n => n) == i32(1), "seen through the first handle");
   ```
 
 - **`Rc.make_mut(&mut h)`**（`T <: Clone`）是被写入的载荷：若另一个句柄共享该单元，`h` 先移到一个持有载荷克隆的新单元，因此其他句柄永远看不到这次写入。若 `h` 是唯一句柄，则就地写入。即 Rust 的 `Rc::make_mut`；克隆体现在名字里。

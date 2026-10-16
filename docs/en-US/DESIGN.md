@@ -3617,10 +3617,10 @@ fresh in its function). Write new code with the doors:
   { RefCell } :: import("std/sync/refcell");
   log := rc(RefCell(i32).new(i32(0)));
   other := log; // a second handle to the same cell
-  other.with_mut((n) => {
+  other.with_mut(n => {
     n = (n + i32(1));
   });
-  assert(log.with((n) => n) == i32(1), "seen through the first handle");
+  assert(log.with(n => n) == i32(1), "seen through the first handle");
   ```
 
 - **`Rc.make_mut(&mut h)`** (`T <: Clone`) is the payload, written: when
