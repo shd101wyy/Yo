@@ -5804,6 +5804,38 @@ local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : 
   end := cond(_lb_mentions(body, name.clone()) => _lb_region_end(body, name.clone(), decl), true => decl);
   _info := local_borrow_register(name, decl, is_mut, place, LocalBorrowRange(last_use : last, end : end, has_repoint : false), Option(Variable).None);
 });
+/// A `mut` place a `match` arm binds over the local borrow `borrow` (`match(cur,
+/// .Some(n) => …)`, declared at `decl`) points into `borrow`'s place for as
+/// long as it is live, so `borrow` (and every borrow it is rooted at) stays
+/// live to the binding's last mention in the arm `body`. Rule 4 then rejects
+/// such a place through a reference cell or a module-level place live across
+/// an `await` (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
+local_borrow_extend_to_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, decl : &Token, body : &AstExpr) -> unit)({
+  if(!_lb_mentions(body, name.clone()), return(()));
+  last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => return(()));
+  end := _lb_region_end(body, name.clone(), decl);
+  infos := ArrayList(LocalBorrowInfo).new();
+  infos.push(borrow);
+  (pi : usize) = usize(0);
+  while(pi < borrow.parents.len(), pi = (pi + usize(1)), {
+    match(borrow.parents.get(pi), .Some(p) => infos.push(p), .None => ());
+  });
+  (i : usize) = usize(0);
+  while(i < infos.len(), i = (i + usize(1)), {
+    match(
+      infos.get(i),
+      .Some(info) => {
+        if(_lb_tok_after(&end, &info.end), {
+          info.end = end;
+        });
+        if(_lb_tok_after(&last, &info.last_use), {
+          info.last_use = last;
+        });
+      },
+      .None => ()
+    );
+  });
+});
 // ---------------------------------------------------------------------------
 // Direct projection calls (plans/VALUES_BY_DEFAULT.md decision 24, V2b)
 // ---------------------------------------------------------------------------
@@ -5896,7 +5928,7 @@ projection_call_root_args :: (fn(call : &AstExpr, ctx : &EvalContext) -> ArrayLi
   out
 });
 export(projection_call_mode_of, ProjectionRootArg, projection_call_root_args);
-export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at);
+export(drop_owned_match_binding_at_arm_end, match_scrutinee_is_capture, local_borrow_register_match_place, local_borrow_extend_to_match_place, note_consuming_match_scrutinee, consuming_match_scrutinee_at, moved_value_help, migrate_borrowed_match_at);
 export(
   LocalBorrowPlace,
   LocalBorrowInfo,

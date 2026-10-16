@@ -5,6 +5,7 @@
 //! binds-nothing.md, audit A3).
 { assert } :: import("std/assert");
 { String } :: import("std/string");
+{ ArrayList } :: import("std/collections/array_list");
 { args } :: import("std/env");
 { yield } :: import("std/async");
 runtime_int :: (fn() -> i32)(i32(args().len()));
@@ -525,4 +526,29 @@ test("two interleaved tasks each write their own mut place across awaits", {
   h2.await(io);
   assert(r1.* == (n + i32(5)), "task 1 wrote its own place");
   assert(r2.* == i32(95), "task 2 wrote its own place");
+});
+_place_fresh :: (fn(io : Io) -> Impl(Future(String, Io)))(
+  io.async((e : Io) => {
+    e.await(yield(e), e);
+    String.from("fresh!")
+  })
+);
+test("a mut place and a local borrow take an awaited value", {
+  result := Rc(usize)(0);
+  task := io.async((io : Io) => {
+    (os : Option(String)) = .Some(String.from("old"));
+    match(
+      &mut os,
+      .Some(s) => {
+        s = io.await(_place_fresh(io), io);
+      },
+      .None => ()
+    );
+    (t : String) = String.from("before");
+    y := &mut t;
+    y = io.await(_place_fresh(io), io);
+    result.* = (match(&os, .Some(s) => s.len(), .None => usize(0)) + t.len());
+  });
+  io.await(task, io);
+  assert(result.* == usize(12), "the old values were released and the awaited ones stored");
 });

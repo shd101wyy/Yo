@@ -141,7 +141,12 @@ generate_assignment :: (fn(expr : &AstExpr, indent : &String, context : &Functio
   match(
     ei.variable_name,
     .Some(temp_var_name) => {
-      in_sm := match(context.in_async_state_machine, .Some(_) => lhs_code.starts_with("sm->"), .None => false);
+      // A place reached through a slot holding its pointer (`(*sm->var_y)`:
+      // a local borrow, a `mut` match place) is a slot write too: a save
+      // into a C local before an awaiting RHS is garbage at the drop, which
+      // reads the temp's slot
+      // (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
+      in_sm := match(context.in_async_state_machine, .Some(_) => (lhs_code.starts_with("sm->") || lhs_code.starts_with("(*sm->")), .None => false);
       if(
         !in_sm,
         if(!is_unit_type(&lhs_type), {
