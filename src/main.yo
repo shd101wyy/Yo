@@ -581,11 +581,11 @@ _resolve_for_match :: (fn(p : &String) -> String)({
 /// skipped. A text scan, not an evaluation: `export(a, b)` is a flat list of
 /// identifiers in every std file, and a name the scan misses means "no
 /// repair", never a wrong one. Once per process; ~180 small reads.
-(g_std_exports_indexed : bool) = false;
+(mut(g_std_exports_indexed) : bool) = false;
 /// Set by `main` for a top-level `yo compile`, the only caller whose process
 /// may be replaced: in-process compiles (`build --watch`, `YO_TEST_IN_PROCESS`,
 /// the warm selfcheck) must come back to their caller.
-(g_compile_may_exec_cc : bool) = false;
+(mut(g_compile_may_exec_cc) : bool) = false;
 _index_std_exports :: (fn(std_path : &String, io : Io, exn : Exception) -> unit)({
   if(g_std_exports_indexed, {
     return(());
@@ -4819,7 +4819,7 @@ _remove_batch_artifact :: (fn(path : &String, io : Io) -> unit)({
 /// the probes here: no pkg-config / no openssl simply leaves
 /// `ok` empty and only tls users fail (at their own link) — everything
 /// else is unaffected. Result cached process-wide.
-(g_openssl_probe : Option(bool)) = Option(bool).None;
+(mut(g_openssl_probe) : Option(bool)) = Option(bool).None;
 (g_openssl_includes : ArrayList(String)) = ArrayList(String).new();
 (g_openssl_libdirs : ArrayList(String)) = ArrayList(String).new();
 _probe_openssl :: (fn(io : Io) -> bool)({
@@ -4922,7 +4922,7 @@ _probe_openssl :: (fn(io : Io) -> bool)({
 /// LLVM resource dir is not on PATH by default); off Windows, or for a
 /// non-clang driver, that discovery folds to a no-op. Result is cached
 /// process-wide.
-(g_asan_usable : Option(bool)) = Option(bool).None;
+(mut(g_asan_usable) : Option(bool)) = Option(bool).None;
 _asan_runtime_is_usable :: (fn(base : &String, cc : &String, io : Io) -> bool)({
   match(
     g_asan_usable,
@@ -5445,7 +5445,7 @@ _write_depfile :: (
 /// issues/warm-compile-selfcheck.md).
 // §7 step 2: `--compile-watch-mode` failure plumbing. The flag is read by
 // build_runner's watch round after each in-process artifact compile.
-(g_compile_watch_failed : bool) = false;
+(mut(g_compile_watch_failed) : bool) = false;
 compile_watch_failed :: (fn() -> bool)(g_compile_watch_failed);
 // The four in-run_compile failure exits become RETURNS in watch mode (the
 // build runner's round survives an artifact failure and keeps the warm

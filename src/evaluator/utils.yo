@@ -129,14 +129,14 @@ pragma(Pragma.AllowUnsafe);
 /// The receiver node a `.` access is about to evaluate as part of a place
 /// chain: its own evaluator reports no access (the chain's outermost node
 /// reports the whole place).
-(g_lb_receiver_id : usize) = usize(0);
-(g_lb_receiver_armed : bool) = false;
+(mut(g_lb_receiver_id) : usize) = usize(0);
+(mut(g_lb_receiver_armed) : bool) = false;
 /// The block statements after a borrow binding, for its live range: set by
 /// `evaluate_begin_expression` just before it evaluates the binding.
-(g_lb_lookahead_stmts : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
-(g_lb_lookahead_index : usize) = usize(0);
-(g_lb_lookahead_id : usize) = usize(0);
-(g_lb_lookahead_armed : bool) = false;
+(mut(g_lb_lookahead_stmts) : ArrayList(AstExpr)) = ArrayList(AstExpr).new();
+(mut(g_lb_lookahead_index) : usize) = usize(0);
+(mut(g_lb_lookahead_id) : usize) = usize(0);
+(mut(g_lb_lookahead_armed) : bool) = false;
 // Phase A.4.1: `generate_temp_variable_name_prefix`,
 // `generate_new_temp_variable_name`, `is_temp_variable_name`, and `random_id`
 // were relocated to `src/utils.yo`.
@@ -2296,7 +2296,7 @@ ExplicitCopySite :: struct(
 /// callee may write, a `&mut` local borrow), recorded while the migration
 /// runs: `decl` is the variable's `_ic_decl_key`.
 CopyWrite :: struct(decl : String, at_module : String, at_offset : u32);
-(g_migrate_explicit_copy : bool) = false;
+(mut(g_migrate_explicit_copy) : bool) = false;
 (g_explicit_copy_sites : ArrayList(ExplicitCopySite)) = ArrayList(ExplicitCopySite).new();
 (g_explicit_copy_site_keys : HashSet(String)) = HashSet(String).new();
 (g_copy_writes : ArrayList(CopyWrite)) = ArrayList(CopyWrite).new();

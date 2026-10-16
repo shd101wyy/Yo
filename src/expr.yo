@@ -447,7 +447,7 @@ impl(
 /// prelude's first node's info there, and reported a derived error instead of
 /// the swallowed cause
 /// (issues/fixed/compile-reports-a-derived-error-instead-of-the-safe-code-raw-pointer-rejection.md).
-(g_next_global_expr_id : usize) = usize(1);
+(mut(g_next_global_expr_id) : usize) = usize(1);
 /// Mint a fresh ExprId (parser nodes and synthesized nodes share the
 /// sequence).
 alloc_global_expr_id :: (fn() -> ExprId)({
@@ -467,7 +467,7 @@ next_global_expr_id :: (fn() -> ExprId)(g_next_global_expr_id);
 /// Nodes minted by `clone_expr_fresh_ids` so far — the size of the
 /// specialization / trial-clone population (`YO_SPEC_REPORT=1`,
 /// plans/EVALUATOR_MEMORY_REDUCTION.md Phase 0 step 4).
-(g_cloned_expr_nodes : usize) = usize(0);
+(mut(g_cloned_expr_nodes) : usize) = usize(0);
 cloned_expr_node_count :: (fn() -> usize)(g_cloned_expr_nodes);
 clone_expr_fresh_ids :: (fn(e : &AstExpr) -> AstExpr)({
   g_cloned_expr_nodes = (g_cloned_expr_nodes + usize(1));

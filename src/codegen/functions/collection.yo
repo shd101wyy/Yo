@@ -54,10 +54,10 @@ pragma(Pragma.AllowUnsafe);
 // mutual destructuring import cannot be resolved by the circular-import loader.
 // --- mutual-recursion indirection for find_function_calls_in_expr ----------
 FindFunctionCallsFn :: (fn(expr : &AstExpr, context : &CodeGenContext, info : &ExprInfoTable) -> unit);
-(g_find_function_calls_in_expr : Option(FindFunctionCallsFn)) = Option(FindFunctionCallsFn).None;
+(mut(g_find_function_calls_in_expr) : Option(FindFunctionCallsFn)) = Option(FindFunctionCallsFn).None;
 // --- indirection for collect_type (defined in types/collection) ------------
 CollectTypeFn :: (fn(type : &TypeValue, context : &CodeGenContext) -> unit);
-(g_collect_type : Option(CollectTypeFn)) = Option(CollectTypeFn).None;
+(mut(g_collect_type) : Option(CollectTypeFn)) = Option(CollectTypeFn).None;
 /// Register types/collection's collect_type. Call once at init.
 set_collect_type_fn :: (fn(f : CollectTypeFn) -> unit)({
   g_collect_type = Option(CollectTypeFn).Some(f);

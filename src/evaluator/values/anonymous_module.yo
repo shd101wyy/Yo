@@ -144,7 +144,7 @@ _is_excluded_label :: (fn(excluded : &ArrayList(String), label : &String) -> boo
 // note naming the definition and why it ran early; the miss site that asked
 // for the force throws it through the real `exn`.
 // ---------------------------------------------------------------------------
-(g_force_failure : Option(String)) = Option(String).None;
+(mut(g_force_failure) : Option(String)) = Option(String).None;
 _flag_force_failure :: (fn(msg : &String) -> unit)({
   g_force_failure = Option(String).Some(msg);
   ()
@@ -914,7 +914,7 @@ _evaluate_anonymous_module_begin_exprs_inner :: (
 // error OBJECT (not its text — the typed diagnostics channel must survive) and
 // unwinds; the public entry then truncates the stacks to their entry depths
 // and re-throws the same object through the caller's `exn`.
-(g_walk_abort : Option(AnyError)) = Option(AnyError).None;
+(mut(g_walk_abort) : Option(AnyError)) = Option(AnyError).None;
 _flag_walk_abort :: (fn(err : &AnyError) -> unit)({
   g_walk_abort = Option(AnyError).Some(err);
   ()

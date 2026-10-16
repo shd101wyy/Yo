@@ -3766,8 +3766,8 @@ _GrMemo :: struct(body_id : ExprId, reach : Option(String));
 // parked verdict with its low, rather than being re-walked (a call graph's
 // strongly connected component would otherwise be walked exponentially).
 (g_gr_in_progress : HashMap(String, usize)) = HashMap(String, usize).new();
-(g_gr_depth : usize) = usize(0);
-(g_gr_low : Option(usize)) = Option(usize).None;
+(mut(g_gr_depth) : usize) = usize(0);
+(mut(g_gr_low) : Option(usize)) = Option(usize).None;
 _GrPend :: struct(body_id : ExprId, low : usize);
 derive(_GrPend, Copy, Clone);
 (g_gr_pending : HashMap(String, _GrPend)) = HashMap(String, _GrPend).new();

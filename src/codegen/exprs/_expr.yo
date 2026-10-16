@@ -21,7 +21,7 @@
 /// returning the C expression/statement text.
 GenerateExprFn :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String);
 /// Module-global dispatch pointer — set once at codegen init.
-(g_generate_expr : Option(GenerateExprFn)) = Option(GenerateExprFn).None;
+(mut(g_generate_expr) : Option(GenerateExprFn)) = Option(GenerateExprFn).None;
 /// Register the expression-emitter dispatch. Call once during codegen init.
 set_generate_expr_fn :: (fn(f : GenerateExprFn) -> unit)({
   g_generate_expr = Option(GenerateExprFn).Some(f);

@@ -1306,7 +1306,7 @@ single2 :: (fn(a : &AstExpr, b : &AstExpr) -> ArrayList(AstExpr))({
   out.push(b);
   out
 });
-(g_contract_old_counter : usize) = usize(0);
+(mut(g_contract_old_counter) : usize) = usize(0);
 /// Rewrite `old(expr)` occurrences inside one `ensures` predicate: each is
 /// hoisted into an entry-time snapshot binding `__yo_contract_old_K := expr`
 /// pushed onto `snapshots`, and the `old(expr)` node is replaced by a
@@ -1525,7 +1525,7 @@ verify_task_def_eval_failure :: (fn(fn_id : &String) -> Option(String))(
 /// effects are inert.
 /// The CLI override (`--verify-mode`); the file pragma is source of truth
 /// when present, this decides otherwise.
-(g_verify_mode_override : Option(String)) = Option(String).None;
+(mut(g_verify_mode_override) : Option(String)) = Option(String).None;
 set_verify_mode_override :: (fn(m : &Option(String)) -> unit)({
   g_verify_mode_override = m;
   ()
