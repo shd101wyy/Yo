@@ -1605,8 +1605,7 @@ test("Test match with await on primitive integer", {
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     x := i32(2);
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       x,
       1 => {
         io.await(yield(io), io);
@@ -1618,6 +1617,8 @@ test("Test match with await on primitive integer", {
       },
       _ => i32(30)
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -1631,8 +1632,7 @@ test("Test match with await on primitive integer default branch", {
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     x := i32(99);
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       x,
       1 => i32(10),
       2 => i32(20),
@@ -1641,6 +1641,8 @@ test("Test match with await on primitive integer default branch", {
         i32(30)
       }
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);

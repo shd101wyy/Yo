@@ -56,7 +56,7 @@ test("Test JoinHandle abort returns None", {
   assert(h.state() == FutureState.Aborted, "abort should mark the task Aborted");
   r := h.await(io);
   assert(match(r, .Some(_) => false, .None => true), "awaiting an aborted task should give .None");
-  assert(!(ran.with(cur => cur)), "the aborted body must not resume past its suspension point");
+  assert(!ran.with(cur => cur), "the aborted body must not resume past its suspension point");
 });
 // ---------------------------------------------------------------------------
 // 4. The aborted task's pending timer completion fires safely afterwards
@@ -79,7 +79,7 @@ test("Test aborted task pending completion is safe", {
   // Outlive the aborted task's 10ms timer so its continuation fires into the
   // aborted state machine while the loop is still alive.
   io.await(sleep(u64(30)), io);
-  assert(!(ran2.with(cur => cur)), "aborted body must not have resumed when its timer fired");
+  assert(!ran2.with(cur => cur), "aborted body must not have resumed when its timer fired");
 });
 // ---------------------------------------------------------------------------
 // 5. abort() after completion is a no-op
@@ -182,7 +182,7 @@ test("aborting a task aborts the named child future it awaits", {
   io.await(yield(io), io);
   hp.abort();
   io.await(sleep(u64(80)), io);
-  assert(!(ran.with(cur => cur)), "and its body never resumed past its sleep");
+  assert(!ran.with(cur => cur), "and its body never resumed past its sleep");
   assert(hp.await(io).is_none(), "the parent reads .None");
 });
 test("aborting a task leaves a task it joins running", {
