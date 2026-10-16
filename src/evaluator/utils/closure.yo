@@ -84,6 +84,7 @@
   register_capture_field_decl_site
 } :: import("../types/field.yo");
 { fnv1a64, debug_knob } :: import("../../utils.yo");
+{ type_key } :: import("../../types/type_key.yo");
 { type_contains_rc_type, type_requires_explicit_copy, is_closure_capture_struct, is_bound_closure_identity, resolve_cell_chain, type_first_mut_borrow } :: import("../../types/utils.yo");
 { move_captured_explicit_copy_variable, capture_of_caller_owned_sink_param, set_expr_as_needs_to_call_dup, attach_temp_variable_to_expr } :: import("../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
@@ -1077,7 +1078,16 @@ create_capture_type_and_value :: (
               cap_key.push_str("@res:");
               match(
                 ck_rc,
-                .Some(ck_r) => cap_key.push_string(type_to_string(&ck_r)),
+                .Some(ck_r) => {
+                  cap_key.push_string(type_to_string(&ck_r));
+                  // And the C identity of what it resolves to: two futures of
+                  // one generic producer (`JoinHandle(T).join` at two `T`s)
+                  // print alike, so the string alone gave a generic body's
+                  // `io.async` one capture struct for both instantiations
+                  // (issues/fixed/2026-10-16-a-generic-io-async-body-capturing-a-future-parameter-shares-one-capture-struct-across-instantiations.md).
+                  cap_key.push_str("#");
+                  cap_key.push_string(type_key(&resolve_cell_chain(&ck_r)));
+                },
                 .None => cap_key.push_string(ck_sid.clone())
               );
             },

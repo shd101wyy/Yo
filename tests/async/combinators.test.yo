@@ -1010,3 +1010,16 @@ test("A4: timeout and select over borrowing futures inside a task", {
   r := io.await(_a4_in_task(io), io);
   assert(r == i32(212), "two bumps (2), the timeout delivered (10), select's first operand won with 2 (200)");
 });
+// issues/fixed/2026-10-16-a-generic-io-async-body-capturing-a-future-parameter-shares-one-capture-struct-across-instantiations.md
+// Two join futures of one generic method print alike, so `timeout`'s
+// `io.async` body got one capture struct for both instantiations.
+test("A4: timeout over join futures of two result types", {
+  h1 := io.spawn(io.async((io : Io) => i32(3)), io);
+  r1 := io.await(timeout(h1.join(io), Duration.from_millis(i64(500)), io), io);
+  assert(match(r1, .Ok(.Some(v)) => (v == i32(3)), _ => false), "the i32 task");
+  h2 := io.spawn(io.async((io : Io) => true), io);
+  r2 := io.await(timeout(h2.join(io), Duration.from_millis(i64(500)), io), io);
+  assert(match(r2, .Ok(.Some(v)) => v, _ => false), "the bool task");
+  s := io.await(select(io.spawn(io.async((io : Io) => i32(4)), io).join(io), io.spawn(io.async((io : Io) => true), io).join(io), io), io);
+  assert(s.is_some(), "one of the two joins won");
+});
