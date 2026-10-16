@@ -16,7 +16,7 @@
 { Environment } :: import("../../env.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
 /// Monotonic counter for unique closure capture temp names.
-(g_closure_capture_counter : usize) = usize(0);
+(mut(g_closure_capture_counter) : usize) = usize(0);
 /// Reset the closure-capture counter — per-EMISSION state (see
 /// ref_spill_counter_reset for the reasoning).
 closure_capture_counter_reset :: (fn() -> unit)({
@@ -29,7 +29,7 @@ closure_capture_counter_reset :: (fn() -> unit)({
 /// cycle — codegen_c.yo installs the fn at codegen init instead (the same
 /// pattern as register_collect_type / register_on_demand_declare).
 SmAtomResolverFn :: (fn(expr : &AstExpr, var_name : &String, context : &FunctionGenerationContext) -> Option(String));
-(g_sm_atom_resolver : Option(SmAtomResolverFn)) = Option(SmAtomResolverFn).None;
+(mut(g_sm_atom_resolver) : Option(SmAtomResolverFn)) = Option(SmAtomResolverFn).None;
 set_sm_atom_resolver :: (fn(f : SmAtomResolverFn) -> unit)({
   g_sm_atom_resolver = Option(SmAtomResolverFn).Some(f);
   ()
@@ -50,7 +50,7 @@ _resolve_sm_atom :: (fn(expr : &AstExpr, var_name : &String, context : &Function
 /// SM resolver above. A capture-list field's by-value initializer carries its
 /// RC +1 that way: materialize the initializer, then the dup.
 DeferredDupOrCodeFn :: (fn(expr : &AstExpr, fallback_code : &String, indent : &String, context : &FunctionGenerationContext) -> String);
-(g_deferred_dup_or_code : Option(DeferredDupOrCodeFn)) = Option(DeferredDupOrCodeFn).None;
+(mut(g_deferred_dup_or_code) : Option(DeferredDupOrCodeFn)) = Option(DeferredDupOrCodeFn).None;
 set_deferred_dup_or_code :: (fn(f : DeferredDupOrCodeFn) -> unit)({
   g_deferred_dup_or_code = Option(DeferredDupOrCodeFn).Some(f);
   ()

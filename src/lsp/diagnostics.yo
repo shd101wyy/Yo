@@ -114,7 +114,7 @@ export(LspDiag, RelatedInfo);
 /// Parse-error stash: effect handlers cannot capture outer runtime
 /// variables, so the analyzer's local exception handler records the thrown
 /// error here (the same pattern as module_manager's load-error stash).
-(g_parse_error : Option(String)) = Option(String).None;
+(mut(g_parse_error) : Option(String)) = Option(String).None;
 _stash_parse_error :: (fn(msg : &String) -> unit)({
   if(g_parse_error.is_none(), {
     g_parse_error = Option(String).Some(msg);

@@ -121,7 +121,7 @@ pragma(Pragma.AllowUnsafe);
 // Decision 36's flip state (`type_lacks_copy_for_flip` below): the prelude
 // environment its `Copy` question is asked in, and the memo the trait-impl
 // epoch (`types/utils.yo`) invalidates.
-(g_flip_env : Option(Environment)) = Option(Environment).None;
+(mut(g_flip_env) : Option(Environment)) = Option(Environment).None;
 /// The targets of the `derive` being evaluated whose trait list includes
 /// `Copy` (keys from `type_key`). Inside that derive, the target counts as
 /// `Copy` for the flip: its `Clone` impl is registered before its `Copy`
@@ -135,13 +135,13 @@ pragma(Pragma.AllowUnsafe);
 /// which asks the flip; an in-progress type answers "not lacking" there.
 (g_lacks_copy_in_progress : ArrayList(String)) = ArrayList(String).new();
 (g_lacks_copy_memo : HashMap(String, bool)) = HashMap(String, bool).new();
-(g_lacks_copy_memo_epoch : u64) = u64(0);
+(mut(g_lacks_copy_memo_epoch) : u64) = u64(0);
 /// The identity front cache of `g_lacks_copy_memo` (see `type_identity_slot`,
 /// types/type_key.yo): handles sorted by address, their answers, and the
 /// type-key epoch they were keyed in. Cleared with the memo.
 (g_lacks_copy_fast : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
 (g_lacks_copy_fast_answers : ArrayList(bool)) = ArrayList(bool).new();
-(g_lacks_copy_fast_epoch : u64) = u64(0);
+(mut(g_lacks_copy_fast_epoch) : u64) = u64(0);
 /// Register that the type `type_id` auto-derives the marker trait named
 /// `trait_name`, resolved to its canonical env trait VALUE. If the trait isn't in
 /// scope yet (rare — e.g. a struct defined before the marker trait), skip

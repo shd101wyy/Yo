@@ -589,7 +589,7 @@ str_lit_unquote_bytes :: (fn(raw : &String) -> String)({
 // `--profile-json` file. No std/time import in this leaf module: callers hold
 // their own Instant handles and hand raw nanos in, so every record function
 // stays a plain parallel-array append.
-(g_prof_enabled : bool) = false;
+(mut(g_prof_enabled) : bool) = false;
 profile_set_enabled :: (fn(on : bool) -> unit)({
   g_prof_enabled = on;
 });
@@ -604,9 +604,9 @@ profile_enabled :: (fn() -> bool)(g_prof_enabled);
 /// either source). A phase entered twice keeps its last sample.
 (g_prof_phase_rss_mb : ArrayList(usize)) = ArrayList(usize).new();
 (g_prof_phase_table_entries : ArrayList(usize)) = ArrayList(usize).new();
-(g_prof_rss_probe : Option((fn() -> usize))) = Option((fn() -> usize)).None;
-(g_prof_table_probe : Option((fn() -> usize))) = Option((fn() -> usize)).None;
-(g_prof_peak_probe : Option((fn() -> usize))) = Option((fn() -> usize)).None;
+(mut(g_prof_rss_probe) : Option((fn() -> usize))) = Option((fn() -> usize)).None;
+(mut(g_prof_table_probe) : Option((fn() -> usize))) = Option((fn() -> usize)).None;
+(mut(g_prof_peak_probe) : Option((fn() -> usize))) = Option((fn() -> usize)).None;
 profile_set_memory_probes :: (fn(rss_mb : (fn() -> usize), table_entries : (fn() -> usize), peak_rss_mb : (fn() -> usize)) -> unit)({
   g_prof_rss_probe = Option((fn() -> usize)).Some(rss_mb);
   g_prof_table_probe = Option((fn() -> usize)).Some(table_entries);
@@ -726,9 +726,9 @@ profile_module_eval_ns_at :: (fn(i : usize) -> i64)(
 /// emission, how many existed when body emission STARTED (the delta is the
 /// specializations minted DURING emission — they have no single home module),
 /// and how many are defined under std.
-(g_prof_fn_total : usize) = usize(0);
-(g_prof_fn_at_collect : usize) = usize(0);
-(g_prof_fn_std : usize) = usize(0);
+(mut(g_prof_fn_total) : usize) = usize(0);
+(mut(g_prof_fn_at_collect) : usize) = usize(0);
+(mut(g_prof_fn_std) : usize) = usize(0);
 profile_record_function_census :: (
   fn(total : usize, at_collect : usize, std_defs : usize) -> unit
 )({
@@ -936,7 +936,7 @@ debug_knob :: (fn(name : &String) -> Option(String))(
 /// (mirrored here by `type_trait_methods.set_registration_owner`, which the
 /// module loader drives), so low-level modules such as `types/intern.yo` can
 /// owner-tag their registries without importing the evaluator.
-(g_current_owner : String) = String.new();
+(mut(g_current_owner) : String) = String.new();
 set_current_owner :: (fn(owner : &String) -> unit)({
   g_current_owner = owner;
 });
@@ -949,7 +949,7 @@ current_owner :: (fn() -> String)(g_current_owner.clone());
 /// so it switches them off and saves the logs' copies of every registry key
 /// (plans/EVALUATOR_MEMORY_REDUCTION.md §0.15). Default on, so every other entry
 /// point (including in-process watch rebuilds and internal tests) keeps them.
-(g_owner_logs_enabled : bool) = true;
+(mut(g_owner_logs_enabled) : bool) = true;
 set_owner_logs_enabled :: (fn(on : bool) -> unit)({
   g_owner_logs_enabled = on;
 });
@@ -962,7 +962,7 @@ owner_logs_enabled :: (fn() -> bool)(g_owner_logs_enabled);
 /// §0.21). Only the recording is skipped; the analyses and their errors run
 /// as before. Default on, so every entry point that may generate code keeps
 /// them.
-(g_codegen_tables_enabled : bool) = true;
+(mut(g_codegen_tables_enabled) : bool) = true;
 set_codegen_tables_enabled :: (fn(on : bool) -> unit)({
   g_codegen_tables_enabled = on;
 });

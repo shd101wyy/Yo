@@ -747,7 +747,7 @@ type_identity_slot_holds :: (fn(handles : &ArrayList(TypeValue), slot : usize, t
 /// whether each mentions no type variable, and the epoch they were judged in.
 (g_tk_cacheable_handles : ArrayList(TypeValue)) = ArrayList(TypeValue).new();
 (g_tk_cacheable_answers : ArrayList(bool)) = ArrayList(bool).new();
-(g_tk_cacheable_epoch : u64) = u64(0);
+(mut(g_tk_cacheable_epoch) : u64) = u64(0);
 /// Whether an identity cache may record `ty`: it mentions no `SomeT`
 /// (`type_mentions_some_type`), so no part of it grows in place. Judged once
 /// per handle and type-key epoch (whether a type mentions a type variable
@@ -775,7 +775,7 @@ type_identity_cacheable :: (fn(ty : &TypeValue) -> bool)({
   });
   answer
 });
-(g_type_key_memo_check : u8) = u8(0);
+(mut(g_type_key_memo_check) : u8) = u8(0);
 /// `YO_DEBUG_TYPE_KEY_MEMO_CHECK=1`: every identity-cache hit is checked
 /// against the string-keyed memo it fronts, and a mismatch aborts.
 type_key_memo_check_enabled :: (fn() -> bool)({

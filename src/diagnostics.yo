@@ -20,7 +20,7 @@ json :: import("std/encoding/json");
 /// at CLI startup from `--error-format`/`YO_ERROR_FORMAT`; every edge that
 /// prints or rethrows a rendered diagnostic goes through
 /// `render_diagnostics_for_mode` so the choice is global and consistent.
-(g_error_format : String) = String.from("human");
+(mut(g_error_format) : String) = String.from("human");
 set_error_format :: (fn(mode : &String) -> unit)({
   g_error_format = mode;
 });
@@ -50,7 +50,7 @@ emit_chatter :: (fn(text : &String) -> unit)({
 /// unflushed stash would grow across a server's lifetime. Detection sites
 /// (the evaluator's scope-end walks) call `emit_warning`, which is a no-op
 /// while this is off, so a disabled run pays one bool test per scope.
-(g_warnings_enabled : bool) = false;
+(mut(g_warnings_enabled) : bool) = false;
 set_warnings_enabled :: (fn(on : bool) -> unit)({
   g_warnings_enabled = on;
 });
@@ -337,7 +337,7 @@ derive(Diagnostic, Clone);
 /// once at startup; every render reads it. Only the HUMAN renderer colors —
 /// `short` stays grep-able and `json`/`sarif` stay parseable regardless of
 /// the flag, including the human text embedded in their payloads.
-(g_color_enabled : bool) = false;
+(mut(g_color_enabled) : bool) = false;
 set_color_enabled :: (fn(on : bool) -> unit)({
   g_color_enabled = on;
 });

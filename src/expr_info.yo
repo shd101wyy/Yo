@@ -439,7 +439,7 @@ ExprInfo :: ref(
 /// shallow copy, point THIS ExprInfo at it, and hand it out. Other sharers
 /// keep the old snapshot. Emission stays byte-identical to the pre-sharing
 /// compiler; only never-adopted snapshots stay shared.
-(g_adopt_env_calls : usize) = usize(0);
+(mut(g_adopt_env_calls) : usize) = usize(0);
 expr_info_adopt_env :: (fn(info : &ExprInfo) -> Environment)({
   g_adopt_env_calls = (g_adopt_env_calls + usize(1));
   fresh := snapshot_env(&info.env);
@@ -1026,9 +1026,9 @@ _is_scope_husk :: (fn(env : &Environment) -> bool)(
 /// The active mode: 0 until `compile` hands the shared table over
 /// (`scope_release_set_table`), so `check`, `test`'s evaluation and the LSP
 /// never record or release.
-(g_scope_mode : usize) = usize(0);
-(g_scope_table : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
-(g_scope_depth : usize) = usize(0);
+(mut(g_scope_mode) : usize) = usize(0);
+(mut(g_scope_table) : Option(ExprInfoTable)) = Option(ExprInfoTable).None;
+(mut(g_scope_depth) : usize) = usize(0);
 (g_scope_log_infos : ArrayList(ExprInfo)) = ArrayList(ExprInfo).new();
 (g_scope_log_ids : ArrayList(ExprId)) = ArrayList(ExprId).new();
 (g_scope_atom_exc : HashMap(ExprId, ArrayList(Variable))) = HashMap(ExprId, ArrayList(Variable)).new();
@@ -1042,25 +1042,25 @@ _is_scope_husk :: (fn(env : &Environment) -> bool)(
 /// The husk lookup supplies the rest of each answer.
 (g_scope_one : HashMap(ExprId, Variable)) = HashMap(ExprId, Variable).new();
 (g_scope_inner : HashMap(ExprId, ArrayList(Variable))) = HashMap(ExprId, ArrayList(Variable)).new();
-(g_scope_prefix_bad : usize) = usize(0);
+(mut(g_scope_prefix_bad) : usize) = usize(0);
 /// A released info whose env shares only its first `k` frames with the husk.
 (g_scope_klen : HashMap(ExprId, usize)) = HashMap(ExprId, usize).new();
-(g_scope_rereleased : usize) = usize(0);
-(g_scope_stale_key : usize) = usize(0);
+(mut(g_scope_rereleased) : usize) = usize(0);
+(mut(g_scope_stale_key) : usize) = usize(0);
 /// Shadow mode: the info object each id was released with (release mode
 /// tells a re-logged object by its husk env).
 (g_scope_shadow_objs : HashMap(ExprId, ExprInfo)) = HashMap(ExprId, ExprInfo).new();
-(g_scope_released : usize) = usize(0);
-(g_scope_kept : usize) = usize(0);
-(g_scope_mismatch : usize) = usize(0);
-(g_scope_checked : usize) = usize(0);
+(mut(g_scope_released) : usize) = usize(0);
+(mut(g_scope_kept) : usize) = usize(0);
+(mut(g_scope_mismatch) : usize) = usize(0);
+(mut(g_scope_checked) : usize) = usize(0);
 (g_scope_samples : ArrayList(String)) = ArrayList(String).new();
-(g_scope_calls : usize) = usize(0);
-(g_scope_path : usize) = usize(0);
+(mut(g_scope_calls) : usize) = usize(0);
+(mut(g_scope_path) : usize) = usize(0);
 (g_scope_mm_kinds : HashMap(String, usize)) = HashMap(String, usize).new();
 (g_scope_logged : HashMap(ExprId, bool)) = HashMap(ExprId, bool).new();
-(g_scope_unlogged : usize) = usize(0);
-(g_scope_logged_unreleased : usize) = usize(0);
+(mut(g_scope_unlogged) : usize) = usize(0);
+(mut(g_scope_logged_unreleased) : usize) = usize(0);
 /// Turn the release on for `compile`'s shared table (or off with `.None`).
 scope_release_set_table :: (fn(t : &Option(ExprInfoTable)) -> unit)({
   g_scope_table = t;
@@ -1533,7 +1533,7 @@ expr_info_paths_for_write :: (fn(info : &ExprInfo) -> PathCollection)({
 /// shared table): `check` gives each module a table that dies with it, and a
 /// process-wide map would outlive those (+20 MB on `check src/main.yo`).
 (g_name_path_collections : HashMap(String, PathCollection)) = HashMap(String, PathCollection).new();
-(g_share_name_paths : bool) = false;
+(mut(g_share_name_paths) : bool) = false;
 set_name_path_sharing :: (fn(on : bool) -> unit)({
   g_share_name_paths = on;
   if(!on, {
@@ -1584,7 +1584,7 @@ expr_info_table_set :: (fn(table : &ExprInfoTable, id : ExprId, info : &ExprInfo
 /// plans/CODEGEN_MEMORY_REDUCTION.md Phase 0 step 3: which shared-table keys
 /// codegen reads. Off unless `YO_CODEGEN_READS` / `YO_CODEGEN_KEEP` is set
 /// (`codegen_c.yo` switches it on for collect + emit only).
-(g_codegen_read_log_on : bool) = false;
+(mut(g_codegen_read_log_on) : bool) = false;
 (g_codegen_read_keys : HashSet(usize)) = HashSet(usize).new();
 codegen_read_log_set :: (fn(on : bool) -> unit)({
   g_codegen_read_log_on = on;
@@ -1888,7 +1888,7 @@ _mg_canon :: (fn(module_path : &String) -> String)({
 /// shape as `branch_group_stack_len` / `truncate_branch_group_stack`, so
 /// nested `comptime_expect_error`s nest correctly. Only keys this recording
 /// window ADDED are rolled back; a name already registered stays.
-(g_mg_recording_depth : usize) = usize(0);
+(mut(g_mg_recording_depth) : usize) = usize(0);
 (g_mg_recorded_keys : ArrayList(String)) = ArrayList(String).new();
 module_global_recording_mark :: (fn() -> usize)({
   g_mg_recording_depth = (g_mg_recording_depth + usize(1));
@@ -2988,7 +2988,7 @@ export(purge_expr_side_tables, purge_executed_clone_metadata, expr_side_table_en
 /// edit recorded through a synthetic token (a derive's generated impl) is
 /// dropped at apply time instead of corrupting the file.
 MigrateEdit :: struct(path : String, row : usize, col : usize, len : usize, replacement : String, expect : String);
-(g_migrate_param_modes : bool) = false;
+(mut(g_migrate_param_modes) : bool) = false;
 (g_migrate_edits : ArrayList(MigrateEdit)) = ArrayList(MigrateEdit).new();
 (g_migrate_edit_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_param_modes :: (fn(on : bool) -> unit)({
@@ -3013,7 +3013,7 @@ migrate_param_modes_on :: (fn() -> bool)(g_migrate_param_modes);
 /// 26): a use after a consuming `match`, and a module-level or projection
 /// scrutinee a `match` cannot move, record `&` before the scrutinee instead
 /// of being rejected.
-(g_migrate_match_scrutinee : bool) = false;
+(mut(g_migrate_match_scrutinee) : bool) = false;
 set_migrate_match_scrutinee :: (fn(on : bool) -> unit)({
   g_migrate_match_scrutinee = on;
 });
@@ -3034,7 +3034,7 @@ export(MigrateEdit, set_migrate_param_modes, take_migrate_edits, migrate_param_m
 /// `addr_of(x)`). `expect` is the printed `&x` expression, which the rewrite
 /// matches against the source text before it edits anything.
 AddrOfSite :: struct(path : String, row : usize, col : usize, expect : String, lent : bool);
-(g_migrate_addr_of : bool) = false;
+(mut(g_migrate_addr_of) : bool) = false;
 (g_addr_of_sites : ArrayList(AddrOfSite)) = ArrayList(AddrOfSite).new();
 (g_addr_of_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_addr_of :: (fn(on : bool) -> unit)({
@@ -3071,7 +3071,7 @@ export(AddrOfSite, set_migrate_addr_of, migrate_addr_of_on, record_addr_of_site,
 /// method or a field is left as written
 /// (issues/fixed/migrate-drop-trait-rewrites-a-non-destructor-dispose-call.md).
 DestructorSite :: struct(path : String, row : usize, col : usize);
-(g_migrate_drop_trait : bool) = false;
+(mut(g_migrate_drop_trait) : bool) = false;
 (g_destructor_sites : ArrayList(DestructorSite)) = ArrayList(DestructorSite).new();
 (g_destructor_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_drop_trait :: (fn(on : bool) -> unit)({
@@ -3104,7 +3104,7 @@ export(DestructorSite, set_migrate_drop_trait, migrate_drop_trait_on, record_des
 /// marker goes; `expect` is the printed place, which the rewrite matches
 /// against the source text before it edits anything.
 MarkerSite :: struct(path : String, row : usize, col : usize, expect : String, marker : String);
-(g_migrate_markers : bool) = false;
+(mut(g_migrate_markers) : bool) = false;
 (g_marker_sites : ArrayList(MarkerSite)) = ArrayList(MarkerSite).new();
 (g_marker_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_markers :: (fn(on : bool) -> unit)({
@@ -3135,7 +3135,7 @@ export(MarkerSite, set_migrate_markers, migrate_markers_on, record_marker_site, 
 /// printed pattern, which the rewrite matches against the source text before
 /// it edits anything.
 RcPatternSite :: struct(path : String, row : usize, col : usize, expect : String);
-(g_migrate_rc_pattern : bool) = false;
+(mut(g_migrate_rc_pattern) : bool) = false;
 (g_rc_pattern_sites : ArrayList(RcPatternSite)) = ArrayList(RcPatternSite).new();
 (g_rc_pattern_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_rc_pattern :: (fn(on : bool) -> unit)({
@@ -3166,7 +3166,7 @@ export(RcPatternSite, set_migrate_rc_pattern, migrate_rc_pattern_on, record_rc_p
 /// printed value, which the rewrite matches against the source text before
 /// it edits anything.
 DynSpellingSite :: struct(path : String, row : usize, col : usize, expect : String);
-(g_migrate_dyn_spelling : bool) = false;
+(mut(g_migrate_dyn_spelling) : bool) = false;
 (g_dyn_spelling_sites : ArrayList(DynSpellingSite)) = ArrayList(DynSpellingSite).new();
 (g_dyn_spelling_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_dyn_spelling :: (fn(on : bool) -> unit)({
@@ -3194,7 +3194,7 @@ export(DynSpellingSite, set_migrate_dyn_spelling, migrate_dyn_spelling_on, recor
 /// `mut(name)` (decision 47): `row`/`col` are its declared name's token,
 /// `expect` the name, which the rewrite matches against the source text.
 MutableGlobalSite :: struct(path : String, row : usize, col : usize, expect : String);
-(g_migrate_mutable_globals : bool) = false;
+(mut(g_migrate_mutable_globals) : bool) = false;
 (g_mutable_global_sites : ArrayList(MutableGlobalSite)) = ArrayList(MutableGlobalSite).new();
 (g_mutable_global_site_keys : HashSet(String)) = HashSet(String).new();
 set_migrate_mutable_globals :: (fn(on : bool) -> unit)({

@@ -203,7 +203,7 @@ MethodEntry :: ref(
 /// unregister_loading (the loading-stack top) — the state lives HERE, and
 /// the loader pushes into it, because importing module_loader from this
 /// module would close the module_loader → env → type_trait_methods cycle.
-(_registration_owner : String) = String.new();
+(mut(_registration_owner) : String) = String.new();
 set_registration_owner :: (fn(owner : &String) -> unit)({
   set_current_owner(owner.clone());
   _registration_owner = owner;
@@ -304,7 +304,7 @@ take_owned_func_ids :: (fn(owner : &String) -> ArrayList(String))({
 /// which owns the edge lists — importing it from here would close the
 /// module_loader → env → type_trait_methods cycle.
 ImportClosureFn :: (fn(module : &String) -> HashSet(String));
-(g_import_closure_fn : Option(ImportClosureFn)) = Option(ImportClosureFn).None;
+(mut(g_import_closure_fn) : Option(ImportClosureFn)) = Option(ImportClosureFn).None;
 set_import_closure_fn :: (fn(f : ImportClosureFn) -> unit)({
   g_import_closure_fn = Option(ImportClosureFn).Some(f);
 });
@@ -826,7 +826,7 @@ TraitReturnLabelReadFn :: (fn(id : &String) -> Option(String));
 /// `_name := (fn() -> bool)({...})();` shape — a bare call is dropped
 /// from compiled binaries).
 RefineAnnotationRegisterFn :: (fn(expr_id : usize, pred_fid : &String) -> unit);
-(g_refine_annotation_register : Option(RefineAnnotationRegisterFn)) = Option(RefineAnnotationRegisterFn).None;
+(mut(g_refine_annotation_register) : Option(RefineAnnotationRegisterFn)) = Option(RefineAnnotationRegisterFn).None;
 set_refine_annotation_hook :: (fn(r : RefineAnnotationRegisterFn) -> unit)({
   g_refine_annotation_register = Option(RefineAnnotationRegisterFn).Some(r);
   ()
@@ -844,10 +844,10 @@ hook_register_refine_annotation :: (fn(expr_id : usize, pred_fid : &String) -> u
 TraitContractRegisterFn :: (
   fn(id : &String, reqs : &ArrayList(AstExpr), enss : &ArrayList(AstExpr), ret : &Option(String)) -> unit
 );
-(g_func_requires_read : Option(TraitContractReadFn)) = Option(TraitContractReadFn).None;
-(g_func_ensures_read : Option(TraitContractReadFn)) = Option(TraitContractReadFn).None;
-(g_func_return_label_read : Option(TraitReturnLabelReadFn)) = Option(TraitReturnLabelReadFn).None;
-(g_func_contract_register : Option(TraitContractRegisterFn)) = Option(TraitContractRegisterFn).None;
+(mut(g_func_requires_read) : Option(TraitContractReadFn)) = Option(TraitContractReadFn).None;
+(mut(g_func_ensures_read) : Option(TraitContractReadFn)) = Option(TraitContractReadFn).None;
+(mut(g_func_return_label_read) : Option(TraitReturnLabelReadFn)) = Option(TraitReturnLabelReadFn).None;
+(mut(g_func_contract_register) : Option(TraitContractRegisterFn)) = Option(TraitContractRegisterFn).None;
 set_func_contract_hooks :: (
   fn(
     r : TraitContractReadFn,

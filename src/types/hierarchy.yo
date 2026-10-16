@@ -22,7 +22,7 @@ pragma(Pragma.AllowUnsafe);
 // Forward reference slot for _universe_of
 // (needed by _determine_type_universe which is defined before the function)
 // ---------------------------------------------------------------------------
-(g_type_of_type_visited_fn : Option((fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue))) = .None;
+(mut(g_type_of_type_visited_fn) : Option((fn(ty : &TypeValue, visited : &ArrayList(String)) -> TypeValue))) = .None;
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
@@ -94,7 +94,7 @@ _UniverseMemoEntry :: struct(ty : TypeValue, universe : TypeValue);
 (g_universe_memo : HashMap(String, ArrayList(_UniverseMemoEntry))) = HashMap(String, ArrayList(_UniverseMemoEntry)).new();
 /// Set when the name-cycle guard answered for a type on the current path:
 /// a result computed under it depends on that path, so it is not memoized.
-(g_universe_guard_fired : bool) = false;
+(mut(g_universe_guard_fired) : bool) = false;
 _universe_memo_lookup :: (fn(key : &String, ty : &TypeValue) -> Option(TypeValue))({
   bucket := match(g_universe_memo.get(key), .Some(b) => b, .None => return(Option(TypeValue).None));
   (i : usize) = usize(0);

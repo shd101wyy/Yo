@@ -71,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
 // ---------------------------------------------------------------------------
 // Target pointer size
 // ---------------------------------------------------------------------------
-(g_target_pointer_size_bits : u32) = u32(64);
+(mut(g_target_pointer_size_bits) : u32) = u32(64);
 /// Set the target pointer size in bits. Must be positive and divisible by 8.
 ///
 set_target_pointer_size :: (fn(bits : u32) -> unit)(
@@ -424,7 +424,7 @@ type_implements_runtime :: (fn(ty : &TypeValue) -> bool)(
 /// `note_move_only_possible` has run, so a program with no such impl pays one
 /// flag test per nominal type visited.
 MoveOnlyNominalFn :: (fn(ty : &TypeValue) -> String);
-(g_move_only_nominal_fn : Option(MoveOnlyNominalFn)) = Option(MoveOnlyNominalFn).None;
+(mut(g_move_only_nominal_fn) : Option(MoveOnlyNominalFn)) = Option(MoveOnlyNominalFn).None;
 /// Install the nominal move-only answer (`evaluator/trait_checking.yo` does at
 /// init).
 set_move_only_nominal_fn :: (fn(f : Option(MoveOnlyNominalFn)) -> unit)({
@@ -434,7 +434,7 @@ set_move_only_nominal_fn :: (fn(f : Option(MoveOnlyNominalFn)) -> unit)({
 /// (registered, or recorded pending by the lazy module walk): until then no
 /// type is move-only, and the move-only checks skip their work. Never
 /// cleared: it only gates a fast path.
-(g_move_only_possible : bool) = false;
+(mut(g_move_only_possible) : bool) = false;
 note_move_only_possible :: (fn() -> unit)({
   g_move_only_possible = true;
 });
@@ -887,13 +887,13 @@ type_is_move_only :: (fn(ty : &TypeValue) -> bool)(
 /// environment, which this module cannot reach, so `trait_checking.yo`
 /// installs it (`type_lacks_copy_for_flip`, memoized there). Compile-time-only,
 /// control-bound and C-opaque types answer false: their copies stay implicit.
-(g_type_lacks_copy_fn : Option(fn(ty : &TypeValue) -> bool)) = Option(fn(ty : &TypeValue) -> bool).None;
+(mut(g_type_lacks_copy_fn) : Option(fn(ty : &TypeValue) -> bool)) = Option(fn(ty : &TypeValue) -> bool).None;
 /// Bumped on every trait-impl registration (`register_type_trait_value`,
 /// `register_generic_impl`). A "not `Copy`" answer is only as good as the
 /// impls registered when it was given (an impl placed later in a module
 /// registers after a copy was first judged), so the flip's memo
 /// (`type_lacks_copy_for_flip`) is dropped whenever this moves.
-(g_trait_impl_epoch : u64) = u64(0);
+(mut(g_trait_impl_epoch) : u64) = u64(0);
 bump_trait_impl_epoch :: (fn() -> unit)({
   g_trait_impl_epoch = (g_trait_impl_epoch + u64(1));
 });
@@ -904,7 +904,7 @@ set_type_lacks_copy_fn :: (fn(f : (fn(ty : &TypeValue) -> bool)) -> unit)({
 /// Whether a type lacks `Clone` (installed by `evaluator/trait_checking.yo`):
 /// a plain-data type with neither `Copy` nor `Clone` is move-only, which is
 /// how a diagnostic names it (decision 36: move-only is "neither").
-(g_type_lacks_clone_fn : Option(fn(ty : &TypeValue) -> bool)) = Option(fn(ty : &TypeValue) -> bool).None;
+(mut(g_type_lacks_clone_fn) : Option(fn(ty : &TypeValue) -> bool)) = Option(fn(ty : &TypeValue) -> bool).None;
 set_type_lacks_clone_fn :: (fn(f : (fn(ty : &TypeValue) -> bool)) -> unit)({
   g_type_lacks_clone_fn = Option(fn(ty : &TypeValue) -> bool).Some(f);
 });
@@ -2622,8 +2622,8 @@ fn_type_unrepresentable_impl_help :: (fn() -> String)(
 // as `hierarchy.yo`'s `g_type_of_type_visited_fn`. Assigned at module top level
 // after both functions are defined.
 SizeFn :: (fn(ty : &TypeValue) -> Option(usize));
-(g_size_of_type_fn : Option(SizeFn)) = Option(SizeFn).None;
-(g_alignment_of_type_fn : Option(SizeFn)) = Option(SizeFn).None;
+(mut(g_size_of_type_fn) : Option(SizeFn)) = Option(SizeFn).None;
+(mut(g_alignment_of_type_fn) : Option(SizeFn)) = Option(SizeFn).None;
 _size_via_slot :: (fn(ty : &TypeValue) -> Option(usize))(
   match(g_size_of_type_fn, .Some(f) => f(ty), .None => Option(usize).None)
 );
@@ -3121,7 +3121,7 @@ _ReprMemoEntry :: struct(ty : TypeValue, answer : bool);
 /// Set when the walk was cut, by a cycle or by the depth backstop: a `false`
 /// computed under a cut depends on the path, so it is not memoized. A `true`
 /// is exact either way.
-(g_repr_cut : bool) = false;
+(mut(g_repr_cut) : bool) = false;
 _repr_path_contains :: (fn(ty : &TypeValue) -> bool)({
   (i : usize) = usize(0);
   while(i < g_repr_path.len(), {

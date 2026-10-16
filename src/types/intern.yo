@@ -684,7 +684,7 @@ type_intern_key :: (fn(t : &TypeValue, depth : usize, visited : &mut HashSet(Str
 /// (`yo-self-capture-env-memo-refuted`), and measuring must not reproduce the
 /// thing being measured.
 (g_ti_probe_on : bool) = debug_knob(`YO_TYPE_INTERN_PROBE`).is_some();
-(g_ti_total : usize) = usize(0);
+(mut(g_ti_total) : usize) = usize(0);
 (g_ti_distinct : HashSet(u64)) = HashSet(u64).new();
 /// Second question the same walk answers: WHERE the 11.12 M live
 /// `ArrayList(TypeValue)` objects come from. Each is 80 B of which 56 B is the
@@ -693,14 +693,14 @@ type_intern_key :: (fn(t : &TypeValue, depth : usize, visited : &mut HashSet(Str
 /// EMPTY, the lever is a shared empty singleton or a rare-group side table,
 /// not interning. Counts are AS SEEN FROM THE ROOTS — a shared subtree is
 /// counted once per reference — so read the empty/total RATIO, not the totals.
-(g_ti_nodes : usize) = usize(0);
-(g_ti_lists : usize) = usize(0);
-(g_ti_lists_empty : usize) = usize(0);
-(g_ti_func : usize) = usize(0);
-(g_ti_struct : usize) = usize(0);
-(g_ti_enum : usize) = usize(0);
-(g_ti_some : usize) = usize(0);
-(g_ti_other : usize) = usize(0);
+(mut(g_ti_nodes) : usize) = usize(0);
+(mut(g_ti_lists) : usize) = usize(0);
+(mut(g_ti_lists_empty) : usize) = usize(0);
+(mut(g_ti_func) : usize) = usize(0);
+(mut(g_ti_struct) : usize) = usize(0);
+(mut(g_ti_enum) : usize) = usize(0);
+(mut(g_ti_some) : usize) = usize(0);
+(mut(g_ti_other) : usize) = usize(0);
 /// Count one list toward the empty/total ratio.
 _ti_list :: (fn(n : usize) -> unit)({
   g_ti_lists = (g_ti_lists + usize(1));

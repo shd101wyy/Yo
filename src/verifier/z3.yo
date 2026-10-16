@@ -206,7 +206,7 @@ _z3_ensure_dir_sync :: (fn(path : &String) -> unit)({
 });
 /// Monotonic counter for temp-file names — unique within one process run,
 /// like the contract wrapper's `g_contract_old_counter`.
-(g_z3_tmp_counter : usize) = usize(0);
+(mut(g_z3_tmp_counter) : usize) = usize(0);
 /// Per-process temp-name prefix: the monotonic clock at nanosecond
 /// resolution, captured lazily on first use. LOAD-BEARING for concurrency:
 /// the temp dir is SHARED, and a counter-only name let one concurrent yo
@@ -215,7 +215,7 @@ _z3_ensure_dir_sync :: (fn(path : &String) -> unit)({
 /// (issues/fixed/z3-temp-names-collided-across-concurrent-yo-processes.md). Temp names
 /// never reach emitted C, so seeding them from the wall of the clock does
 /// not affect compile determinism.
-(g_z3_tmp_prefix : Option(i64)) = Option(i64).None;
+(mut(g_z3_tmp_prefix) : Option(i64)) = Option(i64).None;
 /// A fresh temp path under the system temp dir
 /// (`<tmp>/yo-verify-<start-nanos>-<n>.<ext>`, unique per process AND per
 /// query).

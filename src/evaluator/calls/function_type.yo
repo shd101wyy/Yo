@@ -128,7 +128,7 @@ _evaluated_measure_for_verify :: (fn(dm : &AstExpr, env : &Environment, ctx : &E
 // V6 task 2: the per-clause predicate-evaluation swallow flag (the
 // capture-free-handler pattern — the handler cannot close over locals, so
 // the outcome rides a module global; reset before each clause).
-(g_pred_eval_failed : bool) = false;
+(mut(g_pred_eval_failed) : bool) = false;
 /// Definition sites whose diagnostics-only deferred trial ran clean (see the
 /// deferred-definition trial in `try_to_implement_function_by_function_type`).
 /// A compile-time function's body is cloned and re-evaluated on every call, so
@@ -218,7 +218,7 @@ PendingDefEval :: ref(
   )
 );
 (g_pending_def_evals : ArrayList(PendingDefEval)) = ArrayList(PendingDefEval).new();
-(g_rerunning_def_evals : bool) = false;
+(mut(g_rerunning_def_evals) : bool) = false;
 /// Trial-evaluates a definition-time body, non-fatally. On success the
 /// evaluated body is
 /// pushed to `out`; on error the swallowing `Exception` unwinds THIS helper

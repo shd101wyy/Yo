@@ -85,7 +85,7 @@ DocState :: ref(
 /// 2 = shut down (only `exit` is served; `exit` then exits 0). Module-level
 /// because it must survive across `_handle_message` calls
 /// (issues/fixed/lsp-jsonrpc-lifecycle-and-dollar-requests.md).
-(g_server_state : usize) = usize(0);
+(mut(g_server_state) : usize) = usize(0);
 
 /// Whether the client declared
 /// `textDocument.documentSymbol.hierarchicalDocumentSymbolSupport` — read at
@@ -93,7 +93,7 @@ DocState :: ref(
 /// `SymbolInformation[]` instead of hierarchical `DocumentSymbol[]`, which
 /// such clients cannot render (VS Code's client always declares it; the
 /// cli-case driver does not).
-(g_hierarchical_symbols : bool) = false;
+(mut(g_hierarchical_symbols) : bool) = false;
 
 /// Read a string field out of a JSON object; empty string when absent.
 _jfield_str :: (fn(v : &JsonValue, key : str) -> String)(
