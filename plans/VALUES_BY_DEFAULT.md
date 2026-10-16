@@ -136,6 +136,10 @@ Progress:
     `yo fix --migrate mutable-globals` (#1401).
   - V2b unique buffers, Generation A2: `yo fix --migrate explicit-copy`,
     with the written-after guard (#1385).
+  - decision 46 Generation A: the `YO_AUDIT_RC_WRITE` census,
+    `RefCell(T)` with `with`/`with_mut`, and `Rc`/`Arc` `make_mut` and
+    `try_unwrap` (feat/vbd-d46-gena; §6 "Decision 46" step 1's "as
+    built", with the census counts that size Generation B).
 - **In progress:**
   - V3's remaining async work (§3.13): A4's future operands, A5's
     `Waker.clone` Generation B (it waits for a seed carrying
@@ -6521,6 +6525,73 @@ not an estimate.
    - Tests: each door works and is rejected where Rust rejects it
      (`make_mut` without `Clone`, `try_unwrap` on a shared handle returns
      the handle).
+   - **As built (2026-10-16, feat/vbd-d46-gena).**
+     - `YO_AUDIT_RC_WRITE=1` runs at codegen (`audit_rc_writes` in
+       `src/evaluator/effects/mutation_summary.yo`, called from
+       `generate_function`), so it sees every specialized body, closures
+       included, and prints one line per site:
+       `file:line:col [rc-write] kind=assign|mut-arg|mut-recv handle=rc|ref root=… proved=yes|no type=… place`.
+       - `handle=rc` is a write through an `Rc(T)`: this decision's sweep.
+         `handle=ref` is a write through a `ref(struct(...))` handle
+         (today's `ArrayList`, decision 21's trees), which V2b and V4/V5
+         retire; it is counted apart.
+       - `proved=yes` approximates outcome (a) with the PARAM-STORAGE
+         roots: the cell the write lands in was allocated in this function
+         (`fresh` or `shell`) and has not flowed where a parameter, a
+         callee that writes its argument or a closure can reach it, so no
+         other handle can hold a borrow of it. A parameter, a capture or a
+         cell reached through another handle is `proved=no`.
+       - `tests/cli-cases/audit-rc-write-census` pins the format.
+     - `RefCell(T)` is in `std/sync/refcell.yo` with `with` and `with_mut`;
+       a `with_mut` under a live `with` or `with_mut` panics, naming the
+       API.
+       - The value lives in its own `Box` with the marks, because a
+         `&Self` receiver is lowered by value today; decision 43 moves it
+         inline.
+       - The expression-scoped `get`/`get_mut` are not built. Their mark
+         must be released at the end of the enclosing expression and a
+         binding of their result rejected; neither exists yet, and without
+         them the doors would be unsound. They wait for decision 43 step
+         2, with `Rc.get_mut`.
+     - `Rc.try_unwrap(h)` and `Arc.try_unwrap(h)` take the handle by value
+       (`sink(self)`). On the only handle they move the payload out
+       bitwise, and `__yo_rc_forget_payload` clears the cell's payload
+       destructor, so the handle's release frees the cell alone.
+       `Rc.make_mut(&mut h)` and `Arc.make_mut(&mut h)`
+       (`where(T <: Clone)`) are `-> &mut T` projections, called directly
+       (#1368).
+     - Two bugs found on the way are fixed here:
+       - an aliased `Rc` handle lent `&mut` to a call was freed under its
+         alias (S1,
+         `issues/fixed/2026-10-15-an-aliased-rc-handle-lent-mut-to-a-call-is-freed-under-its-alias.md`);
+       - an unapplied-constructor call rejected its receiver's borrow
+         marker, so `Rc.make_mut(&mut h)` did not compile (S3,
+         `issues/fixed/2026-10-16-an-unapplied-constructor-call-rejects-its-receivers-borrow-marker.md`).
+     - **The census** sizes Generation B. It ran with the tree-built
+       compiler over `compile src/main.yo`, `test ./std`, and `test
+       ./tests` without `tests/internal` and `tests/cli-cases`, and counts
+       unique sites:
+       - **Writes through `Rc(T)` (`handle=rc`): 379 sites, 22 proved.**
+         Generation B sweeps these.
+         - src: 12, none proved (`src/emitter.yo` 5, `src/expr_info.yo` 3,
+           `src/codegen/utils/index.yo` 2, `await_analysis.yo` 1,
+           `contracts.yo` 1). The compiler's mutable registries are mostly
+           `ref(struct)` handles, counted below.
+         - std: 27, none proved (`std/async/channel.yo` 15,
+           `std/async/mutex.yo` 6, `std/http/wire.yo` 6): A5's shared
+           channel and mutex states, as expected.
+         - tests: 340, 22 proved.
+         - By kind: 327 assignments, 12 `&mut` arguments, 40 `&mut self`
+           receivers.
+       - **Writes through `ref(struct)` handles (`handle=ref`): 2,902
+         sites, 60 proved** (src 2,394, std 401, tests 107). They are
+         V2b's (the collections' own field stores) and V4/V5's (the
+         compiler's registries), not this decision's.
+       - The test files ran in two `YO_TEST_IN_PROCESS=1` shards with a
+         no-op C compiler (the census is a codegen-time report, so no
+         binary has to build). One shard died with SIGSEGV between its last
+         two files (after `tests/url/url.test.yo`); the file it missed,
+         `tests/where_clause_fn_inference.test.yo`, ran on its own.
 2. **Generation B: the sweep, then the error** (once a seed carries 1).
    - Each census site moves its payload into `RefCell(T)` or uses a door.
      The known ones include the async runtime's shared states (A5's
