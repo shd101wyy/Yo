@@ -2,7 +2,7 @@
 
 **Severity:** S1 — in a project that pins another Yo version, every failing `yo test` / `check` / `build` / `compile` exits 0, so CI goes green on failing code
 
-**Status:** OPEN. Found 2026-10-16 while running markdown_yo's tests for
+**Status:** FIXED 2026-10-16 (`fix/version-dispatch-exit-code`). Found 2026-10-16 while running markdown_yo's tests for
 `issues/fixed/vendor-markdown-punycode-encode-reads-past-the-buffer.md`:
 markdown_yo pins `.yo-version` 0.2.58, and a failing `yo test ./tests` under
 the installed `yo 0.2.63` printed `1 failed` and exited 0.
@@ -51,3 +51,11 @@ Regression test: a `tests/cli-cases/` case whose fixture pins `.yo-version` to
 a version that the sandbox `HOME` already has "cached" (a stub `bin/yo` that
 exits 3, laid out where `is_version_cached` looks), with `expected_rc` 3. It
 fails today (rc 0) and passes after the fix.
+
+## Resolution
+
+`src/main.yo`'s pre-dispatch exits with `dst.code()`, or `128 + dst.signal()`
+after a signal death. `tests/cli-cases/version-dispatch-exit-code` pins
+`.yo-version` to 0.0.1, lays a stub `bin/yo` that exits 3 under
+`YO_CACHE_DIR=<PROJ>/cache/versions/0.0.1`, and expects rc 3: the v0.2.63 seed
+exits 0 on it, the fixed binary exits 3.

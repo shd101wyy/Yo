@@ -11987,7 +11987,17 @@ main :: (fn(io : Io) -> unit)({
           dai = (dai + usize(1));
         });
         dst := io.await(dcmd.status(io), IoExn(io : io, exn : exn));
-        unsafe(exit(int(dst.raw)));
+        // Exit with the child's DECODED status: `raw` is the encoded wait
+        // status (`code << 8`), and `exit` keeps only its low 8 bits, so a
+        // failing child read as success. A signal death exits 128 + signo,
+        // the shell's convention
+        // (issues/fixed/2026-10-16-a-yo-version-dispatched-command-exits-0-when-it-fails.md).
+        dispatched_rc := match(
+          dst.code(),
+          .Some(c) => c,
+          .None => (i32(128) + dst.signal())
+        );
+        unsafe(exit(int(dispatched_rc)));
       }),
       .None => ()
     );
