@@ -2974,7 +2974,7 @@ _run_migrate_explicit_copy :: (
       // projection (`-> &T`), not a clone.
       if((st.copy_path == "return") && !st.src_borrow.is_empty(), {
         n_skipped = (n_skipped + usize(1));
-        println(`fix: ${at}: \`${st.expect}\` is returned from a \`${st.src_borrow}\` parameter, so a caller may write through it; return a projection (\`-> ${st.src_borrow}T\`) or spell the copy (\`.clone()\`) by hand`);
+        println(`fix: ${at}: \`${st.expect}\` is returned from a \`${st.src_borrow}\` parameter, so a caller may write through it; return a projection (\`-> ${if(st.src_borrow == "&mut", "&mut T", "&T")}\`) or spell the copy (\`.clone()\`) by hand`);
         continue;
       });
       written := cond(
