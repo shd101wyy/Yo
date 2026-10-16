@@ -196,7 +196,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 | 6 | `fix/d3-trust-by-mutation-mask` (no PR), then #1380 | the D3 S1 fix, Tier 1 green; #1380 is blocked on it, then restacks |
 | 7 | #1398 from `perf/type-key-memo-identity` | **landed** 2026-10-16 (−40% allocations; baseline 1,799,052,684, measured) |
 | 7a | release v0.2.64 | §4 step 7a |
-| 8 | #1385 | needs the `--onto` restack and Tier 1 |
+| 8 | #1385 | **landed** 2026-10-16 (restacked, Tier 1 incl. the full in-process `tests/internal` and full cli-diff) |
 
 **When a branch moves an issue doc to `issues/fixed/`,** this handover (and possibly the plan) still cites the open path. After the move, run `bash scripts/check-issue-refs.sh` and repoint every citation it lists to the `fixed/` path. That applies to #1368, the global-lend, E0918 and D3 branches. Each entry below names its docs.
 
@@ -319,7 +319,9 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   4. Tier 1, adding `tests/atomic_object`, `thread_safety`, `closure_capture_list`, `arc` and `async_await`.
   5. `gh pr ready 1380`, then merge.
 
-#### #1385 — V2b unique buffers Generation A2: `yo fix --migrate explicit-copy` (`feat/vbd-v2b-explicit-copy-migration`, head `ffb6dc6af`, draft)
+#### #1385 — V2b unique buffers Generation A2: `yo fix --migrate explicit-copy` (`feat/vbd-v2b-explicit-copy-migration`) — **LANDED 2026-10-16**
+
+- **Landed:** restacked onto develop and gated with the tree build: check src and std, the full in-process `tests/internal`, and the full cli-diff (PASS 395, GOLDEN-DIFF 0). Re-gated after the final rebase onto `1a4cf8df6`, whose `src/main.yo` overlapped #1403 and #1406. Steps 1–3 under **Next** below are done; what remains is Generation B.
 
 - **What:** the migration that inserts `.clone()` at every implicit copy of `String`, the collections and their aggregates whose source lives on. A written-after guard leaves copies that may share a buffer on purpose for a hand edit.
 - **Dry-run surface:**
@@ -570,7 +572,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 6. **`fix/d3-trust-by-mutation-mask`** (§2.3), then **#1380** (§2.3).
 7. **DONE (#1398).** **`perf/type-key-memo-identity`** (§2.3): the ratchet baseline is now a measured count, 1,799,052,684.
 7a. **Cut v0.2.64** (§8.4) once steps 0a–7 have merged and develop's battery is green on the exact tip. It carries decision 47's `mut(` parser and A5's `__yo_waker_clone`. After the `SEED_VERSION` bump, do decision 47 globals Generation B (§2.3) before step 8; that avoids the V2b value-global re-census in §2.3's note. Step 12 can follow.
-8. **#1385** (`--onto` restack), then **V2b unique buffers Generation B** (§2.3). Lower the allocation baseline in the same PR. Read §2.3's global-lend note on value globals first.
+8. **#1385 — LANDED 2026-10-16**, then **V2b unique buffers Generation B** (§2.3; the PR sequence B0–B14 is proposed in #1408). Lower the allocation baseline in the same PR. Read §2.3's global-lend note on value globals first.
 9. **Decision 47, step 2: locals, patterns and comptime** (§5.11; the plan's §6 phase), after V2b Generation B and before decision 43:
     - Generation A: the parser and evaluator accept every `mut(...)` form, and the errors are enforced outside src/std;
     - `yo fix --migrate mut-bindings`;
