@@ -1267,13 +1267,13 @@ consume_argument_for_parameter :: (
 ///   code vouches that the task ends before the borrow does, which is how
 ///   `std/async` runs a combinator's operand as a scoped child (aborted and
 ///   joined on every path, and aborted when the combinator is dropped).
-_param_accepts_second_class :: (fn(call : &AstExpr, ptype : &TypeValue, result_ty : &TypeValue, ctx : &EvalContext) -> bool)({
+_param_accepts_second_class :: (fn(call : &AstExpr, ptype : &TypeValue, result_ty : &TypeValue, ctx : &EvalContext) -> bool)(
   cond(
     (is_io_async_call(call) || is_io_await_call(call)) => true,
     is_io_spawn_call(call) => (ctx.unsafe_context && is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(call).module_path.clone()))),
     true => (is_future_value_type(ptype) && is_future_value_type(result_ty))
   )
-});
+);
 /// Report `msg` at `tok`, flagging the flow-violation channel first so a
 /// definition-time swallow re-raises it at `check` time (outside trials, cee
 /// propagate mode, and when a flag is already pending).
