@@ -82,3 +82,17 @@ test("&x outside an argument is an error naming addr_of(x)", {
   assert(b.get() == i32(4), "the receiver is passed bare");
   assert(n == i32(1), "n is untouched");
 });
+// A `unit` place has no C storage, so `addr_of` of one emitted `(&)`, which
+// is not C. It is a dangling, non-null pointer that nothing reads or writes
+// through (issues/fixed/2026-10-16-a-pointer-move-of-a-unit-place-emits-invalid-c.md).
+_AoUnitField :: struct(a : i32, u : unit);
+test("addr_of a unit place: a non-null pointer, and moves through it touch nothing", {
+  s := _AoUnitField(a : i32(7), u : ());
+  p := addr_of(s.u);
+  old := __yo_ptr_read(p);
+  __yo_ptr_write(p, old);
+  __yo_ptr_write(addr_of(s.u), ());
+  (o : ?*unit) = .Some(p);
+  assert(o.is_some(), "non-null, so not the None niche");
+  assert(s.a == i32(7), "the field beside it is untouched");
+});

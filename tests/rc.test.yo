@@ -2235,13 +2235,24 @@ test("unique Box: Eq, Hash and Default by payload; no count", {
   assert(a == b, "equal payloads");
   b.x = i32(3);
   assert(!(a == b), "compared by payload");
-  // A `HashMap(Box(K), V)` cannot be built yet: its probes copy buckets
-  // (issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md).
   h1 := box(UBoxPoint(x : i32(7), y : i32(8)));
   h2 := box(UBoxPoint(x : i32(7), y : i32(8)));
   p := UBoxPoint(x : i32(7), y : i32(8));
   assert(hash_one(&h1) == hash_one(&h2), "equal payloads hash alike");
   assert(hash_one(&h1) == hash_one(&p), "a box hashes as its payload");
+  // A box is a map key: the map moves it in and compares it in place
+  // (issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md).
+  m := HashMap(Box(UBoxPoint), Box(i32)).new();
+  m.insert(h1, box(i32(78)));
+  m.insert(box(UBoxPoint(x : i32(1), y : i32(2))), box(i32(12)));
+  assert(m(h2).* == i32(78), "found by an equal payload");
+  assert(m.contains_key(&box(UBoxPoint(x : i32(1), y : i32(2)))), "contains_key borrows the box");
+  match(
+    m.remove(&box(UBoxPoint(x : i32(1), y : i32(2)))),
+    .Some(v) => assert(v.* == i32(12), "the boxed value moves out"),
+    .None => assert(false, "the key was present")
+  );
+  assert(m.len() == usize(1), "one entry left");
   (z : Box(i32)) = (Box(i32) <: Default).default();
   assert(z.* == i32(0), "the default box holds the payload's default");
   comptime_expect_error(ref_count(a), "a uniquely owned cell with no count");

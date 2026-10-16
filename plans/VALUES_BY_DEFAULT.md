@@ -4542,8 +4542,9 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     Both now take `&Self`, so a hand-written `Clone` on `&Self` can clone its
     `Box`/`Rc` fields, and the derive lends `&self.f`.
   - **Filed, open:** a `HashMap` of a move-only key or value does not compile
-    (`issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`, V2b's
-    non-copying access), so `HashMap(Box(K), V)` waits; a plain-data field
+    (`issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`;
+    fixed 2026-10-16: the collections' probes compare in place and move slots
+    bitwise, so `HashMap(Box(K), V)` works); a plain-data field
     write through any `&T` is accepted and lost
     (`issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md`).
   - **Tests:** `tests/rc.test.yo` (the unique-`Box` section: payload place,
