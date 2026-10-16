@@ -493,8 +493,17 @@ generate_initialization_assignment :: (fn(expr : &AstExpr, indent : &String, con
           // the raw expression skipped the +1 while the slot's drop was
           // still emitted, so `element := list(i)` inside an async loop
           // freed the element out from under the live list.
-          sm_rhs := emit_deferred_dup_or_code(&rhs, _call_generate_expr(&rhs, indent.clone(), context), indent.clone(), context);
-          em.emit_string_line(`${indent.clone()}${sm_slot.clone()} = ${sm_rhs.clone()};`);
+          rhs_code := _call_generate_expr(&rhs, indent.clone(), context);
+          // An alias stored in its owner's slot (`sb := s`, `sm_storage_id`)
+          // reads the very slot it binds: the two names are ONE storage that
+          // holds one reference, and both scope-end drops release that slot
+          // (the first zeroes it). A dup here was the second reference
+          // nothing released
+          // (issues/fixed/2026-10-16-an-alias-sharing-its-owners-task-slot-is-retained-but-released-once.md).
+          if(rhs_code.trim() != sm_slot, {
+            sm_rhs := emit_deferred_dup_or_code(&rhs, &rhs_code, indent.clone(), context);
+            em.emit_string_line(`${indent.clone()}${sm_slot.clone()} = ${sm_rhs.clone()};`);
+          });
           _clear_sm_move_flag(&sm_slot, indent.clone(), context);
           return(Option(String).Some(String.from("")));
         },

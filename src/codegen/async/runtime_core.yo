@@ -322,11 +322,11 @@ static void __yo_async_free_cont_pool(void) {
 }
 
 // Arm the thread-exit hook. Everything that creates per-thread async runtime
-// state calls this: the continuation pool on its first node, and every
-// backend's __yo_io_init. Arming only from the pool left a thread whose awaits
-// never allocated a continuation (a plain main(io) awaiting raw I/O or a
-// sleep) exiting with its backend alive: the kqueue, the timer heap, the slot
-// table and the node pools
+// state calls this: the continuation pool on its first node, every
+// backend's __yo_io_init, and __yo_waker_new (the loop's inbox). Arming only
+// from the pool left a thread whose awaits never allocated a continuation
+// (a plain main(io) awaiting raw I/O or a sleep) exiting with its backend
+// alive: the kqueue, the timer heap, the slot table and the node pools
 // (issues/fixed/a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md).
 static inline void __yo_async_arm_thread_exit(void) {
   __yo_async_thread_exit_hook = __yo_async_thread_exit_release;
@@ -784,6 +784,11 @@ static void* __yo_waker_new(void* f) {
     return NULL;
   }
   __yo_waker_token_t* t = (__yo_waker_token_t*)__yo_rc_alloc(sizeof(__yo_waker_token_t));
+  // A waker makes this thread's loop a target of foreign posts, and only the
+  // thread-exit release drains an inbox no loop driver ends: a main(io) that
+  // parks with a plain await arms nothing else
+  // (issues/fixed/2026-10-16-the-thread-exit-release-leaks-a-join-wait-and-a-waker-token-posted-after-the-last-tick.md).
+  __yo_async_arm_thread_exit();
   __yo_incr_rc(f);
   t->future = (__yo_io_future_t*)f;
   t->owner = __yo_loop_self();
@@ -1415,7 +1420,21 @@ static void __yo_io_teardown_abort_waiters(__yo_io_future_t* f) {
 // unresumed rather than resumed blind. Idempotent, like the pool free it ends
 // with: the full-GC runtime's thread cleanup calls the hook again on an empty
 // runtime.
+//
+// Two kinds of pending work are not tasks, and both used to leak at exit
+// (issues/fixed/2026-10-16-the-thread-exit-release-leaks-a-join-wait-and-a-waker-token-posted-after-the-last-tick.md):
+//   * the cross-thread inbox. A loop driver quiesces it before its teardown;
+//     a thread driven only by synchronous awaits (a test body, a plain
+//     main(io)) ends here instead, and a waker release a worker posted after
+//     the last tick held its token and the park future forever. Quiesce the
+//     same way first: its wakes land on the ready queue the drain below empties.
+//   * a join wait's waiter entry (__yo_join_wait_fire). Its payload is the
+//     wait, not a task, and the wait may already be Completed by the other
+//     task it watched, so the abort below cannot mark it Aborted; the entry
+//     owns a reference to the wait that only running it drops.
+static void __yo_join_wait_fire(void* p);
 static void __yo_async_thread_exit_release(void) {
+  __yo_async_loop_quiesce();
   __yo_io_cleanup();
   while (__yo_thread_async_queue.head) {
     __yo_continuation_t* cont = __yo_thread_async_queue.head;
@@ -1431,7 +1450,7 @@ static void __yo_async_thread_exit_release(void) {
     } else {
       __yo_future_header_t* sm = (__yo_future_header_t*)cont->state_machine;
       __yo_future_abort(cont->state_machine);
-      if (sm->state == -2) {
+      if (sm->state == -2 || cont->resume_fn == __yo_join_wait_fire) {
         cont->resume_fn(cont->state_machine);
       }
     }

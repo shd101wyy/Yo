@@ -587,6 +587,31 @@ test("a closure returned through a cond tail keeps and releases its capture once
   };
   assert((g_cap_disposed - before) == i32(1), `the capture is released exactly once, released ${g_cap_disposed - before}`);
 });
+// issues/fixed/2026-10-16-a-closure-returned-from-a-function-retains-its-captures-twice.md:
+// a closure LITERAL as a function's tail or `return` value takes its captures'
+// references once, in its capture struct. The tail and return paths emitted
+// the literal's capture dups a second time, as if it were a borrowed value.
+_lit_tail :: (fn(n : i32) -> Impl(Fn(x : i32) -> i32))({
+  p := CapPayload(n : n);
+  (x : i32) => (x + p.n)
+});
+_lit_return :: (fn(n : i32) -> Impl(Fn(x : i32) -> i32))({
+  p := CapPayload(n : n);
+  return((x : i32) => (x * p.n));
+});
+test("a closure literal returned from a function releases its capture once", {
+  before := g_cap_disposed;
+  {
+    g := _lit_tail(i32(5));
+    assert(g(i32(1)) == i32(6), "the tail closure reads its capture");
+  };
+  assert((g_cap_disposed - before) == i32(1), `the tail closure's capture is released once, released ${g_cap_disposed - before}`);
+  {
+    g := _lit_return(i32(5));
+    assert(g(i32(2)) == i32(10), "the returned closure reads its capture");
+  };
+  assert((g_cap_disposed - before) == i32(2), `the returned closure's capture is released once, released ${g_cap_disposed - before}`);
+});
 // A LOCAL function value returning `Impl(Fn)` is called with the concrete
 // closure type the function returns, not `void*`
 // (issues/fixed/a-local-function-value-returning-an-impl-fn-calls-through-a-void-pointer-signature.md).

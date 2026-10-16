@@ -24,7 +24,7 @@
 { type_implements_future } :: import("../../evaluator/trait_checking.yo");
 { debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
-{ expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_is_anonymous_function_definition, scope_variables, is_fnonce_capture_drop, is_fnonce_post_call_release } :: import("../../expr_info.yo");
+{ ExprInfo, expr_info_converted_runtime_type, expr_info_closure_function_value, expr_info_capture_type, expr_info_deferred_dup_expressions, expr_info_is_anonymous_function_definition, scope_variables, is_fnonce_capture_drop, is_fnonce_post_call_release } :: import("../../expr_info.yo");
 { is_temp_variable_name } :: import("../../utils.yo");
 { MethodEntry, get_type_trait_methods_by_name, type_id_or_empty } :: import("../../evaluator/values/type_trait_methods.yo");
 { take_short_circuit_handled, FunctionGenerationContext, sm_owns_fnonce_captures } :: import("../functions/context.yo");
@@ -1089,10 +1089,27 @@ generate_deferred_drop_expressions :: (
     .None => ()
   )
 );
-/// Emit the evaluator-deferred dup expressions for `expr`.
-generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)(
+/// Is `expr` a closure construction? Its deferred dups are its captures' own
+/// references, which the closure emitter writes into the capture struct's
+/// initializer (`closures.yo`); a site that emits them again retains every
+/// capture a second time
+/// (issues/fixed/2026-10-16-a-closure-returned-from-a-function-retains-its-captures-twice.md).
+is_closure_construction :: (fn(expr : &AstExpr, context : &FunctionGenerationContext) -> bool)(
   match(
     context.base.get_expr_info(expr),
+    .Some(ei) => (
+      expr_info_closure_function_value(&ei).is_some() ||
+        (match(expr_info_is_anonymous_function_definition(&ei), .Some(b) => b, .None => false) && expr_info_capture_type(&ei).is_some())
+    ),
+    .None => false
+  )
+);
+/// Emit the evaluator-deferred dup expressions for `expr`. A closure
+/// construction's are its captures' references, emitted by the closure
+/// emitter alone (`is_closure_construction`).
+generate_deferred_dup_expressions :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> unit)(
+  match(
+    if(is_closure_construction(expr, context), Option(ExprInfo).None, context.base.get_expr_info(expr)),
     .Some(ei) => match(
       expr_info_deferred_dup_expressions(&ei),
       .Some(dups) => {
@@ -1208,10 +1225,7 @@ emit_deferred_dup_or_code :: (fn(expr : &AstExpr, fallback_code : &String, inden
         // (`.Some(values(i))` returned an element with NO +1 — the json
         // object-parse UAF). Closure constructions are excluded (their
         // deferred dups are capture dups emitted by the closure emitters).
-        src_is_closure_ctor := (
-          expr_info_closure_function_value(&ei).is_some() ||
-            (match(expr_info_is_anonymous_function_definition(&ei), .Some(b) => b, .None => false) && expr_info_capture_type(&ei).is_some())
-        );
+        src_is_closure_ctor := is_closure_construction(expr, context);
         (fallback_code_2 : String) = fallback_code.clone();
         if(!src_is_closure_ctor, {
           match(
@@ -1499,6 +1513,7 @@ export(
   generate_dup_code_for_value,
   generate_deferred_drop_expressions,
   generate_deferred_dup_expressions,
+  is_closure_construction,
   generate_arg_code_with_deferred_dups,
   has_pending_emittable_drop,
   emit_deferred_dup_or_code,

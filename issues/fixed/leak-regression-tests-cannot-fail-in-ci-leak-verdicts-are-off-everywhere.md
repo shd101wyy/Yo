@@ -136,7 +136,7 @@ UTC + `workflow_dispatch`, Linux/clang, deliberately NOT a required check —
 the ubsan.yml shape) runs an allowlist of leak-sensitive files
 (`tests/short_circuit_drops.test.yo`, `tests/rc.test.yo`, both in the passing
 set of the 2026-10-02 verdict-on run behind
-`issues/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`) with the
+`issues/fixed/local-leak-verdicts-fail-28-async-tests-ci-cannot-see.md`) with the
 verdict LEFT ON, behind a VACUITY PROBE — a deliberately leaking `.test.yo`
 that must FAIL with `Memory leak detected` before the allowlist step runs, so
 the leg can never pass hollow; the SEED_VERSION pin machinery was extended to

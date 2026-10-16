@@ -46,6 +46,10 @@ DeferredAsyncBlock :: ref(
     result_type : TypeValue,
     result_type_c_name : String,
     capture_type : Option(TypeValue),
+    /// The evaluator's capture dups (`generate_captured_variable_dup_expressions`):
+    /// which implicit captures are copies. A fused await site builds the
+    /// capture after the wrapper's own emission took them off the closure.
+    capture_dups : ArrayList(AstExpr),
     analysis : AwaitAnalysisResult,
     closure_param_slots : Option(ArrayList(ClosureParamSlot)),
     /// The `io.async(...)` call this block lowers (0 for a plain async

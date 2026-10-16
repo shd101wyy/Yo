@@ -981,3 +981,110 @@ test("a capture list and a nested implicit capture of the same name compile", {
   });
   assert(io.await(outer, io) == i32(2), "both state machines ran");
 });
+
+// issues/fixed/2026-10-15-an-io-async-capture-copied-from-a-field-is-dup-ed-twice-when-the-body-awaits-a-future-borrowing-it.md:
+// each capture of an awaiting io.async body takes its reference exactly once.
+// A capture-list entry is a field store the evaluator already decided (a copy
+// carries its own dup, a move none), and the capture builder retained every
+// field a second time on top of it: a renamed copy (`{ ch : self._ch }`, std's
+// `Receiver.recv`) was retained twice, and a moved future (`{ inner }`) once
+// though its owner no longer drops it.
+_CapCh :: struct(_st : Thing);
+impl(
+  _CapCh,
+  get : (fn(self : &Self, io : Io) -> Impl(Future(i32)))(
+    io.async((io : Io) => {
+      y := self._st.n;
+      return(y);
+    })
+  )
+);
+_CapRx :: struct(_ch : _CapCh);
+impl(
+  _CapRx,
+  get : (fn(self : &Self, io : Io) -> Impl(Future(i32)))(
+    io.async({ ch : self._ch }(io : Io) => {
+      got := io.await(ch.get(io), io);
+      got
+    })
+  )
+);
+_cap_field_copy_awaited :: (fn(io : Io) -> i32)({
+  r := _CapRx(_ch : _CapCh(_st : Thing(n : i32(4))));
+  io.await(r.get(io), io)
+});
+_cap_field_copy_dropped :: (fn(io : Io) -> unit)({
+  r := _CapRx(_ch : _CapCh(_st : Thing(n : i32(4))));
+  _f := r.get(io);
+});
+test("a renamed capture copied from a field is retained once when the body awaits through it", {
+  g_disposed = i32(0);
+  assert(_cap_field_copy_awaited(io) == i32(4), "the awaited future reads the field");
+  assert(g_disposed == i32(1), "the Thing is released once the future and its owner are gone");
+  _cap_field_copy_dropped(io);
+  assert(g_disposed == i32(2), "a future dropped unawaited releases its capture too");
+});
+_cap_renamed_param :: (fn(t : Thing, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ m : t }(io : Io) => {
+    io.await(yield(io), io);
+    m.n
+  })
+);
+test("a renamed by-value capture of a parameter or a fresh value is retained once", {
+  g_disposed = i32(0);
+  assert(io.await(_cap_renamed_param(Thing(n : i32(5)), io), io) == i32(5), "the capture reads the parameter");
+  assert(g_disposed == i32(1), "the parameter's Thing is released once");
+  f := io.async({ m : Thing(n : i32(6)) }(io : Io) => {
+    io.await(yield(io), io);
+    m.n
+  });
+  assert(io.await(f, io) == i32(6), "the capture reads the fresh value");
+  assert(g_disposed == i32(2), "the fresh Thing is released once");
+});
+test("a future moved into a capture list is released by the future that owns it", {
+  g_disposed = i32(0);
+  inner := io.async({ t : Thing(n : i32(7)) }(io : Io) => {
+    return(t.n);
+  });
+  outer := io.async({ inner }(io : Io) => {
+    return(io.await(inner, io));
+  });
+  assert(io.await(outer, io) == i32(7), "the awaited value is returned");
+  assert(g_disposed == i32(1), "the inner future, and the Thing it captured, are released");
+});
+test("a future and a copy captured by a nested io.async inside a state machine are each released once", {
+  g_disposed = i32(0);
+  outer := io.async((io : Io) => {
+    s := Thing(n : i32(8));
+    io.await(yield(io), io);
+    th := Thing(n : i32(2));
+    inner := io.async({ th }(io : Io) => {
+      return(th.n);
+    });
+    g := io.async({ inner, s }(io : Io) => {
+      x := io.await(inner, io);
+      (x + s.n)
+    });
+    k := io.await(g, io);
+    (k + s.n)
+  });
+  assert(io.await(outer, io) == i32(18), "both captures are read");
+  assert(g_disposed == i32(2), "the moved future's Thing and the copied Thing are released once each");
+});
+
+// issues/fixed/2026-10-16-an-alias-sharing-its-owners-task-slot-is-retained-but-released-once.md:
+// an alias of a body local (`wb := w`) is stored in its owner's task slot, so
+// the two names hold ONE reference; the binding retained a second one that
+// the shared slot's single release never dropped.
+_AliasW :: struct(t : Thing);
+test("an alias of a local that crosses an await is released with its owner", {
+  g_disposed = i32(0);
+  f := io.async((io : Io) => {
+    w := _AliasW(t : Thing(n : i32(4)));
+    wb := w;
+    io.await(yield(io), io);
+    (w.t.n + wb.t.n)
+  });
+  assert(io.await(f, io) == i32(8), "both names read the one value");
+  assert(g_disposed == i32(1), "the value is released once");
+});

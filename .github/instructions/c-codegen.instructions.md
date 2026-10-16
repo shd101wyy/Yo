@@ -324,6 +324,11 @@ source order.
   and every read of `sb` went through it
   (issues/fixed/an-awaiting-io-async-body-captures-a-local-alias-without-retaining-it.md).
   A field in the SM struct that no state stores into is this class of bug.
+  The alias and its owner are then ONE storage holding one reference: the
+  binding `sb := s` into the owner's own slot emits no dup
+  (`init_assignment.yo`), and the two names' scope-end drops release the slot
+  once (the first zeroes it). A dup there was a reference nothing released
+  (issues/fixed/2026-10-16-an-alias-sharing-its-owners-task-slot-is-retained-but-released-once.md).
 - **A capture is identified by its declaration site, never its name.** The
   capture struct is name-keyed, and a `match` pattern binding may shadow a
   captured name (`.Some(x)` in a body that captures `x`). The re-kind pass asks
@@ -371,6 +376,15 @@ source order.
     with `__yo_free`. Keep this invariant if a pool ever accepts a give from
     another thread (`tests/explicit_allocators.test.yo`, "never to the task
     pool" and "never takes a pooled global block").
+- **The thread-exit release is the teardown of a thread no loop driver ends.**
+  A test body or a plain `main(io)` is driven by synchronous awaits, so
+  `__yo_async_thread_exit_release` (`runtime_core.yo`) is where its pending
+  work is freed or never. It quiesces the cross-thread inbox first, as a loop
+  driver does before its teardown, and it runs a queued `__yo_join_wait_fire`
+  entry even when the wait is already Completed (that entry owns a reference
+  to the wait). A new waiter callback whose payload is not a task needs the
+  same treatment there
+  (issues/fixed/2026-10-16-the-thread-exit-release-leaks-a-join-wait-and-a-waker-token-posted-after-the-last-tick.md).
 - **One `__yo_await_slot`** (a task has at most one pending await) owns an
   anonymous future. `emit_future_store_into_slot` dups a future read out of a
   place (a field chain is borrowed: `issues/fixed/awaiting-a-future-held-in-a-struct-field-releases-it-twice.md`),
@@ -575,6 +589,27 @@ For understanding the compile-time RC ownership model, read `COMPILE_TIME_RC_WIT
 ### Move-only values ride the RC machinery, without dups
 
 A move-only value type (a value `struct`/`enum`/`newtype` with a `Drop` impl, or an aggregate holding one; `type_is_move_only` in `src/types/utils.yo`) makes `type_contains_rc_type` true, so it gets owning temps, scope-end drops and flow joins like an RC value. It never gets a dup: `set_expr_as_needs_to_call_dup` moves every value that is not implicitly copyable (`type_requires_explicit_copy`, today exactly the move-only ones; `transfer_explicit_copy_value`, `src/evaluator/utils.yo`) or rejects the copy (E0901), and a closure capture consumes it. Its drop (`generate_drop_code_for_value`) calls the type's `___dispose` first (a synthesized `(Self <: Drop).drop(self)` when the type has a `Drop` impl — decision 45, `_destructor_method_name` — registered by `collect_dispose_methods` → `_synthesize_and_register_value_dispose`), then drops its fields inline. The synthesized source is `auto-generated://`, which is the one caller E0915 (an explicit destructor call) exempts. Over a `Drop` impl the `___dispose` takes `self : &mut Self`, a pointer in C: `dispose_call_on_value` emits `X(&(value))` (so the destructor's writes reach the storage the inline field drops read), and a reference type's header goes through `dispose_fn_thunk` with the handle's C type, which passes the address of a local holding it (`dispose_function_takes_pointer` decides; a `___dispose` with no user destructor keeps the by-value ABI). A dup of a move-only value reaching codegen is an evaluator bug: find the copy point that skipped the funnel.
+
+### A capture's reference is taken once, by whoever decided it
+
+- **A capture-list entry is a field store.** The evaluator decides it on the
+  entry's initializer (`set_expr_as_needs_to_call_dup`): a copy carries its own
+  deferred dup, a move carries none and consumes its source. The emitter emits
+  the initializer through `emit_deferred_dup_or_code` and takes no other
+  reference (`closures.yo`, and `_build_async_capture_struct_literal` in
+  `exprs/async.yo`).
+- **An implicit capture's copy is the closure's capture dup.** A capture that is
+  not implicitly copyable (`type_requires_explicit_copy`: a future, a waker, a
+  channel half) and has no dup was MOVED, and retaining it leaks it. The
+  `io.async` builder used to retain every field it read by name
+  (issues/fixed/2026-10-15-an-io-async-capture-copied-from-a-field-is-dup-ed-twice-when-the-body-awaits-a-future-borrowing-it.md).
+- **A closure construction's deferred dups belong to the closure emitter.**
+  They are its captures' references, written into the capture struct's
+  initializer. `generate_deferred_dup_expressions` emits nothing for a closure
+  construction (`is_closure_construction`, `drop_dup.yo`), and a site that
+  treats a tail or returned value's dups as a borrowed value's must test it
+  too (`functions/generation.yo`)
+  (issues/fixed/2026-10-16-a-closure-returned-from-a-function-retains-its-captures-twice.md).
 
 ### A hand-written C declaration must be registered, or its drops vanish
 
