@@ -1088,3 +1088,40 @@ test("an alias of a local that crosses an await is released with its owner", {
   assert(io.await(f, io) == i32(8), "both names read the one value");
   assert(g_disposed == i32(1), "the value is released once");
 });
+// issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md:
+// a `downcast` result used as a method receiver or discarded inside an
+// `io.async` body, before and after awaits. Its result temp is declared by the
+// downcast emitter and stored to its task slot, so the scope-end release
+// finds it.
+_DcThing :: ref(struct(n : i32));
+impl(
+  _DcThing,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_disposed = (g_disposed + i32(1));
+    })
+  )
+);
+impl(_DcThing, ToString(to_string : (self -> String.from("thing"))));
+_downcast_across_awaits :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io2 : Io) => {
+    (d : Dyn(ToString)) = dyn(_DcThing(n : i32(1)));
+    (hits : i32) = i32(0);
+    if(downcast(d, _DcThing).is_some(), {
+      hits = (hits + i32(1));
+    });
+    io2.await(yield(io2), io2);
+    if(downcast(d, _DcThing).is_some(), {
+      io2.await(yield(io2), io2);
+      hits = (hits + i32(1));
+    });
+    downcast(d, _DcThing);
+    io2.await(yield(io2), io2);
+    hits
+  })
+);
+test("a downcast receiver inside io.async releases its reference", {
+  before := g_disposed;
+  assert(io.await(_downcast_across_awaits(io), io) == i32(2), "both downcasts see the thing");
+  assert((g_disposed - before) == i32(1), "the thing is released once the task ends");
+});
