@@ -5,6 +5,7 @@
 // (issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md).
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
 _In :: struct(m : i32);
 derive(_In, Copy, Clone);
 _P :: struct(n : i32, inner : _In, arr : Array(i32, 3), pair : Tuple(i32, i32));
@@ -112,4 +113,15 @@ test("a field write through a closure's `&T` parameter is E0908", {
   x := _mk();
   f(&x);
   assert(x.n == i32(0), "unchanged");
+});
+// The place an E0908 names is printed as written: an element place kept its
+// printer's parentheses balanced (`p.ss)(usize(0)` before the fix).
+_Q :: struct(ss : [String ; 1]);
+_write_string_element :: (fn(q : &_Q) -> unit)({
+  comptime_expect_error(q.ss(usize(0)) = String.from("x"), "Cannot write `(q.ss)(usize(0))`");
+});
+test("E0908 names an element place with balanced parentheses", {
+  q := _Q(ss : [String.from("a")]);
+  _write_string_element(&q);
+  assert(q.ss(usize(0)) == String.from("a"), "unchanged");
 });
