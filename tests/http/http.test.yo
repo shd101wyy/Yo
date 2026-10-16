@@ -157,8 +157,8 @@ test("fetch over https returns a real response (mandatory under CI)", {
   // unwound out of the test on every error, so a broken TLS stack passed
   // with no assertion at all
   // (issues/fixed/live-tls-tests-pass-vacuously-when-the-handshake-fails.md).
-  reached := Rc(bool)(false);
-  ok := Rc(bool)(false);
+  reached := rc(RefCell(bool).new(false));
+  ok := rc(RefCell(bool).new(false));
   exn := Exception(
     throw : (
       err -> {
@@ -179,13 +179,17 @@ test("fetch over https returns a real response (mandatory under CI)", {
     )
   );
   resp := io.await(fetch(`https://example.com`.to_string(), io), IoExn(io : io, exn : exn));
-  reached.* = true;
+  reached.with_mut(cur => {
+    cur = true;
+  });
   status_ok := (resp.status == StatusCode.OK());
   body_ok := (resp.body.len() > usize(0));
   good := (status_ok && body_ok);
-  ok.* = good;
+  ok.with_mut(cur => {
+    cur = good;
+  });
   cond(
-    reached.* => assert(ok.*, `expected a 200 with a body over https, got ${resp.status}`),
+    reached.with(cur => cur) => assert(ok.with(cur => cur), `expected a 200 with a body over https, got ${resp.status}`),
     true => assert(true, "skipped: no network")
   );
 });

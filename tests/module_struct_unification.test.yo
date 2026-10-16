@@ -17,6 +17,7 @@
 pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { println } :: import("std/fmt");
+{ RefCell } :: import("std/sync/refcell");
 test("Phase 4c: migrated struct effect record unwind", {
   Raise :: struct(
     raise : (ctl(msg : &String) -> i32)
@@ -136,14 +137,18 @@ test("Phase 4a: given(struct) inside a while-loop, evaluated each iter", {
   step :: (fn(c : &Counter) -> i32)(
     c.next()
   );
-  i := Rc(i32)(0);
-  sum := Rc(i32)(0);
-  while(runtime(i.* < 3), {
+  i := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
+  while(runtime(i.with(cur => cur) < 3), {
     (c : Counter) = Counter(next : (() -> i32(7)));
-    sum.* = (sum.* + step(&c));
-    i.* = (i.* + 1);
+    sum.with_mut(cur => {
+      cur = (cur + step(&c));
+    });
+    i.with_mut(cur => {
+      cur = (cur + 1);
+    });
   });
-  assert(sum.* == 21, "3 iterations × 7 = 21");
+  assert(sum.with(cur => cur) == 21, "3 iterations × 7 = 21");
 });
 test("Phase 4b: given(struct) bound to runtime function-returned value", {
   Counter :: struct(

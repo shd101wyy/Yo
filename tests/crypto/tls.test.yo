@@ -19,6 +19,7 @@ pragma(Pragma.SkipWasm32Wasi); // no network stack in WASM
 { NetError, DnsError } :: import("std/net/errors");
 { arch, Arch } :: import("std/process");
 { env } :: import("std/env");
+{ RefCell } :: import("std/sync/refcell");
 /// True where a TLS failure is a REAL failure rather than "this box has no
 /// egress": GitHub Actions and essentially every other CI sets `CI`.
 ///
@@ -96,8 +97,8 @@ test("live TLS fetch of example.com (mandatory under CI)", {
   // handler unwound out of the test body on EVERY error, so the trailing
   // `cond` was dead code and a broken backend passed with no assertion at
   // all (issues/fixed/live-tls-tests-pass-vacuously-when-the-handshake-fails.md).
-  reached := Rc(bool)(false);
-  ok := Rc(bool)(false);
+  reached := rc(RefCell(bool).new(false));
+  ok := rc(RefCell(bool).new(false));
   exn := Exception(
     throw : (
       err -> {
@@ -119,7 +120,9 @@ test("live TLS fetch of example.com (mandatory under CI)", {
   );
   e := IoExn(io : io, exn : exn);
   s := io.await(TlsStream.connect(`example.com`.to_string(), u16(443), io), e);
-  reached.* = true;
+  reached.with_mut(cur => {
+    cur = true;
+  });
   _n := io.await(s.write_str("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n", io), e);
   buf := ArrayList(u8).with_capacity(usize(4096));
   buf.resize_with_byte(usize(4096), int(0));
@@ -127,7 +130,9 @@ test("live TLS fetch of example.com (mandatory under CI)", {
   cond(
     (n >= usize(12)) => {
       head := String.from_bytes(buf.slice_copy(usize(0) .. usize(12)));
-      ok.* = head.starts_with(`HTTP/1.1`);
+      ok.with_mut(cur => {
+        cur = head.starts_with(`HTTP/1.1`);
+      });
     },
     true => ()
   );
@@ -135,7 +140,7 @@ test("live TLS fetch of example.com (mandatory under CI)", {
   // If we reached the response, it MUST be well-formed; if the handler
   // unwound (offline), reached stays false and the test passes as skipped.
   cond(
-    reached.* => assert(ok.*, "a real HTTP response arrived over TLS"),
+    reached.with(cur => cur) => assert(ok.with(cur => cur), "a real HTTP response arrived over TLS"),
     true => assert(true, "skipped: no network")
   );
 });
