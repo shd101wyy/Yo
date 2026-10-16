@@ -46,9 +46,20 @@ the evaluator's threading. A threaded evaluator (P5) would then act on the
 | `check ./src`, run 2 | 284 s | 99% |
 
 The maintainer's Mac Mini M4: a self-build in under 10 minutes and
-`check ./src` in about 140 s. Single-core speed explains about 1.3× of the gap.
-The rest is being measured: the mimalloc debug-mode A/B and a `perf` profile,
-both in P1.
+`check ./src` in about 140 s.
+
+**Most of the remaining gap was the allocator.** The vendored mimalloc was
+compiled in debug mode on Linux, while macOS links the system allocator. The
+same emitted C was linked both ways and timed on `check ./src` under the
+exclusive lock:
+
+| Allocator build | Run 1 | Run 2 | Max RSS |
+| --- | ---: | ---: | ---: |
+| as shipped, `MI_DEBUG=2` | 594 s (outlier) | 292 s | 1,057 MB |
+| `-DMI_BUILD_RELEASE` | 202.1 s | 202.5 s | 1,060 MB |
+
+With the release build the gap to the M4 is 1.44×, about what single-core speed
+explains. P1.1 is the fix.
 
 **Phase profile of `yo compile src/main.yo --optimize 2 --allocator mimalloc --profile`.**
 This ran with up to five other heavy jobs on the machine, so the absolute
@@ -157,9 +168,9 @@ These are not parallelism, but every later stage divides the time they leave.
    - The fix: add `-DMI_BUILD_RELEASE -DNDEBUG` to `yo compile --allocator mimalloc`
      (`src/main.yo`, "Bundled mimalloc allocator") and to the CI and release
      compile lines that list `static.c`.
-   - The A/B: the same emitted C linked both ways, timed on `check ./src`,
-     interleaved A B A B under the exclusive lock (being measured
-     2026-10-16).
+   - The A/B (§1): 292 s → 202 s on `check ./src`, same memory. **Done on
+     `perf/mimalloc-release-build`**, with a CI guard: the stage-2 step fails
+     when the binary still carries the debug build's assertion message.
    - CI needs no new gate: the memory ratchet's RSS baseline moves, and is
      re-recorded in the same PR.
 2. **Evaluate large literal tables in time linear in their size.**
@@ -314,7 +325,7 @@ time at 8 threads.
 | P1–P3 combined | | ≈ 0.5× time (about 2× faster) |
 | P5 threaded evaluator, at rustc's ratio | ≈ 45% left | up to a further ≈ 0.75× |
 
-P1.1 (release mimalloc) multiplies every row; its factor comes from the A/B.
+P1.1 (release mimalloc) multiplies every row: `check ./src` 292 s → 202 s (§1).
 
 `check ./src` gains only from P1 and P4, because it runs no codegen.
 
