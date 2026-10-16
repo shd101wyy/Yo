@@ -1,15 +1,14 @@
 # `yo fix <path> --migrate explicit-copy` (plans/VALUES_BY_DEFAULT.md V2b,
 # "Unique buffers", Generation A2) spells `.clone()` at every implicit copy of
 # a `String`, a collection or a value holding one whose source stays alive:
-# a local read again, a field read through a borrow, a value struct and an
-# `Option(String)` copied. A last use (a move) and a plain `i32` copy are left
-# alone, and so is a copy whose destination or source is written afterwards
-# (`r2.push_str`, `s1.push_str`): those two may share a buffer on purpose, and
-# the run lists them. A `return` of a place rooted in a `&T` or `&mut T`
-# parameter (`first_name`, `keep`, `all_tags`) is listed too: it leaves the
-# function, and its hand edit is usually a projection (B1 of
-# plans/VALUES_BY_DEFAULT.md's Generation B sequence). The
-# expected_tree pins the rewritten main.yo, and the trailing `check` proves it
-# still evaluates.
+# a local read again, a value struct and an `Option(String)` copied. A last
+# use (a move) and a plain `i32` copy are left alone, and so is a copy whose
+# destination or source is written afterwards (`r2.push_str`, `s1.push_str`):
+# those two may share a buffer on purpose, and the run lists them. A `return`
+# of a place rooted in a `&T` or `&mut T` parameter (`first_name`, `keep`,
+# `all_tags`) is listed too: it leaves the function, and its hand edit is
+# usually a projection (B1 of plans/VALUES_BY_DEFAULT.md's Generation B
+# sequence). The expected_tree pins the rewritten main.yo, and the trailing
+# `check` proves it still evaluates.
 stdout_keep=^fix:
 timeout=240
