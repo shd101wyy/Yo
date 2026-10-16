@@ -239,8 +239,8 @@ _entropy_u64 :: (fn() -> u64)({
 /// the call here was redundant as well as fatal.
 /// Tracked as a codegen defect: the accessor should run an effectful
 /// initializer in a void helper, exactly as the module-init path does.
-(thread_local(_tl_state) : _RngState) = _RngState(state : u64(0), inc : u64(0));
-thread_local(_tl_seeded) := false;
+(thread_local(mut(_tl_state)) : _RngState) = _RngState(state : u64(0), inc : u64(0));
+thread_local(mut(_tl_seeded)) := false;
 /// One 64-bit draw from THIS THREAD's generator, seeding it from OS entropy on
 /// this thread's first call. Everything else in this section is arithmetic on
 /// top of it.
