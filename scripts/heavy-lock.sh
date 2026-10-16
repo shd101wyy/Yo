@@ -8,6 +8,8 @@
 #   heavy_take "<who>: <job>"            # weight 1: may share the machine with other jobs
 #   heavy_take "<who>: <job>" exclusive  # runs alone: timings, A/B, profiles, >5 GB steps
 #                                        # (tests/internal/macro_expansion is 6.5 GB)
+#   heavy_take "<who>: <job>" priority   # queues ahead of every ordinary ticket
+#                                        # (also HEAVY_PRIORITY=1; combines with exclusive)
 #   ... heavy step ...
 #   heavy_drop                           # releases whatever this caller holds
 #
@@ -27,6 +29,13 @@
 #     ~5 GB must take the lock `exclusive`.
 # An exclusive ticket must be the oldest; it claims slots as they free up and
 # runs once it holds all of them (holding some drains the others).
+# A priority ticket (release blockers only) sorts ahead of every ordinary
+# ticket, FIFO among priority tickets, so it takes the next free slot. It never
+# overtakes a live exclusive ticket: that one may already hold some slots while
+# it drains the rest, and a ticket queued ahead of it could neither start beside
+# those slots nor let it finish (the backdating deadlock). The order lives in
+# the ticket NAME, so waiters running an older copy of this script, which sort
+# the same names, honour it too. A running job is never preempted.
 # A slot whose owner line contains EXCLUSIVE, "timed", "A/B", "measure",
 # "profile" or "sample" counts as exclusive, which also covers an
 # old-protocol timing gate that cannot declare a weight.
@@ -124,6 +133,19 @@ _heavy_now_ns() {
   case "$t" in *N) t="${t%N}000000000" ;; esac
   echo "$t"
 }
+# Name of a priority ticket (the caller appends "-<pid>"). Ordinary tickets are
+# _heavy_now_ns, 19 digits starting with 1 (until 2033), so "0" + now sorts
+# ahead of all of them under any collation. Behind a live exclusive ticket the
+# name is that ticket's own plus a suffix, which sorts right after it and ahead
+# of every ordinary ticket queued later.
+_heavy_priority_name() {
+  local t last_excl=""
+  for t in $(ls "$HEAVY_QUEUE" 2>/dev/null | sort); do
+    kill -0 "${t##*-}" 2>/dev/null || continue
+    grep -q '^weight=2$' "$HEAVY_QUEUE/$t" 2>/dev/null && last_excl="$t"
+  done
+  if [ -n "$last_excl" ]; then echo "$last_excl.p$(_heavy_now_ns)"; else echo "0$(_heavy_now_ns)"; fi
+}
 _heavy_slot_exclusive() {
   grep -qiE 'EXCLUSIVE|timed|A/B|measure|profile|sample' "$1/owner" 2>/dev/null
 }
@@ -136,11 +158,20 @@ _heavy_claim() {
 }
 
 heavy_take() {
-  local who="$1" weight=1
-  [ "${2:-}" = exclusive ] && weight=2 && who="$who [EXCLUSIVE]"
+  local who="$1" weight=1 prio="${HEAVY_PRIORITY:-0}" arg
+  shift
+  for arg in "$@"; do
+    case "$arg" in exclusive) weight=2 ;; priority) prio=1 ;; esac
+  done
+  [ $weight = 2 ] && who="$who [EXCLUSIVE]"
+  [ "$prio" = 1 ] && who="$who [PRIORITY]"
   mkdir -p "$HEAVY_QUEUE"
   local ticket_name ticket
-  ticket_name="$(_heavy_now_ns)-$$"
+  if [ "$prio" = 1 ]; then
+    ticket_name="$(_heavy_priority_name)-$$"
+  else
+    ticket_name="$(_heavy_now_ns)-$$"
+  fi
   ticket="$HEAVY_QUEUE/$ticket_name"
   printf '%s\nweight=%s\n' "$who" "$weight" > "$ticket"
   HEAVY_HELD_SLOTS=""
