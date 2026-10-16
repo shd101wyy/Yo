@@ -100,22 +100,22 @@ _GEN_LIMIT :: (usize(1) << _INDEX_BITS);
 // them) and every chunk entry are written once, under `_pool_mutex`, before
 // any index that reaches them is handed out.
 _CHUNK0 :: usize(16);
-_dir := Option(*void).None;
+mut(_dir) := Option(*void).None;
 // States created so far: the highest index in use.
-_states := usize(0);
+mut(_states) := usize(0);
 // Dead states, reused by the next `Arena.new`. Reachable from a global, so
 // they are never reported as leaks; bounded by the peak number of arenas alive
 // at once.
 _pool_mutex := __yo_mutex_create();
-_pool := Option(*void).None;
+mut(_pool) := Option(*void).None;
 // Abandoned states (and, through them, their regions): kept reachable on
 // purpose, since an abandoned arena lives as long as the process.
-_abandoned := Option(*void).None;
+mut(_abandoned) := Option(*void).None;
 // Under `--debug-heap` only: arenas neither deinit nor abandoned, for the exit
 // report. Off otherwise, so a leaked arena stays unreachable and LSan still
 // reports its region.
-_live := Option(*void).None;
-_reporter_installed := false;
+mut(_live) := Option(*void).None;
+mut(_reporter_installed) := false;
 _round_up :: (fn(n : usize) -> usize)((((n + _ALIGN) - usize(1)) / _ALIGN) * _ALIGN);
 // The chunk holding `index`: floor(log2((index - 1) / _CHUNK0 + 1)).
 _chunk_of :: (fn(index : usize) -> usize)({
