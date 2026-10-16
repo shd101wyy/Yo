@@ -2,6 +2,7 @@
 { String } :: import("std/string");
 { ToString, println } :: import("std/fmt");
 { Error, AnyError, Exception, ResumableException } :: import("std/error");
+{ RefCell } :: import("std/sync/refcell");
 test("Test String as Error via AnyError", {
   (err : AnyError) = dyn(`something went wrong`);
   // Downcast back to String and check the message
@@ -217,16 +218,18 @@ test("Exception install-point clears __yo_effect_escaped after unwind", {
     _r := do_throw(local_exn);
     true
   });
-  reached_after := Rc(i32)(0);
+  reached_after := rc(RefCell(i32).new(0));
   r1 := call_with_local();
   // call_with_local must return false (the unwind value), not its default.
   assert(r1 == false, "install point should yield the unwind value");
   // Code after the install fn must actually execute — i.e. the flag was
   // cleared at the install point and did NOT propagate further.
-  reached_after.* = i32(1);
+  reached_after.with_mut(cur => {
+    cur = i32(1);
+  });
   r2 := call_with_local();
   assert(r2 == false, "second call must also unwind cleanly");
-  assert(reached_after.* == i32(1), "post-install code must run");
+  assert(reached_after.with(cur => cur) == i32(1), "post-install code must run");
 });
 
 // Regression (issues/retired/codegen-dead-code-after-exn-throw.md): a

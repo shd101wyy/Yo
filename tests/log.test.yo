@@ -6,6 +6,7 @@
 pragma(Pragma.AllowUnsafe);
 { assert } :: import("std/assert");
 log :: import("std/log");
+{ RefCell } :: import("std/sync/refcell");
 import("std/string");
 
 test("level filtering incl. Off", {
@@ -23,18 +24,22 @@ test("level filtering incl. Off", {
 });
 test("lazy closures run only when the level admits them", {
   log.set_level(log.Level.Error);
-  filtered := Rc(bool)(false);
+  filtered := rc(RefCell(bool).new(false));
   log.info_lazy(() => {
-    filtered.* = true;
+    filtered.with_mut(cur => {
+      cur = true;
+    });
     `should not build`.to_string()
   });
-  assert(!(filtered.*), "below-level lazy closure is skipped");
-  emitted := Rc(bool)(false);
+  assert(!(filtered.with(cur => cur)), "below-level lazy closure is skipped");
+  emitted := rc(RefCell(bool).new(false));
   log.error_lazy(() => {
-    emitted.* = true;
+    emitted.with_mut(cur => {
+      cur = true;
+    });
     `built`.to_string()
   });
-  assert(emitted.*, "at-or-above-level lazy closure runs");
+  assert(emitted.with(cur => cur), "at-or-above-level lazy closure runs");
 });
 test("generic ToString messages and targets compile and emit", {
   log.set_level(log.Level.Trace);

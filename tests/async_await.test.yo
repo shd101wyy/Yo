@@ -84,40 +84,44 @@ test("a synchronous await leaves no pooled continuation node behind", {
 // 1. Basic lazy async – verify task doesn't run until awaited
 // ---------------------------------------------------------------------------
 test("Test lazy async", {
-  b := Rc(i32)(0);
+  b := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    unsafe(printf("Task started %d\n", b.*));
+    unsafe(printf("Task started %d\n", b.with(cur => cur)));
     c := Rc(i32)(10);
-    b.* = (b.* + 1);
+    b.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    unsafe(printf("Task completed %d\n", b.*));
+    unsafe(printf("Task completed %d\n", b.with(cur => cur)));
     assert(c.* == 10, "captured Rc should still be 10");
   });
   // With lazy execution, task hasn't started yet
-  unsafe(printf("Running main... %d\n", b.*));
-  assert(b.* == 0, "b should be 0 before await (lazy)");
+  unsafe(printf("Running main... %d\n", b.with(cur => cur)));
+  assert(b.with(cur => cur) == 0, "b should be 0 before await (lazy)");
   io.await(task, io);
-  assert(b.* == 1, "b should be 1 after task completes");
+  assert(b.with(cur => cur) == 1, "b should be 1 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 2. Async function returning a value
 // ---------------------------------------------------------------------------
 test("Test async function", {
-  bb := Rc(i32)(0);
+  bb := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    unsafe(printf("Task started %d\n", bb.*));
-    assert(bb.* == 0, "b should be 0");
+    unsafe(printf("Task started %d\n", bb.with(cur => cur)));
+    assert(bb.with(cur => cur) == 0, "b should be 0");
     c := Rc(i32)(10);
-    bb.* = (bb.* + 1);
+    bb.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    unsafe(printf("Task completed %d\n", bb.*));
+    unsafe(printf("Task completed %d\n", bb.with(cur => cur)));
     assert(c.* == 10, "c should be 10");
-    return(bb.*);
+    return(bb.with(cur => cur));
   });
-  unsafe(printf("Running main... %d\n", bb.*));
-  assert(bb.* == 0, "bb should be 0 before await (lazy)");
+  unsafe(printf("Running main... %d\n", bb.with(cur => cur)));
+  assert(bb.with(cur => cur) == 0, "bb should be 0 before await (lazy)");
   result := io.await(task, io);
-  assert(bb.* == 1, "bb should be 1 after task completes");
+  assert(bb.with(cur => cur) == 1, "bb should be 1 after task completes");
   assert(result == i32(1), "result should be 1");
 });
 test("Test async function returns Future with captured local", {
@@ -129,22 +133,30 @@ test("Test async function returns Future with captured local", {
 // 3. Multiple sequential awaits
 // ---------------------------------------------------------------------------
 test("Test multiple sequential awaits", {
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    counter.* = (counter.* + 1);
-    assert(counter.* == 1, "after first increment");
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
+    assert(counter.with(cur => cur) == 1, "after first increment");
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
-    assert(counter.* == 2, "after second increment");
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
+    assert(counter.with(cur => cur) == 2, "after second increment");
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
-    assert(counter.* == 3, "after third increment");
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
+    assert(counter.with(cur => cur) == 3, "after third increment");
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
-    assert(counter.* == 4, "after fourth increment");
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
+    assert(counter.with(cur => cur) == 4, "after fourth increment");
   });
   io.await(task, io);
-  assert(counter.* == i32(4), "counter should be 4 after task completes");
+  assert(counter.with(cur => cur) == i32(4), "counter should be 4 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 4. Cond with await in one branch only (the non-await branch taken)
@@ -152,23 +164,27 @@ test("Test multiple sequential awaits", {
 // ---------------------------------------------------------------------------
 test("Test cond with await in one branch - non-await path", {
   flag := Rc(bool)(false);
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     value := i32(42);
     cond(
       flag.* => {
         io.await(yield(io), io);
-        result.* = i32(1);
+        result.with_mut(cur => {
+          cur = i32(1);
+        });
       },
       true => {
-        result.* = value;
+        result.with_mut(cur => {
+          cur = value;
+        });
       }
     );
-    assert(result.* == i32(42), "non-await branch should have set result to 42");
+    assert(result.with(cur => cur) == i32(42), "non-await branch should have set result to 42");
   });
-  assert(result.* == i32(0), "result should be 0 before await (lazy)");
+  assert(result.with(cur => cur) == i32(0), "result should be 0 before await (lazy)");
   io.await(task, io);
-  assert(result.* == i32(42), "result should be 42 after task completes");
+  assert(result.with(cur => cur) == i32(42), "result should be 42 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 5. Cond with await in one branch only (the await branch taken)
@@ -178,23 +194,27 @@ test("Test cond with await in one branch - non-await path", {
 // ---------------------------------------------------------------------------
 test("Test cond with await in one branch - await path", {
   flag := Rc(bool)(true);
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     value := i32(99);
     cond(
       flag.* => {
         io.await(yield(io), io);
-        result.* = value;
+        result.with_mut(cur => {
+          cur = value;
+        });
       },
       true => {
-        result.* = i32(0);
+        result.with_mut(cur => {
+          cur = i32(0);
+        });
       }
     );
-    assert(result.* == i32(99), "await branch should have set result to 99");
+    assert(result.with(cur => cur) == i32(99), "await branch should have set result to 99");
   });
-  assert(result.* == i32(0), "result should still be 0 before task resumes");
+  assert(result.with(cur => cur) == i32(0), "result should still be 0 before task resumes");
   io.await(task, io);
-  assert(result.* == i32(99), "result should be 99 after task completes");
+  assert(result.with(cur => cur) == i32(99), "result should be 99 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 6. Cond with await in BOTH branches – true branch taken
@@ -202,60 +222,70 @@ test("Test cond with await in one branch - await path", {
 // ---------------------------------------------------------------------------
 test("Test cond with await in both branches", {
   flag := Rc(bool)(true);
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     cond(
       flag.* => {
         io.await(yield(io), io);
-        result.* = i32(10);
+        result.with_mut(cur => {
+          cur = i32(10);
+        });
       },
       true => {
         io.await(yield(io), io);
-        result.* = i32(20);
+        result.with_mut(cur => {
+          cur = i32(20);
+        });
       }
     );
-    assert(result.* == i32(10), "true branch should have set result to 10");
+    assert(result.with(cur => cur) == i32(10), "true branch should have set result to 10");
   });
-  assert(result.* == i32(0), "result should still be 0 before task resumes");
+  assert(result.with(cur => cur) == i32(0), "result should still be 0 before task resumes");
   io.await(task, io);
-  assert(result.* == i32(10), "result should be 10 after task completes");
+  assert(result.with(cur => cur) == i32(10), "result should be 10 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 7. Cond with await in both branches – false branch taken
 // ---------------------------------------------------------------------------
 test("Test cond with await in both branches - false path", {
   flag := Rc(bool)(false);
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     cond(
       flag.* => {
         io.await(yield(io), io);
-        result.* = i32(10);
+        result.with_mut(cur => {
+          cur = i32(10);
+        });
       },
       true => {
         io.await(yield(io), io);
-        result.* = i32(20);
+        result.with_mut(cur => {
+          cur = i32(20);
+        });
       }
     );
-    assert(result.* == i32(20), "false branch should have set result to 20");
+    assert(result.with(cur => cur) == i32(20), "false branch should have set result to 20");
   });
-  assert(result.* == i32(0), "result should still be 0 before task resumes");
+  assert(result.with(cur => cur) == i32(0), "result should still be 0 before task resumes");
   io.await(task, io);
-  assert(result.* == i32(20), "result should be 20 after task completes");
+  assert(result.with(cur => cur) == i32(20), "result should be 20 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 8. Early return from async block (no value)
 // ---------------------------------------------------------------------------
 test("Test early return from async block", {
   reached_end := Rc(bool)(false);
-  reached_middle := Rc(bool)(false);
+  reached_middle := rc(RefCell(bool).new(false));
   task := io.async((io : Io) => {
-    reached_middle.* = true;
+    reached_middle.with_mut(cur => {
+      cur = true;
+    });
     return;
   });
-  assert(reached_middle.* == false, "should not have reached middle before await (lazy)");
+  assert(reached_middle.with(cur => cur) == false, "should not have reached middle before await (lazy)");
   io.await(task, io);
-  assert(reached_middle.* == true, "should have reached middle after await");
+  assert(reached_middle.with(cur => cur) == true, "should have reached middle after await");
   assert(reached_end.* == false, "should NOT have reached end");
 });
 // ---------------------------------------------------------------------------
@@ -264,71 +294,85 @@ test("Test early return from async block", {
 // ---------------------------------------------------------------------------
 test("Test early return from cond branch in async", {
   flag := Rc(bool)(true);
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     s := Rc(i32)(100);
     cond(
       flag.* => {
         io.await(yield(io), io);
-        result.* = s.*;
+        result.with_mut(cur => {
+          cur = s.*;
+        });
         return;
       },
       true => ()
     );
-    result.* = i32(999);
+    result.with_mut(cur => {
+      cur = i32(999);
+    });
   });
-  assert(result.* == i32(0), "result should still be 0 before task resumes");
+  assert(result.with(cur => cur) == i32(0), "result should still be 0 before task resumes");
   io.await(task, io);
-  assert(result.* == i32(100), "early return should have set result to 100");
+  assert(result.with(cur => cur) == i32(100), "early return should have set result to 100");
 });
 // ---------------------------------------------------------------------------
 // 10. Early return from non-await cond branch inside async
 // ---------------------------------------------------------------------------
 test("Test early return from non-await cond branch in async", {
   flag := Rc(bool)(true);
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     s := Rc(i32)(200);
     cond(
       flag.* => {
-        result.* = s.*;
+        result.with_mut(cur => {
+          cur = s.*;
+        });
         return;
       },
       true => {
         io.await(yield(io), io);
       }
     );
-    result.* = i32(999);
+    result.with_mut(cur => {
+      cur = i32(999);
+    });
   });
-  assert(result.* == i32(0), "result should be 0 before await (lazy)");
+  assert(result.with(cur => cur) == i32(0), "result should be 0 before await (lazy)");
   io.await(task, io);
-  assert(result.* == i32(200), "early return from non-await branch should set result to 200");
+  assert(result.with(cur => cur) == i32(200), "early return from non-await branch should set result to 200");
 });
 // ---------------------------------------------------------------------------
 // 11. Captured Rc variables across multiple await points
 // ---------------------------------------------------------------------------
 test("Test captured Rc across multiple awaits", {
-  a := Rc(i32)(1);
-  b := Rc(i32)(2);
-  c := Rc(i32)(3);
+  a := rc(RefCell(i32).new(1));
+  b := rc(RefCell(i32).new(2));
+  c := rc(RefCell(i32).new(3));
   task := io.async((io : Io) => {
-    assert(a.* == 1, "a should be 1");
-    assert(b.* == 2, "b should be 2");
-    assert(c.* == 3, "c should be 3");
+    assert(a.with(cur => cur) == 1, "a should be 1");
+    assert(b.with(cur => cur) == 2, "b should be 2");
+    assert(c.with(cur => cur) == 3, "c should be 3");
     io.await(yield(io), io);
-    a.* = (a.* + 10);
-    assert(a.* == 11, "a should be 11 after increment");
+    a.with_mut(cur => {
+      cur = (cur + 10);
+    });
+    assert(a.with(cur => cur) == 11, "a should be 11 after increment");
     io.await(yield(io), io);
-    b.* = (b.* + 20);
-    assert(b.* == 22, "b should be 22 after increment");
+    b.with_mut(cur => {
+      cur = (cur + 20);
+    });
+    assert(b.with(cur => cur) == 22, "b should be 22 after increment");
     io.await(yield(io), io);
-    c.* = (c.* + 30);
-    assert(c.* == 33, "c should be 33 after increment");
+    c.with_mut(cur => {
+      cur = (cur + 30);
+    });
+    assert(c.with(cur => cur) == 33, "c should be 33 after increment");
   });
   io.await(task, io);
-  assert(a.* == i32(11), "a should be 11 after task completes");
-  assert(b.* == i32(22), "b should be 22 after task completes");
-  assert(c.* == i32(33), "c should be 33 after task completes");
+  assert(a.with(cur => cur) == i32(11), "a should be 11 after task completes");
+  assert(b.with(cur => cur) == i32(22), "b should be 22 after task completes");
+  assert(c.with(cur => cur) == i32(33), "c should be 33 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 12. Async function returning value through cond branches
@@ -359,40 +403,46 @@ test("Test async function return through cond", {
 // 13. While loop with await inside
 // ---------------------------------------------------------------------------
 test("Test while loop with await", {
-  counter := Rc(i32)(0);
-  iterations := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  iterations := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(5)), {
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(5)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
-      iterations.* = (iterations.* + 1);
+      iterations.with_mut(cur => {
+        cur = (cur + 1);
+      });
     });
   });
-  assert(counter.* == i32(0), "counter should be 0 before await (lazy)");
+  assert(counter.with(cur => cur) == i32(0), "counter should be 0 before await (lazy)");
   io.await(task, io);
-  assert(counter.* == i32(5), "counter should be 5 after task completes");
-  assert(iterations.* == i32(5), "iterations should be 5 after task completes");
+  assert(counter.with(cur => cur) == i32(5), "counter should be 5 after task completes");
+  assert(iterations.with(cur => cur) == i32(5), "iterations should be 5 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 14. While loop with break after await
 // ---------------------------------------------------------------------------
 test("Test while loop with break after await", {
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     while(runtime(true), {
-      counter.* = (counter.* + 1);
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
       cond(
-        (counter.* >= i32(3)) => {
+        (counter.with(cur => cur) >= i32(3)) => {
           break;
         },
         true => ()
       );
     });
   });
-  assert(counter.* == i32(0), "counter should be 0 before await (lazy)");
+  assert(counter.with(cur => cur) == i32(0), "counter should be 0 before await (lazy)");
   io.await(task, io);
-  assert(counter.* == i32(3), "counter should be 3 after break");
+  assert(counter.with(cur => cur) == i32(3), "counter should be 3 after break");
 });
 // ---------------------------------------------------------------------------
 // 15. Nested cond with await at different levels
@@ -400,52 +450,66 @@ test("Test while loop with break after await", {
 test("Test nested cond with await", {
   outer_flag := Rc(bool)(true);
   inner_flag := Rc(bool)(true);
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     cond(
       outer_flag.* => {
         io.await(yield(io), io);
         cond(
           inner_flag.* => {
-            result.* = i32(42);
+            result.with_mut(cur => {
+              cur = i32(42);
+            });
           },
           true => {
-            result.* = i32(0);
+            result.with_mut(cur => {
+              cur = i32(0);
+            });
           }
         );
       },
       true => {
-        result.* = i32(-1);
+        result.with_mut(cur => {
+          cur = i32(-1);
+        });
       }
     );
-    assert(result.* == i32(42), "nested cond should set result to 42");
+    assert(result.with(cur => cur) == i32(42), "nested cond should set result to 42");
   });
-  assert(result.* == i32(0), "result should still be 0 before task resumes");
+  assert(result.with(cur => cur) == i32(0), "result should still be 0 before task resumes");
   io.await(task, io);
-  assert(result.* == i32(42), "result should be 42 after task completes");
+  assert(result.with(cur => cur) == i32(42), "result should be 42 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 16. Lazy sequential async tasks – verify no interleaving without spawn
 //     With lazy execution, await task1 fully completes before task2 starts.
 // ---------------------------------------------------------------------------
 test("Test lazy sequential async tasks", {
-  order := Rc(i32)(0);
+  order := rc(RefCell(i32).new(0));
   task1 := io.async((io : Io) => {
-    order.* = i32(1);
+    order.with_mut(cur => {
+      cur = i32(1);
+    });
     io.await(yield(io), io);
-    order.* = i32(2);
+    order.with_mut(cur => {
+      cur = i32(2);
+    });
   });
   task2 := io.async((io : Io) => {
-    order.* = i32(3);
+    order.with_mut(cur => {
+      cur = i32(3);
+    });
     io.await(yield(io), io);
-    order.* = i32(4);
+    order.with_mut(cur => {
+      cur = i32(4);
+    });
   });
   // With lazy execution, neither task has started
-  assert(order.* == i32(0), "order should be 0 before any awaits (lazy)");
+  assert(order.with(cur => cur) == i32(0), "order should be 0 before any awaits (lazy)");
   io.await(task1, io);
-  assert(order.* == i32(2), "task1 should fully complete before task2 starts");
+  assert(order.with(cur => cur) == i32(2), "task1 should fully complete before task2 starts");
   io.await(task2, io);
-  assert(order.* == i32(4), "task2 should fully complete after task1");
+  assert(order.with(cur => cur) == i32(4), "task2 should fully complete after task1");
 });
 // ---------------------------------------------------------------------------
 // 17. Async block with local allocations that must be dropped
@@ -467,16 +531,18 @@ test("Test async block drops local allocations", {
 // ---------------------------------------------------------------------------
 test("Test async function with multiple awaits and early return", {
   task := io.async((io : Io) => {
-    i := Rc(i32)(0);
-    while(runtime(i.* < i32(10)), {
+    i := rc(RefCell(i32).new(0));
+    while(runtime(i.with(cur => cur) < i32(10)), {
       io.await(yield(io), io);
       cond(
-        (i.* == i32(5)) => {
-          return(i.*);
+        (i.with(cur => cur) == i32(5)) => {
+          return(i.with(cur => cur));
         },
         true => ()
       );
-      i.* = (i.* + 1);
+      i.with_mut(cur => {
+        cur = (cur + 1);
+      });
     });
     return(i32(-1));
   });
@@ -490,7 +556,7 @@ test("Test async function with multiple awaits and early return", {
 // ---------------------------------------------------------------------------
 test("Test code after cond with await", {
   flag := Rc(bool)(true);
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     x := i32(10);
     cond(
@@ -500,19 +566,21 @@ test("Test code after cond with await", {
       },
       true => ()
     );
-    result.* = x;
-    assert(result.* == i32(20), "code after cond should see updated x");
+    result.with_mut(cur => {
+      cur = x;
+    });
+    assert(result.with(cur => cur) == i32(20), "code after cond should see updated x");
   });
-  assert(result.* == i32(0), "result should still be 0 before task resumes");
+  assert(result.with(cur => cur) == i32(0), "result should still be 0 before task resumes");
   io.await(task, io);
-  assert(result.* == i32(20), "result should be 20 after task completes");
+  assert(result.with(cur => cur) == i32(20), "result should be 20 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 20. Cond with await – non-await branch, then code after cond
 // ---------------------------------------------------------------------------
 test("Test code after cond with await - non-await path", {
   flag := Rc(bool)(false);
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     x := i32(10);
     cond(
@@ -524,11 +592,13 @@ test("Test code after cond with await - non-await path", {
         x = i32(30);
       }
     );
-    result.* = x;
+    result.with_mut(cur => {
+      cur = x;
+    });
   });
-  assert(result.* == i32(0), "result should be 0 before await (lazy)");
+  assert(result.with(cur => cur) == i32(0), "result should be 0 before await (lazy)");
   io.await(task, io);
-  assert(result.* == i32(30), "non-await path should set x to 30");
+  assert(result.with(cur => cur) == i32(30), "non-await path should set x to 30");
 });
 // ---------------------------------------------------------------------------
 // 21. Multiple cond expressions with await in sequence
@@ -540,7 +610,7 @@ test("Test code after cond with await - non-await path", {
 test("Test sequential conds with await", {
   a_flag := Rc(bool)(true);
   b_flag := Rc(bool)(false);
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     x := i32(0);
     cond(
@@ -561,55 +631,79 @@ test("Test sequential conds with await", {
         x = (x + i32(2));
       }
     );
-    result.* = x;
-    assert(result.* == i32(12), "10 from first cond + 2 from second cond");
+    result.with_mut(cur => {
+      cur = x;
+    });
+    assert(result.with(cur => cur) == i32(12), "10 from first cond + 2 from second cond");
   });
-  assert(result.* == i32(0), "result should still be 0 before task resumes");
+  assert(result.with(cur => cur) == i32(0), "result should still be 0 before task resumes");
   io.await(task, io);
-  assert(result.* == i32(12), "result should be 12 after task completes");
+  assert(result.with(cur => cur) == i32(12), "result should be 12 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 22. Async block completing without any awaits (degenerate case)
 // ---------------------------------------------------------------------------
 test("Test async block with no awaits", {
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.* = i32(42);
+    result.with_mut(cur => {
+      cur = i32(42);
+    });
   });
-  assert(result.* == i32(0), "result should be 0 before await (lazy)");
+  assert(result.with(cur => cur) == i32(0), "result should be 0 before await (lazy)");
   io.await(task, io);
-  assert(result.* == i32(42), "sync-completing async block should work after await");
+  assert(result.with(cur => cur) == i32(42), "sync-completing async block should work after await");
 });
 // ---------------------------------------------------------------------------
 // 23. Deeply nested awaits (stress test for state machine)
 // ---------------------------------------------------------------------------
 test("Test many sequential awaits", {
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
   });
-  assert(counter.* == i32(0), "counter should be 0 before task resumes");
+  assert(counter.with(cur => cur) == i32(0), "counter should be 0 before task resumes");
   io.await(task, io);
-  assert(counter.* == i32(10), "counter should be 10 after task completes");
+  assert(counter.with(cur => cur) == i32(10), "counter should be 10 after task completes");
 });
 // ---------------------------------------------------------------------------
 // 24. Continue in async while loop (after await)
@@ -617,12 +711,14 @@ test("Test many sequential awaits", {
 //     sum should equal 0+2+4+6+8 = 20.
 // ---------------------------------------------------------------------------
 test("Test continue in async while loop", {
-  sum := Rc(i32)(0);
-  counter := Rc(i32)(0);
+  sum := rc(RefCell(i32).new(0));
+  counter := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(10)), {
-      i := counter.*;
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(10)), {
+      i := counter.with(cur => cur);
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
       cond(
         ((i % i32(2)) != i32(0)) => {
@@ -630,35 +726,41 @@ test("Test continue in async while loop", {
         },
         true => ()
       );
-      sum.* = (sum.* + i);
+      sum.with_mut(cur => {
+        cur = (cur + i);
+      });
     });
   });
   io.await(task, io);
-  assert(sum.* == i32(20), "sum of even numbers 0..9 should be 20");
+  assert(sum.with(cur => cur) == i32(20), "sum of even numbers 0..9 should be 20");
 });
 // ---------------------------------------------------------------------------
 // 25. Break from nested cond inside async while loop (after await)
 //     Loop until counter reaches 5, then break from within a cond.
 // ---------------------------------------------------------------------------
 test("Test break from cond in async while loop", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     while(runtime(true), {
       io.await(yield(io), io);
-      counter.* = (counter.* + 1);
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       cond(
-        (counter.* >= i32(5)) => {
+        (counter.with(cur => cur) >= i32(5)) => {
           break;
         },
         true => ()
       );
-      sum.* = (sum.* + counter.*);
+      sum.with_mut(cur_ => {
+        cur_ = (cur_ + counter.with(cur => cur));
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(5), "counter should be 5 after break");
-  assert(sum.* == i32(10), "sum should be 1+2+3+4 = 10");
+  assert(counter.with(cur => cur) == i32(5), "counter should be 5 after break");
+  assert(sum.with(cur => cur) == i32(10), "sum should be 1+2+3+4 = 10");
 });
 // ---------------------------------------------------------------------------
 // 26. Continue skips rest of body but keeps looping (after await)
@@ -666,24 +768,28 @@ test("Test break from cond in async while loop", {
 //     without adding to sum. sum should be 1+2+4+5+6+8+9+10 = 45.
 // ---------------------------------------------------------------------------
 test("Test continue skips body after await", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(10)), {
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(10)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
       cond(
-        ((counter.* == i32(3)) || (counter.* == i32(7))) => {
+        ((counter.with(cur => cur) == i32(3)) || (counter.with(cur => cur) == i32(7))) => {
           continue;
         },
         true => ()
       );
-      sum.* = (sum.* + counter.*);
+      sum.with_mut(cur_ => {
+        cur_ = (cur_ + counter.with(cur => cur));
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(10), "counter should be 10");
-  assert(sum.* == i32(45), "sum should be 55-3-7 = 45");
+  assert(counter.with(cur => cur) == i32(10), "counter should be 10");
+  assert(sum.with(cur => cur) == i32(45), "sum should be 55-3-7 = 45");
 });
 // ---------------------------------------------------------------------------
 // 27. Break with local Rc allocation (must be dropped, no leak)
@@ -691,14 +797,16 @@ test("Test continue skips body after await", {
 //     AddressSanitizer will catch leaks.
 // ---------------------------------------------------------------------------
 test("Test break drops local allocations in async while loop", {
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     while(runtime(true), {
-      temp := Rc(i32)(counter.*);
+      temp := Rc(i32)(counter.with(cur => cur));
       io.await(yield(io), io);
-      counter.* = (temp.* + 1);
+      counter.with_mut(cur => {
+        cur = (temp.* + 1);
+      });
       cond(
-        (counter.* >= i32(3)) => {
+        (counter.with(cur => cur) >= i32(3)) => {
           break;
         },
         true => ()
@@ -706,19 +814,21 @@ test("Test break drops local allocations in async while loop", {
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(3), "counter should be 3 after break");
+  assert(counter.with(cur => cur) == i32(3), "counter should be 3 after break");
 });
 // ---------------------------------------------------------------------------
 // 28. Continue with local Rc allocation (must be dropped, no leak)
 //     Allocate an Rc each iteration; continue on even iterations.
 // ---------------------------------------------------------------------------
 test("Test continue drops local allocations in async while loop", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(6)), {
-      counter.* = (counter.* + 1);
-      temp := Rc(i32)(counter.*);
+    while(runtime(counter.with(cur => cur) < i32(6)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
+      temp := Rc(i32)(counter.with(cur => cur));
       io.await(yield(io), io);
       cond(
         ((temp.* % i32(2)) == i32(0)) => {
@@ -726,50 +836,58 @@ test("Test continue drops local allocations in async while loop", {
         },
         true => ()
       );
-      sum.* = (sum.* + temp.*);
+      sum.with_mut(cur => {
+        cur = (cur + temp.*);
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(6), "counter should be 6");
-  assert(sum.* == i32(9), "sum of odd 1+3+5 = 9");
+  assert(counter.with(cur => cur) == i32(6), "counter should be 6");
+  assert(sum.with(cur => cur) == i32(9), "sum of odd 1+3+5 = 9");
 });
 // ---------------------------------------------------------------------------
 // 29. Break before first await in loop body
 //     Local allocation happens before break check; break path should drop it.
 // ---------------------------------------------------------------------------
 test("Test break before first await in async while loop", {
-  counter := Rc(i32)(0);
-  resumed := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  resumed := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     while(runtime(true), {
-      temp := Rc(i32)(counter.*);
+      temp := Rc(i32)(counter.with(cur => cur));
       cond(
-        (counter.* >= i32(3)) => {
+        (counter.with(cur => cur) >= i32(3)) => {
           break;
         },
         true => ()
       );
-      counter.* = (temp.* + 1);
+      counter.with_mut(cur => {
+        cur = (temp.* + 1);
+      });
       io.await(yield(io), io);
-      resumed.* = (resumed.* + 1);
+      resumed.with_mut(cur => {
+        cur = (cur + 1);
+      });
     });
   });
-  assert(counter.* == i32(0), "counter should be 0 before await (lazy)");
+  assert(counter.with(cur => cur) == i32(0), "counter should be 0 before await (lazy)");
   io.await(task, io);
-  assert(counter.* == i32(3), "counter should stop at 3 via pre-await break");
-  assert(resumed.* == i32(3), "resumed should count exactly 3 awaited iterations");
+  assert(counter.with(cur => cur) == i32(3), "counter should stop at 3 via pre-await break");
+  assert(resumed.with(cur => cur) == i32(3), "resumed should count exactly 3 awaited iterations");
 });
 // ---------------------------------------------------------------------------
 // 30. Continue before first await in loop body
 //     Even snapshots continue without suspension; odd snapshots await and count.
 // ---------------------------------------------------------------------------
 test("Test continue before first await in async while loop", {
-  counter := Rc(i32)(0);
-  odd_resumed := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  odd_resumed := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(6)), {
-      snapshot := Rc(i32)(counter.*);
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(6)), {
+      snapshot := Rc(i32)(counter.with(cur => cur));
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       cond(
         ((snapshot.* % i32(2)) == i32(0)) => {
           continue;
@@ -777,136 +895,164 @@ test("Test continue before first await in async while loop", {
         true => ()
       );
       io.await(yield(io), io);
-      odd_resumed.* = (odd_resumed.* + 1);
+      odd_resumed.with_mut(cur => {
+        cur = (cur + 1);
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(6), "counter should reach 6");
-  assert(odd_resumed.* == i32(3), "odd snapshots 1,3,5 should await and resume");
+  assert(counter.with(cur => cur) == i32(6), "counter should reach 6");
+  assert(odd_resumed.with(cur => cur) == i32(3), "odd snapshots 1,3,5 should await and resume");
 });
 // ---------------------------------------------------------------------------
 // 31. Zero-iteration async while loop
 //     Body should never run; no await should execute.
 // ---------------------------------------------------------------------------
 test("Test zero-iteration async while loop", {
-  ran_body := Rc(bool)(false);
-  touched_after_await := Rc(bool)(false);
-  done := Rc(bool)(false);
+  ran_body := rc(RefCell(bool).new(false));
+  touched_after_await := rc(RefCell(bool).new(false));
+  done := rc(RefCell(bool).new(false));
   task := io.async((io : Io) => {
     while(runtime(false), {
       temp := Rc(i32)(123);
-      ran_body.* = true;
+      ran_body.with_mut(cur => {
+        cur = true;
+      });
       io.await(yield(io), io);
-      touched_after_await.* = (temp.* == i32(123));
+      touched_after_await.with_mut(cur => {
+        cur = (temp.* == i32(123));
+      });
     });
-    done.* = true;
+    done.with_mut(cur => {
+      cur = true;
+    });
   });
-  assert(done.* == false, "task should not have run before await (lazy)");
+  assert(done.with(cur => cur) == false, "task should not have run before await (lazy)");
   io.await(task, io);
-  assert(done.* == true, "task should complete after await");
-  assert(ran_body.* == false, "loop body must not execute");
-  assert(touched_after_await.* == false, "after-await code must remain untouched");
+  assert(done.with(cur => cur) == true, "task should complete after await");
+  assert(ran_body.with(cur => cur) == false, "loop body must not execute");
+  assert(touched_after_await.with(cur => cur) == false, "after-await code must remain untouched");
 });
 // ---------------------------------------------------------------------------
 // 32. Mixed continue and break in same async loop
 //     1,2 continue; 3,4 accumulate; 5 breaks.
 // ---------------------------------------------------------------------------
 test("Test mixed continue then break in async while loop", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     while(runtime(true), {
-      counter.* = (counter.* + 1);
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
       cond(
-        (counter.* <= i32(2)) => {
+        (counter.with(cur => cur) <= i32(2)) => {
           continue;
         },
         true => ()
       );
       cond(
-        (counter.* >= i32(5)) => {
+        (counter.with(cur => cur) >= i32(5)) => {
           break;
         },
         true => ()
       );
-      sum.* = (sum.* + counter.*);
+      sum.with_mut(cur_ => {
+        cur_ = (cur_ + counter.with(cur => cur));
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(5), "counter should stop at 5");
-  assert(sum.* == i32(7), "sum should be 3+4 after continue/continue/break pattern");
+  assert(counter.with(cur => cur) == i32(5), "counter should stop at 5");
+  assert(sum.with(cur => cur) == i32(7), "sum should be 3+4 after continue/continue/break pattern");
 });
 // ---------------------------------------------------------------------------
 // 33. Nested async while loops - inner break only
 //     Inner loop breaks at 2; outer loop continues for 3 rounds.
 // ---------------------------------------------------------------------------
 test("Test nested async while with inner break", {
-  outer_counter := Rc(i32)(0);
-  outer_sum := Rc(i32)(0);
+  outer_counter := rc(RefCell(i32).new(0));
+  outer_sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(outer_counter.* < i32(3)), {
-      inner_counter := Rc(i32)(0);
+    while(runtime(outer_counter.with(cur => cur) < i32(3)), {
+      inner_counter := rc(RefCell(i32).new(0));
       while(runtime(true), {
-        inner_counter.* = (inner_counter.* + 1);
+        inner_counter.with_mut(cur => {
+          cur = (cur + 1);
+        });
         io.await(yield(io), io);
         cond(
-          (inner_counter.* >= i32(2)) => {
+          (inner_counter.with(cur => cur) >= i32(2)) => {
             break;
           },
           true => ()
         );
       });
-      outer_sum.* = (outer_sum.* + inner_counter.*);
-      outer_counter.* = (outer_counter.* + 1);
+      outer_sum.with_mut(cur_ => {
+        cur_ = (cur_ + inner_counter.with(cur => cur));
+      });
+      outer_counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
     });
   });
   io.await(task, io);
-  assert(outer_counter.* == i32(3), "outer loop should complete 3 rounds");
-  assert(outer_sum.* == i32(6), "inner break at 2 contributes 2 per round");
+  assert(outer_counter.with(cur => cur) == i32(3), "outer loop should complete 3 rounds");
+  assert(outer_sum.with(cur => cur) == i32(6), "inner break at 2 contributes 2 per round");
 });
 // ---------------------------------------------------------------------------
 // 34. Nested async while loops - inner continue only
 //     Inner continue must not skip outer-level statements.
 // ---------------------------------------------------------------------------
 test("Test nested async while with inner continue", {
-  outer_counter := Rc(i32)(0);
-  outer_sum := Rc(i32)(0);
+  outer_counter := rc(RefCell(i32).new(0));
+  outer_sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(outer_counter.* < i32(2)), {
-      inner_counter := Rc(i32)(0);
-      inner_sum := Rc(i32)(0);
-      while(runtime(inner_counter.* < i32(4)), {
-        inner_counter.* = (inner_counter.* + 1);
+    while(runtime(outer_counter.with(cur => cur) < i32(2)), {
+      inner_counter := rc(RefCell(i32).new(0));
+      inner_sum := rc(RefCell(i32).new(0));
+      while(runtime(inner_counter.with(cur => cur) < i32(4)), {
+        inner_counter.with_mut(cur => {
+          cur = (cur + 1);
+        });
         io.await(yield(io), io);
         cond(
-          (inner_counter.* == i32(2)) => {
+          (inner_counter.with(cur => cur) == i32(2)) => {
             continue;
           },
           true => ()
         );
-        inner_sum.* = (inner_sum.* + inner_counter.*);
+        inner_sum.with_mut(cur_ => {
+          cur_ = (cur_ + inner_counter.with(cur => cur));
+        });
       });
-      outer_sum.* = (outer_sum.* + inner_sum.*);
-      outer_counter.* = (outer_counter.* + 1);
+      outer_sum.with_mut(cur_ => {
+        cur_ = (cur_ + inner_sum.with(cur => cur));
+      });
+      outer_counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
     });
   });
   io.await(task, io);
-  assert(outer_counter.* == i32(2), "outer loop should run exactly twice");
-  assert(outer_sum.* == i32(16), "each inner loop contributes 1+3+4 = 8");
+  assert(outer_counter.with(cur => cur) == i32(2), "outer loop should run exactly twice");
+  assert(outer_sum.with(cur => cur) == i32(16), "each inner loop contributes 1+3+4 = 8");
 });
 // ---------------------------------------------------------------------------
 // 35. Match branches with continue/break after await
 // ---------------------------------------------------------------------------
 test("Test match branches with continue and break in async loop", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     while(runtime(true), {
-      counter.* = (counter.* + 1);
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
       match(
-        counter.*,
+        counter.with(cur => cur),
         (2 | 4) => {
           continue;
         },
@@ -914,14 +1060,16 @@ test("Test match branches with continue and break in async loop", {
           break;
         },
         _ => {
-          sum.* = (sum.* + counter.*);
+          sum.with_mut(cur_ => {
+            cur_ = (cur_ + counter.with(cur => cur));
+          });
         }
       );
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(7), "counter should stop at match break value 7");
-  assert(sum.* == i32(15), "sum should be 1+3+5+6 when 2,4 continue and 7 breaks");
+  assert(counter.with(cur => cur) == i32(7), "counter should stop at match break value 7");
+  assert(sum.with(cur => cur) == i32(15), "sum should be 1+3+5+6 when 2,4 continue and 7 breaks");
 });
 // ---------------------------------------------------------------------------
 // 36. Loop-local + captured outer values across await with continue
@@ -930,12 +1078,14 @@ test("Test match branches with continue and break in async loop", {
 test("Test loop-local and captured values with continue across await", {
   outer_value := Rc(i32)(100);
   offset := Rc(i32)(1);
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(5)), {
-      loop_value := Rc(i32)(counter.*);
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(5)), {
+      loop_value := Rc(i32)(counter.with(cur => cur));
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
       cond(
         (loop_value.* == i32(2)) => {
@@ -943,76 +1093,88 @@ test("Test loop-local and captured values with continue across await", {
         },
         true => ()
       );
-      sum.* = (sum.* + (loop_value.* + offset.*));
+      sum.with_mut(cur => {
+        cur = (cur + (loop_value.* + offset.*));
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(5), "counter should reach 5");
+  assert(counter.with(cur => cur) == i32(5), "counter should reach 5");
   assert(outer_value.* == i32(100), "outer captured value must remain unchanged");
-  assert(sum.* == i32(12), "sum should be (0+1)+(1+1)+(3+1)+(4+1) = 12");
+  assert(sum.with(cur => cur) == i32(12), "sum should be (0+1)+(1+1)+(3+1)+(4+1) = 12");
 });
 // ---------------------------------------------------------------------------
 // 37. Early return inside loop after continue path
 //     Continue on even numbers; early-return at first odd >= 5.
 // ---------------------------------------------------------------------------
 test("Test early return inside loop after continue", {
-  i := Rc(i32)(0);
-  found := Rc(i32)(-1);
-  reached_end := Rc(bool)(false);
+  i := rc(RefCell(i32).new(0));
+  found := rc(RefCell(i32).new(-1));
+  reached_end := rc(RefCell(bool).new(false));
   task := io.async((io : Io) => {
-    while(runtime(i.* < i32(10)), {
-      i.* = (i.* + 1);
+    while(runtime(i.with(cur => cur) < i32(10)), {
+      i.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
       cond(
-        ((i.* % i32(2)) == i32(0)) => {
+        ((i.with(cur => cur) % i32(2)) == i32(0)) => {
           continue;
         },
         true => ()
       );
       cond(
-        (i.* >= i32(5)) => {
-          found.* = i.*;
+        (i.with(cur => cur) >= i32(5)) => {
+          found.with_mut(cur => {
+            cur = i.with(cur => cur);
+          });
           return;
         },
         true => ()
       );
     });
-    reached_end.* = true;
+    reached_end.with_mut(cur => {
+      cur = true;
+    });
   });
   io.await(task, io);
-  assert(found.* == i32(5), "first odd value >= 5 should be 5");
-  assert(reached_end.* == false, "loop body should early-return before reaching end");
+  assert(found.with(cur => cur) == i32(5), "first odd value >= 5 should be 5");
+  assert(reached_end.with(cur => cur) == false, "loop body should early-return before reaching end");
 });
 // ---------------------------------------------------------------------------
 // 38. Mixed pre-await break and post-await continue in one loop
 //     Break is checked before await, continue after await.
 // ---------------------------------------------------------------------------
 test("Test mixed pre-await break and post-await continue", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     while(runtime(true), {
-      temp := Rc(i32)(counter.*);
+      temp := Rc(i32)(counter.with(cur => cur));
       cond(
-        (counter.* >= i32(4)) => {
+        (counter.with(cur => cur) >= i32(4)) => {
           break;
         },
         true => ()
       );
-      counter.* = (temp.* + 1);
+      counter.with_mut(cur => {
+        cur = (temp.* + 1);
+      });
       io.await(yield(io), io);
       cond(
-        (counter.* == i32(2)) => {
+        (counter.with(cur => cur) == i32(2)) => {
           continue;
         },
         true => ()
       );
-      sum.* = (sum.* + counter.*);
+      sum.with_mut(cur_ => {
+        cur_ = (cur_ + counter.with(cur => cur));
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(4), "counter should stop at 4 due to pre-await break");
-  assert(sum.* == i32(8), "sum should be 1 + 3 + 4 = 8 with counter==2 continued");
+  assert(counter.with(cur => cur) == i32(4), "counter should stop at 4 due to pre-await break");
+  assert(sum.with(cur => cur) == i32(8), "sum should be 1 + 3 + 4 = 8 with counter==2 continued");
 });
 // ---------------------------------------------------------------------------
 // 39. Non-async inner while with break inside async outer while
@@ -1020,58 +1182,72 @@ test("Test mixed pre-await break and post-await continue", {
 //     Break inside the inner while must NOT affect the outer loop.
 // ---------------------------------------------------------------------------
 test("Test non-async inner while with break inside async while", {
-  counter := Rc(i32)(0);
-  total := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  total := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(3)), {
-      counter.* = (counter.* + 1);
-      inner := Rc(i32)(0);
+    while(runtime(counter.with(cur => cur) < i32(3)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
+      inner := rc(RefCell(i32).new(0));
       while(runtime(true), {
-        inner.* = (inner.* + 1);
+        inner.with_mut(cur => {
+          cur = (cur + 1);
+        });
         cond(
-          (inner.* >= counter.*) => {
+          (inner.with(cur => cur) >= counter.with(cur => cur)) => {
             break;
           },
           true => ()
         );
       });
       io.await(yield(io), io);
-      total.* = (total.* + inner.*);
+      total.with_mut(cur_ => {
+        cur_ = (cur_ + inner.with(cur => cur));
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(3), "outer loop should complete 3 iterations");
-  assert(total.* == i32(6), "total should be 1+2+3 = 6");
+  assert(counter.with(cur => cur) == i32(3), "outer loop should complete 3 iterations");
+  assert(total.with(cur => cur) == i32(6), "total should be 1+2+3 = 6");
 });
 // ---------------------------------------------------------------------------
 // 40. Non-async inner while with continue inside async outer while
 //     Continue inside the inner while must only affect the inner loop.
 // ---------------------------------------------------------------------------
 test("Test non-async inner while with continue inside async while", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(3)), {
-      counter.* = (counter.* + 1);
-      inner := Rc(i32)(0);
-      inner_sum := Rc(i32)(0);
-      while(runtime(inner.* < i32(5)), {
-        inner.* = (inner.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(3)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
+      inner := rc(RefCell(i32).new(0));
+      inner_sum := rc(RefCell(i32).new(0));
+      while(runtime(inner.with(cur => cur) < i32(5)), {
+        inner.with_mut(cur => {
+          cur = (cur + 1);
+        });
         cond(
-          ((inner.* % i32(2)) == i32(0)) => {
+          ((inner.with(cur => cur) % i32(2)) == i32(0)) => {
             continue;
           },
           true => ()
         );
-        inner_sum.* = (inner_sum.* + inner.*);
+        inner_sum.with_mut(cur_ => {
+          cur_ = (cur_ + inner.with(cur => cur));
+        });
       });
       io.await(yield(io), io);
-      sum.* = (sum.* + inner_sum.*);
+      sum.with_mut(cur_ => {
+        cur_ = (cur_ + inner_sum.with(cur => cur));
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(3), "outer should run 3 times");
-  assert(sum.* == i32(27), "inner odd sums 1+3+5=9 per iteration, 9*3=27");
+  assert(counter.with(cur => cur) == i32(3), "outer should run 3 times");
+  assert(sum.with(cur => cur) == i32(27), "inner odd sums 1+3+5=9 per iteration, 9*3=27");
 });
 // ---------------------------------------------------------------------------
 // 41. Sequential while-with-await loops in one async block
@@ -1079,36 +1255,42 @@ test("Test non-async inner while with continue inside async while", {
 //     The second loop must start only after the first finishes.
 // ---------------------------------------------------------------------------
 test("Test sequential while-with-await loops", {
-  a := Rc(i32)(0);
-  b := Rc(i32)(0);
+  a := rc(RefCell(i32).new(0));
+  b := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(a.* < i32(3)), {
-      a.* = (a.* + 1);
+    while(runtime(a.with(cur => cur) < i32(3)), {
+      a.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
     });
-    while(runtime(b.* < i32(4)), {
-      b.* = (b.* + 1);
+    while(runtime(b.with(cur => cur) < i32(4)), {
+      b.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
     });
   });
   io.await(task, io);
-  assert(a.* == i32(3), "first loop should count to 3");
-  assert(b.* == i32(4), "second loop should count to 4");
+  assert(a.with(cur => cur) == i32(3), "first loop should count to 3");
+  assert(b.with(cur => cur) == i32(4), "second loop should count to 4");
 });
 // ---------------------------------------------------------------------------
 // 42. While loop where await is the last expression in body
 //     No post-await expressions; bodyExprsAfterAwait is empty.
 // ---------------------------------------------------------------------------
 test("Test while with await as last expression in body", {
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(5)), {
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(5)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(5), "counter should reach 5");
+  assert(counter.with(cur => cur) == i32(5), "counter should reach 5");
 });
 // ---------------------------------------------------------------------------
 // 43. Single-iteration while-with-await
@@ -1116,37 +1298,45 @@ test("Test while with await as last expression in body", {
 //     Tests that the state machine correctly exits after one await.
 // ---------------------------------------------------------------------------
 test("Test single-iteration while-with-await", {
-  counter := Rc(i32)(0);
-  result := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(1)), {
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(1)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       temp := Rc(i32)(42);
       io.await(yield(io), io);
-      result.* = temp.*;
+      result.with_mut(cur => {
+        cur = temp.*;
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(1), "loop runs exactly once");
-  assert(result.* == i32(42), "result from single iteration");
+  assert(counter.with(cur => cur) == i32(1), "loop runs exactly once");
+  assert(result.with(cur => cur) == i32(42), "result from single iteration");
 });
 // ---------------------------------------------------------------------------
 // 44. While-with-await followed by code after the loop
 //     Expressions after the while must run after loop exits.
 // ---------------------------------------------------------------------------
 test("Test code after while-with-await loop", {
-  counter := Rc(i32)(0);
-  result := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(3)), {
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(3)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
     });
-    result.* = (counter.* * i32(10));
+    result.with_mut(cur_ => {
+      cur_ = (counter.with(cur => cur) * i32(10));
+    });
   });
   io.await(task, io);
-  assert(counter.* == i32(3), "counter should reach 3");
-  assert(result.* == i32(30), "code after loop should set result to 30");
+  assert(counter.with(cur => cur) == i32(3), "counter should reach 3");
+  assert(result.with(cur => cur) == i32(30), "code after loop should set result to 30");
 });
 // ---------------------------------------------------------------------------
 // 45. Cond-with-await followed by while-with-await
@@ -1154,74 +1344,92 @@ test("Test code after while-with-await loop", {
 // ---------------------------------------------------------------------------
 test("Test cond-with-await then while-with-await", {
   flag := Rc(bool)(true);
-  counter := Rc(i32)(0);
-  result := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     cond(
       flag.* => {
         io.await(yield(io), io);
-        result.* = i32(10);
+        result.with_mut(cur => {
+          cur = i32(10);
+        });
       },
       true => {
-        result.* = i32(20);
+        result.with_mut(cur => {
+          cur = i32(20);
+        });
       }
     );
-    while(runtime(counter.* < i32(3)), {
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(3)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
     });
-    result.* = (result.* + counter.*);
+    result.with_mut(cur_ => {
+      cur_ = (cur_ + counter.with(cur => cur));
+    });
   });
   io.await(task, io);
-  assert(result.* == i32(13), "10 from cond + 3 from counter");
-  assert(counter.* == i32(3), "counter should reach 3");
+  assert(result.with(cur => cur) == i32(13), "10 from cond + 3 from counter");
+  assert(counter.with(cur => cur) == i32(3), "counter should reach 3");
 });
 // ---------------------------------------------------------------------------
 // 46. While-with-await followed by cond-with-await
 //     The cond sees the loop's final state.
 // ---------------------------------------------------------------------------
 test("Test while-with-await then cond-with-await", {
-  counter := Rc(i32)(0);
-  result := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(3)), {
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(3)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
     });
     cond(
-      (counter.* == i32(3)) => {
+      (counter.with(cur => cur) == i32(3)) => {
         io.await(yield(io), io);
-        result.* = i32(100);
+        result.with_mut(cur => {
+          cur = i32(100);
+        });
       },
       true => {
-        result.* = i32(0);
+        result.with_mut(cur => {
+          cur = i32(0);
+        });
       }
     );
   });
   io.await(task, io);
-  assert(counter.* == i32(3), "counter should reach 3");
-  assert(result.* == i32(100), "cond should take true branch after loop");
+  assert(counter.with(cur => cur) == i32(3), "counter should reach 3");
+  assert(result.with(cur => cur) == i32(100), "cond should take true branch after loop");
 });
 // ---------------------------------------------------------------------------
 // 47. While-with-await with break in first iteration
 //     The loop runs once and breaks immediately after the first await.
 // ---------------------------------------------------------------------------
 test("Test while-with-await break on first iteration", {
-  counter := Rc(i32)(0);
-  done := Rc(bool)(false);
+  counter := rc(RefCell(i32).new(0));
+  done := rc(RefCell(bool).new(false));
   task := io.async((io : Io) => {
     while(runtime(true), {
-      counter.* = (counter.* + 1);
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       temp := Rc(i32)(99);
       io.await(yield(io), io);
       assert(temp.* == i32(99), "temp should survive await");
       break;
     });
-    done.* = true;
+    done.with_mut(cur => {
+      cur = true;
+    });
   });
   io.await(task, io);
-  assert(counter.* == i32(1), "loop should execute exactly once");
-  assert(done.* == true, "code after loop should run");
+  assert(counter.with(cur => cur) == i32(1), "loop should execute exactly once");
+  assert(done.with(cur => cur) == true, "code after loop should run");
 });
 // ---------------------------------------------------------------------------
 // 48. Nested async while with inner break + outer code after loop
@@ -1229,78 +1437,98 @@ test("Test while-with-await break on first iteration", {
 //     After outer loop, additional code runs.
 // ---------------------------------------------------------------------------
 test("Test nested async while with code after outer loop", {
-  outer := Rc(i32)(0);
-  inner_total := Rc(i32)(0);
-  final_result := Rc(i32)(0);
+  outer := rc(RefCell(i32).new(0));
+  inner_total := rc(RefCell(i32).new(0));
+  final_result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(outer.* < i32(2)), {
-      inner_counter := Rc(i32)(0);
+    while(runtime(outer.with(cur => cur) < i32(2)), {
+      inner_counter := rc(RefCell(i32).new(0));
       while(runtime(true), {
-        inner_counter.* = (inner_counter.* + 1);
+        inner_counter.with_mut(cur => {
+          cur = (cur + 1);
+        });
         io.await(yield(io), io);
         cond(
-          (inner_counter.* >= i32(3)) => {
+          (inner_counter.with(cur => cur) >= i32(3)) => {
             break;
           },
           true => ()
         );
       });
-      inner_total.* = (inner_total.* + inner_counter.*);
-      outer.* = (outer.* + 1);
+      inner_total.with_mut(cur_ => {
+        cur_ = (cur_ + inner_counter.with(cur => cur));
+      });
+      outer.with_mut(cur => {
+        cur = (cur + 1);
+      });
     });
-    final_result.* = ((inner_total.* * i32(10)) + outer.*);
+    final_result.with_mut(cur => {
+      cur = ((inner_total.with(cur => cur) * i32(10)) + outer.with(cur => cur));
+    });
   });
   io.await(task, io);
-  assert(outer.* == i32(2), "outer loop should run twice");
-  assert(inner_total.* == i32(6), "inner breaks at 3 each round, total 6");
-  assert(final_result.* == i32(62), "final should be 6*10 + 2 = 62");
+  assert(outer.with(cur => cur) == i32(2), "outer loop should run twice");
+  assert(inner_total.with(cur => cur) == i32(6), "inner breaks at 3 each round, total 6");
+  assert(final_result.with(cur => cur) == i32(62), "final should be 6*10 + 2 = 62");
 });
 // ---------------------------------------------------------------------------
 // 49. Multiple captured variables modified in nested while-with-await
 //     All captured variables must remain consistent across iterations.
 // ---------------------------------------------------------------------------
 test("Test multiple captured variables in nested while-with-await", {
-  x := Rc(i32)(0);
-  y := Rc(i32)(100);
-  z := Rc(i32)(0);
+  x := rc(RefCell(i32).new(0));
+  y := rc(RefCell(i32).new(100));
+  z := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(x.* < i32(3)), {
-      x.* = (x.* + 1);
-      y.* = (y.* - i32(10));
-      inner := Rc(i32)(0);
+    while(runtime(x.with(cur => cur) < i32(3)), {
+      x.with_mut(cur => {
+        cur = (cur + 1);
+      });
+      y.with_mut(cur => {
+        cur = (cur - i32(10));
+      });
+      inner := rc(RefCell(i32).new(0));
       while(runtime(true), {
-        inner.* = (inner.* + 1);
+        inner.with_mut(cur => {
+          cur = (cur + 1);
+        });
         io.await(yield(io), io);
         cond(
-          (inner.* >= i32(2)) => {
+          (inner.with(cur => cur) >= i32(2)) => {
             break;
           },
           true => ()
         );
       });
-      z.* = (z.* + (x.* + inner.*));
+      z.with_mut(cur_ => {
+        cur_ = (cur_ + (x.with(cur => cur) + inner.with(cur => cur)));
+      });
     });
   });
   io.await(task, io);
-  assert(x.* == i32(3), "x should count to 3");
-  assert(y.* == i32(70), "y should be 100 - 3*10 = 70");
-  assert(z.* == i32(12), "z should be (1+2)+(2+2)+(3+2) = 12");
+  assert(x.with(cur => cur) == i32(3), "x should count to 3");
+  assert(y.with(cur => cur) == i32(70), "y should be 100 - 3*10 = 70");
+  assert(z.with(cur => cur) == i32(12), "z should be (1+2)+(2+2)+(3+2) = 12");
 });
 // ---------------------------------------------------------------------------
 // 50. While-with-await early break skips remaining iterations
 //     Break after 2 of 10 planned iterations. Resources must be properly freed.
 // ---------------------------------------------------------------------------
 test("Test while-with-await early break with local allocations", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(10)), {
-      counter.* = (counter.* + 1);
-      temp := Rc(i32)(counter.* * counter.*);
+    while(runtime(counter.with(cur => cur) < i32(10)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
+      temp := Rc(i32)(counter.with(cur => cur) * counter.with(cur => cur));
       io.await(yield(io), io);
-      sum.* = (sum.* + temp.*);
+      sum.with_mut(cur => {
+        cur = (cur + temp.*);
+      });
       cond(
-        (counter.* >= i32(3)) => {
+        (counter.with(cur => cur) >= i32(3)) => {
           break;
         },
         true => ()
@@ -1308,8 +1536,8 @@ test("Test while-with-await early break with local allocations", {
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(3), "loop should break at 3");
-  assert(sum.* == i32(14), "sum of squares 1+4+9 = 14");
+  assert(counter.with(cur => cur) == i32(3), "loop should break at 3");
+  assert(sum.with(cur => cur) == i32(14), "sum of squares 1+4+9 = 14");
 });
 // ---------------------------------------------------------------------------
 // 51. Cond with await in non-await branch followed by code
@@ -1317,23 +1545,29 @@ test("Test while-with-await early break with local allocations", {
 // ---------------------------------------------------------------------------
 test("Test cond non-await path then code after cond in async", {
   flag := Rc(bool)(false);
-  result := Rc(i32)(0);
-  after_cond := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
+  after_cond := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     cond(
       flag.* => {
         io.await(yield(io), io);
-        result.* = i32(1);
+        result.with_mut(cur => {
+          cur = i32(1);
+        });
       },
       true => {
-        result.* = i32(2);
+        result.with_mut(cur => {
+          cur = i32(2);
+        });
       }
     );
-    after_cond.* = (result.* + i32(10));
+    after_cond.with_mut(cur => {
+      cur = (result.with(cur => cur) + i32(10));
+    });
   });
   io.await(task, io);
-  assert(result.* == i32(2), "non-await branch should set result to 2");
-  assert(after_cond.* == i32(12), "code after cond should run: 2+10=12");
+  assert(result.with(cur => cur) == i32(2), "non-await branch should set result to 2");
+  assert(after_cond.with(cur => cur) == i32(12), "code after cond should run: 2+10=12");
 });
 // ---------------------------------------------------------------------------
 // 52. Await of async subtask inside while loop
@@ -1342,32 +1576,37 @@ test("Test cond non-await path then code after cond in async", {
 //     inside a state machine (while loop body).
 // ---------------------------------------------------------------------------
 test("Test await of async subtask inside while loop", {
-  total := Rc(i32)(0);
-  counter := Rc(i32)(0);
+  total := rc(RefCell(i32).new(0));
+  counter := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(3)), {
-      counter.* = (counter.* + 1);
-      val := counter.*;
+    while(runtime(counter.with(cur => cur) < i32(3)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
+      val := counter.with(cur => cur);
       subtask := io.async((io : Io) => {
         io.await(yield(io), io);
-        total.* = (total.* + val);
+        total.with_mut(cur => {
+          cur = (cur + val);
+        });
       });
       io.await(subtask, io);
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(3), "outer loop should run 3 times");
-  assert(total.* == i32(6), "total should be 1+2+3 = 6");
+  assert(counter.with(cur => cur) == i32(3), "outer loop should run 3 times");
+  assert(total.with(cur => cur) == i32(6), "total should be 1+2+3 = 6");
 });
 // ---------------------------------------------------------------------------
 // 53. Match with await on primitive integer type
 //     Tests match expression with integer values containing await in branches.
 // ---------------------------------------------------------------------------
 test("Test match with await on primitive integer", {
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     x := i32(2);
-    result.* = match(
+    result.with_mut(cur => {
+      cur = match(
       x,
       1 => {
         io.await(yield(io), io);
@@ -1379,19 +1618,21 @@ test("Test match with await on primitive integer", {
       },
       _ => i32(30)
     );
+    });
   });
   io.await(task, io);
-  assert(result.* == i32(20), "match should take branch 2 and return 20");
+  assert(result.with(cur => cur) == i32(20), "match should take branch 2 and return 20");
 });
 // ---------------------------------------------------------------------------
 // 54. Match with await on primitive integer - default branch
 //     Tests that the default/wildcard branch with await works correctly.
 // ---------------------------------------------------------------------------
 test("Test match with await on primitive integer default branch", {
-  result := Rc(i32)(0);
+  result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     x := i32(99);
-    result.* = match(
+    result.with_mut(cur => {
+      cur = match(
       x,
       1 => i32(10),
       2 => i32(20),
@@ -1400,9 +1641,10 @@ test("Test match with await on primitive integer default branch", {
         i32(30)
       }
     );
+    });
   });
   io.await(task, io);
-  assert(result.* == i32(30), "match should take default branch and return 30");
+  assert(result.with(cur => cur) == i32(30), "match should take default branch and return 30");
 });
 // ---------------------------------------------------------------------------
 // 55. Basic spawn — two cold futures started concurrently
@@ -1411,22 +1653,30 @@ test("Test match with await on primitive integer default branch", {
 //     Verifies interleaving order: task1 state0 → task2 state0 → task1 state1 → task2 state1
 // ---------------------------------------------------------------------------
 test("Test basic spawn of two futures", {
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
   task1 := io.async((io : Io) => {
-    assert(counter.* == i32(0), "counter should be 0 at start of task1");
-    counter.* = (counter.* + 1);
+    assert(counter.with(cur => cur) == i32(0), "counter should be 0 at start of task1");
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    assert(counter.* == i32(11), "counter should be 11 after yield in task1");
-    counter.* = (counter.* + 1);
-    return(counter.*);
+    assert(counter.with(cur => cur) == i32(11), "counter should be 11 after yield in task1");
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
+    return(counter.with(cur => cur));
   });
   task2 := io.async((io : Io) => {
-    assert(counter.* == i32(1), "counter should be 1 at start of task2");
-    counter.* = (counter.* + 10);
+    assert(counter.with(cur => cur) == i32(1), "counter should be 1 at start of task2");
+    counter.with_mut(cur => {
+      cur = (cur + 10);
+    });
     io.await(yield(io), io);
-    assert(counter.* == i32(12), "counter should be 12 after yield in task2");
-    counter.* = (counter.* + 10);
-    return(counter.*);
+    assert(counter.with(cur => cur) == i32(12), "counter should be 12 after yield in task2");
+    counter.with_mut(cur => {
+      cur = (cur + 10);
+    });
+    return(counter.with(cur => cur));
   });
   // Both tasks are cold (not started).
   // spawn starts both without waiting for completion, returns JoinHandle.
@@ -1439,23 +1689,27 @@ test("Test basic spawn of two futures", {
   assert(result1.is_some(), "task1 should complete successfully");
   assert(result2.is_some(), "task2 should complete successfully");
   // Both tasks incremented counter: +2 from task1, +20 from task2
-  assert(counter.* == i32(22), "counter should be 22 after spawn");
+  assert(counter.with(cur => cur) == i32(22), "counter should be 22 after spawn");
 });
 // ---------------------------------------------------------------------------
 // 56. Spawn single future — edge case
 //     io.spawn(task) starts the future, io.await waits for it.
 // ---------------------------------------------------------------------------
 test("Test spawn single future", {
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    counter.* = (counter.* + 42);
+    counter.with_mut(cur => {
+      cur = (cur + 42);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 8);
-    return(counter.*);
+    counter.with_mut(cur => {
+      cur = (cur + 8);
+    });
+    return(counter.with(cur => cur));
   });
   handle := io.spawn(task, io);
   result := handle.await(io);
-  assert(counter.* == i32(50), "counter should be 50 after single spawn");
+  assert(counter.with(cur => cur) == i32(50), "counter should be 50 after single spawn");
   assert(result.is_some(), "task should complete successfully");
   assert(result.unwrap() == i32(50), "result should be 50");
 });
@@ -1465,34 +1719,46 @@ test("Test spawn single future", {
 //     Verifies round-robin interleaving across all yield points.
 // ---------------------------------------------------------------------------
 test("Test spawn with multi-yield futures", {
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
   task1 := io.async((io : Io) => {
     // Round 1: task1 runs first
-    assert(counter.* == i32(0), "counter should be 0 at task1 round 1");
-    counter.* = (counter.* + 1);
+    assert(counter.with(cur => cur) == i32(0), "counter should be 0 at task1 round 1");
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
     // Round 2: after task2's round 1 (+10)
-    assert(counter.* == i32(11), "counter should be 11 at task1 round 2");
-    counter.* = (counter.* + 1);
+    assert(counter.with(cur => cur) == i32(11), "counter should be 11 at task1 round 2");
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
     // Round 3: after task2's round 2 (+10)
-    assert(counter.* == i32(22), "counter should be 22 at task1 round 3");
-    counter.* = (counter.* + 1);
-    return(counter.*);
+    assert(counter.with(cur => cur) == i32(22), "counter should be 22 at task1 round 3");
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
+    return(counter.with(cur => cur));
   });
   task2 := io.async((io : Io) => {
     // Round 1: after task1's round 1 (+1)
-    assert(counter.* == i32(1), "counter should be 1 at task2 round 1");
-    counter.* = (counter.* + 10);
+    assert(counter.with(cur => cur) == i32(1), "counter should be 1 at task2 round 1");
+    counter.with_mut(cur => {
+      cur = (cur + 10);
+    });
     io.await(yield(io), io);
     // Round 2: after task1's round 2 (+1)
-    assert(counter.* == i32(12), "counter should be 12 at task2 round 2");
-    counter.* = (counter.* + 10);
+    assert(counter.with(cur => cur) == i32(12), "counter should be 12 at task2 round 2");
+    counter.with_mut(cur => {
+      cur = (cur + 10);
+    });
     io.await(yield(io), io);
     // Round 3: after task1's round 3 (+1)
-    assert(counter.* == i32(23), "counter should be 23 at task2 round 3");
-    counter.* = (counter.* + 10);
-    return(counter.*);
+    assert(counter.with(cur => cur) == i32(23), "counter should be 23 at task2 round 3");
+    counter.with_mut(cur => {
+      cur = (cur + 10);
+    });
+    return(counter.with(cur => cur));
   });
   handle1 := io.spawn(task1, io);
   handle2 := io.spawn(task2, io);
@@ -1502,27 +1768,29 @@ test("Test spawn with multi-yield futures", {
   assert(result1.is_some(), "multi-yield task1 should complete");
   assert(result2.is_some(), "multi-yield task2 should complete");
   // task1 adds 3, task2 adds 30; total = 33
-  assert(counter.* == i32(33), "counter should be 33 after spawn of multi-yield futures");
+  assert(counter.with(cur => cur) == i32(33), "counter should be 33 after spawn of multi-yield futures");
 });
 // ---------------------------------------------------------------------------
 // 58. Spawn then code after — verify execution continues after spawn + await
 // ---------------------------------------------------------------------------
 test("Test code after spawn", {
-  flag := Rc(bool)(false);
+  flag := rc(RefCell(bool).new(false));
   task := io.async((io : Io) => {
     io.await(yield(io), io);
-    flag.* = true;
+    flag.with_mut(cur => {
+      cur = true;
+    });
   });
   handle := io.spawn(task, io);
   handle.await(io);
   // After spawn + await, flag should be set
-  assert(flag.*, "flag should be true after spawn + await");
+  assert(flag.with(cur => cur), "flag should be true after spawn + await");
   // Code after should execute normally
   task2 := io.async((io : Io) => {
     io.await(yield(io), io);
   });
   io.await(task2, io);
-  assert(flag.*, "flag should still be true after yield");
+  assert(flag.with(cur => cur), "flag should still be true after yield");
 });
 // ============================================================================
 // Multi-effect Future type tests
@@ -1917,14 +2185,18 @@ test("Test a spawned task's handle reads Completed after it ends", {
 });
 test("Test io.state completed after spawn", {
   // After spawn + await, both tasks should be Completed
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
   task_a := io.async((io : Io) => {
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
     io.await(yield(io), io);
-    counter.* = (counter.* + 1);
+    counter.with_mut(cur => {
+      cur = (cur + 1);
+    });
   });
   task_b := io.async((io : Io) => {
-    assert(counter.* == i32(1), "task_a should have started and set counter");
+    assert(counter.with(cur => cur) == i32(1), "task_a should have started and set counter");
   });
   handle_a := io.spawn(task_a, io);
   handle_b := io.spawn(task_b, io);
@@ -1939,7 +2211,7 @@ test("Test io.state completed after spawn", {
   assert(handle_b.state() == FutureState.Completed, "spawned task_b should be Completed");
   handle_a.await(io);
   handle_b.await(io);
-  assert(counter.* == i32(2), "counter should be 2 after both tasks complete");
+  assert(counter.with(cur => cur) == i32(2), "counter should be 2 after both tasks complete");
 });
 test("Test io.state consistency", {
   // Multiple io.state calls on the same future return consistent results
@@ -2143,88 +2415,100 @@ test("Test effect injection via io.await on SM future", {
 // not assigned to a temp variable (Bug 4 in C_CODEGEN_BUGS.md).
 // ---------------------------------------------------------------------------
 test("Test break in Option match arm in async while loop", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     while(runtime(true), {
-      counter.* = (counter.* + 1);
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
       opt := cond(
-        (counter.* > i32(5)) => Option(i32).None,
-        true => Option(i32).Some(counter.*)
+        (counter.with(cur => cur) > i32(5)) => Option(i32).None,
+        true => Option(i32).Some(counter.with(cur => cur))
       );
       val := match(
         opt,
         .Some(v) => v,
         .None => break
       );
-      sum.* = (sum.* + val);
+      sum.with_mut(cur => {
+        cur = (cur + val);
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(6), "counter should be 6 when None triggers break");
-  assert(sum.* == i32(15), "sum should be 1+2+3+4+5 = 15");
+  assert(counter.with(cur => cur) == i32(6), "counter should be 6 when None triggers break");
+  assert(sum.with(cur => cur) == i32(15), "sum should be 1+2+3+4+5 = 15");
 });
 // ---------------------------------------------------------------------------
 // Continue in tagged union (Option) match arm inside async while loop
 // Tests that goto-based continue in match bodyCode is emitted directly.
 // ---------------------------------------------------------------------------
 test("Test continue in Option match arm in async while loop", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    while(runtime(counter.* < i32(6)), {
-      counter.* = (counter.* + 1);
+    while(runtime(counter.with(cur => cur) < i32(6)), {
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
       // Skip even numbers via Option match
       opt := cond(
-        ((counter.* % i32(2)) == i32(0)) => Option(i32).None,
-        true => Option(i32).Some(counter.*)
+        ((counter.with(cur => cur) % i32(2)) == i32(0)) => Option(i32).None,
+        true => Option(i32).Some(counter.with(cur => cur))
       );
       val := match(
         opt,
         .Some(v) => v,
         .None => continue
       );
-      sum.* = (sum.* + val);
+      sum.with_mut(cur => {
+        cur = (cur + val);
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(6), "counter should reach 6");
-  assert(sum.* == i32(9), "sum should be 1+3+5 = 9 (even numbers skipped)");
+  assert(counter.with(cur => cur) == i32(6), "counter should reach 6");
+  assert(sum.with(cur => cur) == i32(9), "sum should be 1+3+5 = 9 (even numbers skipped)");
 });
 // ---------------------------------------------------------------------------
 // Mixed break and continue in tagged union match arms in async while loop
 // Tests both control flow paths through the same match expression.
 // ---------------------------------------------------------------------------
 test("Test mixed break and continue in Option match in async while loop", {
-  counter := Rc(i32)(0);
-  sum := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
+  sum := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     while(runtime(true), {
-      counter.* = (counter.* + 1);
+      counter.with_mut(cur => {
+        cur = (cur + 1);
+      });
       io.await(yield(io), io);
       // None means break, Some(0) means continue, Some(v) means accumulate
       opt := cond(
-        (counter.* > i32(7)) => Option(i32).None,
-        ((counter.* % i32(3)) == i32(0)) => Option(i32).Some(i32(0)),
-        true => Option(i32).Some(counter.*)
+        (counter.with(cur => cur) > i32(7)) => Option(i32).None,
+        ((counter.with(cur => cur) % i32(3)) == i32(0)) => Option(i32).Some(i32(0)),
+        true => Option(i32).Some(counter.with(cur => cur))
       );
       val := match(
         opt,
         .Some(v) => cond((v == i32(0)) => continue, true => v),
         .None => break
       );
-      sum.* = (sum.* + val);
+      sum.with_mut(cur => {
+        cur = (cur + val);
+      });
     });
   });
   io.await(task, io);
-  assert(counter.* == i32(8), "counter should be 8 when None triggers break");
+  assert(counter.with(cur => cur) == i32(8), "counter should be 8 when None triggers break");
   // Iterations: 1→Some(1)→sum, 2→Some(2)→sum, 3→Some(0)→continue,
   // 4→Some(4)→sum, 5→Some(5)→sum, 6→Some(0)→continue,
   // 7→Some(7)→sum, 8→None→break
   // sum = 1+2+4+5+7 = 19
-  assert(sum.* == i32(19), "sum should be 1+2+4+5+7 = 19");
+  assert(sum.with(cur => cur) == i32(19), "sum should be 1+2+4+5+7 = 19");
 });
 // ===========================================================================
 // Async + Algebraic Effects — additional corner-case tests
@@ -2258,17 +2542,23 @@ test("Test effect resume inside async closure", {
 test("Test effect resume across multiple yields", {
   Raise :: (fn(msg : &String) -> i32);
   Ctx :: struct(io : Io, raise : Raise);
-  counter := Rc(i32)(0);
+  counter := rc(RefCell(i32).new(0));
   task := io.async((ctx : Ctx) => {
     a := ctx.raise(`before yield 1`);
-    counter.* = (counter.* + a);
+    counter.with_mut(cur => {
+      cur = (cur + a);
+    });
     ctx.io.await(yield(ctx.io), ctx.io);
     b := ctx.raise(`between yields`);
-    counter.* = (counter.* + b);
+    counter.with_mut(cur => {
+      cur = (cur + b);
+    });
     ctx.io.await(yield(ctx.io), ctx.io);
     c := ctx.raise(`after yield 2`);
-    counter.* = (counter.* + c);
-    r := counter.*;
+    counter.with_mut(cur => {
+      cur = (cur + c);
+    });
+    r := counter.with(cur => cur);
     r
   });
   (raise : Raise) = (
@@ -2278,7 +2568,7 @@ test("Test effect resume across multiple yields", {
   );
   result := io.await(task, { io, raise });
   assert(result == i32(15), "3 resumes of 5 each: 15");
-  assert(counter.* == i32(15), "counter should track 5+5+5=15");
+  assert(counter.with(cur => cur) == i32(15), "counter should track 5+5+5=15");
 });
 // ---------------------------------------------------------------------------
 // Two different effect types injected simultaneously via io.await.
@@ -2345,16 +2635,20 @@ test("Test two effects injected via io.spawn", {
 test("Test effect resume in async while loop", {
   GetValue :: (fn() -> i32);
   Ctx :: struct(io : Io, get_value : GetValue);
-  sum := Rc(i32)(0);
-  counter := Rc(i32)(0);
+  sum := rc(RefCell(i32).new(0));
+  counter := rc(RefCell(i32).new(0));
   task := io.async((ctx : Ctx) => {
-    while(runtime(counter.* < i32(4)), {
+    while(runtime(counter.with(cur => cur) < i32(4)), {
       v := ctx.get_value();
-      sum.* = (sum.* + v);
-      counter.* = (counter.* + i32(1));
+      sum.with_mut(cur => {
+        cur = (cur + v);
+      });
+      counter.with_mut(cur => {
+        cur = (cur + i32(1));
+      });
       ctx.io.await(yield(ctx.io), ctx.io);
     });
-    r := sum.*;
+    r := sum.with(cur => cur);
     r
   });
   (get_value : GetValue) = (
@@ -2372,22 +2666,26 @@ test("Test effect resume in async while loop", {
 test("Test effect resume in async while loop with break", {
   GetValue :: (fn() -> i32);
   Ctx :: struct(io : Io, get_value : GetValue);
-  sum := Rc(i32)(0);
-  counter := Rc(i32)(0);
+  sum := rc(RefCell(i32).new(0));
+  counter := rc(RefCell(i32).new(0));
   task := io.async((ctx : Ctx) => {
     while(runtime(true), {
-      counter.* = (counter.* + i32(1));
+      counter.with_mut(cur => {
+        cur = (cur + i32(1));
+      });
       v := ctx.get_value();
       ctx.io.await(yield(ctx.io), ctx.io);
       cond(
-        (counter.* >= i32(3)) => {
+        (counter.with(cur => cur) >= i32(3)) => {
           break;
         },
         true => ()
       );
-      sum.* = (sum.* + v);
+      sum.with_mut(cur => {
+        cur = (cur + v);
+      });
     });
-    r := sum.*;
+    r := sum.with(cur => cur);
     r
   });
   (get_value : GetValue) = (
@@ -3014,48 +3312,56 @@ test("Regression: recv-then-cond-send pattern (HTTP server style)", {
 // ---------------------------------------------------------------------------
 test("Test await inside a cond branch", {
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     cond(
       runtime(true) => {
         v := io.await(future_with_returned_state(i32(41), io), io);
-        acc.* = v;
+        acc.with_mut(cur => {
+          cur = v;
+        });
       },
       true => ()
     );
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(42), "await inside a taken cond branch should run and bind");
 });
 test("Test await inside a cond branch that is not taken", {
   task := io.async((io : Io) => {
-    acc := Rc(i32)(7);
+    acc := rc(RefCell(i32).new(7));
     cond(
       runtime(false) => {
         v := io.await(future_with_returned_state(i32(41), io), io);
-        acc.* = v;
+        acc.with_mut(cur => {
+          cur = v;
+        });
       },
       true => ()
     );
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(7), "an untaken cond branch must not run its await");
 });
 test("Test await inside both cond branches", {
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     cond(
       runtime(false) => {
         v := io.await(future_with_returned_state(i32(10), io), io);
-        acc.* = v;
+        acc.with_mut(cur => {
+          cur = v;
+        });
       },
       true => {
         v := io.await(future_with_returned_state(i32(20), io), io);
-        acc.* = v;
+        acc.with_mut(cur => {
+          cur = v;
+        });
       }
     );
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(21), "the fallback branch's await should be the one that runs");
@@ -3065,14 +3371,16 @@ test("Test hoisted await used as a cond condition", {
   // second. This is what src/init.yo now does.
   task := io.async((io : Io) => {
     v := io.await(future_with_returned_state(i32(41), io), io);
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     cond(
       (v == i32(42)) => {
-        acc.* = i32(1);
+        acc.with_mut(cur => {
+          cur = i32(1);
+        });
       },
       true => ()
     );
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(1), "hoisting the await out of the condition should work");
@@ -3081,16 +3389,20 @@ test("Test statement after a cond branch that awaits", {
   // Regression: the state AFTER the branch must still run — the original bug
   // dropped the branch body and jumped straight past it.
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     cond(
       runtime(true) => {
         v := io.await(future_with_returned_state(i32(9), io), io);
-        acc.* = v;
+        acc.with_mut(cur => {
+          cur = v;
+        });
       },
       true => ()
     );
-    acc.* = (acc.* + i32(100));
-    return(acc.*);
+    acc.with_mut(cur => {
+      cur = (cur + i32(100));
+    });
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(110), "code after the cond must still execute");
@@ -3100,40 +3412,50 @@ test("Test await inside an if body", {
   // see the branch at all. The self-hosted compiler always did; the reference
   // compiler did not, and emitted C that would not compile.
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     if(runtime(true), {
       v := io.await(future_with_returned_state(i32(41), io), io);
-      acc.* = v;
+      acc.with_mut(cur => {
+        cur = v;
+      });
     });
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(42), "await inside an if body should run and bind");
 });
 test("Test await inside both if and else bodies", {
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     if(runtime(false), {
       v := io.await(future_with_returned_state(i32(10), io), io);
-      acc.* = v;
+      acc.with_mut(cur => {
+        cur = v;
+      });
     }, {
       v := io.await(future_with_returned_state(i32(20), io), io);
-      acc.* = v;
+      acc.with_mut(cur => {
+        cur = v;
+      });
     });
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(21), "the else body's await should be the one that runs");
 });
 test("Test statement after an if whose body awaits", {
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     if(runtime(true), {
       v := io.await(future_with_returned_state(i32(9), io), io);
-      acc.* = v;
+      acc.with_mut(cur => {
+        cur = v;
+      });
     });
-    acc.* = (acc.* + i32(100));
-    return(acc.*);
+    acc.with_mut(cur => {
+      cur = (cur + i32(100));
+    });
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(110), "code after the if must still execute");
@@ -3150,60 +3472,74 @@ test("Test statement after an if whose body awaits", {
 // ---------------------------------------------------------------------------
 test("Test await directly as an if condition", {
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     if(io.await(future_bool(true, io), io), {
-      acc.* = i32(42);
+      acc.with_mut(cur => {
+        cur = i32(42);
+      });
     });
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(42), "await as an if condition should drive the branch");
 });
 test("Test await as a cond condition, true branch", {
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     cond(
       io.await(future_bool(true, io), io) => {
-        acc.* = i32(1);
+        acc.with_mut(cur => {
+          cur = i32(1);
+        });
       },
       true => {
-        acc.* = i32(2);
+        acc.with_mut(cur => {
+          cur = i32(2);
+        });
       }
     );
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(1), "the awaited condition was true, so branch 1 runs");
 });
 test("Test await as a cond condition, false branch", {
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     cond(
       io.await(future_bool(false, io), io) => {
-        acc.* = i32(1);
+        acc.with_mut(cur => {
+          cur = i32(1);
+        });
       },
       true => {
-        acc.* = i32(2);
+        acc.with_mut(cur => {
+          cur = i32(2);
+        });
       }
     );
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(2), "the awaited condition was false, so the fallback runs");
 });
 test("Test await as a match scrutinee", {
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     match(
       io.await(future_with_returned_state(i32(41), io), io),
       42 => {
-        acc.* = i32(100);
+        acc.with_mut(cur => {
+          cur = i32(100);
+        });
       },
       _ => {
-        acc.* = i32(200);
+        acc.with_mut(cur => {
+          cur = i32(200);
+        });
       }
     );
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(100), "the awaited scrutinee should select the 42 arm");
@@ -3348,32 +3684,40 @@ test("Test await as the scrutinee of an assigned match", {
 });
 test("Test code after an if whose condition awaits", {
   task := io.async((io : Io) => {
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     if(io.await(future_bool(true, io), io), {
-      acc.* = i32(5);
+      acc.with_mut(cur => {
+        cur = i32(5);
+      });
     });
-    acc.* = (acc.* + i32(100));
-    return(acc.*);
+    acc.with_mut(cur => {
+      cur = (cur + i32(100));
+    });
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(105), "code after the if must still execute");
 });
 test("Test awaited condition really suspends (spawned task interleaves)", {
-  order := Rc(i32)(0);
+  order := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     noise := io.async((io : Io) => {
       // Runs only if the awaiting task actually yielded the loop.
-      order.* = (order.* + i32(1));
+      order.with_mut(cur => {
+        cur = (cur + i32(1));
+      });
       return(i32(0));
     });
     h := io.spawn(noise, io);
     if(io.await(future_bool(true, io), io), {
       // If the await had blocked instead of suspending, the spawned task
-      // would not have run yet and order.* would still be 0.
-      order.* = (order.* + i32(10));
+      // would not have run yet and order.with(cur => cur) would still be 0.
+      order.with_mut(cur => {
+        cur = (cur + i32(10));
+      });
     });
     _r := h.await(io);
-    return(order.*);
+    return(order.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(11), "spawned task must run during the awaited condition");
@@ -3392,51 +3736,63 @@ test("Test awaited condition really suspends (spawned task interleaves)", {
 // ---------------------------------------------------------------------------
 test("Test await as a while condition", {
   task := io.async((io : Io) => {
-    n := Rc(i32)(0);
-    while(io.await(future_lt(n.*, i32(3), io), io), {
-      n.* = (n.* + i32(1));
+    n := rc(RefCell(i32).new(0));
+    while(io.await(future_lt(n.with(cur => cur), i32(3), io), io), {
+      n.with_mut(cur => {
+        cur = (cur + i32(1));
+      });
     });
-    return(n.*);
+    return(n.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(3), "awaited while condition should drive 3 iterations");
 });
 test("Test await as a while condition that is false immediately", {
   task := io.async((io : Io) => {
-    n := Rc(i32)(0);
+    n := rc(RefCell(i32).new(0));
     while(io.await(future_lt(i32(9), i32(3), io), io), {
-      n.* = (n.* + i32(1));
+      n.with_mut(cur => {
+        cur = (cur + i32(1));
+      });
     });
-    return(n.*);
+    return(n.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(0), "a false awaited condition must not run the body");
 });
 test("Test await as a while condition with a step expression", {
   task := io.async((io : Io) => {
-    n := Rc(i32)(0);
-    sum := Rc(i32)(0);
-    while(io.await(future_lt(n.*, i32(3), io), io), {
-      n.* = (n.* + i32(1));
+    n := rc(RefCell(i32).new(0));
+    sum := rc(RefCell(i32).new(0));
+    while(io.await(future_lt(n.with(cur => cur), i32(3), io), io), {
+      n.with_mut(cur => {
+        cur = (cur + i32(1));
+      });
     }, {
-      sum.* = (sum.* + n.*);
+      sum.with_mut(cur_ => {
+        cur_ = (cur_ + n.with(cur => cur));
+      });
     });
-    return(sum.*);
+    return(sum.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(3), "body 0,1,2 summed after each step: 0+1+2 = 3");
 });
 test("Test await in a while step expression", {
   task := io.async((io : Io) => {
-    n := Rc(i32)(0);
-    sum := Rc(i32)(0);
-    while(n.* < i32(3), {
+    n := rc(RefCell(i32).new(0));
+    sum := rc(RefCell(i32).new(0));
+    while(n.with(cur => cur) < i32(3), {
       _x := io.await(future_with_returned_state(i32(1), io), io);
-      n.* = (n.* + i32(1));
+      n.with_mut(cur => {
+        cur = (cur + i32(1));
+      });
     }, {
-      sum.* = (sum.* + n.*);
+      sum.with_mut(cur_ => {
+        cur_ = (cur_ + n.with(cur => cur));
+      });
     });
-    (n.* * i32(10)) + sum.*
+    (n.with(cur => cur) * i32(10)) + sum.with(cur => cur)
   });
   r := io.await(task, io);
   assert(r == i32(33), "n=3 and sum=0+1+2=3 with the await in the step");
@@ -3444,14 +3800,18 @@ test("Test await in a while step expression", {
 test("Test await in a while step matches the non-await control", {
   // Same loop without the await — the await must not change the result.
   task := io.async((io : Io) => {
-    n := Rc(i32)(0);
-    sum := Rc(i32)(0);
-    while(n.* < i32(3), {
-      n.* = (n.* + i32(1));
+    n := rc(RefCell(i32).new(0));
+    sum := rc(RefCell(i32).new(0));
+    while(n.with(cur => cur) < i32(3), {
+      n.with_mut(cur => {
+        cur = (cur + i32(1));
+      });
     }, {
-      sum.* = (sum.* + n.*);
+      sum.with_mut(cur_ => {
+        cur_ = (cur_ + n.with(cur => cur));
+      });
     });
-    (n.* * i32(10)) + sum.*
+    (n.with(cur => cur) * i32(10)) + sum.with(cur => cur)
   });
   r := io.await(task, io);
   assert(r == i32(33), "control: the awaited-step loop must agree with this");
@@ -3469,16 +3829,18 @@ test("Test await in a while step matches the non-await control", {
 test("Test await inside a match arm", {
   task := io.async((io : Io) => {
     m := Option(i32).Some(i32(1));
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     match(
       m,
       .Some(x) => {
         v := io.await(future_with_returned_state(i32(41), io), io);
-        acc.* = (v + x);
+        acc.with_mut(cur => {
+          cur = (v + x);
+        });
       },
       .None => ()
     );
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(43), "the matched arm must run its await and its body");
@@ -3486,16 +3848,18 @@ test("Test await inside a match arm", {
 test("Test await inside a match arm that is not selected", {
   task := io.async((io : Io) => {
     m := Option(i32).None;
-    acc := Rc(i32)(7);
+    acc := rc(RefCell(i32).new(7));
     match(
       m,
       .Some(x) => {
         v := io.await(future_with_returned_state(i32(41), io), io);
-        acc.* = (v + x);
+        acc.with_mut(cur => {
+          cur = (v + x);
+        });
       },
       .None => ()
     );
-    return(acc.*);
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(7), "an unselected arm must not run its await");
@@ -3503,17 +3867,21 @@ test("Test await inside a match arm that is not selected", {
 test("Test statement after a match arm that awaits", {
   task := io.async((io : Io) => {
     m := Option(i32).Some(i32(1));
-    acc := Rc(i32)(0);
+    acc := rc(RefCell(i32).new(0));
     match(
       m,
       .Some(_x) => {
         v := io.await(future_with_returned_state(i32(41), io), io);
-        acc.* = v;
+        acc.with_mut(cur => {
+          cur = v;
+        });
       },
       .None => ()
     );
-    acc.* = (acc.* + i32(100));
-    return(acc.*);
+    acc.with_mut(cur => {
+      cur = (cur + i32(100));
+    });
+    return(acc.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(142), "code after the match must still execute");
@@ -3586,17 +3954,19 @@ test("Test await whose result IS read (control)", {
 // ---------------------------------------------------------------------------
 test("Test io.async closure capturing a local, re-created each iteration", {
   task := io.async((io : Io) => {
-    n := Rc(i32)(0);
+    n := rc(RefCell(i32).new(0));
     while(io.await(
       io.async((io2 : Io) => {
         io2.await(yield(io2), io2);
-        return(n.* < i32(3));
+        return(n.with(cur => cur) < i32(3));
       }),
       io
     ), {
-      n.* = (n.* + i32(1));
+      n.with_mut(cur => {
+        cur = (cur + i32(1));
+      });
     });
-    return(n.*);
+    return(n.with(cur => cur));
   });
   r := io.await(task, io);
   assert(r == i32(3), "the captured Rc must survive every iteration");
@@ -3672,7 +4042,7 @@ test("Test await inside nested match arms under a payload-free scrutinee", {
   // forbids shadowing it.
   run := (fn(p : Pick, rio : Io) -> Impl(Future(i32, Io)))(
     rio.async((aio : Io) => {
-      out := Rc(i32)(0);
+      out := rc(RefCell(i32).new(0));
       match(
         p,
         .First => {
@@ -3681,7 +4051,9 @@ test("Test await inside nested match arms under a payload-free scrutinee", {
             .None => (),
             .Some(v) => {
               aio.await(yield(aio), aio);
-              out.* = (out.* + v);
+              out.with_mut(cur => {
+                cur = (cur + v);
+              });
             }
           );
         },
@@ -3691,13 +4063,15 @@ test("Test await inside nested match arms under a payload-free scrutinee", {
             .None => (),
             .Some(v) => {
               aio.await(yield(aio), aio);
-              out.* = (out.* + v);
+              out.with_mut(cur => {
+                cur = (cur + v);
+              });
             }
           );
         },
         .Neither => ()
       );
-      return(out.*);
+      return(out.with(cur => cur));
     })
   );
   assert(io.await(run(Pick.First, io), io) == i32(10), "first arm resumes its own continuation");
@@ -3752,23 +4126,27 @@ test("Test an early return of a match binding before a later await", {
 test("Test an await result bound in two different match arms", {
   pick := (fn(k : i32, rio : Io) -> Impl(Future(i32, Io)))(
     rio.async((aio : Io) => {
-      out := Rc(i32)(0);
+      out := rc(RefCell(i32).new(0));
       match(
         Option(i32).Some(k),
         .None => (),
         .Some(v) => cond(
           (v == i32(1)) => {
             a := aio.await(future_with_returned_state(i32(10), aio), aio);
-            out.* = a;
+            out.with_mut(cur => {
+              cur = a;
+            });
           },
           (v == i32(2)) => {
             b := aio.await(future_with_returned_state(i32(20), aio), aio);
-            out.* = b;
+            out.with_mut(cur => {
+              cur = b;
+            });
           },
           true => ()
         )
       );
-      return(out.*);
+      return(out.with(cur => cur));
     })
   );
   // future_with_returned_state returns value + 1.
@@ -3940,18 +4318,22 @@ test("Test a reassignment in an awaitless nested arm beside an awaiting arm", {
 test("Test an if whose branch awaits as a while loop body", {
   drive := (fn(dry : bool, rio : Io) -> Impl(Future(i32, Io)))(
     rio.async((aio : Io) => {
-      total := Rc(i32)(0);
+      total := rc(RefCell(i32).new(0));
       i := usize(0);
       while(runtime(i < usize(3)), {
         if(dry, {
-          total.* = (total.* + i32(1));
+          total.with_mut(cur => {
+            cur = (cur + i32(1));
+          });
         }, {
           v := aio.await(future_with_returned_state(i32(10), aio), aio);
-          total.* = (total.* + v);
+          total.with_mut(cur => {
+            cur = (cur + v);
+          });
         });
         i = (i + usize(1));
       });
-      return(total.*);
+      return(total.with(cur => cur));
     })
   );
   // future_with_returned_state returns value + 1, so the awaiting path adds 11
