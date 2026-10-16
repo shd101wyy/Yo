@@ -1,0 +1,11 @@
+# `yo fix <dir>` and `yo check <dir>` evaluate every file in ONE session. a.yo
+# and b.yo each declare a generic `Wrap(T)` with an inherent `add` and a trait
+# `Show` implemented for it, and b.yo derives `Copy` for a `GenBox(T)` while
+# a.yo rejects a `Copy` impl over its hand-written generic `Clone`. The two
+# `Wrap`s print alike but are different declarations: each file must evaluate
+# beside the other (no E0612 duplicate method or trait impl, no hand-written
+# Clone error for GenBox), so the migration marks both files' globals and the
+# trailing `check .` passes both files
+# (issues/fixed/2026-10-15-yo-fix-over-several-files-applies-one-files-generic-impls-to-anothers-same-named-type.md).
+stdout_keep=^fix:|^check: [0-9]+/[0-9]+ file|^check: [ab]\.yo 
+timeout=180
