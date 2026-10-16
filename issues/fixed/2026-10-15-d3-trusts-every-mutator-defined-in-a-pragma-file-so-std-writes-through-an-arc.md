@@ -75,9 +75,9 @@ The same early return also skipped the D1 branch (a `&mut` argument rooted
 in a module-level global). `g.take()` on a value global that a spawned
 closure reads is now the same mutable-static error that `g = .None` already
 was: a deliberate tightening, the same race through a different spelling.
-Since decision 47 step 1 (#1401) that shape is rejected earlier still: a
-`&mut` lend of an unmarked global is E0917 and of a `mut(g)` global is E0916,
-both before D1, so the regression test pins the E0916 on a `mut(g)` global.
+Since decision 47 step 1 (#1401) a written global is declared `mut(g)`; with
+the early return gone, D1 rejects `g.take()` on it before E0916 (the global
+lend to a call) is reached, and the regression test pins the D1 message.
 
 ## Regression tests
 
@@ -91,7 +91,7 @@ both before D1, so the regression test pins the E0916 on a `mut(g)` global.
   borrow alone is still E0909 until the §3.13 A2 `Arc` carve-out lands; the
   test pins the D3 message, which fires first);
 - D1: `g_d3_slot.take()` on a `mut(g_d3_slot)` global while a spawned thread
-  reads it (E0916 since #1401);
+  reads it;
 - canaries: `take`/`replace` on an owned value, `take` through a `&mut`
   parameter and inside `Mutex.with_lock`, and `is_some`/`unwrap_or` through
   an `Arc` still compile and run.

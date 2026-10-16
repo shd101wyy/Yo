@@ -172,9 +172,9 @@ test("D3: a std mutator through an Arc in another task is rejected", {
   }, "the callee may write through that mut parameter");
 });
 // D1 through the same hole: a std mutator writing a module-level global that
-// a spawned thread reads is the mutable-static race `g = v` already is. Since
-// decision 47 step 1 the `&mut` lend of the `mut` global is E0916, which
-// fires before D1 (an unmarked global is E0917).
+// a spawned thread reads is the mutable-static race `g = v` already is. The
+// global is `mut` (decision 47); without this fix the lend reaches E0916
+// instead, because the trust-by-file return skipped D1.
 (mut(g_d3_slot) : Option(i64)) = Option(i64).Some(i64(1));
 comptime_expect_error({
   _d1_std_take_of_a_thread_read_global :: (fn() -> unit)({
@@ -186,7 +186,7 @@ comptime_expect_error({
     t.join();
   });
   _d1_std_take_of_a_thread_read_global();
-}, "which has no run-time borrow flag");
+}, "a closure that runs on another thread reads it");
 // Canaries: the same std mutators on an owned value, through a `&mut`
 // parameter, inside `Mutex.with_lock`, and reads through an `Arc` stay legal.
 _take_through_mut :: (fn(s : &mut Slot) -> Option(i64))(s.o.take());
