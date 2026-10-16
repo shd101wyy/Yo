@@ -192,7 +192,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 | 2 | #1379 from `feat/vbd-v3-async-a5-rebased` | **landed** 2026-10-15 (`std/hash.yo` reverted) |
 | 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | rebased, Tier 1 green |
 | 4 | `feat/global-lend-to-call-is-an-error` → **#1401, landed** | decision 47 globals, Generation A |
-| 5 | `fix/runtime-write-to-comptime-constant` (no PR) | E0918; Tier 1 green except 8 cli goldens to re-record; conflicts with item 4 |
+| 5 | `fix/runtime-write-to-comptime-constant` → **#1402, landed** | E0918 |
 | 6 | `fix/d3-trust-by-mutation-mask` (no PR), then #1380 | the D3 S1 fix, Tier 1 green; #1380 is blocked on it, then restacks |
 | 7 | `perf/type-key-memo-identity` (no PR) | −40.5% allocations; Tier 1 green; does not conflict with item 6 |
 | 7a | release v0.2.64 | §4 step 7a |
@@ -379,9 +379,9 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   3. It conflicts with #1380, but #1380's restack resolves that (see there).
   4. Tier 1 again (build, check src/std, `tests/parallelism_soundness.test.yo`, the internal files importing `assignment.yo`; consider the in-process run), open the PR from the template, admin-merge.
 
-#### `fix/runtime-write-to-comptime-constant` — E0918, a `::` binding written at runtime, no PR yet (head `f0a97445f`, on develop `6f6a2d8e9`)
+#### `fix/runtime-write-to-comptime-constant` — E0918, a `::` binding written at runtime: **landed as #1402** (2026-10-16)
 
-- **What:** E0918 `E_COMPTIME_BINDING_RUNTIME_WRITE`, raised by `_reject_runtime_write_of_comptime_binding` (`src/evaluator/exprs/assignment.yo`) through `raise_flow_violation`. It fixes the S2 `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (moved to `issues/fixed/` on the branch) independently of decision 47.
+- **What:** E0918 `E_COMPTIME_BINDING_RUNTIME_WRITE`, raised by `_reject_runtime_write_of_comptime_binding` (`src/evaluator/exprs/assignment.yo`) through `raise_flow_violation`. It fixes the S2 `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (moved to `issues/fixed/` on the branch) independently of decision 47.
   - It fires for a plain, field or element write in a runtime body (function, closure, `io.async`, test) when the `::` binding is declared outside that body, or the value written is a runtime one. A write through a `ref` handle is not a write of the binding.
   - Unchanged: module-level `G :: 1; G = 2;`, a body's own `a :: 1; a = 2;` at compile time, `while(comptime(...))` counters, `-> comptime(...)` bodies and `comptime_fn`.
   - Not covered: a compile-time value written to a body's own `::` under a runtime `cond` arm or loop (needs flow sensitivity; decision 47's `mut(a) ::` owns it).
@@ -568,7 +568,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 2. **#1379**, A5 (§2.3): retarget #1380 before deleting the A5 branch, and revert `std/hash.yo` while landing.
 3. **#1368**, direct projection calls (§2.3; rebased and gated). It also closes #1375's S2 and a develop S2 (`f(&mut xs(i))` through a `&` borrow).
 4. **`feat/global-lend-to-call-is-an-error`**: decision 47 step 1, Generation A (§2.3, §5.1). **Landed as #1401 (2026-10-16).** Generation B follows on the seed that carries it (step 7a).
-5. **`fix/runtime-write-to-comptime-constant`** (E0918, §2.3): re-record its 8 cli goldens; it conflicts with item 4 in three files.
+5. **`fix/runtime-write-to-comptime-constant`** (E0918, §2.3). **Landed as #1402 (2026-10-16).**
 6. **`fix/d3-trust-by-mutation-mask`** (§2.3), then **#1380** (§2.3).
 7. **`perf/type-key-memo-identity`** (§2.3): open its PR; CI's count replaces the estimated ratchet baseline. It does not conflict with step 6, so it may land before or after #1380.
 7a. **Cut v0.2.64** (§8.4) once steps 0a–7 have merged and develop's battery is green on the exact tip. It carries decision 47's `mut(` parser and A5's `__yo_waker_clone`. After the `SEED_VERSION` bump, do decision 47 globals Generation B (§2.3) before step 8; that avoids the V2b value-global re-census in §2.3's note. Step 12 can follow.
@@ -733,7 +733,7 @@ x :: 12;                           // a true constant
   - The global-lend fix first, already spelled `mut(G)`.
   - The general phase (§4 step 9) after the queued Generation B items and before decision 43, because decision 43's `&mut` rules can then assume `mut`.
   - Generation A needs the parser to accept `mut(` in binding position; the seed rejects it today ("Invalid binding to "mut"").
-- **Bug found while checking the rule:** `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2). `G :: i32(1)` written at runtime reads 3, while `H :: G + 10` was folded from 1.
+- **Bug found while checking the rule:** `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2). `G :: i32(1)` written at runtime reads 3, while `H :: G + 10` was folded from 1.
 
 ---
 
@@ -757,9 +757,9 @@ x :: 12;                           // a true constant
 
 - `issues/fixed/2026-10-15-a-match-through-an-rc-of-a-nullable-pointer-enum-emits-a-second-payload-hop.md` (**S2, a regression shipped in v0.2.63**; §4 item 0a).
 - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3): `BTreeMap`'s `K` carries `Ord(K)` 15 times.
-- `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed on `fix/runtime-write-to-comptime-constant` (E0918).
+- `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed by #1402 (E0918).
 - `issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).
-- Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (`fix/runtime-write-to-comptime-constant`), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (landed with #1401).
+- Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (landed with #1402), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (landed with #1401).
 - `issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2): fixed by #1368.
 - `issues/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md`: found by #1388.
 - `issues/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md` (S3): a free speedup for every compile.

@@ -3973,9 +3973,10 @@ and in git, not a silent edit.
       implementer records a reason for a separate code). Its message names
       the binding, its definition and the `mut(...)` form (for a parameter,
       the rebind). E0902's "You can mutate fields" hint
-      goes away. A runtime write to a `::` binding is an error. Today it is
-      accepted and diverges from the folded value
-      (`issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`).
+      goes away. A runtime write to a `::` binding is an error, E0918
+      `E_COMPTIME_BINDING_RUNTIME_WRITE` (before this, it was accepted and
+      diverged from the folded value;
+      `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md`).
     - **Open, to settle before the implementation:**
       - Module-level `mut(x) :: v`. Module-level `::` bindings are lazy and
         order-independent (`plans/reference/LAZY_TOPLEVEL_BINDINGS.md`),

@@ -35,7 +35,7 @@ pragma(Pragma.AllowUnsafe);
   update_existing_variable
 } :: import("../../env.yo");
 { Token } :: import("../../token.yo");
-{ EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals } :: import("../context.yo");
+{ EvalContext, ExpectedTypeCtx, CaptureUsage, track_variable_usage, call_rerun_pending_def_evals, fn_ctx_returns_comptime } :: import("../context.yo");
 { function_param_mutation_mask, param_mutation_mask_hits, ParamMutationMask, d1_record_global_write } :: import("../effects/mutation_summary.yo");
 {
   EvalValue,
@@ -76,8 +76,8 @@ pragma(Pragma.AllowUnsafe);
 { is_flowable_expr, FlowOptions, flag_flow_violation, raise_flow_violation }
 :: import("../../types/flowability.yo");
 { type_representation_contains_raw_ptr, type_contains_rc_type, dyn_upcast_note, type_is_control_bound, mark_generic_independent } :: import("../../types/utils.yo");
-{ format_error_message, format_error_message_with_help, format_error_messages, TokenAndError, with_code } :: import("../../error.yo");
-{ E_VARIABLE_NOT_FOUND, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
+{ format_error_message, format_error_message_with_help, format_error_messages, format_error_messages_with_help, TokenAndError, with_code } :: import("../../error.yo");
+{ E_VARIABLE_NOT_FOUND, E_WRITE_THROUGH_BORROW, E_COMPTIME_BINDING_RUNTIME_WRITE } :: import("../../diagnostics.yo");
 { call_promote_index_places_for_write } :: import("../context.yo");
 { comptime_numeric_slot_type } :: import("../values/integer.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
@@ -110,7 +110,8 @@ pragma(Pragma.AllowUnsafe);
   global_lend_key,
   global_place_path,
   global_note_handle_write,
-  global_require_mut
+  global_require_mut,
+  in_compile_time_fn_body
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -325,6 +326,54 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
     return(Option(Variable).None);
   });
   get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last()
+});
+/// E0918: a write of the compile-time binding `v` (`v :: x`,
+/// `comptime(v) := x`) that runs when the program runs. Every use of such a
+/// binding is folded to its value while compiling, so a runtime write gives
+/// one name two values: the folded uses keep the old one, and the evaluator
+/// carries the new one into whatever it folds afterwards
+/// (issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md).
+///
+/// The write runs at runtime when it sits in a function, closure, `io.async`
+/// or test body that is not itself compile-time code: not a body whose result
+/// is compile-time (`-> comptime(...)`, `-> Type`, `-> Expr`: the E1104 test,
+/// `in_compile_time_fn_body`), not a CTFE execution or capability analysis
+/// (`force_compile_time_bindings`, `ctfe_depth`). There it is rejected when
+/// the binding is declared outside that body (module level, or an enclosing
+/// function), or when the value written is a runtime one (`rhs_is_runtime`).
+/// A body's own `a :: 1; a = 2;` stays a compile-time reassignment; decision
+/// 47 decides its spelling (`mut(a) ::`).
+_reject_runtime_write_of_comptime_binding :: (
+  fn(v : &Variable, write_tok : &Token, rhs_is_runtime : bool, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  if(!v.is_compile_time_only || ctx.force_compile_time_bindings || ctx.is_analyzing_ctfe_capability || (ctx.ctfe_depth > usize(0)) || fn_ctx_returns_comptime(ctx) || in_compile_time_fn_body(ctx), {
+    return(());
+  });
+  sub := match(ctx.is_evaluating_function_body_or_async_block, .Some(s) => s, .None => return(()));
+  // A function body's own parameters sit in the top frame of its `eval_env`;
+  // an async or test block has none (as in `_captured_root_of_place`).
+  own_floor := match(sub.kind, .FunctionBody => (sub.eval_env.frame_count() - usize(1)), _ => sub.eval_env.frame_count());
+  outside := (v.frame_level < own_floor);
+  if(!outside && !rhs_is_runtime, {
+    return(());
+  });
+  name := v.name.clone();
+  // A compile-time binding never carries `is_module_level` (that flag marks
+  // the runtime globals emitted as C statics), so the definition label below
+  // is what shows where it lives.
+  first := cond(
+    outside => `Cannot assign "${name}" when the program runs: it is a compile-time constant (a \`::\` binding) declared outside this body. Every use of it was folded to its value while compiling, so a runtime write would leave the folded uses reading the old value.`,
+    true => `Cannot assign a runtime value to "${name}": it is a compile-time constant (a \`::\` binding), whose value must be known while compiling.`
+  );
+  help := `declare it with \`:=\` instead (\`${name} := ...;\`, at module level for a global): a runtime binding, which the program can write`;
+  entries := ArrayList(TokenAndError).new();
+  entries.push(TokenAndError(token : write_tok, error_message : first));
+  entries.push(TokenAndError(token : v.token, error_message : `"${name}" is defined here:`));
+  raise_flow_violation(
+    with_code(format_error_messages_with_help(&entries, Option(String).Some(help)), E_COMPTIME_BINDING_RUNTIME_WRITE),
+    ctx,
+    exn
+  );
 });
 /// VALUES_BY_DEFAULT §3.13 audit: the variable a closure or `io.async` body
 /// captured from an enclosing scope that the place `lhs` writes (through
@@ -1193,6 +1242,12 @@ evaluate_assignment :: (
     env.input_string = prop_rhs_info.env.input_string;
     // Step 3 — requireExprNotConsumed, throwExprIsImplicitVariableError, setExprAsNeedsToCallDup
     require_expr_not_consumed(&prop_rhs, &env, ctx, exn);
+    // E0918: a field or element of a compile-time binding written at runtime.
+    match(
+      _place_root_variable(&evaluated_lhs, &env, ctx, false),
+      .Some(ct_root) => _reject_runtime_write_of_comptime_binding(&ct_root, ast_expr_token(&get_root_expr_of_place(&lhs)), prop_rhs_info.value.is_none(), ctx, exn),
+      .None => ()
+    );
     // A write of the place: E0908 through an `imm` local borrow, E0911 while a
     // borrow of an overlapping place is live (plans/VALUES_BY_DEFAULT.md
     // decision 18).
@@ -1850,6 +1905,10 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
     );
   });
   rhs_info := match(rhs_info_opt, .Some(i) => i, .None => new_expr_info(&env, t_unit()));
+  // E0918: a compile-time binding reassigned by code that runs at runtime.
+  if(is_atom_lhs, {
+    _reject_runtime_write_of_comptime_binding(&variable, ast_expr_token(&lhs_resolved), rhs_info.value.is_none(), ctx, exn);
+  });
   // Deferred generic-fn-type check: reject a
   // runtime variable with a GENERIC function type unless the bound lambda's
   // body provably ALWAYS unwinds — such a ctl handler never delivers its
