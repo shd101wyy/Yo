@@ -322,11 +322,11 @@ static void __yo_async_free_cont_pool(void) {
 }
 
 // Arm the thread-exit hook. Everything that creates per-thread async runtime
-// state calls this: the continuation pool on its first node, and every
-// backend's __yo_io_init. Arming only from the pool left a thread whose awaits
-// never allocated a continuation (a plain main(io) awaiting raw I/O or a
-// sleep) exiting with its backend alive: the kqueue, the timer heap, the slot
-// table and the node pools
+// state calls this: the continuation pool on its first node, every
+// backend's __yo_io_init, and __yo_waker_new (the loop's inbox). Arming only
+// from the pool left a thread whose awaits never allocated a continuation
+// (a plain main(io) awaiting raw I/O or a sleep) exiting with its backend
+// alive: the kqueue, the timer heap, the slot table and the node pools
 // (issues/fixed/a-loop-driven-only-by-synchronous-awaits-never-releases-its-io-backend.md).
 static inline void __yo_async_arm_thread_exit(void) {
   __yo_async_thread_exit_hook = __yo_async_thread_exit_release;
@@ -784,6 +784,11 @@ static void* __yo_waker_new(void* f) {
     return NULL;
   }
   __yo_waker_token_t* t = (__yo_waker_token_t*)__yo_rc_alloc(sizeof(__yo_waker_token_t));
+  // A waker makes this thread's loop a target of foreign posts, and only the
+  // thread-exit release drains an inbox no loop driver ends: a main(io) that
+  // parks with a plain await arms nothing else
+  // (issues/fixed/2026-10-16-the-thread-exit-release-leaks-a-join-wait-and-a-waker-token-posted-after-the-last-tick.md).
+  __yo_async_arm_thread_exit();
   __yo_incr_rc(f);
   t->future = (__yo_io_future_t*)f;
   t->owner = __yo_loop_self();
