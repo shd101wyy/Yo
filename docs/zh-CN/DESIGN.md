@@ -2562,8 +2562,9 @@ main :: (fn() -> unit)({
   部分保持未绑定（各选项会丢弃不同的部分）：请拆分分支或绑定该部分。
 
 `mut` 位置在存活期间是独占的：分支只能通过它读、写或移动被匹配值（E0911）；`&mut` 需要
-可写的位置（`imm` 绑定是 E0908，临时值是错误）。位置目前还不能跨越 `await`
-（`issues/a-mut-match-place-binding-cannot-live-across-an-await.md`）。
+可写的位置（`imm` 绑定是 E0908，临时值是错误）。在 `io.async` 函数体中，位置可以跨越
+`await`，除非被匹配值经过引用单元或模块级位置：当前任务挂起时，其他任务可能访问到该位置
+（E0911，与局部借用的规则相同）。
 `yo fix <path> --migrate match-scrutinee` 会在现有程序需要借用的地方写上 `&`。
 
 ## 字符串

@@ -5306,9 +5306,15 @@ is `Arc(Mutex(T))`, `clone()` or `&mut`, and the error says which.
          - **In a `&mut` match,** bindings below a cell or a raw pointer are
            copies, `(name := p)` with sub-bindings is an error (two places
            would alias), `&mut` of a module-level binding is allowed (it is
-           a writable place), and an arm that binds a place and awaits is
-           rejected until a place can live in a task slot
-           (`issues/a-mut-match-place-binding-cannot-live-across-an-await.md`).
+           a writable place), and an arm that binds a place and awaits was
+           rejected until a place could live in a task slot. **Lifted
+           2026-10-16:** the place's slot holds its pointer, the scrutinee's
+           root keeps its own slot, and rule 4 of decision 18 rejects a place
+           through a cell or a module-level place live across the await
+           (`issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md`;
+           on the way, a field or dereference scrutinee had been copied, so
+           the arm wrote the copy:
+           `issues/fixed/2026-10-16-a-mut-match-on-a-field-or-a-dereference-writes-a-copy.md`).
        - **Found and fixed on the way:** a value moved before a `continue` or
          `break` inside an `if` was dropped again at the loop exit
          (pre-existing, S1;
