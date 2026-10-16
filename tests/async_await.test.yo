@@ -7512,3 +7512,49 @@ test("a later argument cannot move, overwrite or lend &mut what an earlier one l
   o := _A2Pair(n : i32(2), m : i32(0));
   assert(io.await(_a2_bump_by(&mut p, _a2_take_pair(o), io), io) == i32(6), "a later argument may move another binding");
 });
+// A local whose address a call lends without spelling `&` (the receiver of a
+// `self : &mut Self` method) lives in the task when the address can outlive
+// the poll: `as_ptr()` returns it, and the body reads through it after a
+// real suspension. As a C local of the first poll the buffer was a dead
+// frame after the resume: two tasks polled from the same depth shared it
+// (issues/fixed/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md).
+_LentCell :: struct(v : i32);
+impl(
+  _LentCell,
+  ptr : (fn(self : &mut Self) -> *i32)(
+    addr_of(self.v)
+  )
+);
+_fill_then_read_lent :: (fn(tag : u8, io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    buf_uninit := MaybeUninit(Array(u8, usize(64))).new();
+    p := (*u8)(buf_uninit.as_ptr());
+    cell := _LentCell(v : i32(0));
+    q := cell.ptr();
+    (i : usize) = usize(0);
+    while(i < usize(64), i = (i + usize(1)), {
+      p.add(i).* = tag;
+    });
+    q.* = i32(tag);
+    io.await(sleep(u64(5)), io);
+    (bad : i32) = i32(0);
+    (j : usize) = usize(0);
+    while(j < usize(64), j = (j + usize(1)), {
+      if(!(p.add(j).* == tag), {
+        bad = (bad + i32(1));
+      });
+    });
+    if(!(q.* == i32(tag)), {
+      bad = (bad + i32(100));
+    });
+    bad
+  })
+);
+test("a local whose address a method call lends lives in the task across a suspension", {
+  ha := io.spawn(_fill_then_read_lent(u8(65), io), io);
+  hb := io.spawn(_fill_then_read_lent(u8(66), io), io);
+  ra := ha.await(io);
+  rb := hb.await(io);
+  assert(ra.unwrap() == i32(0), "task A reads back its own 64 bytes and cell through the lent pointers");
+  assert(rb.unwrap() == i32(0), "task B reads back its own 64 bytes and cell through the lent pointers");
+});
