@@ -21,8 +21,7 @@ test("literal payload arms with an await in each arm (#661 gap 2)", {
   o := Option(bool).Some(!(n == i32(-1))); // Some(true) at runtime
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       o,
       .Some(false) => {
         io.await(yield(io), io);
@@ -35,6 +34,8 @@ test("literal payload arms with an await in each arm (#661 gap 2)", {
       .Some(_) => i32(-1),
       .None => i32(0)
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -45,8 +46,7 @@ test("int literal payload arms with awaits", {
   r2 := Reading2.Code(i32(0) - n); // -1 at runtime (n = argv length)
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       r2,
       .Code(-1) => {
         io.await(yield(io), io);
@@ -58,6 +58,8 @@ test("int literal payload arms with awaits", {
       },
       .Flag2(_) => i32(-3)
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -68,8 +70,7 @@ test("labeled and curly patterns in await-carrying arms bind (audit A3)", {
   s := if(n > i32(100), Shape.Circle(i32(1)), Shape.Rect(i32(4), i32(5)));
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       s,
       .Rect({ width, height : h }) => {
         io.await(yield(io), io);
@@ -80,6 +81,8 @@ test("labeled and curly patterns in await-carrying arms bind (audit A3)", {
         r * r
       }
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -90,8 +93,7 @@ test("positional twin of the labeled case still works", {
   s := if(n > i32(100), Shape.Circle(i32(1)), Shape.Rect(i32(4), i32(5)));
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       s,
       .Rect(w, h) => {
         io.await(yield(io), io);
@@ -102,6 +104,8 @@ test("positional twin of the labeled case still works", {
         r * r
       }
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -199,8 +203,7 @@ test("a nested variant pattern in an awaiting arm", {
   o := Outer2.Ok2(Inner2.A2(i32(6) + n)); // Ok2(A2(7)) at runtime
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       o,
       .Ok2(.A2(x)) => {
         io.await(yield(io), io);
@@ -215,6 +218,8 @@ test("a nested variant pattern in an awaiting arm", {
         c
       }
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -225,8 +230,7 @@ test("an or-pattern arm with an await", {
   r := Reading2.Code(i32(0) - n); // Code(-1) at runtime
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       r,
       (.Code(-1) | .Code(-2)) => {
         io.await(yield(io), io);
@@ -238,6 +242,8 @@ test("an or-pattern arm with an await", {
       },
       .Flag2(_) => i32(-3)
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -248,8 +254,7 @@ test("a guard arm with an await", {
   o := Option(i32).Some(i32(7) + n); // Some(8)
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       o,
       (.Some(v) && (v > i32(100))) => {
         io.await(yield(io), io);
@@ -261,6 +266,8 @@ test("a guard arm with an await", {
       },
       .None => i32(0)
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -273,8 +280,7 @@ test("a string-constant arm with an await", {
   (t3 : String) = t2;
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       t3,
       "run" => {
         io.await(yield(io), io);
@@ -285,6 +291,8 @@ test("a string-constant arm with an await", {
         i32(2)
       }
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -295,8 +303,7 @@ test("a range arm and a catch-all binding with awaits", {
   v := (i32(42) + n); // 43
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       v,
       (0 ..= 9) => {
         io.await(yield(io), io);
@@ -311,6 +318,8 @@ test("a range arm and a catch-all binding with awaits", {
         other
       }
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -321,8 +330,7 @@ test("a whole-value := binding with an await", {
   o := Option(i32).Some(i32(5) + n); // Some(6)
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       o,
       (whole := .Some(v)) => {
         io.await(yield(io), io);
@@ -330,6 +338,8 @@ test("a whole-value := binding with an await", {
       },
       .None => i32(0)
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -340,8 +350,7 @@ test("a tuple scrutinee with awaiting arms", {
   t := (i32(3) + n, true); // (4, true)
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       t,
       (0, _) => {
         io.await(yield(io), io);
@@ -353,6 +362,8 @@ test("a tuple scrutinee with awaiting arms", {
       },
       (x, false) => x
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -364,8 +375,7 @@ test("a struct pattern with an await", {
   p := Pt(i32(0) + n, i32(9)); // Pt(1, 9)
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       &p,
       Pt(x : 0, y) => {
         io.await(yield(io), io);
@@ -376,6 +386,8 @@ test("a struct pattern with an await", {
         (x * i32(10)) + y
       }
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -387,8 +399,7 @@ test("a pattern through an Rc payload with an await", {
   l := List2.Cons2(1, rc(List2.Cons2(i32(2) + n, rc(List2.Nil2))));
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       l,
       .Cons2(1, Rc(.Cons2(second, _))) => {
         io.await(yield(io), io);
@@ -400,6 +411,8 @@ test("a pattern through an Rc payload with an await", {
       },
       .Nil2 => i32(0)
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
@@ -410,8 +423,7 @@ test("a wrapper pattern Rc(p) with an await (decision 31)", {
   l := List2.Cons2(1, rc(List2.Cons2(i32(2) + n, rc(List2.Nil2))));
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       l,
       .Cons2(1, Rc(.Cons2(second, Rc(.Nil2)))) => {
         io.await(yield(io), io);
@@ -423,6 +435,8 @@ test("a wrapper pattern Rc(p) with an await (decision 31)", {
       },
       .Nil2 => i32(0)
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);

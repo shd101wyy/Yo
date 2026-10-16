@@ -2702,9 +2702,11 @@ test("a write through an Rc handle is E0919, naming the doors", {
   }, "read-only through the handle");
   // Inside a closure body.
   comptime_expect_error({
-    _w := (() => {
-      h.n = i32(6);
-    });
+    _w := (
+      () => {
+        h.n = i32(6);
+      }
+    );
   }, "read-only through the handle");
 });
 test("reads, & lends, the handle itself and the doors are not E0919", {

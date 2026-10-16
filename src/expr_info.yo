@@ -1616,13 +1616,13 @@ expr_info_table_get :: (fn(table : &ExprInfoTable, id : ExprId) -> Option(ExprIn
 );
 /// Drop every entry whose key `keep` does not hold; returns how many went.
 /// The Phase 0 step 3 upper-bound experiment (`YO_CODEGEN_KEEP`).
-expr_info_table_retain_keys :: (fn(table : &ExprInfoTable, keep : &HashSet(usize)) -> usize)({
+expr_info_table_retain_keys :: (fn(table : &ExprInfoTable, keep : &HashSet(usize)) -> usize)(
   table.data.with_mut(m => {
     before := m.len();
     m.retain((k, _v) => keep.contains(k));
     before - m.len()
   })
-});
+);
 // ---------------------------------------------------------------------------
 // Method-call callee-type side-table.
 //

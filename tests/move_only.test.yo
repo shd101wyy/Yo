@@ -766,8 +766,7 @@ test("consuming match: an io.async arm keeps a looked-through cell across an awa
   result := rc(RefCell(i32).new(0));
   task := io.async((io : Io) => {
     c := _MoCell.Cell(fd : _MoFd(n : i32(1)), shared : rc(_MoFd(n : i32(2))));
-    result.with_mut(cur => {
-      cur = match(
+    result_value := match(
       c,
       .Cell(f, Rc(_MoFd(n : k))) => {
         io.await(yield(io), io);
@@ -775,6 +774,8 @@ test("consuming match: an io.async arm keeps a looked-through cell across an awa
       },
       .Empty => i32(0)
     );
+    result.with_mut(cur => {
+      cur = result_value;
     });
   });
   io.await(task, io);
