@@ -1,19 +1,28 @@
 //! `consume(...)` emitter.
 { String } :: import("std/string");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_id } :: import("../../expr.yo");
+{ is_consume_release } :: import("../../expr_info.yo");
 { FunctionGenerationContext } :: import("../functions/context.yo");
 { _call_generate_expr } :: import("./_expr.yo");
+{ generate_drop_of_operand } :: import("./rc_fns.yo");
 { codegen_fatal_expr } :: import("../constants.yo");
-/// `consume(x)` — emits the argument as-is. consume does NOT drop the old
-/// value (that is the point: take the location without cleanup). Every
-/// assignment saves its old value by bytes, so a consumed one into an
-/// uninitialized slot needs nothing extra here.
+/// `consume(x)`. The initialization form `consume(p.* = v)` emits the
+/// argument as-is: it does NOT drop the old value (that is the point: take
+/// the location without cleanup). Every assignment saves its old value by
+/// bytes, so a consumed one into an uninitialized slot needs nothing extra
+/// here. An owned value the evaluator marked moved (`is_consume_release`,
+/// evaluate_consume) has no other owner left, so the consume releases it,
+/// as `___drop` does.
 generate_consume :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(
     expr,
     .FnCall(_, _, args, _, _) => match(
       args.get(usize(0)),
-      .Some(arg) => _call_generate_expr(&arg, indent, context),
+      .Some(arg) => if(
+        is_consume_release(ast_expr_id(expr)),
+        generate_drop_of_operand(&arg, indent, context),
+        _call_generate_expr(&arg, indent, context)
+      ),
       .None => codegen_fatal_expr(String.from("consume requires exactly 1 argument"))
     ),
     .Atom(_, _) => codegen_fatal_expr(String.from("consume requires a call expression"))
