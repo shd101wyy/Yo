@@ -37,6 +37,10 @@ Environment:
   YO_TEST_IN_PROCESS=1      Compile every batch in ONE resident evaluator (opt-in:
                             about 2x faster, needs the memory of the whole run)
   YO_TEST_MAX_RSS_MB=<N>    Restart the runner at a file boundary past N MB (default 4096)
+  YO_TEST_FORK=<N>          Run up to N files at a time in forked workers (Linux,
+                            macOS): the first file warms the runner in process,
+                            each later file runs in a fork of it that exits when
+                            the file is done; output stays in file order
 
 Examples:
   $ yo test                       All tests in the workspace
