@@ -49,7 +49,6 @@ pragma(Pragma.AllowUnsafe);
   control_flow_of,
   has_control_flow,
   has_any_control_flow,
-  expr_info_adopt_env,
   expr_info_capture_type,
   expr_info_comptime_ref,
   expr_info_deferred_dup_expressions,
@@ -2396,11 +2395,18 @@ _evaluate_begin_expression_impl :: (
           // attachTempVariableToExpr is a no-op stub; call it for API parity.
           attach_temp_variable_to_expr(&evaluated_ret_arg, true, ctx);
           // Re-read env in case the stub updated it (future-proof).
-          // By private copy: the recorded snapshot is shared between ExprInfos and
-          // this env is popped at the block's end (`pop_frame_nonmutating`).
+          // By private copy that the argument's ExprInfo does NOT share: this
+          // env is popped at the block's end (`pop_frame_nonmutating`
+          // reassigns `frames` on the env object). Adopting the argument's env
+          // (`expr_info_adopt_env`) made the two one object, so the pop removed
+          // the block's frame from the argument's recorded scope too, and
+          // codegen no longer saw that `return(a)` of a local `a :: …` names a
+          // compile-time-only binding: it emitted `a`, which has no C
+          // declaration
+          // (issues/fixed/2026-10-15-return-of-a-function-local-comptime-constant-emits-an-undeclared-c-identifier.md).
           env = match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_ret_arg)),
-            .Some(ri) => expr_info_adopt_env(&ri),
+            .Some(ri) => snapshot_env(&ri.env),
             .None => env
           );
           // Defense-in-depth flowability on the return ARGUMENT.
@@ -2674,10 +2680,10 @@ _evaluate_begin_expression_impl :: (
             throw_unwind_type_mismatch(ast_expr_token(&esc_arg), &enclosing_ret, &esc_info.ty, ctx, exn);
           });
           attach_temp_variable_to_expr(&evaluated_esc_arg, true, ctx);
-          // Same: adopt by private copy.
+          // Same: a private copy the argument's ExprInfo does not share.
           env = match(
             expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_esc_arg)),
-            .Some(ei) => expr_info_adopt_env(&ei),
+            .Some(ei) => snapshot_env(&ei.env),
             .None => env
           );
           out := new_expr_info(&env, &esc_info.ty);
