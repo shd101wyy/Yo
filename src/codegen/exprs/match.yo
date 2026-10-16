@@ -2529,11 +2529,17 @@ _generate_match_expression_body :: (fn(expr : &AstExpr, indent : &String, contex
   // issues/fixed/async-match-on-the-same-local-twice-redeclares-its-c-copy.md).
   // Same atom guard as begin.yo's subject materialization, widened to every
   // atom.
+  // A `mut` match (plans/VALUES_BY_DEFAULT.md decision 26) binds places INTO
+  // its scrutinee, a place (`s.f`, `h.f`, `b.*`) whose code is an lvalue: it
+  // is never copied, or the arm writes the copy, and replacing a counted
+  // payload releases the scrutinee's own value
+  // (issues/fixed/2026-10-16-a-mut-match-on-a-field-or-a-dereference-writes-a-copy.md).
+  is_mut_match := (lookup_match_mode(ast_expr_id(expr)) == MATCH_MODE_MUT);
   match(
     subject_ei.variable_name,
     .Some(svn) => {
       subject_var_name := get_variable_name_for_codegen_at(ast_expr_id(&subject), &svn, Option(Environment).Some(subject_ei.env));
-      if(!ast_expr_is_atom(&subject) && !(matched_value_code == subject_var_name), {
+      if(!is_mut_match && !ast_expr_is_atom(&subject) && !(matched_value_code == subject_var_name), {
         _emit_pattern_binding_decl(
           context,
           indent.clone(),
