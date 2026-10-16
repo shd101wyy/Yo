@@ -640,6 +640,18 @@ clear inside its own function (measured 2026-10-06 writing the cycle-collector
 resurrection test; the emitted C saves `__yo_v_k->__yo_v_next` and defers its
 `__yo_decr_rc` to the function's closing brace).
 
+**An emitter whose expression carries an owning result temp declares that temp
+itself** (`attach_temp_variable_to_expr(expr, true, …)` in its evaluator path)
+and returns its name. Calls, tuples, arrays, `dyn()`, `match` and `cond` all do,
+and consumers rely on it. A binding, a by-value argument and `&` re-declare an
+operand that is not already its temp. A `&self` method receiver and a discarded
+statement do not. `downcast`/`upcast` returned a bare expression, so
+`downcast(d, T).is_some()` leaked the payload on every evaluation
+(`_bind_result_temp` in `exprs/downcast.yo`,
+`issues/fixed/2026-10-16-a-downcast-result-used-as-a-method-receiver-is-never-released.md`).
+To check a new producer, compare `x := e`, `e.m()` (a `&self` method) and `e;`
+under `--sanitize address`.
+
 That set covers only the scope-end release. The early-exit gates (explicit
 `return`, `if (__yo_effect_escaped)`) additionally require the target in the
 emitter's block-scope stack (`_emitter_track_scope`), which records only
