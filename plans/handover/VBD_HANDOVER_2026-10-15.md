@@ -193,7 +193,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 | 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | rebased, Tier 1 green |
 | 4 | `feat/global-lend-to-call-is-an-error` → **#1401, landed** | decision 47 globals, Generation A |
 | 5 | `fix/runtime-write-to-comptime-constant` → **#1402, landed** | E0918 |
-| 6 | `fix/d3-trust-by-mutation-mask` as #1397, then #1380 | the D3 S1 fix **landed** 2026-10-16 as #1397; #1380 restacks on it |
+| 6 | `fix/d3-trust-by-mutation-mask` as #1397, then #1380 | the D3 S1 fix **landed** 2026-10-17 as #1397; #1380 restacks on it |
 | 7 | #1398 from `perf/type-key-memo-identity` | **landed** 2026-10-16 (−40% allocations; baseline 1,799,052,684, measured) |
 | 7a | release v0.2.64 | §4 step 7a |
 | 8 | #1385 | **landed** 2026-10-16 (restacked, Tier 1 incl. the full in-process `tests/internal` and full cli-diff) |
@@ -295,7 +295,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   - **B1, the pragma-trust hole (S1):**
     - D3 trusts every mutator defined in a pragma file, so a spawned task can call `b.*.o.take()` on an `Arc` copy, because `Option.take` lives in the prelude.
     - Meanwhile `io.await(peek(&a.*, io), io)` holds the borrow, and the future reads 0 where 7 was written.
-    - **Fixed by #1397** (`fix/d3-trust-by-mutation-mask`, landed 2026-10-16; its entry below): D3 now judges every callee by its **mutation mask**, not by its file. The issue doc is `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`; this branch adds it at the root too (commit `657146480`), which the restack drops.
+    - **Fixed by #1397** (`fix/d3-trust-by-mutation-mask`, landed 2026-10-17; its entry below): D3 now judges every callee by its **mutation mask**, not by its file. The issue doc is `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`; this branch adds it at the root too (commit `657146480`), which the restack drops.
     - The probe shape:
 
       ```yo ignore
@@ -368,9 +368,9 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 
 #### `fix/d3-trust-by-mutation-mask` — the D3 S1 fix (B1 of #1380), #1397
 
-> **LANDED 2026-10-16 as #1397** (squash-merged from `fix/d3-trust-by-mutation-mask`, rebased onto develop `a60a046e0`; the rebase onto #1385 kept #1385's copy-write block in `d3_check_pending` and still deletes the early return). The "Next" steps below are done; they are the history.
+> **LANDED 2026-10-17 as #1397** (squash-merged from `fix/d3-trust-by-mutation-mask`, rebased onto develop `56b5e11a6`; the rebase onto #1385 kept #1385's copy-write block in `d3_check_pending` and still deletes the early return). The "Next" steps below are done; they are the history.
 >
-> - **Gated on `a60a046e0`:** build; check src 278/278, std 171/171; `parallelism_soundness` 17, `arc` 15, `atomic_object` 21, `thread_safety` 4, `async_await` 281, `closure_capture_list` 41, `move_only` 55, `send_sync` 15, `thread` 23, `rc` 98; the 18 cli cases that exercise D1, D3 and the mask-driven migrations (all PASS); fmt; issue refs.
+> - **Gated on `56b5e11a6`:** build; check src 278/278, std 171/171; `parallelism_soundness` 17, `arc` 15, `atomic_object` 21, `thread_safety` 4, `async_await` 281, `closure_capture_list` 41, `move_only` 55, `send_sync` 15, `thread` 23, `rc` 99; the 18 cli cases that exercise D1, D3 and the mask-driven migrations (all PASS); fmt; issue refs.
 > - **`tests/internal`, on earlier bases, never one whole run on the final head:** the in-process run (base `0684c9c40`, leak verdicts on) was cut off after 57 of 108 files, and every failure in it was a leak verdict; the other 51 files passed one per call (base `6fc6e3a0a`, `YO_TEST_LEAK_VERDICT=0`).
 > - **Decision 47 (#1401):** a written global is now `mut(g)`. The D1 regression case declares `mut(g_d3_slot)`, and D1 fires before E0916 for its `g_d3_slot.take()`; without this fix that call reaches E0916 instead.
 > - **`plans/reference/PARALLELISM_RULES.md` D3** now says the mask decides for every callee.
@@ -752,7 +752,7 @@ x :: 12;                           // a true constant
 | Issue | Note |
 | --- | --- |
 | `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; fixed by #1401 |
-| `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` | B1; fixed by #1397 (landed 2026-10-16, §2.3) |
+| `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` | B1; fixed by #1397 (landed 2026-10-17, §2.3) |
 | `issues/fixed/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md` | **Fixed** by `fix/await-method-address-local`. Found by §4 step 10 (#1399): `x.as_ptr()` before an await in an `io.async` body left `x` a C local; the live-range walk saw only `&x`/`addr_of(x)`, and now treats every argument a call passes to a pointer parameter as lent |
 | `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
 | `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md` | Type-soundness track (#1162) |
