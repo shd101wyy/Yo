@@ -374,6 +374,16 @@ that borrows:
 
 - it is awaited where it is made, as the operand of `io.await` (directly, or
   as the value of an `if`/`cond`/`match` arm or a block's tail);
+- it may be the operand of a combinator, a generic function whose by-value
+  parameter and result are both Futures (`then(fut, io)` over
+  `Impl(Future(T, Io))`): the combinator's own
+  Future then borrows what its operands borrow and is awaited where it is
+  made in turn. Two operands of one call may not lend overlapping places when
+  either side is `&mut` (E0910, decision 38 B); two `&` borrows of one place
+  are fine. A by-value Future parameter of a function whose result is not a
+  Future, or of a non-generic function (checked once, at its definition, so
+  its Future could not carry the operand's borrows), still rejects one
+  (E0909);
 - a function may return it when everything it borrows is one of that
   function's own `&`/`&mut` parameters, so the caller's lent places outlive
   it. A `&T` parameter is borrowed through the body's own capture list

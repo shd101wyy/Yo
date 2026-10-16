@@ -84,6 +84,9 @@ Progress:
     `std/async` combinators take handle lists by value, and
     `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
     move bitwise through `__yo_ptr_read`/`__yo_ptr_write`;
+  - V3 async A4's compiler half (§3.13; feat/vbd-v3-a4-future-operands): a
+    generic combinator's by-value future operand accepts a borrowing future, and
+    decision 38 B's overlap check for two borrowing operands is E0910;
   - V3 async A5 (§3.13; #1379): `Waker` is a move-only
     value (its `Clone` is Generation A in the runtime), the async
     `Channel`/`Mutex` keep their state behind `Rc` with move-only
@@ -151,8 +154,9 @@ Progress:
     `__yo_waker_clone`, and the cross-thread tests back on `Park` and
     `w.clone()` (#1412).
 - **In progress:**
-  - V3's remaining async work (§3.13): A4's future operands and A6's
-    `Rc`-field half (V2c).
+  - V3's remaining async work (§3.13): A4's std half (`timeout`/`select`
+    over futures, blocked on `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`)
+    and A6's `Rc`-field half (V2c).
 - **Next:** decision 47's globals step, Generation B (on the next seed),
   the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
@@ -1175,10 +1179,11 @@ instead.
       slot, since a borrowing future made in its statement can hold the
       address across a suspension; and a local a capture list borrows lives
       in the task to the end of its scope, as an `&x` argument's root does.
-    - **Not yet:** decision 38 B's overlap for two borrowing futures
-      passed to one combinator (`select(s.next(io), s.next(io))`) lands
-      with A4's future-taking combinators. Until then, no combinator
-      accepts a borrowing future.
+    - **The combinator operand (2026-10-16, A4's compiler half).** A
+      by-value future parameter of a function whose result is a future
+      accepts a borrowing future, and decision 38 B's overlap check for two
+      borrowing futures passed to one combinator is E0910. See A4's "As
+      built, the compiler half".
 - **A3. `JoinHandle(T)` is a move-only value struct over a raw future
   pointer:** `struct(__future : *(void))` with a `Dispose` that releases the
   task's count.
@@ -1279,6 +1284,66 @@ instead.
       compiler to accept a second-class future in a combinator's operand and
       to run it as a scoped child; they wait for that support, with decision
       38 B's overlap check (A2's "Not yet").
+  - **As built, the compiler half of the future operands (2026-10-16,
+    feat/vbd-v3-a4-future-operands).**
+    - **The operand slot is structural.** A by-value parameter whose type is
+      a future, of a GENERIC function whose result is a future, accepts a
+      borrowing future (`_param_accepts_second_class`,
+      `src/evaluator/calls/helper.yo`, on both call paths). A generic callee
+      is checked per call, so inside it the operand is second-class as well: it can be awaited, or captured
+      by value by the `io.async` body whose future the function returns. That
+      capture re-roots the operand's borrows at the parameter
+      (`_register_borrowing_future`, as a borrowing closure lent to a
+      `&Impl(Fn)` parameter is), and the return rule accepts a borrow rooted
+      at a future operand parameter (`variable_is_future_operand_parameter`).
+      The call's result is then a borrowing future, and every A2 rule applies
+      to it: awaited where it is made, never bound, stored or spawned, a place
+      for its `io.await`'s bundle. A by-value future parameter of a function
+      whose result is not a future still rejects a borrowing future (E0909),
+      and so does one of a NON-generic function from futures to a future: its
+      body is checked once, at its definition, where no operand borrows
+      anything, so its future could not carry the operand's borrows and the
+      call site would see a future that borrows nothing (an earlier draft of
+      the slot accepted it, and two `&mut` operands of one place then passed
+      the overlap check). Every std combinator is generic.
+    - **Awaiting the operand in the body** (`io.await(op, io)`, directly or
+      through the `io.async` capture) is not decision 38 D's unchecked future:
+      `_check_awaited_future` ignores a borrow whose root is not in scope.
+      Such a root is the caller's place, lent for the call and checked at the
+      call site, and the body cannot name it.
+    - **A combinator cannot yet return its operand's value.** The awaited
+      result of a `T` bound only through the operand lowers as unit
+      (`issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`),
+      so the tests' combinators (`_a4_done`, `_a4_both` in
+      `tests/async/combinators.test.yo`) await their operands for their
+      effect and resolve to `unit`.
+    - **Decision 38 B's overlap** (`_check_future_operand_lends`,
+      `src/evaluator/calls/function.yo`). A call's future carries borrows
+      rooted at its callee's parameters, so the places an operand lends are
+      mapped back to the caller through the operand's own call, recursively
+      (`_future_lends_into`: its `&`/`&mut` arguments, its receiver, a nested
+      operand, an `io.async` written in place). Two arguments whose places
+      overlap, with a `&mut` side, are E0910, reported before the two-phase
+      rule (a later argument may not move, overwrite or lend `&mut` a place an
+      operand lends). The general argument-exclusivity check
+      (`require_capture_borrow_exclusivity`) now skips a borrow whose root is
+      not in the caller's scope, since those roots are the callee's
+      parameters, not the caller's places.
+    - **The std half is parked.** `timeout(fut, d, io)` and a two-way
+      `select(a, b, io)` over futures, each operand a scoped child task
+      (spawned under `unsafe`, held by a guard whose `Drop` aborts it, aborted
+      and joined before the combinator resolves), were built and run
+      (borrowing operands under a deadline and a loss, the loser's locals
+      dropped). They cannot ship on today's compiler: two futures of one
+      generic producer at different `T` (`h1.join(io)` and `h2.join(io)`,
+      `rx.recv(io)` over two channel item types) give a generic body's
+      `io.async` one capture struct and one closure, so the second
+      `timeout` in a program fails to compile (`issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md`), and the
+      operands' effect type cannot be generic
+      (`issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`).
+      The reference implementation is `std/async/index.yo` and
+      `std/http/client.yo` on the branch `wip/vbd-a4-std-half` (commit
+      `a83d6ac8b`). `timeout(handle, …)` stays until those are fixed.
 - **A5. Wakers, parks, channels, mutexes and streams.**
   - **`Waker`** is move-only with `Clone`. A clone registers one more token
     (the runtime counts live tokens, `std/async/waker.yo`), and its cell

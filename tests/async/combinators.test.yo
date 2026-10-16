@@ -890,3 +890,143 @@ test("Test a lent closure parameter of a generic io.async body, at two closure t
   assert(n == i64(42), "the first instantiation's closure ran");
   assert(m == i64(20), "the second instantiation's closure ran");
 });
+// ---------------------------------------------------------------------------
+// A4. A borrowing future as a combinator's operand (plans/VALUES_BY_DEFAULT.md
+//     §3.13 A4, compiler half): a by-value future parameter of a generic
+//     function whose result is a future accepts a second-class future, and
+//     the function's future then borrows what its operands borrow. `_a4_done`
+//     and `_a4_both` stand in for `std/async`'s combinators, whose
+//     future-taking half is parked (the plan's A4 "As built" note).
+// ---------------------------------------------------------------------------
+_A4Counter :: struct(n : i32);
+/// Drops of `_A4Probe`, a local each borrowing operand owns across its
+/// suspension.
+(mut(g_a4_dropped) : i32) = i32(0);
+_A4Probe :: struct(k : i32);
+impl(
+  _A4Probe,
+  Drop(
+    drop : (fn(self : &mut Self) -> unit)({
+      g_a4_dropped = (g_a4_dropped + i32(1));
+    })
+  )
+);
+/// Sleeps `ms`, then adds one to the counter it borrows `&mut`.
+_a4_bump_after :: (fn(c : &mut _A4Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &mut c, ms }(io : Io) => {
+    p := _A4Probe(k : i32(1));
+    io.await(sleep(ms), io);
+    c.n = (c.n + p.k);
+    c.n
+  })
+);
+/// Sleeps `ms`, then reads the counter it borrows `&`.
+_a4_read_after :: (fn(c : &_A4Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &c, ms }(io : Io) => {
+    io.await(sleep(ms), io);
+    c.n
+  })
+);
+/// A combinator over one operand: awaits it, for its effect. The A4
+/// combinators resolve to `unit`: a generic body cannot yet return the
+/// operand's `T` (issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-
+/// generic-binder-emits-a-void-pointer-result.md).
+_a4_done :: (fn(generic(T : Type), op : Impl(Future(T, Io)), io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ op }(io : Io) => {
+    io.await(op, io);
+    ()
+  })
+);
+/// A combinator over two operands, awaited one after the other.
+_a4_both :: (fn(generic(A : Type, B : Type), a : Impl(Future(A, Io)), b : Impl(Future(B, Io)), io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ a, b }(io : Io) => {
+    io.await(a, io);
+    io.await(b, io);
+    ()
+  })
+);
+/// A by-value future parameter of a function whose result is not a future:
+/// not a combinator, so a borrowing future may not be passed to it.
+_a4_eat :: (fn(_fut : Impl(Future(i32, Io))) -> unit)(());
+/// A NON-generic function from a future to a future: its body is checked
+/// once, at its definition, so its future could not carry an operand's
+/// borrows, and a borrowing future may not be passed to it either.
+_a4_plus :: (fn(op : Impl(Future(i32, Io)), k : i32, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ op, k }(io : Io) => (io.await(op, io) + k))
+);
+test("A4: a borrowing future is a combinator's operand, and the combinator's future borrows in turn", {
+  c := _A4Counter(n : i32(0));
+  before := g_a4_dropped;
+  io.await(_a4_done(_a4_bump_after(&mut c, u64(1), io), io), io);
+  assert(c.n == i32(1), "the operand wrote through its borrow");
+  assert(g_a4_dropped == (before + i32(1)), "the operand's local was dropped once");
+  c.n = (c.n + i32(4));
+  assert(io.await(_a4_read_after(&c, u64(0), io), io) == i32(5), "the lent local is usable after the call");
+});
+test("A4: two operands of disjoint places, and two shared operands of one place", {
+  a := _A4Counter(n : i32(0));
+  b := _A4Counter(n : i32(100));
+  io.await(_a4_both(_a4_bump_after(&mut a, u64(1), io), _a4_bump_after(&mut b, u64(1), io), io), io);
+  assert((a.n == i32(1)) && (b.n == i32(101)), "both operands ran");
+  io.await(_a4_both(_a4_read_after(&a, u64(1), io), _a4_read_after(&a, u64(1), io), io), io);
+  io.await(_a4_both(_a4_bump_after(&mut a, u64(1), io), _a4_read_after(&b, u64(1), io), io), io);
+  assert(a.n == i32(2), "a &mut and a & operand of disjoint places");
+});
+test("A4: two operands of one combinator may not lend overlapping places with a &mut side (decision 38 B)", {
+  c := _A4Counter(n : i32(0));
+  d := _A4Counter(n : i32(0));
+  comptime_expect_error(
+    io.await(_a4_both(_a4_bump_after(&mut c, u64(1), io), _a4_bump_after(&mut c, u64(1), io), io), io),
+    "two operands of one combinator may not reach one place with an exclusive side"
+  );
+  comptime_expect_error(
+    io.await(_a4_both(_a4_read_after(&c, u64(1), io), _a4_bump_after(&mut c, u64(1), io), io), io),
+    "two operands of one combinator may not reach one place with an exclusive side"
+  );
+  // A later argument may not overwrite the place an operand lends.
+  comptime_expect_error(
+    io.await(
+      _a4_both(_a4_bump_after(&mut c, u64(1), io), {
+        c = _A4Counter(n : i32(7));
+        _a4_read_after(&d, u64(0), io)
+      }, io),
+      io
+    ),
+    "an earlier argument of the same call lends to the future"
+  );
+  // The bundle of the await is a place, as for any borrowing future (§3.13 A2).
+  comptime_expect_error(
+    io.await(_a4_done(_a4_bump_after(&mut c, u64(1), io), io), {
+      c = _A4Counter(n : i32(7));
+      io
+    }),
+    "the bundle must be a place"
+  );
+});
+test("A4: a combinator over a borrowing future is itself second-class", {
+  c := _A4Counter(n : i32(0));
+  comptime_expect_error({
+    f := _a4_done(_a4_bump_after(&mut c, u64(1), io), io);
+    ()
+  }, "would hold a borrowing future");
+  comptime_expect_error(io.spawn(_a4_done(_a4_bump_after(&mut c, u64(1), io), io), io), "spawned or moved into a by-value parameter");
+  comptime_expect_error(io.spawn(_a4_bump_after(&mut c, u64(1), io), io), "spawned or moved into a by-value parameter");
+  comptime_expect_error(_a4_eat(_a4_bump_after(&mut c, u64(1), io)), "spawned or moved into a by-value parameter");
+  comptime_expect_error(io.await(_a4_plus(_a4_bump_after(&mut c, u64(1), io), i32(1), io), io), "spawned or moved into a by-value parameter");
+});
+/// The same inside a task: the lent locals live in the task's state machine
+/// across the combinator's suspension.
+_a4_in_task :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    c := _A4Counter(n : i32(0));
+    d := _A4Counter(n : i32(50));
+    io.await(yield(io), io);
+    io.await(_a4_done(_a4_bump_after(&mut c, u64(1), io), io), io);
+    io.await(_a4_both(_a4_bump_after(&mut c, u64(1), io), _a4_read_after(&d, u64(1), io), io), io);
+    c.n + d.n
+  })
+);
+test("A4: combinators over borrowing futures inside a task", {
+  r := io.await(_a4_in_task(io), io);
+  assert(r == i32(52), "the counter ends at 2, the read-only one at 50");
+});
