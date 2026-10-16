@@ -259,7 +259,13 @@ source order.
   (`compute_cross_boundary_variables`, a linear live-range walk: a read counts
   at the end of its statement, a local defined before a loop and used in it
   is live through the loop, a local with a scope-end drop or whose address is
-  taken lives to the end of its scope). Every other local is an ordinary C
+  taken lives to the end of its scope). An address is taken by `&x` and also
+  by any call that passes `x` to a C pointer parameter without the `&`
+  spelled (`fn_abi_param_is_ptr`: a `self : &mut Self` receiver such as
+  `buf.as_ptr()`, an operand an operator's method borrows), because the
+  callee can return or keep it (`_lv_mark_call_lends`;
+  issues/fixed/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md).
+  Every other local is an ordinary C
   local — the resume function jumps past its declaration, which C allows, and
   nothing reads it after the jump — so the escape path must release it:
   `emit_effect_unwind_check` emits the pending drops in a state machine as
