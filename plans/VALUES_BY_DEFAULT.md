@@ -140,11 +140,14 @@ Progress:
     `RefCell(T)` with `with`/`with_mut`, and `Rc`/`Arc` `make_mut` and
     `try_unwrap` (feat/vbd-d46-gena; §6 "Decision 46" step 1's "as
     built", with the census counts that size Generation B).
+  - V3's async `Mutex` follows Rust: move-only, shared as `Arc(Mutex(T))`;
+    a shared borrow lent to a future may cross `Arc` derefs (E0909's
+    read-only-handle carve-out), and D3 checks every hop of a written place
+    (#1380).
 - **In progress:**
   - V3's remaining async work (§3.13): A4's future operands, A5's
     `Waker.clone` Generation B (it waits for a seed carrying
-    `__yo_waker_clone`), the async `Mutex` (#1380), and A6's `Rc`-field
-    half (V2c).
+    `__yo_waker_clone`), and A6's `Rc`-field half (V2c).
 - **Next:** decision 47's globals step, Generation B (on the next seed),
   the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
