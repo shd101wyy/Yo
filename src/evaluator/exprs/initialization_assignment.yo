@@ -88,7 +88,7 @@
 { type_implements_comptime, type_implements_runtime_full } :: import("../trait_checking.yo");
 { evaluate_expression_raw } :: import("./expr.yo");
 { is_valid_variable_name, in_compile_time_fn_body, note_second_class_binding } :: import("../utils.yo");
-{ throw_rhs_contains_control_flow_expression_error } :: import("./assignment.yo");
+{ throw_rhs_contains_control_flow_expression_error, shared_borrow_param_root_of_place, reject_write_through_shared_borrow_param } :: import("./assignment.yo");
 {
   evaluate_destructuring_assignment,
   DestructuringResult
@@ -456,6 +456,12 @@ _evaluate_inout_local_binding :: (
     true => local_borrow_place_of(&evaluated_rhs, env, ctx)
   );
   if(is_mut, {
+    // A place inside a `&T` parameter's borrowed value is read-only (E0908).
+    match(
+      shared_borrow_param_root_of_place(&evaluated_rhs, env, ctx),
+      .Some(sbv) => reject_write_through_shared_borrow_param(&sbv, `borrow \`${local_borrow_place_text(rhs)}\` with \`&mut\``, ast_expr_token(rhs), ctx, exn),
+      .None => ()
+    );
     // A `&mut` binding writes the place: its element accesses dispatch
     // `IndexMut` (decision 34, V2b).
     call_promote_index_places_for_write(&evaluated_rhs, env, ctx, exn);

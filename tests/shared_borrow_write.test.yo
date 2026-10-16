@@ -1,0 +1,107 @@
+// A `x : &T` parameter is a read-only borrow of the caller's value
+// (plans/VALUES_BY_DEFAULT.md §3.1, decision 42): every write through it is
+// E0908, whatever the written data holds. A plain-data write used to be
+// accepted, landed in the callee's by-value copy and was lost
+// (issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md).
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+_In :: struct(m : i32);
+derive(_In, Copy, Clone);
+_P :: struct(n : i32, inner : _In, arr : Array(i32, 3), pair : Tuple(i32, i32));
+derive(_P, Copy, Clone);
+impl(
+  _P,
+  get : (fn(self : &Self) -> i32)(self.n),
+  inc : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i32(1));
+  })
+);
+_In_inc :: (fn(x : &mut _In) -> unit)({
+  x.m = (x.m + i32(1));
+});
+_set_i32 :: (fn(x : &mut i32, v : i32) -> unit)({
+  x = v;
+});
+_mk :: (fn() -> _P)(_P(n : i32(0), inner : _In(m : i32(0)), arr : [i32(0), i32(0), i32(0)], pair : (i32(0), i32(0))));
+_write_field :: (fn(p : &_P) -> unit)({
+  comptime_expect_error(p.n = i32(1), "is a `&T` parameter, a read-only borrow");
+});
+_write_nested_field :: (fn(p : &_P) -> unit)({
+  comptime_expect_error(p.inner.m = i32(1), "is a `&T` parameter, a read-only borrow");
+});
+_write_element :: (fn(p : &_P) -> unit)({
+  comptime_expect_error(p.arr(usize(0)) = i32(1), "is a `&T` parameter, a read-only borrow");
+});
+_write_tuple_field :: (fn(p : &_P) -> unit)({
+  comptime_expect_error(p.pair.0 = i32(1), "is a `&T` parameter, a read-only borrow");
+});
+_write_array_param :: (fn(a : &Array(i32, 3)) -> unit)({
+  comptime_expect_error(a(usize(0)) = i32(1), "is a `&T` parameter, a read-only borrow");
+});
+_call_mut_method :: (fn(p : &_P) -> unit)({
+  comptime_expect_error(p.inc(), "Cannot");
+});
+_call_mut_method_on_field :: (fn(p : &_P) -> unit)({
+  comptime_expect_error(_In_inc(&mut p.inner), "Cannot");
+});
+_pass_field_mut :: (fn(p : &_P) -> unit)({
+  comptime_expect_error(_set_i32(&mut p.n, i32(1)), "Cannot");
+});
+_write_box_payload_field :: (fn(b : &Box(_P)) -> unit)({
+  comptime_expect_error(b.n = i32(1), "is a `&T` parameter, a read-only borrow");
+});
+impl(
+  _P,
+  set_through_shared_self : (fn(self : &Self) -> unit)({
+    comptime_expect_error(self.n = i32(1), "is a `&T` parameter, a read-only borrow");
+  })
+);
+test("a field write through a `&T` parameter is E0908", {
+  x := _mk();
+  _write_field(&x);
+  _write_nested_field(&x);
+  _write_element(&x);
+  _write_tuple_field(&x);
+  _call_mut_method(&x);
+  _call_mut_method_on_field(&x);
+  _pass_field_mut(&x);
+  x.set_through_shared_self();
+  a := [i32(0), i32(0), i32(0)];
+  _write_array_param(&a);
+  b := box(_mk());
+  _write_box_payload_field(&b);
+  assert(x.n == i32(0), "unchanged");
+  assert(b.n == i32(0), "unchanged");
+});
+// The writes that stay legal: a by-value parameter is the callee's own
+// value, a `&mut T` parameter writes the caller's place, and a `ref` handle
+// reached through a `&T` borrow is shared by design.
+_own :: (fn(p : _P) -> i32)({
+  p.n = i32(5);
+  p.inner.m = i32(6);
+  p.arr(usize(1)) = i32(7);
+  p.inc();
+  ((p.n + p.inner.m) + p.arr(usize(1)))
+});
+_through_mut :: (fn(p : &mut _P) -> unit)({
+  p.n = i32(5);
+  p.inner.m = i32(6);
+  p.arr(usize(1)) = i32(7);
+  p.inc();
+});
+_H :: struct(xs : ArrayList(i32));
+_push_through_handle :: (fn(h : &_H) -> unit)({
+  h.xs.push(i32(1));
+});
+test("by-value and `&mut T` parameters stay writable", {
+  x := _mk();
+  assert(_own(x) == i32(19), "a by-value parameter is written");
+  assert(x.n == i32(0), "the caller's value is unchanged");
+  _through_mut(&mut x);
+  assert(x.n == i32(6), "a `&mut` parameter writes the caller's place");
+  assert(x.inner.m == i32(6), "nested field");
+  assert(x.arr(usize(1)) == i32(7), "element");
+  h := _H(xs : ArrayList(i32).new());
+  _push_through_handle(&h);
+  assert(h.xs.len() == usize(1), "a collection handle reached through `&T`");
+});

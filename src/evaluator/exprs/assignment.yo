@@ -22,7 +22,8 @@ pragma(Pragma.AllowUnsafe);
   BK_COND,
   BK_MATCH,
   BK_BEGIN,
-  BF_DOT
+  BF_DOT,
+  ast_expr_strip_borrow_marker
 } :: import("../../expr.yo");
 { ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution } :: import("../../expr_info.yo");
 {
@@ -333,6 +334,45 @@ _place_root_variable :: (fn(lhs : &AstExpr, env : &Environment, ctx : &EvalConte
   });
   get_variables_from_env(env, ast_expr_token(&cur).value.clone()).last()
 });
+/// The `x : &T` parameter whose borrowed value the place `place` writes
+/// into, walking only the steps that stay inside that value: a field of a
+/// value struct or tuple, an element of a fixed array, a unique `Box`'s
+/// payload. A `&T` parameter is a read-only borrow
+/// (plans/VALUES_BY_DEFAULT.md §3.1), so every such write is E0908
+/// (issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md).
+/// A step through a handle (a `ref` object, an `Rc`, a collection) reaches
+/// storage the handle shares by design, and `.None` is returned.
+shared_borrow_param_root_of_place :: (fn(place : &AstExpr, env : &Environment, ctx : &EvalContext) -> Option(Variable))({
+  (stripped : AstExpr) = ast_expr_strip_borrow_marker(place);
+  match(
+    _place_root_variable(&stripped, env, ctx, false),
+    .Some(v) => cond(
+      (v.is_imm_borrow && v.is_parameter && !v.is_compile_time_only) => Option(Variable).Some(v),
+      true => Option(Variable).None
+    ),
+    .None => Option(Variable).None
+  )
+});
+/// The way out E0908 offers for a write through the `&T` parameter `v`.
+_shared_borrow_param_fix :: (fn(v : &Variable) -> String)(
+  `declare it \`${v.name} : &mut T\` to write the caller's value, take it by value (\`${v.name} : T\`, without \`&\`) to own and write a copy, or copy it into a local first (\`q := ${v.name};\`) and write the copy`
+);
+/// E0908: a write through the `&T` parameter `v`; `what` names it
+/// (`write \`p.n\``).
+reject_write_through_shared_borrow_param :: (fn(v : &Variable, what : &String, tok : &Token, ctx : &EvalContext, exn : Exception) -> unit)(
+  raise_flow_violation(
+    with_code(
+      format_error_message_with_help(
+        tok,
+        `Cannot ${what}: \`${v.name}\` is a \`&T\` parameter, a read-only borrow of the caller's value.`,
+        Option(String).Some(_shared_borrow_param_fix(v))
+      ),
+      E_WRITE_THROUGH_BORROW
+    ),
+    ctx,
+    exn
+  )
+);
 /// E0918: a write of the compile-time binding `v` (`v :: x`,
 /// `comptime(v) := x`) that runs when the program runs. Every use of such a
 /// binding is folded to its value while compiling, so a runtime write gives
@@ -580,11 +620,41 @@ require_no_inout_write_through_borrow :: (
           .None => ()
         );
       });
+      (is_judged : bool) = (type_contains_rc_type(&arg_ty) && _is_value_aggregate_type(&arg_ty));
+      // Any other place inside a `&T` parameter's borrowed value: the borrow
+      // is read-only, whatever the place holds (plans/VALUES_BY_DEFAULT.md
+      // §3.1). A judged place gets the borrowed-copy error below instead.
+      (is_auto_generated : bool) = ast_expr_token(&arg).module_path.starts_with(String.from("auto-generated://"));
+      (is_shared_param_write : bool) = false;
+      if(!is_auto_generated && !is_judged, {
+        match(
+          shared_borrow_param_root_of_place(&arg, env, ctx),
+          .Some(sbv) => {
+            is_shared_param_write = true;
+            sb_label := match(param_labels.get(i), .Some(l) => l, .None => String.from("?"));
+            sb_target := cond((sb_label == "self") => String.from("the `self : &mut Self` receiver"), true => `the \`&mut\` parameter \`${sb_label}\``);
+            pending.push(
+              D3PendingInout(
+                param_index : i,
+                place : arg,
+                how : String.from("write through a `&T` parameter"),
+                noun : String.from("a `&T` parameter"),
+                root_text : sbv.name.clone(),
+                root_type : type_to_string(&arg_ty),
+                global : Option(Variable).None,
+                borrow_error : Option(String).Some(
+                  `Cannot pass \`${_place_source_text(&arg)}\` as ${sb_target}: \`${sbv.name}\` is a \`&T\` parameter, a read-only borrow of the caller's value, and the callee writes it. To change it, ${_shared_borrow_param_fix(&sbv)}.`
+                )
+              )
+            );
+          },
+          .None => ()
+        );
+      });
       // The audit also lists the writes the V2b flip changes: a collection
       // place, reached through collection steps too.
-      (is_judged : bool) = (type_contains_rc_type(&arg_ty) && _is_value_aggregate_type(&arg_ty));
       (is_listed : bool) = (_g_audit_inout_borrow && (is_judged || _is_v2_value_collection_type(&arg_ty)));
-      if(!ast_expr_token(&arg).module_path.starts_with(String.from("auto-generated://")) && (is_judged || is_listed), {
+      if(!is_auto_generated && !is_shared_param_write && (is_judged || is_listed), {
         match(
           _borrowed_root_walk(&arg, env, ctx, _g_audit_inout_borrow),
           .Some(bv) => if(is_judged || !_is_dispose_receiver(&bv, ast_expr_token(&arg)), {
@@ -1518,6 +1588,13 @@ evaluate_assignment :: (
         .None => ()
       );
     });
+    // Any other write through a `&T` parameter: the borrow is read-only, and
+    // the write would land in the callee's copy (E0908).
+    match(
+      shared_borrow_param_root_of_place(&evaluated_lhs, &env, ctx),
+      .Some(sbv) => reject_write_through_shared_borrow_param(&sbv, `write \`${_place_source_text(&lhs)}\``, ast_expr_token(&lhs), ctx, exn),
+      .None => ()
+    );
     // Step 4 — Type compatibility check
     (prop_rhs_type : TypeValue) = prop_rhs_info.ty;
     if(!(is_comptime_int_type(&expected_ty) || is_comptime_float_type(&expected_ty) || is_comptime_string_type(&expected_ty)), {
@@ -2497,6 +2574,8 @@ comptime(${variable_name}) : ${dgc_ty_str}
 export(
   throw_if_write_through_atomic_root,
   borrowed_value_root_of_place,
+  shared_borrow_param_root_of_place,
+  reject_write_through_shared_borrow_param,
   require_no_inout_write_through_borrow,
   D3PendingInout,
   d3_record_inout_place,
