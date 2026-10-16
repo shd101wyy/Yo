@@ -116,7 +116,7 @@ These were filed since v0.2.59 and are still open at develop's tip:
 | Issue | Severity | Note |
 | --- | --- | --- |
 | `issues/fixed/a-named-closure-flowing-bare-into-a-dyn-fn-slot-passes-check-and-emits-invalid-c.md` | S2 | Fixed by #1339 |
-| `issues/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md` | S2 | Pre-existing |
+| `issues/fixed/a-field-write-through-a-shared-borrow-parameter-is-accepted-and-lost.md` | S2 | Pre-existing |
 | `issues/fixed/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md` | S2 | Fixed 2026-10-16 (`fix/hashmap-move-only-key-value`) |
 | `issues/an-impl-fn-local-returning-a-future-is-declared-as-a-void-pointer.md` | S2 | |
 | `issues/cond-arms-with-different-impl-future-types-mix-c-pointer-types.md` | S2 | |
