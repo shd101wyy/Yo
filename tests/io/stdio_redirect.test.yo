@@ -50,9 +50,9 @@ _restore :: (fn(saved : i32, target : i32) -> unit)({
   );
 });
 // The path `mkstemp` filled in. The file is read back by path (a heap
-// buffer): a stack buffer whose address is taken before an await dangles in
-// an `io.async` body
-// (issues/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md).
+// buffer); a stack buffer whose address `as_ptr()` took before an await
+// dangled in an `io.async` body until
+// issues/fixed/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md.
 _path_of :: (fn(template_path : *u8) -> Path)(
   Path.new(String.from_cstr(template_path).unwrap())
 );
