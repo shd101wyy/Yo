@@ -62,3 +62,33 @@ sound too, at the cost of more state-machine fields.
 Test to add with the fix: the reproducer's shape in `tests/async_await.test.yo` (an
 `io.async` body reading into a `MaybeUninit` array through `as_ptr()` across a real
 suspension, asserting the bytes).
+
+## Fix
+
+The general rule is the C ABI's, not the method's: a call lends the address of every runtime
+argument it passes to a pointer parameter (`fn_abi_param_is_ptr`, the same flags
+`_apply_ref_amp` lowers an argument to `&(arg)` by), whether or not the source spells the `&`.
+That covers a `self : &mut Self` receiver (`buf_uninit.as_ptr()`), a `&Self` receiver of a
+method returning a borrow, and an operand its operator's method borrows. The callee can return
+or keep the address, so the live-range walk now treats such an argument exactly like `&x`: its
+place's root local lives to the end of its scope (`_lv_mark_call_lends` in
+`src/codegen/async/state_machine.yo`, called for every ordinary call node). The callee's flags
+come from the call's resolved method (`lookup_method_callee_value`), else the callee's own
+`Func` type or its closure trait's signature.
+
+The reproducer now prints `47` at `-O0`, at `--optimize 2` and under ASan.
+
+Frame layouts: compiling `src/main.yo` with and without the fix differs in exactly two locals,
+both in `Command.output` (`std/process/command.yo`): `out_fd_buf` and `err_fd_buf`, the
+`MaybeUninit(Array(i32, 2))` pipe-fd buffers read through `as_ptr()`, become task fields (a
+value slot plus a move flag each). `err_fd` was already a task field pointing into the dead C
+local `err_fd_buf`; it was harmless only because every path that suspends before the last read
+of it throws.
+
+Regression test: `tests/async_await.test.yo`, "a local whose address a method call lends lives
+in the task across a suspension". Two tasks, spawned from the same stack depth, each fill a
+`MaybeUninit` byte buffer through `as_ptr()` and a user struct's field through a
+`self : &mut Self` method returning `addr_of(self.v)`, sleep 5 ms, and count the bytes that
+changed. Before the fix both tasks shared one dead frame and every byte and cell was wrong
+(`bad a=164 b=164`) at the default optimization level; after it, both read back their own
+values.
