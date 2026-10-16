@@ -58,7 +58,7 @@ Decision 47 later makes those spell `mut(a) ::`.
 
 Not covered: a compile-time value written to a body's own `::` under a runtime `cond` arm or loop. That needs flow sensitivity, and decision 47's `mut(a) ::` owns it.
 
-Found while fixing: `return(a)` of a function-local `::` emits an undeclared C identifier, with no assignment involved (`issues/2026-10-15-return-of-a-function-local-comptime-constant-emits-an-undeclared-c-identifier.md`).
+Found while fixing: `return(a)` of a function-local `::` emits an undeclared C identifier, with no assignment involved (`issues/fixed/2026-10-15-return-of-a-function-local-comptime-constant-emits-an-undeclared-c-identifier.md`, fixed by #1411).
 
 Tests: `tests/comptime.test.yo`:
 

@@ -388,7 +388,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   - Unchanged: module-level `G :: 1; G = 2;`, a body's own `a :: 1; a = 2;` at compile time, `while(comptime(...))` counters, `-> comptime(...)` bodies and `comptime_fn`.
   - Not covered: a compile-time value written to a body's own `::` under a runtime `cond` arm or loop (needs flow sensitivity; decision 47's `mut(a) ::` owns it).
 - **Sites:** `src/diagnostics.yo`, `src/diagnostics_registry.yo` (en + zh-CN explain), `assignment.yo`, `tests/comptime.test.yo` (two tests), `docs/*/CTFE.md`, the yo-syntax instructions and cheatsheet. `check ./src` and `./std` found no runtime write to a `::` binding, so no tree site changed.
-- **Filed:** S2 (the branch's `2026-10-15-return-of-a-function-local-comptime-constant-emits-an-undeclared-c-identifier.md`). `a :: i32(1); return(a);` in a runtime function passes `check` and fails in the C compiler (undeclared `__yo_v_a`).
+- **Filed:** S2 (the branch's `2026-10-15-return-of-a-function-local-comptime-constant-emits-an-undeclared-c-identifier.md`). `a :: i32(1); return(a);` in a runtime function passes `check` and fails in the C compiler (undeclared `__yo_v_a`). Fixed by #1411 (`issues/fixed/2026-10-15-return-of-a-function-local-comptime-constant-emits-an-undeclared-c-identifier.md`).
 - **Tier 1:** build; check src 278/278, std 171/171; `comptime` 46/46 (the two E0918 tests also fail on the v0.2.62 seed, so they fail before the fix); internal `assignment` 9, `diagnostics_registry_examples` 1, `diagnostics_registry` 9, `error` 35; fmt; issue refs. **cli-diff: 385 pass, 8 expected golden diffs not yet re-recorded**: `explain-list` (the new code) and seven tree cases (`build-stamp-dotted-dir`, `init`, `init-build-test`, `init-cwd`, `init-existing`, `skills-install`, `skills-install-zh`) whose only change is the hash of the bundled `syntax-cheatsheet.md`.
 - **Next:**
   1. `git fetch origin && git switch fix/runtime-write-to-comptime-constant && git rebase origin/develop`. Delete the root copy of the comptime-constant doc that this handover added (the branch has the `fixed/` copy), then repoint its citations to the `fixed/` copy: `plans/VALUES_BY_DEFAULT.md` (decision 47, Errors) and this handover's §2.3, §5.11 and §6.2. `check-issue-refs.sh` lists them.
@@ -761,14 +761,14 @@ x :: 12;                           // a true constant
 - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3): `BTreeMap`'s `K` carries `Ord(K)` 15 times.
 - `issues/fixed/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed by #1402 (E0918).
 - `issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).
-- Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (landed with #1402), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (landed with #1401).
+- Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (filed with #1402, fixed by #1411), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (landed with #1401).
 - `issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2): fixed by #1368.
 - `issues/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md`: found by #1388.
 - `issues/fixed/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md` (S3): fixed 2026-10-16 (`-DMI_BUILD_RELEASE` on every line that links mimalloc); `check ./src` 292 s → 202 s on the Linux box.
 - `issues/2026-10-14-windows-af-unix-accept-blocks-the-event-loop.md`.
 - `issues/a-generic-function-passed-to-an-impl-fn-parameter-fails-in-codegen.md`.
 - `issues/a-generic-types-function-taken-as-a-value-is-not-emitted.md`.
-- `issues/a-struct-field-of-type-option-box-emits-invalid-c.md`.
+- `issues/fixed/a-struct-field-of-type-option-box-emits-invalid-c.md`: fixed by #1411.
 - `issues/arc-of-a-named-function-value-fails-its-send-bound.md`.
 - `issues/array-clone-copies-self-out-of-the-borrow.md`.
 - `issues/arraylist-clone-copies-elements-out-through-get.md`.

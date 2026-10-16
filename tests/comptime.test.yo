@@ -3831,3 +3831,45 @@ test("&& / || short-circuiting after a runtime operand still run it", {
   assert(!z, "false && rt");
   assert(h.n == i32(4), "false && rt does not evaluate rt");
 });
+// `return(a)` (and `unwind(a)`) of a function-local `::` constant returns its
+// value: `a` is compile-time only and has no C declaration, so its read must
+// fold the way a tail `a` or a `:=` read does
+// (issues/fixed/2026-10-15-return-of-a-function-local-comptime-constant-emits-an-undeclared-c-identifier.md).
+_rcl_return :: (fn(x : i32) -> i32)({
+  a :: i32(1);
+  return(a);
+});
+_rcl_untyped :: (fn(x : i32) -> i32)({
+  a :: 2;
+  return(a);
+});
+_rcl_after_runtime_stmt :: (fn(x : i32) -> i32)({
+  a :: i32(3);
+  y := (x + i32(1));
+  cond((y > i32(100)) => return(y), true => ());
+  return(a);
+});
+_RclRaise :: (ctl(code : i32) -> i32);
+_rcl_raise_if_positive :: (fn(x : i32, raise : _RclRaise) -> i32)(cond((x > i32(0)) => raise(x), true => x));
+_rcl_unwind :: (fn(x : i32) -> i32)({
+  (raise : _RclRaise) = (
+    code -> {
+      a :: i32(4);
+      unwind(a);
+    }
+  );
+  _rcl_raise_if_positive(x, raise) + i32(100)
+});
+_rcl_no_params :: (fn() -> bool)({
+  a :: true;
+  return(a);
+});
+test("return of a function-local compile-time constant returns its value", {
+  assert(_rcl_return(i32(5)) == i32(1), "return(a) of `a :: i32(1)`");
+  assert(_rcl_untyped(i32(5)) == i32(2), "return(a) of an untyped `a :: 2`");
+  assert(_rcl_after_runtime_stmt(i32(5)) == i32(3), "after a runtime statement and an early return");
+  assert(_rcl_after_runtime_stmt(i32(200)) == i32(201), "the early return still returns its runtime value");
+  assert(_rcl_no_params(), "a bool constant from a function with no parameters");
+  assert(_rcl_unwind(i32(5)) == i32(4), "unwind(a) of a handler-local constant");
+  assert(_rcl_unwind(i32(-1)) == i32(99), "the handler is not called for a non-positive input");
+});

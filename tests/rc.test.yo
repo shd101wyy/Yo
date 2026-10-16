@@ -2352,3 +2352,27 @@ test("a binding of runtime(call) releases the result once", {
     i = (i + i32(1));
   });
 });
+// A struct field of type `Option(Box(X))` is emitted as the Box newtype's
+// typedef, so the struct must follow that typedef in the C type order
+// (issues/fixed/a-struct-field-of-type-option-box-emits-invalid-c.md).
+UBoxOptString :: struct(o : Option(Box(String)), n : i32);
+UBoxOptPoint :: struct(o : Option(Box(UBoxPoint)), n : i32);
+UBoxOptInt :: struct(o : Option(Box(i32)), n : i32);
+derive(UBoxOptString, Clone);
+test("unique Box: a struct field of type Option(Box(T)) compiles and reads back", {
+  s := UBoxOptString(o : .Some(box(String.from("hi"))), n : i32(7));
+  t := s.clone();
+  match(
+    &t.o,
+    .Some(b) => assert(b.* == String.from("hi"), "the String payload through the field"),
+    .None => assert(false, "unreachable")
+  );
+  p := UBoxOptPoint(o : .Some(box(UBoxPoint(x : i32(1), y : i32(2)))), n : i32(3));
+  match(
+    &p.o,
+    .Some(b) => assert(b.y == i32(2), "the struct payload through the field"),
+    .None => assert(false, "unreachable")
+  );
+  q := UBoxOptInt(o : .None, n : i32(4));
+  assert(q.o.is_none() && (q.n == i32(4)), "a None field is NULL");
+});
