@@ -38,7 +38,7 @@ Variants that fail the same way:
 
 - building a type from the binder in the body, `(out : Option(R)) = Option(R).Some(r)` (a second C type for `Option(R)`);
 - the same body inside an `io.async` closure the function returns;
-- calling a method on `JoinHandle(R)` reached through an `Option` payload in such a body (`E0610: No method "await" on JoinHandle(T)`).
+- an effect binder: `timeout :: (fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), …) -> Impl(Future(…, E)))(io.async({ fut }(e : E) => …))` called with an `IoExn` operand gives the `io.async` state machine an `Io`-typed bundle field, so `io.await(timeout(…), IoExn(…))` copies the 40-byte bundle out of an `Io`-sized one (an ASan stack-buffer-overflow in `__yo_future_set_bundle`). `std/async`'s combinators take `Io` operands for this reason.
 
 ## Workaround (what `std/async` does)
 

@@ -382,10 +382,11 @@ derive(
 /// The operand is a FUTURE, so it may borrow (plans/VALUES_BY_DEFAULT.md
 /// §3.13 A4): `timeout(s.next(io), d, io)` over a `&mut` stream works, and
 /// the future `timeout` returns is then a borrowing future too, awaited where
-/// it is made. The operand runs as a scoped child task with the bundle the
-/// caller's `io.await` passes (`timeout`'s future has the operand's effect
-/// type `E`), and is aborted and joined before `timeout` resolves, so no
-/// borrow outlives the call. A task that is already spawned is timed out
+/// it is made. The operand runs as a scoped child task, and is aborted and
+/// joined before `timeout` resolves, so no borrow outlives the call. The
+/// operand's effect type is `Io`, as `timeout`'s own is: an operand that
+/// needs a richer bundle is wrapped in an `io.async` that awaits it with one
+/// (`std/http`'s deadline does). A task that is already spawned is timed out
 /// through its join future, `timeout(h.join(io), d, io)`, which resolves to
 /// `.Ok(Option(T))`; on the deadline it drops the handle, which DETACHES the
 /// task (Tokio's semantics): abort the task through the handle first if its
@@ -397,15 +398,15 @@ derive(
 /// existed the timer kept counting and held ~256 bytes per call for the whole
 /// remaining deadline (`issues/fixed/timeout-deadline-timer-future-leak.md`).
 timeout :: (
-  fn(generic(T : Type, E : Type.Struct), fut : Impl(Future(T, E)), limit : Duration, io : Io) -> Impl(Future(Result(T, TimeoutError), E))
+  fn(generic(T : Type), fut : Impl(Future(T, Io)), limit : Duration, io : Io) -> Impl(Future(Result(T, TimeoutError), Io))
 )({
   ms := Rc(u64)(u64(limit.as_millis()));
-  io.async({ fut, ms, io }(e : E) => {
+  io.async({ fut, ms }(io : Io) => {
     // A borrowing operand is spawned under `unsafe`: `_Scoped` guarantees the
     // task ends before this future does (see its documentation). The handle
     // is annotated, so its type comes from `T`, not from the spawn
     // (issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md).
-    (h : JoinHandle(T)) = unsafe(io.spawn(fut, e));
+    (h : JoinHandle(T)) = unsafe(io.spawn(fut, io));
     child := _scope(h);
     // The deadline is a spawned TASK, not a bare io-timer future: a raw
     // `IoFuture` local would be auto-dropped at scope end while the backend
@@ -482,19 +483,19 @@ Selected :: (fn(comptime(A) : Type, comptime(B) : Type) -> comptime(Type))(
 ///
 /// The operands are FUTURES, so they may borrow (plans/VALUES_BY_DEFAULT.md
 /// §3.13 A4), as `timeout`'s does: each runs as a scoped child task with the
-/// bundle the caller's `io.await` passes, the loser is aborted and joined
+/// `Io` bundle, the loser is aborted and joined
 /// before `select` resolves, and the future `select` returns borrows what the
 /// operands borrow. The two may not lend overlapping places when either side
 /// is `&mut` (decision 38 B): `select(s.next(io), s.next(io), io)` is E0910.
 select :: (
-  fn(generic(A : Type, B : Type, E : Type.Struct), first : Impl(Future(A, E)), second : Impl(Future(B, E)), io : Io) -> Impl(Future(Option(Selected(A, B)), E))
+  fn(generic(A : Type, B : Type), first : Impl(Future(A, Io)), second : Impl(Future(B, Io)), io : Io) -> Impl(Future(Option(Selected(A, B)), Io))
 )(
-  io.async({ first, second, io }(e : E) => {
+  io.async({ first, second }(io : Io) => {
     // Spawned under `unsafe` as in `timeout`: `_Scoped` keeps either task
     // from outliving this future.
-    (ha : JoinHandle(A)) = unsafe(io.spawn(first, e));
+    (ha : JoinHandle(A)) = unsafe(io.spawn(first, io));
     a := _scope(ha);
-    (hb : JoinHandle(B)) = unsafe(io.spawn(second, e));
+    (hb : JoinHandle(B)) = unsafe(io.spawn(second, io));
     b := _scope(hb);
     // 0: undecided, 1: the first completed, 2: the second, 3: both aborted.
     (decided : u8) = u8(0);

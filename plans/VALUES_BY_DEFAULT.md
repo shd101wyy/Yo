@@ -1252,16 +1252,24 @@ instead.
     - **Not in this step: the future operands** (they landed next, below).
   - **As built, the future operands (2026-10-16,
     feat/vbd-v3-a4-future-operands).**
-    - **The signatures.** `timeout(fut : Impl(Future(T, E)), limit, io)
-      -> Impl(Future(Result(T, TimeoutError), E))` and
-      `select(first : Impl(Future(A, E)), second : Impl(Future(B, E)), io)
-      -> Impl(Future(Option(Selected(A, B)), E))`, with
+    - **The signatures.** `timeout(fut : Impl(Future(T, Io)), limit, io)
+      -> Impl(Future(Result(T, TimeoutError), Io))` and
+      `select(first : Impl(Future(A, Io)), second : Impl(Future(B, Io)), io)
+      -> Impl(Future(Option(Selected(A, B)), Io))`, with
       `Selected(A, B) :: enum(First(value : A), Second(value : B))`: Tokio's
-      `time::timeout(d, fut)` and a two-way `select!`. The combinator's
-      future has its operands' effect type `E`, so the caller's `io.await`
-      supplies the bundle the operands run with (`std/http`'s deadline
-      passes its `IoExn`); `io` is the runtime handle for the timers and the
-      waits.
+      `time::timeout(d, fut)` and a two-way `select!`.
+    - **The operands' effect type is `Io`**, as the handle-taking `timeout`'s
+      future was. A version generic over the operands' effect type `E` was
+      built first and dropped: the compiler gives the `io.async` body's
+      `(e : E)` parameter one C type for every instantiation (an `IoExn`
+      operand stored its 40-byte bundle into an `Io`-sized field, an ASan
+      stack-buffer-overflow), the family of
+      `issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`.
+      An operand needing a richer bundle is awaited inside an `Io` future
+      with one, except that an `Exception` cannot be captured, so
+      `std/http`'s deadline keeps its own handle race (`_deadline_join`,
+      `std/http/client.yo`): the request runs as a task spawned with the
+      caller's `IoExn` and is aborted on the deadline.
     - **`timeout` takes a future instead of a handle** (the amended Q3 said
       "also"; with no overloading one name takes one shape, and Rust's takes
       the future). A spawned task is timed out through its join future,
@@ -1312,10 +1320,13 @@ instead.
       (`require_capture_borrow_exclusivity`) now skips a borrow whose root is
       not in the caller's scope, since those roots are the callee's
       parameters, not the caller's places.
-    - **Two runtime fixes it needed.** A future moved into an `io.async`
+    - **Three fixes it needed.** A future moved into an `io.async`
       capture list was still retained, so every captured operand leaked and
       an aborted operand never dropped its locals (S1,
       `issues/fixed/2026-10-16-a-future-moved-into-an-io-async-capture-list-is-retained-and-never-freed.md`);
+      two join futures of different `T` gave `timeout`'s body one capture
+      struct (S2,
+      `issues/fixed/2026-10-16-a-generic-io-async-body-capturing-a-future-parameter-shares-one-capture-struct-across-instantiations.md`);
       and the thread-exit drain skipped a queued join-wait entry (S3,
       `issues/fixed/2026-10-16-a-join-wait-entry-still-queued-at-thread-exit-is-never-released.md`).
       A generic binder bound only through a future parameter still awaits

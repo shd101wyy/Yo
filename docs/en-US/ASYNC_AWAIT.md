@@ -867,8 +867,7 @@ handles (§3.13 A4 of `plans/VALUES_BY_DEFAULT.md`; Tokio's `time::timeout` and
   `Some(Selected.First(a))` or `Some(Selected.Second(b))`, or `None` when both
   were aborted. When both have completed by the time it looks, the first wins.
 
-Each operand runs as a **scoped child task** with the bundle the `io.await`
-passes (the combinator's Future has the operand's effect type). The loser, or
+Each operand is a `Future(T, Io)` and runs as a **scoped child task**. The loser, or
 an operand past its deadline, is aborted, and every operand is joined before
 the combinator resolves; if the combinator's own Future is aborted or dropped
 first, dropping it aborts its operands. An aborted task never resumes, so an

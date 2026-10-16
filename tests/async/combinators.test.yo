@@ -170,28 +170,21 @@ test("Test timeout in a loop against a long deadline", {
   });
 });
 // ---------------------------------------------------------------------------
-// 7b. timeout — a SELF-aborted operand is Aborted, not Elapsed (D18)
+// 7b. timeout — a SELF-aborted task is not an elapsed deadline (D18)
 // ---------------------------------------------------------------------------
-test("Test timeout distinguishes an aborted operand from an elapsed deadline", {
-  Raise :: (ctl(code : i32) -> unit);
-  Ctx :: struct(io : Io, raise : Raise);
-  // The operand's effect handler unwinds it, well inside a generous deadline;
-  // `timeout`'s future has the operand's bundle type, which the await passes.
-  fut := io.async((ctx : Ctx) => {
-    ctx.io.await(yield(ctx.io), ctx.io);
-    ctx.raise(i32(1));
-    i32(1)
+test("Test timeout distinguishes an aborted task from an elapsed deadline", {
+  fut := io.async((io : Io) => {
+    io.await(sleep(u64(200)), io);
+    return(i32(1));
   });
-  (raise : Raise) =
-    (
-      code -> {
-        unwind(());
-      }
-    );
-  r := io.await(timeout(fut, Duration.from_millis(i64(500)), io), { io, raise });
+  h := io.spawn(fut, io);
+  // Cancel the task ourselves, well inside a generous deadline: its join
+  // resolves in time, to `.None`.
+  h.abort();
+  r := io.await(timeout(h.join(io), Duration.from_millis(i64(500)), io), io);
   assert(
-    match(r, .Ok(_) => false, .Err(e) => match(e, .Aborted => true, .Elapsed => false)),
-    "an operand aborted before its deadline must report Aborted"
+    match(r, .Ok(v) => v.is_none(), .Err(_) => false),
+    "a task cancelled before its deadline joins as .None, in time"
   );
 });
 // ---------------------------------------------------------------------------
