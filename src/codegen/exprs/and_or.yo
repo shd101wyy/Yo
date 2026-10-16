@@ -203,8 +203,8 @@ _emit_node_list_drops :: (
                 );
                 if(!already_emitted && !n_handled && !context.emitted_deferred_drop_ids.contains(ast_expr_id(&nd_drop)) && !is_deferred_drop_for_closure_capture(&nd_drop, &context.current_closure_captures, sm_owns_fnonce_captures(context)), {
                   n_cn := sanitize_for_c_identifier(ntarget.clone(), false);
-                  n_undeclared := ((is_temp_variable_name(String.from(""), n_cn.clone()) || _looks_like_minted_temp(n_cn.clone())) && !context.base.declared_c_var_names.*.contains(&n_cn));
-                  if(!n_undeclared && scope_stack_contains(&context.base.declared_scopes.*, &n_cn), {
+                  n_undeclared := ((is_temp_variable_name(String.from(""), n_cn.clone()) || _looks_like_minted_temp(n_cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&n_cn)));
+                  if(!n_undeclared && context.base.declared_scopes.with(ds_s => scope_stack_contains(ds_s, &n_cn)), {
                     // `_call_generate_expr` on a drop expr may EMIT and return "".
                     // An enum/Option-typed target lowers to a multi-line
                     // `switch` block that the drop generator writes to the
@@ -292,7 +292,7 @@ _emit_drops_for_conditional_branch :: (
                 // holds no +1 to release; emitting the drop is an undeclared-
                 // identifier C error (the rc1 stage-2 clang break).
                 sc_target_cn := sanitize_for_c_identifier(target.clone(), false);
-                sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.*.contains(&sc_target_cn));
+                sc_undeclared := ((is_temp_variable_name(String.from(""), sc_target_cn.clone()) || _looks_like_minted_temp(sc_target_cn.clone())) && !context.base.declared_c_var_names.with(dn_s => dn_s.contains(&sc_target_cn)));
                 if(!sc_undeclared, {
                   drop_code := _call_generate_expr(&drop_expr, indent.clone(), context);
                   // Same decoupling as the node source below: the generator

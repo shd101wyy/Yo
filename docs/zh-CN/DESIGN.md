@@ -3087,19 +3087,21 @@ test_capture :: (fn() -> unit)({
   counter := i32(0);
 
   // 引用语义类型 — 按引用捕获
-  data := Rc(i32)(i32(42));
+  data := rc(RefCell(i32).new(i32(42))); // `std/sync/refcell`
 
   (closure : Impl(Fn(increment : i32) -> i32)) = (
     increment => {
       counter = (counter + increment); // 修改本地副本
-      data.* = (data.* + increment); // 修改共享对象
+      data.with_mut(v => {
+        v = (v + increment);
+      }); // 修改共享对象
       return(counter);
     }
   );
 
   closure(5);
   // counter 仍然是 0（闭包有自己的副本）
-  // data.* 现在是 47（共享引用）
+  // data.with(v => v) 现在是 47（共享引用）
 });
 ```
 
@@ -3316,8 +3318,7 @@ Yo 提供了 `Rc` 和 `rc` 用于将值类型堆分配并自动进行引用计�
 > ```yo
 > a := rc(i32(42));
 > b := a;                    // 第二个句柄，而不是值的副本
-> consume(b.* = i32(7));
-> assert((a.* == i32(7)), "a 和 b 指向同一个值");
+> assert(ref_count(a) == usize(2), "a 和 b 指向同一个值");
 > ```
 >
 > 引用计数是 Yo **通用**的对象模型，并非某个容器的可选策略：每个
@@ -3360,9 +3361,9 @@ assert(p.*.x == 3);
 
 // 使用显式类型的 Rc
 b := Rc(i32)(100); // 等同于 rc(100)
-// 修改包装的值
-m := rc(10);
-m.* = 20;
+// 载荷经由句柄是只读的（E0919）；通过“门”写入
+m := rc(i32(10));
+Rc.make_mut(&mut m) = i32(20); // 原地写入：m 是唯一的句柄
 assert(m.* == 20);
 ```
 
@@ -3424,9 +3425,8 @@ test("Rc reference counting", {
   another := copy; // 引用计数递增
   // 三者都指向同一个 Rc
   assert(original.* == 42);
-  original.* = 100;
-  assert(copy.* == 100); // 共享的！
-  assert(another.* == 100);
+  assert(copy.* == 42); // 共享的！
+  assert(ref_count(another) == usize(3));
 
   // 变量离开作用域时引用计数递减
 });
@@ -3434,7 +3434,7 @@ test("Rc reference counting", {
 
 ### 修改共享载荷：`RefCell`、`Rc.make_mut`、`Rc.try_unwrap`
 
-`Rc` 的载荷是共享的，因此**通过句柄只能读取**，与 Rust 相同（[值默认计划的决策 46](../../plans/VALUES_BY_DEFAULT.md)）。目前编译器仍然接受通过 `Rc` 的写入（`h.n = v`、上文的 `original.* = 100`、`h.items.push(v)`）；等 std 和编译器都改用下面的入口之后，这种写入会在之后的版本中成为错误。`YO_AUDIT_RC_WRITE=1 yo compile <file> --skip-c-compiler` 会列出每一处这样的写入（`kind=assign|mut-arg|mut-recv`；当单元在其函数中是新分配的时标注 `proved=yes`）。新代码请使用这些入口：
+`Rc` 的载荷是共享的，因此**通过句柄只能读取**，与 Rust 相同（[值默认计划的决策 46](../../plans/VALUES_BY_DEFAULT.md)）。通过 `Rc` 的写入（`h.n = v`、`h.* = v`、`bump(&mut h.n)`、`h.items.push(v)`）是错误 E0919，错误信息会列出下面这些入口（`yo explain E0919`）：
 
 - **`RefCell(T)`**（`std/sync/refcell`）是共享修改的载荷：`Rc(RefCell(T))`。访问限定在闭包内，与 `Mutex(T)` 相同：`with(v => ...)` 借出 `v : &T`，`with_mut(v => ...)` 借出 `v : &mut T`，二者都返回闭包的结果。多个 `with` 闭包体可以同时运行；`with_mut` 只能单独运行，运行期间的冲突访问会 panic，与 Rust 的 `RefCell::borrow_mut` 相同。闭包体返回或 unwind 时标记被释放。`RefCell` 在 `T` 是 `Send` 时是 `Send`，但永远不是 `Sync`，因此 `Arc(RefCell(T))` 会被拒绝（跨线程请共享 `Arc(Mutex(T))`）。它也可以放在普通值中，此时可以通过 `&` 借用进行写入。
 

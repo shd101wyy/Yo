@@ -67,6 +67,7 @@ json :: import("std/encoding/json");
   E_GLOBAL_LENT_TO_CALL,
   E_IMMUTABLE_GLOBAL_WRITE,
   E_COMPTIME_BINDING_RUNTIME_WRITE,
+  E_RC_PAYLOAD_WRITE,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -697,6 +698,21 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "mut(G) := i32(1);\nbump :: (fn() -> i32)({\n  G = i32(3);\n  G\n});\nexport(bump);\n",
       "`G :: i32(1)` is folded wherever it is used, so `bump`'s runtime write could not reach those uses; `mut(G) := i32(1)` is a mutable runtime binding (decision 47), which `bump` writes and reads like any variable.",
       "`G :: i32(1)` 在每个使用处都被折叠，因此 `bump` 的运行时写入无法影响这些使用；`mut(G) := i32(1)` 是可变的运行时绑定（决策 47），`bump` 像读写普通变量一样读写它。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_RC_PAYLOAD_WRITE,
+      "a write through an `Rc` handle",
+      "经由 `Rc` 句柄的写入",
+      "A place in an `Rc`'s payload is written: an assignment to `h.*` or to a place under it, a `&mut` argument, or a `self : &mut Self` receiver whose place crosses the handle's dereference.",
+      "写入了 `Rc` 载荷中的位置：对 `h.*` 或其下的位置赋值，或者以 `&mut` 实参、`self : &mut Self` 接收者的形式借出跨过句柄解引用的位置。",
+      "An `Rc(T)` is Rust's `Rc`: copying the handle shares one cell, so the payload is read-only through the handle (plans/VALUES_BY_DEFAULT.md decision 46). A write through one handle would be seen through every other handle to the cell, and a borrow of the payload held elsewhere (a `&` lent to a future across an `await`, for one) would change under it. Shared state that is mutated goes through a door instead. `RefCell(T)` (`std/sync/refcell`) is the usual one: share an `Rc(RefCell(T))` and write inside `h.with_mut(v => ...)`, which checks at run time that no other access is running. `Rc.make_mut(&mut h)` (`T <: Clone`) gives `&mut T` after moving `h` to a fresh cell when the cell is shared, so the other handles keep the old value. `Rc.try_unwrap(h)` takes the payload out of the only handle. A value that is not shared at all is owned uniquely: a plain value, or a `Box(T)` for a stable address. Across threads, use `Arc(Mutex(T))`, `Arc(RwLock(T))` or atomics. Writes through a `ref(struct(...))` handle are not this error.",
+      "`Rc(T)` 就是 Rust 的 `Rc`：复制句柄会共享同一个单元，因此载荷经由句柄是只读的（plans/VALUES_BY_DEFAULT.md 决策 46）。经由一个句柄的写入会被指向该单元的所有其他句柄看到，而别处持有的载荷借用（例如跨越 `await` 借给 future 的 `&`）会在其下发生改变。需要修改的共享状态应改走“门”。最常用的是 `RefCell(T)`（`std/sync/refcell`）：共享 `Rc(RefCell(T))`，并在 `h.with_mut(v => ...)` 中写入，它会在运行时检查没有其他访问正在进行。`Rc.make_mut(&mut h)`（要求 `T <: Clone`）在单元被共享时先把 `h` 移到一个新单元，再给出 `&mut T`，因此其他句柄保留旧值。`Rc.try_unwrap(h)` 从唯一的句柄中取出载荷。根本不共享的值应唯一拥有：普通值，或需要稳定地址时用 `Box(T)`。跨线程请使用 `Arc(Mutex(T))`、`Arc(RwLock(T))` 或原子类型。经由 `ref(struct(...))` 句柄的写入不属于此错误。",
+      "count := rc(i32(0));\nother := count;\nother.* = i32(1);\n",
+      "{ RefCell } :: import(\"std/sync/refcell\");\ncount := rc(RefCell(i32).new(i32(0)));\nother := count;\nother.with_mut(v => {\n  v = i32(1);\n});\n",
+      "`other` and `count` are two handles to one cell, whose payload is read-only through either; the `RefCell` inside the cell is the door that lets a handle write it, and `count.with(v => v)` then reads 1.",
+      "`other` 与 `count` 是指向同一单元的两个句柄，经由任一句柄载荷都是只读的；单元内的 `RefCell` 是让句柄写入它的门，之后 `count.with(v => v)` 读到 1。"
     )
   );
   out.push(

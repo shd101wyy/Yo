@@ -199,8 +199,10 @@ Iterator :: trait(
 ## Boxes, pointers, and nullability
 
 ```yo
-counter := rc(i32(0));
-counter.* = (counter.* + i32(1));
+counter := rc(RefCell(i32).new(i32(0))); // { RefCell } :: import("std/sync/refcell")
+counter.with_mut(v => {
+  v = (v + i32(1));
+}); // an Rc's payload is read-only through the handle (E0919)
 
 (ptr : Option(*u8)) = .None;
 ```

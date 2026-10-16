@@ -3432,7 +3432,10 @@ function_param_mutation_mask :: (
 //   whose own storage is still fresh), so no borrow taken outside the
 //   function can reach it. Everything else is outcome (c), undecidable.
 //
-// Nothing is rejected.
+// Nothing is rejected here. Since Generation B the evaluator rejects every
+// `handle=rc` write (E0919, `reject_write_through_rc` in
+// src/evaluator/utils.yo), so a program that compiles lists `handle=ref`
+// lines only; the knob stays as V2b's and V4/V5's census of those.
 // ===========================================================================
 (g_audit_rc_write : bool) = debug_knob(`YO_AUDIT_RC_WRITE`).is_some();
 (g_audit_rc_write_printed : HashSet(String)) = HashSet(String).new();
