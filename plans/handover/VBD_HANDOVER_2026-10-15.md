@@ -783,8 +783,8 @@ x :: 12;                           // a true constant
 - `issues/fixed/a-struct-field-of-type-option-box-emits-invalid-c.md`: fixed by #1411.
 - `issues/arc-of-a-named-function-value-fails-its-send-bound.md`. Root cause corrected 2026-10-17 (#1424): the `Arc(V)` type constructor's where-clause re-check rejects the bare `fn` type, and a sound fix waits on `issues/retired/2026-10-17-how-a-named-function-value-carries-send.md`. Filed with it: `issues/2026-10-17-a-declared-send-binding-of-a-named-function-is-rejected.md` and `issues/2026-10-17-a-closure-typed-field-accepts-a-named-function-and-emits-invalid-c.md` (S2 each).
 - `issues/fixed/a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md`: fixed 2026-10-17 (#1424). #612 and #902 had already fixed the value routes; this branch fixes the type-level route, where `Arc(T)`'s `Send` impl judged a closure-over-a-closure's capture struct field by field and refused it. `tests/thread_safety.test.yo` pins the helper accept/reject pair and `arc` of a nested closure crossing a thread.
-- `issues/array-clone-copies-self-out-of-the-borrow.md`.
-- `issues/arraylist-clone-copies-elements-out-through-get.md`.
+- `issues/fixed/array-clone-copies-self-out-of-the-borrow.md` (**Fixed** by `fix/collection-clone-through-borrow`).
+- `issues/fixed/arraylist-clone-copies-elements-out-through-get.md` (**Fixed** by `fix/collection-clone-through-borrow`).
 - `issues/e0908-calls-an-untyped-self-receiver-a-match-or-for-binding.md`.
 - `issues/option-of-self-inside-a-payload-gives-option-of-a-recursive-enum-two-c-types.md`.
 - New questions: `issues/questions/2026-10-14-effect-operation-contracts.md`, `issues/questions/2026-10-14-overflow-trap-freedom-as-a-default-obligation.md`.
