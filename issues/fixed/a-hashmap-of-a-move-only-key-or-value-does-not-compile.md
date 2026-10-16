@@ -59,26 +59,30 @@ reaches now reads in place or moves bitwise; nothing copies a slot.
   compare `(data_ptr.add(i)).*.key == key` in place. `_resize` moves each
   entry with `__yo_ptr_write(new, __yo_ptr_read(old))` and frees the old array
   without dropping anything, which also deletes the dup-then-drop loop the copy
-  needed for a counted `K` or `V`. `try_insert`'s overwrite moves the old value
-  out of its field and the new one in (`__yo_ptr_read`/`__yo_ptr_write` on
-  `addr_of(p.*.value)`), and assigns the key. `remove` moves the value out and
-  drops the key in place; `remove_entry` moves the whole entry out instead of
+  needed for a counted `K` or `V`. `try_insert`'s overwrite moves the old entry
+  out (`__yo_ptr_read(p)`) and a new `MapEntry(key, value)` in
+  (`__yo_ptr_write`), then a struct-pattern `match` moves the old value out of
+  the old entry and drops its key. `remove` moves the entry out the same way
+  and keeps its value; `remove_entry` moves the whole entry out instead of
   copying it through `get_key_value`; `retain` drops a rejected entry in place.
+  The whole entry moves, never one field through `addr_of`: `HashSet`'s value
+  is `unit`, and the v0.2.63 seed, which compiles this std into the compiler,
+  lowers a pointer move of a `unit` place to invalid C (the codegen bug below).
   Freeing a slot is one helper, `_vacate`, shared by the three. `get` copies
   only the value, so a move-only `K` with a copyable `V` keeps `get`.
   `HashMapEntry.and_modify` replaces the value alone instead of rebuilding the
   entry from a copy of its key.
 - **`HashSet`** is `HashMap(T, unit)`, so it is fixed by the map. Its
-  overwrite path moves a `unit` value through a pointer, which exposed a
-  codegen bug: `addr_of` of a `unit` place and `__yo_ptr_read`/`__yo_ptr_write`
-  of a `unit` pointee emitted invalid C (`(&)`, `*(void*)p = ()`). It is fixed
-  in the same change
+  overwrite path first moved a `unit` value through a field pointer, which
+  exposed a codegen bug: `addr_of` of a `unit` place and
+  `__yo_ptr_read`/`__yo_ptr_write` of a `unit` pointee emitted invalid C
+  (`(&)`, `*(void*)p = ()`). It is fixed in the same change
   (`issues/fixed/2026-10-16-a-pointer-move-of-a-unit-place-emits-invalid-c.md`).
 - **The other collections had the same cause** and are fixed the same way:
   `Deque` grows and pops by bitwise moves; `PriorityQueue` compares in place
   and sifts with `ArrayList.swap`, and `pop` swaps the root to the end and pops
-  it; `BTreeMap` binary-searches in place, overwrites through the value's
-  field, shifts a new entry into place with `swap`, `remove`s through the
+  it; `BTreeMap` binary-searches in place, overwrites by moving the old entry out and
+  a new one (the stored key, the new value) in, shifts a new entry into place with `swap`, `remove`s through the
   list's `remove` and a struct-pattern `match` that moves the value out of the
   entry, and `pop_first`/`pop_last`/`contains_key` no longer copy. `OrderedMap`
   of a move-only VALUE works once its three `match`es over the inner map's

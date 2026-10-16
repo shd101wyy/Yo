@@ -67,7 +67,17 @@ know that:
 ## Verification
 
 - `tests/unit_as_value_type.test.yo`: an `ArrayList(unit)` swaps, reverses and
-  removes; a `HashMap(i32, unit)` overwrites and removes.
+  removes; a `HashMap(i32, unit)` overwrites and removes (a guard: the map
+  now moves whole entries, see below).
 - `tests/addr_of.test.yo`: `addr_of` of a `unit` field is non-null, and a read
   and two writes through it leave the struct's other field untouched.
 - Both failed at the C compiler on develop `36c41e62b`.
+
+## Seed note
+
+The compiler is built by the v0.2.63 seed, which still has this bug, from the
+tree's std. The first version of the `HashMap` fix moved a `HashSet`'s `unit`
+value through `addr_of(p.*.value)`, and `yo build --std-path ./std` failed at
+the C compiler with the `(*((&)) = ())` above in the seed-emitted `yo.c`. The
+collections therefore move a whole `MapEntry` (never a `unit` field) through a
+pointer; nothing in std relies on this fix until `SEED_VERSION` carries it.
