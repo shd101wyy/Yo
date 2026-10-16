@@ -413,6 +413,17 @@ hollow-batch check (`__yo_user_main` is a real body, not a "Failed to
 transpile" comment) stays mandatory: an in-process regression presents exactly
 as hollow batches.
 
+**`YO_TEST_FORK=N`** (Linux, macOS) runs the in-process mode's first file in
+the runner, then forks one worker per later file, at most N at a time. Each
+worker compiles in process on a copy-on-write image of the warm runner and
+exits when its file is done, so memory does not pile up the way the
+in-process mode's does, and no RSS valve is involved. Output is replayed in
+file order: the stream, the totals and the exit code are the sequential
+runner's. `tests/internal` with N = 4 matched the default runner verdict for
+verdict (1419/1419, 2026-10-16). The workers share the runner's pages until
+they write them, so the summed PSS of the run reached 14.2 GB at N = 4. Take
+one heavy slot for it only when the box has that memory free.
+
 **Time any of this with a tree-built binary, never the seed**: the seed lacks
 every fix merged since its release, and the v0.2.38 seed made a
 ten-interpolation template check 66× slower than the tree
@@ -909,7 +920,9 @@ verified nothing.
   - When more than ~8 files qualify, one
     `YO_TEST_IN_PROCESS=1 YO_TEST_MAX_RSS_MB=12000 yo test ./tests/internal --parallel 1`
     under an `exclusive` lock (~37 min on an M4, one resident evaluator) is
-    cheaper than the serial loop (~4.5 min a file).
+    cheaper than the serial loop (~4.5 min a file). On a machine with the
+    memory for it, `YO_TEST_FORK=4` runs the same files in forked workers
+    (see "`YO_TEST_FORK=N`" above).
   - `macro_expansion.test.yo` (6.5 GB) runs only when the parser, macros or
     `quote` change, and always `exclusive`.
 - **cli-diff** only when the diff can move CLI output: std (line-pinned LSP
