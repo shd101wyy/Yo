@@ -33,7 +33,7 @@
   is_reference_struct_type,
   is_rc_type
 } :: import("../../types/guards.yo");
-{ type_contains_rc_cell_or_move_only, capture_struct_borrows } :: import("../../types/utils.yo");
+{ type_contains_rc_cell_or_move_only, capture_struct_borrows, type_is_move_only } :: import("../../types/utils.yo");
 {
   CapturedVariable,
   CapturedVariableKind,
@@ -1754,7 +1754,13 @@ _build_async_capture_struct_literal :: (
         while(ri < fields.len(), {
           match(
             fields.get(ri),
-            .Some(f) => if(!f.is_effect_param, {
+            // A move-only capture (a future, a `Drop` value) is MOVED into
+            // the capture struct: the evaluator consumed the variable, so no
+            // scope-end drop balances a retain here, and retaining it kept
+            // the value alive forever: a captured future's task never freed
+            // and its locals never dropped
+            // (issues/fixed/2026-10-16-a-future-moved-into-an-io-async-capture-list-is-retained-and-never-freed.md).
+            .Some(f) => if(!f.is_effect_param && !type_is_move_only(&f.ty), {
               match(
                 _rc_field_retain_line(`${tmp.clone()}.${sanitize_for_c_identifier(f.label.clone(), false)}`, &f.ty, indent.clone(), context),
                 .Some(line) => {

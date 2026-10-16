@@ -438,3 +438,33 @@ test("an error a task throws after an await is released", {
   };
   assert(g_disposed == (before + i32(1)), `the thrown error was disposed, ${g_disposed - before} times`);
 });
+
+// issues/fixed/2026-10-16-a-future-moved-into-an-io-async-capture-list-is-retained-and-never-freed.md
+// A future is move-only, so `{ f }` moves it into the capture struct. The
+// capture was still retained, so the future outlived every owner: a task
+// spawned from it and aborted never freed its state machine, and its locals
+// were never dropped.
+_sm_holds_thing :: (fn(io : Io) -> Impl(Future(i32, Io)))(
+  io.async((io : Io) => {
+    t := Thing(n : i32(4));
+    io.await(sleep(u64(300)), io);
+    t.n
+  })
+);
+test("a future moved into a capture list is freed with the task that runs it", {
+  before := g_disposed;
+  f := _sm_holds_thing(io);
+  outer := io.async({ f }(io : Io) => {
+    h := io.spawn(f, io);
+    io.await(sleep(u64(2)), io);
+    h.abort();
+    io.await(h.join(io), io)
+  });
+  r := io.await(outer, io);
+  assert(r.is_none(), "the inner task was aborted");
+  assert(g_disposed == (before + i32(1)), "the aborted task's local was dropped");
+  g := _sm_holds_thing(io);
+  outer2 := io.async({ g }(io : Io) => io.await(g, io));
+  assert(io.await(outer2, io) == i32(4), "the awaited capture ran");
+  assert(g_disposed == (before + i32(2)), "the completed task's local was dropped");
+});
