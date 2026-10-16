@@ -147,10 +147,12 @@ Progress:
     a shared borrow lent to a future may cross `Arc` derefs (E0909's
     read-only-handle carve-out), and D3 checks every hop of a written place
     (#1380).
+  - V3 async A5's `Waker.clone` Generation B: `impl(Waker, Clone)` over
+    `__yo_waker_clone`, and the cross-thread tests back on `Park` and
+    `w.clone()` (#1412).
 - **In progress:**
-  - V3's remaining async work (§3.13): A4's future operands, A5's
-    `Waker.clone` Generation B (it waits for a seed carrying
-    `__yo_waker_clone`), and A6's `Rc`-field half (V2c).
+  - V3's remaining async work (§3.13): A4's future operands and A6's
+    `Rc`-field half (V2c).
 - **Next:** decision 47's globals step, Generation B (on the next seed),
   the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
@@ -1314,10 +1316,11 @@ instead.
       exercises it through a test-local handle type (the owner keeps one
       handle while the worker wakes and drops its clone, the queued-wake
       regression's original ordering).
-    - **`Waker.clone`, Generation B** (needs a `SEED_VERSION` carrying
-      `__yo_waker_clone`): `impl(Waker, Clone(clone : … Waker(_p :
-      unsafe(__yo_waker_clone(self._p)))))` in `std/async/waker.yo`, and the
-      cross-thread tests go back to `Park` and `w.clone()`.
+    - **`Waker.clone`, Generation B** (#1412, on the v0.2.64 seed, the
+      first carrying `__yo_waker_clone`): `impl(Waker, Clone(clone : …
+      Waker(_p : unsafe(__yo_waker_clone(self._p)))))` in
+      `std/async/waker.yo`, and the cross-thread tests are back on `Park`
+      and `w.clone()`; the test-local `_RawWaker` handle is deleted.
     - **Waiter lists** move wakers in and out with no change: `push` takes
       the waker by value and `remove(usize(0))` moves it out bitwise (A3
       Generation B). `get` copies, so it is E0901 for a `Waker`: a list is
