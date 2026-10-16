@@ -2711,8 +2711,11 @@ _note_future_producing_call :: (fn(expr : &AstExpr, out_expr : &AstExpr, ctx : &
   g_checked_future_calls.insert(call_id);
   g_checked_future_calls.insert(ast_expr_id(expr));
   _check_future_call_lends(expr, &op_callee, &op_args, &bs, ctx, exn);
-  _check_future_call_argument_conflicts(&op_callee, &op_args, &bs, ctx, exn);
+  // Operands first: two operands reaching one place is decision 38 B's
+  // overlap, which the general later-argument rule would otherwise report as
+  // a two-phase conflict.
   _check_future_operand_lends(&op_callee, &op_args, &bs, ctx, exn);
+  _check_future_call_argument_conflicts(&op_callee, &op_args, &bs, ctx, exn);
   _check_future_call_global_lends(&op_callee, &op_args, &bs, ctx, exn);
 });
 /// How a borrow names an argument whose parameter has no label (a function
@@ -2968,11 +2971,6 @@ _check_future_operand_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(As
           operand = true;
           any_operand = true;
           _future_lends_into(&lent, &lent, ctx, &mut arg_lends, u32(0));
-          (fi : usize) = usize(0);
-          while(fi < arg_lends.len(), fi = (fi + usize(1)), {
-            fl := match(arg_lends.get(fi), .Some(x) => x, .None => return(()));
-            _check_lent_place_struct_untouched_after(&fl.place, &lent, op_args, ai + usize(1), ctx, exn);
-          });
         })
       );
     });
@@ -3000,6 +2998,20 @@ _check_future_operand_lends :: (fn(op_callee : &AstExpr, op_args : &ArrayList(As
             });
           });
         });
+      });
+    });
+  });
+  // Then the two-phase rule: no later argument touches a place an operand
+  // lends. After the overlap check, so two operands reaching one place get
+  // decision 38 B's error.
+  (oi : usize) = usize(0);
+  while(oi < lends.len(), oi = (oi + usize(1)), {
+    if(match(is_operand.get(oi), .Some(o) => o, .None => false), {
+      ol := match(lends.get(oi), .Some(l) => l, .None => return(()));
+      (fi : usize) = usize(0);
+      while(fi < ol.len(), fi = (fi + usize(1)), {
+        fl := match(ol.get(fi), .Some(x) => x, .None => return(()));
+        _check_lent_place_struct_untouched_after(&fl.place, &fl.via, op_args, oi + usize(1), ctx, exn);
       });
     });
   });
