@@ -130,6 +130,10 @@ Progress:
   - V2b unique buffers, Generation A1: `Trace` on a buffer-owning value,
     the cycle, reach and `Acyclic` walks through its buffer, not a raw view
     in safe code, and value-rooted borrow flags lower to nothing (#1384).
+  - Decision 47's globals step, Generation A: `mut(G)` module-level
+    bindings, E0917 for a write to an unmarked global, E0916 for lending a
+    `mut(G)` global to a call (the global-lend S1), and
+    `yo fix --migrate mutable-globals` (#1401).
 - **In progress:**
   - V2b unique buffers, Generation A2: `yo fix --migrate explicit-copy`
     (feat/vbd-v2b-explicit-copy-migration, #1385, draft, on develop).
@@ -137,8 +141,8 @@ Progress:
     `Waker.clone` Generation B (it waits for a seed carrying
     `__yo_waker_clone`), the async `Mutex` (#1380), and A6's `Rc`-field
     half (V2c).
-- **Next:** decision 47's globals step (the global-lend S1; Generation A,
-  then Generation B on the next seed), the rest of V2b (direct projection
+- **Next:** decision 47's globals step, Generation B (on the next seed),
+  the rest of V2b (direct projection
   calls; unique buffers' Generation B with the explicit-copy kind, on a seed
   carrying A1), decision 47's locals step, the allocator interface version 2
   (§6, after V2b), V2c, decision 43, then V5, then retiring the `yo fix` migrations
