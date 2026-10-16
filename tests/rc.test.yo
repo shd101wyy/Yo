@@ -1181,7 +1181,7 @@ test("alias made in an inner block, base reassigned there, base used after", {
 // stored a new handle through `&mut b` (or a `self : &mut Self` method on `b`)
 // released the shared count and freed the object `a` still named. The drop
 // tally sums the tags: 1 + 10 exactly when each object is dropped once.
-(g_lend_dropped_tags : i32) = i32(0);
+(mut(g_lend_dropped_tags) : i32) = i32(0);
 _LendHandle :: ref(struct(tag : i32));
 impl(
   _LendHandle,
@@ -2440,7 +2440,7 @@ test("unique Box: a struct field of type Option(Box(T)) compiles and reads back"
 // Decision 46's doors (plans/VALUES_BY_DEFAULT.md §6 "Decision 46" step 1):
 // `Rc.try_unwrap` and `Rc.make_mut`, as Rust has them.
 // ---------------------------------------------------------------------------
-(g_door_dropped : i32) = i32(0);
+(mut(g_door_dropped) : i32) = i32(0);
 /// A move-only payload (a `Drop` impl, no `Clone`) whose drop is tallied.
 _DoorToken :: struct(tag : i32);
 impl(
