@@ -1268,9 +1268,6 @@ consume_argument_for_parameter :: (
 ///   `std/async` runs a combinator's operand as a scoped child (aborted and
 ///   joined on every path, and aborted when the combinator is dropped).
 _param_accepts_second_class :: (fn(call : &AstExpr, ptype : &TypeValue, result_ty : &TypeValue, ctx : &EvalContext) -> bool)({
-  if(debug_knob(`YO_DEBUG_A4_SLOT`).is_some(), {
-    eprintln(`[a4-slot] ${ast_expr_to_string(call)} ptype=${type_to_string(ptype)} pfut=${is_future_value_type(ptype).to_string()} result=${type_to_string(result_ty)} rfut=${is_future_value_type(result_ty).to_string()}`);
-  });
   cond(
     (is_io_async_call(call) || is_io_await_call(call)) => true,
     is_io_spawn_call(call) => (ctx.unsafe_context && is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(call).module_path.clone()))),
@@ -9264,7 +9261,7 @@ try_to_call_function_with_arguments :: (
 export(try_to_call_function_with_arguments, fn_literal_arg_is_deferred, collect_somes_with_fn_sigs, unresolved_own_binder);
 /// Public name of `_forall_binding_now` for the inline FuncVal arm.
 forall_binding_now :: (fn(env : &Environment, label : &String) -> Option(TypeValue))(_forall_binding_now(env, label));
-export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
+export(forall_binding_now, strip_argument_label, apply_call_site_borrow_markers, check_call_site_borrow_marker, _unlabeled_argument, consume_argument_for_parameter, _param_accepts_second_class, check_argument_for_parameter, inout_argument_roots, argument_is_aliased_by_inout);
 export(specialization_recording_begin, specialization_recording_take, purge_specialization_caches_owned_by, specialization_cache_count, specialization_flat_capture_count, specialization_capture_value_count);
 export(reject_runtime_comptime_arguments, runtime_value_for_comptime_param);
 export(resolve_param_types_from_expected);
