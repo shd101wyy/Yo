@@ -1,0 +1,178 @@
+//! The standard-stream handles of `std/io/stdio` on a stream REDIRECTED to a
+//! regular file (issues/fixed/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md).
+//!
+//! Each handle used to keep its own offset starting at zero and write
+//! positionally, so on a regular file two handles overwrote each other, and a
+//! handle overwrote whatever libc or `stderr` had already written there. To a
+//! pipe or a terminal the positional write fell back to `write(2)`, which is
+//! why the bug only showed when output was redirected to a file.
+//!
+//! The process redirects its OWN descriptors (`dup2` of a temp file onto
+//! 0/1/2) rather than spawning a child: `Command`'s `Stdio` has no
+//! "to this file" mode, and a dup'd descriptor shares one open file
+//! description, hence one position, exactly as a shell's `> out 2>&1`
+//! does. The streams are restored before anything is asserted, so a failure
+//! message reaches the real stdout.
+pragma(Pragma.SkipWasm32Emscripten); // the wasm runtimes' emulated tty has no async fd-1/fd-2 write path
+pragma(Pragma.SkipWasm32Wasi); // no dup2 or temp files in standalone WASI
+pragma(Pragma.AllowUnsafe);
+{ assert } :: import("std/assert");
+{ temp_dir, path_join } :: import("../helper");
+{ String } :: import("std/string");
+{ IoExn, Exception } :: import("std/error");
+{ Path } :: import("std/path");
+{ read_to_string } :: import("std/fs/file");
+{ AT_FDCWD } :: import("std/sys/constants");
+{ Reader, Writer } :: import("std/io");
+{ stdin, stdout, stderr } :: import("std/io/stdio");
+{ print } :: import("std/fmt");
+libc_stdio :: import("std/libc/stdio");
+file :: import("std/sys/file");
+dir :: import("std/sys/dir");
+pipe_io :: import("std/sys/pipe");
+temp_io :: import("std/sys/temp");
+
+// Point `target` (0, 1 or 2) at `fd` and return a duplicate of what it was.
+_redirect :: (fn(fd : i32, target : i32) -> i32)({
+  unsafe(libc_stdio.fflush(.Some(libc_stdio.stdout)));
+  saved := pipe_io.dup(target);
+  assert(pipe_io.dup2(fd, target) == target, "dup2 onto a standard stream should succeed");
+  saved
+});
+// Undo `_redirect`.
+_restore :: (fn(saved : i32, target : i32) -> unit)({
+  cond(
+    (saved >= i32(0)) => {
+      _r := pipe_io.dup2(saved, target);
+      file.close_sync(saved);
+    },
+    true => file.close_sync(target)
+  );
+});
+// The path `mkstemp` filled in. The file is read back by path (a heap
+// buffer): a stack buffer whose address is taken before an await dangles in
+// an `io.async` body
+// (issues/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md).
+_path_of :: (fn(template_path : *u8) -> Path)(
+  Path.new(String.from_cstr(template_path).unwrap())
+);
+test("two stdout() handles append to a redirected stdout instead of overwriting", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected I/O exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  tmp := temp_dir();
+  template_str := path_join(&tmp, `yo_stdio_two_handles_XXXXXX`);
+  template_c := template_str.to_cstr();
+  template_path := template_c.ptr().unwrap();
+  fd := temp_io.mkstemp(template_path);
+  assert(fd >= i32(0), "mkstemp should succeed");
+  saved := _redirect(fd, i32(1));
+  o1 := stdout();
+  n1 := io.await(o1.write((*u8)("AAAA"), usize(4), io), t_e);
+  o2 := stdout();
+  n2 := io.await(o2.write((*u8)("BBBB"), usize(4), io), t_e);
+  n3 := io.await(o1.write((*u8)("CC"), usize(2), io), t_e);
+  _restore(saved, i32(1));
+  got := io.await(read_to_string(&_path_of(template_path), io), t_e);
+  io.await(file.close(fd), io);
+  io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
+  assert((n1 == usize(4)) && (n2 == usize(4)) && (n3 == usize(2)), "each write should report its full length");
+  assert(got == `AAAABBBBCC`, `two handles must append in order, got "${got}"`);
+});
+test("stdout and stderr redirected to one file (2>&1) share its position", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected I/O exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  tmp := temp_dir();
+  template_str := path_join(&tmp, `yo_stdio_out_err_XXXXXX`);
+  template_c := template_str.to_cstr();
+  template_path := template_c.ptr().unwrap();
+  fd := temp_io.mkstemp(template_path);
+  assert(fd >= i32(0), "mkstemp should succeed");
+  saved_out := _redirect(fd, i32(1));
+  saved_err := _redirect(fd, i32(2));
+  o := stdout();
+  e2 := stderr();
+  _n1 := io.await(o.write((*u8)("out:"), usize(4), io), t_e);
+  _n2 := io.await(e2.write((*u8)("err:"), usize(4), io), t_e);
+  _n3 := io.await(o.write((*u8)("end"), usize(3), io), t_e);
+  _restore(saved_err, i32(2));
+  _restore(saved_out, i32(1));
+  got := io.await(read_to_string(&_path_of(template_path), io), t_e);
+  io.await(file.close(fd), io);
+  io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
+  assert(got == `out:err:end`, `stdout and stderr must interleave in write order, got "${got}"`);
+});
+test("a stdout() handle appends after flushed libc output instead of overwriting it", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected I/O exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  tmp := temp_dir();
+  template_str := path_join(&tmp, `yo_stdio_after_print_XXXXXX`);
+  template_c := template_str.to_cstr();
+  template_path := template_c.ptr().unwrap();
+  fd := temp_io.mkstemp(template_path);
+  assert(fd >= i32(0), "mkstemp should succeed");
+  saved := _redirect(fd, i32(1));
+  print(`from print`);
+  unsafe(libc_stdio.fflush(.Some(libc_stdio.stdout)));
+  o := stdout();
+  _n := io.await(o.write((*u8)("+handle"), usize(7), io), t_e);
+  _restore(saved, i32(1));
+  got := io.await(read_to_string(&_path_of(template_path), io), t_e);
+  io.await(file.close(fd), io);
+  io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
+  assert(got == `from print+handle`, `the handle must append after libc's bytes, got "${got}"`);
+});
+test("two stdin() handles read a redirected stdin sequentially", {
+  t_exn := Exception(
+    throw : (
+      err -> {
+        assert(false, "unexpected I/O exception");
+        unwind(());
+      }
+    )
+  );
+  t_e := IoExn(io : io, exn : t_exn);
+  tmp := temp_dir();
+  template_str := path_join(&tmp, `yo_stdio_stdin_XXXXXX`);
+  template_c := template_str.to_cstr();
+  template_path := template_c.ptr().unwrap();
+  fd := temp_io.mkstemp(template_path);
+  assert(fd >= i32(0), "mkstemp should succeed");
+  w := io.await(file.write(fd, (*u8)("abcdef"), u32(6), u64(0)), io);
+  assert(w == i32(6), "seeding the stdin file should write 6 bytes");
+  saved := _redirect(fd, i32(0));
+  buf_uninit := MaybeUninit(Array(u8, usize(8))).new();
+  buf := (*u8)(buf_uninit.as_ptr());
+  i1 := stdin();
+  r1 := io.await(i1.read(buf, usize(3), io), t_e);
+  first := buf.*;
+  i2 := stdin();
+  r2 := io.await(i2.read(buf, usize(3), io), t_e);
+  second := buf.*;
+  _restore(saved, i32(0));
+  io.await(file.close(fd), io);
+  io.await(dir.unlink(AT_FDCWD, template_path, i32(0)), io);
+  assert((r1 == usize(3)) && (r2 == usize(3)), "each read should return 3 bytes");
+  assert(first == u8(97), "the first handle should read from the start (a)");
+  assert(second == u8(100), "the second handle should continue where the first stopped (d)");
+});

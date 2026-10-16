@@ -1,0 +1,30 @@
+// Repro: issues/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md
+//   yo compile <this> --sanitize address --allocator system -o /tmp/r && /tmp/r   (run from the repo root)
+// Expected "47 (...)" (the file starts with "//"); got: ASan stack-use-after-return, SIGSEGV at --optimize 2.
+pragma(Pragma.AllowUnsafe);
+{ printf } :: import("std/libc/stdio");
+{ IoExn, Exception } :: import("std/error");
+{ IoError } :: import("std/sys/errors");
+file :: import("std/sys/file");
+
+first_byte :: (fn(fd : i32, io : Io) -> Impl(Future(u8, IoExn)))(
+  io.async(e => {
+    buf_uninit := MaybeUninit(Array(u8, usize(64))).new();
+    buf := (*u8)(buf_uninit.as_ptr());
+    n := IoError.check(e.io.await(file.read(fd, buf, u32(64), u64(0)), e.io), e.exn);
+    buf.*
+  })
+);
+main :: (fn(io : Io) -> unit)({
+  exn := Exception(
+    throw : (
+      err -> {
+        unwind(());
+      }
+    )
+  );
+  fd := file.open_sync((*u8)("issues/repros/a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.yo"), i32(0), i32(0));
+  v := io.await(first_byte(fd, io), IoExn(io : io, exn : exn));
+  unsafe(printf("%d (expect 47 = the first byte, a slash)\n", i32(v)));
+});
+export(main);

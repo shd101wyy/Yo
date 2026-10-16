@@ -359,17 +359,16 @@ treats offset `u64.MAX` as the descriptor's own file position:
 `tests/sys/seek.test.yo` ("offset u64.MAX reads and writes at the
 descriptor's own position").
 
-**Generation B (once `SEED_VERSION` ≥ the release carrying Generation A):**
-the seed's runtime hands `u64.MAX` to `pwrite`, which fails with `EINVAL`, so
-std cannot use the sentinel before then:
-- `std/io/stdio.yo`: `Stdin`/`Stdout`/`Stderr` pass `u64.MAX` and drop their
-  `_offset` field, so two `stdout()` handles and `println` share the kernel's
-  position; the module doc's "pick ONE writer per stream" warning and its
-  Stability note go;
-- a test that runs a child with stdout redirected to a regular FILE and
-  checks the exact bytes for both of the issue's repros (two handles, a
-  handle after `println`);
-- close `issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`.
+**Generation B DONE 2026-10-15** on a v0.2.63 seed (which carries
+Generation A, #1376): `std/io/stdio.yo`'s `Stdin`/`Stdout`/`Stderr` pass
+`u64.MAX` and dropped their `_offset` field, so every handle, `stderr`
+redirected onto the same file and libc's flushed `stdout` share the kernel's
+position. The module doc's "pick ONE writer per stream" warning went; what
+stays documented is that `std/fmt`'s libc buffer flushes on its own schedule.
+Pinned by `tests/io/stdio_redirect.test.yo`, which redirects the test
+process's own 0/1/2 onto a temp file with `dup2` (Command's `Stdio` has no
+to-a-file mode). Closed
+`issues/fixed/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`.
 
 ## Seed-gated follow-up (2026-10-13): the `Index`/`IndexMut` split (VALUES_BY_DEFAULT V2b)
 

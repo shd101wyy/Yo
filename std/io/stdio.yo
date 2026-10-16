@@ -7,21 +7,21 @@
 //! `File` or a `TcpStream`. This is the typed replacement for the
 //! `BufReader.new(i32(0))` magic number.
 //!
-//! The handles are UNBUFFERED: every `read`/`write` is one async syscall.
-//! Each handle keeps a sequential offset the way `std/sys/bufio` does —
-//! required when a standard stream is REDIRECTED to a regular file (the
-//! async runtime writes positionally there); for pipes and terminals the
-//! offset is ignored.
+//! The handles are UNBUFFERED: every `read`/`write` is one async syscall,
+//! and they keep NO offset of their own. Each transfer passes offset
+//! `u64.MAX`, which the runtime reads as "the descriptor's own position"
+//! (`read(2)`/`write(2)`, not `pread`/`pwrite`; `std/sys/file`'s offset
+//! rules). So every `stdout()` handle, every `stderr()` handle redirected
+//! onto the same file (`2>&1`), libc's `stdout` and a parent shell's earlier
+//! writes all share the kernel's one file position: a stream redirected to a
+//! regular file is appended to, never overwritten
+//! (`issues/fixed/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`).
 //!
-//! **That offset is per HANDLE, and `stdout()` mints a new one starting at
-//! zero on every call — so two handles overwrite each other when stdout is
-//! redirected to a file, and so does mixing a handle with `std/fmt`'s
-//! `println` (which writes through libc's own buffered stdio and flushes at
-//! exit).** To a pipe or a terminal both work, which is what makes this easy
-//! to miss. Until it is fixed, pick ONE writer per stream for the lifetime
-//! of the process: keep a single handle and pass it around, and do not
-//! interleave `println` with it
-//! (`issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md`).
+//! Sharing the position is not sharing a buffer: `std/fmt`'s `print` and
+//! `println` write through libc's buffered `stdout`, which flushes when its
+//! buffer fills or at exit, so text printed before a handle write can land
+//! AFTER it (no bytes are lost). Flush libc first (`std/libc/stdio`'s
+//! `fflush`) when the order across the two writers matters.
 //!
 //! There is no `write_string` here: the handles carry exactly the trait
 //! surface, whose `write`/`write_all` take a raw `*(u8)`, so writing text
@@ -31,17 +31,12 @@
 //!
 //! ## Stability
 //!
-//! unstable — the offset field is the open question, and it is a bug before
-//! it is a design (see the paragraph above). The fix is likely to REMOVE
-//! per-handle offsets for the standard streams and let the kernel's own file
-//! offset apply, which changes no signature in this file but does change
-//! observable behaviour, so freezing before that would freeze the clobber.
-//! A second, smaller question rides along: Rust's `io::stdout()` returns a
-//! handle to ONE shared, locked stream, while `stdout()` here returns an
-//! independent object each time — if the offsets go away the two become
-//! equivalent, and if they do not, this needs to become a singleton. The
-//! three types, the three accessors and the `fd()` methods are expected to
-//! keep their names.
+//! unstable — Rust's `io::stdout()` returns a handle to ONE shared, locked
+//! stream that `println!` also writes through, while `stdout()` here returns
+//! an independent, unbuffered object and `std/fmt` keeps libc's own buffer
+//! (the ordering note above). Joining the two writers is the open question.
+//! The three types, the three accessors and the `fd()` methods are expected
+//! to keep their names.
 pragma(Pragma.AllowUnsafe);
 { Reader, Writer } :: import("./index");
 { IoExn } :: import("../error");
@@ -49,17 +44,17 @@ pragma(Pragma.AllowUnsafe);
 IO_file :: import("../sys/file");
 
 /// The process's standard input (fd 0).
-Stdin :: ref(struct(_offset : u64));
+Stdin :: ref(struct());
 /// The process's standard output (fd 1).
-Stdout :: ref(struct(_offset : u64));
+Stdout :: ref(struct());
 /// The process's standard error (fd 2).
-Stderr :: ref(struct(_offset : u64));
+Stderr :: ref(struct());
 /// Handle to standard input.
-stdin :: (fn() -> Stdin)(Stdin(_offset : u64(0)));
+stdin :: (fn() -> Stdin)(Stdin());
 /// Handle to standard output.
-stdout :: (fn() -> Stdout)(Stdout(_offset : u64(0)));
+stdout :: (fn() -> Stdout)(Stdout());
 /// Handle to standard error.
-stderr :: (fn() -> Stderr)(Stderr(_offset : u64(0)));
+stderr :: (fn() -> Stderr)(Stderr());
 impl(
   Stdin,
   /// fd 0, for interop with fd-based APIs (e.g. `BufReader.new`).
@@ -86,10 +81,8 @@ impl(
   Reader(
     read : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        result := e.io.await(IO_file.read(i32(0), buf, u32(size), self._offset), e.io);
-        n := IoError.check(result, e.exn);
-        self._offset = (self._offset + u64(n));
-        usize(n)
+        result := e.io.await(IO_file.read(i32(0), buf, u32(size), u64.MAX), e.io);
+        usize(IoError.check(result, e.exn))
       })
     )
   )
@@ -99,10 +92,8 @@ impl(
   Writer(
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        result := e.io.await(IO_file.write(i32(1), buf, u32(size), self._offset), e.io);
-        n := IoError.check(result, e.exn);
-        self._offset = (self._offset + u64(n));
-        usize(n)
+        result := e.io.await(IO_file.write(i32(1), buf, u32(size), u64.MAX), e.io);
+        usize(IoError.check(result, e.exn))
       })
     ),
     flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
@@ -115,10 +106,8 @@ impl(
   Writer(
     write : (fn(self : &Self, buf : *u8, size : usize, io : Io) -> Impl(Future(usize, IoExn)))(
       io.async(e => {
-        result := e.io.await(IO_file.write(i32(2), buf, u32(size), self._offset), e.io);
-        n := IoError.check(result, e.exn);
-        self._offset = (self._offset + u64(n));
-        usize(n)
+        result := e.io.await(IO_file.write(i32(2), buf, u32(size), u64.MAX), e.io);
+        usize(IoError.check(result, e.exn))
       })
     ),
     flush : (fn(self : &Self, io : Io) -> Impl(Future(unit, IoExn)))(
