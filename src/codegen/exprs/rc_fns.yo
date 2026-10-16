@@ -10,7 +10,7 @@
 //! concrete; `__yo_sometype_drop`/`_dup`'s non-Future resolvedConcreteType
 //! dispatch becomes a no-op (Phase-3 generics need Gap-6 resolution).
 { String } :: import("std/string");
-{ AstExpr } :: import("../../expr.yo");
+{ AstExpr, ast_expr_strip_borrow_marker } :: import("../../expr.yo");
 { EvalValue } :: import("../../value.yo");
 { TypeValue, TypeValueNode } :: import("../../types/definitions.yo");
 { is_array_type, is_atomically_counted_rc_type, is_rc_type, is_some_type, is_tuple_type } :: import("../../types/guards.yo");
@@ -79,6 +79,25 @@ generate_yo_incr_rc_atomic :: (fn(expr : &AstExpr, indent : &String, context : &
 /// `__yo_rc_own(<self>)` — ownership transfer; emits the argument as-is.
 generate_yo_rc_own :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
   match(_arg(expr, usize(0)), .Some(self_arg) => _call_generate_expr(&self_arg, indent, context), .None => codegen_fatal_expr(String.from("__yo_rc_own requires exactly 1 argument")))
+);
+/// `__yo_rc_forget_payload(<handle>)` — the cell of an `Rc`/`Arc` handle
+/// whose payload was moved out (`Rc.try_unwrap`) stops owning it: the
+/// runtime helper clears the cell's payload destructor, so the handle's own
+/// release frees the cell alone. The same helper serves both counts. The
+/// handle is lent (`__yo_rc_forget_payload(&self)`), so the operand is the
+/// handle under the borrow marker.
+generate_yo_rc_forget_payload :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
+  match(
+    _arg(expr, usize(0)),
+    .Some(lent) => {
+      handle := ast_expr_strip_borrow_marker(&lent);
+      out := String.from("__yo_rc_forget_payload(");
+      out.push_string(_rc_operand(&handle, indent, context));
+      out.push_str(")");
+      out
+    },
+    .None => codegen_fatal_expr(String.from("__yo_rc_forget_payload requires exactly 1 argument"))
+  )
 );
 /// `__yo_dyn_drop(<self>)` → decr the Dyn's `.data` pointer.
 generate_yo_dyn_drop :: (fn(expr : &AstExpr, indent : &String, context : &FunctionGenerationContext) -> String)(
@@ -471,4 +490,4 @@ generate_ref_count_call :: (fn(expr : &AstExpr, indent : &String, context : &Fun
     String.from("1")
   )
 });
-export(generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_rc_own, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_ref_count_call);
+export(generate_yo_decr_rc, generate_yo_incr_rc, generate_yo_decr_rc_atomic, generate_yo_incr_rc_atomic, generate_yo_rc_own, generate_yo_rc_forget_payload, generate_yo_dyn_drop, generate_yo_dyn_dup, generate_drop, generate_dup, generate_yo_drop_array_element, generate_yo_dup_array_element, generate_yo_drop_tuple_element, generate_yo_dup_tuple_element, generate_yo_sometype_drop, generate_yo_sometype_dup, generate_ref_count_call);

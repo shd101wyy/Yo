@@ -37,7 +37,8 @@ pragma(Pragma.AllowUnsafe);
   BK_UNSAFE_FN,
   BK_FN_TRAIT,
   BK_FN_ONCE_TRAIT,
-  ast_expr_is_fn_call
+  ast_expr_is_fn_call,
+  BK_BORROW_MUT
 } :: import("../../expr.yo");
 {
   ExprInfo,
@@ -65,7 +66,8 @@ pragma(Pragma.AllowUnsafe);
   expr_info_set_index_method_type,
   expr_info_set_index_method_value,
   expr_info_set_index_trait_ptr_type,
-  record_branch_consume
+  record_branch_consume,
+  lookup_method_callee_type
 } :: import("../../expr_info.yo");
 { scope_release_active, scope_release_depth, scope_release_set_depth, scope_release_mark, scope_release_body, is_call_once_capture_dup, mark_fnonce_capture_drop, record_immediate_old_value_drop, is_by_value_param_share_dup } :: import("../../expr_info.yo");
 { Environment, Variable, Frame, add_variable_to_env, get_variables_from_env, variable_is_inout_borrow_root, variable_keep_alias_dups, variable_mark_keep_alias_dups, variable_moved_at_cleanup_point, snapshot_env, frame_is_isolating, is_fnonce_capture_frame } :: import("../../env.yo");
@@ -1018,6 +1020,13 @@ _contains_io_await_for_opt :: (fn(e : &AstExpr, ctx : &EvalContext) -> bool)(
 /// (issues/fixed/alias-elision-base-reassigned-in-nested-block-uaf.md). When
 /// the base is reassigned anywhere in the subtree the dup is kept and each
 /// handle owns its own count.
+///
+/// A `&mut name` lend counts as a reassignment: the callee may store a new
+/// handle into the slot (`h = rc(...)`), which releases the shared count under
+/// the other binding, and a uniqueness test (`ref_count`, `Rc.make_mut`,
+/// `Rc.try_unwrap`) must see both handles. So does a method call whose
+/// `self : &mut Self` receiver is `name` itself
+/// (issues/fixed/2026-10-15-an-aliased-rc-handle-lent-mut-to-a-call-is-freed-under-its-alias.md).
 _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContext) -> bool)(
   match(
     e,
@@ -1036,6 +1045,18 @@ _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContex
           }),
           .None => ()
         );
+      });
+      if(ast_expr_is_fn_call_of(e, BK_BORROW_MUT, Option(usize).Some(usize(1))), {
+        match(
+          fargs.get(usize(0)),
+          .Some(lent) => if(ast_expr_is_atom(&lent) && (ast_expr_token(&lent).value == name), {
+            return(true);
+          }),
+          .None => ()
+        );
+      });
+      if(_call_lends_receiver_mut(e, &f, &fargs, name, ctx), {
+        return(true);
       });
       match(
         expr_info_table_get(&ctx.expr_info_table, ast_expr_id(e)),
@@ -1071,6 +1092,37 @@ _subtree_assigns_variable :: (fn(e : &AstExpr, name : &String, ctx : &EvalContex
     ) => false
   )
 );
+/// Whether the call `e` (callee `f`, arguments `fargs`) is a method call whose
+/// `self : &mut Self` receiver is the binding `name` itself: `name.m(...)`, or
+/// `T.m(name, ...)` through a type or an unapplied type constructor. The
+/// receiver is lent without a marker, so `_subtree_assigns_variable` reads the
+/// resolved method's parameter modes instead.
+_call_lends_receiver_mut :: (fn(e : &AstExpr, f : &AstExpr, fargs : &ArrayList(AstExpr), name : &String, ctx : &EvalContext) -> bool)({
+  if(!ast_expr_is_fn_call_of(f, BF_DOT, Option(usize).Some(usize(2))), {
+    return(false);
+  });
+  method_ty := match(
+    lookup_method_callee_type(ast_expr_id(e)),
+    .Some(t) => t,
+    .None => match(expr_info_table_get(&ctx.expr_info_table, ast_expr_id(f)), .Some(fi) => fi.ty, .None => return(false))
+  );
+  receiver_is_mut := match(
+    method_ty,
+    Rc(.Func({ meta : mm })) => (match(mm.*.param_labels.get(usize(0)), .Some(l) => (l == "self"), .None => false) && match(mm.*.param_is_ref.get(usize(0)), .Some(r) => r, .None => false)),
+    _ => false
+  );
+  if(!receiver_is_mut, {
+    return(false);
+  });
+  recv := match(f, .FnCall(_, _, dargs, _, _) => match(dargs.get(usize(0)), .Some(r) => r, .None => return(false)), .Atom(_, _) => return(false));
+  recv_is_type := match(
+    expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&recv)),
+    .Some(ri) => match(ri.value, .Some(.TypeVal(_)) => true, .Some(.FuncVal(_, _)) => true, _ => false),
+    .None => false
+  );
+  self_arg := if(recv_is_type, match(fargs.get(usize(0)), .Some(a0) => ast_expr_strip_borrow_marker(&a0), .None => return(false)), recv);
+  ast_expr_is_atom(&self_arg) && (ast_expr_token(&self_arg).value == name)
+});
 /// Strip cancelled dup calls from every `deferred_dup_expressions` list in the
 /// tree. Expansions are fresh-id clones (they do not share the spliced arg
 /// nodes), so the walk must follow `macro_expansion` explicitly — the same

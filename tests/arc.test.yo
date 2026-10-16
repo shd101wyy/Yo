@@ -113,3 +113,44 @@ test("Test Arc shared across multiple threads", {
   t2.join();
   assert(shared.* == 7);
 });
+// --- Decision 46's doors, the Arc mirrors (plans/VALUES_BY_DEFAULT.md §6
+// "Decision 46" step 1) ---
+_ArcPair :: struct(a : i32, b : i32);
+derive(_ArcPair, Copy, Clone);
+test("Arc.try_unwrap on the only handle moves the payload out", {
+  h := arc(_ArcPair(a : i32(1), b : i32(2)));
+  match(
+    Arc.try_unwrap(h),
+    .Ok(p) => assert((p.a == i32(1)) && (p.b == i32(2)), "the payload came out"),
+    .Err(_) => assert(false, "the only handle unwraps")
+  );
+});
+test("Arc.try_unwrap on a handle another thread holds returns it", {
+  a := arc(i32(5));
+  b := a;
+  t := Thread(unit).spawn(io => {
+    assert(b.* == i32(5));
+  });
+  c := a;
+  back := match(
+    Arc.try_unwrap(c),
+    .Ok(_) => {
+      assert(false, "a still shares the cell");
+      arc(i32(0))
+    },
+    .Err(h) => h
+  );
+  assert(back.* == i32(5), "the handle came back");
+  t.join();
+  assert(a.* == i32(5), "the payload is untouched");
+});
+test("Arc.make_mut clones a shared payload and writes a unique one in place", {
+  a := arc(_ArcPair(a : i32(1), b : i32(2)));
+  b := a;
+  Arc.make_mut(&mut b).a = i32(10);
+  assert(a.a == i32(1), "the other handle does not see the write");
+  assert(b.a == i32(10), "the write landed in b's own cell");
+  assert((ref_count(a) == 1) && (ref_count(b) == 1), "two cells, one handle each");
+  Arc.make_mut(&mut a).b = i32(20);
+  assert((a.b == i32(20)) && (b.b == i32(2)), "a was unique: written in place");
+});

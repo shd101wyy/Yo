@@ -170,6 +170,8 @@ new_value := counter.with_lock(v => (v + i32(1)));
 
 解锁是自动的——私有解锁器对象在正常返回和 `unwind(...)` 时都调用 `_raw_unlock()`，保证结构化解锁配对。**可重入锁定会导致死锁。**
 
+在单个线程上，对应的闭包作用域类型是 `RefCell(T)`（`std/sync/refcell`）：`with` 和 `with_mut` 在运行时检查独占性，冲突时 panic 而不是阻塞。`RefCell` 在 `T` 是 `Send` 时是 `Send`，但永远不是 `Sync`，因此 `Arc(RefCell(T))` 会被拒绝：跨线程请使用 `Arc(Mutex(T))`。
+
 ## 模块级全局变量
 
 模块级运行期绑定（在任何函数之外的 `name := init` 或 `(name : T) = init`）是一个被所有线程共享的静态变量。它是不可变的（Rust 的 `static`），除非它的名字被包在 `mut(...)` 里（`mut(name) := init`、`(mut(name) : T) = init`，在 `thread_local(...)` 里同样可用），这使它成为 Rust 的 `static mut`。写入不可变的全局变量是 E0917；把 `mut(...)` 全局变量或它下面的位置借给调用是 E0916（先把它读到局部变量里）。详见[错误参考](ERROR_DIAGNOSTICS.md)。在安全代码中：

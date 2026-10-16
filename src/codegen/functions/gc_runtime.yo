@@ -421,6 +421,13 @@ static inline void* __yo_incr_rc(void* ptr) {
   __yo_ref_header_t* header = (__yo_ref_header_t*)ptr;
   header->ref_count++;
   return ptr;
+}
+
+// Rc.try_unwrap / Arc.try_unwrap: the payload was moved out bitwise of a cell
+// the caller holds the ONLY reference to. Clearing the type tag makes the
+// last release free the cell without dispatching the payload's dispose.
+static inline void __yo_rc_forget_payload(void* ptr) {
+  ((__yo_rc_prefix_t*)ptr)->type_id = 0;
 }`
   );
   if(context.base.chunk_mode, {
@@ -586,6 +593,20 @@ static inline void* __yo_incr_rc(void* ptr) {
   header->ref_count++;
   GC_DEBUG("Incr: ptr=%p RC=%zu\\n", ptr, (size_t)(header->ref_count & __YO_RC_COUNT));
   return ptr;
+}
+
+// Rc.try_unwrap / Arc.try_unwrap: the payload was moved out bitwise of a cell
+// the caller holds the ONLY reference to. The cell loses its payload
+// destructor (and, when tracked, its child walk, so the collector never
+// visits the moved payload); the last release then frees the cell alone,
+// taking a tracked cell off the collector's lists on the way. An atomic cell
+// is never tracked.
+static inline void __yo_rc_forget_payload(void* ptr) {
+  __yo_rc_prefix_t* header = (__yo_rc_prefix_t*)ptr;
+  header->dispose_fn = NULL;
+  if (header->gc_flags & __YO_GC_TRACKED) {
+    ((__yo_ref_header_t*)ptr)->traverse_fn = NULL;
+  }
 }`
   );
   if(context.base.chunk_mode, {

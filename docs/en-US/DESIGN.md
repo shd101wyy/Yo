@@ -3591,10 +3591,65 @@ test("Rc reference counting", {
 });
 ```
 
+### Mutating a Shared Payload: `RefCell`, `Rc.make_mut`, `Rc.try_unwrap`
+
+An `Rc`'s payload is shared, so it is **read-only through the handle**, as
+in Rust ([decision 46 of the values-by-default plan](../../plans/VALUES_BY_DEFAULT.md)).
+The compiler still admits a write through an `Rc` today (`h.n = v`,
+`original.* = 100` above, `h.items.push(v)`); the write becomes an error in
+a later release, once std and the compiler have moved to the doors below.
+`YO_AUDIT_RC_WRITE=1 yo compile <file> --skip-c-compiler` lists every such
+write (`kind=assign|mut-arg|mut-recv`, with `proved=yes` when the cell is
+fresh in its function). Write new code with the doors:
+
+- **`RefCell(T)`** (`std/sync/refcell`) is the payload for shared mutation:
+  `Rc(RefCell(T))`. Access is scoped to a closure, as `Mutex(T)`'s is:
+  `with(v => ...)` lends `v : &T`, `with_mut(v => ...)` lends `v : &mut T`,
+  and each returns the closure's result. Several `with` bodies may run at
+  once; a `with_mut` runs alone, and a conflicting access while one runs
+  panics, as Rust's `RefCell::borrow_mut` does. The mark is released when
+  the body returns or unwinds. A `RefCell` is `Send` when `T` is and never
+  `Sync`, so `Arc(RefCell(T))` is rejected (share an `Arc(Mutex(T))` across
+  threads). It may also sit in a plain value, where it makes a write through
+  a `&` borrow possible.
+
+  ```yo
+  { RefCell } :: import("std/sync/refcell");
+  log := rc(RefCell(i32).new(i32(0)));
+  other := log; // a second handle to the same cell
+  other.with_mut(n => {
+    n = (n + i32(1));
+  });
+  assert(log.with(n => n) == i32(1), "seen through the first handle");
+  ```
+
+- **`Rc.make_mut(&mut h)`** (`T <: Clone`) is the payload, written: when
+  another handle shares the cell, `h` first moves to a fresh cell holding a
+  clone of the payload, so the other handles never see the write. On the
+  only handle it writes in place. Rust's `Rc::make_mut`; the clone is in
+  the name.
+
+  ```yo
+  a := rc(Point(x : 1, y : 2));
+  b := a;
+  Rc.make_mut(&mut b).x = 10; // b gets a cell of its own
+  assert((a.x == 1) && (b.x == 10), "a is unchanged");
+  ```
+
+- **`Rc.try_unwrap(h)`** consumes the handle and returns `.Ok(payload)`
+  when it was the only one (the cell is freed), else `.Err(h)`, the handle
+  back. It needs no `Clone`.
+- `Rc.get_mut(&mut h)` (`.Some(&mut T)` only when the count is 1) follows
+  once `Option(&mut T)` is expressible (decision 43).
+
+The doors are called through the type, as in Rust, so a payload method of
+the same name stays reachable as `h.name()`. `Arc` has the same
+`Arc.make_mut` and `Arc.try_unwrap` ([ARC.md](./ARC.md)).
+
 ### When to Use Rc
 
 - **Heap allocation**: When you need a value type on the heap
-- **Shared mutability**: Multiple references to the same mutable value
+- **Shared ownership**: Several handles to one value; shared mutation goes through `Rc(RefCell(T))`
 - **Dynamic dispatch**: Wrapping value types for use with `Dyn` (`dyn(v)` on a value type does this for you: it wraps `v` in `rc(v)`)
 - **Recursive types**: only when the nodes are shared; a tree of uniquely owned nodes uses `Box`
 

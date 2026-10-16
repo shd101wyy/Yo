@@ -1,0 +1,43 @@
+{ ArrayList } :: import("std/collections/array_list");
+{ RefCell } :: import("std/sync/refcell");
+Counter :: struct(n : i32, items : ArrayList(i32));
+Node :: ref(struct(n : i32));
+bump :: (fn(x : &mut i32) -> unit)({
+  x = (x + i32(1));
+});
+peek :: (fn(x : &mut i32) -> i32)(x);
+apply :: (fn(f : &Impl(Fn() -> unit)) -> unit)(f());
+// Listed, unproved: the handle is a parameter, a caller may hold a borrow.
+through_param :: (fn(h : &Rc(Counter)) -> unit)({
+  h.n = i32(3);
+});
+main :: (fn() -> unit)({
+  // Listed, proved: the cell is fresh in this function and never leaves it.
+  g := rc(Counter(n : i32(0), items : ArrayList(i32).new()));
+  g.n = i32(9);
+  // Listed, unproved: `h` is captured by the closure below, which may run
+  // while a borrow of the cell is live.
+  h := rc(Counter(n : i32(0), items : ArrayList(i32).new()));
+  h.n = i32(1);
+  h.* = Counter(n : i32(2), items : ArrayList(i32).new());
+  h.items.push(i32(4));
+  bump(&mut h.n);
+  // Not listed: the callee does not write its `&mut` parameter.
+  _p := peek(&mut h.n);
+  through_param(&h);
+  // Listed, unproved: inside a closure the handle is a capture.
+  apply(() => {
+    h.n = i32(5);
+  });
+  // Listed as `handle=ref`: a `ref(struct(...))` handle, counted apart.
+  r := Node(n : i32(0));
+  r.n = i32(6);
+  // Not listed: a value local, and a write behind RefCell's door.
+  c := Counter(n : i32(0), items : ArrayList(i32).new());
+  c.n = i32(7);
+  cell := rc(RefCell(i32).new(i32(0)));
+  cell.with_mut(v => {
+    v = i32(8);
+  });
+});
+export(main);

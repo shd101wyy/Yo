@@ -226,6 +226,8 @@ Unlock is automatic — a private unlocker object calls `_raw_unlock()` on both 
 
 **Re-entrant locking deadlocks.** Calling `with_lock` from inside another `with_lock` on the same mutex will deadlock (matching Rust's `std::sync::Mutex`). Yo does not provide a reentrant mutex.
 
+On one thread, the closure-scoped counterpart is `RefCell(T)` (`std/sync/refcell`): `with` and `with_mut` check exclusivity at run time and panic on a conflict instead of blocking. A `RefCell` is `Send` when `T` is and never `Sync`, so `Arc(RefCell(T))` is rejected: across threads, use `Arc(Mutex(T))`.
+
 ## Module-Level Globals
 
 A module-level runtime binding (`name := init` or `(name : T) = init` outside any function) is
