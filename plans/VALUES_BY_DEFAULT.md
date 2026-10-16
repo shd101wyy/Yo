@@ -134,9 +134,9 @@ Progress:
     bindings, E0917 for a write to an unmarked global, E0916 for lending a
     `mut(G)` global to a call (the global-lend S1), and
     `yo fix --migrate mutable-globals` (#1401).
+  - V2b unique buffers, Generation A2: `yo fix --migrate explicit-copy`,
+    with the written-after guard (#1385).
 - **In progress:**
-  - V2b unique buffers, Generation A2: `yo fix --migrate explicit-copy`
-    (feat/vbd-v2b-explicit-copy-migration, #1385, draft, on develop).
   - V3's remaining async work (§3.13): A4's future operands, A5's
     `Waker.clone` Generation B (it waits for a seed carrying
     `__yo_waker_clone`), the async `Mutex` (#1380), and A6's `Rc`-field
