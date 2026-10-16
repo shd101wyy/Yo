@@ -678,6 +678,9 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
     ei_opt,
     .Some(ei) => {
       env_opt := Option(Environment).Some(ei.env);
+      if(tv == "zzdbg", {
+        eprintln(`[zzdbg0] vn=${match(ei.variable_name, .Some(x) => x, .None => String.from("<none>"))} shadowed=${_is_shadowed_name(tv.clone(), context).to_string()}`);
+      });
       // Locally-shadowed variable (a match-arm destructured field, declared in
       // the arm's C block under its SOURCE name): resolve to that source name,
       // not the evaluator's temp `variable_name` (the destructure bind declares `<T> v = ...`
@@ -714,6 +717,12 @@ generate_atom :: (fn(expr : &AstExpr, context : &FunctionGenerationContext, inde
             ),
             .None => false
           );
+          if(tv == "zzdbg", {
+            dbg_has_val := match(ei.value, .Some(v) => if(is_unknown_val(&v), "unknown", "known"), .None => "none");
+            dbg_vars := scope_variables(ast_expr_id(expr), match(env_opt, .Some(e) => e, .None => ei.env), var_name.clone());
+            dbg_cto := match(dbg_vars.last(), .Some(lv) => if(lv.is_compile_time_only, "cto", "rt"), .None => "novar");
+            eprintln(`[zzdbg] vn=${var_name} value=${dbg_has_val} nvars=${dbg_vars.len().to_string()} last=${dbg_cto} direct=${get_variables_from_env(&ei.env, var_name.clone()).len().to_string()} mode=${scope_release_mode().to_string()}`);
+          });
           if(is_comptime_const, {
             return(match(ei.value, .Some(v) => generate_comptime_value(&v, match(expr_info_converted_runtime_type(&ei), .Some(crt) => crt, .None => ei.ty), &context.base), .None => String.from("")));
           });
