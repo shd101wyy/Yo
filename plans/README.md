@@ -68,6 +68,9 @@ verifier-driven guard elision design, Phases 0–2 landed and Phase 3 open, is
 [`SAFE_MODE_5B_VERIFIED_GUARD_ELISION`](backlog/SAFE_MODE_5B_VERIFIED_GUARD_ELISION.md)
 (strict mode builds on it); its container bounds-check prerequisite is designed in
 [`SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION`](backlog/SAFE_MODE_5B_CONTAINER_BOUNDS_ELISION.md).
+[`PARALLEL_COMPILATION`](backlog/PARALLEL_COMPILATION.md) is the measured
+plan for using more than one core (forked emit and test runner first, a
+threaded evaluator last; maintainer, 2026-10-16: secondary to VBD).
 [`ASYNC_AWAIT_SITE_FUSION`](backlog/ASYNC_AWAIT_SITE_FUSION.md) is the
 state-machine plan's phase 7 design for std's single-await I/O wrappers
 (an immediately awaited wrapper runs in its caller's frame).
