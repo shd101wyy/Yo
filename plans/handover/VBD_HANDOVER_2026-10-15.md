@@ -191,7 +191,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 | 1 | #1378 from `vbd-d45-genb-rebased` | **landed** 2026-10-15 |
 | 2 | #1379 from `feat/vbd-v3-async-a5-rebased` | **landed** 2026-10-15 (`std/hash.yo` reverted) |
 | 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | rebased, Tier 1 green |
-| 4 | `feat/global-lend-to-call-is-an-error` (no PR) | decision 47 globals, Generation A; Tier 1 green |
+| 4 | `feat/global-lend-to-call-is-an-error` → **#1401, landed** | decision 47 globals, Generation A |
 | 5 | `fix/runtime-write-to-comptime-constant` (no PR) | E0918; Tier 1 green except 8 cli goldens to re-record; conflicts with item 4 |
 | 6 | `fix/d3-trust-by-mutation-mask` (no PR), then #1380 | the D3 S1 fix, Tier 1 green; #1380 is blocked on it, then restacks |
 | 7 | `perf/type-key-memo-identity` (no PR) | −40.5% allocations; Tier 1 green; does not conflict with item 6 |
@@ -401,7 +401,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 - It ties to the open S1 `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md`.
 - Leave it for the type-soundness track (`plans/handover/TYPE_SYSTEM_SOUNDNESS_HANDOVER.md`).
 
-#### `feat/global-lend-to-call-is-an-error` — decision 47 step 1 (globals, Generation A), no PR yet (head `3a259f224`)
+#### `feat/global-lend-to-call-is-an-error` — decision 47 step 1 (globals, Generation A): **landed as #1401** (2026-10-16)
 
 > **DONE AND GATED 2026-10-15; land it after this handover PR.** Everything below this box is the history leading here.
 >
@@ -444,7 +444,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 > - **The 57/87/248 figures assume collections are `ref` handles.** If V2b unique buffers Generation B lands first, every module-level collection written through `push`/`clear` becomes a VALUE global (E0917 when unmarked). Then re-run the census with a tree-built binary after V2b Generation B and either mark those globals `mut(G)` and rewrite their lends, or move them to `thread_local(mut(...))`/`RefCell` (decision 46 Generation A brings `RefCell`). Decide before sweeping, or land the globals' Generation B before V2b Generation B.
 
 
-- **What:** the S1 `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`, with the decided design in §5.1.
+- **What:** the S1 `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md`, with the decided design in §5.1.
 - **State:** the branch holds the **strict** first cut, WIP commits (`393713de9`…):
   - E0916, "a module-level binding lent to a call";
   - the census knob `YO_AUDIT_GLOBAL_LEND=1`, one line per lend with a form tag;
@@ -567,7 +567,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 1. **#1378**, decision 45 Generation B (§2.3).
 2. **#1379**, A5 (§2.3): retarget #1380 before deleting the A5 branch, and revert `std/hash.yo` while landing.
 3. **#1368**, direct projection calls (§2.3; rebased and gated). It also closes #1375's S2 and a develop S2 (`f(&mut xs(i))` through a `&` borrow).
-4. **`feat/global-lend-to-call-is-an-error`**: decision 47 step 1, Generation A (§2.3, §5.1). This handover is already on develop. Generation B follows on the seed that carries it (step 7a).
+4. **`feat/global-lend-to-call-is-an-error`**: decision 47 step 1, Generation A (§2.3, §5.1). **Landed as #1401 (2026-10-16).** Generation B follows on the seed that carries it (step 7a).
 5. **`fix/runtime-write-to-comptime-constant`** (E0918, §2.3): re-record its 8 cli goldens; it conflicts with item 4 in three files.
 6. **`fix/d3-trust-by-mutation-mask`** (§2.3), then **#1380** (§2.3).
 7. **`perf/type-key-memo-identity`** (§2.3): open its PR; CI's count replaces the estimated ratchet baseline. It does not conflict with step 6, so it may land before or after #1380.
@@ -610,7 +610,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 
 ## 5. Decisions recorded this cycle
 
-### 5.1 The global lend to a call (maintainer, 2026-10-15; Generation A built and gated on `feat/global-lend-to-call-is-an-error`, not yet merged; spelled with decision 47's `mut(G)`)
+### 5.1 The global lend to a call (maintainer, 2026-10-15; Generation A landed as #1401; spelled with decision 47's `mut(G)`)
 
 - **The bug:** with `w2(&G)`, the callee can reassign `G` through another function, or await while another task reassigns it, and then read freed memory. The future half is fixed (#1389).
 - **The rule is Rust's `static` / `static mut` model, with an explicit marker.** The maintainer picked "Rust static model", then, after an advisor review, "Explicit marker".
@@ -743,7 +743,7 @@ x :: 12;                           // a true constant
 
 | Issue | Note |
 | --- | --- |
-| `issues/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; fixed on `feat/global-lend-to-call-is-an-error`, not yet on develop |
+| `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; fixed by #1401 |
 | `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` (copied to develop by the handover PR) | B1; fixed on `fix/d3-trust-by-mutation-mask`, not yet on develop |
 | `issues/stddoc-io-stdio-handles-write-positionally-and-clobber-redirected-output.md` | §4 step 10; the runtime half shipped in v0.2.63 |
 | `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
@@ -759,7 +759,7 @@ x :: 12;                           // a true constant
 - `issues/2026-10-15-a-generic-impls-type-variable-accumulates-one-copy-of-a-where-bound-per-method.md` (S3): `BTreeMap`'s `K` carries `Ord(K)` 15 times.
 - `issues/2026-10-15-a-module-level-comptime-constant-can-be-assigned-at-runtime.md` (S2): fixed on `fix/runtime-write-to-comptime-constant` (E0918).
 - `issues/2026-10-15-yo-check-of-a-verify-file-with-match-arms-fails-coverage.md` (S3).
-- Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (`fix/runtime-write-to-comptime-constant`), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (`feat/global-lend-to-call-is-an-error`).
+- Filed on branches, landing with them: the S3 "yo check swallows a D3 error inside a `Thread.spawn` or `io.async` body" (`fix/d3-trust-by-mutation-mask`), the S2 "return of a function-local comptime constant emits an undeclared C identifier" (`fix/runtime-write-to-comptime-constant`), and the S3 "yo fix over several files applies one file's generic impls to another's same-named type" (landed with #1401).
 - `issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2): fixed by #1368.
 - `issues/2026-10-15-the-generic-call-time-binder-binds-a-sink-closure-argument-at-a-bitwise-fn-type.md`: found by #1388.
 - `issues/2026-10-14-the-vendored-mimalloc-is-compiled-in-debug-mode.md` (S3): a free speedup for every compile.

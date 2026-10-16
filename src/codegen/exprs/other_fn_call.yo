@@ -555,7 +555,11 @@ _materialize_arg :: (fn(arg : &AstExpr, param_is_ref : bool, expr : &AstExpr, in
           d.push_str(")");
           d
         };
-        is_deref_read := (arg_code == deref_form);
+        // A thread-local reads through its accessor, `(*name__tl_get())`
+        // (`get_variable_name_for_codegen`): the same kind of in-place read,
+        // which a C identifier sanitizer would mangle into an undeclared name
+        // (issues/fixed/2026-10-15-a-thread-local-passed-as-a-call-argument-emits-an-undeclared-c-identifier.md).
+        is_deref_read := ((arg_code == deref_form) || (sanitized.starts_with("(*") && (arg_code == sanitized)));
         // Do not RE-declare a name already alive in an open scope: two
         // effectful calls in one body can each materialize the SAME
         // capture-read (`yield(io)` twice stamps `io` as the arg's

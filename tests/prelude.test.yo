@@ -106,8 +106,8 @@ test("try_into to a type with no matching impl is a compile error", {
 // it is then move-only, and the dispose runs once, for its one owner.
 GenericValuePair :: (fn(comptime(T) : Type) -> comptime(Type))(struct(a : T, b : T));
 GenericRefPair :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(a : T, b : T)));
-(g_generic_ref_pair_disposed : i32) = i32(0);
-(g_generic_value_pair_disposed : i32) = i32(0);
+(mut(g_generic_ref_pair_disposed) : i32) = i32(0);
+(mut(g_generic_value_pair_disposed) : i32) = i32(0);
 impl(
   generic(T : Type),
   GenericRefPair(T),

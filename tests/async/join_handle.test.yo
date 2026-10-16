@@ -113,7 +113,7 @@ test("Test abort after completion is a no-op", {
 //    The Drop counter is the observable: CI runs with detect_leaks=0, so a
 //    retention this shape is invisible to the sanitizers.
 // ---------------------------------------------------------------------------
-(g_abort_capture_disposed : i32) = i32(0);
+(mut(g_abort_capture_disposed) : i32) = i32(0);
 AbortCaptureProbe :: ref(struct(id : i32));
 impl(
   AbortCaptureProbe,
@@ -260,7 +260,7 @@ test("a handle moved into join cannot be used after it", {
   r := io.await(h.join(io), io);
   assert(match(r, .Some(v) => (v == i32(4)), .None => false), "join consumed the handle and moved the result out");
 });
-(g_jh_res_disposed : i32) = i32(0);
+(mut(g_jh_res_disposed) : i32) = i32(0);
 _JhRes :: struct(n : i32);
 impl(
   _JhRes,

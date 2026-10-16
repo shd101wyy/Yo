@@ -15,7 +15,7 @@ pragma(Pragma.AllowUnsafe);
 { Error, Exception, IoExn } :: import("std/error");
 { ToString } :: import("std/fmt");
 
-(g_disposed : i32) = i32(0);
+(mut(g_disposed) : i32) = i32(0);
 Thing :: ref(struct(n : i32));
 impl(
   Thing,
@@ -209,7 +209,7 @@ test("a value-position cond or match with an awaiting arm inside a while", {
 });
 
 // issues/fixed/a-non-send-closure-reading-a-global-marks-it-thread-reached.md
-(g_counter : i32) = i32(0);
+(mut(g_counter) : i32) = i32(0);
 test("two io.async closures that update a module global", {
   t1 := io.async((io : Io) => {
     io.await(yield(io), io);
@@ -735,7 +735,8 @@ _abort_rebind_then_sleep :: (fn(io : Io) -> unit)({
 test("an aborted task releases a value moved to another name once", {
   g_disposed = i32(0);
   _abort_rebind_then_sleep(io);
-  assert(g_disposed == i32(1), `the new owner releases it, released ${g_disposed}`);
+  released := g_disposed;
+  assert(released == i32(1), `the new owner releases it, released ${released}`);
 });
 _move_each_iteration :: (fn(io : Io) -> Impl(Future(i32, Io)))(
   io.async((e : Io) => {
@@ -774,7 +775,8 @@ _abort_move_each_iteration :: (fn(io : Io) -> unit)({
 test("an aborted task releases a local re-bound after its previous value moved", {
   g_disposed = i32(0);
   _abort_move_each_iteration(io);
-  assert(g_disposed == i32(1), `the second iteration's Thing, released ${g_disposed}`);
+  released := g_disposed;
+  assert(released == i32(1), `the second iteration's Thing, released ${released}`);
   g_kept_things.clear();
   assert(g_disposed == i32(2), "the first iteration's Thing, by its new owner");
 });
@@ -806,7 +808,7 @@ test("a generic struct with a pointer-to-future field, built beside the future i
 // instance at a future, as it does at a ref struct: the impl matcher binds
 // the future handle itself
 // (issues/fixed/a-generic-impl-dispose-never-runs-for-a-type-fn-instance-at-a-future.md).
-(g_guards : i32) = i32(0);
+(mut(g_guards) : i32) = i32(0);
 _Guard :: (fn(comptime(T) : Type) -> comptime(Type))(ref(struct(n : u8)));
 impl(
   generic(T : Type),

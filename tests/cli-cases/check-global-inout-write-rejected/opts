@@ -2,6 +2,10 @@
 # module-level global to an inout parameter is a write iff the callee may write
 # through that parameter (the same mutation-mask decision as D3 for atomic
 # objects), and a write to a global another thread reads is a data race.
-# `describe` reads only and is accepted; `bump_by_ten` stores.
-stdout_keep_match=Cannot pass a mut argument rooted in module-level global 'g'
+# Decision 47 (plans/VALUES_BY_DEFAULT.md) rejects the lend itself first:
+# `g` is written, so it is declared `mut(g)`, and lending a `mut(...)` global
+# to a call is E0916, at `describe(&mut g)` before D1 judges either call.
+# D1's mutation-mask path stays live only for the trees decision 47's
+# Generation A exempts (std, the compiler).
+stdout_keep_match=Cannot lend `g` to `describe` \(a `&mut` argument\)
 timeout=120

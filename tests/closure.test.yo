@@ -434,7 +434,7 @@ test("a second closure's list after the first list's push", {
 // ---------------------------------------------------------------------------
 // A closure releases its captures (issues/fixed/a-closure-typed-slot-never-releases-its-captures.md).
 // Every case asserts EXACTLY one dispose: 0 is the leak, 2 an over-release.
-(g_cap_disposed : i32) = i32(0);
+(mut(g_cap_disposed) : i32) = i32(0);
 CapPayload :: ref(struct(n : i32));
 impl(
   CapPayload,
@@ -708,8 +708,8 @@ test("a local or comptime slot of a function type returning Impl(Fn)", {
 // (issues/fixed/structural-clone-has-no-clone-method-on-records-closures-and-fn-pointers.md).
 // `g_cl_tok_dropped` / `g_cl_tok_cloned` count `_ClTok`'s drops and clones.
 // ---------------------------------------------------------------------------
-(g_cl_tok_dropped : i32) = i32(0);
-(g_cl_tok_cloned : i32) = i32(0);
+(mut(g_cl_tok_dropped) : i32) = i32(0);
+(mut(g_cl_tok_cloned) : i32) = i32(0);
 _ClTok :: struct(n : i32);
 impl(
   _ClTok,

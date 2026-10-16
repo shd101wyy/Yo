@@ -86,11 +86,16 @@ comptime_expect_error(
   })
 );
 
-// A WHOLE module-level variable is fine — its slot is stable storage.
-g_counter := i32(0);
-test("whole module-level variable to a ref param", {
-  bump(&mut g_counter);
-  assert(g_counter == i32(1), "global slot written through the ref param");
+// A WHOLE `mut(...)` module-level variable is lent to no call either
+// (decision 47, E0916): any callee could write it by name. Copy it out, lend
+// the local and write it back.
+mut(g_counter) := i32(0);
+test("a mut module-level variable is copied out for a ref param", {
+  comptime_expect_error(bump(&mut g_counter), "is declared `mut(g_counter)`");
+  v := g_counter;
+  bump(&mut v);
+  g_counter = v;
+  assert(g_counter == i32(1), "global slot written back from the local");
 });
 
 // --- Call-site ref/own exclusivity ---
@@ -336,16 +341,19 @@ test("box deref is allowed when the box is unreachable", {
   assert(b.*.n == i32(6), "write landed through the deref place");
 });
 
-// Regression: module-level non-Rc field is fine (the storage is static
-// and overwriting an i32 does not free heap storage).
+// A field of a `mut(...)` module-level struct is lent to no call (decision
+// 47, E0916), even a non-Rc `i32` one: copy the field out and write it back.
 g_static_struct :: struct(s : String, n : i32);
-g_static_val := g_static_struct(s : String.from("x"), n : i32(42));
+mut(g_static_val) := g_static_struct(s : String.from("x"), n : i32(42));
 bump_static :: (fn(v : &mut i32) -> unit)({
   v = (v + i32(1));
 });
-test("module-level struct i32 field is allowed (non-Rc)", {
-  bump_static(&mut g_static_val.n);
-  assert(g_static_val.n == i32(43), "i32 field write-through should work");
+test("a module-level struct's i32 field is copied out for a &mut param", {
+  comptime_expect_error(bump_static(&mut g_static_val.n), "is declared `mut(g_static_val)`");
+  n := g_static_val.n;
+  bump_static(&mut n);
+  g_static_val.n = n;
+  assert(g_static_val.n == i32(43), "the field is written back from the local");
 });
 
 // Module-level tuple with Rc-typed field: a ref into the tuple's Rc

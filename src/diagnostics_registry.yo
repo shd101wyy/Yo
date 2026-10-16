@@ -64,6 +64,8 @@ json :: import("std/encoding/json");
   E_CLOSURE_MOVES_CAPTURE,
   E_BORROW_MARKER_MISMATCH,
   E_EXPLICIT_DESTRUCTOR_CALL,
+  E_GLOBAL_LENT_TO_CALL,
+  E_IMMUTABLE_GLOBAL_WRITE,
   E_COMPTIME_ARGUMENT,
   E_COMPTIME_OVERFLOW,
   E_COMPTIME_DIVISION_BY_ZERO,
@@ -649,6 +651,36 @@ registry_entries :: (fn() -> ArrayList(Explain))({
       "Fd :: struct(n : i32);\nimpl(Fd, Drop(drop : (fn(self : &mut Self) -> unit)(())));\nmain :: (fn() -> unit)({\n  f := Fd(n : i32(3));\n  drop(f);\n});\nexport(main);\n",
       "`f.drop()` would run the destructor, and `f`'s scope end would run it again; `drop(f)` moves `f` in, so it is dropped once, now.",
       "`f.drop()` 会运行析构函数，而 `f` 的作用域结束时会再运行一次；`drop(f)` 把 `f` 移入，因此它现在被 drop，且只 drop 一次。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_GLOBAL_LENT_TO_CALL,
+      "a mutable module-level binding is lent to a call",
+      "可变的模块级绑定被借给了一次调用",
+      "A place rooted in a `mut(G)` module-level or `thread_local` binding is lent to a call (an `&G`/`&mut G.f` argument, the receiver of a method whose `self` is a borrow, an operand its operator borrows), or a lend reaches into the storage behind a handle a global holds while another site replaces that storage.",
+      "一个根在 `mut(G)` 模块级或 `thread_local` 绑定上的位置被借给了一次调用（`&G`/`&mut G.f` 实参、`self` 为借用的方法的接收者、被运算符借用的操作数），或者某次借出深入到全局变量所持句柄背后的存储，而另一处代码会替换该存储。",
+      "A module-level binding is reachable by name from every function, and from every task on the thread, and it has no run-time borrow flag. A module-level binding declared without `mut` is immutable, as a Rust `static` is (decision 47), so a call may borrow it freely: nothing can change it while the callee holds the borrow. That covers `&self` methods, interpolation (`${G}`), atomics and a `RawMutex`. A `mut(G)` binding is Rust's `static mut`: any function the callee calls could reassign or write it, and so could another task while the callee awaits, and the callee would then read a value that was already released. So lending a `mut(G)` binding, or a place under it, to a call is rejected. Copy it into a local, lend the local and write it back after the call (`v := G.clone(); f(&mut v); G = v;`), or keep the binding immutable and hold the changing state in an atomic or a `Mutex(T)`. A `ref` handle (a collection, a `ref` object) needs no `mut` to be mutated through its methods, because that does not change the binding; but a lend that reaches into the storage behind the handle (`&G(i)`, `&G.*.f`) is rejected while a `&mut self` method is called on that handle anywhere, and a lend of `&G.f` while `G.f` is assigned through the handle anywhere: those writes can reallocate or replace the storage under the borrow. Copy the element out (`v := G(i).clone(); f(&v)`) or lend the handle itself (`f(&G)`). A `::` constant has no runtime storage and is lent freely.",
+      "模块级绑定可以被每个函数、以及该线程上的每个任务按名字访问，并且它没有运行时借用标志。没有用 `mut` 声明的模块级绑定是不可变的，就像 Rust 的 `static`（决策 47），因此调用可以自由借用它：在被调函数持有借用期间，没有任何东西能改变它。这包括 `&self` 方法、插值（`${G}`）、原子类型和 `RawMutex`。`mut(G)` 绑定相当于 Rust 的 `static mut`：被调函数调用的任何函数都可能重新赋值或写入它，被调函数 await 期间另一个任务也可能这样做，之后被调函数就会读到已经被释放的值。因此，把 `mut(G)` 绑定或其下的位置借给一次调用会被拒绝。请把它复制到一个局部变量中，借出该局部变量，并在调用之后写回（`v := G.clone(); f(&mut v); G = v;`），或者让该绑定保持不可变，把变化的状态放在原子类型或 `Mutex(T)` 中。`ref` 句柄（集合、`ref` 对象）通过其方法修改时不需要 `mut`，因为这不会改变绑定本身；但是，只要任何地方对该句柄调用了 `&mut self` 方法，深入句柄背后存储的借出（`&G(i)`、`&G.*.f`）就会被拒绝；只要任何地方通过句柄给 `G.f` 赋值，`&G.f` 的借出也会被拒绝：这些写入可能在借用期间重新分配或替换存储。请把元素复制出来（`v := G(i).clone(); f(&v)`），或者借出句柄本身（`f(&G)`）。`::` 常量没有运行时存储，可以自由借出。",
+      "Gauge :: struct(n : i64);\nderive(Gauge, Copy, Clone);\nmut(G) := Gauge(n : i64(7));\nread :: (fn(g : &Gauge) -> i64)(g.n);\nbump :: (fn() -> unit)({\n  G = Gauge(n : i64(8));\n});\nmain :: (fn() -> unit)({\n  bump();\n  _v := read(&G);\n});\nexport(main);\n",
+      "Gauge :: struct(n : i64);\nderive(Gauge, Copy, Clone);\nmut(G) := Gauge(n : i64(7));\nread :: (fn(g : &Gauge) -> i64)(g.n);\nbump :: (fn() -> unit)({\n  G = Gauge(n : i64(8));\n});\nmain :: (fn() -> unit)({\n  bump();\n  v := G;\n  _r := read(&v);\n});\nexport(main);\n",
+      "`G` is `mut`, so `read(&G)` would hold a borrow of a binding `bump` can reassign; `v := G` copies the `Copy` value into a local that only `main` can reach, and the call borrows that.",
+      "`G` 是 `mut` 的，因此 `read(&G)` 会持有一个 `bump` 可以重新赋值的绑定的借用；`v := G` 把这个 `Copy` 值复制到只有 `main` 能到达的局部变量中，调用借用的是这个局部变量。"
+    )
+  );
+  out.push(
+    _mk_explain(
+      E_IMMUTABLE_GLOBAL_WRITE,
+      "a write to an immutable module-level binding",
+      "写入了不可变的模块级绑定",
+      "A module-level or `thread_local` runtime binding declared without `mut(name)` is reassigned, has a field or element written, is lent `&mut`, or has a `&mut self` method called on it.",
+      "一个没有用 `mut(name)` 声明的模块级或 `thread_local` 运行时绑定被重新赋值、被写入字段或元素、被以 `&mut` 借出，或在其上调用了 `&mut self` 方法。",
+      "A binding is immutable unless its name is wrapped in `mut(...)` (decision 47, Rust's `let mut`; this generation applies it to module-level bindings: an unmarked one is Rust's `static`, `mut(G)` is `static mut`). Declare the binding `mut(G) := init`, `(mut(G) : T) = init` or `thread_local(mut(G)) := init` to write it. The marker is a promise the rest of the program relies on: an immutable global may be lent to any call, while a `mut` global cannot be lent at all (E0916), so a call reads it through a local copy. A `ref` handle the binding holds (a collection, a `ref` object) is a pointer: writing its fields or calling its `&mut self` methods writes through the handle, not the binding, and needs no `mut`; reassigning the binding does. `yo fix <path> --migrate mutable-globals` marks every global the program writes. In this generation the rule is enforced outside std and the compiler's own source, which the released seed still builds.",
+      "绑定是不可变的，除非它的名字被包在 `mut(...)` 中（决策 47，即 Rust 的 `let mut`；这一代把它应用于模块级绑定：未标记的绑定相当于 Rust 的 `static`，`mut(G)` 相当于 `static mut`）。要写入该绑定，请把它声明为 `mut(G) := init`、`(mut(G) : T) = init` 或 `thread_local(mut(G)) := init`。这个标记是程序其余部分所依赖的承诺：不可变的全局变量可以借给任何调用，而 `mut` 全局变量完全不能被借出（E0916），因此调用要通过一个局部副本来读取它。绑定持有的 `ref` 句柄（集合、`ref` 对象）是一个指针：写入其字段或调用其 `&mut self` 方法是通过句柄写入，而不是写入绑定本身，因此不需要 `mut`；重新赋值该绑定则需要。`yo fix <path> --migrate mutable-globals` 会标记程序写入的每个全局变量。在这一代中，该规则在 std 和编译器自身源码之外生效，因为已发布的种子编译器仍要构建它们。",
+      "counter := i64(0);\nbump :: (fn() -> unit)({\n  counter = (counter + i64(1));\n});\nmain :: (fn() -> unit)({\n  bump();\n});\nexport(main);\n",
+      "mut(counter) := i64(0);\nbump :: (fn() -> unit)({\n  counter = (counter + i64(1));\n});\nmain :: (fn() -> unit)({\n  bump();\n});\nexport(main);\n",
+      "`counter` is reassigned in `bump`, so it is declared `mut(counter)`; without the marker it is immutable.",
+      "`counter` 在 `bump` 中被重新赋值，因此声明为 `mut(counter)`；没有该标记时它是不可变的。"
     )
   );
   out.push(

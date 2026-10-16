@@ -1,0 +1,12 @@
+# `yo fix <path> --migrate mutable-globals` (plans/VALUES_BY_DEFAULT.md
+# decision 47): a module-level or `thread_local` runtime binding is immutable
+# unless declared `mut(name)`, so every global written after its initializer
+# (reassigned, a field write, a `&mut` lend, a `&mut self` call) gets the
+# marker (E0917 otherwise), in each declaration form. A `ref` handle mutated
+# through its methods (`names`) and a global only read (`fixed`) stay
+# unmarked; reassigning a handle (`replaced`) needs it. The expected_tree pins
+# the rewritten main.yo. No trailing `check`: the migration marks declarations
+# only, and `gauge.inc()` / `bump(&mut lent_gauge)` now lend a `mut(...)`
+# global to a call, E0916, which is rewritten by hand (copy out, write back).
+stdout_keep=^fix:
+timeout=180

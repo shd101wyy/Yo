@@ -139,7 +139,7 @@ json :: import("std/encoding/json");
 } :: import("./module_manager.yo");
 { record_input_file, reset_input_files, input_files, input_file_entries, set_input_hashing, input_hashing_enabled } :: import("./input_record.yo");
 { YoError, ExitWith, render_any_error, take_error_diagnostics } :: import("./error.yo");
-{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites } :: import("./expr_info.yo");
+{ MigrateEdit, set_migrate_param_modes, take_migrate_edits, AddrOfSite, set_migrate_addr_of, take_addr_of_sites, set_migrate_drop_trait, take_destructor_sites, set_migrate_match_scrutinee, MarkerSite, set_migrate_markers, take_marker_sites, RcPatternSite, set_migrate_rc_pattern, take_rc_pattern_sites, DynSpellingSite, set_migrate_dyn_spelling, take_dyn_spelling_sites, MutableGlobalSite, set_migrate_mutable_globals, take_mutable_global_sites } :: import("./expr_info.yo");
 { Diagnostic, Span, Severity } :: import("./diagnostics.yo");
 { set_strict_test_bodies } :: import("./evaluator/exprs/test.yo");
 {
@@ -2167,6 +2167,16 @@ _raw_parse_or_none :: (fn(src : &String, file : &String) -> Option(ArrayList(Ast
   p := Parser.new(src, file, local_exn);
   Option(ArrayList(AstExpr)).Some(p.get_program(local_exn))
 });
+/// A top-level declaration of a decision-47 mutable global: `mut(G) := v`,
+/// `thread_local(mut(G)) := v`, `(mut(G) : T) = v` or
+/// `(thread_local(mut(G)) : T) = v`.
+_is_mut_global_decl :: (fn(e : &AstExpr) -> bool)({
+  (name_pos : AstExpr) = if(ast_expr_is_fn_call_of(e, ":=", .Some(usize(2))), _bsm_arg(e, usize(0)), if(ast_expr_is_fn_call_of(e, "=", .Some(usize(2))) && ast_expr_is_fn_call_of(_bsm_arg(e, usize(0)), ":", .Some(usize(2))), _bsm_arg(_bsm_arg(e, usize(0)), usize(0)), make_err_expr()));
+  if(ast_expr_is_fn_call_of(&name_pos, "thread_local", .Some(usize(1))), {
+    name_pos = _bsm_arg(&name_pos, usize(0));
+  });
+  ast_expr_is_fn_call_of(&name_pos, "mut", .Some(usize(1)))
+});
 _run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, io : Io, exn : Exception) -> unit)({
   counts := _bsm_new_counts();
   (n_stale : usize) = usize(0);
@@ -2188,12 +2198,19 @@ _run_migrate_borrow_spelling :: (fn(files : &ArrayList(String), dry_run : bool, 
         claimed := HashSet(String).new();
         (ai : usize) = usize(0);
         while(ai < asts.len(), ai = (ai + usize(1)), {
-          match(asts.get(ai), .Some(a) => _bsm_walk(&a, false, &lines, &mut pending, &mut claimed, &mut counts), .None => ());
+          // A top-level `mut(G) := v` / `(mut(G) : T) = v` is decision 47's
+          // mutable global, not the deleted local-borrow spelling: only its
+          // initializer is walked.
+          match(
+            asts.get(ai),
+            .Some(a) => if(_is_mut_global_decl(&a), _bsm_walk(_bsm_arg(&a, usize(1)), false, &lines, &mut pending, &mut claimed, &mut counts), _bsm_walk(&a, false, &lines, &mut pending, &mut claimed, &mut counts)),
+            .None => ()
+          );
         });
         left := ArrayList(String).new();
         (li : usize) = usize(0);
         while(li < asts.len(), li = (li + usize(1)), {
-          match(asts.get(li), .Some(a) => _bsm_unclaimed(&a, false, &claimed, &mut left), .None => ());
+          match(asts.get(li), .Some(a) => if(_is_mut_global_decl(&a), _bsm_unclaimed(_bsm_arg(&a, usize(1)), false, &claimed, &mut left), _bsm_unclaimed(&a, false, &claimed, &mut left)), .None => ());
         });
         (lj : usize) = usize(0);
         while(lj < left.len(), lj = (lj + usize(1)), {
@@ -2933,6 +2950,104 @@ _run_migrate_dyn_spelling :: (
     exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated values were not migrated`));
   });
 });
+/// `yo fix --migrate mutable-globals` (plans/VALUES_BY_DEFAULT.md decision
+/// 47): evaluate every file, recording each module-level runtime binding that
+/// is written after its initializer (a reassignment, a field or element write
+/// of a value, a `&mut` lend of a value place, a `&mut self` call on one),
+/// then wrap each one's declared name in `mut(...)`: `G := v` becomes
+/// `mut(G) := v`, `(G : T) = v` becomes `(mut(G) : T) = v`, and
+/// `thread_local(G)` becomes `thread_local(mut(G))`. A write through a `ref`
+/// handle the binding holds is not a write of the binding.
+_run_migrate_mutable_globals :: (
+  fn(files : &ArrayList(String), std_path : &String, dry_run : bool, io : Io, exn : Exception) -> unit
+)({
+  (failed : usize) = usize(0);
+  (fi : usize) = usize(0);
+  while(fi < files.len(), fi = (fi + usize(1)), {
+    file := match(files.get(fi), .Some(f) => f, .None => String.new());
+    outcome := mm_load_file(file.clone(), std_path.clone(), false, io, exn);
+    if(!outcome.ok, {
+      load_err := _take_load_error();
+      if(proc_env.get(`YO_DEBUG_FIX`).is_some(), {
+        eprintln(`[fix] ${file}: ${match(load_err, .Some(le) => le, .None => String.from("(no load error)"))}`);
+      });
+      _drop_diags := take_error_diagnostics();
+      failed = (failed + usize(1));
+      println(`fix: ${file} does not evaluate; its globals are migrated only as far as evaluation reached`);
+    });
+  });
+  set_migrate_mutable_globals(false);
+  sites := take_mutable_global_sites();
+  site_paths := ArrayList(String).new();
+  (spi : usize) = usize(0);
+  while(spi < sites.len(), spi = (spi + usize(1)), {
+    site_paths.push(canonical_module_path(sites(spi).path.clone()));
+  });
+  (n_marked : usize) = usize(0);
+  (n_skipped : usize) = usize(0);
+  (ti : usize) = usize(0);
+  while(ti < files.len(), ti = (ti + usize(1)), {
+    file := match(files.get(ti), .Some(f) => f, .None => String.new());
+    canon := canonical_module_path(file.clone());
+    mine := ArrayList(MutableGlobalSite).new();
+    seen_pos := HashSet(String).new();
+    (si : usize) = usize(0);
+    while(si < sites.len(), si = (si + usize(1)), {
+      if((site_paths(si) == canon) && seen_pos.insert(`${sites(si).row.to_string()}:${sites(si).col.to_string()}`), {
+        mine.push(sites(si));
+      });
+    });
+    if(mine.len() == usize(0), {
+      continue;
+    });
+    src := String.from_bytes(io.await(read(Path.new(file.clone()), io), IoExn(io : io, exn : exn)));
+    lines := src.split(String.from("\n"));
+    spans := ArrayList(_PendingFix).new();
+    (mi : usize) = usize(0);
+    while(mi < mine.len(), mi = (mi + usize(1)), {
+      st := mine(mi);
+      at := `${file}:${(st.row + usize(1)).to_string()}:${(st.col + usize(1)).to_string()}`;
+      line := match(lines.get(st.row), .Some(l) => l, .None => String.new());
+      runes := ArrayList(rune).new();
+      lit := line.chars();
+      (lgo : bool) = true;
+      while(lgo, {
+        match(
+          lit.next(),
+          .Some(r) => runes.push(r),
+          .None => {
+            lgo = false;
+          }
+        );
+      });
+      name_text := String.new();
+      (k : usize) = st.col;
+      while((k < runes.len()) && (k < (st.col + st.expect.chars().count())), k = (k + usize(1)), {
+        name_text.push_rune(runes(k));
+      });
+      if(name_text == st.expect, {
+        spans.push(_PendingFix(row : st.row, col : st.col, len : st.expect.chars().count(), replacement : `mut(${st.expect})`, description : at));
+      }, {
+        n_skipped = (n_skipped + usize(1));
+        println(`fix: ${at}: the source text there is not \`${st.expect}\`; left as written`);
+      });
+    });
+    n_marked = (n_marked + spans.len());
+    if(!dry_run && (spans.len() > usize(0)), {
+      _apply_fixes_to_file(file.clone(), &mut spans, io, exn);
+      fmt_argv := ArrayList(String).new();
+      fmt_argv.push(String.from("yo"));
+      fmt_argv.push(String.from("fmt"));
+      fmt_argv.push(file.clone());
+      run_fmt(&fmt_argv, io, exn);
+    });
+  });
+  verb := if(dry_run, String.from("would mark"), String.from("marked"));
+  println(`fix: ${verb} ${n_marked.to_string()} module-level binding(s) mut(...); ${n_skipped.to_string()} left as written (listed above); ${failed.to_string()} file(s) did not evaluate`);
+  if(failed > usize(0), {
+    exn.throw(dyn(`fix: ${failed.to_string()} file(s) do not evaluate — run \`yo check\` on them; their unevaluated writes were not migrated`));
+  });
+});
 /// `yo fix <path> [--dry-run]` — apply the mechanical repairs the compiler
 /// already computed (plans/archive/LLM_FRIENDLY_TOOLCHAIN_AND_SYNTAX.md §2).
 ///
@@ -2950,7 +3065,7 @@ run_fix :: (
   ) -> unit
 )({
   if(argv.len() < usize(3), {
-    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling]`));
+    exn.throw(dyn(`fix: missing input file. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals]`));
   });
   target_paths := ArrayList(String).new();
   (dry_run : bool) = false;
@@ -2975,8 +3090,8 @@ run_fix :: (
       },
       (a == "--migrate") => {
         next_m := (ai + usize(1));
-        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling")), {
-          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern or dyn-spelling`));
+        if((next_m >= argv.len()) || ((argv(next_m) != "params") && (argv(next_m) != "modes") && (argv(next_m) != "addr-of") && (argv(next_m) != "match-scrutinee") && (argv(next_m) != "borrow-spelling") && (argv(next_m) != "markers") && (argv(next_m) != "drop-trait") && (argv(next_m) != "rc-pattern") && (argv(next_m) != "dyn-spelling") && (argv(next_m) != "mutable-globals")), {
+          exn.throw(dyn(`fix: --migrate takes one migration name: params, modes, addr-of, match-scrutinee, borrow-spelling, markers, drop-trait, rc-pattern, dyn-spelling or mutable-globals`));
         });
         migrate = argv(next_m);
         ai = (ai + usize(2));
@@ -2991,7 +3106,7 @@ run_fix :: (
         });
       },
       a.starts_with(String.from("-")) => {
-        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling]`));
+        exn.throw(dyn(`fix: unknown option '${a}'. Usage: yo fix <input.yo | dir>... [--exclude PATH] [--dry-run] [--target TRIPLE] [--migrate params|modes|addr-of|match-scrutinee|borrow-spelling|markers|drop-trait|rc-pattern|dyn-spelling|mutable-globals]`));
       },
       true => {
         target_paths.push(a.clone());
@@ -3077,6 +3192,9 @@ run_fix :: (
   if(migrate == "dyn-spelling", {
     set_migrate_dyn_spelling(true);
   });
+  if(migrate == "mutable-globals", {
+    set_migrate_mutable_globals(true);
+  });
   // Bootstrap the prelude ONCE, exactly as `run_check` does. An earlier
   // version called `mm_reset()` per file, which threw away the cached prelude
   // env: the reload then failed before reaching the target file, so the only
@@ -3112,6 +3230,10 @@ run_fix :: (
   });
   if(migrate == "dyn-spelling", {
     _run_migrate_dyn_spelling(&files, std_path.clone(), dry_run, io, exn);
+    return(());
+  });
+  if(migrate == "mutable-globals", {
+    _run_migrate_mutable_globals(&files, std_path.clone(), dry_run, io, exn);
     return(());
   });
   (total_applied : usize) = usize(0);
@@ -10980,9 +11102,10 @@ Options:
                             parameter), drop-trait (Dispose -> Drop,
                             dispose -> drop, x.dispose() -> drop(x)),
                             rc-pattern (a pattern at an Rc(T) position
-                            p -> Rc(p)), or dyn-spelling (dyn(f) around
+                            p -> Rc(p)), dyn-spelling (dyn(f) around
                             a callable passed bare to a Dyn(Fn(...))
-                            slot)
+                            slot), or mutable-globals (mut(G) on every
+                            module-level binding the program writes)
   --target <triple>         Evaluate for this target, as compile --target
                             does, so the target's platform arms are
                             repaired or migrated (default: the host)
@@ -11010,8 +11133,9 @@ Examples:
                             加上 &x / &mut x）、drop-trait（Dispose ->
                             Drop、dispose -> drop、x.dispose() -> drop(x)），
                             rc-pattern（Rc(T) 位置上的模式 p -> Rc(p)），
-                            或 dyn-spelling（给裸传入 Dyn(Fn(...)) 位置的
-                            可调用值加上 dyn(f)）
+                            dyn-spelling（给裸传入 Dyn(Fn(...)) 位置的
+                            可调用值加上 dyn(f)），或 mutable-globals
+                            （给程序写入的每个模块级绑定加上 mut(G)）
   --target <triple>         按该目标求值（同 compile --target），从而修复
                             或迁移该目标的平台分支（默认：宿主平台）
   --std-path <dir>          覆盖 std 库目录

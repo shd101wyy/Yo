@@ -1,0 +1,201 @@
+// Decision 47 (Generation A) for module-level bindings, and decision 18
+// rule 3 at a call's own argument borrows (plans/VALUES_BY_DEFAULT.md;
+// issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md).
+// A module-level or `thread_local` runtime binding is immutable unless its
+// name is wrapped in `mut(...)`, Rust's `static` / `static mut`:
+// - a write to an unmarked one is E0917;
+// - an unmarked one may be lent to any call;
+// - lending a `mut(...)` one, or a place under it, to a call is E0916;
+// - a `ref` handle the binding holds is mutated through its methods without
+//   `mut`, but a lend into the storage behind it conflicts with a
+//   `&mut self` call on it (rule A), and a lend of a field written through
+//   it conflicts with that write (rule B).
+{ assert } :: import("std/assert");
+{ ArrayList } :: import("std/collections/array_list");
+{ String } :: import("std/string");
+{ AtomicI32, MemoryOrder } :: import("std/sync/atomic");
+{ RawMutex } :: import("std/sync/mutex");
+{ yield } :: import("std/async");
+Gauge :: struct(n : i64);
+derive(Gauge, Copy, Clone);
+impl(
+  Gauge,
+  inc : (fn(self : &mut Self) -> unit)({
+    self.n = (self.n + i64(1));
+  }),
+  get : (fn(self : &Self) -> i64)(self.n)
+);
+Holder :: ref(struct(name : String));
+_gl_read :: (fn(g : &Gauge) -> i64)(g.n);
+_gl_bump :: (fn(g : &mut Gauge) -> unit)({
+  g.n = (g.n + i64(1));
+});
+_gl_read_i64 :: (fn(v : &i64) -> i64)(v);
+_gl_by_value :: (fn(v : i64) -> i64)(v);
+_gl_len :: (fn(s : &String) -> usize)(s.len());
+_gl_list_len :: (fn(xs : &ArrayList(i64)) -> usize)(xs.len());
+// The four declaration forms of a mutable global.
+mut(_gl_count) := i64(0);
+(mut(_gl_mg) : Gauge) = Gauge(n : i64(1));
+thread_local(mut(_gl_tl_count)) := i64(0);
+(thread_local(mut(_gl_tl_typed)) : i64) = i64(10);
+mut(_gl_mstr) := String.from("m");
+mut(_gl_mlist) := ArrayList(i64).new();
+// Immutable globals.
+_gl_fixed := Gauge(n : i64(7));
+(_gl_typed_fixed : Gauge) = Gauge(n : i64(8));
+(thread_local(_gl_tl_fixed) : i64) = i64(3);
+_gl_label := String.from("label");
+_gl_names := ArrayList(i64).new();
+_gl_hits := AtomicI32.new(i32(0));
+_gl_lock := RawMutex.new();
+_GL_CONST :: Gauge(n : i64(9));
+test("mut(name) declares a mutable module-level binding, and writes to it are accepted", {
+  _gl_count = (_gl_count + i64(1));
+  _gl_mg.n = i64(5);
+  _gl_tl_count = (_gl_tl_count + i64(2));
+  _gl_tl_typed = i64(11);
+  _gl_mlist = ArrayList(i64).new();
+  assert(_gl_count == i64(1), "reassigned");
+  assert(_gl_mg.n == i64(5), "field written");
+  assert(_gl_tl_count == i64(2), "thread_local(mut(...)) reassigned");
+  assert(_gl_tl_typed == i64(11), "typed thread_local(mut(...)) reassigned");
+});
+test("an immutable global is lent to any call", {
+  assert(_gl_read(&_gl_fixed) == i64(7), "`&` argument");
+  assert(_gl_fixed.get() == i64(7), "`&self` receiver");
+  assert(_gl_read(&_gl_typed_fixed) == i64(8), "the typed form");
+  assert(_gl_read_i64(&_gl_tl_fixed) == i64(3), "a thread_local");
+  assert(_gl_by_value(_gl_tl_fixed) == i64(3), "a thread_local by value");
+  assert(_gl_len(&_gl_label) == usize(5), "a String global");
+  assert(`${_gl_label}!` == "label!", "interpolation borrows through `to_string`");
+  assert(_gl_label == String.from("label"), "an operand its operator borrows");
+  assert(_gl_read(&_GL_CONST) == i64(9), "a `::` constant");
+  v := _gl_count;
+  assert(_gl_read_i64(&v) == _gl_count, "a local copy of a mut global");
+});
+test("a handle global is mutated through its methods without mut", {
+  _gl_names.push(i64(4));
+  _gl_names.push(i64(5));
+  assert(_gl_names.len() == usize(2), "`&self` on the handle");
+  assert(_gl_list_len(&_gl_names) == usize(2), "the handle itself is lent");
+  (t : i64) = i64(0);
+  for(&_gl_names, x => {
+    t = (t + x);
+  });
+  assert(t == i64(9), "a borrowed `for` over the handle");
+});
+test("an atomic and a RawMutex global lend their `&self` methods", {
+  _gl_hits.fetch_add(i32(1), MemoryOrder.SeqCst);
+  _gl_lock.lock();
+  _gl_lock.unlock();
+  assert(_gl_hits.load(MemoryOrder.SeqCst) == i32(1), "fetch_add on an immutable atomic global");
+});
+test("a write to a global declared without mut is E0917", {
+  comptime_expect_error({
+    _gl_fixed = Gauge(n : i64(1));
+  }, "declared without `mut`");
+  comptime_expect_error({
+    _gl_fixed.n = i64(2);
+  }, "declared without `mut`");
+  comptime_expect_error({
+    _gl_typed_fixed.n = i64(2);
+  }, "declared without `mut`");
+  comptime_expect_error(_gl_bump(&mut _gl_fixed), "declared without `mut`");
+  comptime_expect_error(_gl_fixed.inc(), "declared without `mut`");
+  comptime_expect_error({
+    _gl_tl_fixed = i64(4);
+  }, "declared without `mut`");
+  // Reassigning a handle global replaces the binding, so it needs `mut`.
+  comptime_expect_error({
+    _gl_names = ArrayList(i64).new();
+  }, "declared without `mut`");
+  comptime_expect_error({
+    _gl_label = String.from("other");
+  }, "declared without `mut`");
+});
+test("lending a mut global, or a place under it, to a call is E0916", {
+  comptime_expect_error(_gl_read(&_gl_mg), "is declared `mut(_gl_mg)`");
+  comptime_expect_error(_gl_read_i64(&_gl_mg.n), "is declared `mut(_gl_mg)`");
+  comptime_expect_error(_gl_bump(&mut _gl_mg), "is declared `mut(_gl_mg)`");
+  comptime_expect_error(_gl_mg.get(), "is declared `mut(_gl_mg)`");
+  comptime_expect_error(_gl_mg.inc(), "is declared `mut(_gl_mg)`");
+  comptime_expect_error(_gl_mlist.len(), "is declared `mut(_gl_mlist)`");
+  comptime_expect_error(_gl_mlist.push(i64(1)), "is declared `mut(_gl_mlist)`");
+  comptime_expect_error(_gl_read_i64(&_gl_tl_count), "is declared `mut(_gl_tl_count)`");
+  comptime_expect_error(_gl_mstr == String.from("m"), "is declared `mut(_gl_mstr)`");
+  comptime_expect_error(`${_gl_mstr}`, "is declared `mut(_gl_mstr)`");
+  comptime_expect_error({
+    for(&_gl_mlist, x => {
+      _gl_count = x;
+    });
+  }, "is declared `mut(_gl_mlist)`");
+  // A closure and a function value lend it the same way.
+  comptime_expect_error({
+    (f : Impl(Fn(g : &Gauge) -> i64)) = ((g : &Gauge) => g.n);
+    f(&_gl_mg)
+  }, "is declared `mut(_gl_mg)`");
+  comptime_expect_error({
+    (fv : (fn(g : &Gauge) -> i64)) = _gl_read;
+    fv(&_gl_mg)
+  }, "is declared `mut(_gl_mg)`");
+});
+// The two repros of the issue, spelled with `mut(...)`: the callee reaches
+// the global by name, or awaits while another task reassigns it.
+mut(_gl_repro) := Gauge(n : i64(7));
+_gl_replace :: (fn() -> unit)({
+  _gl_repro = Gauge(n : i64(9));
+});
+_gl_w2 :: (fn(g : &Gauge) -> i64)({
+  _gl_replace();
+  g.n
+});
+_gl_w :: (fn(g : &Gauge, io : Io) -> i64)({
+  io.await(yield(io), io);
+  g.n
+});
+test("the issue's repros are E0916", {
+  comptime_expect_error(_gl_w2(&_gl_repro), "is declared `mut(_gl_repro)`");
+  comptime_expect_error(_gl_w(&_gl_repro, io), "is declared `mut(_gl_repro)`");
+  // Read it by value instead.
+  v := _gl_repro;
+  assert(_gl_w2(&v) == i64(7), "the local copy keeps the value the call was given");
+});
+// Rule A: a projection into the storage behind a handle global conflicts
+// with a `&mut self` call on that handle anywhere, whichever the evaluator
+// reaches first.
+_gl_elems := ArrayList(String).new();
+_gl_grow_elems :: (fn() -> unit)({
+  _gl_elems.push(String.from("e"));
+});
+_gl_make_filled :: (fn() -> ArrayList(String))({
+  xs := ArrayList(String).new();
+  xs.push(String.from("filled"));
+  xs
+});
+_gl_filled := _gl_make_filled();
+test("rule A: a lend into a handle global's storage is E0916 when the handle is mutated", {
+  _gl_grow_elems();
+  comptime_expect_error(_gl_len(&_gl_elems(usize(0))), "a `&mut self` method is called on `_gl_elems`");
+  // Never mutated through a `&mut self` method: the element may be lent.
+  assert(_gl_len(&_gl_filled(usize(0))) == usize(6), "an element of a handle global nothing mutates");
+});
+// Rule B: a field written through a handle global conflicts with a lend of
+// that field.
+_gl_holder := Holder(name : String.from("a"));
+_gl_holder_name_len :: (fn(h : &Holder) -> usize)(h.name.len());
+_gl_rename :: (fn() -> unit)({
+  _gl_holder.name = String.from("b");
+});
+test("rule B: a lend of a field written through a handle global is E0916", {
+  _gl_rename();
+  comptime_expect_error(_gl_len(&_gl_holder.name), "the module-level handle `_gl_holder` points to");
+  // Lend the handle itself and read the field inside the callee.
+  assert(_gl_holder_name_len(&_gl_holder) == usize(1), "the write through the handle needs no mut");
+});
+test("mut(name) in a function body is still the deleted local-borrow spelling", {
+  comptime_expect_error({
+    mut(y) := i64(1);
+    y
+  }, "was deleted");
+});

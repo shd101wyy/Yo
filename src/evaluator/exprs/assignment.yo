@@ -24,7 +24,7 @@ pragma(Pragma.AllowUnsafe);
   BK_BEGIN,
   BF_DOT
 } :: import("../../expr.yo");
-{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution } :: import("../../expr_info.yo");
+{ ExprInfo, ComptimeRef, new_expr_info, expr_info_table_set, expr_info_table_get, ControlFlowFlags, has_any_control_flow, control_flow_to_string, record_branch_init, has_dominating_branch_init, path_collection_of_name, expr_info_set_converted_runtime_type, register_thread_local, is_thread_local, register_mut_global, expr_info_capture_type, expr_info_comptime_ref, expr_info_index_trait_ptr_type, expr_info_set_is_compile_time_only_assignment, some_resolution } :: import("../../expr_info.yo");
 {
   Environment,
   Variable,
@@ -103,7 +103,14 @@ pragma(Pragma.AllowUnsafe);
   local_borrow_clear_receiver,
   reject_bare_callable_into_dyn_fn,
   bare_callable_recorded_into_dyn_fn,
-  projection_call_mode_of
+  projection_call_mode_of,
+  global_lend_audit_enabled,
+  global_lend_audit_print,
+  global_lend_location,
+  global_lend_key,
+  global_place_path,
+  global_note_handle_write,
+  global_require_mut
 } :: import("../utils.yo");
 { parse_raw_int, debug_knob } :: import("../../utils.yo");
 { eprintln } :: import("std/fmt");
@@ -1013,6 +1020,32 @@ evaluate_assignment :: (
   // declaring them, and clang reported "indirection requires pointer operand
   // ('int' invalid)". Rebinding one variable is not the same as rewriting the
   // tree.
+  // Decision 47 (Generation A): `(mut(name) : T) = init` and
+  // `(thread_local(mut(name)) : T) = init` declare a MUTABLE module-level
+  // runtime binding. The marker is stripped exactly like `thread_local`
+  // below, and `register_mut_global` carries it.
+  (is_mut_lhs : bool) = false;
+  if(ast_expr_is_fn_call_of(&lhs, BK_COLON, .Some(usize(2))) && !ctx.is_evaluating_function_body_or_async_block.is_some(), {
+    mut_name_pos := match(lhs, .FnCall(_, _, mn_cargs, _, _) => match(mn_cargs.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+    mut_holder := if(ast_expr_is_fn_call_of(&mut_name_pos, BK_THREAD_LOCAL, .Some(usize(1))), mut_name_pos.clone(), lhs.clone());
+    mut_pos := match(mut_holder, .FnCall(_, _, mh_args, _, _) => match(mh_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+    if(ast_expr_is_fn_call_of(&mut_pos, "mut", .Some(usize(1))), {
+      mut_name := match(mut_pos, .FnCall(_, _, mp_args, _, _) => match(mp_args.get(usize(0)), .Some(a) => a, .None => make_err_expr()), .Atom(_, _) => make_err_expr());
+      if(!ast_expr_is_atom(&mut_name), {
+        exn.throw(dyn(format_error_message(ast_expr_token(&mut_pos), String.from("\"mut\" takes the variable NAME: write \"(mut(name) : T) = init;\" or \"mut(name) := init;\" (plans/VALUES_BY_DEFAULT.md decision 47)."))));
+      });
+      is_mut_lhs = true;
+      match(
+        mut_holder,
+        .FnCall(_, _, mh_args2, _, _) => {
+          // Rewrite the tree in place (the argument list is shared with it).
+          mh_list := mh_args2;
+          mh_list(usize(0)) = mut_name;
+        },
+        .Atom(_, _) => ()
+      );
+    });
+  });
   (is_thread_local_lhs : bool) = false;
   if(ast_expr_is_fn_call_of(&lhs, BK_COLON, .Some(usize(2))), {
     tl_name_pos := match(
@@ -1071,6 +1104,27 @@ evaluate_assignment :: (
     // The target is written: its element accesses dispatch `IndexMut`
     // (decision 34, V2b).
     call_promote_index_places_for_write(&evaluated_lhs, &env, ctx, exn);
+    // Decision 47: a field or element write of a module-level binding writes
+    // the binding unless it goes through a `ref` handle the binding holds;
+    // a write through a handle is checked against the lends of the places
+    // it can replace (rule B, `global_note_handle_write`).
+    gw_root := get_root_expr_of_place(&evaluated_lhs);
+    if(ast_expr_is_atom(&gw_root), {
+      match(
+        get_variables_from_env(&env, ast_expr_token(&gw_root).value.clone()).last(),
+        .Some(gw_v) => if(gw_v.is_module_level && !gw_v.is_compile_time_only, {
+          gw_path := global_place_path(&evaluated_lhs, ctx);
+          gw_tok := ast_expr_token(&lhs);
+          if(gw_path.through_handle, {
+            global_note_handle_write(&gw_v, &gw_path, &gw_tok, ctx, exn);
+          }, {
+            gw_how := if(ast_expr_is_fn_call_of(&lhs, BF_DOT, Option(usize).Some(usize(2))), String.from("write a field of"), String.from("write an element of"));
+            global_require_mut(&gw_v, &gw_tok, &gw_how, ctx, exn);
+          });
+        }),
+        .None => ()
+      );
+    });
     ctx.expected_type = saved_expected;
     ctx.is_lhs_of_assignment = saved_is_lhs;
     lhs_info_opt := expr_info_table_get(&ctx.expr_info_table, ast_expr_id(&evaluated_lhs));
@@ -1673,6 +1727,18 @@ evaluate_assignment :: (
   // binding outlives every call frame, so it cannot hold a `ctl` handler —
   // one invoked later would unwind into a frame that no longer exists
   // (issues/fixed/module-level-control-bound-binding-not-rejected.md).
+  if(is_mut_lhs, {
+    mut_tok := ast_expr_token(&lhs_resolved);
+    match(
+      get_variables_from_env(&env, variable_name.clone()).last(),
+      .Some(mut_v) => if(mut_v.is_module_level && !mut_v.is_compile_time_only, {
+        register_mut_global(mut_tok.module_path.clone(), variable_name.clone());
+      }, {
+        exn.throw(dyn(format_error_message(&mut_tok, `"mut(${variable_name})" marks a module-level runtime binding mutable; a local or compile-time binding cannot take it yet (plans/VALUES_BY_DEFAULT.md decision 47).`)));
+      }),
+      .None => ()
+    );
+  });
   if(is_typed_binding_lhs, {
     mcb_vars := get_variables_from_env(&env, variable_name.clone());
     match(
@@ -1756,6 +1822,10 @@ Bound type: ${type_to_string(&mcb_v.ty)}`
   d1_is_decl_init := ((d1_lhs_tok.row == variable.token.row) && (d1_lhs_tok.column == variable.token.column) && (d1_lhs_tok.module_path == variable.token.module_path));
   if(variable.is_module_level && !variable.is_compile_time_only && !d1_is_decl_init && !is_thread_local(d1_lhs_tok.module_path.clone(), variable_name.clone()), {
     _d1_record_write(&variable, ast_expr_token(&lhs_resolved), String.from("assign to"), String.new(), exn);
+  });
+  // Decision 47: reassigning a module-level binding needs `mut(name)`.
+  if(variable.is_module_level && !variable.is_compile_time_only && !d1_is_decl_init, {
+    global_require_mut(&variable, &d1_lhs_tok, &String.from("assign to"), ctx, exn);
   });
   // Evaluate the RHS.
   // Pass the variable type as expected type for coercion hints.
