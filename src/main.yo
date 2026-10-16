@@ -8044,9 +8044,11 @@ _exec_argv :: (fn(exec_cstrs : &ArrayList(ArrayList(u8))) -> unit)({
 // the runner replays in file order, so the stream, the totals and the exit
 // code are the sequential runner's. POSIX only (Linux, macOS).
 //
-// The async runtime's per-thread backend teardown, the call its thread-exit
-// hook and async-main driver make (src/codegen/async/runtime_io_*.yo). It is
-// idempotent, and the next submission creates the backend again.
+// Two runtime symbols (src/codegen/async/runtime_io_*.yo):
+// - `__yo_io_cleanup`: the async runtime's per-thread backend teardown, the
+//   call its thread-exit hook and async-main driver make. It is idempotent,
+//   and the next submission creates the backend again.
+// - `__yo_errno`: errno as a call (the C macro is an lvalue).
 extern(
   "Yo",
   __yo_io_cleanup : (fn() -> unit),
