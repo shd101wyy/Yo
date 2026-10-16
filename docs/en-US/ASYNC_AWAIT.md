@@ -1502,7 +1502,10 @@ waiter. It follows Rust's `tokio::sync::Mutex`:
   `io.await(m.*.lock(io), io)` (a shared borrow through an `Arc` may cross the
   suspension, see "Borrowing Futures" above);
 - it is `Send` and `Sync` when `T` is `Send`: a short blocking guard protects
-  its state, so tasks on different threads' loops may contend for one.
+  its state, so tasks on different threads' loops may contend for one. The
+  guard is never held while a `with_lock` body runs, and waiters are served in
+  arrival order among one loop's tasks; across loops the order is not strict
+  (`issues/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md`).
 
 ```yo
 { assert } :: import("std/assert");

@@ -42,6 +42,27 @@ test("with_lock with two different R bodies on ONE mutex (the C54 shape)", {
   assert(n2 == i64(30), "i64 body result (reverse order)");
 });
 
+// `with_lock` holds only the async lock while `body` runs, never the short
+// blocking guard: holding the guard made a long body block every other
+// thread's loop that touched the mutex, and made the body's own `is_locked`
+// or `try_lock` panic ("RawMutex.lock: locked again")
+// (issues/fixed/2026-10-16-the-async-mutex-with-lock-holds-its-blocking-guard-while-the-body-runs.md).
+test("with_lock's body runs under the async lock alone and may probe the mutex", {
+  m := Mutex(i64).new(i64(5));
+  r := io.await(
+    m.with_lock({ &m }(v : &mut i64) => {
+      v = (v + i64(1));
+      m.is_locked() && !m.try_lock()
+    }, io),
+    io
+  );
+  assert(r, "the body sees its own section held, and try_lock refuses");
+  assert(!m.is_locked(), "the unlocker released the section");
+  assert(m.try_lock(), "and the lock is free to take");
+  assert(m.get() == i64(6), "the body wrote the protected value");
+  m.unlock();
+});
+
 test("a contended lock suspends the waiter, and the loop stays live", {
   // Tasks share the mutex as `Arc(Mutex(T))`, each with its own handle
   // (plans/VALUES_BY_DEFAULT.md §3.13 A5).

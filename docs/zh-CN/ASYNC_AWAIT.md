@@ -1384,7 +1384,7 @@ io.await(
 
 - `Mutex` 是只能移动的值（复制它是 E0901），任务以 `Arc(Mutex(T))` 共享它，每个任务持有 `Arc` 上自己的句柄；
 - `lock(self : &Self, io)` 和 `with_lock` 返回借用该互斥锁的 Future，所以它要在创建处通过句柄等待：`io.await(m.*.lock(io), io)`（经由 `Arc` 的共享借用可以跨越挂起点，见上文“借用的 Future”）；
-- 当 `T` 是 `Send` 时它是 `Send` 和 `Sync`：一个短暂的阻塞守卫保护它的状态，所以不同线程的事件循环上的任务也可以争用同一把锁。
+- 当 `T` 是 `Send` 时它是 `Send` 和 `Sync`：一个短暂的阻塞守卫保护它的状态，所以不同线程的事件循环上的任务也可以争用同一把锁。`with_lock` 的函数体运行时从不持有这个守卫；同一个事件循环上的等待者按到达顺序获得锁，跨事件循环时顺序并不严格（`issues/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md`）。
 
 ```yo
 { assert } :: import("std/assert");
