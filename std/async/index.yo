@@ -3,13 +3,13 @@
 //! reshaped as futures by `plans/ASYNC_IO_API_AUDIT.md` A1).
 //!
 //! Every combinator (`join_all`, `race`, `race_first`, `any`, `any_first`,
-//! `timeout`) is a FUTURE: it suspends the awaiting task until its handles
-//! are done, so it works the same in `main` and inside an `io.async` body.
-//! They take spawned handles, not futures — spawn at the call site. A
-//! `JoinHandle` is move-only (plans/VALUES_BY_DEFAULT.md §3.13 A3), so each
-//! combinator takes its handles by value: `join`, `join_all`, `race_first`,
-//! `any_first` and `timeout` consume them, and `race`/`any` hand the list
-//! back with the index, so the losers can still be aborted or joined:
+//! `timeout`, `select`) is a FUTURE: it suspends the awaiting task until its
+//! operands are done, so it works the same in `main` and inside an `io.async`
+//! body. The list combinators take spawned handles — spawn at the call site.
+//! A `JoinHandle` is move-only (plans/VALUES_BY_DEFAULT.md §3.13 A3), so each
+//! takes its handles by value: `join`, `join_all`, `race_first` and
+//! `any_first` consume them, and `race`/`any` hand the list back with the
+//! index, so the losers can still be aborted or joined:
 //!
 //! ```yo
 //! { join_all, race } :: import("std/async");
@@ -22,6 +22,13 @@
 //! one := io.await(h.join(io), io); // Option(String), from a task too
 //! ```
 //!
+//! `timeout` and the two-way `select` take FUTURES (§3.13 A4), so they can
+//! wrap a future that borrows (`timeout(rx.recv(io), d, io)`,
+//! `select(s.next(io), t.next(io), io)`). Each runs its operands as scoped
+//! child tasks and aborts and joins them before it resolves, so no borrow
+//! outlives the call; a borrowing operand makes the combinator's own future a
+//! borrowing one, awaited where it is made.
+//!
 //! For the async-safe `Channel` and `Mutex` (usable INSIDE tasks without
 //! parking the event loop the way `std/sync`'s blocking primitives do), see
 //! `std/async/channel` and `std/async/mutex`.
@@ -30,8 +37,10 @@
 //!
 //! unstable — the names (`yield`, `join`, `join_all`, `race`, `race_first`,
 //! `any`, `any_first`, `timeout`, `TimeoutError`) and the future-returning
-//! shape are settled as of 2026-10-03; the `JoinHandle`-not-`Future` argument
-//! type is a decision (`plans/ASYNC_IO_API_AUDIT.md` Q3). What may still
+//! shape are settled as of 2026-10-03; the list combinators' `JoinHandle`
+//! argument type is a decision (`plans/ASYNC_IO_API_AUDIT.md` Q3), which
+//! decision 14 of `plans/VALUES_BY_DEFAULT.md` reverses for `timeout` and
+//! `select` (they take futures, 2026-10-16). What may still
 //! change is the wait primitive under them (`__yo_join_wait_*`): today it
 //! wakes on ANY added task, which `any` works around by re-waiting over the
 //! handles still running.

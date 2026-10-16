@@ -84,6 +84,10 @@ Progress:
     `std/async` combinators take handle lists by value, and
     `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
     move bitwise through `__yo_ptr_read`/`__yo_ptr_write`;
+  - V3 async A4's future operands (§3.13; feat/vbd-v3-a4-future-operands):
+    `timeout` and a two-way `select` take futures, run them as scoped
+    children, and abort and join them, so they can wrap a borrowing future;
+    decision 38 B's overlap check for two borrowing operands is E0910;
   - V3 async A5 (§3.13; #1379): `Waker` is a move-only
     value (its `Clone` is Generation A in the runtime), the async
     `Channel`/`Mutex` keep their state behind `Rc` with move-only
@@ -137,7 +141,7 @@ Progress:
 - **In progress:**
   - V2b unique buffers, Generation A2: `yo fix --migrate explicit-copy`
     (feat/vbd-v2b-explicit-copy-migration, #1385, draft, on develop).
-  - V3's remaining async work (§3.13): A4's future operands, A5's
+  - V3's remaining async work (§3.13): A5's
     `Waker.clone` Generation B (it waits for a seed carrying
     `__yo_waker_clone`), the async `Mutex` (#1380), and A6's `Rc`-field
     half (V2c).
@@ -1144,10 +1148,12 @@ instead.
       slot, since a borrowing future made in its statement can hold the
       address across a suspension; and a local a capture list borrows lives
       in the task to the end of its scope, as an `&x` argument's root does.
-    - **Not yet:** decision 38 B's overlap for two borrowing futures
-      passed to one combinator (`select(s.next(io), s.next(io))`) lands
-      with A4's future-taking combinators. Until then, no combinator
-      accepts a borrowing future.
+    - **The combinator operand (2026-10-16, with A4's future operands).** A
+      by-value future parameter of a function whose result is a future
+      accepts a borrowing future, and decision 38 B's overlap check for two
+      borrowing futures passed to one combinator
+      (`select(s.next(io), s.next(io))`) is E0910. See A4's "As built, the
+      future operands".
 - **A3. `JoinHandle(T)` is a move-only value struct over a raw future
   pointer:** `struct(__future : *(void))` with a `Dispose` that releases the
   task's count.
@@ -1243,11 +1249,69 @@ instead.
       binding of the list a combinator drained sees it empty, and `race`'s
       returned list is the same list. The by-value signatures are already the
       V2b ones.
-    - **Not in this step: the future operands.** `timeout` and a two-way
-      `select` over FUTURES (to wrap a borrowing future, A2) need the
-      compiler to accept a second-class future in a combinator's operand and
-      to run it as a scoped child; they wait for that support, with decision
-      38 B's overlap check (A2's "Not yet").
+    - **Not in this step: the future operands** (they landed next, below).
+  - **As built, the future operands (2026-10-16,
+    feat/vbd-v3-a4-future-operands).**
+    - **The signatures.** `timeout(fut : Impl(Future(T, E)), limit, io)
+      -> Impl(Future(Result(T, TimeoutError), E))` and
+      `select(first : Impl(Future(A, E)), second : Impl(Future(B, E)), io)
+      -> Impl(Future(Option(Selected(A, B)), E))`, with
+      `Selected(A, B) :: enum(First(value : A), Second(value : B))`: Tokio's
+      `time::timeout(d, fut)` and a two-way `select!`. The combinator's
+      future has its operands' effect type `E`, so the caller's `io.await`
+      supplies the bundle the operands run with (`std/http`'s deadline
+      passes its `IoExn`); `io` is the runtime handle for the timers and the
+      waits.
+    - **`timeout` takes a future instead of a handle** (the amended Q3 said
+      "also"; with no overloading one name takes one shape, and Rust's takes
+      the future). A spawned task is timed out through its join future,
+      `timeout(h.join(io), d, io)`, resolving to `Ok(Option(T))`; on the
+      deadline the join future is aborted and drops the handle, which
+      detaches the task, as dropping Tokio's `JoinHandle` does. Every caller
+      that spawned only to time out passes the future itself.
+    - **`select`'s winner** is the first operand to COMPLETE (an operand that
+      aborts does not win; the other keeps running), `.None` when both
+      abort, and the first when both have completed by the time it looks
+      (Tokio's `biased;`).
+    - **Scoped children.** Each operand is spawned as a task held by a
+      private `_Scoped(U)` (`std/async/index.yo`), whose `Drop` aborts the
+      task if it was not joined. The combinator aborts the loser (or the
+      operand past its deadline) and joins every operand before it resolves,
+      and if its own future is aborted or dropped first, its state
+      machine's locals are dropped and the `_Scoped` aborts the operand. An
+      aborted task never resumes (its resume runs only the aborted-entry
+      guard), so no borrow outlives the call.
+    - **The spawn is `unsafe`.** `io.spawn` of a borrowing future is E0909
+      everywhere except under `unsafe(...)` in an unsafe-capable file
+      (`pragma(Pragma.AllowUnsafe)`), where the code vouches that the task
+      ends before the borrow: `std/async` is the one such site
+      (`_param_accepts_second_class`, `src/evaluator/calls/helper.yo`).
+    - **The operand slot is structural.** A by-value parameter whose type is
+      a future, of a function whose result is a future, accepts a borrowing
+      future (`_param_accepts_second_class`). The callee is checked per
+      instantiation, so inside it the operand is second-class as well: it can
+      be awaited, or captured by value by the `io.async` body whose future the
+      function returns. That capture re-roots the operand's borrows at the
+      parameter (`_register_borrowing_future`, as a borrowing closure lent to
+      a `&Impl(Fn)` parameter is), and the return rule accepts a borrow
+      rooted at a future operand parameter
+      (`variable_is_future_operand_parameter`). The call's result is then a
+      borrowing future, and every A2 rule applies to it: awaited where it is
+      made, never bound, stored or spawned, a place for its `io.await`'s
+      bundle. A by-value future parameter of a function whose result is not a
+      future still rejects a borrowing future.
+    - **Decision 38 B's overlap** (`_check_future_operand_lends`,
+      `src/evaluator/calls/function.yo`). A call's future carries borrows
+      rooted at its callee's parameters, so the places an operand lends are
+      mapped back to the caller through the operand's own call, recursively
+      (`_future_lends_into`: its `&`/`&mut` arguments, its receiver, a nested
+      operand, an `io.async` written in place). Two arguments whose places
+      overlap, with a `&mut` side, are E0910; and a later argument may not
+      move, overwrite or lend `&mut` a place an operand lends (the two-phase
+      rule). The general argument-exclusivity check
+      (`require_capture_borrow_exclusivity`) now skips a borrow whose root is
+      not in the caller's scope, since those roots are the callee's
+      parameters, not the caller's places.
 - **A5. Wakers, parks, channels, mutexes and streams.**
   - **`Waker`** is move-only with `Clone`. A clone registers one more token
     (the runtime counts live tokens, `std/async/waker.yo`), and its cell
@@ -4551,7 +4615,8 @@ a `SEED_VERSION` carrying Generation A, because the sweep rewrites `src/`,
     `io.await`/`io.spawn` that move the result out (A1) — landed, see A1's
     "As built";
   - second-class borrowing futures (A2);
-  - scoped children for `timeout`/`select` (A4);
+  - scoped children for `timeout`/`select` (A4) — landed, see A4's "As
+    built, the future operands";
   - the bundle rule (A6);
   - a re-check of `__yo_started_child` — done with A1: deleted.
 - **`Send`/`Sync` (§3.8) and decision 38 E, Generation A — landed

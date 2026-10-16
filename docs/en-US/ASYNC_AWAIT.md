@@ -374,6 +374,11 @@ that borrows:
 
 - it is awaited where it is made, as the operand of `io.await` (directly, or
   as the value of an `if`/`cond`/`match` arm or a block's tail);
+- it may be the operand of a combinator, a function whose by-value parameter
+  and result are both futures (`std/async`'s `timeout` and `select`): the
+  combinator's own Future then borrows what its operand borrows, and is
+  awaited where it is made in turn (see [Timeouts and select over borrowing
+  Futures](#timeouts-and-select-over-borrowing-futures));
 - a function may return it when everything it borrows is one of that
   function's own `&`/`&mut` parameters, so the caller's lent places outlive
   it. A `&T` parameter is borrowed through the body's own capture list
@@ -533,9 +538,12 @@ ha.abort();
 assert(ha.await(io).is_none(), "the aborted task reads .None");
 ```
 
-`timeout(handle, d, io)` from `std/async` is built on `abort`. It consumes the
-handle. When it times out, the task and everything it is blocked on are
-cancelled.
+`timeout(fut, d, io)` from `std/async` is built on `abort`. It runs the Future
+as a scoped child task; when it times out, that task and everything it is
+blocked on are cancelled. A task that is already spawned is timed out through
+its join Future, `timeout(h.join(io), d, io)`, which resolves to
+`Ok(Option(T))`; on the deadline that drops the handle, which detaches the
+task (abort it through the handle first if its work is unwanted).
 
 **Future State Machine States:**
 
@@ -768,8 +776,8 @@ spawned or awaited task. That nests the event loop and can deadlock. ...
 The form for a task is **`handle.join(io)`** (`std/async`): a future that
 resolves to the same `Option(T)` and **suspends** the awaiting task until the
 handle is terminal. The `std/async` combinators (`join_all`, `race`,
-`race_first`, `any`, `any_first`, `timeout`) are futures of the same kind, so
-one spelling works in `main` and inside a task alike:
+`race_first`, `any`, `any_first`, `timeout`, `select`) are futures of the same
+kind, so one spelling works in `main` and inside a task alike:
 
 ```yo
 { println } :: import("std/fmt");
@@ -829,8 +837,7 @@ export(main);
 
 Joining consumes the handle (§3.13 A3 of `plans/VALUES_BY_DEFAULT.md`): the
 result moves out of the task, and a `join` of a finished task resolves at
-once. `join_all`, `race_first`, `any_first` and `timeout` consume their
-handles too. `race` and `any` take the list by value and hand it back with
+once. `join_all`, `race_first` and `any_first` consume their handles too. `race` and `any` take the list by value and hand it back with
 the index, `(index, handles)`, so the losers can still be aborted or joined:
 
 ```yo ignore
@@ -844,7 +851,68 @@ while(i < rest.len(), i = (i + usize(1)), {
 ```
  Under the wait is one runtime primitive, a park future the task's
 completion or abort wakes (`__yo_join_wait_new` / `__yo_join_wait_add` in
-`std/sys/externs`); `race` and `timeout` add several handles to one wait.
+`std/sys/externs`); `race`, `timeout` and `select` add several tasks to one
+wait.
+
+### Timeouts and select over borrowing Futures
+
+`timeout(fut, d, io)` and the two-way `select(a, b, io)` take Futures, not
+handles (§3.13 A4 of `plans/VALUES_BY_DEFAULT.md`; Tokio's `time::timeout` and
+`select!`):
+
+- `timeout` resolves to `Ok(v)`, `Err(TimeoutError.Elapsed)` when the deadline
+  fires first, or `Err(TimeoutError.Aborted)` when the operand was aborted on
+  its own;
+- `select` resolves to the operand that **completes** first,
+  `Some(Selected.First(a))` or `Some(Selected.Second(b))`, or `None` when both
+  were aborted. When both have completed by the time it looks, the first wins.
+
+Each operand runs as a **scoped child task** with the bundle the `io.await`
+passes (the combinator's Future has the operand's effect type). The loser, or
+an operand past its deadline, is aborted, and every operand is joined before
+the combinator resolves; if the combinator's own Future is aborted or dropped
+first, dropping it aborts its operands. An aborted task never resumes, so an
+operand may be a borrowing Future: its borrow ends when the call does.
+
+```yo
+{ assert } :: import("std/assert");
+{ timeout, select, Selected } :: import("std/async");
+{ Duration } :: import("std/time/duration");
+{ sleep } :: import("std/sys/timer");
+
+Counter :: struct(n : i32);
+bump_after :: (fn(c : &mut Counter, ms : u64, io : Io) -> Impl(Future(i32, Io)))(
+  io.async({ &mut c, ms }(io : Io) => {
+    io.await(sleep(ms), io);
+    c.n = (c.n + i32(1));
+    c.n
+  })
+);
+
+main :: (fn(io : Io) -> unit)({
+  a := Counter(n : i32(0));
+  b := Counter(n : i32(10));
+  r := io.await(timeout(bump_after(&mut a, u64(500), io), Duration.from_millis(i64(5)), io), io);
+  assert(r.is_err(), "the deadline fired; the operand was aborted and joined");
+  s := io.await(select(bump_after(&mut a, u64(500), io), bump_after(&mut b, u64(1), io), io), io);
+  assert(match(s, .Some(.Second(v)) => (v == i32(11)), _ => false), "the faster operand won");
+  assert(a.n == i32(0), "neither aborted operand wrote through its borrow");
+});
+export(main);
+```
+
+The combinator's Future then borrows what its operands borrow, so A2's rules
+apply to it: it is awaited where it is made, never bound, stored or spawned,
+and its `io.await` takes a bundle that is a place. Two operands of one call
+may not lend overlapping places when either side is `&mut` (E0910,
+decision 38 B): `select(s.next(io), s.next(io), io)` is an error, while two
+`&` borrows of one place are fine.
+
+The rule is structural: any function whose by-value parameter and result are
+both Futures accepts a borrowing Future there, and is checked per
+instantiation like any generic, so its body can only await the operand or
+capture it into the Future it returns. A by-value Future parameter of a
+function that does not return a Future still rejects one (E0909).
 
 ## Event Loop
 
