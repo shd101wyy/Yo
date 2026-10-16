@@ -53,6 +53,7 @@ pragma(Pragma.AllowUnsafe);
   __yo_async_park_start,
   __yo_async_yield_start,
   __yo_waker_new,
+  __yo_waker_clone,
   __yo_waker_wake,
   __yo_waker_is_woken,
   __yo_waker_release
@@ -74,6 +75,9 @@ pragma(Pragma.AllowUnsafe);
 /// thread (`spawn_blocking`). A cross-thread `wake()` does not touch the park
 /// future — it hands the token to the future's own loop and nudges it — and
 /// the token's own count is atomic, so the worker may also drop it.
+///
+/// `clone` makes another handle on the same token, so the owner can keep one
+/// while a worker thread wakes and drops the other.
 Waker :: struct(
   /// The waker token, holding one reference to the park it resumes.
   _p : *u8
@@ -97,6 +101,14 @@ impl(
   /// passes it on to the next waiter if not. From another thread, `false`
   /// may still turn `true` once the owner loop drains the wake.
   is_woken : (fn(self : &Self) -> bool)(unsafe(__yo_waker_is_woken(self._p)))
+);
+impl(
+  Waker,
+  /// Another handle on the same token, not a second registration: the park
+  /// stays one live waker for the loop until its LAST handle is released.
+  /// The clone touches only the token's atomic counts, so it is safe on any
+  /// thread.
+  Clone(clone : (fn(self : &Self) -> Self)(Waker(_p : unsafe(__yo_waker_clone(self._p)))))
 );
 impl(
   Waker,
