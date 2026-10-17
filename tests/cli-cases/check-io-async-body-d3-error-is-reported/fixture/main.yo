@@ -1,0 +1,12 @@
+W :: struct(o : Option(i64));
+main :: (fn(io : Io) -> unit)({
+  a := arc(W(o : Option(i64).Some(i64(1))));
+  b := a;
+  task := io.async({ b }(io : Io) => {
+    _t := b.*.o.take();
+    ()
+  });
+  h := io.spawn(task, io);
+  _x := h.await(io);
+});
+export(main);
