@@ -552,3 +552,27 @@ test("a mut place and a local borrow take an awaited value", {
   io.await(task, io);
   assert(result.* == usize(12), "the old values were released and the awaited ones stored");
 });
+// Two same-named nullable-pointer bindings in one task, the first in an
+// awaiting arm: each is stored into its own slot (the second had been stored
+// into the first's, typed `String`, so the C did not compile;
+// issues/fixed/2026-10-17-a-nullable-pointer-match-binding-stores-into-a-same-named-bindings-slot.md).
+_same_name_slots :: (fn(io : Io) -> unit)({
+  task := io.async((io : Io) => {
+    (os : Option(String)) = .Some(String.from("old"));
+    (ol : Option(ArrayList(i32))) = .Some(ArrayList(i32).new());
+    match(
+      &os,
+      .Some(xs) => {
+        io.await(yield(io), io);
+        assert(xs.len() == usize(3), "the first binding reads its own slot after the resume");
+      },
+      .None => ()
+    );
+    n := (usize(1) + match(&ol, .Some(xs) => xs.len(), .None => usize(0)));
+    assert(n == usize(1), "the second binding reads its own slot");
+  });
+  io.await(task, io);
+});
+test("same-named nullable-pointer bindings of one task each use their own slot", {
+  _same_name_slots(io);
+});

@@ -1065,7 +1065,15 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
           // pattern bindings are often absent from the recorded env
           // entirely, and env ids can be a different generation than the
           // map keys.
-          if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
+          // Under the single-pass lowering the slot is found by the
+          // binding's declaration site, as every other pattern binding's is
+          // (`_bind_pattern_name`): the env lookup below can answer with an
+          // earlier same-named binding of the body, whose slot may even have
+          // another C type
+          // (issues/fixed/2026-10-17-a-nullable-pointer-match-binding-stores-into-a-same-named-bindings-slot.md).
+          if(context.sm_inline_lowering.is_some(), {
+            _bind_pattern_name(context, body_indent.clone(), dvn.clone(), ast_expr_token(&dvar), matched_value_code.clone());
+          }, if(context.in_async_state_machine.is_some() && context.state_machine_variables.is_some(), {
             (smb_id : String) = String.new();
             (smb_has : bool) = false;
             // Env resolution found this binding: its id decides. A binding
@@ -1167,7 +1175,7 @@ _gen_nullable_ptr_match :: (fn(expr : &AstExpr, indent : &String, context : &Fun
               });
               note_state_machine_binding_id(context, smb_id.clone());
             });
-          });
+          }));
           _shadow_add(context, dvn.clone());
         },
         .None => ()
