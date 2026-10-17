@@ -12,6 +12,8 @@ pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("std/async/mutex");
 { ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
+{ timeout } :: import("std/async");
+{ Duration } :: import("std/time/duration");
 
 // ---------------------------------------------------------------------------
 // 1. try_lock / unlock / is_locked
@@ -233,6 +235,44 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
   assert(rb == i64(111), `the with_lock task ran second, got ${rb.to_string()}`);
   assert(m.*.get() == i64(111), "both sections ran under the lock, in arrival order");
   assert(!m.*.is_locked(), "and released it");
+});
+// A cancelled waiter never strands the lock: one cancelled after `unlock`
+// handed the lock to it passes the lock on when its task is released. Before
+// 2026-10-17 the lock was left free and the next waiter stayed parked
+// (issues/fixed/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md).
+test("Test a waiter cancelled after the lock was handed to it passes the lock on", {
+  m := arc(Mutex(i64).new(i64(0)));
+  assert(m.*.try_lock(), "main holds the lock");
+  ma := m;
+  ha := io.spawn(
+    io.async({ ma }(io : Io) => {
+      io.await(ma.*.lock(io), io);
+      ma.*.unlock();
+      i32(1)
+    }),
+    io
+  );
+  mb := m;
+  hb := io.spawn(
+    io.async({ mb }(io : Io) => {
+      io.await(mb.*.lock(io), io);
+      mb.*.set(i64(2));
+      mb.*.unlock();
+      i32(2)
+    }),
+    io
+  );
+  while(runtime(m.*.waiter_count() < usize(2)), {
+    io.await(sleep(u64(1)), io);
+  });
+  // The lock is handed to a, which is cancelled before it ever runs again.
+  m.*.unlock();
+  ha.abort();
+  assert(ha.await(io).is_none(), "a was cancelled");
+  rb := io.await(timeout(hb, Duration.from_millis(i64(500)), io), io);
+  assert(match(rb, .Ok(v) => (v == i32(2)), .Err(_) => false), "b got the lock a was handed");
+  assert(m.*.get() == i64(2), "b's section ran");
+  assert(!m.*.is_locked(), "and b released it");
 });
 // ---------------------------------------------------------------------------
 // The cells §3.13 A2 still rejects (E0909): a borrow through an `Rc` (a
