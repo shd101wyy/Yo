@@ -206,7 +206,10 @@ place under it, to a call (a `&`/`&mut` argument, a borrowed receiver, an
 operand its operator borrows, an interpolated value) is E0916, because the
 callee could reach the global by name, or await while another task writes it,
 and the borrow would then change under it. Read it into a local first
-(`v := G; f(&v)`) and write it back after a `&mut` call. An unmarked global
+(`v := G; f(&v)`) and write it back after a `&mut` call. A `String`, a
+collection or a value holding one is read with `v := G.clone()`: the receiver
+of a `clone()` whose every `Clone` impl is derived or std's is the one lend
+allowed, since that clone runs no user code. An unmarked global
 is lent freely. A global holding a `ref` handle adds two conflicts, each
 reported wherever the compiler sees the second site: a lend into the storage
 behind it (`&g(i)`) is E0916 when a `&mut self` method is called on it
