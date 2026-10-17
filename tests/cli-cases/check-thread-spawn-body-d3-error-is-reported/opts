@@ -1,0 +1,7 @@
+# A write through an `Arc` inside a `Thread.spawn` body is D3, reported at
+# `check` like the same write in `main`. The body's `io : Io` parameter made the
+# closure count as abstract (Io's generic fn fields), so its definition-time
+# trial kept the error and `check` passed
+# (issues/fixed/2026-10-15-yo-check-swallows-a-d3-error-inside-a-thread-spawn-or-io-async-body.md).
+stdout_keep_match=Cannot write to field of atomic object|--> main\.yo:[0-9]+:[0-9]+
+timeout=120

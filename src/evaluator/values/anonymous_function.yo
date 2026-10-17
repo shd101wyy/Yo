@@ -135,7 +135,7 @@ pragma(Pragma.AllowUnsafe);
   FuncCapturedVarInfo,
   record_closure_capture_verdicts
 } :: import("../utils/closure.yo");
-{ extract_fn_trait_from_type, type_implements_fn } :: import("../trait_checking.yo");
+{ extract_fn_trait_from_type, type_implements_fn, type_contains_some_type_for_codegen_param } :: import("../trait_checking.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { evaluate_expression_raw } :: import("../exprs/expr.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
@@ -2071,7 +2071,33 @@ evaluate_anonymous_function_implementation :: (
       bcp_i = (bcp_i + usize(1));
     });
   };
-  body_params_concrete := (!should_defer_body && !body_has_ct_param);
+  // A parameter is abstract when its type is a type variable or holds one
+  // as data. A concrete struct whose only `SomeT`s sit in generic `fn`-typed
+  // fields — the prelude's `Io`, four generic fn pointers — is concrete, as
+  // the named-fn path judges it (`type_contains_some_type_for_codegen_param`
+  // skips fn-typed fields, calls/function_type.yo). `get_all_some_types`
+  // walks into those fields' binders, so `should_defer_body` counts `Io` as
+  // abstract, and every `(io : Io) =>` body (a `Thread.spawn` body, an
+  // annotated `io.async` block) kept its trial's error out of Channel 3:
+  // `yo check` passed a D3 write through an `Arc` that `compile` rejected
+  // only as a hollow body
+  // (issues/fixed/2026-10-15-yo-check-swallows-a-d3-error-inside-a-thread-spawn-or-io-async-body.md).
+  // A parameter typed by an unresolved `SomeT` (an `Impl(...)`) stays
+  // abstract; one the call resolved (io.async's `e : E`) is judged by its
+  // resolution, which the predicate follows.
+  (body_params_abstract : bool) = (forall_param_exprs.len() > usize(0));
+  {
+    (bpa_i : usize) = usize(0);
+    while((bpa_i < param_types.len()) && !body_params_abstract, {
+      bpa_pt := match(param_types.get(bpa_i), .Some(t) => t, .None => t_unit());
+      bpa_unresolved := match(bpa_pt, Rc(.SomeT({ resolution : bpa_r })) => bpa_r.is_none(), _ => false);
+      if(bpa_unresolved || type_contains_some_type_for_codegen_param(&bpa_pt, ArrayList(String).new()), {
+        body_params_abstract = true;
+      });
+      bpa_i = (bpa_i + usize(1));
+    });
+  };
+  body_params_concrete := (!body_params_abstract && !body_has_ct_param);
   // Closure codegen: an io.async closure has its synthesized type's
   // params as SomeT (→ would defer), but codegen MUST emit its body, which needs
   // the body's ExprInfo (types) from def-time eval — otherwise the body emits

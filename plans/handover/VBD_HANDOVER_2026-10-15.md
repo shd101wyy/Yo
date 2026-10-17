@@ -382,7 +382,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   - rejected: `a.*.o.take()` / `replace` on an `Arc`; the thread shape; the task shape; D1's `g.take()` on a global a spawned thread reads;
   - canaries: `take`/`replace` on owned values, through `&mut`, inside `with_lock`; reads through `Arc`.
 - **Stricter now:** D1 also covers `g.take()`/`g.push(x)` on a global that a spawned closure reads (the deleted `return` skipped that branch). Develop's battery is the first full sweep of that.
-- **Filed:** S3 (the branch's `2026-10-15-yo-check-swallows-a-d3-error-inside-a-thread-spawn-or-io-async-body.md`). Standalone `yo check` does not report the D3 error inside a `Thread.spawn`/`io.async` body; `yo compile` and the test harness do.
+- **Filed:** S3 (`issues/fixed/2026-10-15-yo-check-swallows-a-d3-error-inside-a-thread-spawn-or-io-async-body.md`). Standalone `yo check` did not report the D3 error inside a `Thread.spawn`/`io.async` body; `yo compile` and the test harness did. Landed in #1425: a closure whose parameter is `Io` now counts as concrete, so Channel 3 re-raises its body's error.
 - **Tier 1 passed:** build; check src 278/278, std 171/171; `parallelism_soundness` 17, `arc` 15, `atomic_object` 21, `thread_safety` 4, `async_await` 280, `closure_capture_list` 41, `move_only` 54, `send_sync` 15, `thread` 23, `rc` 98, `deref_auto` 22, `match_nested` 24, `unapplied_constructor_method` 18, `type_reflection` 35; internal `assignment` 9; fmt; issue refs. Not run: the other `tests/internal` files that reach the evaluator (in-process, ~95 min).
 - **Next:**
   1. `git fetch origin && git switch fix/d3-trust-by-mutation-mask && git rebase origin/develop`.
