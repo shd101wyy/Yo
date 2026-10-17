@@ -945,6 +945,22 @@ _a4_both :: (fn(generic(A : Type, B : Type), a : Impl(Future(A, Io)), b : Impl(F
     ()
   })
 );
+/// A combinator that also takes a plain `&mut` argument, after the operand
+/// and before it: the operand's lends and that argument's are one call's.
+_a4_with :: (fn(generic(T : Type), op : Impl(Future(T, Io)), c : &mut _A4Counter, io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ op, &mut c }(io : Io) => {
+    c.n = (c.n + i32(10));
+    io.await(op, io);
+    ()
+  })
+);
+_a4_with_first :: (fn(generic(T : Type), c : &mut _A4Counter, op : Impl(Future(T, Io)), io : Io) -> Impl(Future(unit, Io)))(
+  io.async({ &mut c, op }(io : Io) => {
+    c.n = (c.n + i32(10));
+    io.await(op, io);
+    ()
+  })
+);
 /// A by-value future parameter of a function whose result is not a future:
 /// not a combinator, so a borrowing future may not be passed to it.
 _a4_eat :: (fn(_fut : Impl(Future(i32, Io))) -> unit)(());
@@ -971,6 +987,9 @@ test("A4: two operands of disjoint places, and two shared operands of one place"
   io.await(_a4_both(_a4_read_after(&a, u64(1), io), _a4_read_after(&a, u64(1), io), io), io);
   io.await(_a4_both(_a4_bump_after(&mut a, u64(1), io), _a4_read_after(&b, u64(1), io), io), io);
   assert(a.n == i32(2), "a &mut and a & operand of disjoint places");
+  io.await(_a4_with(_a4_bump_after(&mut a, u64(1), io), &mut b, io), io);
+  io.await(_a4_with_first(&mut b, _a4_bump_after(&mut a, u64(1), io), io), io);
+  assert((a.n == i32(4)) && (b.n == i32(121)), "an operand and a plain &mut argument of disjoint places");
 });
 test("A4: two operands of one combinator may not lend overlapping places with a &mut side (decision 38 B)", {
   c := _A4Counter(n : i32(0));
@@ -981,6 +1000,15 @@ test("A4: two operands of one combinator may not lend overlapping places with a 
   );
   comptime_expect_error(
     io.await(_a4_both(_a4_read_after(&c, u64(1), io), _a4_bump_after(&mut c, u64(1), io), io), io),
+    "two operands of one combinator may not reach one place with an exclusive side"
+  );
+  // An operand and a plain `&mut` argument of one place, in either order.
+  comptime_expect_error(
+    io.await(_a4_with(_a4_bump_after(&mut c, u64(1), io), &mut c, io), io),
+    "two operands of one combinator may not reach one place with an exclusive side"
+  );
+  comptime_expect_error(
+    io.await(_a4_with_first(&mut c, _a4_bump_after(&mut c, u64(1), io), io), io),
     "two operands of one combinator may not reach one place with an exclusive side"
   );
   // A later argument may not overwrite the place an operand lends.

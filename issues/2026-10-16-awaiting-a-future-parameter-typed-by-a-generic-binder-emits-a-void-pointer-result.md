@@ -1,6 +1,6 @@
 # Awaiting a future parameter typed by a generic binder emits a `void*` result
 
-**Severity:** S2 — a generic function over `fut : Impl(Future(R, E))` that awaits `fut` and uses the result without naming its type fails to compile (clang rejects the C); annotating every binding with a type built from `R` works around it.
+**Severity:** S1 — a generic function over `fut : Impl(Future(R, E))` that awaits `fut` and uses the result miscompiles: as a tail `io.async({ fut }(io : Io) => io.await(fut, io))` it compiles and resolves to a wrong value (re-graded from S2 on 2026-10-17 after that probe); other shapes fail in clang (`void*` result, `T v = ;`). Annotating every binding with a type built from `R` avoids it outside `io.async`, and spawning the operand (`(h : JoinHandle(R)) = io.spawn(fut, io)`) avoids it inside.
 
 **Found:** 2026-10-16, writing `std/async`'s `timeout` and `select` over future operands (VBD V3 A4, `feat/vbd-v3-a4-future-operands`). Reproduces with seed v0.2.63 and with develop's compiler at `3151f8e96`. Related: `issues/2026-10-16-a-generic-io-async-body-shares-one-capture-struct-across-futures-of-one-generic-producer.md` (the same missing per-call instantiation of a future's type).
 

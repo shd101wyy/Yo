@@ -1312,7 +1312,8 @@ instead.
       Such a root is the caller's place, lent for the call and checked at the
       call site, and the body cannot name it.
     - **A combinator cannot yet return its operand's value.** The awaited
-      result of a `T` bound only through the operand lowers as unit
+      result of a `T` bound only through the operand lowers as unit or as
+      a wrong value (S1)
       (`issues/2026-10-16-awaiting-a-future-parameter-typed-by-a-generic-binder-emits-a-void-pointer-result.md`),
       so the tests' combinators (`_a4_done`, `_a4_both` in
       `tests/async/combinators.test.yo`) await their operands for their
