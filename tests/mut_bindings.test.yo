@@ -260,14 +260,16 @@ test("a `&mut` match scrutinee and a `&mut` capture need mut(...)", {
     );
   }, "a `&mut` match scrutinee");
   mut(z) := i32(1);
-  bump := ({ &mut z }() => {
-    z = (z + i32(1));
-  });
-  bump();
+  {
+    (bump : Impl(Fn() -> unit)) = ({ &mut z }() => {
+      z = (z + i32(1));
+    });
+    bump();
+  };
   assert(z == i32(2), "a `&mut` capture of a mut(...) local");
   comptime_expect_error({
     z2 := i32(1);
-    _f := ({ &mut z2 }() => {
+    (_f : Impl(Fn() -> unit)) = ({ &mut z2 }() => {
       z2 = i32(2);
     });
   }, "a `&mut` capture");

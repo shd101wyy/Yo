@@ -3251,7 +3251,23 @@ _run_migrate_mut_markers :: (
   set_migrate_mutable_globals(false);
   set_migrate_mut_bindings(false);
   sites := if(bindings, take_mut_binding_sites(), take_mutable_global_sites());
-  param_sites := take_mut_param_sites();
+  // Only the parameter writes in the files being migrated are listed (an
+  // imported module's, std's included, is not this run's to rewrite).
+  all_param_sites := take_mut_param_sites();
+  migrated_paths := HashSet(String).new();
+  (mpi : usize) = usize(0);
+  while(mpi < files.len(), mpi = (mpi + usize(1)), {
+    migrated_paths.insert(canonical_module_path(files(mpi).clone()));
+  });
+  param_sites := ArrayList(MutableGlobalSite).new();
+  (api : usize) = usize(0);
+  while(api < all_param_sites.len(), api = (api + usize(1)), {
+    aps := all_param_sites(api);
+    aps_canon := canonical_module_path(aps.path.clone());
+    if(migrated_paths.contains(&aps_canon), {
+      param_sites.push(aps);
+    });
+  });
   (pmi : usize) = usize(0);
   while(pmi < param_sites.len(), pmi = (pmi + usize(1)), {
     ps := param_sites(pmi);
