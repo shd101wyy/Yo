@@ -27,6 +27,7 @@ pragma(Pragma.AllowUnsafe);
 { String } :: import("std/string");
 { ArrayList } :: import("std/collections/array_list");
 { HashMap } :: import("std/collections/hash_map");
+{ RefCell } :: import("std/sync/refcell");
 {
   AstExpr,
   ast_expr_token,
@@ -665,26 +666,29 @@ analyze_effect_call_points :: (
     true => Option(TypeValue).None
   );
   // Side-channel: stores effect-specific fields for each detected suspension point
-  // An `Rc`: the detector closure and this function hold the same map on
-  // purpose, and a closure captures by value (plans/VALUES_BY_DEFAULT.md §3.13).
-  effect_extras := rc(HashMap(String, EffectCallPointExtra_).new());
+  // An `Rc(RefCell(...))`: the detector closure and this function hold the
+  // same map on purpose, a closure captures by value
+  // (plans/VALUES_BY_DEFAULT.md §3.13), and an `Rc`'s payload is read-only
+  // through the handle (decision 46).
+  effect_extras := rc(RefCell(HashMap(String, EffectCallPointExtra_)).new(HashMap(String, EffectCallPointExtra_).new()));
   result := analyze_suspension_points(
     body.clone(),
     get_info,
     SuspensionPointDetector(
       detect : dyn((expr, parent_expr) => {
         found := ArrayList(SuspensionPoint).new();
-        detect_effect_expr_(
-          expr,
-          parent_expr,
-          &mut found,
-          &mut effect_extras.*,
-          effect_parameter_name.clone(),
-          effect_field_path.clone(),
-          include_transitive_calls,
-          effect_param_fn_type.clone(),
-          get_info
-        );
+        effect_extras.with_mut({ &mut found }(extras) =>
+          detect_effect_expr_(
+            expr,
+            parent_expr,
+            &mut found,
+            extras,
+            effect_parameter_name.clone(),
+            effect_field_path.clone(),
+            include_transitive_calls,
+            effect_param_fn_type.clone(),
+            get_info
+          ));
         found
       }),
       should_skip_body : dyn(expr => is_io_async_call(expr)),
@@ -705,7 +709,7 @@ analyze_effect_call_points :: (
     );
     expr_key := usize(ast_expr_token(sp.expr.clone()).character).to_string();
     match(
-      effect_extras.*.get(expr_key.clone()),
+      effect_extras.with(extras => extras.get(expr_key.clone())),
       .None => (),
       .Some(extra) => {
         ecp := EffectCallPoint(
