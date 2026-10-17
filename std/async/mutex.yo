@@ -11,8 +11,8 @@
 //! future borrows the mutex through it (`lock(self : &Self, io)`). A shared
 //! borrow through an `Arc` may live across a suspension, because no handle
 //! writes an `Arc`'s payload (§3.13 A2): the lock state changes only inside the
-//! mutex. Once an `Rc` is read-only too (decision 46), `Rc(Mutex(T))` is the
-//! single-thread sharing, Rust's `Rc<Mutex<T>>`.
+//! mutex. An `Rc`'s payload is read-only through the handle too (decision 46),
+//! so `Rc(Mutex(T))` is the single-thread sharing, Rust's `Rc<Mutex<T>>`.
 //!
 //! **It is thread-safe** (`Send` and `Sync` when `T` is `Send`), which is what
 //! `Arc` requires: a short blocking guard (`std/sync`'s `RawMutex`, never held

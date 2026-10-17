@@ -144,8 +144,12 @@ Progress:
     with the written-after guard (#1385).
   - decision 46 Generation A: the `YO_AUDIT_RC_WRITE` census,
     `RefCell(T)` with `with`/`with_mut`, and `Rc`/`Arc` `make_mut` and
-    `try_unwrap` (feat/vbd-d46-gena; §6 "Decision 46" step 1's "as
-    built", with the census counts that size Generation B).
+    `try_unwrap` (#1415; §6 "Decision 46" step 1's "as built", with the
+    census counts that size Generation B).
+  - decision 46 Generation B: a write through an `Rc` handle is E0919,
+    E0909 accepts a `&` through an `Rc` (so `Rc(Mutex(T))` works), and
+    every census site moved behind a door (#1421; §6 "Decision 46" step
+    2's "as built").
   - V3's async `Mutex` follows Rust: move-only, shared as `Arc(Mutex(T))`;
     a shared borrow lent to a future may cross `Arc` derefs (E0909's
     read-only-handle carve-out), and D3 checks every hop of a written place
@@ -7243,7 +7247,7 @@ not an estimate.
    - Tests: each door works and is rejected where Rust rejects it
      (`make_mut` without `Clone`, `try_unwrap` on a shared handle returns
      the handle).
-   - **As built (2026-10-16, feat/vbd-d46-gena).**
+   - **As built (2026-10-16, #1415).**
      - `YO_AUDIT_RC_WRITE=1` runs at codegen (`audit_rc_writes` in
        `src/evaluator/effects/mutation_summary.yo`, called from
        `generate_function`), so it sees every specialized body, closures
