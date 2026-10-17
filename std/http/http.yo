@@ -118,7 +118,7 @@ impl(
       h := self._entries(i);
       cond(
         (h.name.to_lowercase() == lower) => {
-          return(.Some(h.value));
+          return(.Some(h.value.clone()));
         },
         true => ()
       );
@@ -135,7 +135,7 @@ impl(
       h := self._entries(i);
       cond(
         (h.name.to_lowercase() == lower) => {
-          out.push(h.value);
+          out.push(h.value.clone());
         },
         true => ()
       );
@@ -502,7 +502,7 @@ impl(
   }),
   /// Set the body and return the response (builder pattern).
   with_body : (fn(self : &Self, body : &String) -> Self)({
-    self.body = body;
+    self.body = body.clone();
     self
   })
 );
@@ -572,7 +572,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
   head := raw.substring(usize(0), header_end);
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
-      raw_b := raw;
+      raw_b := raw.clone();
       body_b := ArrayList(u8).new();
       bi := (header_end + usize(4));
       while(runtime(bi < raw_b.len()), {
@@ -590,7 +590,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
     },
     true => ()
   );
-  status_line := lines(usize(0));
+  status_line := lines(usize(0)).clone();
   cond(
     !status_line.starts_with(`HTTP/`) => {
       return(.Err(HttpParseError.InvalidStatusLine(status_line)));
@@ -636,7 +636,7 @@ parse_response :: (fn(raw : &String) -> Result(HttpResponse, HttpParseError))({
   resp.version = version;
   j := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
-    hline := lines(j);
+    hline := lines(j).clone();
     cond(
       hline.is_empty() => (),
       true => {
@@ -669,7 +669,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
   // binary-bodies row; pinned by tests/http/server.test.yo).
   body := cond(
     ((header_end + usize(4)) <= raw.len()) => {
-      raw_b := raw;
+      raw_b := raw.clone();
       body_b := ArrayList(u8).new();
       bi := (header_end + usize(4));
       while(runtime(bi < raw_b.len()), {
@@ -687,7 +687,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
     },
     true => ()
   );
-  request_line := lines(usize(0));
+  request_line := lines(usize(0)).clone();
   parts := request_line.split(` `);
   cond(
     (parts.len() != usize(3)) => {
@@ -699,10 +699,10 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
     HttpMethod.from_string(&parts(usize(0))),
     .Some(m) => m,
     .None => {
-      return(.Err(HttpParseError.UnknownMethod(parts(usize(0)))));
+      return(.Err(HttpParseError.UnknownMethod(parts(usize(0)).clone())));
     }
   );
-  version := parts(usize(2));
+  version := parts(usize(2)).clone();
   cond(
     ((version != `HTTP/1.1`) && (version != `HTTP/1.0`)) => {
       return(.Err(HttpParseError.UnsupportedVersion(version)));
@@ -712,7 +712,7 @@ parse_request :: (fn(raw : &String) -> Result(HttpRequest, HttpParseError))({
   req := HttpRequest.new(method, &parts(usize(1)));
   j := usize(1);
   while(j < lines.len(), j = (j + usize(1)), {
-    hline := lines(j);
+    hline := lines(j).clone();
     match(
       hline.index_of(`:`),
       .Some(colon) => {

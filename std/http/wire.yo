@@ -527,7 +527,7 @@ _frame_status :: (fn(data : &ArrayList(u8), kind : MessageKind) -> _FrameStatus)
                 ((data.len() - body_start) >= cl) => _FrameStatus.Complete,
                 true => _FrameStatus.NeedMore
               ),
-              .Invalid(msg) => _FrameStatus.BadContentLength(msg),
+              .Invalid(msg) => _FrameStatus.BadContentLength(msg.clone()),
               // A request with no body framing ends with its headers; a
               // response with none is delimited by close.
               .Absent => match(
@@ -621,7 +621,7 @@ read_http_message_buffered :: (
       },
       .BadContentLength(msg) => {
         failed = i32(2);
-        failed_msg = msg;
+        failed_msg = msg.clone();
         done = true;
       },
       .NeedMore => ()

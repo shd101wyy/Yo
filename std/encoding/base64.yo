@@ -200,11 +200,11 @@ decode_url :: (fn(s : &String) -> Result(ArrayList(u8), EncodingError))(
 /// `decode` as an effect: throws the `EncodingError` through `exn`
 /// instead of returning it. Kept for callers already inside an effect scope.
 decode_exn :: (fn(s : &String, exn : Exception) -> ArrayList(u8))(
-  match(decode(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+  match(decode(s), .Ok(v) => v.clone(), .Err(e) => exn.throw(dyn(e)))
 );
 /// `decode_url` as an effect.
 decode_url_exn :: (fn(s : &String, exn : Exception) -> ArrayList(u8))(
-  match(decode_url(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+  match(decode_url(s), .Ok(v) => v.clone(), .Err(e) => exn.throw(dyn(e)))
 );
 export(decode, decode_url, decode_exn, decode_url_exn);
 // ============================================================================

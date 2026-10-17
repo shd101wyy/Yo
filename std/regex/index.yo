@@ -537,7 +537,7 @@ impl(
     RegexMatchIter(
       _regex : self,
       _vm : vm,
-      _input : input,
+      _input : input.clone(),
       _byte_pos : byte_pos,
       _has_prefix : has_prefix
     )
@@ -563,7 +563,7 @@ impl(
   // Process replacement patterns: $& (full match), $1-$9 (groups),
   // ${name} (named groups), $` (pre-match), $' (post-match), $$ (literal $)
   _apply_replacement : (fn(self : &Self, replacement : &String, m : &RegexMatch) -> String)({
-    rep_bytes := replacement;
+    rep_bytes := replacement.clone();
     rep_len := rep_bytes.len();
     result := ArrayList(u8).new();
     i := usize(0);
@@ -721,7 +721,7 @@ impl(
       result,
       .None => input,
       .Some(m) => {
-        input_bytes := input;
+        input_bytes := input.clone();
         // m.index() is the match's start BYTE offset
         match_start_byte := m.index();
         match_end_byte := (match_start_byte + m.value().len());
@@ -762,7 +762,7 @@ impl(
     cond(
       (all_matches.len() == usize(0)) => input,
       true => {
-        input_bytes := input;
+        input_bytes := input.clone();
         out := ArrayList(u8).new();
         (last_end_byte : usize) = usize(0);
         mi := usize(0);
@@ -805,7 +805,7 @@ impl(
       result,
       .None => input,
       .Some(m) => {
-        input_bytes := input;
+        input_bytes := input.clone();
         out := ArrayList(u8).new();
         pi := usize(0);
         while(pi < m.index(), pi = (pi + usize(1)), {
@@ -833,7 +833,7 @@ impl(
     cond(
       (all_matches.len() == usize(0)) => input,
       true => {
-        input_bytes := input;
+        input_bytes := input.clone();
         out := ArrayList(u8).new();
         (last_end_byte : usize) = usize(0);
         mi := usize(0);
@@ -889,10 +889,10 @@ impl(
     all_matches := self.find_all(input);
     cond(
       (all_matches.len() == usize(0)) => {
-        parts.push(input);
+        parts.push(input.clone());
       },
       true => {
-        input_bytes := input;
+        input_bytes := input.clone();
         (last_end_byte : usize) = usize(0);
         mi := usize(0);
         while(mi < all_matches.len(), mi = (mi + usize(1)), {

@@ -651,7 +651,7 @@ impl(
               (h.contains(`:`) && !(h.starts_with(`[`) && h.ends_with(`]`))) =>
                 .Err(UrlError.Other(`an IPv6 host must be bracketed, as in [::1]`)),
               true => {
-                self._host = Option(String).Some(h);
+                self._host = Option(String).Some(h.clone());
                 .Ok(())
               }
             )
@@ -700,7 +700,7 @@ impl(
           _validate_component(&q, `query`, `#`),
           .Err(e) => .Err(e),
           .Ok(_) => {
-            self._query = Option(String).Some(q);
+            self._query = Option(String).Some(q.clone());
             .Ok(())
           }
         )
@@ -722,7 +722,7 @@ impl(
           _validate_component(&f, `fragment`, ``),
           .Err(e) => .Err(e),
           .Ok(_) => {
-            self._fragment = Option(String).Some(f);
+            self._fragment = Option(String).Some(f.clone());
             .Ok(())
           }
         )
@@ -747,7 +747,7 @@ impl(
           _validate_component(&u, `userinfo`, `/?#@`),
           .Err(e) => .Err(e),
           .Ok(_) => {
-            self._userinfo = Option(String).Some(u);
+            self._userinfo = Option(String).Some(u.clone());
             .Ok(())
           }
         )
@@ -766,7 +766,7 @@ impl(
       .Some(h) =>
         match(
           self._port,
-          .None => .Some(h),
+          .None => .Some(h.clone()),
           .Some(p) => .Some(`${h}:${p}`)
         )
     )
@@ -805,7 +805,7 @@ impl(
 /// equivalents are lossy for the same reason. The raw text is the honest
 /// fallback — it is what the URL actually contains.
 _decode_lossy :: (fn(s : &String) -> String)(
-  match(percent.decode(s), .Ok(v) => v, .Err(_) => s)
+  match(percent.decode(s), .Ok(v) => v.clone(), .Err(_) => s)
 );
 /// `application/x-www-form-urlencoded` decoding: `+` is a SPACE, then the
 /// percent escapes. The order matters — decoding `%2B` first would turn an
@@ -852,7 +852,7 @@ _UrlRef :: struct(
 _validate_component :: (
   fn(s : &String, what : &String, forbidden : &String) -> Result(unit, UrlError)
 )({
-  forbidden_b := forbidden;
+  forbidden_b := forbidden.clone();
   (i : usize) = usize(0);
   while(runtime(i < s.len()), {
     b := s.byte_at(i);
@@ -885,7 +885,7 @@ _validate_component :: (
 /// `1a:b` are not, and a relative path may legally contain a colon after the
 /// first segment (`a/b:c`), which is why the split below stops at `/`.
 _is_scheme :: (fn(s : &String) -> bool)({
-  b := s;
+  b := s.clone();
   if(b.len() == usize(0), {
     return(false);
   });
@@ -911,7 +911,7 @@ _is_scheme :: (fn(s : &String) -> bool)({
 /// regex, hand-rolled. Never fails: every string is SOME reference, and it is
 /// §5.3 plus the final `parse` that decide whether the result is a usable URL.
 _split_ref :: (fn(s : &String) -> _UrlRef)({
-  rest := s;
+  rest := s.clone();
   // 4. fragment — everything after the FIRST '#'.
   frag := match(
     rest.index_of(`#`),
@@ -983,7 +983,7 @@ _remove_dot_segments :: (fn(path : &String) -> String)({
     true => usize(0)
   );
   while(i < segs.len(), i = (i + usize(1)), {
-    seg := segs(i);
+    seg := segs(i).clone();
     last := (i == (segs.len() - usize(1)));
     cond(
       (seg == `.`) => {
@@ -1040,7 +1040,7 @@ _authority_of :: (fn(u : &Url) -> Option(String))(
     u._host,
     .None => Option(String).None,
     .Some(h) => {
-      a := match(u._userinfo, .Some(ui) => `${ui}@${h}`, .None => h);
+      a := match(u._userinfo, .Some(ui) => `${ui}@${h}`, .None => h.clone());
       Option(String).Some(match(u._port, .Some(p) => `${a}:${p}`, .None => a))
     }
   )
@@ -1119,7 +1119,7 @@ impl(
     // reference with no query of its own.
     eff_query := match(
       r.query,
-      .Some(q) => Option(String).Some(q),
+      .Some(q) => Option(String).Some(q.clone()),
       .None => cond(
         (r.scheme.is_none() && r.authority.is_none() && (r.path.len() == usize(0))) => self._query,
         true => Option(String).None
@@ -1186,14 +1186,14 @@ impl(
   /// Order and duplicates are preserved: `?a=1&a=2` is two pairs.
   query_pairs : (fn(self : &Self) -> ArrayList(Tuple(String, String)))({
     out := ArrayList(Tuple(String, String)).new();
-    q := match(self._query, .Some(v) => v, .None => String.new());
+    q := match(self._query, .Some(v) => v.clone(), .None => String.new());
     if(q.len() == usize(0), {
       return(out);
     });
     parts := q.split(`&`);
     i := usize(0);
     while(i < parts.len(), i = (i + usize(1)), {
-      part := parts(i);
+      part := parts(i).clone();
       if(part.len() > usize(0), {
         match(
           part.index_of(`=`),

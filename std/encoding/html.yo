@@ -204,7 +204,7 @@ _slice_runes :: (
   });
   match(
     s.try_substring(start_byte, end_byte),
-    .Some(sub) => sub,
+    .Some(sub) => sub.clone(),
     .None => String.new()
   )
 });
@@ -393,7 +393,7 @@ decode :: (fn(input : &String) -> String)({
 /// (plans/archive/STD_API_AUDIT.md D2 + §7 P0).
 encode :: (fn(input : &String) -> String)({
   out := String.with_capacity(input.len());
-  bytes := input;
+  bytes := input.clone();
   n := bytes.len();
   (i : usize) = usize(0);
   while(i < n, i = (i + usize(1)), {

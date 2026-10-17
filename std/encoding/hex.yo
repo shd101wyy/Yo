@@ -107,7 +107,7 @@ decode :: (fn(s : &String) -> Result(ArrayList(u8), EncodingError))({
 /// `decode` as an effect: throws the `EncodingError` through `exn`
 /// instead of returning it. Kept for callers already inside an effect scope.
 decode_exn :: (fn(s : &String, exn : Exception) -> ArrayList(u8))(
-  match(decode(s), .Ok(v) => v, .Err(e) => exn.throw(dyn(e)))
+  match(decode(s), .Ok(v) => v.clone(), .Err(e) => exn.throw(dyn(e)))
 );
 export(decode, decode_exn);
 // ============================================================================

@@ -276,7 +276,7 @@ impl(
       .None => ArrayList(u8).new(),
       .Some(al) => cond(
         (ref_count(al) > usize(1)) => al.clone(),
-        true => al
+        true => al.clone()
       )
     )
   ),
@@ -287,7 +287,7 @@ impl(
     match(
       self._bytes,
       .None => ArrayList(u8).new(),
-      .Some(al) => al
+      .Some(al) => al.clone()
     )
   ),
   /// Get a str view into the string's UTF-8 bytes
@@ -404,7 +404,7 @@ impl(
           .Some(p) => {
             // Taken out and stored back, never written through a `match`
             // binding (a copy once collections are values).
-            al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(olen));
+            al := match(self._bytes.take(), .Some(b0) => b0.clone(), .None => ArrayList(u8).with_capacity(olen));
             al.extend_from_ptr(p, olen);
             self._bytes = .Some(al);
           },
@@ -418,7 +418,7 @@ impl(
   push_str : (fn(self : &mut Self, s : str) -> unit)({
     (slen : usize) = s.len();
     if(slen > usize(0), {
-      al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(slen));
+      al := match(self._bytes.take(), .Some(b0) => b0.clone(), .None => ArrayList(u8).with_capacity(slen));
       al.extend_from_ptr(s.ptr(), slen);
       self._bytes = .Some(al);
     });
@@ -426,7 +426,7 @@ impl(
   /// Append a single byte to this string in-place (mutates `self`).
   /// The caller must ensure the byte maintains valid UTF-8.
   push_byte : (fn(self : &mut Self, b : u8) -> unit)({
-    al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(usize(8)));
+    al := match(self._bytes.take(), .Some(b0) => b0.clone(), .None => ArrayList(u8).with_capacity(usize(8)));
     al.push(b);
     self._bytes = .Some(al);
   }),
@@ -436,14 +436,14 @@ impl(
   /// this is the rune-level counterpart, so it is what you want for anything
   /// outside ASCII.
   push_rune : (fn(self : &mut Self, r : rune) -> unit)({
-    al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(usize(8)));
+    al := match(self._bytes.take(), .Some(b0) => b0.clone(), .None => ArrayList(u8).with_capacity(usize(8)));
     utf8.encode_into(r, &mut al);
     self._bytes = .Some(al);
   }),
   /// Reserve capacity for at least `additional` more bytes.
   /// If the string is empty, creates a new buffer with the given capacity.
   reserve : (fn(self : &mut Self, additional : usize) -> unit)({
-    al := match(self._bytes.take(), .Some(b0) => b0, .None => ArrayList(u8).with_capacity(additional));
+    al := match(self._bytes.take(), .Some(b0) => b0.clone(), .None => ArrayList(u8).with_capacity(additional));
     (current_len : usize) = al.len();
     al.ensure_total_capacity(current_len + additional);
     self._bytes = .Some(al);
@@ -1743,7 +1743,7 @@ impl(
       match(
         out.strip_prefix(pat),
         .Some(rest) => {
-          out = rest;
+          out = rest.clone();
         },
         .None => {
           break;
@@ -1767,7 +1767,7 @@ impl(
       match(
         out.strip_suffix(pat),
         .Some(rest) => {
-          out = rest;
+          out = rest.clone();
         },
         .None => {
           break;

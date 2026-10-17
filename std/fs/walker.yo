@@ -153,7 +153,7 @@ _canon_dir_target :: (fn(lp : &String, io : Io) -> Impl(Future(String, IoExn)))(
 _filter_by_pattern :: (fn(results : &ArrayList(WalkEntry), root_s : &String, pattern : &Option(String)) -> ArrayList(WalkEntry))({
   pat := match(
     pattern,
-    .Some(p) => p,
+    .Some(p) => p.clone(),
     .None => {
       return(results);
     }
@@ -205,10 +205,10 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
     pending_links := ArrayList(String).new();
     // Stack of (path, depth) pairs to process
     stack := ArrayList(struct(path : String, depth : u32)).new();
-    stack.push({ path : root_s, depth : u32(0) });
+    stack.push({ path : root_s.clone(), depth : u32(0) });
     while(runtime(stack.len() > usize(0)), {
       item := stack.pop().unwrap();
-      cur_path := item.path;
+      cur_path := item.path.clone();
       cur_depth := item.depth;
       // Check max depth
       should_continue := match(
@@ -231,7 +231,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
                     results.push(
                       WalkEntry(
                         path : Path.new(&entry_path),
-                        name : entry.name,
+                        name : entry.name.clone(),
                         depth : cur_depth,
                         file_type : .Directory
                       )
@@ -251,7 +251,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
                 results.push(
                   WalkEntry(
                     path : Path.new(&entry_path),
-                    name : entry.name,
+                    name : entry.name.clone(),
                     depth : cur_depth,
                     file_type : .Symlink
                   )
@@ -267,7 +267,7 @@ walk_with :: (fn(root : &Path, options : &WalkOptions, io : Io) -> Impl(Future(A
                 results.push(
                   WalkEntry(
                     path : Path.new(&entry_path),
-                    name : entry.name,
+                    name : entry.name.clone(),
                     depth : cur_depth,
                     file_type : entry.file_type
                   )
@@ -318,7 +318,7 @@ walk_cstr :: (fn(root : *u8, io : Io) -> Impl(Future(ArrayList(WalkEntry), IoExn
 /// is everything up to the last `/` BEFORE the first metacharacter
 /// (`*`, `?`, `[`), or `.` when the pattern is relative with no static dir.
 _glob_split :: (fn(pattern : &String) -> struct(base : String, rest : String))({
-  bs := pattern;
+  bs := pattern.clone();
   n := bs.len();
   // First metacharacter position (n = none).
   (meta : usize) = n;
@@ -370,7 +370,7 @@ glob :: (fn(pattern : &String, io : Io) -> Impl(Future(ArrayList(Path), IoExn)))
       max_depth : .None,
       follow_symlinks : false,
       include_dirs : true,
-      pattern : Option(String).Some(parts.rest)
+      pattern : Option(String).Some(parts.rest.clone())
     );
     entries := e.io.await(walk_with(Path.new(&parts.base), &opts, e.io), e);
     out := ArrayList(Path).new();

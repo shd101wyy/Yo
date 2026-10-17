@@ -211,7 +211,7 @@ impl(
       match(
         more.get(i),
         .Some(s) => {
-          self._args.push(s);
+          self._args.push(s.clone());
         },
         .None => ()
       );
@@ -636,7 +636,7 @@ impl(
       stdout_buf := e.io.await(_drain_fd(out_read, io), e);
       stderr_buf := match(
         e.io.await(err_task.join(e.io), e.io),
-        .Some(b) => b,
+        .Some(b) => b.clone(),
         .None => {
           // The drain task unwound: its IoError already went to `e.exn`
           // (a throw inside a spawned task reaches the enclosing handlers);

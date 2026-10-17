@@ -369,7 +369,7 @@ impl(
     cond(
       (self._idle.len() >= self.max_idle) => false,
       true => {
-        self._idle.push(_Idle(key : key, transport : transport, carry : carry, since : Instant.now()));
+        self._idle.push(_Idle(key : key.clone(), transport : transport, carry : carry, since : Instant.now()));
         true
       }
     )
@@ -394,7 +394,7 @@ _value_has_token :: (fn(value : &String, token : &String) -> bool)({
   i := usize(0);
   (found : bool) = false;
   while(runtime(i < parts.len()), {
-    part := parts(i);
+    part := parts(i).clone();
     trimmed := part.trim();
     cond(
       (trimmed.to_lowercase() == token) => {
@@ -524,12 +524,12 @@ _prepare :: (fn(url_str : &String, opts : &FetchOptions, keep_alive : bool, exn 
   cond(
     (is_http || is_https) => (),
     true => {
-      exn.throw(dyn(HttpError.UnsupportedScheme(scheme)));
+      exn.throw(dyn(HttpError.UnsupportedScheme(scheme.clone())));
     }
   );
   host := match(
     url.host(),
-    .Some(h) => h,
+    .Some(h) => h.clone(),
     .None => {
       exn.throw(dyn(HttpError.InvalidUrl(`missing host`)));
       `_` // unreachable
@@ -857,7 +857,7 @@ _fetch_follow :: (
     done := false;
     while(runtime(!done), {
       resp := e.io.await(_fetch_once(current.clone(), &hop_opts, pool, e.io), e);
-      location := match(resp.get_header(`Location`), .Some(l) => l, .None => ``);
+      location := match(resp.get_header(`Location`), .Some(l) => l.clone(), .None => ``);
       // `max_redirects == 0` means "do not follow": the first 3xx comes back
       // verbatim (reqwest's `Policy::none`). Otherwise the cap counts hops
       // FOLLOWED, so the (max+1)th 3xx throws.
