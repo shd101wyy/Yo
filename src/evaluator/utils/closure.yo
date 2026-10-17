@@ -74,6 +74,7 @@
   EvalContext,
   ExpectedTypeCtx,
   set_function_value_marker_fn,
+  set_closure_capture_marker_fn,
   track_variable_usage_resolved
 } :: import("../context.yo");
 {
@@ -672,10 +673,46 @@ function_value_marker :: (
   });
   if(found, Option(Option(String)).Some(Option(String).None), Option(Option(String)).None)
 });
-/// Install `function_value_marker` in `context.yo`'s slot (called once from
-/// `register_evaluate_expression`).
+/// Rule D4 for a closure's capture struct as a TYPE
+/// (`call_closure_capture_marker`, `context.yo`, documents the contract): the
+/// capture verdicts recorded for every closure behind the struct.
+closure_capture_struct_marker :: (fn(capture_ty : &TypeValue, marker : &String) -> Option(bool))({
+  cap_id := _capture_id_of(capture_ty);
+  if(cap_id.is_empty(), {
+    return(Option(bool).None);
+  });
+  match(
+    g_closure_fids_by_capture.get(&cap_id),
+    .Some(ccm_fids) => {
+      (judged : bool) = false;
+      (ci : usize) = usize(0);
+      while(ci < ccm_fids.len(), {
+        match(
+          ccm_fids.get(ci),
+          .Some(ccm_fid) => match(
+            g_closure_capture_offense.get(`${ccm_fid}|${marker}`),
+            .Some(.Some(_)) => {
+              return(Option(bool).Some(false));
+            },
+            .Some(.None) => {
+              judged = true;
+            },
+            .None => ()
+          ),
+          .None => ()
+        );
+        ci = (ci + usize(1));
+      });
+      if(judged, Option(bool).Some(true), Option(bool).None)
+    },
+    .None => Option(bool).None
+  )
+});
+/// Install `function_value_marker` and `closure_capture_struct_marker` in
+/// `context.yo`'s slots (called once from `register_evaluate_expression`).
 register_function_value_marker :: (fn() -> unit)({
   set_function_value_marker_fn(function_value_marker);
+  set_closure_capture_marker_fn(closure_capture_struct_marker);
 });
 // base and is skipped.
 validate_send_closure_global_reach :: (

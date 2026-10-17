@@ -211,7 +211,10 @@ type reads the verdict taken where the closure's local callees resolve.
 Where no value is known, the type decides: a bare `fn(...)` type is **not `Send`**. That covers
 a struct field, a collection element, a `Channel(fn() -> unit)` payload, a parameter of bare
 `fn` type forwarded on, and a plain local `f := count`, which records no value for a later
-capture to judge. Declare it `(f : Impl(Fn(...), Send)) = count` instead. This is Swift's rule for plain function types, and it is what closes
+capture to judge. Declare it `(f : Impl(Fn(...), Send)) = count` instead (as of 2026-10-17 a named
+function in that binding is E0601, and a generic container such as `arc(count)` rejects it too; wrap it in a
+closure, `() => count()`, until `issues/questions/2026-10-17-how-a-named-function-value-carries-send.md` is
+decided). This is Swift's rule for plain function types, and it is what closes
 the struct route: a function inside a struct lost its identity where it was stored. A closure
 `Impl(Fn(...))` type with no value found is judged by what it declares, as before.
 `Impl(Fn(...), Send)` is the function type that carries the obligation, discharged where the

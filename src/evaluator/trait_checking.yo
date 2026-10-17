@@ -71,7 +71,7 @@ pragma(Pragma.AllowUnsafe);
   value_acyclic_obligations
 } :: import("../types/utils.yo");
 { type_to_string, type_key_epoch } :: import("../types/string.yo");
-{ force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
+{ force_pending_impls_for_type_name, type_head_name_for_impl_forcing, EvalContext, call_function_value_marker, call_closure_capture_marker, set_copy_trait_blockers_fn } :: import("./context.yo");
 { Environment, get_where_clause_constraints_for_some_type } :: import("../env.yo");
 { Token } :: import("../token.yo");
 { EvalValue } :: import("../value.yo");
@@ -1199,6 +1199,28 @@ type_implements_trait :: (
     cim := _marker_name_of(trait_type, env);
     if((cim == "Runtime") || (cim == "Comptime") || (cim == "Acyclic"), {
       return(type_implements_trait(resolve_cell_chain(&target), trait_type, env));
+    });
+  });
+  // The capture struct ITSELF (a generic binder bound through the wrapper's
+  // resolution: `Arc(T)`'s `T <: (Send, Sync)` for `arc(k)`) holds `Send` and
+  // `Sync` by rule D4: exactly when every value the closure captures does,
+  // judged per captured variable where the closure was created. Judged as a
+  // plain struct instead, a captured CLOSURE field is its `Impl(Fn...)`
+  // wrapper, which keeps the SomeT rule above and is never `Send`, so `arc`
+  // of a closure over a closure could not cross a thread
+  // (issues/fixed/a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md).
+  // What the closure's code reaches (rule D1) is judged by value wherever the
+  // closure enters a `Send` slot.
+  if(is_closure_capture_struct(&target), {
+    ccs_m := _marker_name_of(trait_type, env);
+    if((ccs_m == "Send") || (ccs_m == "Sync"), {
+      match(
+        call_closure_capture_marker(&target, &ccs_m),
+        .Some(ccs_holds) => {
+          return(TraitCheckResult(implemented : ccs_holds, env : env));
+        },
+        .None => ()
+      );
     });
   });
   // An extern opaque type (`ExternOpaqueT`: `atomic_bool`, `FILE`) is a C

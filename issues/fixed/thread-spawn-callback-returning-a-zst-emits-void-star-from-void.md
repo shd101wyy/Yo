@@ -4,8 +4,8 @@
 the emission half is `issues/fixed/closure-call-binds-a-void-result-to-a-void-pointer-temp.md`).
 The separate `Send`-capture-judgement defect this doc uncovered — the one that
 keeps D18 part 2 blocked — is NOT this bug and is now filed on its own as
-`issues/a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md`,
-so it stays open after this doc closes. Note for whoever picks that up: fix
+`issues/fixed/a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md`,
+so it stayed open after this doc closed (it was closed in its turn on 2026-10-17). Note for whoever picks that up: fix
 route 1 below (the ZST-returning captured call) has LANDED since this was
 written, so the inline form may already work — measure before building the helper.
 

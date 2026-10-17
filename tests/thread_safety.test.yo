@@ -155,6 +155,86 @@ comptime_expect_error({
   });
   _bind_non_send_to_a_send_bound();
 });
+// The HELPER form: a user closure passed to a helper whose `Send`-bounded
+// parameter the helper's own spawn closure then captures. The helper is
+// accepted on its declaration (above), so the argument closure is judged
+// where it enters, by ITS captures. That includes a captured closure, which
+// is judged by its own captures and not as a plain struct
+// (issues/fixed/a-captured-closure-is-judged-by-its-capture-struct-so-a-send-closure-is-rejected.md).
+// Each body below is checked where it is defined; none of them runs.
+_run_on_thread :: (fn(sink(cb) : Impl(Fn() -> unit, Send)) -> unit)({
+  t := Thread(unit).spawn((io : Io) => {
+    cb();
+    ()
+  });
+  t.join();
+});
+_helper_with_send_captures :: (fn() -> unit)({
+  hits := arc(AtomicI32(i32(0)));
+  h := hits;
+  (inner : Impl(Fn() -> unit)) = (
+    () => {
+      h.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  _run_on_thread(() => {
+    inner();
+    hits.fetch_add(i32(1), MemoryOrder.AcqRel);
+    ();
+  });
+});
+// …and the same shape with one non-Send capture is still refused: directly,
+comptime_expect_error({
+  _helper_with_a_non_send_capture :: (fn() -> unit)({
+    items := ArrayList(i32).new();
+    _run_on_thread(() => {
+      items.push(i32(1));
+    });
+  });
+  _helper_with_a_non_send_capture();
+}, "Captured variable 'items' (type ArrayList(i32)) does not implement Send");
+// …and one closure further in.
+comptime_expect_error({
+  _helper_with_a_nested_non_send_capture :: (fn() -> unit)({
+    items := ArrayList(i32).new();
+    (inner : Impl(Fn() -> unit)) = (
+      () => {
+        items.push(i32(1));
+      }
+    );
+    _run_on_thread(() => {
+      inner();
+    });
+  });
+  _helper_with_a_nested_non_send_capture();
+}, "its captured variable 'items' (type ArrayList(i32)) does not implement Send");
+// `arc` of a closure over a closure crosses a thread. `Arc(T)` is `Send` when
+// `T` is `Send` and `Sync`, and `T` here is `outer`'s capture struct, whose one
+// field is `inner`'s closure type. That field counts by `inner`'s captures, an
+// `Arc` of an atomic; judged as a plain struct field, the closure type was never
+// `Send`, and capturing `k` was refused.
+_arc_of_a_closure_over_a_closure_crosses_threads :: (fn() -> unit)({
+  hits := arc(AtomicI32(i32(0)));
+  h := hits;
+  (inner : Impl(Fn() -> unit)) = (
+    () => {
+      h.fetch_add(i32(1), MemoryOrder.AcqRel);
+      ();
+    }
+  );
+  (outer : Impl(Fn() -> unit)) = (
+    () => {
+      inner();
+    }
+  );
+  k := arc(outer);
+  t := Thread(unit).spawn((io : Io) => {
+    k.*();
+    ()
+  });
+  t.join();
+});
 // ============================================================================
 // Phase P (THREAD_SAFETY): Field visibility — same-file access works
 // ============================================================================
