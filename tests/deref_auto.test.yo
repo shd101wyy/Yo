@@ -162,8 +162,10 @@ _clone_any :: (fn(generic(T : Type), x : &T, where(T <: Clone)) -> T)(x.clone())
 test("auto-deref: a trait-bound call at a wrapper instantiation is not the clash", {
   b := rc(_mk(i32(3)));
   c := _clone_any(&b);
-  c.n = i32(8);
-  assert(b.n == i32(3), "T := Rc(_P): the Rc's own clone, a new cell");
+  // A write through `c` would be E0919 (decision 46), so the fresh cell
+  // shows in the counts: neither handle shares the other's.
+  assert(c.n == i32(3), "T := Rc(_P): the clone reads the payload");
+  assert((ref_count(b) == usize(1)) && (ref_count(c) == usize(1)), "T := Rc(_P): the Rc's own clone, a new cell");
 });
 // derive(Clone) spells a wrapper field's clone through its Clone impl, so a
 // struct holding an `Rc` derives Clone with no clash.
@@ -239,8 +241,8 @@ test("auto-deref: nested Box and Rc reach the innermost payload", {
   assert(rb.get() == i32(2), "Rc(Box(T)) method");
   br := box(rc(_mk(i32(3))));
   assert(br.n == i32(3), "Box(Rc(T)) field");
-  br.n = i32(4);
-  assert(br.*.*.n == i32(4), "written through Box(Rc(T))");
+  comptime_expect_error(br.n = i32(4), "read-only through the handle");
+  assert(br.*.*.n == i32(3), "Box(Rc(T)): the Rc inside the Box is still read-only (decision 46)");
   bb := box(box(_mk(i32(5))));
   assert(bb.get() == i32(5), "Box(Box(T)) method");
 });

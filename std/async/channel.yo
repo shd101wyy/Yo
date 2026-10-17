@@ -97,16 +97,6 @@ _ChannelState :: (fn(comptime(Msg) : Type) -> comptime(Type))(
     _buf : ArrayList(Msg),
     _capacity : usize,
     _closed : bool,
-    /// How many live `Sender(T)` handles share this channel. Zero for a
-    /// `Channel` created with `new` and used directly: nothing counts down,
-    /// so nothing auto-closes. `receiver()`/`pair()` start it at one.
-    ///
-    /// Plain `usize`, not an atomic: Yo's async runtime is per-thread and
-    /// cooperative, so every increment and decrement runs on the one loop
-    /// thread with no suspension point in between. An atomic here would buy
-    /// nothing and would contradict the runtime's own rule against
-    /// synchronizing its single-threaded state.
-    _senders : usize,
     /// Set once the `Receiver(T)` handle has been dropped, which makes every
     /// further `send` fail instead of suspending on a channel nobody will
     /// drain.
@@ -146,7 +136,23 @@ impl(
 /// hold their own copy of the handle, so they borrow nothing and a task may
 /// own them.
 Channel :: (fn(comptime(Msg) : Type) -> comptime(Type))(
-  struct(_st : Rc(RefCell(_ChannelState(Msg))))
+  struct(
+    _st : Rc(RefCell(_ChannelState(Msg))),
+    /// How many live `Sender(T)` handles share this channel. Zero for a
+    /// `Channel` created with `new` and used directly: nothing counts down,
+    /// so nothing auto-closes. `receiver()`/`pair()` start it at one.
+    ///
+    /// A plain `usize` behind its own `RefCell`, not an atomic: Yo's async
+    /// runtime is per-thread and cooperative, so every increment and
+    /// decrement runs on the one loop thread with no suspension point in
+    /// between. It lives outside `_ChannelState(T)` so that the closures
+    /// writing it do not mention `T`: a closure in a generic method reached
+    /// from `Sender`'s generic impl can be emitted at that impl's trial
+    /// type, and a closure whose type does not depend on `T` is the same C
+    /// function at every type
+    /// (issues/2026-10-17-a-closure-in-a-generic-method-first-reached-from-another-generic-impl-is-emitted-at-the-trial-type.md).
+    _senders : Rc(RefCell(usize))
+  )
 );
 impl(
   generic(Msg : Type),
@@ -161,13 +167,13 @@ impl(
             _buf : ArrayList(Msg).new(),
             _capacity : capacity,
             _closed : false,
-            _senders : usize(0),
             _recv_dropped : false,
             _send_waiters : ArrayList(Waker).new(),
             _recv_waiters : ArrayList(Waker).new()
           )
         )
-      )
+      ),
+      _senders : rc(RefCell(usize).new(usize(0)))
     )
   }),
   /// Send a value, suspending while the buffer is full. Resolves to
@@ -340,16 +346,16 @@ impl(
   }),
   /// Count one more `Sender`. Internal: `Sender._attach` and `Sender.clone`.
   _add_sender : (fn(self : &Self) -> unit)(
-    self._st.with_mut(s => {
-      s._senders = (s._senders + usize(1));
+    self._senders.with_mut(n => {
+      n = (n + usize(1));
     })
   ),
   /// Count one `Sender` fewer, and answer how many are left. Internal:
   /// `Sender.drop`.
   _remove_sender : (fn(self : &Self) -> usize)(
-    self._st.with_mut(s => {
-      s._senders = (s._senders - usize(1));
-      s._senders
+    self._senders.with_mut(n => {
+      n = (n - usize(1));
+      n
     })
   )
 );

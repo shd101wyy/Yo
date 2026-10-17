@@ -2729,8 +2729,9 @@ test("reads, & lends, the handle itself and the doors are not E0919", {
   node.n = i32(7);
   assert(node.n == i32(7), "a ref object is written through its handle");
   // The doors.
-  Rc.make_mut(&mut h).n = i32(8);
-  assert(h.n == i32(8), "make_mut on the only handle");
+  p := rc(i32(1));
+  Rc.make_mut(&mut p) = i32(8);
+  assert(p.* == i32(8), "make_mut on the only handle");
   cell := rc(RefCell(_RoShared).new(_RoShared(n : i32(0), items : ArrayList(i32).new(), node : _RoNode(n : i32(0)))));
   other := cell;
   other.with_mut(s => {
