@@ -121,7 +121,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
   match(
     p,
     .Bind(name, _, _) => if(!in_cell, out.push(name.clone())),
-    .At(name, _, _, sub) => {
+    .At(name, _, _, Box(sub)) => {
       if(!in_cell, out.push(name.clone()));
       recur(&sub, ty, in_cell, out);
     },
@@ -132,18 +132,18 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        match(subs.get(i), .Some(sub) => recur(&sub, &fty, cell, out), .None => ());
+        recur(&subs(i), &fty, cell, out);
         i = (i + usize(1));
       });
     },
-    .Or(alts) => match(alts.get(usize(0)), .Some(a0) => recur(&a0, ty, in_cell, out), .None => ()),
-    .ThroughBox(_, inner_ty, sub) => recur(&sub, &inner_ty, true, out),
+    .Or(alts) => if(alts.len() > usize(0), recur(&alts(usize(0)), ty, in_cell, out)),
+    .ThroughBox(_, inner_ty, Box(sub)) => recur(&sub, &inner_ty, true, out),
     .Tuple(subs, elem_tys) => {
       cell := (in_cell || is_pointer_type(ty));
       (i : usize) = usize(0);
       while(i < subs.len(), {
         ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        match(subs.get(i), .Some(sub) => recur(&sub, &ety, cell, out), .None => ());
+        recur(&subs(i), &ety, cell, out);
         i = (i + usize(1));
       });
     },
@@ -154,7 +154,7 @@ _collect_place_names :: (fn(p : &Pattern, ty : &TypeValue, in_cell : bool, out :
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        match(subs.get(i), .Some(sub) => recur(&sub, &fty, cell, out), .None => ());
+        recur(&subs(i), &fty, cell, out);
         i = (i + usize(1));
       });
     },
@@ -1907,44 +1907,28 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        match(
-          subs.get(i),
-          .Some(sub) => {
-            recur(&sub, &fty, names, types);
-          },
-          .None => ()
-        );
+        recur(&subs(i), &fty, names, types);
         i = (i + usize(1));
       });
     },
     .Or(alts) => {
-      match(
-        alts.get(usize(0)),
-        .Some(a0) => {
-          recur(&a0, ty, names, types);
-        },
-        .None => ()
-      );
+      if(alts.len() > usize(0), {
+        recur(&alts(usize(0)), ty, names, types);
+      });
     },
-    .At(name, _, _, sub) => {
+    .At(name, _, _, Box(sub)) => {
       names.push(name.clone());
       types.push(ty);
       recur(&sub, ty, names, types);
     },
-    .ThroughBox(_, inner_ty, sub) => {
+    .ThroughBox(_, inner_ty, Box(sub)) => {
       recur(&sub, &inner_ty, names, types);
     },
     .Tuple(subs, elem_tys) => {
       (i : usize) = usize(0);
       while(i < subs.len(), {
         ety := match(elem_tys.get(i), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        match(
-          subs.get(i),
-          .Some(sub) => {
-            recur(&sub, &ety, names, types);
-          },
-          .None => ()
-        );
+        recur(&subs(i), &ety, names, types);
         i = (i + usize(1));
       });
     },
@@ -1954,13 +1938,7 @@ _collect_bind_decls :: (fn(p : &Pattern, ty : &TypeValue, names : &mut ArrayList
       while(i < subs.len(), {
         fi := match(field_idx.get(i), .Some(k) => k, .None => usize(0));
         fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
-        match(
-          subs.get(i),
-          .Some(sub) => {
-            recur(&sub, &fty, names, types);
-          },
-          .None => ()
-        );
+        recur(&subs(i), &fty, names, types);
         i = (i + usize(1));
       });
     }
@@ -2074,13 +2052,7 @@ _emit_pattern_chain :: (
         fty := match(ftys.get(fi), .Some(t) => t, .None => rc(TypeValueNode.Unit));
         flabel := match(labels_v.get(fi), .Some(l) => l, .None => String.from(""));
         fcode := _variant_field_code(&enum_ty, vname.clone(), &flabel, path.clone(), ptrish, is_raw_ptr);
-        match(
-          subs.get(i),
-          .Some(sub) => {
-            recur(&sub, &fcode, &fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context, places, v_cell);
-          },
-          .None => ()
-        );
+        recur(&subs(i), &fcode, &fty, fail_label.clone(), assign_binds, emit_tests, indent.clone(), labels, shadows, context, places, v_cell);
         i = (i + usize(1));
       });
     },
@@ -2090,16 +2062,12 @@ _emit_pattern_chain :: (
       if(!assign_binds, {
         names := ArrayList(String).new();
         types := ArrayList(TypeValue).new();
-        match(
-          alts.get(usize(0)),
-          .Some(a0) => {
-            _collect_bind_decls(&a0, ty, &mut names, &mut types);
-          },
-          .None => ()
-        );
+        if(alts.len() > usize(0), {
+          _collect_bind_decls(&alts(usize(0)), ty, &mut names, &mut types);
+        });
         place_names := ArrayList(String).new();
         if(places, {
-          match(alts.get(usize(0)), .Some(a0) => _collect_place_names(&a0, ty, in_cell, &mut place_names), .None => ());
+          if(alts.len() > usize(0), _collect_place_names(&alts(usize(0)), ty, in_cell, &mut place_names));
         });
         (ni : usize) = usize(0);
         while(ni < names.len(), {
@@ -2129,13 +2097,7 @@ _emit_pattern_chain :: (
         open := indent.clone();
         open.push_str("{");
         em.emit_string_line(&open);
-        match(
-          alts.get(ai),
-          .Some(alt) => {
-            recur(&alt, path.clone(), ty, alt_fail.clone(), true, !alt_is_final, inner_indent.clone(), labels, shadows, context, places, in_cell);
-          },
-          .None => ()
-        );
+        recur(&alts(ai), path.clone(), ty, alt_fail.clone(), true, !alt_is_final, inner_indent.clone(), labels, shadows, context, places, in_cell);
         jump := inner_indent.clone();
         jump.push_str("goto ");
         jump.push_string(done_label.clone());
@@ -2164,7 +2126,7 @@ _emit_pattern_chain :: (
       dl.push_str(": ;");
       em.emit_string_line(&dl);
     },
-    .At(name, atok, _, sub) => {
+    .At(name, atok, _, Box(sub)) => {
       if(!is_unit_type(ty), {
         cname := sanitize_for_c_identifier(name.clone(), false);
         cond(
@@ -2186,7 +2148,7 @@ _emit_pattern_chain :: (
       });
       recur(&sub, path, ty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell);
     },
-    .ThroughBox(box_ty, inner_ty, sub) => {
+    .ThroughBox(box_ty, inner_ty, Box(sub)) => {
       // An Rc value in C is a pointer to a reference-semantics struct whose
       // single field holds the inner value; look through it (the label is the
       // sanitized `*`, as `t.*` emits).
@@ -2238,13 +2200,7 @@ _emit_pattern_chain :: (
         fcode := base.clone();
         fcode.push_str("._");
         fcode.push_string(i.to_string());
-        match(
-          subs.get(i),
-          .Some(sub) => {
-            recur(&sub, &fcode, &ety, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || is_pointer_type(ty));
-          },
-          .None => ()
-        );
+        recur(&subs(i), &fcode, &ety, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || is_pointer_type(ty));
         i = (i + usize(1));
       });
     },
@@ -2262,13 +2218,7 @@ _emit_pattern_chain :: (
         fcode := path.clone();
         fcode.push_str(cond(ptrish => "->", true => "."));
         fcode.push_string(c_field_name(&struct_ty, flabel.clone()));
-        match(
-          subs.get(i),
-          .Some(sub) => {
-            recur(&sub, &fcode, &fty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || ptrish);
-          },
-          .None => ()
-        );
+        recur(&subs(i), &fcode, &fty, fail_label, assign_binds, emit_tests, indent, labels, shadows, context, places, in_cell || ptrish);
         i = (i + usize(1));
       });
     }
@@ -2294,11 +2244,11 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
       return(.None);
     });
     match(
-      arm.pattern,
+      &arm.pattern,
       .Wildcard => if(!arm.classic, {
         return(.None);
       }),
-      .ThroughBox(bt, _, sub) => {
+      .ThroughBox(bt, _, Box(sub)) => {
         if(!is_box_type(&bt) || is_unique_box_type(&bt), {
           return(.None);
         });
@@ -2308,7 +2258,7 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
             (ok : bool) = !through_ptr;
             (k : usize) = usize(0);
             while((k < subs.len()) && ok, k = (k + usize(1)), {
-              ok = match(subs.get(k), .Some(.Wildcard) => true, .Some(.Bind(_, _, _)) => true, _ => false);
+              ok = _pattern_is_binder_or_wild(&subs(k));
             });
             ok
           },
@@ -2333,6 +2283,8 @@ _lookthrough_switch_cell :: (fn(arms : &ArrayList(Arm)) -> Option(TypeValue))({
   });
   cell
 });
+/// A `_` or a plain binding.
+_pattern_is_binder_or_wild :: (fn(p : &Pattern) -> bool)(match(p, .Wildcard => true, .Bind(_, _, _) => true, _ => false));
 _arms_all_classic :: (fn(arms : &ArrayList(Arm)) -> bool)({
   (ok : bool) = true;
   (i : usize) = usize(0);
