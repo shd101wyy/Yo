@@ -1,0 +1,35 @@
+//! Async (event-loop) mutex across OS threads: a task on another thread's
+//! loop contends for the same `Arc(Mutex(T))`, and the holder's `unlock`
+//! wakes it across threads. Split from `tests/async/mutex.test.yo` because a
+//! spawned thread needs its own event loop, which standalone WASI (no
+//! pthreads) cannot give it: there the worker parks forever and the test hangs
+//! (issues/fixed/2026-10-17-a-cross-thread-mutex-test-hangs-the-wasm32-wasi-job.md).
+pragma(Pragma.SkipWasm32Emscripten); // spawns an OS thread with its own loop
+pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
+{ assert } :: import("std/assert");
+{ Mutex } :: import("std/async/mutex");
+{ sleep } :: import("std/sys/timer");
+{ Thread } :: import("std/thread");
+
+test("Test a task on another thread's loop contends for the same mutex", {
+  m := arc(Mutex(i64).new(i64(0)));
+  assert(m.*.try_lock(), "main holds the lock");
+  m2 := m;
+  t := Thread(i64).spawn({ m2 }(io : Io) => {
+    io.await(m2.*.lock(io), io);
+    v := (m2.*.get() + i64(10));
+    m2.*.set(v);
+    m2.*.unlock();
+    v
+  });
+  // The worker parks on the lock from its own loop; main's unlock wakes it
+  // across threads.
+  while(runtime(m.*.waiter_count() == usize(0)), {
+    io.await(sleep(u64(1)), io);
+  });
+  m.*.set(i64(1));
+  m.*.unlock();
+  r := t.join();
+  assert(r == i64(11), `the worker ran after main released, got ${r.to_string()}`);
+  assert(!m.*.is_locked(), "and released it");
+});
