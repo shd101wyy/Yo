@@ -10,6 +10,8 @@ pragma(Pragma.SkipWasm32Wasi); // no pthread support in standalone WASI
 { Mutex } :: import("std/async/mutex");
 { sleep } :: import("std/sys/timer");
 { Thread } :: import("std/thread");
+{ timeout } :: import("std/async");
+{ Duration } :: import("std/time/duration");
 
 test("Test a task on another thread's loop contends for the same mutex", {
   m := arc(Mutex(i64).new(i64(0)));
@@ -32,4 +34,77 @@ test("Test a task on another thread's loop contends for the same mutex", {
   r := t.join();
   assert(r == i64(11), `the worker ran after main released, got ${r.to_string()}`);
   assert(!m.*.is_locked(), "and released it");
+});
+// `unlock` HANDS the lock to the front waiter, so the arrival order holds
+// across loops: until 2026-10-17 it freed the lock and woke the front waiter
+// to re-check, and since a wake posted to another thread's loop does not
+// report itself, it woke the next waiter too, and a later same-loop waiter
+// usually won
+// (issues/fixed/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md).
+// The order below is fixed by the waiter counts, not by timing: the foreign
+// waiter is queued before the same-loop one is spawned.
+test("Test the lock is handed FIFO across loops, ahead of a later same-loop waiter", {
+  m := arc(Mutex(i64).new(i64(0)));
+  assert(m.*.try_lock(), "main holds the lock");
+  mf := m;
+  t := Thread(i64).spawn({ mf }(io : Io) => {
+    io.await(mf.*.lock(io), io);
+    v := ((mf.*.get() * i64(10)) + i64(1));
+    mf.*.set(v);
+    mf.*.unlock();
+    v
+  });
+  while(runtime(m.*.waiter_count() == usize(0)), {
+    io.await(sleep(u64(1)), io);
+  });
+  ms := m;
+  hs := io.spawn(
+    io.async({ ms }(io : Io) => {
+      io.await(ms.*.lock(io), io);
+      v := ((ms.*.get() * i64(10)) + i64(2));
+      ms.*.set(v);
+      ms.*.unlock();
+      return(v);
+    }),
+    io
+  );
+  while(runtime(m.*.waiter_count() < usize(2)), {
+    io.await(sleep(u64(1)), io);
+  });
+  m.*.unlock();
+  // No suspension since the unlock: the foreign waiter's loop may not have
+  // run yet, and the lock is already its own.
+  assert(m.*.is_locked(), "the lock stays held while it is handed over");
+  assert(!m.*.try_lock(), "try_lock cannot take a lock handed to a waiter");
+  assert(m.*.waiter_count() == usize(1), "only the same-loop waiter is still queued");
+  rs := match(hs.await(io), .Some(v) => v, .None => i64(-1));
+  rf := t.join();
+  assert(rf == i64(1), `the foreign waiter, first in line, ran first, got ${rf.to_string()}`);
+  assert(rs == i64(12), `the same-loop waiter ran second, got ${rs.to_string()}`);
+  assert(!m.*.is_locked(), "the last unlock freed the lock");
+});
+// A cancelled waiter never strands the lock. The thread's own loop cancels
+// its waiter, and the thread has ended (its tasks released) before main
+// unlocks, so the order is fixed.
+test("Test a waiter cancelled on another thread's loop leaves the queue", {
+  m := arc(Mutex(i64).new(i64(0)));
+  assert(m.*.try_lock(), "main holds the lock");
+  mf := m;
+  t := Thread(bool).spawn({ mf }(io : Io) => {
+    mw := mf;
+    h := io.spawn(
+      io.async({ mw }(io : Io) => {
+        io.await(mw.*.lock(io), io);
+        mw.*.unlock();
+        i32(1)
+      }),
+      io
+    );
+    r := io.await(timeout(h, Duration.from_millis(i64(20)), io), io);
+    r.is_err()
+  });
+  assert(t.join(), "the foreign waiter timed out while parked on the lock");
+  assert(m.*.waiter_count() == usize(0), `the cancelled waiter left the queue, ${m.*.waiter_count().to_string()} left`);
+  m.*.unlock();
+  assert(!m.*.is_locked(), "with nobody waiting, unlock frees the lock");
 });
