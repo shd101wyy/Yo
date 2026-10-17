@@ -6711,7 +6711,27 @@ heavy run, the command is given in item 2.
        `tests/index.test.yo`, `tests/derive_clone_complex.test.yo`; a new
        cli-case `fix-migrate-cloned-accessors`; in-process internal.
    - **B7 (c). Decision 39's iteration and decision 20's entries.**
-     - Scope:
+     - **Generation A landed first (2026-10-17, branch
+       `feat/vbd-decision39-gen-a`; decision 39's "the shape, settled
+       2026-10-17" is the design).**
+       - The borrowed `for` already walks a `BorrowedWalk` cursor over a
+         local borrow, for every std collection including the maps and
+         `LinkedList` (open question 5 is answered there).
+       - `indices()` exists on `ArrayList` and `Deque`.
+       - A body naming its collection is E0911, through the macro-site
+         liveness rule. So the same-variable runtime-panic cases became
+         compile errors already, and the panic goldens reach the
+         collection through a second handle.
+       - The element is the named projection `c.walk_elem(&cur)`, not the
+         sketch's `&mut c(i)`, which is still rejected.
+       - What B7 keeps:
+         - the read walk for `for(&xs, …)` (a `walk_ref` projection and
+           the `src/expr.yo` rewrite);
+         - `into_iter(self : Self)`;
+         - the `*Ptr` iterators under the pragma;
+         - `HashMapEntry`;
+         - the guard keeping only an `Rc` root's flag (B8).
+     - Scope (as planned on 2026-10-16):
        - The borrowed `for` becomes a walk over a local borrow of the
          container, so a write to it inside the body is E0911, not a
          runtime flag. No copy of the container is made; the guard keeps
@@ -6928,6 +6948,14 @@ heavy run, the command is given in item 2.
         which gives it a cursor and removes its `ref` nodes before V5.
         Record each as an "as built" note in B7/B11.
       - **Decided 2026-10-17: as recommended.**
+      - **As built (decision 39's Generation A, 2026-10-17).** The cursor
+        is the prelude trait `BorrowedWalk`, public rather than
+        std-internal, so that a user collection can be a source too
+        (`issues/questions/borrowed-for-over-user-defined-collections.md`,
+        option 2). The maps' element is the entry: one `walk_elem`
+        projection to the `MapEntry(K, V)`, not separate key and value
+        projections. `LinkedList`'s cursor is its current `ref` node until
+        B11 moves the nodes to raw pointers.
    6. **Decision 27's lint timing.** Decision 27 puts the lint in "the
       first `yo fix` sweep". A2 inserts `.clone()` only where the source is
       used again, so the lint has nothing to find in B1's output; the clones
