@@ -2,7 +2,7 @@
 
 > **Status: LIVING DOCUMENT until v0.2.65 is published.** The coordinator updates the "Live status" box below as PRs land. When v0.2.65 is out, all in-flight work stops and this document is final.
 >
-> **Live status (last update 2026-10-17 23:40 CST):** develop is at `b1a3d6712` (#1435). v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
+> **Live status (last update 2026-10-18 00:40 CST):** develop is at `b1a3d6712` (#1435). v0.2.64 is the published seed. v0.2.65 is not cut; its gate is in §2.3.
 >
 > **If develop's tip is newer than the SHA in this box, this document was not finalized.** Before acting on any row, reconstruct §2.4 from `gh pr list --state open --json number,headRefName,headRefOid,isDraft` and `git log --oneline v0.2.64..origin/develop`. Treat every "what is left" as the state at the timestamp above.
 
@@ -15,7 +15,7 @@ The goal is unchanged: finish `plans/VALUES_BY_DEFAULT.md` and the handover's st
 - **Admin merge:** "I allow you to admin merge any PRs" (2026-10-17). Merge on Tier 1, as AGENTS.md describes. In auto mode the classifier sometimes denies `gh pr merge --admin` or `git push -f` from a sub-agent ("Merge Without Review"). A sub-agent must not retry or route around a denial. It reports its head SHA and gate summary, and the coordinator merges.
 - **Releases:** patch releases of Yo and `markdown_yo` are pre-authorized. For v0.2.65: "no rush. include necessary generation A PRs" (§2.3).
 - **Agents:** run at most 7 sub-agents at once, and spawn no large Workflow runs ("Let's not spawn large workflow"). Each piece of work gets one agent.
-- **Status checks:** the coordinator messages every running sub-agent every 50 minutes (40 until late on 2026-10-17) for its step, gate result, PR state, blockers and ETA. Workflow agents are never messaged, because a message resumes a duplicate copy.
+- **Status pings keep the sub-agent prompt cache warm:** the maintainer runs Claude Code with `subagentPromptCacheTtl` set to 1h. The coordinator pings every live sub-agent every 40 minutes, which leaves margin under the TTL for cron lateness (a recurring job can fire up to 10% of its period late). Use the light format: a reply of one or two lines from what the agent already knows (step, last gate result, PR/head, blockers, ETA), with no tool calls unless something changed or is blocked. Measured 2026-10-17: agents pinged after ~40 idle minutes resumed with 300–470K cache-read tokens and only a few hundred written. A ping costs ~0.1× input on the context, while a cold resume rewrites it at the 1h write price (~2×), so one avoided miss pays for ~20 pings. Workflow agents are never messaged, because a message resumes a duplicate copy. (A 50-minute interval was tried briefly on 2026-10-17 and dropped: its worst case is 65 minutes.)
 - **Don't idle on CI:** "keep working and dont wait for CI". Start the next piece as a draft PR, stacked when it depends on unmerged work.
 
 ### 1.1 Process rules learned this cycle (portable)
@@ -151,7 +151,7 @@ The open S1s already on develop are listed in the 2026-10-15 handover §6.1.
 The maintainer asked for all work to stop once v0.2.65 is published, with this document up to date. The coordinator:
 
 1. Curates the v0.2.65 release notes (§7 has the draft) and checks that `SEED_VERSION` was bumped.
-2. Stops its schedulers: the 50-minute status-check cron jobs (six session-only jobs) and any PR-run cancel loop.
+2. Stops its schedulers: the 40-minute status-ping cron jobs (three session-only jobs) and any PR-run cancel loop.
 3. Messages every running agent: "STOP after your current tool call. Push your current head. Reply with: branch, head SHA, what passed, what did not run. Do not merge." Any agent that does not answer is stopped.
 4. Rewrites §2.4 from the replies, with head SHAs, and updates the live-status box.
 5. Re-runs `check-issue-refs.sh` on this PR's rebased head, repointing any citation whose doc moved to `issues/fixed/`, then merges it.
