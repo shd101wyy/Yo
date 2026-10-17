@@ -1,16 +1,15 @@
 $ yo check main.yo
-error[E0901]: derive on "S" failed: use of moved value: cannot copy `(_ptr.add)(index).*`, whose type `R` is move-only (it is neither `Copy` nor `Clone`), and it cannot be moved either: it is the value a pointer or reference points to, and that storage still owns it (a dereference copies, it never moves).
-    --> <REPO>/std/collections/array_list.yo:447:49
-    |
-447 |           .Some(_ptr) => .Some((_ptr.add(index)).*)
-    |                                                 ^
-help: `R` is neither `Copy` nor `Clone`, so it is move-only (plans/VALUES_BY_DEFAULT.md decision 36): give it `derive(R, Copy, Clone)` to copy it implicitly, or move its whole owner.
-help: run `yo explain E0901` for more information
+error[E0610]: derive on "S" failed: No method "clone" on R: the type has no field or method with that name.
+     --> <REPO>/std/collections/array_list.yo:1703:28
+     |
+1703 |         result.push(self(i).clone());
+     |                            ^
+help: run `yo explain E0610` for more information
    --> main.yo:13:11
    |
 13 | derive(S, Clone);
    |           ^^^^^
-help: run `yo explain E0901` for more information
+help: run `yo explain E0610` for more information
 yo: error: check: 1 file(s) failed evaluator coverage
 check: parsing <REPO>/std/prelude.yo
 check: parsed <PRELUDE_EXPRS> top-level exprs

@@ -48,6 +48,12 @@ already clone in place; a probe with move-only and `Clone`-only payloads checks
 clean for each. The `HashMap` probe stops earlier, at `insert`, which is the
 open `issues/a-hashmap-of-a-move-only-key-or-value-does-not-compile.md`.
 
+The `check-derive-clone-container-non-clone-elem` CLI golden moves back to the
+verdict its fixture documents: a `derive(S, Clone)` over an `ArrayList(R)`
+field, with `R` not `Clone`, is again E0610 (`No method "clone" on R`, at the
+`self(i).clone()` in `ArrayList.clone`). Since #1349 it had reported the
+misleading E0901 of `get`'s element copy instead.
+
 **Test:** `tests/collection_clone_through_borrow.test.yo`: `ArrayList(Box(String))`,
 a `Clone`-only struct element, a `Drop` element (one `clone` per element, one
 drop per owner), and a `derive(Clone)` struct with an `ArrayList(Box(String))`
