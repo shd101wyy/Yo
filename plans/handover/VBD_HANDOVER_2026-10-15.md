@@ -193,7 +193,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 | 3 | #1368 from `feat/vbd-v2b-projection-calls-rebased` | rebased, Tier 1 green |
 | 4 | `feat/global-lend-to-call-is-an-error` → **#1401, landed** | decision 47 globals, Generation A |
 | 5 | `fix/runtime-write-to-comptime-constant` → **#1402, landed** | E0918 |
-| 6 | `fix/d3-trust-by-mutation-mask` (no PR), then #1380 | the D3 S1 fix, Tier 1 green; #1380 is blocked on it, then restacks |
+| 6 | `fix/d3-trust-by-mutation-mask` as #1397, then #1380 | the D3 S1 fix **landed** 2026-10-17 as #1397; #1380 restacks on it |
 | 7 | #1398 from `perf/type-key-memo-identity` | **landed** 2026-10-16 (−40% allocations; baseline 1,799,052,684, measured) |
 | 7a | release v0.2.64 | §4 step 7a |
 | 8 | #1385 | **landed** 2026-10-16 (restacked, Tier 1 incl. the full in-process `tests/internal` and full cli-diff) |
@@ -295,7 +295,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
   - **B1, the pragma-trust hole (S1):**
     - D3 trusts every mutator defined in a pragma file, so a spawned task can call `b.*.o.take()` on an `Arc` copy, because `Option.take` lives in the prelude.
     - Meanwhile `io.await(peek(&a.*, io), io)` holds the borrow, and the future reads 0 where 7 was written.
-    - **Fixed on `fix/d3-trust-by-mutation-mask`** (its entry below): D3 now judges every callee by its **mutation mask**, not by its file. The issue doc is `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`; this branch adds it at the root too (commit `657146480`).
+    - **Fixed by #1397** (`fix/d3-trust-by-mutation-mask`, landed 2026-10-17; its entry below): D3 now judges every callee by its **mutation mask**, not by its file. The issue doc is `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`; this branch adds it at the root too (commit `657146480`), which the restack drops.
     - The probe shape:
 
       ```yo ignore
@@ -313,7 +313,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
     - `handle_payload_is_read_only` (`src/evaluator/utils.yo` ~L1175) matches by shape, so all 11 `std/sync/atomic.yo` types qualify too. Key it on the prelude `Arc`'s identity.
     - After the rebase, V4 needs `Rc(.Struct(...))` / `rc(TypeValueNode.Unit)` at `utils.yo` ~L1175 and ~L1299, and an import/export union with #1339's in `function.yo`, `assignment.yo` and `utils.yo`.
 - **Next:**
-  1. Land `fix/d3-trust-by-mutation-mask` (its entry below).
+  1. Done: `fix/d3-trust-by-mutation-mask` landed as #1397 (its entry below).
   2. After #1379 lands and this PR is retargeted (#1379's Land steps 4–6), restack: `git fetch origin && git switch feat/vbd-async-mutex-rust && git rebase --onto origin/develop 43de839a3`. `43de839a3` is where this branch forks from the ORIGINAL A5, so only its own 6 commits (`63b774831`…`657146480`) replay. Do not use the rebased A5 tip `4cc522f97`. Drop `657146480`'s add of the root D3 doc, which now lives in `issues/fixed/`, and repoint the branch's own citations of it (`docs/en-US/ASYNC_AWAIT.md`, `docs/zh-CN/ASYNC_AWAIT.md`, `plans/VALUES_BY_DEFAULT.md` ~L1010, `src/evaluator/utils.yo` ~L1172) to the `fixed/` copy. Expect conflicts in at least: `d3_check_pending` in `src/evaluator/exprs/assignment.yo` (keep the `hop_receivers`/`needs_mask` block, but NOT the `is_implicitly_unsafe_capable_file(...)` early return above it, which the D3 fix deleted; keeping it reopens B1); the import lists in `function.yo`, `assignment.yo` and `utils.yo`; `src/diagnostics_registry.yo`; `docs/en-US/ASYNC_AWAIT.md`; and `plans/VALUES_BY_DEFAULT.md`.
   3. Re-run the B1 and B2 probes; fix B3 and the should-fixes.
   4. Tier 1, adding `tests/atomic_object`, `thread_safety`, `closure_capture_list`, `arc` and `async_await`.
@@ -366,7 +366,14 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 - **Known gap (fixed by #1368):** `issues/fixed/2026-10-15-a-direct-projection-method-call-bound-to-a-local-reaches-the-c-compiler.md` (S2, #1375). `r := xs.index(usize(0));` failed in clang with an int-from-pointer error.
 - **Next:** see the box's Land steps.
 
-#### `fix/d3-trust-by-mutation-mask` — the D3 S1 fix (B1 of #1380), no PR yet (head `1d4121d30`, on develop `31ef8d7a3`)
+#### `fix/d3-trust-by-mutation-mask` — the D3 S1 fix (B1 of #1380), #1397
+
+> **LANDED 2026-10-17 as #1397** (squash-merged from `fix/d3-trust-by-mutation-mask`, rebased onto develop `ed733408c`; the rebase onto #1385 kept #1385's copy-write block in `d3_check_pending` and still deletes the early return). The "Next" steps below are done; they are the history.
+>
+> - **Gated on `ed733408c`:** build; check src 278/278, std 172/172; `parallelism_soundness` 17, `arc` 18, `atomic_object` 21, `thread_safety` 4, `async_await` 281, `closure_capture_list` 41, `move_only` 55, `send_sync` 15, `thread` 23, `rc` 107, `sync/refcell` 7; the 18 cli cases that exercise D1, D3 and the mask-driven migrations (all PASS); fmt; issue refs.
+> - **`tests/internal`, on earlier bases, never one whole run on the final head:** the in-process run (base `0684c9c40`, leak verdicts on) was cut off after 57 of 108 files, and every failure in it was a leak verdict; the other 51 files passed one per call (base `6fc6e3a0a`, `YO_TEST_LEAK_VERDICT=0`).
+> - **Decision 47 (#1401):** a written global is now `mut(g)`. The D1 regression case declares `mut(g_d3_slot)`, and D1 fires before E0916 for its `g_d3_slot.take()`; without this fix that call reaches E0916 instead.
+> - **`plans/reference/PARALLELISM_RULES.md` D3** now says the mask decides for every callee.
 
 - **What:** `d3_check_pending` (`src/evaluator/exprs/assignment.yo`) no longer returns early for a callee defined in a pragma file. Every callee is judged by its mutation mask, wherever it lives. std's own internal writes stay exempt at the pragma'd CALLER (`d3_record_inout_place`), and every `std/sync` handle method takes `self : Self` or `self : &Self`, so none reaches D3.
 - **Tests:** `tests/parallelism_soundness.test.yo`:
@@ -377,7 +384,7 @@ Every one is pushed. "Next" or "Land" is the exact next action. On a new machine
 - **Tier 1 passed:** build; check src 278/278, std 171/171; `parallelism_soundness` 17, `arc` 15, `atomic_object` 21, `thread_safety` 4, `async_await` 280, `closure_capture_list` 41, `move_only` 54, `send_sync` 15, `thread` 23, `rc` 98, `deref_auto` 22, `match_nested` 24, `unapplied_constructor_method` 18, `type_reflection` 35; internal `assignment` 9; fmt; issue refs. Not run: the other `tests/internal` files that reach the evaluator (in-process, ~95 min).
 - **Next:**
   1. `git fetch origin && git switch fix/d3-trust-by-mutation-mask && git rebase origin/develop`.
-  2. This handover added a root copy of the D3 doc, and the branch has the `fixed/` copy; `check-issue-refs.sh` rejects a doc in both places. Delete the root copy (basename `2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`), then repoint every citation of the root path to the `fixed/` copy (this handover's §2.3 #1380 B1 and §6.1; reword this step as done). `check-issue-refs.sh` lists them.
+  2. Done: the rebase deleted this handover's root copy of the D3 doc (the branch's commit moves it to `issues/fixed/`), and this handover's citations (§2.3 #1380 B1, §6.1) point at the `fixed/` copy.
   3. It conflicts with #1380, but #1380's restack resolves that (see there).
   4. Tier 1 again (build, check src/std, `tests/parallelism_soundness.test.yo`, the internal files importing `assignment.yo`; consider the in-process run), open the PR from the template, admin-merge.
 
@@ -569,7 +576,7 @@ These are merged or superseded. Most never had their own PR, so an empty `gh pr 
 3. **#1368**, direct projection calls (§2.3; rebased and gated). It also closes #1375's S2 and a develop S2 (`f(&mut xs(i))` through a `&` borrow).
 4. **`feat/global-lend-to-call-is-an-error`**: decision 47 step 1, Generation A (§2.3, §5.1). **Landed as #1401 (2026-10-16).** Generation B follows on the seed that carries it (step 7a).
 5. **`fix/runtime-write-to-comptime-constant`** (E0918, §2.3). **Landed as #1402 (2026-10-16).**
-6. **`fix/d3-trust-by-mutation-mask`** (§2.3), then **#1380** (§2.3).
+6. **DONE (#1397)** `fix/d3-trust-by-mutation-mask` (§2.3); then **#1380** (§2.3).
 7. **DONE (#1398).** **`perf/type-key-memo-identity`** (§2.3): the ratchet baseline is now a measured count, 1,799,052,684.
 7a. **Cut v0.2.64** (§8.4) once steps 0a–7 have merged and develop's battery is green on the exact tip. It carries decision 47's `mut(` parser and A5's `__yo_waker_clone`. After the `SEED_VERSION` bump, do decision 47 globals Generation B (§2.3) before step 8; that avoids the V2b value-global re-census in §2.3's note. Step 12 can follow.
 8. **#1385 — LANDED 2026-10-16**, then **V2b unique buffers Generation B** (§2.3; the PR sequence B0–B14 is proposed in #1408). Lower the allocation baseline in the same PR. Read §2.3's global-lend note on value globals first.
@@ -745,7 +752,7 @@ x :: 12;                           // a true constant
 | Issue | Note |
 | --- | --- |
 | `issues/fixed/2026-10-15-a-module-level-global-lent-to-a-call-can-be-reassigned-while-the-callee-holds-it.md` | §5.1; fixed by #1401 |
-| `issues/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` (copied to develop by the handover PR) | B1; fixed on `fix/d3-trust-by-mutation-mask`, not yet on develop |
+| `issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md` | B1; fixed by #1397 (landed 2026-10-17, §2.3) |
 | `issues/fixed/2026-10-15-a-local-whose-address-a-method-takes-is-a-dangling-c-local-across-an-await.md` | **Fixed** by `fix/await-method-address-local`. Found by §4 step 10 (#1399): `x.as_ptr()` before an await in an `io.async` body left `x` a C local; the live-range walk saw only `&x`/`addr_of(x)`, and now treats every argument a call passes to a pointer parameter as lent |
 | `issues/a-write-through-a-string-copy-is-lost-when-the-string-was-empty.md` | Older; expect V2b unique buffers to remove it, and re-test after Generation B |
 | `issues/ftt-stub-in-live-closure-falls-off-non-void-function.md` | Type-soundness track (#1162) |

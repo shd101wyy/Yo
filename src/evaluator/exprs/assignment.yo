@@ -853,9 +853,16 @@ d3_record_inout_place :: (
 /// reject printing an `Arc`'s value; the per-parameter mutation mask of
 /// `effects/mutation_summary.yo` (a MAY-analysis: a field/index store, an RC
 /// decrement, a mutating callee, or anything unresolvable) is what decides.
-/// A callee defined in a pragma'd file is the audited base
-/// (`std/sync`'s `self : &mut Self` methods write only through atomics or locks)
-/// and is trusted. The summary target is the specialization when one exists.
+/// The mask decides for EVERY callee, wherever it is defined: a prelude or
+/// std mutator (`Option.take`, `ArrayList.push`) writing a place under an
+/// `Arc` is the same race as a user function doing it, and trusting callees
+/// by their file let safe code write a shared payload
+/// (issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md).
+/// `std/sync`'s handles take `self : Self` or `self : &Self` and write
+/// through C11 atomics or a lock, so no `&mut` binding reaches D3 from them;
+/// std's own internal writes are exempt where they happen, in the pragma'd
+/// CALLER (`d3_record_inout_place`). The summary target is the
+/// specialization when one exists.
 d3_check_pending :: (
   fn(pending : &ArrayList(D3PendingInout), callee_fid : &String, callee_body : &AstExpr, ctx : &EvalContext, exn : Exception) -> unit
 )({
@@ -955,9 +962,6 @@ d3_check_pending :: (
         .None => ()
       );
     });
-  });
-  if(is_implicitly_unsafe_capable_file(Option(String).Some(ast_expr_token(callee_body).module_path.clone())), {
-    return(());
   });
   mask := match(borrow_mask, .Some(bm) => bm, .None => function_param_mutation_mask(callee_fid, callee_body, &ctx.expr_info_table));
   (i : usize) = usize(0);

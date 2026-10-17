@@ -139,7 +139,13 @@ An expression whose ROOT binding is an atomic object (an `Arc`, a `Mutex`, any
   `Sender.clone`), so the decision comes from the callee's per-parameter mutation mask
   (`src/evaluator/effects/mutation_summary.yo`: a field/index store, an RC decrement, a
   mutating callee, or anything unresolvable — a MAY-analysis), taken after the specialized
-  callee is known. A callee defined in a pragma'd file is the audited base and is trusted.
+  callee is known. The mask decides for every callee, wherever it is defined: a prelude or std
+  mutator (`Option.take`, `ArrayList.push`) writing a place under an `Arc` is the same race as a
+  user function doing it, so a callee is not trusted for living in a pragma'd file
+  (`issues/fixed/2026-10-15-d3-trusts-every-mutator-defined-in-a-pragma-file-so-std-writes-through-an-arc.md`,
+  #1397). std's own internal writes are exempt where they happen, at the pragma'd CALLER
+  (`d3_record_inout_place`); `std/sync`'s handles take `self : Self` or `self : &Self`, so none
+  reaches this check. The same mask decides D1's `&mut` argument rooted in a module-level global.
 
 `Mutex.with_lock`'s `inout(v)` is a PARAMETER root, not an atomic root, so writes through `v`
 stay legal; a local copy `c := a.*` is a value, so `c.bump()` stays legal; `${a.*.n}` and a
