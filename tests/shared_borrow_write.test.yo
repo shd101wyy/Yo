@@ -167,6 +167,29 @@ test("a field write through a closure's `&T` parameter is E0908", {
   f(&x);
   assert(x.n == i32(0), "unchanged");
 });
+// A callee with no body to read (a `Dyn(Fn)` value) has an unknown mutation
+// mask, which counts as a write: the place it would write lives in the
+// callee's borrowed copy, so the write would be lost.
+_pass_field_to_dyn :: (fn(p : &_P, cb : &Dyn(Fn(n : &mut i32) -> unit)) -> unit)({
+  comptime_expect_error(cb(&mut p.n), "is a `&T` parameter, a read-only borrow");
+});
+_pass_rc_field_to_dyn :: (fn(s : &_S, cb : &Dyn(Fn(t : &mut String) -> unit)) -> unit)({
+  comptime_expect_error(cb(&mut s.s), "Cannot pass");
+});
+test("a place in a `&T` parameter lent `&mut` to a `Dyn(Fn)` is E0908", {
+  (bump : Dyn(Fn(n : &mut i32) -> unit)) = dyn((n : &mut i32) => {
+    n = (n + i32(1));
+  });
+  (grow : Dyn(Fn(t : &mut String) -> unit)) = dyn((t : &mut String) => {
+    t.push_str("!");
+  });
+  x := _mk();
+  _pass_field_to_dyn(&x, &bump);
+  s := _S(s : String.from("a"), n : i32(0));
+  _pass_rc_field_to_dyn(&s, &grow);
+  assert(x.n == i32(0), "unchanged");
+  assert(s.s == "a", "unchanged");
+});
 // The place an E0908 names is printed as written: an element place keeps
 // its printer's parentheses balanced (`y.arr)(usize(0)` before the fix,
 // issues/fixed/2026-10-17-e0908-prints-an-element-place-with-unbalanced-parentheses.md).

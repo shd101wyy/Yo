@@ -213,7 +213,7 @@ pragma(Pragma.AllowUnsafe);
   _collect_type_arg_somes
 } :: import("../types/function.yo");
 { evaluate_begin_expression } :: import("../exprs/begin.yo");
-{ D3PendingInout, d3_record_inout_place, d3_check_pending, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
+{ D3PendingInout, d3_record_inout_place, d3_check_pending, d3_check_pending_unresolved_callee, require_no_inout_write_through_borrow } :: import("../exprs/assignment.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { format_error_message, format_error_message_with_help, with_code, YoError, note_diagnostic_of_token } :: import("../../error.yo");
 { is_std_module_path } :: import("../memory_safety.yo");
@@ -9153,8 +9153,9 @@ try_to_call_function_with_arguments :: (
         match(
           d3_target,
           .Some(.FuncVal(d3_fvd, _)) => d3_check_pending(&d3_pending, d3_fvd.*.func_id.clone(), &d3_fvd.*.body, ctx, exn),
-          .Some(_) => (),
-          .None => ()
+          // No body to read (a `Dyn(Fn)` value, a function pointer): an
+          // unknown mask is a write.
+          _ => d3_check_pending_unresolved_callee(&d3_pending, &ast_expr_to_string(callee_expr), ctx, exn)
         );
       });
       // Aliasing Stage 1 (mutation summaries, evaluator/effects/

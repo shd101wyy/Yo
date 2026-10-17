@@ -935,6 +935,56 @@ d3_record_inout_place :: (
     .None => ()
   );
 });
+/// The E0908 half of `d3_check_pending`: each borrowed-value entry the
+/// callee's mask says it writes is an error (or, under the audit, a line).
+_d3_judge_borrow_errors :: (
+  fn(pending : &ArrayList(D3PendingInout), borrow_mask : Option(ParamMutationMask), callee_fid : &String, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  (bi : usize) = usize(0);
+  while(bi < pending.len(), {
+    match(
+      pending.get(bi),
+      .Some(entry) => match(
+        entry.borrow_error,
+        .Some(berr) => {
+          if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(&bm, entry.param_index), .None => false), {
+            if(_g_audit_inout_borrow, {
+              // `-unresolved`: the analysis could not resolve the callee's
+              // mask (`all`), so the write is assumed, not seen.
+              tag := cond(
+                (entry.noun == _CAPTURE_NOUN) => "inout-borrow-capture",
+                match(borrow_mask, .Some(bm) => bm.all, .None => false) => "inout-borrow-unresolved",
+                true => "inout-borrow"
+              );
+              at := ast_expr_token(&entry.place);
+              eprintln(`[${tag}] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(&entry.place)} -> ${callee_fid} (${entry.root_text}: ${entry.noun}, ${entry.root_type})`);
+            }, {
+              raise_flow_violation(with_code(format_error_message(ast_expr_token(&entry.place), &berr), E_WRITE_THROUGH_BORROW), ctx, exn);
+            });
+          });
+        },
+        .None => ()
+      ),
+      .None => ()
+    );
+    bi = (bi + usize(1));
+  });
+});
+/// `d3_check_pending` for a callee with no body to read: a `Dyn(Fn)` value or
+/// a function pointer. Its mutation mask is unknown, which counts as `all`, as
+/// an unresolvable body does, so a borrowed value lent to one of its `&mut`
+/// parameters is E0908: the callee writes through the pointer into the
+/// borrowed copy, and the write is lost. Only the borrowed-value entries are
+/// judged; the D3 atomic and local-borrow entries keep needing a body.
+d3_check_pending_unresolved_callee :: (
+  fn(pending : &ArrayList(D3PendingInout), callee_text : &String, ctx : &EvalContext, exn : Exception) -> unit
+)({
+  if((pending.len() == usize(0)) || ctx.is_in_function_call_checking_phase, {
+    return(());
+  });
+  all_mask := ParamMutationMask(all : true, deep : ArrayList(bool).new(), shallow : ArrayList(bool).new());
+  _d3_judge_borrow_errors(pending, Option(ParamMutationMask).Some(all_mask), callee_text, ctx, exn);
+});
 /// D3 (`plans/reference/PARALLELISM_RULES.md`): an `inout` binding rooted in an
 /// atomic object is a data race iff the callee may WRITE through that
 /// parameter. `self : &mut Self` is also Yo's plain by-reference receiver
@@ -979,35 +1029,7 @@ d3_check_pending :: (
   // files and are exactly the writes this rejects. A mask the analysis cannot
   // resolve (`all`) counts as a write, as it does for D3: `push_str` writes
   // through `ArrayList`'s raw pointers, which the analysis does not follow.
-  (bi : usize) = usize(0);
-  while(bi < pending.len(), {
-    match(
-      pending.get(bi),
-      .Some(entry) => match(
-        entry.borrow_error,
-        .Some(berr) => {
-          if(match(borrow_mask, .Some(bm) => param_mutation_mask_hits(&bm, entry.param_index), .None => false), {
-            if(_g_audit_inout_borrow, {
-              // `-unresolved`: the analysis could not resolve the callee's
-              // mask (`all`), so the write is assumed, not seen.
-              tag := cond(
-                (entry.noun == _CAPTURE_NOUN) => "inout-borrow-capture",
-                match(borrow_mask, .Some(bm) => bm.all, .None => false) => "inout-borrow-unresolved",
-                true => "inout-borrow"
-              );
-              at := ast_expr_token(&entry.place);
-              eprintln(`[${tag}] ${at.module_path}:${(at.row + u32(1)).to_string()}:${(at.column + u32(1)).to_string()} ${_place_source_text(&entry.place)} -> ${callee_fid} (${entry.root_text}: ${entry.noun}, ${entry.root_type})`);
-            }, {
-              raise_flow_violation(with_code(format_error_message(ast_expr_token(&entry.place), &berr), E_WRITE_THROUGH_BORROW), ctx, exn);
-            });
-          });
-        },
-        .None => ()
-      ),
-      .None => ()
-    );
-    bi = (bi + usize(1));
-  });
+  _d3_judge_borrow_errors(pending, borrow_mask, callee_fid, ctx, exn);
   // Local borrows (decision 18): a place the callee writes is a write at the
   // call. Not trusted by file either: std's mutators are the writes at stake.
   (li : usize) = usize(0);
@@ -2580,6 +2602,7 @@ export(
   D3PendingInout,
   d3_record_inout_place,
   d3_check_pending,
+  d3_check_pending_unresolved_callee,
   throw_rhs_contains_control_flow_expression_error,
   resolve_unknown_values_and_some_type_in_type,
   rebuild_list_with_index,
