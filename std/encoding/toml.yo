@@ -346,7 +346,7 @@ impl(
   ),
   /// Extract the string value, or `.None` if not a `Str`.
   as_string : (fn(self : &Self) -> Option(String))(
-    match(self, .Str(s) => Option(String).Some(s), _ => Option(String).None)
+    match(self, .Str(s) => Option(String).Some(s.clone()), _ => Option(String).None)
   ),
   /// Extract the integer value, or `.None` if not an `Int`.
   as_int : (fn(self : &Self) -> Option(i64))(
@@ -918,7 +918,7 @@ _parse_key_path :: (fn(p : &_Parser) -> Result(ArrayList(String), TomlError))({
     p.skip_spaces();
     k := match(
       _parse_simple_key(p),
-      .Ok(v) => v,
+      .Ok(v) => v.clone(),
       .Err(e) => {
         return(Result(ArrayList(String), TomlError).Err(e));
       }
@@ -1266,7 +1266,7 @@ _classify_number :: (fn(tok : &String, start : usize) -> Result(TomlValue, TomlE
       );
       digits := match(
         _clean_radix(&b, i + usize(2), n, radix),
-        .Some(s) => s,
+        .Some(s) => s.clone(),
         .None => {
           return(bad);
         }
@@ -1288,7 +1288,7 @@ _classify_number :: (fn(tok : &String, start : usize) -> Result(TomlValue, TomlE
       return(bad);
     }
   );
-  signed_text := cond(neg => `-${dec.text}`, true => dec.text);
+  signed_text := cond(neg => `-${dec.text}`, true => dec.text.clone());
   cond(
     dec.is_float => match(
       signed_text.parse_f64(),
@@ -1629,7 +1629,7 @@ _insert_inline :: (
       .None => {
         t := TomlValue.new_table();
         _old := cur.insert(k, t);
-        dotted.push(child_path);
+        dotted.push(child_path.clone());
         next_tbl = t;
       },
       .Some(v) => {
@@ -1682,12 +1682,12 @@ _parse_value :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
     p.eof() => Result(TomlValue, TomlError).Err(TomlError.UnexpectedEnd(pos : p.pos)),
     (b == _QUOTE) => match(
       _parse_basic_string(p),
-      .Ok(s) => Result(TomlValue, TomlError).Ok(TomlValue.Str(s)),
+      .Ok(s) => Result(TomlValue, TomlError).Ok(TomlValue.Str(s.clone())),
       .Err(e) => Result(TomlValue, TomlError).Err(e)
     ),
     (b == _APOS) => match(
       _parse_literal_string(p),
-      .Ok(s) => Result(TomlValue, TomlError).Ok(TomlValue.Str(s)),
+      .Ok(s) => Result(TomlValue, TomlError).Ok(TomlValue.Str(s.clone())),
       .Err(e) => Result(TomlValue, TomlError).Err(e)
     ),
     (b == _LBRACKET) => {
@@ -1782,7 +1782,7 @@ _parse_value :: (fn(p : &_Parser) -> Result(TomlValue, TomlError))({
             kv_pos := p.pos;
             keys := match(
               _parse_key_path(p),
-              .Ok(k) => k,
+              .Ok(k) => k.clone(),
               .Err(e) => {
                 return(Result(TomlValue, TomlError).Err(e));
               }
@@ -1875,7 +1875,7 @@ _walk_header_path :: (
     k := keys(i);
     child_path := _path_key(&path, &k);
     (next_tbl : TomlValue) = cur;
-    (next_path : String) = child_path;
+    (next_path : String) = child_path.clone();
     match(
       cur.get(&k),
       .None => {
@@ -1948,7 +1948,7 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
   );
   keys := match(
     _parse_key_path(p),
-    .Ok(k) => k,
+    .Ok(k) => k.clone(),
     .Err(e) => {
       return(Result(unit, TomlError).Err(e));
     }
@@ -1982,7 +1982,7 @@ _parse_header :: (fn(p : &_Parser) -> Result(unit, TomlError))({
       return(Result(unit, TomlError).Err(e));
     }
   );
-  k := keys(last);
+  k := keys(last).clone();
   child_path := _path_key(&cursor.path, &k);
   existing := cursor.table.get(&k);
   cond(
@@ -2123,7 +2123,7 @@ _parse_keyval :: (fn(p : &_Parser) -> Result(unit, TomlError))({
   pos := p.pos;
   keys := match(
     _parse_key_path(p),
-    .Ok(k) => k,
+    .Ok(k) => k.clone(),
     .Err(e) => {
       return(Result(unit, TomlError).Err(e));
     }
@@ -2357,7 +2357,7 @@ _write_f64 :: (fn(v : f64, out : &mut ArrayList(u8)) -> unit)({
       .None => ()
     );
   });
-  b := text;
+  b := text.clone();
   (needs_point : bool) = true;
   i := usize(0);
   while(i < b.len(), i = (i + usize(1)), {
@@ -2701,7 +2701,7 @@ _toml_eq :: (fn(lhs : &TomlValue, rhs : &TomlValue) -> bool)(
         (same : bool) = true;
         i := usize(0);
         while(i < a_keys.len(), i = (i + usize(1)), {
-          key := a_keys(i);
+          key := a_keys(i).clone();
           (found : bool) = false;
           j := usize(0);
           while(j < b_keys.len(), j = (j + usize(1)), {

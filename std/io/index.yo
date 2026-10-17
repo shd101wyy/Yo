@@ -104,7 +104,7 @@ Reader :: trait(
           bytes := e.io.await(Self.read_to_end(self, io), e);
           match(
             String.from_utf8(bytes),
-            .Ok(s) => s,
+            .Ok(s) => s.clone(),
             .Err(_) => e.exn.throw(dyn(IoError.InvalidData))
           )
         })

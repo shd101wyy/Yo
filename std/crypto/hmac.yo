@@ -38,7 +38,7 @@ hmac :: (
 )({
   block := (D <: Digest).block_size();
   // K': hash an over-long key, then zero-pad to the block size.
-  (k : ArrayList(u8)) = key;
+  (k : ArrayList(u8)) = key.clone();
   if(k.len() > block, {
     k = (D <: Digest).finish_bytes((D <: Digest).update((D <: Digest).new(), &k));
   });

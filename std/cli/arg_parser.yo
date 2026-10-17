@@ -317,9 +317,9 @@ impl(
   add_positional : (fn(self : &Self, name : &String, description : &String) -> unit)({
     self._args.push(
       ArgDef(
-        _long_name : name,
+        _long_name : name.clone(),
         _short_name : ``,
-        _description : description,
+        _description : description.clone(),
         _kind : .Positional,
         _default_value : ``,
         _required : true
@@ -559,7 +559,7 @@ impl(
                       match(
                         &def._kind,
                         .Flag => {
-                          parsed._set_flags.push(def._long_name);
+                          parsed._set_flags.push(def._long_name.clone());
                         },
                         .Opt => {
                           idx = (idx + usize(1));
@@ -568,8 +568,8 @@ impl(
                               match(
                                 args.get(idx),
                                 .Some(val) => {
-                                  parsed._option_names.push(def._long_name);
-                                  parsed._option_values.push(val);
+                                  parsed._option_names.push(def._long_name.clone());
+                                  parsed._option_values.push(val.clone());
                                 },
                                 .None => {
                                   err_msg = .Some(`Missing value for option: ${def._long_name}`);
@@ -608,10 +608,10 @@ impl(
                           match(
                             args.get(usize(0)),
                             .Some(prog) => {
-                              sub_args.push(prog);
+                              sub_args.push(prog.clone());
                             },
                             .None => {
-                              sub_args.push(self._name);
+                              sub_args.push(self._name.clone());
                             }
                           );
                           j := (idx + usize(1));
@@ -619,7 +619,7 @@ impl(
                             match(
                               args.get(j),
                               .Some(a) => {
-                                sub_args.push(a);
+                                sub_args.push(a.clone());
                               },
                               .None => ()
                             );
@@ -628,13 +628,13 @@ impl(
                           match(
                             recur(&sub_parser, &sub_args),
                             .Ok(sub_parsed) => {
-                              parsed._subcommand = .Some(current_arg);
+                              parsed._subcommand = .Some(current_arg.clone());
                               parsed._subcommand_args = .Some(sub_parsed);
                               idx = args_len;
                               is_subcmd = true;
                             },
                             .Err(sub_err) => {
-                              err_msg = .Some(sub_err);
+                              err_msg = .Some(sub_err.clone());
                               is_subcmd = true;
                             }
                           );
@@ -649,7 +649,7 @@ impl(
               );
               cond(
                 !is_subcmd => {
-                  parsed._positionals.push(current_arg);
+                  parsed._positionals.push(current_arg.clone());
                   p_idx := usize(0);
                   p_count := usize(0);
                   while(p_idx < arg_defs_len, p_idx = (p_idx + usize(1)), {
@@ -661,7 +661,7 @@ impl(
                           .Positional => {
                             cond(
                               (p_count == positional_idx) => {
-                                parsed._positional_names.push(p_def._long_name);
+                                parsed._positional_names.push(p_def._long_name.clone());
                               },
                               true => ()
                             );
@@ -704,8 +704,8 @@ impl(
             .Opt => {
               cond(
                 (!parsed._option_names.contains(&def._long_name) && !def._default_value.is_empty()) => {
-                  parsed._option_names.push(def._long_name);
-                  parsed._option_values.push(def._default_value);
+                  parsed._option_names.push(def._long_name.clone());
+                  parsed._option_values.push(def._default_value.clone());
                 },
                 true => ()
               );

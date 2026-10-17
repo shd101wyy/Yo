@@ -207,7 +207,7 @@ extern(
 // ============================================================================
 _stat_path :: (fn(path : &Path, flags : i32, io : Io) -> Impl(Future(Metadata, IoExn)))(
   io.async(e => {
-    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b, .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
+    cstr_bytes := match(path.to_string().to_cstr_checked(), .Ok(b) => b.clone(), .Err(_) => e.exn.throw(dyn(IoError.InvalidInput)));
     cstr := cstr_bytes.ptr().unwrap();
     buf_size := __yo_statx_buf_size();
     buf := (*u8)(malloc(buf_size).unwrap());

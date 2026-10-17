@@ -592,7 +592,7 @@ impl(
       match(
         self._segments.get(j),
         .Some(seg) => {
-          segments.push(seg);
+          segments.push(seg.clone());
         },
         .None => ()
       );
@@ -626,8 +626,8 @@ impl(
     (common : usize) = usize(0);
     (matching : bool) = true;
     while(matching && (common < base._segments.len()) && (common < self._segments.len()), {
-      b := match(base._segments.get(common), .Some(x) => x, .None => String.new());
-      t := match(self._segments.get(common), .Some(x) => x, .None => String.new());
+      b := match(base._segments.get(common), .Some(x) => x.clone(), .None => String.new());
+      t := match(self._segments.get(common), .Some(x) => x.clone(), .None => String.new());
       cond(
         (b == t) => {
           common = (common + usize(1));
@@ -648,7 +648,7 @@ impl(
       match(
         self._segments.get(j),
         .Some(seg) => {
-          segments.push(seg);
+          segments.push(seg.clone());
         },
         .None => ()
       );
@@ -662,7 +662,7 @@ impl(
   ToString(
     to_string : (
       self -> {
-        segments := self._segments;
+        segments := self._segments.clone();
         result := String.new();
         // A relative path with no segments is the CURRENT DIRECTORY and must
         // render as "." — `stat("")` is ENOENT, which made `yo test .` /

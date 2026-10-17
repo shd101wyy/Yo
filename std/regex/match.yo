@@ -50,12 +50,12 @@ impl(
   /// VM already computed, so nothing here validates or re-derives anything.
   new : (fn(value : &String, index : usize, end : usize, input : &String, groups : &ArrayList(Option(String)), group_spans : &ArrayList(Option(Range(usize))), group_names : &ArrayList(GroupNameEntry)) -> Self)(
     Self(
-      _value : value,
+      _value : value.clone(),
       _index : index,
       _end : end,
-      _input : input,
-      _groups : groups,
-      _group_spans : group_spans,
+      _input : input.clone(),
+      _groups : groups.clone(),
+      _group_spans : group_spans.clone(),
       _group_names : group_names
     )
   ),
@@ -102,7 +102,7 @@ impl(
   /// against `group_count()` first if that matters.
   group : (fn(self : &Self, idx : usize) -> Option(String))(
     cond(
-      (idx == usize(0)) => .Some(self._value),
+      (idx == usize(0)) => .Some(self._value.clone()),
       true => {
         actual_idx := (idx - usize(1));
         cond(
