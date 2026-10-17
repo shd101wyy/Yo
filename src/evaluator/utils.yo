@@ -5804,13 +5804,58 @@ local_borrow_register_match_place :: (fn(name : &String, decl : &Token, place : 
   end := cond(_lb_mentions(body, name.clone()) => _lb_region_end(body, name.clone(), decl), true => decl);
   _info := local_borrow_register(name, decl, is_mut, place, LocalBorrowRange(last_use : last, end : end, has_repoint : false), Option(Variable).None);
 });
+/// `e` contains a `<recv>.await(...)` call: `io.await(f, io)`, the same call
+/// through any other name of the task's `Io` (`e.await(f, e)`), or
+/// `handle.await(io)`. Matched by spelling: a `match` arm is scanned before
+/// it is evaluated, so the evaluator's io-builtin markers are not recorded
+/// yet, and `expr_contains_await`'s spelling fallback sees only `io.await`.
+/// A call that only looks like an await keeps a borrow live longer, nothing
+/// more.
+_lb_contains_await_call :: (fn(e : &AstExpr) -> bool)({
+  is_await := match(
+    e,
+    .FnCall(_, .FnCall(_, dot, dargs, is_infix, _), _, _, _) => (
+      is_infix && (dargs.len() == usize(2)) &&
+        match(dot, .Atom(_, dt) => (dt.kind == TokenKind.Dot), .FnCall(_, _, _, _, _) => false) && match(
+          dargs.get(usize(1)),
+          .Some(m) => ast_expr_is_atom_of(&m, "await"),
+          .None => false
+        )
+    ),
+    _ => false
+  );
+  if(is_await, return(true));
+  match(
+    e,
+    .Atom(_, _) => false,
+    .FnCall(_, callee, args, _, _) => {
+      if(_lb_contains_await_call(&callee), return(true));
+      (i : usize) = usize(0);
+      while(i < args.len(), {
+        match(
+          args.get(i),
+          .Some(a) => if(_lb_contains_await_call(&a), {
+            return(true);
+          }),
+          .None => ()
+        );
+        i = (i + usize(1));
+      });
+      false
+    }
+  )
+});
 /// A `mut` place a `match` arm binds over the local borrow `borrow` (`match(cur,
 /// .Some(n) => …)`, declared at `decl`) points into `borrow`'s place for as
-/// long as it is live, so `borrow` (and every borrow it is rooted at) stays
-/// live to the binding's last mention in the arm `body`. Rule 4 then rejects
-/// such a place through a reference cell or a module-level place live across
-/// an `await` (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
+/// long as it is live. When the arm `body` awaits, `borrow` (and every borrow
+/// it is rooted at) stays live to the binding's last mention in the arm, so
+/// rule 4 rejects such a place through a reference cell or a module-level
+/// place live across an `await`
+/// (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
+/// An arm that never awaits keeps the cursor's own range: a re-point inside
+/// it must not read as an access of the borrow while the place lives.
 local_borrow_extend_to_match_place :: (fn(borrow : &LocalBorrowInfo, name : &String, decl : &Token, body : &AstExpr) -> unit)({
+  if(!_lb_contains_await_call(body), return(()));
   if(!_lb_mentions(body, name.clone()), return(()));
   last := match(_lb_last_mention(body, name.clone(), Option(Token).None), .Some(t) => t, .None => return(()));
   end := _lb_region_end(body, name.clone(), decl);

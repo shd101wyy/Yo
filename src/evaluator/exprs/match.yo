@@ -85,7 +85,6 @@ pragma(Pragma.AllowUnsafe);
 { with_code } :: import("../../error.yo");
 { generate_new_temp_variable_name, is_temp_variable_name } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
-{ expr_contains_await } :: import("../../expr_traversal.yo");
 { migrate_match_scrutinee_on, record_migrate_edit } :: import("../../expr_info.yo");
 { convert_comptime_type_to_runtime_type } :: import("../../types/env_lookup.yo");
 { are_types_compatible } :: import("../../types/compatibility.yo");
@@ -1484,7 +1483,7 @@ evaluate_match :: (
               // place (issues/fixed/a-mut-match-place-binding-cannot-live-across-an-await.md).
               match(
                 lb_scr_source,
-                .Some(lbs) => if((lbs.crosses_cell || lbs.module_root) && expr_contains_await(&body_ast), {
+                .Some(lbs) => if(lbs.crosses_cell || lbs.module_root, {
                   local_borrow_extend_to_match_place(&lbs, pv.name.clone(), &pv.token, &body_ast);
                 }),
                 .None => match(mut_place, .Some(lp) => local_borrow_register_match_place(pv.name.clone(), &pv.token, &lp, &body_ast), .None => ())
