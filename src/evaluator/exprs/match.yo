@@ -55,7 +55,7 @@ pragma(Pragma.AllowUnsafe);
 } :: import("../../expr_info.yo");
 { Environment, Variable, pop_env_frame, snapshot_env } :: import("../../env.yo");
 { Token, TokenKind, intern_token_str } :: import("../../token.yo");
-{ add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root } :: import("../../env.yo");
+{ add_variable_to_env, get_variables_from_env, find_variable_in_env, variable_set_inout_borrow_root_id, variable_mark_inout_borrow_root, mark_macro_pattern_binding } :: import("../../env.yo");
 { EvalContext, ExpectedTypeCtx, fn_ctx_returns_comptime } :: import("../context.yo");
 {
   EvalValue,
@@ -83,7 +83,7 @@ pragma(Pragma.AllowUnsafe);
 { raise_flow_violation, propagate_def_time_errors } :: import("../../types/flowability.yo");
 { E_USE_OF_MOVED_VALUE, E_WRITE_THROUGH_BORROW } :: import("../../diagnostics.yo");
 { with_code } :: import("../../error.yo");
-{ generate_new_temp_variable_name, is_temp_variable_name } :: import("../../utils.yo");
+{ generate_new_temp_variable_name, is_temp_variable_name, canonical_module_path } :: import("../../utils.yo");
 { generate_expr_from_code } :: import("../../parser.yo");
 { expr_contains_await } :: import("../../expr_traversal.yo");
 { migrate_match_scrutinee_on, record_migrate_edit, is_mut_binding } :: import("../../expr_info.yo");
@@ -1242,7 +1242,8 @@ evaluate_match :: (
           expr_info_table_set(&ctx.expr_info_table, ast_expr_id(&b.atom), new_expr_info(&env, &b.ty));
           scope_release_note_binding(ast_expr_id(&b.atom), &env, b.name.clone());
           // A `mut(name)` pattern binding may be reassigned (decision 47).
-          if(is_mut_binding(ast_expr_token(&b.atom), &b.name), {
+          b_tok := ast_expr_token(&b.atom);
+          if(is_mut_binding(&b_tok, &b.name), {
             match(
               _added,
               .Some(mb_var) => {
@@ -1250,6 +1251,14 @@ evaluate_match :: (
               },
               .None => ()
             );
+          });
+          // A name the caller wrote, bound by a match a macro expansion built
+          // (`for(coll, x => ...)`'s `.Some(x)` arm), rebinds like a parameter.
+          m_tok := ast_expr_token(expr);
+          if(b_tok.module_path != m_tok.module_path, {
+            if(canonical_module_path(&b_tok.module_path) != canonical_module_path(&m_tok.module_path), {
+              match(_added, .Some(me_var) => mark_macro_pattern_binding(me_var.id), .None => ());
+            });
           });
           // Decision 38 A: a pattern binding is a binding. A second-class
           // value it binds freezes what it borrows for the arm, and a

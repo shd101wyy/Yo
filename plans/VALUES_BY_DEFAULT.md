@@ -7335,15 +7335,28 @@ once `SEED_VERSION` parses it.
      - Exempt in src/std (`is_global_mut_rule_exempt`), like the globals step.
      - E0918 is unchanged and checked first, so a runtime write of a
        `mut(x) ::` is still E0918.
-     - Module-level `mut(x) ::` (and `comptime(mut(x)) :=`) is rejected, the
-       recommendation of the open point above; it needs the maintainer's
-       confirmation before Generation B.
+     - Module-level `mut(x) ::` is ACCEPTED, against the open point's
+       recommendation: tests/comptime.test.yo already reassigns a
+       module-level `::` binding at module level (`_RW_M = i32(2);`), so
+       rejecting it would delete a working feature, which is beyond a
+       Generation A. Generation A only asks for the marker. Whether module
+       level keeps `mut(x) ::` is still the maintainer's call.
+     - A capture-list entry and a pattern binding a macro expansion
+       introduces around a caller's name (the element of
+       `for(coll, x => ...)`) are treated as parameters: no `mut`, and a
+       write names the rebind (`mark_capture_list_value_binding`,
+       `mark_macro_pattern_binding`).
      - Not yet checked: re-pointing a local borrow (`cur = &mut n.next`)
        without `mut(cur)`; the desugar of `mut(cur) := &mut place` comes with
        decision 43.
      - `yo fix --migrate mut-bindings` marks the declarations and lists each
        parameter write; the tests/ sweep is its output, kept in its own
-       commit and regenerated rather than merged by hand.
+       commit and regenerated rather than merged by hand. A write inside a
+       `comptime_expect_error` argument is held until the case's outcome is
+       known: if the argument still raises an error, the case expects a
+       different one, and the binding is marked so that error stays the one
+       raised; if it no longer raises, the case expected the write error
+       itself, and the binding stays unmarked.
 3. **Tests.**
    - Each of the four write kinds is rejected on an unmarked local and on
      a global, and accepted with `mut`.

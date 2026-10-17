@@ -13,6 +13,8 @@
 { assert } :: import("std/assert");
 { ArrayList } :: import("std/collections/array_list");
 { String } :: import("std/string");
+{ Duration } :: import("std/time/duration");
+{ Instant } :: import("std/time/instant");
 _MbPoint :: struct(x : i32, y : i32);
 derive(_MbPoint, Copy, Clone);
 impl(
@@ -27,7 +29,7 @@ _mb_bump :: (fn(p : &mut _MbPoint) -> unit)({
 });
 _mb_read :: (fn(p : &_MbPoint) -> i32)(p.x);
 _MbHandle :: ref(struct(n : i32));
-_mb_take_string :: (fn(s : String) -> usize)(s.len());
+_MbToken :: struct(n : i32);
 
 test("each of the four writes is accepted on a mut(...) local", {
   mut(n) := i32(1);
@@ -102,6 +104,21 @@ test("a ref handle is written through without mut, and reassigned with it", {
   mut(zs) := ArrayList(i32).new();
   zs = ArrayList(i32).new();
   assert(zs.len() == usize(0), "a mut(...) handle is reassigned");
+});
+
+// issues/fixed/2026-10-17-std-time-read-only-methods-take-self-mut.md:
+// a read-only std method takes `self : &Self`, so an unmarked binding calls it.
+test("a read-only std method needs no mut on its receiver", {
+  d := Duration.from_millis(i64(1500));
+  assert(d.as_secs() == i64(1), "as_secs");
+  assert(d.subsec_millis() == i64(500), "subsec_millis");
+  assert(!d.is_zero(), "is_zero");
+  e := d.add(Duration.from_secs(i64(1)));
+  assert(e.as_millis() == i64(2500), "add returns a new value");
+  t := Instant.now();
+  _el := t.elapsed();
+  a := Array(i32, 3)(i32(1), i32(2), i32(3));
+  assert(a.len() == usize(3), "Array.len takes `&self`");
 });
 
 test("typed declarations take mut(...) around the name", {
@@ -232,11 +249,12 @@ test("a parameter takes no mut: the body rebinds it, and the rebind moves", {
     (fn(mut(n) : i32) -> i32)(n),
     "`mut(x)` was deleted: an exclusive borrow is spelled `x : &mut T`"
   );
-  s := String.from("abc");
-  mut(t) := s;
-  t.push_str("d");
-  assert(t.len() == usize(4), "the rebind owns the string");
-  comptime_expect_error(_mb_take_string(s), "use of moved value");
+  // A move-only value (plain data without `Copy`) moves into the rebind.
+  tk := _MbToken(n : i32(1));
+  mut(tk2) := tk;
+  tk2.n = i32(2);
+  assert(tk2.n == i32(2), "the rebind owns the value");
+  comptime_expect_error(tk.n, "use of moved value");
 });
 
 test("a `&mut` match scrutinee and a `&mut` capture need mut(...)", {
@@ -275,7 +293,9 @@ test("a `&mut` match scrutinee and a `&mut` capture need mut(...)", {
   }, "a `&mut` capture");
 });
 
-comptime_expect_error(
-  mut(_mb_module_counter) :: 1,
-  "on a module-level compile-time binding is not supported"
-);
+// A module-level compile-time binding reassigned while compiling takes the
+// marker too (decision 47's open point: whether module level allows
+// `mut(x) ::` at all is still to be settled; Generation A accepts it).
+mut(_MB_MODULE_COUNTER) :: 1;
+_MB_MODULE_COUNTER = 2;
+comptime_assert(_MB_MODULE_COUNTER == 2);

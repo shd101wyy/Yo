@@ -218,9 +218,12 @@ is_std_module_path :: (fn(mp : &String, std_path : &String) -> bool)({
 /// mutability rules (a write to an unmarked global, E0917; a lend of a
 /// `mut(...)` global, E0916) are enforced outside the trees the seed builds,
 /// because the seed cannot parse `mut(name)` yet: std, the compiler source
-/// beside it (`<std>/../src/`), a fetched dependency in the store
-/// (`.../store/sha256/...`) and macro expansions. Generation B sweeps those
-/// trees and drops this exemption.
+/// beside it (`<std>/../src/`), the repository's own build file and scripts
+/// that the seed also compiles (`<std>/../build.yo`, `<std>/../scripts/`,
+/// e.g. `scripts/build_site.yo` in the release job), a fetched dependency in
+/// the store (`.../store/sha256/...`) and macro expansions. Decision 47's
+/// locals step (step 2) shares it. Generation B sweeps those trees and drops
+/// this exemption.
 (g_mut_rule_exempt_memo : HashMap(String, bool)) = HashMap(String, bool).new();
 is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
   match(
@@ -232,10 +235,13 @@ is_global_mut_rule_exempt :: (fn(mp : &String, std_path : &String) -> bool)(
         sp = sp.slice_copy(usize(0) .. (sp.len() - usize(1)));
       });
       abs := _lex_abs_path(mp.clone());
-      src_root := match(Path.new(_lex_abs_path(&sp)).parent(), .Some(pp) => `${pp.to_string()}/src/`, .None => String.from("/src/"));
+      repo_root := match(Path.new(_lex_abs_path(&sp)).parent(), .Some(pp) => pp.to_string(), .None => String.new());
+      src_root := `${repo_root}/src/`;
+      scripts_root := `${repo_root}/scripts/`;
+      build_file := `${repo_root}/build.yo`;
       store := String.from("/store/sha256/");
       b := (
-        mp.starts_with(String.from("auto-generated://")) || (is_std_module_path(mp, std_path) || (abs.starts_with(&src_root) || abs.contains(&store)))
+        mp.starts_with(String.from("auto-generated://")) || (is_std_module_path(mp, std_path) || (abs.starts_with(&src_root) || (abs.starts_with(&scripts_root) || ((abs == build_file) || abs.contains(&store)))))
       );
       g_mut_rule_exempt_memo.insert(mp.clone(), b);
       b

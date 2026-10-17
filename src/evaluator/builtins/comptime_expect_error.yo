@@ -32,7 +32,10 @@
   branch_group_stack_len,
   truncate_branch_group_stack,
   module_global_recording_mark,
-  rollback_module_level_globals_to
+  rollback_module_level_globals_to,
+  mut_binding_pending_mark,
+  mut_param_pending_mark,
+  settle_mut_binding_pending
 } :: import("../../expr_info.yo");
 { local_borrows_mark, local_borrows_truncate } :: import("../utils.yo");
 { t_unit } :: import("../../types/creators.yo");
@@ -220,7 +223,14 @@ evaluate_comptime_expect_error :: (
   // evaluated) pushed; truncate back so no later lookup forces a member of the
   // abandoned impl (issues/fixed/abandoned-impl-members-survive-the-error.md).
   saved_depths := forcing_depths();
+  mb_mark := mut_binding_pending_mark();
+  mp_mark := mut_param_pending_mark();
   arg_threw := _comptime_expect_error_arg_threw(arg_expr.clone(), env, ctx);
+  // `yo fix --migrate mut-bindings` accepts every write to an unmarked
+  // binding and holds the ones made here: a case that still raised an error
+  // expects another one, so its written bindings are marked; a case that no
+  // longer raises expected the immutable-binding write itself.
+  mb_held := settle_mut_binding_pending(mb_mark, mp_mark, arg_threw);
   observed_msgs := cee_observed_messages();
   clear_cee_observed_error();
   truncate_forcing_depths(saved_depths);
@@ -336,6 +346,12 @@ evaluate_comptime_expect_error :: (
       },
       .None => ()
     );
+    out_unit := new_expr_info(env, t_unit());
+    out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);
+    expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unit);
+    return(expr);
+  });
+  if(mb_held > usize(0), {
     out_unit := new_expr_info(env, t_unit());
     out_unit.value = Option(EvalValue).Some(EvalValue.UnitVal);
     expr_info_table_set(&ctx.expr_info_table, ast_expr_id(expr), &out_unit);
