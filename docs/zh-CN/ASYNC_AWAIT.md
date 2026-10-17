@@ -447,7 +447,8 @@ export(main);
 - 直接 spawn 的原始 `IoFuture` 也以同样方式被取消，它的 handle 在操作本该完成的
   时间之后仍读出 `.None`。
 - 停在 `Mutex` 或 `Channel` 上的任务会离开等待队列。下一次 `unlock` 或 `send`
-  会跳过这个已死的等待者，把锁或消息交给一个存活的等待者，不会丢失任何东西。
+  会跳过这个已死的等待者，把锁或消息交给一个存活的等待者；锁已经移交给它的任务
+  会在它的最后一个引用消失时把锁继续交给下一个等待者，不会丢失任何东西。
 - 所有正在 await 这个被中止任务的任务都会被唤醒。中止发生时**正在等待**的
   `io.await` 会让它自己所在的任务也中止，因此更上层的 `JoinHandle.await` 读到
   `.None`。对一个**已经**中止的 Future 发起 `io.await` 的行为与此相同。
@@ -1380,11 +1381,12 @@ io.await(
 
 ### 在任务之间共享锁：异步 `Mutex`
 
-`std/async/mutex` 的 `Mutex(T)` 是一把临界区可以跨越 await 的锁：发现锁被占用的任务会停放自己，`unlock` 唤醒等待最久的任务。它与 Rust 的 `tokio::sync::Mutex` 一致：
+`std/async/mutex` 的 `Mutex(T)` 是一把临界区可以跨越 await 的锁：发现锁被占用的任务会停放自己，`unlock` 把锁移交给等待最久的任务。它与 Rust 的 `tokio::sync::Mutex` 一致：
 
 - `Mutex` 是只能移动的值（复制它是 E0901），任务以 `Arc(Mutex(T))` 共享它，每个任务持有 `Arc` 上自己的句柄；
 - `lock(self : &Self, io)` 和 `with_lock` 返回借用该互斥锁的 Future，所以它要在创建处通过句柄等待：`io.await(m.*.lock(io), io)`（经由 `Arc` 的共享借用可以跨越挂起点，见上文“借用的 Future”）；
-- 当 `T` 是 `Send` 时它是 `Send` 和 `Sync`：一个短暂的阻塞守卫保护它的状态，所以不同线程的事件循环上的任务也可以争用同一把锁。`with_lock` 的函数体运行时从不持有这个守卫；同一个事件循环上的等待者按到达顺序获得锁，跨事件循环时顺序并不严格（`issues/2026-10-16-the-async-mutex-is-not-fifo-across-event-loops.md`）。
+- 当 `T` 是 `Send` 时它是 `Send` 和 `Sync`：一个短暂的阻塞守卫保护它的状态，所以不同线程的事件循环上的任务也可以争用同一把锁。`with_lock` 的函数体运行时从不持有这个守卫；
+- 等待者按到达顺序获得锁，无论各自运行在哪个线程的事件循环上：`unlock` 让锁保持占用，并把它标记为队首等待者所有，所以后来者和 `try_lock` 都无法抢先拿走它。
 
 ```yo
 { assert } :: import("std/assert");
