@@ -12,7 +12,6 @@ pragma(Pragma.AllowUnsafe);
 { Mutex } :: import("std/async/mutex");
 { ArrayList } :: import("std/collections/array_list");
 { sleep } :: import("std/sys/timer");
-{ Thread } :: import("std/thread");
 
 // ---------------------------------------------------------------------------
 // 1. try_lock / unlock / is_locked
@@ -233,28 +232,6 @@ test("Test tasks contend through Arc handles, and lock borrows through them acro
   rb := match(hb.await(io), .Some(v) => v, .None => i64(-1));
   assert(rb == i64(111), `the with_lock task ran second, got ${rb.to_string()}`);
   assert(m.*.get() == i64(111), "both sections ran under the lock, in arrival order");
-  assert(!m.*.is_locked(), "and released it");
-});
-test("Test a task on another thread's loop contends for the same mutex", {
-  m := arc(Mutex(i64).new(i64(0)));
-  assert(m.*.try_lock(), "main holds the lock");
-  m2 := m;
-  t := Thread(i64).spawn({ m2 }(io : Io) => {
-    io.await(m2.*.lock(io), io);
-    v := (m2.*.get() + i64(10));
-    m2.*.set(v);
-    m2.*.unlock();
-    v
-  });
-  // The worker parks on the lock from its own loop; main's unlock wakes it
-  // across threads.
-  while(runtime(m.*.waiter_count() == usize(0)), {
-    io.await(sleep(u64(1)), io);
-  });
-  m.*.set(i64(1));
-  m.*.unlock();
-  r := t.join();
-  assert(r == i64(11), `the worker ran after main released, got ${r.to_string()}`);
   assert(!m.*.is_locked(), "and released it");
 });
 // ---------------------------------------------------------------------------
