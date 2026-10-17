@@ -86,7 +86,7 @@ Progress:
     `std/async` combinators take handle lists by value, and
     `ArrayList.pop`/`swap`/`remove`/`reverse` and `Option.take`/`replace`
     move bitwise through `__yo_ptr_read`/`__yo_ptr_write`;
-  - V3 async A4's compiler half (§3.13; feat/vbd-v3-a4-future-operands): a
+  - V3 async A4's compiler half (§3.13; #1432): a
     generic combinator's by-value future operand accepts a borrowing future, and
     decision 38 B's overlap check for two borrowing operands is E0910;
   - V3 async A5 (§3.13; #1379): `Waker` is a move-only
@@ -1287,7 +1287,7 @@ instead.
       to run it as a scoped child; they wait for that support, with decision
       38 B's overlap check (A2's "Not yet").
   - **As built, the compiler half of the future operands (2026-10-16,
-    feat/vbd-v3-a4-future-operands).**
+    #1432).**
     - **The operand slot is structural.** A by-value parameter whose type is
       a future, of a GENERIC function whose result is a future, accepts a
       borrowing future (`_param_accepts_second_class`,
